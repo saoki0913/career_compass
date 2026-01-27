@@ -18,12 +18,21 @@ export function GoogleSignInButton({
   const handleSignIn = async () => {
     setIsLoading(true);
     try {
-      await signIn.social({
+      const result = await signIn.social({
         provider: "google",
         callbackURL,
       });
+
+      if (result.error) {
+        console.error("Sign in error:", result.error);
+        alert(`ログインエラー: ${result.error.message || "不明なエラー"}`);
+        setIsLoading(false);
+      }
+      // If successful, the browser will redirect to Google
     } catch (error) {
       console.error("Sign in error:", error);
+      const message = error instanceof Error ? error.message : "ネットワークエラー";
+      alert(`ログインエラー: ${message}\n\n開発サーバーが起動しているか確認してください。`);
       setIsLoading(false);
     }
   };

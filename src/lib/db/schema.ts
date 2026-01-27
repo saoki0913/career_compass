@@ -67,6 +67,12 @@ export const verifications = sqliteTable("verifications", {
     .$defaultFn(() => new Date()),
 });
 
+// Better Auth expects singular model names
+export const user = users;
+export const session = sessions;
+export const account = accounts;
+export const verification = verifications;
+
 // Guest users table - for anonymous sessions
 export const guestUsers = sqliteTable("guest_users", {
   id: text("id").primaryKey(),
