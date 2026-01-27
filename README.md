@@ -1,36 +1,78 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Career Compass
 
-## Getting Started
+A modern web application built with Next.js and FastAPI.
 
-First, run the development server:
+## Tech Stack
+
+| Category | Technology |
+|----------|------------|
+| Frontend | Next.js 16, React 19, TypeScript |
+| Backend | FastAPI (Python) |
+| Auth | Better Auth |
+| Database | Turso (SQLite) |
+| ORM | Drizzle |
+| Storage | Cloudflare R2 |
+| UI | shadcn/ui + Tailwind CSS |
+| Testing | Playwright |
+| Payment | Stripe |
+| Deploy | Vercel |
+
+## Quick Start
 
 ```bash
+# Install dependencies
+npm install
+
+# Copy environment variables
+cp .env.example .env.local
+
+# Push database schema
+npx drizzle-kit push
+
+# Start development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+For detailed setup instructions, see [docs/setup.md](docs/setup.md).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Development
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+# Start Next.js frontend
+make dev
 
-## Learn More
+# Start FastAPI backend
+make backend
 
-To learn more about Next.js, take a look at the following resources:
+# Run tests
+make test
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Open Drizzle Studio
+make db-studio
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Project Structure
 
-## Deploy on Vercel
+```
+career_compass/
+├── src/
+│   ├── app/           # Next.js App Router
+│   ├── components/    # React components (shadcn/ui)
+│   └── lib/           # Utilities (auth, db, storage, stripe)
+├── backend/           # FastAPI backend
+├── e2e/               # Playwright tests
+└── docs/              # Documentation
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Environment Variables
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See [.env.example](.env.example) for all required environment variables.
+
+Key services to set up:
+- **Turso** - Database ([turso.tech](https://turso.tech))
+- **Cloudflare R2** - Object storage ([cloudflare.com](https://cloudflare.com))
+- **Stripe** - Payments ([stripe.com](https://stripe.com))
+
+## License
+
+MIT
