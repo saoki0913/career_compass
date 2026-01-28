@@ -169,6 +169,15 @@ export async function DELETE(
       );
     }
 
+    // 履歴書・ESは削除不可（SPEC.md 18.2）
+    const protectedTypes = ["resume", "es"];
+    if (protectedTypes.includes(item.type)) {
+      return NextResponse.json(
+        { error: "履歴書・ESは削除できません" },
+        { status: 403 }
+      );
+    }
+
     await db.delete(submissionItems).where(eq(submissionItems.id, submissionId));
 
     return NextResponse.json({ success: true });

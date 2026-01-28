@@ -268,6 +268,18 @@ async def call_llm_with_error(
 
     except OpenAIAPIError as e:
         error_type, detail = _classify_openai_error(e)
+
+        # Try Claude fallback for billing/rate_limit errors
+        if error_type in ("billing", "rate_limit") and settings.anthropic_api_key and model == "gpt-4o-mini":
+            print(f"[LLM] OpenAI {error_type}, falling back to Claude for feature: {feature}")
+            try:
+                result = await _call_claude(system_prompt, user_message, messages, max_tokens, temperature)
+                if result is not None:
+                    print(f"[LLM] Claude fallback succeeded for feature: {feature}")
+                    return LLMResult(success=True, data=result)
+            except Exception as fallback_err:
+                print(f"[LLM] Claude fallback also failed: {fallback_err}")
+
         error = _create_error(error_type, "openai", feature, detail)
         print(f"[LLM] OpenAI API error: {detail}")
         return LLMResult(success=False, error=error)
@@ -289,6 +301,18 @@ async def call_llm_with_error(
                     print(f"[LLM] OpenAI fallback also failed: {fallback_err}")
         else:
             error_type, detail = _classify_openai_error(e)
+
+            # Try Claude fallback for billing/rate_limit errors
+            if error_type in ("billing", "rate_limit") and settings.anthropic_api_key and model == "gpt-4o-mini":
+                print(f"[LLM] OpenAI {error_type} (generic), falling back to Claude for feature: {feature}")
+                try:
+                    result = await _call_claude(system_prompt, user_message, messages, max_tokens, temperature)
+                    if result is not None:
+                        print(f"[LLM] Claude fallback succeeded for feature: {feature}")
+                        return LLMResult(success=True, data=result)
+                except Exception as fallback_err:
+                    print(f"[LLM] Claude fallback also failed: {fallback_err}")
+
         error = _create_error(error_type, provider, feature, detail)
         print(f"[LLM] Unexpected error ({provider}): {e}")
         return LLMResult(success=False, error=error)

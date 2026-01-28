@@ -31,13 +31,22 @@ export async function POST(
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
+    // Get custom query from request body
+    const body = await request.json().catch(() => ({}));
+    const customQuery = body.customQuery as string | undefined;
+
     // Try to call FastAPI for real search
     const fastApiUrl = process.env.FASTAPI_URL || "http://localhost:8000";
     try {
-      const response = await fetch(`${fastApiUrl}/api/company-info/search-pages`, {
+      const response = await fetch(`${fastApiUrl}/company-info/search-pages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company_name: company.name, industry: company.industry }),
+        body: JSON.stringify({
+          company_name: company.name,
+          industry: company.industry,
+          custom_query: customQuery,
+          max_results: 10,
+        }),
       });
 
       if (response.ok) {
@@ -49,23 +58,59 @@ export async function POST(
       console.log("FastAPI not available, using mock search results");
     }
 
-    // Mock response: generate plausible recruitment page candidates
+    // Mock response: generate plausible recruitment page candidates (10 results)
     const encodedName = encodeURIComponent(company.name);
+    const cleanName = company.name.toLowerCase().replace(/[^a-z0-9]/gi, "");
     const candidates: SearchCandidate[] = [
       {
-        url: `https://www.${company.name.toLowerCase().replace(/[^a-z0-9]/gi, "")}.co.jp/recruit/`,
+        url: `https://www.${cleanName}.co.jp/recruit/`,
         title: `${company.name} 採用情報`,
         confidence: "high",
       },
       {
-        url: `https://job.mynavi.jp/company/${encodedName}/`,
+        url: `https://www.${cleanName}.co.jp/careers/`,
+        title: `${company.name} キャリア採用`,
+        confidence: "high",
+      },
+      {
+        url: `https://job.mynavi.jp/search/?searchButton=1&keyword=${encodedName}`,
         title: `${company.name} - マイナビ`,
         confidence: "medium",
       },
       {
-        url: `https://www.rikunabi.com/company/${encodedName}/`,
-        title: `${company.name} - リクナビ`,
+        url: `https://job.rikunabi.com/2026/company/${cleanName}/`,
+        title: `${company.name} - リクナビ2026`,
         confidence: "medium",
+      },
+      {
+        url: `https://www.onecareer.jp/companies/${cleanName}`,
+        title: `${company.name} - ONE CAREER`,
+        confidence: "medium",
+      },
+      {
+        url: `https://unistyle.jp/companies/${cleanName}`,
+        title: `${company.name} - Unistyle`,
+        confidence: "medium",
+      },
+      {
+        url: `https://www.${cleanName}.co.jp/company/ir/`,
+        title: `${company.name} IR情報`,
+        confidence: "low",
+      },
+      {
+        url: `https://www.${cleanName}.co.jp/about/`,
+        title: `${company.name} 会社概要`,
+        confidence: "low",
+      },
+      {
+        url: `https://www.openwork.jp/company/${cleanName}`,
+        title: `${company.name} - OpenWork`,
+        confidence: "low",
+      },
+      {
+        url: `https://www.vorkers.com/company/${cleanName}`,
+        title: `${company.name} - 口コミ`,
+        confidence: "low",
       },
     ];
 

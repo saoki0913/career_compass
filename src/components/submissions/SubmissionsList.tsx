@@ -295,12 +295,15 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
                   >
                     {SUBMISSION_STATUS[item.status]}
                   </span>
-                  <button
-                    onClick={() => handleDelete(item.id)}
-                    className="text-muted-foreground hover:text-red-500 transition-colors"
-                  >
-                    <TrashIcon />
-                  </button>
+                  {/* 履歴書・ESは削除不可（SPEC.md 18.2） */}
+                  {!["resume", "es"].includes(item.type) && (
+                    <button
+                      onClick={() => handleDelete(item.id)}
+                      className="text-muted-foreground hover:text-red-500 transition-colors"
+                    >
+                      <TrashIcon />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -340,12 +343,15 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
                   >
                     {SUBMISSION_STATUS[item.status]}
                   </span>
-                  <button
-                    onClick={() => handleDelete(item.id)}
-                    className="text-muted-foreground hover:text-red-500 transition-colors"
-                  >
-                    <TrashIcon />
-                  </button>
+                  {/* 履歴書・ESは削除不可（SPEC.md 18.2） */}
+                  {!["resume", "es"].includes(item.type) && (
+                    <button
+                      onClick={() => handleDelete(item.id)}
+                      className="text-muted-foreground hover:text-red-500 transition-colors"
+                    >
+                      <TrashIcon />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

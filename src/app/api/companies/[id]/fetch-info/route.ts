@@ -21,6 +21,7 @@ import {
   incrementDailyFreeUsage,
   consumeCredits,
   hasEnoughCredits,
+  consumePartialCredits,
 } from "@/lib/credits";
 
 // FastAPI backend URL
@@ -117,6 +118,10 @@ export async function POST(
   try {
     const { id: companyId } = await params;
 
+    // Get URL from request body (optional - falls back to company.recruitmentUrl)
+    const body = await request.json().catch(() => ({}));
+    const requestUrl = body.url as string | undefined;
+
     // Get identity
     const identity = await getIdentity(request);
     if (!identity) {
@@ -139,10 +144,11 @@ export async function POST(
 
     const company = access.company;
 
-    // Check if recruitment URL exists
-    if (!company.recruitmentUrl) {
+    // Use provided URL or fall back to company's recruitment URL
+    const urlToFetch = requestUrl || company.recruitmentUrl;
+    if (!urlToFetch) {
       return NextResponse.json(
-        { error: "採用ページURLが登録されていません" },
+        { error: "採用ページURLが登録されていません。URLを選択してください。" },
         { status: 400 }
       );
     }
@@ -182,7 +188,7 @@ export async function POST(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          url: company.recruitmentUrl,
+          url: urlToFetch,
         }),
       });
 
@@ -209,7 +215,61 @@ export async function POST(
       });
     }
 
-    // Success: Save extracted deadlines
+    // 成功判定の細分化（SPEC.md 4.2）
+    const hasDeadlines = fetchResult.data?.deadlines && fetchResult.data.deadlines.length > 0;
+    const hasOtherData = fetchResult.data?.applicationMethod ||
+                         (fetchResult.data?.requiredDocuments && fetchResult.data.requiredDocuments.length > 0) ||
+                         fetchResult.data?.selectionProcess;
+
+    // 締切なし & 他データあり = 部分成功（0.5クレジット消費）
+    if (!hasDeadlines && hasOtherData && userId && !useDailyFree) {
+      const partialResult = await consumePartialCredits(
+        userId,
+        "company_fetch",
+        companyId,
+        `企業情報取得（部分成功）: ${company.name}`
+      );
+
+      // Update company's recruitmentUrl and infoFetchedAt
+      await db
+        .update(companies)
+        .set({
+          recruitmentUrl: urlToFetch,
+          infoFetchedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(companies.id, companyId));
+
+      const freeRemaining = await getRemainingFreeFetches(userId, guestId);
+
+      return NextResponse.json({
+        success: true,
+        partial: true,
+        data: {
+          deadlinesCount: 0,
+          deadlineIds: [],
+          applicationMethod: fetchResult.data?.applicationMethod || null,
+          requiredDocuments: fetchResult.data?.requiredDocuments || [],
+          selectionProcess: fetchResult.data?.selectionProcess || null,
+        },
+        creditsConsumed: 0.5,
+        actualCreditsDeducted: partialResult.actualConsumed,
+        freeUsed: false,
+        freeRemaining,
+        message: "締切情報は見つかりませんでしたが、他の情報を取得しました（0.5クレジット消費）",
+      });
+    }
+
+    // 締切なし & 他データもなし = 完全失敗（クレジット消費なし）
+    if (!hasDeadlines && !hasOtherData) {
+      return NextResponse.json({
+        success: false,
+        error: "情報を抽出できませんでした",
+        creditsConsumed: 0,
+      });
+    }
+
+    // 締切あり = 完全成功: Save extracted deadlines
     const savedDeadlines: string[] = [];
     if (fetchResult.data?.deadlines && fetchResult.data.deadlines.length > 0) {
       const now = new Date();
@@ -252,7 +312,7 @@ export async function POST(
             dueDate,
             isConfirmed: false, // AI-extracted deadlines need confirmation
             confidence: (d.confidence as "high" | "medium" | "low") || "low",
-            sourceUrl: company.recruitmentUrl,
+            sourceUrl: urlToFetch,
             createdAt: now,
             updatedAt: now,
           })
@@ -262,10 +322,11 @@ export async function POST(
       }
     }
 
-    // Update company's infoFetchedAt
+    // Update company's recruitmentUrl and infoFetchedAt
     await db
       .update(companies)
       .set({
+        recruitmentUrl: urlToFetch,
         infoFetchedAt: new Date(),
         updatedAt: new Date(),
       })

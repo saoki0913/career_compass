@@ -17,6 +17,13 @@ from datetime import datetime
 import httpx
 from bs4 import BeautifulSoup
 
+try:
+    from ddgs import DDGS
+    HAS_DDGS = True
+except ImportError:
+    HAS_DDGS = False
+    print("Warning: ddgs not installed. Using mock search results.")
+
 from app.utils.llm import call_llm_with_error
 from app.utils.vector_store import (
     store_company_info,
@@ -37,6 +44,8 @@ class SearchPagesRequest(BaseModel):
     """Request to search for company recruitment pages."""
     company_name: str
     industry: Optional[str] = None
+    custom_query: Optional[str] = None  # Custom search query (e.g., "三井物産 IR")
+    max_results: int = 10  # Maximum number of results to return
 
 
 class SearchCandidate(BaseModel):
@@ -111,18 +120,50 @@ async def fetch_page_content(url: str) -> str:
             response = await client.get(str(url))
             response.raise_for_status()
             return response.text
+    except httpx.ConnectError as e:
+        # DNS resolution or connection failure
+        raise HTTPException(
+            status_code=400,
+            detail=f"URLに接続できませんでした。URLが正しいか確認してください。({str(e)[:100]})"
+        )
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=400,
+            detail="URLの取得がタイムアウトしました。しばらく後にお試しください。"
+        )
     except httpx.RequestError as e:
-        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"URLの取得に失敗しました: {str(e)[:100]}"
+        )
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=400, detail=f"HTTP error: {e.response.status_code}")
+        if e.response.status_code == 404:
+            raise HTTPException(
+                status_code=400,
+                detail="指定されたページが見つかりませんでした（404）。別のURLをお試しください。"
+            )
+        elif e.response.status_code == 403:
+            raise HTTPException(
+                status_code=400,
+                detail="ページへのアクセスが拒否されました（403）。別のURLをお試しください。"
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"ページの取得に失敗しました（HTTPエラー: {e.response.status_code}）"
+            )
 
 
 def extract_text_from_html(html: str) -> str:
-    """Extract readable text from HTML."""
+    """Extract readable text from HTML.
+
+    Note: We only remove script/style tags, keeping nav/header/footer
+    as they may contain recruitment information on some sites.
+    """
     soup = BeautifulSoup(html, "html.parser")
 
-    # Remove script and style elements
-    for script in soup(["script", "style", "nav", "header", "footer"]):
+    # Remove only script and style elements (keep nav/header/footer for recruitment info)
+    for script in soup(["script", "style", "noscript", "iframe"]):
         script.decompose()
 
     # Get text
@@ -133,8 +174,9 @@ def extract_text_from_html(html: str) -> str:
     chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
     text = "\n".join(chunk for chunk in chunks if chunk)
 
-    # Limit to first 10000 characters
-    return text[:10000]
+    # Increased limit to 15000 characters (was 10000)
+    # This helps capture more content from longer recruitment pages
+    return text[:15000]
 
 
 async def extract_info_with_llm(text: str, url: str) -> ExtractedInfo:
@@ -147,44 +189,68 @@ async def extract_info_with_llm(text: str, url: str) -> ExtractedInfo:
 
     Uses gpt-4o-mini via shared LLM utility (feature="company_info").
     """
-    system_prompt = f"""あなたは日本の就活情報を抽出するアシスタントです。
+    # Get current year for date inference
+    current_year = datetime.now().year
+
+    system_prompt = f"""あなたは日本の就活情報を抽出する専門アシスタントです。
 以下のWebページテキストから、採用に関する情報を抽出してJSONで返してください。
 
-**重要**: 各項目には必ず以下を含めてください:
-- source_url: 情報の根拠となるURL（今回は "{url}" を使用）
-- confidence: high（明確に記載）, medium（推測を含む）, low（不確実）のいずれか
+## 重要な指示
 
-抽出する情報:
-1. deadlines: 締切情報のリスト
-   - type: es_submission, web_test, aptitude_test, interview_1, interview_2, interview_3, interview_final, briefing, internship, offer_response, other のいずれか
+1. **日付の推測**: 日付が曖昧でも推測して抽出してください
+   - 「6月上旬」→ "{current_year}-06-01"
+   - 「7月中旬」→ "{current_year}-07-15"
+   - 「8月下旬」→ "{current_year}-08-25"
+   - 「随時」「未定」→ null
+   - 年が明記されていない場合は{current_year}年または{current_year + 1}年と推測
+
+2. **部分的な情報も抽出**: 締切情報がなくても、他の情報（募集区分、応募方法など）があれば抽出してください
+
+3. **信頼度の判定**:
+   - high: 明確に記載されている（日付、具体的な手順など）
+   - medium: 推測を含む（曖昧な日付、一般的な記述など）
+   - low: 不確実（断片的な情報、古い可能性がある情報など）
+
+## 抽出項目
+
+1. **deadlines**: 締切情報のリスト
+   - type: es_submission, web_test, aptitude_test, interview_1, interview_2, interview_3, interview_final, briefing, internship, offer_response, other
    - title: 締切のタイトル（例: "ES提出 (一次締切)"）
-   - due_date: ISO形式の日付（見つからない場合はnull）
+   - due_date: ISO形式の日付（YYYY-MM-DD）または null
    - source_url: "{url}"
-   - confidence: high, medium, low のいずれか
+   - confidence: high, medium, low
 
-2. recruitment_types: 募集区分のリスト
+2. **recruitment_types**: 募集区分のリスト
    - name: 募集区分の名前（例: "夏インターン", "本選考", "早期選考"）
    - source_url: "{url}"
    - confidence: high, medium, low
 
-3. required_documents: 必要書類のリスト
+3. **required_documents**: 必要書類のリスト
    - name: 書類名（例: "履歴書", "ES", "成績証明書"）
    - required: 必須かどうか（true/false）
    - source_url: "{url}"
    - confidence: high, medium, low
 
-4. application_method: 応募方法（見つからない場合はnull）
-   - value: 応募方法の説明
+4. **application_method**: 応募方法（見つからない場合はnull）
+   - value: 応募方法の説明（例: "マイページから応募"、"WEBエントリー"）
    - source_url: "{url}"
    - confidence: high, medium, low
 
-5. selection_process: 選考プロセス（見つからない場合はnull）
-   - value: 選考プロセスの説明
+5. **selection_process**: 選考プロセス（見つからない場合はnull）
+   - value: 選考プロセスの説明（例: "ES→Webテスト→面接3回→最終面接"）
    - source_url: "{url}"
    - confidence: high, medium, low
 
-見つからない情報はnullまたは空のリストで返してください。
-必ず有効なJSONを返してください。"""
+## 出力形式
+
+必ず以下の形式の有効なJSONを返してください:
+{{
+  "deadlines": [...],
+  "recruitment_types": [...],
+  "required_documents": [...],
+  "application_method": {{...}} または null,
+  "selection_process": {{...}} または null
+}}"""
 
     user_message = f"以下のWebページテキストから採用情報を抽出してください:\n\n{text}"
 
@@ -294,20 +360,154 @@ async def extract_info_with_llm(text: str, url: str) -> ExtractedInfo:
         )
 
 
+def _classify_url_confidence(url: str, title: str) -> str:
+    """Classify URL confidence based on domain and content."""
+    url_lower = url.lower()
+    title_lower = title.lower()
+
+    # Exclude: review sites, news articles, Wikipedia, etc.
+    exclude_sites = [
+        "openwork", "vorkers", "news", "nikkei", "wikipedia",
+        "youtube", "twitter", "x.com", "instagram", "facebook"
+    ]
+    if any(site in url_lower for site in exclude_sites):
+        return "low"
+
+    # High confidence: official recruitment pages and major job portals
+    high_confidence_patterns = [
+        # URL patterns
+        "recruit", "career", "saiyo", "entry", "freshers",
+        # Japanese URL patterns
+        "採用", "新卒", "キャリア",
+        # Major job portals
+        "mynavi.jp", "rikunabi.com", "onecareer.jp",
+    ]
+    if any(pattern in url_lower for pattern in high_confidence_patterns):
+        return "high"
+
+    # High confidence: title contains recruitment keywords
+    high_confidence_title_keywords = [
+        "採用", "新卒", "エントリー", "募集", "選考",
+        "インターン", "マイページ", "2025卒", "2026卒", "2027卒"
+    ]
+    if any(kw in title_lower for kw in high_confidence_title_keywords):
+        return "high"
+
+    # Medium confidence: job-related portals
+    medium_confidence_domains = [
+        "unistyle", "goodfind", "career-tasu", "job.",
+        "shukatsu", "就活", "gaishishukatsu", "外資就活"
+    ]
+    if any(domain in url_lower for domain in medium_confidence_domains):
+        return "medium"
+
+    # Low confidence: everything else
+    return "low"
+
+
+async def _search_with_ddgs(query: str, max_results: int = 10) -> list[dict]:
+    """
+    Search using DuckDuckGo.
+
+    Args:
+        query: Search query string
+        max_results: Maximum number of results
+
+    Returns:
+        List of search results with url, title, body
+    """
+    if not HAS_DDGS:
+        return []
+
+    try:
+        with DDGS() as ddgs:
+            # Don't specify region - let query language guide results
+            # The jp-jp region doesn't work well with DuckDuckGo
+            results = list(ddgs.text(
+                query,
+                safesearch="moderate",
+                max_results=max_results
+            ))
+            return results
+    except Exception as e:
+        print(f"DuckDuckGo search error: {e}")
+        return []
+
+
+def _get_graduation_year() -> int:
+    """Calculate the current graduation year for job hunting.
+
+    In Japan, job hunting starts around April for students graduating next year.
+    """
+    now = datetime.now()
+    # If it's April or later, target next year's graduates
+    # If it's before April, target current year's graduates
+    if now.month >= 4:
+        return now.year + 2  # 2026卒 if current year is 2024 and month >= 4
+    else:
+        return now.year + 1
+
+
 @router.post("/search-pages")
 async def search_company_pages(request: SearchPagesRequest):
     """
     Search for company recruitment page candidates.
 
-    This endpoint generates candidate URLs for company recruitment pages
-    based on the company name and industry.
+    This endpoint searches for company recruitment pages using DuckDuckGo
+    based on the company name, industry, or custom query.
 
-    Returns a list of 3 candidate URLs with confidence scores.
+    Returns a list of up to max_results candidate URLs with confidence scores.
     """
     company_name = request.company_name
     industry = request.industry or ""
+    custom_query = request.custom_query
+    max_results = min(request.max_results, 15)  # Cap at 15
 
-    # Generate candidate URLs based on company name
+    candidates = []
+
+    # Build search query
+    if custom_query:
+        # User provided a custom query - use it directly
+        search_query = custom_query
+    else:
+        # Default: search for company recruitment pages
+        # Simple query works better for Japanese searches
+        search_query = f"{company_name} 新卒採用"
+
+    # Try real web search with DuckDuckGo
+    if HAS_DDGS:
+        search_results = await _search_with_ddgs(search_query, max_results + 5)  # Get extra to filter
+
+        seen_urls = set()
+        for result in search_results:
+            url = result.get("href", result.get("url", ""))
+            title = result.get("title", "")
+
+            # Skip duplicates
+            if url in seen_urls or not url:
+                continue
+            seen_urls.add(url)
+
+            # Classify confidence
+            confidence = _classify_url_confidence(url, title)
+
+            candidates.append(SearchCandidate(
+                url=url,
+                title=title[:100] if title else url[:50],  # Limit title length
+                confidence=confidence
+            ))
+
+            if len(candidates) >= max_results:
+                break
+
+        # If we got results, return them
+        if candidates:
+            # Sort by confidence: high > medium > low
+            confidence_order = {"high": 0, "medium": 1, "low": 2}
+            candidates.sort(key=lambda c: confidence_order.get(c.confidence, 2))
+            return {"candidates": candidates[:max_results]}
+
+    # Fallback: generate mock URLs (for when DDGS is not available)
     # Remove common corporate suffixes for URL generation
     name_clean = company_name
     for suffix in ["株式会社", "（株）", "(株)", "㈱", "有限会社", "合同会社"]:
@@ -317,25 +517,39 @@ async def search_company_pages(request: SearchPagesRequest):
     # Generate URL-friendly name (lowercase, alphanumeric)
     name_url = "".join(c.lower() for c in name_clean if c.isalnum())
 
-    candidates = [
+    # URL encode for search queries
+    from urllib.parse import quote
+    encoded_name = quote(company_name)
+
+    fallback_candidates = [
         SearchCandidate(
-            url=f"https://www.{name_url}.co.jp/recruit/",
-            title=f"{company_name} 採用情報",
-            confidence="high"
-        ),
-        SearchCandidate(
-            url=f"https://job.mynavi.jp/search/?searchButton=1&focusSearchBox=0&keyword={company_name}",
-            title=f"{company_name} - マイナビ",
+            url=f"https://job.mynavi.jp/26/pc/search/corp{name_url}/outline.html",
+            title=f"{company_name} - マイナビ2026",
             confidence="medium"
         ),
         SearchCandidate(
             url=f"https://job.rikunabi.com/2026/company/{name_url}/",
-            title=f"{company_name} - リクナビ",
+            title=f"{company_name} - リクナビ2026",
             confidence="medium"
+        ),
+        SearchCandidate(
+            url=f"https://www.onecareer.jp/companies/{name_url}",
+            title=f"{company_name} - ONE CAREER",
+            confidence="medium"
+        ),
+        SearchCandidate(
+            url=f"https://unistyle.jp/companies/{name_url}",
+            title=f"{company_name} - Unistyle",
+            confidence="medium"
+        ),
+        SearchCandidate(
+            url=f"https://syukatsu-kaigi.jp/companies/{name_url}",
+            title=f"{company_name} - 就活会議",
+            confidence="low"
         ),
     ]
 
-    return {"candidates": candidates}
+    return {"candidates": fallback_candidates[:max_results]}
 
 
 @router.post("/fetch", response_model=FetchResponse)
@@ -373,7 +587,7 @@ async def fetch_company_info(request: FetchRequest):
                 data=None,
                 source_url=str(request.url),
                 extracted_at=datetime.utcnow().isoformat(),
-                error="ページから十分な情報を抽出できませんでした",
+                error="ページの内容を取得できませんでした。JavaScriptで描画されるページの可能性があります。別のURLをお試しください。",
                 deadlines_found=False,
                 other_items_found=False
             )
@@ -386,7 +600,8 @@ async def fetch_company_info(request: FetchRequest):
         other_items_found = (
             len(extracted.recruitment_types) > 0 or
             len(extracted.required_documents) > 0 or
-            extracted.application_method is not None
+            extracted.application_method is not None or
+            extracted.selection_process is not None  # Include selection_process
         )
 
         # Success: at least one item extracted
@@ -396,7 +611,7 @@ async def fetch_company_info(request: FetchRequest):
 
         error_message = None
         if not success:
-            error_message = "ページから採用情報を抽出できませんでした"
+            error_message = "採用情報が見つかりませんでした。別のURLをお試しください。"
         elif partial_success:
             error_message = "締切情報は取得できませんでしたが、他の情報を抽出しました"
 

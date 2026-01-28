@@ -99,18 +99,24 @@ export function FetchInfoButton({
   const [candidates, setCandidates] = useState<SearchCandidate[]>([]);
   const [selectedUrl, setSelectedUrl] = useState<string>("");
   const [customUrl, setCustomUrl] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [result, setResult] = useState<FetchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSearchPages = async () => {
+  const handleSearchPages = async (customQueryOverride?: string) => {
     setIsSearching(true);
     setError(null);
+
+    const queryToUse = customQueryOverride ?? searchQuery;
 
     try {
       const response = await fetch(`/api/companies/${companyId}/search-pages`, {
         method: "POST",
         headers: buildHeaders(),
         credentials: "include",
+        body: JSON.stringify({
+          customQuery: queryToUse || undefined,
+        }),
       });
 
       if (!response.ok) {
@@ -209,14 +215,21 @@ export function FetchInfoButton({
     setCandidates([]);
     setSelectedUrl("");
     setCustomUrl("");
+    setSearchQuery("");
     setError(null);
+  };
+
+  const handleReSearch = () => {
+    if (searchQuery.trim()) {
+      handleSearchPages(searchQuery);
+    }
   };
 
   return (
     <>
       <Button
         variant="outline"
-        onClick={handleSearchPages}
+        onClick={() => handleSearchPages()}
         disabled={isSearching || isFetching}
         className="gap-2"
       >
@@ -255,13 +268,38 @@ export function FetchInfoButton({
                 {companyName} の採用情報を取得するURLを選択してください
               </p>
 
+              {/* Custom search input */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="カスタム検索（例: 三井物産 IR、トヨタ インターン 2026）"
+                  className="flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                  disabled={isSearching}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && searchQuery.trim()) {
+                      handleReSearch();
+                    }
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleReSearch}
+                  disabled={isSearching || !searchQuery.trim()}
+                >
+                  {isSearching ? <LoadingSpinner /> : "検索"}
+                </Button>
+              </div>
+
               {error && (
                 <div className="p-3 bg-red-50 rounded-lg border border-red-200">
                   <p className="text-sm text-red-800">{error}</p>
                 </div>
               )}
 
-              <div className="space-y-3">
+              <div className="space-y-3 max-h-[50vh] overflow-y-auto">
                 {hasRecruitmentUrl && (
                   <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
                     <input
