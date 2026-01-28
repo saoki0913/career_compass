@@ -13,6 +13,10 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { useCompanies } from "@/hooks/useCompanies";
+import { useCredits } from "@/hooks/useCredits";
+import { useDeadlines } from "@/hooks/useDeadlines";
+import { useTodayTask, TASK_TYPE_LABELS } from "@/hooks/useTasks";
 
 // Icons
 const CreditIcon = () => (
@@ -76,6 +80,24 @@ const PlusIcon = () => (
   </svg>
 );
 
+const StarIcon = () => (
+  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+  </svg>
+);
+
+const CheckCircleIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
+
+const ClockIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
+
 const EmptyCompanyIcon = () => (
   <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
@@ -128,32 +150,33 @@ const quickActions = [
   },
 ];
 
-// Sample deadline data (will be replaced with real data)
-const sampleDeadlines = [
-  {
-    id: "1",
-    company: "株式会社サンプル",
-    type: "ES提出",
-    date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
-    daysLeft: 3,
-  },
-  {
-    id: "2",
-    company: "テスト商事",
-    type: "一次面接",
-    date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    daysLeft: 7,
-  },
-];
+// Map deadline type to Japanese
+const deadlineTypeLabels: Record<string, string> = {
+  es_submission: "ES提出",
+  interview: "面接",
+  test: "テスト",
+  offer_response: "内定返答",
+  other: "その他",
+};
 
 export default function DashboardPage() {
   const { user, isGuest, isLoading, isAuthenticated, userPlan } = useAuth();
   const router = useRouter();
 
-  // Check if plan selection is needed
+  // Fetch real data
+  const { companies, count: companyCount, limit: companyLimit } = useCompanies();
+  const { balance, monthlyAllocation } = useCredits();
+  const { deadlines, count: deadlineCount } = useDeadlines(7);
+  const todayTask = useTodayTask();
+
+  // Check if plan selection or onboarding is needed
   useEffect(() => {
-    if (!isLoading && isAuthenticated && userPlan?.needsPlanSelection) {
-      router.push("/plan-selection");
+    if (!isLoading && isAuthenticated) {
+      if (userPlan?.needsPlanSelection) {
+        router.push("/plan-selection");
+      } else if (userPlan?.needsOnboarding) {
+        router.push("/onboarding");
+      }
     }
   }, [isLoading, isAuthenticated, userPlan, router]);
 
@@ -177,12 +200,22 @@ export default function DashboardPage() {
 
   const displayName = user?.name || "ゲスト";
   const greeting = getGreeting();
-  const planCredits = userPlan?.plan === "pro" ? 800 : userPlan?.plan === "standard" ? 300 : 30;
-  const currentCredits = planCredits; // TODO: Get from API
 
-  // For demo, show empty state for new users
-  const hasCompanies = false;
-  const hasDeadlines = false;
+  // Format deadlines for DeadlineList
+  const formattedDeadlines = deadlines.slice(0, 5).map((d) => ({
+    id: d.id,
+    company: d.company,
+    type: deadlineTypeLabels[d.type] || d.type,
+    date: new Date(d.dueDate),
+    daysLeft: d.daysLeft,
+  }));
+
+  // Get company limit text
+  const getCompanyLimitText = () => {
+    if (isGuest) return "最大3社まで";
+    if (userPlan?.plan === "free") return "最大5社まで";
+    return "無制限";
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -203,30 +236,82 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <StatsCard
             title="クレジット残高"
-            value={currentCredits}
-            subtitle={`月間 ${planCredits} クレジット`}
+            value={balance}
+            subtitle={`月間 ${monthlyAllocation} クレジット`}
             icon={<CreditIcon />}
             variant="primary"
           />
           <StatsCard
             title="登録企業"
-            value={0}
-            subtitle={
-              isGuest
-                ? "最大3社まで"
-                : userPlan?.plan === "free"
-                ? "最大5社まで"
-                : "無制限"
-            }
+            value={companyCount}
+            subtitle={getCompanyLimitText()}
             icon={<CompanyIcon />}
           />
           <StatsCard
             title="今週の締切"
-            value={0}
+            value={deadlineCount}
             subtitle="直近7日間"
             icon={<CalendarIcon />}
           />
         </div>
+
+        {/* Today's Most Important Task */}
+        {todayTask.task && (
+          <Card className="mb-8 border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-primary">
+                  <StarIcon />
+                  <span className="text-sm font-medium">
+                    今日の最重要タスク
+                    {todayTask.mode === "DEADLINE" && " - 締切優先モード"}
+                    {todayTask.mode === "DEEP_DIVE" && " - 深掘りモード"}
+                  </span>
+                </div>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/tasks">タスク一覧</Link>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-start gap-4">
+                <button
+                  type="button"
+                  onClick={() => todayTask.markComplete()}
+                  className="w-6 h-6 mt-0.5 rounded-full border-2 border-primary flex items-center justify-center flex-shrink-0 hover:bg-primary/10 transition-colors"
+                  title="完了にする"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                      {TASK_TYPE_LABELS[todayTask.task.type]}
+                    </span>
+                    {todayTask.task.company && (
+                      <Link
+                        href={`/companies/${todayTask.task.company.id}`}
+                        className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
+                      >
+                        <CompanyIcon />
+                        {todayTask.task.company.name}
+                      </Link>
+                    )}
+                  </div>
+                  <p className="font-medium text-lg mt-1">{todayTask.task.title}</p>
+                  {todayTask.task.deadline && (
+                    <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
+                      <ClockIcon />
+                      {new Date(todayTask.task.deadline.dueDate).toLocaleDateString("ja-JP", {
+                        month: "long",
+                        day: "numeric",
+                      })}
+                      まで
+                    </p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Quick Actions */}
         <div className="mb-8">
@@ -247,8 +332,26 @@ export default function DashboardPage() {
               </Button>
             </CardHeader>
             <CardContent>
-              {hasCompanies ? (
-                <div>{/* Company list will go here */}</div>
+              {companyCount > 0 ? (
+                <div className="space-y-3">
+                  {companies.slice(0, 3).map((company) => (
+                    <Link
+                      key={company.id}
+                      href={`/companies/${company.id}`}
+                      className="block p-3 rounded-lg hover:bg-muted/50 transition-colors"
+                    >
+                      <p className="font-medium">{company.name}</p>
+                      {company.industry && (
+                        <p className="text-sm text-muted-foreground">{company.industry}</p>
+                      )}
+                    </Link>
+                  ))}
+                  {companyCount > 3 && (
+                    <p className="text-sm text-muted-foreground text-center pt-2">
+                      他 {companyCount - 3} 社
+                    </p>
+                  )}
+                </div>
               ) : (
                 <EmptyState
                   icon={<EmptyCompanyIcon />}
@@ -274,8 +377,8 @@ export default function DashboardPage() {
               </Button>
             </CardHeader>
             <CardContent>
-              {hasDeadlines ? (
-                <DeadlineList deadlines={sampleDeadlines} />
+              {deadlineCount > 0 ? (
+                <DeadlineList deadlines={formattedDeadlines} />
               ) : (
                 <EmptyState
                   icon={<CalendarIcon />}

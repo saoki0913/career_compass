@@ -13,9 +13,11 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      // Already logged in, redirect based on plan status
+      // Already logged in, redirect based on status
       if (userPlan?.needsPlanSelection) {
         router.push("/plan-selection");
+      } else if (userPlan?.needsOnboarding) {
+        router.push("/onboarding");
       } else {
         router.push("/dashboard");
       }

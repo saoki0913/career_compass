@@ -93,7 +93,7 @@ export default function PlanSelectionPage() {
       }
 
       await refreshPlan();
-      router.push("/dashboard");
+      router.push("/onboarding");
     } catch (err) {
       setError(err instanceof Error ? err.message : "エラーが発生しました");
     } finally {

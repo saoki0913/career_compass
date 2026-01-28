@@ -1,12 +1,41 @@
 "use client";
 
+import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth/client";
 import Link from "next/link";
+import { useNotifications, NOTIFICATION_TYPE_ICONS } from "@/hooks/useNotifications";
+import { cn } from "@/lib/utils";
+
+const BellIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+    />
+  </svg>
+);
 
 export function DashboardHeader() {
   const { user, isGuest } = useAuth();
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications({ limit: 5 });
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowDropdown(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();
@@ -46,6 +75,97 @@ export function DashboardHeader() {
             </nav>
           </div>
           <div className="flex items-center gap-4">
+            {/* Notification Bell */}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                type="button"
+                onClick={() => setShowDropdown(!showDropdown)}
+                className="relative p-2 rounded-lg hover:bg-secondary transition-colors"
+              >
+                <BellIcon />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Dropdown */}
+              {showDropdown && (
+                <div className="absolute right-0 mt-2 w-80 bg-background border border-border rounded-xl shadow-lg overflow-hidden z-50">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                    <span className="font-medium">通知</span>
+                    {unreadCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => markAllAsRead()}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        すべて既読にする
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-80 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="py-8 text-center text-muted-foreground">
+                        <p className="text-sm">通知はありません</p>
+                      </div>
+                    ) : (
+                      notifications.map((notification) => (
+                        <button
+                          key={notification.id}
+                          type="button"
+                          onClick={() => {
+                            if (!notification.isRead) {
+                              markAsRead(notification.id);
+                            }
+                          }}
+                          className={cn(
+                            "w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b border-border/50 last:border-0",
+                            !notification.isRead && "bg-primary/5"
+                          )}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="text-lg flex-shrink-0">
+                              {NOTIFICATION_TYPE_ICONS[notification.type]}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className={cn("text-sm font-medium", !notification.isRead && "text-primary")}>
+                                {notification.title}
+                              </p>
+                              <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                                {notification.message}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {new Date(notification.createdAt).toLocaleDateString("ja-JP", {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </p>
+                            </div>
+                            {!notification.isRead && (
+                              <span className="w-2 h-2 bg-primary rounded-full flex-shrink-0 mt-1.5" />
+                            )}
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  <div className="border-t border-border">
+                    <Link
+                      href="/notifications"
+                      onClick={() => setShowDropdown(false)}
+                      className="block w-full py-3 text-center text-sm text-primary hover:bg-muted/50 transition-colors"
+                    >
+                      すべての通知を見る
+                    </Link>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {isGuest ? (
               <Button asChild size="sm">
                 <Link href="/login">ログイン</Link>

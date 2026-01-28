@@ -120,6 +120,7 @@ export async function GET() {
       planSelectedAt: profile.planSelectedAt?.toISOString() || null,
       onboardingCompleted: profile.onboardingCompleted,
       needsPlanSelection: !profile.planSelectedAt,
+      needsOnboarding: profile.planSelectedAt && !profile.onboardingCompleted,
     });
   } catch (error) {
     console.error("Error getting plan:", error);

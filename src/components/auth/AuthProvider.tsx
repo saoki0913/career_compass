@@ -14,6 +14,8 @@ interface UserPlan {
   plan: "free" | "standard" | "pro" | null;
   planSelectedAt: string | null;
   needsPlanSelection: boolean;
+  onboardingCompleted: boolean;
+  needsOnboarding: boolean;
 }
 
 interface AuthContextType {

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.routers import health
+from app.routers import health, company_info, es_review, gakuchika
 
 app = FastAPI(
     title="Career Compass API",
@@ -20,6 +20,9 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router, tags=["health"])
+app.include_router(company_info.router)
+app.include_router(es_review.router)
+app.include_router(gakuchika.router)
 
 
 @app.get("/")
