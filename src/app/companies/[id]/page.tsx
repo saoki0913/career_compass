@@ -8,9 +8,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
-import { CompanyStatus } from "@/hooks/useCompanies";
+import {
+  CompanyStatus,
+  GROUPED_STATUSES,
+  CATEGORY_LABELS,
+  getStatusConfig,
+  getStatusLabel,
+} from "@/lib/constants/status";
 import {
   useCompanyDeadlines,
   Deadline,
@@ -30,6 +45,7 @@ import { DeadlineModal } from "@/components/deadlines/DeadlineModal";
 import { ApplicationModal } from "@/components/applications/ApplicationModal";
 import { FetchInfoButton } from "@/components/companies/FetchInfoButton";
 import { DeadlineApprovalModal } from "@/components/companies/DeadlineApprovalModal";
+import { CorporateInfoSection } from "@/components/companies/CorporateInfoSection";
 
 interface Company {
   id: string;
@@ -43,17 +59,6 @@ interface Company {
   updatedAt: string;
 }
 
-// Status configuration
-const statusConfig: Record<CompanyStatus, { label: string; color: string; bgColor: string }> = {
-  interested: { label: "興味あり", color: "text-slate-600", bgColor: "bg-slate-100" },
-  applied: { label: "応募済", color: "text-blue-600", bgColor: "bg-blue-50" },
-  interview: { label: "面接中", color: "text-purple-600", bgColor: "bg-purple-50" },
-  offer: { label: "内定", color: "text-emerald-600", bgColor: "bg-emerald-50" },
-  rejected: { label: "不合格", color: "text-red-600", bgColor: "bg-red-50" },
-  withdrawn: { label: "辞退", color: "text-gray-500", bgColor: "bg-gray-100" },
-};
-
-const allStatuses: CompanyStatus[] = ["interested", "applied", "interview", "offer", "rejected", "withdrawn"];
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -196,13 +201,14 @@ export default function CompanyDetailPage() {
     confirmDeadline,
   } = useCompanyDeadlines(companyId);
 
+
   // Edit form state
   const [editName, setEditName] = useState("");
   const [editIndustry, setEditIndustry] = useState("");
   const [editRecruitmentUrl, setEditRecruitmentUrl] = useState("");
   const [editCorporateUrl, setEditCorporateUrl] = useState("");
   const [editNotes, setEditNotes] = useState("");
-  const [editStatus, setEditStatus] = useState<CompanyStatus>("interested");
+  const [editStatus, setEditStatus] = useState<CompanyStatus>("inbox");
 
   const fetchCompany = useCallback(async () => {
     try {
@@ -319,10 +325,13 @@ export default function CompanyDetailPage() {
     return (
       <div className="min-h-screen bg-background">
         <DashboardHeader />
-        <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="animate-pulse space-y-6">
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="animate-pulse space-y-4">
             <div className="h-8 w-32 bg-muted rounded-lg" />
-            <div className="h-64 bg-muted rounded-2xl" />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="h-64 bg-muted rounded-2xl" />
+              <div className="h-64 bg-muted rounded-2xl" />
+            </div>
           </div>
         </main>
       </div>
@@ -333,9 +342,9 @@ export default function CompanyDetailPage() {
     return (
       <div className="min-h-screen bg-background">
         <DashboardHeader />
-        <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <Card className="border-red-200 bg-red-50/50">
-            <CardContent className="py-8 text-center">
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <Card className="border-red-200 bg-red-50/50 max-w-xl mx-auto">
+            <CardContent className="py-6 text-center">
               <h2 className="text-lg font-semibold text-red-800 mb-2">{error}</h2>
               <Button variant="outline" asChild className="mt-4">
                 <Link href="/companies">企業一覧に戻る</Link>
@@ -349,17 +358,17 @@ export default function CompanyDetailPage() {
 
   if (!company) return null;
 
-  const status = statusConfig[company.status];
+  const statusConfigData = getStatusConfig(company.status);
 
   return (
     <div className="min-h-screen bg-background">
       <DashboardHeader />
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {/* Back button */}
         <Link
           href="/companies"
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
         >
           <ArrowLeftIcon />
           企業一覧に戻る
@@ -367,291 +376,484 @@ export default function CompanyDetailPage() {
 
         {/* Error message */}
         {error && (
-          <div className="p-4 rounded-lg bg-red-50 border border-red-200 mb-6">
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200 mb-4">
             <p className="text-sm text-red-800">{error}</p>
           </div>
         )}
 
-        {/* Company info card */}
-        <Card className="border-border/50 mb-6">
-          <CardHeader className="flex flex-row items-start justify-between">
-            <div className="flex-1">
-              {isEditing ? (
-                <Input
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="text-xl font-bold h-auto py-1"
-                />
-              ) : (
-                <CardTitle className="text-xl">{company.name}</CardTitle>
-              )}
-              {!isEditing && (
-                <div className="flex items-center gap-3 mt-2">
-                  <span
-                    className={cn(
-                      "px-2.5 py-0.5 rounded-full text-xs font-medium",
-                      status.bgColor,
-                      status.color
-                    )}
-                  >
-                    {status.label}
-                  </span>
-                  {company.industry && (
-                    <span className="text-sm text-muted-foreground">{company.industry}</span>
+        {/* 2-column grid layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Left column: Company info + Corporate RAG */}
+          <div className="space-y-4">
+            {/* Company info card */}
+            <Card className="border-border/50">
+              <CardHeader className="flex flex-row items-start justify-between py-3">
+                <div className="flex-1">
+                  {isEditing ? (
+                    <Input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="text-lg font-bold h-auto py-1"
+                    />
+                  ) : (
+                    <CardTitle className="text-lg">{company.name}</CardTitle>
+                  )}
+                  {!isEditing && (
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <span
+                        className={cn(
+                          "px-2 py-0.5 rounded-full text-xs font-medium",
+                          statusConfigData.bgColor,
+                          statusConfigData.color
+                        )}
+                      >
+                        {statusConfigData.label}
+                      </span>
+                      {company.industry && (
+                        <span className="text-sm text-muted-foreground">{company.industry}</span>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
-            {!isEditing && (
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
-                  <EditIcon />
-                  <span className="ml-1.5">編集</span>
-                </Button>
+                {!isEditing && (
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
+                      <EditIcon />
+                      <span className="ml-1">編集</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      onClick={() => setShowDeleteConfirm(true)}
+                    >
+                      <TrashIcon />
+                    </Button>
+                  </div>
+                )}
+              </CardHeader>
+
+              <CardContent className="space-y-3 pt-0">
+                {isEditing ? (
+                  // Edit form
+                  <>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="industry" className="text-xs">業界</Label>
+                      <Input
+                        id="industry"
+                        value={editIndustry}
+                        onChange={(e) => setEditIndustry(e.target.value)}
+                        placeholder="IT・通信"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="recruitmentUrl" className="text-xs">採用ページURL</Label>
+                        <Input
+                          id="recruitmentUrl"
+                          type="url"
+                          value={editRecruitmentUrl}
+                          onChange={(e) => setEditRecruitmentUrl(e.target.value)}
+                          placeholder="https://"
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="corporateUrl" className="text-xs">企業HP URL</Label>
+                        <Input
+                          id="corporateUrl"
+                          type="url"
+                          value={editCorporateUrl}
+                          onChange={(e) => setEditCorporateUrl(e.target.value)}
+                          placeholder="https://"
+                          className="h-9"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">選考ステータス</Label>
+                      <Select value={editStatus} onValueChange={(v) => setEditStatus(v as CompanyStatus)}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="選択してください">
+                            {getStatusLabel(editStatus)}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectLabel className="text-xs text-muted-foreground font-normal">
+                              {CATEGORY_LABELS.not_started}
+                            </SelectLabel>
+                            {GROUPED_STATUSES.not_started.map((s) => (
+                              <SelectItem key={s.value} value={s.value}>
+                                {s.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                          <SelectGroup>
+                            <SelectLabel className="text-xs text-muted-foreground font-normal">
+                              {CATEGORY_LABELS.in_progress}
+                            </SelectLabel>
+                            {GROUPED_STATUSES.in_progress.map((s) => (
+                              <SelectItem key={s.value} value={s.value}>
+                                {s.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                          <SelectGroup>
+                            <SelectLabel className="text-xs text-muted-foreground font-normal">
+                              {CATEGORY_LABELS.completed}
+                            </SelectLabel>
+                            {GROUPED_STATUSES.completed.map((s) => (
+                              <SelectItem key={s.value} value={s.value}>
+                                {s.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="notes" className="text-xs">メモ</Label>
+                      <textarea
+                        id="notes"
+                        value={editNotes}
+                        onChange={(e) => setEditNotes(e.target.value)}
+                        placeholder="選考に関するメモ..."
+                        className="w-full min-h-[60px] px-3 py-2 rounded-lg border border-input bg-background text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button variant="outline" size="sm" onClick={cancelEdit} disabled={isSaving}>
+                        キャンセル
+                      </Button>
+                      <Button size="sm" onClick={handleSave} disabled={isSaving}>
+                        {isSaving ? (
+                          <>
+                            <LoadingSpinner />
+                            <span className="ml-2">保存中...</span>
+                          </>
+                        ) : (
+                          "保存"
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  // View mode
+                  <>
+                    {/* Links and AI Fetch */}
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
+                      {company.recruitmentUrl && (
+                        <a
+                          href={company.recruitmentUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-primary hover:underline"
+                        >
+                          <ExternalLinkIcon />
+                          採用ページ
+                        </a>
+                      )}
+                      {company.corporateUrl && (
+                        <a
+                          href={company.corporateUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-muted-foreground hover:text-primary"
+                        >
+                          <ExternalLinkIcon />
+                          企業HP
+                        </a>
+                      )}
+                      <FetchInfoButton
+                        companyId={company.id}
+                        companyName={company.name}
+                        hasRecruitmentUrl={!!company.recruitmentUrl}
+                        onSuccess={refreshDeadlines}
+                      />
+                    </div>
+
+                    {/* Notes */}
+                    {company.notes && (
+                      <div>
+                        <h3 className="text-xs font-medium text-muted-foreground mb-1">メモ</h3>
+                        <p className="text-sm whitespace-pre-wrap line-clamp-3">{company.notes}</p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Corporate Info (RAG) section */}
+            <CorporateInfoSection
+              companyId={company.id}
+              companyName={company.name}
+              onUpdate={fetchCompany}
+            />
+          </div>
+
+          {/* Right column: Applications + Deadlines */}
+          <div className="space-y-4">
+            {/* Applications section */}
+            <Card className="border-border/50">
+              <CardHeader className="flex flex-row items-center justify-between py-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <BriefcaseIcon />
+                  応募枠
+                </CardTitle>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                  onClick={() => setShowDeleteConfirm(true)}
+                  onClick={() => {
+                    setEditingApplication(undefined);
+                    setShowApplicationModal(true);
+                  }}
                 >
-                  <TrashIcon />
+                  追加
                 </Button>
-              </div>
-            )}
-          </CardHeader>
-
-          <CardContent className="space-y-6">
-            {isEditing ? (
-              // Edit form
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="industry">業界</Label>
-                  <Input
-                    id="industry"
-                    value={editIndustry}
-                    onChange={(e) => setEditIndustry(e.target.value)}
-                    placeholder="IT・通信"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="recruitmentUrl">採用ページURL</Label>
-                    <Input
-                      id="recruitmentUrl"
-                      type="url"
-                      value={editRecruitmentUrl}
-                      onChange={(e) => setEditRecruitmentUrl(e.target.value)}
-                      placeholder="https://"
-                    />
+              </CardHeader>
+              <CardContent className="pt-0">
+                {isLoadingApplications ? (
+                  <div className="flex items-center justify-center py-6">
+                    <LoadingSpinner />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="corporateUrl">企業HP URL</Label>
-                    <Input
-                      id="corporateUrl"
-                      type="url"
-                      value={editCorporateUrl}
-                      onChange={(e) => setEditCorporateUrl(e.target.value)}
-                      placeholder="https://"
-                    />
+                ) : applications.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <p className="text-sm">まだ応募枠が登録されていません</p>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-2 max-h-[280px] overflow-y-auto">
+                    {applications.map((app) => {
+                      const statusColors = {
+                        active: { bg: "bg-blue-100", text: "text-blue-700" },
+                        completed: { bg: "bg-emerald-100", text: "text-emerald-700" },
+                        withdrawn: { bg: "bg-gray-100", text: "text-gray-600" },
+                      };
+                      const colors = statusColors[app.status];
+                      const nearestDate = app.nearestDeadline ? new Date(app.nearestDeadline) : null;
+                      const now = new Date();
+                      const daysUntilDeadline = nearestDate
+                        ? Math.ceil((nearestDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+                        : null;
 
-                <div className="space-y-2">
-                  <Label>選考ステータス</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {allStatuses.map((s) => {
-                      const config = statusConfig[s];
                       return (
                         <button
-                          key={s}
+                          key={app.id}
                           type="button"
-                          onClick={() => setEditStatus(s)}
-                          className={cn(
-                            "px-3 py-1.5 rounded-full text-sm font-medium transition-all",
-                            editStatus === s
-                              ? "ring-2 ring-primary ring-offset-2"
-                              : "",
-                            config.bgColor,
-                            config.color
-                          )}
+                          onClick={() => {
+                            setEditingApplication(app);
+                            setShowApplicationModal(true);
+                          }}
+                          className="w-full flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors text-left cursor-pointer"
                         >
-                          {config.label}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                                {APPLICATION_TYPE_LABELS[app.type]}
+                              </span>
+                              <span className={cn("text-xs px-2 py-0.5 rounded-full", colors.bg, colors.text)}>
+                                {APPLICATION_STATUS_LABELS[app.status]}
+                              </span>
+                            </div>
+                            <p className="font-medium text-sm mt-1 truncate">{app.name}</p>
+                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                              <span>締切 {app.deadlineCount}件</span>
+                              {nearestDate && (
+                                <span
+                                  className={cn(
+                                    daysUntilDeadline !== null && daysUntilDeadline <= 3
+                                      ? "text-red-600"
+                                      : daysUntilDeadline !== null && daysUntilDeadline <= 7
+                                      ? "text-amber-600"
+                                      : ""
+                                  )}
+                                >
+                                  次: {nearestDate.toLocaleDateString("ja-JP", { month: "short", day: "numeric" })}
+                                  {daysUntilDeadline !== null && daysUntilDeadline >= 0 && (
+                                    <span className="ml-1">
+                                      ({daysUntilDeadline === 0 ? "今日" : `${daysUntilDeadline}日後`})
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <ChevronRightIcon />
                         </button>
                       );
                     })}
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="notes">メモ</Label>
-                  <textarea
-                    id="notes"
-                    value={editNotes}
-                    onChange={(e) => setEditNotes(e.target.value)}
-                    placeholder="選考に関するメモ..."
-                    className="w-full min-h-[100px] px-3 py-2 rounded-lg border border-input bg-background text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-
-                <div className="flex justify-end gap-3 pt-4">
-                  <Button variant="outline" onClick={cancelEdit} disabled={isSaving}>
-                    キャンセル
-                  </Button>
-                  <Button onClick={handleSave} disabled={isSaving}>
-                    {isSaving ? (
-                      <>
-                        <LoadingSpinner />
-                        <span className="ml-2">保存中...</span>
-                      </>
-                    ) : (
-                      "保存する"
-                    )}
-                  </Button>
-                </div>
-              </>
-            ) : (
-              // View mode
-              <>
-                {/* Links and AI Fetch */}
-                <div className="flex flex-wrap items-center gap-4">
-                  {company.recruitmentUrl && (
-                    <a
-                      href={company.recruitmentUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-primary hover:underline"
-                    >
-                      <ExternalLinkIcon />
-                      採用ページ
-                    </a>
-                  )}
-                  {company.corporateUrl && (
-                    <a
-                      href={company.corporateUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-muted-foreground hover:text-primary"
-                    >
-                      <ExternalLinkIcon />
-                      企業HP
-                    </a>
-                  )}
-                  <FetchInfoButton
-                    companyId={company.id}
-                    companyName={company.name}
-                    hasRecruitmentUrl={!!company.recruitmentUrl}
-                    onSuccess={refreshDeadlines}
-                  />
-                </div>
-
-                {/* Notes */}
-                {company.notes && (
-                  <div>
-                    <h3 className="text-sm font-medium text-muted-foreground mb-2">メモ</h3>
-                    <p className="text-sm whitespace-pre-wrap">{company.notes}</p>
-                  </div>
                 )}
-              </>
-            )}
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
 
-        {/* Applications section */}
-        <Card className="border-border/50 mb-6">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <BriefcaseIcon />
-              応募枠
-            </CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setEditingApplication(undefined);
-                setShowApplicationModal(true);
-              }}
-            >
-              応募枠を追加
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {isLoadingApplications ? (
-              <div className="flex items-center justify-center py-8">
-                <LoadingSpinner />
-              </div>
-            ) : applications.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <p>まだ応募枠が登録されていません</p>
-                <p className="text-sm mt-1">
-                  夏インターン、本選考など選考種別ごとに管理できます
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {applications.map((app) => {
-                  const statusColors = {
-                    active: { bg: "bg-blue-100", text: "text-blue-700" },
-                    completed: { bg: "bg-emerald-100", text: "text-emerald-700" },
-                    withdrawn: { bg: "bg-gray-100", text: "text-gray-600" },
-                  };
-                  const colors = statusColors[app.status];
-                  const nearestDate = app.nearestDeadline ? new Date(app.nearestDeadline) : null;
-                  const now = new Date();
-                  const daysUntilDeadline = nearestDate
-                    ? Math.ceil((nearestDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
-                    : null;
-
-                  return (
-                    <button
-                      key={app.id}
-                      type="button"
-                      onClick={() => {
-                        setEditingApplication(app);
-                        setShowApplicationModal(true);
-                      }}
-                      className="w-full flex items-center gap-4 p-4 rounded-xl bg-muted/50 hover:bg-muted transition-colors text-left"
+            {/* Deadlines section */}
+            <Card className="border-border/50">
+              <CardHeader className="flex flex-row items-center justify-between py-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <CalendarIcon />
+                  締切・予定
+                  {deadlines.filter(d => !d.isConfirmed).length > 0 && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                      {deadlines.filter(d => !d.isConfirmed).length}件要確認
+                    </span>
+                  )}
+                </CardTitle>
+                <div className="flex gap-2">
+                  {deadlines.filter(d => !d.isConfirmed).length > 1 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowApprovalModal(true)}
+                      className="text-amber-700 border-amber-300 hover:bg-amber-50"
                     >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                            {APPLICATION_TYPE_LABELS[app.type]}
-                          </span>
-                          <span className={cn("text-xs px-2 py-0.5 rounded-full", colors.bg, colors.text)}>
-                            {APPLICATION_STATUS_LABELS[app.status]}
-                          </span>
-                        </div>
-                        <p className="font-medium mt-1 truncate">{app.name}</p>
-                        <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                          <span>締切 {app.deadlineCount}件</span>
-                          {nearestDate && (
-                            <span
-                              className={cn(
-                                daysUntilDeadline !== null && daysUntilDeadline <= 3
-                                  ? "text-red-600"
-                                  : daysUntilDeadline !== null && daysUntilDeadline <= 7
-                                  ? "text-amber-600"
-                                  : ""
+                      一括承認
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setEditingDeadline(undefined);
+                      setShowDeadlineModal(true);
+                    }}
+                  >
+                    追加
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {isLoadingDeadlines ? (
+                  <div className="flex items-center justify-center py-6">
+                    <LoadingSpinner />
+                  </div>
+                ) : deadlines.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <p className="text-sm">まだ締切が登録されていません</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[280px] overflow-y-auto">
+                    {deadlines.map((deadline) => {
+                      const isCompleted = !!deadline.completedAt;
+                      const dueDate = new Date(deadline.dueDate);
+                      const now = new Date();
+                      const isOverdue = !isCompleted && dueDate < now;
+                      const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+                      // Confidence color mapping
+                      const confidenceConfig = {
+                        high: { bg: "bg-emerald-100", text: "text-emerald-700", label: "高" },
+                        medium: { bg: "bg-amber-100", text: "text-amber-700", label: "中" },
+                        low: { bg: "bg-red-100", text: "text-red-700", label: "低" },
+                      };
+                      const confidenceStyle = deadline.confidence ? confidenceConfig[deadline.confidence] : null;
+
+                      return (
+                        <div
+                          key={deadline.id}
+                          className={cn(
+                            "flex items-center gap-3 p-3 rounded-lg transition-colors",
+                            isCompleted
+                              ? "bg-muted/30 opacity-60"
+                              : isOverdue
+                              ? "bg-red-50 border border-red-200"
+                              : !deadline.isConfirmed
+                              ? "bg-amber-50/50 border border-amber-200"
+                              : "bg-muted/50"
+                          )}
+                        >
+                          {/* Complete checkbox */}
+                          <button
+                            type="button"
+                            onClick={() => toggleComplete(deadline.id)}
+                            className={cn(
+                              "w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer",
+                              isCompleted
+                                ? "bg-primary border-primary text-primary-foreground"
+                                : "border-muted-foreground/40 hover:border-primary"
+                            )}
+                          >
+                            {isCompleted && (
+                              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </button>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                                {DEADLINE_TYPE_LABELS[deadline.type] || deadline.type}
+                              </span>
+                              {!deadline.isConfirmed && (
+                                <button
+                                  type="button"
+                                  onClick={() => confirmDeadline(deadline.id)}
+                                  className="px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-700 hover:bg-yellow-200 transition-colors cursor-pointer"
+                                >
+                                  要確認
+                                </button>
                               )}
-                            >
-                              次の締切: {nearestDate.toLocaleDateString("ja-JP", { month: "short", day: "numeric" })}
-                              {daysUntilDeadline !== null && daysUntilDeadline >= 0 && (
-                                <span className="ml-1">
-                                  ({daysUntilDeadline === 0 ? "今日" : `${daysUntilDeadline}日後`})
+                              {confidenceStyle && !deadline.isConfirmed && (
+                                <span className={cn("text-xs px-2 py-0.5 rounded-full", confidenceStyle.bg, confidenceStyle.text)}>
+                                  信頼度: {confidenceStyle.label}
                                 </span>
                               )}
-                            </span>
-                          )}
+                            </div>
+                            <p className={cn("font-medium text-sm mt-1", isCompleted && "line-through")}>{deadline.title}</p>
+                            <p className={cn("text-xs", isOverdue ? "text-red-600" : "text-muted-foreground")}>
+                              {dueDate.toLocaleDateString("ja-JP", { month: "short", day: "numeric", weekday: "short" })}
+                              {!isCompleted && (
+                                <span className="ml-1">
+                                  {isOverdue
+                                    ? "（期限切れ）"
+                                    : daysLeft === 0
+                                    ? "（今日）"
+                                    : daysLeft === 1
+                                    ? "（明日）"
+                                    : `（${daysLeft}日後）`}
+                                </span>
+                              )}
+                            </p>
+                            {deadline.sourceUrl && !deadline.isConfirmed && (
+                              <a
+                                href={deadline.sourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
+                              >
+                                <ExternalLinkIcon />
+                                取得元を確認
+                              </a>
+                            )}
+                          </div>
+
+                          {/* Edit button */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingDeadline(deadline);
+                              setShowDeadlineModal(true);
+                            }}
+                            className="p-1.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                          >
+                            <EditIcon />
+                          </button>
                         </div>
-                      </div>
-                      <ChevronRightIcon />
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
 
         {/* Application modal */}
         <ApplicationModal
@@ -676,172 +878,6 @@ export default function CompanyDetailPage() {
               : undefined
           }
         />
-
-        {/* Deadlines section */}
-        <Card className="border-border/50">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <CalendarIcon />
-              締切・予定
-              {deadlines.filter(d => !d.isConfirmed).length > 0 && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                  {deadlines.filter(d => !d.isConfirmed).length}件要確認
-                </span>
-              )}
-            </CardTitle>
-            <div className="flex gap-2">
-              {deadlines.filter(d => !d.isConfirmed).length > 1 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowApprovalModal(true)}
-                  className="text-amber-700 border-amber-300 hover:bg-amber-50"
-                >
-                  一括承認
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setEditingDeadline(undefined);
-                  setShowDeadlineModal(true);
-                }}
-              >
-                締切を追加
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {isLoadingDeadlines ? (
-              <div className="flex items-center justify-center py-8">
-                <LoadingSpinner />
-              </div>
-            ) : deadlines.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <p>まだ締切が登録されていません</p>
-                <p className="text-sm mt-1">
-                  「締切を追加」ボタンから手動で追加できます
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {deadlines.map((deadline) => {
-                  const isCompleted = !!deadline.completedAt;
-                  const dueDate = new Date(deadline.dueDate);
-                  const now = new Date();
-                  const isOverdue = !isCompleted && dueDate < now;
-                  const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-
-                  // Confidence color mapping
-                  const confidenceConfig = {
-                    high: { bg: "bg-emerald-100", text: "text-emerald-700", label: "高" },
-                    medium: { bg: "bg-amber-100", text: "text-amber-700", label: "中" },
-                    low: { bg: "bg-red-100", text: "text-red-700", label: "低" },
-                  };
-                  const confidenceStyle = deadline.confidence ? confidenceConfig[deadline.confidence] : null;
-
-                  return (
-                    <div
-                      key={deadline.id}
-                      className={cn(
-                        "flex items-center gap-4 p-4 rounded-xl transition-colors",
-                        isCompleted
-                          ? "bg-muted/30 opacity-60"
-                          : isOverdue
-                          ? "bg-red-50 border border-red-200"
-                          : !deadline.isConfirmed
-                          ? "bg-amber-50/50 border border-amber-200"
-                          : "bg-muted/50"
-                      )}
-                    >
-                      {/* Complete checkbox */}
-                      <button
-                        type="button"
-                        onClick={() => toggleComplete(deadline.id)}
-                        className={cn(
-                          "w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors",
-                          isCompleted
-                            ? "bg-primary border-primary text-primary-foreground"
-                            : "border-muted-foreground/40 hover:border-primary"
-                        )}
-                      >
-                        {isCompleted && (
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </button>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                            {DEADLINE_TYPE_LABELS[deadline.type] || deadline.type}
-                          </span>
-                          {!deadline.isConfirmed && (
-                            <button
-                              type="button"
-                              onClick={() => confirmDeadline(deadline.id)}
-                              className="px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-700 hover:bg-yellow-200 transition-colors"
-                            >
-                              要確認
-                            </button>
-                          )}
-                          {confidenceStyle && !deadline.isConfirmed && (
-                            <span className={cn("text-xs px-2 py-0.5 rounded-full", confidenceStyle.bg, confidenceStyle.text)}>
-                              信頼度: {confidenceStyle.label}
-                            </span>
-                          )}
-                        </div>
-                        <p className={cn("font-medium mt-1", isCompleted && "line-through")}>{deadline.title}</p>
-                        <p className={cn("text-sm", isOverdue ? "text-red-600" : "text-muted-foreground")}>
-                          {dueDate.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "short" })}
-                          {!isCompleted && (
-                            <span className="ml-2">
-                              {isOverdue
-                                ? "（期限切れ）"
-                                : daysLeft === 0
-                                ? "（今日）"
-                                : daysLeft === 1
-                                ? "（明日）"
-                                : `（あと${daysLeft}日）`}
-                            </span>
-                          )}
-                        </p>
-                        {deadline.memo && (
-                          <p className="text-sm text-muted-foreground mt-1">{deadline.memo}</p>
-                        )}
-                        {deadline.sourceUrl && !deadline.isConfirmed && (
-                          <a
-                            href={deadline.sourceUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
-                          >
-                            <ExternalLinkIcon />
-                            取得元を確認
-                          </a>
-                        )}
-                      </div>
-
-                      {/* Edit button */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingDeadline(deadline);
-                          setShowDeadlineModal(true);
-                        }}
-                        className="p-2 text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        <EditIcon />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
 
         {/* Deadline modal */}
         <DeadlineModal

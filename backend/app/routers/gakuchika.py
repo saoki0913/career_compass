@@ -57,27 +57,6 @@ STATIC_QUESTIONS = [
 ]
 
 
-def get_static_question(question_count: int) -> NextQuestionResponse:
-    """Get a static question based on conversation progress."""
-    if question_count < len(STATIC_QUESTIONS):
-        # Suggest end when approaching target
-        suggested_end = question_count >= TARGET_QUESTIONS - 1
-        return NextQuestionResponse(
-            question=STATIC_QUESTIONS[question_count],
-            reasoning="静的質問リストから取得",
-            should_continue=True,
-            suggested_end=suggested_end
-        )
-    else:
-        # Reached target, suggest ending
-        return NextQuestionResponse(
-            question="他に印象的だった出来事や学びはありますか？",
-            reasoning="目安の質問数に達しました",
-            should_continue=True,
-            suggested_end=True
-        )
-
-
 @router.post("/next-question", response_model=NextQuestionResponse)
 async def get_next_question(request: NextQuestionRequest):
     """

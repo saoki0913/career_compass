@@ -6,8 +6,17 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { CompanyStatus } from "@/lib/constants/status";
 
-export type CompanyStatus = "interested" | "applied" | "interview" | "offer" | "rejected" | "withdrawn";
+export type { CompanyStatus } from "@/lib/constants/status";
+
+export interface NearestDeadline {
+  id: string;
+  title: string;
+  dueDate: string;
+  type: string;
+  daysLeft: number;
+}
 
 export interface Company {
   id: string;
@@ -17,11 +26,22 @@ export interface Company {
   industry: string | null;
   recruitmentUrl: string | null;
   corporateUrl: string | null;
+  mypageUrl: string | null;
+  mypageLoginId: string | null;
+  mypagePassword: string | null; // Encrypted in DB
   notes: string | null;
   status: CompanyStatus;
+  isPinned: boolean;
+  sortOrder: number;
   infoFetchedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  // Aggregate fields
+  nearestDeadline: NearestDeadline | null;
+  applicationCount: number;
+  activeApplicationCount: number;
+  documentCount: number;
+  esDocumentCount: number;
 }
 
 interface CompaniesResponse {
@@ -36,9 +56,11 @@ interface CreateCompanyData {
   industry?: string;
   recruitmentUrl?: string;
   corporateUrl?: string;
+  mypageUrl?: string;
+  mypageLoginId?: string;
+  mypagePassword?: string;
   notes?: string;
   status?: CompanyStatus;
-  autoFetchInfo?: boolean;  // Whether to auto-fetch info from URL after creation
 }
 
 interface UpdateCompanyData extends Partial<CreateCompanyData> {

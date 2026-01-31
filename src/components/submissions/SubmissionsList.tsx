@@ -88,8 +88,7 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreate = async () => {
     if (!newItem.name.trim()) {
       setFormError("名前を入力してください");
       return;
@@ -194,7 +193,7 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
       {showNewForm && (
         <Card>
           <CardContent className="py-4">
-            <form onSubmit={handleCreate} className="space-y-4">
+            <div className="space-y-4">
               {formError && (
                 <div className="p-2 rounded bg-red-50 border border-red-200">
                   <p className="text-xs text-red-800">{formError}</p>
@@ -245,11 +244,11 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
                 >
                   キャンセル
                 </Button>
-                <Button type="submit" size="sm" disabled={isSubmitting}>
+                <Button type="button" size="sm" disabled={isSubmitting} onClick={handleCreate}>
                   {isSubmitting ? <LoadingSpinner /> : "追加"}
                 </Button>
               </div>
-            </form>
+            </div>
           </CardContent>
         </Card>
       )}

@@ -132,13 +132,30 @@ export const companies = sqliteTable("companies", {
   industry: text("industry"),
   recruitmentUrl: text("recruitment_url"),
   corporateUrl: text("corporate_url"),
+  // Multiple corporate info URLs for RAG (IR, business intro, etc.) - JSON array
+  corporateInfoUrls: text("corporate_info_urls"), // JSON: [{url: string, type: "ir"|"business"|"about", fetchedAt?: string}]
+  // Mypage credentials (password is encrypted)
+  mypageUrl: text("mypage_url"),
+  mypageLoginId: text("mypage_login_id"),
+  mypagePassword: text("mypage_password"), // Encrypted with AES-256-GCM
   notes: text("notes"),
   status: text("status", {
-    enum: ["interested", "applied", "interview", "offer", "rejected", "withdrawn"]
-  }).default("interested"),
+    enum: [
+      // Not started
+      "inbox", "needs_confirmation",
+      // In progress
+      "info_session", "es", "web_test", "coding_test", "case_study",
+      "group_discussion", "interview_1", "interview_2", "final_interview", "waiting_result",
+      // Completed
+      "offer", "summer_pass", "autumn_pass", "winter_pass",
+      "es_rejected", "gd_rejected", "interview_1_rejected", "interview_2_rejected",
+      "withdrawn", "archived"
+    ]
+  }).default("inbox"),
   sortOrder: integer("sort_order").notNull().default(0),
   isPinned: integer("is_pinned", { mode: "boolean" }).notNull().default(false),
   infoFetchedAt: integer("info_fetched_at", { mode: "timestamp" }),
+  corporateInfoFetchedAt: integer("corporate_info_fetched_at", { mode: "timestamp" }), // Last corporate info fetch
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),

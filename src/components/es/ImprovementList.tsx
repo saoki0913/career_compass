@@ -5,40 +5,53 @@ import type { ReviewIssue } from "@/hooks/useESReview";
 
 interface ImprovementListProps {
   issues: ReviewIssue[];
+  title?: string;  // Optional custom title (defaults to "改善優先順位Top3")
   className?: string;
 }
 
 const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   論理: {
-    bg: "bg-blue-50",
-    text: "text-blue-700",
-    border: "border-blue-200",
+    bg: "bg-info/10",
+    text: "text-info",
+    border: "border-info/20",
   },
   具体性: {
-    bg: "bg-emerald-50",
-    text: "text-emerald-700",
-    border: "border-emerald-200",
+    bg: "bg-success/10",
+    text: "text-success",
+    border: "border-success/20",
   },
   熱意: {
-    bg: "bg-orange-50",
-    text: "text-orange-700",
-    border: "border-orange-200",
+    bg: "bg-accent/10",
+    text: "text-accent-foreground",
+    border: "border-accent/20",
   },
   企業接続: {
-    bg: "bg-purple-50",
-    text: "text-purple-700",
-    border: "border-purple-200",
+    bg: "bg-primary/10",
+    text: "text-primary",
+    border: "border-primary/20",
   },
   読みやすさ: {
-    bg: "bg-cyan-50",
-    text: "text-cyan-700",
-    border: "border-cyan-200",
+    bg: "bg-info/10",
+    text: "text-info",
+    border: "border-info/20",
   },
   その他: {
-    bg: "bg-gray-50",
-    text: "text-gray-700",
-    border: "border-gray-200",
+    bg: "bg-muted",
+    text: "text-muted-foreground",
+    border: "border-border",
   },
+};
+
+const DIFFICULTY_LABELS: Record<string, string> = {
+  easy: "簡易",
+  medium: "中",
+  hard: "難",
+};
+
+const DIFFICULTY_STYLES: Record<string, { bg: string; text: string }> = {
+  easy: { bg: "bg-success/15", text: "text-success" },
+  medium: { bg: "bg-warning/15", text: "text-warning-foreground" },
+  hard: { bg: "bg-destructive/15", text: "text-destructive" },
 };
 
 const AlertIcon = () => (
@@ -63,7 +76,7 @@ const LightbulbIcon = () => (
   </svg>
 );
 
-export function ImprovementList({ issues, className }: ImprovementListProps) {
+export function ImprovementList({ issues, title, className }: ImprovementListProps) {
   if (issues.length === 0) {
     return (
       <div className={cn("text-center py-4 text-muted-foreground", className)}>
@@ -72,13 +85,16 @@ export function ImprovementList({ issues, className }: ImprovementListProps) {
     );
   }
 
+  const displayTitle = title || "改善優先順位Top3";
+  const displayCount = issues.length;
+
   return (
     <div className={cn("space-y-3", className)}>
       <h4 className="text-sm font-semibold flex items-center gap-2">
         <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-xs font-bold">
-          3
+          {displayCount}
         </span>
-        改善優先順位Top3
+        {displayTitle}
       </h4>
 
       <div className="space-y-2">
@@ -105,6 +121,17 @@ export function ImprovementList({ issues, className }: ImprovementListProps) {
                 >
                   #{index + 1} {issue.category}
                 </span>
+                {issue.difficulty && DIFFICULTY_LABELS[issue.difficulty] && (
+                  <span
+                    className={cn(
+                      "text-[10px] font-semibold px-2 py-0.5 rounded-full",
+                      DIFFICULTY_STYLES[issue.difficulty]?.bg,
+                      DIFFICULTY_STYLES[issue.difficulty]?.text
+                    )}
+                  >
+                    {DIFFICULTY_LABELS[issue.difficulty]}
+                  </span>
+                )}
               </div>
 
               {/* Issue */}

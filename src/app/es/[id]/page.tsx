@@ -96,9 +96,10 @@ interface EditorBlockProps {
   onCharLimitChange?: (index: number, charLimit: number | undefined) => void;
   onDelete: (index: number) => void;
   onAddBelow: (index: number) => void;
+  onSectionReview?: (index: number) => void;  // 設問単位添削
 }
 
-function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, onCharLimitChange, onDelete, onAddBelow }: EditorBlockProps) {
+function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, onCharLimitChange, onDelete, onAddBelow, onSectionReview }: EditorBlockProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [showCharLimitInput, setShowCharLimitInput] = useState(false);
@@ -158,8 +159,20 @@ function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, o
               className={cn(baseClass, "text-lg font-bold")}
               rows={1}
             />
-            {/* Character limit indicator for H2 */}
+            {/* Character limit indicator and section review button for H2 */}
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Section review button */}
+              {onSectionReview && (
+                <button
+                  type="button"
+                  onClick={() => onSectionReview(index)}
+                  className="text-xs text-primary hover:text-primary/80 px-2 py-1 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors flex items-center gap-1"
+                  title="この設問を添削"
+                >
+                  <SparkleIcon />
+                  添削
+                </button>
+              )}
               {block.charLimit ? (
                 <div className={cn(
                   "flex items-center gap-2 text-xs px-2 py-1 rounded-full",
@@ -346,6 +359,13 @@ export default function ESEditorPage() {
   const [undoContent, setUndoContent] = useState<string | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Section review request state
+  const [sectionReviewRequest, setSectionReviewRequest] = useState<{
+    sectionTitle: string;
+    sectionContent: string;
+    sectionCharLimit?: number;
+  } | null>(null);
+
   // Initialize state from document
   useEffect(() => {
     if (document) {
@@ -436,6 +456,34 @@ export default function ESEditorPage() {
     setBlocks(newBlocks);
     setHasChanges(true);
   };
+
+  // Handle section review request
+  const handleSectionReview = useCallback((index: number) => {
+    const block = blocks[index];
+    if (block.type !== "h2") return;
+
+    // Collect content until next H2
+    let sectionContent = "";
+    for (let j = index + 1; j < blocks.length; j++) {
+      if (blocks[j].type === "h2") break;
+      sectionContent += blocks[j].content;
+    }
+
+    // Set section review request
+    setSectionReviewRequest({
+      sectionTitle: block.content.trim(),
+      sectionContent,
+      sectionCharLimit: block.charLimit,
+    });
+
+    // Ensure review panel is open
+    setShowReviewPanel(true);
+  }, [blocks]);
+
+  // Clear section review request (called when returning to full mode)
+  const handleClearSectionReview = useCallback(() => {
+    setSectionReviewRequest(null);
+  }, []);
 
   // Calculate character count for each section (H2 + following paragraphs until next H2)
   const getSectionCharCounts = useCallback(() => {
@@ -690,6 +738,7 @@ export default function ESEditorPage() {
                       onCharLimitChange={handleCharLimitChange}
                       onDelete={handleDeleteBlock}
                       onAddBelow={handleAddBlock}
+                      onSectionReview={handleSectionReview}
                     />
                   ))}
                 </div>
@@ -724,9 +773,12 @@ export default function ESEditorPage() {
                 sections={getSectionTitles()}
                 sectionData={getSectionData()}
                 hasCompanyRag={hasCompanyRag}
+                companyId={document?.company?.id}
                 isPaid={false}
                 onApplyRewrite={handleApplyRewrite}
                 onUndo={handleUndoReflect}
+                sectionReviewRequest={sectionReviewRequest}
+                onClearSectionReview={handleClearSectionReview}
               />
 
               {/* Version History */}

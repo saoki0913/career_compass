@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth/client";
 import Link from "next/link";
 import { useNotifications, NOTIFICATION_TYPE_ICONS } from "@/hooks/useNotifications";
+import { SearchBar } from "@/components/search";
 import { cn } from "@/lib/utils";
 
 const BellIcon = () => (
@@ -43,12 +44,12 @@ export function DashboardHeader() {
   };
 
   return (
-    <header className="sticky top-0 z-50 backdrop-blur-xl bg-background/80 border-b border-border/50">
+    <header className="sticky top-0 z-50 backdrop-blur-xl bg-background/80 border-b border-border/40">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-8">
-            <Link href="/dashboard" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center">
+            <Link href="/dashboard" className="flex items-center gap-2 group">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-sm shadow-primary/20 group-hover:shadow-md group-hover:shadow-primary/30 transition-all duration-200">
                 <span className="text-primary-foreground font-bold text-sm">U</span>
               </div>
               <span className="font-bold text-lg tracking-tight">ウカルン</span>
@@ -56,35 +57,39 @@ export function DashboardHeader() {
             <nav className="hidden md:flex items-center gap-1">
               <Link
                 href="/dashboard"
-                className="px-3 py-2 text-sm font-medium rounded-lg hover:bg-secondary transition-colors"
+                className="px-3 py-2 text-sm font-medium rounded-lg hover:bg-secondary transition-all duration-200 cursor-pointer"
               >
                 ダッシュボード
               </Link>
               <Link
                 href="/companies"
-                className="px-3 py-2 text-sm font-medium text-muted-foreground rounded-lg hover:bg-secondary hover:text-foreground transition-colors"
+                className="px-3 py-2 text-sm font-medium text-muted-foreground rounded-lg hover:bg-secondary hover:text-foreground transition-all duration-200 cursor-pointer"
               >
                 企業管理
               </Link>
               <Link
                 href="/es"
-                className="px-3 py-2 text-sm font-medium text-muted-foreground rounded-lg hover:bg-secondary hover:text-foreground transition-colors"
+                className="px-3 py-2 text-sm font-medium text-muted-foreground rounded-lg hover:bg-secondary hover:text-foreground transition-all duration-200 cursor-pointer"
               >
                 ES作成
               </Link>
             </nav>
           </div>
           <div className="flex items-center gap-4">
+            {/* Search Bar */}
+            <SearchBar />
+
             {/* Notification Bell */}
             <div className="relative" ref={dropdownRef}>
               <button
                 type="button"
                 onClick={() => setShowDropdown(!showDropdown)}
-                className="relative p-2 rounded-lg hover:bg-secondary transition-colors"
+                className="relative p-2 rounded-lg hover:bg-secondary transition-all duration-200 cursor-pointer"
+                aria-label="通知"
               >
                 <BellIcon />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-destructive-foreground text-xs font-bold rounded-full flex items-center justify-center animate-pulse">
                     {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
                 )}
@@ -92,14 +97,14 @@ export function DashboardHeader() {
 
               {/* Dropdown */}
               {showDropdown && (
-                <div className="absolute right-0 mt-2 w-80 bg-background border border-border rounded-xl shadow-lg overflow-hidden z-50">
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <div className="absolute right-0 mt-2 w-80 bg-card border border-border/50 rounded-xl shadow-lg overflow-hidden z-50">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-border/50 bg-muted/30">
                     <span className="font-medium">通知</span>
                     {unreadCount > 0 && (
                       <button
                         type="button"
                         onClick={() => markAllAsRead()}
-                        className="text-xs text-primary hover:underline"
+                        className="text-xs text-primary hover:underline cursor-pointer transition-colors duration-200"
                       >
                         すべて既読にする
                       </button>
@@ -121,7 +126,7 @@ export function DashboardHeader() {
                             }
                           }}
                           className={cn(
-                            "w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b border-border/50 last:border-0",
+                            "w-full px-4 py-3 text-left hover:bg-muted/50 transition-all duration-200 cursor-pointer border-b border-border/30 last:border-0",
                             !notification.isRead && "bg-primary/5"
                           )}
                         >
@@ -153,11 +158,11 @@ export function DashboardHeader() {
                       ))
                     )}
                   </div>
-                  <div className="border-t border-border">
+                  <div className="border-t border-border/50">
                     <Link
                       href="/notifications"
                       onClick={() => setShowDropdown(false)}
-                      className="block w-full py-3 text-center text-sm text-primary hover:bg-muted/50 transition-colors"
+                      className="block w-full py-3 text-center text-sm text-primary font-medium hover:bg-muted/50 transition-all duration-200 cursor-pointer"
                     >
                       すべての通知を見る
                     </Link>

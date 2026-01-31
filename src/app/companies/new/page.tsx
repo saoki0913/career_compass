@@ -3,20 +3,28 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useCompanies, CompanyStatus } from "@/hooks/useCompanies";
+import { useCompanies } from "@/hooks/useCompanies";
 import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
-
-// Status options
-const statusOptions: { value: CompanyStatus; label: string; description: string }[] = [
-  { value: "interested", label: "興味あり", description: "情報収集中" },
-  { value: "applied", label: "応募済", description: "ES提出完了" },
-  { value: "interview", label: "面接中", description: "選考進行中" },
-];
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { INDUSTRIES } from "@/lib/constants/industries";
+import {
+  CompanyStatus,
+  GROUPED_STATUSES,
+  CATEGORY_LABELS,
+  getStatusLabel,
+} from "@/lib/constants/status";
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -25,14 +33,16 @@ const ArrowLeftIcon = () => (
   </svg>
 );
 
-const SparklesIcon = () => (
+const EyeIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-    />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+  </svg>
+);
+
+const EyeOffIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
   </svg>
 );
 
@@ -55,9 +65,12 @@ export default function NewCompanyPage() {
   const [industry, setIndustry] = useState("");
   const [recruitmentUrl, setRecruitmentUrl] = useState("");
   const [corporateUrl, setCorporateUrl] = useState("");
+  const [mypageUrl, setMypageUrl] = useState("");
+  const [mypageLoginId, setMypageLoginId] = useState("");
+  const [mypagePassword, setMypagePassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [notes, setNotes] = useState("");
-  const [status, setStatus] = useState<CompanyStatus>("interested");
-  const [autoFetchInfo, setAutoFetchInfo] = useState(true);  // AI auto-fetch toggle
+  const [status, setStatus] = useState<CompanyStatus>("inbox");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,26 +86,17 @@ export default function NewCompanyPage() {
     setError(null);
 
     try {
-      const company = await createCompany({
+      await createCompany({
         name: name.trim(),
         industry: industry.trim() || undefined,
         recruitmentUrl: recruitmentUrl.trim() || undefined,
         corporateUrl: corporateUrl.trim() || undefined,
+        mypageUrl: mypageUrl.trim() || undefined,
+        mypageLoginId: mypageLoginId.trim() || undefined,
+        mypagePassword: mypagePassword.trim() || undefined,
         notes: notes.trim() || undefined,
         status,
-        autoFetchInfo: autoFetchInfo && !!recruitmentUrl.trim(),
       });
-
-      // If auto-fetch is enabled and company was created, trigger info fetch
-      if (autoFetchInfo && recruitmentUrl.trim() && company?.id) {
-        // Fire and forget - don't wait for the fetch to complete
-        fetch(`/api/companies/${company.id}/fetch-info`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        }).catch((err) => {
-          console.error("Auto-fetch info error:", err);
-        });
-      }
 
       router.push("/companies");
     } catch (err) {
@@ -135,11 +139,11 @@ export default function NewCompanyPage() {
     <div className="min-h-screen bg-background">
       <DashboardHeader />
 
-      <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {/* Back button */}
         <Link
           href="/companies"
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
         >
           <ArrowLeftIcon />
           企業一覧に戻る
@@ -154,160 +158,191 @@ export default function NewCompanyPage() {
           </CardHeader>
 
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Error message */}
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-4">
+              {/* Error message - full width */}
               {error && (
-                <div className="p-4 rounded-lg bg-red-50 border border-red-200">
+                <div className="lg:col-span-2 p-3 rounded-lg bg-red-50 border border-red-200">
                   <p className="text-sm text-red-800">{error}</p>
                 </div>
               )}
 
-              {/* Company name */}
-              <div className="space-y-2">
-                <Label htmlFor="name">
-                  企業名 <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="株式会社〇〇"
-                  className="h-11"
-                  required
-                />
-              </div>
-
-              {/* Industry */}
-              <div className="space-y-2">
-                <Label htmlFor="industry">業界</Label>
-                <Input
-                  id="industry"
-                  value={industry}
-                  onChange={(e) => setIndustry(e.target.value)}
-                  placeholder="IT・通信"
-                  className="h-11"
-                />
-              </div>
-
-              {/* URLs */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="recruitmentUrl">採用ページURL</Label>
+              {/* Left column: Basic info */}
+              <div className="space-y-4">
+                {/* Company name */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="name">
+                    企業名 <span className="text-red-500">*</span>
+                  </Label>
                   <Input
-                    id="recruitmentUrl"
-                    type="url"
-                    value={recruitmentUrl}
-                    onChange={(e) => setRecruitmentUrl(e.target.value)}
-                    placeholder="https://"
-                    className="h-11"
+                    id="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="株式会社〇〇"
+                    className="h-10"
+                    required
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="corporateUrl">企業HP URL</Label>
-                  <Input
-                    id="corporateUrl"
-                    type="url"
-                    value={corporateUrl}
-                    onChange={(e) => setCorporateUrl(e.target.value)}
-                    placeholder="https://"
-                    className="h-11"
-                  />
+
+                {/* Industry */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="industry">業界</Label>
+                  <Select value={industry} onValueChange={setIndustry}>
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="選択してください" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INDUSTRIES.map((ind) => (
+                        <SelectItem key={ind} value={ind}>
+                          {ind}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
 
-              {/* Status selection */}
-              <div className="space-y-3">
-                <Label>選考ステータス</Label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {statusOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setStatus(option.value)}
-                      className={cn(
-                        "p-4 rounded-xl border-2 text-left transition-all",
-                        status === option.value
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:border-primary/30"
-                      )}
-                    >
-                      <p className="font-medium">{option.label}</p>
-                      <p className="text-sm text-muted-foreground">{option.description}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Notes */}
-              <div className="space-y-2">
-                <Label htmlFor="notes">メモ</Label>
-                <textarea
-                  id="notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="選考に関するメモや志望理由など..."
-                  className="w-full min-h-[100px] px-3 py-2 rounded-lg border border-input bg-background text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                />
-              </div>
-
-              {/* Auto info fetch toggle */}
-              <div
-                className={cn(
-                  "p-4 rounded-xl border cursor-pointer transition-all",
-                  autoFetchInfo
-                    ? "bg-gradient-to-r from-primary/5 to-accent/5 border-primary/20"
-                    : "bg-muted/30 border-border"
-                )}
-                onClick={() => setAutoFetchInfo(!autoFetchInfo)}
-              >
-                <div className="flex items-start gap-3">
-                  <div
-                    className={cn(
-                      "w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors",
-                      autoFetchInfo ? "bg-primary/10" : "bg-muted"
-                    )}
-                  >
-                    <SparklesIcon />
+                {/* URLs */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="recruitmentUrl">採用ページURL</Label>
+                    <Input
+                      id="recruitmentUrl"
+                      type="url"
+                      value={recruitmentUrl}
+                      onChange={(e) => setRecruitmentUrl(e.target.value)}
+                      placeholder="https://"
+                      className="h-10"
+                    />
                   </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium text-sm">AIが企業情報を自動取得</p>
-                      <button
-                        type="button"
-                        className={cn(
-                          "w-11 h-6 rounded-full transition-colors relative",
-                          autoFetchInfo ? "bg-primary" : "bg-muted-foreground/30"
-                        )}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setAutoFetchInfo(!autoFetchInfo);
-                        }}
-                      >
-                        <span
-                          className={cn(
-                            "absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform",
-                            autoFetchInfo ? "translate-x-[22px]" : "translate-x-0.5"
-                          )}
-                        />
-                      </button>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="corporateUrl">企業HP URL</Label>
+                    <Input
+                      id="corporateUrl"
+                      type="url"
+                      value={corporateUrl}
+                      onChange={(e) => setCorporateUrl(e.target.value)}
+                      placeholder="https://"
+                      className="h-10"
+                    />
+                  </div>
+                </div>
+
+                {/* Status selection */}
+                <div className="space-y-1.5">
+                  <Label>選考ステータス</Label>
+                  <Select value={status} onValueChange={(v) => setStatus(v as CompanyStatus)}>
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="選択してください">
+                        {getStatusLabel(status)}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectLabel className="text-xs text-muted-foreground font-normal">
+                          {CATEGORY_LABELS.not_started}
+                        </SelectLabel>
+                        {GROUPED_STATUSES.not_started.map((s) => (
+                          <SelectItem key={s.value} value={s.value}>
+                            {s.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                      <SelectGroup>
+                        <SelectLabel className="text-xs text-muted-foreground font-normal">
+                          {CATEGORY_LABELS.in_progress}
+                        </SelectLabel>
+                        {GROUPED_STATUSES.in_progress.map((s) => (
+                          <SelectItem key={s.value} value={s.value}>
+                            {s.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                      <SelectGroup>
+                        <SelectLabel className="text-xs text-muted-foreground font-normal">
+                          {CATEGORY_LABELS.completed}
+                        </SelectLabel>
+                        {GROUPED_STATUSES.completed.map((s) => (
+                          <SelectItem key={s.value} value={s.value}>
+                            {s.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Right column: Mypage info + Notes */}
+              <div className="space-y-4">
+                {/* Mypage Info */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">マイページ情報</Label>
+                  <div className="space-y-3 p-3 rounded-lg border border-border/50 bg-muted/20">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="mypageUrl" className="text-xs">マイページURL</Label>
+                      <Input
+                        id="mypageUrl"
+                        type="url"
+                        value={mypageUrl}
+                        onChange={(e) => setMypageUrl(e.target.value)}
+                        placeholder="https://"
+                        className="h-9"
+                      />
                     </div>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {autoFetchInfo
-                        ? recruitmentUrl.trim()
-                          ? "登録後、採用ページURLから締切情報を自動抽出します（1クレジット消費）"
-                          : "採用ページURLを入力すると自動取得が有効になります"
-                        : "ONにすると、登録後に自動で情報を取得します"}
-                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="mypageLoginId" className="text-xs">ログインID</Label>
+                        <Input
+                          id="mypageLoginId"
+                          type="text"
+                          value={mypageLoginId}
+                          onChange={(e) => setMypageLoginId(e.target.value)}
+                          placeholder="ID / メールアドレス"
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="mypagePassword" className="text-xs">パスワード</Label>
+                        <div className="relative">
+                          <Input
+                            id="mypagePassword"
+                            type={showPassword ? "text" : "password"}
+                            value={mypagePassword}
+                            onChange={(e) => setMypagePassword(e.target.value)}
+                            placeholder="••••••••"
+                            className="h-9 pr-9"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
+                </div>
+
+                {/* Notes */}
+                <div className="space-y-1.5 flex-1">
+                  <Label htmlFor="notes">メモ</Label>
+                  <textarea
+                    id="notes"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="選考に関するメモや志望理由など..."
+                    className="w-full min-h-[120px] px-3 py-2 rounded-lg border border-input bg-background text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  />
                 </div>
               </div>
 
-              {/* Submit button */}
-              <div className="flex justify-end gap-4 pt-4">
-                <Button type="button" variant="outline" asChild>
+              {/* Submit button - full width */}
+              <div className="lg:col-span-2 flex justify-end gap-3 pt-2 border-t border-border/50">
+                <Button type="button" variant="outline" size="sm" asChild>
                   <Link href="/companies">キャンセル</Link>
                 </Button>
-                <Button type="submit" disabled={isSubmitting}>
+                <Button type="submit" size="sm" disabled={isSubmitting}>
                   {isSubmitting ? (
                     <>
                       <LoadingSpinner />

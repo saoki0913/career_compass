@@ -121,7 +121,7 @@ const quickActions = [
   {
     title: "ES作成",
     description: "エントリーシートを書く",
-    href: "/es/new",
+    href: "/es",
     icon: <DocumentIcon />,
     color: "orange" as const,
   },

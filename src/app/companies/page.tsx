@@ -1,135 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
-import { useCompanies, Company, CompanyStatus } from "@/hooks/useCompanies";
+import { useCompanies } from "@/hooks/useCompanies";
 import { DashboardHeader } from "@/components/dashboard";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CompanyGrid } from "@/components/companies/CompanyGrid";
+import { IndustryGroup } from "@/components/companies/IndustryGroup";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Plus, Building2, LayoutGrid, Layers } from "lucide-react";
+import {
+  StatusCategory,
+  getStatusCategory,
+} from "@/lib/constants/status";
+import { INDUSTRIES } from "@/lib/constants/industries";
 
-// Status configuration
-const statusConfig: Record<CompanyStatus, { label: string; color: string; bgColor: string }> = {
-  interested: { label: "興味あり", color: "text-slate-600", bgColor: "bg-slate-100" },
-  applied: { label: "応募済", color: "text-blue-600", bgColor: "bg-blue-50" },
-  interview: { label: "面接中", color: "text-purple-600", bgColor: "bg-purple-50" },
-  offer: { label: "内定", color: "text-emerald-600", bgColor: "bg-emerald-50" },
-  rejected: { label: "不合格", color: "text-red-600", bgColor: "bg-red-50" },
-  withdrawn: { label: "辞退", color: "text-gray-500", bgColor: "bg-gray-100" },
-};
-
-// Filter tabs
+// Filter tabs - by category
 const filterTabs = [
   { key: "all", label: "すべて" },
-  { key: "interested", label: "興味あり" },
-  { key: "applied", label: "応募済" },
-  { key: "interview", label: "面接中" },
-  { key: "offer", label: "内定" },
+  { key: "not_started", label: "未着手" },
+  { key: "in_progress", label: "進行中" },
+  { key: "completed", label: "完了" },
 ] as const;
 
-type FilterKey = typeof filterTabs[number]["key"];
+type FilterKey = "all" | StatusCategory;
 
-// Icons
-const PlusIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-  </svg>
-);
-
-const BuildingIcon = () => (
-  <svg className="w-12 h-12 text-muted-foreground/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-    />
-  </svg>
-);
-
-const ExternalLinkIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-    />
-  </svg>
-);
-
-const ChevronRightIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-  </svg>
-);
-
-// Company card component
-function CompanyCard({ company }: { company: Company }) {
-  const status = statusConfig[company.status];
-
-  return (
-    <Link href={`/companies/${company.id}`}>
-      <Card className="group border-border/50 hover:border-primary/30 hover:shadow-lg transition-all duration-300 cursor-pointer">
-        <CardContent className="p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 mb-2">
-                <h3 className="font-semibold text-lg truncate group-hover:text-primary transition-colors">
-                  {company.name}
-                </h3>
-                <span
-                  className={cn(
-                    "flex-shrink-0 px-2.5 py-0.5 rounded-full text-xs font-medium",
-                    status.bgColor,
-                    status.color
-                  )}
-                >
-                  {status.label}
-                </span>
-              </div>
-
-              {company.industry && (
-                <p className="text-sm text-muted-foreground mb-3">{company.industry}</p>
-              )}
-
-              <div className="flex items-center gap-4 text-sm">
-                {company.recruitmentUrl && (
-                  <a
-                    href={company.recruitmentUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex items-center gap-1 text-primary hover:underline"
-                  >
-                    <ExternalLinkIcon />
-                    採用ページ
-                  </a>
-                )}
-                {company.corporateUrl && (
-                  <a
-                    href={company.corporateUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex items-center gap-1 text-muted-foreground hover:text-primary"
-                  >
-                    <ExternalLinkIcon />
-                    企業HP
-                  </a>
-                )}
-              </div>
-            </div>
-
-            <div className="flex-shrink-0 text-muted-foreground group-hover:text-primary transition-colors">
-              <ChevronRightIcon />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </Link>
-  );
-}
+// Industry options for multi-select
+const industryOptions = INDUSTRIES.map((industry) => ({
+  value: industry,
+  label: industry,
+}));
 
 // Empty state component
 function EmptyState({ filter, canAddMore }: { filter: FilterKey; canAddMore: boolean }) {
@@ -138,7 +40,7 @@ function EmptyState({ filter, canAddMore }: { filter: FilterKey; canAddMore: boo
   return (
     <div className="flex flex-col items-center justify-center py-16 px-4">
       <div className="w-20 h-20 rounded-2xl bg-muted/50 flex items-center justify-center mb-6">
-        <BuildingIcon />
+        <Building2 className="w-12 h-12 text-muted-foreground/50" />
       </div>
       <h3 className="text-lg font-medium mb-2">
         {isFiltered ? "該当する企業がありません" : "まだ企業が登録されていません"}
@@ -151,7 +53,7 @@ function EmptyState({ filter, canAddMore }: { filter: FilterKey; canAddMore: boo
       {canAddMore && (
         <Button asChild>
           <Link href="/companies/new">
-            <PlusIcon />
+            <Plus className="w-5 h-5" />
             <span className="ml-2">企業を追加する</span>
           </Link>
         </Button>
@@ -160,12 +62,12 @@ function EmptyState({ filter, canAddMore }: { filter: FilterKey; canAddMore: boo
   );
 }
 
-// Loading skeleton
+// Loading skeleton for 5-column grid
 function LoadingSkeleton() {
   return (
-    <div className="space-y-4">
-      {[1, 2, 3].map((i) => (
-        <div key={i} className="h-28 bg-muted/50 rounded-2xl animate-pulse" />
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
+        <div key={i} className="h-32 bg-muted/50 rounded-xl animate-pulse" />
       ))}
     </div>
   );
@@ -174,38 +76,50 @@ function LoadingSkeleton() {
 export default function CompaniesPage() {
   const { companies, count, limit, canAddMore, isLoading, error } = useCompanies();
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
+  const [groupByIndustry, setGroupByIndustry] = useState(false);
 
-  // Filter companies
-  const filteredCompanies = filter === "all"
-    ? companies
-    : companies.filter((c) => c.status === filter);
+  // Filter companies by category and industry
+  const filteredCompanies = useMemo(() => {
+    return companies
+      .filter((c) => filter === "all" || getStatusCategory(c.status) === filter)
+      .filter(
+        (c) =>
+          selectedIndustries.length === 0 ||
+          (c.industry && selectedIndustries.includes(c.industry))
+      );
+  }, [companies, filter, selectedIndustries]);
 
-  // Count by status
-  const statusCounts = companies.reduce((acc, c) => {
-    acc[c.status] = (acc[c.status] || 0) + 1;
-    return acc;
-  }, {} as Record<CompanyStatus, number>);
+  // Count by category
+  const categoryCounts = useMemo(() => {
+    return companies.reduce(
+      (acc, c) => {
+        const category = getStatusCategory(c.status);
+        acc[category] = (acc[category] || 0) + 1;
+        return acc;
+      },
+      {} as Record<StatusCategory, number>
+    );
+  }, [companies]);
 
   return (
     <div className="min-h-screen bg-background">
       <DashboardHeader />
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">登録企業</h1>
             <p className="mt-1 text-muted-foreground">
-              {limit
-                ? `${count} / ${limit} 社登録中`
-                : `${count} 社登録中`}
+              {limit ? `${count} / ${limit} 社登録中` : `${count} 社登録中`}
             </p>
           </div>
 
           {canAddMore && (
             <Button asChild className="sm:self-start">
               <Link href="/companies/new">
-                <PlusIcon />
+                <Plus className="w-5 h-5" />
                 <span className="ml-2">企業を追加</span>
               </Link>
             </Button>
@@ -227,39 +141,83 @@ export default function CompaniesPage() {
           </Card>
         )}
 
-        {/* Filter tabs */}
-        <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-2">
-          {filterTabs.map((tab) => {
-            const count = tab.key === "all"
-              ? companies.length
-              : statusCounts[tab.key as CompanyStatus] || 0;
-            const isActive = filter === tab.key;
+        {/* Filter row */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
+          {/* Status filter tabs */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0 flex-1">
+            {filterTabs.map((tab) => {
+              const tabCount =
+                tab.key === "all"
+                  ? companies.length
+                  : categoryCounts[tab.key as StatusCategory] || 0;
+              const isActive = filter === tab.key;
 
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setFilter(tab.key)}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap",
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                {tab.label}
-                <span
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setFilter(tab.key)}
                   className={cn(
-                    "px-1.5 py-0.5 rounded-full text-xs",
+                    "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 whitespace-nowrap cursor-pointer",
                     isActive
-                      ? "bg-primary-foreground/20 text-primary-foreground"
-                      : "bg-background text-muted-foreground"
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
-                  {count}
-                </span>
+                  {tab.label}
+                  <span
+                    className={cn(
+                      "px-1.5 py-0.5 rounded-full text-xs transition-colors duration-200",
+                      isActive
+                        ? "bg-primary-foreground/20 text-primary-foreground"
+                        : "bg-background text-muted-foreground"
+                    )}
+                  >
+                    {tabCount}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Industry filter + View toggle */}
+          <div className="flex items-center gap-2">
+            {/* Industry multi-select */}
+            <MultiSelect
+              options={industryOptions}
+              selected={selectedIndustries}
+              onChange={setSelectedIndustries}
+              placeholder="業界"
+              className="w-[140px]"
+            />
+
+            {/* View toggle */}
+            <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1">
+              <button
+                onClick={() => setGroupByIndustry(false)}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-1 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer",
+                  !groupByIndustry
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                aria-label="グリッド表示"
+              >
+                <LayoutGrid className="w-4 h-4" />
               </button>
-            );
-          })}
+              <button
+                onClick={() => setGroupByIndustry(true)}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-1 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer",
+                  groupByIndustry
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                aria-label="業界別表示"
+              >
+                <Layers className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Error state */}
@@ -276,12 +234,10 @@ export default function CompaniesPage() {
           <LoadingSkeleton />
         ) : filteredCompanies.length === 0 ? (
           <EmptyState filter={filter} canAddMore={canAddMore} />
+        ) : groupByIndustry ? (
+          <IndustryGroup companies={filteredCompanies} />
         ) : (
-          <div className="space-y-4">
-            {filteredCompanies.map((company) => (
-              <CompanyCard key={company.id} company={company} />
-            ))}
-          </div>
+          <CompanyGrid companies={filteredCompanies} />
         )}
       </main>
     </div>

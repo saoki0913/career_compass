@@ -13,10 +13,7 @@ import { companies, userProfiles, deadlines } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
-
-type CompanyStatus = "interested" | "applied" | "interview" | "offer" | "rejected" | "withdrawn";
-
-const VALID_STATUSES: CompanyStatus[] = ["interested", "applied", "interview", "offer", "rejected", "withdrawn"];
+import { CompanyStatus, VALID_STATUSES } from "@/lib/constants/status";
 
 /**
  * Get current user or guest from request

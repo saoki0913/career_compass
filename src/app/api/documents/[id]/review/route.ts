@@ -7,11 +7,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { documents, aiThreads, aiMessages } from "@/lib/db/schema";
+import { documents, aiThreads, aiMessages, companies } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
+import type { TemplateType } from "@/hooks/useESReview";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -77,6 +78,7 @@ interface ReviewResult {
     category: string;
     issue: string;
     suggestion: string;
+    difficulty?: "easy" | "medium" | "hard";
   }>;
   rewrites: string[];        // Multiple rewrites based on plan
   section_feedbacks?: Array<{  // Paid only - 設問別指摘
@@ -116,9 +118,48 @@ export async function POST(
       sectionId,
       style = "バランス",
       hasCompanyRag = false,
+      companyId: requestCompanyId,  // Explicitly passed company ID
       sections,
       sectionData,
-    } = body;
+      // Section review mode parameters
+      reviewMode = "full",  // "full" | "section"
+      sectionTitle,         // Question title for section review
+      sectionCharLimit,     // Character limit for section
+      // Template-based review
+      templateType,         // Template type for section review
+      internName,           // Intern program name (for intern templates)
+      roleName,             // Role/course name (for role_course_reason template)
+    } = body as {
+      content: string;
+      sectionId?: string;
+      style?: string;
+      hasCompanyRag?: boolean;
+      companyId?: string;
+      sections?: string[];
+      sectionData?: SectionDataInput[];
+      reviewMode?: string;
+      sectionTitle?: string;
+      sectionCharLimit?: number;
+      templateType?: TemplateType;
+      internName?: string;
+      roleName?: string;
+    };
+
+    // Use document's companyId if not explicitly passed
+    const companyId = requestCompanyId || access.document.companyId;
+
+    // Fetch company info for template review
+    let companyInfo: { name: string | null; industry: string | null } = { name: null, industry: null };
+    if (companyId && templateType) {
+      const company = await db
+        .select({ name: companies.name, industry: companies.industry })
+        .from(companies)
+        .where(eq(companies.id, companyId))
+        .get();
+      if (company) {
+        companyInfo = { name: company.name, industry: company.industry };
+      }
+    }
 
     if (!content || content.trim().length === 0) {
       return NextResponse.json(
@@ -158,6 +199,7 @@ export async function POST(
 
     // Call FastAPI for AI review
     const fastApiUrl = process.env.FASTAPI_URL || "http://localhost:8000";
+    const allowMockReview = process.env.NODE_ENV !== "production";
     let reviewResult: ReviewResult;
     let isMockReview = false;
 
@@ -173,9 +215,27 @@ export async function POST(
           style,
           is_paid: isPaid,
           has_company_rag: hasCompanyRag,
+          company_id: companyId || null,  // Pass company ID for RAG context lookup
           rewrite_count: rewriteCount,
           sections: isPaid ? sections : null,
           section_data: isPaid ? sectionData : null,
+          // Section review mode parameters
+          review_mode: reviewMode,
+          section_title: sectionTitle || null,
+          section_char_limit: sectionCharLimit || null,
+          // Template-based review
+          template_request: templateType ? {
+            template_type: templateType,
+            company_name: companyInfo.name,
+            industry: companyInfo.industry,
+            question: sectionTitle || "",
+            answer: content,
+            // 文字数範囲: 上限 - 5 〜 上限（例: 400文字制限 → 395〜400文字）
+            char_min: sectionCharLimit ? sectionCharLimit - 5 : null,
+            char_max: sectionCharLimit || null,
+            intern_name: internName || null,
+            role_name: roleName || null,
+          } : null,
         }),
       });
 
@@ -198,15 +258,59 @@ export async function POST(
           );
         }
 
+        // Template validation errors → return to user, don't fallback
+        if (templateType && errorDetail?.error_type === "validation") {
+          return NextResponse.json(
+            {
+              error: errorDetail.error || "テンプレート出力の検証に失敗しました",
+              detail: errorDetail.detail,
+              error_type: errorDetail.error_type,
+              provider: errorDetail.provider,
+            },
+            { status: 422 }
+          );
+        }
+
         // Other errors → fallback to mock (development)
+        if (!allowMockReview) {
+          return NextResponse.json(
+            {
+              error: errorDetail?.error || "AI review failed",
+              error_type: errorDetail?.error_type,
+              provider: errorDetail?.provider,
+              detail: errorDetail?.detail,
+            },
+            { status: 503 }
+          );
+        }
+
         throw new Error(errorDetail?.error || "AI review failed");
       }
 
       reviewResult = await aiResponse.json();
     } catch (err) {
+      if (!allowMockReview) {
+        return NextResponse.json(
+          {
+            error: err instanceof Error ? err.message : "AI review failed",
+          },
+          { status: 503 }
+        );
+      }
+
       // Fallback: Generate mock review for development
-      console.warn("FastAPI not available, using mock review:", err);
-      reviewResult = generateMockReview(content, hasCompanyRag, isPaid, rewriteCount, sections, sectionData);
+      console.warn("Falling back to mock review:", err);
+      reviewResult = generateMockReview(
+        content,
+        hasCompanyRag,
+        isPaid,
+        rewriteCount,
+        sections,
+        sectionData,
+        reviewMode,
+        sectionTitle,
+        sectionCharLimit
+      );
       isMockReview = true;
     }
 
@@ -258,6 +362,10 @@ export async function POST(
           type: "review",
           charCount,
           creditCost,
+          reviewMode,
+          sectionTitle: reviewMode === "section" ? sectionTitle : undefined,
+          sectionCharLimit: reviewMode === "section" ? sectionCharLimit : undefined,
+          templateType: reviewMode === "section" ? templateType : undefined,
         }),
         createdAt: now,
       },
@@ -266,6 +374,9 @@ export async function POST(
     return NextResponse.json({
       review: reviewResult,
       creditCost,
+      reviewMode,
+      sectionTitle: reviewMode === "section" ? sectionTitle : undefined,
+      sectionCharLimit: reviewMode === "section" ? sectionCharLimit : undefined,
     });
   } catch (error) {
     console.error("Error reviewing document:", error);
@@ -285,6 +396,7 @@ interface SectionDataInput {
 /**
  * Mock review generator for development
  * Follows SPEC Section 16.2 scoring axes: 論理/具体性/熱意/企業接続/読みやすさ
+ * Supports both full ES review and section-level review
  */
 function generateMockReview(
   content: string,
@@ -292,7 +404,10 @@ function generateMockReview(
   isPaid: boolean = false,
   rewriteCount: number = 1,
   sections?: string[],
-  sectionData?: SectionDataInput[]
+  sectionData?: SectionDataInput[],
+  reviewMode: string = "full",
+  sectionTitle?: string,
+  sectionCharLimit?: number
 ): ReviewResult {
   // Scores per SPEC Section 16.2
   const scores: ReviewResult["scores"] = {
@@ -307,58 +422,83 @@ function generateMockReview(
     scores.company_connection = Math.floor(Math.random() * 3) + 2;
   }
 
-  // Top 3 issues
-  const top3: ReviewResult["top3"] = [
+  // For section mode, return fewer issues (1-2 instead of 3)
+  const isSection = reviewMode === "section";
+
+  // All possible issues
+  const allIssues: ReviewResult["top3"] = [
     {
       category: "具体性",
       issue: "具体的なエピソードが不足しています",
       suggestion: "数値や具体的な結果を追加してみましょう",
+      difficulty: "easy",
     },
     {
       category: "論理",
       issue: "因果関係が曖昧な部分があります",
       suggestion: "「なぜそう考えたか」を明確にしましょう",
+      difficulty: "medium",
     },
     {
       category: "熱意",
       issue: "志望度の高さが伝わりにくい表現になっています",
       suggestion: "その企業・職種でなければならない理由を具体的に述べましょう",
+      difficulty: "medium",
     },
   ];
 
   // Replace third issue with company_connection if RAG available
   if (hasCompanyRag) {
-    top3[2] = {
+    allIssues[2] = {
       category: "企業接続",
       issue: "企業の事業内容や求める人材像との接点が薄いです",
       suggestion: "企業の具体的な事業や価値観に触れながら、自分との接点を示しましょう",
+      difficulty: "hard",
     };
   }
 
+  // Section mode: 1-2 issues, Full mode: 3 issues
+  const top3 = isSection ? allIssues.slice(0, 2) : allIssues;
+
   // Generate rewrites based on plan
-  const baseRewrite = content.length > 200
-    ? content.substring(0, 200) + "...（改善例）"
-    : content + "（改善例）";
+  // Section mode: single rewrite respecting char limit
+  // Full mode: multiple rewrites based on plan
+  let rewrites: string[];
 
-  const rewrites = [baseRewrite];
-  if (rewriteCount >= 2) {
-    rewrites.push(
-      content.length > 150
-        ? `【堅め】${content.substring(0, 150)}...（堅実な表現に修正）`
-        : `【堅め】${content}（堅実な表現に修正）`
-    );
-  }
-  if (rewriteCount >= 3) {
-    rewrites.push(
-      content.length > 150
-        ? `【個性強め】${content.substring(0, 150)}...（独自性を強調）`
-        : `【個性強め】${content}（独自性を強調）`
-    );
+  if (isSection) {
+    // For section mode, generate a single rewrite respecting char limit
+    const maxLen = sectionCharLimit ? Math.max(20, sectionCharLimit - 10) : 200;
+    const sectionRewrite = content.length > maxLen
+      ? content.substring(0, maxLen) + "（改善例）"
+      : content + "（改善例）";
+    rewrites = [sectionRewrite];
+  } else {
+    // Full ES mode: multiple rewrites
+    const baseRewrite = content.length > 200
+      ? content.substring(0, 200) + "...（改善例）"
+      : content + "（改善例）";
+
+    rewrites = [baseRewrite];
+    if (rewriteCount >= 2) {
+      rewrites.push(
+        content.length > 150
+          ? `【堅め】${content.substring(0, 150)}...（堅実な表現に修正）`
+          : `【堅め】${content}（堅実な表現に修正）`
+      );
+    }
+    if (rewriteCount >= 3) {
+      rewrites.push(
+        content.length > 150
+          ? `【個性強め】${content.substring(0, 150)}...（独自性を強調）`
+          : `【個性強め】${content}（独自性を強調）`
+      );
+    }
   }
 
-  // Section feedbacks (paid only)
+  // Section feedbacks (paid only, full mode only)
+  // For section mode, we don't need section_feedbacks as we're reviewing a single section
   let section_feedbacks: ReviewResult["section_feedbacks"];
-  if (isPaid && sectionData && sectionData.length > 0) {
+  if (!isSection && isPaid && sectionData && sectionData.length > 0) {
     // Use sectionData with char limits
     section_feedbacks = sectionData.map((section) => {
       const charLimit = section.charLimit;
@@ -372,7 +512,7 @@ function generateMockReview(
         rewrite: mockRewrite,
       };
     });
-  } else if (isPaid && sections && sections.length > 0) {
+  } else if (!isSection && isPaid && sections && sections.length > 0) {
     // Fallback to simple sections (no char limits)
     section_feedbacks = sections.map((section) => ({
       section_title: section,

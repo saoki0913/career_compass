@@ -8,10 +8,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { companies, userProfiles } from "@/lib/db/schema";
-import { eq, or, desc } from "drizzle-orm";
+import { companies, userProfiles, deadlines, applications, documents } from "@/lib/db/schema";
+import { eq, or, desc, and, isNull, asc, sql, count } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { encrypt, decrypt } from "@/lib/crypto";
+import { CompanyStatus, VALID_STATUSES } from "@/lib/constants/status";
 
 // Plan limits for companies
 const COMPANY_LIMITS = {
@@ -20,10 +22,6 @@ const COMPANY_LIMITS = {
   standard: Infinity,
   pro: Infinity,
 };
-
-type CompanyStatus = "interested" | "applied" | "interview" | "offer" | "rejected" | "withdrawn";
-
-const VALID_STATUSES: CompanyStatus[] = ["interested", "applied", "interview", "offer", "rejected", "withdrawn"];
 
 /**
  * Get current user or guest from request
@@ -95,11 +93,130 @@ export async function GET(request: NextRequest) {
 
     const limit = COMPANY_LIMITS[identity.plan];
 
+    // Get company IDs for aggregate queries
+    const companyIds = userCompanies.map((c) => c.id);
+
+    if (companyIds.length === 0) {
+      return NextResponse.json({
+        companies: [],
+        count: 0,
+        limit: limit === Infinity ? null : limit,
+        canAddMore: true,
+      });
+    }
+
+    // Fetch nearest deadline per company (uncompleted, sorted by dueDate)
+    const now = new Date();
+    const nearestDeadlines = await db
+      .select({
+        companyId: deadlines.companyId,
+        id: deadlines.id,
+        title: deadlines.title,
+        dueDate: deadlines.dueDate,
+        type: deadlines.type,
+      })
+      .from(deadlines)
+      .where(
+        and(
+          isNull(deadlines.completedAt),
+          sql`${deadlines.companyId} IN (${sql.join(companyIds.map(id => sql`${id}`), sql`, `)})`
+        )
+      )
+      .orderBy(asc(deadlines.dueDate));
+
+    // Group by companyId and pick first (nearest) deadline
+    const nearestDeadlineMap = new Map<string, {
+      id: string;
+      title: string;
+      dueDate: Date;
+      type: string;
+      daysLeft: number;
+    }>();
+    for (const d of nearestDeadlines) {
+      if (!nearestDeadlineMap.has(d.companyId)) {
+        const daysLeft = Math.ceil((d.dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        nearestDeadlineMap.set(d.companyId, {
+          id: d.id,
+          title: d.title,
+          dueDate: d.dueDate,
+          type: d.type,
+          daysLeft,
+        });
+      }
+    }
+
+    // Fetch application counts per company
+    const applicationCounts = await db
+      .select({
+        companyId: applications.companyId,
+        total: count(),
+        active: sql<number>`SUM(CASE WHEN ${applications.status} = 'active' THEN 1 ELSE 0 END)`,
+      })
+      .from(applications)
+      .where(sql`${applications.companyId} IN (${sql.join(companyIds.map(id => sql`${id}`), sql`, `)})`)
+      .groupBy(applications.companyId);
+
+    const applicationCountMap = new Map<string, { total: number; active: number }>();
+    for (const a of applicationCounts) {
+      applicationCountMap.set(a.companyId, {
+        total: Number(a.total),
+        active: Number(a.active),
+      });
+    }
+
+    // Fetch document counts per company
+    const documentCounts = await db
+      .select({
+        companyId: documents.companyId,
+        total: count(),
+        esCount: sql<number>`SUM(CASE WHEN ${documents.type} = 'es' THEN 1 ELSE 0 END)`,
+      })
+      .from(documents)
+      .where(
+        and(
+          sql`${documents.companyId} IN (${sql.join(companyIds.map(id => sql`${id}`), sql`, `)})`,
+          sql`${documents.status} != 'deleted'`
+        )
+      )
+      .groupBy(documents.companyId);
+
+    const documentCountMap = new Map<string, { total: number; esCount: number }>();
+    for (const d of documentCounts) {
+      if (d.companyId) {
+        documentCountMap.set(d.companyId, {
+          total: Number(d.total),
+          esCount: Number(d.esCount),
+        });
+      }
+    }
+
+    // Combine all data
+    const companiesWithAggregates = userCompanies.map((company) => {
+      const nearestDeadline = nearestDeadlineMap.get(company.id);
+      const appCounts = applicationCountMap.get(company.id) || { total: 0, active: 0 };
+      const docCounts = documentCountMap.get(company.id) || { total: 0, esCount: 0 };
+
+      return {
+        ...company,
+        nearestDeadline: nearestDeadline ? {
+          id: nearestDeadline.id,
+          title: nearestDeadline.title,
+          dueDate: nearestDeadline.dueDate.toISOString(),
+          type: nearestDeadline.type,
+          daysLeft: nearestDeadline.daysLeft,
+        } : null,
+        applicationCount: appCounts.total,
+        activeApplicationCount: appCounts.active,
+        documentCount: docCounts.total,
+        esDocumentCount: docCounts.esCount,
+      };
+    });
+
     return NextResponse.json({
-      companies: userCompanies,
-      count: userCompanies.length,
+      companies: companiesWithAggregates,
+      count: companiesWithAggregates.length,
       limit: limit === Infinity ? null : limit,
-      canAddMore: userCompanies.length < limit,
+      canAddMore: companiesWithAggregates.length < limit,
     });
   } catch (error) {
     console.error("Error listing companies:", error);
@@ -122,7 +239,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, industry, recruitmentUrl, corporateUrl, notes, status } = body;
+    const { name, industry, recruitmentUrl, corporateUrl, mypageUrl, mypageLoginId, mypagePassword, notes, status } = body;
 
     // Validate required fields
     if (!name || typeof name !== "string" || name.trim().length === 0) {
@@ -203,8 +320,11 @@ export async function POST(request: NextRequest) {
       industry: industry?.trim() || null,
       recruitmentUrl: recruitmentUrl?.trim() || null,
       corporateUrl: corporateUrl?.trim() || null,
+      mypageUrl: mypageUrl?.trim() || null,
+      mypageLoginId: mypageLoginId?.trim() || null,
+      mypagePassword: mypagePassword?.trim() ? encrypt(mypagePassword.trim()) : null,
       notes: notes?.trim() || null,
-      status: (status as CompanyStatus) || "interested",
+      status: (status as CompanyStatus) || "inbox",
       infoFetchedAt: null,
       createdAt: now,
       updatedAt: now,

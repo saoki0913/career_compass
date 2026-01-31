@@ -310,6 +310,28 @@ const r2Client = new S3Client({
 
 ---
 
+## 🤖 AI (OpenAI / Anthropic) - 必要な場合
+
+ES添削や企業RAGを使う場合はAPIキーを設定します。
+
+```env
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+
+# RAG 埋め込み設定
+EMBEDDINGS_PROVIDER=auto  # auto | openai | local
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+LOCAL_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
+```
+
+ローカル埋め込みを使う場合は FastAPI の仮想環境で:
+
+```bash
+pip install sentence-transformers
+```
+
+---
+
 ## Step 3: データベースの初期化
 
 ```bash
@@ -343,6 +365,9 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
+
+> 現行RAGはBM25を使用しないため、`rank_bm25` / `fugashi` は必須ではありません。  
+> 将来BM25を再導入する場合のみ、`requirements.txt` から導入してください。
 
 http://localhost:8000/docs でAPIドキュメント確認可能
 
