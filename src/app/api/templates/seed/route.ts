@@ -107,7 +107,7 @@ export async function POST() {
         copyCount: 0,
         likeCount: 0,
         isAnonymous: false,
-        authorDisplayName: "ウカルン運営",
+        authorDisplayName: "Career Compass運営",
         shareToken: null,
         shareExpiresAt: null,
         language: "ja",

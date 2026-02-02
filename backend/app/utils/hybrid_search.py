@@ -352,7 +352,7 @@ async def expand_queries_with_llm(
         system_prompt=system_prompt,
         user_message=user_message,
         max_tokens=300,
-        temperature=0.3,
+        temperature=0.1,
         feature="rag_query",
         response_format="json_schema",
         json_schema=QUERY_EXPANSION_SCHEMA,

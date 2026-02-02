@@ -20,6 +20,8 @@ export const auth = betterAuth({
         "https://www.googleapis.com/auth/calendar.events",
         "https://www.googleapis.com/auth/calendar.freebusy",
       ],
+      accessType: "offline", // Required to get refresh token
+      prompt: "consent",     // Force consent to get new scopes on re-login
     },
   },
 });

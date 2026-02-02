@@ -13,12 +13,12 @@ anthropic>=0.40.0
 ddgs>=9.0.0
 # Vector database for RAG
 chromadb>=0.4.22
-# Sentence transformers for local embeddings (fallback)
-sentence-transformers>=2.2.2
-# NumPy 2.x breaks some torch/sentence-transformers builds
-numpy<2
+# NumPy (for embeddings and vector operations)
+numpy>=1.24.0
 # BM25 for hybrid search (keyword matching)
 bm25s>=0.1.0
+# LRU cache for memory management
+cachetools>=5.3.0
 # Redis cache
 redis>=5.0.0
 # Japanese tokenizer (MeCab wrapper)

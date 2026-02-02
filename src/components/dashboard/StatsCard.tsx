@@ -1,4 +1,22 @@
+import Link from "next/link";
 import { cn } from "@/lib/utils";
+
+// Arrow icon for clickable cards
+const ArrowRightIcon = () => (
+  <svg
+    className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-1"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M9 5l7 7-7 7"
+    />
+  </svg>
+);
 
 interface StatsCardProps {
   title: string;
@@ -12,6 +30,7 @@ interface StatsCardProps {
   variant?: "default" | "primary" | "accent";
   className?: string;
   onClick?: () => void;
+  href?: string;
 }
 
 export function StatsCard({
@@ -23,13 +42,16 @@ export function StatsCard({
   variant = "default",
   className,
   onClick,
+  href,
 }: StatsCardProps) {
-  return (
+  const isClickable = onClick || href;
+
+  const cardContent = (
     <div
       onClick={onClick}
       className={cn(
-        "relative overflow-hidden rounded-2xl p-6 transition-all duration-200",
-        onClick && "cursor-pointer",
+        "group relative overflow-hidden rounded-2xl p-6 transition-all duration-200",
+        isClickable && "cursor-pointer",
         "hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.99]",
         variant === "default" && "bg-card border border-border/50 shadow-sm",
         variant === "primary" &&
@@ -100,7 +122,24 @@ export function StatsCard({
             </span>
           </div>
         )}
+        {/* Arrow indicator for clickable cards */}
+        {isClickable && (
+          <div
+            className={cn(
+              "absolute bottom-4 right-4 opacity-50 group-hover:opacity-100 transition-opacity",
+              variant !== "default" && "text-current"
+            )}
+          >
+            <ArrowRightIcon />
+          </div>
+        )}
       </div>
     </div>
   );
+
+  if (href) {
+    return <Link href={href}>{cardContent}</Link>;
+  }
+
+  return cardContent;
 }

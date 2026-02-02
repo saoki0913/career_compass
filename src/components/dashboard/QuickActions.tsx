@@ -6,7 +6,7 @@ interface QuickAction {
   description: string;
   href: string;
   icon: React.ReactNode;
-  color: "indigo" | "orange" | "emerald" | "rose";
+  color: "indigo" | "orange" | "emerald" | "rose" | "sky";
 }
 
 interface QuickActionsProps {
@@ -19,11 +19,12 @@ const colorClasses = {
   orange: "from-orange-500 to-orange-600 shadow-orange-500/25 hover:shadow-orange-500/40",
   emerald: "from-emerald-500 to-emerald-600 shadow-emerald-500/25 hover:shadow-emerald-500/40",
   rose: "from-rose-500 to-rose-600 shadow-rose-500/25 hover:shadow-rose-500/40",
+  sky: "from-sky-500 to-sky-600 shadow-sky-500/25 hover:shadow-sky-500/40",
 };
 
 export function QuickActions({ actions, className }: QuickActionsProps) {
   return (
-    <div className={cn("grid grid-cols-2 lg:grid-cols-4 gap-4", className)}>
+    <div className={cn("grid grid-cols-2 gap-4", className)}>
       {actions.map((action, index) => (
         <Link
           key={index}

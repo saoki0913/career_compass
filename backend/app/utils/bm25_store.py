@@ -5,10 +5,14 @@ Provides BM25 (keyword) search indexing with persistence.
 Used for hybrid search combining with semantic search.
 """
 
+import json
 import pickle
+import time
 from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass, field
+
+from cachetools import LRUCache
 
 try:
     import bm25s
@@ -22,6 +26,9 @@ from app.utils.japanese_tokenizer import tokenize
 
 # BM25 index persistence directory
 BM25_PERSIST_DIR = Path(__file__).parent.parent.parent / "data" / "bm25"
+
+# Current JSON format version for schema validation
+BM25_FORMAT_VERSION = 1
 
 
 @dataclass
@@ -167,11 +174,12 @@ class BM25Index:
         self._bm25 = None
 
     def save(self):
-        """Save the index to disk."""
+        """Save the index to disk using JSON format."""
         BM25_PERSIST_DIR.mkdir(parents=True, exist_ok=True)
-        path = BM25_PERSIST_DIR / f"{self.company_id}.pkl"
+        json_path = BM25_PERSIST_DIR / f"{self.company_id}.json"
 
         data = {
+            "version": BM25_FORMAT_VERSION,
             "company_id": self.company_id,
             "documents": [
                 {
@@ -184,8 +192,8 @@ class BM25Index:
             ]
         }
 
-        with open(path, "wb") as f:
-            pickle.dump(data, f)
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
 
         print(f"[BM25] Saved index for {self.company_id} ({len(self.documents)} docs)")
 
@@ -194,36 +202,91 @@ class BM25Index:
         """
         Load an index from disk.
 
+        Tries JSON format first (secure), then falls back to pickle for migration.
+        Corrupted files are moved to .corrupted extension.
+
         Args:
             company_id: Company identifier
 
         Returns:
             BM25Index if found, None otherwise
         """
-        path = BM25_PERSIST_DIR / f"{company_id}.pkl"
-        if not path.exists():
-            return None
+        json_path = BM25_PERSIST_DIR / f"{company_id}.json"
+        pkl_path = BM25_PERSIST_DIR / f"{company_id}.pkl"
 
-        try:
-            with open(path, "rb") as f:
-                data = pickle.load(f)
+        # Try JSON first (new secure format)
+        if json_path.exists():
+            try:
+                with open(json_path, encoding="utf-8") as f:
+                    data = json.load(f)
 
-            index = cls(company_id)
-            for doc_data in data.get("documents", []):
-                doc = BM25Document(
-                    doc_id=doc_data["doc_id"],
-                    text=doc_data["text"],
-                    tokens=doc_data["tokens"],
-                    metadata=doc_data.get("metadata", {})
-                )
-                index.documents.append(doc)
+                # Validate schema version
+                version = data.get("version", 0)
+                if version != BM25_FORMAT_VERSION:
+                    print(f"[BM25] ⚠️ Unsupported version {version} for {company_id}")
+                    return None
 
-            print(f"[BM25] Loaded index for {company_id} ({len(index.documents)} docs)")
-            return index
+                index = cls(company_id)
+                for doc_data in data.get("documents", []):
+                    doc = BM25Document(
+                        doc_id=doc_data["doc_id"],
+                        text=doc_data["text"],
+                        tokens=doc_data["tokens"],
+                        metadata=doc_data.get("metadata", {})
+                    )
+                    index.documents.append(doc)
 
-        except Exception as e:
-            print(f"[BM25] Error loading index for {company_id}: {e}")
-            return None
+                print(f"[BM25] ✅ Loaded index for {company_id} ({len(index.documents)} docs)")
+                return index
+
+            except Exception as e:
+                print(f"[BM25] ❌ Error loading JSON index for {company_id}: {e}")
+                # Move corrupted file
+                corrupted_path = json_path.with_suffix(f".json.corrupted.{int(time.time())}")
+                try:
+                    json_path.rename(corrupted_path)
+                    print(f"[BM25] Moved corrupted file to: {corrupted_path}")
+                except Exception as rename_error:
+                    print(f"[BM25] Could not move corrupted file: {rename_error}")
+                return None
+
+        # Fall back to pickle for migration (legacy format)
+        if pkl_path.exists():
+            try:
+                print(f"[BM25] Migrating pickle to JSON for {company_id}...")
+                with open(pkl_path, "rb") as f:
+                    data = pickle.load(f)
+
+                index = cls(company_id)
+                for doc_data in data.get("documents", []):
+                    doc = BM25Document(
+                        doc_id=doc_data["doc_id"],
+                        text=doc_data["text"],
+                        tokens=doc_data["tokens"],
+                        metadata=doc_data.get("metadata", {})
+                    )
+                    index.documents.append(doc)
+
+                # Save as JSON (migrate)
+                index.save()
+
+                # Remove old pickle file after successful migration
+                pkl_path.unlink()
+                print(f"[BM25] ✅ Migrated {company_id} from pickle to JSON ({len(index.documents)} docs)")
+                return index
+
+            except Exception as e:
+                print(f"[BM25] ❌ Error loading pickle index for {company_id}: {e}")
+                # Move corrupted pickle file
+                corrupted_path = pkl_path.with_suffix(f".pkl.corrupted.{int(time.time())}")
+                try:
+                    pkl_path.rename(corrupted_path)
+                    print(f"[BM25] Moved corrupted pickle to: {corrupted_path}")
+                except Exception as rename_error:
+                    print(f"[BM25] Could not move corrupted file: {rename_error}")
+                return None
+
+        return None
 
     @classmethod
     def delete(cls, company_id: str) -> bool:
@@ -236,29 +299,39 @@ class BM25Index:
         Returns:
             True if deleted, False if not found
         """
-        path = BM25_PERSIST_DIR / f"{company_id}.pkl"
-        if path.exists():
-            path.unlink()
+        deleted = False
+        json_path = BM25_PERSIST_DIR / f"{company_id}.json"
+        pkl_path = BM25_PERSIST_DIR / f"{company_id}.pkl"
+
+        if json_path.exists():
+            json_path.unlink()
+            deleted = True
+        if pkl_path.exists():
+            pkl_path.unlink()
+            deleted = True
+
+        if deleted:
             print(f"[BM25] Deleted index for {company_id}")
-            return True
-        return False
+        return deleted
 
     @classmethod
     def exists(cls, company_id: str) -> bool:
         """Check if an index exists on disk."""
-        path = BM25_PERSIST_DIR / f"{company_id}.pkl"
-        return path.exists()
+        json_path = BM25_PERSIST_DIR / f"{company_id}.json"
+        pkl_path = BM25_PERSIST_DIR / f"{company_id}.pkl"
+        return json_path.exists() or pkl_path.exists()
 
 
-# Index cache for performance
-_index_cache: dict[str, BM25Index] = {}
+# LRU cache for performance with bounded memory usage
+# Max 100 companies cached to prevent memory leak
+_index_cache: LRUCache = LRUCache(maxsize=100)
 
 
 def get_or_create_index(company_id: str) -> BM25Index:
     """
     Get or create a BM25 index for a company.
 
-    Uses in-memory cache for performance.
+    Uses LRU cache for performance with bounded memory.
 
     Args:
         company_id: Company identifier

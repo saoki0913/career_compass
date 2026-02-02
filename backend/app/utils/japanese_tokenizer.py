@@ -3,9 +3,16 @@ Japanese Tokenizer Module
 
 Provides Japanese text tokenization using MeCab (via fugashi).
 Used for BM25 keyword search.
+
+Improvements:
+- Domain term expansion for job-seeking vocabulary
+- Synonym handling for common abbreviations
 """
 
 from typing import Optional
+from functools import lru_cache
+from pathlib import Path
+import json
 import re
 
 # Try to import fugashi for MeCab-based tokenization
@@ -15,6 +22,33 @@ try:
 except ImportError:
     HAS_FUGASHI = False
     print("Warning: fugashi not installed. Using fallback tokenizer.")
+
+# Domain terms dictionary path
+DOMAIN_TERMS_PATH = Path(__file__).parent.parent.parent / "data" / "domain_terms.json"
+
+
+@lru_cache(maxsize=1)
+def _load_domain_terms() -> dict:
+    """Load domain terms dictionary with caching."""
+    if DOMAIN_TERMS_PATH.exists():
+        try:
+            with open(DOMAIN_TERMS_PATH, encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+
+def get_compound_terms() -> dict[str, list[str]]:
+    """Get compound term expansions."""
+    data = _load_domain_terms()
+    return data.get("compound_terms", {})
+
+
+def get_synonyms() -> dict[str, list[str]]:
+    """Get synonym mappings."""
+    data = _load_domain_terms()
+    return data.get("synonyms", {})
 
 
 class JapaneseTokenizer:
@@ -138,3 +172,76 @@ def tokenize(text: str) -> list[str]:
         List of tokens
     """
     return get_tokenizer().tokenize(text)
+
+
+def tokenize_with_domain_expansion(text: str, expand_compounds: bool = True) -> list[str]:
+    """
+    Tokenize text with domain-specific term expansion.
+
+    Expands compound terms (e.g., "新卒採用" → ["新卒採用", "新卒", "採用"])
+    and handles synonyms for job-seeking vocabulary.
+
+    Args:
+        text: Text to tokenize
+        expand_compounds: Whether to expand compound terms
+
+    Returns:
+        List of tokens with expansions
+    """
+    base_tokens = tokenize(text)
+
+    if not expand_compounds:
+        return base_tokens
+
+    compound_terms = get_compound_terms()
+    synonyms = get_synonyms()
+
+    expanded: list[str] = []
+    seen: set[str] = set()
+
+    for token in base_tokens:
+        # Add original token
+        if token not in seen:
+            expanded.append(token)
+            seen.add(token)
+
+        # Check for compound term expansion
+        if token in compound_terms:
+            for expansion in compound_terms[token]:
+                if expansion not in seen:
+                    expanded.append(expansion)
+                    seen.add(expansion)
+
+        # Check for synonym expansion
+        if token.upper() in synonyms:
+            for syn in synonyms[token.upper()]:
+                if syn not in seen:
+                    expanded.append(syn)
+                    seen.add(syn)
+
+    return expanded
+
+
+def expand_query_terms(query: str) -> str:
+    """
+    Expand query with domain-specific synonyms.
+
+    Useful for BM25 query expansion.
+
+    Args:
+        query: Original query
+
+    Returns:
+        Expanded query string
+    """
+    tokens = tokenize_with_domain_expansion(query)
+    return " ".join(tokens)
+
+
+def reload_domain_terms() -> None:
+    """
+    Reload domain terms dictionary.
+
+    Call this after updating the domain_terms.json file.
+    """
+    _load_domain_terms.cache_clear()

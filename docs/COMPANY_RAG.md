@@ -74,6 +74,75 @@ ES添削時に企業固有のコンテキストを提供するRAG（Retrieval-Au
 
 **注意**: 旧 `recruitment_homepage` は `new_grad_recruitment` に移行。既存データは自動マッピングされる。
 
+### 3.1 コンテンツタイプと検索コンテキストの関係
+
+RAG検索時、検索コンテキスト（ES添削、スケジュール取得、企業情報取得）に応じて各コンテンツタイプに異なるブースト係数が適用される。
+
+#### 検索コンテキスト別ブースト係数
+
+**ES添削 (es_review)**:
+
+| ContentType | ブースト | 理由 |
+|-------------|---------|------|
+| `new_grad_recruitment` | 1.5 | 最優先: 求める人材像、選考情報 |
+| `midcareer_recruitment` | 1.3 | 採用要件、仕事内容 |
+| `ceo_message` | 1.2 | 企業理念、ビジョン |
+| `employee_interviews` | 1.2 | 社風、働き方 |
+| `corporate_site` | 1.0 | 基本情報（標準） |
+| `midterm_plan` | 0.9 | 戦略情報 |
+| `ir_materials` | 0.8 | 財務情報（ES向けでは優先度低） |
+| `csr_sustainability` | 0.8 | CSR活動 |
+| `press_release` | 0.7 | ニュース（ES向けでは優先度低） |
+
+**スケジュール取得 (schedule_fetch)**:
+
+| ContentType | ブースト | 理由 |
+|-------------|---------|------|
+| `new_grad_recruitment` | 2.0 | 最優先: 締切、選考フロー情報源 |
+| `midcareer_recruitment` | 1.5 | 中途採用スケジュール |
+| `corporate_site` | 0.5 | 基本情報（スケジュールは少ない） |
+| `press_release` | 0.4 | 採用関連リリース |
+| `ir_materials` | 0.3 | IR情報（スケジュールは少ない） |
+
+**企業情報取得 (company_info)**:
+
+| ContentType | ブースト | 理由 |
+|-------------|---------|------|
+| `corporate_site` | 1.3 | 最優先: 会社概要、事業内容 |
+| `midterm_plan` | 1.2 | 経営方針、戦略 |
+| `ceo_message` | 1.2 | 企業ビジョン |
+| `ir_materials` | 1.1 | 財務・業績情報 |
+| `csr_sustainability` | 1.0 | ESG情報 |
+| `new_grad_recruitment` | 0.8 | 採用情報（企業情報としては優先度低） |
+
+**参照実装**: `backend/app/utils/hybrid_search.py` - `CONTENT_TYPE_BOOSTS`
+
+#### ブースト計算式
+
+```python
+final_score = base_score × content_type_boost × domain_boost
+
+# domain_boost の例:
+# - 公式ドメイン: 1.5
+# - 就活サイト: 1.0
+# - その他: 0.8
+```
+
+#### 例: ES添削時の検索結果スコアリング
+
+```
+企業: NTTデータ
+検索クエリ: ESコンテンツ（リーダーシップ経験について）
+
+検索結果:
+1. 新卒採用HP「求める人物像」 → base=0.85, boost=1.5, domain=1.5 → final=1.91
+2. 社員インタビュー「若手リーダー」 → base=0.82, boost=1.2, domain=1.5 → final=1.48
+3. IR資料「人材戦略」 → base=0.80, boost=0.8, domain=1.5 → final=0.96
+4. プレスリリース「新サービス」 → base=0.78, boost=0.7, domain=1.5 → final=0.82
+
+→ 新卒採用HP と 社員インタビュー が上位にランク
+```
+
 ---
 
 ## 4. 検索アルゴリズム
@@ -494,13 +563,9 @@ ES添削用のコンテキストを取得
 
 ```json
 {
+  "company_id": "uuid",
   "has_rag": true,
   "total_chunks": 25,
-  "recruitment_chunks": 15,
-  "corporate_ir_chunks": 5,
-  "corporate_business_chunks": 3,
-  "corporate_general_chunks": 2,
-  "structured_chunks": 0,
   "new_grad_recruitment_chunks": 6,
   "midcareer_recruitment_chunks": 2,
   "corporate_site_chunks": 6,
@@ -510,12 +575,9 @@ ES添削用のコンテキストを取得
   "press_release_chunks": 2,
   "csr_sustainability_chunks": 1,
   "midterm_plan_chunks": 1,
-  "recruitment_homepage_chunks": 0,
   "last_updated": "2024-01-15T10:00:00Z"
 }
 ```
-
-**注意**: `recruitment_homepage_chunks` はレガシー互換用。新規データは `new_grad_recruitment_chunks` / `midcareer_recruitment_chunks` に分類される。
 
 ### 8.4 RAG削除
 

@@ -55,8 +55,35 @@ async function verifyGakuchikaAccess(
 }
 
 interface Message {
+  id: string;
   role: "user" | "assistant";
   content: string;
+}
+
+// Safe JSON parse for messages with backward compatibility
+function safeParseMessages(json: string): Message[] {
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) {
+      console.error("Invalid messages format: not an array");
+      return [];
+    }
+    // Add IDs to messages that don't have them (backward compatibility)
+    return parsed
+      .filter((m): m is { role: string; content: string; id?: string } =>
+        m && typeof m === "object" &&
+        (m.role === "user" || m.role === "assistant") &&
+        typeof m.content === "string"
+      )
+      .map(m => ({
+        id: m.id || crypto.randomUUID(),
+        role: m.role as "user" | "assistant",
+        content: m.content
+      }));
+  } catch (error) {
+    console.error("Failed to parse messages JSON:", error);
+    return [];
+  }
 }
 
 // Configuration per SPEC Section 17.2
@@ -177,10 +204,29 @@ export async function GET(
         );
       }
 
+      // Create conversation record immediately with first question persisted
+      const conversationId = crypto.randomUUID();
+      const now = new Date();
+      const initialMessages: Message[] = [{
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: initialQuestion!
+      }];
+
+      await db.insert(gakuchikaConversations).values({
+        id: conversationId,
+        gakuchikaId,
+        messages: JSON.stringify(initialMessages),
+        questionCount: 0,
+        status: "in_progress",
+        createdAt: now,
+        updatedAt: now,
+      });
+
       return NextResponse.json({
-        conversation: null,
-        messages: [],
-        nextQuestion: initialQuestion,
+        conversation: { id: conversationId, questionCount: 0, status: "in_progress" },
+        messages: initialMessages,
+        nextQuestion: null, // Already in messages
         questionCount: 0,
         isCompleted: false,
         suggestedEnd: false,
@@ -191,7 +237,7 @@ export async function GET(
       });
     }
 
-    const messages: Message[] = JSON.parse(conversation.messages);
+    const messages: Message[] = safeParseMessages(conversation.messages);
     const qCount = conversation.questionCount || 0;
 
     // For existing conversations, get next question from FastAPI if not completed

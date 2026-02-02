@@ -230,8 +230,11 @@ export async function POST(
             industry: companyInfo.industry,
             question: sectionTitle || "",
             answer: content,
-            // 文字数範囲: 上限 - 5 〜 上限（例: 400文字制限 → 395〜400文字）
-            char_min: sectionCharLimit ? sectionCharLimit - 5 : null,
+            // 文字数範囲: 許容幅は10%または最小20文字（例: 400文字制限 → 360〜400文字）
+            // これにより文字数超過エラーの頻度を大幅に削減
+            char_min: sectionCharLimit
+              ? sectionCharLimit - Math.max(20, Math.floor(sectionCharLimit * 0.10))
+              : null,
             char_max: sectionCharLimit || null,
             intern_name: internName || null,
             role_name: roleName || null,

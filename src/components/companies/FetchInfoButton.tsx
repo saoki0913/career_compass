@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { ProcessingSteps, COMPANY_FETCH_STEPS } from "@/components/ui/ProcessingSteps";
 
-type SelectionType = "main_selection" | "internship" | null;
+type SelectionType = "main_selection" | "internship";
+type SelectionTypeState = SelectionType | null;
 
 interface FetchInfoButtonProps {
   companyId: string;
@@ -19,12 +21,14 @@ interface SearchCandidate {
   url: string;
   title: string;
   confidence: "high" | "medium" | "low";
-  sourceType: "official" | "job_site" | "other";
+  sourceType: "official" | "job_site" | "subsidiary" | "parent" | "other";
 }
 
 // Integrated badge labels (combining source type + confidence)
 const INTEGRATED_BADGE_LABELS: Record<string, Record<string, string>> = {
   official: { high: "公式・高", medium: "公式・中", low: "公式・低" },
+  subsidiary: { high: "子会社・高", medium: "子会社・中", low: "子会社・低" },
+  parent: { high: "親会社・高", medium: "親会社・中", low: "親会社・低" },
   job_site: { high: "就活・高", medium: "就活・中", low: "就活・低" },
   other: { high: "関連・高", medium: "関連・中", low: "関連・低" },
 };
@@ -35,6 +39,16 @@ const INTEGRATED_BADGE_COLORS: Record<string, Record<string, { bg: string; text:
     high: { bg: "bg-emerald-100", text: "text-emerald-700" },
     medium: { bg: "bg-emerald-100", text: "text-emerald-700" },
     low: { bg: "bg-emerald-50", text: "text-emerald-600" },
+  },
+  subsidiary: {
+    high: { bg: "bg-orange-100", text: "text-orange-700" },
+    medium: { bg: "bg-orange-100", text: "text-orange-700" },
+    low: { bg: "bg-orange-50", text: "text-orange-600" },
+  },
+  parent: {
+    high: { bg: "bg-purple-100", text: "text-purple-700" },
+    medium: { bg: "bg-purple-100", text: "text-purple-700" },
+    low: { bg: "bg-purple-50", text: "text-purple-600" },
   },
   job_site: {
     high: { bg: "bg-blue-100", text: "text-blue-700" },
@@ -158,8 +172,10 @@ export function FetchInfoButton({
   const [calendarNotice, setCalendarNotice] = useState<string | null>(null);
   // Progress tracking for sequential URL processing
   const [fetchProgress, setFetchProgress] = useState<{ current: number; total: number } | null>(null);
-  // Selection type filter (main_selection / internship)
-  const [selectionType, setSelectionType] = useState<SelectionType>(null);
+  // Selection type filter (main_selection / internship) - required for accurate search
+  const [selectionType, setSelectionType] = useState<SelectionTypeState>(null);
+  // Selection type modal visibility
+  const [showSelectionTypeModal, setShowSelectionTypeModal] = useState(false);
   // User's graduation year from profile
   const [graduationYear, setGraduationYear] = useState<number | null>(null);
   // Whether the current search used relaxed (snippet) matching
@@ -200,6 +216,7 @@ export function FetchInfoButton({
           customQuery: queryToUse || undefined,
           selectionType: selectionType || undefined,
           allowSnippetMatch,
+          graduationYear: graduationYear || undefined,
         }),
       });
 
@@ -216,9 +233,9 @@ export function FetchInfoButton({
       if (hasRecruitmentUrl) {
         defaultSelections.push("existing");
       }
-      // Auto-select high confidence candidates
+      // Auto-select only (official, high) candidates
       data.candidates.forEach((c) => {
-        if (c.confidence === "high") {
+        if (c.sourceType === "official" && c.confidence === "high") {
           defaultSelections.push(c.url);
         }
       });
@@ -506,7 +523,7 @@ export function FetchInfoButton({
     setSearchQuery("");
     setError(null);
     setFetchProgress(null);
-    setSelectionType(null);
+    // Keep selectionType for next search - reset only when selection type modal is cancelled
     setIsRelaxedSearch(false);
   };
 
@@ -526,7 +543,7 @@ export function FetchInfoButton({
     <>
       <Button
         variant="outline"
-        onClick={() => handleSearchPages()}
+        onClick={() => setShowSelectionTypeModal(true)}
         disabled={isSearching || isFetching}
         className="gap-2"
       >
@@ -542,6 +559,105 @@ export function FetchInfoButton({
           </>
         )}
       </Button>
+
+      {/* Selection Type Modal - Step 1: Choose selection type before search */}
+      {showSelectionTypeModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="max-w-md w-full">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">選考タイプを選択</CardTitle>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSelectionTypeModal(false);
+                    setSelectionType(null);
+                  }}
+                  className="p-1 rounded-full hover:bg-muted transition-colors"
+                >
+                  <XIcon />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {companyName} の選考スケジュールを検索します
+              </p>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  選考タイプ
+                  <span className="text-red-500 ml-1">*</span>
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectionType("main_selection")}
+                    className={cn(
+                      "flex-1 px-4 py-3 text-sm rounded-lg border transition-colors",
+                      selectionType === "main_selection"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "hover:bg-muted"
+                    )}
+                  >
+                    本選考
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectionType("internship")}
+                    className={cn(
+                      "flex-1 px-4 py-3 text-sm rounded-lg border transition-colors",
+                      selectionType === "internship"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "hover:bg-muted"
+                    )}
+                  >
+                    インターン
+                  </button>
+                </div>
+                {!selectionType && (
+                  <p className="text-xs text-red-500">
+                    選考タイプを選択してください
+                  </p>
+                )}
+                {graduationYear && selectionType && (
+                  <p className="text-xs text-muted-foreground">
+                    {graduationYear % 100}卒向けの{selectionType === "main_selection" ? "本選考" : "インターン"}スケジュールを検索します
+                  </p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowSelectionTypeModal(false);
+                    setSelectionType(null);
+                  }}
+                >
+                  キャンセル
+                </Button>
+                <Button
+                  onClick={() => {
+                    setShowSelectionTypeModal(false);
+                    handleSearchPages();
+                  }}
+                  disabled={!selectionType || isSearching}
+                >
+                  {isSearching ? (
+                    <>
+                      <LoadingSpinner />
+                      <span className="ml-2">検索中...</span>
+                    </>
+                  ) : (
+                    "検索"
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* URL Selector modal */}
       {showUrlSelector && (
@@ -585,56 +701,45 @@ export function FetchInfoButton({
                     )}
                   </Button>
                 </div>
-                {/* Progress indicator */}
-                {fetchProgress && (
+                {/* Progress indicator - Labor Illusion: Show processing steps */}
+                {isFetching && (
                   <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <div className="flex items-center gap-2">
-                      <LoadingSpinner />
-                      <span className="text-sm text-blue-800">
-                        処理中: {fetchProgress.current} / {fetchProgress.total}
-                      </span>
-                    </div>
+                    {fetchProgress ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm text-blue-800">
+                          <span>処理中: {fetchProgress.current} / {fetchProgress.total}</span>
+                          <span className="font-medium">
+                            {Math.round((fetchProgress.current / fetchProgress.total) * 100)}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-blue-200 rounded-full h-1.5">
+                          <div
+                            className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                            style={{ width: `${(fetchProgress.current / fetchProgress.total) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <ProcessingSteps steps={COMPANY_FETCH_STEPS} isActive={isFetching} />
+                    )}
                   </div>
                 )}
               </div>
 
-              {/* Selection type filter */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">選考タイプ</label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectionType(selectionType === "main_selection" ? null : "main_selection")}
-                    className={cn(
-                      "px-3 py-2 text-sm rounded-lg border transition-colors",
-                      selectionType === "main_selection"
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "hover:bg-muted"
-                    )}
-                    disabled={isFetching || isSearching}
-                  >
-                    本選考
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectionType(selectionType === "internship" ? null : "internship")}
-                    className={cn(
-                      "px-3 py-2 text-sm rounded-lg border transition-colors",
-                      selectionType === "internship"
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "hover:bg-muted"
-                    )}
-                    disabled={isFetching || isSearching}
-                  >
-                    インターン
-                  </button>
+              {/* Display selected type */}
+              {selectionType && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">選考タイプ:</span>
+                  <span className="px-2 py-1 rounded-md bg-primary/10 text-primary font-medium">
+                    {selectionType === "main_selection" ? "本選考" : "インターン"}
+                  </span>
+                  {graduationYear && (
+                    <span className="text-muted-foreground">
+                      ({graduationYear % 100}卒向け)
+                    </span>
+                  )}
                 </div>
-                {graduationYear && (
-                  <p className="text-xs text-muted-foreground">
-                    {graduationYear % 100}卒向けの選考スケジュールを検索します
-                  </p>
-                )}
-              </div>
+              )}
 
               {/* Custom search input */}
               <div className="flex gap-2">
@@ -730,7 +835,15 @@ export function FetchInfoButton({
                           );
                         })()}
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1 truncate">{candidate.url}</p>
+                      <a
+                        href={candidate.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-xs text-muted-foreground mt-1 truncate block hover:text-primary hover:underline transition-colors"
+                      >
+                        {candidate.url}
+                      </a>
                     </div>
                   </label>
                 ))}

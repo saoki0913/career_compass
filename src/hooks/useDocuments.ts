@@ -312,3 +312,48 @@ export function useDocument(documentId: string) {
     updateDocument,
   };
 }
+
+// Hook for ES statistics (for dashboard)
+export function useEsStats() {
+  const [stats, setStats] = useState<{
+    draftCount: number;
+    publishedCount: number;
+    total: number;
+  }>({ draftCount: 0, publishedCount: 0, total: 0 });
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const response = await fetch("/api/documents?type=es", {
+          headers: buildHeaders(),
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json();
+        const documents: Document[] = data.documents || [];
+
+        const draftCount = documents.filter((d) => d.status === "draft").length;
+        const publishedCount = documents.filter((d) => d.status === "published").length;
+
+        setStats({
+          draftCount,
+          publishedCount,
+          total: draftCount + publishedCount,
+        });
+      } catch {
+        // Ignore errors, use default values
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchStats();
+  }, []);
+
+  return { ...stats, isLoading };
+}

@@ -352,10 +352,11 @@ def get_template_labels() -> dict[str, str]:
 
 def get_character_budget(char_min: Optional[int], char_max: Optional[int]) -> str:
     """
-    Generate section-by-section character budget guidance.
+    Generate section-by-section character budget guidance with safety margins.
 
     This helps the LLM plan content distribution before writing,
-    improving character limit compliance.
+    improving character limit compliance. Uses safety margins to reduce
+    character count failures.
 
     Args:
         char_min: Minimum character count (optional)
@@ -364,37 +365,64 @@ def get_character_budget(char_min: Optional[int], char_max: Optional[int]) -> st
     Returns:
         Character budget guidance string, or empty string if no limits set
     """
-    # Calculate target character count
-    if char_min and char_max:
-        target = (char_min + char_max) // 2
-    elif char_max:
-        target = char_max
-    elif char_min:
-        target = char_min
-    else:
+    if not char_min and not char_max:
         return ""
+
+    # Calculate targets with safety margins
+    # Aim for 95% of max to leave buffer for adjustment
+    if char_min and char_max:
+        # Target the middle of safe range (min to 95% of max)
+        safe_max = int(char_max * 0.95)
+        target = (char_min + safe_max) // 2
+        safe_range = f"{char_min}〜{safe_max}字"
+        constraint = f"{char_min}字〜{char_max}字"
+    elif char_max:
+        # For upper-only limits, aim for 90% of max
+        target = int(char_max * 0.90)
+        safe_max = int(char_max * 0.95)
+        safe_range = f"{safe_max}字以内"
+        constraint = f"{char_max}字以内"
+    else:
+        # For lower-only limits, aim for 5% above min
+        target = int(char_min * 1.05)
+        safe_range = f"{int(char_min * 1.02)}字以上"
+        constraint = f"{char_min}字以上"
 
     # Typical ES structure allocation
     intro_budget = int(target * 0.15)  # 15% for opening statement
     body_budget = int(target * 0.70)   # 70% for main content
     conclusion_budget = int(target * 0.15)  # 15% for conclusion
 
-    # Build constraint description
-    if char_min and char_max:
-        constraint = f"{char_min}字〜{char_max}字"
-    elif char_max:
-        constraint = f"{char_max}字以内"
-    else:
-        constraint = f"{char_min}字以上"
+    return f"""【文字数管理 - 厳守事項】
 
-    return f"""【文字数配分ガイド】（目標: {target}字、制限: {constraint}）
-- 導入（結論/主張）: 約{intro_budget}字
-- 本論（具体的経験・根拠）: 約{body_budget}字
-- 結論（まとめ・展望）: 約{conclusion_budget}字
+■ 目標文字数: {target}字（安全範囲: {safe_range}）
+■ 制限: {constraint}
 
-各パターンを書き終えた後、必ず len() で文字数を確認し、
-{constraint}の範囲内に収めてください。
-範囲外の場合は、本論部分の具体性を調整してください。"""
+■ 構成配分ガイド:
+  - 導入（結論/主張）: 約{intro_budget}字
+  - 本論（具体的経験・根拠）: 約{body_budget}字
+  - 結論（まとめ・展望）: 約{conclusion_budget}字
+
+■ 必須検証手順:
+  1. 各パターンを書き終えた後、len(text) で文字数を計算
+  2. {safe_range}の範囲外なら以下で調整:
+     【多い場合の削減テクニック】
+     - 「〜ということ」→「〜こと」
+     - 「〜というような」→「〜のような」または省略
+     - 「〜させていただく」→「〜する」
+     - 「非常に大きな」→「大きな」
+     - 重複する修飾語を統合
+     【少ない場合の追加テクニック】
+     - 具体的な数値（期間、人数、成果の数字）
+     - エピソードの背景説明（「〜の状況下で」）
+     - 学びや気づきの補強
+  3. 調整後、再度 len(text) で確認
+  4. char_count に正確な文字数を記録
+
+■ よくある失敗:
+  × char_countに概算値を記録 → 必ずlen()の結果を使用
+  × 上限ギリギリを狙う → 安全範囲内を目標に
+  × 数値を削って短縮 → 具体性は維持、冗長表現を削減"""
 
 
 def build_template_prompt(
@@ -544,10 +572,14 @@ def build_template_prompt(
 【チェックリスト】
 {template_prompt['checklist']}
 
-【JSON出力形式】
-必ず以下のJSON形式で出力してください。マークダウンのコードブロックは使用しないでください。
-改行やタブは文字列中では使用せず、必要なら \\n のようにエスケープしてください。
-文字列は必ずダブルクォートで囲み、JSONは1つだけ出力してください。
+【JSON出力形式 - 厳守】
+# 以下の制約を必ず守ること:
+1. JSONオブジェクトのみを出力（マークダウン、説明文、```コードブロック禁止）
+2. { で始まり } で終わる（前後に何も付けない）
+3. 全ての文字列は必ずダブルクォート（"）で囲む
+4. 文字列内の改行は \\n、タブは \\t でエスケープ
+5. 配列・オブジェクトの最後の要素にカンマを付けない（[1, 2,] ← 禁止）
+6. strengthen_points は空配列 [] でも必ず含めること
 
 {{
   "scores": {{

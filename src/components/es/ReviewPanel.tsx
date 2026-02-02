@@ -11,6 +11,7 @@ import { ScoreDisplay } from "./ScoreDisplay";
 import { ImprovementList } from "./ImprovementList";
 import { RewriteDisplay } from "./RewriteDisplay";
 import { ReflectModal } from "./ReflectModal";
+import { ProcessingSteps, ES_REVIEW_STEPS } from "@/components/ui/ProcessingSteps";
 
 // Section review request from parent component
 interface SectionReviewRequest {
@@ -62,6 +63,56 @@ const ChevronDownIcon = () => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
   </svg>
 );
+
+// Real-time credit cost indicator component (UX Psychology: Cognitive Load Reduction)
+interface CreditCostIndicatorProps {
+  charCount: number;
+  className?: string;
+}
+
+function CreditCostIndicator({ charCount, className }: CreditCostIndicatorProps) {
+  const cost = Math.min(5, Math.ceil(charCount / 800) || 1);
+  const nextThreshold = cost < 5 ? cost * 800 : null;
+  const charsToNext = nextThreshold ? nextThreshold - charCount : null;
+
+  return (
+    <div className={cn("space-y-2", className)}>
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground">予想消費クレジット</span>
+        <span className="text-sm font-semibold text-primary">{cost} クレジット</span>
+      </div>
+      <div className="flex items-center gap-2">
+        {/* Visual credit bar */}
+        <div className="flex gap-0.5 flex-1">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div
+              key={i}
+              className={cn(
+                "h-2 flex-1 rounded-sm transition-all duration-300",
+                i <= cost ? "bg-primary" : "bg-muted"
+              )}
+            />
+          ))}
+        </div>
+        {/* Character info */}
+        <span className="text-xs text-muted-foreground whitespace-nowrap">
+          {charCount}文字
+        </span>
+      </div>
+      {/* Next threshold hint */}
+      {charsToNext !== null && charsToNext > 0 && (
+        <p className="text-xs text-muted-foreground">
+          あと<span className="font-medium text-foreground">{charsToNext}</span>文字で +1 クレジット
+        </p>
+      )}
+      {cost === 5 && (
+        <p className="text-xs text-amber-600">
+          上限の5クレジットに達しています
+        </p>
+      )}
+    </div>
+  );
+}
 
 export function ReviewPanel({
   documentId,
@@ -340,14 +391,9 @@ export function ReviewPanel({
                 )}
               </div>
 
-              {/* Credit Info */}
+              {/* Credit Cost Indicator - Real-time visual feedback */}
               <div className="p-3 bg-muted/50 rounded-lg">
-                <p className="text-xs text-muted-foreground">
-                  予想消費クレジット: <strong>{estimatedCost}</strong>
-                  <span className="text-muted-foreground/60">
-                    {" "}（{contentForCost.length}文字 ÷ 800 = {estimatedCost}、上限5）
-                  </span>
-                </p>
+                <CreditCostIndicator charCount={contentForCost.length} />
               </div>
 
               {/* Request Button */}
@@ -376,15 +422,9 @@ export function ReviewPanel({
             </div>
           )}
 
-          {/* Loading State */}
+          {/* Loading State - Labor Illusion: Show processing steps */}
           {isLoading && (
-            <div className="flex flex-col items-center justify-center py-12 space-y-4">
-              <LoadingSpinner />
-              <p className="text-sm text-muted-foreground">AI添削を実行中...</p>
-              <p className="text-xs text-muted-foreground">
-                数秒〜数十秒かかる場合があります
-              </p>
-            </div>
+            <ProcessingSteps steps={ES_REVIEW_STEPS} isActive={isLoading} />
           )}
 
           {/* Error State */}

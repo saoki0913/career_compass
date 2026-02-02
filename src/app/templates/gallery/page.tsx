@@ -230,36 +230,40 @@ export default function TemplateGalleryPage() {
                   <CardContent className="p-4">
                     <div className="flex flex-col h-full">
                       <div className="flex-1">
-                        <h3 className="font-medium line-clamp-1">{template.title}</h3>
-                        {template.description && (
-                          <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                            {template.description}
-                          </p>
-                        )}
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {template.industry && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                              {template.industry}
-                            </span>
+                        <Link href={`/templates/gallery/${template.id}`} className="block group">
+                          <h3 className="font-medium line-clamp-1 group-hover:text-foreground">
+                            {template.title}
+                          </h3>
+                          {template.description && (
+                            <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                              {template.description}
+                            </p>
                           )}
-                          {template.tags?.slice(0, 3).map((tag: string, i: number) => (
-                            <span
-                              key={i}
-                              className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground"
-                            >
-                              {tag}
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {template.industry && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                                {template.industry}
+                              </span>
+                            )}
+                            {template.tags?.slice(0, 3).map((tag: string, i: number) => (
+                              <span
+                                key={i}
+                                className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                            <span>{template.questions?.length || 0} 設問</span>
+                            <span>{template.viewCount} 閲覧</span>
+                            <span>
+                              {template.isAnonymous
+                                ? "匿名"
+                                : template.authorDisplayName || "ユーザー"}
                             </span>
-                          ))}
-                        </div>
-                        <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
-                          <span>{template.questions?.length || 0} 設問</span>
-                          <span>{template.viewCount} 閲覧</span>
-                          <span>
-                            {template.isAnonymous
-                              ? "匿名"
-                              : template.authorDisplayName || "ユーザー"}
-                          </span>
-                        </div>
+                          </div>
+                        </Link>
                       </div>
 
                       <div className="flex items-center justify-between mt-4 pt-3 border-t">

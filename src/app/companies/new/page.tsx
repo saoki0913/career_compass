@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CompanyAutocomplete } from "@/components/companies/CompanyAutocomplete";
 import {
   Select,
   SelectContent,
@@ -173,12 +174,16 @@ export default function NewCompanyPage() {
                   <Label htmlFor="name">
                     企業名 <span className="text-red-500">*</span>
                   </Label>
-                  <Input
+                  <CompanyAutocomplete
                     id="name"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="株式会社〇〇"
-                    className="h-10"
+                    onChange={setName}
+                    onSelect={(selectedName, selectedIndustry) => {
+                      setName(selectedName);
+                      if (selectedIndustry && !industry) {
+                        setIndustry(selectedIndustry);
+                      }
+                    }}
                     required
                   />
                 </div>

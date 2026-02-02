@@ -8,15 +8,16 @@ import {
   QuickActions,
   DeadlineList,
 } from "@/components/dashboard";
+import { IncompleteTasksCard } from "@/components/dashboard/IncompleteTasksCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useCompanies } from "@/hooks/useCompanies";
-import { useCredits } from "@/hooks/useCredits";
 import { useDeadlines } from "@/hooks/useDeadlines";
 import { useTodayTask, TASK_TYPE_LABELS } from "@/hooks/useTasks";
+import { useEsStats } from "@/hooks/useDocuments";
 
 // Icons
 const CreditIcon = () => (
@@ -98,6 +99,17 @@ const ClockIcon = () => (
   </svg>
 );
 
+const GlobeIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
+    />
+  </svg>
+);
+
 const EmptyCompanyIcon = () => (
   <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
@@ -109,7 +121,7 @@ const EmptyCompanyIcon = () => (
   </svg>
 );
 
-// Quick action data
+// Quick action data (4 items for 2x2 grid)
 const quickActions = [
   {
     title: "企業を追加",
@@ -121,7 +133,7 @@ const quickActions = [
   {
     title: "ES作成",
     description: "エントリーシートを書く",
-    href: "/es",
+    href: "/es?new=1",
     icon: <DocumentIcon />,
     color: "orange" as const,
   },
@@ -165,7 +177,7 @@ export default function DashboardPage() {
 
   // Fetch real data
   const { companies, count: companyCount, limit: companyLimit } = useCompanies();
-  const { balance, monthlyAllocation } = useCredits();
+  const { draftCount, publishedCount, total: esTotal } = useEsStats();
   const { deadlines, count: deadlineCount } = useDeadlines(7);
   const todayTask = useTodayTask();
 
@@ -224,9 +236,16 @@ export default function DashboardPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Welcome Section */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight">
-            {greeting}、{displayName}さん
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold tracking-tight">
+              {greeting}、{displayName}さん
+            </h1>
+            {isGuest && (
+              <span className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary font-medium">
+                ゲストモードで利用中
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-muted-foreground">
             今日も就活を一歩前へ進めましょう
           </p>
@@ -235,23 +254,26 @@ export default function DashboardPage() {
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <StatsCard
-            title="クレジット残高"
-            value={balance}
-            subtitle={`月間 ${monthlyAllocation} クレジット`}
-            icon={<CreditIcon />}
-            variant="primary"
-          />
-          <StatsCard
             title="登録企業"
             value={companyCount}
             subtitle={getCompanyLimitText()}
             icon={<CompanyIcon />}
+            variant="primary"
+            href="/companies"
+          />
+          <StatsCard
+            title="ES作成数"
+            value={`完了 ${publishedCount} / 下書き ${draftCount}`}
+            subtitle={`合計 ${esTotal} 件`}
+            icon={<DocumentIcon />}
+            href="/es"
           />
           <StatsCard
             title="今週の締切"
             value={deadlineCount}
             subtitle="直近7日間"
             icon={<CalendarIcon />}
+            href="/calendar"
           />
         </div>
 
@@ -313,11 +335,21 @@ export default function DashboardPage() {
           </Card>
         )}
 
-        {/* Quick Actions */}
-        <div className="mb-8">
-          <h2 className="text-lg font-semibold mb-4">クイックアクション</h2>
-          <QuickActions actions={quickActions} />
-        </div>
+        {/* Action Zone - Two Column Layout */}
+        <section className="mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Quick Actions - 2/3 width on desktop */}
+            <div className="lg:col-span-2 order-1">
+              <h2 className="text-lg font-semibold mb-4">クイックアクション</h2>
+              <QuickActions actions={quickActions} />
+            </div>
+
+            {/* Incomplete Tasks - 1/3 width, expanded by default */}
+            <div className="order-2">
+              <IncompleteTasksCard className="h-full" compactMode maxItems={3} />
+            </div>
+          </div>
+        </section>
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

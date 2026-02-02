@@ -8,9 +8,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { calendarSettings } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { calendarSettings, accounts } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
+
+/**
+ * Check if user has Google Calendar connected via Better Auth
+ */
+async function checkGoogleConnection(userId: string): Promise<boolean> {
+  const account = await db
+    .select()
+    .from(accounts)
+    .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "google")))
+    .get();
+  return !!account?.accessToken;
+}
 
 export async function GET() {
   try {
@@ -33,6 +45,9 @@ export async function GET() {
       .where(eq(calendarSettings.userId, userId))
       .get();
 
+    // Check if user has Google connected via OAuth
+    const isGoogleConnected = await checkGoogleConnection(userId);
+
     if (!settings) {
       // Return default settings
       return NextResponse.json({
@@ -41,7 +56,7 @@ export async function GET() {
           targetCalendarId: null,
           freebusyCalendarIds: [],
           preferredTimeSlots: null,
-          isGoogleConnected: false,
+          isGoogleConnected,
         },
       });
     }
@@ -55,7 +70,7 @@ export async function GET() {
         preferredTimeSlots: settings.preferredTimeSlots
           ? JSON.parse(settings.preferredTimeSlots)
           : null,
-        isGoogleConnected: !!settings.googleAccessToken,
+        isGoogleConnected,
       },
     });
   } catch (error) {
@@ -131,6 +146,9 @@ export async function PUT(request: NextRequest) {
       .where(eq(calendarSettings.userId, userId))
       .get();
 
+    // Check if user has Google connected via OAuth
+    const isGoogleConnected = await checkGoogleConnection(userId);
+
     return NextResponse.json({
       settings: {
         ...settings,
@@ -140,7 +158,7 @@ export async function PUT(request: NextRequest) {
         preferredTimeSlots: settings?.preferredTimeSlots
           ? JSON.parse(settings.preferredTimeSlots)
           : null,
-        isGoogleConnected: !!settings?.googleAccessToken,
+        isGoogleConnected,
       },
     });
   } catch (error) {

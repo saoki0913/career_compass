@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -177,8 +177,18 @@ const RestoreIcon = () => (
 
 export default function ESListPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [showNewModal, setShowNewModal] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
+
+  // Auto-open new document modal when ?new=1 is in URL
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setShowNewModal(true);
+      // Remove the query parameter from URL without page reload
+      router.replace("/es", { scroll: false });
+    }
+  }, [searchParams, router]);
   const { documents, isLoading, createDocument, deleteDocument, restoreDocument, permanentlyDeleteDocument } = useDocuments({ type: "es", includeDeleted: showTrash });
   const { companies } = useCompanies();
 

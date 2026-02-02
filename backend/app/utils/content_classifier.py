@@ -4,11 +4,7 @@ Content classification utilities for company RAG chunks.
 
 from typing import Optional
 
-from app.utils.content_types import (
-    CONTENT_TYPES_NEW,
-    STRUCTURED_CONTENT_TYPE,
-    normalize_content_type,
-)
+from app.utils.content_types import CONTENT_TYPES
 from app.utils.llm import call_llm_with_error
 
 
@@ -56,7 +52,7 @@ CLASSIFY_SCHEMA = {
         "properties": {
             "category": {
                 "type": "string",
-                "enum": CONTENT_TYPES_NEW,
+                "enum": CONTENT_TYPES,
             }
         }
     }
@@ -93,7 +89,7 @@ def classify_content_category(
 
     if len(matches) == 0:
         if source_channel:
-            return normalize_content_type(source_channel)
+            return source_channel
         return None
 
     # Ambiguous → LLM fallback
@@ -149,7 +145,7 @@ source_channel: {source_channel or ""}
             continue
 
         category = llm_result.data.get("category")
-        if isinstance(category, str) and category in CONTENT_TYPES_NEW:
+        if isinstance(category, str) and category in CONTENT_TYPES:
             return category
         retry_reason = "categoryが無効、または指定カテゴリに一致しません"
     return None
@@ -186,10 +182,10 @@ async def classify_chunks(
                     cache[cache_key] = category
 
         if not category:
-            if fallback_type and fallback_type != STRUCTURED_CONTENT_TYPE:
+            if fallback_type:
                 category = fallback_type
             elif source_channel:
-                category = normalize_content_type(source_channel)
+                category = source_channel
             else:
                 category = "corporate_site"
 

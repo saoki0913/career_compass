@@ -25,15 +25,7 @@ from app.utils.embeddings import (
     get_available_backends,
     get_configured_backends,
 )
-from app.utils.content_types import (
-    CONTENT_TYPES_ALL,
-    CONTENT_TYPES_NEW,
-    LEGACY_CONTENT_TYPES,
-    STRUCTURED_CONTENT_TYPE,
-    NEW_TO_LEGACY,
-    normalize_content_type,
-    expand_content_type_filter,
-)
+from app.utils.content_types import CONTENT_TYPES
 from app.utils.content_classifier import classify_chunks
 from app.utils.cache import get_rag_cache, build_cache_key
 from app.utils.text_chunker import get_chunk_settings
@@ -60,7 +52,6 @@ CONTENT_TYPE_JA = {
     "press_release": "プレスリリース",
     "csr_sustainability": "CSR/サステナビリティ",
     "midterm_plan": "中期経営計画",
-    "structured": "構造化データ",
     "recruitment": "採用情報",
     "corporate_ir": "IR情報",
     "corporate_business": "事業情報",
@@ -141,11 +132,7 @@ def _context_dedupe_key(context: dict) -> tuple:
     )
 
 
-def _fallback_local_backend(current: EmbeddingBackend) -> Optional[EmbeddingBackend]:
-    provider = (settings.embeddings_provider or "auto").strip().lower()
-    if provider != "auto" or current.provider != "openai":
-        return None
-    return resolve_embedding_backend("local")
+# _fallback_local_backend removed - only OpenAI embeddings are supported
 
 
 def get_dynamic_context_length(es_content: str) -> int:
@@ -164,7 +151,6 @@ async def store_company_info(
     content_chunks: list[dict],
     source_url: str,
     backend: Optional[EmbeddingBackend] = None,
-    allow_fallback: bool = True
 ) -> bool:
     """
     Store company information in vector database.
@@ -186,11 +172,16 @@ async def store_company_info(
             return False
 
         # Delete existing entries for this company across related collections
+        deletion_errors = []
         for name in _collection_names_for_backend(backend):
             try:
                 _get_collection(name).delete(where={"company_id": company_id})
-            except Exception:
-                pass  # Collection might not have existing entries
+            except Exception as e:
+                # Log but continue - deletion failure shouldn't block insert
+                deletion_errors.append(f"{name}: {e}")
+
+        if deletion_errors:
+            print(f"[RAG保存] ⚠️ 削除エラー (会社ID: {company_id[:8]}...): {'; '.join(deletion_errors)}")
 
         collection = get_company_collection(backend)
 
@@ -229,7 +220,7 @@ async def store_company_info(
             return False
 
         # Generate embeddings
-        embeddings = await generate_embeddings_batch(documents, backend=backend, allow_fallback=False)
+        embeddings = await generate_embeddings_batch(documents, backend=backend)
 
         # Filter out failed embeddings
         valid_items = [
@@ -240,18 +231,6 @@ async def store_company_info(
 
         if not valid_items:
             print(f"[RAG保存] ❌ 埋め込み生成失敗 (会社ID: {company_id[:8]}...)")
-            if allow_fallback:
-                fallback_backend = _fallback_local_backend(backend)
-                if fallback_backend:
-                    print(f"[RAG保存] ⚠️ ローカル埋め込みにフォールバック")
-                    return await store_company_info(
-                        company_id=company_id,
-                        company_name=company_name,
-                        content_chunks=content_chunks,
-                        source_url=source_url,
-                        backend=fallback_backend,
-                        allow_fallback=False
-                    )
             return False
 
         # Unpack valid items
@@ -327,7 +306,7 @@ async def get_company_context_for_review(
     contexts = await search_company_context_by_type(
         company_id,
         es_content,
-        content_types=CONTENT_TYPES_NEW + [STRUCTURED_CONTENT_TYPE] + LEGACY_CONTENT_TYPES,
+        content_types=CONTENT_TYPES,
     )
 
     if not contexts:
@@ -419,9 +398,6 @@ def delete_company_rag(company_id: str, backends: Optional[list[EmbeddingBackend
 # Enhanced RAG Functions (Full Text & Content Type Support)
 # ============================================================
 
-# Valid content types (new + structured + legacy)
-CONTENT_TYPES = CONTENT_TYPES_ALL
-
 
 async def store_full_text_content(
     company_id: str,
@@ -431,7 +407,6 @@ async def store_full_text_content(
     content_type: Optional[str] = None,
     content_channel: Optional[str] = None,
     backend: Optional[EmbeddingBackend] = None,
-    allow_fallback: bool = True,
     raw_format: str = "text"
 ) -> bool:
     """
@@ -458,16 +433,9 @@ async def store_full_text_content(
         chunk_html_content,
     )
 
-    if content_type in LEGACY_CONTENT_TYPES and not content_channel:
-        content_channel = content_type
-        content_type = None
-
     if content_type and content_type not in CONTENT_TYPES:
         print(f"[RAG保存] ⚠️ 無効なcontent_type: {content_type}")
         return False
-    if content_channel and content_channel not in LEGACY_CONTENT_TYPES:
-        print(f"[RAG保存] ⚠️ 無効なcontent_channel: {content_channel}")
-        content_channel = None
 
     try:
         raw_format = (raw_format or "text").lower()
@@ -477,7 +445,7 @@ async def store_full_text_content(
         if backend is None:
             print("[RAG保存] ❌ フルテキスト保存用の埋め込みバックエンドなし")
             return False
-        effective_type = content_type or normalize_content_type(content_channel or "corporate_site")
+        effective_type = content_type or content_channel or "corporate_site"
         chunk_size, chunk_overlap = get_chunk_settings(effective_type)
 
         # Chunk the content (HTML-aware when possible)
@@ -523,9 +491,7 @@ async def store_full_text_content(
         grouped: dict[str, list[dict]] = {}
         for chunk in classified:
             meta = chunk.get("metadata") or {}
-            ct = meta.get("content_type") or content_type or normalize_content_type(content_channel or "corporate_site")
-            if ct == STRUCTURED_CONTENT_TYPE:
-                ct = normalize_content_type(content_channel or "corporate_site")
+            ct = meta.get("content_type") or content_type or content_channel or "corporate_site"
             grouped.setdefault(ct, []).append(chunk)
 
         any_success = False
@@ -538,7 +504,6 @@ async def store_full_text_content(
                 source_url=source_url,
                 content_type=ct,
                 backend=backend,
-                allow_fallback=allow_fallback
             )
             any_success = any_success or success
 
@@ -562,7 +527,6 @@ async def _store_content_by_type(
     source_url: str,
     content_type: str,
     backend: EmbeddingBackend,
-    allow_fallback: bool = True
 ) -> bool:
     """
     Store content chunks by content type.
@@ -584,6 +548,7 @@ async def _store_content_by_type(
         collection = get_company_collection(backend)
 
         # Delete existing content of this type only across related collections
+        deletion_errors = []
         for name in _collection_names_for_backend(backend):
             try:
                 _get_collection(name).delete(where={
@@ -592,8 +557,13 @@ async def _store_content_by_type(
                         {"content_type": content_type}
                     ]
                 })
-            except Exception:
-                pass  # May fail if no existing entries
+            except Exception as e:
+                # Log but continue - deletion failure shouldn't block insert
+                deletion_errors.append(f"{name}: {e}")
+
+        if deletion_errors:
+            ct_ja = CONTENT_TYPE_JA.get(content_type, content_type)
+            print(f"[RAG保存] ⚠️ {ct_ja}削除エラー (会社ID: {company_id[:8]}...): {'; '.join(deletion_errors)}")
 
         # Prepare documents
         documents = []
@@ -635,7 +605,7 @@ async def _store_content_by_type(
             return False
 
         # Generate embeddings
-        embeddings = await generate_embeddings_batch(documents, backend=backend, allow_fallback=False)
+        embeddings = await generate_embeddings_batch(documents, backend=backend)
 
         # Filter out failed embeddings
         valid_items = [
@@ -646,19 +616,6 @@ async def _store_content_by_type(
 
         if not valid_items:
             print(f"[RAG保存] ❌ 埋め込み生成失敗 (会社ID: {company_id[:8]}...)")
-            if allow_fallback:
-                fallback_backend = _fallback_local_backend(backend)
-                if fallback_backend:
-                    print(f"[RAG保存] ⚠️ ローカル埋め込みにフォールバック")
-                    return await _store_content_by_type(
-                        company_id=company_id,
-                        company_name=company_name,
-                        content_chunks=content_chunks,
-                        source_url=source_url,
-                        content_type=content_type,
-                        backend=fallback_backend,
-                        allow_fallback=False
-                    )
             return False
 
         valid_docs, valid_metas, valid_ids, valid_embs = zip(*valid_items)
@@ -710,11 +667,10 @@ async def search_company_context_by_type(
 
         # Build where clause
         if content_types:
-            expanded_types = expand_content_type_filter(content_types)
             where_clause = {
                 "$and": [
                     {"company_id": company_id},
-                    {"content_type": {"$in": expanded_types}}
+                    {"content_type": {"$in": list(content_types)}}
                 ]
             }
         else:
@@ -791,14 +747,7 @@ def get_company_rag_status(company_id: str, backends: Optional[list[EmbeddingBac
     """
     try:
         read_backends = backends or get_configured_backends()
-        counts_new = {key: 0 for key in CONTENT_TYPES_NEW}
-        counts_new[STRUCTURED_CONTENT_TYPE] = 0
-        counts_legacy = {
-            "recruitment": 0,
-            "corporate_ir": 0,
-            "corporate_business": 0,
-            "corporate_general": 0,
-        }
+        counts = {key: 0 for key in CONTENT_TYPES}
 
         last_updated = None
         total_chunks = 0
@@ -815,21 +764,12 @@ def get_company_rag_status(company_id: str, backends: Optional[list[EmbeddingBac
                 total_chunks += len(ids)
 
                 for meta in results.get("metadatas") or []:
-                    content_type = meta.get("content_type", STRUCTURED_CONTENT_TYPE)
-                    normalized = normalize_content_type(content_type)
-                    if normalized in counts_new:
-                        counts_new[normalized] += 1
+                    content_type = meta.get("content_type", "corporate_site")
+                    if content_type in counts:
+                        counts[content_type] += 1
                     else:
-                        counts_new[STRUCTURED_CONTENT_TYPE] += 1
-
-                    channel = meta.get("content_channel")
-                    if channel in counts_legacy:
-                        counts_legacy[channel] += 1
-                    else:
-                        legacy_fallbacks = NEW_TO_LEGACY.get(normalized, [])
-                        for legacy in legacy_fallbacks:
-                            if legacy in counts_legacy:
-                                counts_legacy[legacy] += 1
+                        # Fallback to corporate_site for unknown types
+                        counts["corporate_site"] += 1
 
                     fetched_at = meta.get("fetched_at")
                     if fetched_at:
@@ -840,12 +780,6 @@ def get_company_rag_status(company_id: str, backends: Optional[list[EmbeddingBac
             return {
                 "has_rag": False,
                 "total_chunks": 0,
-                "recruitment_chunks": 0,
-                "corporate_ir_chunks": 0,
-                "corporate_business_chunks": 0,
-                "corporate_general_chunks": 0,
-                "structured_chunks": 0,
-                # New content types (9 categories)
                 "new_grad_recruitment_chunks": 0,
                 "midcareer_recruitment_chunks": 0,
                 "corporate_site_chunks": 0,
@@ -855,31 +789,21 @@ def get_company_rag_status(company_id: str, backends: Optional[list[EmbeddingBac
                 "press_release_chunks": 0,
                 "csr_sustainability_chunks": 0,
                 "midterm_plan_chunks": 0,
-                # Legacy recruitment_homepage (for backward compatibility)
-                "recruitment_homepage_chunks": 0,
                 "last_updated": None
             }
 
         return {
             "has_rag": True,
             "total_chunks": total_chunks,
-            "recruitment_chunks": counts_legacy["recruitment"],
-            "corporate_ir_chunks": counts_legacy["corporate_ir"],
-            "corporate_business_chunks": counts_legacy["corporate_business"],
-            "corporate_general_chunks": counts_legacy["corporate_general"],
-            "structured_chunks": counts_new[STRUCTURED_CONTENT_TYPE],
-            # New content types (9 categories)
-            "new_grad_recruitment_chunks": counts_new.get("new_grad_recruitment", 0),
-            "midcareer_recruitment_chunks": counts_new.get("midcareer_recruitment", 0),
-            "corporate_site_chunks": counts_new.get("corporate_site", 0),
-            "ir_materials_chunks": counts_new.get("ir_materials", 0),
-            "ceo_message_chunks": counts_new.get("ceo_message", 0),
-            "employee_interviews_chunks": counts_new.get("employee_interviews", 0),
-            "press_release_chunks": counts_new.get("press_release", 0),
-            "csr_sustainability_chunks": counts_new.get("csr_sustainability", 0),
-            "midterm_plan_chunks": counts_new.get("midterm_plan", 0),
-            # Legacy recruitment_homepage (for backward compatibility - includes any unmigrated data)
-            "recruitment_homepage_chunks": counts_new.get("recruitment_homepage", 0),
+            "new_grad_recruitment_chunks": counts.get("new_grad_recruitment", 0),
+            "midcareer_recruitment_chunks": counts.get("midcareer_recruitment", 0),
+            "corporate_site_chunks": counts.get("corporate_site", 0),
+            "ir_materials_chunks": counts.get("ir_materials", 0),
+            "ceo_message_chunks": counts.get("ceo_message", 0),
+            "employee_interviews_chunks": counts.get("employee_interviews", 0),
+            "press_release_chunks": counts.get("press_release", 0),
+            "csr_sustainability_chunks": counts.get("csr_sustainability", 0),
+            "midterm_plan_chunks": counts.get("midterm_plan", 0),
             "last_updated": last_updated
         }
 
@@ -888,11 +812,6 @@ def get_company_rag_status(company_id: str, backends: Optional[list[EmbeddingBac
         return {
             "has_rag": False,
             "total_chunks": 0,
-            "recruitment_chunks": 0,
-            "corporate_ir_chunks": 0,
-            "corporate_business_chunks": 0,
-            "corporate_general_chunks": 0,
-            "structured_chunks": 0,
             "new_grad_recruitment_chunks": 0,
             "midcareer_recruitment_chunks": 0,
             "corporate_site_chunks": 0,
@@ -902,7 +821,6 @@ def get_company_rag_status(company_id: str, backends: Optional[list[EmbeddingBac
             "press_release_chunks": 0,
             "csr_sustainability_chunks": 0,
             "midterm_plan_chunks": 0,
-            "recruitment_homepage_chunks": 0,
             "last_updated": None
         }
 

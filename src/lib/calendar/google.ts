@@ -56,7 +56,7 @@ export async function getCalendarEvents(
 }
 
 /**
- * Create a calendar event with [ウカルン] prefix
+ * Create a calendar event with [Career Compass] prefix
  */
 export async function createCalendarEvent(
   accessToken: string,
@@ -68,7 +68,7 @@ export async function createCalendarEvent(
     description?: string;
   }
 ) {
-  const summary = event.title.startsWith("[ウカルン]") ? event.title : `[ウカルン] ${event.title}`;
+  const summary = event.title.startsWith("[Career Compass]") ? event.title : `[Career Compass] ${event.title}`;
 
   const response = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
@@ -82,7 +82,7 @@ export async function createCalendarEvent(
         summary,
         start: { dateTime: event.startAt },
         end: { dateTime: event.endAt },
-        description: event.description || "ウカルンで作成",
+        description: event.description || "Career Compassで作成",
       }),
     }
   );
@@ -92,7 +92,7 @@ export async function createCalendarEvent(
 }
 
 /**
- * Delete a calendar event (only [ウカルン] events - replace mode)
+ * Delete a calendar event (only [Career Compass] events - replace mode)
  */
 export async function deleteCalendarEvent(
   accessToken: string,
@@ -194,7 +194,7 @@ export function suggestWorkBlocks(
 }
 
 /**
- * Replace mode: Delete all [ウカルン] events in a range and recreate
+ * Replace mode: Delete all [Career Compass] events in a range and recreate
  */
 export async function replaceUkarunEvents(
   accessToken: string,
@@ -203,11 +203,11 @@ export async function replaceUkarunEvents(
   timeMax: string,
   newEvents: Array<{ title: string; startAt: string; endAt: string }>
 ) {
-  // Get existing [ウカルン] events
+  // Get existing [Career Compass] events
   const existing = await getCalendarEvents(accessToken, calendarId, timeMin, timeMax);
-  const ukarunEvents = existing.filter(e => e.summary?.startsWith("[ウカルン]"));
+  const ukarunEvents = existing.filter(e => e.summary?.startsWith("[Career Compass]"));
 
-  // Delete old [ウカルン] events
+  // Delete old [Career Compass] events
   for (const event of ukarunEvents) {
     await deleteCalendarEvent(accessToken, calendarId, event.id);
   }
@@ -220,4 +220,67 @@ export async function replaceUkarunEvents(
   }
 
   return created;
+}
+
+/**
+ * Refresh an expired access token using the refresh token
+ */
+export async function refreshAccessToken(refreshToken: string): Promise<{
+  accessToken: string;
+  expiresAt: Date;
+}> {
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID!,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error("Token refresh failed:", error);
+    throw new Error("Token refresh failed");
+  }
+
+  const data = await response.json();
+  return {
+    accessToken: data.access_token,
+    expiresAt: new Date(Date.now() + data.expires_in * 1000),
+  };
+}
+
+/**
+ * Create a new Google Calendar
+ */
+export async function createCalendar(
+  accessToken: string,
+  name: string = "Career Compass"
+): Promise<{ id: string; summary: string }> {
+  const response = await fetch(
+    "https://www.googleapis.com/calendar/v3/calendars",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        summary: name,
+        description: "Career Compassで作成した就活用カレンダー",
+        timeZone: "Asia/Tokyo",
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error("Failed to create calendar:", error);
+    throw new Error("Failed to create calendar");
+  }
+
+  return await response.json();
 }

@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useCalendarEvents, CalendarEvent, DeadlineEvent, useGoogleCalendar, GoogleCalendarEvent, WorkBlockSuggestion } from "@/hooks/useCalendar";
+import { CalendarSidebar } from "@/components/calendar/CalendarSidebar";
+import { WorkBlockFAB } from "@/components/calendar/WorkBlockFAB";
 
 // Icons
 const ChevronLeftIcon = () => (
@@ -434,30 +436,17 @@ export default function CalendarPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-screen flex flex-col overflow-hidden bg-background">
       <DashboardHeader />
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 overflow-hidden max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-4 shrink-0">
           <div>
             <h1 className="text-2xl font-bold">カレンダー</h1>
             <p className="text-muted-foreground mt-1">締切と作業ブロックを管理</p>
           </div>
           <div className="flex items-center gap-3">
-            {googleCalendar.isConnected ? (
-              <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
-                <GoogleIcon />
-                <span className="text-sm text-green-700">連携済み</span>
-              </div>
-            ) : (
-              <Button variant="outline" asChild>
-                <Link href="/login">
-                  <GoogleIcon />
-                  <span className="ml-1.5">Google連携</span>
-                </Link>
-              </Button>
-            )}
             <Button variant="outline" asChild>
               <Link href="/calendar/settings">
                 <SettingsIcon />
@@ -469,11 +458,11 @@ export default function CalendarPage() {
 
         {/* Error */}
         {error && (
-          <Card className="mb-6 border-amber-200 bg-amber-50/50">
-            <CardContent className="py-4">
+          <Card className="mb-4 border-amber-200 bg-amber-50/50 shrink-0">
+            <CardContent className="py-3">
               <p className="text-sm text-amber-800">{error}</p>
               {error.includes("ログイン") && (
-                <Button variant="outline" className="mt-4" asChild>
+                <Button variant="outline" size="sm" className="mt-2" asChild>
                   <Link href="/login">ログイン</Link>
                 </Button>
               )}
@@ -481,141 +470,153 @@ export default function CalendarPage() {
           </Card>
         )}
 
-        {/* Calendar */}
-        <Card>
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon" onClick={prevMonth}>
-                  <ChevronLeftIcon />
-                </Button>
-                <CardTitle className="text-lg">
-                  {currentDate.getFullYear()}年 {currentDate.getMonth() + 1}月
-                </CardTitle>
-                <Button variant="ghost" size="icon" onClick={nextMonth}>
-                  <ChevronRightIcon />
-                </Button>
-              </div>
-              {googleCalendar.isConnected && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const today = new Date();
-                    handleSuggestWorkBlocks(today);
-                  }}
-                >
-                  <LightbulbIcon />
-                  <span className="ml-1.5">作業ブロック提案</span>
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="flex items-center justify-center py-16">
-                <LoadingSpinner />
-              </div>
-            ) : (
-              <>
-                {/* Weekday headers */}
-                <div className="grid grid-cols-7 gap-1 mb-2">
-                  {WEEKDAYS.map((day, i) => (
-                    <div
-                      key={day}
-                      className={cn(
-                        "text-center text-sm font-medium py-2",
-                        i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-muted-foreground"
-                      )}
-                    >
-                      {day}
-                    </div>
-                  ))}
+        {/* Two Column Layout */}
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 min-h-0">
+          {/* Calendar - 3/4 width */}
+          <div className="lg:col-span-3 flex flex-col min-h-0">
+            <Card className="flex flex-col flex-1 min-h-0">
+              <CardHeader className="pb-2 shrink-0">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="icon" onClick={prevMonth}>
+                      <ChevronLeftIcon />
+                    </Button>
+                    <CardTitle className="text-lg">
+                      {currentDate.getFullYear()}年 {currentDate.getMonth() + 1}月
+                    </CardTitle>
+                    <Button variant="ghost" size="icon" onClick={nextMonth}>
+                      <ChevronRightIcon />
+                    </Button>
+                  </div>
                 </div>
-
-                {/* Calendar grid */}
-                <div className="grid grid-cols-7 gap-1">
-                  {calendarDays.map((day, index) => {
-                    const isCurrentMonth = day.getMonth() === currentDate.getMonth();
-                    const dateKey = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
-                    const isToday = dateKey === todayKey;
-                    const dayEvents = eventsByDate.get(dateKey) || [];
-                    const dayOfWeek = day.getDay();
-
-                    return (
-                      <button
-                        key={index}
-                        onClick={() => handleDayClick(day)}
-                        className={cn(
-                          "min-h-[80px] p-1 rounded-lg border transition-colors text-left",
-                          isCurrentMonth ? "bg-background" : "bg-muted/30",
-                          isToday && "ring-2 ring-primary",
-                          "hover:bg-muted/50"
-                        )}
-                      >
-                        <span
+              </CardHeader>
+              <CardContent className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                {isLoading ? (
+                  <div className="flex items-center justify-center flex-1">
+                    <LoadingSpinner />
+                  </div>
+                ) : (
+                  <div className="flex flex-col flex-1 min-h-0">
+                    {/* Weekday headers */}
+                    <div className="grid grid-cols-7 gap-1 mb-1 shrink-0">
+                      {WEEKDAYS.map((day, i) => (
+                        <div
+                          key={day}
                           className={cn(
-                            "inline-flex items-center justify-center w-6 h-6 rounded-full text-sm",
-                            !isCurrentMonth && "text-muted-foreground",
-                            isToday && "bg-primary text-primary-foreground",
-                            dayOfWeek === 0 && isCurrentMonth && !isToday && "text-red-500",
-                            dayOfWeek === 6 && isCurrentMonth && !isToday && "text-blue-500"
+                            "text-center text-sm font-medium py-2",
+                            i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-muted-foreground"
                           )}
                         >
-                          {day.getDate()}
-                        </span>
-                        <div className="mt-1 space-y-0.5">
-                          {dayEvents.slice(0, 3).map((event, i) => {
-                            const isDeadline = "eventType" in event && event.eventType === "deadline";
-                            const isGoogle = "type" in event && event.type === "google";
-                            return (
-                              <div
-                                key={i}
-                                className={cn(
-                                  "text-xs px-1 py-0.5 rounded truncate",
-                                  isDeadline
-                                    ? "bg-red-100 text-red-700"
-                                    : isGoogle
-                                    ? "bg-green-100 text-green-700"
-                                    : "bg-blue-100 text-blue-700"
-                                )}
-                              >
-                                {event.title}
-                              </div>
-                            );
-                          })}
-                          {dayEvents.length > 3 && (
-                            <div className="text-xs text-muted-foreground px-1">
-                              +{dayEvents.length - 3}
-                            </div>
-                          )}
+                          {day}
                         </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+                      ))}
+                    </div>
 
-        {/* Legend */}
-        <div className="flex items-center gap-6 mt-4 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded bg-red-100" />
-            <span>締切</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded bg-blue-100" />
-            <span>作業ブロック</span>
-          </div>
-          {googleCalendar.isConnected && (
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded bg-green-100" />
-              <span>Google予定</span>
+                    {/* Calendar grid */}
+                    <div className="grid grid-cols-7 gap-1 flex-1 auto-rows-fr">
+                      {calendarDays.map((day, index) => {
+                        const isCurrentMonth = day.getMonth() === currentDate.getMonth();
+                        const dateKey = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+                        const isToday = dateKey === todayKey;
+                        const dayEvents = eventsByDate.get(dateKey) || [];
+                        const dayOfWeek = day.getDay();
+
+                        return (
+                          <button
+                            key={index}
+                            onClick={() => handleDayClick(day)}
+                            className={cn(
+                              "p-1 rounded-lg border transition-colors text-left overflow-hidden",
+                              isCurrentMonth ? "bg-background" : "bg-muted/30",
+                              isToday && "ring-2 ring-primary",
+                              "hover:bg-muted/50"
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "inline-flex items-center justify-center w-6 h-6 rounded-full text-sm",
+                                !isCurrentMonth && "text-muted-foreground",
+                                isToday && "bg-primary text-primary-foreground",
+                                dayOfWeek === 0 && isCurrentMonth && !isToday && "text-red-500",
+                                dayOfWeek === 6 && isCurrentMonth && !isToday && "text-blue-500"
+                              )}
+                            >
+                              {day.getDate()}
+                            </span>
+                            <div className="mt-1 space-y-0.5">
+                              {dayEvents.slice(0, 3).map((event, i) => {
+                                const isDeadline = "eventType" in event && event.eventType === "deadline";
+                                const isGoogle = "type" in event && event.type === "google";
+                                return (
+                                  <div
+                                    key={i}
+                                    className={cn(
+                                      "text-xs px-1 py-0.5 rounded truncate",
+                                      isDeadline
+                                        ? "bg-red-100 text-red-700"
+                                        : isGoogle
+                                        ? "bg-green-100 text-green-700"
+                                        : "bg-blue-100 text-blue-700"
+                                    )}
+                                  >
+                                    {event.title}
+                                  </div>
+                                );
+                              })}
+                              {dayEvents.length > 3 && (
+                                <div className="text-xs text-muted-foreground px-1">
+                                  +{dayEvents.length - 3}
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Legend */}
+            <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground shrink-0">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded bg-red-100" />
+                <span>締切</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded bg-blue-100" />
+                <span>作業ブロック</span>
+              </div>
+              {googleCalendar.isConnected && (
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded bg-green-100" />
+                  <span>Google予定</span>
+                </div>
+              )}
             </div>
-          )}
+          </div>
+
+          {/* Sidebar - 1/4 width */}
+          <div className="hidden lg:flex lg:flex-col min-h-0 overflow-y-auto">
+            <CalendarSidebar
+              deadlines={deadlines}
+              events={events}
+              googleEvents={googleEvents}
+              selectedDate={selectedDate}
+              isGoogleConnected={googleCalendar.isConnected}
+            />
+          </div>
         </div>
+
+        {/* Floating Action Button for Work Block Suggestions */}
+        <WorkBlockFAB
+          onClick={() => {
+            const today = new Date();
+            handleSuggestWorkBlocks(today);
+          }}
+          isVisible={googleCalendar.isConnected}
+        />
 
         {/* Add event modal */}
         <AddEventModal

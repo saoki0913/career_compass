@@ -44,19 +44,6 @@ class NextQuestionResponse(BaseModel):
     suggested_end: bool = False  # 終了を提案するかどうか
 
 
-# Static question bank for fallback (8 questions targeting key aspects)
-STATIC_QUESTIONS = [
-    "その経験を始めたきっかけは何でしたか？",
-    "その中で最も困難だった出来事は何ですか？",
-    "その困難をどのように乗り越えましたか？",
-    "その経験から学んだことは何ですか？",
-    "周りの人からどのような評価を受けましたか？",
-    "具体的な数字や成果はありますか？",
-    "チームの中でのあなたの役割は何でしたか？",
-    "その学びを今後どのように活かしたいですか？",
-]
-
-
 @router.post("/next-question", response_model=NextQuestionResponse)
 async def get_next_question(request: NextQuestionRequest):
     """

@@ -1,13 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useCalendarSettings } from "@/hooks/useCalendar";
+
+interface GoogleCalendar {
+  id: string;
+  name: string;
+  isPrimary: boolean;
+}
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -55,10 +62,78 @@ const LoadingSpinner = () => (
 );
 
 export default function CalendarSettingsPage() {
-  const { settings, isLoading, error, updateSettings } = useCalendarSettings();
+  const router = useRouter();
+  const { settings, isLoading, error, updateSettings, refresh } = useCalendarSettings();
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [calendars, setCalendars] = useState<GoogleCalendar[]>([]);
+  const [calendarsLoading, setCalendarsLoading] = useState(false);
+  const [calendarMode, setCalendarMode] = useState<"existing" | "create">("existing");
+  const [newCalendarName, setNewCalendarName] = useState("Career Compass");
+  const [isCreating, setIsCreating] = useState(false);
+
+  // Fetch calendar list when connected
+  const fetchCalendars = async () => {
+    setCalendarsLoading(true);
+    try {
+      const res = await fetch("/api/calendar/calendars");
+      const data = await res.json();
+      if (data.calendars) {
+        setCalendars(data.calendars);
+      }
+    } catch {
+      // Silently fail - user can still use primary calendar
+    } finally {
+      setCalendarsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (settings?.isGoogleConnected) {
+      fetchCalendars();
+    }
+  }, [settings?.isGoogleConnected]);
+
+  const handleCreateCalendar = async () => {
+    if (!newCalendarName.trim()) return;
+
+    setIsCreating(true);
+    setSaveError(null);
+
+    try {
+      const res = await fetch("/api/calendar/calendars", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newCalendarName.trim() }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "カレンダーの作成に失敗しました");
+      }
+
+      // Add the new calendar to the list
+      setCalendars((prev) => [...prev, data.calendar]);
+
+      // Switch to the new calendar
+      await updateSettings({ targetCalendarId: data.calendar.id, provider: "google" });
+
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+
+      // Reset to existing mode
+      setCalendarMode("existing");
+
+      // Refetch settings
+      refresh?.();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "カレンダーの作成に失敗しました");
+    } finally {
+      setIsCreating(false);
+    }
+  };
 
   const handleProviderChange = async (provider: "google" | "app") => {
     setIsSaving(true);
@@ -77,8 +152,13 @@ export default function CalendarSettingsPage() {
   };
 
   const handleGoogleConnect = () => {
-    // TODO: Implement Google OAuth flow
-    alert("Google Calendar連携は準備中です。今後のアップデートをお待ちください。");
+    // If already connected via OAuth, just switch the provider
+    if (settings?.isGoogleConnected) {
+      handleProviderChange("google");
+    } else {
+      // If not connected, redirect to login page with return URL
+      router.push("/login?callbackUrl=/calendar/settings");
+    }
   };
 
   return (
@@ -157,7 +237,7 @@ export default function CalendarSettingsPage() {
                       </svg>
                     </div>
                     <div className="flex-1">
-                      <p className="font-medium">ウカルンカレンダー</p>
+                      <p className="font-medium">Career Compassカレンダー</p>
                       <p className="text-sm text-muted-foreground">アプリ内でのみ管理</p>
                     </div>
                     {settings.provider === "app" && (
@@ -209,26 +289,104 @@ export default function CalendarSettingsPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg">Googleカレンダー設定</CardTitle>
+                  <CardDescription>
+                    締切や作業ブロックを追加するカレンダーを選択または作成
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>追加先カレンダー</Label>
-                    <p className="text-sm text-muted-foreground">
-                      締切や作業ブロックを追加するカレンダーを選択
-                    </p>
-                    <select
-                      value={settings.targetCalendarId || "primary"}
-                      onChange={(e) => updateSettings({ targetCalendarId: e.target.value })}
-                      className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm"
+                <CardContent className="space-y-6">
+                  {/* Calendar selection mode */}
+                  <div className="space-y-4">
+                    {/* Existing calendar option */}
+                    <div
+                      className={cn(
+                        "p-4 rounded-lg border-2 cursor-pointer transition-all",
+                        calendarMode === "existing"
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:border-primary/50"
+                      )}
+                      onClick={() => setCalendarMode("existing")}
                     >
-                      <option value="primary">メインカレンダー</option>
-                    </select>
-                  </div>
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className={cn(
+                          "w-4 h-4 rounded-full border-2 flex items-center justify-center",
+                          calendarMode === "existing" ? "border-primary" : "border-muted-foreground"
+                        )}>
+                          {calendarMode === "existing" && (
+                            <div className="w-2 h-2 rounded-full bg-primary" />
+                          )}
+                        </div>
+                        <Label className="cursor-pointer font-medium">既存のカレンダーを選択</Label>
+                      </div>
+                      {calendarMode === "existing" && (
+                        <select
+                          value={settings.targetCalendarId || "primary"}
+                          onChange={(e) => updateSettings({ targetCalendarId: e.target.value })}
+                          className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm"
+                          disabled={calendarsLoading}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {calendarsLoading ? (
+                            <option>読み込み中...</option>
+                          ) : calendars.length > 0 ? (
+                            calendars.map((cal) => (
+                              <option key={cal.id} value={cal.id}>
+                                {cal.name}{cal.isPrimary ? " (メイン)" : ""}
+                              </option>
+                            ))
+                          ) : (
+                            <option value="primary">メインカレンダー</option>
+                          )}
+                        </select>
+                      )}
+                    </div>
 
-                  <div className="pt-4">
-                    <Button variant="outline" className="text-red-600 hover:text-red-700">
-                      Googleカレンダー連携を解除
-                    </Button>
+                    {/* Create new calendar option */}
+                    <div
+                      className={cn(
+                        "p-4 rounded-lg border-2 cursor-pointer transition-all",
+                        calendarMode === "create"
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:border-primary/50"
+                      )}
+                      onClick={() => setCalendarMode("create")}
+                    >
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className={cn(
+                          "w-4 h-4 rounded-full border-2 flex items-center justify-center",
+                          calendarMode === "create" ? "border-primary" : "border-muted-foreground"
+                        )}>
+                          {calendarMode === "create" && (
+                            <div className="w-2 h-2 rounded-full bg-primary" />
+                          )}
+                        </div>
+                        <Label className="cursor-pointer font-medium">新しいカレンダーを作成</Label>
+                      </div>
+                      {calendarMode === "create" && (
+                        <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="text"
+                            value={newCalendarName}
+                            onChange={(e) => setNewCalendarName(e.target.value)}
+                            placeholder="カレンダー名を入力"
+                            className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm"
+                          />
+                          <Button
+                            onClick={handleCreateCalendar}
+                            disabled={isCreating || !newCalendarName.trim()}
+                            className="w-full"
+                          >
+                            {isCreating ? (
+                              <>
+                                <LoadingSpinner />
+                                <span className="ml-2">作成中...</span>
+                              </>
+                            ) : (
+                              "作成して選択"
+                            )}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -237,8 +395,8 @@ export default function CalendarSettingsPage() {
             {/* Note */}
             <div className="p-4 rounded-lg bg-muted/50">
               <p className="text-sm text-muted-foreground">
-                ウカルンで作成した予定には「[ウカルン]」が付きます。
-                Googleカレンダーから直接編集・削除するとウカルンには反映されません。
+                Career Compassで作成した予定には「[Career Compass]」が付きます。
+                Googleカレンダーから直接編集・削除するとCareer Compassには反映されません。
               </p>
             </div>
           </div>

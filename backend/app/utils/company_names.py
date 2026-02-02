@@ -15,12 +15,16 @@ MAPPINGS_FILE = Path(__file__).parent.parent.parent / "data" / "company_mappings
 
 
 @lru_cache(maxsize=1)
-def _load_company_mappings() -> dict[str, list[str]]:
+def _load_company_mappings() -> dict[str, dict | list[str]]:
     """
     JSONファイルから企業マッピングをロード（キャッシュ付き）。
 
+    新形式（オブジェクト）と旧形式（配列）の両方をサポート。
+
     Returns:
-        企業名→ドメインパターンリストの辞書
+        企業名→マッピングデータの辞書
+        新形式: {"domains": [...], "parent": "親会社名"}
+        旧形式: [...]（ドメインパターンの配列）
     """
     if MAPPINGS_FILE.exists():
         try:
@@ -32,6 +36,329 @@ def _load_company_mappings() -> dict[str, list[str]]:
     return {}
 
 
+def _get_domains_from_mapping(mapping: dict | list[str] | None) -> list[str]:
+    """
+    マッピングデータからドメインパターンリストを取得。
+
+    新形式と旧形式の両方をサポート。
+
+    Args:
+        mapping: マッピングデータ（dictまたはlist）
+
+    Returns:
+        ドメインパターンのリスト
+    """
+    if mapping is None:
+        return []
+    if isinstance(mapping, list):
+        return mapping
+    if isinstance(mapping, dict):
+        return mapping.get("domains", [])
+    return []
+
+
+def get_parent_company(company_name: str) -> str | None:
+    """
+    子会社の親会社名を取得。
+
+    Args:
+        company_name: 企業名
+
+    Returns:
+        親会社名（存在しない場合はNone）
+    """
+    mappings = _load_company_mappings()
+
+    # 完全一致
+    if company_name in mappings:
+        mapping = mappings[company_name]
+        if isinstance(mapping, dict):
+            return mapping.get("parent")
+
+    # 正規化後の名前で検索
+    normalized = _normalize_for_lookup(company_name)
+    if normalized != company_name and normalized in mappings:
+        mapping = mappings[normalized]
+        if isinstance(mapping, dict):
+            return mapping.get("parent")
+
+    return None
+
+
+def get_parent_domain_patterns(company_name: str) -> list[str]:
+    """
+    親会社のドメインパターンを取得。
+
+    Args:
+        company_name: 子会社名
+
+    Returns:
+        親会社のドメインパターンリスト（親会社がない場合は空リスト）
+    """
+    parent = get_parent_company(company_name)
+    if not parent:
+        return []
+
+    mappings = _load_company_mappings()
+    if parent in mappings:
+        return _get_domains_from_mapping(mappings[parent])
+
+    return []
+
+
+def get_subsidiary_companies(parent_name: str) -> dict[str, list[str]]:
+    """
+    親会社の全子会社とそのドメインパターンを取得。
+
+    Args:
+        parent_name: 親会社名
+
+    Returns:
+        {子会社名: [ドメインパターン...], ...} の辞書
+    """
+    mappings = _load_company_mappings()
+    subsidiaries = {}
+    for company_name, mapping in mappings.items():
+        if isinstance(mapping, dict) and mapping.get("parent") == parent_name:
+            subsidiaries[company_name] = _get_domains_from_mapping(mapping)
+    return subsidiaries
+
+
+def get_sibling_companies(company_name: str) -> dict[str, list[str]]:
+    """
+    兄弟会社（同じ親を持つ他の子会社）とそのドメインパターンを取得。
+
+    金融グループなどで、検索対象企業と同じ親会社を持つ
+    別の子会社が子会社扱いされないようにするために使用。
+
+    例: みずほ銀行の兄弟 → みずほ信託銀行、みずほ証券、みずほリース等
+
+    Args:
+        company_name: 企業名
+
+    Returns:
+        {兄弟会社名: [ドメインパターン...], ...} の辞書（自分自身は含まない）
+    """
+    parent = get_parent_company(company_name)
+    if not parent:
+        return {}
+
+    # 親会社の全子会社を取得
+    all_siblings = get_subsidiary_companies(parent)
+
+    # 自分自身を除外
+    siblings = {name: patterns for name, patterns in all_siblings.items()
+                if name != company_name}
+
+    return siblings
+
+
+def is_subsidiary_domain(url: str, parent_name: str) -> tuple[bool, str | None]:
+    """
+    URLが親会社の子会社ドメインかどうかを判定（境界チェック付き）。
+
+    親会社検索時に、子会社サイトを検出してペナルティを適用するために使用。
+    ドメインセグメント単位でマッチングを行い、部分文字列の誤マッチを防ぐ。
+
+    2段階で検出:
+    1. 登録済み子会社のドメインパターンとのマッチング
+    2. 未登録でも「親会社パターン-XXX」形式のドメインを子会社として検出
+
+    Args:
+        url: 検査対象のURL
+        parent_name: 親会社名
+
+    Returns:
+        (is_subsidiary, subsidiary_name) - 子会社ドメインならTrue + 子会社名
+
+    Example:
+        >>> is_subsidiary_domain("https://nttdmse-recruit.snar.jp/", "NTTデータ")
+        (True, "NTTデータMSE")  # 子会社のドメイン「nttdata-mse」を含む
+
+        >>> is_subsidiary_domain("https://www.nttdata-sbc.co.jp/", "NTTデータ")
+        (True, "未登録子会社 (nttdata-sbc)")  # 未登録だが親会社パターンで始まる
+
+        >>> is_subsidiary_domain("https://www.nttdata.com/", "NTTデータ")
+        (False, None)  # 親会社自身のドメイン
+    """
+    from urllib.parse import urlparse
+
+    # URLからドメイン部分を抽出
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+    except Exception:
+        return False, None
+
+    if not domain:
+        return False, None
+
+    # ドメインをセグメントに分割
+    domain_segments = domain.split('.')
+
+    # ステップ1: 登録済み子会社のパターンマッチング
+    subsidiaries = get_subsidiary_companies(parent_name)
+    for sub_name, patterns in subsidiaries.items():
+        for pattern in patterns:
+            if len(pattern) < 3:
+                continue
+            pattern_lower = pattern.lower()
+
+            for segment in domain_segments:
+                # 完全一致
+                if segment == pattern_lower:
+                    return True, sub_name
+                # ハイフン付きパターン（例: nttdata-mse, nttdmse-recruit）
+                if segment.startswith(pattern_lower + "-") or segment.endswith("-" + pattern_lower):
+                    return True, sub_name
+                # サブドメインパターン内に含まれる（例: nttdmse の中に nttdata-mse）
+                # 注: 厳密なマッチのため、パターンがセグメント全体と一致する場合のみ
+                if pattern_lower in segment and len(segment) <= len(pattern_lower) + 10:
+                    # パターンがセグメントの主要部分を構成する場合
+                    if segment.replace("-", "").replace("_", "") == pattern_lower.replace("-", "").replace("_", ""):
+                        return True, sub_name
+
+    # ステップ2: ワイルドカードパターン検出（未登録子会社）
+    # 親会社のドメインパターンを取得
+    parent_patterns = get_company_domain_patterns(parent_name)
+    if not parent_patterns:
+        return False, None
+
+    # 登録済み子会社のパターンを除外リストに追加
+    registered_patterns = set()
+    for patterns in subsidiaries.values():
+        for p in patterns:
+            registered_patterns.add(p.lower())
+
+    # 兄弟会社のパターンを取得（検索対象企業が子会社の場合）
+    # 例: みずほ銀行検索時、みずほ信託銀行（兄弟）を子会社扱いしない
+    sibling_patterns = set()
+    siblings = get_sibling_companies(parent_name)
+    for sibling_name, patterns in siblings.items():
+        for p in patterns:
+            sibling_patterns.add(p.lower())
+
+    # 採用関連キーワード（これらは子会社ではなく公式採用サイト）
+    RECRUITMENT_KEYWORDS = {'recruit', 'saiyo', 'entry', 'career', 'careers', 'graduate', 'job', 'jobs', 'hiring'}
+
+    for pattern in parent_patterns:
+        if len(pattern) < 3:
+            continue
+        pattern_lower = pattern.lower()
+
+        for segment in domain_segments:
+            # 「親会社パターン-XXX」形式をチェック（例: nttdata-sbc）
+            if segment.startswith(pattern_lower + "-"):
+                # 親会社自身のドメインパターンではないことを確認
+                if segment == pattern_lower:
+                    continue
+                # 登録済み子会社パターンではないことを確認
+                if segment in registered_patterns:
+                    continue
+                # 兄弟会社のパターンはスキップ（子会社ではない）
+                # 例: みずほ銀行検索時、mizuho-tb（みずほ信託銀行）は兄弟
+                if segment in sibling_patterns:
+                    continue
+                # 兄弟パターンで始まるセグメントもスキップ
+                # 例: mizuho-tb-recruit は mizuho-tb（兄弟）の関連サイト
+                is_sibling_related = any(
+                    segment == sib_pattern or segment.startswith(sib_pattern + "-")
+                    for sib_pattern in sibling_patterns
+                )
+                if is_sibling_related:
+                    continue
+                # 採用関連キーワードは子会社ではない（公式採用サイト）
+                suffix = segment[len(pattern_lower) + 1:]  # "recruit" from "nttdata-recruit"
+                if suffix in RECRUITMENT_KEYWORDS:
+                    continue
+                # 未登録の子会社として検出
+                return True, f"未登録子会社 ({segment})"
+
+    return False, None
+
+
+def is_parent_domain(url: str, company_name: str) -> bool:
+    """
+    URLが親会社のドメインかどうかを判定（境界チェック付き）。
+
+    子会社検索時に、親会社サイトを除外するために使用。
+    ドメインセグメント単位でマッチングを行い、部分文字列の誤マッチを防ぐ。
+
+    重要: 子会社自身のドメイン（例: mitsui-steel.com）は親会社として判定しない。
+
+    Args:
+        url: 検査対象のURL
+        company_name: 検索中の子会社名
+
+    Returns:
+        親会社ドメインならTrue
+
+    Example:
+        >>> is_parent_domain("https://career.mitsui.com/recruit/", "三井物産スチール")
+        True  # 親会社「三井物産」のドメイン「mitsui」を含む
+
+        >>> is_parent_domain("https://www.mitsui-steel.com/", "三井物産スチール")
+        False  # 子会社自身のドメイン「mitsui-steel」は親会社ではない
+
+        >>> is_parent_domain("https://smitsui.com/", "三井物産スチール")
+        False  # 「smitsui」は「mitsui」と完全一致しない（境界チェック）
+    """
+    from urllib.parse import urlparse
+
+    # 1. 子会社自身のドメインパターンを取得
+    own_patterns = get_company_domain_patterns(company_name)
+
+    # 2. 親会社のドメインパターンを取得
+    parent_patterns = get_parent_domain_patterns(company_name)
+    if not parent_patterns:
+        return False
+
+    # URLからドメイン部分を抽出
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+    except Exception:
+        return False
+
+    if not domain:
+        return False
+
+    # ドメインをセグメントに分割（例: "career.mitsui.com" → ["career", "mitsui", "com"]）
+    domain_segments = domain.split('.')
+
+    # 3. まず子会社自身のドメインかチェック（親会社と共通のパターンを除外）
+    # 子会社固有のパターン = 子会社パターン - 親会社パターン
+    own_unique_patterns = [p for p in own_patterns if p not in parent_patterns]
+
+    for pattern in own_unique_patterns:
+        if len(pattern) < 3:
+            continue
+        pattern_lower = pattern.lower()
+        for segment in domain_segments:
+            # 子会社固有パターンに完全一致またはハイフン付きで一致
+            if segment == pattern_lower:
+                return False  # 子会社自身のサイト → 親会社サイトではない
+            if segment.startswith(pattern_lower + "-") or segment.endswith("-" + pattern_lower):
+                return False  # 子会社自身のサイト → 親会社サイトではない
+
+    # 4. 親会社ドメインパターンをチェック
+    for pattern in parent_patterns:
+        if len(pattern) < 3:
+            continue
+        pattern_lower = pattern.lower()
+
+        # セグメント単位でマッチ（境界チェック）
+        for segment in domain_segments:
+            # 完全一致
+            if segment == pattern_lower:
+                return True
+            # ハイフン付きパターン（例: career-mitsui, mitsui-group）
+            if segment.startswith(pattern_lower + "-") or segment.endswith("-" + pattern_lower):
+                return True
+
+    return False
+
+
 def get_company_domain_patterns(company_name: str, ascii_name: str | None = None) -> list[str]:
     """
     企業名から可能なドメインパターンを生成。
@@ -40,6 +367,8 @@ def get_company_domain_patterns(company_name: str, ascii_name: str | None = None
     2. 企業名の部分一致でマッピング検索
     3. ASCII名からバリアント生成
     4. 企業名の読みからパターン生成
+
+    新形式（オブジェクト）と旧形式（配列）の両方をサポート。
 
     Args:
         company_name: 企業名（日本語）
@@ -53,17 +382,29 @@ def get_company_domain_patterns(company_name: str, ascii_name: str | None = None
 
     # 1. 完全一致でマッピング検索
     if company_name in mappings:
-        patterns.extend(mappings[company_name])
+        patterns.extend(_get_domains_from_mapping(mappings[company_name]))
 
     # 2. 部分一致でマッピング検索（株式会社などを除去した名前で）
     normalized = _normalize_for_lookup(company_name)
     if normalized != company_name and normalized in mappings:
-        patterns.extend(mappings[normalized])
+        patterns.extend(_get_domains_from_mapping(mappings[normalized]))
 
     # 3. 含む検索（企業グループ名の一部など）
-    for key, domain_patterns in mappings.items():
+    # ただし、親会社のパターンは含めない（例: NTTデータ検索時にNTTのパターンを含めない）
+    for key, mapping_data in mappings.items():
+        # サブセクションマーカーはスキップ
+        if key.startswith("_"):
+            continue
         # 登録名が検索名に含まれる、または検索名が登録名に含まれる
         if key != company_name and (key in company_name or company_name in key):
+            # 親会社/グループ会社の場合はスキップ（別企業として扱う）
+            # 例: "NTT" in "NTTデータ" の場合、NTTは別企業なのでスキップ
+            if key in company_name and len(key) < len(company_name):
+                # 短い名前が長い名前の先頭に含まれる場合（プレフィックスマッチ）
+                # これは通常、親会社/グループ名を示す
+                if company_name.startswith(key):
+                    continue  # 親会社/グループのパターンはスキップ
+            domain_patterns = _get_domains_from_mapping(mapping_data)
             for p in domain_patterns:
                 if p not in patterns:
                     patterns.append(p)
@@ -84,7 +425,11 @@ def get_company_domain_patterns(company_name: str, ascii_name: str | None = None
     extracted = _extract_domain_hints(company_name)
     for hint in extracted:
         if hint not in patterns:
-            patterns.append(hint)
+            # 既存パターンのプレフィックスの場合はスキップ
+            # 例: "ntt" は "nttdata" のプレフィックスなのでスキップ
+            is_prefix_of_existing = any(p.startswith(hint) and p != hint for p in patterns)
+            if not is_prefix_of_existing:
+                patterns.append(hint)
 
     return patterns
 

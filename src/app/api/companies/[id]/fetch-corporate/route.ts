@@ -257,13 +257,7 @@ export async function GET(
     let ragStatus = {
       has_rag: false,
       total_chunks: 0,
-      // Legacy counts
-      recruitment_chunks: 0,
-      corporate_ir_chunks: 0,
-      corporate_business_chunks: 0,
-      corporate_general_chunks: 0,
-      structured_chunks: 0,
-      // New content type counts (9 categories)
+      // Content type counts (9 categories)
       new_grad_recruitment_chunks: 0,
       midcareer_recruitment_chunks: 0,
       corporate_site_chunks: 0,
@@ -273,8 +267,6 @@ export async function GET(
       press_release_chunks: 0,
       csr_sustainability_chunks: 0,
       midterm_plan_chunks: 0,
-      // Legacy recruitment_homepage for backward compatibility
-      recruitment_homepage_chunks: 0,
       last_updated: null as string | null,
     };
 
@@ -298,13 +290,7 @@ export async function GET(
       ragStatus: {
         hasRag: ragStatus.has_rag,
         totalChunks: ragStatus.total_chunks,
-        // Legacy counts
-        recruitmentChunks: ragStatus.recruitment_chunks,
-        corporateIrChunks: ragStatus.corporate_ir_chunks,
-        corporateBusinessChunks: ragStatus.corporate_business_chunks,
-        corporateGeneralChunks: ragStatus.corporate_general_chunks || 0,
-        structuredChunks: ragStatus.structured_chunks,
-        // New content type counts (9 categories)
+        // Content type counts (9 categories)
         newGradRecruitmentChunks: ragStatus.new_grad_recruitment_chunks || 0,
         midcareerRecruitmentChunks: ragStatus.midcareer_recruitment_chunks || 0,
         corporateSiteChunks: ragStatus.corporate_site_chunks || 0,
@@ -314,8 +300,6 @@ export async function GET(
         pressReleaseChunks: ragStatus.press_release_chunks || 0,
         csrSustainabilityChunks: ragStatus.csr_sustainability_chunks || 0,
         midtermPlanChunks: ragStatus.midterm_plan_chunks || 0,
-        // Legacy field for backward compatibility (includes any unmigrated data)
-        recruitmentHomepageChunks: ragStatus.recruitment_homepage_chunks || 0,
         lastUpdated: ragStatus.last_updated,
       },
       pageLimit: PAGE_LIMITS[authUser.plan],

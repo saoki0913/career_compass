@@ -31,13 +31,7 @@ interface CorporateInfoUrl {
 interface RagStatus {
   hasRag: boolean;
   totalChunks: number;
-  // Legacy counts (for backward compatibility)
-  recruitmentChunks: number;
-  corporateIrChunks: number;
-  corporateBusinessChunks: number;
-  corporateGeneralChunks: number;
-  structuredChunks: number;
-  // New content type counts (9 categories)
+  // Content type counts (9 categories)
   newGradRecruitmentChunks: number;
   midcareerRecruitmentChunks: number;
   corporateSiteChunks: number;
@@ -47,8 +41,6 @@ interface RagStatus {
   pressReleaseChunks: number;
   csrSustainabilityChunks: number;
   midtermPlanChunks: number;
-  // Legacy field for backward compatibility (sum of new grad + midcareer)
-  recruitmentHomepageChunks: number;
   lastUpdated: string | null;
 }
 
@@ -475,6 +467,7 @@ export function CorporateInfoSection({
         body: JSON.stringify({
           customQuery: query,
           searchType: searchType,
+          contentType: selectedContentType,  // Pass ContentType for optimized search
           allowSnippetMatch,
         }),
       });

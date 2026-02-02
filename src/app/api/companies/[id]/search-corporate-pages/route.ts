@@ -75,6 +75,7 @@ export async function POST(
     const body = await request.json().catch(() => ({}));
     const customQuery = body.customQuery as string | undefined;
     const searchType = (body.searchType as "ir" | "business" | "about" | undefined) ?? "about";
+    const contentType = body.contentType as string | undefined;  // 9 content types for optimized search
     const allowSnippetMatch = body.allowSnippetMatch as boolean | undefined;
 
     const preferredDomain = extractPreferredDomain(company.corporateUrl);
@@ -87,6 +88,7 @@ export async function POST(
         body: JSON.stringify({
           company_name: company.name,
           search_type: searchType,
+          content_type: contentType,  // Pass ContentType for optimized search
           custom_query: customQuery,
           preferred_domain: preferredDomain,
           max_results: 10,

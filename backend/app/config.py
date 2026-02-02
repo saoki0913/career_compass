@@ -65,16 +65,31 @@ class Settings(BaseSettings):
     rag_timeout_seconds: int = 45
 
     # ===== RAG 埋め込み設定 =====
-    # 環境変数: EMBEDDINGS_PROVIDER (auto | openai | local)
-    embeddings_provider: str = "auto"
     # 環境変数: OPENAI_EMBEDDING_MODEL
     openai_embedding_model: str = "text-embedding-3-small"
-    # 環境変数: LOCAL_EMBEDDING_MODEL
-    local_embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2"
-    # 環境変数: LOCAL_EMBEDDING_DIMENSION
-    local_embedding_dimension: int = 384
     # 環境変数: EMBEDDING_MAX_INPUT_CHARS
     embedding_max_input_chars: int = 8000
+
+    # ===== ES添削 文字数制御設定 =====
+    # 文字数制限の許容幅（パーセント）
+    # 環境変数: ES_CHAR_TOLERANCE_PERCENT
+    # 例: 0.10 = 10% → 400文字制限で40文字の許容幅
+    es_char_tolerance_percent: float = 0.10
+
+    # 文字数制限の最小許容幅（文字数）
+    # 環境変数: ES_CHAR_TOLERANCE_MIN
+    # 短い制限でも最低この文字数の幅を確保
+    es_char_tolerance_min: int = 20
+
+    # テンプレート添削の最大リトライ回数
+    # 環境変数: ES_TEMPLATE_MAX_RETRIES
+    # 複雑な3パターン出力には3回以上を推奨
+    es_template_max_retries: int = 3
+
+    # 条件付き追加リトライを有効にするか
+    # 環境変数: ES_ENABLE_CONDITIONAL_RETRY
+    # 2/3パターン成功時に追加リトライを行う
+    es_enable_conditional_retry: bool = True
 
     model_config = SettingsConfigDict(
         # Try multiple env file locations

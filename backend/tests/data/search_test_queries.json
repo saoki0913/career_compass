@@ -1,0 +1,275 @@
+{
+  "_comment": "検索精度測定用テストクエリセット",
+  "_usage": "pytest backend/tests/test_search_precision.py で実行",
+  "test_cases": [
+    {
+      "id": "q001",
+      "description": "商社 - 新卒採用基本検索",
+      "query": "三菱商事 新卒採用 2026",
+      "company_name": "三菱商事",
+      "expected_content_types": ["new_grad_recruitment"],
+      "expected_domain_patterns": ["career-mc", "mitsubishicorp"],
+      "expected_keywords": ["新卒", "採用", "2026"],
+      "relevance_threshold": 0.7
+    },
+    {
+      "id": "q002",
+      "description": "自動車 - 選考フロー検索",
+      "query": "トヨタ自動車 選考フロー ES提出",
+      "company_name": "トヨタ自動車",
+      "expected_content_types": ["new_grad_recruitment"],
+      "expected_domain_patterns": ["toyota", "toyota-recruit"],
+      "expected_keywords": ["選考", "ES"],
+      "relevance_threshold": 0.6
+    },
+    {
+      "id": "q003",
+      "description": "金融 - 中途採用検索",
+      "query": "野村證券 中途採用 年収",
+      "company_name": "野村證券",
+      "expected_content_types": ["midcareer_recruitment"],
+      "expected_domain_patterns": ["nomura", "nomura-recruit"],
+      "expected_keywords": ["中途", "年収"],
+      "relevance_threshold": 0.6
+    },
+    {
+      "id": "q004",
+      "description": "電機 - 企業理念検索",
+      "query": "ソニー 社長メッセージ 企業理念",
+      "company_name": "ソニーグループ",
+      "expected_content_types": ["ceo_message", "corporate_site"],
+      "expected_domain_patterns": ["sony"],
+      "expected_keywords": ["社長", "理念"],
+      "relevance_threshold": 0.5
+    },
+    {
+      "id": "q005",
+      "description": "IT - インターン締切検索",
+      "query": "NTTデータ インターン エントリー 締切",
+      "company_name": "NTTデータ",
+      "expected_content_types": ["new_grad_recruitment"],
+      "expected_domain_patterns": ["nttdata"],
+      "expected_keywords": ["インターン", "締切"],
+      "relevance_threshold": 0.7
+    },
+    {
+      "id": "q006",
+      "description": "コンサル - 企業情報検索",
+      "query": "アクセンチュア 事業内容 強み",
+      "company_name": "アクセンチュア",
+      "expected_content_types": ["corporate_site", "new_grad_recruitment"],
+      "expected_domain_patterns": ["accenture"],
+      "expected_keywords": ["事業", "強み"],
+      "relevance_threshold": 0.5
+    },
+    {
+      "id": "q007",
+      "description": "商社 - 社員インタビュー検索",
+      "query": "三井物産 社員インタビュー キャリア",
+      "company_name": "三井物産",
+      "expected_content_types": ["employee_interviews"],
+      "expected_domain_patterns": ["mitsui", "mitsuibussan"],
+      "expected_keywords": ["社員", "インタビュー"],
+      "relevance_threshold": 0.6
+    },
+    {
+      "id": "q008",
+      "description": "金融 - 志望動機用検索",
+      "query": "三菱UFJ銀行 志望動機 働く魅力",
+      "company_name": "三菱UFJ銀行",
+      "expected_content_types": ["new_grad_recruitment", "corporate_site", "ceo_message"],
+      "expected_domain_patterns": ["mufg", "bk.mufg"],
+      "expected_keywords": ["魅力", "働く"],
+      "relevance_threshold": 0.5
+    },
+    {
+      "id": "q009",
+      "description": "メーカー - IR情報検索",
+      "query": "パナソニック 中期経営計画 成長戦略",
+      "company_name": "パナソニック",
+      "expected_content_types": ["midterm_plan", "ir_materials"],
+      "expected_domain_patterns": ["panasonic"],
+      "expected_keywords": ["中期", "計画", "戦略"],
+      "relevance_threshold": 0.5
+    },
+    {
+      "id": "q010",
+      "description": "概念的クエリ - 成長環境",
+      "query": "成長できる環境 若手 挑戦",
+      "company_name": "",
+      "expected_content_types": ["new_grad_recruitment", "employee_interviews"],
+      "expected_domain_patterns": [],
+      "expected_keywords": ["成長", "若手", "挑戦"],
+      "relevance_threshold": 0.4,
+      "query_type": "conceptual"
+    },
+    {
+      "id": "q011",
+      "description": "広告 - 採用情報検索",
+      "query": "電通 新卒採用 クリエイティブ",
+      "company_name": "電通",
+      "expected_content_types": ["new_grad_recruitment"],
+      "expected_domain_patterns": ["dentsu"],
+      "expected_keywords": ["新卒", "クリエイティブ"],
+      "relevance_threshold": 0.6
+    },
+    {
+      "id": "q012",
+      "description": "不動産 - 事業内容検索",
+      "query": "三井不動産 事業内容 開発",
+      "company_name": "三井不動産",
+      "expected_content_types": ["corporate_site", "ir_materials"],
+      "expected_domain_patterns": ["mitsuifudosan"],
+      "expected_keywords": ["事業", "開発"],
+      "relevance_threshold": 0.5
+    },
+    {
+      "id": "q013",
+      "description": "製薬 - CSR検索",
+      "query": "武田薬品 サステナビリティ 社会貢献",
+      "company_name": "武田薬品工業",
+      "expected_content_types": ["csr_sustainability"],
+      "expected_domain_patterns": ["takeda"],
+      "expected_keywords": ["サステナビリティ", "社会"],
+      "relevance_threshold": 0.5
+    },
+    {
+      "id": "q014",
+      "description": "航空 - 採用条件検索",
+      "query": "ANA 客室乗務員 応募資格",
+      "company_name": "ANA",
+      "expected_content_types": ["new_grad_recruitment", "midcareer_recruitment"],
+      "expected_domain_patterns": ["ana"],
+      "expected_keywords": ["客室乗務員", "応募"],
+      "relevance_threshold": 0.6
+    },
+    {
+      "id": "q015",
+      "description": "小売 - 企業文化検索",
+      "query": "ファーストリテイリング 企業文化 グローバル",
+      "company_name": "ファーストリテイリング",
+      "expected_content_types": ["corporate_site", "ceo_message"],
+      "expected_domain_patterns": ["fastretailing", "uniqlo"],
+      "expected_keywords": ["文化", "グローバル"],
+      "relevance_threshold": 0.5
+    }
+  ],
+  "evaluation_metrics": {
+    "precision_at_5": {
+      "description": "上位5件中の関連結果の割合",
+      "target": 0.7
+    },
+    "domain_match_rate": {
+      "description": "公式ドメインマッチ率（上位5件）",
+      "target": 0.6
+    },
+    "content_type_accuracy": {
+      "description": "期待content_typeとの一致率（上位5件）",
+      "target": 0.6
+    },
+    "latency_p95": {
+      "description": "95パーセンタイルレイテンシ（ms）",
+      "target": 1000
+    }
+  },
+  "query_categories": {
+    "recruitment_search": ["q001", "q002", "q005", "q011", "q014"],
+    "company_info_search": ["q004", "q006", "q008", "q009", "q012", "q015"],
+    "interview_search": ["q007"],
+    "csr_search": ["q013"],
+    "midcareer_search": ["q003"],
+    "conceptual_search": ["q010"]
+  },
+  "content_type_specific_tests": [
+    {
+      "id": "ct001",
+      "description": "社長メッセージ専用検索",
+      "content_type": "ceo_message",
+      "query": "トヨタ自動車 社長メッセージ",
+      "company_name": "トヨタ自動車",
+      "expected_url_patterns": ["message", "president", "ceo", "greeting"],
+      "expected_title_keywords": ["社長", "メッセージ", "挨拶"],
+      "relevance_threshold": 0.7
+    },
+    {
+      "id": "ct002",
+      "description": "社員インタビュー専用検索",
+      "content_type": "employee_interviews",
+      "query": "三井物産 社員インタビュー",
+      "company_name": "三井物産",
+      "expected_url_patterns": ["interview", "voice", "people"],
+      "expected_title_keywords": ["インタビュー", "社員", "先輩"],
+      "relevance_threshold": 0.6
+    },
+    {
+      "id": "ct003",
+      "description": "中期経営計画専用検索",
+      "content_type": "midterm_plan",
+      "query": "パナソニック 中期経営計画",
+      "company_name": "パナソニック",
+      "expected_url_patterns": ["plan", "strategy", "ir"],
+      "expected_title_keywords": ["中期", "計画", "経営"],
+      "relevance_threshold": 0.6
+    },
+    {
+      "id": "ct004",
+      "description": "CSR/サステナビリティ専用検索",
+      "content_type": "csr_sustainability",
+      "query": "武田薬品 サステナビリティ",
+      "company_name": "武田薬品工業",
+      "expected_url_patterns": ["csr", "sustainability", "esg"],
+      "expected_title_keywords": ["サステナビリティ", "CSR", "ESG"],
+      "relevance_threshold": 0.6
+    },
+    {
+      "id": "ct005",
+      "description": "プレスリリース専用検索",
+      "content_type": "press_release",
+      "query": "ソニー プレスリリース",
+      "company_name": "ソニーグループ",
+      "expected_url_patterns": ["news", "press", "release"],
+      "expected_title_keywords": ["プレスリリース", "ニュース", "お知らせ"],
+      "relevance_threshold": 0.6
+    },
+    {
+      "id": "ct006",
+      "description": "IR資料専用検索",
+      "content_type": "ir_materials",
+      "query": "三菱商事 IR 投資家情報",
+      "company_name": "三菱商事",
+      "expected_url_patterns": ["ir", "investor", "financial"],
+      "expected_title_keywords": ["IR", "投資家", "株主"],
+      "relevance_threshold": 0.7
+    },
+    {
+      "id": "ct007",
+      "description": "新卒採用HP専用検索",
+      "content_type": "new_grad_recruitment",
+      "query": "NTTデータ 新卒採用",
+      "company_name": "NTTデータ",
+      "expected_url_patterns": ["recruit", "shinsotsu", "newgrad", "entry"],
+      "expected_title_keywords": ["新卒採用", "新卒", "エントリー"],
+      "relevance_threshold": 0.7
+    },
+    {
+      "id": "ct008",
+      "description": "中途採用HP専用検索",
+      "content_type": "midcareer_recruitment",
+      "query": "野村證券 中途採用 キャリア",
+      "company_name": "野村證券",
+      "expected_url_patterns": ["career", "midcareer", "experienced"],
+      "expected_title_keywords": ["中途採用", "キャリア採用", "経験者"],
+      "relevance_threshold": 0.6
+    },
+    {
+      "id": "ct009",
+      "description": "企業概要専用検索",
+      "content_type": "corporate_site",
+      "query": "三井不動産 会社概要",
+      "company_name": "三井不動産",
+      "expected_url_patterns": ["about", "company", "corporate", "profile"],
+      "expected_title_keywords": ["会社概要", "企業情報", "会社案内"],
+      "relevance_threshold": 0.7
+    }
+  ]
+}

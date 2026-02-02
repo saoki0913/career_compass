@@ -19,6 +19,7 @@ export interface Template {
   industry: string | null;
   tags: string[];
   isPublic: boolean;
+  language?: "ja" | "en" | null;
   likeCount: number;
   copyCount: number;
   viewCount: number;
@@ -27,6 +28,8 @@ export interface Template {
   isLiked?: boolean;
   isFavorited?: boolean;
   isOwner?: boolean;
+  sharedAt?: string | null;
+  shareExpiresAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -281,6 +284,117 @@ export function useGallery(options: {
     hasMore,
     refresh: () => fetchGallery(true),
     loadMore,
+    likeTemplate,
+    unlikeTemplate,
+    copyTemplate,
+  };
+}
+
+export function useTemplateDetail(id: string) {
+  const [template, setTemplate] = useState<Template | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTemplate = useCallback(async () => {
+    if (!id) return;
+    try {
+      setIsLoading(true);
+      const response = await fetch(`/api/templates/${id}`, {
+        headers: buildHeaders(),
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "テンプレートの取得に失敗しました");
+      }
+
+      const data = await response.json();
+      setTemplate(data.template || null);
+      setError(null);
+    } catch (err) {
+      setTemplate(null);
+      setError(err instanceof Error ? err.message : "テンプレートの取得に失敗しました");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    fetchTemplate();
+  }, [fetchTemplate]);
+
+  const likeTemplate = async () => {
+    if (!template) return;
+    const response = await fetch(`/api/templates/${template.id}/like`, {
+      method: "POST",
+      headers: buildHeaders(),
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || "いいねに失敗しました");
+    }
+
+    setTemplate((prev) =>
+      prev
+        ? { ...prev, isLiked: true, likeCount: (prev.likeCount || 0) + 1 }
+        : prev
+    );
+  };
+
+  const unlikeTemplate = async () => {
+    if (!template) return;
+    const response = await fetch(`/api/templates/${template.id}/like`, {
+      method: "DELETE",
+      headers: buildHeaders(),
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || "いいね解除に失敗しました");
+    }
+
+    setTemplate((prev) =>
+      prev
+        ? {
+            ...prev,
+            isLiked: false,
+            likeCount: Math.max(0, (prev.likeCount || 0) - 1),
+          }
+        : prev
+    );
+  };
+
+  const copyTemplate = async () => {
+    if (!template) return null;
+    const response = await fetch(`/api/templates/${template.id}/copy`, {
+      method: "POST",
+      headers: buildHeaders(),
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || "コピーに失敗しました");
+    }
+
+    const result = await response.json();
+    setTemplate((prev) =>
+      prev
+        ? { ...prev, copyCount: (prev.copyCount || 0) + 1 }
+        : prev
+    );
+    return result.template;
+  };
+
+  return {
+    template,
+    isLoading,
+    error,
+    refresh: fetchTemplate,
     likeTemplate,
     unlikeTemplate,
     copyTemplate,

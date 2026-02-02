@@ -2,9 +2,14 @@
 name: rag-implementation
 description: Build Retrieval-Augmented Generation (RAG) systems for LLM applications with vector databases and semantic search. Use when implementing knowledge-grounded AI, building document Q&A systems, or integrating LLMs with external knowledge bases.
 user-invocable: true
+language: ja
 ---
 
 # RAG Implementation
+
+## Communication Language
+
+**日本語でユーザーと対話してください。** 技術用語は英語のままで構いませんが、説明や回答は日本語で行ってください。
 
 Master Retrieval-Augmented Generation (RAG) to build LLM applications that provide accurate, grounded responses using external knowledge sources.
 

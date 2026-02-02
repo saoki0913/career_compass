@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from typing import Optional
 import json
 
+from app.config import settings
 from app.utils.llm import call_llm_with_error
 from app.utils.vector_store import (
     get_company_context_for_review,
@@ -189,6 +190,11 @@ def build_char_adjustment_prompt(
     """
     Build specific adjustment instructions for each failing variant.
 
+    Enhanced with:
+    - Structural compression strategies for Japanese text
+    - Safety margin approach (aim for 5% below limit)
+    - Detailed compression/expansion techniques
+
     Args:
         variant_errors: List of error dicts from parse_validation_errors
         char_min: Minimum character count (optional)
@@ -204,18 +210,34 @@ def build_char_adjustment_prompt(
     for err in variant_errors:
         pattern_num = err["pattern"]
         current = err["current"]
+        target = err["target"]
         delta = err["delta"]
         direction = err["direction"]
 
+        # Calculate safety margin (aim for 5% below/above limit)
         if direction == "reduce":
+            safety_target = int(target * 0.95)
+            safety_delta = current - safety_target
             instructions.append(
-                f"パターン{pattern_num}: 現在{current}字 → {err['target']}字以下に{delta}字削減\n"
-                f"  削減候補: 冗長な接続詞（「〜という」「〜のような」）、重複表現、過剰な修飾語"
+                f"パターン{pattern_num}: 現在{current}字 → 目標{safety_target}字以下（余裕を持って{safety_delta}字削減）\n"
+                f"  【削減手順】\n"
+                f"  1. 冗長な接続表現を削除\n"
+                f"     - 「〜ということ」→「〜こと」\n"
+                f"     - 「〜させていただく」→「〜する」\n"
+                f"     - 「〜することができる」→「〜できる」\n"
+                f"  2. 重複する修飾語を統合\n"
+                f"     - 「非常に大きな」→「大きな」\n"
+                f"  3. 数値・固有名詞は残し、抽象的な形容詞を削減"
             )
         else:  # expand
+            safety_target = int(target * 1.05)
+            safety_delta = safety_target - current
             instructions.append(
-                f"パターン{pattern_num}: 現在{current}字 → {err['target']}字以上に{delta}字追加\n"
-                f"  追加候補: 具体的数字（人数・期間・成果）、エピソードの詳細、結論の補強"
+                f"パターン{pattern_num}: 現在{current}字 → 目標{safety_target}字以上（余裕を持って{safety_delta}字追加）\n"
+                f"  【追加手順】\n"
+                f"  1. 具体的な数値を追加（期間、人数、成果の数字）\n"
+                f"  2. 状況説明を追加（「〜の状況下で」「〜という課題に直面し」）\n"
+                f"  3. 学びの補強（「この経験から〜を学んだ」）"
             )
 
     # Build constraint description
@@ -226,14 +248,154 @@ def build_char_adjustment_prompt(
     else:
         constraint = f"{char_min}字以上"
 
-    return f"""【文字数エラー - 以下の指示に従い修正】
+    return f"""【文字数調整 - 以下の手順で段階的に修正】
 
 {chr(10).join(instructions)}
 
-重要:
-- 修正後の char_count には必ず len(text) の正確な値を記録
-- 目標文字数: {constraint}
-- JSON構造は維持したまま、variants[*].text のみ修正"""
+【重要ルール】
+1. 修正後に必ず len(text) で文字数を計算
+2. char_count には実際の文字数を正確に記録
+3. 目標: {constraint}
+4. JSON構造は変更せず、variants[*].text のみ修正
+5. 意味を大きく変えずに調整（具体性は維持）"""
+
+
+def validate_and_repair_section_rewrite(
+    rewrite: Optional[str],
+    char_limit: Optional[int],
+) -> Optional[str]:
+    """
+    Validate section rewrite against character limit and repair if needed.
+
+    This ensures that section rewrites respect the specified character limit,
+    making them directly usable by the user without further editing.
+
+    Args:
+        rewrite: The rewrite text to validate
+        char_limit: Maximum character count (optional)
+
+    Returns:
+        Validated rewrite, truncated at natural boundary if over limit
+    """
+    if rewrite is None or char_limit is None:
+        return rewrite
+
+    current_len = len(rewrite)
+    if current_len <= char_limit:
+        return rewrite
+
+    # Over limit - attempt smart truncation at natural break points
+    # Japanese sentence endings: 。、）」
+    target_pos = char_limit - 5  # Leave margin for clean ending
+
+    # Look for natural break point (sentence end) near target
+    for i in range(target_pos, max(0, target_pos - 50), -1):
+        if i < len(rewrite) and rewrite[i] in ('。', '、', '）', '」'):
+            return rewrite[:i + 1]
+
+    # No natural break found - truncate with ellipsis indicator
+    return rewrite[:char_limit - 3] + "..."
+
+
+def should_attempt_conditional_retry(
+    template_review_data: dict,
+    char_min: Optional[int],
+    char_max: Optional[int],
+) -> tuple[bool, list[int]]:
+    """
+    Determine if a conditional retry is worthwhile based on partial success.
+
+    Returns True if at least 2 out of 3 variants pass character validation,
+    meaning it's worth trying to fix just the failing variant(s).
+
+    Args:
+        template_review_data: The template_review dict from LLM response
+        char_min: Minimum character count (optional)
+        char_max: Maximum character count (optional)
+
+    Returns:
+        Tuple of (should_retry, failing_variant_indices)
+    """
+    variants = template_review_data.get("variants", [])
+    if len(variants) != 3:
+        return False, []
+
+    failing_indices = []
+
+    for i, variant in enumerate(variants):
+        text = variant.get("text", "")
+        char_count = len(text)
+
+        # Check if this variant fails character limits
+        if char_max and char_count > char_max:
+            failing_indices.append(i)
+        elif char_min and char_count < char_min:
+            failing_indices.append(i)
+
+    # Worth retrying if at least 2/3 variants pass (only 1 or 0 fail)
+    passing_count = len(variants) - len(failing_indices)
+    should_retry = passing_count >= 2 and len(failing_indices) > 0
+
+    return should_retry, failing_indices
+
+
+def build_targeted_variant_repair_prompt(
+    template_review_data: dict,
+    failing_indices: list[int],
+    char_min: Optional[int],
+    char_max: Optional[int],
+) -> str:
+    """
+    Build a repair prompt targeting only the failing variants.
+
+    This allows more focused repair with lower token usage.
+
+    Args:
+        template_review_data: The template_review dict from LLM response
+        failing_indices: List of variant indices that need repair
+        char_min: Minimum character count (optional)
+        char_max: Maximum character count (optional)
+
+    Returns:
+        Repair prompt string
+    """
+    variants = template_review_data.get("variants", [])
+    repairs_needed = []
+
+    for idx in failing_indices:
+        if idx >= len(variants):
+            continue
+        variant = variants[idx]
+        current_len = len(variant.get("text", ""))
+
+        if char_max and current_len > char_max:
+            excess = current_len - char_max
+            repairs_needed.append(
+                f"variants[{idx}]: {current_len}字 → {char_max}字以下に{excess}字削減"
+            )
+        elif char_min and current_len < char_min:
+            shortage = char_min - current_len
+            repairs_needed.append(
+                f"variants[{idx}]: {current_len}字 → {char_min}字以上に{shortage}字追加"
+            )
+
+    return f"""以下のJSONのうち、指定されたvariantsの文字数のみ修正してください。
+
+【修正対象】
+{chr(10).join(repairs_needed)}
+
+【修正ルール】
+1. 指定されたパターンのtextのみ修正
+2. 他のパターン・フィールドは一切変更しない
+3. char_countには修正後のlen(text)を記録
+4. JSON以外は出力しない
+
+【修正テクニック】
+- 削減: 「〜ということ」→「〜こと」「〜させていただく」→「〜する」
+- 追加: 具体的な数値、状況説明、学びの補強
+
+対象JSON:
+{json.dumps(template_review_data, ensure_ascii=False)}"""
 
 
 def build_es_review_schema(
@@ -293,7 +455,7 @@ def build_es_review_schema(
     keyword_source_schema = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["source_id", "source_url", "content_type"],
+        "required": ["source_id", "source_url", "content_type", "excerpt"],
         "properties": {
             "source_id": {"type": "string"},
             "source_url": {"type": "string"},
@@ -305,7 +467,7 @@ def build_es_review_schema(
     template_review_schema = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["template_type", "variants", "keyword_sources"],
+        "required": ["template_type", "variants", "keyword_sources", "strengthen_points"],
         "properties": {
             "template_type": {"type": "string"},
             "variants": {
@@ -494,10 +656,11 @@ async def review_section_with_template(
     )
 
     # Retry loop for validation
-    # Reduced from 3 to 2 to minimize total request time
-    # Each attempt can take up to 120s with new timeout settings
-    max_retries = 2
+    # Configurable via ES_TEMPLATE_MAX_RETRIES environment variable
+    # Default is 3 for complex 3-variant output (increased from original 2)
+    max_retries = settings.es_template_max_retries
     retry_reason = ""
+    last_template_review_data = None  # Track for conditional retry
 
     for attempt in range(max_retries):
         # Add retry reason if not first attempt
@@ -511,7 +674,7 @@ async def review_section_with_template(
         llm_result = await call_llm_with_error(
             system_prompt=system_prompt,
             user_message=current_user_prompt,
-            max_tokens=4500,  # Increased for 3 variants + metadata (prevents truncation)
+            max_tokens=5500,  # Increased for 3 variants + metadata (prevents truncation)
             temperature=0.4,  # Slightly higher for variety
             feature="es_review",
             response_format="json_schema",
@@ -700,6 +863,9 @@ JSON以外は出力しないでください。"""
                 continue
         else:
             print(f"[ES添削/テンプレート] ⚠️ 試行 {attempt + 1} 検証失敗: {error_reason}")
+            # Track for potential conditional retry
+            last_template_review_data = template_review_data
+
             # If character limit error, add specific adjustment instructions
             if "文字" in error_reason:
                 variants = template_review_data.get("variants", [])
@@ -713,6 +879,125 @@ JSON以外は出力しないでください。"""
                     retry_reason = error_reason
             else:
                 retry_reason = error_reason
+
+    # Main retries exhausted - attempt conditional retry if enabled and worthwhile
+    if (
+        settings.es_enable_conditional_retry
+        and last_template_review_data
+        and "文字" in retry_reason
+    ):
+        should_retry, failing_indices = should_attempt_conditional_retry(
+            last_template_review_data, char_min, char_max
+        )
+
+        if should_retry:
+            print(f"[ES添削/テンプレート] 🔄 条件付きリトライ: {len(failing_indices)}/3 パターンのみ修正")
+
+            # Build targeted repair prompt
+            repair_prompt = build_targeted_variant_repair_prompt(
+                last_template_review_data, failing_indices, char_min, char_max
+            )
+
+            repair_result = await call_llm_with_error(
+                system_prompt="あなたはJSON修復の専門家です。指定されたパターンの文字数のみ修正してください。",
+                user_message=repair_prompt,
+                max_tokens=2000,  # Reduced - only fixing specific variants
+                temperature=0.2,
+                feature="es_review"
+            )
+
+            if repair_result.success and repair_result.data:
+                repaired_data = repair_result.data
+                repaired_template = repaired_data.get("template_review") or repaired_data
+
+                # Validate the repaired output
+                is_valid, repair_error = validate_template_output(
+                    repaired_template,
+                    char_min=char_min,
+                    char_max=char_max,
+                    keyword_count=keyword_count,
+                )
+
+                if is_valid:
+                    print("[ES添削/テンプレート] ✅ 条件付きリトライ成功")
+
+                    # Build and return successful response
+                    scores_data = data.get("scores", {}) if data else {}
+                    scores = Score(
+                        logic=max(1, min(5, scores_data.get("logic", 3))),
+                        specificity=max(1, min(5, scores_data.get("specificity", 3))),
+                        passion=max(1, min(5, scores_data.get("passion", 3))),
+                        company_connection=max(1, min(5, scores_data.get("company_connection", 3))) if company_rag_available else None,
+                        readability=max(1, min(5, scores_data.get("readability", 3))),
+                    )
+
+                    top3_data = data.get("top3", []) if data else []
+                    top3 = _parse_issues(top3_data, 2)
+                    if not top3:
+                        top3 = [Issue(
+                            category="その他",
+                            issue="改善点を特定できませんでした",
+                            suggestion="全体的な見直しを行ってみてください",
+                            difficulty="medium"
+                        )]
+
+                    variants_data = repaired_template.get("variants", [])
+                    variants = [
+                        TemplateVariant(
+                            text=v.get("text", ""),
+                            char_count=len(v.get("text", "")),
+                            pros=v.get("pros", []),
+                            cons=v.get("cons", []),
+                            keywords_used=v.get("keywords_used", []),
+                            keyword_sources=v.get("keyword_sources", []),
+                        )
+                        for v in variants_data
+                    ]
+
+                    keyword_sources_data = repaired_template.get("keyword_sources", [])
+                    keyword_sources = [
+                        TemplateSource(
+                            source_id=src.get("source_id", ""),
+                            source_url=src.get("source_url", ""),
+                            content_type=src.get("content_type", ""),
+                            excerpt=src.get("excerpt"),
+                        )
+                        for src in keyword_sources_data
+                    ]
+
+                    if not keyword_sources and rag_sources:
+                        keyword_sources = [
+                            TemplateSource(
+                                source_id=src.get("source_id", ""),
+                                source_url=src.get("source_url", ""),
+                                content_type=src.get("content_type", ""),
+                                excerpt=src.get("excerpt"),
+                            )
+                            for src in rag_sources
+                        ]
+
+                    strengthen_points = None
+                    if template_def.get("require_strengthen_points"):
+                        strengthen_points = repaired_template.get("strengthen_points", [])
+
+                    template_review = TemplateReview(
+                        template_type=template_type,
+                        variants=variants,
+                        keyword_sources=keyword_sources,
+                        strengthen_points=strengthen_points,
+                    )
+
+                    rewrites = [v.get("text", "") for v in variants_data]
+
+                    return ReviewResponse(
+                        scores=scores,
+                        top3=top3,
+                        rewrites=rewrites,
+                        section_feedbacks=None,
+                        template_review=template_review,
+                    )
+                else:
+                    print(f"[ES添削/テンプレート] ⚠️ 条件付きリトライも失敗: {repair_error}")
 
     # All retries exhausted
     record_parse_failure("es_review_template", retry_reason)
@@ -994,24 +1279,31 @@ async def review_es(request: ReviewRequest):
             es_content=request.content,
             max_context_length=context_length
         )
-        if company_context:
+
+        # Validate context before logging success (Bug #7 fix)
+        min_context_length = 200
+        if company_context and len(company_context) >= min_context_length:
             print(f"[ES添削] ✅ RAGコンテキスト取得完了 ({len(company_context)}文字)")
             print(f"[ES添削] RAG状況: 全{rag_status.get('total_chunks', 0)}チャンク "
-                  f"(採用: {rag_status.get('recruitment_chunks', 0)}, "
-                  f"IR: {rag_status.get('corporate_ir_chunks', 0)}, "
-                  f"事業: {rag_status.get('corporate_business_chunks', 0)}, "
-                  f"企業: {rag_status.get('corporate_general_chunks', 0)}, "
-                  f"構造化: {rag_status.get('structured_chunks', 0)})")
-            if len(company_context) < 200:
-                company_context = ""
-                company_rag_available = False
+                  f"(新卒: {rag_status.get('new_grad_recruitment_chunks', 0)}, "
+                  f"中途: {rag_status.get('midcareer_recruitment_chunks', 0)}, "
+                  f"企業HP: {rag_status.get('corporate_site_chunks', 0)}, "
+                  f"IR: {rag_status.get('ir_materials_chunks', 0)}, "
+                  f"社長: {rag_status.get('ceo_message_chunks', 0)}, "
+                  f"社員INT: {rag_status.get('employee_interviews_chunks', 0)}, "
+                  f"PR: {rag_status.get('press_release_chunks', 0)}, "
+                  f"CSR: {rag_status.get('csr_sustainability_chunks', 0)}, "
+                  f"中計: {rag_status.get('midterm_plan_chunks', 0)})")
         else:
+            context_len = len(company_context) if company_context else 0
+            print(f"[ES添削] ⚠️ RAGコンテキスト不足 ({context_len}文字 < {min_context_length}文字の閾値)")
+            company_context = ""
             company_rag_available = False
 
         record_rag_context(
             company_id=request.company_id,
             context_length=len(company_context),
-            source_count=0
+            source_count=rag_status.get('total_chunks', 0) if company_rag_available else 0
         )
 
     # Branch based on review_mode
@@ -1252,18 +1544,33 @@ async def review_es(request: ReviewRequest):
         rewrites = rewrites_data[:rewrite_count] if rewrites_data else [request.content]
 
         # Get section feedbacks (paid only)
+        # With character limit validation for rewrites
         section_feedbacks = None
         if request.is_paid and (request.section_data or request.sections):
             sf_data = data.get("section_feedbacks", [])
             if sf_data:
-                section_feedbacks = [
-                    SectionFeedback(
-                        section_title=item.get("section_title", ""),
-                        feedback=item.get("feedback", "")[:150],
-                        rewrite=item.get("rewrite")  # Include section-specific rewrite
+                # Build a lookup for section char limits
+                section_char_limits: dict[str, Optional[int]] = {}
+                if request.section_data:
+                    for sd in request.section_data:
+                        section_char_limits[sd.title] = sd.char_limit
+
+                section_feedbacks = []
+                for item in sf_data:
+                    section_title = item.get("section_title", "")
+                    raw_rewrite = item.get("rewrite")
+
+                    # Find char limit for this section and validate rewrite
+                    char_limit = section_char_limits.get(section_title)
+                    validated_rewrite = validate_and_repair_section_rewrite(
+                        raw_rewrite, char_limit
                     )
-                    for item in sf_data
-                ]
+
+                    section_feedbacks.append(SectionFeedback(
+                        section_title=section_title,
+                        feedback=item.get("feedback", "")[:150],
+                        rewrite=validated_rewrite
+                    ))
 
         result = ReviewResponse(
             scores=scores,
