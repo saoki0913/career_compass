@@ -33,6 +33,7 @@ export interface SectionData {
 
 // Template types for template-based ES review
 export type TemplateType =
+  | "basic"
   | "company_motivation"
   | "intern_reason"
   | "intern_goals"
@@ -42,6 +43,7 @@ export type TemplateType =
   | "work_values";
 
 export const TEMPLATE_LABELS: Record<TemplateType, string> = {
+  basic: "汎用ES添削",
   company_motivation: "志望理由",
   intern_reason: "インターン理由",
   intern_goals: "インターンでやりたいこと・学びたいこと",
@@ -63,6 +65,7 @@ export const TEMPLATE_OPTIONS: { value: TemplateType; label: string }[] = [
 
 // テンプレートごとに必要な追加フィールド
 export const TEMPLATE_EXTRA_FIELDS: Record<TemplateType, string[]> = {
+  basic: [],
   company_motivation: [],
   intern_reason: ["intern_name"],
   intern_goals: ["intern_name"],

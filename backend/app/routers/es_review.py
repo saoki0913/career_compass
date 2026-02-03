@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from typing import Optional, AsyncGenerator
 import json
 import asyncio
+import math
 
 from app.config import settings
 from app.utils.llm import call_llm_with_error
@@ -1844,7 +1845,7 @@ async def _generate_review_progress(
                 rag_status = get_company_rag_status(request.company_id)
                 min_context_length = 200
 
-                if request.review_mode == "section" and request.template_request:
+                if request.review_mode == "section":
                     rag_context, rag_sources = (
                         await get_enhanced_context_for_review_with_sources(
                             company_id=request.company_id,
@@ -1891,22 +1892,41 @@ async def _generate_review_progress(
             {"step": "llm_review", "progress": 35, "label": "AIが添削中..."},
         )
 
-        # Section mode (template or standard) handled here for SSE
+        # Section mode (always template-based) handled here for SSE
         if request.review_mode == "section":
             try:
-                if request.template_request:
-                    result = await review_section_with_template(
-                        request=request,
-                        rag_context=rag_context,
-                        rag_sources=rag_sources,
-                        company_rag_available=company_rag_available,
+                template_request = request.template_request
+                if not template_request:
+                    char_max = request.section_char_limit
+                    char_min = (
+                        char_max - max(20, math.floor(char_max * 0.10))
+                        if char_max
+                        else None
                     )
-                else:
-                    result = await review_section(
-                        request=request,
-                        company_context=company_context,
-                        company_rag_available=company_rag_available,
+                    template_request = TemplateRequest(
+                        template_type="basic",
+                        company_name=None,
+                        industry=None,
+                        question=request.section_title or "",
+                        answer=request.content,
+                        char_min=char_min,
+                        char_max=char_max,
                     )
+
+                template_request_request = (
+                    request
+                    if request.template_request
+                    else request.model_copy(
+                        update={"template_request": template_request}
+                    )
+                )
+
+                result = await review_section_with_template(
+                    request=template_request_request,
+                    rag_context=rag_context,
+                    rag_sources=rag_sources,
+                    company_rag_available=company_rag_available,
+                )
             except HTTPException as e:
                 detail = e.detail
                 if isinstance(detail, dict):

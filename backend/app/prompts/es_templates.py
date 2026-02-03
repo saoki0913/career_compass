@@ -10,6 +10,15 @@ Each template specifies:
 """
 
 from typing import Optional
+from pathlib import Path
+
+BASIC_TEMPLATE_PATH = (
+    Path(__file__).resolve().parents[3] / "templates" / "00_basic_template.md"
+)
+try:
+    BASIC_TEMPLATE_TEXT = BASIC_TEMPLATE_PATH.read_text(encoding="utf-8")
+except Exception:
+    BASIC_TEMPLATE_TEXT = None
 
 # Template definitions
 TEMPLATE_DEFS = {
@@ -470,6 +479,49 @@ def build_template_prompt(
         # Fallback to basic template
         template_prompt = TEMPLATE_PROMPTS["basic"]
 
+    def _build_basic_template_text() -> str:
+        if not BASIC_TEMPLATE_TEXT:
+            return ""
+
+        # Character limit instructions
+        if char_min and char_max:
+            char_line = f"文字数：{char_min}字〜{char_max}字（Python len() でカウント・厳守）"
+        elif char_max:
+            char_line = f"文字数：{char_max}字以内（Python len() でカウント・厳守）"
+        elif char_min:
+            char_line = f"文字数：{char_min}字以上（Python len() でカウント・厳守）"
+        else:
+            char_line = "文字数：指定なし"
+
+        lines: list[str] = []
+        for line in BASIC_TEMPLATE_TEXT.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("文字数："):
+                lines.append(char_line)
+                continue
+            if stripped.startswith("業界：") and not industry:
+                continue
+            if stripped.startswith("企業：") and not company_name:
+                continue
+            if stripped.startswith("設問："):
+                lines.append(f"設問：{question}")
+                continue
+            lines.append(line)
+
+        text = "\n".join(lines)
+        replacements = {
+            "{min_chars}": str(char_min) if char_min is not None else "",
+            "{max_chars}": str(char_max) if char_max is not None else "",
+            "{industry}": industry or "",
+            "{company}": company_name or "",
+            "{question}": question or "",
+            "{draft_text}": answer,
+        }
+        for key, value in replacements.items():
+            text = text.replace(key, value)
+
+        return text.strip()
+
     # Build source reference section
     source_refs = ""
     if rag_sources:
@@ -567,7 +619,68 @@ def build_template_prompt(
     # Build character budget section (only if limits are set)
     char_budget_section = f"\n{char_budget}\n" if char_budget else ""
 
-    system_prompt = f"""＃あなたは{template_prompt['role']}である。以下の条件で完璧な{template_prompt['target']}に添削して変更せよ。
+    basic_template_text = _build_basic_template_text() if template_type == "basic" else ""
+    if basic_template_text:
+        base_prompt = basic_template_text
+        if no_rag_guidance:
+            base_prompt = f"{no_rag_guidance.strip()}\n\n{base_prompt}"
+        system_prompt = f"""{base_prompt}
+
+【出力要件（補足）】
+{output_requirements}
+
+【JSON出力形式 - 厳守】
+# 以下の制約を必ず守ること:
+1. JSONオブジェクトのみを出力（マークダウン、説明文、```コードブロック禁止）
+2. {{ で始まり }} で終わる（前後に何も付けない）
+3. 全ての文字列は必ずダブルクォート（"）で囲む
+4. 文字列内の改行は \\n、タブは \\t でエスケープ
+5. 配列・オブジェクトの最後の要素にカンマを付けない（[1, 2,] ← 禁止）
+6. strengthen_points は空配列 [] でも必ず含めること
+
+{{
+  "scores": {{
+    "logic": 1-5の整数,
+    "specificity": 1-5の整数,
+    "passion": 1-5の整数,
+    "company_connection": 1-5の整数または省略,
+    "readability": 1-5の整数
+  }},
+  "top3": [
+    {{"category": "評価軸名", "issue": "問題点", "suggestion": "改善提案", "difficulty": "easy"}}
+  ],
+  "template_review": {{
+    "template_type": "{template_type}",
+    "variants": [
+      {{
+        "text": "改善案の本文",
+        "char_count": 文字数（整数）,
+        "pros": ["メリット1", "メリット2"],
+        "cons": ["デメリット1"],
+        "keywords_used": ["キーワード1", "キーワード2"],
+        "keyword_sources": ["S1", "S2"]
+      }}
+    ],
+    "keyword_sources": [
+      {{"source_id": "S1", "source_url": "URL", "content_type": "種別"}}
+    ],
+    "strengthen_points": ["強化ポイント1"] // require_strengthen_pointsがtrueの場合のみ
+  }}
+}}
+
+【スコア基準（厳しめに付ける、平均3点程度）】
+- logic (論理): 主張と根拠の一貫性
+- specificity (具体性): 数字・エピソードの充実度
+- passion (熱意): 意欲・モチベーションの伝わり度
+- company_connection (企業接続): 企業との接点の明確さ（RAGあり時のみ）
+- readability (読みやすさ): 文章の流れと理解しやすさ
+
+【3パターンの差別化】
+- パターン1: バランス重視（読みやすさと具体性のバランス）
+- パターン2: 論理重視（因果関係を明確にした構成）
+- パターン3: 熱意重視（意欲や passion を強調）"""
+    else:
+        system_prompt = f"""＃あなたは{template_prompt['role']}である。以下の条件で完璧な{template_prompt['target']}に添削して変更せよ。
 {no_rag_guidance}
 【条件】
 {conditions_text}
