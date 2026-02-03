@@ -33,33 +33,10 @@ const INTEGRATED_BADGE_LABELS: Record<string, Record<string, string>> = {
   other: { high: "関連・高", medium: "関連・中", low: "関連・低" },
 };
 
-// Integrated badge colors
-const INTEGRATED_BADGE_COLORS: Record<string, Record<string, { bg: string; text: string }>> = {
-  official: {
-    high: { bg: "bg-emerald-100", text: "text-emerald-700" },
-    medium: { bg: "bg-emerald-100", text: "text-emerald-700" },
-    low: { bg: "bg-emerald-50", text: "text-emerald-600" },
-  },
-  subsidiary: {
-    high: { bg: "bg-orange-100", text: "text-orange-700" },
-    medium: { bg: "bg-orange-100", text: "text-orange-700" },
-    low: { bg: "bg-orange-50", text: "text-orange-600" },
-  },
-  parent: {
-    high: { bg: "bg-purple-100", text: "text-purple-700" },
-    medium: { bg: "bg-purple-100", text: "text-purple-700" },
-    low: { bg: "bg-purple-50", text: "text-purple-600" },
-  },
-  job_site: {
-    high: { bg: "bg-blue-100", text: "text-blue-700" },
-    medium: { bg: "bg-blue-100", text: "text-blue-700" },
-    low: { bg: "bg-blue-50", text: "text-blue-600" },
-  },
-  other: {
-    high: { bg: "bg-yellow-100", text: "text-yellow-700" },
-    medium: { bg: "bg-gray-100", text: "text-gray-600" },
-    low: { bg: "bg-gray-100", text: "text-gray-500" },
-  },
+const CONFIDENCE_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
+  high: { bg: "bg-emerald-100", text: "text-emerald-700" },
+  medium: { bg: "bg-yellow-100", text: "text-yellow-700" },
+  low: { bg: "bg-gray-100", text: "text-gray-600" },
 };
 
 interface DeadlineSummary {
@@ -410,8 +387,6 @@ export function FetchInfoButton({
 
     for (let i = 0; i < urlsToFetch.length; i++) {
       const url = urlsToFetch[i];
-      setFetchProgress({ current: i + 1, total: urlsToFetch.length });
-
       try {
         const response = await fetch(`/api/companies/${companyId}/fetch-info`, {
           method: "POST",
@@ -470,6 +445,8 @@ export function FetchInfoButton({
         freeRemaining = data.freeRemaining;
       } catch (err) {
         errors.push(err instanceof Error ? err.message : `URL ${i + 1} の取得に失敗しました`);
+      } finally {
+        setFetchProgress({ current: i + 1, total: urlsToFetch.length });
       }
     }
 
@@ -541,24 +518,28 @@ export function FetchInfoButton({
 
   return (
     <>
-      <Button
-        variant="outline"
+      <button
         onClick={() => setShowSelectionTypeModal(true)}
         disabled={isSearching || isFetching}
-        className="gap-2"
+        className={cn(
+          "flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border transition-colors",
+          isSearching || isFetching
+            ? "text-muted-foreground cursor-wait bg-muted/30"
+            : "hover:bg-muted/50"
+        )}
       >
         {isSearching || isFetching ? (
           <>
             <LoadingSpinner />
-            <span>{isSearching ? "検索中..." : "取得中..."}</span>
+            <span className="text-sm">{isSearching ? "検索中..." : "取得中..."}</span>
           </>
         ) : (
           <>
             <SparklesIcon />
-            <span>AIで選考スケジュールを取得</span>
+            <span className="text-sm font-medium">AIで選考スケジュールを取得</span>
           </>
         )}
-      </Button>
+      </button>
 
       {/* Selection Type Modal - Step 1: Choose selection type before search */}
       {showSelectionTypeModal && (
@@ -707,7 +688,9 @@ export function FetchInfoButton({
                     {fetchProgress ? (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-sm text-blue-800">
-                          <span>処理中: {fetchProgress.current} / {fetchProgress.total}</span>
+                          <span>
+                            {fetchProgress.current}/{fetchProgress.total} 処理中...
+                          </span>
                           <span className="font-medium">
                             {Math.round((fetchProgress.current / fetchProgress.total) * 100)}%
                           </span>
@@ -821,7 +804,7 @@ export function FetchInfoButton({
                           const sourceType = candidate.sourceType || "other";
                           const confidence = candidate.confidence || "low";
                           const label = INTEGRATED_BADGE_LABELS[sourceType]?.[confidence] || "関連・低";
-                          const colors = INTEGRATED_BADGE_COLORS[sourceType]?.[confidence] || { bg: "bg-gray-100", text: "text-gray-500" };
+                          const colors = CONFIDENCE_BADGE_COLORS[confidence] || { bg: "bg-gray-100", text: "text-gray-600" };
                           return (
                             <span
                               className={cn(

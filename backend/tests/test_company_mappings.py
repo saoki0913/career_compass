@@ -51,7 +51,6 @@ from app.utils.hybrid_search import (
     PARENT_DOMAIN_PENALTIES,
 )
 
-
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -91,7 +90,9 @@ class TestMappingDataIntegrity:
 
     def test_company_count(self, all_companies):
         """登録企業数が1000社以上"""
-        assert len(all_companies) > 1000, f"Expected >1000 companies, got {len(all_companies)}"
+        assert (
+            len(all_companies) > 1000
+        ), f"Expected >1000 companies, got {len(all_companies)}"
 
     def test_all_subsidiaries_have_valid_parent(self, all_companies):
         """全子会社の親会社が存在する"""
@@ -102,8 +103,9 @@ class TestMappingDataIntegrity:
                 if parent not in all_companies:
                     missing_parents.append(f"{name} → {parent}")
 
-        assert len(missing_parents) == 0, \
-            f"親会社未登録の子会社:\n" + "\n".join(missing_parents)
+        assert len(missing_parents) == 0, f"親会社未登録の子会社:\n" + "\n".join(
+            missing_parents
+        )
 
     def test_all_companies_have_domains(self, all_companies):
         """全企業にドメインパターンが設定されている"""
@@ -113,8 +115,11 @@ class TestMappingDataIntegrity:
             if not domains:
                 missing_domains.append(name)
 
-        assert len(missing_domains) == 0, \
-            f"ドメイン未設定の企業 ({len(missing_domains)}社):\n" + "\n".join(missing_domains[:20])
+        assert (
+            len(missing_domains) == 0
+        ), f"ドメイン未設定の企業 ({len(missing_domains)}社):\n" + "\n".join(
+            missing_domains[:20]
+        )
 
 
 # =============================================================================
@@ -134,8 +139,9 @@ class TestDomainPatternConsistency:
                 if domain != domain.lower():
                     uppercase_patterns.append(f"{name}: {domain}")
 
-        assert len(uppercase_patterns) == 0, \
-            f"大文字を含むパターン:\n" + "\n".join(uppercase_patterns[:20])
+        assert len(uppercase_patterns) == 0, f"大文字を含むパターン:\n" + "\n".join(
+            uppercase_patterns[:20]
+        )
 
     def test_no_duplicate_domains_within_company(self, all_companies):
         """同一企業内でドメインの重複がない"""
@@ -145,8 +151,9 @@ class TestDomainPatternConsistency:
             if len(domains) != len(set(domains)):
                 duplicates.append(f"{name}: {domains}")
 
-        assert len(duplicates) == 0, \
-            f"重複ドメインを持つ企業:\n" + "\n".join(duplicates[:20])
+        assert len(duplicates) == 0, f"重複ドメインを持つ企業:\n" + "\n".join(
+            duplicates[:20]
+        )
 
     def test_no_empty_domain_patterns(self, all_companies):
         """空文字のドメインパターンがない"""
@@ -156,8 +163,9 @@ class TestDomainPatternConsistency:
             if "" in domains:
                 empty_patterns.append(name)
 
-        assert len(empty_patterns) == 0, \
-            f"空文字パターンを持つ企業:\n" + "\n".join(empty_patterns)
+        assert len(empty_patterns) == 0, f"空文字パターンを持つ企業:\n" + "\n".join(
+            empty_patterns
+        )
 
     def test_no_duplicate_domains_across_companies(self, all_companies):
         """主要ドメインパターンの重複がない（警告レベル）"""
@@ -168,7 +176,9 @@ class TestDomainPatternConsistency:
             domains = get_domains(mapping)
             for domain in domains:
                 if domain in domain_to_company:
-                    duplicates.append(f"  {domain}: {domain_to_company[domain]} と {name}")
+                    duplicates.append(
+                        f"  {domain}: {domain_to_company[domain]} と {name}"
+                    )
                 else:
                     domain_to_company[domain] = name
 
@@ -188,9 +198,11 @@ class TestOfficialDomainDetection:
     @pytest.mark.parametrize(
         "company_name,domains",
         get_all_companies_with_domains()[:500],  # 最初の500社をテスト
-        ids=lambda x: x if isinstance(x, str) else None
+        ids=lambda x: x if isinstance(x, str) else None,
     )
-    def test_official_domain_detection_sample(self, company_name: str, domains: list[str]):
+    def test_official_domain_detection_sample(
+        self, company_name: str, domains: list[str]
+    ):
         """公式ドメインが official_domain として検出される（サンプル）"""
         for domain in domains[:2]:  # 各企業の最初の2ドメインをテスト
             # サブドメイン形式はスキップ
@@ -204,22 +216,21 @@ class TestOfficialDomainDetection:
 
             for url in test_urls:
                 source_type = classify_source_type(url, company_name)
-                assert source_type == "official_domain", \
-                    f"{company_name}: {url} should be 'official_domain' but got '{source_type}'"
+                assert (
+                    source_type == "official_domain"
+                ), f"{company_name}: {url} should be 'official_domain' but got '{source_type}'"
 
     def test_official_domain_boost_is_1_5(self):
         """公式ドメインで1.5倍のブーストが適用される"""
         boost = calculate_domain_boost(
-            "https://www.nttdata.com/recruit/",
-            company_name="NTTデータ"
+            "https://www.nttdata.com/recruit/", company_name="NTTデータ"
         )
         assert boost == 1.5, f"Official domain boost should be 1.5, got {boost}"
 
     def test_non_official_domain_no_boost(self):
         """非公式ドメインにはブーストなし"""
         boost = calculate_domain_boost(
-            "https://www.example.com/",
-            company_name="NTTデータ"
+            "https://www.example.com/", company_name="NTTデータ"
         )
         assert boost == 1.0, f"Non-official domain should have boost 1.0, got {boost}"
 
@@ -243,7 +254,7 @@ class TestContentTypeBoost:
         domain_boost = calculate_domain_boost(
             "https://www.nttdata.com/recruit/",
             company_name="NTTデータ",
-            content_type="new_grad_recruitment"
+            content_type="new_grad_recruitment",
         )
         content_boost = CONTENT_TYPE_BOOSTS["es_review"]["new_grad_recruitment"]
 
@@ -251,7 +262,9 @@ class TestContentTypeBoost:
         assert content_boost == 1.5, f"Content boost should be 1.5, got {content_boost}"
 
         theoretical_max = domain_boost * content_boost
-        assert theoretical_max >= 2.0, f"Official + new_grad should be >=2.0x, got {theoretical_max}"
+        assert (
+            theoretical_max >= 2.0
+        ), f"Official + new_grad should be >=2.0x, got {theoretical_max}"
 
     def test_ir_materials_lower_boost(self):
         """IR資料は低いブースト"""
@@ -259,8 +272,9 @@ class TestContentTypeBoost:
         ir_boost = es_review_boosts.get("ir_materials", 1.0)
         new_grad_boost = es_review_boosts.get("new_grad_recruitment", 1.0)
 
-        assert ir_boost < new_grad_boost, \
-            f"IR materials ({ir_boost}) should have lower boost than new_grad ({new_grad_boost})"
+        assert (
+            ir_boost < new_grad_boost
+        ), f"IR materials ({ir_boost}) should have lower boost than new_grad ({new_grad_boost})"
 
 
 # =============================================================================
@@ -273,7 +287,9 @@ class TestParentChildRelationships:
 
     def test_subsidiary_count(self, subsidiaries):
         """子会社が500社以上登録されている"""
-        assert len(subsidiaries) > 500, f"Expected >500 subsidiaries, got {len(subsidiaries)}"
+        assert (
+            len(subsidiaries) > 500
+        ), f"Expected >500 subsidiaries, got {len(subsidiaries)}"
 
     def test_get_parent_company_returns_correct_parent(self):
         """get_parent_company() が正しい親会社を返す"""
@@ -287,8 +303,9 @@ class TestParentChildRelationships:
             actual = get_parent_company(child)
             if actual is None:
                 pytest.skip(f"{child} is not registered")
-            assert actual == expected_parent, \
-                f"get_parent_company('{child}') = '{actual}', expected '{expected_parent}'"
+            assert (
+                actual == expected_parent
+            ), f"get_parent_company('{child}') = '{actual}', expected '{expected_parent}'"
 
     def test_parent_companies_have_no_parent(self, parent_companies):
         """親会社にはさらなる親会社がいない"""
@@ -298,8 +315,9 @@ class TestParentChildRelationships:
             if parent is not None:
                 with_parent.append(f"{name} → {parent}")
 
-        assert len(with_parent) == 0, \
-            f"親会社なのに親会社が設定されている:\n" + "\n".join(with_parent[:10])
+        assert (
+            len(with_parent) == 0
+        ), f"親会社なのに親会社が設定されている:\n" + "\n".join(with_parent[:10])
 
     def test_all_subsidiaries_return_parent(self, subsidiaries):
         """全子会社に親会社が設定されている"""
@@ -309,8 +327,9 @@ class TestParentChildRelationships:
             if parent is None:
                 no_parent.append(name)
 
-        assert len(no_parent) == 0, \
-            f"子会社なのに親会社が取得できない:\n" + "\n".join(no_parent)
+        assert len(no_parent) == 0, f"子会社なのに親会社が取得できない:\n" + "\n".join(
+            no_parent
+        )
 
     def test_subsidiary_detection_for_parent_search(self):
         """親会社検索時に子会社ドメインが検出される"""
@@ -325,8 +344,9 @@ class TestParentChildRelationships:
                 url = f"https://www.{domain}.co.jp/"
                 is_sub, detected_name = is_subsidiary_domain(url, "NTTデータ")
 
-                assert is_sub, \
-                    f"子会社 {sub_name} のドメイン '{domain}' が is_subsidiary_domain() で検出されるべき"
+                assert (
+                    is_sub
+                ), f"子会社 {sub_name} のドメイン '{domain}' が is_subsidiary_domain() で検出されるべき"
 
     def test_parent_domain_detection_for_subsidiary_search(self):
         """子会社検索時に親会社ドメインが検出される"""
@@ -342,8 +362,9 @@ class TestParentChildRelationships:
                 pytest.skip(f"{child} is not registered")
 
             result = is_parent_domain(parent_url, child)
-            assert result == expected, \
-                f"is_parent_domain('{parent_url}', '{child}') = {result}, expected {expected}"
+            assert (
+                result == expected
+            ), f"is_parent_domain('{parent_url}', '{child}') = {result}, expected {expected}"
 
     def test_sibling_companies_share_parent(self):
         """兄弟会社が同じ親会社を共有する"""
@@ -355,23 +376,26 @@ class TestParentChildRelationships:
         my_parent = get_parent_company("みずほ銀行")
         for sibling_name in siblings.keys():
             sibling_parent = get_parent_company(sibling_name)
-            assert sibling_parent == my_parent, \
-                f"Sibling {sibling_name} has parent '{sibling_parent}', expected '{my_parent}'"
+            assert (
+                sibling_parent == my_parent
+            ), f"Sibling {sibling_name} has parent '{sibling_parent}', expected '{my_parent}'"
 
     def test_parent_domain_penalty_applied(self):
         """子会社検索時に親会社サイトが減点される"""
         boost = calculate_domain_boost(
             "https://www.mitsui.com/",
             company_name="三井物産スチール",
-            content_type="new_grad_recruitment"
+            content_type="new_grad_recruitment",
         )
 
-        assert boost < 1.0, \
-            f"Parent domain should have penalty (boost < 1.0), got {boost}"
+        assert (
+            boost < 1.0
+        ), f"Parent domain should have penalty (boost < 1.0), got {boost}"
 
         expected_penalty = PARENT_DOMAIN_PENALTIES.get("new_grad_recruitment", 0.5)
-        assert boost == expected_penalty, \
-            f"Parent domain penalty should be {expected_penalty}, got {boost}"
+        assert (
+            boost == expected_penalty
+        ), f"Parent domain penalty should be {expected_penalty}, got {boost}"
 
     def test_subsidiary_penalty_when_searching_parent(self):
         """親会社検索時に子会社サイトが減点される"""
@@ -391,8 +415,9 @@ class TestParentChildRelationships:
         url = f"https://www.{domain}.co.jp/"
         boost = calculate_domain_boost(url, company_name="NTTデータ")
 
-        assert boost < 1.0, \
-            f"Subsidiary domain should have penalty (boost < 1.0), got {boost}"
+        assert (
+            boost < 1.0
+        ), f"Subsidiary domain should have penalty (boost < 1.0), got {boost}"
 
 
 # =============================================================================
@@ -406,7 +431,7 @@ class TestOwnDomainNotMisdetected:
     @pytest.mark.parametrize(
         "subsidiary_name,mapping",
         get_all_subsidiaries_for_test()[:200],  # 最初の200子会社をテスト
-        ids=lambda x: x if isinstance(x, str) else None
+        ids=lambda x: x if isinstance(x, str) else None,
     )
     def test_own_domain_not_parent(self, subsidiary_name: str, mapping: dict):
         """子会社自身のドメインは親会社として検出されない"""
@@ -431,8 +456,9 @@ class TestOwnDomainNotMisdetected:
 
             for url in test_urls:
                 result = is_parent_domain(url, subsidiary_name)
-                assert result is False, \
-                    f"{subsidiary_name}: 自社ドメイン '{domain}' が親会社として誤検出 (URL: {url})"
+                assert (
+                    result is False
+                ), f"{subsidiary_name}: 自社ドメイン '{domain}' が親会社として誤検出 (URL: {url})"
 
 
 # =============================================================================
@@ -452,22 +478,25 @@ class TestJobBoardRanking:
 
         for url in mynavi_urls:
             source_type = classify_source_type(url)
-            assert source_type == "job_board", \
-                f"Mynavi URL should be 'job_board', got '{source_type}'"
+            assert (
+                source_type == "job_board"
+            ), f"Mynavi URL should be 'job_board', got '{source_type}'"
 
     def test_rikunabi_classified_as_job_board(self):
         """リクナビが job_board として分類される"""
         rikunabi_url = "https://job.rikunabi.com/company/nttdata/"
         source_type = classify_source_type(rikunabi_url)
-        assert source_type == "job_board", \
-            f"Rikunabi URL should be 'job_board', got '{source_type}'"
+        assert (
+            source_type == "job_board"
+        ), f"Rikunabi URL should be 'job_board', got '{source_type}'"
 
     def test_doda_classified_as_job_board(self):
         """dodaが job_board として分類される"""
         doda_url = "https://doda.jp/company/nttdata/"
         source_type = classify_source_type(doda_url)
-        assert source_type == "job_board", \
-            f"doda URL should be 'job_board', got '{source_type}'"
+        assert (
+            source_type == "job_board"
+        ), f"doda URL should be 'job_board', got '{source_type}'"
 
     def test_all_major_job_boards_classified(self):
         """主要求人サイトがすべて job_board として分類される"""
@@ -482,8 +511,9 @@ class TestJobBoardRanking:
 
         for name, url in job_boards.items():
             source_type = classify_source_type(url)
-            assert source_type == "job_board", \
-                f"{name} ({url}) should be 'job_board', got '{source_type}'"
+            assert (
+                source_type == "job_board"
+            ), f"{name} ({url}) should be 'job_board', got '{source_type}'"
 
 
 # =============================================================================
@@ -497,38 +527,38 @@ class TestDomainBoundaryValidation:
     def test_is_parent_domain_has_boundary_check(self):
         """is_parent_domain() は境界チェックが正しく動作する"""
         result = is_parent_domain(
-            "https://www.smitsui.com/",
-            company_name="三井物産スチール"
+            "https://www.smitsui.com/", company_name="三井物産スチール"
         )
-        assert result is False, \
-            "'smitsui.com' should NOT match parent domain 'mitsui' (boundary check)"
+        assert (
+            result is False
+        ), "'smitsui.com' should NOT match parent domain 'mitsui' (boundary check)"
 
     def test_hyphenated_domain_match(self):
         """ハイフン区切りドメインが正しくマッチ"""
         is_official = classify_source_type(
-            "https://www.nttdata-mse.co.jp/",
-            company_name="NTTデータMSE"
+            "https://www.nttdata-mse.co.jp/", company_name="NTTデータMSE"
         )
-        assert is_official == "official_domain", \
-            "'nttdata-mse.co.jp' should match 'NTTデータMSE'"
+        assert (
+            is_official == "official_domain"
+        ), "'nttdata-mse.co.jp' should match 'NTTデータMSE'"
 
     def test_subdomain_match(self):
         """サブドメインも正しくマッチ"""
         is_official = classify_source_type(
-            "https://recruit.nttdata.com/",
-            company_name="NTTデータ"
+            "https://recruit.nttdata.com/", company_name="NTTデータ"
         )
-        assert is_official == "official_domain", \
-            "'recruit.nttdata.com' should match 'NTTデータ'"
+        assert (
+            is_official == "official_domain"
+        ), "'recruit.nttdata.com' should match 'NTTデータ'"
 
     def test_parent_not_matched_by_extended_name(self):
         """親会社名を含む子会社ドメインが親会社として誤検出されない"""
         result = is_parent_domain(
-            "https://www.mitsui-steel.com/",
-            company_name="三井物産スチール"
+            "https://www.mitsui-steel.com/", company_name="三井物産スチール"
         )
-        assert result is False, \
-            "'mitsui-steel.com' should NOT be detected as parent for '三井物産スチール'"
+        assert (
+            result is False
+        ), "'mitsui-steel.com' should NOT be detected as parent for '三井物産スチール'"
 
 
 # =============================================================================

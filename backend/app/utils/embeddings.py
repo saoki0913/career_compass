@@ -26,6 +26,7 @@ _openai_embedding_client: Optional[openai.AsyncOpenAI] = None
 @dataclass(frozen=True)
 class EmbeddingBackend:
     """Embedding backend configuration."""
+
     provider: Literal["openai"]
     model: str
     dimension: int = EMBEDDING_DIMENSION
@@ -73,7 +74,7 @@ def resolve_embedding_backend() -> Optional[EmbeddingBackend]:
 def _split_into_token_batches(
     valid_texts: list[tuple[int, str]],
     max_len: int,
-    token_limit: int = OPENAI_BATCH_TOKEN_LIMIT
+    token_limit: int = OPENAI_BATCH_TOKEN_LIMIT,
 ) -> list[list[tuple[int, str]]]:
     """
     Split texts into batches based on estimated token count.
@@ -117,7 +118,7 @@ def _split_into_token_batches(
 async def generate_embedding(
     text: str,
     backend: Optional[EmbeddingBackend] = None,
-    allow_fallback: Optional[bool] = None  # Kept for API compatibility, ignored
+    allow_fallback: Optional[bool] = None,  # Kept for API compatibility, ignored
 ) -> Optional[list[float]]:
     """
     Generate embedding for text using OpenAI.
@@ -135,7 +136,9 @@ async def generate_embedding(
 
     backend = backend or resolve_embedding_backend()
     if backend is None:
-        print("[埋め込み] ❌ 利用可能な埋め込みバックエンドなし（OPENAI_API_KEY未設定）")
+        print(
+            "[埋め込み] ❌ 利用可能な埋め込みバックエンドなし（OPENAI_API_KEY未設定）"
+        )
         return None
 
     max_len = settings.embedding_max_input_chars
@@ -155,7 +158,7 @@ async def generate_embedding(
 async def generate_embeddings_batch(
     texts: list[str],
     backend: Optional[EmbeddingBackend] = None,
-    allow_fallback: Optional[bool] = None  # Kept for API compatibility, ignored
+    allow_fallback: Optional[bool] = None,  # Kept for API compatibility, ignored
 ) -> list[Optional[list[float]]]:
     """
     Generate embeddings for multiple texts using OpenAI.
@@ -178,7 +181,9 @@ async def generate_embeddings_batch(
 
     backend = backend or resolve_embedding_backend()
     if backend is None:
-        print("[埋め込み] ❌ 利用可能な埋め込みバックエンドなし（OPENAI_API_KEY未設定）")
+        print(
+            "[埋め込み] ❌ 利用可能な埋め込みバックエンドなし（OPENAI_API_KEY未設定）"
+        )
         return [None] * len(texts)
 
     max_len = settings.embedding_max_input_chars
@@ -189,7 +194,9 @@ async def generate_embeddings_batch(
         # Split into batches to avoid token limit (300K max, using 250K for safety)
         batches = _split_into_token_batches(valid_texts, max_len)
         if len(batches) > 1:
-            print(f"[埋め込み] ℹ️ {len(valid_texts)}テキストを{len(batches)}バッチに分割")
+            print(
+                f"[埋め込み] ℹ️ {len(valid_texts)}テキストを{len(batches)}バッチに分割"
+            )
 
         # Process each batch and collect embeddings
         all_embeddings: list = []

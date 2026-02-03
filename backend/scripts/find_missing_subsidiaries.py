@@ -306,7 +306,9 @@ def main():
     parser.add_argument("parent", nargs="?", help="検索する親会社名")
     parser.add_argument("--all", action="store_true", help="全主要グループを検索")
     parser.add_argument("--show", metavar="PARENT", help="登録済み子会社を表示")
-    parser.add_argument("--output", "-o", metavar="FILE", help="結果をJSONファイルに出力")
+    parser.add_argument(
+        "--output", "-o", metavar="FILE", help="結果をJSONファイルに出力"
+    )
 
     args = parser.parse_args()
 

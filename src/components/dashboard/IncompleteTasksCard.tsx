@@ -55,6 +55,7 @@ interface IncompleteTasksCardProps {
   className?: string;
   compactMode?: boolean;
   maxItems?: number;
+  variant?: "default" | "quickAction";
 }
 
 // Task item component for reuse in card and modal
@@ -137,12 +138,26 @@ export function IncompleteTasksCard({
   className,
   compactMode = false,
   maxItems = 3,
+  variant = "default",
 }: IncompleteTasksCardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { data, isLoading } = useIncompleteItems();
 
+  const isQuickAction = variant === "quickAction";
+
   // Show loading state
   if (isLoading) {
+    if (isQuickAction) {
+      return (
+        <div className={cn(
+          "rounded-2xl p-5 bg-gradient-to-br from-amber-100 to-amber-50 border border-amber-200/50 shadow-md animate-pulse",
+          className
+        )}>
+          <div className="h-4 bg-amber-200/50 rounded w-16 mb-2" />
+          <div className="h-3 bg-amber-200/50 rounded w-12" />
+        </div>
+      );
+    }
     return (
       <Card className={cn("border-border/50 animate-pulse", className)}>
         <CardContent className="py-8">
@@ -154,6 +169,20 @@ export function IncompleteTasksCard({
 
   // Empty state - UX Psychology: Positive reinforcement when tasks are complete
   if (!hasIncompleteItems(data)) {
+    if (isQuickAction) {
+      return (
+        <div className={cn(
+          "rounded-2xl p-5 bg-gradient-to-br from-emerald-100 to-emerald-50 border border-emerald-200/50 shadow-md",
+          className
+        )}>
+          <div className="w-10 h-10 rounded-xl bg-emerald-200/50 flex items-center justify-center mb-3 text-emerald-600">
+            <CheckCircleIcon />
+          </div>
+          <h3 className="font-semibold text-emerald-700 tracking-tight">すべて完了</h3>
+          <p className="mt-1 text-sm text-emerald-600/80">作業途中なし</p>
+        </div>
+      );
+    }
     return (
       <Card className={cn("border-emerald-200 bg-gradient-to-br from-emerald-50 to-transparent", className)}>
         <CardContent className={cn("py-6 text-center", compactMode && "py-4")}>
@@ -218,6 +247,54 @@ export function IncompleteTasksCard({
 
   const visibleTasks = allTasks.slice(0, maxItems);
   const hasMore = allTasks.length > maxItems;
+
+  // QuickAction variant - compact card that matches QuickActions grid style
+  if (isQuickAction) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setIsModalOpen(true)}
+          className={cn(
+            "rounded-2xl p-5 bg-gradient-to-br from-amber-100 to-amber-50 border border-amber-200/50 shadow-md",
+            "hover:shadow-lg hover:-translate-y-1 transition-all duration-200 cursor-pointer text-left",
+            className
+          )}
+        >
+          <div className="w-10 h-10 rounded-xl bg-amber-200/50 flex items-center justify-center mb-3 text-amber-700">
+            <PencilIcon />
+          </div>
+          <h3 className="font-semibold text-amber-800 tracking-tight">作業途中</h3>
+          <p className="mt-1 text-sm text-amber-700/80">{totalCount}件のタスク</p>
+        </button>
+
+        {/* Modal for all tasks */}
+        <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-amber-700">
+                <PencilIcon />
+                作業途中のタスク ({totalCount}件)
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 mt-4">
+              {allTasks.map((task) => (
+                <TaskItem
+                  key={task.type}
+                  href={task.href}
+                  icon={task.icon}
+                  label={task.label}
+                  count={task.count}
+                  preview={task.preview}
+                  compactMode={false}
+                />
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
 
   return (
     <>

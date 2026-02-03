@@ -280,6 +280,33 @@
   100% { opacity: 1; transform: translateY(0); }
 }
 
+/* Chat typing indicator animation */
+@keyframes typing-dots {
+  0%, 20% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+  80%, 100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+}
+
+@keyframes message-appear {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @keyframes scale-in {
   0% { opacity: 0; transform: scale(0.95); }
   100% { opacity: 1; transform: scale(1); }
@@ -416,5 +443,25 @@
 
   .dark .glass {
     @apply bg-zinc-900/80 border-white/10;
+  }
+
+  /* Chat typing indicator dots */
+  .animate-typing-dot {
+    animation: typing-dots 1.4s infinite ease-in-out;
+  }
+
+  .animate-typing-dot-delayed-1 {
+    animation: typing-dots 1.4s infinite ease-in-out;
+    animation-delay: 0.2s;
+  }
+
+  .animate-typing-dot-delayed-2 {
+    animation: typing-dots 1.4s infinite ease-in-out;
+    animation-delay: 0.4s;
+  }
+
+  /* Message appear animation */
+  .animate-message-appear {
+    animation: message-appear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 }

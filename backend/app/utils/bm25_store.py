@@ -16,6 +16,7 @@ from cachetools import LRUCache
 
 try:
     import bm25s
+
     HAS_BM25 = True
 except ImportError:
     HAS_BM25 = False
@@ -34,6 +35,7 @@ BM25_FORMAT_VERSION = 1
 @dataclass
 class BM25Document:
     """A document in the BM25 index."""
+
     doc_id: str
     text: str
     tokens: list[str] = field(default_factory=list)
@@ -73,10 +75,7 @@ class BM25Index:
             return
 
         doc = BM25Document(
-            doc_id=doc_id,
-            text=text,
-            tokens=tokens,
-            metadata=metadata or {}
+            doc_id=doc_id, text=text, tokens=tokens, metadata=metadata or {}
         )
         self.documents.append(doc)
         # Invalidate BM25 index (will be rebuilt on next search)
@@ -91,9 +90,7 @@ class BM25Index:
         """
         for doc in docs:
             self.add_document(
-                doc_id=doc["id"],
-                text=doc["text"],
-                metadata=doc.get("metadata", {})
+                doc_id=doc["id"], text=doc["text"], metadata=doc.get("metadata", {})
             )
 
     def _build_index(self):
@@ -186,10 +183,10 @@ class BM25Index:
                     "doc_id": doc.doc_id,
                     "text": doc.text,
                     "tokens": doc.tokens,
-                    "metadata": doc.metadata
+                    "metadata": doc.metadata,
                 }
                 for doc in self.documents
-            ]
+            ],
         }
 
         with open(json_path, "w", encoding="utf-8") as f:
@@ -232,17 +229,21 @@ class BM25Index:
                         doc_id=doc_data["doc_id"],
                         text=doc_data["text"],
                         tokens=doc_data["tokens"],
-                        metadata=doc_data.get("metadata", {})
+                        metadata=doc_data.get("metadata", {}),
                     )
                     index.documents.append(doc)
 
-                print(f"[BM25] ✅ Loaded index for {company_id} ({len(index.documents)} docs)")
+                print(
+                    f"[BM25] ✅ Loaded index for {company_id} ({len(index.documents)} docs)"
+                )
                 return index
 
             except Exception as e:
                 print(f"[BM25] ❌ Error loading JSON index for {company_id}: {e}")
                 # Move corrupted file
-                corrupted_path = json_path.with_suffix(f".json.corrupted.{int(time.time())}")
+                corrupted_path = json_path.with_suffix(
+                    f".json.corrupted.{int(time.time())}"
+                )
                 try:
                     json_path.rename(corrupted_path)
                     print(f"[BM25] Moved corrupted file to: {corrupted_path}")
@@ -263,7 +264,7 @@ class BM25Index:
                         doc_id=doc_data["doc_id"],
                         text=doc_data["text"],
                         tokens=doc_data["tokens"],
-                        metadata=doc_data.get("metadata", {})
+                        metadata=doc_data.get("metadata", {}),
                     )
                     index.documents.append(doc)
 
@@ -272,13 +273,17 @@ class BM25Index:
 
                 # Remove old pickle file after successful migration
                 pkl_path.unlink()
-                print(f"[BM25] ✅ Migrated {company_id} from pickle to JSON ({len(index.documents)} docs)")
+                print(
+                    f"[BM25] ✅ Migrated {company_id} from pickle to JSON ({len(index.documents)} docs)"
+                )
                 return index
 
             except Exception as e:
                 print(f"[BM25] ❌ Error loading pickle index for {company_id}: {e}")
                 # Move corrupted pickle file
-                corrupted_path = pkl_path.with_suffix(f".pkl.corrupted.{int(time.time())}")
+                corrupted_path = pkl_path.with_suffix(
+                    f".pkl.corrupted.{int(time.time())}"
+                )
                 try:
                     pkl_path.rename(corrupted_path)
                     print(f"[BM25] Moved corrupted pickle to: {corrupted_path}")

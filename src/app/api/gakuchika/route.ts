@@ -8,8 +8,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { gakuchikaContents } from "@/lib/db/schema";
-import { eq, and, desc, isNull } from "drizzle-orm";
+import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
+import { eq, desc, isNull } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 
@@ -36,6 +36,28 @@ async function getIdentity(request: NextRequest): Promise<{
   return null;
 }
 
+interface STARScores {
+  situation: number;
+  task: number;
+  action: number;
+  result: number;
+}
+
+function safeParseStarScores(json: string | null): STARScores | null {
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json);
+    return {
+      situation: parsed.situation ?? 0,
+      task: parsed.task ?? 0,
+      action: parsed.action ?? 0,
+      result: parsed.result ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const identity = await getIdentity(request);
@@ -48,6 +70,7 @@ export async function GET(request: NextRequest) {
 
     const { userId, guestId } = identity;
 
+    // Get gakuchika contents with their latest conversation data
     const contents = await db
       .select()
       .from(gakuchikaContents)
@@ -60,7 +83,30 @@ export async function GET(request: NextRequest) {
       )
       .orderBy(desc(gakuchikaContents.updatedAt));
 
-    return NextResponse.json({ gakuchikas: contents });
+    // Get conversation data for each gakuchika
+    const gakuchikasWithConversation = await Promise.all(
+      contents.map(async (gakuchika) => {
+        const conversation = await db
+          .select({
+            status: gakuchikaConversations.status,
+            starScores: gakuchikaConversations.starScores,
+            questionCount: gakuchikaConversations.questionCount,
+          })
+          .from(gakuchikaConversations)
+          .where(eq(gakuchikaConversations.gakuchikaId, gakuchika.id))
+          .orderBy(desc(gakuchikaConversations.updatedAt))
+          .get();
+
+        return {
+          ...gakuchika,
+          conversationStatus: conversation?.status || null,
+          starScores: safeParseStarScores(conversation?.starScores || null),
+          questionCount: conversation?.questionCount || 0,
+        };
+      })
+    );
+
+    return NextResponse.json({ gakuchikas: gakuchikasWithConversation });
   } catch (error) {
     console.error("Error fetching gakuchikas:", error);
     return NextResponse.json(

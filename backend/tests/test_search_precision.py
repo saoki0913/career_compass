@@ -51,7 +51,9 @@ def check_domain_match(source_url: str, expected_patterns: list[str]) -> bool:
     return False
 
 
-def check_content_type_match(result_content_type: str, expected_types: list[str]) -> bool:
+def check_content_type_match(
+    result_content_type: str, expected_types: list[str]
+) -> bool:
     """Check if result content type matches expected types."""
     return result_content_type in expected_types
 
@@ -69,10 +71,7 @@ class SearchPrecisionEvaluator:
         self.results: dict[str, dict] = {}
 
     async def evaluate_single_query(
-        self,
-        test_case: dict,
-        search_func,
-        company_id: Optional[str] = None
+        self, test_case: dict, search_func, company_id: Optional[str] = None
     ) -> dict:
         """Evaluate a single test query."""
         query = test_case["query"]
@@ -85,9 +84,7 @@ class SearchPrecisionEvaluator:
 
         # Execute search
         search_results = await search_func(
-            company_id=company_id or "test_company",
-            query=query,
-            n_results=10
+            company_id=company_id or "test_company", query=query, n_results=10
         )
 
         latency_ms = (time.perf_counter() - start_time) * 1000
@@ -121,16 +118,22 @@ class SearchPrecisionEvaluator:
                 keyword_matches += kw_count
 
             # Consider relevant if at least one criteria matches
-            if (check_domain_match(source_url, expected_domain_patterns) or
-                check_content_type_match(content_type, expected_content_types) or
-                kw_count >= len(expected_keywords) // 2):
+            if (
+                check_domain_match(source_url, expected_domain_patterns)
+                or check_content_type_match(content_type, expected_content_types)
+                or kw_count >= len(expected_keywords) // 2
+            ):
                 relevant_count += 1
 
         # Calculate rates
         n_results = len(top_5) if top_5 else 1
         precision_at_5 = relevant_count / n_results
-        domain_match_rate = domain_match_count / n_results if expected_domain_patterns else 1.0
-        content_type_accuracy = content_type_match_count / n_results if expected_content_types else 1.0
+        domain_match_rate = (
+            domain_match_count / n_results if expected_domain_patterns else 1.0
+        )
+        content_type_accuracy = (
+            content_type_match_count / n_results if expected_content_types else 1.0
+        )
 
         return {
             "query_id": test_case["id"],
@@ -143,7 +146,7 @@ class SearchPrecisionEvaluator:
             "latency_ms": latency_ms,
             "num_results": len(search_results),
             "threshold": test_case.get("relevance_threshold", 0.5),
-            "passed": precision_at_5 >= test_case.get("relevance_threshold", 0.5)
+            "passed": precision_at_5 >= test_case.get("relevance_threshold", 0.5),
         }
 
     async def evaluate_all(self, search_func, company_id: Optional[str] = None) -> dict:
@@ -152,7 +155,9 @@ class SearchPrecisionEvaluator:
         results = []
 
         for test_case in test_cases:
-            result = await self.evaluate_single_query(test_case, search_func, company_id)
+            result = await self.evaluate_single_query(
+                test_case, search_func, company_id
+            )
             results.append(result)
             self.results[test_case["id"]] = result
 
@@ -162,7 +167,11 @@ class SearchPrecisionEvaluator:
         avg_domain_match = sum(r["domain_match_rate"] for r in results) / n_tests
         avg_content_type = sum(r["content_type_accuracy"] for r in results) / n_tests
         avg_latency = sum(r["latency_ms"] for r in results) / n_tests
-        p95_latency = sorted([r["latency_ms"] for r in results])[int(n_tests * 0.95)] if n_tests > 0 else 0
+        p95_latency = (
+            sorted([r["latency_ms"] for r in results])[int(n_tests * 0.95)]
+            if n_tests > 0
+            else 0
+        )
         pass_rate = sum(1 for r in results if r["passed"]) / n_tests
 
         return {
@@ -173,9 +182,9 @@ class SearchPrecisionEvaluator:
                 "avg_domain_match_rate": avg_domain_match,
                 "avg_content_type_accuracy": avg_content_type,
                 "avg_latency_ms": avg_latency,
-                "p95_latency_ms": p95_latency
+                "p95_latency_ms": p95_latency,
             },
-            "results": results
+            "results": results,
         }
 
     def print_report(self, evaluation: dict):
@@ -200,15 +209,19 @@ class SearchPrecisionEvaluator:
         print("-" * 60)
         for r in results:
             status = "PASS" if r["passed"] else "FAIL"
-            print(f"[{status}] {r['query_id']}: P@5={r['precision_at_5']:.0%}, "
-                  f"Domain={r['domain_match_rate']:.0%}, "
-                  f"Latency={r['latency_ms']:.0f}ms")
+            print(
+                f"[{status}] {r['query_id']}: P@5={r['precision_at_5']:.0%}, "
+                f"Domain={r['domain_match_rate']:.0%}, "
+                f"Latency={r['latency_ms']:.0f}ms"
+            )
 
         print("=" * 60)
 
 
 # Mock search function for testing
-async def mock_search_func(company_id: str, query: str, n_results: int = 10) -> list[dict]:
+async def mock_search_func(
+    company_id: str, query: str, n_results: int = 10
+) -> list[dict]:
     """Mock search function for unit tests."""
     # Return dummy results
     return [
@@ -218,9 +231,9 @@ async def mock_search_func(company_id: str, query: str, n_results: int = 10) -> 
             "metadata": {
                 "source_url": "https://example.com/recruit",
                 "content_type": "new_grad_recruitment",
-                "chunk_type": "general"
+                "chunk_type": "general",
             },
-            "hybrid_score": 0.9 - i * 0.1
+            "hybrid_score": 0.9 - i * 0.1,
         }
         for i in range(n_results)
     ]
@@ -262,14 +275,18 @@ def test_extract_domain():
 
 def test_check_domain_match():
     """Test domain pattern matching."""
-    assert check_domain_match("https://career-mc.mitsubishicorp.com/", ["career-mc", "mitsubishicorp"])
+    assert check_domain_match(
+        "https://career-mc.mitsubishicorp.com/", ["career-mc", "mitsubishicorp"]
+    )
     assert check_domain_match("https://toyota-recruit.jp/", ["toyota"])
     assert not check_domain_match("https://example.com/", ["toyota"])
 
 
 def test_check_content_type_match():
     """Test content type matching."""
-    assert check_content_type_match("new_grad_recruitment", ["new_grad_recruitment", "corporate_site"])
+    assert check_content_type_match(
+        "new_grad_recruitment", ["new_grad_recruitment", "corporate_site"]
+    )
     assert not check_content_type_match("ir_materials", ["new_grad_recruitment"])
 
 
@@ -327,12 +344,8 @@ async def test_baseline_precision():
 
     try:
         evaluation = await evaluator.evaluate_all(
-            lambda cid, q, n: dense_hybrid_search(
-                company_id=cid,
-                query=q,
-                n_results=n
-            ),
-            company_id=company_id
+            lambda cid, q, n: dense_hybrid_search(company_id=cid, query=q, n_results=n),
+            company_id=company_id,
         )
         evaluator.print_report(evaluation)
 

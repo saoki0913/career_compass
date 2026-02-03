@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useDocument, DocumentBlock } from "@/hooks/useDocuments";
-import { ReviewPanel, VersionHistory, AIThreadHistory } from "@/components/es";
+import { ReviewPanel, MobileReviewPanel, VersionHistory, AIThreadHistory } from "@/components/es";
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -653,9 +653,22 @@ export default function ESEditorPage() {
                 <span className="hidden sm:inline">ES一覧</span>
               </Link>
               <span className="text-muted-foreground/30">|</span>
-              <span className="text-sm font-medium truncate max-w-[200px] sm:max-w-none">
-                {title || "無題のドキュメント"}
-              </span>
+              <div className="flex items-center gap-2 min-w-0">
+                {document?.company && (
+                  <>
+                    <Link
+                      href={`/companies/${document.company.id}`}
+                      className="text-sm text-primary hover:underline truncate max-w-[120px] sm:max-w-[200px]"
+                    >
+                      {document.company.name}
+                    </Link>
+                    <span className="text-muted-foreground/50 flex-shrink-0">›</span>
+                  </>
+                )}
+                <span className="text-sm font-medium truncate max-w-[150px] sm:max-w-none">
+                  {title || "無題のドキュメント"}
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-4">
               <span className="text-xs sm:text-sm text-muted-foreground">{totalCharCount}文字</span>
@@ -701,7 +714,7 @@ export default function ESEditorPage() {
             showReviewPanel ? "lg:w-[60%]" : "w-full"
           )}
         >
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <Card>
               <CardContent className="p-6">
                 {/* Title */}
@@ -791,14 +804,20 @@ export default function ESEditorPage() {
         )}
       </main>
 
-      {/* Mobile Review Panel Toggle Info */}
-      {showReviewPanel && (
-        <div className="lg:hidden fixed bottom-4 left-4 right-4 bg-primary text-primary-foreground p-4 rounded-xl shadow-lg">
-          <p className="text-sm text-center">
-            AI添削パネルはデスクトップ版で利用できます
-          </p>
-        </div>
-      )}
+      {/* Mobile Review Panel - Bottom Sheet */}
+      <MobileReviewPanel
+        documentId={documentId}
+        content={getContentForReview()}
+        sections={getSectionTitles()}
+        sectionData={getSectionData()}
+        hasCompanyRag={hasCompanyRag}
+        companyId={document?.company?.id}
+        isPaid={false}
+        onApplyRewrite={handleApplyRewrite}
+        onUndo={handleUndoReflect}
+        sectionReviewRequest={sectionReviewRequest}
+        onClearSectionReview={handleClearSectionReview}
+      />
     </div>
   );
 }

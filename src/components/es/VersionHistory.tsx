@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { formatRelativeTime } from "@/lib/utils";
 
 interface Version {
   id: string;
@@ -73,8 +74,10 @@ export function VersionHistory({ documentId, onRestore }: VersionHistoryProps) {
     }
   };
 
-  const formatDate = (dateStr: string) => {
+  // Format date for tooltip (full date/time)
+  const formatFullDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleString("ja-JP", {
+      year: "numeric",
       month: "short",
       day: "numeric",
       hour: "2-digit",
@@ -115,8 +118,11 @@ export function VersionHistory({ documentId, onRestore }: VersionHistoryProps) {
             <div className="flex items-center justify-between">
               <div>
                 <span className="text-sm font-medium">v{version.version}</span>
-                <span className="text-xs text-muted-foreground ml-2">
-                  {formatDate(version.createdAt)}
+                <span
+                  className="text-xs text-muted-foreground ml-2"
+                  title={formatFullDate(version.createdAt)}
+                >
+                  {formatRelativeTime(version.createdAt)}
                 </span>
               </div>
               <Button
@@ -143,8 +149,11 @@ export function VersionHistory({ documentId, onRestore }: VersionHistoryProps) {
                 <span className="text-lg font-semibold">
                   v{previewVersion.version}
                 </span>
-                <span className="text-sm text-muted-foreground ml-2">
-                  {formatDate(previewVersion.createdAt)}
+                <span
+                  className="text-sm text-muted-foreground ml-2"
+                  title={formatFullDate(previewVersion.createdAt)}
+                >
+                  {formatRelativeTime(previewVersion.createdAt)}
                 </span>
               </div>
               <div className="flex gap-2">

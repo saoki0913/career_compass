@@ -390,7 +390,7 @@ def get_character_budget(char_min: Optional[int], char_max: Optional[int]) -> st
 
     # Typical ES structure allocation
     intro_budget = int(target * 0.15)  # 15% for opening statement
-    body_budget = int(target * 0.70)   # 70% for main content
+    body_budget = int(target * 0.70)  # 70% for main content
     conclusion_budget = int(target * 0.15)  # 15% for conclusion
 
     return f"""【文字数管理 - 厳守事項】
@@ -486,7 +486,9 @@ def build_template_prompt(
         if char_min == char_max:
             char_instruction = f"文字数：{char_min}字（Python len() でカウント・厳守）"
         else:
-            char_instruction = f"文字数：{char_min}字〜{char_max}字（Python len() でカウント・厳守）"
+            char_instruction = (
+                f"文字数：{char_min}字〜{char_max}字（Python len() でカウント・厳守）"
+            )
     elif char_max:
         char_instruction = f"文字数：{char_max}字以内（Python len() でカウント・厳守）"
     elif char_min:
@@ -534,11 +536,18 @@ def build_template_prompt(
 - 少なすぎる場合: 具体的な数字を追加、エピソードを詳細化、結論の補強
 
 """
-    output_requirements += "・改善案を3パターン提示し、それぞれのメリット・デメリットを説明"
+    output_requirements += (
+        "・改善案を3パターン提示し、それぞれのメリット・デメリットを説明"
+    )
+    output_requirements += "\n・rewrites は出力しない（variants[*].text を本文として使用）"
     if keyword_count > 0 and has_rag:
-        output_requirements += "\n・使用したキーワードがどの資料から取ったものか明記"
+        output_requirements += (
+            "\n・使用したキーワードがどの資料から取ったものか明記（keyword_sources は excerpt なしでOK）"
+        )
     if template_def.get("require_strengthen_points"):
-        output_requirements += "\n・強化すべきポイントを企業の求める人材像と照らし合わせて指摘"
+        output_requirements += (
+            "\n・強化すべきポイントを企業の求める人材像と照らし合わせて指摘"
+        )
     output_requirements += "\n・top3 には difficulty（easy/medium/hard）を付与"
     if char_constraint:
         output_requirements += f"\n・各パターンは必ず{char_constraint}の範囲内（char_countにはlen(text)の正確な値を記録）"
@@ -575,7 +584,7 @@ def build_template_prompt(
 【JSON出力形式 - 厳守】
 # 以下の制約を必ず守ること:
 1. JSONオブジェクトのみを出力（マークダウン、説明文、```コードブロック禁止）
-2. { で始まり } で終わる（前後に何も付けない）
+2. {{ で始まり }} で終わる（前後に何も付けない）
 3. 全ての文字列は必ずダブルクォート（"）で囲む
 4. 文字列内の改行は \\n、タブは \\t でエスケープ
 5. 配列・オブジェクトの最後の要素にカンマを付けない（[1, 2,] ← 禁止）
@@ -592,7 +601,6 @@ def build_template_prompt(
   "top3": [
     {{"category": "評価軸名", "issue": "問題点", "suggestion": "改善提案", "difficulty": "easy"}}
   ],
-  "rewrites": ["パターン1の本文", "パターン2の本文", "パターン3の本文"],
   "template_review": {{
     "template_type": "{template_type}",
     "variants": [
@@ -606,7 +614,7 @@ def build_template_prompt(
       }}
     ],
     "keyword_sources": [
-      {{"source_id": "S1", "source_url": "URL", "content_type": "種別", "excerpt": "抜粋"}}
+      {{"source_id": "S1", "source_url": "URL", "content_type": "種別"}}
     ],
     "strengthen_points": ["強化ポイント1"] // require_strengthen_pointsがtrueの場合のみ
   }}
@@ -649,7 +657,6 @@ def validate_template_output(
     template_review: dict,
     char_min: Optional[int],
     char_max: Optional[int],
-    keyword_count: int,
 ) -> tuple[bool, str]:
     """
     Validate template review output.
@@ -658,10 +665,13 @@ def validate_template_output(
         template_review: Parsed template_review dict from LLM
         char_min: Minimum character count (optional)
         char_max: Maximum character count (optional)
-        keyword_count: Expected number of keywords
 
     Returns:
         Tuple of (is_valid, error_reason)
+
+    Note:
+        Keyword validation is not performed here - keyword count is
+        treated as soft guidance in the prompt only.
     """
     errors = []
 
@@ -679,32 +689,25 @@ def validate_template_output(
         if char_max:
             if char_count > char_max:
                 excess = char_count - char_max
-                errors.append(f"パターン{i}: {char_count}文字（{excess}文字削減が必要、上限{char_max}文字）")
+                errors.append(
+                    f"パターン{i}: {char_count}文字（{excess}文字削減が必要、上限{char_max}文字）"
+                )
 
         if char_min:
             if char_count < char_min:
                 shortage = char_min - char_count
-                errors.append(f"パターン{i}: {char_count}文字（{shortage}文字追加が必要、下限{char_min}文字）")
-
-        # Keyword count validation
-        keywords_used = variant.get("keywords_used", [])
-        if keyword_count > 0:
-            if len(keywords_used) != keyword_count:
                 errors.append(
-                    f"パターン{i}: キーワード{len(keywords_used)}個（{keyword_count}個必要）"
+                    f"パターン{i}: {char_count}文字（{shortage}文字追加が必要、下限{char_min}文字）"
                 )
 
-            # Check each keyword appears exactly once
-            for kw in keywords_used:
-                count = text.count(kw)
-                if count == 0:
-                    errors.append(f"パターン{i}: キーワード「{kw}」が本文に含まれていない")
-                elif count > 1:
-                    errors.append(f"パターン{i}: キーワード「{kw}」が{count}回使用（1回のみ）")
+        # Note: Keyword validation removed - treated as soft guidance in prompt only
+        # LLM decides keyword usage based on context; no hard validation
 
         # Check for です/ます (should use だ・である)
         if "です" in text or "ます" in text:
-            errors.append(f"パターン{i}: です・ます調が使用されています（だ・である調に統一）")
+            errors.append(
+                f"パターン{i}: です・ます調が使用されています（だ・である調に統一）"
+            )
 
         # Check char_count accuracy
         if variant.get("char_count") != char_count:

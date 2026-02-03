@@ -16,9 +16,11 @@ Style options (SPEC Section 16.3):
 """
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, AsyncGenerator
 import json
+import asyncio
 
 from app.config import settings
 from app.utils.llm import call_llm_with_error
@@ -28,10 +30,14 @@ from app.utils.vector_store import (
     get_enhanced_context_for_review_with_sources,
     has_company_rag,
     get_company_rag_status,
-    get_dynamic_context_length
+    get_dynamic_context_length,
 )
 from app.utils.cache import get_es_review_cache, build_cache_key
-from app.utils.telemetry import record_es_scores, record_parse_failure, record_rag_context
+from app.utils.telemetry import (
+    record_es_scores,
+    record_parse_failure,
+    record_rag_context,
+)
 from app.prompts.es_templates import (
     TEMPLATE_DEFS,
     build_template_prompt,
@@ -47,6 +53,7 @@ PAID_STYLES = FREE_STYLES + ["短く", "熱意強め", "結論先出し", "具�
 
 class SectionDataInput(BaseModel):
     """Section data with character limit for review"""
+
     title: str
     content: str
     char_limit: Optional[int] = None
@@ -55,6 +62,7 @@ class SectionDataInput(BaseModel):
 # Template-based review types (must be defined before ReviewRequest)
 class TemplateRequest(BaseModel):
     """Request for template-based ES review."""
+
     template_type: str  # Template ID from TEMPLATE_DEFS
     company_name: Optional[str] = None
     industry: Optional[str] = None
@@ -63,11 +71,14 @@ class TemplateRequest(BaseModel):
     char_min: Optional[int] = None
     char_max: Optional[int] = None
     intern_name: Optional[str] = None  # Intern program name (for intern templates)
-    role_name: Optional[str] = None  # Role/course name (for role_course_reason template)
+    role_name: Optional[str] = (
+        None  # Role/course name (for role_course_reason template)
+    )
 
 
 class TemplateVariant(BaseModel):
     """A single variant in template review."""
+
     text: str
     char_count: int
     pros: list[str]
@@ -78,6 +89,7 @@ class TemplateVariant(BaseModel):
 
 class TemplateSource(BaseModel):
     """Source reference for template keywords."""
+
     source_id: str
     source_url: str
     content_type: str
@@ -86,6 +98,7 @@ class TemplateSource(BaseModel):
 
 class TemplateReview(BaseModel):
     """Template-based review result."""
+
     template_type: str
     variants: list[TemplateVariant]
     keyword_sources: list[TemplateSource]
@@ -164,21 +177,25 @@ def parse_validation_errors(
         current = len(text)
 
         if char_max and current > char_max:
-            errors.append({
-                "pattern": i,
-                "current": current,
-                "target": char_max,
-                "delta": current - char_max,
-                "direction": "reduce",
-            })
+            errors.append(
+                {
+                    "pattern": i,
+                    "current": current,
+                    "target": char_max,
+                    "delta": current - char_max,
+                    "direction": "reduce",
+                }
+            )
         elif char_min and current < char_min:
-            errors.append({
-                "pattern": i,
-                "current": current,
-                "target": char_min,
-                "delta": char_min - current,
-                "direction": "expand",
-            })
+            errors.append(
+                {
+                    "pattern": i,
+                    "current": current,
+                    "target": char_min,
+                    "delta": char_min - current,
+                    "direction": "expand",
+                }
+            )
     return errors
 
 
@@ -214,9 +231,9 @@ def build_char_adjustment_prompt(
         delta = err["delta"]
         direction = err["direction"]
 
-        # Calculate safety margin (aim for 5% below/above limit)
+        # Calculate safety margin (aim for 10% below/above limit)
         if direction == "reduce":
-            safety_target = int(target * 0.95)
+            safety_target = int(target * 0.90)
             safety_delta = current - safety_target
             instructions.append(
                 f"パターン{pattern_num}: 現在{current}字 → 目標{safety_target}字以下（余裕を持って{safety_delta}字削減）\n"
@@ -290,11 +307,11 @@ def validate_and_repair_section_rewrite(
 
     # Look for natural break point (sentence end) near target
     for i in range(target_pos, max(0, target_pos - 50), -1):
-        if i < len(rewrite) and rewrite[i] in ('。', '、', '）', '」'):
-            return rewrite[:i + 1]
+        if i < len(rewrite) and rewrite[i] in ("。", "、", "）", "」"):
+            return rewrite[: i + 1]
 
     # No natural break found - truncate with ellipsis indicator
-    return rewrite[:char_limit - 3] + "..."
+    return rewrite[: char_limit - 3] + "..."
 
 
 def should_attempt_conditional_retry(
@@ -401,7 +418,10 @@ def build_targeted_variant_repair_prompt(
 def build_es_review_schema(
     require_company_connection: bool,
     include_template_review: bool,
-    include_section_feedbacks: bool
+    include_section_feedbacks: bool,
+    include_rewrites: bool = True,
+    top3_max_items: int = 3,
+    keyword_source_excerpt_required: bool = True,
 ) -> dict:
     """Build JSON schema for ES review output (OpenAI Structured Outputs)."""
     score_properties = {
@@ -441,7 +461,14 @@ def build_es_review_schema(
     variant_schema = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["text", "char_count", "pros", "cons", "keywords_used", "keyword_sources"],
+        "required": [
+            "text",
+            "char_count",
+            "pros",
+            "cons",
+            "keywords_used",
+            "keyword_sources",
+        ],
         "properties": {
             "text": {"type": "string"},
             "char_count": {"type": "integer"},
@@ -452,10 +479,14 @@ def build_es_review_schema(
         },
     }
 
+    keyword_source_required = ["source_id", "source_url", "content_type"]
+    if keyword_source_excerpt_required:
+        keyword_source_required.append("excerpt")
+
     keyword_source_schema = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["source_id", "source_url", "content_type", "excerpt"],
+        "required": keyword_source_required,
         "properties": {
             "source_id": {"type": "string"},
             "source_url": {"type": "string"},
@@ -467,7 +498,12 @@ def build_es_review_schema(
     template_review_schema = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["template_type", "variants", "keyword_sources", "strengthen_points"],
+        "required": [
+            "template_type",
+            "variants",
+            "keyword_sources",
+            "strengthen_points",
+        ],
         "properties": {
             "template_type": {"type": "string"},
             "variants": {
@@ -498,17 +534,19 @@ def build_es_review_schema(
             "type": "array",
             "items": issue_schema,
             "minItems": 1,
-            "maxItems": 3,
+            "maxItems": top3_max_items,
         },
-        "rewrites": {
+    }
+
+    required = ["scores", "top3"]
+    if include_rewrites:
+        properties["rewrites"] = {
             "type": "array",
             "items": {"type": "string"},
             "minItems": 1,
             "maxItems": 3,
-        },
-    }
-
-    required = ["scores", "top3", "rewrites"]
+        }
+        required.append("rewrites")
 
     if include_section_feedbacks:
         properties["section_feedbacks"] = {
@@ -551,18 +589,22 @@ def _normalize_difficulty(value: Optional[str]) -> Optional[str]:
         "難しい": "hard",
         "難": "hard",
     }
-    return mapping.get(normalized, normalized if normalized in DIFFICULTY_LEVELS else None)
+    return mapping.get(
+        normalized, normalized if normalized in DIFFICULTY_LEVELS else None
+    )
 
 
 def _parse_issues(items: list[dict], max_items: int) -> list[Issue]:
     issues: list[Issue] = []
     for item in items[:max_items]:
-        issues.append(Issue(
-            category=item.get("category", "その他"),
-            issue=item.get("issue", ""),
-            suggestion=item.get("suggestion", ""),
-            difficulty=_normalize_difficulty(item.get("difficulty")) or "medium"
-        ))
+        issues.append(
+            Issue(
+                category=item.get("category", "その他"),
+                issue=item.get("issue", ""),
+                suggestion=item.get("suggestion", ""),
+                difficulty=_normalize_difficulty(item.get("difficulty")) or "medium",
+            )
+        )
     return issues
 
 
@@ -570,10 +612,14 @@ def _build_review_cache_key(
     request: ReviewRequest,
     rag_status: Optional[dict],
     rewrite_count: int,
-    context_length: Optional[int] = None
+    context_length: Optional[int] = None,
 ) -> str:
-    template_payload = request.template_request.model_dump() if request.template_request else None
-    section_data_payload = [s.model_dump() for s in request.section_data] if request.section_data else None
+    template_payload = (
+        request.template_request.model_dump() if request.template_request else None
+    )
+    section_data_payload = (
+        [s.model_dump() for s in request.section_data] if request.section_data else None
+    )
     parts = [
         "es_review_v2",
         request.review_mode,
@@ -586,7 +632,11 @@ def _build_review_cache_key(
         request.section_title or "",
         str(request.section_char_limit or ""),
         ",".join(request.sections or []),
-        json.dumps(section_data_payload, ensure_ascii=False) if section_data_payload else "",
+        (
+            json.dumps(section_data_payload, ensure_ascii=False)
+            if section_data_payload
+            else ""
+        ),
         json.dumps(template_payload, ensure_ascii=False) if template_payload else "",
         request.company_id or "",
         str(request.has_company_rag),
@@ -622,7 +672,7 @@ async def review_section_with_template(
     if template_type not in TEMPLATE_DEFS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown template type: {template_type}. Available: {list(TEMPLATE_DEFS.keys())}"
+            detail=f"Unknown template type: {template_type}. Available: {list(TEMPLATE_DEFS.keys())}",
         )
 
     template_def = TEMPLATE_DEFS[template_type]
@@ -634,19 +684,30 @@ async def review_section_with_template(
 
     # Check if template requires company RAG but none available
     if template_def["requires_company_rag"] and not company_rag_available:
-        print(f"[ES添削/テンプレート] ⚠️ テンプレート {template_type} は RAG 必須だが利用不可 - キーワードなしで続行")
+        print(
+            f"[ES添削/テンプレート] ⚠️ テンプレート {template_type} は RAG 必須だが利用不可 - キーワードなしで続行"
+        )
         # Set keyword_count to 0 if no RAG available
         keyword_count = 0
 
-    # Build prompts
+    # Build prompts (apply safety margin to reduce overflow risk)
+    prompt_char_min = char_min
+    prompt_char_max = char_max
+    if char_max:
+        safe_max = int(char_max * 0.90)
+        if char_min:
+            safe_max = max(char_min, safe_max)
+        if safe_max > 0:
+            prompt_char_max = min(char_max, safe_max)
+
     system_prompt, user_prompt = build_template_prompt(
         template_type=template_type,
         company_name=template_request.company_name,
         industry=template_request.industry,
         question=template_request.question,
         answer=template_request.answer,
-        char_min=char_min,
-        char_max=char_max,
+        char_min=prompt_char_min,
+        char_max=prompt_char_max,
         rag_sources=rag_sources,
         rag_context=rag_context,
         keyword_count=keyword_count,
@@ -666,26 +727,34 @@ async def review_section_with_template(
         # Add retry reason if not first attempt
         current_user_prompt = user_prompt
         if retry_reason:
-            current_user_prompt += f"\n\n【前回のエラー - 以下を修正してください】\n{retry_reason}"
+            current_user_prompt += (
+                f"\n\n【前回のエラー - 以下を修正してください】\n{retry_reason}"
+            )
 
-        print(f"[ES添削/テンプレート] テンプレート {template_type} 試行 {attempt + 1}/{max_retries}")
+        print(
+            f"[ES添削/テンプレート] テンプレート {template_type} 試行 {attempt + 1}/{max_retries}"
+        )
 
         # Call LLM
         llm_result = await call_llm_with_error(
             system_prompt=system_prompt,
             user_message=current_user_prompt,
-            max_tokens=5500,  # Increased for 3 variants + metadata (prevents truncation)
+            max_tokens=10000,  # 3 variants × 500字 × 2(日本語) + metadata + JSON構造 = 余裕を持って設定
             temperature=0.4,  # Slightly higher for variety
             feature="es_review",
             response_format="json_schema",
             json_schema=build_es_review_schema(
                 require_company_connection=company_rag_available,
                 include_template_review=True,
-                include_section_feedbacks=False
+                include_section_feedbacks=False,
+                include_rewrites=False,
+                top3_max_items=2,
+                keyword_source_excerpt_required=False,
             ),
             use_responses_api=True,
             retry_on_parse=True,
-            parse_retry_instructions="必ず有効なJSONのみを出力してください。説明文やコードブロックは禁止です。"
+            parse_retry_instructions="必ず有効なJSONのみを出力してください。説明文やコードブロックは禁止です。",
+            disable_fallback=True,
         )
 
         if not llm_result.success:
@@ -693,16 +762,20 @@ async def review_section_with_template(
             raise HTTPException(
                 status_code=503,
                 detail={
-                    "error": error.message if error else "AI処理中にエラーが発生しました",
+                    "error": (
+                        error.message if error else "AI処理中にエラーが発生しました"
+                    ),
                     "error_type": error.error_type if error else "unknown",
                     "provider": error.provider if error else "unknown",
                     "detail": error.detail if error else "",
-                }
+                },
             )
 
         data = llm_result.data
         if data is None:
-            retry_reason = "AIからの応答を解析できませんでした。有効なJSONで回答してください。"
+            retry_reason = (
+                "AIからの応答を解析できませんでした。有効なJSONで回答してください。"
+            )
             continue
 
         # Check for template_review in response
@@ -716,7 +789,6 @@ async def review_section_with_template(
             template_review_data,
             char_min=char_min,
             char_max=char_max,
-            keyword_count=keyword_count,
         )
 
         # Attempt a single repair for char limit failures (both over and under limits)
@@ -750,19 +822,21 @@ JSON以外は出力しないでください。"""
             repair_result = await call_llm_with_error(
                 system_prompt="あなたはJSON修復の専門家です。必ずJSONのみ出力してください。",
                 user_message=repair_prompt,
-                max_tokens=2500,  # Slightly increased for longer texts
+                max_tokens=4000,  # 文字数調整時も余裕を持って設定
                 temperature=0.2,
-                feature="es_review"
+                feature="es_review",
+                disable_fallback=True,
             )
 
             if repair_result.success and repair_result.data:
                 data = repair_result.data
-                template_review_data = data.get("template_review") or template_review_data
+                template_review_data = (
+                    data.get("template_review") or template_review_data
+                )
                 is_valid, error_reason = validate_template_output(
                     template_review_data,
                     char_min=char_min,
                     char_max=char_max,
-                    keyword_count=keyword_count,
                 )
 
         if is_valid:
@@ -774,7 +848,11 @@ JSON以外は出力しないでください。"""
                     logic=max(1, min(5, scores_data.get("logic", 3))),
                     specificity=max(1, min(5, scores_data.get("specificity", 3))),
                     passion=max(1, min(5, scores_data.get("passion", 3))),
-                    company_connection=max(1, min(5, scores_data.get("company_connection", 3))) if company_rag_available else None,
+                    company_connection=(
+                        max(1, min(5, scores_data.get("company_connection", 3)))
+                        if company_rag_available
+                        else None
+                    ),
                     readability=max(1, min(5, scores_data.get("readability", 3))),
                 )
 
@@ -782,12 +860,14 @@ JSON以外は出力しないでください。"""
                 top3_data = data.get("top3", [])
                 top3 = _parse_issues(top3_data, 2)
                 if not top3:
-                    top3 = [Issue(
-                        category="その他",
-                        issue="改善点を特定できませんでした",
-                        suggestion="全体的な見直しを行ってみてください",
-                        difficulty="medium"
-                    )]
+                    top3 = [
+                        Issue(
+                            category="その他",
+                            issue="改善点を特定できませんでした",
+                            suggestion="全体的な見直しを行ってみてください",
+                            difficulty="medium",
+                        )
+                    ]
 
                 # Get rewrites from data or template variants
                 rewrites_data = data.get("rewrites", [])
@@ -795,7 +875,10 @@ JSON以外は出力しないでください。"""
                     rewrites_data = [rewrites_data]
                 if not rewrites_data:
                     # Use template variants as rewrites
-                    rewrites_data = [v.get("text", "") for v in template_review_data.get("variants", [])]
+                    rewrites_data = [
+                        v.get("text", "")
+                        for v in template_review_data.get("variants", [])
+                    ]
                 rewrites = rewrites_data[:3]
 
                 # Parse template review
@@ -839,7 +922,9 @@ JSON以外は出力しないでください。"""
                 # Get strengthen points if required
                 strengthen_points = None
                 if template_def.get("require_strengthen_points"):
-                    strengthen_points = template_review_data.get("strengthen_points", [])
+                    strengthen_points = template_review_data.get(
+                        "strengthen_points", []
+                    )
 
                 template_review = TemplateReview(
                     template_type=template_type,
@@ -862,7 +947,9 @@ JSON以外は出力しないでください。"""
                 retry_reason = f"レスポンスの解析に失敗しました: {str(e)}"
                 continue
         else:
-            print(f"[ES添削/テンプレート] ⚠️ 試行 {attempt + 1} 検証失敗: {error_reason}")
+            print(
+                f"[ES添削/テンプレート] ⚠️ 試行 {attempt + 1} 検証失敗: {error_reason}"
+            )
             # Track for potential conditional retry
             last_template_review_data = template_review_data
 
@@ -891,7 +978,9 @@ JSON以外は出力しないでください。"""
         )
 
         if should_retry:
-            print(f"[ES添削/テンプレート] 🔄 条件付きリトライ: {len(failing_indices)}/3 パターンのみ修正")
+            print(
+                f"[ES添削/テンプレート] 🔄 条件付きリトライ: {len(failing_indices)}/3 パターンのみ修正"
+            )
 
             # Build targeted repair prompt
             repair_prompt = build_targeted_variant_repair_prompt(
@@ -903,19 +992,21 @@ JSON以外は出力しないでください。"""
                 user_message=repair_prompt,
                 max_tokens=2000,  # Reduced - only fixing specific variants
                 temperature=0.2,
-                feature="es_review"
+                feature="es_review",
+                disable_fallback=True,
             )
 
             if repair_result.success and repair_result.data:
                 repaired_data = repair_result.data
-                repaired_template = repaired_data.get("template_review") or repaired_data
+                repaired_template = (
+                    repaired_data.get("template_review") or repaired_data
+                )
 
                 # Validate the repaired output
                 is_valid, repair_error = validate_template_output(
                     repaired_template,
                     char_min=char_min,
                     char_max=char_max,
-                    keyword_count=keyword_count,
                 )
 
                 if is_valid:
@@ -927,19 +1018,25 @@ JSON以外は出力しないでください。"""
                         logic=max(1, min(5, scores_data.get("logic", 3))),
                         specificity=max(1, min(5, scores_data.get("specificity", 3))),
                         passion=max(1, min(5, scores_data.get("passion", 3))),
-                        company_connection=max(1, min(5, scores_data.get("company_connection", 3))) if company_rag_available else None,
+                        company_connection=(
+                            max(1, min(5, scores_data.get("company_connection", 3)))
+                            if company_rag_available
+                            else None
+                        ),
                         readability=max(1, min(5, scores_data.get("readability", 3))),
                     )
 
                     top3_data = data.get("top3", []) if data else []
                     top3 = _parse_issues(top3_data, 2)
                     if not top3:
-                        top3 = [Issue(
-                            category="その他",
-                            issue="改善点を特定できませんでした",
-                            suggestion="全体的な見直しを行ってみてください",
-                            difficulty="medium"
-                        )]
+                        top3 = [
+                            Issue(
+                                category="その他",
+                                issue="改善点を特定できませんでした",
+                                suggestion="全体的な見直しを行ってみてください",
+                                difficulty="medium",
+                            )
+                        ]
 
                     variants_data = repaired_template.get("variants", [])
                     variants = [
@@ -978,7 +1075,9 @@ JSON以外は出力しないでください。"""
 
                     strengthen_points = None
                     if template_def.get("require_strengthen_points"):
-                        strengthen_points = repaired_template.get("strengthen_points", [])
+                        strengthen_points = repaired_template.get(
+                            "strengthen_points", []
+                        )
 
                     template_review = TemplateReview(
                         template_type=template_type,
@@ -997,7 +1096,9 @@ JSON以外は出力しないでください。"""
                         template_review=template_review,
                     )
                 else:
-                    print(f"[ES添削/テンプレート] ⚠️ 条件付きリトライも失敗: {repair_error}")
+                    print(
+                        f"[ES添削/テンプレート] ⚠️ 条件付きリトライも失敗: {repair_error}"
+                    )
 
     # All retries exhausted
     record_parse_failure("es_review_template", retry_reason)
@@ -1008,14 +1109,12 @@ JSON以外は出力しないでください。"""
             "error_type": "validation",
             "provider": "template_review",
             "detail": retry_reason,
-        }
+        },
     )
 
 
 async def review_section(
-    request: ReviewRequest,
-    company_context: str,
-    company_rag_available: bool
+    request: ReviewRequest, company_context: str, company_rag_available: bool
 ) -> ReviewResponse:
     """
     Review a single ES section (question).
@@ -1048,12 +1147,16 @@ async def review_section(
         "具体例強め": "具体的なエピソードや数値を増やした文章に",
         "端的": "端的で要点を押さえた文章に",
     }
-    rewrite_instruction = style_instructions.get(request.style, "バランスの取れた文章に")
+    rewrite_instruction = style_instructions.get(
+        request.style, "バランスの取れた文章に"
+    )
 
     # Character limit instruction
     char_limit_instruction = ""
     if request.section_char_limit:
-        char_limit_instruction = f"   - 文字数制限: {request.section_char_limit}文字以内に収めてください"
+        char_limit_instruction = (
+            f"   - 文字数制限: {request.section_char_limit}文字以内に収めてください"
+        )
 
     system_prompt = f"""あなたはES（エントリーシート）添削の専門家です。
 就活生のESの**特定の設問**を添削し、具体的で実用的なフィードバックを提供してください。
@@ -1122,11 +1225,12 @@ async def review_section(
         json_schema=build_es_review_schema(
             require_company_connection=company_rag_available,
             include_template_review=False,
-            include_section_feedbacks=False
+            include_section_feedbacks=False,
         ),
         use_responses_api=True,
         retry_on_parse=True,
-        parse_retry_instructions="必ず有効なJSONのみを出力してください。説明文やコードブロックは禁止です。"
+        parse_retry_instructions="必ず有効なJSONのみを出力してください。説明文やコードブロックは禁止です。",
+        disable_fallback=True,
     )
 
     if not llm_result.success:
@@ -1138,7 +1242,7 @@ async def review_section(
                 "error_type": error.error_type if error else "unknown",
                 "provider": error.provider if error else "unknown",
                 "detail": error.detail if error else "",
-            }
+            },
         )
 
     data = llm_result.data
@@ -1149,8 +1253,8 @@ async def review_section(
                 "error": "AIからの応答を解析できませんでした。",
                 "error_type": "parse",
                 "provider": "unknown",
-                "detail": "Empty response from LLM"
-            }
+                "detail": "Empty response from LLM",
+            },
         )
 
     try:
@@ -1160,7 +1264,11 @@ async def review_section(
             logic=max(1, min(5, scores_data.get("logic", 3))),
             specificity=max(1, min(5, scores_data.get("specificity", 3))),
             passion=max(1, min(5, scores_data.get("passion", 3))),
-            company_connection=max(1, min(5, scores_data.get("company_connection", 3))) if company_rag_available else None,
+            company_connection=(
+                max(1, min(5, scores_data.get("company_connection", 3)))
+                if company_rag_available
+                else None
+            ),
             readability=max(1, min(5, scores_data.get("readability", 3))),
         )
 
@@ -1170,12 +1278,14 @@ async def review_section(
 
         # Ensure we have at least 1 issue
         if not top3:
-            top3 = [Issue(
-                category="その他",
-                issue="改善点を特定できませんでした",
-                suggestion="全体的な見直しを行ってみてください",
-                difficulty="medium"
-            )]
+            top3 = [
+                Issue(
+                    category="その他",
+                    issue="改善点を特定できませんでした",
+                    suggestion="全体的な見直しを行ってみてください",
+                    difficulty="medium",
+                )
+            ]
 
         # Get single rewrite
         rewrites_data = data.get("rewrites", [])
@@ -1187,7 +1297,7 @@ async def review_section(
             scores=scores,
             top3=top3,
             rewrites=rewrites,
-            section_feedbacks=None  # Not used in section mode
+            section_feedbacks=None,  # Not used in section mode
         )
 
     except Exception as e:
@@ -1199,8 +1309,8 @@ async def review_section(
                 "error": "AIからの応答を処理できませんでした。",
                 "error_type": "parse",
                 "provider": "unknown",
-                "detail": str(e)
-            }
+                "detail": str(e),
+            },
         )
 
 
@@ -1228,22 +1338,21 @@ async def review_es(request: ReviewRequest):
     if not request.content or len(request.content.strip()) < 10:
         raise HTTPException(
             status_code=400,
-            detail="ESの内容が短すぎます。もう少し詳しく書いてから添削をリクエストしてください。"
+            detail="ESの内容が短すぎます。もう少し詳しく書いてから添削をリクエストしてください。",
         )
 
     # Validate review_mode
     if request.review_mode not in ("full", "section"):
         raise HTTPException(
             status_code=400,
-            detail="review_modeは 'full' または 'section' を指定してください"
+            detail="review_modeは 'full' または 'section' を指定してください",
         )
 
     # Validate style based on plan
     available_styles = PAID_STYLES if request.is_paid else FREE_STYLES
     if request.style not in available_styles:
         raise HTTPException(
-            status_code=400,
-            detail=f"利用可能なスタイル: {', '.join(available_styles)}"
+            status_code=400, detail=f"利用可能なスタイル: {', '.join(available_styles)}"
         )
 
     # Cap rewrite count based on plan
@@ -1265,7 +1374,9 @@ async def review_es(request: ReviewRequest):
 
     # Cache lookup (after rag status is known)
     cache = get_es_review_cache()
-    cache_key = _build_review_cache_key(request, rag_status, rewrite_count, context_length)
+    cache_key = _build_review_cache_key(
+        request, rag_status, rewrite_count, context_length
+    )
     if cache:
         cached = await cache.get_review(cache_key)
         if isinstance(cached, dict):
@@ -1277,54 +1388,68 @@ async def review_es(request: ReviewRequest):
         company_context = await get_enhanced_context_for_review(
             company_id=request.company_id,
             es_content=request.content,
-            max_context_length=context_length
+            max_context_length=context_length,
         )
 
         # Validate context before logging success (Bug #7 fix)
         min_context_length = 200
         if company_context and len(company_context) >= min_context_length:
             print(f"[ES添削] ✅ RAGコンテキスト取得完了 ({len(company_context)}文字)")
-            print(f"[ES添削] RAG状況: 全{rag_status.get('total_chunks', 0)}チャンク "
-                  f"(新卒: {rag_status.get('new_grad_recruitment_chunks', 0)}, "
-                  f"中途: {rag_status.get('midcareer_recruitment_chunks', 0)}, "
-                  f"企業HP: {rag_status.get('corporate_site_chunks', 0)}, "
-                  f"IR: {rag_status.get('ir_materials_chunks', 0)}, "
-                  f"社長: {rag_status.get('ceo_message_chunks', 0)}, "
-                  f"社員INT: {rag_status.get('employee_interviews_chunks', 0)}, "
-                  f"PR: {rag_status.get('press_release_chunks', 0)}, "
-                  f"CSR: {rag_status.get('csr_sustainability_chunks', 0)}, "
-                  f"中計: {rag_status.get('midterm_plan_chunks', 0)})")
+            print(
+                f"[ES添削] RAG状況: 全{rag_status.get('total_chunks', 0)}チャンク "
+                f"(新卒: {rag_status.get('new_grad_recruitment_chunks', 0)}, "
+                f"中途: {rag_status.get('midcareer_recruitment_chunks', 0)}, "
+                f"企業HP: {rag_status.get('corporate_site_chunks', 0)}, "
+                f"IR: {rag_status.get('ir_materials_chunks', 0)}, "
+                f"社長: {rag_status.get('ceo_message_chunks', 0)}, "
+                f"社員INT: {rag_status.get('employee_interviews_chunks', 0)}, "
+                f"PR: {rag_status.get('press_release_chunks', 0)}, "
+                f"CSR: {rag_status.get('csr_sustainability_chunks', 0)}, "
+                f"中計: {rag_status.get('midterm_plan_chunks', 0)})"
+            )
         else:
             context_len = len(company_context) if company_context else 0
-            print(f"[ES添削] ⚠️ RAGコンテキスト不足 ({context_len}文字 < {min_context_length}文字の閾値)")
+            print(
+                f"[ES添削] ⚠️ RAGコンテキスト不足 ({context_len}文字 < {min_context_length}文字の閾値)"
+            )
             company_context = ""
             company_rag_available = False
 
         record_rag_context(
             company_id=request.company_id,
             context_length=len(company_context),
-            source_count=rag_status.get('total_chunks', 0) if company_rag_available else 0
+            source_count=(
+                rag_status.get("total_chunks", 0) if company_rag_available else 0
+            ),
         )
 
     # Branch based on review_mode
     if request.review_mode == "section":
-        print(f"[ES添削/セクション] 設問「{request.section_title or '(無題)'}」を添削中 "
-              f"({len(request.content)}文字)")
+        print(
+            f"[ES添削/セクション] 設問「{request.section_title or '(無題)'}」を添削中 "
+            f"({len(request.content)}文字)"
+        )
 
         # Check if template-based review is requested
         if request.template_request:
-            print(f"[ES添削/テンプレート] テンプレート添削開始: {request.template_request.template_type}")
+            print(
+                f"[ES添削/テンプレート] テンプレート添削開始: {request.template_request.template_type}"
+            )
 
             # Fetch RAG context with sources for template review
             rag_context = ""
             rag_sources = []
             if request.company_id and company_rag_available:
-                rag_context, rag_sources = await get_enhanced_context_for_review_with_sources(
-                    company_id=request.company_id,
-                    es_content=request.content,
-                    max_context_length=context_length
+                rag_context, rag_sources = (
+                    await get_enhanced_context_for_review_with_sources(
+                        company_id=request.company_id,
+                        es_content=request.content,
+                        max_context_length=context_length,
+                    )
                 )
-                print(f"[ES添削/テンプレート] ✅ RAGコンテキスト取得完了 ({len(rag_sources)}ソース)")
+                print(
+                    f"[ES添削/テンプレート] ✅ RAGコンテキスト取得完了 ({len(rag_sources)}ソース)"
+                )
                 if len(rag_context) < 200 or not rag_sources:
                     rag_context = ""
                     rag_sources = []
@@ -1332,7 +1457,7 @@ async def review_es(request: ReviewRequest):
                 record_rag_context(
                     company_id=request.company_id,
                     context_length=len(rag_context),
-                    source_count=len(rag_sources)
+                    source_count=len(rag_sources),
                 )
 
             result = await review_section_with_template(
@@ -1350,7 +1475,7 @@ async def review_es(request: ReviewRequest):
         result = await review_section(
             request=request,
             company_context=company_context,
-            company_rag_available=company_rag_available
+            company_rag_available=company_rag_available,
         )
         record_es_scores(result.scores.model_dump())
         if cache:
@@ -1389,7 +1514,9 @@ async def review_es(request: ReviewRequest):
         "端的": "端的で要点を押さえた文章に",
     }
 
-    rewrite_instruction = style_instructions.get(request.style, "バランスの取れた文章に")
+    rewrite_instruction = style_instructions.get(
+        request.style, "バランスの取れた文章に"
+    )
 
     # Section feedback instruction (paid only)
     section_feedback_instruction = ""
@@ -1468,7 +1595,9 @@ async def review_es(request: ReviewRequest):
 - 企業の具体的な取り組みや特徴に言及しているか
 - 志望動機が企業の実態に即しているか"""
 
-    include_section_feedbacks = bool(request.is_paid and (request.section_data or request.sections))
+    include_section_feedbacks = bool(
+        request.is_paid and (request.section_data or request.sections)
+    )
 
     # feature="es_review" → automatically selects Claude Sonnet
     llm_result = await call_llm_with_error(
@@ -1481,11 +1610,12 @@ async def review_es(request: ReviewRequest):
         json_schema=build_es_review_schema(
             require_company_connection=company_rag_available,
             include_template_review=False,
-            include_section_feedbacks=include_section_feedbacks
+            include_section_feedbacks=include_section_feedbacks,
         ),
         use_responses_api=True,
         retry_on_parse=True,
-        parse_retry_instructions="必ず有効なJSONのみを出力してください。説明文やコードブロックは禁止です。"
+        parse_retry_instructions="必ず有効なJSONのみを出力してください。説明文やコードブロックは禁止です。",
+        disable_fallback=True,
     )
 
     if not llm_result.success:
@@ -1497,10 +1627,7 @@ async def review_es(request: ReviewRequest):
             "provider": error.provider if error else "unknown",
             "detail": error.detail if error else "",
         }
-        raise HTTPException(
-            status_code=503,
-            detail=error_detail
-        )
+        raise HTTPException(status_code=503, detail=error_detail)
 
     data = llm_result.data
     if data is None:
@@ -1510,8 +1637,8 @@ async def review_es(request: ReviewRequest):
                 "error": "AIからの応答を解析できませんでした。もう一度お試しください。",
                 "error_type": "parse",
                 "provider": "unknown",
-                "detail": "Empty response from LLM"
-            }
+                "detail": "Empty response from LLM",
+            },
         )
 
     try:
@@ -1521,7 +1648,11 @@ async def review_es(request: ReviewRequest):
             logic=max(1, min(5, scores_data.get("logic", 3))),
             specificity=max(1, min(5, scores_data.get("specificity", 3))),
             passion=max(1, min(5, scores_data.get("passion", 3))),
-            company_connection=max(1, min(5, scores_data.get("company_connection", 3))) if company_rag_available else None,
+            company_connection=(
+                max(1, min(5, scores_data.get("company_connection", 3)))
+                if company_rag_available
+                else None
+            ),
             readability=max(1, min(5, scores_data.get("readability", 3))),
         )
 
@@ -1530,12 +1661,14 @@ async def review_es(request: ReviewRequest):
 
         # Ensure we have 3 issues
         while len(top3) < 3:
-            top3.append(Issue(
-                category="その他",
-                issue="追加の改善点を特定できませんでした",
-                suggestion="全体的な見直しを行ってみてください",
-                difficulty="medium"
-            ))
+            top3.append(
+                Issue(
+                    category="その他",
+                    issue="追加の改善点を特定できませんでした",
+                    suggestion="全体的な見直しを行ってみてください",
+                    difficulty="medium",
+                )
+            )
 
         # Get rewrites (handle both array and single string)
         rewrites_data = data.get("rewrites", [])
@@ -1566,17 +1699,19 @@ async def review_es(request: ReviewRequest):
                         raw_rewrite, char_limit
                     )
 
-                    section_feedbacks.append(SectionFeedback(
-                        section_title=section_title,
-                        feedback=item.get("feedback", "")[:150],
-                        rewrite=validated_rewrite
-                    ))
+                    section_feedbacks.append(
+                        SectionFeedback(
+                            section_title=section_title,
+                            feedback=item.get("feedback", "")[:150],
+                            rewrite=validated_rewrite,
+                        )
+                    )
 
         result = ReviewResponse(
             scores=scores,
             top3=top3,
             rewrites=rewrites,
-            section_feedbacks=section_feedbacks
+            section_feedbacks=section_feedbacks,
         )
         record_es_scores(result.scores.model_dump())
         if cache:
@@ -1592,6 +1727,410 @@ async def review_es(request: ReviewRequest):
                 "error": "AIからの応答を処理できませんでした。もう一度お試しください。",
                 "error_type": "parse",
                 "provider": "unknown",
-                "detail": str(e)
-            }
+                "detail": str(e),
+            },
         )
+
+
+# ============================================================================
+# SSE Streaming Endpoint for Real-time Progress
+# ============================================================================
+
+# Progress step definitions for SSE events
+PROGRESS_STEPS = [
+    {
+        "id": "validation",
+        "label": "入力を検証中...",
+        "subLabel": "内容の確認",
+    },
+    {
+        "id": "rag_fetch",
+        "label": "企業情報を取得中...",
+        "subLabel": "RAGコンテキスト検索",
+    },
+    {
+        "id": "llm_review",
+        "label": "AIが添削中...",
+        "subLabel": "スコアと改善点を分析",
+    },
+    {
+        "id": "rewrite",
+        "label": "リライトを生成中...",
+        "subLabel": "複数パターン作成",
+    },
+    {
+        "id": "retry",
+        "label": "文字数を調整中...",
+        "subLabel": "リトライ処理",
+    },
+]
+
+
+def _sse_event(event_type: str, data: dict) -> str:
+    """Format SSE event data."""
+    payload = {"type": event_type, **data}
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+async def _generate_review_progress(
+    request: ReviewRequest,
+) -> AsyncGenerator[str, None]:
+    """
+    Generate SSE events for ES review progress.
+    Yields progress updates as the review is processed.
+    """
+    try:
+        # Step 1: Validation
+        yield _sse_event(
+            "progress",
+            {"step": "validation", "progress": 5, "label": "入力を検証中..."},
+        )
+        await asyncio.sleep(0.1)  # Small delay to ensure event is sent
+
+        if not request.content or len(request.content.strip()) < 10:
+            yield _sse_event(
+                "error",
+                {
+                    "message": "ESの内容が短すぎます。もう少し詳しく書いてから添削をリクエストしてください。"
+                },
+            )
+            return
+
+        # Validate review_mode
+        if request.review_mode not in ("full", "section"):
+            yield _sse_event(
+                "error",
+                {"message": "review_modeは 'full' または 'section' を指定してください"},
+            )
+            return
+
+        # Validate style
+        available_styles = PAID_STYLES if request.is_paid else FREE_STYLES
+        if request.style not in available_styles:
+            yield _sse_event(
+                "error",
+                {"message": f"利用可能なスタイル: {', '.join(available_styles)}"},
+            )
+            return
+
+        yield _sse_event(
+            "progress",
+            {"step": "validation", "progress": 10, "label": "検証完了"},
+        )
+
+        # Step 2: RAG fetch (if company_id)
+        rewrite_count = min(request.rewrite_count, 3 if request.is_paid else 1)
+        company_context = ""
+        company_rag_available = request.has_company_rag
+        rag_status = None
+        context_length = get_dynamic_context_length(request.content)
+
+        if request.company_id:
+            yield _sse_event(
+                "progress",
+                {
+                    "step": "rag_fetch",
+                    "progress": 15,
+                    "label": "企業情報を取得中...",
+                },
+            )
+
+            if not company_rag_available:
+                company_rag_available = has_company_rag(request.company_id)
+
+            if company_rag_available:
+                rag_status = get_company_rag_status(request.company_id)
+                company_context = await get_enhanced_context_for_review(
+                    company_id=request.company_id,
+                    es_content=request.content,
+                    max_context_length=context_length,
+                )
+
+                min_context_length = 200
+                if not company_context or len(company_context) < min_context_length:
+                    company_context = ""
+                    company_rag_available = False
+
+            yield _sse_event(
+                "progress",
+                {
+                    "step": "rag_fetch",
+                    "progress": 30,
+                    "label": "企業情報取得完了"
+                    if company_rag_available
+                    else "企業情報なし",
+                },
+            )
+        else:
+            yield _sse_event(
+                "progress",
+                {"step": "rag_fetch", "progress": 30, "label": "スキップ"},
+            )
+
+        # Step 3: LLM Review
+        yield _sse_event(
+            "progress",
+            {"step": "llm_review", "progress": 35, "label": "AIが添削中..."},
+        )
+
+        # Build scoring criteria
+        score_criteria = """1. scores (各1-5点):
+   - logic: 論理の一貫性（主張と根拠の整合性、因果関係の明確さ）
+   - specificity: 具体性（数字、エピソード、固有名詞の使用）
+   - passion: 熱意・意欲の伝わり度（モチベーションの説得力）"""
+
+        if company_rag_available:
+            score_criteria += """
+   - company_connection: 企業接続（企業情報に基づいて評価）"""
+
+        score_criteria += """
+   - readability: 読みやすさ（文章の明瞭さ、構成の分かりやすさ）"""
+
+        # Build style instructions
+        style_instructions = {
+            "バランス": "バランスの取れた、読みやすい文章に",
+            "堅め": "フォーマルで堅実な印象の文章に",
+            "個性強め": "個性と独自性が際立つ文章に",
+            "短く": "簡潔でコンパクトな文章に",
+            "熱意強め": "熱意と意欲が強く伝わる文章に",
+            "結論先出し": "結論を先に述べ、根拠を後から示す構成に",
+            "具体例強め": "具体的なエピソードや数値を増やした文章に",
+            "端的": "端的で要点を押さえた文章に",
+        }
+        rewrite_instruction = style_instructions.get(
+            request.style, "バランスの取れた文章に"
+        )
+
+        # Section feedback instruction (paid only)
+        section_feedback_instruction = ""
+        if request.is_paid and request.section_data:
+            section_items = []
+            for s in request.section_data:
+                limit_note = (
+                    f"（文字数制限: {s.char_limit}文字）" if s.char_limit else ""
+                )
+                section_items.append(f"   - {s.title}{limit_note}")
+            section_list = "\n".join(section_items)
+            section_feedback_instruction = f"""
+4. section_feedbacks: 設問別の指摘と改善例
+   以下の各設問について、具体的な改善点と改善例を提供してください:
+{section_list}
+   - section_title: 設問タイトル
+   - feedback: その設問に特化した改善点（100-150字）
+   - rewrite: 改善例（文字数制限がある場合はその文字数以内で）"""
+        elif request.is_paid and request.sections:
+            section_list = "\n".join([f"   - {s}" for s in request.sections])
+            section_feedback_instruction = f"""
+4. section_feedbacks: 設問別の指摘（100-150字/設問）
+   以下の各設問について、具体的な改善点を指摘してください:
+{section_list}
+   - section_title: 設問タイトル
+   - feedback: その設問に特化した改善点（100-150字）"""
+
+        system_prompt = f"""あなたはES（エントリーシート）添削の専門家です。
+就活生のESを添削し、具体的で実用的なフィードバックを提供してください。
+
+以下の観点で評価し、必ずJSON形式で回答してください：
+
+{score_criteria}
+
+2. top3: 改善すべき上位3点
+   - category: 評価軸の名前
+   - issue: 具体的な問題点
+   - suggestion: 実践的な改善案
+   - difficulty: 難易度（easy/medium/hard）
+
+3. rewrites: 改善例（{rewrite_count}パターン）
+   - スタイル「{request.style}」に沿って{rewrite_instruction}リライト
+{section_feedback_instruction}
+
+スコアは厳しめに付けてください。
+出力形式（必ず有効なJSONで回答）:
+{{
+  "scores": {{"logic": 3, "specificity": 3, "passion": 3, "readability": 3{', "company_connection": 3' if company_rag_available else ''}}},
+  "top3": [{{"category": "...", "issue": "...", "suggestion": "...", "difficulty": "easy"}}],
+  "rewrites": ["リライト1"],
+  "section_feedbacks": [{{"section_title": "...", "feedback": "..."}}]
+}}"""
+
+        user_message = f"以下のESを添削してください：\n\n{request.content}"
+        if company_context:
+            user_message = f"""以下のESを添削してください。
+
+**企業情報（RAGから取得）:**
+{company_context}
+
+**ES内容:**
+{request.content}"""
+
+        yield _sse_event(
+            "progress",
+            {"step": "llm_review", "progress": 50, "label": "AIが分析中..."},
+        )
+
+        include_section_feedbacks = bool(
+            request.is_paid and (request.section_data or request.sections)
+        )
+
+        llm_result = await call_llm_with_error(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=3000,
+            temperature=0.3,
+            feature="es_review",
+            response_format="json_schema",
+            json_schema=build_es_review_schema(
+                require_company_connection=company_rag_available,
+                include_template_review=False,
+                include_section_feedbacks=include_section_feedbacks,
+            ),
+            use_responses_api=True,
+            retry_on_parse=True,
+            parse_retry_instructions="必ず有効なJSONのみを出力してください。",
+            disable_fallback=True,
+        )
+
+        yield _sse_event(
+            "progress",
+            {"step": "llm_review", "progress": 80, "label": "添削完了"},
+        )
+
+        if not llm_result.success:
+            error = llm_result.error
+            yield _sse_event(
+                "error",
+                {
+                    "message": error.message
+                    if error
+                    else "AI処理中にエラーが発生しました"
+                },
+            )
+            return
+
+        data = llm_result.data
+        if data is None:
+            yield _sse_event(
+                "error",
+                {"message": "AIからの応答を解析できませんでした。"},
+            )
+            return
+
+        # Step 4: Rewrite generation (parsing results)
+        yield _sse_event(
+            "progress",
+            {
+                "step": "rewrite",
+                "progress": 90,
+                "label": "リライトを生成中...",
+            },
+        )
+
+        # Parse and validate response
+        scores_data = data.get("scores", {})
+        scores = {
+            "logic": max(1, min(5, scores_data.get("logic", 3))),
+            "specificity": max(1, min(5, scores_data.get("specificity", 3))),
+            "passion": max(1, min(5, scores_data.get("passion", 3))),
+            "readability": max(1, min(5, scores_data.get("readability", 3))),
+        }
+        if company_rag_available:
+            scores["company_connection"] = max(
+                1, min(5, scores_data.get("company_connection", 3))
+            )
+
+        top3_data = data.get("top3", [])
+        top3 = []
+        for item in top3_data[:3]:
+            top3.append(
+                {
+                    "category": item.get("category", "その他"),
+                    "issue": item.get("issue", ""),
+                    "suggestion": item.get("suggestion", ""),
+                    "difficulty": item.get("difficulty", "medium"),
+                }
+            )
+
+        while len(top3) < 3:
+            top3.append(
+                {
+                    "category": "その他",
+                    "issue": "追加の改善点を特定できませんでした",
+                    "suggestion": "全体的な見直しを行ってみてください",
+                    "difficulty": "medium",
+                }
+            )
+
+        rewrites_data = data.get("rewrites", [])
+        if isinstance(rewrites_data, str):
+            rewrites_data = [rewrites_data]
+        rewrites = (
+            rewrites_data[:rewrite_count] if rewrites_data else [request.content]
+        )
+
+        section_feedbacks = None
+        if request.is_paid and (request.section_data or request.sections):
+            sf_data = data.get("section_feedbacks", [])
+            if sf_data:
+                section_char_limits: dict[str, Optional[int]] = {}
+                if request.section_data:
+                    for sd in request.section_data:
+                        section_char_limits[sd.title] = sd.char_limit
+
+                section_feedbacks = []
+                for item in sf_data:
+                    section_title = item.get("section_title", "")
+                    raw_rewrite = item.get("rewrite")
+                    char_limit = section_char_limits.get(section_title)
+                    validated_rewrite = validate_and_repair_section_rewrite(
+                        raw_rewrite, char_limit
+                    )
+                    section_feedbacks.append(
+                        {
+                            "section_title": section_title,
+                            "feedback": item.get("feedback", "")[:150],
+                            "rewrite": validated_rewrite,
+                        }
+                    )
+
+        yield _sse_event(
+            "progress",
+            {"step": "rewrite", "progress": 100, "label": "完了"},
+        )
+
+        # Final complete event with result
+        result = {
+            "scores": scores,
+            "top3": top3,
+            "rewrites": rewrites,
+            "section_feedbacks": section_feedbacks,
+        }
+
+        yield _sse_event("complete", {"result": result})
+
+    except Exception as e:
+        print(f"[ES添削/SSE] ❌ エラー: {e}")
+        yield _sse_event("error", {"message": str(e)})
+
+
+@router.post("/review/stream")
+async def review_es_stream(request: ReviewRequest):
+    """
+    Stream ES review progress via Server-Sent Events (SSE).
+
+    This endpoint provides real-time progress updates during ES review,
+    allowing the frontend to show accurate progress to users.
+
+    Events:
+    - progress: {"type": "progress", "step": "...", "progress": 0-100, "label": "..."}
+    - complete: {"type": "complete", "result": {...}}
+    - error: {"type": "error", "message": "..."}
+    """
+    return StreamingResponse(
+        _generate_review_progress(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )

@@ -203,7 +203,10 @@ class TestContentTypeScoring:
         assert score is not None
         assert score > 0
         # Check for content type URL pattern in breakdown
-        has_ct_pattern = any("社長メッセージURLパターン" in k or "URLパターン" in k for k in breakdown.keys())
+        has_ct_pattern = any(
+            "社長メッセージURLパターン" in k or "URLパターン" in k
+            for k in breakdown.keys()
+        )
         assert has_ct_pattern, f"Expected URL pattern in breakdown: {breakdown}"
 
     def test_ceo_message_title_pattern_detected(self, mock_ceo_message_candidate):
@@ -227,13 +230,15 @@ class TestContentTypeScoring:
         from app.routers.company_info import _score_corporate_candidate_with_breakdown
 
         # Search for CEO message but candidate is interview page
-        score_mismatch, breakdown_mismatch, _ = _score_corporate_candidate_with_breakdown(
-            mock_interview_candidate["url"],
-            mock_interview_candidate["title"],
-            mock_interview_candidate["snippet"],
-            "Example株式会社",
-            "about",
-            content_type="ceo_message",  # Looking for CEO message
+        score_mismatch, breakdown_mismatch, _ = (
+            _score_corporate_candidate_with_breakdown(
+                mock_interview_candidate["url"],
+                mock_interview_candidate["title"],
+                mock_interview_candidate["snippet"],
+                "Example株式会社",
+                "about",
+                content_type="ceo_message",  # Looking for CEO message
+            )
         )
 
         # Search for interview (correct match)
@@ -248,7 +253,9 @@ class TestContentTypeScoring:
 
         # Mismatched score should be lower
         if score_mismatch is not None and score_match is not None:
-            assert score_match >= score_mismatch, "Matched content type should score higher"
+            assert (
+                score_match >= score_mismatch
+            ), "Matched content type should score higher"
 
     def test_backward_compatibility_without_content_type(self):
         """content_type未指定時の後方互換性"""
@@ -336,7 +343,9 @@ class TestQueryBuilding:
         # Should contain CEO message related keywords
         assert len(queries) >= 3
         query_text = " ".join(queries).lower()
-        assert any(kw in query_text for kw in ["社長", "メッセージ", "代表取締役", "ceo"])
+        assert any(
+            kw in query_text for kw in ["社長", "メッセージ", "代表取締役", "ceo"]
+        )
 
     def test_query_building_fallback_without_content_type(self):
         """content_type未指定時にlegacyクエリが生成されること"""

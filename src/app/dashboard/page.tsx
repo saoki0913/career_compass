@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
   DashboardHeader,
@@ -9,6 +10,7 @@ import {
   DeadlineList,
 } from "@/components/dashboard";
 import { IncompleteTasksCard } from "@/components/dashboard/IncompleteTasksCard";
+import { CompanySelectModal } from "@/components/dashboard/CompanySelectModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -121,8 +123,19 @@ const EmptyCompanyIcon = () => (
   </svg>
 );
 
-// Quick action data (4 items for 2x2 grid)
-const quickActions = [
+const HeartIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+    />
+  </svg>
+);
+
+// Base quick actions (without onClick handlers)
+const baseQuickActions = [
   {
     title: "企業を追加",
     description: "新しい企業を登録",
@@ -174,12 +187,25 @@ const deadlineTypeLabels: Record<string, string> = {
 export default function DashboardPage() {
   const { user, isGuest, isLoading, isAuthenticated, userPlan } = useAuth();
   const router = useRouter();
+  const [showCompanySelect, setShowCompanySelect] = useState(false);
 
   // Fetch real data
   const { companies, count: companyCount, limit: companyLimit } = useCompanies();
   const { draftCount, publishedCount, total: esTotal } = useEsStats();
   const { deadlines, count: deadlineCount } = useDeadlines(7);
   const todayTask = useTodayTask();
+
+  // Build quick actions with onClick handler for motivation
+  const quickActions = [
+    ...baseQuickActions,
+    {
+      title: "AIで志望動機",
+      description: "志望動機を作成",
+      onClick: () => setShowCompanySelect(true),
+      icon: <HeartIcon />,
+      color: "sky" as const,
+    },
+  ];
 
   // Check if plan selection or onboarding is needed
   useEffect(() => {
@@ -263,8 +289,8 @@ export default function DashboardPage() {
           />
           <StatsCard
             title="ES作成数"
-            value={`完了 ${publishedCount} / 下書き ${draftCount}`}
-            subtitle={`合計 ${esTotal} 件`}
+            value={esTotal}
+            subtitle={`完了 ${publishedCount} / 下書き ${draftCount}`}
             icon={<DocumentIcon />}
             href="/es"
           />
@@ -335,21 +361,20 @@ export default function DashboardPage() {
           </Card>
         )}
 
-        {/* Action Zone - Two Column Layout */}
+        {/* Action Zone - 3 Column Grid */}
         <section className="mb-8">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Quick Actions - 2/3 width on desktop */}
-            <div className="lg:col-span-2 order-1">
-              <h2 className="text-lg font-semibold mb-4">クイックアクション</h2>
-              <QuickActions actions={quickActions} />
-            </div>
-
-            {/* Incomplete Tasks - 1/3 width, expanded by default */}
-            <div className="order-2">
-              <IncompleteTasksCard className="h-full" compactMode maxItems={3} />
-            </div>
-          </div>
+          <h2 className="text-lg font-semibold mb-4">クイックアクション</h2>
+          <QuickActions actions={quickActions}>
+            {/* Incomplete Tasks - same size as quick actions */}
+            <IncompleteTasksCard variant="quickAction" />
+          </QuickActions>
         </section>
+
+        {/* Company Select Modal */}
+        <CompanySelectModal
+          open={showCompanySelect}
+          onOpenChange={setShowCompanySelect}
+        />
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

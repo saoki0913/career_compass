@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { STARStatusBadge, STARProgressCompact, type STARScores } from "@/components/gakuchika";
 
 // Icons
 const ChatIcon = () => (
@@ -46,6 +47,9 @@ interface Gakuchika {
   summary: string | null;
   createdAt: string;
   updatedAt: string;
+  conversationStatus: "in_progress" | "completed" | null;
+  starScores: STARScores | null;
+  questionCount: number;
 }
 
 function buildHeaders(): Record<string, string> {
@@ -337,31 +341,27 @@ export default function GakuchikaListPage() {
               <Link key={gakuchika.id} href={`/gakuchika/${gakuchika.id}`}>
                 <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
                   <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
+                    <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-medium">{gakuchika.title}</h3>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-medium truncate">{gakuchika.title}</h3>
+                          <STARStatusBadge scores={gakuchika.starScores} />
+                        </div>
                         {gakuchika.summary ? (
-                          <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                          <p className="text-sm text-muted-foreground line-clamp-2">
                             {gakuchika.summary}
                           </p>
+                        ) : gakuchika.conversationStatus === "in_progress" ? (
+                          <p className="text-sm text-muted-foreground">深掘り中...</p>
                         ) : (
-                          <p className="text-sm text-amber-600 mt-1">深掘り中...</p>
+                          <p className="text-sm text-muted-foreground">タップして深掘りを開始</p>
                         )}
-                        <p className="text-xs text-muted-foreground mt-2">
-                          最終更新: {formatDate(gakuchika.updatedAt)}
-                        </p>
-                      </div>
-                      <div className="ml-4">
-                        <span
-                          className={cn(
-                            "text-xs px-2 py-1 rounded-full",
-                            gakuchika.summary
-                              ? "bg-emerald-100 text-emerald-700"
-                              : "bg-amber-100 text-amber-700"
-                          )}
-                        >
-                          {gakuchika.summary ? "完了" : "進行中"}
-                        </span>
+                        <div className="flex items-center justify-between mt-3">
+                          <STARProgressCompact scores={gakuchika.starScores} />
+                          <p className="text-xs text-muted-foreground">
+                            {formatDate(gakuchika.updatedAt)}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </CardContent>

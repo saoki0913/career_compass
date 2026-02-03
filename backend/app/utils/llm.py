@@ -31,6 +31,7 @@ _client_lock = asyncio.Lock()
 @dataclass
 class CircuitBreaker:
     """Circuit breaker to prevent cascading failures."""
+
     failures: int = 0
     last_failure: Optional[datetime] = None
     threshold: int = 3
@@ -40,7 +41,10 @@ class CircuitBreaker:
         """Check if circuit is open (should skip this provider)."""
         if self.failures < self.threshold:
             return False
-        if self.last_failure and datetime.now() - self.last_failure > self.reset_timeout:
+        if (
+            self.last_failure
+            and datetime.now() - self.last_failure > self.reset_timeout
+        ):
             self.reset()
             return False
         return True
@@ -73,14 +77,14 @@ async def get_anthropic_client(for_rag: bool = False) -> AsyncAnthropic:
             if _anthropic_client_rag is None:
                 _anthropic_client_rag = AsyncAnthropic(
                     api_key=settings.anthropic_api_key,
-                    timeout=settings.rag_timeout_seconds
+                    timeout=settings.rag_timeout_seconds,
                 )
             return _anthropic_client_rag
         else:
             if _anthropic_client is None:
                 _anthropic_client = AsyncAnthropic(
                     api_key=settings.anthropic_api_key,
-                    timeout=settings.llm_timeout_seconds
+                    timeout=settings.llm_timeout_seconds,
                 )
             return _anthropic_client
 
@@ -93,29 +97,31 @@ async def get_openai_client(for_rag: bool = False) -> openai.AsyncOpenAI:
             if _openai_client_rag is None:
                 _openai_client_rag = openai.AsyncOpenAI(
                     api_key=settings.openai_api_key,
-                    timeout=settings.rag_timeout_seconds
+                    timeout=settings.rag_timeout_seconds,
                 )
             return _openai_client_rag
         else:
             if _openai_client is None:
                 _openai_client = openai.AsyncOpenAI(
                     api_key=settings.openai_api_key,
-                    timeout=settings.llm_timeout_seconds
+                    timeout=settings.llm_timeout_seconds,
                 )
             return _openai_client
 
 
-LLMModel = Literal["claude-sonnet", "claude-haiku", "openai", "gpt-4o-mini", "gpt-5-mini", "gpt-5-nano"]
+LLMModel = Literal[
+    "claude-sonnet", "claude-haiku", "openai", "gpt-4o-mini", "gpt-5-mini", "gpt-5-nano"
+]
 ResponseFormat = Literal["json_object", "json_schema", "text"]
 
 # Feature-based model configuration
 MODEL_CONFIG: dict[str, LLMModel] = {
-    "es_review": "claude-sonnet",      # High-quality review and rewrite
-    "gakuchika": "claude-sonnet",      # Interactive deep-dive questions
-    "selection_schedule": "claude-haiku",    # Selection schedule extraction
-    "rag_query": "claude-sonnet",      # Query expansion for RAG
-    "rag_rerank": "claude-sonnet",     # Reranking for RAG
-    "rag_classify": "claude-sonnet",   # Content classification for RAG
+    "es_review": "claude-sonnet",  # High-quality review and rewrite
+    "gakuchika": "claude-sonnet",  # Interactive deep-dive questions
+    "selection_schedule": "claude-haiku",  # Selection schedule extraction
+    "rag_query": "claude-sonnet",  # Query expansion for RAG
+    "rag_rerank": "claude-sonnet",  # Reranking for RAG
+    "rag_classify": "claude-sonnet",  # Content classification for RAG
 }
 
 # Feature name mapping for error messages and logs
@@ -172,7 +178,12 @@ def _log(feature: str, message: str, marker: str = ""):
 
 def _resolve_openai_model(feature: str, model_hint: Optional[str] = None) -> str:
     """機能とオプションのヒントに基づいてOpenAIモデル名を解決。"""
-    if model_hint and model_hint not in ("openai", "gpt-4o-mini", "gpt-5-mini", "gpt-5-nano"):
+    if model_hint and model_hint not in (
+        "openai",
+        "gpt-4o-mini",
+        "gpt-5-mini",
+        "gpt-5-nano",
+    ):
         return model_hint
     return settings.openai_model
 
@@ -180,6 +191,7 @@ def _resolve_openai_model(feature: str, model_hint: Optional[str] = None) -> str
 @dataclass
 class LLMError:
     """LLMエラーの詳細情報。"""
+
     error_type: str  # "no_api_key", "billing", "rate_limit", "invalid_key", "network", "parse", "unknown"
     message: str  # ユーザー向けメッセージ（日本語）
     detail: str  # ログ用の技術的詳細
@@ -199,16 +211,14 @@ class LLMError:
 @dataclass
 class LLMResult:
     """LLM呼び出しの結果。"""
+
     success: bool
     data: dict | None = None
     error: LLMError | None = None
 
 
 def _create_error(
-    error_type: str,
-    provider: str,
-    feature: str,
-    detail: str = ""
+    error_type: str, provider: str, feature: str, detail: str = ""
 ) -> LLMError:
     """ユーザーフレンドリーなメッセージ付きの詳細エラーを作成。"""
     feature_name = FEATURE_NAMES.get(feature, feature)
@@ -241,7 +251,11 @@ def _classify_anthropic_error(error: Exception) -> tuple[str, str]:
         return "billing", "Anthropicのクレジット残高が不足しています"
     elif "rate limit" in error_str or "429" in error_str:
         return "rate_limit", "Anthropicのレート制限を超えました"
-    elif "invalid api key" in error_str or "authentication" in error_str or "401" in error_str:
+    elif (
+        "invalid api key" in error_str
+        or "authentication" in error_str
+        or "401" in error_str
+    ):
         return "invalid_key", "AnthropicのAPIキーが無効です"
     elif "connection" in error_str or "timeout" in error_str or "network" in error_str:
         return "network", f"ネットワークエラー: {error}"
@@ -257,7 +271,11 @@ def _classify_openai_error(error: Exception) -> tuple[str, str]:
         return "billing", "OpenAIのクォータを超えました"
     elif "rate limit" in error_str or "429" in error_str:
         return "rate_limit", "OpenAIのレート制限を超えました"
-    elif "invalid api key" in error_str or "authentication" in error_str or "401" in error_str:
+    elif (
+        "invalid api key" in error_str
+        or "authentication" in error_str
+        or "401" in error_str
+    ):
         return "invalid_key", "OpenAIのAPIキーが無効です"
     elif "connection" in error_str or "timeout" in error_str or "network" in error_str:
         return "network", f"ネットワークエラー: {error}"
@@ -277,7 +295,8 @@ async def call_llm_with_error(
     json_schema: dict | None = None,
     use_responses_api: bool = False,
     retry_on_parse: bool = False,
-    parse_retry_instructions: Optional[str] = None
+    parse_retry_instructions: Optional[str] = None,
+    disable_fallback: bool = False,
 ) -> LLMResult:
     """
     プロバイダー自動選択と詳細なエラーハンドリング付きでLLMを呼び出す。
@@ -290,6 +309,7 @@ async def call_llm_with_error(
         temperature: サンプリング温度
         model: 明示的なモデル選択（"claude-sonnet"またはOpenAIモデル名）
         feature: 自動モデル選択用の機能名
+        disable_fallback: Trueの場合、別プロバイダーへのフォールバックを無効化
 
     Returns:
         LLMResult: 成功ステータス、データ、オプションのエラー詳細を含む
@@ -305,7 +325,7 @@ async def call_llm_with_error(
 
     # APIキーチェック（フォールバック付き）
     if model in ("claude-sonnet", "claude-haiku") and not settings.anthropic_api_key:
-        if settings.openai_api_key:
+        if settings.openai_api_key and not disable_fallback:
             _log(feature, "Anthropic APIキー未設定、OpenAIにフォールバック", WARNING)
             model = "openai"
             provider = "openai"
@@ -314,13 +334,13 @@ async def call_llm_with_error(
                 "no_api_key",
                 "anthropic",
                 feature,
-                "ANTHROPIC_API_KEYとOPENAI_API_KEYの両方が未設定です"
+                "ANTHROPIC_API_KEYとOPENAI_API_KEYの両方が未設定です",
             )
             _log(feature, "APIキーが設定されていません", ERROR)
             return LLMResult(success=False, error=error)
 
     if provider == "openai" and not settings.openai_api_key:
-        if settings.anthropic_api_key:
+        if settings.anthropic_api_key and not disable_fallback:
             _log(feature, "OpenAI APIキー未設定、Claudeにフォールバック", WARNING)
             model = "claude-sonnet"
             provider = "anthropic"
@@ -329,7 +349,7 @@ async def call_llm_with_error(
                 "no_api_key",
                 "openai",
                 feature,
-                "ANTHROPIC_API_KEYとOPENAI_API_KEYの両方が未設定です"
+                "ANTHROPIC_API_KEYとOPENAI_API_KEYの両方が未設定です",
             )
             _log(feature, "APIキーが設定されていません", ERROR)
             return LLMResult(success=False, error=error)
@@ -354,7 +374,7 @@ async def call_llm_with_error(
                 max_tokens,
                 temperature,
                 actual_model,
-                feature=feature
+                feature=feature,
             )
             result = _parse_json_response(raw_response)
         else:
@@ -368,7 +388,7 @@ async def call_llm_with_error(
                     actual_model,
                     response_format=response_format,
                     json_schema=json_schema,
-                    feature=feature
+                    feature=feature,
                 )
             else:
                 result = await _call_openai(
@@ -380,7 +400,7 @@ async def call_llm_with_error(
                     actual_model,
                     response_format=response_format,
                     json_schema=json_schema,
-                    feature=feature
+                    feature=feature,
                 )
 
         if result is not None:
@@ -393,7 +413,9 @@ async def call_llm_with_error(
                     "必ず有効なJSONのみを出力してください。説明文やコードブロックは禁止です。"
                     "文字列内の改行は\\nでエスケープしてください。"
                 )
-                retry_system_prompt = f"{system_prompt}\n\n# JSON出力の厳守\n{retry_note}"
+                retry_system_prompt = (
+                    f"{system_prompt}\n\n# JSON出力の厳守\n{retry_note}"
+                )
                 _log(feature, "JSON解析失敗、Claude再試行します", WARNING)
                 try:
                     raw_retry = await _call_claude_raw(
@@ -403,7 +425,7 @@ async def call_llm_with_error(
                         max_tokens,
                         temperature,
                         actual_model,
-                        feature=feature
+                        feature=feature,
                     )
                     retry_result = _parse_json_response(raw_retry)
                     if retry_result is not None:
@@ -429,7 +451,7 @@ async def call_llm_with_error(
                             max_tokens=min(max_tokens, 2000),
                             temperature=0.1,  # より決定論的な出力のため低温度に設定
                             model=repair_model,
-                            feature=feature
+                            feature=feature,
                         )
                         repair_result = _parse_json_response(raw_repair)
                         if repair_result is not None:
@@ -443,7 +465,9 @@ async def call_llm_with_error(
                     "必ず有効なJSONのみを出力してください。説明文やコードブロックは禁止です。"
                     "文字列内の改行は\\nでエスケープしてください。"
                 )
-                retry_system_prompt = f"{system_prompt}\n\n# JSON出力の厳守\n{retry_note}"
+                retry_system_prompt = (
+                    f"{system_prompt}\n\n# JSON出力の厳守\n{retry_note}"
+                )
                 _log(feature, "JSON解析失敗、リトライします", WARNING)
                 try:
                     if use_responses_api:
@@ -456,7 +480,7 @@ async def call_llm_with_error(
                             actual_model,
                             response_format=response_format,
                             json_schema=json_schema,
-                            feature=feature
+                            feature=feature,
                         )
                     else:
                         retry_result = await _call_openai(
@@ -468,7 +492,7 @@ async def call_llm_with_error(
                             actual_model,
                             response_format=response_format,
                             json_schema=json_schema,
-                            feature=feature
+                            feature=feature,
                         )
                     if retry_result is not None:
                         _log(feature, f"{model_display} でリトライ成功", SUCCESS)
@@ -478,33 +502,84 @@ async def call_llm_with_error(
 
             # パースエラー時に別プロバイダーへフォールバック
             fallback_provider = "anthropic" if provider == "openai" else "openai"
-            fallback_api_key = settings.anthropic_api_key if fallback_provider == "anthropic" else settings.openai_api_key
+            fallback_api_key = (
+                settings.anthropic_api_key
+                if fallback_provider == "anthropic"
+                else settings.openai_api_key
+            )
 
-            if fallback_api_key:
-                fallback_name = "Claude" if fallback_provider == "anthropic" else "OpenAI"
+            if fallback_api_key and not disable_fallback:
+                fallback_name = (
+                    "Claude" if fallback_provider == "anthropic" else "OpenAI"
+                )
                 _log(feature, f"解析エラー、{fallback_name} にフォールバック", WARNING)
                 try:
                     if fallback_provider == "anthropic":
-                        fallback_result = await _call_claude(system_prompt, user_message, messages, max_tokens, temperature, feature=feature)
+                        fallback_result = await _call_claude(
+                            system_prompt,
+                            user_message,
+                            messages,
+                            max_tokens,
+                            temperature,
+                            feature=feature,
+                        )
                     else:
-                        fallback_model = _resolve_openai_model(feature, model_hint=settings.openai_model)
+                        fallback_model = _resolve_openai_model(
+                            feature, model_hint=settings.openai_model
+                        )
                         if use_responses_api:
                             fallback_result = await _call_openai_responses(
-                                system_prompt, user_message, messages, max_tokens, temperature, fallback_model,
-                                response_format=response_format, json_schema=json_schema, feature=feature
+                                system_prompt,
+                                user_message,
+                                messages,
+                                max_tokens,
+                                temperature,
+                                fallback_model,
+                                response_format=response_format,
+                                json_schema=json_schema,
+                                feature=feature,
                             )
+                            # Responses APIが空を返した場合、通常Chat APIにフォールバック
+                            if fallback_result is None:
+                                _log(feature, "Responses API空、Chat APIに再フォールバック", WARNING)
+                                fallback_result = await _call_openai(
+                                    system_prompt,
+                                    user_message,
+                                    messages,
+                                    max_tokens,
+                                    temperature,
+                                    fallback_model,
+                                    response_format="json",  # Chat APIはjsonモード
+                                    json_schema=None,
+                                    feature=feature,
+                                )
                         else:
                             fallback_result = await _call_openai(
-                                system_prompt, user_message, messages, max_tokens, temperature, fallback_model,
-                                response_format=response_format, json_schema=json_schema, feature=feature
+                                system_prompt,
+                                user_message,
+                                messages,
+                                max_tokens,
+                                temperature,
+                                fallback_model,
+                                response_format=response_format,
+                                json_schema=json_schema,
+                                feature=feature,
                             )
                     if fallback_result is not None:
-                        _log(feature, f"{fallback_name} へのフォールバック成功", SUCCESS)
+                        _log(
+                            feature, f"{fallback_name} へのフォールバック成功", SUCCESS
+                        )
                         return LLMResult(success=True, data=fallback_result)
                 except Exception as fallback_err:
-                    _log(feature, f"{fallback_name} フォールバック失敗: {fallback_err}", ERROR)
+                    _log(
+                        feature,
+                        f"{fallback_name} フォールバック失敗: {fallback_err}",
+                        ERROR,
+                    )
 
-            error = _create_error("parse", provider, feature, "空または解析不能なレスポンス")
+            error = _create_error(
+                "parse", provider, feature, "空または解析不能なレスポンス"
+            )
             _log(feature, "応答の解析に失敗しました", ERROR)
             return LLMResult(success=False, error=error)
 
@@ -512,11 +587,18 @@ async def call_llm_with_error(
         error_type, detail = _classify_anthropic_error(e)
 
         # billing/rate_limitエラー時にOpenAIへフォールバック
-        if error_type in ("billing", "rate_limit") and settings.openai_api_key and model == "claude-sonnet":
+        if (
+            error_type in ("billing", "rate_limit")
+            and settings.openai_api_key
+            and model == "claude-sonnet"
+            and not disable_fallback
+        ):
             error_msg = "クレジット不足" if error_type == "billing" else "レート制限"
             _log(feature, f"Anthropic {error_msg}、OpenAI にフォールバック", WARNING)
             try:
-                fallback_model = _resolve_openai_model(feature, model_hint=settings.openai_model)
+                fallback_model = _resolve_openai_model(
+                    feature, model_hint=settings.openai_model
+                )
                 if use_responses_api:
                     result = await _call_openai_responses(
                         system_prompt,
@@ -527,7 +609,7 @@ async def call_llm_with_error(
                         fallback_model,
                         response_format=response_format,
                         json_schema=json_schema,
-                        feature=feature
+                        feature=feature,
                     )
                 else:
                     result = await _call_openai(
@@ -539,7 +621,7 @@ async def call_llm_with_error(
                         fallback_model,
                         response_format=response_format,
                         json_schema=json_schema,
-                        feature=feature
+                        feature=feature,
                     )
                 if result is not None:
                     _log(feature, "OpenAI へのフォールバック成功", SUCCESS)
@@ -555,11 +637,23 @@ async def call_llm_with_error(
         error_type, detail = _classify_openai_error(e)
 
         # billing/rate_limitエラー時にClaudeへフォールバック
-        if error_type in ("billing", "rate_limit") and settings.anthropic_api_key and provider == "openai":
+        if (
+            error_type in ("billing", "rate_limit")
+            and settings.anthropic_api_key
+            and provider == "openai"
+            and not disable_fallback
+        ):
             error_msg = "クレジット不足" if error_type == "billing" else "レート制限"
             _log(feature, f"OpenAI {error_msg}、Claude にフォールバック", WARNING)
             try:
-                result = await _call_claude(system_prompt, user_message, messages, max_tokens, temperature, feature=feature)
+                result = await _call_claude(
+                    system_prompt,
+                    user_message,
+                    messages,
+                    max_tokens,
+                    temperature,
+                    feature=feature,
+                )
                 if result is not None:
                     _log(feature, "Claude へのフォールバック成功", SUCCESS)
                     return LLMResult(success=True, data=result)
@@ -576,11 +670,22 @@ async def call_llm_with_error(
             error_type, detail = _classify_anthropic_error(e)
 
             # billing/rate_limitエラー時にOpenAIへフォールバック
-            if error_type in ("billing", "rate_limit") and settings.openai_api_key and model == "claude-sonnet":
-                error_msg = "クレジット不足" if error_type == "billing" else "レート制限"
-                _log(feature, f"Anthropic {error_msg}、OpenAI にフォールバック", WARNING)
+            if (
+                error_type in ("billing", "rate_limit")
+                and settings.openai_api_key
+                and model == "claude-sonnet"
+                and not disable_fallback
+            ):
+                error_msg = (
+                    "クレジット不足" if error_type == "billing" else "レート制限"
+                )
+                _log(
+                    feature, f"Anthropic {error_msg}、OpenAI にフォールバック", WARNING
+                )
                 try:
-                    fallback_model = _resolve_openai_model(feature, model_hint=settings.openai_model)
+                    fallback_model = _resolve_openai_model(
+                        feature, model_hint=settings.openai_model
+                    )
                     if use_responses_api:
                         result = await _call_openai_responses(
                             system_prompt,
@@ -591,7 +696,7 @@ async def call_llm_with_error(
                             fallback_model,
                             response_format=response_format,
                             json_schema=json_schema,
-                            feature=feature
+                            feature=feature,
                         )
                     else:
                         result = await _call_openai(
@@ -603,7 +708,7 @@ async def call_llm_with_error(
                             fallback_model,
                             response_format=response_format,
                             json_schema=json_schema,
-                            feature=feature
+                            feature=feature,
                         )
                     if result is not None:
                         _log(feature, "OpenAI へのフォールバック成功", SUCCESS)
@@ -614,11 +719,25 @@ async def call_llm_with_error(
             error_type, detail = _classify_openai_error(e)
 
             # billing/rate_limitエラー時にClaudeへフォールバック
-            if error_type in ("billing", "rate_limit") and settings.anthropic_api_key and provider == "openai":
-                error_msg = "クレジット不足" if error_type == "billing" else "レート制限"
+            if (
+                error_type in ("billing", "rate_limit")
+                and settings.anthropic_api_key
+                and provider == "openai"
+                and not disable_fallback
+            ):
+                error_msg = (
+                    "クレジット不足" if error_type == "billing" else "レート制限"
+                )
                 _log(feature, f"OpenAI {error_msg}、Claude にフォールバック", WARNING)
                 try:
-                    result = await _call_claude(system_prompt, user_message, messages, max_tokens, temperature, feature=feature)
+                    result = await _call_claude(
+                        system_prompt,
+                        user_message,
+                        messages,
+                        max_tokens,
+                        temperature,
+                        feature=feature,
+                    )
                     if result is not None:
                         _log(feature, "Claude へのフォールバック成功", SUCCESS)
                         return LLMResult(success=True, data=result)
@@ -643,7 +762,7 @@ async def _call_claude_raw(
     max_tokens: int,
     temperature: float,
     model: str | None = None,
-    feature: str = "unknown"
+    feature: str = "unknown",
 ) -> str:
     """Claude APIを呼び出し、生のテキストを返す。"""
     client = await get_anthropic_client(for_rag=_is_rag_feature(feature))
@@ -659,7 +778,7 @@ async def _call_claude_raw(
         max_tokens=max_tokens,
         temperature=temperature,
         system=system_prompt,
-        messages=messages
+        messages=messages,
     )
 
     if not response.content:
@@ -676,7 +795,7 @@ async def _call_claude(
     max_tokens: int,
     temperature: float,
     model: str | None = None,
-    feature: str = "unknown"
+    feature: str = "unknown",
 ) -> dict | None:
     """Claude APIを呼び出し、JSONレスポンスを解析して返す。"""
     content = await _call_claude_raw(
@@ -686,7 +805,7 @@ async def _call_claude(
         max_tokens=max_tokens,
         temperature=temperature,
         model=model,
-        feature=feature
+        feature=feature,
     )
     if not content:
         return None
@@ -702,7 +821,7 @@ async def _call_openai(
     model: str,
     response_format: ResponseFormat = "json_object",
     json_schema: dict | None = None,
-    feature: str = "unknown"
+    feature: str = "unknown",
 ) -> dict | None:
     """OpenAI Chat Completions APIを呼び出す。"""
     client = await get_openai_client(for_rag=_is_rag_feature(feature))
@@ -710,17 +829,14 @@ async def _call_openai(
     if messages is None:
         api_messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message}
+            {"role": "user", "content": user_message},
         ]
     else:
         api_messages = [{"role": "system", "content": system_prompt}] + messages
 
     response_format_payload = None
     if response_format == "json_schema" and json_schema:
-        response_format_payload = {
-            "type": "json_schema",
-            "json_schema": json_schema
-        }
+        response_format_payload = {"type": "json_schema", "json_schema": json_schema}
     elif response_format == "json_object":
         response_format_payload = {"type": "json_object"}
 
@@ -755,7 +871,7 @@ async def _call_openai_responses(
     model: str,
     response_format: ResponseFormat = "json_schema",
     json_schema: dict | None = None,
-    feature: str = "unknown"
+    feature: str = "unknown",
 ) -> dict | None:
     """OpenAI Responses APIを呼び出す（オプションでStructured Outputs対応）。"""
     client = await get_openai_client(for_rag=_is_rag_feature(feature))
@@ -776,7 +892,7 @@ async def _call_openai_responses(
             "type": "json_schema",
             "name": schema_name,
             "schema": schema_body,
-            "strict": True
+            "strict": True,
         }
     elif response_format == "text":
         text_format = {"type": "text"}
@@ -835,7 +951,9 @@ async def _call_openai_responses(
                             pass
                         else:
                             candidates.append(str(json_payload))
-                    text_payload = getattr(item, "text", None) or getattr(item, "output_text", None)
+                    text_payload = getattr(item, "text", None) or getattr(
+                        item, "output_text", None
+                    )
                     if isinstance(text_payload, str) and text_payload:
                         candidates.append(text_payload)
 
@@ -854,7 +972,15 @@ async def _call_openai_responses(
     except Exception as e:
         print(f"[OpenAI] Responses API抽出エラー: {e}")
 
-    print("[OpenAI] Responses APIから空のレスポンス")
+    # デバッグ: 候補の状態をログ出力
+    if candidates:
+        print(f"[OpenAI] 空のレスポンス (候補数: {len(candidates)})")
+        for i, c in enumerate(candidates[:2]):  # 最初の2件のみ
+            preview = str(c)[:200] if c else "(empty)"
+            print(f"[OpenAI] 候補{i+1}プレビュー: {preview}...")
+    else:
+        output_text = getattr(response, "output_text", None) if response else None
+        print(f"[OpenAI] Responses APIから空のレスポンス (output_text: {str(output_text)[:100] if output_text else 'None'})")
     return None
 
 
@@ -878,13 +1004,13 @@ def _detect_truncation(content: str) -> bool:
     stripped = content.rstrip()
 
     # 1. 明示的な切り詰め記号をチェック
-    truncation_indicators = ('...', '…', '...')
+    truncation_indicators = ("...", "…", "...")
     if stripped.endswith(truncation_indicators):
         return True
 
     # 2. 閉じ括弧の不足をチェック
-    open_braces = content.count('{') - content.count('}')
-    open_brackets = content.count('[') - content.count(']')
+    open_braces = content.count("{") - content.count("}")
+    open_brackets = content.count("[") - content.count("]")
     if open_braces > 0 or open_brackets > 0:
         return True
 
@@ -908,8 +1034,10 @@ def _parse_json_response(content: str) -> dict | None:
 
     # トランケーション検出
     if _detect_truncation(content):
-        open_braces = content.count('{') - content.count('}')
-        print(f"[JSON解析] ⚠️ 切り詰められたレスポンスの可能性 (未閉じブレース: {open_braces}, 長さ: {len(content)}文字)")
+        open_braces = content.count("{") - content.count("}")
+        print(
+            f"[JSON解析] ⚠️ 切り詰められたレスポンスの可能性 (未閉じブレース: {open_braces}, 長さ: {len(content)}文字)"
+        )
 
     def extract_first_balanced_object(raw: str) -> str | None:
         start = raw.find("{")
@@ -937,7 +1065,7 @@ def _parse_json_response(content: str) -> dict | None:
             elif ch == "}":
                 depth -= 1
                 if depth == 0:
-                    return raw[start:idx + 1]
+                    return raw[start : idx + 1]
         return None
 
     def repair_unbalanced_object(raw: str) -> str | None:
@@ -1072,7 +1200,7 @@ def _parse_json_response(content: str) -> dict | None:
             pass
 
     # 4. 正規表現でJSONオブジェクトを抽出（最も外側の { ... } を検索）
-    json_match = re.search(r'\{[\s\S]*\}', content)
+    json_match = re.search(r"\{[\s\S]*\}", content)
     if json_match:
         try:
             try:
@@ -1107,6 +1235,8 @@ def _parse_json_response(content: str) -> dict | None:
             pass
 
     # 5. 解析失敗 - デバッグ用にログ出力
-    preview = original_content[:200] if len(original_content) > 200 else original_content
+    preview = (
+        original_content[:200] if len(original_content) > 200 else original_content
+    )
     print(f"[JSON解析] ⚠️ 解析失敗（{len(original_content)}文字）: {preview[:100]}...")
     return None

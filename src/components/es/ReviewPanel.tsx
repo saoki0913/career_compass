@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,8 @@ import { ScoreDisplay } from "./ScoreDisplay";
 import { ImprovementList } from "./ImprovementList";
 import { RewriteDisplay } from "./RewriteDisplay";
 import { ReflectModal } from "./ReflectModal";
-import { ProcessingSteps, ES_REVIEW_STEPS } from "@/components/ui/ProcessingSteps";
+import { EnhancedProcessingSteps, ES_REVIEW_STEPS } from "@/components/ui/EnhancedProcessingSteps";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 // Section review request from parent component
 interface SectionReviewRequest {
@@ -135,6 +136,8 @@ export function ReviewPanel({
   // Template state
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateType | null>(null);
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
+  const [showFullscreen, setShowFullscreen] = useState(false);
+  const [fullscreenMode, setFullscreenMode] = useState<"rewrites" | "template">("rewrites");
   // Template extra fields
   const [internName, setInternName] = useState<string>("");
   const [roleName, setRoleName] = useState<string>("");
@@ -146,6 +149,10 @@ export function ReviewPanel({
     creditCost,
     reviewMode,
     currentSection,
+    cancelReview,
+    isCancelling,
+    elapsedTime,
+    sseProgress,
     requestReview,
     requestSectionReview,
     clearReview,
@@ -206,6 +213,11 @@ export function ReviewPanel({
     []
   );
 
+  const openFullscreen = useCallback((mode: "rewrites" | "template") => {
+    setFullscreenMode(mode);
+    setShowFullscreen(true);
+  }, []);
+
   const handleConfirmReflect = useCallback(() => {
     if (pendingRewrite && onApplyRewrite) {
       onApplyRewrite(pendingRewrite);
@@ -214,9 +226,27 @@ export function ReviewPanel({
     setPendingRewrite(null);
   }, [pendingRewrite, onApplyRewrite]);
 
+  // Scroll to improvement section when clicking low score link
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const handleScrollToIssue = useCallback((category: string) => {
+    const element = document.getElementById(`issue-${category}`);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      // Add highlight animation
+      element.classList.add("ring-2", "ring-primary", "ring-offset-2");
+      setTimeout(() => {
+        element.classList.remove("ring-2", "ring-primary", "ring-offset-2");
+      }, 2000);
+    }
+  }, []);
+
   // Calculate estimated credit cost (different for section vs full mode)
   const contentForCost = sectionReviewRequest?.sectionContent || content;
   const estimatedCost = Math.min(5, Math.ceil(contentForCost.length / 800));
+
+  // Get character limit for RewriteDisplay
+  const currentCharLimit = sectionReviewRequest?.sectionCharLimit || undefined;
+  const templateReview = review?.template_review || null;
 
   return (
     <div className={cn("flex flex-col", className)}>
@@ -239,10 +269,13 @@ export function ReviewPanel({
               </span>
             )}
           </div>
-          {/* Current section info for section mode */}
+          {/* Current section info for section mode - expandable title */}
           {reviewMode === "section" && currentSection && (
             <div className="mt-2 p-2 bg-primary/5 rounded-lg border border-primary/20">
-              <p className="text-sm font-medium text-primary truncate">
+              <p
+                className="text-sm font-medium text-primary leading-relaxed"
+                title={currentSection.title}
+              >
                 {currentSection.title}
               </p>
               {currentSection.charLimit && (
@@ -254,7 +287,7 @@ export function ReviewPanel({
           )}
         </CardHeader>
 
-        <CardContent className="flex-1 overflow-y-auto p-4">
+        <CardContent ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4">
           {/* Initial State - Request Review */}
           {!review && !isLoading && (
             <div className="space-y-4">
@@ -422,9 +455,18 @@ export function ReviewPanel({
             </div>
           )}
 
-          {/* Loading State - Labor Illusion: Show processing steps */}
+          {/* Loading State - Labor Illusion: Show processing steps with cancel option */}
           {isLoading && (
-            <ProcessingSteps steps={ES_REVIEW_STEPS} isActive={isLoading} />
+            <EnhancedProcessingSteps
+              steps={sseProgress.isStreaming ? sseProgress.steps : ES_REVIEW_STEPS}
+              isActive={isLoading}
+              elapsedTime={elapsedTime}
+              onCancel={cancelReview}
+              isCancelling={isCancelling}
+              cancelLabel="キャンセル"
+              sseCurrentStep={sseProgress.isStreaming ? sseProgress.currentStep : undefined}
+              sseProgress={sseProgress.isStreaming ? sseProgress.progress : undefined}
+            />
           )}
 
           {/* Error State */}
@@ -442,8 +484,12 @@ export function ReviewPanel({
           {/* Review Results */}
           {review && !isLoading && (
             <div className="space-y-6">
-              {/* Scores */}
-              <ScoreDisplay scores={review.scores} hasCompanyRag={hasCompanyRag} />
+              {/* Scores - with scroll-to-issue links for low scores */}
+              <ScoreDisplay
+                scores={review.scores}
+                hasCompanyRag={hasCompanyRag}
+                onScrollToIssue={handleScrollToIssue}
+              />
 
               {!hasCompanyRag && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 space-y-2">
@@ -460,20 +506,43 @@ export function ReviewPanel({
                 </div>
               )}
 
-              {/* Improvements */}
+              {/* Rewrites - Shown first for better UX (reduced scrolling) */}
+              {!review.template_review && (
+                <RewriteDisplay
+                  rewrites={review.rewrites}
+                  onApply={handleApplyRewrite}
+                  originalText={sectionReviewRequest?.sectionContent || content}
+                  charLimit={currentCharLimit}
+                  onOpenFullscreen={() => openFullscreen("rewrites")}
+                />
+              )}
+
+              {/* Improvements - Collapsible, shown after rewrites */}
               <ImprovementList
                 issues={review.top3}
                 title={reviewMode === "section" ? "改善ポイント" : undefined}
+                collapsible={true}
+                defaultExpanded={false}
               />
 
               {/* Template Review Results (Section mode with template) */}
               {review.template_review && (
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <h4 className="text-sm font-semibold">テンプレート添削結果</h4>
-                    <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                      {TEMPLATE_LABELS[review.template_review.template_type as TemplateType]}
-                    </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-semibold">テンプレート添削結果</h4>
+                      <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                        {TEMPLATE_LABELS[review.template_review.template_type as TemplateType]}
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openFullscreen("template")}
+                      className="h-7 px-2 text-xs"
+                    >
+                      全画面で表示
+                    </Button>
                   </div>
 
                   {/* Strengthen Points (if available) */}
@@ -650,11 +719,6 @@ export function ReviewPanel({
                 </div>
               )}
 
-              {/* Rewrites (show only if no template_review) */}
-              {!review.template_review && (
-                <RewriteDisplay rewrites={review.rewrites} onApply={handleApplyRewrite} />
-              )}
-
               {/* Action Buttons */}
               <div className="space-y-2">
                 {/* Return to full mode button (section mode only) */}
@@ -678,6 +742,127 @@ export function ReviewPanel({
           )}
         </CardContent>
       </Card>
+
+      {/* Fullscreen Results */}
+      <Dialog open={showFullscreen} onOpenChange={setShowFullscreen}>
+        <DialogContent
+          className="top-0 left-0 translate-x-0 translate-y-0 w-screen max-w-none h-[100dvh] sm:h-[90dvh] rounded-none sm:rounded-lg p-0 flex flex-col"
+          showCloseButton
+        >
+          <DialogHeader className="px-4 py-3 border-b">
+            <DialogTitle className="text-base">
+              {fullscreenMode === "template" ? "テンプレート添削結果" : "リライト候補"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto p-4">
+            {fullscreenMode === "rewrites" && review && !review.template_review && (
+              <RewriteDisplay
+                rewrites={review.rewrites}
+                onApply={handleApplyRewrite}
+                originalText={sectionReviewRequest?.sectionContent || content}
+                charLimit={currentCharLimit}
+                layout="stack"
+              />
+            )}
+            {fullscreenMode === "template" && templateReview && (
+              <div className="space-y-4 max-w-3xl mx-auto">
+                {templateReview.strengthen_points && templateReview.strengthen_points.length > 0 && (
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-xs font-medium text-blue-700 mb-1">強化ポイント</p>
+                    <ul className="text-sm text-blue-800 space-y-1">
+                      {templateReview.strengthen_points.map((point, i) => (
+                        <li key={i}>• {point}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {templateReview.variants.map((variant, index) => (
+                  <div key={index} className="p-4 border border-border rounded-lg space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-primary">パターン {index + 1}</span>
+                      <span className="text-xs text-muted-foreground">{variant.char_count}文字</span>
+                    </div>
+                    <p className="text-base leading-relaxed bg-muted/30 p-4 rounded-lg">
+                      {variant.text}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-xs font-medium text-green-700 mb-1">メリット</p>
+                        <ul className="text-xs text-green-800 space-y-0.5">
+                          {variant.pros.map((pro, i) => (
+                            <li key={i}>+ {pro}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-orange-700 mb-1">デメリット</p>
+                        <ul className="text-xs text-orange-800 space-y-0.5">
+                          {variant.cons.map((con, i) => (
+                            <li key={i}>- {con}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                    {variant.keywords_used.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-1">使用キーワード</p>
+                        <div className="flex flex-wrap gap-1">
+                          {variant.keywords_used.map((kw, i) => (
+                            <span
+                              key={i}
+                              className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded"
+                            >
+                              {kw}
+                              {variant.keyword_sources[i] && (
+                                <span className="text-primary/60 ml-1">
+                                  [{variant.keyword_sources[i]}]
+                                </span>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => handleApplyRewrite(variant.text)}
+                    >
+                      この改善案を反映
+                    </Button>
+                  </div>
+                ))}
+                {templateReview.keyword_sources.length > 0 && (
+                  <div className="p-3 bg-muted/30 rounded-lg">
+                    <p className="text-xs font-medium text-muted-foreground mb-2">キーワード出典</p>
+                    <div className="space-y-1">
+                      {templateReview.keyword_sources.map((source) => (
+                        <div key={source.source_id} className="text-xs">
+                          <span className="font-mono text-primary mr-1">{source.source_id}:</span>
+                          <a
+                            href={source.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            {source.content_type}
+                          </a>
+                          {source.excerpt && (
+                            <span className="text-muted-foreground ml-1">
+                              - {source.excerpt.substring(0, 80)}...
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Reflect Modal */}
       <ReflectModal

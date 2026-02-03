@@ -203,12 +203,17 @@ export async function POST(
     let reviewResult: ReviewResult;
     let isMockReview = false;
 
+    // タイムアウト設定: 3分（リトライ含む）
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 180000);
+
     try {
       const aiResponse = await fetch(`${fastApiUrl}/api/es/review`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
+        signal: controller.signal,
         body: JSON.stringify({
           content,
           section_id: sectionId,
@@ -291,7 +296,9 @@ export async function POST(
       }
 
       reviewResult = await aiResponse.json();
+      clearTimeout(timeoutId);
     } catch (err) {
+      clearTimeout(timeoutId);
       if (!allowMockReview) {
         return NextResponse.json(
           {

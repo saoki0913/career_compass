@@ -199,6 +199,37 @@ export function useCompanies() {
     }
   }, []);
 
+  // Optimistic update for pin toggle (Doherty Threshold: instant feedback)
+  const togglePin = useCallback(async (companyId: string, isPinned: boolean) => {
+    // Save previous state for rollback
+    const previousCompanies = [...companies];
+
+    // 1. Optimistic update - instant UI feedback
+    setCompanies((prev) =>
+      prev.map((c) => (c.id === companyId ? { ...c, isPinned } : c))
+    );
+
+    // 2. API call
+    try {
+      const response = await fetch(`/api/companies/${companyId}`, {
+        method: "PUT",
+        headers: buildHeaders(),
+        credentials: "include",
+        body: JSON.stringify({ isPinned }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update pin status");
+      }
+    } catch (err) {
+      // 3. Rollback on error
+      setCompanies(previousCompanies);
+      const message = err instanceof Error ? err.message : "Failed to update pin status";
+      setError(message);
+    }
+  }, [companies]);
+
   useEffect(() => {
     fetchCompanies();
   }, [fetchCompanies]);
@@ -213,6 +244,7 @@ export function useCompanies() {
     createCompany,
     updateCompany,
     deleteCompany,
+    togglePin,
     refresh: fetchCompanies,
   };
 }

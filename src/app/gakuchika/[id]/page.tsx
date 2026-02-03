@@ -8,6 +8,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
+import { STARProgressBar, type STARScores } from "@/components/gakuchika";
 
 interface Company {
   id: string;
@@ -18,17 +20,6 @@ interface Company {
 const ArrowLeftIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-  </svg>
-);
-
-const SendIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-    />
   </svg>
 );
 
@@ -50,8 +41,10 @@ const CheckIcon = () => (
 );
 
 interface Message {
+  id: string;
   role: "user" | "assistant";
   content: string;
+  isOptimistic?: boolean;
 }
 
 function buildHeaders(): Record<string, string> {
@@ -81,15 +74,16 @@ export default function GakuchikaConversationPage() {
   const [isCompleted, setIsCompleted] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isAIPowered, setIsAIPowered] = useState(true);
+  const [starScores, setStarScores] = useState<STARScores | null>(null);
   const [linkedCompanies, setLinkedCompanies] = useState<string[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -115,15 +109,24 @@ export default function GakuchikaConversationPage() {
       ]);
 
       if (!conversationRes.ok) {
-        throw new Error("Failed to fetch conversation");
+        const errorData = await conversationRes.json().catch(() => ({}));
+        throw new Error(errorData.error || "会話の取得に失敗しました");
       }
 
       const conversationData = await conversationRes.json();
-      setMessages(conversationData.messages || []);
+      // Add IDs to messages if not present (backward compatibility)
+      const messagesWithIds = (conversationData.messages || []).map(
+        (msg: { role: "user" | "assistant"; content: string; id?: string }, idx: number) => ({
+          ...msg,
+          id: msg.id || `msg-${idx}`,
+        })
+      );
+      setMessages(messagesWithIds);
       setNextQuestion(conversationData.nextQuestion);
       setQuestionCount(conversationData.questionCount || 0);
       setIsCompleted(conversationData.isCompleted || false);
       setIsAIPowered(conversationData.isAIPowered ?? true);
+      setStarScores(conversationData.starScores || null);
 
       if (gakuchikaRes.ok) {
         const gakuchikaData = await gakuchikaRes.json();
@@ -145,11 +148,25 @@ export default function GakuchikaConversationPage() {
     fetchConversation();
   }, [fetchConversation]);
 
-  // Send answer
+  // Send answer with optimistic UI update
   const handleSend = async () => {
     if (!answer.trim() || isSending) return;
 
+    const trimmedAnswer = answer.trim();
+    const optimisticId = `optimistic-${Date.now()}`;
+
+    // Optimistic update: show user message immediately
+    const optimisticMessage: Message = {
+      id: optimisticId,
+      role: "user",
+      content: trimmedAnswer,
+      isOptimistic: true,
+    };
+
+    setMessages((prev) => [...prev, optimisticMessage]);
+    setAnswer("");
     setIsSending(true);
+    setIsWaitingForResponse(true);
     setError(null);
 
     try {
@@ -157,7 +174,7 @@ export default function GakuchikaConversationPage() {
         method: "POST",
         headers: buildHeaders(),
         credentials: "include",
-        body: JSON.stringify({ answer: answer.trim() }),
+        body: JSON.stringify({ answer: trimmedAnswer }),
       });
 
       if (!response.ok) {
@@ -166,24 +183,27 @@ export default function GakuchikaConversationPage() {
       }
 
       const data = await response.json();
-      setMessages(data.messages || []);
+      // Replace messages with server response (includes IDs)
+      const messagesWithIds = (data.messages || []).map(
+        (msg: { role: "user" | "assistant"; content: string; id?: string }, idx: number) => ({
+          ...msg,
+          id: msg.id || `msg-${idx}`,
+        })
+      );
+      setMessages(messagesWithIds);
       setNextQuestion(data.nextQuestion);
       setQuestionCount(data.questionCount || 0);
       setIsCompleted(data.isCompleted || false);
       setIsAIPowered(data.isAIPowered ?? true);
-      setAnswer("");
+      setStarScores(data.starScores || null);
     } catch (err) {
+      // Remove optimistic message on error
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      setAnswer(trimmedAnswer); // Restore the answer
       setError(err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
       setIsSending(false);
-    }
-  };
-
-  // Handle Enter key
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
+      setIsWaitingForResponse(false);
     }
   };
 
@@ -216,8 +236,9 @@ export default function GakuchikaConversationPage() {
       <div className="min-h-screen bg-background">
         <DashboardHeader />
         <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-center py-16">
+          <div className="flex flex-col items-center justify-center py-16">
             <LoadingSpinner />
+            <p className="text-sm text-muted-foreground mt-3">会話を読み込み中...</p>
           </div>
         </main>
       </div>
@@ -231,7 +252,7 @@ export default function GakuchikaConversationPage() {
       {/* Header */}
       <div className="border-b border-border bg-background">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-4">
             <Link
               href="/gakuchika"
               className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -245,22 +266,19 @@ export default function GakuchikaConversationPage() {
                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
-                  AI質問
+                  AI深掘り
                 </span>
               ) : (
                 <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700">
                   基本質問
                 </span>
               )}
-              <span className="text-sm text-muted-foreground">
-                {questionCount}/8 質問
-              </span>
-              {isCompleted && (
-                <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">
-                  完了
-                </span>
-              )}
             </div>
+          </div>
+
+          {/* STAR Progress Bar - Compact inline version */}
+          <div className="mb-3">
+            <STARProgressBar scores={starScores} />
           </div>
 
           {/* Company linking */}
@@ -297,7 +315,7 @@ export default function GakuchikaConversationPage() {
             )}
 
             {showCompanyDropdown && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-lg shadow-lg border border-border z-50 max-h-64 overflow-y-auto">
+              <div className="absolute top-full left-0 mt-2 w-full sm:w-72 max-w-[calc(100vw-2rem)] bg-card rounded-lg shadow-lg border border-border z-50 max-h-64 overflow-y-auto">
                 {companies.length === 0 ? (
                   <div className="p-4 text-sm text-muted-foreground text-center">
                     企業が登録されていません
@@ -342,55 +360,96 @@ export default function GakuchikaConversationPage() {
           )}
 
           {error && (
-            <div className="p-4 rounded-lg bg-red-50 border border-red-200">
-              <p className="text-sm text-red-800">{error}</p>
+            <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20">
+              <p className="text-sm text-destructive mb-3">{error}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setError(null);
+                  setIsLoading(true);
+                  fetchConversation();
+                }}
+              >
+                もう一度試す
+              </Button>
             </div>
           )}
 
-          {messages.map((message, index) => (
-            <div
-              key={index}
-              className={cn(
-                "flex",
-                message.role === "user" ? "justify-end" : "justify-start"
-              )}
-            >
-              <div
-                className={cn(
-                  "max-w-[80%] rounded-2xl px-4 py-3",
-                  message.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted"
-                )}
-              >
-                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-              </div>
-            </div>
+          {messages.map((message) => (
+            <ChatMessage
+              key={message.id}
+              role={message.role}
+              content={message.content}
+              isOptimistic={message.isOptimistic}
+            />
           ))}
 
-          {/* Next question (AI typing) */}
-          {nextQuestion && !isCompleted && (
-            <div className="flex justify-start">
-              <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-muted">
-                <p className="text-sm whitespace-pre-wrap">{nextQuestion}</p>
-              </div>
-            </div>
+          {/* Thinking indicator while waiting for AI response */}
+          {isWaitingForResponse && (
+            <ThinkingIndicator text="次の質問を考え中" />
+          )}
+
+          {/* Next question from AI */}
+          {nextQuestion && !isCompleted && !isWaitingForResponse && (
+            <ChatMessage
+              role="assistant"
+              content={nextQuestion}
+            />
           )}
 
           {/* Completion message */}
           {isCompleted && (
-            <Card className="border-emerald-200 bg-emerald-50/50">
-              <CardContent className="py-6 text-center">
-                <div className="w-12 h-12 rounded-full bg-emerald-500 text-white flex items-center justify-center mx-auto mb-3">
-                  <CheckIcon />
+            <Card className="border-success/30 bg-success/5">
+              <CardContent className="py-6">
+                <div className="text-center mb-6">
+                  <div className="w-14 h-14 rounded-full bg-success text-success-foreground flex items-center justify-center mx-auto mb-4">
+                    <CheckIcon />
+                  </div>
+                  <h3 className="text-lg font-semibold text-foreground mb-2">深掘り完了!</h3>
+                  <p className="text-sm text-muted-foreground">
+                    STAR法に基づいて十分な情報が集まりました
+                  </p>
                 </div>
-                <h3 className="font-medium text-emerald-800 mb-2">深掘り完了!</h3>
-                <p className="text-sm text-emerald-700">
-                  この内容を参考にESを書いてみましょう
-                </p>
-                <Button asChild className="mt-4" variant="outline">
-                  <Link href="/es">ESを作成する</Link>
-                </Button>
+
+                {/* STAR Summary */}
+                {starScores && (
+                  <div className="bg-background rounded-lg p-4 mb-6">
+                    <h4 className="text-sm font-medium text-foreground mb-3">深掘り結果サマリー</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex items-center justify-between p-2 rounded bg-muted/50">
+                        <span className="text-xs text-muted-foreground">状況・背景</span>
+                        <span className="text-sm font-semibold text-success">{starScores.situation}%</span>
+                      </div>
+                      <div className="flex items-center justify-between p-2 rounded bg-muted/50">
+                        <span className="text-xs text-muted-foreground">課題・目標</span>
+                        <span className="text-sm font-semibold text-success">{starScores.task}%</span>
+                      </div>
+                      <div className="flex items-center justify-between p-2 rounded bg-muted/50">
+                        <span className="text-xs text-muted-foreground">行動・工夫</span>
+                        <span className="text-sm font-semibold text-success">{starScores.action}%</span>
+                      </div>
+                      <div className="flex items-center justify-between p-2 rounded bg-muted/50">
+                        <span className="text-xs text-muted-foreground">結果・学び</span>
+                        <span className="text-sm font-semibold text-success">{starScores.result}%</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <Button asChild variant="default">
+                    <Link href="/es">
+                      <svg className="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      ESを作成する
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link href="/gakuchika">一覧に戻る</Link>
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
@@ -402,30 +461,32 @@ export default function GakuchikaConversationPage() {
       {/* Input */}
       {!isCompleted && (
         <div className="border-t border-border bg-background">
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-end gap-3">
-              <textarea
-                ref={inputRef}
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="回答を入力..."
-                rows={2}
-                className="flex-1 px-4 py-3 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-                disabled={isSending}
-              />
-              <Button
-                onClick={handleSend}
-                disabled={!answer.trim() || isSending}
-                size="icon"
-                className="w-12 h-12 rounded-xl"
-              >
-                {isSending ? <LoadingSpinner /> : <SendIcon />}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2 text-center">
-              Shift + Enter で改行、Enter で送信
-            </p>
+          <div className="max-w-3xl mx-auto">
+            <ChatInput
+              value={answer}
+              onChange={setAnswer}
+              onSend={handleSend}
+              placeholder="回答を入力..."
+              disabled={isWaitingForResponse}
+              isSending={isSending}
+            />
+            {/* Save and continue later - only show after at least 1 answer */}
+            {questionCount > 0 && !isWaitingForResponse && (
+              <div className="px-4 pb-3 -mt-1">
+                <Link
+                  href="/gakuchika"
+                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                  </svg>
+                  保存して後で続ける
+                </Link>
+                <span className="text-[10px] text-muted-foreground/70 ml-2">
+                  (回答は自動保存されます)
+                </span>
+              </div>
+            )}
           </div>
         </div>
       )}

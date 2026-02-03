@@ -13,11 +13,14 @@ logger = logging.getLogger(__name__)
 # Try to import sentence-transformers
 try:
     from sentence_transformers import CrossEncoder
+
     HAS_CROSS_ENCODER = True
 except ImportError:
     HAS_CROSS_ENCODER = False
     CrossEncoder = None  # type: ignore
-    logger.warning("sentence-transformers not installed. Cross-encoder reranking disabled.")
+    logger.warning(
+        "sentence-transformers not installed. Cross-encoder reranking disabled."
+    )
 
 
 # Default models (can be configured)
@@ -63,7 +66,9 @@ class CrossEncoderReranker:
             logger.warning("CrossEncoder not available - reranking disabled")
 
     @classmethod
-    def get_instance(cls, model_name: str = DEFAULT_CROSS_ENCODER_MODEL) -> "CrossEncoderReranker":
+    def get_instance(
+        cls, model_name: str = DEFAULT_CROSS_ENCODER_MODEL
+    ) -> "CrossEncoderReranker":
         """
         Get or create singleton instance.
 
@@ -140,12 +145,14 @@ class CrossEncoderReranker:
             reranked = sorted(
                 results,
                 key=lambda x: x.get("rerank_score", -float("inf")),
-                reverse=True
+                reverse=True,
             )
 
             # Apply minimum score filter if specified
             if min_score is not None:
-                reranked = [r for r in reranked if r.get("rerank_score", 0) >= min_score]
+                reranked = [
+                    r for r in reranked if r.get("rerank_score", 0) >= min_score
+                ]
 
             return reranked[:top_k]
 

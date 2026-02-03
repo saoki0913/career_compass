@@ -8,7 +8,6 @@ splitting with Japanese-aware separators.
 from dataclasses import dataclass
 from typing import Optional
 
-
 DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 100
 
@@ -36,6 +35,7 @@ def get_chunker_for_content_type(content_type: Optional[str]) -> "JapaneseTextCh
 @dataclass
 class ChunkResult:
     """Result of text chunking."""
+
     text: str
     start_index: int
     end_index: int
@@ -55,7 +55,7 @@ class JapaneseTextChunker:
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
         separators: Optional[list[str]] = None,
-        min_chunk_size: int = 50
+        min_chunk_size: int = 50,
     ):
         """
         Initialize the chunker.
@@ -89,12 +89,11 @@ class JapaneseTextChunker:
 
         # If text is shorter than chunk_size, return as single chunk
         if len(text) <= self.chunk_size:
-            return [ChunkResult(
-                text=text,
-                start_index=0,
-                end_index=len(text),
-                chunk_index=0
-            )]
+            return [
+                ChunkResult(
+                    text=text, start_index=0, end_index=len(text), chunk_index=0
+                )
+            ]
 
         # Recursive splitting
         chunks = self._split_recursive(text, self.separators)
@@ -108,18 +107,15 @@ class JapaneseTextChunker:
         """Normalize text by cleaning up whitespace."""
         # Replace multiple newlines with double newline
         import re
-        text = re.sub(r'\n{3,}', '\n\n', text)
+
+        text = re.sub(r"\n{3,}", "\n\n", text)
         # Replace multiple spaces with single space
-        text = re.sub(r'[ \t]+', ' ', text)
+        text = re.sub(r"[ \t]+", " ", text)
         # Strip leading/trailing whitespace
         text = text.strip()
         return text
 
-    def _split_recursive(
-        self,
-        text: str,
-        separators: list[str]
-    ) -> list[str]:
+    def _split_recursive(self, text: str, separators: list[str]) -> list[str]:
         """
         Recursively split text using separators.
 
@@ -161,7 +157,9 @@ class JapaneseTextChunker:
 
             # If part is still too long, split further
             if len(part_with_sep) > self.chunk_size:
-                result.extend(self._split_recursive(part_with_sep, remaining_separators))
+                result.extend(
+                    self._split_recursive(part_with_sep, remaining_separators)
+                )
             else:
                 result.append(part_with_sep)
 
@@ -171,15 +169,13 @@ class JapaneseTextChunker:
         """Force split text by chunk_size."""
         chunks = []
         for i in range(0, len(text), self.chunk_size):
-            chunk = text[i:i + self.chunk_size]
+            chunk = text[i : i + self.chunk_size]
             if chunk.strip():
                 chunks.append(chunk)
         return chunks
 
     def _merge_and_overlap(
-        self,
-        chunks: list[str],
-        original_text: str
+        self, chunks: list[str], original_text: str
     ) -> list[ChunkResult]:
         """
         Merge small chunks and add overlap between chunks.
@@ -240,21 +236,21 @@ class JapaneseTextChunker:
                 chunk_with_overlap = chunk
                 actual_start = chunk_start
 
-            results.append(ChunkResult(
-                text=chunk_with_overlap.strip(),
-                start_index=actual_start,
-                end_index=chunk_end,
-                chunk_index=i
-            ))
+            results.append(
+                ChunkResult(
+                    text=chunk_with_overlap.strip(),
+                    start_index=actual_start,
+                    end_index=chunk_end,
+                    chunk_index=i,
+                )
+            )
 
             current_pos = chunk_end
 
         return results
 
     def chunk_with_metadata(
-        self,
-        text: str,
-        base_metadata: Optional[dict] = None
+        self, text: str, base_metadata: Optional[dict] = None
     ) -> list[dict]:
         """
         Chunk text and return with metadata suitable for vector storage.
@@ -271,24 +267,24 @@ class JapaneseTextChunker:
 
         results = []
         for chunk in chunks:
-            results.append({
-                "text": chunk.text,
-                "type": "full_text",
-                "metadata": {
-                    **base_metadata,
-                    "chunk_index": chunk.chunk_index,
-                    "start_index": chunk.start_index,
-                    "end_index": chunk.end_index,
+            results.append(
+                {
+                    "text": chunk.text,
+                    "type": "full_text",
+                    "metadata": {
+                        **base_metadata,
+                        "chunk_index": chunk.chunk_index,
+                        "start_index": chunk.start_index,
+                        "end_index": chunk.end_index,
+                    },
                 }
-            })
+            )
 
         return results
 
 
 def chunk_html_content(
-    html_content: str,
-    chunk_size: int = 500,
-    chunk_overlap: int = 100
+    html_content: str, chunk_size: int = 500, chunk_overlap: int = 100
 ) -> list[dict]:
     """
     Extract text from HTML and chunk it.
@@ -304,20 +300,17 @@ def chunk_html_content(
     from bs4 import BeautifulSoup
 
     # Parse HTML
-    soup = BeautifulSoup(html_content, 'html.parser')
+    soup = BeautifulSoup(html_content, "html.parser")
 
     # Remove script and style elements
-    for element in soup(['script', 'style', 'nav', 'footer', 'header']):
+    for element in soup(["script", "style", "nav", "footer", "header"]):
         element.decompose()
 
     # Extract text
-    text = soup.get_text(separator='\n')
+    text = soup.get_text(separator="\n")
 
     # Chunk
-    chunker = JapaneseTextChunker(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap
-    )
+    chunker = JapaneseTextChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     return chunker.chunk_with_metadata(text)
 
@@ -336,17 +329,17 @@ def extract_sections_from_html(html_content: str) -> list[dict]:
     """
     from bs4 import BeautifulSoup
 
-    soup = BeautifulSoup(html_content, 'html.parser')
+    soup = BeautifulSoup(html_content, "html.parser")
 
     # Remove unwanted elements
-    for element in soup(['script', 'style', 'nav', 'footer']):
+    for element in soup(["script", "style", "nav", "footer"]):
         element.decompose()
 
     sections = []
     current_section = {"heading": "", "content": "", "level": 0}
 
-    for element in soup.find_all(['h1', 'h2', 'h3', 'h4', 'p', 'div', 'li']):
-        if element.name in ['h1', 'h2', 'h3', 'h4']:
+    for element in soup.find_all(["h1", "h2", "h3", "h4", "p", "div", "li"]):
+        if element.name in ["h1", "h2", "h3", "h4"]:
             # Save current section if it has content
             if current_section["content"].strip():
                 sections.append(current_section)
@@ -356,7 +349,7 @@ def extract_sections_from_html(html_content: str) -> list[dict]:
             current_section = {
                 "heading": element.get_text(strip=True),
                 "content": "",
-                "level": level
+                "level": level,
             }
         else:
             # Add to current section
@@ -372,9 +365,7 @@ def extract_sections_from_html(html_content: str) -> list[dict]:
 
 
 def chunk_sections_with_metadata(
-    sections: list[dict],
-    chunk_size: int = 500,
-    chunk_overlap: int = 100
+    sections: list[dict], chunk_size: int = 500, chunk_overlap: int = 100
 ) -> list[dict]:
     """
     Chunk sectioned content and attach heading metadata.
@@ -387,10 +378,7 @@ def chunk_sections_with_metadata(
     Returns:
         List of chunk dicts with metadata for vector storage
     """
-    chunker = JapaneseTextChunker(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap
-    )
+    chunker = JapaneseTextChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     results = []
     global_index = 0
@@ -405,17 +393,19 @@ def chunk_sections_with_metadata(
 
         chunks = chunker.chunk(content)
         for chunk in chunks:
-            results.append({
-                "text": chunk.text,
-                "type": "full_text",
-                "metadata": {
-                    "chunk_index": global_index,
-                    "section_index": section_index,
-                    "heading": heading,
-                    "heading_path": heading,
-                    "heading_level": level,
+            results.append(
+                {
+                    "text": chunk.text,
+                    "type": "full_text",
+                    "metadata": {
+                        "chunk_index": global_index,
+                        "section_index": section_index,
+                        "heading": heading,
+                        "heading_path": heading,
+                        "heading_level": level,
+                    },
                 }
-            })
+            )
             global_index += 1
 
     return results

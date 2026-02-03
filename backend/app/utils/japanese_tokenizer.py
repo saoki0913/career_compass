@@ -18,6 +18,7 @@ import re
 # Try to import fugashi for MeCab-based tokenization
 try:
     import fugashi
+
     HAS_FUGASHI = True
 except ImportError:
     HAS_FUGASHI = False
@@ -91,18 +92,18 @@ class JapaneseTokenizer:
     def _normalize(self, text: str) -> str:
         """Normalize text for consistent tokenization."""
         # Convert full-width to half-width for alphanumeric
-        text = text.translate(str.maketrans(
-            'ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ'
-            'ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ'
-            '０１２３４５６７８９',
-            'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-            'abcdefghijklmnopqrstuvwxyz'
-            '0123456789'
-        ))
+        text = text.translate(
+            str.maketrans(
+                "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ"
+                "ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ"
+                "０１２３４５６７８９",
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZ" "abcdefghijklmnopqrstuvwxyz" "0123456789",
+            )
+        )
         # Lowercase
         text = text.lower()
         # Remove extra whitespace
-        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r"\s+", " ", text)
         return text.strip()
 
     def _tokenize_with_mecab(self, text: str) -> list[str]:
@@ -126,7 +127,7 @@ class JapaneseTokenizer:
         Splits on whitespace and punctuation, keeping meaningful tokens.
         """
         # Split on whitespace and common delimiters
-        tokens = re.split(r'[\s\u3000,，、。．.!！?？\n\r\t]+', text)
+        tokens = re.split(r"[\s\u3000,，、。．.!！?？\n\r\t]+", text)
         # Filter empty and very short tokens
         tokens = [t for t in tokens if len(t) >= 2 or t.isalnum()]
         return tokens
@@ -136,16 +137,79 @@ class JapaneseTokenizer:
         """Japanese stopwords to filter out."""
         return {
             # Particles
-            'の', 'に', 'は', 'を', 'た', 'が', 'で', 'て', 'と', 'し', 'れ',
-            'さ', 'ある', 'いる', 'も', 'な', 'する', 'から', 'な', 'こと',
-            'として', 'い', 'や', 'など', 'なっ', 'ない', 'この', 'ため',
-            'その', 'あっ', 'よう', 'また', 'もの', 'という', 'あり', 'まで',
-            'られ', 'なる', 'へ', 'か', 'だ', 'これ', 'によって', 'により',
-            'おり', 'より', 'による', 'ず', 'なり', 'られる', 'において',
-            'ば', 'なかっ', 'なく', 'しかし', 'について', 'せ', 'だっ', 'その他',
-            'できる', 'それ', 'ほど', 'ところ', 'ただし', 'でき', 'つつ',
+            "の",
+            "に",
+            "は",
+            "を",
+            "た",
+            "が",
+            "で",
+            "て",
+            "と",
+            "し",
+            "れ",
+            "さ",
+            "ある",
+            "いる",
+            "も",
+            "な",
+            "する",
+            "から",
+            "な",
+            "こと",
+            "として",
+            "い",
+            "や",
+            "など",
+            "なっ",
+            "ない",
+            "この",
+            "ため",
+            "その",
+            "あっ",
+            "よう",
+            "また",
+            "もの",
+            "という",
+            "あり",
+            "まで",
+            "られ",
+            "なる",
+            "へ",
+            "か",
+            "だ",
+            "これ",
+            "によって",
+            "により",
+            "おり",
+            "より",
+            "による",
+            "ず",
+            "なり",
+            "られる",
+            "において",
+            "ば",
+            "なかっ",
+            "なく",
+            "しかし",
+            "について",
+            "せ",
+            "だっ",
+            "その他",
+            "できる",
+            "それ",
+            "ほど",
+            "ところ",
+            "ただし",
+            "でき",
+            "つつ",
             # Common function words
-            'ます', 'です', 'ました', 'でした', 'ません', 'ください',
+            "ます",
+            "です",
+            "ました",
+            "でした",
+            "ません",
+            "ください",
         }
 
 
@@ -174,7 +238,9 @@ def tokenize(text: str) -> list[str]:
     return get_tokenizer().tokenize(text)
 
 
-def tokenize_with_domain_expansion(text: str, expand_compounds: bool = True) -> list[str]:
+def tokenize_with_domain_expansion(
+    text: str, expand_compounds: bool = True
+) -> list[str]:
     """
     Tokenize text with domain-specific term expansion.
 

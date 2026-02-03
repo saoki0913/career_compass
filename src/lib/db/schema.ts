@@ -132,8 +132,8 @@ export const companies = sqliteTable("companies", {
   industry: text("industry"),
   recruitmentUrl: text("recruitment_url"),
   corporateUrl: text("corporate_url"),
-  // Multiple corporate info URLs for RAG (IR, business intro, etc.) - JSON array
-  corporateInfoUrls: text("corporate_info_urls"), // JSON: [{url: string, type: "ir"|"business"|"about", fetchedAt?: string}]
+  // Multiple corporate info URLs for RAG (9-category contentType) - JSON array
+  corporateInfoUrls: text("corporate_info_urls"), // JSON: [{url: string, contentType: ContentType, fetchedAt?: string}]
   // Mypage credentials (password is encrypted)
   mypageUrl: text("mypage_url"),
   mypageLoginId: text("mypage_login_id"),
@@ -421,6 +421,9 @@ export const gakuchikaConversations = sqliteTable("gakuchika_conversations", {
   messages: text("messages").notNull(), // JSON: Q&A array
   questionCount: integer("question_count").default(0),
   status: text("status", { enum: ["in_progress", "completed"] }).default("in_progress"),
+  // STAR法評価スコア (0-100 for each element)
+  // JSON: { situation: number, task: number, action: number, result: number }
+  starScores: text("star_scores"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -590,6 +593,31 @@ export const notificationSettings = sqliteTable("notification_settings", {
   esReview: integer("es_review", { mode: "boolean" }).default(true),
   dailySummary: integer("daily_summary", { mode: "boolean" }).default(true),
   reminderTiming: text("reminder_timing"), // JSON: [{ type: "day_before" }, { type: "hour_before", hours: 1 }]
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Motivation conversations table - Q&A sessions for ES motivation drafts
+export const motivationConversations = sqliteTable("motivation_conversations", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+  guestId: text("guest_id").references(() => guestUsers.id, { onDelete: "cascade" }),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  messages: text("messages").notNull(), // JSON: Q&A array
+  questionCount: integer("question_count").default(0),
+  status: text("status", { enum: ["in_progress", "completed"] }).default("in_progress"),
+  // Motivation evaluation scores (0-100 for each element)
+  // JSON: { company_understanding: number, self_analysis: number, career_vision: number, differentiation: number }
+  motivationScores: text("motivation_scores"),
+  // Generated ES draft
+  generatedDraft: text("generated_draft"),
+  charLimitType: text("char_limit_type", { enum: ["300", "400", "500"] }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),

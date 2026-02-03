@@ -26,6 +26,16 @@ interface SearchCorporateResponse {
   candidates: SearchCandidate[];
 }
 
+function resolveSearchTypeFromContentType(contentType?: string): "ir" | "about" {
+  if (!contentType) {
+    return "about";
+  }
+  if (contentType === "ir_materials" || contentType === "midterm_plan") {
+    return "ir";
+  }
+  return "about";
+}
+
 function extractPreferredDomain(corporateUrl?: string | null): string | null {
   if (!corporateUrl) {
     return null;
@@ -74,9 +84,10 @@ export async function POST(
 
     const body = await request.json().catch(() => ({}));
     const customQuery = body.customQuery as string | undefined;
-    const searchType = (body.searchType as "ir" | "business" | "about" | undefined) ?? "about";
     const contentType = body.contentType as string | undefined;  // 9 content types for optimized search
     const allowSnippetMatch = body.allowSnippetMatch as boolean | undefined;
+    const cacheMode = body.cacheMode as string | undefined;
+    const searchType = resolveSearchTypeFromContentType(contentType);
 
     const preferredDomain = extractPreferredDomain(company.corporateUrl);
 
@@ -85,17 +96,18 @@ export async function POST(
       const response = await fetch(`${fastApiUrl}/company-info/search-corporate-pages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          company_name: company.name,
-          search_type: searchType,
-          content_type: contentType,  // Pass ContentType for optimized search
-          custom_query: customQuery,
-          preferred_domain: preferredDomain,
-          max_results: 10,
-          strict_company_match: true,
-          allow_snippet_match: allowSnippetMatch ?? false,
-        }),
-      });
+          body: JSON.stringify({
+            company_name: company.name,
+            search_type: searchType,
+            content_type: contentType,  // Pass ContentType for optimized search
+            custom_query: customQuery,
+            preferred_domain: preferredDomain,
+            max_results: 10,
+            strict_company_match: true,
+            allow_snippet_match: allowSnippetMatch ?? false,
+            cache_mode: cacheMode,
+          }),
+        });
 
       if (response.ok) {
         const data: { candidates: BackendSearchCandidate[] } = await response.json();

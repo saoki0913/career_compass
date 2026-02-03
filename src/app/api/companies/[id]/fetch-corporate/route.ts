@@ -28,8 +28,72 @@ const PAGE_LIMITS = {
 
 interface CorporateInfoUrl {
   url: string;
-  type: "ir" | "business" | "about" | "general";
+  type?: "ir" | "business" | "about" | "general";
+  contentType?: string;
   fetchedAt?: string;
+}
+
+const CONTENT_TYPE_URL_PATTERNS: Array<{ type: string; patterns: string[] }> = [
+  {
+    type: "new_grad_recruitment",
+    patterns: ["recruit", "shinsotsu", "newgrad", "entry", "saiyo", "graduate", "freshers"],
+  },
+  {
+    type: "midcareer_recruitment",
+    patterns: ["career", "midcareer", "tenshoku", "experienced", "chuto", "job-change"],
+  },
+  {
+    type: "ceo_message",
+    patterns: ["message", "ceo", "president", "greeting", "topmessage", "chairman", "representative"],
+  },
+  {
+    type: "employee_interviews",
+    patterns: ["interview", "voice", "story", "people", "staff", "member", "senpai"],
+  },
+  {
+    type: "press_release",
+    patterns: ["news", "press", "release", "newsroom", "information", "topics", "oshirase"],
+  },
+  {
+    type: "ir_materials",
+    patterns: ["ir", "investor", "financial", "stock", "kabunushi", "kessan", "securities"],
+  },
+  {
+    type: "csr_sustainability",
+    patterns: ["csr", "esg", "sustainability", "sdgs", "social", "environment", "responsible"],
+  },
+  {
+    type: "midterm_plan",
+    patterns: ["plan", "strategy", "mtp", "medium-term", "chuki", "keiei", "vision"],
+  },
+  {
+    type: "corporate_site",
+    patterns: ["about", "company", "corporate", "overview", "profile", "info"],
+  },
+];
+
+function detectContentTypeFromUrl(url: string): string | null {
+  const lower = url.toLowerCase();
+  let bestType: string | null = null;
+  let bestScore = 0;
+
+  for (const entry of CONTENT_TYPE_URL_PATTERNS) {
+    let score = 0;
+    for (const pattern of entry.patterns) {
+      if (lower.includes(pattern)) {
+        score += 1;
+        if (lower.includes(`/${pattern}/`) || lower.endsWith(`/${pattern}`)) {
+          score += 1;
+        }
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestType = entry.type;
+    }
+  }
+
+  return bestScore > 0 ? bestType : null;
 }
 
 interface CrawlResult {
@@ -54,13 +118,21 @@ function parseCorporateInfoUrls(raw: string | null | undefined): CorporateInfoUr
     if (!Array.isArray(parsed)) {
       return [];
     }
-    return parsed.filter((entry) => {
-      if (!entry || typeof entry !== "object") {
-        return false;
-      }
-      const { url, type } = entry as Partial<CorporateInfoUrl>;
-      return typeof url === "string" && typeof type === "string";
-    }) as CorporateInfoUrl[];
+    return parsed
+      .filter((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return false;
+        }
+        const { url } = entry as Partial<CorporateInfoUrl>;
+        return typeof url === "string";
+      })
+      .map((entry) => {
+        const urlEntry = entry as CorporateInfoUrl;
+        if (!urlEntry.contentType && urlEntry.url) {
+          urlEntry.contentType = detectContentTypeFromUrl(urlEntry.url) || "corporate_site";
+        }
+        return urlEntry;
+      }) as CorporateInfoUrl[];
   } catch (error) {
     console.warn("Invalid corporateInfoUrls JSON, defaulting to empty.", error);
     return [];
@@ -112,17 +184,24 @@ export async function POST(
 
     // Get request body
     const body = await request.json();
-    const { urls, contentType = "corporate_general" } = body as {
+    const { urls, contentType, contentChannel } = body as {
       urls: string[];
-      contentType?: "corporate_ir" | "corporate_business" | "corporate_general";
+      contentType?: string; // 9-category content type (e.g., new_grad_recruitment, ir_materials)
+      contentChannel?: "corporate_ir" | "corporate_business" | "corporate_general";
     };
-
     if (!urls || !Array.isArray(urls) || urls.length === 0) {
       return NextResponse.json(
         { error: "URLを指定してください" },
         { status: 400 }
       );
     }
+    const contentTypeResolved =
+      contentType || detectContentTypeFromUrl(urls[0]) || "corporate_site";
+    const contentChannelResolved =
+      contentChannel ||
+      (contentTypeResolved === "ir_materials" || contentTypeResolved === "midterm_plan"
+        ? "corporate_ir"
+        : "corporate_general");
 
     // Authenticate user (guests not allowed)
     const authUser = await getAuthenticatedUser(request);
@@ -165,7 +244,8 @@ export async function POST(
           company_id: companyId,
           company_name: company.name,
           urls,
-          content_channel: contentType,
+          content_channel: contentChannelResolved,
+          content_type: contentTypeResolved, // 9-category content type for proper counting
         }),
       });
 
@@ -192,21 +272,25 @@ export async function POST(
       .filter((url) => !existingUrlSet.has(url))
       .map((url) => ({
         url,
-        type:
-          contentType === "corporate_ir"
-            ? "ir"
-            : contentType === "corporate_business"
-            ? "business"
-            : "general",
+        contentType: contentTypeResolved || detectContentTypeFromUrl(url) || "corporate_site",
         fetchedAt: new Date().toISOString(),
       }));
 
     const updatedUrls = [...existingUrls, ...newUrls];
+    const backfilledUrls = updatedUrls.map((entry) => {
+      if (entry.contentType) {
+        return entry;
+      }
+      return {
+        ...entry,
+        contentType: detectContentTypeFromUrl(entry.url) || "corporate_site",
+      };
+    });
 
     await db
       .update(companies)
       .set({
-        corporateInfoUrls: JSON.stringify(updatedUrls),
+        corporateInfoUrls: JSON.stringify(backfilledUrls),
         corporateInfoFetchedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -282,10 +366,29 @@ export async function GET(
     }
 
     const corporateInfoUrls = parseCorporateInfoUrls(company.corporateInfoUrls);
+    const backfilledUrls = corporateInfoUrls.map((entry) => {
+      if (entry.contentType) {
+        return entry;
+      }
+      return {
+        ...entry,
+        contentType: detectContentTypeFromUrl(entry.url) || "corporate_site",
+      };
+    });
+
+    if (JSON.stringify(backfilledUrls) !== JSON.stringify(corporateInfoUrls)) {
+      await db
+        .update(companies)
+        .set({
+          corporateInfoUrls: JSON.stringify(backfilledUrls),
+          updatedAt: new Date(),
+        })
+        .where(eq(companies.id, companyId));
+    }
 
     return NextResponse.json({
       companyId,
-      corporateInfoUrls,
+      corporateInfoUrls: backfilledUrls,
       corporateInfoFetchedAt: company.corporateInfoFetchedAt,
       ragStatus: {
         hasRag: ragStatus.has_rag,

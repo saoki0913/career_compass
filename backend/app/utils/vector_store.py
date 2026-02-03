@@ -72,7 +72,7 @@ def get_chroma_client() -> chromadb.PersistentClient:
             settings=ChromaSettings(
                 anonymized_telemetry=False,
                 allow_reset=True,
-            )
+            ),
         )
         print(f"[RAG保存] ✅ ChromaDB 初期化完了 ({CHROMA_PERSIST_DIR})")
 
@@ -111,11 +111,15 @@ def get_company_collection(backend: EmbeddingBackend) -> chromadb.Collection:
     )
 
 
-def _resolve_write_backend(backend: Optional[EmbeddingBackend]) -> Optional[EmbeddingBackend]:
+def _resolve_write_backend(
+    backend: Optional[EmbeddingBackend],
+) -> Optional[EmbeddingBackend]:
     return backend or resolve_embedding_backend()
 
 
-def _resolve_read_backends(backends: Optional[list[EmbeddingBackend]]) -> list[EmbeddingBackend]:
+def _resolve_read_backends(
+    backends: Optional[list[EmbeddingBackend]],
+) -> list[EmbeddingBackend]:
     if backends is not None:
         return [b for b in backends if b]
     available = get_available_backends()
@@ -181,7 +185,9 @@ async def store_company_info(
                 deletion_errors.append(f"{name}: {e}")
 
         if deletion_errors:
-            print(f"[RAG保存] ⚠️ 削除エラー (会社ID: {company_id[:8]}...): {'; '.join(deletion_errors)}")
+            print(
+                f"[RAG保存] ⚠️ 削除エラー (会社ID: {company_id[:8]}...): {'; '.join(deletion_errors)}"
+            )
 
         collection = get_company_collection(backend)
 
@@ -241,10 +247,12 @@ async def store_company_info(
             documents=list(valid_docs),
             metadatas=list(valid_metas),
             ids=list(valid_ids),
-            embeddings=list(valid_embs)
+            embeddings=list(valid_embs),
         )
 
-        print(f"[RAG保存] ✅ {len(valid_docs)}チャンク保存完了 (会社ID: {company_id[:8]}...)")
+        print(
+            f"[RAG保存] ✅ {len(valid_docs)}チャンク保存完了 (会社ID: {company_id[:8]}...)"
+        )
         update_bm25_index(company_id)
         cache = get_rag_cache()
         if cache:
@@ -260,7 +268,7 @@ async def search_company_context(
     company_id: str,
     query: str,
     n_results: int = 5,
-    backend: Optional[EmbeddingBackend] = None
+    backend: Optional[EmbeddingBackend] = None,
 ) -> list[dict]:
     """
     Search for relevant company context based on query.
@@ -280,7 +288,7 @@ async def search_company_context(
             query=query,
             n_results=n_results,
             content_types=None,
-            backends=backends
+            backends=backends,
         )
     except Exception as e:
         print(f"[RAG検索] ❌ 企業コンテキスト検索エラー: {e}")
@@ -288,9 +296,7 @@ async def search_company_context(
 
 
 async def get_company_context_for_review(
-    company_id: str,
-    es_content: str,
-    max_context_length: int = 2000
+    company_id: str, es_content: str, max_context_length: int = 2000
 ) -> str:
     """
     Get formatted company context for ES review.
@@ -342,7 +348,9 @@ async def get_company_context_for_review(
     return "\n\n".join(context_parts)
 
 
-def has_company_rag(company_id: str, backends: Optional[list[EmbeddingBackend]] = None) -> bool:
+def has_company_rag(
+    company_id: str, backends: Optional[list[EmbeddingBackend]] = None
+) -> bool:
     """
     Check if company has RAG data stored.
 
@@ -357,10 +365,7 @@ def has_company_rag(company_id: str, backends: Optional[list[EmbeddingBackend]] 
         for backend in read_backends:
             for name in _collection_names_for_backend(backend):
                 collection = _get_collection(name)
-                results = collection.get(
-                    where={"company_id": company_id},
-                    limit=1
-                )
+                results = collection.get(where={"company_id": company_id}, limit=1)
                 if results["ids"]:
                     return True
         return False
@@ -368,7 +373,9 @@ def has_company_rag(company_id: str, backends: Optional[list[EmbeddingBackend]] 
         return False
 
 
-def delete_company_rag(company_id: str, backends: Optional[list[EmbeddingBackend]] = None) -> bool:
+def delete_company_rag(
+    company_id: str, backends: Optional[list[EmbeddingBackend]] = None
+) -> bool:
     """
     Delete company RAG data.
 
@@ -407,7 +414,7 @@ async def store_full_text_content(
     content_type: Optional[str] = None,
     content_channel: Optional[str] = None,
     backend: Optional[EmbeddingBackend] = None,
-    raw_format: str = "text"
+    raw_format: str = "text",
 ) -> bool:
     """
     Store full text content from a web page in vector database.
@@ -454,16 +461,15 @@ async def store_full_text_content(
             sections = extract_sections_from_html(raw_text)
             if sections:
                 chunks = chunk_sections_with_metadata(
-                    sections,
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap
+                    sections, chunk_size=chunk_size, chunk_overlap=chunk_overlap
                 )
             if not chunks:
-                chunks = chunk_html_content(raw_text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+                chunks = chunk_html_content(
+                    raw_text, chunk_size=chunk_size, chunk_overlap=chunk_overlap
+                )
         else:
             chunker = JapaneseTextChunker(
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap
+                chunk_size=chunk_size, chunk_overlap=chunk_overlap
             )
             chunks = chunker.chunk_with_metadata(raw_text)
 
@@ -482,16 +488,19 @@ async def store_full_text_content(
 
         # Classify chunks (rule + LLM fallback)
         classified = await classify_chunks(
-            chunks,
-            source_channel=content_channel,
-            fallback_type=content_type
+            chunks, source_channel=content_channel, fallback_type=content_type
         )
 
         # Group by classified content_type
         grouped: dict[str, list[dict]] = {}
         for chunk in classified:
             meta = chunk.get("metadata") or {}
-            ct = meta.get("content_type") or content_type or content_channel or "corporate_site"
+            ct = (
+                meta.get("content_type")
+                or content_type
+                or content_channel
+                or "corporate_site"
+            )
             grouped.setdefault(ct, []).append(chunk)
 
         any_success = False
@@ -551,19 +560,23 @@ async def _store_content_by_type(
         deletion_errors = []
         for name in _collection_names_for_backend(backend):
             try:
-                _get_collection(name).delete(where={
-                    "$and": [
-                        {"company_id": company_id},
-                        {"content_type": content_type}
-                    ]
-                })
+                _get_collection(name).delete(
+                    where={
+                        "$and": [
+                            {"company_id": company_id},
+                            {"content_type": content_type},
+                        ]
+                    }
+                )
             except Exception as e:
                 # Log but continue - deletion failure shouldn't block insert
                 deletion_errors.append(f"{name}: {e}")
 
         if deletion_errors:
             ct_ja = CONTENT_TYPE_JA.get(content_type, content_type)
-            print(f"[RAG保存] ⚠️ {ct_ja}削除エラー (会社ID: {company_id[:8]}...): {'; '.join(deletion_errors)}")
+            print(
+                f"[RAG保存] ⚠️ {ct_ja}削除エラー (会社ID: {company_id[:8]}...): {'; '.join(deletion_errors)}"
+            )
 
         # Prepare documents
         documents = []
@@ -601,7 +614,9 @@ async def _store_content_by_type(
 
         if not documents:
             ct_ja = CONTENT_TYPE_JA.get(content_type, content_type)
-            print(f"[RAG保存] ⚠️ 有効なチャンクなし: {ct_ja} (会社ID: {company_id[:8]}...)")
+            print(
+                f"[RAG保存] ⚠️ 有効なチャンクなし: {ct_ja} (会社ID: {company_id[:8]}...)"
+            )
             return False
 
         # Generate embeddings
@@ -625,11 +640,13 @@ async def _store_content_by_type(
             documents=list(valid_docs),
             metadatas=list(valid_metas),
             ids=list(valid_ids),
-            embeddings=list(valid_embs)
+            embeddings=list(valid_embs),
         )
 
         ct_ja = CONTENT_TYPE_JA.get(content_type, content_type)
-        print(f"[RAG保存] ✅ {ct_ja} {len(valid_docs)}チャンク保存完了 (会社ID: {company_id[:8]}...)")
+        print(
+            f"[RAG保存] ✅ {ct_ja} {len(valid_docs)}チャンク保存完了 (会社ID: {company_id[:8]}...)"
+        )
 
         return True
 
@@ -644,7 +661,7 @@ async def search_company_context_by_type(
     n_results: int = 5,
     content_types: Optional[list[str]] = None,
     backends: Optional[list[EmbeddingBackend]] = None,
-    include_embeddings: bool = False
+    include_embeddings: bool = False,
 ) -> list[dict]:
     """
     Search for relevant company context with content type filtering.
@@ -670,7 +687,7 @@ async def search_company_context_by_type(
             where_clause = {
                 "$and": [
                     {"company_id": company_id},
-                    {"content_type": {"$in": list(content_types)}}
+                    {"content_type": {"$in": list(content_types)}},
                 ]
             }
         else:
@@ -692,7 +709,7 @@ async def search_company_context_by_type(
                     query_embeddings=[query_embedding],
                     where=where_clause,
                     n_results=n_results,
-                    include=include
+                    include=include,
                 )
 
                 if results["documents"] and results["documents"][0]:
@@ -703,22 +720,36 @@ async def search_company_context_by_type(
                                 embedding = results["embeddings"][0][idx]
                             except Exception:
                                 embedding = None
-                        all_contexts.append({
-                            "text": doc,
-                            "metadata": results["metadatas"][0][idx] if results["metadatas"] else {},
-                            "distance": results["distances"][0][idx] if results["distances"] else None,
-                            "id": results["ids"][0][idx] if results["ids"] else None,
-                            "embedding": embedding,
-                            "embedding_provider": backend.provider,
-                            "embedding_model": backend.model,
-                            "collection": name,
-                        })
+                        all_contexts.append(
+                            {
+                                "text": doc,
+                                "metadata": (
+                                    results["metadatas"][0][idx]
+                                    if results["metadatas"]
+                                    else {}
+                                ),
+                                "distance": (
+                                    results["distances"][0][idx]
+                                    if results["distances"]
+                                    else None
+                                ),
+                                "id": (
+                                    results["ids"][0][idx] if results["ids"] else None
+                                ),
+                                "embedding": embedding,
+                                "embedding_provider": backend.provider,
+                                "embedding_model": backend.model,
+                                "collection": name,
+                            }
+                        )
 
         if not all_contexts:
             return []
 
         def distance_score(ctx: dict) -> float:
-            return ctx.get("distance") if ctx.get("distance") is not None else float("inf")
+            return (
+                ctx.get("distance") if ctx.get("distance") is not None else float("inf")
+            )
 
         deduped: dict[tuple, dict] = {}
         for ctx in all_contexts:
@@ -735,7 +766,9 @@ async def search_company_context_by_type(
         return []
 
 
-def get_company_rag_status(company_id: str, backends: Optional[list[EmbeddingBackend]] = None) -> dict:
+def get_company_rag_status(
+    company_id: str, backends: Optional[list[EmbeddingBackend]] = None
+) -> dict:
     """
     Get detailed RAG status for a company.
 
@@ -756,8 +789,7 @@ def get_company_rag_status(company_id: str, backends: Optional[list[EmbeddingBac
             for name in _collection_names_for_backend(backend):
                 collection = _get_collection(name)
                 results = collection.get(
-                    where={"company_id": company_id},
-                    include=["metadatas"]
+                    where={"company_id": company_id}, include=["metadatas"]
                 )
 
                 ids = results.get("ids") or []
@@ -789,7 +821,7 @@ def get_company_rag_status(company_id: str, backends: Optional[list[EmbeddingBac
                 "press_release_chunks": 0,
                 "csr_sustainability_chunks": 0,
                 "midterm_plan_chunks": 0,
-                "last_updated": None
+                "last_updated": None,
             }
 
         return {
@@ -804,7 +836,7 @@ def get_company_rag_status(company_id: str, backends: Optional[list[EmbeddingBac
             "press_release_chunks": counts.get("press_release", 0),
             "csr_sustainability_chunks": counts.get("csr_sustainability", 0),
             "midterm_plan_chunks": counts.get("midterm_plan", 0),
-            "last_updated": last_updated
+            "last_updated": last_updated,
         }
 
     except Exception as e:
@@ -821,14 +853,14 @@ def get_company_rag_status(company_id: str, backends: Optional[list[EmbeddingBac
             "press_release_chunks": 0,
             "csr_sustainability_chunks": 0,
             "midterm_plan_chunks": 0,
-            "last_updated": None
+            "last_updated": None,
         }
 
 
 def delete_company_rag_by_type(
     company_id: str,
     content_type: str,
-    backends: Optional[list[EmbeddingBackend]] = None
+    backends: Optional[list[EmbeddingBackend]] = None,
 ) -> bool:
     """
     Delete company RAG data for a specific content type.
@@ -846,12 +878,14 @@ def delete_company_rag_by_type(
         for backend in read_backends:
             for name in _collection_names_for_backend(backend):
                 collection = _get_collection(name)
-                collection.delete(where={
-                    "$and": [
-                        {"company_id": company_id},
-                        {"content_type": content_type}
-                    ]
-                })
+                collection.delete(
+                    where={
+                        "$and": [
+                            {"company_id": company_id},
+                            {"content_type": content_type},
+                        ]
+                    }
+                )
                 deleted_any = True
         ct_ja = CONTENT_TYPE_JA.get(content_type, content_type)
         print(f"[RAG保存] ✅ {ct_ja} RAGデータ削除完了 (会社ID: {company_id[:8]}...)")
@@ -865,7 +899,7 @@ def delete_company_rag_by_type(
 def delete_company_rag_by_urls(
     company_id: str,
     source_urls: list[str],
-    backends: Optional[list[EmbeddingBackend]] = None
+    backends: Optional[list[EmbeddingBackend]] = None,
 ) -> dict[str, int]:
     """
     Delete company RAG data for specific source URLs.
@@ -879,10 +913,7 @@ def delete_company_rag_by_urls(
         - total_deleted: Total chunks deleted
         - per_url: Dict mapping URL to deleted count
     """
-    result = {
-        "total_deleted": 0,
-        "per_url": {}
-    }
+    result = {"total_deleted": 0, "per_url": {}}
 
     if not source_urls:
         return result
@@ -900,29 +931,30 @@ def delete_company_rag_by_urls(
                     # Get count before deletion
                     existing = collection.get(
                         where={
-                            "$and": [
-                                {"company_id": company_id},
-                                {"source_url": url}
-                            ]
+                            "$and": [{"company_id": company_id}, {"source_url": url}]
                         },
-                        include=[]
+                        include=[],
                     )
                     count_before = len(existing.get("ids") or [])
 
                     if count_before > 0:
                         # Delete chunks for this URL
-                        collection.delete(where={
-                            "$and": [
-                                {"company_id": company_id},
-                                {"source_url": url}
-                            ]
-                        })
+                        collection.delete(
+                            where={
+                                "$and": [
+                                    {"company_id": company_id},
+                                    {"source_url": url},
+                                ]
+                            }
+                        )
                         url_deleted += count_before
 
             result["per_url"][url] = url_deleted
             result["total_deleted"] += url_deleted
 
-        print(f"[RAG保存] ✅ URL別RAGデータ削除完了: {result['total_deleted']}チャンク (会社ID: {company_id[:8]}...)")
+        print(
+            f"[RAG保存] ✅ URL別RAGデータ削除完了: {result['total_deleted']}チャンク (会社ID: {company_id[:8]}...)"
+        )
         update_bm25_index(company_id)
         return result
 
@@ -950,7 +982,11 @@ def update_bm25_index(company_id: str) -> bool:
         True if successful
     """
     try:
-        from app.utils.bm25_store import get_or_create_index, clear_index_cache, BM25Index
+        from app.utils.bm25_store import (
+            get_or_create_index,
+            clear_index_cache,
+            BM25Index,
+        )
     except Exception as e:
         print(f"[BM25] ⚠️ bm25s未設定のためスキップ: {e}")
         return False
@@ -964,7 +1000,10 @@ def update_bm25_index(company_id: str) -> bool:
                 collection = _get_collection(name)
                 results = collection.get(
                     where={"company_id": company_id},
-                    include=["documents", "metadatas"]  # "ids" is always returned by ChromaDB
+                    include=[
+                        "documents",
+                        "metadatas",
+                    ],  # "ids" is always returned by ChromaDB
                 )
 
                 docs = results.get("documents") or []
@@ -975,11 +1014,7 @@ def update_bm25_index(company_id: str) -> bool:
                     if not doc:
                         continue
                     metadata = meta or {}
-                    documents.append({
-                        "id": doc_id,
-                        "text": doc,
-                        "metadata": metadata
-                    })
+                    documents.append({"id": doc_id, "text": doc, "metadata": metadata})
 
         if not documents:
             BM25Index.delete(company_id)
@@ -990,10 +1025,9 @@ def update_bm25_index(company_id: str) -> bool:
         # Deduplicate
         deduped: dict[tuple, dict] = {}
         for doc in documents:
-            key = _context_dedupe_key({
-                "text": doc.get("text"),
-                "metadata": doc.get("metadata")
-            })
+            key = _context_dedupe_key(
+                {"text": doc.get("text"), "metadata": doc.get("metadata")}
+            )
             if key not in deduped:
                 deduped[key] = doc
 
@@ -1002,7 +1036,9 @@ def update_bm25_index(company_id: str) -> bool:
         index.add_documents(list(deduped.values()))
         index.save()
         clear_index_cache(company_id)
-        print(f"[BM25] ✅ {company_id[:8]} のBM25インデックス更新完了 ({len(deduped)} docs)")
+        print(
+            f"[BM25] ✅ {company_id[:8]} のBM25インデックス更新完了 ({len(deduped)} docs)"
+        )
         return True
 
     except Exception as e:
@@ -1017,7 +1053,7 @@ async def hybrid_search_company_context(
     content_types: Optional[list[str]] = None,
     semantic_weight: float = 0.6,
     keyword_weight: float = 0.4,
-    backends: Optional[list[EmbeddingBackend]] = None
+    backends: Optional[list[EmbeddingBackend]] = None,
 ) -> list[dict]:
     """
     Perform hybrid search combining semantic and keyword search.
@@ -1043,7 +1079,7 @@ async def hybrid_search_company_context(
         semantic_weight=semantic_weight,
         keyword_weight=keyword_weight,
         use_rrf=True,  # Use RRF for combining
-        backends=backends
+        backends=backends,
     )
 
 
@@ -1056,7 +1092,7 @@ async def hybrid_search_company_context_enhanced(
     keyword_weight: float = 0.4,
     backends: Optional[list[EmbeddingBackend]] = None,
     expand_queries: bool = True,
-    rerank: bool = True
+    rerank: bool = True,
 ) -> list[dict]:
     """
     Enhanced dense search with query expansion, HyDE, MMR, and LLM reranking.
@@ -1080,9 +1116,7 @@ async def hybrid_search_company_context_enhanced(
 
 
 async def get_enhanced_context_for_review(
-    company_id: str,
-    es_content: str,
-    max_context_length: Optional[int] = None
+    company_id: str, es_content: str, max_context_length: Optional[int] = None
 ) -> str:
     """
     Get enhanced context for ES review using hybrid search.
@@ -1107,7 +1141,9 @@ async def get_enhanced_context_for_review(
         max_context_length = get_dynamic_context_length(es_content)
 
     cache = get_rag_cache()
-    cache_key = build_cache_key("enhanced_context", company_id, es_content, str(max_context_length))
+    cache_key = build_cache_key(
+        "enhanced_context", company_id, es_content, str(max_context_length)
+    )
     if cache:
         cached = await cache.get_context(company_id, cache_key)
         if isinstance(cached, dict) and isinstance(cached.get("context"), str):
@@ -1120,7 +1156,7 @@ async def get_enhanced_context_for_review(
         n_results=15,  # Get more for better coverage
         content_types=None,  # Include all types
         semantic_weight=0.6,
-        keyword_weight=0.4
+        keyword_weight=0.4,
     )
 
     if not results:
@@ -1128,7 +1164,7 @@ async def get_enhanced_context_for_review(
         context = await get_company_context_for_review(
             company_id=company_id,
             es_content=es_content,
-            max_context_length=max_context_length
+            max_context_length=max_context_length,
         )
         if cache:
             await cache.set_context(company_id, cache_key, {"context": context})
@@ -1141,9 +1177,7 @@ async def get_enhanced_context_for_review(
 
 
 async def get_enhanced_context_for_review_with_sources(
-    company_id: str,
-    es_content: str,
-    max_context_length: Optional[int] = None
+    company_id: str, es_content: str, max_context_length: Optional[int] = None
 ) -> tuple[str, list[dict]]:
     """
     Get enhanced context for ES review using dense search, with source tracking.
@@ -1171,10 +1205,16 @@ async def get_enhanced_context_for_review_with_sources(
         max_context_length = get_dynamic_context_length(es_content)
 
     cache = get_rag_cache()
-    cache_key = build_cache_key("enhanced_context_sources", company_id, es_content, str(max_context_length))
+    cache_key = build_cache_key(
+        "enhanced_context_sources", company_id, es_content, str(max_context_length)
+    )
     if cache:
         cached = await cache.get_context(company_id, cache_key)
-        if isinstance(cached, dict) and isinstance(cached.get("context"), str) and isinstance(cached.get("sources"), list):
+        if (
+            isinstance(cached, dict)
+            and isinstance(cached.get("context"), str)
+            and isinstance(cached.get("sources"), list)
+        ):
             return cached["context"], cached["sources"]
 
     # Get enhanced dense search results (multi-query + HyDE + rerank)
@@ -1184,7 +1224,7 @@ async def get_enhanced_context_for_review_with_sources(
         n_results=15,  # Get more for better coverage
         content_types=None,  # Include all types
         semantic_weight=0.6,
-        keyword_weight=0.4
+        keyword_weight=0.4,
     )
 
     if not results:
@@ -1192,13 +1232,19 @@ async def get_enhanced_context_for_review_with_sources(
         context = await get_company_context_for_review(
             company_id=company_id,
             es_content=es_content,
-            max_context_length=max_context_length
+            max_context_length=max_context_length,
         )
         if cache:
-            await cache.set_context(company_id, cache_key, {"context": context, "sources": []})
+            await cache.set_context(
+                company_id, cache_key, {"context": context, "sources": []}
+            )
         return context, []
 
-    context, sources = get_context_and_sources_for_review_hybrid(results, max_context_length)
+    context, sources = get_context_and_sources_for_review_hybrid(
+        results, max_context_length
+    )
     if cache:
-        await cache.set_context(company_id, cache_key, {"context": context, "sources": sources})
+        await cache.set_context(
+            company_id, cache_key, {"context": context, "sources": sources}
+        )
     return context, sources

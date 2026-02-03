@@ -19,7 +19,8 @@ const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
 interface CorporateInfoUrl {
   url: string;
-  type: "ir" | "business" | "about" | "general";
+  type?: "ir" | "business" | "about" | "general";
+  contentType?: string;
   fetchedAt?: string;
 }
 
@@ -53,8 +54,8 @@ function parseCorporateInfoUrls(
       if (!entry || typeof entry !== "object") {
         return false;
       }
-      const { url, type } = entry as Partial<CorporateInfoUrl>;
-      return typeof url === "string" && typeof type === "string";
+      const { url } = entry as Partial<CorporateInfoUrl>;
+      return typeof url === "string";
     }) as CorporateInfoUrl[];
   } catch (error) {
     console.warn("Invalid corporateInfoUrls JSON, defaulting to empty.", error);

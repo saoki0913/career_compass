@@ -89,7 +89,9 @@ def _extract_baseline(baseline: Iterable) -> tuple[list[str], list[str]]:
     return ids, sources
 
 
-def _precision_recall(retrieved: list[str], gold: set[str], dedupe: bool = False) -> tuple[float, float]:
+def _precision_recall(
+    retrieved: list[str], gold: set[str], dedupe: bool = False
+) -> tuple[float, float]:
     if not gold:
         return 0.0, 0.0
     if dedupe:
@@ -136,7 +138,9 @@ async def _evaluate_item(
     gold_ids, gold_sources = _extract_gold(item)
 
     dense_precision_ids, dense_recall_ids = _precision_recall(retrieved_ids, gold_ids)
-    dense_precision_src, dense_recall_src = _precision_recall(retrieved_sources, gold_sources, dedupe=True)
+    dense_precision_src, dense_recall_src = _precision_recall(
+        retrieved_sources, gold_sources, dedupe=True
+    )
 
     baseline_precision_ids = baseline_recall_ids = 0.0
     baseline_precision_src = baseline_recall_src = 0.0
@@ -144,8 +148,12 @@ async def _evaluate_item(
     baseline_topk = item.get("baseline_topk") or []
     if baseline_topk:
         baseline_ids, baseline_sources = _extract_baseline(baseline_topk)
-        baseline_precision_ids, baseline_recall_ids = _precision_recall(baseline_ids, gold_ids)
-        baseline_precision_src, baseline_recall_src = _precision_recall(baseline_sources, gold_sources, dedupe=True)
+        baseline_precision_ids, baseline_recall_ids = _precision_recall(
+            baseline_ids, gold_ids
+        )
+        baseline_precision_src, baseline_recall_src = _precision_recall(
+            baseline_sources, gold_sources, dedupe=True
+        )
 
     return {
         "company_id": company_id,
@@ -206,11 +214,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", help="Optional output JSONL path")
     parser.add_argument("--top-k", type=int, default=5, help="Top-k to evaluate")
     parser.add_argument("--limit", type=int, default=0, help="Limit number of samples")
-    parser.add_argument("--no-expand", action="store_true", help="Disable query expansion")
+    parser.add_argument(
+        "--no-expand", action="store_true", help="Disable query expansion"
+    )
     parser.add_argument("--no-hyde", action="store_true", help="Disable HyDE")
     parser.add_argument("--no-rerank", action="store_true", help="Disable rerank")
     parser.add_argument("--no-mmr", action="store_true", help="Disable MMR")
-    parser.add_argument("--sleep", type=float, default=0.0, help="Sleep seconds between requests")
+    parser.add_argument(
+        "--sleep", type=float, default=0.0, help="Sleep seconds between requests"
+    )
     return parser.parse_args()
 
 

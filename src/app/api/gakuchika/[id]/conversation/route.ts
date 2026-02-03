@@ -3,6 +3,8 @@
  *
  * GET: Get conversation history
  * POST: Send answer and get next question
+ *
+ * Updated: STAR法ベースの動的終了判断
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -60,6 +62,20 @@ interface Message {
   content: string;
 }
 
+interface STARScores {
+  situation: number;
+  task: number;
+  action: number;
+  result: number;
+}
+
+interface STAREvaluation {
+  scores: STARScores;
+  weakest_element: string;
+  is_complete: boolean;
+  missing_aspects?: Record<string, string[]>;
+}
+
 // Safe JSON parse for messages with backward compatibility
 function safeParseMessages(json: string): Message[] {
   try {
@@ -68,7 +84,6 @@ function safeParseMessages(json: string): Message[] {
       console.error("Invalid messages format: not an array");
       return [];
     }
-    // Add IDs to messages that don't have them (backward compatibility)
     return parsed
       .filter((m): m is { role: string; content: string; id?: string } =>
         m && typeof m === "object" &&
@@ -86,8 +101,24 @@ function safeParseMessages(json: string): Message[] {
   }
 }
 
-// Configuration per SPEC Section 17.2
-const TARGET_QUESTIONS = 8; // 目安8問（内容により早終了/追加あり）
+// Safe JSON parse for STAR scores
+function safeParseStarScores(json: string | null): STARScores | null {
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json);
+    return {
+      situation: parsed.situation ?? 0,
+      task: parsed.task ?? 0,
+      action: parsed.action ?? 0,
+      result: parsed.result ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Configuration
+const STAR_COMPLETION_THRESHOLD = 70; // 各STAR要素がこの%以上で完了
 const QUESTIONS_PER_CREDIT = 5; // 5問回答ごとに1クレジット消費
 
 // FastAPI URL for AI-powered questions
@@ -98,6 +129,8 @@ interface FastAPIQuestionResponse {
   reasoning?: string;
   should_continue?: boolean;
   suggested_end?: boolean;
+  star_evaluation?: STAREvaluation;
+  target_element?: string;
 }
 
 interface GakuchikaData {
@@ -109,10 +142,13 @@ interface GakuchikaData {
 async function getQuestionFromFastAPI(
   gakuchika: GakuchikaData,
   conversationHistory: Message[],
-  questionCount: number
+  questionCount: number,
+  starScores?: STARScores | null
 ): Promise<{
   question: string | null;
   error: string | null;
+  starEvaluation: STAREvaluation | null;
+  targetElement: string | null;
 }> {
   try {
     const fastApiResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/next-question`, {
@@ -124,20 +160,47 @@ async function getQuestionFromFastAPI(
         char_limit_type: gakuchika.charLimitType || null,
         conversation_history: conversationHistory,
         question_count: questionCount,
+        star_scores: starScores || null,
       }),
     });
 
     if (fastApiResponse.ok) {
       const result: FastAPIQuestionResponse = await fastApiResponse.json();
-      return { question: result.question, error: null };
+      return {
+        question: result.question,
+        error: null,
+        starEvaluation: result.star_evaluation || null,
+        targetElement: result.target_element || null,
+      };
     } else {
       console.error("FastAPI error status:", fastApiResponse.status);
-      return { question: null, error: "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。" };
+      return {
+        question: null,
+        error: "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。",
+        starEvaluation: null,
+        targetElement: null,
+      };
     }
   } catch (err) {
     console.error("FastAPI connection error:", err);
-    return { question: null, error: "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。" };
+    return {
+      question: null,
+      error: "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。",
+      starEvaluation: null,
+      targetElement: null,
+    };
   }
+}
+
+// Check if STAR is complete (all elements >= threshold)
+function isStarComplete(scores: STARScores | null): boolean {
+  if (!scores) return false;
+  return (
+    scores.situation >= STAR_COMPLETION_THRESHOLD &&
+    scores.task >= STAR_COMPLETION_THRESHOLD &&
+    scores.action >= STAR_COMPLETION_THRESHOLD &&
+    scores.result >= STAR_COMPLETION_THRESHOLD
+  );
 }
 
 export async function GET(
@@ -187,14 +250,15 @@ export async function GET(
 
     if (!conversation) {
       // Get AI-powered initial question
-      const { question: initialQuestion, error } = await getQuestionFromFastAPI(
+      const { question: initialQuestion, error, starEvaluation } = await getQuestionFromFastAPI(
         {
           title: gakuchika.title,
           content: gakuchika.content,
           charLimitType: gakuchika.charLimitType,
         },
         [],
-        0
+        0,
+        null
       );
 
       if (error) {
@@ -204,7 +268,7 @@ export async function GET(
         );
       }
 
-      // Create conversation record immediately with first question persisted
+      // Create conversation record with first question
       const conversationId = crypto.randomUUID();
       const now = new Date();
       const initialMessages: Message[] = [{
@@ -213,12 +277,15 @@ export async function GET(
         content: initialQuestion!
       }];
 
+      const initialStarScores = starEvaluation?.scores || { situation: 0, task: 0, action: 0, result: 0 };
+
       await db.insert(gakuchikaConversations).values({
         id: conversationId,
         gakuchikaId,
         messages: JSON.stringify(initialMessages),
         questionCount: 0,
         status: "in_progress",
+        starScores: JSON.stringify(initialStarScores),
         createdAt: now,
         updatedAt: now,
       });
@@ -226,11 +293,11 @@ export async function GET(
       return NextResponse.json({
         conversation: { id: conversationId, questionCount: 0, status: "in_progress" },
         messages: initialMessages,
-        nextQuestion: null, // Already in messages
+        nextQuestion: null,
         questionCount: 0,
         isCompleted: false,
-        suggestedEnd: false,
-        targetQuestions: TARGET_QUESTIONS,
+        starScores: initialStarScores,
+        starEvaluation,
         isAIPowered: true,
         gakuchikaContent: gakuchika.content,
         charLimitType: gakuchika.charLimitType,
@@ -239,29 +306,34 @@ export async function GET(
 
     const messages: Message[] = safeParseMessages(conversation.messages);
     const qCount = conversation.questionCount || 0;
+    const currentStarScores = safeParseStarScores(conversation.starScores);
+    const starComplete = isStarComplete(currentStarScores);
 
     // For existing conversations, get next question from FastAPI if not completed
     let nextQuestion: string | null = null;
+    let starEvaluation: STAREvaluation | null = null;
 
-    if (conversation.status !== "completed") {
-      const { question, error } = await getQuestionFromFastAPI(
+    if (conversation.status !== "completed" && !starComplete) {
+      const result = await getQuestionFromFastAPI(
         {
           title: gakuchika.title,
           content: gakuchika.content,
           charLimitType: gakuchika.charLimitType,
         },
         messages,
-        qCount
+        qCount,
+        currentStarScores
       );
 
-      if (error) {
+      if (result.error) {
         return NextResponse.json(
-          { error },
+          { error: result.error },
           { status: 503 }
         );
       }
 
-      nextQuestion = question;
+      nextQuestion = result.question;
+      starEvaluation = result.starEvaluation;
     }
 
     return NextResponse.json({
@@ -273,9 +345,9 @@ export async function GET(
       messages,
       nextQuestion,
       questionCount: qCount,
-      isCompleted: conversation.status === "completed",
-      suggestedEnd: qCount >= TARGET_QUESTIONS - 1,
-      targetQuestions: TARGET_QUESTIONS,
+      isCompleted: conversation.status === "completed" || starComplete,
+      starScores: currentStarScores,
+      starEvaluation,
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,
@@ -334,10 +406,12 @@ export async function POST(
     const now = new Date();
     let messages: Message[] = [];
     let questionCount = 0;
+    let currentStarScores: STARScores | null = null;
 
     if (conversation) {
       messages = JSON.parse(conversation.messages);
       questionCount = conversation.questionCount || 0;
+      currentStarScores = safeParseStarScores(conversation.starScores);
     }
 
     // Get gakuchika data for context
@@ -356,27 +430,24 @@ export async function POST(
 
     const gakuchikaTitle = gakuchika.title;
 
-    // Get the current AI question that the user is answering (from the most recent assistant message or initial)
-    // For first answer, use the initial question from FastAPI or static
+    // Get the current AI question that the user is answering
     let currentQuestion: string;
     const lastAssistantMessage = messages.filter(m => m.role === "assistant").pop();
 
     if (lastAssistantMessage) {
       currentQuestion = lastAssistantMessage.content;
     } else {
-      // This is the first answer - use a contextual initial question
       currentQuestion = `「${gakuchikaTitle}」について、具体的にどのようなことに取り組みましたか？`;
     }
 
     // Add the question (if not already added) and user's answer
     if (!lastAssistantMessage || messages[messages.length - 1].role !== "assistant") {
-      messages.push({ role: "assistant", content: currentQuestion });
+      messages.push({ id: crypto.randomUUID(), role: "assistant", content: currentQuestion });
     }
-    messages.push({ role: "user", content: answer.trim() });
+    messages.push({ id: crypto.randomUUID(), role: "user", content: answer.trim() });
     questionCount++;
 
     // Check if we should consume credit (every 5 questions) - only for logged-in users
-    // Per SPEC Section 17.2: 5問回答ごとに1クレジット消費、5問未満で終了した場合は消費なし
     if (questionCount > 0 && questionCount % QUESTIONS_PER_CREDIT === 0 && userId) {
       const canPay = await hasEnoughCredits(userId, 1);
       if (!canPay) {
@@ -388,42 +459,24 @@ export async function POST(
       await consumeCredits(userId, 1, "gakuchika", gakuchikaId);
     }
 
-    // Check if completed (target ~8 questions per SPEC Section 17.2)
-    // Allow user to continue beyond target if needed
-    const isCompleted = questionCount >= TARGET_QUESTIONS;
-    const suggestedEnd = questionCount >= TARGET_QUESTIONS - 1;
-    let nextQuestion: string | null = null;
+    // Get next question with STAR evaluation
+    const { question: nextQuestion, starEvaluation, targetElement } = await getQuestionFromFastAPI(
+      {
+        title: gakuchikaTitle,
+        content: gakuchika.content,
+        charLimitType: gakuchika.charLimitType,
+      },
+      messages,
+      questionCount,
+      currentStarScores
+    );
 
-    if (!isCompleted) {
-      // Get AI-powered question from FastAPI (no fallback to static questions)
-      const { question, error } = await getQuestionFromFastAPI(
-        {
-          title: gakuchikaTitle,
-          content: gakuchika.content,
-          charLimitType: gakuchika.charLimitType,
-        },
-        messages,
-        questionCount
-      );
+    // Update STAR scores from evaluation
+    const newStarScores = starEvaluation?.scores || currentStarScores || { situation: 0, task: 0, action: 0, result: 0 };
+    const starComplete = isStarComplete(newStarScores);
+    const isCompleted = starComplete || (starEvaluation?.is_complete ?? false);
 
-      if (error) {
-        return NextResponse.json(
-          { error },
-          { status: 503 }
-        );
-      }
-
-      nextQuestion = question;
-    } else {
-      // Already at or past target, but user can continue
-      nextQuestion = "他に印象的だった出来事や学びはありますか？";
-    }
-
-    const aiQuestion = nextQuestion;
-
-    // Note: conversation is not marked as "completed" automatically at target
-    // User can choose to end or continue. Only mark completed when user explicitly ends.
-    // For now, we keep status as "in_progress" until target is reached
+    // Determine status
     const status = isCompleted ? "completed" : "in_progress";
 
     if (conversation) {
@@ -433,6 +486,7 @@ export async function POST(
           messages: JSON.stringify(messages),
           questionCount,
           status,
+          starScores: JSON.stringify(newStarScores),
           updatedAt: now,
         })
         .where(eq(gakuchikaConversations.id, conversation.id));
@@ -443,6 +497,7 @@ export async function POST(
         messages: JSON.stringify(messages),
         questionCount,
         status,
+        starScores: JSON.stringify(newStarScores),
         createdAt: now,
         updatedAt: now,
       });
@@ -450,7 +505,6 @@ export async function POST(
 
     // Update gakuchika summary if completed
     if (isCompleted) {
-      // Generate summary from answers
       const userAnswers = messages
         .filter((m) => m.role === "user")
         .map((m) => m.content)
@@ -468,11 +522,12 @@ export async function POST(
 
     return NextResponse.json({
       messages,
-      nextQuestion: aiQuestion,
+      nextQuestion,
       questionCount,
       isCompleted,
-      suggestedEnd,
-      targetQuestions: TARGET_QUESTIONS,
+      starScores: newStarScores,
+      starEvaluation,
+      targetElement,
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,

@@ -147,8 +147,11 @@ def get_sibling_companies(company_name: str) -> dict[str, list[str]]:
     all_siblings = get_subsidiary_companies(parent)
 
     # 自分自身を除外
-    siblings = {name: patterns for name, patterns in all_siblings.items()
-                if name != company_name}
+    siblings = {
+        name: patterns
+        for name, patterns in all_siblings.items()
+        if name != company_name
+    }
 
     return siblings
 
@@ -194,7 +197,7 @@ def is_subsidiary_domain(url: str, parent_name: str) -> tuple[bool, str | None]:
         return False, None
 
     # ドメインをセグメントに分割
-    domain_segments = domain.split('.')
+    domain_segments = domain.split(".")
 
     # ステップ1: 登録済み子会社のパターンマッチング
     subsidiaries = get_subsidiary_companies(parent_name)
@@ -209,13 +212,17 @@ def is_subsidiary_domain(url: str, parent_name: str) -> tuple[bool, str | None]:
                 if segment == pattern_lower:
                     return True, sub_name
                 # ハイフン付きパターン（例: nttdata-mse, nttdmse-recruit）
-                if segment.startswith(pattern_lower + "-") or segment.endswith("-" + pattern_lower):
+                if segment.startswith(pattern_lower + "-") or segment.endswith(
+                    "-" + pattern_lower
+                ):
                     return True, sub_name
                 # サブドメインパターン内に含まれる（例: nttdmse の中に nttdata-mse）
                 # 注: 厳密なマッチのため、パターンがセグメント全体と一致する場合のみ
                 if pattern_lower in segment and len(segment) <= len(pattern_lower) + 10:
                     # パターンがセグメントの主要部分を構成する場合
-                    if segment.replace("-", "").replace("_", "") == pattern_lower.replace("-", "").replace("_", ""):
+                    if segment.replace("-", "").replace(
+                        "_", ""
+                    ) == pattern_lower.replace("-", "").replace("_", ""):
                         return True, sub_name
 
     # ステップ2: ワイルドカードパターン検出（未登録子会社）
@@ -239,7 +246,17 @@ def is_subsidiary_domain(url: str, parent_name: str) -> tuple[bool, str | None]:
             sibling_patterns.add(p.lower())
 
     # 採用関連キーワード（これらは子会社ではなく公式採用サイト）
-    RECRUITMENT_KEYWORDS = {'recruit', 'saiyo', 'entry', 'career', 'careers', 'graduate', 'job', 'jobs', 'hiring'}
+    RECRUITMENT_KEYWORDS = {
+        "recruit",
+        "saiyo",
+        "entry",
+        "career",
+        "careers",
+        "graduate",
+        "job",
+        "jobs",
+        "hiring",
+    }
 
     for pattern in parent_patterns:
         if len(pattern) < 3:
@@ -268,7 +285,9 @@ def is_subsidiary_domain(url: str, parent_name: str) -> tuple[bool, str | None]:
                 if is_sibling_related:
                     continue
                 # 採用関連キーワードは子会社ではない（公式採用サイト）
-                suffix = segment[len(pattern_lower) + 1:]  # "recruit" from "nttdata-recruit"
+                suffix = segment[
+                    len(pattern_lower) + 1 :
+                ]  # "recruit" from "nttdata-recruit"
                 if suffix in RECRUITMENT_KEYWORDS:
                     continue
                 # 未登録の子会社として検出
@@ -324,7 +343,7 @@ def is_parent_domain(url: str, company_name: str) -> bool:
         return False
 
     # ドメインをセグメントに分割（例: "career.mitsui.com" → ["career", "mitsui", "com"]）
-    domain_segments = domain.split('.')
+    domain_segments = domain.split(".")
 
     # 3. まず子会社自身のドメインかチェック（親会社と共通のパターンを除外）
     # 子会社固有のパターン = 子会社パターン - 親会社パターン
@@ -338,7 +357,9 @@ def is_parent_domain(url: str, company_name: str) -> bool:
             # 子会社固有パターンに完全一致またはハイフン付きで一致
             if segment == pattern_lower:
                 return False  # 子会社自身のサイト → 親会社サイトではない
-            if segment.startswith(pattern_lower + "-") or segment.endswith("-" + pattern_lower):
+            if segment.startswith(pattern_lower + "-") or segment.endswith(
+                "-" + pattern_lower
+            ):
                 return False  # 子会社自身のサイト → 親会社サイトではない
 
     # 4. 親会社ドメインパターンをチェック
@@ -353,13 +374,17 @@ def is_parent_domain(url: str, company_name: str) -> bool:
             if segment == pattern_lower:
                 return True
             # ハイフン付きパターン（例: career-mitsui, mitsui-group）
-            if segment.startswith(pattern_lower + "-") or segment.endswith("-" + pattern_lower):
+            if segment.startswith(pattern_lower + "-") or segment.endswith(
+                "-" + pattern_lower
+            ):
                 return True
 
     return False
 
 
-def get_company_domain_patterns(company_name: str, ascii_name: str | None = None) -> list[str]:
+def get_company_domain_patterns(
+    company_name: str, ascii_name: str | None = None
+) -> list[str]:
     """
     企業名から可能なドメインパターンを生成。
 
@@ -417,7 +442,7 @@ def get_company_domain_patterns(company_name: str, ascii_name: str | None = None
 
         # 短縮名（6文字以上の場合、前半を使用）
         if len(ascii_name) >= 6:
-            short_name = ascii_name[:len(ascii_name) // 2]
+            short_name = ascii_name[: len(ascii_name) // 2]
             if len(short_name) >= 3 and short_name not in patterns:
                 patterns.append(short_name)
 
@@ -427,7 +452,9 @@ def get_company_domain_patterns(company_name: str, ascii_name: str | None = None
         if hint not in patterns:
             # 既存パターンのプレフィックスの場合はスキップ
             # 例: "ntt" は "nttdata" のプレフィックスなのでスキップ
-            is_prefix_of_existing = any(p.startswith(hint) and p != hint for p in patterns)
+            is_prefix_of_existing = any(
+                p.startswith(hint) and p != hint for p in patterns
+            )
             if not is_prefix_of_existing:
                 patterns.append(hint)
 
@@ -442,11 +469,21 @@ def _normalize_for_lookup(company_name: str) -> str:
     """
     # 法人格を除去
     suffixes = [
-        "株式会社", "（株）", "(株)", "㈱",
-        "有限会社", "（有）", "(有)",
-        "合同会社", "合名会社", "合資会社",
-        "一般社団法人", "一般財団法人",
-        "ホールディングス", "HD", "グループ",
+        "株式会社",
+        "（株）",
+        "(株)",
+        "㈱",
+        "有限会社",
+        "（有）",
+        "(有)",
+        "合同会社",
+        "合名会社",
+        "合資会社",
+        "一般社団法人",
+        "一般財団法人",
+        "ホールディングス",
+        "HD",
+        "グループ",
     ]
 
     result = company_name
@@ -465,14 +502,16 @@ def _extract_domain_hints(company_name: str) -> list[str]:
     hints = []
 
     # 英字部分を抽出（全角・半角両方）
-    ascii_pattern = re.compile(r'[A-Za-zＡ-Ｚａ-ｚ]+')
+    ascii_pattern = re.compile(r"[A-Za-zＡ-Ｚａ-ｚ]+")
     matches = ascii_pattern.findall(company_name)
     for match in matches:
         # 全角を半角に変換
-        normalized = match.translate(str.maketrans(
-            'ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ',
-            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-        )).lower()
+        normalized = match.translate(
+            str.maketrans(
+                "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ",
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+            )
+        ).lower()
         if len(normalized) >= 3:
             hints.append(normalized)
 

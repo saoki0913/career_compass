@@ -25,11 +25,13 @@ logger = logging.getLogger(__name__)
 # Try to import DuckDuckGo search (ddgs is the new package name)
 try:
     from ddgs import DDGS
+
     HAS_DDGS = True
 except ImportError:
     try:
         # Fallback to old package name
         from duckduckgo_search import DDGS
+
         HAS_DDGS = True
     except ImportError:
         HAS_DDGS = False
@@ -38,6 +40,7 @@ except ImportError:
 # Try to import reranker
 try:
     from app.utils.reranker import get_reranker, CrossEncoderReranker
+
     HAS_RERANKER = True
 except ImportError:
     HAS_RERANKER = False
@@ -63,40 +66,94 @@ CACHE_MAX_SIZE = 200
 
 # Company name suffixes to normalize
 COMPANY_SUFFIXES = [
-    "株式会社", "（株）", "(株)", "㈱",
-    "有限会社", "合同会社", "合資会社",
-    "Inc.", "Inc", "Ltd.", "Ltd", "Co.,Ltd.", "Co.,Ltd", "Co., Ltd.",
-    "Corporation", "Corp.", "Corp",
-    "Holdings", "ホールディングス", "HD", "グループ",
+    "株式会社",
+    "（株）",
+    "(株)",
+    "㈱",
+    "有限会社",
+    "合同会社",
+    "合資会社",
+    "Inc.",
+    "Inc",
+    "Ltd.",
+    "Ltd",
+    "Co.,Ltd.",
+    "Co.,Ltd",
+    "Co., Ltd.",
+    "Corporation",
+    "Corp.",
+    "Corp",
+    "Holdings",
+    "ホールディングス",
+    "HD",
+    "グループ",
 ]
 
 # Recruitment-related keywords for scoring
 RECRUIT_KEYWORDS_TITLE = [
-    "採用", "新卒", "エントリー", "募集", "選考",
-    "インターン", "マイページ", "採用情報", "新卒採用",
-    "キャリア", "リクルート", "recruit", "career", "entry",
+    "採用",
+    "新卒",
+    "エントリー",
+    "募集",
+    "選考",
+    "インターン",
+    "マイページ",
+    "採用情報",
+    "新卒採用",
+    "キャリア",
+    "リクルート",
+    "recruit",
+    "career",
+    "entry",
 ]
 
 RECRUIT_KEYWORDS_URL = [
-    "recruit", "saiyo", "entry", "career", "graduate",
-    "fresh", "newgrads", "intern", "internship",
-    "shinsotsu", "mypage", "job", "careers",
+    "recruit",
+    "saiyo",
+    "entry",
+    "career",
+    "graduate",
+    "fresh",
+    "newgrads",
+    "intern",
+    "internship",
+    "shinsotsu",
+    "mypage",
+    "job",
+    "careers",
 ]
 
 RECRUIT_SUBDOMAINS = ["recruit", "saiyo", "entry", "career", "careers", "job", "jobs"]
 
 # Excluded domains
 EXCLUDED_DOMAINS = [
-    "youtube.com", "twitter.com", "x.com", "instagram.com", "facebook.com",
-    "tiktok.com", "note.com", "ameblo.jp", "hatena.ne.jp",
-    "prtimes.jp", "news.yahoo.co.jp", "nikkei.com",
+    "youtube.com",
+    "twitter.com",
+    "x.com",
+    "instagram.com",
+    "facebook.com",
+    "tiktok.com",
+    "note.com",
+    "ameblo.jp",
+    "hatena.ne.jp",
+    "prtimes.jp",
+    "news.yahoo.co.jp",
+    "nikkei.com",
 ]
 
 # Job aggregator sites (lower score but not excluded)
 AGGREGATOR_DOMAINS = [
-    "rikunabi.com", "mynavi.jp", "onecareer.jp", "unistyle.jp",
-    "goodfind.jp", "offerbox.jp", "wantedly.com", "indeed.com",
-    "en-japan.com", "doda.jp", "careerpark.jp",
+    "rikunabi.com",
+    "mynavi.jp",
+    "onecareer.jp",
+    "unistyle.jp",
+    "goodfind.jp",
+    "offerbox.jp",
+    "wantedly.com",
+    "indeed.com",
+    "en-japan.com",
+    "doda.jp",
+    "careerpark.jp",
 ]
 
 # Content type to search intent mapping
@@ -117,9 +174,11 @@ CONTENT_TYPE_SEARCH_INTENT = {
 # Data Classes
 # =============================================================================
 
+
 @dataclass
 class WebSearchResult:
     """Represents a single web search result with scores."""
+
     url: str
     title: str
     snippet: str
@@ -151,13 +210,14 @@ class WebSearchResult:
 # =============================================================================
 
 _hybrid_search_cache: dict[str, tuple[list[WebSearchResult], datetime]] = {}
+CACHE_MODES = {"use", "refresh", "bypass"}
 
 
 def _get_cache_key(
     company_name: str,
     search_intent: str,
     graduation_year: int | None,
-    selection_type: str | None
+    selection_type: str | None,
 ) -> str:
     """Build cache key for hybrid search results."""
     parts = [
@@ -185,8 +245,7 @@ def _set_cache(cache_key: str, results: list[WebSearchResult]):
     # Evict oldest entry if cache is full
     if len(_hybrid_search_cache) >= CACHE_MAX_SIZE:
         oldest_key = min(
-            _hybrid_search_cache.keys(),
-            key=lambda k: _hybrid_search_cache[k][1]
+            _hybrid_search_cache.keys(), key=lambda k: _hybrid_search_cache[k][1]
         )
         del _hybrid_search_cache[oldest_key]
 
@@ -198,9 +257,16 @@ def clear_cache():
     _hybrid_search_cache.clear()
 
 
+def _normalize_cache_mode(cache_mode: str | None, fallback: str) -> str:
+    if cache_mode in CACHE_MODES:
+        return cache_mode
+    return fallback
+
+
 # =============================================================================
 # Company Name Utilities
 # =============================================================================
+
 
 def normalize_company_name(name: str) -> str:
     """Normalize company name by removing legal suffixes."""
@@ -213,7 +279,7 @@ def normalize_company_name(name: str) -> str:
 def extract_ascii_name(name: str) -> str | None:
     """Extract ASCII/romanized version of company name."""
     # Check for ASCII-only portions
-    ascii_parts = re.findall(r'[A-Za-z]{2,}', name)
+    ascii_parts = re.findall(r"[A-Za-z]{2,}", name)
     if ascii_parts:
         return ascii_parts[0].lower()
     return None
@@ -253,6 +319,7 @@ def generate_company_variants(company_name: str) -> list[str]:
 # Query Generation
 # =============================================================================
 
+
 def generate_query_variations(
     company_name: str,
     search_intent: str = "recruitment",
@@ -283,34 +350,40 @@ def generate_query_variations(
     if search_intent == "recruitment":
         if selection_type == "internship":
             # Internship-focused queries
-            queries.extend([
-                f"{primary_name} インターン {grad_year_short}卒",
-                f"{short_name} インターンシップ 募集",
-                f"{primary_name} サマーインターン {grad_year}",
-                f"{short_name} インターン エントリー",
-                f"{primary_name} インターン 選考",
-                f"{short_name} インターンシップ {grad_year}",
-            ])
+            queries.extend(
+                [
+                    f"{primary_name} インターン {grad_year_short}卒",
+                    f"{short_name} インターンシップ 募集",
+                    f"{primary_name} サマーインターン {grad_year}",
+                    f"{short_name} インターン エントリー",
+                    f"{primary_name} インターン 選考",
+                    f"{short_name} インターンシップ {grad_year}",
+                ]
+            )
         elif selection_type == "main_selection":
             # Main selection focused queries
-            queries.extend([
-                f"{primary_name} 本選考 {grad_year_short}卒",
-                f"{short_name} 新卒採用 {grad_year}",
-                f"{primary_name} 本選考 エントリー",
-                f"{short_name} {grad_year_short}卒 選考",
-                f"{primary_name} 新卒 マイページ",
-                f"{short_name} 採用サイト {grad_year}",
-            ])
+            queries.extend(
+                [
+                    f"{primary_name} 本選考 {grad_year_short}卒",
+                    f"{short_name} 新卒採用 {grad_year}",
+                    f"{primary_name} 本選考 エントリー",
+                    f"{short_name} {grad_year_short}卒 選考",
+                    f"{primary_name} 新卒 マイページ",
+                    f"{short_name} 採用サイト {grad_year}",
+                ]
+            )
         else:
             # General recruitment queries
-            queries.extend([
-                f"{primary_name} 新卒採用 {grad_year_short}卒",
-                f"{short_name} 採用サイト {grad_year}",
-                f"{primary_name} エントリー",
-                f"{short_name} 採用情報 {grad_year_short}卒",
-                f"{primary_name} 新卒 マイページ",
-                f"{short_name} 募集要項",
-            ])
+            queries.extend(
+                [
+                    f"{primary_name} 新卒採用 {grad_year_short}卒",
+                    f"{short_name} 採用サイト {grad_year}",
+                    f"{primary_name} エントリー",
+                    f"{short_name} 採用情報 {grad_year_short}卒",
+                    f"{primary_name} 新卒 マイページ",
+                    f"{short_name} 募集要項",
+                ]
+            )
 
         # Add ASCII variant query if available
         if len(company_variants) > 2:
@@ -318,33 +391,39 @@ def generate_query_variations(
             queries.append(f"{ascii_name} recruit {grad_year}")
 
     elif search_intent == "corporate_ir":
-        queries.extend([
-            f"{primary_name} IR",
-            f"{short_name} 投資家情報",
-            f"{primary_name} 決算",
-            f"{short_name} 有価証券報告書",
-        ])
+        queries.extend(
+            [
+                f"{primary_name} IR",
+                f"{short_name} 投資家情報",
+                f"{primary_name} 決算",
+                f"{short_name} 有価証券報告書",
+            ]
+        )
 
     elif search_intent == "corporate_about":
-        queries.extend([
-            f"{primary_name} 会社概要",
-            f"{short_name} 企業情報",
-            f"{primary_name} 社長メッセージ",
-            f"{short_name} 事業内容",
-        ])
+        queries.extend(
+            [
+                f"{primary_name} 会社概要",
+                f"{short_name} 企業情報",
+                f"{primary_name} 社長メッセージ",
+                f"{short_name} 事業内容",
+            ]
+        )
 
     # ===== Content Type Specific Search Intents =====
 
     elif search_intent == "new_grad":
         # 新卒採用HP専用検索
-        queries.extend([
-            f"{primary_name} 新卒採用",
-            f"{short_name} 新卒 採用HP",
-            f"{primary_name} 採用サイト",
-            f"{short_name} リクルート 新卒",
-            f"{primary_name} recruit",
-            f"{short_name} 新卒採用 公式",
-        ])
+        queries.extend(
+            [
+                f"{primary_name} 新卒採用",
+                f"{short_name} 新卒 採用HP",
+                f"{primary_name} 採用サイト",
+                f"{short_name} リクルート 新卒",
+                f"{primary_name} recruit",
+                f"{short_name} 新卒採用 公式",
+            ]
+        )
         # Add ASCII variant
         if len(company_variants) > 2:
             ascii_name = company_variants[2]
@@ -352,64 +431,76 @@ def generate_query_variations(
 
     elif search_intent == "midcareer":
         # 中途採用専用検索
-        queries.extend([
-            f"{primary_name} 中途採用",
-            f"{short_name} キャリア採用",
-            f"{primary_name} 転職",
-            f"{short_name} 経験者採用",
-            f"{primary_name} career",
-        ])
+        queries.extend(
+            [
+                f"{primary_name} 中途採用",
+                f"{short_name} キャリア採用",
+                f"{primary_name} 転職",
+                f"{short_name} 経験者採用",
+                f"{primary_name} career",
+            ]
+        )
 
     elif search_intent == "ceo_message":
         # 社長メッセージ専用検索
-        queries.extend([
-            f"{primary_name} 社長メッセージ",
-            f"{short_name} 代表挨拶",
-            f"{primary_name} トップメッセージ",
-            f"{short_name} 社長 挨拶",
-            f"{primary_name} CEO message",
-            f"{short_name} 経営者 メッセージ",
-        ])
+        queries.extend(
+            [
+                f"{primary_name} 社長メッセージ",
+                f"{short_name} 代表挨拶",
+                f"{primary_name} トップメッセージ",
+                f"{short_name} 社長 挨拶",
+                f"{primary_name} CEO message",
+                f"{short_name} 経営者 メッセージ",
+            ]
+        )
 
     elif search_intent == "employee_interviews":
         # 社員インタビュー専用検索
-        queries.extend([
-            f"{primary_name} 社員インタビュー",
-            f"{short_name} 社員紹介",
-            f"{primary_name} 先輩社員",
-            f"{short_name} 社員の声",
-            f"{primary_name} 社員 働く",
-            f"{short_name} people interview",
-        ])
+        queries.extend(
+            [
+                f"{primary_name} 社員インタビュー",
+                f"{short_name} 社員紹介",
+                f"{primary_name} 先輩社員",
+                f"{short_name} 社員の声",
+                f"{primary_name} 社員 働く",
+                f"{short_name} people interview",
+            ]
+        )
 
     elif search_intent == "csr":
         # CSR/サステナビリティ専用検索
-        queries.extend([
-            f"{primary_name} CSR",
-            f"{short_name} サステナビリティ",
-            f"{primary_name} SDGs",
-            f"{short_name} 社会貢献",
-            f"{primary_name} sustainability",
-        ])
+        queries.extend(
+            [
+                f"{primary_name} CSR",
+                f"{short_name} サステナビリティ",
+                f"{primary_name} SDGs",
+                f"{short_name} 社会貢献",
+                f"{primary_name} sustainability",
+            ]
+        )
 
     elif search_intent == "midterm_plan":
         # 中期経営計画専用検索
-        queries.extend([
-            f"{primary_name} 中期経営計画",
-            f"{short_name} 経営計画",
-            f"{primary_name} 中計",
-            f"{short_name} 経営戦略",
-            f"{primary_name} 事業計画",
-        ])
+        queries.extend(
+            [
+                f"{primary_name} 中期経営計画",
+                f"{short_name} 経営計画",
+                f"{primary_name} 中計",
+                f"{short_name} 経営戦略",
+                f"{primary_name} 事業計画",
+            ]
+        )
 
     elif search_intent == "press_release":
         # プレスリリース専用検索
-        queries.extend([
-            f"{primary_name} プレスリリース",
-            f"{short_name} ニュース",
-            f"{primary_name} お知らせ",
-            f"{short_name} ニュースリリース",
-        ])
+        queries.extend(
+            [
+                f"{primary_name} プレスリリース",
+                f"{short_name} ニュース",
+                f"{primary_name} お知らせ",
+                f"{short_name} ニュースリリース",
+            ]
+        )
 
     # Deduplicate while preserving order
     seen = set()
@@ -437,6 +528,7 @@ def _get_graduation_year() -> int:
 # DuckDuckGo Search
 # =============================================================================
 
+
 def _search_ddg_sync(query: str, max_results: int = 8) -> list[dict]:
     """Execute synchronous DuckDuckGo search."""
     if not HAS_DDGS:
@@ -444,11 +536,9 @@ def _search_ddg_sync(query: str, max_results: int = 8) -> list[dict]:
 
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(
-                query,
-                safesearch="moderate",
-                max_results=max_results
-            ))
+            results = list(
+                ddgs.text(query, safesearch="moderate", max_results=max_results)
+            )
             return results
     except Exception as e:
         logger.warning(f"[WebSearch] DDG search error: {e}")
@@ -465,9 +555,9 @@ async def _search_ddg_async(query: str, max_results: int = 8) -> list[dict]:
 # RRF Fusion
 # =============================================================================
 
+
 def rrf_merge_web_results(
-    results_by_query: list[list[dict]],
-    k: int = 60
+    results_by_query: list[list[dict]], k: int = 60
 ) -> list[WebSearchResult]:
     """
     Merge multiple search result lists using Reciprocal Rank Fusion.
@@ -543,10 +633,7 @@ async def search_with_rrf_fusion(
     results_by_query = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Filter out exceptions and empty results
-    valid_results = [
-        r for r in results_by_query
-        if isinstance(r, list) and r
-    ]
+    valid_results = [r for r in results_by_query if isinstance(r, list) and r]
 
     if not valid_results:
         logger.warning("[WebSearch] All DDG searches failed or returned empty")
@@ -560,6 +647,7 @@ async def search_with_rrf_fusion(
 # =============================================================================
 # Cross-Encoder Reranking
 # =============================================================================
+
 
 def rerank_web_results(
     query: str,
@@ -591,10 +679,7 @@ def rerank_web_results(
             return results[:top_k]
 
         # Prepare documents for reranking (title + snippet)
-        docs = [
-            {"text": f"{r.title} {r.snippet}"[:512]}
-            for r in results[:top_k]
-        ]
+        docs = [{"text": f"{r.title} {r.snippet}"[:512]} for r in results[:top_k]]
 
         # Rerank
         reranked = reranker.rerank(
@@ -616,9 +701,7 @@ def rerank_web_results(
 
         # Sort by rerank score
         results[:top_k] = sorted(
-            results[:top_k],
-            key=lambda x: x.rerank_score,
-            reverse=True
+            results[:top_k], key=lambda x: x.rerank_score, reverse=True
         )
 
         logger.debug(f"[WebSearch] Reranked {len(results[:top_k])} results")
@@ -632,6 +715,7 @@ def rerank_web_results(
 # =============================================================================
 # Heuristic Scoring
 # =============================================================================
+
 
 def calculate_heuristic_score(
     result: WebSearchResult,
@@ -719,7 +803,8 @@ def calculate_heuristic_score(
         else:
             # Check for different year (penalty)
             import re
-            years = re.findall(r'(\d{2})卒|20(\d{2})', combined)
+
+            years = re.findall(r"(\d{2})卒|20(\d{2})", combined)
             for match in years:
                 detected = match[0] or match[1]
                 if detected and detected != year_short and detected != year_full[-2:]:
@@ -779,6 +864,7 @@ def _domain_pattern_matches(domain: str, pattern: str) -> bool:
 # Score Combination
 # =============================================================================
 
+
 def combine_scores(
     results: list[WebSearchResult],
     company_name: str,
@@ -829,9 +915,9 @@ def combine_scores(
         norm_heuristic = (result.heuristic_score - min_heuristic) / heuristic_range
 
         result.combined_score = (
-            weights["rerank"] * norm_rerank +
-            weights["heuristic"] * norm_heuristic +
-            weights["rrf"] * norm_rrf
+            weights["rerank"] * norm_rerank
+            + weights["heuristic"] * norm_heuristic
+            + weights["rrf"] * norm_rrf
         )
 
     # Sort by combined score
@@ -844,6 +930,7 @@ def combine_scores(
 # Main Entry Point
 # =============================================================================
 
+
 async def hybrid_web_search(
     company_name: str,
     search_intent: str = "recruitment",
@@ -852,6 +939,7 @@ async def hybrid_web_search(
     max_results: int = 10,
     domain_patterns: list[str] | None = None,
     use_cache: bool = True,
+    cache_mode: str | None = None,
 ) -> list[WebSearchResult]:
     """
     Hybrid web search with RRF fusion and cross-encoder reranking.
@@ -872,15 +960,25 @@ async def hybrid_web_search(
         max_results: Maximum results to return
         domain_patterns: Known official domain patterns for scoring
         use_cache: Whether to use result caching
+        cache_mode: "use" | "refresh" | "bypass"
 
     Returns:
         High-quality search results sorted by combined score
     """
-    # Check cache
-    if use_cache:
+    effective_mode = _normalize_cache_mode(
+        cache_mode, "use" if use_cache else "bypass"
+    )
+    read_cache = effective_mode == "use"
+    write_cache = effective_mode in {"use", "refresh"}
+
+    cache_key = None
+    if read_cache or write_cache:
         cache_key = _get_cache_key(
             company_name, search_intent, graduation_year, selection_type
         )
+
+    # Check cache
+    if read_cache and cache_key:
         cached = _get_cached_results(cache_key)
         if cached:
             return cached[:max_results]
@@ -934,11 +1032,13 @@ async def hybrid_web_search(
 
     logger.info(
         f"[WebSearch] Completed: {len(results)} results for '{company_name}' "
-        f"(top score: {results[0].combined_score:.3f})" if results else ""
+        f"(top score: {results[0].combined_score:.3f})"
+        if results
+        else ""
     )
 
     # Cache results
-    if use_cache and results:
+    if write_cache and results and cache_key:
         _set_cache(cache_key, results)
 
     return results

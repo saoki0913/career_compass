@@ -83,7 +83,7 @@ class Settings(BaseSettings):
 
     # テンプレート添削の最大リトライ回数
     # 環境変数: ES_TEMPLATE_MAX_RETRIES
-    # 複雑な3パターン出力には3回以上を推奨
+    # 3回で十分（タイムアウト防止のため）
     es_template_max_retries: int = 3
 
     # 条件付き追加リトライを有効にするか

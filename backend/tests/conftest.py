@@ -5,14 +5,23 @@ pytest conftest.py with shared fixtures for all test files.
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
 
 import pytest
 
-# Add backend to path for imports
+# Add backend to path for imports (before other local imports)
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Rate limiter for parallel test execution
+try:
+    from tests.utils.rate_limiter import DistributedRateLimiter
+
+    HAS_RATE_LIMITER = True
+except ImportError:
+    HAS_RATE_LIMITER = False
 
 # =============================================================================
 # Constants
@@ -57,9 +66,7 @@ def get_subsidiaries(companies: dict) -> list[tuple[str, dict]]:
         list of (company_name, mapping) tuples for subsidiaries
     """
     return [
-        (name, mapping)
-        for name, mapping in companies.items()
-        if has_parent(mapping)
+        (name, mapping) for name, mapping in companies.items() if has_parent(mapping)
     ]
 
 
@@ -124,15 +131,44 @@ def parent_company_names(all_companies):
 
 
 # =============================================================================
-# Pytest Markers
+# Rate Limiter Fixtures (for pytest-xdist)
+# =============================================================================
+
+
+@pytest.fixture(scope="session")
+def rate_limiter():
+    """Distributed rate limiter shared across xdist workers."""
+    if HAS_RATE_LIMITER:
+        return DistributedRateLimiter()
+    return None
+
+
+# =============================================================================
+# Pytest Markers and Hooks
 # =============================================================================
 
 
 def pytest_configure(config):
-    """Register custom markers."""
+    """Register custom markers and initialize rate limiter."""
     config.addinivalue_line(
         "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
     )
     config.addinivalue_line(
         "markers", "integration: marks tests that make real API calls"
     )
+
+    # Initialize rate limiter state on controller (not workers)
+    # xdist workers have PYTEST_XDIST_WORKER env var set
+    if HAS_RATE_LIMITER and not os.environ.get("PYTEST_XDIST_WORKER"):
+        DistributedRateLimiter.reset()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Print rate limiter stats at end of session."""
+    if HAS_RATE_LIMITER and not os.environ.get("PYTEST_XDIST_WORKER"):
+        limiter = DistributedRateLimiter()
+        stats = limiter.get_stats()
+        if stats and stats.get("request_count", 0) > 0:
+            print(f"\n[Rate Limiter Stats]")
+            print(f"  Total requests: {stats.get('request_count', 0)}")
+            print(f"  Errors (429): {stats.get('error_count', 0)}")

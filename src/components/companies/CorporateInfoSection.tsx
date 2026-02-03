@@ -18,12 +18,9 @@ type ContentType =
   | "csr_sustainability"
   | "midterm_plan";
 
-// Legacy search type for backward compatibility
-type SearchType = "ir" | "business" | "about";
-
 interface CorporateInfoUrl {
   url: string;
-  type: "ir" | "business" | "about" | "general";  // Legacy type
+  type?: "ir" | "business" | "about" | "general";  // Legacy type
   contentType?: ContentType;  // New classification
   fetchedAt?: string;
 }
@@ -67,36 +64,22 @@ const INTEGRATED_BADGE_LABELS: Record<string, Record<string, string>> = {
   other: { high: "関連・高", medium: "関連・中", low: "関連・低" },
 };
 
-// Integrated badge colors
-const INTEGRATED_BADGE_COLORS: Record<string, Record<string, { bg: string; text: string }>> = {
-  official: {
-    high: { bg: "bg-emerald-100", text: "text-emerald-700" },
-    medium: { bg: "bg-emerald-100", text: "text-emerald-700" },
-    low: { bg: "bg-emerald-50", text: "text-emerald-600" },
-  },
-  job_site: {
-    high: { bg: "bg-blue-100", text: "text-blue-700" },
-    medium: { bg: "bg-blue-100", text: "text-blue-700" },
-    low: { bg: "bg-blue-50", text: "text-blue-600" },
-  },
-  other: {
-    high: { bg: "bg-yellow-100", text: "text-yellow-700" },
-    medium: { bg: "bg-gray-100", text: "text-gray-600" },
-    low: { bg: "bg-gray-100", text: "text-gray-500" },
-  },
+const CONFIDENCE_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
+  high: { bg: "bg-emerald-100", text: "text-emerald-700" },
+  medium: { bg: "bg-yellow-100", text: "text-yellow-700" },
+  low: { bg: "bg-gray-100", text: "text-gray-600" },
 };
 
-// Mapping from ContentType to SearchType (for API compatibility)
-const CONTENT_TYPE_TO_SEARCH_TYPE: Record<ContentType, SearchType> = {
-  new_grad_recruitment: "about",
-  midcareer_recruitment: "about",
-  corporate_site: "about",
-  ir_materials: "ir",
-  ceo_message: "about",
-  employee_interviews: "about",
-  press_release: "about",
-  csr_sustainability: "about",
-  midterm_plan: "ir",
+const CONTENT_TYPE_TO_CHANNEL: Record<ContentType, "corporate_ir" | "corporate_general"> = {
+  new_grad_recruitment: "corporate_general",
+  midcareer_recruitment: "corporate_general",
+  corporate_site: "corporate_general",
+  ir_materials: "corporate_ir",
+  ceo_message: "corporate_general",
+  employee_interviews: "corporate_general",
+  press_release: "corporate_general",
+  csr_sustainability: "corporate_general",
+  midterm_plan: "corporate_ir",
 };
 
 // Mapping from legacy type to new ContentType
@@ -260,21 +243,44 @@ const CONTENT_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
 };
 
 // Stats cards configuration (9 categories, using ContentType keys for URL counting)
-const STATS_CARD_CONFIGS: Array<{
-  key: ContentType;
-  label: string;
-  colorClass: string;
+// Grouped stats card configurations for compact display
+const STATS_GROUPS: Array<{
+  groupName: string;
+  items: Array<{
+    key: ContentType;
+    label: string;
+    shortLabel: string;
+    colorClass: string;
+  }>;
 }> = [
-  { key: "new_grad_recruitment", label: "新卒採用HP", colorClass: "bg-blue-50 border-blue-200" },
-  { key: "midcareer_recruitment", label: "中途採用HP", colorClass: "bg-sky-50 border-sky-200" },
-  { key: "corporate_site", label: "企業HP", colorClass: "bg-emerald-50 border-emerald-200" },
-  { key: "ir_materials", label: "IR資料", colorClass: "bg-purple-50 border-purple-200" },
-  { key: "ceo_message", label: "社長メッセージ", colorClass: "bg-amber-50 border-amber-200" },
-  { key: "employee_interviews", label: "社員インタビュー", colorClass: "bg-pink-50 border-pink-200" },
-  { key: "press_release", label: "プレスリリース", colorClass: "bg-cyan-50 border-cyan-200" },
-  { key: "csr_sustainability", label: "CSR/サステナ", colorClass: "bg-green-50 border-green-200" },
-  { key: "midterm_plan", label: "中期経営計画", colorClass: "bg-indigo-50 border-indigo-200" },
+  {
+    groupName: "採用情報",
+    items: [
+      { key: "new_grad_recruitment", label: "新卒採用HP", shortLabel: "新卒", colorClass: "bg-blue-50 border-blue-200" },
+      { key: "midcareer_recruitment", label: "中途採用HP", shortLabel: "中途", colorClass: "bg-sky-50 border-sky-200" },
+    ],
+  },
+  {
+    groupName: "企業情報",
+    items: [
+      { key: "corporate_site", label: "企業HP", shortLabel: "企業HP", colorClass: "bg-emerald-50 border-emerald-200" },
+      { key: "ir_materials", label: "IR資料", shortLabel: "IR", colorClass: "bg-purple-50 border-purple-200" },
+    ],
+  },
+  {
+    groupName: "コンテンツ",
+    items: [
+      { key: "ceo_message", label: "社長メッセージ", shortLabel: "社長", colorClass: "bg-amber-50 border-amber-200" },
+      { key: "employee_interviews", label: "社員インタビュー", shortLabel: "社員", colorClass: "bg-pink-50 border-pink-200" },
+      { key: "press_release", label: "プレスリリース", shortLabel: "プレス", colorClass: "bg-cyan-50 border-cyan-200" },
+      { key: "csr_sustainability", label: "CSR/サステナ", shortLabel: "CSR", colorClass: "bg-green-50 border-green-200" },
+      { key: "midterm_plan", label: "中期経営計画", shortLabel: "中計", colorClass: "bg-indigo-50 border-indigo-200" },
+    ],
+  },
 ];
+
+// Flat list for backward compatibility
+const STATS_CARD_CONFIGS = STATS_GROUPS.flatMap(g => g.items);
 
 const IR_SEARCH_KEYWORDS = [
   "有価証券報告書",
@@ -332,13 +338,14 @@ export function CorporateInfoSection({
   // Modal states
   const [showModal, setShowModal] = useState(false);
   const [showUrlModal, setShowUrlModal] = useState(false);
+  const [showRagModal, setShowRagModal] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
   const [candidates, setCandidates] = useState<SearchCandidate[]>([]);
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [customUrl, setCustomUrl] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [lastSearchType, setLastSearchType] = useState<SearchType>("about");
+  const [lastContentType, setLastContentType] = useState<ContentType | null>(null);
   const [selectedContentType, setSelectedContentType] = useState<ContentType | null>(null);
   const [fetchResult, setFetchResult] = useState<{
     success: boolean;
@@ -372,8 +379,7 @@ export function CorporateInfoSection({
     };
 
     for (const url of status.corporateInfoUrls) {
-      // Use contentType if available, otherwise map legacy type
-      const type = url.contentType || mapLegacyToNew(url.type);
+      const type = url.contentType || (url.type ? mapLegacyToNew(url.type) : "corporate_site");
       counts[type] = (counts[type] || 0) + 1;
     }
 
@@ -416,33 +422,31 @@ export function CorporateInfoSection({
     return `${companyName} ${trimmed}`;
   };
 
-  const detectSearchType = (input: string): SearchType => {
+  const detectContentType = (input: string): ContentType => {
     const withoutCompany = input.split(companyName).join("");
     const compact = withoutCompany.toLowerCase().replace(/[\s　]+/g, "");
     const hasKeyword = (keywords: string[]) =>
       keywords.some((kw) => compact.includes(kw.toLowerCase().replace(/[\s　]+/g, "")));
     if (hasKeyword(IR_SEARCH_KEYWORDS)) {
-      return "ir";
+      return "ir_materials";
     }
     if (hasKeyword(BUSINESS_SEARCH_KEYWORDS)) {
-      return "business";
+      return "corporate_site";
     }
-    return "about";
+    return "corporate_site";
   };
 
-  // Resolve content type for API - converts to legacy channel format
-  const resolveContentType = (type: SearchType): string => {
-    // Convert new ContentType to SearchType if selected, otherwise use the passed type
-    const searchType = selectedContentType
-      ? CONTENT_TYPE_TO_SEARCH_TYPE[selectedContentType]
-      : type;
-    // Convert SearchType to legacy channel format for API
-    return searchType === "ir"
-      ? "corporate_ir"
-      : searchType === "business"
-      ? "corporate_business"
-      : "corporate_general";
+  const resolveContentChannel = (contentType?: ContentType | null): "corporate_ir" | "corporate_general" => {
+    if (!contentType) {
+      return "corporate_general";
+    }
+    return CONTENT_TYPE_TO_CHANNEL[contentType] || "corporate_general";
   };
+
+  const buildDefaultSelections = (list: SearchCandidate[]) =>
+    list
+      .filter((candidate) => candidate.sourceType === "official" && candidate.confidence === "high")
+      .map((candidate) => candidate.url);
   // Search by type (primary search method)
   const handleTypeSearch = async (allowSnippetMatch = false) => {
     if (!selectedContentType) {
@@ -454,10 +458,9 @@ export function CorporateInfoSection({
     setError(null);
     setIsRelaxedSearch(allowSnippetMatch);
 
-    const searchType = CONTENT_TYPE_TO_SEARCH_TYPE[selectedContentType];
     const typeLabel = CONTENT_TYPE_OPTIONS.find((o) => o.value === selectedContentType)?.label || "";
     const query = `${companyName} ${typeLabel}`;
-    setLastSearchType(searchType);
+    setLastContentType(selectedContentType);
 
     try {
       const response = await fetch(`/api/companies/${companyId}/search-corporate-pages`, {
@@ -466,7 +469,6 @@ export function CorporateInfoSection({
         credentials: "include",
         body: JSON.stringify({
           customQuery: query,
-          searchType: searchType,
           contentType: selectedContentType,  // Pass ContentType for optimized search
           allowSnippetMatch,
         }),
@@ -477,7 +479,9 @@ export function CorporateInfoSection({
       }
 
       const data = await response.json();
-      setCandidates(data.candidates || []);
+      const nextCandidates = data.candidates || [];
+      setCandidates(nextCandidates);
+      setSelectedUrls(buildDefaultSelections(nextCandidates));
     } catch (err) {
       setError(err instanceof Error ? err.message : "検索に失敗しました");
     } finally {
@@ -497,8 +501,11 @@ export function CorporateInfoSection({
     setIsRelaxedSearch(allowSnippetMatch);
 
     const query = buildSearchQuery(searchQuery);
-    const resolvedType = detectSearchType(query);
-    setLastSearchType(resolvedType);
+    const resolvedContentType = selectedContentType ?? detectContentType(query);
+    setLastContentType(resolvedContentType);
+    if (!selectedContentType) {
+      setSelectedContentType(resolvedContentType);
+    }
 
     try {
       const response = await fetch(`/api/companies/${companyId}/search-corporate-pages`, {
@@ -507,7 +514,7 @@ export function CorporateInfoSection({
         credentials: "include",
         body: JSON.stringify({
           customQuery: query,
-          searchType: resolvedType,
+          contentType: resolvedContentType,
           allowSnippetMatch,
         }),
       });
@@ -517,7 +524,9 @@ export function CorporateInfoSection({
       }
 
       const data = await response.json();
-      setCandidates(data.candidates || []);
+      const nextCandidates = data.candidates || [];
+      setCandidates(nextCandidates);
+      setSelectedUrls(buildDefaultSelections(nextCandidates));
     } catch (err) {
       setError(err instanceof Error ? err.message : "検索に失敗しました");
     } finally {
@@ -541,14 +550,16 @@ export function CorporateInfoSection({
     setFetchResult(null);
 
     try {
-      const contentType = resolveContentType(lastSearchType);
+      const contentChannel = resolveContentChannel(lastContentType || selectedContentType);
+      const contentType = lastContentType || selectedContentType; // 9-category type
       const response = await fetch(`/api/companies/${companyId}/fetch-corporate`, {
         method: "POST",
         headers: buildHeaders(),
         credentials: "include",
         body: JSON.stringify({
           urls: urlsToFetch,
-          contentType,
+          contentChannel, // legacy 3-category channel
+          contentType, // 9-category content type for proper RAG counts
         }),
       });
 
@@ -585,6 +596,7 @@ export function CorporateInfoSection({
     setFetchResult(null);
     setError(null);
     setSelectedContentType(null);
+    setLastContentType(null);
     setIsRelaxedSearch(false);
   };
 
@@ -675,13 +687,17 @@ export function CorporateInfoSection({
     setShowDeleteConfirm(false);
   };
 
+  const closeRagModal = () => {
+    setShowRagModal(false);
+  };
+
   if (isLoading) {
     return (
       <Card className="border-border/50">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
             <BuildingIcon />
-            企業情報 (RAG)
+            企業情報データベース
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -700,20 +716,23 @@ export function CorporateInfoSection({
   return (
     <>
       <Card className="border-border/50">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
+        <CardHeader className="flex flex-row items-center justify-between py-3">
+          <CardTitle className="text-base flex items-center gap-2">
             <BuildingIcon />
-            企業情報 (RAG)
+            企業情報データベース
             {hasAnyData && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                <DatabaseIcon />
+              <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">
+                {status?.corporateInfoUrls?.length || 0}件登録
               </span>
             )}
           </CardTitle>
-          <Button variant="outline" size="sm" onClick={openModal}>
+          <button
+            onClick={openModal}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+          >
             <SparklesIcon />
-            <span className="ml-1.5">AIで企業情報を取得</span>
-          </Button>
+            <span className="text-sm font-medium">AIで企業情報を取得</span>
+          </button>
         </CardHeader>
         <CardContent>
           {!hasAnyData ? (
@@ -724,62 +743,76 @@ export function CorporateInfoSection({
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {/* URL counts by content type - 8 categories */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {STATS_CARD_CONFIGS.map((config) => {
-                  const count = urlCountsByType[config.key] || 0;
-                  return (
-                    <div
-                      key={config.key}
-                      className={cn(
-                        "p-3 rounded-lg border transition-colors",
-                        count > 0 ? config.colorClass : "bg-muted/30 border-border/50"
-                      )}
-                    >
-                      <p className="text-xs text-muted-foreground">{config.label}</p>
-                      <p
-                        className={cn(
-                          "text-lg font-semibold",
-                          count > 0 ? "text-foreground" : "text-muted-foreground"
-                        )}
-                      >
-                        {count}
-                      </p>
+            <div className="space-y-3">
+              {/* Grouped URL counts - Compact layout */}
+              {STATS_GROUPS.map((group) => {
+                const groupTotal = group.items.reduce((sum, item) => sum + (urlCountsByType[item.key] || 0), 0);
+                return (
+                  <div key={group.groupName}>
+                    <p className="text-xs font-medium text-muted-foreground mb-1.5 px-1">{group.groupName}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {group.items.map((config) => {
+                        const count = urlCountsByType[config.key] || 0;
+                        const hasData = count > 0;
+                        return (
+                          <div
+                            key={config.key}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-colors",
+                              hasData ? config.colorClass : "bg-muted/20 border-border/30"
+                            )}
+                            title={config.label}
+                          >
+                            <span className={cn(
+                              "text-xs",
+                              hasData ? "text-foreground" : "text-muted-foreground/60"
+                            )}>
+                              {config.shortLabel}
+                            </span>
+                            <span className={cn(
+                              "text-sm font-semibold min-w-[1.25rem] text-center",
+                              hasData ? "text-foreground" : "text-muted-foreground/40"
+                            )}>
+                              {count}
+                            </span>
+                            {hasData && (
+                              <svg className="w-3 h-3 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
 
-              {/* Last updated */}
-              {ragStatus?.lastUpdated && (
-                <p className="text-xs text-muted-foreground">
-                  最終更新:{" "}
-                  {new Date(ragStatus.lastUpdated).toLocaleDateString("ja-JP", {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </p>
-              )}
-
-              {/* URL Modal Trigger */}
-              {status?.corporateInfoUrls && status.corporateInfoUrls.length > 0 && (
-                <div className="pt-3 border-t flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">
-                    {status.corporateInfoUrls.length}件のURLが登録されています
-                  </p>
+              {/* Footer: Last updated + URL modal */}
+              <div className="pt-2 border-t border-border/50 flex items-center justify-between">
+                <div className="text-xs text-muted-foreground">
+                  {ragStatus?.lastUpdated && (
+                    <span>
+                      更新: {new Date(ragStatus.lastUpdated).toLocaleDateString("ja-JP", {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  )}
+                </div>
+                {status?.corporateInfoUrls && status.corporateInfoUrls.length > 0 && (
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={openUrlModal}
+                    className="text-xs h-7 px-2"
                   >
                     登録済みURL（{status.corporateInfoUrls.length}件）
                   </Button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
         </CardContent>
@@ -936,7 +969,7 @@ export function CorporateInfoSection({
                                 const sourceType = candidate.sourceType || "other";
                                 const confidence = candidate.confidence || "low";
                                 const label = INTEGRATED_BADGE_LABELS[sourceType]?.[confidence] || "関連・低";
-                                const colors = INTEGRATED_BADGE_COLORS[sourceType]?.[confidence] || { bg: "bg-gray-100", text: "text-gray-500" };
+                                const colors = CONFIDENCE_BADGE_COLORS[confidence] || { bg: "bg-gray-100", text: "text-gray-600" };
                                 return (
                                   <span
                                     className={cn(
@@ -1113,7 +1146,7 @@ export function CorporateInfoSection({
                   {/* URL List */}
                   {status.corporateInfoUrls.map((urlInfo, i) => {
                     // Use contentType if available, otherwise map from legacy type
-                    const resolvedType = urlInfo.contentType || mapLegacyToNew(urlInfo.type);
+                    const resolvedType = urlInfo.contentType || (urlInfo.type ? mapLegacyToNew(urlInfo.type) : "corporate_site");
                     const colors = CONTENT_TYPE_COLORS[resolvedType] || {
                       bg: "bg-gray-100",
                       text: "text-gray-700",
@@ -1216,6 +1249,81 @@ export function CorporateInfoSection({
                 </Button>
               )}
             </div>
+          </Card>
+        </div>
+      )}
+
+      {/* RAG Status Modal */}
+      {showRagModal && ragStatus && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="max-w-md w-full">
+            <CardHeader className="pb-3 border-b">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">RAG詳細</CardTitle>
+                <button
+                  type="button"
+                  onClick={closeRagModal}
+                  className="p-1 rounded-full hover:bg-muted transition-colors"
+                >
+                  <XIcon />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="py-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <span className="text-muted-foreground">新卒採用HP</span>
+                  <span className="font-medium">{ragStatus.newGradRecruitmentChunks}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <span className="text-muted-foreground">中途採用HP</span>
+                  <span className="font-medium">{ragStatus.midcareerRecruitmentChunks}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <span className="text-muted-foreground">企業HP</span>
+                  <span className="font-medium">{ragStatus.corporateSiteChunks}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <span className="text-muted-foreground">IR資料</span>
+                  <span className="font-medium">{ragStatus.irMaterialsChunks}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <span className="text-muted-foreground">社長メッセージ</span>
+                  <span className="font-medium">{ragStatus.ceoMessageChunks}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <span className="text-muted-foreground">社員インタビュー</span>
+                  <span className="font-medium">{ragStatus.employeeInterviewsChunks}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <span className="text-muted-foreground">プレスリリース</span>
+                  <span className="font-medium">{ragStatus.pressReleaseChunks}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <span className="text-muted-foreground">CSR/サステナ</span>
+                  <span className="font-medium">{ragStatus.csrSustainabilityChunks}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <span className="text-muted-foreground">中期経営計画</span>
+                  <span className="font-medium">{ragStatus.midtermPlanChunks}</span>
+                </div>
+              </div>
+              {ragStatus.lastUpdated && (
+                <p className="text-xs text-muted-foreground text-right">
+                  更新:{" "}
+                  {new Date(ragStatus.lastUpdated).toLocaleDateString("ja-JP", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              )}
+              <div className="flex justify-end pt-2">
+                <Button onClick={closeRagModal}>閉じる</Button>
+              </div>
+            </CardContent>
           </Card>
         </div>
       )}

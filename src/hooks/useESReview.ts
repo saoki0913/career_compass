@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
+import type { ProcessingStep } from "@/components/ui/EnhancedProcessingSteps";
 
 export interface ReviewScores {
   logic: number;
@@ -121,6 +122,37 @@ export interface CurrentSectionInfo {
   charLimit?: number;
 }
 
+// SSE streaming progress state
+export interface SSEProgressState {
+  currentStep: string | null;
+  progress: number;
+  steps: ProcessingStep[];
+  isStreaming: boolean;
+}
+
+// SSE event types from backend
+export interface SSEProgressEvent {
+  type: "progress";
+  step: string;
+  progress: number;
+  label?: string;
+  subLabel?: string;
+}
+
+export interface SSECompleteEvent {
+  type: "complete";
+  result: ReviewResult;
+  creditCost: number;
+}
+
+export interface SSEErrorEvent {
+  type: "error";
+  message: string;
+  error_type?: string;
+}
+
+export type SSEEvent = SSEProgressEvent | SSECompleteEvent | SSEErrorEvent;
+
 export interface UseESReviewReturn {
   review: ReviewResult | null;
   isLoading: boolean;
@@ -128,6 +160,12 @@ export interface UseESReviewReturn {
   creditCost: number | null;
   reviewMode: ReviewMode;
   currentSection: CurrentSectionInfo | null;
+  // Cancel support
+  cancelReview: () => void;
+  isCancelling: boolean;
+  elapsedTime: number;  // Elapsed time in seconds
+  // SSE streaming progress
+  sseProgress: SSEProgressState;
   requestReview: (params: {
     content: string;
     style?: string;
@@ -165,6 +203,14 @@ export function getAvailableStyles(isPaid: boolean): string[] {
   return isPaid ? PAID_STYLES : FREE_STYLES;
 }
 
+// Default SSE steps from backend
+const DEFAULT_SSE_STEPS: ProcessingStep[] = [
+  { id: "validation", label: "入力を検証中...", subLabel: "内容の確認", duration: 1000 },
+  { id: "rag_fetch", label: "企業情報を取得中...", subLabel: "RAGコンテキスト検索", duration: 3000 },
+  { id: "llm_review", label: "AIが添削中...", subLabel: "スコアと改善点を分析", duration: 5000 },
+  { id: "rewrite", label: "リライトを生成中...", subLabel: "複数パターン作成", duration: 2000 },
+];
+
 export function useESReview({ documentId }: UseESReviewOptions): UseESReviewReturn {
   const [review, setReview] = useState<ReviewResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -172,6 +218,51 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
   const [creditCost, setCreditCost] = useState<number | null>(null);
   const [reviewMode, setReviewMode] = useState<ReviewMode>("full");
   const [currentSection, setCurrentSection] = useState<CurrentSectionInfo | null>(null);
+
+  // Cancel support
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // SSE streaming progress
+  const [sseProgress, setSSEProgress] = useState<SSEProgressState>({
+    currentStep: null,
+    progress: 0,
+    steps: DEFAULT_SSE_STEPS,
+    isStreaming: false,
+  });
+
+  // Cancel the current review request
+  const cancelReview = useCallback(() => {
+    if (abortControllerRef.current && isLoading) {
+      setIsCancelling(true);
+      abortControllerRef.current.abort();
+    }
+  }, [isLoading]);
+
+  // Cleanup timer on unmount or when loading stops
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  // Parse SSE event from text
+  const parseSSEEvent = useCallback((text: string): SSEEvent | null => {
+    try {
+      // SSE format: "data: {...}\n\n"
+      const dataMatch = text.match(/^data:\s*(.+)$/m);
+      if (dataMatch) {
+        return JSON.parse(dataMatch[1]) as SSEEvent;
+      }
+      return null;
+    } catch {
+      console.warn("Failed to parse SSE event:", text);
+      return null;
+    }
+  }, []);
 
   const requestReview = useCallback(
     async (params: {
@@ -189,9 +280,34 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
       internName?: string;
       roleName?: string;
     }): Promise<boolean> => {
+      // Cancel any existing request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+
+      // Create new AbortController
+      abortControllerRef.current = new AbortController();
+
       setIsLoading(true);
       setError(null);
       setCreditCost(null);
+      setIsCancelling(false);
+      setElapsedTime(0);
+
+      // Reset SSE progress
+      setSSEProgress({
+        currentStep: null,
+        progress: 0,
+        steps: DEFAULT_SSE_STEPS,
+        isStreaming: true,
+      });
+
+      // Start elapsed time counter
+      clearTimer();
+      const startTime = Date.now();
+      timerRef.current = setInterval(() => {
+        setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+      }, 1000);
 
       // Update review mode state
       const mode = params.reviewMode || "full";
@@ -206,11 +322,13 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
       }
 
       try {
-        const response = await fetch(`/api/documents/${documentId}/review`, {
+        // Use SSE streaming endpoint
+        const response = await fetch(`/api/documents/${documentId}/review/stream`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
+          signal: abortControllerRef.current.signal,
           body: JSON.stringify({
             content: params.content,
             style: params.style || "バランス",
@@ -230,9 +348,9 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
           }),
         });
 
-        const data = await response.json();
-
+        // Check for non-SSE error responses
         if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
           if (response.status === 402) {
             setError(`クレジットが不足しています（必要: ${data.creditCost}クレジット）`);
           } else if (response.status === 401) {
@@ -243,18 +361,95 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
           return false;
         }
 
-        setReview(data.review);
-        setCreditCost(data.creditCost);
+        // Process SSE stream
+        const reader = response.body?.getReader();
+        if (!reader) {
+          setError("ストリーミングがサポートされていません");
+          return false;
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+
+          // Process complete events in buffer
+          const events = buffer.split("\n\n");
+          buffer = events.pop() || ""; // Keep incomplete event in buffer
+
+          for (const eventText of events) {
+            if (!eventText.trim()) continue;
+
+            const event = parseSSEEvent(eventText);
+            if (!event) continue;
+
+            switch (event.type) {
+              case "progress":
+                setSSEProgress((prev) => ({
+                  ...prev,
+                  currentStep: event.step,
+                  progress: event.progress,
+                  // Update step labels if provided
+                  steps: event.label
+                    ? prev.steps.map((s) =>
+                        s.id === event.step
+                          ? { ...s, label: event.label!, subLabel: event.subLabel }
+                          : s
+                      )
+                    : prev.steps,
+                }));
+                break;
+
+              case "complete":
+                setReview(event.result);
+                setCreditCost(event.creditCost);
+                setSSEProgress((prev) => ({
+                  ...prev,
+                  progress: 100,
+                  isStreaming: false,
+                }));
+                return true;
+
+              case "error":
+                setError(event.message || "添削処理でエラーが発生しました");
+                return false;
+            }
+          }
+        }
+
+        // If we got here without a complete event, something went wrong
+        if (!review) {
+          setError("添削結果を受信できませんでした");
+          return false;
+        }
+
         return true;
       } catch (err) {
+        // Handle abort error (user cancelled)
+        if (err instanceof Error && err.name === "AbortError") {
+          setError(null);  // Don't show error for user-initiated cancel
+          setIsCancelling(false);
+          return false;
+        }
         console.error("Review request error:", err);
         setError("ネットワークエラーが発生しました");
         return false;
       } finally {
+        clearTimer();
         setIsLoading(false);
+        setIsCancelling(false);
+        setSSEProgress((prev) => ({ ...prev, isStreaming: false }));
+        abortControllerRef.current = null;
       }
     },
-    [documentId]
+    [documentId, clearTimer, parseSSEEvent, review]
   );
 
   // Convenience function for section review
@@ -292,6 +487,12 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
     setCreditCost(null);
     setReviewMode("full");
     setCurrentSection(null);
+    setSSEProgress({
+      currentStep: null,
+      progress: 0,
+      steps: DEFAULT_SSE_STEPS,
+      isStreaming: false,
+    });
   }, []);
 
   return {
@@ -301,6 +502,10 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
     creditCost,
     reviewMode,
     currentSection,
+    cancelReview,
+    isCancelling,
+    elapsedTime,
+    sseProgress,
     requestReview,
     requestSectionReview,
     clearReview,

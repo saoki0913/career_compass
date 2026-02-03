@@ -1,7 +1,7 @@
 /**
  * IndustryGroup Component
  *
- * Groups companies by industry with 5-column grid layout
+ * Groups companies by industry with 4-column grid layout
  */
 
 "use client";
@@ -12,6 +12,7 @@ import type { Company } from "@/hooks/useCompanies";
 
 interface IndustryGroupProps {
   companies: Company[];
+  onTogglePin?: (companyId: string, isPinned: boolean) => void;
 }
 
 interface GroupedCompanies {
@@ -19,7 +20,7 @@ interface GroupedCompanies {
   companies: Company[];
 }
 
-export function IndustryGroup({ companies }: IndustryGroupProps) {
+export function IndustryGroup({ companies, onTogglePin }: IndustryGroupProps) {
   // Group companies by industry
   const groupedCompanies = useMemo(() => {
     const groups = new Map<string, Company[]>();
@@ -55,7 +56,7 @@ export function IndustryGroup({ companies }: IndustryGroupProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {groupedCompanies.map((group) => (
         <div key={group.industry}>
           {/* Industry Header */}
@@ -68,10 +69,10 @@ export function IndustryGroup({ companies }: IndustryGroupProps) {
             </span>
           </div>
 
-          {/* Companies Grid - 5 columns */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          {/* Companies Grid - 4 columns */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6">
             {group.companies.map((company) => (
-              <CompanyCard key={company.id} company={company} />
+              <CompanyCard key={company.id} company={company} onTogglePin={onTogglePin} />
             ))}
           </div>
         </div>

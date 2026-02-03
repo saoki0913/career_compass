@@ -7,7 +7,6 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any, Optional
 
-
 _counters = Counter()
 _score_hist = defaultdict(Counter)
 _parse_failures = Counter()
@@ -37,7 +36,9 @@ def record_parse_failure(context: str, reason: Optional[str] = None) -> None:
         _parse_failures[key] += 1
 
 
-def record_rag_context(company_id: Optional[str], context_length: int, source_count: int) -> None:
+def record_rag_context(
+    company_id: Optional[str], context_length: int, source_count: int
+) -> None:
     _counters["rag_context_total"] += 1
     if context_length <= 0:
         _counters["rag_context_empty"] += 1

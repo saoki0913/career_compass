@@ -1,12 +1,26 @@
 "use client";
 
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { ReviewIssue } from "@/hooks/useESReview";
+import { PriorityBadge, difficultyToPriority, type Difficulty } from "./PriorityBadge";
+
+// Map category names to score keys for scroll anchors
+const CATEGORY_TO_SCORE_KEY: Record<string, string> = {
+  論理: "logic",
+  論理性: "logic",
+  具体性: "specificity",
+  熱意: "passion",
+  企業接続: "company_connection",
+  読みやすさ: "readability",
+};
 
 interface ImprovementListProps {
   issues: ReviewIssue[];
   title?: string;  // Optional custom title (defaults to "改善優先順位Top3")
   className?: string;
+  collapsible?: boolean;  // Make the list collapsible
+  defaultExpanded?: boolean;  // Initial expanded state when collapsible
 }
 
 const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -76,7 +90,27 @@ const LightbulbIcon = () => (
   </svg>
 );
 
-export function ImprovementList({ issues, title, className }: ImprovementListProps) {
+const ChevronDownIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+  </svg>
+);
+
+const ChevronUpIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+  </svg>
+);
+
+export function ImprovementList({
+  issues,
+  title,
+  className,
+  collapsible = false,
+  defaultExpanded = true,
+}: ImprovementListProps) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+
   if (issues.length === 0) {
     return (
       <div className={cn("text-center py-4 text-muted-foreground", className)}>
@@ -88,29 +122,53 @@ export function ImprovementList({ issues, title, className }: ImprovementListPro
   const displayTitle = title || "改善優先順位Top3";
   const displayCount = issues.length;
 
-  return (
-    <div className={cn("space-y-3", className)}>
-      <h4 className="text-sm font-semibold flex items-center gap-2">
-        <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-xs font-bold">
-          {displayCount}
+  const headerContent = (
+    <div className="flex items-center gap-2">
+      <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-xs font-bold">
+        {displayCount}
+      </span>
+      <span>{displayTitle}</span>
+      {collapsible && (
+        <span className="ml-auto text-muted-foreground">
+          {isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
         </span>
-        {displayTitle}
-      </h4>
+      )}
+    </div>
+  );
 
-      <div className="space-y-2">
-        {issues.map((issue, index) => {
-          const colors = CATEGORY_COLORS[issue.category] || CATEGORY_COLORS["その他"];
+  return (
+    <div className={cn("space-y-3", className)} id="improvement-list">
+      {collapsible ? (
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="w-full text-left text-sm font-semibold flex items-center gap-2 hover:text-foreground/80 transition-colors"
+        >
+          {headerContent}
+        </button>
+      ) : (
+        <h4 className="text-sm font-semibold flex items-center gap-2">
+          {headerContent}
+        </h4>
+      )}
 
-          return (
-            <div
-              key={index}
-              className={cn(
-                "rounded-lg border p-3 transition-all hover:shadow-sm",
-                colors.border,
-                colors.bg
-              )}
-            >
-              {/* Category Badge */}
+      {(!collapsible || isExpanded) && (
+        <div className="space-y-2">
+          {issues.map((issue, index) => {
+            const colors = CATEGORY_COLORS[issue.category] || CATEGORY_COLORS["その他"];
+            const scoreKey = CATEGORY_TO_SCORE_KEY[issue.category] || issue.category.toLowerCase();
+
+            return (
+              <div
+                key={index}
+                id={`issue-${scoreKey}`}
+                className={cn(
+                  "rounded-lg border p-3 transition-all hover:shadow-sm scroll-mt-4",
+                  colors.border,
+                  colors.bg
+                )}
+              >
+              {/* Category Badge with Priority */}
               <div className="flex items-center gap-2 mb-2">
                 <span
                   className={cn(
@@ -121,17 +179,11 @@ export function ImprovementList({ issues, title, className }: ImprovementListPro
                 >
                   #{index + 1} {issue.category}
                 </span>
-                {issue.difficulty && DIFFICULTY_LABELS[issue.difficulty] && (
-                  <span
-                    className={cn(
-                      "text-[10px] font-semibold px-2 py-0.5 rounded-full",
-                      DIFFICULTY_STYLES[issue.difficulty]?.bg,
-                      DIFFICULTY_STYLES[issue.difficulty]?.text
-                    )}
-                  >
-                    {DIFFICULTY_LABELS[issue.difficulty]}
-                  </span>
-                )}
+                {/* Priority badge based on difficulty */}
+                <PriorityBadge
+                  priority={difficultyToPriority(issue.difficulty as Difficulty | undefined)}
+                  showLabel={true}
+                />
               </div>
 
               {/* Issue */}
@@ -150,9 +202,10 @@ export function ImprovementList({ issues, title, className }: ImprovementListPro
                 <p className="text-sm text-muted-foreground">{issue.suggestion}</p>
               </div>
             </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

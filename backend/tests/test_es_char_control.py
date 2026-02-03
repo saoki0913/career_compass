@@ -88,7 +88,13 @@ class TestCharAdjustmentPrompt:
     def test_reduce_instructions_include_strategies(self):
         """Ensure reduction instructions include Japanese compression strategies."""
         errors = [
-            {"pattern": 1, "current": 420, "target": 400, "delta": 20, "direction": "reduce"}
+            {
+                "pattern": 1,
+                "current": 420,
+                "target": 400,
+                "delta": 20,
+                "direction": "reduce",
+            }
         ]
         prompt = build_char_adjustment_prompt(errors, char_min=None, char_max=400)
 
@@ -101,7 +107,13 @@ class TestCharAdjustmentPrompt:
     def test_expand_instructions_include_strategies(self):
         """Ensure expansion instructions include content addition strategies."""
         errors = [
-            {"pattern": 1, "current": 150, "target": 200, "delta": 50, "direction": "expand"}
+            {
+                "pattern": 1,
+                "current": 150,
+                "target": 200,
+                "delta": 50,
+                "direction": "expand",
+            }
         ]
         prompt = build_char_adjustment_prompt(errors, char_min=200, char_max=None)
 
@@ -113,7 +125,13 @@ class TestCharAdjustmentPrompt:
     def test_constraint_description_range(self):
         """Constraint description shows range correctly."""
         errors = [
-            {"pattern": 1, "current": 420, "target": 400, "delta": 20, "direction": "reduce"}
+            {
+                "pattern": 1,
+                "current": 420,
+                "target": 400,
+                "delta": 20,
+                "direction": "reduce",
+            }
         ]
         prompt = build_char_adjustment_prompt(errors, char_min=350, char_max=400)
 
@@ -312,9 +330,7 @@ class TestTargetedVariantRepairPrompt:
 
     def test_includes_compression_techniques(self):
         """Repair prompt includes compression/expansion techniques."""
-        template_data = {
-            "variants": [{"text": "a" * 420}]
-        }
+        template_data = {"variants": [{"text": "a" * 420}]}
         prompt = build_targeted_variant_repair_prompt(
             template_data, failing_indices=[0], char_min=None, char_max=400
         )
@@ -380,7 +396,7 @@ class TestValidateTemplateOutput:
             ]
         }
         is_valid, error = validate_template_output(
-            template_review, char_min=350, char_max=400, keyword_count=0
+            template_review, char_min=350, char_max=400
         )
 
         assert is_valid is True
@@ -396,7 +412,7 @@ class TestValidateTemplateOutput:
             ]
         }
         is_valid, error = validate_template_output(
-            template_review, char_min=None, char_max=400, keyword_count=0
+            template_review, char_min=None, char_max=400
         )
 
         assert is_valid is False
@@ -413,7 +429,7 @@ class TestValidateTemplateOutput:
             ]
         }
         is_valid, error = validate_template_output(
-            template_review, char_min=200, char_max=400, keyword_count=0
+            template_review, char_min=200, char_max=400
         )
 
         assert is_valid is False
@@ -429,7 +445,7 @@ class TestValidateTemplateOutput:
             ]
         }
         is_valid, error = validate_template_output(
-            template_review, char_min=None, char_max=400, keyword_count=0
+            template_review, char_min=None, char_max=400
         )
 
         assert is_valid is False
@@ -445,7 +461,7 @@ class TestValidateTemplateOutput:
             ]
         }
         is_valid, error = validate_template_output(
-            template_review, char_min=None, char_max=None, keyword_count=0
+            template_review, char_min=None, char_max=None
         )
 
         assert is_valid is False

@@ -11,8 +11,16 @@ from collections import Counter
 from typing import Optional
 
 from app.utils.llm import call_llm_with_error
-from app.utils.content_types import content_type_label, normalize_content_type, expand_content_type_filter
-from app.utils.embeddings import EmbeddingBackend, generate_embedding, resolve_embedding_backend
+from app.utils.content_types import (
+    content_type_label,
+    normalize_content_type,
+    expand_content_type_filter,
+)
+from app.utils.embeddings import (
+    EmbeddingBackend,
+    generate_embedding,
+    resolve_embedding_backend,
+)
 from app.utils.bm25_store import get_or_create_index
 from app.utils.japanese_tokenizer import tokenize
 
@@ -50,9 +58,7 @@ HYDE_SCHEMA = {
         "type": "object",
         "additionalProperties": False,
         "required": ["passage"],
-        "properties": {
-            "passage": {"type": "string"}
-        },
+        "properties": {"passage": {"type": "string"}},
     },
 }
 
@@ -152,15 +158,13 @@ def _normalize_scores(score_map: dict[str, float]) -> dict[str, float]:
 
 
 def _keyword_search(
-    company_id: str,
-    query: str,
-    k: int = 10,
-    content_types: Optional[list[str]] = None
+    company_id: str, query: str, k: int = 10, content_types: Optional[list[str]] = None
 ) -> list[dict]:
     index = get_or_create_index(company_id)
     if not index.documents:
         try:
             from app.utils.vector_store import update_bm25_index
+
             update_bm25_index(company_id)
             index = get_or_create_index(company_id)
         except Exception:
@@ -181,15 +185,19 @@ def _keyword_search(
         if not doc:
             continue
         metadata = doc.metadata or {}
-        content_type = normalize_content_type(metadata.get("content_type") or metadata.get("chunk_type") or "structured")
+        content_type = normalize_content_type(
+            metadata.get("content_type") or metadata.get("chunk_type") or "structured"
+        )
         if allowed_types and content_type not in allowed_types:
             continue
-        output.append({
-            "id": doc.doc_id,
-            "text": doc.text,
-            "metadata": metadata,
-            "bm25_score": score,
-        })
+        output.append(
+            {
+                "id": doc.doc_id,
+                "text": doc.text,
+                "metadata": metadata,
+                "bm25_score": score,
+            }
+        )
     return output
 
 
@@ -197,7 +205,7 @@ def _merge_semantic_and_keyword(
     semantic_results: list[dict],
     keyword_results: list[dict],
     semantic_weight: float,
-    keyword_weight: float
+    keyword_weight: float,
 ) -> list[dict]:
     semantic_scores = {}
     for item in semantic_results:
@@ -259,7 +267,9 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (math.sqrt(norm_a) * math.sqrt(norm_b))
 
 
-def _embeddings_compatible(query_embedding: list[float], candidates: list[dict]) -> bool:
+def _embeddings_compatible(
+    query_embedding: list[float], candidates: list[dict]
+) -> bool:
     """Check embedding compatibility for MMR."""
     if not query_embedding:
         return False
@@ -275,7 +285,7 @@ def _apply_mmr(
     candidates: list[dict],
     query_embedding: list[float],
     k: int,
-    lambda_mult: float = DEFAULT_MMR_LAMBDA
+    lambda_mult: float = DEFAULT_MMR_LAMBDA,
 ) -> list[dict]:
     """Apply Maximal Marginal Relevance to diversify results."""
     if not candidates or k <= 0:
@@ -297,7 +307,8 @@ def _apply_mmr(
             sim_to_selected = 0.0
             if selected:
                 sim_to_selected = max(
-                    _cosine_similarity(emb, sel.get("embedding", [])) for sel in selected
+                    _cosine_similarity(emb, sel.get("embedding", []))
+                    for sel in selected
                 )
             score = lambda_mult * sim_to_query - (1 - lambda_mult) * sim_to_selected
             if score > best_score:
@@ -311,7 +322,9 @@ def _apply_mmr(
     return selected
 
 
-def _resolve_dense_backend(backends: Optional[list[EmbeddingBackend]]) -> Optional[EmbeddingBackend]:
+def _resolve_dense_backend(
+    backends: Optional[list[EmbeddingBackend]],
+) -> Optional[EmbeddingBackend]:
     """Pick a single backend to avoid mixing embedding spaces."""
     if backends:
         return backends[0]
@@ -321,7 +334,7 @@ def _resolve_dense_backend(backends: Optional[list[EmbeddingBackend]]) -> Option
 async def expand_queries_with_llm(
     query: str,
     max_queries: int = DEFAULT_MAX_QUERIES,
-    keywords: Optional[list[str]] = None
+    keywords: Optional[list[str]] = None,
 ) -> list[str]:
     """Generate query variations to improve recall."""
     system_prompt = """あなたは就活ES向けのRAG検索クエリ拡張アシスタントです。
@@ -422,13 +435,15 @@ async def rerank_results_with_llm(
 
     candidates = []
     for item in results[:max_items]:
-        candidates.append({
-            "id": item.get("id", ""),
-            "text": (item.get("text") or "")[:400],
-            "content_type": (item.get("metadata") or {}).get("content_type", ""),
-            "chunk_type": (item.get("metadata") or {}).get("chunk_type", ""),
-            "source_url": (item.get("metadata") or {}).get("source_url", ""),
-        })
+        candidates.append(
+            {
+                "id": item.get("id", ""),
+                "text": (item.get("text") or "")[:400],
+                "content_type": (item.get("metadata") or {}).get("content_type", ""),
+                "chunk_type": (item.get("metadata") or {}).get("chunk_type", ""),
+                "source_url": (item.get("metadata") or {}).get("source_url", ""),
+            }
+        )
 
     system_prompt = """あなたはRAG検索の再ランキング用スコアラーです。
 与えられた候補に対して、クエリとの関連度を0〜100で採点してください。
@@ -458,7 +473,9 @@ JSONのみで返してください。"""
         return results
 
     ranked = llm_result.data.get("ranked", [])
-    score_map = {item.get("id"): item.get("score", 0) for item in ranked if item.get("id")}
+    score_map = {
+        item.get("id"): item.get("score", 0) for item in ranked if item.get("id")
+    }
 
     def score(item: dict) -> float:
         return score_map.get(item.get("id"), 0)
@@ -537,9 +554,7 @@ async def dense_hybrid_search(
     keyword_seeds = _extract_keywords(query)
     if effective_expand:
         expanded = await expand_queries_with_llm(
-            query,
-            max_queries=DEFAULT_MAX_QUERIES,
-            keywords=keyword_seeds
+            query, max_queries=DEFAULT_MAX_QUERIES, keywords=keyword_seeds
         )
 
     if effective_hyde:
@@ -587,7 +602,9 @@ async def dense_hybrid_search(
         merged = merged[:n_results]
 
     if rerank and _should_rerank(merged, rerank_threshold):
-        merged = await rerank_results_with_llm(query, merged, max_items=DEFAULT_RERANK_CANDIDATES)
+        merged = await rerank_results_with_llm(
+            query, merged, max_items=DEFAULT_RERANK_CANDIDATES
+        )
     elif rerank:
         print("[RAG再ランキング] ℹ️ 上位スコアが高いためスキップ")
 
@@ -603,7 +620,7 @@ async def dense_hybrid_search(
                 merged,
                 keyword_results,
                 semantic_weight=semantic_weight,
-                keyword_weight=keyword_weight
+                keyword_weight=keyword_weight,
             )
 
     return merged[:n_results]
@@ -656,14 +673,13 @@ async def hybrid_search(
         semantic_results,
         keyword_results,
         semantic_weight=semantic_weight,
-        keyword_weight=keyword_weight
+        keyword_weight=keyword_weight,
     )
     return merged[:n_results]
 
 
 def get_context_for_review_hybrid(
-    results: list[dict],
-    max_context_length: int = 3000
+    results: list[dict], max_context_length: int = 3000
 ) -> str:
     """
     Format hybrid search results as context for ES review.
@@ -730,8 +746,7 @@ def get_context_for_review_hybrid(
 
 
 def get_context_and_sources_for_review_hybrid(
-    results: list[dict],
-    max_context_length: int = 3000
+    results: list[dict], max_context_length: int = 3000
 ) -> tuple[str, list[dict]]:
     """
     Format hybrid search results as context for ES review with source tracking.
@@ -781,13 +796,15 @@ def get_context_and_sources_for_review_hybrid(
         # Track source (deduplicate by URL)
         if source_url and source_url not in seen_urls and len(sources) < 5:
             seen_urls.add(source_url)
-            sources.append({
-                "source_id": f"S{len(sources) + 1}",
-                "source_url": source_url,
-                "content_type": normalized_type,
-                "chunk_type": chunk_type,
-                "excerpt": text[:150] + "..." if len(text) > 150 else text,
-            })
+            sources.append(
+                {
+                    "source_id": f"S{len(sources) + 1}",
+                    "source_url": source_url,
+                    "content_type": normalized_type,
+                    "chunk_type": chunk_type,
+                    "excerpt": text[:150] + "..." if len(text) > 150 else text,
+                }
+            )
 
         # Format with type labels
         type_label = type_labels.get(chunk_type, "企業情報")

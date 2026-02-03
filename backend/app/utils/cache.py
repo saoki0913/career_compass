@@ -28,7 +28,9 @@ class BaseCache:
 
     def __init__(self, redis_url: str):
         self._enabled = bool(redis and redis_url)
-        self._redis = redis.from_url(redis_url, decode_responses=True) if self._enabled else None
+        self._redis = (
+            redis.from_url(redis_url, decode_responses=True) if self._enabled else None
+        )
 
     def enabled(self) -> bool:
         return self._enabled and self._redis is not None
@@ -75,7 +77,9 @@ class RAGCache(BaseCache):
     async def get_context(self, company_id: str, query_hash: str) -> Optional[dict]:
         return await self.get_json(self._context_key(company_id, query_hash))
 
-    async def set_context(self, company_id: str, query_hash: str, context: dict, ttl: int = 43200) -> None:
+    async def set_context(
+        self, company_id: str, query_hash: str, context: dict, ttl: int = 43200
+    ) -> None:
         await self.set_json(self._context_key(company_id, query_hash), context, ttl)
 
     async def invalidate_company(self, company_id: str) -> None:
@@ -91,7 +95,9 @@ class ESReviewCache(BaseCache):
     async def get_review(self, review_hash: str) -> Optional[dict]:
         return await self.get_json(self._review_key(review_hash))
 
-    async def set_review(self, review_hash: str, review: dict, ttl: int = 86400) -> None:
+    async def set_review(
+        self, review_hash: str, review: dict, ttl: int = 86400
+    ) -> None:
         await self.set_json(self._review_key(review_hash), review, ttl)
 
 

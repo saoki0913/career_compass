@@ -4,7 +4,10 @@
 company_mappings.jsonに登録された全企業の検索が正しく動作することを検証する。
 
 Usage:
-    # 全テスト実行（約30分）
+    # 全テスト実行 - 並列（約8-10分、推奨）
+    pytest backend/tests/test_comprehensive_search.py -v -n 4
+
+    # 全テスト実行 - 順次（約30分）
     pytest backend/tests/test_comprehensive_search.py -v -s
 
     # 関係性テストのみ（API呼び出しなし、高速）
@@ -19,6 +22,8 @@ Usage:
 Note:
     - @pytest.mark.slow: 時間がかかるテスト
     - @pytest.mark.integration: 実際のAPI呼び出しを行うテスト
+    - 並列実行時は pytest-xdist と filelock が必要
+    - レートリミッターで DuckDuckGo API 制限を回避
 """
 
 import asyncio
@@ -63,9 +68,7 @@ def has_parent(mapping) -> bool:
 def get_subsidiaries(companies: dict) -> list[tuple[str, dict]]:
     """子会社のリストを取得"""
     return [
-        (name, mapping)
-        for name, mapping in companies.items()
-        if has_parent(mapping)
+        (name, mapping) for name, mapping in companies.items() if has_parent(mapping)
     ]
 
 
@@ -95,12 +98,33 @@ def get_subsidiary_parent_pairs(companies: dict) -> list[tuple[str, str]]:
         if isinstance(mapping, dict) and "parent" in mapping
     ]
 
+
 try:
     from ddgs import DDGS
+
     HAS_DDGS = True
 except ImportError:
     HAS_DDGS = False
     print("[包括的検索テスト] ⚠️ ddgs 未インストール")
+
+# Rate limiter for parallel execution
+try:
+    from tests.utils.rate_limiter import DistributedRateLimiter, rate_limited_request
+
+    HAS_RATE_LIMITER = True
+except ImportError:
+    HAS_RATE_LIMITER = False
+
+# Global rate limiter instance (shared across all tests in the session)
+_rate_limiter = None
+
+
+def get_rate_limiter():
+    """Get or create the rate limiter instance."""
+    global _rate_limiter
+    if HAS_RATE_LIMITER and _rate_limiter is None:
+        _rate_limiter = DistributedRateLimiter()
+    return _rate_limiter
 
 
 # =============================================================================
@@ -109,6 +133,9 @@ except ImportError:
 
 # Rate limiting
 SEARCH_DELAY_SECONDS = 1.0  # DuckDuckGo API間隔
+
+# Sample size per industry for integrated tests
+SAMPLE_COMPANIES_PER_INDUSTRY = 10
 
 # Industry sampling for subsidiaries (to keep test time reasonable)
 # Each industry will have at most N subsidiaries tested
@@ -145,6 +172,7 @@ class ResultCollector:
         self.subsidiary_results = []
         self.official_domain_results = []
         self.recruitment_quality_results = []
+        self.sample_companies_by_industry = None
 
     def add_parent_result(
         self,
@@ -157,15 +185,17 @@ class ResultCollector:
         official_domain_rank: int = None,
     ):
         """親会社の検索結果を追加"""
-        self.parent_results.append({
-            "name": name,
-            "domains": domains,
-            "search_success": success,
-            "results_count": results_count,
-            "top_results": top_results,
-            "official_domain_found": official_domain_found,
-            "official_domain_rank": official_domain_rank,
-        })
+        self.parent_results.append(
+            {
+                "name": name,
+                "domains": domains,
+                "search_success": success,
+                "results_count": results_count,
+                "top_results": top_results,
+                "official_domain_found": official_domain_found,
+                "official_domain_rank": official_domain_rank,
+            }
+        )
 
     def add_subsidiary_result(
         self,
@@ -177,14 +207,16 @@ class ResultCollector:
         top_results: list[dict],
     ):
         """子会社の検索結果を追加"""
-        self.subsidiary_results.append({
-            "name": name,
-            "parent": parent,
-            "domains": domains,
-            "search_success": success,
-            "results_count": results_count,
-            "top_results": top_results,
-        })
+        self.subsidiary_results.append(
+            {
+                "name": name,
+                "parent": parent,
+                "domains": domains,
+                "search_success": success,
+                "results_count": results_count,
+                "top_results": top_results,
+            }
+        )
 
     def add_official_domain_result(
         self,
@@ -195,13 +227,15 @@ class ResultCollector:
         actual_domains: list[str],
     ):
         """公式ドメイン検出結果を追加"""
-        self.official_domain_results.append({
-            "company": company,
-            "expected_domains": domains,
-            "found": found,
-            "results_count": results_count,
-            "actual_domains_found": actual_domains,
-        })
+        self.official_domain_results.append(
+            {
+                "company": company,
+                "expected_domains": domains,
+                "found": found,
+                "results_count": results_count,
+                "actual_domains_found": actual_domains,
+            }
+        )
 
     def add_recruitment_quality_result(
         self,
@@ -212,13 +246,18 @@ class ResultCollector:
         top_results: list[dict],
     ):
         """採用検索品質結果を追加"""
-        self.recruitment_quality_results.append({
-            "company": company,
-            "match_rate": match_rate,
-            "matches": matches,
-            "total": total,
-            "top_results": top_results,
-        })
+        self.recruitment_quality_results.append(
+            {
+                "company": company,
+                "match_rate": match_rate,
+                "matches": matches,
+                "total": total,
+                "top_results": top_results,
+            }
+        )
+
+    def set_sample_companies_by_industry(self, samples: dict[str, list[str]]):
+        self.sample_companies_by_industry = samples
 
     def _generate_issues(self) -> dict:
         """問題のある企業を分類"""
@@ -240,44 +279,52 @@ class ResultCollector:
         # 親会社で検索結果なし
         for r in self.parent_results:
             if not r["search_success"]:
-                issues["no_results"]["companies"].append({
-                    "name": r["name"],
-                    "type": "parent",
-                    "domains": r["domains"],
-                    "query_used": f"{r['name']} 採用",
-                })
+                issues["no_results"]["companies"].append(
+                    {
+                        "name": r["name"],
+                        "type": "parent",
+                        "domains": r["domains"],
+                        "query_used": f"{r['name']} 採用",
+                    }
+                )
 
         # 子会社で検索結果なし
         for r in self.subsidiary_results:
             if not r["search_success"]:
-                issues["no_results"]["companies"].append({
-                    "name": r["name"],
-                    "type": "subsidiary",
-                    "parent": r["parent"],
-                    "domains": r["domains"],
-                    "query_used": f"{r['name']} 採用",
-                })
+                issues["no_results"]["companies"].append(
+                    {
+                        "name": r["name"],
+                        "type": "subsidiary",
+                        "parent": r["parent"],
+                        "domains": r["domains"],
+                        "query_used": f"{r['name']} 採用",
+                    }
+                )
 
         # 公式ドメイン未検出
         for r in self.official_domain_results:
             if not r["found"]:
-                issues["official_domain_not_found"]["companies"].append({
-                    "name": r["company"],
-                    "expected_domains": r["expected_domains"],
-                    "actual_domains_found": r["actual_domains_found"][:5],
-                    "results_count": r["results_count"],
-                })
+                issues["official_domain_not_found"]["companies"].append(
+                    {
+                        "name": r["company"],
+                        "expected_domains": r["expected_domains"],
+                        "actual_domains_found": r["actual_domains_found"][:5],
+                        "results_count": r["results_count"],
+                    }
+                )
 
         # 採用検索品質が低い
         for r in self.recruitment_quality_results:
             if r["match_rate"] < 0.5:
-                issues["low_recruitment_quality"]["companies"].append({
-                    "name": r["company"],
-                    "match_rate": r["match_rate"],
-                    "matches": r["matches"],
-                    "total": r["total"],
-                    "top_results": r["top_results"][:3],
-                })
+                issues["low_recruitment_quality"]["companies"].append(
+                    {
+                        "name": r["company"],
+                        "match_rate": r["match_rate"],
+                        "matches": r["matches"],
+                        "total": r["total"],
+                        "top_results": r["top_results"][:3],
+                    }
+                )
 
         # カウントを追加
         for key in issues:
@@ -291,30 +338,44 @@ class ResultCollector:
 
         no_results = issues["no_results"]["count"]
         if no_results > 0:
-            suggestions.append({
-                "priority": "high",
-                "issue": f"{no_results}社で検索結果なし",
-                "action": "company_mappings.jsonの企業名表記を確認",
-                "affected_companies": [c["name"] for c in issues["no_results"]["companies"][:10]],
-            })
+            suggestions.append(
+                {
+                    "priority": "high",
+                    "issue": f"{no_results}社で検索結果なし",
+                    "action": "company_mappings.jsonの企業名表記を確認",
+                    "affected_companies": [
+                        c["name"] for c in issues["no_results"]["companies"][:10]
+                    ],
+                }
+            )
 
         domain_not_found = issues["official_domain_not_found"]["count"]
         if domain_not_found > 0:
-            suggestions.append({
-                "priority": "medium",
-                "issue": f"{domain_not_found}社で公式ドメイン未検出",
-                "action": "ドメインパターンの追加を検討",
-                "affected_companies": [c["name"] for c in issues["official_domain_not_found"]["companies"][:10]],
-            })
+            suggestions.append(
+                {
+                    "priority": "medium",
+                    "issue": f"{domain_not_found}社で公式ドメイン未検出",
+                    "action": "ドメインパターンの追加を検討",
+                    "affected_companies": [
+                        c["name"]
+                        for c in issues["official_domain_not_found"]["companies"][:10]
+                    ],
+                }
+            )
 
         low_quality = issues["low_recruitment_quality"]["count"]
         if low_quality > 0:
-            suggestions.append({
-                "priority": "low",
-                "issue": f"{low_quality}社で採用キーワードマッチ率が低い",
-                "action": "検索クエリの改善を検討",
-                "affected_companies": [c["name"] for c in issues["low_recruitment_quality"]["companies"]],
-            })
+            suggestions.append(
+                {
+                    "priority": "low",
+                    "issue": f"{low_quality}社で採用キーワードマッチ率が低い",
+                    "action": "検索クエリの改善を検討",
+                    "affected_companies": [
+                        c["name"]
+                        for c in issues["low_recruitment_quality"]["companies"]
+                    ],
+                }
+            )
 
         return suggestions
 
@@ -323,7 +384,9 @@ class ResultCollector:
         total_parents = len(self.parent_results)
         total_subsidiaries = len(self.subsidiary_results)
         parent_success = sum(1 for r in self.parent_results if r["search_success"])
-        subsidiary_success = sum(1 for r in self.subsidiary_results if r["search_success"])
+        subsidiary_success = sum(
+            1 for r in self.subsidiary_results if r["search_success"]
+        )
 
         official_found = sum(1 for r in self.official_domain_results if r["found"])
         official_total = len(self.official_domain_results)
@@ -334,8 +397,11 @@ class ResultCollector:
             "subsidiaries": total_subsidiaries,
             "parent_search_success": parent_success,
             "subsidiary_search_success": subsidiary_success,
-            "search_success_rate": (parent_success + subsidiary_success) / max(total_parents + total_subsidiaries, 1),
-            "official_domain_detection_rate": official_found / max(official_total, 1) if official_total > 0 else None,
+            "search_success_rate": (parent_success + subsidiary_success)
+            / max(total_parents + total_subsidiaries, 1),
+            "official_domain_detection_rate": (
+                official_found / max(official_total, 1) if official_total > 0 else None
+            ),
         }
 
     def save_json(self, path: Path):
@@ -372,6 +438,21 @@ class ResultCollector:
         issues = self._generate_issues()
         suggestions = self._generate_suggestions(issues)
 
+        official_count = len(self.official_domain_results)
+        official_found = sum(1 for r in self.official_domain_results if r["found"])
+        official_rate = (
+            official_found / official_count if official_count > 0 else None
+        )
+
+        quality_count = len(self.recruitment_quality_results)
+        avg_quality_rate = (
+            sum(r["match_rate"] for r in self.recruitment_quality_results) / quality_count
+            if quality_count > 0
+            else None
+        )
+
+        total_sampled = max(official_count, quality_count)
+
         lines = [
             "# 包括的検索テスト結果レポート",
             "",
@@ -382,25 +463,54 @@ class ResultCollector:
             "",
             "| 指標 | 結果 |",
             "|------|------|",
-            f"| 総企業数 | {summary['total_companies']:,}社 |",
-            f"| 親会社 | {summary['parent_companies']:,}社 |",
-            f"| 子会社 | {summary['subsidiaries']:,}社 |",
-            f"| 検索成功率 | {summary['search_success_rate']:.1%} |",
         ]
 
-        if summary['official_domain_detection_rate'] is not None:
-            lines.append(f"| 公式ドメイン検出率 | {summary['official_domain_detection_rate']:.1%} |")
+        if total_sampled > 0:
+            lines.append(f"| 対象企業数 | {total_sampled:,}社 |")
+
+        if summary["total_companies"] > 0:
+            lines.append(f"| 親会社 | {summary['parent_companies']:,}社 |")
+            lines.append(f"| 子会社 | {summary['subsidiaries']:,}社 |")
+            lines.append(f"| 検索成功率 | {summary['search_success_rate']:.1%} |")
+
+        if official_rate is not None:
+            lines.append(f"| 公式ドメイン検出率 | {official_rate:.1%} |")
+
+        if avg_quality_rate is not None:
+            lines.append(f"| 採用検索品質（平均） | {avg_quality_rate:.1%} |")
+
+        if self.sample_companies_by_industry:
+            lines.extend(
+                [
+                    "",
+                    "## サンプル構成",
+                    "",
+                    "| 業種 | 件数 | 企業名（抜粋） |",
+                    "|------|------|----------------|",
+                ]
+            )
+            for industry in INDUSTRY_SECTIONS.keys():
+                companies = self.sample_companies_by_industry.get(industry, [])
+                if not companies:
+                    continue
+                preview = "、".join(companies[:10])
+                suffix = " など" if len(companies) > 10 else ""
+                lines.append(
+                    f"| {industry} | {len(companies)} | {preview}{suffix} |"
+                )
 
         # 検索結果なし
         if issues["no_results"]["count"] > 0:
-            lines.extend([
-                "",
-                f"## 検索結果なし（{issues['no_results']['count']}社）",
-                "優先度: **高**",
-                "",
-                "| 企業名 | タイプ | 登録ドメイン |",
-                "|--------|--------|-------------|",
-            ])
+            lines.extend(
+                [
+                    "",
+                    f"## 検索結果なし（{issues['no_results']['count']}社）",
+                    "優先度: **高**",
+                    "",
+                    "| 企業名 | タイプ | 登録ドメイン |",
+                    "|--------|--------|-------------|",
+                ]
+            )
             for c in issues["no_results"]["companies"][:20]:
                 company_type = "親会社" if c["type"] == "parent" else "子会社"
                 domains = ", ".join(c["domains"][:3])
@@ -410,39 +520,47 @@ class ResultCollector:
 
         # 公式ドメイン未検出
         if issues["official_domain_not_found"]["count"] > 0:
-            lines.extend([
-                "",
-                f"## 公式ドメイン未検出（{issues['official_domain_not_found']['count']}社）",
-                "優先度: **中**",
-                "",
-                "| 企業名 | 期待ドメイン | 実際の上位結果 |",
-                "|--------|-------------|---------------|",
-            ])
-            for c in issues["official_domain_not_found"]["companies"][:10]:
-                expected = ", ".join(c["expected_domains"][:2])
-                actual = ", ".join(c["actual_domains_found"][:3])
+            lines.extend(
+                [
+                    "",
+                    f"## 公式ドメイン未検出（{issues['official_domain_not_found']['count']}社）",
+                    "優先度: **中**",
+                    "",
+                    "| 企業名 | 期待ドメイン | 実際に見つかったドメイン（上位） |",
+                    "|--------|--------------|----------------------------------|",
+                ]
+            )
+            for c in issues["official_domain_not_found"]["companies"][:20]:
+                expected = ", ".join(c["expected_domains"][:3])
+                actual = ", ".join(c["actual_domains_found"][:5])
                 lines.append(f"| {c['name']} | {expected} | {actual} |")
 
         # 採用検索品質が低い
         if issues["low_recruitment_quality"]["count"] > 0:
-            lines.extend([
-                "",
-                f"## 採用キーワードマッチ率低（{issues['low_recruitment_quality']['count']}社）",
-                "優先度: **低**",
-                "",
-                "| 企業名 | マッチ率 | マッチ数/総数 |",
-                "|--------|---------|--------------|",
-            ])
-            for c in issues["low_recruitment_quality"]["companies"]:
-                lines.append(f"| {c['name']} | {c['match_rate']:.0%} | {c['matches']}/{c['total']} |")
+            lines.extend(
+                [
+                    "",
+                    f"## 採用キーワードマッチ率低（{issues['low_recruitment_quality']['count']}社）",
+                    "優先度: **低**",
+                    "",
+                    "| 企業名 | マッチ率 | マッチ数/総数 |",
+                    "|--------|---------|--------------|",
+                ]
+            )
+            for c in issues["low_recruitment_quality"]["companies"][:20]:
+                lines.append(
+                    f"| {c['name']} | {c['match_rate']:.0%} | {c['matches']}/{c['total']} |"
+                )
 
         # 改善アクション
         if suggestions:
-            lines.extend([
-                "",
-                "## 改善アクション",
-                "",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "## 改善アクション",
+                    "",
+                ]
+            )
             for i, s in enumerate(suggestions, 1):
                 priority = {"high": "高", "medium": "中", "low": "低"}[s["priority"]]
                 affected = ", ".join(s["affected_companies"][:5])
@@ -482,18 +600,36 @@ def check_domain_match(url: str, patterns: list[str]) -> bool:
     return False
 
 
-async def search_with_ddgs(query: str, max_results: int = 10) -> list[dict]:
-    """Search using DuckDuckGo."""
+async def search_with_ddgs(
+    query: str,
+    max_results: int = 10,
+    use_rate_limiter: bool = True,
+) -> list[dict]:
+    """Search using DuckDuckGo with optional rate limiting.
+
+    Args:
+        query: Search query
+        max_results: Maximum number of results
+        use_rate_limiter: Whether to use rate limiter (for parallel execution)
+    """
     if not HAS_DDGS:
         return []
-    try:
+
+    async def _do_search() -> list[dict]:
         with DDGS() as ddgs:
-            results = list(ddgs.text(
-                query,
-                safesearch="moderate",
-                max_results=max_results
-            ))
-            return results
+            return list(
+                ddgs.text(query, safesearch="moderate", max_results=max_results)
+            )
+
+    try:
+        if use_rate_limiter and HAS_RATE_LIMITER:
+            # Use rate limiter for parallel execution
+            limiter = get_rate_limiter()
+            return await rate_limited_request(_do_search, rate_limiter=limiter)
+        else:
+            # Fallback: simple delay for sequential execution
+            await asyncio.sleep(SEARCH_DELAY_SECONDS)
+            return await _do_search()
     except Exception as e:
         print(f"[検索エラー] {query}: {e}")
         return []
@@ -507,8 +643,7 @@ def get_industry_for_company(company_name: str, all_companies: dict) -> str:
 
 
 def sample_subsidiaries_by_industry(
-    all_companies: dict,
-    max_per_industry: int = MAX_SUBSIDIARIES_PER_INDUSTRY
+    all_companies: dict, max_per_industry: int = MAX_SUBSIDIARIES_PER_INDUSTRY
 ) -> list[tuple[str, list[str]]]:
     """Sample subsidiaries from each industry.
 
@@ -554,7 +689,9 @@ def get_test_companies() -> list[tuple[str, list[str], bool]]:
     return result
 
 
-def get_parent_child_pairs(limit: int = 50) -> list[tuple[str, str, list[str], list[str]]]:
+def get_parent_child_pairs(
+    limit: int = 50,
+) -> list[tuple[str, str, list[str], list[str]]]:
     """Get parent-child company pairs for testing.
 
     Returns:
@@ -570,6 +707,51 @@ def get_parent_child_pairs(limit: int = 50) -> list[tuple[str, str, list[str], l
         result.append((child_name, parent_name, child_domains, parent_domains))
 
     return result
+
+
+def get_sample_companies_by_industry(
+    per_industry: int = SAMPLE_COMPANIES_PER_INDUSTRY,
+) -> dict[str, list[str]]:
+    """Section-based fixed sampling using mappings file order."""
+    with open(MAPPINGS_FILE, encoding="utf-8") as f:
+        data = json.load(f)
+
+    mappings = data.get("mappings", {})
+
+    prefix_to_industry = {}
+    for industry, prefixes in INDUSTRY_SECTIONS.items():
+        for prefix in prefixes:
+            prefix_to_industry[prefix] = industry
+
+    samples: dict[str, list[str]] = {industry: [] for industry in INDUSTRY_SECTIONS.keys()}
+    current_industry = None
+
+    for key in mappings.keys():
+        if key.startswith("_"):
+            for prefix, industry in prefix_to_industry.items():
+                if key.startswith(prefix):
+                    current_industry = industry
+                    break
+            continue
+
+        industry = current_industry or "その他"
+        if industry not in samples:
+            samples[industry] = []
+        if len(samples[industry]) < per_industry:
+            samples[industry].append(key)
+
+    return samples
+
+
+def flatten_sample_companies(samples_by_industry: dict[str, list[str]]) -> list[str]:
+    """Flatten samples in industry order for deterministic iteration."""
+    flattened = []
+    for industry in INDUSTRY_SECTIONS.keys():
+        flattened.extend(samples_by_industry.get(industry, []))
+    for industry, companies in samples_by_industry.items():
+        if industry not in INDUSTRY_SECTIONS:
+            flattened.extend(companies)
+    return flattened
 
 
 # =============================================================================
@@ -590,17 +772,15 @@ def parent_child_pairs():
 
 
 @pytest.fixture(scope="module")
-def sample_companies():
-    """Representative sample companies for detailed testing."""
-    return [
-        "三菱地所",
-        "NTTデータ",
-        "トヨタ自動車",
-        "三井物産",
-        "野村證券",
-        "パナソニック",
-        "アクセンチュア",
-    ]
+def sample_companies_by_industry():
+    """Section-based fixed sample companies for detailed testing."""
+    return get_sample_companies_by_industry()
+
+
+@pytest.fixture(scope="module")
+def sample_companies(sample_companies_by_industry):
+    """Flattened sample companies list."""
+    return flatten_sample_companies(sample_companies_by_industry)
 
 
 # =============================================================================
@@ -619,14 +799,16 @@ def save_results_on_finish(result_collector):
     """テスト終了時に結果を自動保存"""
     yield
     # テスト終了後に結果を保存
-    if (result_collector.parent_results or
-        result_collector.subsidiary_results or
-        result_collector.official_domain_results or
-        result_collector.recruitment_quality_results):
+    if (
+        result_collector.parent_results
+        or result_collector.subsidiary_results
+        or result_collector.official_domain_results
+        or result_collector.recruitment_quality_results
+    ):
         OUTPUT_DIR.mkdir(exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        result_collector.save_json(OUTPUT_DIR / f"comprehensive_search_{timestamp}.json")
-        result_collector.save_markdown(OUTPUT_DIR / f"comprehensive_search_{timestamp}.md")
+        result_collector.save_markdown(
+            OUTPUT_DIR / "comprehensive_search_report.md"
+        )
 
 
 # =============================================================================
@@ -641,27 +823,24 @@ class TestCompanyRelationships:
         """全子会社の親会社がmappingsに存在すること"""
         for name, mapping in subsidiaries:
             parent = mapping.get("parent")
-            assert parent in all_companies, (
-                f"子会社 '{name}' の親会社 '{parent}' がmappingsに存在しません"
-            )
+            assert (
+                parent in all_companies
+            ), f"子会社 '{name}' の親会社 '{parent}' がmappingsに存在しません"
 
     def test_parent_companies_have_domains(self, all_companies, parent_companies):
         """全親会社・独立企業がドメインパターンを持つこと"""
         for name, domains in parent_companies:
-            assert len(domains) > 0, (
-                f"企業 '{name}' にドメインパターンがありません"
-            )
+            assert len(domains) > 0, f"企業 '{name}' にドメインパターンがありません"
 
     def test_subsidiaries_have_domains(self, subsidiaries):
         """全子会社がドメインパターンを持つこと"""
         for name, mapping in subsidiaries:
             domains = get_domains(mapping)
-            assert len(domains) > 0, (
-                f"子会社 '{name}' にドメインパターンがありません"
-            )
+            assert len(domains) > 0, f"子会社 '{name}' にドメインパターンがありません"
 
     def test_no_circular_parent_references(self, all_companies):
         """親会社の循環参照がないこと"""
+
         def get_parent_chain(company: str, visited: set) -> list[str]:
             if company in visited:
                 return list(visited) + [company]
@@ -687,9 +866,9 @@ class TestCompanyRelationships:
 
         # Verify each parent has at least the subsidiaries we expect
         for parent, children in by_parent.items():
-            assert parent in all_companies, (
-                f"親会社 '{parent}' が存在しません。子会社: {children}"
-            )
+            assert (
+                parent in all_companies
+            ), f"親会社 '{parent}' が存在しません。子会社: {children}"
 
     def test_domain_patterns_are_unique(self, all_companies):
         """ドメインパターンが一意であること（同じパターンが複数企業にない）"""
@@ -714,14 +893,13 @@ class TestCompanyRelationships:
         # Some generic patterns like "msi" might be intentionally shared
         # Allow up to 2 companies per pattern, or known shared patterns
         problematic = {
-            p: c for p, c in duplicates.items()
+            p: c
+            for p, c in duplicates.items()
             if len(c) > 2 and p not in known_shared_patterns
         }
 
         if problematic:
-            msg = "\n".join(
-                f"  '{p}': {c}" for p, c in problematic.items()
-            )
+            msg = "\n".join(f"  '{p}': {c}" for p, c in problematic.items())
             pytest.fail(f"同一ドメインパターンが3社以上で使用:\n{msg}")
 
         # Report shared patterns as info
@@ -755,7 +933,6 @@ class TestComprehensiveSearch:
             if i % 100 == 0:
                 print(f"\n[親会社検索] {i}/{total} 完了...")
             query = f"{name} 採用"
-            await asyncio.sleep(SEARCH_DELAY_SECONDS)
             results = await search_with_ddgs(query, max_results=5)
 
             # 上位3件の詳細情報を収集
@@ -805,16 +982,27 @@ class TestComprehensiveSearch:
                 print(f"\n[Warning] {msg}")
 
     @pytest.mark.asyncio
-    async def test_official_domain_in_results(
-        self, sample_companies, all_companies, result_collector
+    async def test_official_domain_and_recruitment_quality_sampled(
+        self,
+        sample_companies,
+        sample_companies_by_industry,
+        all_companies,
+        result_collector,
     ):
-        """代表企業の検索結果に公式ドメインが含まれること"""
+        """公式ドメイン検出と採用検索品質をサンプルで同時検証"""
         if not HAS_DDGS:
             pytest.skip("ddgs 未インストール")
 
-        results_summary = []
+        result_collector.set_sample_companies_by_industry(sample_companies_by_industry)
 
-        for company_name in sample_companies:
+        results_summary = []
+        recruit_keywords = ["採用", "新卒", "キャリア", "recruit", "career"]
+
+        total = len(sample_companies)
+        for i, company_name in enumerate(sample_companies):
+            if i % 20 == 0:
+                print(f"\n[統合検索] {i}/{total} 完了...")
+
             mapping = all_companies.get(company_name)
             if not mapping:
                 continue
@@ -824,22 +1012,15 @@ class TestComprehensiveSearch:
                 continue
 
             query = f"{company_name} 採用"
-            await asyncio.sleep(SEARCH_DELAY_SECONDS)
             results = await search_with_ddgs(query, max_results=10)
 
-            # 実際に見つかったドメインを収集
-            actual_domains = list(set(
-                extract_domain(r.get("href", ""))
-                for r in results
-                if r.get("href")
-            ))
-
-            official_found = any(
-                check_domain_match(r.get("href", ""), domains)
-                for r in results
+            # Official domain detection
+            actual_domains = list(
+                set(extract_domain(r.get("href", "")) for r in results if r.get("href"))
             )
-
-            # 結果を収集
+            official_found = any(
+                check_domain_match(r.get("href", ""), domains) for r in results
+            )
             result_collector.add_official_domain_result(
                 company=company_name,
                 domains=domains,
@@ -848,47 +1029,7 @@ class TestComprehensiveSearch:
                 actual_domains=actual_domains,
             )
 
-            results_summary.append({
-                "company": company_name,
-                "domains": domains,
-                "results_count": len(results),
-                "official_found": official_found,
-            })
-
-        # Report
-        found_count = sum(1 for r in results_summary if r["official_found"])
-        print(f"\n公式ドメイン検出率: {found_count}/{len(results_summary)}")
-
-        for r in results_summary:
-            status = "✓" if r["official_found"] else "✗"
-            print(f"  {status} {r['company']}: {r['results_count']}件")
-
-        # At least 50% should find official domain
-        assert found_count >= len(results_summary) * 0.5, (
-            f"公式ドメイン検出率が50%未満: {found_count}/{len(results_summary)}"
-        )
-
-
-@pytest.mark.slow
-@pytest.mark.integration
-class TestSearchResultQuality:
-    """検索結果の品質詳細検証"""
-
-    @pytest.mark.asyncio
-    async def test_recruitment_search_quality(self, sample_companies, result_collector):
-        """代表企業の採用検索品質"""
-        if not HAS_DDGS:
-            pytest.skip("ddgs 未インストール")
-
-        results_summary = []
-
-        for company_name in sample_companies:
-            query = f"{company_name} 新卒採用"
-            await asyncio.sleep(SEARCH_DELAY_SECONDS)
-            results = await search_with_ddgs(query, max_results=10)
-
-            # Check for recruitment-related keywords in results
-            recruit_keywords = ["採用", "新卒", "キャリア", "recruit", "career"]
+            # Recruitment quality
             keyword_matches = 0
             for r in results:
                 title = r.get("title", "").lower()
@@ -898,8 +1039,6 @@ class TestSearchResultQuality:
                     keyword_matches += 1
 
             match_rate = keyword_matches / max(len(results), 1)
-
-            # 上位3件の詳細情報を収集
             top_results = [
                 {
                     "title": r.get("title", ""),
@@ -908,8 +1047,6 @@ class TestSearchResultQuality:
                 }
                 for r in results[:3]
             ]
-
-            # 結果を収集
             result_collector.add_recruitment_quality_result(
                 company=company_name,
                 match_rate=match_rate,
@@ -918,20 +1055,25 @@ class TestSearchResultQuality:
                 top_results=top_results,
             )
 
-            results_summary.append({
-                "company": company_name,
-                "results_count": len(results),
-                "keyword_matches": keyword_matches,
-                "match_rate": match_rate,
-            })
+            results_summary.append(
+                {
+                    "company": company_name,
+                    "results_count": len(results),
+                    "official_found": official_found,
+                    "match_rate": match_rate,
+                }
+            )
 
-        print("\n採用検索品質:")
-        for r in results_summary:
-            print(f"  {r['company']}: {r['keyword_matches']}/{r['results_count']} "
-                  f"({r['match_rate']:.0%})")
+        found_count = sum(1 for r in results_summary if r["official_found"])
+        official_rate = found_count / max(len(results_summary), 1)
+        avg_rate = sum(r["match_rate"] for r in results_summary) / max(
+            len(results_summary), 1
+        )
 
-        # Average match rate should be at least 50%
-        avg_rate = sum(r["match_rate"] for r in results_summary) / len(results_summary)
+        print(f"\n公式ドメイン検出率: {found_count}/{len(results_summary)}")
+        print(f"採用検索品質（平均）: {avg_rate:.0%}")
+
+        assert official_rate >= 0.5, f"公式ドメイン検出率が50%未満: {official_rate:.0%}"
         assert avg_rate >= 0.5, f"採用キーワードマッチ率が50%未満: {avg_rate:.0%}"
 
 
@@ -941,7 +1083,9 @@ class TestParentSubsidiarySearchBehavior:
     """親子会社検索時の挙動検証"""
 
     @pytest.mark.asyncio
-    async def test_subsidiary_search_returns_results(self, subsidiaries, result_collector):
+    async def test_subsidiary_search_returns_results(
+        self, subsidiaries, result_collector
+    ):
         """子会社検索で結果が返されること"""
         if not HAS_DDGS:
             pytest.skip("ddgs 未インストール")
@@ -954,7 +1098,6 @@ class TestParentSubsidiarySearchBehavior:
             if i % 100 == 0:
                 print(f"\n[子会社検索] {i}/{total} 完了...")
             query = f"{name} 採用"
-            await asyncio.sleep(SEARCH_DELAY_SECONDS)
             results = await search_with_ddgs(query, max_results=5)
 
             parent = mapping.get("parent", "")
@@ -989,9 +1132,9 @@ class TestParentSubsidiarySearchBehavior:
                 print(f"  ... 他 {len(failed) - 20}社")
             # Don't fail - just warn for subsidiaries as they might be less searchable
             fail_rate = len(failed) / len(subsidiaries)
-            assert fail_rate < 0.5, (
-                f"子会社検索で結果なしが多すぎます: {len(failed)}/{len(subsidiaries)} ({fail_rate:.0%})"
-            )
+            assert (
+                fail_rate < 0.5
+            ), f"子会社検索で結果なしが多すぎます: {len(failed)}/{len(subsidiaries)} ({fail_rate:.0%})"
 
 
 # =============================================================================
