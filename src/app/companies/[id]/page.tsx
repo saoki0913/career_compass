@@ -426,512 +426,392 @@ export default function CompanyDetailPage() {
           </div>
         )}
 
-        {/* 2-column grid layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Left column: Company info + Corporate RAG */}
-          <div className="space-y-4">
-            {/* Company info card - Redesigned */}
-            <Card className="border-border/50">
-              {/* Header: Company name + Edit/Delete */}
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <CardTitle className="text-xl font-bold">{company.name}</CardTitle>
-                      {company.recruitmentUrl && (
-                        <a
-                          href={company.recruitmentUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-sm text-primary hover:underline"
-                        >
-                          <ExternalLinkIcon />
-                          採用ページ
-                        </a>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <span
-                        className={cn(
-                          "px-2.5 py-1 rounded-full text-xs font-medium",
-                          statusConfigData.bgColor,
-                          statusConfigData.color
-                        )}
-                      >
-                        {statusConfigData.label}
-                      </span>
-                      {company.industry && (
-                        <span className="text-sm text-muted-foreground">•</span>
-                      )}
-                      {company.industry && (
-                        <span className="text-sm text-muted-foreground">{company.industry}</span>
-                      )}
-                      {company.corporateUrl && (
-                        <>
-                          <span className="text-sm text-muted-foreground">•</span>
-                          <a
-                            href={company.corporateUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-                          >
-                            <ExternalLinkIcon />
-                            企業HP
-                          </a>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-1.5">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowEditModal(true)}
-                      className="h-8 px-2 text-muted-foreground hover:text-foreground"
-                    >
-                      <EditIcon />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2 text-muted-foreground hover:text-red-600"
-                      onClick={() => setShowDeleteConfirm(true)}
-                    >
-                      <TrashIcon />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-
-              <CardContent className="space-y-4 pt-0">
-
-                {/* Main Action Cards - 2 columns */}
-                <div className="grid grid-cols-2 gap-3">
-                  <Link
-                    href={`/companies/${company.id}/motivation`}
-                    className="group flex flex-col gap-1.5 p-4 rounded-xl border-2 border-primary/20 bg-primary/5 hover:border-primary/40 hover:bg-primary/10 transition-all"
-                  >
-                    <div className="flex items-center gap-2 text-primary">
-                      <SparklesIcon />
-                      <span className="font-semibold text-sm">志望動機を作成</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      AIとの対話で志望動機を生成
-                    </p>
-                  </Link>
-                  <Link
-                    href={`/es?companyId=${company.id}`}
-                    className="group flex flex-col gap-1.5 p-4 rounded-xl border-2 border-border hover:border-primary/30 hover:bg-muted/50 transition-all"
-                  >
-                    <div className="flex items-center gap-2">
-                      <FileTextIcon />
-                      <span className="font-semibold text-sm">ESを作成</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      新規ESドキュメントを作成
-                    </p>
-                  </Link>
-                </div>
-
-                {/* AI Action - Simplified, consistent design */}
-                <div className="space-y-0.5">
-                  <FetchInfoButton
-                    companyId={company.id}
-                    companyName={company.name}
-                    hasRecruitmentUrl={!!company.recruitmentUrl}
-                    onSuccess={refreshDeadlines}
-                  />
-                  <p className="text-xs text-muted-foreground ml-6">
-                    採用ページから締切・選考情報を自動抽出
-                  </p>
-                </div>
-
-                {/* マイページ情報 */}
-                {(company.mypageUrl || company.mypageLoginId || company.mypagePassword) && (
-                  <div className="p-3 rounded-lg bg-muted/30 border border-border/50">
-                    <h3 className="text-xs font-medium text-muted-foreground mb-2">マイページ情報</h3>
-                    <div className="space-y-2 text-sm">
-                      {company.mypageUrl && (
-                        <a
-                          href={company.mypageUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 text-primary hover:underline"
-                        >
-                          <ExternalLinkIcon />
-                          マイページを開く
-                        </a>
-                      )}
-                      {company.mypageLoginId && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground w-8">ID:</span>
-                          <code className="px-2 py-0.5 rounded bg-muted font-mono text-xs">{company.mypageLoginId}</code>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(company.mypageLoginId || "");
-                            }}
-                            className="p-1 text-muted-foreground hover:text-foreground transition-colors"
-                            title="コピー"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                          </button>
-                        </div>
-                      )}
-                      {company.mypagePassword && (
-                        <PasswordField value={company.mypagePassword} />
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Notes */}
-                {company.notes && (
-                  <div className="pt-2 border-t border-border/50">
-                    <h3 className="text-xs font-medium text-muted-foreground mb-1.5">メモ</h3>
-                    <p className="text-sm whitespace-pre-wrap line-clamp-3 text-muted-foreground">{company.notes}</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Corporate Info (RAG) section */}
-            <CorporateInfoSection
-              companyId={company.id}
-              companyName={company.name}
-              onUpdate={fetchCompany}
-            />
-
-            {/* Linked ES Documents section */}
-            <Card className="border-border/50">
-              <CardHeader className="flex flex-row items-center justify-between py-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <DocumentIcon />
-                  この企業のES
-                  {esDocuments.length > 0 && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                      {esDocuments.length}
-                    </span>
-                  )}
-                </CardTitle>
-                <Link
-                  href={`/es?companyId=${company.id}`}
-                  className="text-xs text-primary hover:underline"
+        {/* Company Header with Quick Actions */}
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4 pb-4 border-b border-border/50">
+          {/* Left: Company Info */}
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl font-bold">{company.name}</h1>
+              {company.recruitmentUrl && (
+                <a
+                  href={company.recruitmentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-sm text-primary hover:underline"
                 >
-                  新規作成
-                </Link>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {isLoadingES ? (
-                  <div className="flex items-center justify-center py-6">
-                    <LoadingSpinner />
-                  </div>
-                ) : esDocuments.length === 0 ? (
-                  <div className="text-center py-6 text-muted-foreground">
-                    <p className="text-sm">まだESが作成されていません</p>
-                    <Link
-                      href={`/es?companyId=${company.id}`}
-                      className="inline-flex items-center gap-1 mt-2 text-sm text-primary hover:underline"
-                    >
-                      <FileTextIcon />
-                      ESを作成する
-                    </Link>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                    {esDocuments.map((doc) => {
-                      const statusConfig = {
-                        draft: { bg: "bg-gray-100", text: "text-gray-600", label: "下書き" },
-                        in_review: { bg: "bg-amber-100", text: "text-amber-700", label: "レビュー中" },
-                        completed: { bg: "bg-emerald-100", text: "text-emerald-700", label: "完了" },
-                      };
-                      const status = statusConfig[doc.status as keyof typeof statusConfig] || statusConfig.draft;
-                      const updatedDate = new Date(doc.updatedAt);
-
-                      return (
-                        <Link
-                          key={doc.id}
-                          href={`/es/${doc.id}`}
-                          className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors group"
-                        >
-                          <FileTextIcon />
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm truncate group-hover:text-primary transition-colors">
-                              {doc.title}
-                            </p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className={cn("text-xs px-2 py-0.5 rounded-full", status.bg, status.text)}>
-                                {status.label}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {updatedDate.toLocaleDateString("ja-JP", { month: "short", day: "numeric" })}
-                              </span>
-                            </div>
-                          </div>
-                          <ChevronRightIcon />
-                        </Link>
-                      );
-                    })}
-                  </div>
+                  <ExternalLinkIcon />
+                  採用ページ
+                </a>
+              )}
+            </div>
+            <div className="flex items-center gap-2 mt-1.5">
+              <span
+                className={cn(
+                  "px-2.5 py-1 rounded-full text-xs font-medium",
+                  statusConfigData.bgColor,
+                  statusConfigData.color
                 )}
-              </CardContent>
-            </Card>
+              >
+                {statusConfigData.label}
+              </span>
+              {company.industry && (
+                <>
+                  <span className="text-sm text-muted-foreground">•</span>
+                  <span className="text-sm text-muted-foreground">{company.industry}</span>
+                </>
+              )}
+              {company.corporateUrl && (
+                <>
+                  <span className="text-sm text-muted-foreground">•</span>
+                  <a
+                    href={company.corporateUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+                  >
+                    <ExternalLinkIcon />
+                    企業HP
+                  </a>
+                </>
+              )}
+            </div>
           </div>
 
-          {/* Right column: Deadlines (priority) + Applications */}
-          <div className="space-y-4">
-            {/* Deadlines section - Redesigned with grouping */}
-            <Card className="border-border/50">
-              <CardHeader className="flex flex-row items-center justify-between py-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <CalendarIcon />
-                  締切・予定
-                  {deadlines.filter(d => !d.isConfirmed).length > 0 && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
-                      {deadlines.filter(d => !d.isConfirmed).length}件要確認
-                    </span>
-                  )}
-                </CardTitle>
-                <div className="flex gap-2">
-                  {deadlines.filter(d => !d.isConfirmed).length > 1 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowApprovalModal(true)}
-                      className="text-amber-700 border-amber-300 hover:bg-amber-50"
-                    >
-                      一括承認
-                    </Button>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setEditingDeadline(undefined);
-                      setShowDeadlineModal(true);
-                    }}
+          {/* Right: Quick Actions + Edit/Delete */}
+          <div className="flex flex-col gap-1.5 items-end">
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/companies/${company.id}/motivation`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 transition-colors text-sm font-medium"
+              >
+                <SparklesIcon />
+                志望動機
+              </Link>
+              <Link
+                href={`/es?companyId=${company.id}`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border hover:bg-muted/50 transition-colors text-sm font-medium"
+              >
+                <FileTextIcon />
+                ES作成
+              </Link>
+              <FetchInfoButton
+                companyId={company.id}
+                companyName={company.name}
+                hasRecruitmentUrl={!!company.recruitmentUrl}
+                onSuccess={refreshDeadlines}
+              />
+              <div className="flex gap-0.5 ml-1 pl-2 border-l border-border/50">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowEditModal(true)}
+                  className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                >
+                  <EditIcon />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600"
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  <TrashIcon />
+                </Button>
+              </div>
+            </div>
+            {/* マイページ情報（コンパクト表示） */}
+            {(company.mypageLoginId || company.mypagePassword || company.mypageUrl) && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                {company.mypageUrl && (
+                  <a
+                    href={company.mypageUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-primary hover:underline"
                   >
-                    追加
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {isLoadingDeadlines ? (
-                  <div className="flex items-center justify-center py-6">
-                    <LoadingSpinner />
+                    <ExternalLinkIcon />
+                    マイページ
+                  </a>
+                )}
+                {company.mypageLoginId && (
+                  <div className="flex items-center gap-1">
+                    <span>ID:</span>
+                    <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{company.mypageLoginId}</code>
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard.writeText(company.mypageLoginId || "")}
+                      className="p-0.5 hover:text-foreground"
+                      title="コピー"
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
                   </div>
-                ) : deadlines.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <CalendarIcon />
-                    <p className="text-sm mt-2">まだ締切が登録されていません</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-3"
+                )}
+                {company.mypagePassword && (
+                  <PasswordField value={company.mypagePassword} />
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 2-column grid: Deadlines + Applications */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+          {/* Left column: Deadlines */}
+          <Card className={cn(
+            "border-border/50",
+            (() => {
+              const now = new Date();
+              const hasOverdue = deadlines.some(d => {
+                const dueDate = new Date(d.dueDate);
+                return !d.completedAt && dueDate < now;
+              });
+              const hasThisWeek = deadlines.some(d => {
+                const dueDate = new Date(d.dueDate);
+                const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                return !d.completedAt && dueDate >= now && daysLeft <= 7;
+              });
+              if (hasOverdue) return "bg-red-50/30 border-red-200";
+              if (hasThisWeek) return "bg-amber-50/30 border-amber-200/50";
+              return "";
+            })()
+          )}>
+          <CardHeader className="flex flex-row items-center justify-between py-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CalendarIcon />
+              締切・予定
+              {deadlines.filter(d => !d.isConfirmed).length > 0 && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                  {deadlines.filter(d => !d.isConfirmed).length}件要確認
+                </span>
+              )}
+              {(() => {
+                const now = new Date();
+                const thisWeekCount = deadlines.filter(d => {
+                  const dueDate = new Date(d.dueDate);
+                  const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                  return !d.completedAt && dueDate >= now && daysLeft <= 7;
+                }).length;
+                return thisWeekCount > 0 ? (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium">
+                    今週中に{thisWeekCount}件
+                  </span>
+                ) : null;
+              })()}
+            </CardTitle>
+            <div className="flex gap-2">
+              {deadlines.filter(d => !d.isConfirmed).length > 1 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowApprovalModal(true)}
+                  className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                >
+                  一括承認
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setEditingDeadline(undefined);
+                  setShowDeadlineModal(true);
+                }}
+              >
+                追加
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {isLoadingDeadlines ? (
+              <div className="flex items-center justify-center py-6">
+                <LoadingSpinner />
+              </div>
+            ) : deadlines.length === 0 ? (
+              <div className="text-center py-6 text-muted-foreground">
+                <CalendarIcon />
+                <p className="text-sm mt-2">まだ締切が登録されていません</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => {
+                    setEditingDeadline(undefined);
+                    setShowDeadlineModal(true);
+                  }}
+                >
+                  締切を追加する
+                </Button>
+              </div>
+            ) : (() => {
+              // Group deadlines by urgency
+              const now = new Date();
+              const overdueDeadlines = deadlines.filter(d => {
+                const dueDate = new Date(d.dueDate);
+                return !d.completedAt && dueDate < now;
+              });
+              const thisWeekDeadlines = deadlines.filter(d => {
+                const dueDate = new Date(d.dueDate);
+                const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                return !d.completedAt && dueDate >= now && daysLeft <= 7;
+              });
+              const futureDeadlines = deadlines.filter(d => {
+                const dueDate = new Date(d.dueDate);
+                const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                return !d.completedAt && daysLeft > 7;
+              });
+              const completedDeadlines = deadlines.filter(d => d.completedAt);
+
+              const renderDeadlineItem = (deadline: Deadline) => {
+                const isCompleted = !!deadline.completedAt;
+                const dueDate = new Date(deadline.dueDate);
+                const isOverdue = !isCompleted && dueDate < now;
+                const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+                const confidenceConfig = {
+                  high: { bg: "bg-emerald-100", text: "text-emerald-700", label: "高" },
+                  medium: { bg: "bg-amber-100", text: "text-amber-700", label: "中" },
+                  low: { bg: "bg-red-100", text: "text-red-700", label: "低" },
+                };
+                const confidenceStyle = deadline.confidence ? confidenceConfig[deadline.confidence] : null;
+
+                return (
+                  <div
+                    key={deadline.id}
+                    className={cn(
+                      "flex items-center gap-2 p-2 rounded-lg transition-colors",
+                      isCompleted
+                        ? "bg-muted/30 opacity-60"
+                        : isOverdue
+                        ? "bg-red-50/80"
+                        : !deadline.isConfirmed
+                        ? "bg-amber-50/50"
+                        : "bg-muted/30"
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleComplete(deadline.id)}
+                      className={cn(
+                        "w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer",
+                        isCompleted
+                          ? "bg-primary border-primary text-primary-foreground"
+                          : isOverdue
+                          ? "border-red-400 hover:border-red-500"
+                          : "border-muted-foreground/40 hover:border-primary"
+                      )}
+                    >
+                      {isCompleted && (
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </button>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                          {DEADLINE_TYPE_LABELS[deadline.type] || deadline.type}
+                        </span>
+                        {!deadline.isConfirmed && (
+                          <button
+                            type="button"
+                            onClick={() => confirmDeadline(deadline.id)}
+                            className="px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-700 hover:bg-yellow-200 transition-colors cursor-pointer"
+                          >
+                            要確認
+                          </button>
+                        )}
+                        {confidenceStyle && !deadline.isConfirmed && (
+                          <span className={cn("text-xs px-2 py-0.5 rounded-full", confidenceStyle.bg, confidenceStyle.text)}>
+                            信頼度: {confidenceStyle.label}
+                          </span>
+                        )}
+                      </div>
+                      <p className={cn("font-medium text-sm mt-1", isCompleted && "line-through text-muted-foreground")}>{deadline.title}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <p className={cn("text-xs", isOverdue ? "text-red-600 font-medium" : "text-muted-foreground")}>
+                          {dueDate.toLocaleDateString("ja-JP", { month: "short", day: "numeric", weekday: "short" })}
+                          {!isCompleted && (
+                            <span className="ml-1">
+                              {isOverdue
+                                ? "（期限切れ）"
+                                : daysLeft === 0
+                                ? "（今日）"
+                                : daysLeft === 1
+                                ? "（明日）"
+                                : `（${daysLeft}日後）`}
+                            </span>
+                          )}
+                        </p>
+                        {deadline.sourceUrl && !deadline.isConfirmed && (
+                          <a
+                            href={deadline.sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            <ExternalLinkIcon />
+                            取得元
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
                       onClick={() => {
-                        setEditingDeadline(undefined);
+                        setEditingDeadline(deadline);
                         setShowDeadlineModal(true);
                       }}
+                      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                     >
-                      締切を追加する
-                    </Button>
+                      <EditIcon />
+                    </button>
                   </div>
-                ) : (() => {
-                  // Group deadlines by urgency
-                  const now = new Date();
-                  const overdueDeadlines = deadlines.filter(d => {
-                    const dueDate = new Date(d.dueDate);
-                    return !d.completedAt && dueDate < now;
-                  });
-                  const thisWeekDeadlines = deadlines.filter(d => {
-                    const dueDate = new Date(d.dueDate);
-                    const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                    return !d.completedAt && dueDate >= now && daysLeft <= 7;
-                  });
-                  const futureDeadlines = deadlines.filter(d => {
-                    const dueDate = new Date(d.dueDate);
-                    const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                    return !d.completedAt && daysLeft > 7;
-                  });
-                  const completedDeadlines = deadlines.filter(d => d.completedAt);
+                );
+              };
 
-                  const renderDeadlineItem = (deadline: Deadline) => {
-                    const isCompleted = !!deadline.completedAt;
-                    const dueDate = new Date(deadline.dueDate);
-                    const isOverdue = !isCompleted && dueDate < now;
-                    const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+              // Combine urgent deadlines (overdue + this week)
+              const urgentDeadlines = [...overdueDeadlines, ...thisWeekDeadlines];
 
-                    const confidenceConfig = {
-                      high: { bg: "bg-emerald-100", text: "text-emerald-700", label: "高" },
-                      medium: { bg: "bg-amber-100", text: "text-amber-700", label: "中" },
-                      low: { bg: "bg-red-100", text: "text-red-700", label: "低" },
-                    };
-                    const confidenceStyle = deadline.confidence ? confidenceConfig[deadline.confidence] : null;
-
-                    return (
-                      <div
-                        key={deadline.id}
-                        className={cn(
-                          "flex items-center gap-3 p-3 rounded-lg transition-colors",
-                          isCompleted
-                            ? "bg-muted/30 opacity-60"
-                            : isOverdue
-                            ? "bg-red-50/80"
-                            : !deadline.isConfirmed
-                            ? "bg-amber-50/50"
-                            : "bg-muted/30"
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => toggleComplete(deadline.id)}
-                          className={cn(
-                            "w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer",
-                            isCompleted
-                              ? "bg-primary border-primary text-primary-foreground"
-                              : isOverdue
-                              ? "border-red-400 hover:border-red-500"
-                              : "border-muted-foreground/40 hover:border-primary"
-                          )}
-                        >
-                          {isCompleted && (
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </button>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                              {DEADLINE_TYPE_LABELS[deadline.type] || deadline.type}
-                            </span>
-                            {!deadline.isConfirmed && (
-                              <button
-                                type="button"
-                                onClick={() => confirmDeadline(deadline.id)}
-                                className="px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-700 hover:bg-yellow-200 transition-colors cursor-pointer"
-                              >
-                                要確認
-                              </button>
-                            )}
-                            {confidenceStyle && !deadline.isConfirmed && (
-                              <span className={cn("text-xs px-2 py-0.5 rounded-full", confidenceStyle.bg, confidenceStyle.text)}>
-                                信頼度: {confidenceStyle.label}
-                              </span>
-                            )}
-                          </div>
-                          <p className={cn("font-medium text-sm mt-1", isCompleted && "line-through text-muted-foreground")}>{deadline.title}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <p className={cn("text-xs", isOverdue ? "text-red-600 font-medium" : "text-muted-foreground")}>
-                              {dueDate.toLocaleDateString("ja-JP", { month: "short", day: "numeric", weekday: "short" })}
-                              {!isCompleted && (
-                                <span className="ml-1">
-                                  {isOverdue
-                                    ? "（期限切れ）"
-                                    : daysLeft === 0
-                                    ? "（今日）"
-                                    : daysLeft === 1
-                                    ? "（明日）"
-                                    : `（${daysLeft}日後）`}
-                                </span>
-                              )}
-                            </p>
-                            {deadline.sourceUrl && !deadline.isConfirmed && (
-                              <a
-                                href={deadline.sourceUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                              >
-                                <ExternalLinkIcon />
-                                取得元
-                              </a>
-                            )}
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingDeadline(deadline);
-                            setShowDeadlineModal(true);
-                          }}
-                          className="p-1.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                        >
-                          <EditIcon />
-                        </button>
-                      </div>
-                    );
-                  };
-
-                  return (
-                    <div className="space-y-4 max-h-[400px] overflow-y-auto">
-                      {/* Overdue Group */}
-                      {overdueDeadlines.length > 0 && (
-                        <div>
-                          <div className="flex items-center gap-2 mb-2 px-1">
-                            <AlertCircleIcon />
-                            <span className="text-sm font-semibold text-red-700">期限切れ ({overdueDeadlines.length})</span>
-                          </div>
-                          <div className="space-y-2 p-2 rounded-lg bg-red-50/50 border border-red-200">
-                            {overdueDeadlines.map(renderDeadlineItem)}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* This Week Group */}
-                      {thisWeekDeadlines.length > 0 && (
-                        <div>
-                          <div className="flex items-center gap-2 mb-2 px-1">
-                            <ClockIcon />
-                            <span className="text-sm font-semibold text-amber-700">今週中 ({thisWeekDeadlines.length})</span>
-                          </div>
-                          <div className="space-y-2 p-2 rounded-lg bg-amber-50/30 border border-amber-200/50">
-                            {thisWeekDeadlines.map(renderDeadlineItem)}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Future Group */}
-                      {futureDeadlines.length > 0 && (
-                        <div>
-                          <div className="flex items-center gap-2 mb-2 px-1">
-                            <CalendarIcon />
-                            <span className="text-sm font-medium text-muted-foreground">今後の予定 ({futureDeadlines.length})</span>
-                          </div>
-                          <div className="space-y-2">
-                            {futureDeadlines.map(renderDeadlineItem)}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Completed Group - Collapsed by default */}
-                      {completedDeadlines.length > 0 && (
-                        <div className="pt-2 border-t border-border/50">
-                          <div className="flex items-center gap-2 mb-2 px-1">
-                            <span className="text-sm text-muted-foreground">完了済み ({completedDeadlines.length})</span>
-                          </div>
-                          <div className="space-y-2">
-                            {completedDeadlines.slice(0, 3).map(renderDeadlineItem)}
-                            {completedDeadlines.length > 3 && (
-                              <p className="text-xs text-muted-foreground text-center py-2">
-                                他 {completedDeadlines.length - 3} 件
-                              </p>
-                            )}
-                          </div>
-                        </div>
+              return (
+                <div className="space-y-2 max-h-[220px] overflow-y-auto">
+                  {/* Urgent deadlines (overdue + this week) */}
+                  {urgentDeadlines.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {urgentDeadlines.slice(0, 4).map(renderDeadlineItem)}
+                      {urgentDeadlines.length > 4 && (
+                        <p className="text-xs text-muted-foreground text-center py-1">
+                          他 {urgentDeadlines.length - 4} 件の今週締切
+                        </p>
                       )}
                     </div>
-                  );
-                })()}
-              </CardContent>
-            </Card>
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-2">今週の締切はありません</p>
+                  )}
 
-            {/* Applications section */}
-            <Card className="border-border/50">
+                  {/* Future + Completed (collapsed) */}
+                  {(futureDeadlines.length > 0 || completedDeadlines.length > 0) && (
+                    <div className="pt-2 border-t border-border/30 flex items-center gap-4 text-xs text-muted-foreground">
+                      {futureDeadlines.length > 0 && (
+                        <span>今後: {futureDeadlines.length}件</span>
+                      )}
+                      {completedDeadlines.length > 0 && (
+                        <span>完了: {completedDeadlines.length}件</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </CardContent>
+          </Card>
+
+          {/* Right column: Applications */}
+          <Card className="border-border/50">
               <CardHeader className="flex flex-row items-center justify-between py-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <BriefcaseIcon />
@@ -1034,8 +914,92 @@ export default function CompanyDetailPage() {
                   </div>
                 )}
               </CardContent>
-            </Card>
-          </div>
+          </Card>
+        </div>
+
+        {/* Full-width bottom section: Corporate Info DB + ES Documents */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Corporate Info (RAG) section */}
+          <CorporateInfoSection
+            companyId={company.id}
+            companyName={company.name}
+            onUpdate={fetchCompany}
+          />
+
+          {/* Linked ES Documents section */}
+          <Card className="border-border/50">
+            <CardHeader className="flex flex-row items-center justify-between py-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <DocumentIcon />
+                この企業のES
+                {esDocuments.length > 0 && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                    {esDocuments.length}
+                  </span>
+                )}
+              </CardTitle>
+              <Link
+                href={`/es?companyId=${company.id}`}
+                className="text-xs text-primary hover:underline"
+              >
+                新規作成
+              </Link>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {isLoadingES ? (
+                <div className="flex items-center justify-center py-6">
+                  <LoadingSpinner />
+                </div>
+              ) : esDocuments.length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  <p className="text-sm">まだESが作成されていません</p>
+                  <Link
+                    href={`/es?companyId=${company.id}`}
+                    className="inline-flex items-center gap-1 mt-2 text-sm text-primary hover:underline"
+                  >
+                    <FileTextIcon />
+                    ESを作成する
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                  {esDocuments.map((doc) => {
+                    const statusConfig = {
+                      draft: { bg: "bg-gray-100", text: "text-gray-600", label: "下書き" },
+                      in_review: { bg: "bg-amber-100", text: "text-amber-700", label: "レビュー中" },
+                      completed: { bg: "bg-emerald-100", text: "text-emerald-700", label: "完了" },
+                    };
+                    const status = statusConfig[doc.status as keyof typeof statusConfig] || statusConfig.draft;
+                    const updatedDate = new Date(doc.updatedAt);
+
+                    return (
+                      <Link
+                        key={doc.id}
+                        href={`/es/${doc.id}`}
+                        className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors group"
+                      >
+                        <FileTextIcon />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate group-hover:text-primary transition-colors">
+                            {doc.title}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={cn("text-xs px-2 py-0.5 rounded-full", status.bg, status.text)}>
+                              {status.label}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {updatedDate.toLocaleDateString("ja-JP", { month: "short", day: "numeric" })}
+                            </span>
+                          </div>
+                        </div>
+                        <ChevronRightIcon />
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Application modal */}
