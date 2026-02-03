@@ -295,6 +295,24 @@ class TestWildcardSubsidiaryDetection:
             is_sub is False
         ), "nttdata-career.com should NOT be detected as subsidiary"
 
+    def test_tokiomarine_nichido_official_not_detected(self):
+        """東京海上日動火災保険の公式ドメインは子会社として検出されない"""
+        is_sub, _ = is_subsidiary_domain(
+            url="https://www.tokiomarine-nichido.co.jp/company/recruit/",
+            parent_name="東京海上日動火災保険",
+        )
+        assert (
+            is_sub is False
+        ), "tokiomarine-nichido should NOT be detected as subsidiary"
+
+    def test_tokyu_agc_cross_prefix_not_detected(self):
+        """他社プレフィックス（tokyu-agc）はAGCの子会社として検出されない"""
+        is_sub, _ = is_subsidiary_domain(
+            url="https://www.tokyu-agc.co.jp/",
+            parent_name="AGC",
+        )
+        assert is_sub is False, "tokyu-agc should NOT be detected as subsidiary"
+
     def test_nttdft_detected_as_subsidiary(self):
         """nttdft.com（NTTデータフィナンシャルテクノロジー）が子会社として検出される"""
         is_sub, name = is_subsidiary_domain(

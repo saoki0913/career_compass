@@ -15,6 +15,20 @@ MAPPINGS_FILE = Path(__file__).parent.parent.parent / "data" / "company_mappings
 
 
 @lru_cache(maxsize=1)
+def _load_mapping_data() -> dict:
+    """
+    JSONファイルから企業マッピングの生データをロード（キャッシュ付き）。
+    """
+    if MAPPINGS_FILE.exists():
+        try:
+            with open(MAPPINGS_FILE, encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+
+@lru_cache(maxsize=1)
 def _load_company_mappings() -> dict[str, dict | list[str]]:
     """
     JSONファイルから企業マッピングをロード（キャッシュ付き）。
@@ -26,14 +40,77 @@ def _load_company_mappings() -> dict[str, dict | list[str]]:
         新形式: {"domains": [...], "parent": "親会社名"}
         旧形式: [...]（ドメインパターンの配列）
     """
-    if MAPPINGS_FILE.exists():
-        try:
-            with open(MAPPINGS_FILE, encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("mappings", {})
-        except (json.JSONDecodeError, IOError):
-            return {}
-    return {}
+    data = _load_mapping_data()
+    return data.get("mappings", {}) if isinstance(data, dict) else {}
+
+
+@lru_cache(maxsize=1)
+def _get_short_domain_allowlist() -> dict[str, list[str]]:
+    """
+    3文字未満パターンの例外許可リストを取得。
+
+    Returns:
+        {企業名: [短いパターン...], ...}
+    """
+    data = _load_mapping_data()
+    if not isinstance(data, dict):
+        return {}
+    allowlist = data.get("short_domain_allowlist", {})
+    if not isinstance(allowlist, dict):
+        return {}
+
+    normalized: dict[str, list[str]] = {}
+    for company_name, patterns in allowlist.items():
+        if not isinstance(patterns, list):
+            continue
+        filtered = [p for p in patterns if isinstance(p, str) and p.strip()]
+        if filtered:
+            normalized[company_name] = filtered
+    return normalized
+
+
+@lru_cache(maxsize=1)
+def get_short_domain_allowlist_patterns() -> set[str]:
+    """
+    3文字未満パターンの許可リスト（全企業分）を取得。
+    """
+    allowlist = _get_short_domain_allowlist()
+    patterns = set()
+    for pattern_list in allowlist.values():
+        for pattern in pattern_list:
+            patterns.add(pattern.lower())
+    return patterns
+
+
+@lru_cache(maxsize=1)
+def _get_domain_pattern_index() -> dict[str, set[str]]:
+    """
+    ドメインパターン -> 企業名セットのインデックス。
+    """
+    mappings = _load_company_mappings()
+    allowlisted_short = get_short_domain_allowlist_patterns()
+    index: dict[str, set[str]] = {}
+
+    for company_name, mapping in mappings.items():
+        if company_name.startswith("_"):
+            continue
+        patterns = _get_domains_from_mapping(mapping)
+        for pattern in patterns:
+            if not isinstance(pattern, str):
+                continue
+            pattern_lower = pattern.lower()
+            if len(pattern_lower) < 3 and pattern_lower not in allowlisted_short:
+                continue
+            index.setdefault(pattern_lower, set()).add(company_name)
+
+    # 3文字未満の許可パターンをインデックスに追加
+    short_allowlist = _get_short_domain_allowlist()
+    for company_name, patterns in short_allowlist.items():
+        for pattern in patterns:
+            pattern_lower = pattern.lower()
+            if pattern_lower:
+                index.setdefault(pattern_lower, set()).add(company_name)
+    return index
 
 
 def _get_domains_from_mapping(mapping: dict | list[str] | None) -> list[str]:
@@ -231,6 +308,25 @@ def is_subsidiary_domain(url: str, parent_name: str) -> tuple[bool, str | None]:
     if not parent_patterns:
         return False, None
 
+    allowlisted_short = get_short_domain_allowlist_patterns()
+    official_patterns = {
+        p.lower()
+        for p in parent_patterns
+        if len(p) >= 3 or p.lower() in allowlisted_short
+    }
+    pattern_index = _get_domain_pattern_index()
+
+    def _has_other_company_prefix(segment: str) -> bool:
+        if "-" not in segment:
+            return False
+        prefix = segment.split("-", 1)[0]
+        if prefix in official_patterns:
+            return False
+        companies = pattern_index.get(prefix)
+        if not companies:
+            return False
+        return True
+
     # 登録済み子会社のパターンを除外リストに追加
     registered_patterns = set()
     for patterns in subsidiaries.values():
@@ -264,6 +360,18 @@ def is_subsidiary_domain(url: str, parent_name: str) -> tuple[bool, str | None]:
         pattern_lower = pattern.lower()
 
         for segment in domain_segments:
+            # 公式パターン（別名）と一致する場合は子会社扱いしない
+            if segment in official_patterns and segment != pattern_lower:
+                continue
+            if any(
+                segment.startswith(official + "-")
+                for official in official_patterns
+                if official != pattern_lower
+            ):
+                continue
+            # 他社パターンのプレフィックス衝突は除外
+            if _has_other_company_prefix(segment):
+                continue
             # 「親会社パターン-XXX」形式をチェック（例: nttdata-sbc）
             if segment.startswith(pattern_lower + "-"):
                 # 親会社自身のドメインパターンではないことを確認
@@ -324,6 +432,8 @@ def is_parent_domain(url: str, company_name: str) -> bool:
     """
     from urllib.parse import urlparse
 
+    allowlisted_short = get_short_domain_allowlist_patterns()
+
     # 1. 子会社自身のドメインパターンを取得
     own_patterns = get_company_domain_patterns(company_name)
 
@@ -350,7 +460,7 @@ def is_parent_domain(url: str, company_name: str) -> bool:
     own_unique_patterns = [p for p in own_patterns if p not in parent_patterns]
 
     for pattern in own_unique_patterns:
-        if len(pattern) < 3:
+        if len(pattern) < 3 and pattern.lower() not in allowlisted_short:
             continue
         pattern_lower = pattern.lower()
         for segment in domain_segments:
@@ -364,7 +474,7 @@ def is_parent_domain(url: str, company_name: str) -> bool:
 
     # 4. 親会社ドメインパターンをチェック
     for pattern in parent_patterns:
-        if len(pattern) < 3:
+        if len(pattern) < 3 and pattern.lower() not in allowlisted_short:
             continue
         pattern_lower = pattern.lower()
 
@@ -413,6 +523,15 @@ def get_company_domain_patterns(
     normalized = _normalize_for_lookup(company_name)
     if normalized != company_name and normalized in mappings:
         patterns.extend(_get_domains_from_mapping(mappings[normalized]))
+
+    # 2.5. 短いパターンの許可リストを追加
+    short_allowlist = _get_short_domain_allowlist()
+    allowlist_patterns = short_allowlist.get(company_name, [])
+    if normalized != company_name and not allowlist_patterns:
+        allowlist_patterns = short_allowlist.get(normalized, [])
+    for p in allowlist_patterns:
+        if p not in patterns:
+            patterns.append(p)
 
     # 3. 含む検索（企業グループ名の一部など）
     # ただし、親会社のパターンは含めない（例: NTTデータ検索時にNTTのパターンを含めない）

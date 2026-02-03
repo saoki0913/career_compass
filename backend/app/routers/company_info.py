@@ -1379,7 +1379,10 @@ def _domain_pattern_matches(domain: str, pattern: str) -> bool:
         True if the pattern matches a domain segment correctly
     """
     if len(pattern) < 3:
-        return False
+        from app.utils.company_names import get_short_domain_allowlist_patterns
+
+        if pattern.lower() not in get_short_domain_allowlist_patterns():
+            return False
 
     segments = domain.lower().split(".")
     pattern_lower = pattern.lower()

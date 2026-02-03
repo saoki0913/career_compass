@@ -89,6 +89,20 @@ COMPANY_SUFFIXES = [
     "グループ",
 ]
 
+# Company-specific query aliases (used to improve recall for brand/English names)
+COMPANY_QUERY_ALIASES = {
+    "BCG": ["BCG", "Boston Consulting Group"],
+    "PwC": ["PwC", "PricewaterhouseCoopers"],
+    "KPMG": ["KPMG"],
+    "P&G": ["P&G", "P&G Japan", "Procter & Gamble", "Procter and Gamble", "Procter Gamble", "PG"],
+    "SUBARU": ["SUBARU"],
+    "NTTデータ": ["NTT DATA", "NTTData"],
+    "NTTドコモ": ["docomo", "ドコモ"],
+    "三菱UFJ銀行": ["MUFG", "MUFG Bank", "MUFGBANK"],
+    "JFE商事": ["JFE商事", "JFETC"],
+    "三越伊勢丹": ["IMHDS", "IMHD", "三越伊勢丹ホールディングス"],
+}
+
 # Recruitment-related keywords for scoring
 RECRUIT_KEYWORDS_TITLE = [
     "採用",
@@ -139,6 +153,19 @@ EXCLUDED_DOMAINS = [
     "prtimes.jp",
     "news.yahoo.co.jp",
     "nikkei.com",
+    "wikipedia.org",
+    "tickerreport.com",
+    "aum13f.com",
+    "ibankie.com",
+    "cryptonews.com",
+    "tapwage.com",
+    "interviewanswers.com",
+    "skymizer.ai",
+    "yell.com",
+    "ncsy.org",
+    "nttdatafoundation.com",
+    "presseportal.de",
+    "telcomagazine.com",
 ]
 
 # Job aggregator sites (lower score but not excluded)
@@ -315,6 +342,23 @@ def generate_company_variants(company_name: str) -> list[str]:
     return unique_variants
 
 
+def _merge_query_aliases(company_name: str, base_variants: list[str]) -> list[str]:
+    aliases = COMPANY_QUERY_ALIASES.get(company_name, [])
+    if not aliases:
+        return base_variants
+
+    merged = list(base_variants)
+    seen = {v.lower() for v in base_variants if v}
+    for alias in aliases:
+        alias_normalized = alias.lower()
+        if alias_normalized in seen or not alias:
+            continue
+        merged.append(alias)
+        seen.add(alias_normalized)
+
+    return merged
+
+
 # =============================================================================
 # Query Generation
 # =============================================================================
@@ -339,15 +383,29 @@ def generate_query_variations(
         List of 6-8 unique search queries
     """
     queries = []
-    company_variants = generate_company_variants(company_name)
+    base_variants = generate_company_variants(company_name)
+    company_variants = _merge_query_aliases(company_name, base_variants)
     primary_name = company_variants[0]
     short_name = company_variants[1] if len(company_variants) > 1 else primary_name
+    alias_name = (
+        company_variants[2] if len(company_variants) > 2 else None
+    )
+    ascii_name = base_variants[2] if len(base_variants) > 2 else None
 
     # Year formats
     grad_year = graduation_year or _get_graduation_year()
     grad_year_short = grad_year % 100
 
     if search_intent == "recruitment":
+        # Alias-first queries for brand/English names
+        if alias_name:
+            queries.extend(
+                [
+                    f"{alias_name} 採用",
+                    f"{alias_name} recruit",
+                ]
+            )
+
         if selection_type == "internship":
             # Internship-focused queries
             queries.extend(
@@ -378,16 +436,15 @@ def generate_query_variations(
                 [
                     f"{primary_name} 新卒採用 {grad_year_short}卒",
                     f"{short_name} 採用サイト {grad_year}",
-                    f"{primary_name} エントリー",
+                    f"{primary_name} 採用情報",
                     f"{short_name} 採用情報 {grad_year_short}卒",
-                    f"{primary_name} 新卒 マイページ",
+                    f"{primary_name} キャリア採用",
                     f"{short_name} 募集要項",
                 ]
             )
 
         # Add ASCII variant query if available
-        if len(company_variants) > 2:
-            ascii_name = company_variants[2]
+        if ascii_name:
             queries.append(f"{ascii_name} recruit {grad_year}")
 
     elif search_intent == "corporate_ir":
@@ -413,6 +470,13 @@ def generate_query_variations(
     # ===== Content Type Specific Search Intents =====
 
     elif search_intent == "new_grad":
+        if alias_name:
+            queries.extend(
+                [
+                    f"{alias_name} 新卒採用",
+                    f"{alias_name} recruit",
+                ]
+            )
         # 新卒採用HP専用検索
         queries.extend(
             [
@@ -430,6 +494,13 @@ def generate_query_variations(
             queries.append(f"{ascii_name} recruit")
 
     elif search_intent == "midcareer":
+        if alias_name:
+            queries.extend(
+                [
+                    f"{alias_name} キャリア採用",
+                    f"{alias_name} career",
+                ]
+            )
         # 中途採用専用検索
         queries.extend(
             [
@@ -841,7 +912,10 @@ def _domain_pattern_matches(domain: str, pattern: str) -> bool:
     e.g., "mec" matches "mec.co.jp" but not "mecyes.co.jp"
     """
     if len(pattern) < 3:
-        return False
+        from app.utils.company_names import get_short_domain_allowlist_patterns
+
+        if pattern.lower() not in get_short_domain_allowlist_patterns():
+            return False
 
     segments = domain.lower().split(".")
     pattern_lower = pattern.lower()

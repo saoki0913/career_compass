@@ -2,6 +2,14 @@
   "_comment": "企業名→ドメインパターンのマッピング。編集は本ファイルのみ。",
   "_usage": "企業公式サイト検出に使用。部分一致でチェックされる（例: 'mitsui' in 'career.mitsui.com'）",
   "_categories": "アプリの業界カテゴリ（src/lib/constants/industries.ts）に準拠",
+  "short_domain_allowlist": {
+    "EY": ["ey"],
+    "P&G": ["pg"],
+    "エムスリー": ["m3"],
+    "スタンダードチャータード銀行": ["sc"],
+    "ドイツ銀行": ["db"],
+    "日本HP": ["hp"]
+  },
   "mappings": {
     "_section_01": "=== 商社 ===",
     "_subsection_01a": "--- 総合商社 ---",
@@ -39,7 +47,8 @@
       "nst"
     ],
     "JFE商事": [
-      "jfe-shoji"
+      "jfe-shoji",
+      "jfetc"
     ],
     "伊藤忠丸紅鉄鋼": [
       "misi"
@@ -565,8 +574,7 @@
       "sumitomolife"
     ],
     "ゴールドマン・サックス": [
-      "goldmansachs",
-      "gs"
+      "goldmansachs"
     ],
     "モルガン・スタンレー": [
       "morganstanley"
@@ -1120,12 +1128,6 @@
     "T&Dホールディングス": [
       "td-holdings"
     ],
-    "太陽生命保険": {
-      "domains": [
-        "taiyo-seimei"
-      ],
-      "parent": "T&Dホールディングス"
-    },
     "全国保証": [
       "zenshinhosho"
     ],
@@ -1150,12 +1152,6 @@
     "日本取引所グループ子会社追加": [
       "jpx-sub"
     ],
-    "かんぽ生命保険": {
-      "domains": [
-        "jp-life"
-      ],
-      "parent": "日本郵政グループ"
-    },
     "資産管理サービス信託銀行": [
       "tcsb"
     ],
@@ -1166,9 +1162,6 @@
     ],
     "マッキンゼー": [
       "mckinsey"
-    ],
-    "ボストン・コンサルティング・グループ": [
-      "bcg"
     ],
     "BCG": [
       "bcg"
@@ -1286,7 +1279,7 @@
       "parent": "NTT"
     },
     "NTTコミュニケーションズ": {
-      "domains": ["ntt.com", "nttcom"],
+      "domains": ["ntt.com"],
       "parent": "NTT"
     },
     "KDDI": [
@@ -1296,13 +1289,10 @@
       "softbank"
     ],
     "ソフトバンクグループ": [
-      "softbank", "softbank-group"
+      "softbank-group"
     ],
     "楽天グループ": [
       "rakuten", "rakuten-group"
-    ],
-    "楽天": [
-      "rakuten"
     ],
     "サイバーエージェント": [
       "cyberagent"
@@ -1328,31 +1318,16 @@
     "Google": [
       "google"
     ],
-    "グーグル": [
-      "google"
-    ],
     "Amazon": [
-      "amazon"
-    ],
-    "アマゾン": [
       "amazon"
     ],
     "Apple": [
       "apple"
     ],
-    "アップル": [
-      "apple"
-    ],
     "Microsoft": [
       "microsoft"
     ],
-    "マイクロソフト": [
-      "microsoft"
-    ],
     "Meta": [
-      "meta"
-    ],
-    "メタ": [
       "meta"
     ],
     "富士通": [
@@ -1499,7 +1474,6 @@
     ],
     "_subsection_04e": "--- スタートアップ・SaaS ---",
     "LINEヤフー": [
-      "ly",
       "lycorp"
     ],
     "PayPay": [
@@ -1529,9 +1503,6 @@
     "ラクスル": [
       "raksul"
     ],
-    "GMOインターネット": [
-      "gmo"
-    ],
     "_subsection_04f": "--- IT・SIer（追加） ---",
     "大塚商会": [
       "otsuka-shokai"
@@ -1553,7 +1524,7 @@
     ],
     "電通国際情報サービス": {
       "domains": ["isid"],
-      "parent": "電通"
+      "parent": "電通グループ"
     },
     "JBCCホールディングス": [
       "jbcc"
@@ -2187,9 +2158,6 @@
     "DMM.com": [
       "dmm"
     ],
-    "ディー・エヌ・エー": [
-      "dena"
-    ],
     "クラウドワークス": [
       "crowdworks"
     ],
@@ -2206,12 +2174,6 @@
     "パーソルプロセス&テクノロジー": {
       "domains": [
         "persol-pt"
-      ],
-      "parent": "パーソル"
-    },
-    "パーソルテンプスタッフ": {
-      "domains": [
-        "tempstaff"
       ],
       "parent": "パーソル"
     },
@@ -2559,9 +2521,6 @@
     "_subsection_05c": "--- 電機・重工 ---",
     "ソニーグループ": [
       "sony", "sony-group"
-    ],
-    "ソニー": [
-      "sony"
     ],
     "パナソニックホールディングス": [
       "holdings.panasonic", "panasonic-hd"
@@ -3390,12 +3349,6 @@
       ],
       "parent": "ソニーグループ"
     },
-    "ソニーピクチャーズエンタテインメント": {
-      "domains": [
-        "sonypictures"
-      ],
-      "parent": "ソニーグループ"
-    },
     "_subsection_05o": "--- パナソニックグループ子会社 ---",
     "パナソニックインダストリー": {
       "domains": [
@@ -3848,9 +3801,6 @@
     "菱電商事": [
       "ryoden"
     ],
-    "日本光電工業": [
-      "nihonkohden"
-    ],
     "フクダ電子": [
       "fukuda-denshi"
     ],
@@ -4257,9 +4207,6 @@
       "ebarafoods"
     ],
     "_section_07": "=== 広告・マスコミ ===",
-    "電通": [
-      "dentsu"
-    ],
     "電通グループ": [
       "dentsu"
     ],
@@ -4285,8 +4232,7 @@
       "tbs"
     ],
     "フジテレビ": [
-      "fujitv",
-      "cx"
+      "fujitv"
     ],
     "テレビ朝日": [
       "tv-asahi"
@@ -4367,8 +4313,7 @@
       "konami"
     ],
     "セガサミー": [
-      "segasammy",
-      "sega"
+      "segasammy"
     ],
     "_subsection_07b": "--- 広告（追加） ---",
     "大広": [
@@ -4547,9 +4492,6 @@
     ],
     "フロム・ソフトウェア": [
       "fromsoftware"
-    ],
-    "サイゲームス": [
-      "cygames"
     ],
     "ネクソン": [
       "nexon"
@@ -5041,9 +4983,6 @@
     "クッシュマン・アンド・ウェイクフィールド": [
       "cushwake"
     ],
-    "ジョーンズラングラサール": [
-      "jll"
-    ],
     "NTT都市開発ビルサービス": {
       "domains": [
         "nttud-bs"
@@ -5116,7 +5055,9 @@
     ],
     "三越伊勢丹": [
       "mistore",
-      "isetan"
+      "isetan",
+      "imhds",
+      "imhd"
     ],
     "高島屋": [
       "takashimaya"
@@ -5269,19 +5210,10 @@
     "JR東日本": [
       "jreast"
     ],
-    "東日本旅客鉄道": [
-      "jreast"
-    ],
     "JR西日本": [
       "westjr"
     ],
-    "西日本旅客鉄道": [
-      "westjr"
-    ],
     "JR東海": [
-      "jr-central"
-    ],
-    "東海旅客鉄道": [
       "jr-central"
     ],
     "_subsection_10b": "--- 私鉄 ---",
@@ -5384,35 +5316,17 @@
     "JR九州": [
       "jrkyushu"
     ],
-    "九州旅客鉄道": [
-      "jrkyushu"
-    ],
     "JR北海道": [
       "jrhokkaido"
     ],
-    "北海道旅客鉄道": [
-      "jrhokkaido"
-    ],
     "JR四国": [
-      "jr-shikoku"
-    ],
-    "四国旅客鉄道": [
       "jr-shikoku"
     ],
     "_subsection_10c": "--- 航空 ---",
     "ANA": [
       "ana"
     ],
-    "全日本空輸": [
-      "ana"
-    ],
-    "ANAホールディングス": [
-      "ana"
-    ],
     "JAL": [
-      "jal"
-    ],
-    "日本航空": [
       "jal"
     ],
     "東京電力": [
@@ -5634,12 +5548,6 @@
     "JRシステム": {
       "domains": [
         "jrs"
-      ],
-      "parent": "JR東日本"
-    },
-    "ジェイアール東日本コンサルタンツ": {
-      "domains": [
-        "jrc"
       ],
       "parent": "JR東日本"
     },
@@ -6799,12 +6707,6 @@
       ],
       "parent": "野村総合研究所"
     },
-    "三菱UFJ証券ホールディングス": {
-      "domains": [
-        "sc.mufg"
-      ],
-      "parent": "三菱UFJフィナンシャル・グループ"
-    },
     "アコム": {
       "domains": [
         "acom"
@@ -6865,39 +6767,9 @@
       ],
       "parent": "楽天グループ"
     },
-    "パナソニック エンターテインメント&コミュニケーション": {
-      "domains": [
-        "panasonic-ec"
-      ],
-      "parent": "パナソニック"
-    },
-    "パナソニック ハウジングソリューションズ": {
-      "domains": [
-        "panasonic-hs"
-      ],
-      "parent": "パナソニック"
-    },
-    "パナソニック コネクト": {
-      "domains": [
-        "connect.panasonic"
-      ],
-      "parent": "パナソニック"
-    },
     "パナソニック インダストリー": {
       "domains": [
         "industry.panasonic"
-      ],
-      "parent": "パナソニック"
-    },
-    "パナソニック エナジー": {
-      "domains": [
-        "panasonic-energy"
-      ],
-      "parent": "パナソニック"
-    },
-    "パナソニック オペレーショナルエクセレンス": {
-      "domains": [
-        "panasonic-oe"
       ],
       "parent": "パナソニック"
     },
@@ -6913,34 +6785,15 @@
       ],
       "parent": "パナソニック"
     },
-    "パナソニック オートモーティブシステムズ": {
-      "domains": [
-        "panasonic-automotive"
-      ],
-      "parent": "パナソニック"
-    },
     "ソニー・ピクチャーズエンターテイメント": {
       "domains": [
         "sonypictures"
       ],
       "parent": "ソニーグループ"
     },
-    "ソニーミュージックエンタテインメント": {
-      "domains": [
-        "sonymusic"
-      ],
-      "parent": "ソニーグループ"
-    },
     "ソニーフィナンシャルグループ": {
       "domains": [
         "sonyfg"
-      ],
-      "parent": "ソニーグループ"
-    },
-    "ソニーインタラクティブエンタテインメント": {
-      "domains": [
-        "sie",
-        "playstation"
       ],
       "parent": "ソニーグループ"
     },
