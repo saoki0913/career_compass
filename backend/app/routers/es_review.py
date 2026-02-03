@@ -1821,6 +1821,8 @@ async def _generate_review_progress(
         # Step 2: RAG fetch (if company_id)
         rewrite_count = min(request.rewrite_count, 3 if request.is_paid else 1)
         company_context = ""
+        rag_context = ""
+        rag_sources: list[dict] = []
         company_rag_available = request.has_company_rag
         rag_status = None
         context_length = get_dynamic_context_length(request.content)
@@ -1840,16 +1842,32 @@ async def _generate_review_progress(
 
             if company_rag_available:
                 rag_status = get_company_rag_status(request.company_id)
-                company_context = await get_enhanced_context_for_review(
-                    company_id=request.company_id,
-                    es_content=request.content,
-                    max_context_length=context_length,
-                )
-
                 min_context_length = 200
-                if not company_context or len(company_context) < min_context_length:
-                    company_context = ""
-                    company_rag_available = False
+
+                if request.review_mode == "section" and request.template_request:
+                    rag_context, rag_sources = (
+                        await get_enhanced_context_for_review_with_sources(
+                            company_id=request.company_id,
+                            es_content=request.content,
+                            max_context_length=context_length,
+                        )
+                    )
+                    if len(rag_context) < min_context_length or not rag_sources:
+                        rag_context = ""
+                        rag_sources = []
+                        company_rag_available = False
+                else:
+                    company_context = await get_enhanced_context_for_review(
+                        company_id=request.company_id,
+                        es_content=request.content,
+                        max_context_length=context_length,
+                    )
+                    if (
+                        not company_context
+                        or len(company_context) < min_context_length
+                    ):
+                        company_context = ""
+                        company_rag_available = False
 
             yield _sse_event(
                 "progress",
@@ -1872,6 +1890,54 @@ async def _generate_review_progress(
             "progress",
             {"step": "llm_review", "progress": 35, "label": "AIが添削中..."},
         )
+
+        # Section mode (template or standard) handled here for SSE
+        if request.review_mode == "section":
+            try:
+                if request.template_request:
+                    result = await review_section_with_template(
+                        request=request,
+                        rag_context=rag_context,
+                        rag_sources=rag_sources,
+                        company_rag_available=company_rag_available,
+                    )
+                else:
+                    result = await review_section(
+                        request=request,
+                        company_context=company_context,
+                        company_rag_available=company_rag_available,
+                    )
+            except HTTPException as e:
+                detail = e.detail
+                if isinstance(detail, dict):
+                    message = (
+                        detail.get("error")
+                        or detail.get("message")
+                        or detail.get("detail")
+                        or "AI処理中にエラーが発生しました"
+                    )
+                else:
+                    message = str(detail)
+                yield _sse_event("error", {"message": message})
+                return
+            except Exception as e:
+                yield _sse_event("error", {"message": str(e)})
+                return
+
+            yield _sse_event(
+                "progress",
+                {
+                    "step": "rewrite",
+                    "progress": 90,
+                    "label": "リライトを生成中...",
+                },
+            )
+            yield _sse_event(
+                "progress",
+                {"step": "rewrite", "progress": 100, "label": "完了"},
+            )
+            yield _sse_event("complete", {"result": result.model_dump()})
+            return
 
         # Build scoring criteria
         score_criteria = """1. scores (各1-5点):
