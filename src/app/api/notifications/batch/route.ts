@@ -2,12 +2,29 @@
  * Notification Batch Processing API
  *
  * POST: Trigger batch notifications (deadline reminders, cleanup)
- * Called by cron job or manually
+ * Called by cron job only - requires CRON_SECRET authorization
  */
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { db } from "@/lib/db";
 import { notifications, deadlines, tasks, companies, applications, userProfiles, notificationSettings } from "@/lib/db/schema";
 import { eq, and, lte, gte, gt, lt, isNull, or } from "drizzle-orm";
+
+/**
+ * Constant-time token comparison to prevent timing attacks
+ */
+function verifyToken(provided: string | null, expected: string): boolean {
+  if (!provided || !expected) return false;
+
+  const providedBuffer = Buffer.from(provided);
+  const expectedBuffer = Buffer.from(`Bearer ${expected}`);
+
+  if (providedBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(providedBuffer, expectedBuffer);
+}
 
 function getJSTNow(): Date {
   const now = new Date();
@@ -18,6 +35,13 @@ function getJSTNow(): Date {
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify authorization - only allow calls with valid CRON_SECRET
+    const authHeader = request.headers.get("authorization");
+    if (!verifyToken(authHeader, process.env.CRON_SECRET || "")) {
+      console.error("Unauthorized batch notification request");
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { type } = await request.json();
 
     if (type === "deadline_reminders") {

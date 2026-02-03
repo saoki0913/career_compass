@@ -56,6 +56,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Validate UUID format (same validation as POST endpoint)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(deviceToken)) {
+      return NextResponse.json(
+        { error: "Invalid device token format" },
+        { status: 400 }
+      );
+    }
+
     const guest = await getGuestUser(deviceToken);
 
     if (!guest) {

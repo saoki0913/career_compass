@@ -47,7 +47,10 @@ export async function GET(request: NextRequest) {
       try {
         const res = await fetch(`${baseUrl}/api/notifications/batch`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${process.env.CRON_SECRET}`,
+          },
           body: JSON.stringify({ type }),
         });
         results[type] = await res.json();
