@@ -1,78 +1,100 @@
-# Career Compass
+# Career Compass（ウカルン）
 
-A modern web application built with Next.js and FastAPI.
+就活支援アプリ「ウカルン」- AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」
 
-## Tech Stack
+## 技術スタック
 
-| Category | Technology |
-|----------|------------|
-| Frontend | Next.js 16, React 19, TypeScript |
-| Backend | FastAPI (Python) |
-| Auth | Better Auth |
-| Database | Turso (SQLite) |
+| カテゴリ | 技術 |
+|----------|------|
+| フロントエンド | Next.js 16, React 19, TypeScript |
+| バックエンド（API） | Next.js App Router |
+| バックエンド（AI） | FastAPI (Python) |
+| 認証 | Better Auth (Google OAuth) |
+| データベース | Turso (libSQL) |
 | ORM | Drizzle |
-| Storage | Cloudflare R2 |
-| UI | shadcn/ui + Tailwind CSS |
-| Testing | Playwright |
-| Payment | Stripe |
-| Deploy | Vercel |
+| ストレージ | Cloudflare R2 |
+| ベクトルDB | ChromaDB |
+| UI | shadcn/ui + Tailwind CSS 4 |
+| テスト | Playwright |
+| 決済 | Stripe |
+| デプロイ | Vercel |
 
-## Quick Start
+## クイックスタート
 
 ```bash
-# Install dependencies
+# 依存関係のインストール
 npm install
 
-# Copy environment variables
+# 環境変数のコピー
 cp .env.example .env.local
 
-# Push database schema
+# データベーススキーマのプッシュ
 npx drizzle-kit push
 
-# Start development server
+# 開発サーバーの起動
 npm run dev
 ```
 
-For detailed setup instructions, see [docs/setup.md](docs/setup.md).
+詳細なセットアップ手順は [docs/setup.md](docs/setup.md) を参照してください。
 
-## Development
+## 開発コマンド
 
 ```bash
-# Start Next.js frontend
+# Next.js フロントエンド起動
 make dev
 
-# Start FastAPI backend
+# FastAPI バックエンド起動
 make backend
 
-# Run tests
+# テスト実行
 make test
 
-# Open Drizzle Studio
+# Drizzle Studio 起動
 make db-studio
 ```
 
-## Project Structure
+## プロジェクト構成
 
 ```
 career_compass/
 ├── src/
 │   ├── app/           # Next.js App Router
-│   ├── components/    # React components (shadcn/ui)
-│   └── lib/           # Utilities (auth, db, storage, stripe)
-├── backend/           # FastAPI backend
-├── e2e/               # Playwright tests
-└── docs/              # Documentation
+│   ├── components/    # React コンポーネント (shadcn/ui)
+│   └── lib/           # ユーティリティ (auth, db, storage, stripe)
+├── backend/           # FastAPI バックエンド
+│   ├── app/
+│   │   ├── routers/   # APIエンドポイント
+│   │   ├── utils/     # ユーティリティ (RAG, LLM, 検索)
+│   │   └── prompts/   # プロンプトテンプレート
+│   └── data/          # ChromaDB, BM25インデックス
+├── e2e/               # Playwright テスト
+└── docs/              # ドキュメント
 ```
 
-## Environment Variables
+## 主な機能
 
-See [.env.example](.env.example) for all required environment variables.
+- **企業検索・管理** - 志望企業の登録と情報収集
+- **ES添削** - AIによるエントリーシートの添削・改善提案
+- **志望動機作成** - 企業情報を基にした志望動機の自動生成
+- **締切管理** - 選考スケジュールとタスクの一元管理
+- **ガクチカ管理** - 学生時代に力を入れたことの整理・再利用
 
-Key services to set up:
-- **Turso** - Database ([turso.tech](https://turso.tech))
-- **Cloudflare R2** - Object storage ([cloudflare.com](https://cloudflare.com))
-- **Stripe** - Payments ([stripe.com](https://stripe.com))
+## 環境変数
 
-## License
+必要な環境変数は [.env.example](.env.example) を参照してください。
+
+主要なサービス設定:
+- **Turso** - データベース ([turso.tech](https://turso.tech))
+- **Cloudflare R2** - オブジェクトストレージ ([cloudflare.com](https://cloudflare.com))
+- **Stripe** - 決済 ([stripe.com](https://stripe.com))
+- **OpenAI** - LLM・埋め込み ([openai.com](https://openai.com))
+
+## ドキュメント
+
+- [仕様書](docs/SPEC.md) - 詳細な機能仕様
+- [開発ガイド](docs/DEVELOPMENT.md) - 開発ルールとパターン
+- [進捗状況](docs/PROGRESS.md) - 実装状況の追跡
+
+## ライセンス
 
 MIT
