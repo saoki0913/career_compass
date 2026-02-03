@@ -17,57 +17,58 @@ const CATEGORY_TO_SCORE_KEY: Record<string, string> = {
 
 interface ImprovementListProps {
   issues: ReviewIssue[];
-  title?: string;  // Optional custom title (defaults to "改善優先順位Top3")
+  title?: string;
   className?: string;
-  collapsible?: boolean;  // Make the list collapsible
-  defaultExpanded?: boolean;  // Initial expanded state when collapsible
+  collapsible?: boolean;
+  defaultExpanded?: boolean;
 }
 
-const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string; accent: string }> = {
   論理: {
-    bg: "bg-info/10",
-    text: "text-info",
-    border: "border-info/20",
+    bg: "bg-blue-50",
+    text: "text-blue-700",
+    border: "border-blue-200",
+    accent: "bg-blue-500",
+  },
+  論理性: {
+    bg: "bg-blue-50",
+    text: "text-blue-700",
+    border: "border-blue-200",
+    accent: "bg-blue-500",
   },
   具体性: {
-    bg: "bg-success/10",
-    text: "text-success",
-    border: "border-success/20",
+    bg: "bg-emerald-50",
+    text: "text-emerald-700",
+    border: "border-emerald-200",
+    accent: "bg-emerald-500",
   },
   熱意: {
-    bg: "bg-accent/10",
-    text: "text-accent-foreground",
-    border: "border-accent/20",
+    bg: "bg-orange-50",
+    text: "text-orange-700",
+    border: "border-orange-200",
+    accent: "bg-orange-500",
   },
   企業接続: {
-    bg: "bg-primary/10",
-    text: "text-primary",
-    border: "border-primary/20",
+    bg: "bg-purple-50",
+    text: "text-purple-700",
+    border: "border-purple-200",
+    accent: "bg-purple-500",
   },
   読みやすさ: {
-    bg: "bg-info/10",
-    text: "text-info",
-    border: "border-info/20",
+    bg: "bg-cyan-50",
+    text: "text-cyan-700",
+    border: "border-cyan-200",
+    accent: "bg-cyan-500",
   },
   その他: {
-    bg: "bg-muted",
-    text: "text-muted-foreground",
-    border: "border-border",
+    bg: "bg-gray-50",
+    text: "text-gray-700",
+    border: "border-gray-200",
+    accent: "bg-gray-500",
   },
 };
 
-const DIFFICULTY_LABELS: Record<string, string> = {
-  easy: "簡易",
-  medium: "中",
-  hard: "難",
-};
-
-const DIFFICULTY_STYLES: Record<string, { bg: string; text: string }> = {
-  easy: { bg: "bg-success/15", text: "text-success" },
-  medium: { bg: "bg-warning/15", text: "text-warning-foreground" },
-  hard: { bg: "bg-destructive/15", text: "text-destructive" },
-};
-
+// Icons
 const AlertIcon = () => (
   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
@@ -119,7 +120,7 @@ export function ImprovementList({
     );
   }
 
-  const displayTitle = title || "改善優先順位Top3";
+  const displayTitle = title || "改善ポイント";
   const displayCount = issues.length;
 
   const headerContent = (
@@ -127,9 +128,9 @@ export function ImprovementList({
       <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-xs font-bold">
         {displayCount}
       </span>
-      <span>{displayTitle}</span>
+      <span className="font-medium">{displayTitle}</span>
       {collapsible && (
-        <span className="ml-auto text-muted-foreground">
+        <span className="ml-auto text-muted-foreground transition-transform duration-200">
           {isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
         </span>
       )}
@@ -142,66 +143,79 @@ export function ImprovementList({
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full text-left text-sm font-semibold flex items-center gap-2 hover:text-foreground/80 transition-colors"
+          className="w-full text-left text-sm flex items-center gap-2 hover:text-foreground/80 transition-colors py-1"
         >
           {headerContent}
         </button>
       ) : (
-        <h4 className="text-sm font-semibold flex items-center gap-2">
+        <h4 className="text-sm flex items-center gap-2">
           {headerContent}
         </h4>
       )}
 
       {(!collapsible || isExpanded) && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {issues.map((issue, index) => {
             const colors = CATEGORY_COLORS[issue.category] || CATEGORY_COLORS["その他"];
             const scoreKey = CATEGORY_TO_SCORE_KEY[issue.category] || issue.category.toLowerCase();
+            const priority = difficultyToPriority(issue.difficulty as Difficulty | undefined);
 
             return (
               <div
                 key={index}
                 id={`issue-${scoreKey}`}
                 className={cn(
-                  "rounded-lg border p-3 transition-all hover:shadow-sm scroll-mt-4",
+                  "rounded-lg border overflow-hidden transition-all hover:shadow-sm scroll-mt-4",
                   colors.border,
                   colors.bg
                 )}
               >
-              {/* Category Badge with Priority */}
-              <div className="flex items-center gap-2 mb-2">
-                <span
+                {/* Priority accent bar */}
+                <div
                   className={cn(
-                    "text-xs font-semibold px-2 py-0.5 rounded-full",
-                    colors.text,
-                    "bg-white/50"
+                    "h-1",
+                    priority === "high" ? "bg-red-500" : priority === "medium" ? "bg-orange-400" : "bg-gray-300"
                   )}
-                >
-                  #{index + 1} {issue.category}
-                </span>
-                {/* Priority badge based on difficulty */}
-                <PriorityBadge
-                  priority={difficultyToPriority(issue.difficulty as Difficulty | undefined)}
-                  showLabel={true}
                 />
-              </div>
 
-              {/* Issue */}
-              <div className="flex items-start gap-2 mb-2">
-                <span className="text-amber-500 mt-0.5 shrink-0">
-                  <AlertIcon />
-                </span>
-                <p className="text-sm text-foreground">{issue.issue}</p>
-              </div>
+                <div className="p-3 space-y-2">
+                  {/* Header with category and priority */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "text-xs font-semibold px-2.5 py-1 rounded-full inline-flex items-center gap-1",
+                          colors.text,
+                          "bg-white/70"
+                        )}
+                      >
+                        <span className="font-bold">#{index + 1}</span>
+                        <span>{issue.category}</span>
+                      </span>
+                    </div>
+                    <PriorityBadge
+                      priority={priority}
+                      showLabel={true}
+                    />
+                  </div>
 
-              {/* Suggestion */}
-              <div className="flex items-start gap-2 pl-6">
-                <span className="text-emerald-500 mt-0.5 shrink-0">
-                  <LightbulbIcon />
-                </span>
-                <p className="text-sm text-muted-foreground">{issue.suggestion}</p>
+                  {/* Issue description */}
+                  <div className="flex items-start gap-2">
+                    <span className="text-amber-500 mt-0.5 shrink-0">
+                      <AlertIcon />
+                    </span>
+                    <p className="text-sm text-foreground leading-relaxed">{issue.issue}</p>
+                  </div>
+
+                  {/* Suggestion */}
+                  <div className="flex items-start gap-2 bg-white/50 rounded-md p-2 -mx-1">
+                    <span className="text-emerald-500 mt-0.5 shrink-0">
+                      <LightbulbIcon />
+                    </span>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{issue.suggestion}</p>
+                  </div>
+                </div>
               </div>
-            </div>
             );
           })}
         </div>

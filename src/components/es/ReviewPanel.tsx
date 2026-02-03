@@ -10,6 +10,7 @@ import type { SectionData, TemplateType, TemplateReview } from "@/hooks/useESRev
 import { ScoreDisplay } from "./ScoreDisplay";
 import { ImprovementList } from "./ImprovementList";
 import { RewriteDisplay } from "./RewriteDisplay";
+import { CompareView } from "./CompareView";
 import { ReflectModal } from "./ReflectModal";
 import { EnhancedProcessingSteps, ES_REVIEW_STEPS } from "@/components/ui/EnhancedProcessingSteps";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -138,6 +139,8 @@ export function ReviewPanel({
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
   const [showFullscreen, setShowFullscreen] = useState(false);
   const [fullscreenMode, setFullscreenMode] = useState<"rewrites" | "template">("rewrites");
+  // Compare view state
+  const [showCompareView, setShowCompareView] = useState(false);
   // Template extra fields
   const [internName, setInternName] = useState<string>("");
   const [roleName, setRoleName] = useState<string>("");
@@ -506,7 +509,7 @@ export function ReviewPanel({
                 </div>
               )}
 
-              {/* Rewrites - Shown first for better UX (reduced scrolling) */}
+              {/* Rewrites - Tab-based display with compare option */}
               {!review.template_review && (
                 <RewriteDisplay
                   rewrites={review.rewrites}
@@ -514,6 +517,7 @@ export function ReviewPanel({
                   originalText={sectionReviewRequest?.sectionContent || content}
                   charLimit={currentCharLimit}
                   onOpenFullscreen={() => openFullscreen("rewrites")}
+                  onOpenCompare={() => setShowCompareView(true)}
                 />
               )}
 
@@ -877,6 +881,18 @@ export function ReviewPanel({
         newText={pendingRewrite || ""}
         isFullDocument={true}
       />
+
+      {/* Compare View Modal */}
+      {review && !review.template_review && (
+        <CompareView
+          isOpen={showCompareView}
+          onClose={() => setShowCompareView(false)}
+          originalText={sectionReviewRequest?.sectionContent || content}
+          rewrites={review.rewrites}
+          charLimit={currentCharLimit}
+          onApply={handleApplyRewrite}
+        />
+      )}
     </div>
   );
 }
