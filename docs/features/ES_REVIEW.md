@@ -38,6 +38,9 @@ ES（エントリーシート）の品質評価・改善提案・リライトを
 | `role_course_reason` | 職種・コース選択理由 | 0 | 必須 |
 | `work_values` | 働く価値観 | 0 | 不要 |
 | `self_pr` | 自己PR | 0 | 不要 |
+| `basic` | 汎用ES添削 | 0 | 任意 |
+
+> **Note**: `basic` テンプレートは汎用的なES添削用。特定の設問タイプに当てはまらない場合に使用。
 
 ## クレジット消費
 
@@ -156,6 +159,27 @@ es_enable_conditional_retry = True # 条件付きリトライ有効
 
 **備考**: ES添削はClaude固定のため、OpenAIへのフォールバックは行わない。
 
+## UI機能
+
+### 比較ビュー（Before/After）
+
+添削結果を元のテキストと並べて表示。変更点が視覚的にわかりやすい。
+
+### タブベースリライト表示
+
+複数のリライト案をタブで切り替えて表示。各タブには:
+- リライト本文
+- 文字数
+- 長所（pros）
+- 短所（cons）
+
+### RAGソース情報表示
+
+企業RAGから取得した情報のソースを表示:
+- ソースURL
+- コンテンツタイプ（ir_materials, corporate_site等）
+- 使用されたキーワード
+
 ## 関連ファイル
 
 | ファイル | 役割 |
@@ -167,6 +191,8 @@ es_enable_conditional_retry = True # 条件付きリトライ有効
 | `src/app/api/documents/[id]/review/route.ts` | 認証・クレジット（同期） |
 | `src/app/api/documents/[id]/review/stream/route.ts` | SSEストリーミング対応 |
 | `src/components/es/ReviewPanel.tsx` | フロントエンドUI |
+| `src/components/es/ReviewCompareView.tsx` | 比較ビューUI |
+| `src/components/es/RewriteTabs.tsx` | タブベースリライト表示 |
 
 ## ストリーミング対応
 

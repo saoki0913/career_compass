@@ -190,6 +190,41 @@
 - ショッピングサイト、PDFビューア
 - 子会社サイト
 - アグリゲーターサイト（設定による）
+- Wikipedia、金融情報サイト等
+
+### 短ドメイン許可リスト
+
+3文字未満のドメインパターンは通常無視されるが、以下の企業は例外として許可:
+
+```json
+{
+  "EY": ["ey"],
+  "P&G": ["pg"],
+  "エムスリー": ["m3"],
+  "スタンダードチャータード銀行": ["sc"],
+  "ドイツ銀行": ["db"],
+  "日本HP": ["hp"]
+}
+```
+
+**参照実装**: `backend/data/company_mappings.json` の `short_domain_allowlist`
+
+### クエリエイリアス
+
+英語名・ブランド名で検索精度を向上:
+
+```python
+COMPANY_QUERY_ALIASES = {
+    "BCG": ["BCG", "Boston Consulting Group"],
+    "PwC": ["PwC", "PricewaterhouseCoopers"],
+    "P&G": ["P&G", "P&G Japan", "Procter & Gamble"],
+    "NTTデータ": ["NTT DATA", "NTTData"],
+    "三越伊勢丹": ["IMHDS", "IMHD"],
+    ...
+}
+```
+
+**参照実装**: `backend/app/utils/web_search.py` の `COMPANY_QUERY_ALIASES`
 
 **参照実装**: `backend/app/routers/company_info.py` - `_score_corporate_candidate_with_breakdown()`
 
@@ -269,9 +304,11 @@
 | ファイル | 役割 |
 |---------|------|
 | `backend/app/routers/company_info.py` | FastAPIエンドポイント |
+| `backend/app/utils/web_search.py` | 検索クエリ生成・スコアリング |
+| `backend/app/utils/company_names.py` | ドメインパターンマッチング |
 | `backend/app/utils/content_classifier.py` | コンテンツ自動分類 |
 | `backend/app/utils/content_types.py` | コンテンツタイプ定義 |
-| `backend/data/company_mappings.json` | ドメインパターン |
+| `backend/data/company_mappings.json` | ドメインパターン・許可リスト |
 | `src/app/api/companies/[id]/fetch-info/route.ts` | Next.js API（選考スケジュール） |
 | `src/app/api/companies/[id]/fetch-corporate/route.ts` | Next.js API（コーポレート情報） |
 | `src/components/companies/FetchInfoButton.tsx` | 選考スケジュール取得UI |
