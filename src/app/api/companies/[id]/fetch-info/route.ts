@@ -23,9 +23,60 @@ import {
   hasEnoughCredits,
   consumePartialCredits,
 } from "@/lib/credits";
+import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 
 // FastAPI backend URL
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+
+/**
+ * Validate URL to prevent SSRF attacks
+ * - Only allows HTTPS
+ * - Blocks localhost, private IPs, and link-local addresses
+ */
+function validateUrl(url: string): { valid: boolean; error?: string } {
+  try {
+    const parsed = new URL(url);
+
+    // Only allow HTTPS
+    if (parsed.protocol !== "https:") {
+      return { valid: false, error: "HTTPSのみ許可されています" };
+    }
+
+    // Block private/internal addresses
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block localhost
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
+      return { valid: false, error: "内部アドレスは許可されていません" };
+    }
+
+    // Block private IP ranges
+    const ipv4Match = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (ipv4Match) {
+      const [, a, b] = ipv4Match.map(Number);
+      // 10.0.0.0/8
+      if (a === 10) {
+        return { valid: false, error: "内部アドレスは許可されていません" };
+      }
+      // 172.16.0.0/12
+      if (a === 172 && b >= 16 && b <= 31) {
+        return { valid: false, error: "内部アドレスは許可されていません" };
+      }
+      // 192.168.0.0/16
+      if (a === 192 && b === 168) {
+        return { valid: false, error: "内部アドレスは許可されていません" };
+      }
+      // 169.254.0.0/16 (link-local, AWS metadata)
+      if (a === 169 && b === 254) {
+        return { valid: false, error: "内部アドレスは許可されていません" };
+      }
+    }
+
+    return { valid: true };
+  } catch {
+    return { valid: false, error: "無効なURLです" };
+  }
+}
 
 interface ExtractedDeadline {
   type: string;
@@ -213,6 +264,22 @@ export async function POST(
 
     const { userId, guestId, plan } = identity;
 
+    // Rate limiting check
+    const rateLimitKey = createRateLimitKey("fetchInfo", userId, guestId);
+    const rateLimit = checkRateLimit(rateLimitKey, RATE_LIMITS.fetchInfo);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "リクエストが多すぎます。しばらく待ってから再試行してください。" },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimit.resetIn),
+            "X-RateLimit-Remaining": String(rateLimit.remaining),
+          },
+        }
+      );
+    }
+
     // Verify company access
     const access = await verifyCompanyAccess(companyId, userId, guestId);
     if (!access.valid || !access.company) {
@@ -229,6 +296,15 @@ export async function POST(
     if (!urlToFetch) {
       return NextResponse.json(
         { error: "採用ページURLが登録されていません。URLを選択してください。" },
+        { status: 400 }
+      );
+    }
+
+    // SSRF protection: Validate URL before fetching
+    const urlValidation = validateUrl(urlToFetch);
+    if (!urlValidation.valid) {
+      return NextResponse.json(
+        { error: urlValidation.error || "無効なURLです" },
         { status: 400 }
       );
     }

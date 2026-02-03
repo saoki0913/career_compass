@@ -281,12 +281,17 @@ export async function POST(
 
         // Other errors → fallback to mock (development)
         if (!allowMockReview) {
+          // Log detailed error server-side for debugging
+          console.error("AI service error:", {
+            error_type: errorDetail?.error_type,
+            provider: errorDetail?.provider,
+            detail: errorDetail?.detail,
+          });
+
+          // Return generic message to user (hide internal details)
           return NextResponse.json(
             {
-              error: errorDetail?.error || "AI review failed",
-              error_type: errorDetail?.error_type,
-              provider: errorDetail?.provider,
-              detail: errorDetail?.detail,
+              error: "AIサービスが一時的に利用できません。しばらく待ってから再試行してください。",
             },
             { status: 503 }
           );
@@ -300,9 +305,13 @@ export async function POST(
     } catch (err) {
       clearTimeout(timeoutId);
       if (!allowMockReview) {
+        // Log error server-side
+        console.error("AI review request error:", err);
+
+        // Return generic message to user
         return NextResponse.json(
           {
-            error: err instanceof Error ? err.message : "AI review failed",
+            error: "AIサービスが一時的に利用できません。しばらく待ってから再試行してください。",
           },
           { status: 503 }
         );

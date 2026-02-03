@@ -6,15 +6,33 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Constant-time token comparison to prevent timing attacks
+ */
+function verifyToken(provided: string | null, expected: string): boolean {
+  if (!provided || !expected) return false;
+
+  const providedBuffer = Buffer.from(provided);
+  const expectedBuffer = Buffer.from(`Bearer ${expected}`);
+
+  // Length must match for timingSafeEqual
+  if (providedBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(providedBuffer, expectedBuffer);
+}
+
 export async function GET(request: NextRequest) {
   try {
-    // Verify Vercel Cron authorization
+    // Verify Vercel Cron authorization with timing-safe comparison
     const authHeader = request.headers.get("authorization");
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    if (!verifyToken(authHeader, process.env.CRON_SECRET || "")) {
       console.error("Unauthorized cron request");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

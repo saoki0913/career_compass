@@ -15,6 +15,7 @@ import { eq, desc } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
+import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -377,6 +378,23 @@ export async function POST(
     }
 
     const { userId, guestId } = identity;
+
+    // Rate limiting check
+    const rateLimitKey = createRateLimitKey("conversation", userId, guestId);
+    const rateLimit = checkRateLimit(rateLimitKey, RATE_LIMITS.conversation);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "リクエストが多すぎます。しばらく待ってから再試行してください。" },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimit.resetIn),
+            "X-RateLimit-Remaining": String(rateLimit.remaining),
+          },
+        }
+      );
+    }
+
     const hasAccess = await verifyGakuchikaAccess(gakuchikaId, userId, guestId);
     if (!hasAccess) {
       return NextResponse.json(

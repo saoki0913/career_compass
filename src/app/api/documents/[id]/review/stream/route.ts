@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { hasEnoughCredits } from "@/lib/credits";
+import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 import type { TemplateType } from "@/hooks/useESReview";
 
 async function getIdentity(request: NextRequest): Promise<{
@@ -78,6 +79,26 @@ export async function POST(
     }
 
     const { userId, guestId } = identity;
+
+    // Rate limiting check
+    const rateLimitKey = createRateLimitKey("review", userId, guestId);
+    const rateLimit = checkRateLimit(rateLimitKey, RATE_LIMITS.review);
+    if (!rateLimit.allowed) {
+      return new Response(
+        JSON.stringify({
+          error: "リクエストが多すぎます。しばらく待ってから再試行してください。",
+        }),
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+            "Retry-After": String(rateLimit.resetIn),
+            "X-RateLimit-Remaining": String(rateLimit.remaining),
+          },
+        }
+      );
+    }
+
     const access = await verifyDocumentAccess(documentId, userId, guestId);
     if (!access.valid || !access.document) {
       return new Response(
