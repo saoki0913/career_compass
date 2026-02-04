@@ -497,21 +497,36 @@
     "_section_02": "=== 金融・保険 ===",
     "三菱UFJ銀行": {
       "domains": ["bk.mufg", "mufgbank"],
-      "parent": "三菱UFJフィナンシャル・グループ"
+      "parent": "三菱UFJフィナンシャル・グループ",
+      "allow_parent_domains_for": [
+        "ir_materials",
+        "midterm_plan",
+        "csr_sustainability"
+      ]
     },
     "三菱UFJフィナンシャル・グループ": [
       "mufg", "mufg-hd"
     ],
     "三井住友銀行": {
       "domains": ["smbc-freshers", "smbcbank"],
-      "parent": "三井住友フィナンシャルグループ"
+      "parent": "三井住友フィナンシャルグループ",
+      "allow_parent_domains_for": [
+        "ir_materials",
+        "midterm_plan",
+        "csr_sustainability"
+      ]
     },
     "三井住友フィナンシャルグループ": [
       "smfg", "smbc"
     ],
     "みずほ銀行": {
       "domains": ["mizuhobank"],
-      "parent": "みずほフィナンシャルグループ"
+      "parent": "みずほフィナンシャルグループ",
+      "allow_parent_domains_for": [
+        "ir_materials",
+        "midterm_plan",
+        "csr_sustainability"
+      ]
     },
     "みずほフィナンシャルグループ": [
       "mizuho", "mizuho-fg", "mizuhogroup"
@@ -524,7 +539,12 @@
         "resonabank",
         "resona"
       ],
-      "parent": "りそなホールディングス"
+      "parent": "りそなホールディングス",
+      "allow_parent_domains_for": [
+        "ir_materials",
+        "midterm_plan",
+        "csr_sustainability"
+      ]
     },
     "野村證券": {
       "domains": ["nomura-recruit", "nomurasec"],

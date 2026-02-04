@@ -67,11 +67,20 @@ from app.utils.web_search import (
     WebSearchResult,
     generate_company_variants,
     CONTENT_TYPE_SEARCH_INTENT,
+    COMPANY_QUERY_ALIASES,
 )
 
 # ===== Hybrid Search Configuration =====
 # Set to True to use the new hybrid search with RRF + cross-encoder reranking
-USE_HYBRID_SEARCH = False
+USE_HYBRID_SEARCH = settings.company_search_hybrid
+
+# ===== Parent Domain Allowlist =====
+# Parent company domains can be allowed for these content types (if mapping allows)
+PARENT_ALLOWED_CONTENT_TYPES = {
+    "ir_materials",
+    "midterm_plan",
+    "csr_sustainability",
+}
 
 # ===== DuckDuckGo検索結果キャッシュ =====
 # 同一クエリの結果を一定時間キャッシュして安定性を向上
@@ -1679,6 +1688,43 @@ def _contains_company_name(
     return False
 
 
+def _has_strict_company_name_match(
+    company_name: str, title: str, snippet: str = ""
+) -> bool:
+    """
+    Strict company name match for conflict-domain filtering.
+
+    Requires full normalized company name in title or snippet (no URL match).
+    """
+    normalized_name, _ = _normalize_company_name(company_name)
+    if not normalized_name:
+        return False
+    name_lower = normalized_name.lower()
+    norm_title = _normalize_text_for_match(title)
+    norm_snippet = _normalize_text_for_match(snippet)
+    return name_lower in norm_title or name_lower in norm_snippet
+
+
+def _get_conflicting_companies(domain: str, company_name: str) -> set[str]:
+    """
+    Detect conflicting companies from domain patterns.
+
+    Returns a set of other company names that match the domain patterns.
+    """
+    from app.utils.company_names import get_company_candidates_for_domain, get_parent_company
+
+    candidates = get_company_candidates_for_domain(domain)
+    if not candidates:
+        return set()
+
+    allowed = {company_name}
+    parent = get_parent_company(company_name)
+    if parent:
+        allowed.add(parent)
+
+    return {c for c in candidates if c not in allowed}
+
+
 def _score_recruit_candidate(
     url: str,
     title: str,
@@ -2248,7 +2294,27 @@ def _score_corporate_candidate_with_breakdown(
         preferred_domain_match = domain == preferred_domain or domain.endswith(
             f".{preferred_domain}"
         )
-    if strict_company_match and not (company_match or preferred_domain_match):
+
+    # Parent domain allowlist (content-type specific)
+    from app.utils.company_names import is_parent_domain, is_parent_domain_allowed
+
+    is_parent_site = is_parent_domain(url, company_name)
+    allowed_parent = (
+        True
+        if is_parent_site and is_parent_domain_allowed(company_name, content_type)
+        else False
+    )
+    if allowed_parent:
+        breakdown["親会社許可"] = "allow"
+
+    # Official domain check (domain pattern match)
+    is_official_domain = any(
+        _domain_pattern_matches(domain, pattern) for pattern in domain_patterns
+    )
+
+    if strict_company_match and not (
+        company_match or preferred_domain_match or is_official_domain or allowed_parent
+    ):
         return None, {"除外": "企業名不一致(strict)"}, domain_patterns
 
     score = 0.0
@@ -2276,7 +2342,7 @@ def _score_corporate_candidate_with_breakdown(
         score += 3.0
         breakdown["ASCII名一致"] = "+3.0"
 
-    if not company_match and not preferred_domain_match:
+    if not company_match and not preferred_domain_match and not allowed_parent:
         score -= 4.0
         breakdown["企業不一致ペナルティ"] = "-4.0"
 
@@ -2576,6 +2642,9 @@ def _build_recruit_queries(
     grad_year = graduation_year or _get_graduation_year()
     grad_year_short = grad_year % 100  # e.g., 27 for 2027
 
+    alias_names = COMPANY_QUERY_ALIASES.get(company_name, [])
+    alias_name = alias_names[0] if alias_names else None
+
     # Build queries based on selection type
     if selection_type == "internship":
         queries = [
@@ -2600,6 +2669,24 @@ def _build_recruit_queries(
             f"{company_name} 採用情報 {grad_year_short}卒",
         ]
 
+    if alias_name:
+        if selection_type == "internship":
+            alias_queries = [
+                f"{alias_name} インターン {grad_year_short}卒",
+                f"{alias_name} インターンシップ 募集",
+            ]
+        elif selection_type == "main_selection":
+            alias_queries = [
+                f"{alias_name} 本選考 {grad_year_short}卒",
+                f"{alias_name} 新卒採用 {grad_year}",
+            ]
+        else:
+            alias_queries = [
+                f"{alias_name} 新卒採用 {grad_year_short}卒",
+                f"{alias_name} 採用情報",
+            ]
+        queries = alias_queries + queries
+
     if industry:
         queries.append(f"{company_name} {industry} 採用")
 
@@ -2613,7 +2700,7 @@ def _build_recruit_queries(
         result.append(q)
 
     # Keep queries compact to avoid noisy results
-    return result[:4]
+    return result[:6]
 
 
 def _build_corporate_queries(
@@ -2636,6 +2723,8 @@ def _build_corporate_queries(
         List of search queries
     """
     queries = []
+    alias_names = COMPANY_QUERY_ALIASES.get(company_name, [])
+    alias_name = alias_names[0] if alias_names else None
 
     # Custom query takes priority over content_type and search_type
     if custom_query:
@@ -2670,6 +2759,23 @@ def _build_corporate_queries(
         }
         queries = type_queries.get(search_type, [f"{company_name} {search_type}"])
 
+    if alias_name and not custom_query:
+        alias_queries = []
+        if content_type and content_type in CONTENT_TYPE_KEYWORDS:
+            ct_keywords = CONTENT_TYPE_KEYWORDS[content_type]
+            if ct_keywords["title"]:
+                alias_queries.append(f"{alias_name} {ct_keywords['title'][0]}")
+            if ct_keywords["url"]:
+                alias_queries.append(f"{alias_name} {ct_keywords['url'][0]}")
+        else:
+            if search_type == "ir":
+                alias_queries.append(f"{alias_name} IR")
+            elif search_type == "business":
+                alias_queries.append(f"{alias_name} 事業内容")
+            else:
+                alias_queries.append(f"{alias_name} 会社概要")
+        queries = alias_queries + queries
+
     # Deduplicate and add site: prefix if preferred_domain
     seen = set()
     result = []
@@ -2703,6 +2809,8 @@ async def search_company_pages(request: SearchPagesRequest):
     graduation_year = request.graduation_year
     selection_type = request.selection_type
     allow_snippet_match = request.allow_snippet_match
+    if content_type in PARENT_ALLOWED_CONTENT_TYPES:
+        allow_snippet_match = True
 
     candidates = []
 
@@ -2734,7 +2842,12 @@ async def search_company_pages(request: SearchPagesRequest):
 
         # Apply filtering (subsidiary, parent company, company name check)
         filtered_candidates = []
-        excluded_reasons = {"不適切なサイト": 0, "子会社サイト": 0, "企業名不一致": 0}
+        excluded_reasons = {
+            "不適切なサイト": 0,
+            "子会社サイト": 0,
+            "競合ドメイン": 0,
+            "企業名不一致": 0,
+        }
 
         for result in hybrid_results:
             url = result.url
@@ -2757,6 +2870,16 @@ async def search_company_pages(request: SearchPagesRequest):
             if _is_subsidiary(company_name, title, url):
                 excluded_reasons["子会社サイト"] += 1
                 print(f"[サイト検索] ❌ 除外: 子会社サイト")
+                continue
+
+            # Exclude conflicting company domains (unless strict name match)
+            conflicts = _get_conflicting_companies(result.domain, company_name)
+            if conflicts and not _has_strict_company_name_match(
+                company_name, title, snippet
+            ):
+                excluded_reasons["競合ドメイン"] += 1
+                conflict_label = ", ".join(sorted(conflicts))[:50]
+                print(f"[サイト検索] ❌ 除外: 競合ドメイン ({conflict_label})")
                 continue
 
             # Determine source type
@@ -2961,7 +3084,12 @@ async def search_company_pages(request: SearchPagesRequest):
 
         # Filter out irrelevant sites, subsidiaries, and unrelated companies
         filtered_count = 0
-        excluded_reasons = {"不適切なサイト": 0, "子会社サイト": 0, "企業名不一致": 0}
+        excluded_reasons = {
+            "不適切なサイト": 0,
+            "子会社サイト": 0,
+            "競合ドメイン": 0,
+            "企業名不一致": 0,
+        }
 
         for item in scored:
             title = item["title"]
@@ -2978,6 +3106,19 @@ async def search_company_pages(request: SearchPagesRequest):
             if _is_subsidiary(company_name, title, url):
                 excluded_reasons["子会社サイト"] += 1
                 print(f"[サイト検索] ❌ 除外: {url[:50]}... (子会社サイト)")
+                continue
+
+            # Exclude conflicting company domains (unless strict name match)
+            url_domain = _domain_from_url(url)
+            conflicts = _get_conflicting_companies(url_domain, company_name)
+            if conflicts and not _has_strict_company_name_match(
+                company_name, title, snippet
+            ):
+                excluded_reasons["競合ドメイン"] += 1
+                conflict_label = ", ".join(sorted(conflicts))[:50]
+                print(
+                    f"[サイト検索] ❌ 除外: {url[:50]}... (競合ドメイン: {conflict_label})"
+                )
                 continue
 
             # Apply penalty for parent company sites (when searching for subsidiary)
@@ -3102,55 +3243,12 @@ async def search_company_pages(request: SearchPagesRequest):
             )
             return {"candidates": candidates}
 
-    # Fallback: generate mock URLs (for when DDGS is not available)
-    # Remove common corporate suffixes for URL generation
-    name_clean = company_name
-    for suffix in ["株式会社", "（株）", "(株)", "㈱", "有限会社", "合同会社"]:
-        name_clean = name_clean.replace(suffix, "")
-    name_clean = name_clean.strip()
-
-    # Generate URL-friendly name (lowercase, alphanumeric)
-    name_url = "".join(c.lower() for c in name_clean if c.isalnum())
-
-    # URL encode for search queries
-    from urllib.parse import quote
-
-    encoded_name = quote(company_name)
-
-    fallback_candidates = [
-        SearchCandidate(
-            url=f"https://job.mynavi.jp/26/pc/search/corp{name_url}/outline.html",
-            title=f"{company_name} - マイナビ2026",
-            confidence="medium",
-            source_type="job_site",
-        ),
-        SearchCandidate(
-            url=f"https://job.rikunabi.com/2026/company/{name_url}/",
-            title=f"{company_name} - リクナビ2026",
-            confidence="medium",
-            source_type="job_site",
-        ),
-        SearchCandidate(
-            url=f"https://www.onecareer.jp/companies/{name_url}",
-            title=f"{company_name} - ONE CAREER",
-            confidence="medium",
-            source_type="job_site",
-        ),
-        SearchCandidate(
-            url=f"https://unistyle.jp/companies/{name_url}",
-            title=f"{company_name} - Unistyle",
-            confidence="medium",
-            source_type="job_site",
-        ),
-        SearchCandidate(
-            url=f"https://syukatsu-kaigi.jp/companies/{name_url}",
-            title=f"{company_name} - 就活会議",
-            confidence="low",
-            source_type="job_site",
-        ),
-    ]
-
-    return {"candidates": fallback_candidates[:max_results]}
+    # Fallback: DDGS unavailable
+    print("[サイト検索] ⚠️ DuckDuckGo 検索が利用できません。手動URL入力が必要です。")
+    return {
+        "candidates": [],
+        "error": "検索機能が無効です。公式URLを手動入力してください。",
+    }
 
 
 async def _fetch_schedule_response(
@@ -3994,7 +4092,12 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
 
         # Apply filtering (subsidiary, parent company, company name check)
         filtered_candidates = []
-        excluded_reasons = {"不適切なサイト": 0, "子会社サイト": 0, "企業名不一致": 0}
+        excluded_reasons = {
+            "不適切なサイト": 0,
+            "子会社サイト": 0,
+            "競合ドメイン": 0,
+            "企業名不一致": 0,
+        }
 
         for result in hybrid_results:
             url = result.url
@@ -4019,16 +4122,34 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 print(f"[{type_label}検索] ❌ 除外: 子会社サイト")
                 continue
 
+            # Exclude conflicting company domains (unless strict name match)
+            conflicts = _get_conflicting_companies(result.domain, company_name)
+            if conflicts and not _has_strict_company_name_match(
+                company_name, title, snippet
+            ):
+                excluded_reasons["競合ドメイン"] += 1
+                conflict_label = ", ".join(sorted(conflicts))[:50]
+                print(f"[{type_label}検索] ❌ 除外: 競合ドメイン ({conflict_label})")
+                continue
+
             # Determine source type
             source_type = result.source_type
             is_parent_site = _is_parent_company_site(company_name, title, url)
+            from app.utils.company_names import is_parent_domain_allowed
+
+            allowed_parent = (
+                True
+                if is_parent_site and is_parent_domain_allowed(company_name, content_type)
+                else False
+            )
 
             # Apply penalty for parent company sites
             adjusted_score = result.combined_score
             if is_parent_site:
-                adjusted_score *= 0.5
+                adjusted_score *= 0.8 if allowed_parent else 0.5
                 source_type = "parent"
-                print(f"[{type_label}検索] ⚠️ ペナルティ: 親会社サイト (0.5x)")
+                penalty_label = "0.8x" if allowed_parent else "0.5x"
+                print(f"[{type_label}検索] ⚠️ ペナルティ: 親会社サイト ({penalty_label})")
 
             # Apply penalty for subsidiary sites
             from app.utils.company_names import is_subsidiary_domain
@@ -4052,7 +4173,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 else False
             )
 
-            if not is_official_domain and not _contains_company_name(
+            if not is_official_domain and not allowed_parent and not _contains_company_name(
                 company_name, title, url, snippet, allow_snippet_match
             ):
                 excluded_reasons["企業名不一致"] += 1
@@ -4256,7 +4377,12 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             print(f"  │")
 
         # Filter and add source_type
-        excluded_reasons = {"不適切なサイト": 0, "子会社サイト": 0, "企業名不一致": 0}
+        excluded_reasons = {
+            "不適切なサイト": 0,
+            "子会社サイト": 0,
+            "競合ドメイン": 0,
+            "企業名不一致": 0,
+        }
 
         for item in scored:
             url = item["url"]
@@ -4275,14 +4401,34 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 print(f"[{type_label}検索] ❌ 除外: {url[:50]}... (子会社サイト)")
                 continue
 
+            # Exclude conflicting company domains (unless strict name match)
+            url_domain = _domain_from_url(url)
+            conflicts = _get_conflicting_companies(url_domain, company_name)
+            if conflicts and not _has_strict_company_name_match(
+                company_name, title, snippet
+            ):
+                excluded_reasons["競合ドメイン"] += 1
+                conflict_label = ", ".join(sorted(conflicts))[:50]
+                print(
+                    f"[{type_label}検索] ❌ 除外: {url[:50]}... (競合ドメイン: {conflict_label})"
+                )
+                continue
+
             # Apply penalty for parent company sites (when searching for subsidiary)
             # 注: 完全除外ではなくペナルティを適用（グループ採用サイトの可能性を考慮）
             is_parent_site = _is_parent_company_site(company_name, title, url)
+            from app.utils.company_names import is_parent_domain_allowed
+
+            allowed_parent = (
+                True
+                if is_parent_site and is_parent_domain_allowed(company_name, content_type)
+                else False
+            )
             if is_parent_site:
-                item["score"] *= 0.5  # 親会社サイトペナルティ
+                item["score"] *= 0.8 if allowed_parent else 0.5  # 親会社サイトペナルティ
                 item["is_parent_company"] = True
                 print(
-                    f"[{type_label}検索] ⚠️ ペナルティ: {url[:50]}... (親会社サイト, 0.5x)"
+                    f"[{type_label}検索] ⚠️ ペナルティ: {url[:50]}... (親会社サイト, {'0.8x' if allowed_parent else '0.5x'})"
                 )
 
             # Apply penalty for subsidiary sites (when searching for parent)
@@ -4320,7 +4466,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             # Skip results that don't contain the company name
             # By default, only check title/URL (not snippet) to avoid false positives
             # Exception: Skip this check for official domain matches
-            if not is_official_domain and not _contains_company_name(
+            if not is_official_domain and not allowed_parent and not _contains_company_name(
                 company_name, title, url, snippet, allow_snippet_match
             ):
                 excluded_reasons["企業名不一致"] += 1

@@ -183,6 +183,81 @@ def get_parent_domain_patterns(company_name: str) -> list[str]:
     return []
 
 
+def get_parent_allow_content_types(company_name: str) -> set[str]:
+    """
+    子会社が親会社ドメインを許可するコンテンツタイプを取得。
+
+    Returns:
+        許可される content_type のセット
+    """
+    mappings = _load_company_mappings()
+
+    # 完全一致
+    if company_name in mappings:
+        mapping = mappings[company_name]
+        if isinstance(mapping, dict):
+            allowed = mapping.get("allow_parent_domains_for", [])
+            if isinstance(allowed, list):
+                return {str(x) for x in allowed if isinstance(x, str)}
+
+    # 正規化後の名前で検索
+    normalized = _normalize_for_lookup(company_name)
+    if normalized != company_name and normalized in mappings:
+        mapping = mappings[normalized]
+        if isinstance(mapping, dict):
+            allowed = mapping.get("allow_parent_domains_for", [])
+            if isinstance(allowed, list):
+                return {str(x) for x in allowed if isinstance(x, str)}
+
+    return set()
+
+
+def is_parent_domain_allowed(company_name: str, content_type: str | None) -> bool:
+    """
+    指定の content_type で親会社ドメインを許可するか判定。
+    """
+    if not content_type:
+        return False
+    allowed = get_parent_allow_content_types(company_name)
+    return content_type in allowed
+
+
+def get_company_candidates_for_domain(domain: str) -> set[str]:
+    """
+    ドメインから該当し得る企業名候補を取得。
+
+    ドメインセグメント/ハイフン分割でパターンを探索し、
+    企業マッピングのパターンインデックスから候補を集める。
+    """
+    if not domain:
+        return set()
+
+    index = _get_domain_pattern_index()
+    allowlisted_short = get_short_domain_allowlist_patterns()
+    candidates: set[str] = set()
+
+    segments = domain.lower().split(".")
+    for segment in segments:
+        if not segment:
+            continue
+        # Full segment match (e.g., "mizuho-fg")
+        companies = index.get(segment)
+        if companies:
+            candidates.update(companies)
+
+        # Token match (e.g., "mizuho" from "mizuho-fg")
+        for token in re.split(r"[-_]", segment):
+            if not token:
+                continue
+            if len(token) < 3 and token not in allowlisted_short:
+                continue
+            companies = index.get(token)
+            if companies:
+                candidates.update(companies)
+
+    return candidates
+
+
 def get_subsidiary_companies(parent_name: str) -> dict[str, list[str]]:
     """
     親会社の全子会社とそのドメインパターンを取得。

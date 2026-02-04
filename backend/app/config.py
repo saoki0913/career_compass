@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     app_name: str = "Career Compass API"
     debug: bool = False
     company_search_debug: bool = False
+    company_search_hybrid: bool = False
 
     # ===== CORS =====
     cors_origins: list[str] = ["http://localhost:3000"]
