@@ -62,6 +62,14 @@
 
 ---
 
+## 🚀 リリース (release/)
+
+| ドキュメント | 説明 |
+|------------|------|
+| [PRODUCTION.md](./release/PRODUCTION.md) | 本番リリース計画（Vercel + Render） |
+
+---
+
 ## 関連ファイル
 
 - [CLAUDE.md](../CLAUDE.md) - Claude Codeへの指示（プロジェクトルート）
