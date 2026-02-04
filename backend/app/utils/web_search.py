@@ -269,7 +269,7 @@ INTENT_GATE_CATEGORIES = {
     "employee_interviews",
 }
 
-INTENT_GATE_THRESHOLD = 0.8
+INTENT_GATE_THRESHOLD = 0.7
 
 # Content type to search intent mapping
 CONTENT_TYPE_SEARCH_INTENT = {
@@ -1060,8 +1060,7 @@ def _prefilter_results(
         if short_name_guard and not is_official:
             continue
 
-        if strict_match and not is_official and not company_match:
-            continue
+        # strict_match gate removed; handled by scoring instead
 
         if enforce_intent_gate:
             intent_gate_score = _calculate_intent_match_score(result, target_intent)
@@ -1273,6 +1272,7 @@ def calculate_domain_score(
 ) -> float:
     score = 0.0
     breakdown: dict[str, float] = {}
+    official_score = 0.0
 
     domain = result.domain
     official_patterns = list(domain_profile.get("official_patterns") or [])
@@ -1286,12 +1286,18 @@ def calculate_domain_score(
     result.is_official = is_official
 
     if is_official:
-        score = max(score, 3.5)
-        breakdown["official_domain"] = 3.5
+        official_score = max(official_score, 4.5)
+        breakdown["official_domain"] = 4.5
 
     if preferred_domain and _domain_pattern_matches(domain, preferred_domain):
-        score = max(score, 2.0)
-        breakdown["preferred_domain"] = 2.0
+        official_score += 3.0
+        breakdown["preferred_domain"] = 3.0
+
+    if official_score > 6.0:
+        official_score = 6.0
+        breakdown["official_clip"] = 6.0
+
+    score = max(score, official_score)
 
     is_parent_site = is_parent_domain(result.url, company_name)
     if is_parent_site and parent_allowed:
