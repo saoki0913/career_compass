@@ -290,7 +290,7 @@ export default function ProfilePage() {
               </div>
               <div className="pt-2">
                 <Button variant="outline" size="sm" className="w-full" asChild>
-                  <Link href="/plan-selection">プランを変更</Link>
+                  <Link href="/pricing">プランを変更</Link>
                 </Button>
               </div>
             </CardContent>

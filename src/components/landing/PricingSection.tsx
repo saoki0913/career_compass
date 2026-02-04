@@ -33,7 +33,7 @@ const plans = [
       "詳細な添削コメント",
     ],
     cta: "詳しく見る",
-    ctaLink: "/plan-selection",
+    ctaLink: "/pricing",
     highlighted: false,
     badge: "おすすめ",
   },

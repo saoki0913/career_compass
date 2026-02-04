@@ -82,7 +82,7 @@ export default function OnboardingPage() {
       router.push("/login");
     }
     if (!isLoading && isAuthenticated && userPlan?.needsPlanSelection) {
-      router.push("/plan-selection");
+      router.push("/pricing");
     }
     if (!isLoading && isAuthenticated && userPlan?.onboardingCompleted) {
       router.push("/dashboard");

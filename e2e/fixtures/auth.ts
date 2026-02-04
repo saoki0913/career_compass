@@ -153,10 +153,10 @@ export async function expectRedirectToLogin(page: Page): Promise<void> {
 }
 
 /**
- * Verify redirect to plan selection
+ * Verify redirect to pricing page
  */
-export async function expectRedirectToPlanSelection(page: Page): Promise<void> {
-  await expect(page).toHaveURL(/\/plan-selection/);
+export async function expectRedirectToPricing(page: Page): Promise<void> {
+  await expect(page).toHaveURL(/\/pricing/);
 }
 
 /**

@@ -561,11 +561,19 @@ export default function CalendarPage() {
                         const dayOfWeek = day.getDay();
 
                         return (
-                          <button
+                          <div
                             key={index}
+                            role="button"
+                            tabIndex={0}
                             onClick={() => handleDayClick(day)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                handleDayClick(day);
+                              }
+                            }}
                             className={cn(
-                              "p-1 rounded-lg border transition-colors text-left overflow-hidden",
+                              "p-1 rounded-lg border transition-colors text-left overflow-hidden cursor-pointer",
                               isCurrentMonth ? "bg-background" : "bg-muted/30",
                               isToday && "ring-2 ring-primary",
                               "hover:bg-muted/50"
@@ -615,7 +623,7 @@ export default function CalendarPage() {
                                 </div>
                               )}
                             </div>
-                          </button>
+                          </div>
                         );
                       })}
                     </div>

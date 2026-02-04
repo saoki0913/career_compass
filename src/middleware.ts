@@ -44,7 +44,7 @@ export async function middleware(request: NextRequest) {
   // Auth routes - redirect to dashboard if already authenticated
   if (AUTH_ROUTES.some((route) => pathname.startsWith(route))) {
     if (isAuthenticated) {
-      return NextResponse.redirect(new URL("/plan-selection", request.url));
+      return NextResponse.redirect(new URL("/pricing", request.url));
     }
     return NextResponse.next();
   }

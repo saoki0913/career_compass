@@ -248,7 +248,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
       if (userPlan?.needsPlanSelection) {
-        router.push("/plan-selection");
+        router.push("/pricing");
       } else if (userPlan?.needsOnboarding) {
         router.push("/onboarding");
       }

@@ -10,7 +10,7 @@ interface GoogleSignInButtonProps {
 }
 
 export function GoogleSignInButton({
-  callbackURL = "/plan-selection",
+  callbackURL = "/pricing",
   className,
 }: GoogleSignInButtonProps) {
   const [isLoading, setIsLoading] = useState(false);

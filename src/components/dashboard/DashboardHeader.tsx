@@ -239,7 +239,7 @@ export function DashboardHeader() {
 
             {/* Credit Balance */}
             <Link
-              href="/plan-selection"
+              href="/pricing"
               className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition-all duration-200"
             >
               <CreditIcon />
@@ -317,7 +317,7 @@ export function DashboardHeader() {
                         <span>設定</span>
                       </Link>
                       <Link
-                        href="/plan-selection"
+                        href="/pricing"
                         onClick={() => setShowUserDropdown(false)}
                         className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors cursor-pointer sm:hidden"
                       >

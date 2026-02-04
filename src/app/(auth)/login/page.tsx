@@ -51,7 +51,7 @@ export default function LoginPage() {
     if (!isLoading && isAuthenticated) {
       // Already logged in, redirect based on status
       if (userPlan?.needsPlanSelection) {
-        router.push("/plan-selection");
+        router.push("/pricing");
       } else if (userPlan?.needsOnboarding) {
         router.push("/onboarding");
       } else {
