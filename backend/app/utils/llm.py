@@ -117,7 +117,8 @@ ResponseFormat = Literal["json_object", "json_schema", "text"]
 # Feature-based model configuration
 MODEL_CONFIG: dict[str, LLMModel] = {
     "es_review": "claude-sonnet",  # High-quality review and rewrite
-    "gakuchika": "claude-sonnet",  # Interactive deep-dive questions
+    "gakuchika": "claude-haiku",  # Interactive deep-dive questions (cost-optimized)
+    "motivation": "claude-haiku",  # Motivation deep-dive questions (cost-optimized)
     "selection_schedule": "claude-haiku",  # Selection schedule extraction
     "rag_query": "claude-sonnet",  # Query expansion for RAG
     "rag_rerank": "claude-sonnet",  # Reranking for RAG
@@ -128,6 +129,7 @@ MODEL_CONFIG: dict[str, LLMModel] = {
 FEATURE_NAMES = {
     "es_review": "ES添削",
     "gakuchika": "ガクチカ深掘り",
+    "motivation": "志望動機作成",
     "selection_schedule": "選考スケジュール抽出",
     "rag_query": "RAGクエリ拡張",
     "rag_rerank": "RAG再ランキング",

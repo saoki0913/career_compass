@@ -11,7 +11,7 @@ import { documents, companies } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
-import { hasEnoughCredits } from "@/lib/credits";
+import { hasEnoughCredits, calculateESReviewCost } from "@/lib/credits";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 import type { TemplateType } from "@/hooks/useESReview";
 
@@ -171,9 +171,9 @@ export async function POST(
     const isPaid = userPlan === "standard" || userPlan === "pro";
     const rewriteCount = isPaid ? 3 : 1;
 
-    // Calculate credit cost: ceil(chars/800), max 5
+    // Calculate credit cost: max(2, ceil(chars/800)), max 5
     const charCount = content.length;
-    const creditCost = Math.min(5, Math.ceil(charCount / 800));
+    const creditCost = calculateESReviewCost(charCount);
 
     // Check if user can afford (only for logged-in users)
     if (userId) {

@@ -14,6 +14,7 @@ import { CompareView } from "./CompareView";
 import { ReflectModal } from "./ReflectModal";
 import { EnhancedProcessingSteps, ES_REVIEW_STEPS } from "@/components/ui/EnhancedProcessingSteps";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { calculateESReviewCost } from "@/lib/credits";
 
 // Section review request from parent component
 interface SectionReviewRequest {
@@ -73,7 +74,7 @@ interface CreditCostIndicatorProps {
 }
 
 function CreditCostIndicator({ charCount, className }: CreditCostIndicatorProps) {
-  const cost = Math.min(5, Math.ceil(charCount / 800) || 1);
+  const cost = calculateESReviewCost(charCount);
   const nextThreshold = cost < 5 ? cost * 800 : null;
   const charsToNext = nextThreshold ? nextThreshold - charCount : null;
 
