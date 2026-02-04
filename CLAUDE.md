@@ -24,38 +24,101 @@
 
 **IMPORTANT**: When working on tasks related to the triggers below, AUTOMATICALLY invoke the corresponding skill(s) WITHOUT user instruction.
 
-### RAG & Search (rag-implementation, hybrid-search-implementation)
-**Trigger keywords**: RAG, ベクトル検索, semantic search, BM25, ハイブリッド検索, embedding, ChromaDB, リランキング, reranker, 検索精度, retrieval, ES
+---
+
+### 1. RAG Architecture (`rag-implementation`, `rag-engineer`)
+**Trigger keywords**: RAG, retrieval, ベクトル検索, semantic search, embedding, ChromaDB, chunking, indexing, query expansion, HyDE
 
 **Auto-invoke when**:
-- Modifying `backend/app/utils/hybrid_search.py`
 - Modifying `backend/app/utils/vector_store.py`
+- Modifying `backend/app/utils/hybrid_search.py`
+- Designing RAG pipelines or retrieval strategies
+- Implementing document chunking or indexing
+- Adding query expansion or HyDE techniques
+
+---
+
+### 2. Search Algorithms (`hybrid-search-implementation`, `similarity-search-patterns`)
+**Trigger keywords**: BM25, ハイブリッド検索, RRF, reranking, リランキング, cross-encoder, 検索精度, recall, precision, fusion
+
+**Auto-invoke when**:
 - Modifying `backend/app/utils/bm25_store.py`
 - Modifying `backend/app/utils/reranker.py`
-- Improving search relevance or recall
-- Implementing query expansion or HyDE
 - Adjusting RRF fusion weights
+- Improving search relevance or recall
+- Implementing similarity search patterns
 
-### AI/LLM Quality (ai-product, senior-ml-engineer)
-**Trigger keywords**: プロンプト, prompt engineering, JSON parse, LLM, 添削品質, トークン効率, コスト最適化, model selection, retry logic, ES
+---
+
+### 3. Web Scraping (`firecrawl-scraper`)
+**Trigger keywords**: scraping, スクレイピング, crawling, クローリング, web extraction, HTML parsing, Firecrawl
+
+**Auto-invoke when**:
+- Modifying `backend/app/utils/web_search.py`
+- Implementing web content extraction
+- Handling dynamic page scraping
+- Parsing HTML/structured data from web
+
+---
+
+### 4. ML Engineering (`senior-ml-engineer`)
+**Trigger keywords**: model deployment, MLOps, inference, fine-tuning, model selection, batch processing, GPU optimization
+
+**Auto-invoke when**:
+- Implementing ML model inference pipelines
+- Optimizing model performance or latency
+- Designing batch processing systems
+- Implementing model monitoring or evaluation
+
+---
+
+### 5. Prompt Engineering (`prompt-engineer`)
+**Trigger keywords**: プロンプト, prompt, system message, few-shot, chain-of-thought, JSON output, 生成品質, hallucination
 
 **Auto-invoke when**:
 - Modifying `backend/app/prompts/es_templates.py`
 - Modifying `backend/app/utils/llm.py`
-- Fixing JSON parsing errors
-- Improving prompt quality or reducing hallucinations
-- Optimizing LLM token usage or costs
-- Implementing retry/fallback strategies
+- Fixing JSON parsing errors from LLM
+- Improving output quality or reducing hallucinations
+- Implementing structured output formats
 
-### UX & Design (ux-psychology, frontend-design)
-**Trigger keywords**: UX, UI, 認知負荷, cognitive load, フィードバック, loading state, モバイル, responsive, アクセシビリティ, accessibility
+---
+
+### 6. AI Product (`ai-product`, `pricing-strategy`)
+**Trigger keywords**: AI UX, コスト最適化, token efficiency, pricing, 料金設計, credit system, usage tracking, value proposition
+
+**Auto-invoke when**:
+- Designing AI-powered features
+- Implementing credit/usage systems
+- Optimizing LLM token costs
+- Planning pricing or monetization strategies
+- Balancing quality vs cost trade-offs
+
+---
+
+### 7. Frontend & UI/UX (`ux-psychology`, `frontend-design`, `ui-ux-pro-max`, `vercel-react-best-practices`, `component-refactoring`)
+**Trigger keywords**: UX, UI, 認知負荷, cognitive load, responsive, モバイル, loading state, accessibility, React, Next.js, コンポーネント
 
 **Auto-invoke when**:
 - Modifying React components in `src/components/`
 - Improving user feedback or loading states
 - Implementing progressive disclosure
 - Mobile-first responsive design
-- Error messaging and recovery flows
+- Refactoring component architecture
+- Optimizing React/Next.js performance
+
+---
+
+### 8. Security & Audit (`security-review`, `audit-website`)
+**Trigger keywords**: security, セキュリティ, authentication, 認証, authorization, XSS, CSRF, injection, secrets, API security, audit
+
+**Auto-invoke when**:
+- Implementing authentication/authorization
+- Handling user input or file uploads
+- Creating new API endpoints
+- Working with secrets or credentials
+- Implementing payment features
+- Reviewing security vulnerabilities
 
 ---
 
