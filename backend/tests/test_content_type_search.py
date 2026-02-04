@@ -146,6 +146,12 @@ class TestContentTypeDetection:
         # Either None or a default type is acceptable for generic URLs
         assert result in [None, "corporate_site"]
 
+    def test_generic_career_not_force_midcareer(self):
+        """career単語のみでは中途採用と誤判定しないこと"""
+        url = "https://example.co.jp/career/index.html"
+        result = detect_content_type_from_url(url)
+        assert result not in ["midcareer_recruitment", "new_grad_recruitment"]
+
 
 # 3. Unit Tests: 競合タイプの検証
 class TestConflictingTypes:

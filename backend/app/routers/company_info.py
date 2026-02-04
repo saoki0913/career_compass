@@ -1121,6 +1121,15 @@ JOB_SITES = [
     "career-tasu",
     "job.mynavi.jp",
     "job.rikunabi.com",
+    "rikeinavi.com",
+    "reashu.com",
+    "ut-board.com",
+    "talentsquare.co.jp",
+    "renew-career.com",
+    "abuild-c.com",
+    "pasonacareer.jp",
+    "r-agent.com",
+    "careerup-media.com",
 ]
 
 # Completely irrelevant sites that should always be filtered out
@@ -1156,6 +1165,9 @@ IRRELEVANT_SITES = [
     # Other irrelevant
     "mitsui-fudosan",
     "mitsui-shopping",  # Real estate/shopping (not recruitment)
+    # Test/dev sites
+    "test-dev-site.site",
+    ".test",
 ]
 
 AGGREGATOR_SITES = [
@@ -1170,6 +1182,15 @@ AGGREGATOR_SITES = [
     "en-japan.com",
     "doda.jp",
     "type.jp",
+    "rikeinavi.com",
+    "reashu.com",
+    "ut-board.com",
+    "talentsquare.co.jp",
+    "renew-career.com",
+    "abuild-c.com",
+    "pasonacareer.jp",
+    "r-agent.com",
+    "careerup-media.com",
 ]
 
 RECRUIT_URL_KEYWORDS = [
@@ -1350,22 +1371,24 @@ def _score_to_confidence(
                 return "medium"
             return "low"
     elif source_type == "blog":
-        # Blogs need higher score for confidence
-        if score >= 10:
-            return "high"
+        # Blogs should not be "high"
         if score >= 6:
             return "medium"
         return "low"
     elif source_type == "job_site":
         # 就活サイトは最大でも medium に制限（二次情報のため）
-        # 閾値はブログと同様に厳しく設定
+        if score >= 6:
+            return "medium"
+        return "low"
+    elif source_type in {"parent", "subsidiary"}:
+        # Parent/subsidiary sites should not be "high"
         if score >= 6:
             return "medium"
         return "low"
     else:
-        # Default thresholds (other)
+        # Default thresholds (other) - cap at medium
         if score >= 7:
-            return "high"
+            return "medium"
         if score >= 4:
             return "medium"
         return "low"
@@ -1393,9 +1416,19 @@ def _domain_pattern_matches(domain: str, pattern: str) -> bool:
         if pattern.lower() not in get_short_domain_allowlist_patterns():
             return False
 
-    segments = domain.lower().split(".")
     pattern_lower = pattern.lower()
+    domain_lower = domain.lower()
 
+    if "." in pattern_lower:
+        if domain_lower == pattern_lower:
+            return True
+        if domain_lower.endswith("." + pattern_lower):
+            return True
+        if re.search(rf"(?:^|\.){re.escape(pattern_lower)}(?:\.|$)", domain_lower):
+            return True
+        return False
+
+    segments = domain_lower.split(".")
     for segment in segments:
         # Exact match: mec.co.jp → segment "mec"
         if segment == pattern_lower:
@@ -1827,7 +1860,9 @@ def _score_recruit_candidate(
         score += 1.0
     elif domain.endswith(".net"):
         score += 0.5
-    elif any(domain.endswith(bad) for bad in [".xyz", ".info", ".biz"]):
+    elif any(
+        domain.endswith(bad) for bad in [".xyz", ".info", ".biz", ".site", ".dev", ".test"]
+    ):
         score -= 1.0  # Low quality TLDs
 
     # --- Industry Match ---
@@ -1961,7 +1996,9 @@ def _score_recruit_candidate_with_breakdown(
     elif domain.endswith(".net"):
         score += 0.5
         breakdown["TLD品質"] = "+0.5 (.net)"
-    elif any(domain.endswith(bad) for bad in [".xyz", ".info", ".biz"]):
+    elif any(
+        domain.endswith(bad) for bad in [".xyz", ".info", ".biz", ".site", ".dev", ".test"]
+    ):
         score -= 1.0
         breakdown["TLD品質"] = "-1.0 (低品質)"
 
@@ -2196,6 +2233,10 @@ def _score_corporate_candidate(
 
     if domain.endswith((".co.jp", ".jp", ".com", ".net")):
         score += 1.0
+    elif any(
+        domain.endswith(bad) for bad in [".xyz", ".info", ".biz", ".site", ".dev", ".test"]
+    ):
+        score -= 1.0
 
     keywords = CORP_KEYWORDS.get(search_type, {})
     for kw in keywords.get("url", []):
@@ -2359,6 +2400,11 @@ def _score_corporate_candidate_with_breakdown(
     elif domain.endswith(".net"):
         score += 0.5
         breakdown["TLD品質"] = "+0.5 (.net)"
+    elif any(
+        domain.endswith(bad) for bad in [".xyz", ".info", ".biz", ".site", ".dev", ".test"]
+    ):
+        score -= 1.0
+        breakdown["TLD品質"] = "-1.0 (低品質)"
 
     # ContentType-specific scoring (if content_type is provided)
     if content_type and content_type in CONTENT_TYPE_KEYWORDS:
@@ -2809,8 +2855,6 @@ async def search_company_pages(request: SearchPagesRequest):
     graduation_year = request.graduation_year
     selection_type = request.selection_type
     allow_snippet_match = request.allow_snippet_match
-    if content_type in PARENT_ALLOWED_CONTENT_TYPES:
-        allow_snippet_match = True
 
     candidates = []
 
@@ -2872,37 +2916,7 @@ async def search_company_pages(request: SearchPagesRequest):
                 print(f"[サイト検索] ❌ 除外: 子会社サイト")
                 continue
 
-            # Exclude conflicting company domains (unless strict name match)
-            conflicts = _get_conflicting_companies(result.domain, company_name)
-            if conflicts and not _has_strict_company_name_match(
-                company_name, title, snippet
-            ):
-                excluded_reasons["競合ドメイン"] += 1
-                conflict_label = ", ".join(sorted(conflicts))[:50]
-                print(f"[サイト検索] ❌ 除外: 競合ドメイン ({conflict_label})")
-                continue
-
-            # Determine source type
-            source_type = result.source_type
-            is_parent_site = _is_parent_company_site(company_name, title, url)
-
-            # Apply penalty for parent company sites
-            adjusted_score = result.combined_score
-            if is_parent_site:
-                adjusted_score *= 0.5
-                source_type = "parent"
-                print(f"[サイト検索] ⚠️ ペナルティ: 親会社サイト (0.5x)")
-
-            # Apply penalty for subsidiary sites
-            from app.utils.company_names import is_subsidiary_domain
-
-            is_sub, sub_name = is_subsidiary_domain(url, company_name)
-            if is_sub:
-                adjusted_score *= 0.3
-                source_type = "subsidiary"
-                print(f"[サイト検索] ⚠️ ペナルティ: 子会社サイト ({sub_name}, 0.3x)")
-
-            # Check company name in result (skip for official domains)
+            # Official domain check (domain pattern match)
             url_domain = result.domain
             is_official_domain = (
                 any(
@@ -2913,6 +2927,39 @@ async def search_company_pages(request: SearchPagesRequest):
                 else False
             )
 
+            # Exclude conflicting company domains (unless strict name match)
+            conflicts = _get_conflicting_companies(result.domain, company_name)
+            if conflicts and not is_official_domain and not _has_strict_company_name_match(
+                company_name, title, snippet
+            ):
+                excluded_reasons["競合ドメイン"] += 1
+                conflict_label = ", ".join(sorted(conflicts))[:50]
+                print(f"[サイト検索] ❌ 除外: 競合ドメイン ({conflict_label})")
+                continue
+
+            # Determine source type
+            source_type = result.source_type
+            if source_type == "aggregator":
+                source_type = "job_site"
+            is_parent_site = _is_parent_company_site(company_name, title, url)
+
+            # Apply penalty for parent company sites
+            adjusted_score = result.combined_score
+            if is_parent_site and not is_official_domain:
+                adjusted_score *= 0.5
+                source_type = "parent"
+                print(f"[サイト検索] ⚠️ ペナルティ: 親会社サイト (0.5x)")
+
+            # Apply penalty for subsidiary sites
+            from app.utils.company_names import is_subsidiary_domain
+
+            is_sub, sub_name = is_subsidiary_domain(url, company_name)
+            if is_sub and not is_official_domain:
+                adjusted_score *= 0.3
+                source_type = "subsidiary"
+                print(f"[サイト検索] ⚠️ ペナルティ: 子会社サイト ({sub_name}, 0.3x)")
+
+            # Check company name in result (skip for official domains)
             if not is_official_domain and not _contains_company_name(
                 company_name, title, url, snippet, allow_snippet_match
             ):
@@ -2939,6 +2986,7 @@ async def search_company_pages(request: SearchPagesRequest):
             source_label = {
                 "official": "公式",
                 "aggregator": "就活サイト",
+                "job_site": "就活サイト",
                 "parent": "親会社",
                 "subsidiary": "子会社",
                 "other": "その他",
@@ -3095,6 +3143,7 @@ async def search_company_pages(request: SearchPagesRequest):
             title = item["title"]
             url = item["url"]
             snippet = item.get("snippet", "")
+            domain_patterns = get_company_domain_patterns(company_name)
 
             # Skip irrelevant sites (shopping, PDF viewers, etc.)
             if _is_irrelevant_url(url):
@@ -3108,10 +3157,25 @@ async def search_company_pages(request: SearchPagesRequest):
                 print(f"[サイト検索] ❌ 除外: {url[:50]}... (子会社サイト)")
                 continue
 
+            # Official domain check (domain pattern match)
+            try:
+                parsed_url = urlparse(url)
+                url_domain = parsed_url.netloc.lower()
+            except Exception:
+                url_domain = ""
+            is_official_domain = (
+                any(
+                    _domain_pattern_matches(url_domain, pattern)
+                    for pattern in domain_patterns
+                )
+                if domain_patterns
+                else False
+            )
+
             # Exclude conflicting company domains (unless strict name match)
             url_domain = _domain_from_url(url)
             conflicts = _get_conflicting_companies(url_domain, company_name)
-            if conflicts and not _has_strict_company_name_match(
+            if conflicts and not is_official_domain and not _has_strict_company_name_match(
                 company_name, title, snippet
             ):
                 excluded_reasons["競合ドメイン"] += 1
@@ -3124,7 +3188,7 @@ async def search_company_pages(request: SearchPagesRequest):
             # Apply penalty for parent company sites (when searching for subsidiary)
             # 注: 完全除外ではなくペナルティを適用（グループ採用サイトの可能性を考慮）
             is_parent_site = _is_parent_company_site(company_name, title, url)
-            if is_parent_site:
+            if is_parent_site and not is_official_domain:
                 item["score"] *= 0.5  # 親会社サイトペナルティ
                 item["is_parent_company"] = True
                 print(f"[サイト検索] ⚠️ ペナルティ: {url[:50]}... (親会社サイト, 0.5x)")
@@ -3134,7 +3198,7 @@ async def search_company_pages(request: SearchPagesRequest):
             from app.utils.company_names import is_subsidiary_domain
 
             is_sub, sub_name = is_subsidiary_domain(url, company_name)
-            if is_sub:
+            if is_sub and not is_official_domain:
                 item["score"] *= 0.3  # 子会社サイトペナルティ
                 item["is_subsidiary"] = True
                 item["subsidiary_name"] = sub_name
@@ -3151,16 +3215,6 @@ async def search_company_pages(request: SearchPagesRequest):
                 url_domain = parsed_url.netloc.lower()
             except Exception:
                 url_domain = ""
-
-            domain_patterns = get_company_domain_patterns(company_name)
-            is_official_domain = (
-                any(
-                    _domain_pattern_matches(url_domain, pattern)
-                    for pattern in domain_patterns
-                )
-                if domain_patterns
-                else False
-            )
 
             # Skip results that don't contain the company name
             # This filters out different companies that share industry keywords
@@ -4122,9 +4176,20 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 print(f"[{type_label}検索] ❌ 除外: 子会社サイト")
                 continue
 
+            # Official domain check (domain pattern match)
+            url_domain = result.domain
+            is_official_domain = (
+                any(
+                    _domain_pattern_matches(url_domain, pattern)
+                    for pattern in domain_patterns
+                )
+                if domain_patterns
+                else False
+            )
+
             # Exclude conflicting company domains (unless strict name match)
             conflicts = _get_conflicting_companies(result.domain, company_name)
-            if conflicts and not _has_strict_company_name_match(
+            if conflicts and not is_official_domain and not _has_strict_company_name_match(
                 company_name, title, snippet
             ):
                 excluded_reasons["競合ドメイン"] += 1
@@ -4134,6 +4199,8 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
 
             # Determine source type
             source_type = result.source_type
+            if source_type == "aggregator":
+                source_type = "job_site"
             is_parent_site = _is_parent_company_site(company_name, title, url)
             from app.utils.company_names import is_parent_domain_allowed
 
@@ -4145,7 +4212,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
 
             # Apply penalty for parent company sites
             adjusted_score = result.combined_score
-            if is_parent_site:
+            if is_parent_site and not is_official_domain:
                 adjusted_score *= 0.8 if allowed_parent else 0.5
                 source_type = "parent"
                 penalty_label = "0.8x" if allowed_parent else "0.5x"
@@ -4155,7 +4222,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             from app.utils.company_names import is_subsidiary_domain
 
             is_sub, sub_name = is_subsidiary_domain(url, company_name)
-            if is_sub:
+            if is_sub and not is_official_domain:
                 adjusted_score *= 0.3
                 source_type = "subsidiary"
                 print(
@@ -4163,16 +4230,6 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 )
 
             # Check company name in result (skip for official domains)
-            url_domain = result.domain
-            is_official_domain = (
-                any(
-                    _domain_pattern_matches(url_domain, pattern)
-                    for pattern in domain_patterns
-                )
-                if domain_patterns
-                else False
-            )
-
             if not is_official_domain and not allowed_parent and not _contains_company_name(
                 company_name, title, url, snippet, allow_snippet_match
             ):
@@ -4194,6 +4251,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             source_label = {
                 "official": "公式",
                 "aggregator": "就活サイト",
+                "job_site": "就活サイト",
                 "parent": "親会社",
                 "subsidiary": "子会社",
                 "other": "その他",
@@ -4388,6 +4446,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             url = item["url"]
             title = item["title"]
             snippet = item.get("snippet", "")
+            domain_patterns = get_company_domain_patterns(company_name)
 
             # Skip irrelevant sites (shopping, PDF viewers, etc.)
             if _is_irrelevant_url(url):
@@ -4401,10 +4460,26 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 print(f"[{type_label}検索] ❌ 除外: {url[:50]}... (子会社サイト)")
                 continue
 
+            # Official domain check (domain pattern match)
+            try:
+                parsed_url = urlparse(url)
+                url_domain = parsed_url.netloc.lower()
+            except Exception:
+                url_domain = ""
+
+            is_official_domain = (
+                any(
+                    _domain_pattern_matches(url_domain, pattern)
+                    for pattern in domain_patterns
+                )
+                if domain_patterns
+                else False
+            )
+
             # Exclude conflicting company domains (unless strict name match)
             url_domain = _domain_from_url(url)
             conflicts = _get_conflicting_companies(url_domain, company_name)
-            if conflicts and not _has_strict_company_name_match(
+            if conflicts and not is_official_domain and not _has_strict_company_name_match(
                 company_name, title, snippet
             ):
                 excluded_reasons["競合ドメイン"] += 1
@@ -4424,7 +4499,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 if is_parent_site and is_parent_domain_allowed(company_name, content_type)
                 else False
             )
-            if is_parent_site:
+            if is_parent_site and not is_official_domain:
                 item["score"] *= 0.8 if allowed_parent else 0.5  # 親会社サイトペナルティ
                 item["is_parent_company"] = True
                 print(
@@ -4435,7 +4510,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             from app.utils.company_names import is_subsidiary_domain
 
             is_sub, sub_name = is_subsidiary_domain(url, company_name)
-            if is_sub:
+            if is_sub and not is_official_domain:
                 item["score"] *= 0.3  # 子会社サイトペナルティ
                 item["is_subsidiary"] = True
                 item["subsidiary_name"] = sub_name
@@ -4445,24 +4520,6 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
 
             # Check if URL matches official domain patterns
             # If it's an official domain, skip company name check
-            from urllib.parse import urlparse
-
-            try:
-                parsed_url = urlparse(url)
-                url_domain = parsed_url.netloc.lower()
-            except Exception:
-                url_domain = ""
-
-            domain_patterns = get_company_domain_patterns(company_name)
-            is_official_domain = (
-                any(
-                    _domain_pattern_matches(url_domain, pattern)
-                    for pattern in domain_patterns
-                )
-                if domain_patterns
-                else False
-            )
-
             # Skip results that don't contain the company name
             # By default, only check title/URL (not snippet) to avoid false positives
             # Exception: Skip this check for official domain matches

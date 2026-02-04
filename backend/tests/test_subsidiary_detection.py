@@ -149,6 +149,14 @@ class TestParentDomainExclusion:
         )
         assert result is True, "Mitsubishi Corp site should be detected as parent"
 
+    def test_dot_pattern_own_domain_not_parent(self):
+        """ドット付き公式ドメインは親会社として検出されない"""
+        result = is_parent_domain(
+            url="https://www.bk.mufg.jp/",
+            company_name="三菱UFJ銀行",
+        )
+        assert result is False, "bk.mufg.jp should NOT be detected as parent domain"
+
 
 # =============================================================================
 # TestDomainBoundaryValidation: ドメイン境界チェックテスト

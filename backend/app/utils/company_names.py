@@ -13,6 +13,28 @@ from pathlib import Path
 # マッピングファイルのパス
 MAPPINGS_FILE = Path(__file__).parent.parent.parent / "data" / "company_mappings.json"
 
+# Generic domain patterns that should not be treated as company identifiers
+# (used to avoid false conflict detection, e.g., "recruit")
+GENERIC_DOMAIN_PATTERNS = {
+    "recruit",
+    "recruitment",
+    "career",
+    "careers",
+    "job",
+    "jobs",
+    "saiyo",
+    "saiyou",
+    "entry",
+    "newgrad",
+    "newgrads",
+    "graduate",
+    "fresh",
+    "freshers",
+    "intern",
+    "internship",
+    "mypage",
+}
+
 
 @lru_cache(maxsize=1)
 def _load_mapping_data() -> dict:
@@ -99,6 +121,8 @@ def _get_domain_pattern_index() -> dict[str, set[str]]:
             if not isinstance(pattern, str):
                 continue
             pattern_lower = pattern.lower()
+            if pattern_lower in GENERIC_DOMAIN_PATTERNS:
+                continue
             if len(pattern_lower) < 3 and pattern_lower not in allowlisted_short:
                 continue
             index.setdefault(pattern_lower, set()).add(company_name)
@@ -108,6 +132,8 @@ def _get_domain_pattern_index() -> dict[str, set[str]]:
     for company_name, patterns in short_allowlist.items():
         for pattern in patterns:
             pattern_lower = pattern.lower()
+            if pattern_lower in GENERIC_DOMAIN_PATTERNS:
+                continue
             if pattern_lower:
                 index.setdefault(pattern_lower, set()).add(company_name)
     return index
@@ -241,6 +267,8 @@ def get_company_candidates_for_domain(domain: str) -> set[str]:
         if not segment:
             continue
         # Full segment match (e.g., "mizuho-fg")
+        if segment in GENERIC_DOMAIN_PATTERNS:
+            continue
         companies = index.get(segment)
         if companies:
             candidates.update(companies)
@@ -248,6 +276,8 @@ def get_company_candidates_for_domain(domain: str) -> set[str]:
         # Token match (e.g., "mizuho" from "mizuho-fg")
         for token in re.split(r"[-_]", segment):
             if not token:
+                continue
+            if token in GENERIC_DOMAIN_PATTERNS:
                 continue
             if len(token) < 3 and token not in allowlisted_short:
                 continue
@@ -530,6 +560,29 @@ def is_parent_domain(url: str, company_name: str) -> bool:
     # ドメインをセグメントに分割（例: "career.mitsui.com" → ["career", "mitsui", "com"]）
     domain_segments = domain.split(".")
 
+    def _matches_domain_pattern(domain: str, pattern: str) -> bool:
+        pattern_lower = pattern.lower()
+        domain_lower = domain.lower()
+        if "." in pattern_lower:
+            if domain_lower == pattern_lower:
+                return True
+            if domain_lower.endswith("." + pattern_lower):
+                return True
+            # Allow multi-segment patterns like "bk.mufg"
+            if re.search(rf"(?:^|\.){re.escape(pattern_lower)}(?:\.|$)", domain_lower):
+                return True
+            return False
+
+        # Segment-based match (same as _domain_pattern_matches)
+        for segment in domain_lower.split("."):
+            if segment == pattern_lower:
+                return True
+            if segment.startswith(pattern_lower + "-") or segment.endswith(
+                "-" + pattern_lower
+            ):
+                return True
+        return False
+
     # 3. まず子会社自身のドメインかチェック（親会社と共通のパターンを除外）
     # 子会社固有のパターン = 子会社パターン - 親会社パターン
     own_unique_patterns = [p for p in own_patterns if p not in parent_patterns]
@@ -537,32 +590,15 @@ def is_parent_domain(url: str, company_name: str) -> bool:
     for pattern in own_unique_patterns:
         if len(pattern) < 3 and pattern.lower() not in allowlisted_short:
             continue
-        pattern_lower = pattern.lower()
-        for segment in domain_segments:
-            # 子会社固有パターンに完全一致またはハイフン付きで一致
-            if segment == pattern_lower:
-                return False  # 子会社自身のサイト → 親会社サイトではない
-            if segment.startswith(pattern_lower + "-") or segment.endswith(
-                "-" + pattern_lower
-            ):
-                return False  # 子会社自身のサイト → 親会社サイトではない
+        if _matches_domain_pattern(domain, pattern):
+            return False  # 子会社自身のサイト → 親会社サイトではない
 
     # 4. 親会社ドメインパターンをチェック
     for pattern in parent_patterns:
         if len(pattern) < 3 and pattern.lower() not in allowlisted_short:
             continue
-        pattern_lower = pattern.lower()
-
-        # セグメント単位でマッチ（境界チェック）
-        for segment in domain_segments:
-            # 完全一致
-            if segment == pattern_lower:
-                return True
-            # ハイフン付きパターン（例: career-mitsui, mitsui-group）
-            if segment.startswith(pattern_lower + "-") or segment.endswith(
-                "-" + pattern_lower
-            ):
-                return True
+        if _matches_domain_pattern(domain, pattern):
+            return True
 
     return False
 

@@ -235,24 +235,66 @@ def detect_content_type_from_url(url: str) -> str | None:
     """
     url_lower = url.lower()
 
-    # Score each content type
+    # Strong recruitment signals (avoid misclassifying generic "recruit/career")
+    newgrad_strong = {"newgrad", "shinsotsu", "graduate", "fresh", "freshers"}
+    midcareer_strong = {"midcareer", "tenshoku", "experienced", "chuto", "job-change"}
+
+    if any(p in url_lower for p in midcareer_strong):
+        return "midcareer_recruitment"
+    if any(p in url_lower for p in newgrad_strong):
+        return "new_grad_recruitment"
+
+    # Weak/ambiguous URL patterns that should not alone decide content type
+    weak_patterns = {
+        "information",
+        "topics",
+        "message",
+        "about",
+        "company",
+        "corporate",
+        "profile",
+        "overview",
+        "info",
+        "recruit",
+        "saiyo",
+        "entry",
+        "career",
+    }
+
     best_match = None
-    best_score = 0
+    best_score = 0.0
 
     for ct, keywords in CONTENT_TYPE_KEYWORDS.items():
-        score = 0
+        if ct in {"new_grad_recruitment", "midcareer_recruitment"}:
+            # Skip weak recruitment patterns unless strong signals matched above
+            continue
+
+        score = 0.0
+        matched_strong = False
         for pattern in keywords["url"]:
             if pattern in url_lower:
-                score += 1
+                exact_match = (
+                    f"/{pattern}/" in url_lower
+                    or url_lower.endswith(f"/{pattern}")
+                    or url_lower.endswith(f"/{pattern}.html")
+                )
+                weight = 0.5 if pattern in weak_patterns else 1.0
+                if pattern == "message" and exact_match:
+                    weight = 1.0
+                score += weight
+                if weight >= 1.0:
+                    matched_strong = True
                 # Exact path match gets bonus
-                if f"/{pattern}/" in url_lower or url_lower.endswith(f"/{pattern}"):
-                    score += 1
+                if exact_match:
+                    score += 0.5
 
-        if score > best_score:
-            best_score = score
-            best_match = ct
+        # Require at least one strong signal or a meaningful score
+        if score >= 1.0 and (matched_strong or score >= 1.5 or ct == "corporate_site"):
+            if score > best_score:
+                best_score = score
+                best_match = ct
 
-    return best_match if best_score > 0 else None
+    return best_match
 
 
 def get_conflicting_content_types(content_type: str) -> list[str]:

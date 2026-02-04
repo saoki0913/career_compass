@@ -166,6 +166,7 @@ EXCLUDED_DOMAINS = [
     "nttdatafoundation.com",
     "presseportal.de",
     "telcomagazine.com",
+    "test-dev-site.site",
 ]
 
 # Job aggregator sites (lower score but not excluded)
@@ -181,6 +182,15 @@ AGGREGATOR_DOMAINS = [
     "en-japan.com",
     "doda.jp",
     "careerpark.jp",
+    "rikeinavi.com",
+    "reashu.com",
+    "ut-board.com",
+    "talentsquare.co.jp",
+    "renew-career.com",
+    "abuild-c.com",
+    "pasonacareer.jp",
+    "r-agent.com",
+    "careerup-media.com",
 ]
 
 # Content type to search intent mapping
@@ -855,6 +865,9 @@ def calculate_heuristic_score(
     elif domain.endswith(".com"):
         score += 1.0
         breakdown["tld_com"] = 1.0
+    elif any(domain.endswith(bad) for bad in [".xyz", ".info", ".biz", ".site", ".dev", ".test"]):
+        score -= 1.0
+        breakdown["tld_low_quality"] = -1.0
 
     # 7. Company name in snippet (+2.0)
     if normalized_name in snippet_lower:
@@ -917,9 +930,20 @@ def _domain_pattern_matches(domain: str, pattern: str) -> bool:
         if pattern.lower() not in get_short_domain_allowlist_patterns():
             return False
 
-    segments = domain.lower().split(".")
     pattern_lower = pattern.lower()
+    domain_lower = domain.lower()
 
+    if "." in pattern_lower:
+        if domain_lower == pattern_lower:
+            return True
+        if domain_lower.endswith("." + pattern_lower):
+            return True
+        # Allow multi-segment pattern like "bk.mufg"
+        if re.search(rf"(?:^|\.){re.escape(pattern_lower)}(?:\.|$)", domain_lower):
+            return True
+        return False
+
+    segments = domain_lower.split(".")
     for segment in segments:
         # Exact match
         if segment == pattern_lower:
