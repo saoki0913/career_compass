@@ -292,7 +292,7 @@ export const creditTransactions = sqliteTable("credit_transactions", {
     .references(() => users.id, { onDelete: "cascade" }),
   amount: integer("amount").notNull(), // positive = grant, negative = consume
   type: text("type", {
-    enum: ["monthly_grant", "plan_change", "company_fetch", "es_review", "gakuchika", "refund"]
+    enum: ["monthly_grant", "plan_change", "company_fetch", "es_review", "gakuchika", "motivation", "motivation_draft", "refund"]
   }).notNull(),
   referenceId: text("reference_id"), // related entity ID (companyId, documentId, etc.)
   description: text("description"),

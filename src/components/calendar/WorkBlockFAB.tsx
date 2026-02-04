@@ -39,10 +39,10 @@ export function WorkBlockFAB({ onClick, isVisible = true, className }: WorkBlock
         "focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2",
         className
       )}
-      title="作業ブロックを提案"
+      title="タスクを提案"
     >
       <LightbulbIcon />
-      <span className="hidden sm:inline">作業ブロック提案</span>
+      <span className="hidden sm:inline">タスク提案</span>
     </button>
   );
 }

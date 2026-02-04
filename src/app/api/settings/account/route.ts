@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { users, subscriptions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import { stripe } from "@/lib/stripe";
 
 export async function DELETE(request: NextRequest) {
   try {
@@ -33,12 +34,10 @@ export async function DELETE(request: NextRequest) {
       .where(eq(subscriptions.userId, userId))
       .get();
 
-    if (sub?.stripeSubscriptionId) {
+    if (sub?.stripeSubscriptionId && sub.status !== "canceled") {
       try {
-        // Note: In production, call Stripe API to cancel subscription
-        // const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-        // await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
-        console.log(`Stripe subscription ${sub.stripeSubscriptionId} should be canceled`);
+        await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+        console.log(`Stripe subscription ${sub.stripeSubscriptionId} canceled`);
       } catch (e) {
         console.error("Error canceling Stripe subscription:", e);
         // Continue with account deletion even if Stripe cancellation fails

@@ -25,7 +25,7 @@ export const DAILY_FREE_COMPANY_FETCH = {
 } as const;
 
 export type PlanType = "guest" | "free" | "standard" | "pro";
-export type TransactionType = "monthly_grant" | "plan_change" | "company_fetch" | "es_review" | "gakuchika" | "refund";
+export type TransactionType = "monthly_grant" | "plan_change" | "company_fetch" | "es_review" | "gakuchika" | "motivation" | "motivation_draft" | "refund";
 
 /**
  * Get the current date in JST (YYYY-MM-DD format)

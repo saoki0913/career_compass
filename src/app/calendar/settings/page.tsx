@@ -307,7 +307,7 @@ export default function CalendarSettingsPage() {
                 <CardHeader>
                   <CardTitle className="text-lg">Googleカレンダー設定</CardTitle>
                   <CardDescription>
-                    締切や作業ブロックを追加するカレンダーを選択または作成
+                    締切やタスクを追加するカレンダーを選択または作成
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">

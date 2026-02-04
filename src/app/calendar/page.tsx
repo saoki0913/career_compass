@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { useCalendarEvents, CalendarEvent, DeadlineEvent, useGoogleCalendar, GoogleCalendarEvent, WorkBlockSuggestion } from "@/hooks/useCalendar";
 import { CalendarSidebar } from "@/components/calendar/CalendarSidebar";
 import { WorkBlockFAB } from "@/components/calendar/WorkBlockFAB";
+import { EventDetailModal, type DisplayEvent } from "@/components/calendar/EventDetailModal";
 
 // Icons
 const ChevronLeftIcon = () => (
@@ -110,7 +111,7 @@ function WorkBlockSuggestionsModal({
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>作業ブロック提案</CardTitle>
+          <CardTitle>タスク提案</CardTitle>
           <p className="text-sm text-muted-foreground">
             {selectedDate.toLocaleDateString("ja-JP", {
               year: "numeric",
@@ -225,7 +226,7 @@ function AddEventModal({ isOpen, selectedDate, onClose, onCreate }: AddEventModa
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>作業ブロックを追加</CardTitle>
+          <CardTitle>タスクを追加</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -308,6 +309,8 @@ export default function CalendarPage() {
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
   const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
   const [workBlockSuggestions, setWorkBlockSuggestions] = useState<WorkBlockSuggestion[]>([]);
+  const [selectedEvent, setSelectedEvent] = useState<DisplayEvent | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
 
   // Calculate month range for API
   const monthStart = useMemo(() => {
@@ -366,10 +369,44 @@ export default function CalendarPage() {
   }, [currentDate]);
 
   // Group events by date (including Google Calendar events)
+  // With duplicate prevention: if Google Calendar is connected,
+  // app-registered events that match Google events are hidden
   const eventsByDate = useMemo(() => {
-    const map = new Map<string, (CalendarEvent | DeadlineEvent | { type: "google"; title: string })[]>();
+    const map = new Map<string, DisplayEvent[]>();
 
+    // Build a Set of Google event keys for duplicate detection
+    const googleEventKeys = new Set<string>();
+    if (googleCalendar.isConnected) {
+      googleEvents.forEach((googleEvent) => {
+        const startDateTime = googleEvent.start.dateTime || googleEvent.start.date;
+        if (!startDateTime) return;
+        const dateKey = startDateTime.split("T")[0];
+        // Normalize title: remove "[Career Compass] " prefix and lowercase
+        const normalizedTitle = googleEvent.summary
+          .replace("[Career Compass] ", "")
+          .toLowerCase()
+          .trim();
+        // Round to minute for time comparison
+        const startMinute = Math.floor(new Date(startDateTime).getTime() / 60000);
+        googleEventKeys.add(`${dateKey}|${normalizedTitle}|${startMinute}`);
+      });
+    }
+
+    // Add app events, filtering duplicates when Google is connected
     events.forEach((event) => {
+      // Only check duplicates for work_block type (タスク)
+      if (event.type === "work_block" && googleCalendar.isConnected) {
+        const dateKey = new Date(event.startAt).toISOString().split("T")[0];
+        const normalizedTitle = event.title.toLowerCase().trim();
+        const startMinute = Math.floor(new Date(event.startAt).getTime() / 60000);
+        const matchKey = `${dateKey}|${normalizedTitle}|${startMinute}`;
+
+        // Skip if duplicate found in Google Calendar
+        if (googleEventKeys.has(matchKey)) {
+          return;
+        }
+      }
+
       const dateKey = new Date(event.startAt).toISOString().split("T")[0];
       if (!map.has(dateKey)) {
         map.set(dateKey, []);
@@ -377,6 +414,7 @@ export default function CalendarPage() {
       map.get(dateKey)!.push(event);
     });
 
+    // Add deadlines (always shown - not duplicated to Google)
     deadlines.forEach((deadline) => {
       const dateKey = new Date(deadline.dueDate).toISOString().split("T")[0];
       if (!map.has(dateKey)) {
@@ -385,7 +423,7 @@ export default function CalendarPage() {
       map.get(dateKey)!.push(deadline);
     });
 
-    // Add Google Calendar events
+    // Add Google Calendar events (with full data for detail modal)
     googleEvents.forEach((googleEvent) => {
       const startDateTime = googleEvent.start.dateTime || googleEvent.start.date;
       if (!startDateTime) return;
@@ -394,13 +432,14 @@ export default function CalendarPage() {
         map.set(dateKey, []);
       }
       map.get(dateKey)!.push({
+        ...googleEvent,
         type: "google",
         title: googleEvent.summary,
-      });
+      } as DisplayEvent);
     });
 
     return map;
-  }, [events, deadlines, googleEvents]);
+  }, [events, deadlines, googleEvents, googleCalendar.isConnected]);
 
   const prevMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
@@ -444,7 +483,7 @@ export default function CalendarPage() {
         <div className="flex items-center justify-between mb-4 shrink-0">
           <div>
             <h1 className="text-2xl font-bold">カレンダー</h1>
-            <p className="text-muted-foreground mt-1">締切と作業ブロックを管理</p>
+            <p className="text-muted-foreground mt-1">締切とタスクを管理</p>
           </div>
           <div className="flex items-center gap-3">
             <Button variant="outline" asChild>
@@ -548,10 +587,17 @@ export default function CalendarPage() {
                                 const isDeadline = "eventType" in event && event.eventType === "deadline";
                                 const isGoogle = "type" in event && event.type === "google";
                                 return (
-                                  <div
+                                  <button
                                     key={i}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedEvent(event);
+                                      setShowDetailModal(true);
+                                    }}
                                     className={cn(
-                                      "text-xs px-1 py-0.5 rounded truncate",
+                                      "w-full text-left text-xs px-1 py-0.5 rounded truncate cursor-pointer",
+                                      "hover:opacity-80 transition-opacity",
                                       isDeadline
                                         ? "bg-red-100 text-red-700"
                                         : isGoogle
@@ -559,8 +605,8 @@ export default function CalendarPage() {
                                         : "bg-blue-100 text-blue-700"
                                     )}
                                   >
-                                    {event.title}
-                                  </div>
+                                    {"title" in event ? event.title : event.summary}
+                                  </button>
                                 );
                               })}
                               {dayEvents.length > 3 && (
@@ -586,7 +632,7 @@ export default function CalendarPage() {
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded bg-blue-100" />
-                <span>作業ブロック</span>
+                <span>タスク</span>
               </div>
               {googleCalendar.isConnected && (
                 <div className="flex items-center gap-1.5">
@@ -609,11 +655,10 @@ export default function CalendarPage() {
           </div>
         </div>
 
-        {/* Floating Action Button for Work Block Suggestions */}
+        {/* Floating Action Button for Task Suggestions */}
         <WorkBlockFAB
           onClick={() => {
-            const today = new Date();
-            handleSuggestWorkBlocks(today);
+            alert("まだリリースしていません");
           }}
           isVisible={googleCalendar.isConnected}
         />
@@ -644,6 +689,21 @@ export default function CalendarPage() {
             console.log("Selected suggestion:", suggestion);
           }}
           onCreateFromSuggestion={handleCreateFromSuggestion}
+        />
+
+        {/* Event detail modal */}
+        <EventDetailModal
+          isOpen={showDetailModal}
+          event={selectedEvent}
+          onClose={() => {
+            setShowDetailModal(false);
+            setSelectedEvent(null);
+          }}
+          onDelete={async (eventId) => {
+            await deleteEvent(eventId);
+            setShowDetailModal(false);
+            setSelectedEvent(null);
+          }}
         />
       </main>
     </div>

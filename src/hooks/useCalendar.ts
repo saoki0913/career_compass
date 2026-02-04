@@ -281,7 +281,7 @@ export function useGoogleCalendar() {
       const data = await response.json();
       return data.suggestions || [];
     } catch (err) {
-      setError(err instanceof Error ? err.message : "作業ブロックの提案に失敗しました");
+      setError(err instanceof Error ? err.message : "タスクの提案に失敗しました");
       return [];
     } finally {
       setIsLoading(false);

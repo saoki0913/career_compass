@@ -154,11 +154,35 @@ export function CalendarSidebar({
 
   // Get today's events
   const todayKey = today.toISOString().split("T")[0];
-  const todayEvents = events.filter((e) => e.startAt.split("T")[0] === todayKey);
   const todayGoogleEvents = googleEvents.filter((e) => {
     const startDate = e.start.dateTime || e.start.date;
     return startDate?.split("T")[0] === todayKey;
   });
+
+  // Build a Set of Google event keys for duplicate detection
+  const googleEventKeys = new Set<string>();
+  if (isGoogleConnected) {
+    todayGoogleEvents.forEach((googleEvent) => {
+      const startDateTime = googleEvent.start.dateTime || googleEvent.start.date;
+      if (!startDateTime) return;
+      const normalizedTitle = googleEvent.summary
+        .replace("[Career Compass] ", "")
+        .toLowerCase()
+        .trim();
+      const startMinute = Math.floor(new Date(startDateTime).getTime() / 60000);
+      googleEventKeys.add(`${normalizedTitle}|${startMinute}`);
+    });
+  }
+
+  // Filter out duplicates from app events when Google is connected
+  const todayEvents = events
+    .filter((e) => e.startAt.split("T")[0] === todayKey)
+    .filter((event) => {
+      if (!isGoogleConnected || event.type !== "work_block") return true;
+      const normalizedTitle = event.title.toLowerCase().trim();
+      const startMinute = Math.floor(new Date(event.startAt).getTime() / 60000);
+      return !googleEventKeys.has(`${normalizedTitle}|${startMinute}`);
+    });
 
   // Get selected date events
   const selectedDateKey = selectedDate?.toISOString().split("T")[0];

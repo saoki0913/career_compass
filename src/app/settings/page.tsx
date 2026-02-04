@@ -93,6 +93,7 @@ export default function SettingsPage() {
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [isChangingPlan, setIsChangingPlan] = useState(false);
+  const [isOpeningPortal, setIsOpeningPortal] = useState(false);
 
   // Form state
   const [name, setName] = useState("");
@@ -279,7 +280,7 @@ export default function SettingsPage() {
       // For paid plans, redirect to Stripe Checkout
       if (newPlan === "standard" || newPlan === "pro") {
         // Create Stripe Checkout session
-        const response = await fetch("/api/stripe/create-checkout-session", {
+        const response = await fetch("/api/stripe/checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -306,6 +307,30 @@ export default function SettingsPage() {
       setError(err instanceof Error ? err.message : "プラン変更に失敗しました");
     } finally {
       setIsChangingPlan(false);
+    }
+  };
+
+  const handleOpenBillingPortal = async () => {
+    setIsOpeningPortal(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/stripe/portal", {
+        method: "POST",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to open billing portal");
+      }
+
+      const { url } = await response.json();
+      window.location.href = url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "請求管理ページを開けませんでした");
+    } finally {
+      setIsOpeningPortal(false);
     }
   };
 
@@ -603,6 +628,26 @@ export default function SettingsPage() {
                 </p>
               )}
             </div>
+
+            {/* Billing Portal Button for paid users */}
+            {profile?.plan && profile.plan !== "free" && (
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  onClick={handleOpenBillingPortal}
+                  disabled={isOpeningPortal}
+                >
+                  {isOpeningPortal ? (
+                    <>
+                      <LoadingSpinner />
+                      <span className="ml-2">読み込み中...</span>
+                    </>
+                  ) : (
+                    "請求管理"
+                  )}
+                </Button>
+              </div>
+            )}
 
             {/* Plan options */}
             <div className="grid gap-4 md:grid-cols-3">
