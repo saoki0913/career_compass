@@ -14,12 +14,14 @@ Key improvements over simple DDG search:
 import asyncio
 import hashlib
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import urlparse
 
+from app.config import settings
 from app.utils.company_names import (
     get_conflicting_companies_for_domain,
     is_parent_domain,
@@ -30,6 +32,29 @@ from app.utils.http_fetch import fetch_page_content, extract_text_from_html
 from app.utils.intent_profile import AMBIGUOUS_RULES, AMBIGUOUS_TOKENS, get_all_intent_profiles, get_intent_profile
 
 logger = logging.getLogger(__name__)
+
+LOG_MAX_ITEMS = 20
+
+
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").lower() in {"1", "true", "yes", "on"}
+
+
+WEB_SEARCH_DEBUG = bool(
+    _env_flag("WEB_SEARCH_DEBUG")
+    or settings.web_search_debug
+    or settings.company_search_debug
+)
+
+
+def _debug_log(message: str, *args: object) -> None:
+    if WEB_SEARCH_DEBUG:
+        try:
+            text = message % args if args else message
+        except Exception:
+            text = f"{message} {args}"
+        print(text)
+        logger.info(text)
 
 # Try to import DuckDuckGo search (ddgs is the new package name)
 try:
@@ -687,6 +712,7 @@ def rrf_merge_web_results(
     Returns:
         Merged and deduplicated results with RRF scores
     """
+    total_input = sum(len(results) for results in results_by_query)
     scores: dict[str, float] = {}
     best_items: dict[str, dict] = {}
 
@@ -722,6 +748,16 @@ def rrf_merge_web_results(
     # Sort by RRF score
     merged.sort(key=lambda x: x.rrf_score, reverse=True)
 
+    if total_input:
+        unique_count = len(scores)
+        duplicates = max(0, total_input - unique_count)
+        _debug_log(
+            "[WebSearch] RRF stats total=%d unique=%d dup=%d",
+            total_input,
+            unique_count,
+            duplicates,
+        )
+
     return merged
 
 
@@ -748,6 +784,27 @@ async def search_with_rrf_fusion(
     # Execute all searches in parallel
     tasks = [_search_ddg_async(q, max_results_per_query) for q in queries]
     results_by_query = await asyncio.gather(*tasks, return_exceptions=True)
+
+    if WEB_SEARCH_DEBUG:
+        debug_entries: list[dict] = []
+        for query, result in zip(queries, results_by_query):
+            if isinstance(result, Exception):
+                debug_entries.append({"query": query, "error": str(result)})
+                continue
+            if isinstance(result, list):
+                samples: list[str] = []
+                for item in result:
+                    url = item.get("href") or item.get("url", "")
+                    if url:
+                        samples.append(url)
+                    if len(samples) >= 3:
+                        break
+                debug_entries.append(
+                    {"query": query, "count": len(result), "sample": samples}
+                )
+                continue
+            debug_entries.append({"query": query, "count": 0, "sample": []})
+        _debug_log("[WebSearch] Query results=%s", debug_entries[:LOG_MAX_ITEMS])
 
     # Filter out exceptions and empty results
     valid_results = [r for r in results_by_query if isinstance(r, list) and r]
@@ -1008,8 +1065,11 @@ def _prefilter_results(
     content_type: str | None,
     parent_allowed: bool,
     target_intent: str,
+    preferred_domain: str | None = None,
 ) -> list[WebSearchResult]:
     filtered: list[WebSearchResult] = []
+    debug_records: list[dict] = []
+    exclude_counts: dict[str, int] = {}
     lower_content_type = content_type or ""
     exclude_external = lower_content_type in EXTERNAL_STRICT_CATEGORIES
     exclude_faq = lower_content_type in FAQ_EXCLUDE_CATEGORIES
@@ -1017,34 +1077,30 @@ def _prefilter_results(
     for result in results:
         domain = result.domain
         url_lower = (result.url or "").lower()
+        exclude_reason = None
 
         # Hard exclude known irrelevant domains
         if any(excl in domain for excl in EXCLUDED_DOMAINS):
-            continue
-
-        conflicts = get_conflicting_companies_for_domain(domain, company_name)
-        if conflicts:
-            result.is_conflict = True
-            continue
+            exclude_reason = "excluded_domain"
 
         is_aggregator = any(agg in domain for agg in AGGREGATOR_DOMAINS)
         if not allow_aggs and is_aggregator:
-            continue
+            exclude_reason = "aggregator_excluded"
 
         is_official = _is_official_domain(domain, official_patterns, short_name_guard)
         is_parent_site = is_parent_domain(result.url, company_name)
         result.is_parent = is_parent_site
 
         if is_parent_site and not parent_allowed:
-            continue
+            exclude_reason = "parent_disallowed"
 
         if exclude_faq and any(pattern in url_lower for pattern in FAQ_LIKE_PATTERNS):
-            continue
+            exclude_reason = "faq_excluded"
 
         if exclude_external and not is_official and not (
             is_parent_site and parent_allowed
         ):
-            continue
+            exclude_reason = "external_excluded"
 
         company_match = _contains_company_name(
             company_name,
@@ -1056,19 +1112,58 @@ def _prefilter_results(
         result.company_name_matched = company_match
         result.is_official = is_official
 
+        conflicts = get_conflicting_companies_for_domain(domain, company_name)
+        if conflicts:
+            result.is_conflict = True
+            if not is_official:
+                exclude_reason = "conflict_domain"
+
         # Short company names: only official domains are allowed
         if short_name_guard and not is_official:
-            continue
+            exclude_reason = "short_name_guard"
 
         # strict_match gate removed; handled by scoring instead
 
+        intent_gate_score = None
         if enforce_intent_gate:
             intent_gate_score = _calculate_intent_match_score(result, target_intent)
             result.score_breakdown["intent_gate"] = intent_gate_score
-            if intent_gate_score < INTENT_GATE_THRESHOLD:
-                continue
+            # Official domains are allowed to pass intent gate to avoid 0-result cases.
+            if not is_official and intent_gate_score < INTENT_GATE_THRESHOLD:
+                exclude_reason = "intent_gate"
+
+        if exclude_reason:
+            exclude_counts[exclude_reason] = exclude_counts.get(exclude_reason, 0) + 1
+            if len(debug_records) < LOG_MAX_ITEMS:
+                debug_records.append(
+                    {
+                        "url": result.url,
+                        "domain": domain,
+                        "official": is_official,
+                        "preferred": bool(
+                            preferred_domain
+                            and _domain_pattern_matches(domain, preferred_domain)
+                        ),
+                        "parent": is_parent_site,
+                        "company_match": company_match,
+                        "intent_gate": intent_gate_score,
+                        "exclude_reason": exclude_reason,
+                    }
+                )
+            continue
 
         filtered.append(result)
+
+    if exclude_counts:
+        _debug_log(
+            "[WebSearch] Prefilter stats total=%d kept=%d excluded=%d by_reason=%s",
+            len(results),
+            len(filtered),
+            len(results) - len(filtered),
+            exclude_counts,
+        )
+    if debug_records:
+        _debug_log("[WebSearch] Prefilter samples=%s", debug_records[:LOG_MAX_ITEMS])
 
     return filtered
 
@@ -1718,10 +1813,32 @@ async def hybrid_web_search(
             return cached[:max_results]
 
     logger.info(f"[WebSearch] Starting hybrid search for '{company_name}'")
+    _debug_log(
+        "[WebSearch] Params intent=%s content_type=%s graduation_year=%s "
+        "selection_type=%s preferred_domain=%s strict_company_match=%s "
+        "allow_aggregators=%s allow_snippet_match=%s",
+        search_intent,
+        content_type,
+        graduation_year,
+        selection_type,
+        preferred_domain,
+        strict_company_match,
+        allow_aggregators,
+        allow_snippet_match,
+    )
 
     domain_profile = resolve_domain_profile(company_name, content_type)
     if domain_patterns:
         domain_profile["official_patterns"] = domain_patterns
+    _debug_log(
+        "[WebSearch] Domain profile=%s",
+        {
+            "official_patterns": domain_profile.get("official_patterns", []),
+            "parent_patterns": domain_profile.get("parent_patterns", []),
+            "parent_allowed": domain_profile.get("parent_allowed"),
+            "parent_company": domain_profile.get("parent_company"),
+        },
+    )
 
     # Step 1: Generate query variations
     queries = generate_query_variations(
@@ -1731,6 +1848,7 @@ async def hybrid_web_search(
         selection_type=selection_type,
     )
     logger.debug(f"[WebSearch] Generated {len(queries)} query variations")
+    _debug_log("[WebSearch] Queries=%s", queries[:LOG_MAX_ITEMS])
 
     # Step 2 & 3: Execute searches and RRF fusion
     results, raw_results = await search_with_rrf_fusion(
@@ -1745,6 +1863,7 @@ async def hybrid_web_search(
         return []
 
     logger.debug(f"[WebSearch] RRF merged {len(results)} unique results")
+    _debug_log("[WebSearch] RRF merged=%d", len(results))
 
     # Step 3.5: Pre-filter (conflicts / strict match / aggregators)
     strict_match = True if strict_company_match is None else strict_company_match
@@ -1773,11 +1892,18 @@ async def hybrid_web_search(
         content_type=content_type,
         parent_allowed=bool(domain_profile.get("parent_allowed")),
         target_intent=target_intent,
+        preferred_domain=preferred_domain,
     )
 
     official_count = sum(1 for r in results if r.is_official)
     should_rescue = (
         len(results) < WEB_SEARCH_SITE_RETRY_MIN_RESULTS or official_count == 0
+    )
+    _debug_log(
+        "[WebSearch] Prefilter kept=%d official=%d site_rescue=%s",
+        len(results),
+        official_count,
+        should_rescue,
     )
 
     if should_rescue:
@@ -1787,6 +1913,11 @@ async def hybrid_web_search(
         )
         site_queries = _build_site_queries(queries, site_domains)
         if site_queries:
+            _debug_log(
+                "[WebSearch] Site rescue domains=%s queries=%d",
+                site_domains,
+                len(site_queries),
+            )
             logger.info(
                 f"[WebSearch] Site rescue triggered (domains={site_domains}, "
                 f"initial_count={len(results)}, official_count={official_count})"
@@ -1797,6 +1928,8 @@ async def hybrid_web_search(
                 rrf_k=WEB_SEARCH_RRF_K,
                 return_raw=True,
             )
+            site_raw_total = sum(len(r) for r in (site_raw or []))
+            _debug_log("[WebSearch] Site rescue raw_total=%d", site_raw_total)
             combined_raw = (raw_results or []) + (site_raw or [])
             if combined_raw:
                 results = rrf_merge_web_results(combined_raw, k=WEB_SEARCH_RRF_K)
@@ -1811,6 +1944,11 @@ async def hybrid_web_search(
                     content_type=content_type,
                     parent_allowed=bool(domain_profile.get("parent_allowed")),
                     target_intent=target_intent,
+                    preferred_domain=preferred_domain,
+                )
+                _debug_log(
+                    "[WebSearch] Site rescue merged=%d",
+                    len(results),
                 )
         else:
             logger.info(
@@ -1833,6 +1971,22 @@ async def hybrid_web_search(
         top_k=WEB_SEARCH_RERANK_TOP_K,
     )
 
+    if results:
+        logger.info(
+            "[WebSearch] Rerank top=%s",
+            [
+                {
+                    "url": r.url,
+                    "rrf": round(r.rrf_score, 3),
+                    "rerank": round(r.rerank_score, 3),
+                    "official": r.is_official,
+                    "parent": r.is_parent,
+                    "company_match": r.company_name_matched,
+                }
+                for r in results[: min(LOG_MAX_ITEMS, len(results))]
+            ],
+        )
+
     # Step 5: Score + Combine
     results = score_results(
         results=results,
@@ -1844,6 +1998,30 @@ async def hybrid_web_search(
         graduation_year=graduation_year,
     )
     results = combine_scores(results=results)
+
+    if results:
+        combined_scores = [r.combined_score for r in results]
+        _debug_log(
+            "[WebSearch] Combined stats min=%.3f max=%.3f avg=%.3f",
+            min(combined_scores),
+            max(combined_scores),
+            sum(combined_scores) / len(combined_scores),
+        )
+        logger.info(
+            "[WebSearch] Combined top=%s",
+            [
+                {
+                    "url": r.url,
+                    "combined": round(r.combined_score, 3),
+                    "intent": round(r.intent_score_raw, 3),
+                    "domain": round(r.domain_score, 3),
+                    "company": round(r.company_score, 3),
+                    "rrf": round(r.rrf_score, 3),
+                    "rerank": round(r.rerank_score, 3),
+                }
+                for r in results[: min(LOG_MAX_ITEMS, len(results))]
+            ],
+        )
 
     # Step 6: Light verification (top-K only)
     results, updated = await _apply_light_verification(

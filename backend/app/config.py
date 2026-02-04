@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     app_name: str = "Career Compass API"
     debug: bool = False
     company_search_debug: bool = False
+    web_search_debug: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("WEB_SEARCH_DEBUG"),
+    )
     company_search_hybrid: bool = Field(
         default=False,
         validation_alias=AliasChoices("USE_HYBRID_SEARCH"),
