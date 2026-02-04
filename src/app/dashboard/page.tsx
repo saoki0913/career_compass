@@ -20,6 +20,8 @@ import { useCompanies } from "@/hooks/useCompanies";
 import { useDeadlines } from "@/hooks/useDeadlines";
 import { useTodayTask, TASK_TYPE_LABELS } from "@/hooks/useTasks";
 import { useEsStats } from "@/hooks/useDocuments";
+import { getStatusConfig, type CompanyStatus } from "@/lib/constants/status";
+import { cn } from "@/lib/utils";
 
 // Icons
 const CreditIcon = () => (
@@ -133,6 +135,41 @@ const HeartIcon = () => (
     />
   </svg>
 );
+
+const ChevronRightIcon = ({ className }: { className?: string }) => (
+  <svg className={cn("w-4 h-4", className)} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+  </svg>
+);
+
+/**
+ * Get status bar color based on company status category
+ * Uses semantic colors for quick visual recognition
+ */
+function getStatusBarColor(status: CompanyStatus): string {
+  const config = getStatusConfig(status);
+  switch (config.category) {
+    case "not_started":
+      return "bg-slate-400";
+    case "in_progress":
+      // Differentiate ES/Test vs Interview stages
+      if (status.includes("interview") || status === "final_interview") {
+        return "bg-purple-500";
+      }
+      return "bg-blue-500";
+    case "completed":
+      // Differentiate positive vs negative outcomes
+      if (status === "offer" || status.includes("pass")) {
+        return "bg-emerald-500";
+      }
+      if (status.includes("rejected")) {
+        return "bg-red-400";
+      }
+      return "bg-gray-400";
+    default:
+      return "bg-slate-400";
+  }
+}
 
 // Base quick actions (without onClick handlers)
 const baseQuickActions = [
@@ -390,23 +427,55 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               {companyCount > 0 ? (
-                <div className="space-y-3">
-                  {companies.slice(0, 3).map((company) => (
-                    <Link
-                      key={company.id}
-                      href={`/companies/${company.id}`}
-                      className="block p-3 rounded-lg hover:bg-muted/50 transition-colors"
-                    >
-                      <p className="font-medium">{company.name}</p>
-                      {company.industry && (
-                        <p className="text-sm text-muted-foreground">{company.industry}</p>
-                      )}
-                    </Link>
-                  ))}
+                <div className="space-y-2">
+                  {companies.slice(0, 3).map((company) => {
+                    const statusConfig = getStatusConfig(company.status);
+                    return (
+                      <Link
+                        key={company.id}
+                        href={`/companies/${company.id}`}
+                        className="flex items-center gap-3 p-3 rounded-lg border border-transparent hover:border-border hover:bg-muted/30 transition-all group"
+                      >
+                        {/* Status color bar */}
+                        <div className={cn("w-1 h-10 rounded-full shrink-0", getStatusBarColor(company.status))} />
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium truncate">{company.name}</p>
+                            {/* Status badge */}
+                            <span className={cn("text-xs px-1.5 py-0.5 rounded shrink-0", statusConfig.bgColor, statusConfig.color)}>
+                              {statusConfig.label}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            {company.industry && <span className="truncate">{company.industry}</span>}
+                            {company.nearestDeadline && (
+                              <>
+                                {company.industry && <span>•</span>}
+                                <span className={cn(
+                                  "shrink-0",
+                                  company.nearestDeadline.daysLeft <= 3 && "text-red-500 font-medium"
+                                )}>
+                                  {company.nearestDeadline.daysLeft}日後 締切
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Hover chevron */}
+                        <ChevronRightIcon className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                      </Link>
+                    );
+                  })}
                   {companyCount > 3 && (
-                    <p className="text-sm text-muted-foreground text-center pt-2">
-                      他 {companyCount - 3} 社
-                    </p>
+                    <Link
+                      href="/companies"
+                      className="flex items-center justify-center gap-1 text-sm text-muted-foreground hover:text-foreground pt-2 transition-colors"
+                    >
+                      <span>他 {companyCount - 3} 社を見る</span>
+                      <ChevronRightIcon className="w-3 h-3" />
+                    </Link>
                   )}
                 </div>
               ) : (
