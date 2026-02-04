@@ -180,6 +180,7 @@ export default function ESListPage() {
   const searchParams = useSearchParams();
   const [showNewModal, setShowNewModal] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
 
   // Auto-open new document modal when ?new=1 is in URL
   useEffect(() => {
@@ -189,7 +190,7 @@ export default function ESListPage() {
       router.replace("/es", { scroll: false });
     }
   }, [searchParams, router]);
-  const { documents, isLoading, createDocument, deleteDocument, restoreDocument, permanentlyDeleteDocument } = useDocuments({ type: "es", includeDeleted: showTrash });
+  const { documents, isLoading, createDocument, updateDocument, deleteDocument, restoreDocument, permanentlyDeleteDocument } = useDocuments({ type: "es", includeDeleted: showTrash });
   const { companies } = useCompanies();
 
   const handleCreate = async (data: CreateDocumentInput) => {
@@ -209,6 +210,14 @@ export default function ESListPage() {
     if (confirm("このドキュメントを完全に削除しますか？この操作は取り消せません。")) {
       await permanentlyDeleteDocument(documentId);
     }
+  };
+
+  const handleToggleStatus = async (documentId: string, currentStatus: string) => {
+    if (statusUpdatingId) return;
+    const nextStatus = currentStatus === "published" ? "draft" : "published";
+    setStatusUpdatingId(documentId);
+    await updateDocument(documentId, { status: nextStatus });
+    setStatusUpdatingId(null);
   };
 
   const formatDate = (dateString: string) => {
@@ -281,7 +290,7 @@ export default function ESListPage() {
             {displayedDocuments.map((doc) => (
               <Card key={doc.id} className="h-full hover:bg-muted/50 transition-colors">
                 <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
@@ -300,7 +309,7 @@ export default function ESListPage() {
                           {doc.status === "draft"
                             ? "下書き"
                             : doc.status === "published"
-                            ? "公開中"
+                            ? "提出済み"
                             : "削除済み"}
                         </span>
                       </div>
@@ -325,6 +334,26 @@ export default function ESListPage() {
                           : `最終更新: ${formatDate(doc.updatedAt)}`}
                       </p>
                     </div>
+                    {!showTrash && doc.status !== "deleted" && (
+                      <Button
+                        size="sm"
+                        variant={doc.status === "published" ? "secondary" : "outline"}
+                        className="shrink-0"
+                        disabled={statusUpdatingId === doc.id}
+                        onClick={() => handleToggleStatus(doc.id, doc.status)}
+                      >
+                        {statusUpdatingId === doc.id ? (
+                          <>
+                            <LoadingSpinner />
+                            <span className="ml-1">更新中</span>
+                          </>
+                        ) : doc.status === "published" ? (
+                          "下書きに戻す"
+                        ) : (
+                          "提出済みにする"
+                        )}
+                      </Button>
+                    )}
                   </div>
                   {showTrash && (
                     <div className="flex gap-2 mt-3">

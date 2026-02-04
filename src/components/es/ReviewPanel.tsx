@@ -14,7 +14,7 @@ import { CompareView } from "./CompareView";
 import { ReflectModal } from "./ReflectModal";
 import { EnhancedProcessingSteps, ES_REVIEW_STEPS } from "@/components/ui/EnhancedProcessingSteps";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { calculateESReviewCost } from "@/lib/credits";
+import { calculateESReviewCost } from "@/lib/credits/cost";
 
 // Section review request from parent component
 interface SectionReviewRequest {

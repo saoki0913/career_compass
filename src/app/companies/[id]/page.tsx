@@ -966,6 +966,7 @@ export default function CompanyDetailPage() {
                   {esDocuments.map((doc) => {
                     const statusConfig = {
                       draft: { bg: "bg-gray-100", text: "text-gray-600", label: "下書き" },
+                      published: { bg: "bg-emerald-100", text: "text-emerald-700", label: "提出済み" },
                       in_review: { bg: "bg-amber-100", text: "text-amber-700", label: "レビュー中" },
                       completed: { bg: "bg-emerald-100", text: "text-emerald-700", label: "完了" },
                     };

@@ -179,6 +179,31 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
     [fetchDocuments]
   );
 
+  const updateDocument = useCallback(
+    async (documentId: string, input: UpdateDocumentInput): Promise<boolean> => {
+      try {
+        const response = await fetch(`/api/documents/${documentId}`, {
+          method: "PUT",
+          headers: buildHeaders(),
+          credentials: "include",
+          body: JSON.stringify(input),
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || "Failed to update document");
+        }
+
+        await fetchDocuments();
+        return true;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "ドキュメントの更新に失敗しました");
+        return false;
+      }
+    },
+    [fetchDocuments]
+  );
+
   const restoreDocument = useCallback(
     async (documentId: string): Promise<boolean> => {
       try {
@@ -233,6 +258,7 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
     error,
     refresh: fetchDocuments,
     createDocument,
+    updateDocument,
     deleteDocument,
     restoreDocument,
     permanentlyDeleteDocument,

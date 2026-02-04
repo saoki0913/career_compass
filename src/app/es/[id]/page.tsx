@@ -357,6 +357,7 @@ export default function ESEditorPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showReviewPanel, setShowReviewPanel] = useState(true);
   const [undoContent, setUndoContent] = useState<string | null>(null);
+  const [statusUpdating, setStatusUpdating] = useState(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Section review request state
@@ -456,6 +457,14 @@ export default function ESEditorPage() {
     setBlocks(newBlocks);
     setHasChanges(true);
   };
+
+  const handleStatusToggle = useCallback(async () => {
+    if (!document || statusUpdating || document.status === "deleted") return;
+    const nextStatus = document.status === "published" ? "draft" : "published";
+    setStatusUpdating(true);
+    await updateDocument({ status: nextStatus });
+    setStatusUpdating(false);
+  }, [document, statusUpdating, updateDocument]);
 
   // Handle section review request
   const handleSectionReview = useCallback((index: number) => {
@@ -686,6 +695,25 @@ export default function ESEditorPage() {
               )}
               {hasChanges && !isSaving && (
                 <span className="text-xs sm:text-sm text-amber-600 hidden sm:inline">未保存</span>
+              )}
+              {document.status !== "deleted" && (
+                <Button
+                  variant={document.status === "published" ? "secondary" : "outline"}
+                  size="sm"
+                  onClick={handleStatusToggle}
+                  disabled={statusUpdating}
+                >
+                  {statusUpdating ? (
+                    <>
+                      <LoadingSpinner />
+                      <span className="ml-1">更新中</span>
+                    </>
+                  ) : document.status === "published" ? (
+                    "下書きに戻す"
+                  ) : (
+                    "提出済みにする"
+                  )}
+                </Button>
               )}
               <Button onClick={saveChanges} disabled={isSaving || !hasChanges} size="sm">
                 保存
