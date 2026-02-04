@@ -16,6 +16,7 @@ from typing import Optional
 
 from app.utils.llm import call_llm_with_error
 from app.utils.vector_store import get_enhanced_context_for_review_with_sources
+from app.config import settings
 
 router = APIRouter(prefix="/api/motivation", tags=["motivation"])
 
@@ -313,6 +314,12 @@ async def evaluate_motivation(request: NextQuestionRequest) -> dict:
         conversation=conversation_text,
         company_context=company_context or "（企業情報なし）",
     )
+    if settings.debug:
+        print(
+            "[Motivation] Evaluation input sizes: "
+            f"conversation_chars={len(conversation_text)}, "
+            f"company_context_chars={len(company_context)}"
+        )
 
     llm_result = await call_llm_with_error(
         system_prompt=prompt,
@@ -421,6 +428,14 @@ async def get_next_question(request: NextQuestionRequest):
         missing_aspects=missing_aspects_text,
         threshold=ELEMENT_COMPLETION_THRESHOLD,
     )
+    if settings.debug:
+        message_chars = sum(len(msg.content) for msg in request.conversation_history)
+        print(
+            "[Motivation] Next question input sizes: "
+            f"messages={len(request.conversation_history)}, "
+            f"message_chars={message_chars}, "
+            f"company_context_chars={len(company_context)}"
+        )
 
     messages = [{"role": msg.role, "content": msg.content} for msg in request.conversation_history]
 
@@ -486,6 +501,13 @@ async def generate_draft(request: GenerateDraftRequest):
         char_limit=request.char_limit,
         char_min=char_min,
     )
+    if settings.debug:
+        print(
+            "[Motivation] Draft input sizes: "
+            f"conversation_chars={len(conversation_text)}, "
+            f"company_context_chars={len(company_context)}, "
+            f"char_limit={request.char_limit}"
+        )
 
     llm_result = await call_llm_with_error(
         system_prompt=prompt,

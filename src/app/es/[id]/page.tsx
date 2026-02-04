@@ -777,9 +777,9 @@ export default function ESEditorPage() {
 
         {/* Review Panel */}
         {showReviewPanel && (
-          <div className="hidden lg:block w-[40%] border-l border-border bg-muted/20 overflow-y-auto">
-            <div className="space-y-6 p-4">
-              {/* AI Review Panel */}
+          <div className="hidden lg:flex lg:flex-col w-[40%] border-l border-border bg-muted/20">
+            {/* AI Review Panel - flex-1で残り領域を占有、min-h-0でスクロール有効化 */}
+            <div className="flex-1 min-h-0 p-4 pb-2">
               <ReviewPanel
                 documentId={documentId}
                 content={getContentForReview()}
@@ -792,9 +792,11 @@ export default function ESEditorPage() {
                 onUndo={handleUndoReflect}
                 sectionReviewRequest={sectionReviewRequest}
                 onClearSectionReview={handleClearSectionReview}
+                className="h-full"
               />
-
-              {/* Version History */}
+            </div>
+            {/* Version History - 下部に固定 */}
+            <div className="shrink-0 p-4 pt-2 border-t border-border/50">
               <VersionHistory
                 documentId={documentId}
                 onRestore={handleRestoreVersion}

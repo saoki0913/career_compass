@@ -176,6 +176,12 @@ def _log(feature: str, message: str, marker: str = ""):
         print(f"[{feature_ja}] {message}")
 
 
+def _log_debug(feature: str, message: str) -> None:
+    """Debugログ（settings.debug=Trueの時のみ出力）。"""
+    if settings.debug:
+        _log(feature, message, INFO)
+
+
 def _resolve_openai_model(feature: str, model_hint: Optional[str] = None) -> str:
     """機能とオプションのヒントに基づいてOpenAIモデル名を解決。"""
     if model_hint and model_hint not in (
@@ -365,6 +371,23 @@ async def call_llm_with_error(
         model_display = get_model_display_name(actual_model)
         _log(feature, f"{model_display} を呼び出し中...")
 
+        if messages is None:
+            message_count = 1
+            message_chars = len(user_message or "")
+            message_mode = "user_message"
+        else:
+            message_count = len(messages)
+            message_chars = sum(len(str(m.get("content", ""))) for m in messages)
+            message_mode = "messages"
+
+        _log_debug(
+            feature,
+            "LLM input size: "
+            f"system={len(system_prompt)} chars, "
+            f"{message_mode}={message_count} items/{message_chars} chars, "
+            f"max_tokens={max_tokens}, temperature={temperature}, model={actual_model}",
+        )
+
         raw_response = None
         if model in ("claude-sonnet", "claude-haiku"):
             raw_response = await _call_claude_raw(
@@ -376,6 +399,20 @@ async def call_llm_with_error(
                 actual_model,
                 feature=feature,
             )
+            if settings.debug:
+                content = raw_response or ""
+                open_braces = content.count("{") - content.count("}")
+                open_brackets = content.count("[") - content.count("]")
+                quote_count = content.count('"') - content.count('\\"')
+                _log_debug(
+                    feature,
+                    "LLM raw response stats: "
+                    f"chars={len(content)}, "
+                    f"open_braces={open_braces}, "
+                    f"open_brackets={open_brackets}, "
+                    f"unescaped_quotes={quote_count}, "
+                    f"truncation_suspected={_detect_truncation(content)}",
+                )
             result = _parse_json_response(raw_response)
         else:
             if use_responses_api:
@@ -859,6 +896,19 @@ async def _call_openai(
     if not content:
         print("[OpenAI] 空のレスポンスを受信")
         return None
+    if settings.debug:
+        open_braces = content.count("{") - content.count("}")
+        open_brackets = content.count("[") - content.count("]")
+        quote_count = content.count('"') - content.count('\\"')
+        _log_debug(
+            feature,
+            "OpenAI raw response stats: "
+            f"chars={len(content)}, "
+            f"open_braces={open_braces}, "
+            f"open_brackets={open_brackets}, "
+            f"unescaped_quotes={quote_count}, "
+            f"truncation_suspected={_detect_truncation(content)}",
+        )
     return _parse_json_response(content)
 
 
@@ -908,6 +958,14 @@ async def _call_openai_responses(
         request_kwargs["text"] = {"format": text_format}
 
     response = await client.responses.create(**request_kwargs)
+
+    if settings.debug:
+        output_text = getattr(response, "output_text", None)
+        output_text_len = len(output_text) if isinstance(output_text, str) else 0
+        _log_debug(
+            feature,
+            f"OpenAI Responses API summary: output_text_len={output_text_len}",
+        )
 
     # 0. 解析済み出力があれば使用（Structured Outputs）
     parsed = getattr(response, "output_parsed", None)
@@ -961,6 +1019,12 @@ async def _call_openai_responses(
         content = getattr(response, "output_text", None)
         if isinstance(content, str) and content.strip():
             candidates.append(content)
+
+        if settings.debug:
+            _log_debug(
+                feature,
+                f"OpenAI Responses API candidates: count={len(candidates)}",
+            )
 
         for candidate in candidates:
             if isinstance(candidate, dict):

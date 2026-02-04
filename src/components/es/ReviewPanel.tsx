@@ -252,8 +252,8 @@ export function ReviewPanel({
   const templateReview = review?.template_review || null;
 
   return (
-    <div className={cn("flex flex-col", className)}>
-      <Card className="flex-1 flex flex-col overflow-hidden">
+    <div className={cn("flex flex-col h-full", className)}>
+      <Card className="flex-1 flex flex-col overflow-hidden min-h-0">
         {/* Header */}
         <CardHeader className="border-b shrink-0">
           <div className="flex items-center justify-between">
