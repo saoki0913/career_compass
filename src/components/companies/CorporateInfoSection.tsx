@@ -97,14 +97,14 @@ function mapLegacyToNew(legacyType: string): ContentType {
 
 // Dropdown options for content types (9 categories)
 const CONTENT_TYPE_OPTIONS: Array<{ value: ContentType; label: string }> = [
-  { value: "new_grad_recruitment", label: "新卒採用HP" },
-  { value: "midcareer_recruitment", label: "中途採用HP" },
-  { value: "corporate_site", label: "会社概要" },
-  { value: "ir_materials", label: "IR資料" },
-  { value: "ceo_message", label: "社長メッセージ" },
-  { value: "employee_interviews", label: "社員インタビュー" },
+  { value: "new_grad_recruitment", label: "新卒採用ホームページ" },
+  { value: "midcareer_recruitment", label: "中途採用ホームページ" },
+  { value: "corporate_site", label: "企業HP（会社概要、事業内容、ニュース）" },
+  { value: "ir_materials", label: "IR資料（有価証券報告書、決算説明資料）" },
+  { value: "ceo_message", label: "社長メッセージ・挨拶" },
+  { value: "employee_interviews", label: "社員インタビュー・ブログ記事" },
   { value: "press_release", label: "プレスリリース" },
-  { value: "csr_sustainability", label: "CSR/サステナ" },
+  { value: "csr_sustainability", label: "CSR・サステナビリティレポート" },
   { value: "midterm_plan", label: "中期経営計画" },
 ];
 
@@ -458,8 +458,6 @@ export function CorporateInfoSection({
     setError(null);
     setIsRelaxedSearch(allowSnippetMatch);
 
-    const typeLabel = CONTENT_TYPE_OPTIONS.find((o) => o.value === selectedContentType)?.label || "";
-    const query = `${companyName} ${typeLabel}`;
     setLastContentType(selectedContentType);
 
     try {
@@ -468,7 +466,6 @@ export function CorporateInfoSection({
         headers: buildHeaders(),
         credentials: "include",
         body: JSON.stringify({
-          customQuery: query,
           contentType: selectedContentType,  // Pass ContentType for optimized search
           allowSnippetMatch,
         }),

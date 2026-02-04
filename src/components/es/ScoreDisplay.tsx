@@ -207,11 +207,11 @@ function GradeExplanation({
 }
 
 const SCORE_CONFIG: Record<keyof ReviewScores, { color: string }> = {
-  logic: { color: "bg-blue-500" },
-  specificity: { color: "bg-emerald-500" },
-  passion: { color: "bg-orange-500" },
-  company_connection: { color: "bg-purple-500" },
-  readability: { color: "bg-cyan-500" },
+  logic: { color: "bg-primary" },
+  specificity: { color: "bg-primary" },
+  passion: { color: "bg-primary" },
+  company_connection: { color: "bg-primary" },
+  readability: { color: "bg-primary" },
 };
 
 export function ScoreDisplay({
@@ -249,9 +249,9 @@ export function ScoreDisplay({
   const lowScoreCount = scoreValues.filter((v) => v < 3).length;
 
   return (
-    <div className={cn("space-y-4", className)}>
+    <div className={cn("space-y-3", className)}>
       {/* Overall Grade */}
-      <div className="flex items-center justify-between pb-3 border-b border-border">
+      <div className="flex items-center justify-between pb-2 border-b border-border">
         <div>
           <div className="flex items-center gap-2">
             <p className="text-xs text-muted-foreground">総合評価</p>
@@ -260,7 +260,7 @@ export function ScoreDisplay({
           <p className="text-sm font-medium mt-0.5">{average.toFixed(1)} / 5.0</p>
         </div>
         <div className="text-right">
-          <div className={cn("text-3xl font-bold", getGradeColor(average))}>
+          <div className={cn("text-2xl font-bold", getGradeColor(average))}>
             {currentGrade}
           </div>
           {lowScoreCount > 0 && (
@@ -272,7 +272,7 @@ export function ScoreDisplay({
       </div>
 
       {/* Individual Scores */}
-      <div className="space-y-3">
+      <div className="space-y-2">
         <ScoreBar
           scoreKey="logic"
           value={scores.logic}

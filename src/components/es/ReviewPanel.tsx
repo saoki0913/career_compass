@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useESReview, getAvailableStyles, TEMPLATE_OPTIONS, TEMPLATE_LABELS, TEMPLATE_EXTRA_FIELDS } from "@/hooks/useESReview";
 import type { SectionData, TemplateType, TemplateReview } from "@/hooks/useESReview";
 import { ScoreDisplay } from "./ScoreDisplay";
@@ -253,47 +253,39 @@ export function ReviewPanel({
 
   return (
     <div className={cn("flex flex-col h-full", className)}>
-      <Card className="flex-1 flex flex-col overflow-hidden min-h-0">
-        {/* Header */}
-        <CardHeader className="border-b shrink-0">
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-base">
+      <Card className="flex-1 flex flex-col overflow-hidden min-h-0 py-0 gap-0">
+        {/* Header - Compact single line */}
+        <CardHeader className="border-b shrink-0 px-4 py-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <SparkleIcon />
-              AI添削
-              {reviewMode === "section" && (
-                <span className="text-xs font-normal text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                  設問
-                </span>
+              <span className="text-sm font-semibold shrink-0">AI添削</span>
+              {reviewMode === "section" && currentSection && (
+                <>
+                  <span className="text-muted-foreground shrink-0">:</span>
+                  <span className="text-sm truncate" title={currentSection.title}>
+                    {currentSection.title}
+                  </span>
+                  {currentSection.charLimit && (
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      ({currentSection.charLimit}字)
+                    </span>
+                  )}
+                </>
               )}
-            </CardTitle>
+            </div>
             {creditCost !== null && (
-              <span className="text-xs text-muted-foreground">
-                消費: {creditCost}クレジット
+              <span className="text-xs text-muted-foreground shrink-0">
+                {creditCost}pt
               </span>
             )}
           </div>
-          {/* Current section info for section mode - expandable title */}
-          {reviewMode === "section" && currentSection && (
-            <div className="mt-2 p-2 bg-primary/5 rounded-lg border border-primary/20">
-              <p
-                className="text-sm font-medium text-primary leading-relaxed"
-                title={currentSection.title}
-              >
-                {currentSection.title}
-              </p>
-              {currentSection.charLimit && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  文字数制限: {currentSection.charLimit}文字
-                </p>
-              )}
-            </div>
-          )}
         </CardHeader>
 
         <CardContent ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4">
           {/* Initial State - Request Review */}
           {!review && !isLoading && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {/* Section Review Mode: Template Selector */}
               {sectionReviewRequest && (
                 <div>
@@ -428,7 +420,7 @@ export function ReviewPanel({
               </div>
 
               {/* Credit Cost Indicator - Real-time visual feedback */}
-              <div className="p-3 bg-muted/50 rounded-lg">
+              <div className="p-2 bg-muted/30 rounded">
                 <CreditCostIndicator charCount={contentForCost.length} />
               </div>
 
@@ -486,7 +478,7 @@ export function ReviewPanel({
 
           {/* Review Results */}
           {review && !isLoading && (
-            <div className="space-y-6">
+            <div className="space-y-4">
               {/* Scores - with scroll-to-issue links for low scores */}
               <ScoreDisplay
                 scores={review.scores}

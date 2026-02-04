@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, AliasChoices
 from functools import lru_cache
 from pathlib import Path
 
@@ -21,7 +22,10 @@ class Settings(BaseSettings):
     app_name: str = "Career Compass API"
     debug: bool = False
     company_search_debug: bool = False
-    company_search_hybrid: bool = False
+    company_search_hybrid: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("USE_HYBRID_SEARCH"),
+    )
 
     # ===== CORS =====
     cors_origins: list[str] = ["http://localhost:3000"]
