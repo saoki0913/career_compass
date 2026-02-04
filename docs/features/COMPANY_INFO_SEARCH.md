@@ -66,6 +66,12 @@
 **confidence判定**
 - `_score_to_confidence(score, source_type, year_matched)`
 
+**1.4 問題点（コード由来）**
+- Hybridの`combined_score`は**クエリ集合内で正規化**されるため、絶対品質ではなく相対評価になりやすい（`combine_scores()`の正規化 + `adjusted_score`閾値）。結果全体が低品質でも`high`が出る可能性がある。
+- Hybrid/Legacyで**confidence判定の尺度が別**（Hybridは0-1の`adjusted_score`、Legacyは加点合計の`score`）。同じURLでも経路で信頼度が変わりうる。
+- 競合ドメイン除外は`_has_strict_company_name_match()`が**タイトル/スニペット完全一致のみ**（URL一致は見ない）。正式社名が出ない採用ページは誤除外の可能性がある。
+- `_contains_company_name()`が**短いプレフィックス一致**（4文字など）に依存するため、社名が短い/類似が多いケースで誤判定が起きやすい。
+
 ---
 
 **2. search-corporate-pages（コーポレートページ検索）**
@@ -123,6 +129,13 @@
 
 **confidence判定**
 - `_score_to_confidence(score, source_type)`
+
+**2.4 問題点（コード由来）**
+- Hybrid経路は`preferred_domain` / `strict_company_match` / `allow_aggregators`を**一切反映しない**（Legacyのみで有効）。ユーザー指定が無視される。
+- Hybridのヒューリスティックは**採用系キーワード前提**（`calculate_heuristic_score()`内の採用URL/採用タイトル/採用サブドメイン）。IR/企業情報向けの意図とミスマッチが起こる。
+- Hybrid経路には**`content_type`固有の加点/不一致ペナルティがない**（Legacyのみ）。`content_type`指定時の精度が下がる。
+- `source_type`判定が採用サイト前提（`_get_source_type()`の`job_site`分類など）で、コーポレート用途の並び替え優先度が歪む可能性がある。
+- `_contains_company_name()`の**短いプレフィックス一致**はコーポレート検索でも同様の誤判定要因になる。
 
 ---
 
@@ -188,4 +201,3 @@
 - `backend/app/routers/company_info.py`
 - `backend/app/utils/web_search.py`
 - `docs/features/COMPANY_INFO_FETCH.md`
-

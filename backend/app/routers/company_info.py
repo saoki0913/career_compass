@@ -2769,21 +2769,69 @@ def _build_corporate_queries(
         List of search queries
     """
     queries = []
-    alias_names = COMPANY_QUERY_ALIASES.get(company_name, [])
-    alias_name = alias_names[0] if alias_names else None
 
     # Custom query takes priority over content_type and search_type
     if custom_query:
         queries = [custom_query]
-    # If content_type is specified, use content-type-specific keywords
-    elif content_type and content_type in CONTENT_TYPE_KEYWORDS:
-        ct_keywords = CONTENT_TYPE_KEYWORDS[content_type]
-        # Use title keywords for queries (most relevant for search)
-        for kw in ct_keywords["title"][:3]:  # Top 3 keywords
-            queries.append(f"{company_name} {kw}")
-        # Add one URL pattern keyword as fallback
-        if ct_keywords["url"]:
-            queries.append(f"{company_name} {ct_keywords['url'][0]}")
+    # If content_type is specified, use content-type-specific queries (up to 4)
+    elif content_type:
+        type_queries = {
+            "new_grad_recruitment": [
+                f"{company_name} 新卒採用",
+                f"{company_name} 採用情報",
+                f"{company_name} エントリー",
+                f"{company_name} 新卒 採用サイト",
+            ],
+            "midcareer_recruitment": [
+                f"{company_name} 中途採用",
+                f"{company_name} キャリア採用",
+                f"{company_name} 転職",
+                f"{company_name} 採用情報",
+            ],
+            "ceo_message": [
+                f"{company_name} 社長メッセージ",
+                f"{company_name} 代表メッセージ",
+                f"{company_name} トップメッセージ",
+                f"{company_name} ごあいさつ",
+            ],
+            "employee_interviews": [
+                f"{company_name} 社員インタビュー",
+                f"{company_name} 社員紹介",
+                f"{company_name} 先輩社員",
+                f"{company_name} 社員の声",
+            ],
+            "press_release": [
+                f"{company_name} プレスリリース",
+                f"{company_name} ニュースリリース",
+                f"{company_name} お知らせ",
+                f"{company_name} ニュース",
+            ],
+            "ir_materials": [
+                f"{company_name} IR",
+                f"{company_name} 投資家情報",
+                f"{company_name} 決算説明資料",
+                f"{company_name} 有価証券報告書",
+            ],
+            "csr_sustainability": [
+                f"{company_name} サステナビリティ",
+                f"{company_name} CSR",
+                f"{company_name} ESG",
+                f"{company_name} 環境",
+            ],
+            "midterm_plan": [
+                f"{company_name} 中期経営計画",
+                f"{company_name} 中期計画",
+                f"{company_name} 経営戦略",
+                f"{company_name} 事業計画",
+            ],
+            "corporate_site": [
+                f"{company_name} 会社概要",
+                f"{company_name} 企業情報",
+                f"{company_name} 会社案内",
+                f"{company_name} 企業概要",
+            ],
+        }
+        queries = type_queries.get(content_type, [f"{company_name} {content_type}"])
     else:
         # Fallback to legacy search_type-based queries
         type_queries = {
@@ -2805,23 +2853,6 @@ def _build_corporate_queries(
         }
         queries = type_queries.get(search_type, [f"{company_name} {search_type}"])
 
-    if alias_name and not custom_query:
-        alias_queries = []
-        if content_type and content_type in CONTENT_TYPE_KEYWORDS:
-            ct_keywords = CONTENT_TYPE_KEYWORDS[content_type]
-            if ct_keywords["title"]:
-                alias_queries.append(f"{alias_name} {ct_keywords['title'][0]}")
-            if ct_keywords["url"]:
-                alias_queries.append(f"{alias_name} {ct_keywords['url'][0]}")
-        else:
-            if search_type == "ir":
-                alias_queries.append(f"{alias_name} IR")
-            elif search_type == "business":
-                alias_queries.append(f"{alias_name} 事業内容")
-            else:
-                alias_queries.append(f"{alias_name} 会社概要")
-        queries = alias_queries + queries
-
     # Deduplicate and add site: prefix if preferred_domain
     seen = set()
     result = []
@@ -2833,7 +2864,7 @@ def _build_corporate_queries(
             continue
         seen.add(query)
         result.append(query)
-    return result
+    return result[:4]
 
 
 @router.post("/search-pages")

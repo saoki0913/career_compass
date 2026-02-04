@@ -153,6 +153,33 @@ class TestContentTypeDetection:
         assert result not in ["midcareer_recruitment", "new_grad_recruitment"]
 
 
+class TestCorporateQueryBuilder:
+    """Corporate search query builder tests."""
+
+    def test_corporate_queries_multiple(self):
+        """content_type指定で複数クエリが生成されること"""
+        from app.routers.company_info import _build_corporate_queries
+
+        queries = _build_corporate_queries(
+            "AGC",
+            search_type="about",
+            content_type="new_grad_recruitment",
+        )
+        assert len(queries) == 4
+
+    def test_corporate_queries_custom_override(self):
+        """custom_query指定時は1件のみ返すこと"""
+        from app.routers.company_info import _build_corporate_queries
+
+        queries = _build_corporate_queries(
+            "AGC",
+            search_type="about",
+            custom_query="AGC 新卒採用HP",
+            content_type="new_grad_recruitment",
+        )
+        assert queries == ["AGC 新卒採用HP"]
+
+
 # 3. Unit Tests: 競合タイプの検証
 class TestConflictingTypes:
     """Test conflicting content type detection."""
