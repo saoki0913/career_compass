@@ -252,8 +252,8 @@ export function ReviewPanel({
   const templateReview = review?.template_review || null;
 
   return (
-    <div className={cn("flex flex-col h-full", className)}>
-      <Card className="flex-1 flex flex-col overflow-hidden min-h-0 py-0 gap-0">
+    <div className={cn("flex flex-col", className)}>
+      <Card className="flex flex-col py-0 gap-0">
         {/* Header - Compact single line */}
         <CardHeader className="border-b shrink-0 px-4 py-3">
           <div className="flex items-center justify-between gap-2">
@@ -282,7 +282,7 @@ export function ReviewPanel({
           </div>
         </CardHeader>
 
-        <CardContent ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4">
+        <CardContent ref={scrollContainerRef} className="p-4">
           {/* Initial State - Request Review */}
           {!review && !isLoading && (
             <div className="space-y-3">

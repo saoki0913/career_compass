@@ -75,6 +75,33 @@ class Settings(BaseSettings):
     # 環境変数: EMBEDDING_MAX_INPUT_CHARS
     embedding_max_input_chars: int = 8000
 
+    # ===== RAG 検索チューニング設定 =====
+    # ハイブリッド検索の重み（semantic + keyword = 1.0 を推奨）
+    rag_semantic_weight: float = 0.6
+    rag_keyword_weight: float = 0.4
+    # 再ランキング実行閾値（低いほど実行されやすい）
+    rag_rerank_threshold: float = 0.7
+    # クエリ拡張/HyDE/MMR/リランクの有効化
+    rag_use_query_expansion: bool = True
+    rag_use_hyde: bool = True
+    rag_use_mmr: bool = True
+    rag_use_rerank: bool = True
+    # MMRの多様性係数（0=多様性重視、1=関連性重視）
+    rag_mmr_lambda: float = 0.5
+    # 取得候補数（kの最小値、n_results*3と比較して大きい方を使用）
+    rag_fetch_k: int = 30
+    # クエリ拡張数と最大総クエリ数
+    rag_max_queries: int = 3
+    rag_max_total_queries: int = 4
+    # コンテキスト長の動的調整（ES文字数に応じて使用）
+    rag_context_threshold_short: int = 500
+    rag_context_threshold_medium: int = 1000
+    rag_context_short: int = 1500
+    rag_context_medium: int = 2500
+    rag_context_long: int = 3000
+    # RAGコンテキストの最小文字数（不足時は無効化）
+    rag_min_context_chars: int = 200
+
     # ===== ES添削 文字数制御設定 =====
     # 文字数制限の許容幅（パーセント）
     # 環境変数: ES_CHAR_TOLERANCE_PERCENT

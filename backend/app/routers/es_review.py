@@ -1393,7 +1393,7 @@ async def review_es(request: ReviewRequest):
         )
 
         # Validate context before logging success (Bug #7 fix)
-        min_context_length = 200
+        min_context_length = max(0, settings.rag_min_context_chars)
         if company_context and len(company_context) >= min_context_length:
             print(f"[ES添削] ✅ RAGコンテキスト取得完了 ({len(company_context)}文字)")
             print(
@@ -1843,7 +1843,7 @@ async def _generate_review_progress(
 
             if company_rag_available:
                 rag_status = get_company_rag_status(request.company_id)
-                min_context_length = 200
+                min_context_length = max(0, settings.rag_min_context_chars)
 
                 if request.review_mode == "section":
                     rag_context, rag_sources = (
@@ -1869,6 +1869,16 @@ async def _generate_review_progress(
                     ):
                         company_context = ""
                         company_rag_available = False
+
+                record_rag_context(
+                    company_id=request.company_id,
+                    context_length=len(rag_context or company_context),
+                    source_count=(
+                        len(rag_sources)
+                        if rag_sources
+                        else (rag_status.get("total_chunks", 0) if rag_status else 0)
+                    ),
+                )
 
             yield _sse_event(
                 "progress",

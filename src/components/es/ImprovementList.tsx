@@ -23,50 +23,6 @@ interface ImprovementListProps {
   defaultExpanded?: boolean;
 }
 
-const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string; accent: string }> = {
-  論理: {
-    bg: "bg-blue-50",
-    text: "text-blue-700",
-    border: "border-blue-200",
-    accent: "bg-blue-500",
-  },
-  論理性: {
-    bg: "bg-blue-50",
-    text: "text-blue-700",
-    border: "border-blue-200",
-    accent: "bg-blue-500",
-  },
-  具体性: {
-    bg: "bg-emerald-50",
-    text: "text-emerald-700",
-    border: "border-emerald-200",
-    accent: "bg-emerald-500",
-  },
-  熱意: {
-    bg: "bg-orange-50",
-    text: "text-orange-700",
-    border: "border-orange-200",
-    accent: "bg-orange-500",
-  },
-  企業接続: {
-    bg: "bg-purple-50",
-    text: "text-purple-700",
-    border: "border-purple-200",
-    accent: "bg-purple-500",
-  },
-  読みやすさ: {
-    bg: "bg-cyan-50",
-    text: "text-cyan-700",
-    border: "border-cyan-200",
-    accent: "bg-cyan-500",
-  },
-  その他: {
-    bg: "bg-gray-50",
-    text: "text-gray-700",
-    border: "border-gray-200",
-    accent: "bg-gray-500",
-  },
-};
 
 // Icons
 const AlertIcon = () => (
@@ -124,16 +80,11 @@ export function ImprovementList({
   const displayCount = issues.length;
 
   const headerContent = (
-    <div className="flex items-center gap-2">
-      <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-xs font-bold">
+    <div className="flex items-center gap-2 flex-1">
+      <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-xs font-bold shrink-0">
         {displayCount}
       </span>
       <span className="font-medium">{displayTitle}</span>
-      {collapsible && (
-        <span className="ml-auto text-muted-foreground transition-transform duration-200">
-          {isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
-        </span>
-      )}
     </div>
   );
 
@@ -143,9 +94,17 @@ export function ImprovementList({
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full text-left text-sm flex items-center gap-2 hover:text-foreground/80 transition-colors py-1"
+          className="w-full text-left text-sm flex items-center gap-2 py-2 px-3 -mx-3 rounded-lg hover:bg-muted/50 transition-colors group"
         >
           {headerContent}
+          {!isExpanded && (
+            <span className="text-xs text-muted-foreground">
+              クリックで展開
+            </span>
+          )}
+          <span className="text-muted-foreground group-hover:text-foreground transition-colors">
+            {isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+          </span>
         </button>
       ) : (
         <h4 className="text-sm flex items-center gap-2">
@@ -156,7 +115,6 @@ export function ImprovementList({
       {(!collapsible || isExpanded) && (
         <div className="space-y-3">
           {issues.map((issue, index) => {
-            const colors = CATEGORY_COLORS[issue.category] || CATEGORY_COLORS["その他"];
             const scoreKey = CATEGORY_TO_SCORE_KEY[issue.category] || issue.category.toLowerCase();
             const priority = difficultyToPriority(issue.difficulty as Difficulty | undefined);
 
@@ -164,35 +122,14 @@ export function ImprovementList({
               <div
                 key={index}
                 id={`issue-${scoreKey}`}
-                className={cn(
-                  "rounded-lg border overflow-hidden transition-all hover:shadow-sm scroll-mt-4",
-                  colors.border,
-                  colors.bg
-                )}
+                className="rounded-lg border border-border bg-muted/30 overflow-hidden transition-all hover:shadow-sm scroll-mt-4"
               >
-                {/* Priority accent bar */}
-                <div
-                  className={cn(
-                    "h-1",
-                    priority === "high" ? "bg-red-500" : priority === "medium" ? "bg-orange-400" : "bg-gray-300"
-                  )}
-                />
-
                 <div className="p-3 space-y-2">
                   {/* Header with category and priority */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          "text-xs font-semibold px-2.5 py-1 rounded-full inline-flex items-center gap-1",
-                          colors.text,
-                          "bg-white/70"
-                        )}
-                      >
-                        <span className="font-bold">#{index + 1}</span>
-                        <span>{issue.category}</span>
-                      </span>
-                    </div>
+                    <span className="text-xs font-medium text-muted-foreground">
+                      #{index + 1} {issue.category}
+                    </span>
                     <PriorityBadge
                       priority={priority}
                       showLabel={true}
@@ -201,15 +138,15 @@ export function ImprovementList({
 
                   {/* Issue description */}
                   <div className="flex items-start gap-2">
-                    <span className="text-amber-500 mt-0.5 shrink-0">
+                    <span className="text-muted-foreground mt-0.5 shrink-0">
                       <AlertIcon />
                     </span>
                     <p className="text-sm text-foreground leading-relaxed">{issue.issue}</p>
                   </div>
 
                   {/* Suggestion */}
-                  <div className="flex items-start gap-2 bg-white/50 rounded-md p-2 -mx-1">
-                    <span className="text-emerald-500 mt-0.5 shrink-0">
+                  <div className="flex items-start gap-2 bg-background/50 rounded-md p-2 -mx-1">
+                    <span className="text-muted-foreground mt-0.5 shrink-0">
                       <LightbulbIcon />
                     </span>
                     <p className="text-sm text-muted-foreground leading-relaxed">{issue.suggestion}</p>

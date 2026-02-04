@@ -45,6 +45,30 @@ def record_rag_context(
     if source_count <= 0:
         _counters["rag_sources_empty"] += 1
 
+    # Context length buckets
+    if context_length <= 0:
+        bucket = "0"
+    elif context_length < 200:
+        bucket = "lt_200"
+    elif context_length < 500:
+        bucket = "lt_500"
+    elif context_length < 1000:
+        bucket = "lt_1000"
+    else:
+        bucket = "gte_1000"
+    _counters[f"rag_context_{bucket}"] += 1
+
+    # Source count buckets
+    if source_count <= 0:
+        src_bucket = "0"
+    elif source_count <= 2:
+        src_bucket = "1_2"
+    elif source_count <= 5:
+        src_bucket = "3_5"
+    else:
+        src_bucket = "gte_6"
+    _counters[f"rag_sources_{src_bucket}"] += 1
+
 
 def snapshot() -> dict[str, Any]:
     return {

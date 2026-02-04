@@ -142,11 +142,14 @@ def _context_dedupe_key(context: dict) -> tuple:
 def get_dynamic_context_length(es_content: str) -> int:
     """Adjust RAG context length based on ES length."""
     char_count = len(es_content or "")
-    if char_count < 500:
-        return 1500
-    if char_count < 1000:
-        return 2500
-    return 3000
+    short_threshold = max(1, settings.rag_context_threshold_short)
+    medium_threshold = max(short_threshold + 1, settings.rag_context_threshold_medium)
+
+    if char_count < short_threshold:
+        return max(500, settings.rag_context_short)
+    if char_count < medium_threshold:
+        return max(800, settings.rag_context_medium)
+    return max(1200, settings.rag_context_long)
 
 
 async def store_company_info(
@@ -1088,8 +1091,6 @@ async def hybrid_search_company_context_enhanced(
     query: str,
     n_results: int = 10,
     content_types: Optional[list[str]] = None,
-    semantic_weight: float = 0.6,
-    keyword_weight: float = 0.4,
     backends: Optional[list[EmbeddingBackend]] = None,
     expand_queries: bool = True,
     rerank: bool = True,
@@ -1098,6 +1099,7 @@ async def hybrid_search_company_context_enhanced(
     Enhanced dense search with query expansion, HyDE, MMR, and LLM reranking.
     """
     from app.utils.hybrid_search import dense_hybrid_search
+    from app.utils.hybrid_search import CONTENT_TYPE_BOOSTS
 
     return await dense_hybrid_search(
         company_id=company_id,
@@ -1106,11 +1108,17 @@ async def hybrid_search_company_context_enhanced(
         content_types=content_types,
         backends=backends,
         expand_queries=expand_queries,
-        use_hyde=True,
+        use_hyde=settings.rag_use_hyde,
         rerank=rerank,
-        use_mmr=True,
-        semantic_weight=semantic_weight,
-        keyword_weight=keyword_weight,
+        use_mmr=settings.rag_use_mmr,
+        semantic_weight=settings.rag_semantic_weight,
+        keyword_weight=settings.rag_keyword_weight,
+        rerank_threshold=settings.rag_rerank_threshold,
+        fetch_k=settings.rag_fetch_k,
+        max_queries=settings.rag_max_queries,
+        max_total_queries=settings.rag_max_total_queries,
+        mmr_lambda=settings.rag_mmr_lambda,
+        content_type_boosts=CONTENT_TYPE_BOOSTS.get("es_review"),
         use_bm25=True,
     )
 
@@ -1155,8 +1163,8 @@ async def get_enhanced_context_for_review(
         query=es_content,
         n_results=15,  # Get more for better coverage
         content_types=None,  # Include all types
-        semantic_weight=0.6,
-        keyword_weight=0.4,
+        expand_queries=settings.rag_use_query_expansion,
+        rerank=settings.rag_use_rerank,
     )
 
     if not results:
@@ -1223,8 +1231,8 @@ async def get_enhanced_context_for_review_with_sources(
         query=es_content,
         n_results=15,  # Get more for better coverage
         content_types=None,  # Include all types
-        semantic_weight=0.6,
-        keyword_weight=0.4,
+        expand_queries=settings.rag_use_query_expansion,
+        rerank=settings.rag_use_rerank,
     )
 
     if not results:

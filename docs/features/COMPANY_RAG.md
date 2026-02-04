@@ -13,7 +13,7 @@ ES添削時に企業固有のコンテキストを提供するRAG（Retrieval-Au
 | **目的** | ES添削時に企業情報を参照し、「企業接続」軸の評価を可能にする |
 | **ベクトルDB** | ChromaDB（永続化） |
 | **キーワード検索** | BM25（bm25sライブラリ） |
-| **検索方式** | ハイブリッド検索（Dense 60% + Sparse 40%）+ 強化パイプライン |
+| **検索方式** | ハイブリッド検索（Dense 60% + Sparse 40% ※デフォルト）+ 強化パイプライン |
 
 ### ES添削での活用
 
@@ -43,7 +43,7 @@ ES添削時に企業固有のコンテキストを提供するRAG（Retrieval-Au
 │       +                                          │
 │  Sparse (BM25)                                   │
 │       ↓                                          │
-│  重み付け融合 (semantic 60% + keyword 40%)        │
+│  重み付け融合 (semantic 60% + keyword 40%)※デフォルト│
 │       ↓                                          │
 │  [LLM Rerank]（品質スコア < 0.7 の場合のみ）       │
 └──────────────────────────────────────────────────┘
@@ -83,7 +83,7 @@ Dense検索（セマンティック）とSparse検索（BM25）を組み合わ�
        ↓
 ┌─ 融合 ──────────────────────────────────┐
 │  スコア正規化 + 重み付け加算              │
-│  semantic: 0.6, keyword: 0.4           │
+│  semantic: 0.6, keyword: 0.4（デフォルト） │
 │  重複除去（source_url + chunk_index）    │
 └─────────────────────────────────────────┘
        ↓
@@ -166,6 +166,18 @@ hybrid_score = semantic_norm * 0.6 + keyword_norm * 0.4
 # スコア正規化: 各検索結果内で0-1に正規化
 # 重複除去: (source_url, chunk_index, content_type) でユニーク化
 ```
+
+### 3.9 チューニング設定（環境変数）
+
+主要なパラメータは `.env` で上書き可能です（デフォルト値は `.env.example` を参照）。
+
+- `RAG_SEMANTIC_WEIGHT` / `RAG_KEYWORD_WEIGHT`
+- `RAG_RERANK_THRESHOLD`
+- `RAG_USE_QUERY_EXPANSION` / `RAG_USE_HYDE` / `RAG_USE_MMR` / `RAG_USE_RERANK`
+- `RAG_MMR_LAMBDA`
+- `RAG_FETCH_K`
+- `RAG_MAX_QUERIES` / `RAG_MAX_TOTAL_QUERIES`
+- `RAG_CONTEXT_*` / `RAG_MIN_CONTEXT_CHARS`
 
 ---
 

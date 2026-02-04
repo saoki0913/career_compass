@@ -58,6 +58,7 @@
 | ドキュメント | 説明 |
 |------------|------|
 | [BACKEND_TESTS.md](./testing/BACKEND_TESTS.md) | バックエンドテスト（pytest、検索精度テスト） |
+| [RAG_EVAL.md](./testing/RAG_EVAL.md) | RAG評価（ES添削向けオフライン評価） |
 
 ---
 

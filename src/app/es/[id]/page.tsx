@@ -637,7 +637,7 @@ export default function ESEditorPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="h-screen bg-background flex flex-col overflow-hidden">
       <DashboardHeader />
 
       {/* Header Bar */}
@@ -777,9 +777,9 @@ export default function ESEditorPage() {
 
         {/* Review Panel */}
         {showReviewPanel && (
-          <div className="hidden lg:flex lg:flex-col w-[40%] border-l border-border bg-muted/20">
-            {/* AI Review Panel - flex-1で残り領域を占有、min-h-0でスクロール有効化 */}
-            <div className="flex-1 min-h-0 p-4 pb-2">
+          <div className="hidden lg:flex lg:flex-col w-[40%] border-l border-border bg-muted/20 overflow-hidden min-h-0">
+            {/* AI Review Panel + Version History - スクロール領域 */}
+            <div className="flex-1 min-h-0 p-4 overflow-y-auto">
               <ReviewPanel
                 documentId={documentId}
                 content={getContentForReview()}
@@ -792,15 +792,14 @@ export default function ESEditorPage() {
                 onUndo={handleUndoReflect}
                 sectionReviewRequest={sectionReviewRequest}
                 onClearSectionReview={handleClearSectionReview}
-                className="h-full"
               />
-            </div>
-            {/* Version History - 下部に固定 */}
-            <div className="shrink-0 p-4 pt-2 border-t border-border/50">
-              <VersionHistory
-                documentId={documentId}
-                onRestore={handleRestoreVersion}
-              />
+              {/* Version History */}
+              <div className="mt-4 pt-4 border-t border-border/50">
+                <VersionHistory
+                  documentId={documentId}
+                  onRestore={handleRestoreVersion}
+                />
+              </div>
             </div>
           </div>
         )}

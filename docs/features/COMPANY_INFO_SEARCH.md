@@ -1,195 +1,265 @@
-# 企業情報検索機能（検索ロジック）
+# 企業情報検索機能 - 検索ロジック仕様書
 
-`/company-info/search-pages`（採用ページ検索）と `/company-info/search-corporate-pages`（コーポレートページ検索）の検索ロジックを整理する。  
-本ドキュメントは**実装現状**のルールを記載する。
-
-## 概要
-
-**対象エンドポイント**
-- `POST /company-info/search-pages`
-- `POST /company-info/search-corporate-pages`
-
-**Hybrid / Legacy 切替**
-- Hybrid: `USE_HYBRID_SEARCH = True` かつ `custom_query` なし
-- Legacy: 上記以外
-
-**戻り値（候補）**
-- `search-pages`: `SearchCandidate[]`（`url`, `title`, `confidence`, `source_type`）
-- `search-corporate-pages`: `CorporatePageCandidate[]`（`url`, `title`, `snippet`, `confidence`, `source_type`）
-
-**共通の並び替え**
-- `source_type` 優先度: `official` → `job_site` → `parent/subsidiary` → `other` → `blog`
-- 同一 `source_type` 内は `confidence`（`high` → `medium` → `low`）
-- Hybrid の `aggregator` は `job_site` として扱う。
-
-**キャッシュ（Hybrid/検索）**
-- Hybrid はインメモリキャッシュ（TTL 30分 / 最大200件）を使用。
-- `search-corporate-pages` は `cache_mode`（`use` / `refresh` / `bypass`）を Hybrid に渡す。
-- Legacy の DuckDuckGo 検索もクエリ単位でキャッシュされる（`_search_with_ddgs`）。
-
-## 共通仕様（フィルタ・判定）
-
-**公式ドメイン判定**
-- `get_company_domain_patterns()` と `_domain_pattern_matches()` を使用。
-- 短いパターンは許可リスト制（誤マッチ抑制）。
-
-**競合ドメイン除外**
-- `_get_conflicting_companies(domain, company_name)` で競合判定。
-- 公式ドメイン or 厳密一致（`_has_strict_company_name_match`）なら除外しない。
-- 厳密一致は **タイトル/スニペットのみ** を対象（URLは見ない）。
-
-**企業名一致チェック（`_contains_company_name`）**
-- 既定では **タイトル/URLのみ** を判定（`allow_snippet_match = False`）。
-- 企業名の **短いプレフィックス**（4〜8文字程度）で一致判定を行う。
-- `allow_snippet_match = True` のときのみスニペットも対象。
-- 公式ドメインはこのチェックを免除。
-
-**親会社/子会社の扱い**
-- `_is_subsidiary()` は **除外**（公式ドメインなら除外しない）。
-- `is_subsidiary_domain()` は **ペナルティ（0.3x）** を付与。
-- 親会社サイトは **ペナルティ（0.5x）**。コーポレート検索では条件により **0.8x**。
+## 📋 目次
+1. [全体アーキテクチャ](#全体アーキテクチャ)
+2. [共通ルール](#共通ルール)
+3. [採用ページ検索 (`/search-pages`)](#採用ページ検索)
+4. [コーポレートページ検索 (`/search-corporate-pages`)](#コーポレートページ検索)
+5. [既知の問題点](#既知の問題点)
 
 ---
 
-## 1. `search-pages`（採用ページ検索）
+## 全体アーキテクチャ
 
-### 1.1 入力パラメータ
+### エンドポイント別処理フロー
 
-| パラメータ | デフォルト / 上限 | 説明 |
-| --- | --- | --- |
-| `company_name` | 必須 | 企業名 |
-| `industry` | 任意 | 業界ヒント |
-| `custom_query` | 任意 | 指定時は Legacy 固定 |
-| `max_results` | default 10 / cap 15 | 返却上限 |
-| `graduation_year` | 任意 | 卒業年度 |
-| `selection_type` | 任意 | `main_selection` / `internship` |
-| `allow_snippet_match` | default `false` | 企業名一致チェックにスニペットを含める |
+```
+リクエスト受信
+    │
+    ├─ /company-info/search-pages (採用ページ)
+    │   │
+    │   └─ 検索モード判定
+    │       │
+    │       ├─ Hybrid検索 ─┐
+    │       │              │
+    │       └─ Legacy検索 ─┤
+    │                      │
+    │                      └─→ 共通ソート処理 → 結果返却
+    │
+    └─ /company-info/search-corporate-pages (コーポレート)
+        │
+        └─ 検索モード判定
+            │
+            ├─ Hybrid検索 ─┐
+            │              │
+            └─ Legacy検索 ─┤
+                           │
+                           └─→ 共通ソート処理 → 結果返却
+```
 
-### 1.2 Hybrid 経路（RRF + Cross-Encoder + Heuristic）
+### 検索モード判定条件
 
-**処理フロー**
-1. `get_company_domain_patterns(company_name)` を取得。
-2. `hybrid_web_search()` 実行（`search_intent="recruitment"`、`max_results + 10` で取得）。
-3. フィルタ/ペナルティ適用。
-4. `confidence` 判定。
-5. `source_type` → `confidence` で並び替え。
+| モード | 条件 |
+|--------|------|
+| **Hybrid検索** | `USE_HYBRID_SEARCH=true` かつ `custom_query` が未指定 |
+| **Legacy検索** | 上記以外 |
 
-**Hybrid 内部（概要）**
-- クエリ生成 → RRF 融合 → Cross-Encoder リランク（利用可能時） → ヒューリスティック → 正規化合成。
-- 合成比率: `rerank 0.5` / `heuristic 0.3` / `rrf 0.2`。
-- スコアは **クエリ集合内で正規化** される（相対評価）。
+### キャッシュ戦略
 
-**フィルタ（除外）**
-- `_is_irrelevant_url(url)`
-- `_is_subsidiary(company_name, title, url)`
-- `_get_conflicting_companies(domain, company_name)` で競合判定（公式 or 厳密一致なら除外しない）
-- `_contains_company_name(...)`（公式ドメインは免除）
-
-**ペナルティ**
-- 親会社サイト: `0.5x`
-- 子会社ドメイン: `0.3x`
-
-**confidence 判定**
-- `adjusted_score >= 0.7` かつ公式 → `high`
-- `adjusted_score >= 0.5` → `medium`
-- それ以外 → `low`
-- `year_matched = false` なら `high → medium` にダウングレード
-
-### 1.3 Legacy 経路（ルールベース）
-
-**処理フロー**
-1. `_build_recruit_queries()` でクエリ生成（`selection_type` / `graduation_year` 反映）。
-2. DuckDuckGo 検索（`_search_with_ddgs`）。
-3. `_score_recruit_candidate_with_breakdown()` で点数化。
-4. フィルタ/ペナルティ適用。
-5. `confidence` 判定（`_score_to_confidence`）。
-6. `source_type` → `confidence` で並び替え。
-
-**DDGS 利用不可時**
-- `candidates: []` とエラーメッセージを返す。
-
-**クエリ生成の特徴**
-- `custom_query` が最優先。
-- `selection_type` が `internship` / `main_selection` の場合は専用クエリ。
-- 企業別エイリアス (`COMPANY_QUERY_ALIASES`) を優先追加。
-- `industry` があれば追加。
-- 最大6件に制限。
-
-**confidence 判定（Legacy）**
-- `official`: `score >= 6` → `high`（年度不一致なら `medium`）、`score >= 3` → `medium`。
-- `job_site` / `blog` / `parent` / `subsidiary`: `score >= 6` → `medium`、それ以外 `low`。
-- `other`: `score >= 4` → `medium`（`high` なし）。
-
-### 1.4 Legacy スコア内訳（採用）
-
-**加点**
-| 項目 | 加点 |
-| --- | --- |
-| 企業名タイトル一致 | `+3.0` |
-| 企業名スニペット一致 | `+2.0` |
-| ドメインパターン一致 | `+4.0` |
-| ASCII名一致（ドメイン） | `+3.0` |
-| 採用サブドメイン一致 | `+3.0` |
-| 採用URLキーワード一致 | `+3.0` |
-| 採用タイトルキーワード一致 | `+2.0` |
-| 採用スニペットキーワード一致 | `+1.0` |
-| 卒業年度一致 | `+1.0` |
-| TLD品質 | `.co.jp +2.0`, `.jp +1.5`, `.com +1.0`, `.net +0.5` |
-| 業界名一致 | `+0.5` |
-| マイページボーナス（`mypage`） | `+1.0` |
-
-**減点**
-| 項目 | 減点 |
-| --- | --- |
-| 年度不一致ペナルティ | `-2.0` |
-| アグリゲータ | `-3.0` |
-| ブログ/個人サイト | `-5.0`（個人ブログ）, `-1.0`（公式ブログ）, `-3.0`（個人サイト） |
-| 低品質TLD | `-1.0` |
+| 検索モード | キャッシュ方式 |
+|-----------|--------------|
+| Hybrid | インメモリキャッシュ |
+| Legacy | DDGSクエリキャッシュ |
 
 ---
 
-## 2. `search-corporate-pages`（コーポレートページ検索）
+## 共通ルール
 
-### 2.1 入力パラメータ
+### 1. 公式ドメイン判定
 
-| パラメータ | デフォルト / 上限 | 説明 |
-| --- | --- | --- |
-| `company_name` | 必須 | 企業名 |
-| `search_type` | default `about` | `ir` / `business` / `about` |
-| `content_type` | 任意 | 9カテゴリ（下表） |
-| `custom_query` | 任意 | 指定時は Legacy 固定 |
-| `preferred_domain` | 任意 | 優先ドメイン |
-| `strict_company_match` | default `true` | 厳格に企業一致を要求 |
-| `allow_aggregators` | default `false` | アグリゲータ許可 |
-| `max_results` | default 5 / cap 10 | 返却上限 |
-| `allow_snippet_match` | default `false` | 企業名一致チェックにスニペットを含める |
-| `cache_mode` | default `bypass` | `use` / `refresh` / `bypass` |
+```
+入力: 企業名, URL
+    │
+    ├─ get_company_domain() で公式ドメイン取得
+    │
+    ├─ _domain_pattern() でパターンマッチング
+    │   - 短いパターンは許可リスト制
+    │   - 例: "sony" → "sony.co.jp", "sony.com"
+    │
+    └─ 判定結果: official / job_site / parent / subsidiary / other / blog
+```
 
-**content_type（9カテゴリ）**
-| content_type | 内容 |
-| --- | --- |
-| `new_grad_recruitment` | 新卒採用 |
-| `midcareer_recruitment` | 中途採用 |
-| `ceo_message` | 社長メッセージ |
-| `employee_interviews` | 社員インタビュー |
-| `press_release` | プレスリリース |
-| `ir_materials` | IR資料 |
-| `csr_sustainability` | CSR/サステナ |
-| `midterm_plan` | 中期経営計画 |
-| `corporate_site` | 企業情報 |
+### 2. 除外フィルタ
 
-### 2.2 Hybrid 経路（RRF + Cross-Encoder + Heuristic）
+| チェック項目 | 除外条件 |
+|------------|---------|
+| **無関係URL** | `_is_irrelevant_url()` で判定<br>- Wikipedia, LinkedIn等 |
+| **子会社** | `_is_subsidiary()` で判定 |
+| **競合ドメイン** | `_get_conflicting_companies()` で判定<br>- **厳密一致時のみ**タイトル/スニペットチェック |
+| **企業名不一致** | `_contains_company_name()` で判定<br>- **公式ドメインは免除** |
 
-**処理フロー**
-1. `get_company_domain_patterns(company_name)` を取得。
-2. `content_type` を `search_intent` に変換して `hybrid_web_search()` 実行。
-3. フィルタ/ペナルティ適用。
-4. `confidence` 判定。
-5. `source_type` → `confidence` で並び替え。
+### 3. スコアペナルティ
 
-**content_type → search_intent 対応**
+| 対象 | 乗数 | 備考 |
+|-----|------|------|
+| **親会社ドメイン** | `×0.5` | コーポレート検索では `×0.8` も適用可能 |
+| **子会社ドメイン** | `×0.3` | - |
+
+### 4. 共通ソートロジック
+
+**優先順位:**
+
+```
+1. source_type による優先度
+   official > job_site > parent/subsidiary > other > blog
+   
+2. 同一 source_type 内では confidence
+   high > medium > low
+   
+3. 同一 confidence 内では combined_score (降順)
+```
+
+**注意:** Hybrid検索の aggregator は `job_site` として扱われる
+
+---
+
+## 採用ページ検索
+
+### Hybrid検索フロー
+
+```
+1. 入力受付
+   ↓
+2. domain_patterns 取得
+   ↓
+3. hybrid_web_search 実行
+   - intent: "recruitment"
+   - max_results: 指定値 + 10
+   ↓
+4. 除外・ペナルティ適用
+   ↓
+5. confidence 判定
+   - year_matched=false の場合
+     high → medium に降格
+   ↓
+6. 共通ソート
+   ↓
+7. 結果返却
+```
+
+### Legacy検索フロー
+
+```
+1. 入力受付
+   ↓
+2. _build_recruit_queries でクエリ生成
+   ↓
+3. DDGS検索実行 (利用不可ならエラー)
+   ↓
+4. _score_recruit_candidate_with_breakdown でスコアリング
+   ↓
+5. 除外・ペナルティ適用
+   ↓
+6. _score_to_confidence で信頼度変換
+   ↓
+7. 共通ソート
+   ↓
+8. 結果返却
+```
+
+### クエリ生成ロジック
+
+```
+custom_query 指定あり?
+    │
+    YES → custom_query のみ使用
+    │
+    NO
+    │
+    ├─ selection_type による分岐
+    │   │
+    │   ├─ "internship" → インターン系クエリ
+    │   ├─ "main_selection" → 本選考系クエリ
+    │   └─ 未指定 → 新卒/採用混在クエリ
+    │
+    ├─ COMPANY_QUERY_ALIASES から別名追加
+    │
+    ├─ industry 指定があれば業界名追加
+    │
+    ├─ 重複除去
+    │
+    └─ 最大6件に制限
+```
+
+### Confidence判定基準
+
+#### Hybrid検索の場合
+
+| adjusted_score | source_type | year_matched | confidence |
+|---------------|-------------|--------------|------------|
+| ≥ 0.7 | official | true | **high** |
+| ≥ 0.7 | official | false | **medium** (降格) |
+| ≥ 0.5 | - | - | **medium** |
+| < 0.5 | - | - | **low** |
+
+#### Legacy検索の場合
+
+| source_type | score範囲 | year_matched | confidence |
+|------------|----------|--------------|------------|
+| official | ≥ 6 | true | **high** |
+| official | ≥ 6 | false | **medium** (上限) |
+| official | 3-5 | - | **medium** |
+| official | < 3 | - | **low** |
+| job_site/blog/parent/subsidiary | ≥ 6 | - | **medium** |
+| job_site/blog/parent/subsidiary | < 6 | - | **low** |
+| other | ≥ 4 | - | **medium** |
+| other | < 4 | - | **low** |
+
+### スコアリング内訳 (Legacy)
+
+#### 加点要素
+
+| 項目 | スコア | 条件 |
+|-----|--------|------|
+| ドメインパターン一致 | +4.0 | - |
+| 企業名 (タイトル) | +3.0 | - |
+| 企業名 (スニペット) | +2.0 | - |
+| ASCII名一致 | +3.0 | - |
+| 採用サブドメイン | +3.0 | recruit.*, saiyo.* 等 |
+| 採用URLキーワード | +3.0 | /recruit/, /career/ 等 |
+| 採用タイトルキーワード | +2.0 | 採用, 新卒, エントリー 等 |
+| 採用スニペットキーワード | +1.0 | 同上 |
+| 卒業年度一致 | +1.0 | - |
+| マイページボーナス | +1.0 | mypage, entry 等 |
+| 業界名一致 | +0.5 | - |
+
+**TLD品質ボーナス:**
+- `.co.jp`: +2.0
+- `.jp`: +1.5
+- `.com`: +1.0
+- `.net`: +0.5
+
+#### 減点要素
+
+| 項目 | スコア | 条件 |
+|-----|--------|------|
+| 年度不一致 | -2.0 | - |
+| アグリゲータサイト | -3.0 | - |
+| 個人ブログ | -5.0 | - |
+| 公式ブログ | -1.0 | - |
+| 個人サイト | -3.0 | - |
+| 低品質TLD | -1.0 | - |
+
+---
+
+## コーポレートページ検索
+
+### Hybrid検索フロー
+
+```
+1. 入力受付
+   ↓
+2. domain_patterns 取得
+   ↓
+3. content_type → search_intent 変換
+   ↓
+4. hybrid_web_search 実行
+   - max_results: 指定値 + 10
+   - cache_mode 適用
+   ↓
+5. 除外・ペナルティ適用
+   ↓
+6. confidence 判定
+   ↓
+7. 共通ソート
+   ↓
+8. 結果返却
+```
+
+### content_type → search_intent マッピング
+
 | content_type | search_intent |
-| --- | --- |
+|-------------|---------------|
 | `new_grad_recruitment` | `new_grad` |
 | `midcareer_recruitment` | `midcareer` |
 | `ceo_message` | `ceo_message` |
@@ -199,98 +269,205 @@
 | `midterm_plan` | `midterm_plan` |
 | `press_release` | `press_release` |
 | `corporate_site` | `corporate_about` |
-| 未指定 | `corporate_about` |
+| **未指定** | `corporate_about` |
 
-**フィルタ（除外）**
-- `_is_irrelevant_url(url)`
-- `_is_subsidiary(company_name, title, url)`
-- `_get_conflicting_companies(domain, company_name)` で競合判定（公式 or 厳密一致なら除外しない）
-- `_contains_company_name(...)`（公式ドメイン or 親会社許可ドメインは免除）
+### Legacy検索フロー
 
-**ペナルティ**
-- 親会社サイト: `0.5x`、ただし `is_parent_domain_allowed()` なら `0.8x`
-- 子会社ドメイン: `0.3x`
+```
+1. 入力受付
+   ↓
+2. _build_corporate_queries でクエリ生成
+   ↓
+3. DDGS検索実行 (利用不可ならエラー)
+   ↓
+4. Strict Pass: スコアリング + 厳密フィルタ
+   ↓
+5. 結果 < 3件?
+   │
+   YES → Relaxed Pass 実行
+   │
+6. allow_aggregators=false かつ 結果=0?
+   │
+   YES → Aggregator許可 Pass 実行
+   │
+7. score < 3.5 を除外
+   ↓
+8. 除外・ペナルティ適用
+   ↓
+9. _score_to_confidence で信頼度変換
+   ↓
+10. 共通ソート
+   ↓
+11. 結果返却
+```
 
-**confidence 判定**
-- `adjusted_score >= 0.7` かつ公式 → `high`
-- `adjusted_score >= 0.5` → `medium`
-- それ以外 → `low`
+### クエリ生成ロジック
 
-### 2.3 Legacy 経路（ルールベース）
+```
+custom_query 指定あり?
+    │
+    YES → custom_query のみ使用
+    │
+    NO
+    │
+    ├─ content_type 指定あり?
+    │   │
+    │   YES → content_type 専用クエリ (最大4件)
+    │   NO  → search_type クエリ
+    │
+    ├─ preferred_domain 指定あり?
+    │   │
+    │   YES → "site:preferred_domain" 付与
+    │   NO  → そのまま
+    │
+    ├─ 重複除去
+    │
+    └─ 最大4件に制限
+```
 
-**処理フロー**
-1. `_build_corporate_queries()` でクエリ生成（`custom_query` > `content_type` > `search_type`）。
-2. DuckDuckGo 検索（`_search_with_ddgs`）。
-3. `_score_corporate_candidate_with_breakdown()` で点数化。
-4. strict → relaxed → aggregator許可の3段階検索。
-5. フィルタ/ペナルティ適用。
-6. `confidence` 判定（`_score_to_confidence`）。
-7. `source_type` → `confidence` で並び替え。
+### Confidence判定基準
 
-**クエリ生成の特徴**
-- `custom_query` が最優先。
-- `content_type` 指定時は専用クエリ（最大4件）。
-- 未指定時は `search_type` のクエリを使用。
-- `preferred_domain` 指定時は `site:preferred_domain` を付与。
-- 最大4件に制限。
+#### Hybrid検索の場合
 
-**検索の段階条件**
-- strict で `results < 3` のとき relaxed を追加。
-- `allow_aggregators = false` で結果 0 件の場合、aggregator 許可のフォールバックを実行。
-- `score < 3.5` は候補から除外。
+| adjusted_score | source_type | confidence |
+|---------------|-------------|------------|
+| ≥ 0.7 | official | **high** |
+| ≥ 0.5 | - | **medium** |
+| < 0.5 | - | **low** |
 
-### 2.4 Legacy スコア内訳（コーポレート）
+#### Legacy検索の場合
 
-`content_type` 指定時は ContentType 系の加点/不一致ペナルティのみを使用し、`search_type` 系キーワードは使わない。  
-`content_type` 未指定時は `search_type` 系キーワードのみを使用する。
+| source_type | score範囲 | confidence |
+|------------|----------|------------|
+| official | ≥ 6 | **high** |
+| official | 3-5 | **medium** |
+| official | < 3 | **low** |
+| job_site/blog/parent/subsidiary | ≥ 6 | **medium** |
+| job_site/blog/parent/subsidiary | < 6 | **low** |
+| other | ≥ 4 | **medium** |
+| other | < 4 | **low** |
 
-**加点**
-| 項目 | 加点 |
-| --- | --- |
-| 企業名タイトル一致 | `+3.0` |
-| 企業名スニペット一致 | `+2.0` |
-| ドメインパターン一致 | `+4.0` |
-| ASCII名一致（ドメイン） | `+3.0` |
-| TLD品質 | `.co.jp +1.5`, `.jp +1.0`, `.com +0.5`, `.net +0.5` |
-| ContentType URLパターン一致 | `+2.5` |
-| ContentType タイトル一致 | `+2.0` |
-| ContentType スニペット一致 | `+1.0` |
-| Legacy URLキーワード一致 | `+2.0` |
-| Legacy タイトル一致 | `+2.0` |
-| Legacy スニペット一致 | `+1.0` |
-| preferred_domain 一致 | `+3.0` |
-| IR検索かつPDF | `+1.5` |
-| IR文書キーワード一致 | `+2.5` |
+### スコアリング内訳 (Legacy)
 
-**減点 / 除外**
-strict 判定は「企業名一致 / preferred_domain 一致 / 公式ドメイン / 親会社許可」のいずれかで通過。
-| 項目 | 減点 |
-| --- | --- |
-| 企業不一致ペナルティ | `-4.0` |
-| ContentType 不一致ペナルティ | `-2.0` |
-| preferred_domain 不一致 | `-1.0` |
-| アグリゲータ | `-2.0` |
-| 低品質TLD | `-1.0` |
-| アグリゲータ除外（設定時） | 除外 |
-| strict 企業一致に失敗 | 除外 |
-| 非HTTP URL | 除外 |
+#### 加点要素
+
+| 項目 | スコア | 条件 |
+|-----|--------|------|
+| ドメインパターン一致 | +4.0 | - |
+| 企業名 (タイトル) | +3.0 | - |
+| 企業名 (スニペット) | +2.0 | - |
+| ASCII名一致 | +3.0 | - |
+| ContentType URLパターン | +2.5 | content_type 指定時 |
+| ContentType タイトル | +2.0 | content_type 指定時 |
+| ContentType スニペット | +1.0 | content_type 指定時 |
+| Legacy URL | +2.0 | content_type 未指定時 |
+| Legacy タイトル | +2.0 | content_type 未指定時 |
+| Legacy スニペット | +1.0 | content_type 未指定時 |
+| preferred_domain 一致 | +3.0 | - |
+| IR PDF | +1.5 | PDF形式 |
+| IR文書キーワード | +2.5 | 決算, 有価証券 等 |
+
+**TLD品質ボーナス:**
+- `.co.jp`: +1.5
+- `.jp`: +1.0
+- `.com`: +0.5
+- `.net`: +0.5
+
+#### 減点・除外要素
+
+| 項目 | スコア/処理 | 条件 |
+|-----|-----------|------|
+| 企業不一致ペナルティ | -4.0 | - |
+| ContentType 不一致 | -2.0 | content_type 指定時 |
+| preferred_domain 不一致 | -1.0 | - |
+| アグリゲータサイト | -2.0 | - |
+| 低品質TLD | -1.0 | - |
+| **除外: アグリゲータ** | 除外 | allow_aggregators=false 時 |
+| **除外: Strict不一致** | 除外 | Strict Pass で失敗 |
+| **除外: 非HTTP** | 除外 | http/https 以外 |
+
+### Strict判定の通過条件
+
+以下のいずれかを満たす場合に通過:
+
+1. 企業名一致
+2. preferred_domain 一致
+3. 公式ドメイン
+4. 親会社許可フラグあり
+
+### スコアリング分岐
+
+| 状態 | 使用する加点ロジック |
+|-----|-------------------|
+| **content_type 指定あり** | ContentType系の加点/減点のみ<br>`search_type` キーワードは**使用しない** |
+| **content_type 未指定** | `search_type` 系キーワードのみ使用 |
 
 ---
 
-## 3. 問題点 / 注意点（コード由来）
+## Hybrid検索の内部処理
 
-- Hybrid の `combined_score` は **クエリ集合内で正規化** されるため、絶対品質ではなく相対評価になりやすい。
-- Hybrid / Legacy で **confidence判定の尺度が別**（Hybridは0-1の`adjusted_score`、Legacyは加点合計の`score`）。
-- コーポレート検索の Hybrid は `preferred_domain` / `strict_company_match` / `allow_aggregators` を **反映しない**。
-- Hybrid のヒューリスティックは **採用系キーワード前提**（`calculate_heuristic_score()`）。IR/企業情報向けの意図とミスマッチが起こる。
-- Hybrid には **content_type固有の加点/不一致ペナルティがない**（Legacyのみ）。
-- `source_type` 判定・優先度が採用サイト寄りで、コーポレート用途で並びが歪む可能性がある。
-- `_contains_company_name()` は **短いプレフィックス一致** に依存するため、社名が短い/類似が多い場合に誤判定が起きやすい。
-- 競合ドメイン除外の厳密一致は **タイトル/スニペットのみ**。正式社名が出ないページは誤除外の可能性がある。
+```
+1. クエリ生成
+   ↓
+2. DDG並列検索
+   ↓
+3. RRF (Reciprocal Rank Fusion) で融合
+   ↓
+4. Cross-Encoder Rerank (利用可能時)
+   ↓
+5. Heuristic スコア算出
+   ↓
+6. 正規化合成
+   - Rerank: 0.5
+   - Heuristic: 0.3
+   - RRF: 0.2
+   ↓
+7. combined_score 降順ソート
+```
 
 ---
 
-## 4. 主要実装ファイル
-- `backend/app/routers/company_info.py`
-- `backend/app/utils/web_search.py`
-- `docs/features/COMPANY_INFO_FETCH.md`
+## 既知の問題点
+
+### 🔴 重要度: 高
+
+| # | 問題内容 | 影響範囲 |
+|---|---------|---------|
+| 1 | **Hybrid の combined_score は相対評価**<br>クエリ集合内での正規化のため、絶対的な品質保証ができない | Hybrid検索全体 |
+| 2 | **Hybrid と Legacy で confidence 基準が異なる**<br>同じクエリでもモードにより信頼度が変わる可能性 | 検索結果の一貫性 |
+| 3 | **Corporate Hybrid は一部パラメータ未対応**<br>`preferred_domain`, `strict`, `allow_aggregators` が反映されない | コーポレート Hybrid |
+
+### 🟡 重要度: 中
+
+| # | 問題内容 | 影響範囲 |
+|---|---------|---------|
+| 4 | **Hybrid heuristic は採用系前提**<br>コーポレート検索には最適化されていない | コーポレート Hybrid |
+| 5 | **Hybrid に content_type 固有加点なし**<br>Legacy のような詳細な content_type 対応がない | コーポレート Hybrid |
+| 6 | **source_type 優先度が採用寄り**<br>`job_site` が高優先となり、IRサイト等が不利 | 共通ソート |
+
+### 🟢 重要度: 低
+
+| # | 問題内容 | 影響範囲 |
+|---|---------|---------|
+| 7 | **企業名一致判定が短いプレフィックス依存**<br>`_contains_company_name()` の精度課題 | 除外フィルタ |
+| 8 | **競合ドメイン判定が限定的**<br>厳密一致時のタイトル/スニペットのみチェック | 除外フィルタ |
+
+---
+
+## 主要実装ファイル
+
+```
+backend/
+├── app/
+│   ├── routers/
+│   │   └── company_info.py          # エンドポイント実装
+│   └── utils/
+│       └── web_search.py            # 検索ロジック実装
+└── docs/
+    └── features/
+        └── COMPANY_INFO_FETCH.md    # 機能ドキュメント
+```
+
+---
+
+**最終更新:** このドキュメントは実装現状を反映しています

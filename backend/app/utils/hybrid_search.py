@@ -1,8 +1,8 @@
 """
 Hybrid Search Module
 
-Dense-only retrieval pipeline (no BM25).
-Uses multi-query + HyDE + RRF + MMR + LLM rerank.
+Hybrid retrieval pipeline (dense + optional BM25).
+Uses multi-query + HyDE + RRF + MMR + optional LLM rerank.
 """
 
 import json
@@ -10,6 +10,7 @@ import math
 from collections import Counter
 from typing import Optional
 
+from app.config import settings
 from app.utils.llm import call_llm_with_error
 from app.utils.content_types import (
     content_type_label,
@@ -34,6 +35,21 @@ HYDE_MAX_QUERY_CHARS = 600
 EXPANSION_MAX_QUERY_CHARS = 1200
 # 短いクエリ（10文字未満）ではクエリ拡張をスキップ
 EXPANSION_MIN_QUERY_CHARS = 10
+
+# Content type boosts (ES review)
+CONTENT_TYPE_BOOSTS = {
+    "es_review": {
+        "new_grad_recruitment": 1.5,
+        "midcareer_recruitment": 1.1,
+        "employee_interviews": 1.1,
+        "ceo_message": 1.05,
+        "corporate_site": 1.0,
+        "press_release": 0.95,
+        "csr_sustainability": 0.9,
+        "midterm_plan": 0.9,
+        "ir_materials": 0.85,
+    }
+}
 
 QUERY_EXPANSION_SCHEMA = {
     "name": "rag_query_expansion",
@@ -138,7 +154,18 @@ def _extract_keywords(text: str, max_terms: int = 8) -> list[str]:
 def _should_rerank(results: list[dict], threshold: float) -> bool:
     if not results:
         return False
-    scores = [item.get("rrf_score", 0) for item in results[:5]]
+    scores = []
+    for item in results[:5]:
+        score = None
+        for key in ("boosted_score", "hybrid_score", "rrf_score"):
+            value = item.get(key)
+            if isinstance(value, (int, float)):
+                score = float(value)
+                break
+        if score is None:
+            distance = item.get("distance")
+            score = 1 / (distance + 1e-6) if isinstance(distance, (int, float)) else 0.0
+        scores.append(score)
     max_score = max(scores) if scores else 0.0
     if max_score <= 0:
         return True
@@ -155,6 +182,40 @@ def _normalize_scores(score_map: dict[str, float]) -> dict[str, float]:
     if max_score <= 0:
         return {k: 0.0 for k in score_map}
     return {k: v / max_score for k, v in score_map.items()}
+
+
+def _apply_content_type_boost(
+    results: list[dict], boosts: dict[str, float]
+) -> list[dict]:
+    """Apply content-type boost to hybrid score ordering."""
+    if not results or not boosts:
+        return results
+
+    boosted: list[dict] = []
+    for item in results:
+        metadata = item.get("metadata") or {}
+        content_type = normalize_content_type(
+            metadata.get("content_type") or metadata.get("chunk_type") or "corporate_site"
+        )
+        boost = boosts.get(content_type, 1.0)
+
+        base_score = item.get("hybrid_score")
+        if base_score is None:
+            base_score = item.get("rrf_score")
+        if base_score is None:
+            distance = item.get("distance")
+            if isinstance(distance, (int, float)):
+                base_score = 1 / (distance + 1e-6)
+            else:
+                base_score = 0.0
+
+        enriched = dict(item)
+        enriched["content_type_boost"] = boost
+        enriched["boosted_score"] = float(base_score) * boost
+        boosted.append(enriched)
+
+    boosted.sort(key=lambda x: x.get("boosted_score", 0), reverse=True)
+    return boosted
 
 
 def _keyword_search(
@@ -515,10 +576,15 @@ async def dense_hybrid_search(
     use_hyde: bool = True,
     rerank: bool = True,
     use_mmr: bool = True,
-    semantic_weight: float = 0.6,
-    keyword_weight: float = 0.4,
-    rerank_threshold: float = 0.7,
+    semantic_weight: Optional[float] = None,
+    keyword_weight: Optional[float] = None,
+    rerank_threshold: Optional[float] = None,
     use_bm25: bool = True,
+    fetch_k: Optional[int] = None,
+    max_queries: Optional[int] = None,
+    max_total_queries: Optional[int] = None,
+    mmr_lambda: Optional[float] = None,
+    content_type_boosts: Optional[dict[str, float]] = None,
 ) -> list[dict]:
     """
     Dense-only hybrid search pipeline (BM25-free).
@@ -535,6 +601,30 @@ async def dense_hybrid_search(
     if not query:
         return []
 
+    semantic_weight = (
+        settings.rag_semantic_weight if semantic_weight is None else semantic_weight
+    )
+    keyword_weight = (
+        settings.rag_keyword_weight if keyword_weight is None else keyword_weight
+    )
+    total_weight = (semantic_weight or 0) + (keyword_weight or 0)
+    if total_weight > 0:
+        semantic_weight = semantic_weight / total_weight
+        keyword_weight = keyword_weight / total_weight
+    rerank_threshold = (
+        settings.rag_rerank_threshold
+        if rerank_threshold is None
+        else rerank_threshold
+    )
+    fetch_k = settings.rag_fetch_k if fetch_k is None else fetch_k
+    max_queries = settings.rag_max_queries if max_queries is None else max_queries
+    max_total_queries = (
+        settings.rag_max_total_queries if max_total_queries is None else max_total_queries
+    )
+    mmr_lambda = settings.rag_mmr_lambda if mmr_lambda is None else mmr_lambda
+    max_queries = max(0, int(max_queries))
+    max_total_queries = max(1, int(max_total_queries))
+
     base_backend = _resolve_dense_backend(backends)
     if base_backend is None:
         return []
@@ -543,6 +633,7 @@ async def dense_hybrid_search(
     # クエリ拡張: 10文字以上1200文字以下の場合のみ実行
     effective_expand = (
         expand_queries
+        and max_queries > 0
         and len(query) >= EXPANSION_MIN_QUERY_CHARS
         and len(query) <= EXPANSION_MAX_QUERY_CHARS
     )
@@ -554,7 +645,7 @@ async def dense_hybrid_search(
     keyword_seeds = _extract_keywords(query)
     if effective_expand:
         expanded = await expand_queries_with_llm(
-            query, max_queries=DEFAULT_MAX_QUERIES, keywords=keyword_seeds
+            query, max_queries=max_queries, keywords=keyword_seeds
         )
 
     if effective_hyde:
@@ -570,9 +661,9 @@ async def dense_hybrid_search(
         if hyde_doc:
             queries.append(hyde_doc)
 
-    queries = _dedupe_queries(queries, DEFAULT_MAX_TOTAL_QUERIES)
+    queries = _dedupe_queries(queries, max_total_queries)
 
-    fetch_k = max(DEFAULT_FETCH_K, n_results * 3)
+    fetch_k = max(fetch_k or DEFAULT_FETCH_K, n_results * 3)
     results_by_query: list[list[dict]] = []
 
     for q in queries:
@@ -595,24 +686,17 @@ async def dense_hybrid_search(
     if use_mmr:
         query_embedding = await generate_embedding(query, backend=base_backend)
         if query_embedding:
-            merged = _apply_mmr(merged, query_embedding, n_results, DEFAULT_MMR_LAMBDA)
+            merged = _apply_mmr(merged, query_embedding, n_results, mmr_lambda)
         else:
             merged = merged[:n_results]
     else:
         merged = merged[:n_results]
 
-    if rerank and _should_rerank(merged, rerank_threshold):
-        merged = await rerank_results_with_llm(
-            query, merged, max_items=DEFAULT_RERANK_CANDIDATES
-        )
-    elif rerank:
-        print("[RAG再ランキング] ℹ️ 上位スコアが高いためスキップ")
-
     if use_bm25 and keyword_weight > 0:
         keyword_results = _keyword_search(
             company_id=company_id,
             query=query,
-            k=max(DEFAULT_FETCH_K, n_results * 3),
+            k=max(fetch_k or DEFAULT_FETCH_K, n_results * 3),
             content_types=content_types,
         )
         if keyword_results:
@@ -622,6 +706,16 @@ async def dense_hybrid_search(
                 semantic_weight=semantic_weight,
                 keyword_weight=keyword_weight,
             )
+
+    if content_type_boosts:
+        merged = _apply_content_type_boost(merged, content_type_boosts)
+
+    if rerank and _should_rerank(merged, rerank_threshold):
+        merged = await rerank_results_with_llm(
+            query, merged, max_items=DEFAULT_RERANK_CANDIDATES
+        )
+    elif rerank:
+        print("[RAG再ランキング] ℹ️ 上位スコアが高いためスキップ")
 
     return merged[:n_results]
 

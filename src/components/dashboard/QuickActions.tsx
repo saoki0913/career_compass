@@ -47,7 +47,7 @@ function QuickActionCard({
   );
 
   const baseClasses = cn(
-    "group relative overflow-hidden rounded-2xl p-5 text-white cursor-pointer transition-all duration-200 hover:shadow-xl hover:-translate-y-1 active:scale-[0.98] bg-gradient-to-br shadow-md",
+    "group relative overflow-hidden rounded-2xl p-5 text-white cursor-pointer transition-all duration-200 hover:shadow-xl hover:-translate-y-1 active:scale-[0.98] bg-gradient-to-br shadow-md h-[136px] flex flex-col justify-start items-start text-left",
     colorClasses[action.color],
     className
   );
