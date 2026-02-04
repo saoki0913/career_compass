@@ -16,12 +16,8 @@ from typing import Optional
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, urlunparse
 import re
-import ssl
-import httpx
-import certifi
 import hashlib
 import asyncio
-from bs4 import BeautifulSoup
 
 try:
     from ddgs import DDGS
@@ -69,6 +65,7 @@ from app.utils.web_search import (
     CONTENT_TYPE_SEARCH_INTENT,
     COMPANY_QUERY_ALIASES,
 )
+from app.utils.http_fetch import fetch_page_content, extract_text_from_html
 
 # ===== Hybrid Search Configuration =====
 # Set to True to use the new hybrid search with RRF + cross-encoder reranking
@@ -379,179 +376,6 @@ SELECTION_SCHEDULE_SCHEMA = {
         },
     },
 }
-
-
-def _is_ssl_related_error(exc: Exception) -> bool:
-    """Check if the exception is SSL-related.
-
-    httpx wraps ssl.SSLError in httpx.ConnectError.__cause__,
-    so we need to check the cause chain.
-    """
-    # Check cause chain for ssl.SSLError
-    current = exc
-    while current is not None:
-        if isinstance(current, ssl.SSLError):
-            return True
-        current = getattr(current, "__cause__", None)
-
-    # Fallback: check error message for SSL keywords
-    error_msg = str(exc).lower()
-    ssl_keywords = ["ssl", "tls", "handshake", "certificate", "sslv3_alert"]
-    return any(kw in error_msg for kw in ssl_keywords)
-
-
-def create_ssl_context(
-    seclevel: int = 2, legacy_connect: bool = False
-) -> ssl.SSLContext:
-    """Create SSL context with specified security level.
-
-    Args:
-        seclevel: OpenSSL SECLEVEL (0-3). Lower values allow weaker ciphers.
-            - 2: Default, requires 2048-bit RSA
-            - 1: Allows 1024-bit RSA and some older ciphers
-            - 0: Allows very weak ciphers (use with caution)
-        legacy_connect: Enable legacy server connect for servers without
-            RFC 5746 secure renegotiation support.
-
-    Note: TLS 1.0/1.1 are deprecated in OpenSSL 3.x and cannot be enabled.
-    """
-    context = ssl.create_default_context(cafile=certifi.where())
-    context.set_ciphers(f"DEFAULT@SECLEVEL={seclevel}")
-
-    # Enable legacy server connect for older servers (OpenSSL 3.x)
-    # This allows connecting to servers that don't support RFC 5746
-    if legacy_connect:
-        # OP_LEGACY_SERVER_CONNECT is available in Python 3.12+
-        # For older versions, use the raw option value 0x4
-        legacy_option = getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
-        context.options |= legacy_option
-
-    return context
-
-
-async def fetch_page_content(url: str) -> bytes:
-    """Fetch page content from URL with SSL fallback strategies.
-
-    Returns bytes to allow proper encoding detection by BeautifulSoup.
-    Many Japanese corporate sites use Shift-JIS or EUC-JP encoding,
-    and httpx defaults to UTF-8 when charset is not specified in headers.
-
-    SSL Strategy (ordered by security level):
-    1. Default SSL settings (SECLEVEL=2, most secure)
-    2. SECLEVEL=1 (allows weaker ciphers)
-    3. SECLEVEL=0 (allows very weak ciphers)
-    4. No certificate verification (last resort)
-    """
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
-
-    # SSL strategies to try in order (from most secure to least)
-    ssl_strategies = [
-        {"verify": True, "name": "default"},
-        {"verify": create_ssl_context(seclevel=1), "name": "seclevel1"},
-        {"verify": create_ssl_context(seclevel=0), "name": "seclevel0"},
-        {
-            "verify": create_ssl_context(seclevel=1, legacy_connect=True),
-            "name": "legacy-seclevel1",
-        },
-        {
-            "verify": create_ssl_context(seclevel=0, legacy_connect=True),
-            "name": "legacy-seclevel0",
-        },
-        {"verify": False, "name": "no-verify"},
-    ]
-
-    last_error = None
-
-    for strategy in ssl_strategies:
-        try:
-            async with httpx.AsyncClient(
-                timeout=30.0,
-                follow_redirects=True,
-                verify=strategy["verify"],
-                headers=headers,
-            ) as client:
-                response = await client.get(str(url))
-                response.raise_for_status()
-
-                if strategy["name"] != "default":
-                    print(
-                        f"[SSL] ⚠️ Connected to {url} using {strategy['name']} SSL strategy"
-                    )
-
-                return response.content
-
-        except httpx.NetworkError as e:
-            # NetworkError includes ConnectError and other network-level issues
-            if _is_ssl_related_error(e):
-                print(f"[SSL] SSL error with {strategy['name']}: {str(e)[:100]}")
-                last_error = e
-                continue  # Try next SSL strategy
-            # Non-SSL network error - don't retry with different SSL settings
-            raise HTTPException(
-                status_code=400,
-                detail=f"URLに接続できませんでした。URLが正しいか確認してください。({str(e)[:100]})",
-            )
-
-        except httpx.TimeoutException:
-            raise HTTPException(
-                status_code=400,
-                detail="URLの取得がタイムアウトしました。しばらく後にお試しください。",
-            )
-
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                raise HTTPException(
-                    status_code=400,
-                    detail="指定されたページが見つかりませんでした（404）。別のURLをお試しください。",
-                )
-            elif e.response.status_code == 403:
-                raise HTTPException(
-                    status_code=400,
-                    detail="ページへのアクセスが拒否されました（403）。別のURLをお試しください。",
-                )
-            else:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"ページの取得に失敗しました（HTTPエラー: {e.response.status_code}）",
-                )
-
-    # All SSL strategies failed
-    raise HTTPException(
-        status_code=400,
-        detail=f"SSL接続に失敗しました。サイトのセキュリティ設定が原因の可能性があります。({str(last_error)[:100]})",
-    )
-
-
-def extract_text_from_html(html: bytes) -> str:
-    """Extract readable text from HTML.
-
-    Takes bytes to allow BeautifulSoup to auto-detect encoding from:
-    - HTML <meta charset="..."> tags
-    - BOM (Byte Order Mark)
-    - chardet/charset_normalizer library (if installed)
-
-    Note: We only remove script/style tags, keeping nav/header/footer
-    as they may contain recruitment information on some sites.
-    """
-    soup = BeautifulSoup(html, "html.parser")
-
-    # Remove only script and style elements (keep nav/header/footer for recruitment info)
-    for script in soup(["script", "style", "noscript", "iframe"]):
-        script.decompose()
-
-    # Get text
-    text = soup.get_text(separator="\n")
-
-    # Clean up whitespace
-    lines = (line.strip() for line in text.splitlines())
-    chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-    text = "\n".join(chunk for chunk in chunks if chunk)
-
-    # Increased limit to 15000 characters (was 10000)
-    # This helps capture more content from longer recruitment pages
-    return text[:15000]
 
 
 async def extract_info_with_llm(text: str, url: str) -> ExtractedInfo:
@@ -2911,17 +2735,33 @@ async def search_company_pages(request: SearchPagesRequest):
             max_results=max_results + 10,  # Fetch extra for filtering
             domain_patterns=domain_patterns,
             use_cache=True,
+            content_type="new_grad_recruitment",
+            strict_company_match=True,
+            allow_aggregators=False,
+            allow_snippet_match=allow_snippet_match,
         )
+
+        # Log queries used in hybrid search
+        try:
+            from app.utils.web_search import generate_query_variations
+
+            hybrid_queries = generate_query_variations(
+                company_name=company_name,
+                search_intent="recruitment",
+                graduation_year=graduation_year,
+                selection_type=selection_type,
+            )
+            print(f"[サイト検索] 🔍 Hybridクエリ一覧: {hybrid_queries}")
+        except Exception:
+            pass
 
         print(f"[サイト検索] 📊 Hybrid検索結果: {len(hybrid_results)}件")
 
-        # Apply filtering (subsidiary, parent company, company name check)
+        # Apply filtering (subsidiary, parent company, etc.)
         filtered_candidates = []
         excluded_reasons = {
             "不適切なサイト": 0,
             "子会社サイト": 0,
-            "競合ドメイン": 0,
-            "企業名不一致": 0,
         }
 
         for result in hybrid_results:
@@ -2958,48 +2798,23 @@ async def search_company_pages(request: SearchPagesRequest):
                 else False
             )
 
-            # Exclude conflicting company domains (unless strict name match)
-            conflicts = _get_conflicting_companies(result.domain, company_name)
-            if conflicts and not is_official_domain and not _has_strict_company_name_match(
-                company_name, title, snippet
-            ):
-                excluded_reasons["競合ドメイン"] += 1
-                conflict_label = ", ".join(sorted(conflicts))[:50]
-                print(f"[サイト検索] ❌ 除外: 競合ドメイン ({conflict_label})")
-                continue
-
             # Determine source type
             source_type = result.source_type
             if source_type == "aggregator":
                 source_type = "job_site"
-            is_parent_site = _is_parent_company_site(company_name, title, url)
-
-            # Apply penalty for parent company sites
-            adjusted_score = result.combined_score
+            is_parent_site = result.is_parent or _is_parent_company_site(
+                company_name, title, url
+            )
             if is_parent_site and not is_official_domain:
-                adjusted_score *= 0.5
                 source_type = "parent"
-                print(f"[サイト検索] ⚠️ ペナルティ: 親会社サイト (0.5x)")
 
-            # Apply penalty for subsidiary sites
-            from app.utils.company_names import is_subsidiary_domain
-
-            is_sub, sub_name = is_subsidiary_domain(url, company_name)
+            is_sub = result.is_subsidiary
             if is_sub and not is_official_domain:
-                adjusted_score *= 0.3
                 source_type = "subsidiary"
-                print(f"[サイト検索] ⚠️ ペナルティ: 子会社サイト ({sub_name}, 0.3x)")
-
-            # Check company name in result (skip for official domains)
-            if not is_official_domain and not _contains_company_name(
-                company_name, title, url, snippet, allow_snippet_match
-            ):
-                excluded_reasons["企業名不一致"] += 1
-                print(f"[サイト検索] ❌ 除外: 企業名不一致")
-                continue
 
             # Calculate confidence from adjusted score
             # Map combined score (0-1) to confidence levels
+            adjusted_score = result.combined_score
             if adjusted_score >= 0.7 and (
                 source_type == "official" or is_official_domain
             ):
@@ -3166,8 +2981,6 @@ async def search_company_pages(request: SearchPagesRequest):
         excluded_reasons = {
             "不適切なサイト": 0,
             "子会社サイト": 0,
-            "競合ドメイン": 0,
-            "企業名不一致": 0,
         }
 
         for item in scored:
@@ -3981,6 +3794,7 @@ class SearchCorporatePagesRequest(BaseModel):
     company_name: str
     search_type: str = "about"  # "ir", "business", "about" (backward compatible)
     content_type: Optional[str] = None  # One of 9 ContentTypes for optimized search
+    graduation_year: Optional[int] = None  # 卒業年度 (e.g., 2027 for 27卒)
     custom_query: Optional[str] = None
     preferred_domain: Optional[str] = None
     strict_company_match: Optional[bool] = True
@@ -4127,6 +3941,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
     max_results = min(request.max_results, 10)
     allow_snippet_match = request.allow_snippet_match
     cache_mode = _normalize_cache_mode(request.cache_mode, "bypass")
+    graduation_year = request.graduation_year
 
     # Determine label for logging
     ct_labels = {
@@ -4157,20 +3972,42 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
         if content_type:
             print(f"[{type_label}検索] 📂 コンテンツタイプ: {content_type}")
 
+        try:
+            from app.utils.web_search import generate_query_variations
+
+            hybrid_queries = generate_query_variations(
+                company_name=company_name,
+                search_intent=CONTENT_TYPE_SEARCH_INTENT.get(content_type, "corporate_about"),
+                graduation_year=graduation_year,
+                selection_type=None,
+            )
+            print(f"[{type_label}検索] 🔍 Hybridクエリ一覧: {hybrid_queries}")
+        except Exception:
+            pass
+
         # Get domain patterns for scoring
         domain_patterns = get_company_domain_patterns(company_name)
 
         # Map content_type to search_intent
         search_intent = CONTENT_TYPE_SEARCH_INTENT.get(content_type, "corporate_about")
 
+        if content_type == "new_grad_recruitment":
+            allow_aggregators = False
+
         # Execute hybrid search
         hybrid_results = await hybrid_web_search(
             company_name=company_name,
             search_intent=search_intent,
+            graduation_year=graduation_year,
             max_results=max_results + 10,  # Fetch extra for filtering
             domain_patterns=domain_patterns,
             use_cache=True,
             cache_mode=cache_mode,
+            content_type=content_type,
+            preferred_domain=preferred_domain,
+            strict_company_match=strict_company_match,
+            allow_aggregators=allow_aggregators,
+            allow_snippet_match=allow_snippet_match,
         )
 
         print(f"[{type_label}検索] 📊 Hybrid検索結果: {len(hybrid_results)}件")
@@ -4218,21 +4055,13 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 else False
             )
 
-            # Exclude conflicting company domains (unless strict name match)
-            conflicts = _get_conflicting_companies(result.domain, company_name)
-            if conflicts and not is_official_domain and not _has_strict_company_name_match(
-                company_name, title, snippet
-            ):
-                excluded_reasons["競合ドメイン"] += 1
-                conflict_label = ", ".join(sorted(conflicts))[:50]
-                print(f"[{type_label}検索] ❌ 除外: 競合ドメイン ({conflict_label})")
-                continue
-
             # Determine source type
             source_type = result.source_type
             if source_type == "aggregator":
                 source_type = "job_site"
-            is_parent_site = _is_parent_company_site(company_name, title, url)
+            is_parent_site = result.is_parent or _is_parent_company_site(
+                company_name, title, url
+            )
             from app.utils.company_names import is_parent_domain_allowed
 
             allowed_parent = (
@@ -4241,34 +4070,15 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 else False
             )
 
-            # Apply penalty for parent company sites
-            adjusted_score = result.combined_score
             if is_parent_site and not is_official_domain:
-                adjusted_score *= 0.8 if allowed_parent else 0.5
                 source_type = "parent"
-                penalty_label = "0.8x" if allowed_parent else "0.5x"
-                print(f"[{type_label}検索] ⚠️ ペナルティ: 親会社サイト ({penalty_label})")
 
-            # Apply penalty for subsidiary sites
-            from app.utils.company_names import is_subsidiary_domain
-
-            is_sub, sub_name = is_subsidiary_domain(url, company_name)
+            is_sub = result.is_subsidiary
             if is_sub and not is_official_domain:
-                adjusted_score *= 0.3
                 source_type = "subsidiary"
-                print(
-                    f"[{type_label}検索] ⚠️ ペナルティ: 子会社サイト ({sub_name}, 0.3x)"
-                )
-
-            # Check company name in result (skip for official domains)
-            if not is_official_domain and not allowed_parent and not _contains_company_name(
-                company_name, title, url, snippet, allow_snippet_match
-            ):
-                excluded_reasons["企業名不一致"] += 1
-                print(f"[{type_label}検索] ❌ 除外: 企業名不一致")
-                continue
 
             # Calculate confidence from adjusted score
+            adjusted_score = result.combined_score
             if adjusted_score >= 0.7 and (
                 source_type == "official" or is_official_domain
             ):

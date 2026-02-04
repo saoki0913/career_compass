@@ -9,6 +9,8 @@ This module provides content-type-specific keywords for:
 
 from typing import TypedDict
 
+from app.utils.intent_profile import INTENT_PROFILES
+
 
 class ContentTypeKeywords(TypedDict):
     """Keyword structure for each content type."""
@@ -18,157 +20,15 @@ class ContentTypeKeywords(TypedDict):
     snippet: list[str]  # Snippet keywords (Japanese)
 
 
-CONTENT_TYPE_KEYWORDS: dict[str, ContentTypeKeywords] = {
-    "new_grad_recruitment": {
-        "url": [
-            "recruit",
-            "shinsotsu",
-            "newgrad",
-            "entry",
-            "saiyo",
-            "graduate",
-            "freshers",
-        ],
-        "title": [
-            "新卒採用",
-            "新卒",
-            "25卒",
-            "26卒",
-            "27卒",
-            "28卒",
-            "エントリー",
-            "採用情報",
-            "募集要項",
-        ],
-        "snippet": ["新卒", "採用", "選考フロー", "募集要項", "エントリー", "説明会"],
-    },
-    "midcareer_recruitment": {
-        "url": [
-            "career",
-            "midcareer",
-            "tenshoku",
-            "experienced",
-            "chuto",
-            "job-change",
-        ],
-        "title": ["中途採用", "キャリア採用", "経験者採用", "転職", "即戦力", "求人"],
-        "snippet": ["中途", "キャリア", "即戦力", "経験者", "転職"],
-    },
-    "ceo_message": {
-        "url": [
-            "message",
-            "ceo",
-            "president",
-            "greeting",
-            "topmessage",
-            "chairman",
-            "representative",
-        ],
-        "title": [
-            "社長",
-            "メッセージ",
-            "代表取締役",
-            "CEO",
-            "挨拶",
-            "トップメッセージ",
-            "経営者",
-            "会長",
-        ],
-        "snippet": ["社長", "メッセージ", "代表", "経営理念", "ビジョン", "挨拶"],
-    },
-    "employee_interviews": {
-        "url": ["interview", "voice", "story", "people", "staff", "member", "senpai"],
-        "title": [
-            "インタビュー",
-            "社員の声",
-            "社員紹介",
-            "先輩社員",
-            "若手社員",
-            "社員メッセージ",
-        ],
-        "snippet": ["インタビュー", "社員", "働く", "キャリア", "やりがい", "1日"],
-    },
-    "press_release": {
-        "url": [
-            "news",
-            "press",
-            "release",
-            "newsroom",
-            "information",
-            "topics",
-            "oshirase",
-        ],
-        "title": [
-            "プレスリリース",
-            "ニュース",
-            "お知らせ",
-            "リリース",
-            "報道発表",
-            "ニュースルーム",
-        ],
-        "snippet": ["プレスリリース", "発表", "リリース", "お知らせ", "報道"],
-    },
-    "ir_materials": {
-        "url": [
-            "ir",
-            "investor",
-            "financial",
-            "stock",
-            "kabunushi",
-            "kessan",
-            "securities",
-        ],
-        "title": [
-            "IR",
-            "投資家",
-            "株主",
-            "決算",
-            "有価証券報告書",
-            "統合報告書",
-            "財務情報",
-        ],
-        "snippet": ["IR", "投資家", "決算", "財務", "株主", "有価証券"],
-    },
-    "csr_sustainability": {
-        "url": [
-            "csr",
-            "esg",
-            "sustainability",
-            "sdgs",
-            "social",
-            "environment",
-            "responsible",
-        ],
-        "title": [
-            "CSR",
-            "サステナビリティ",
-            "ESG",
-            "社会貢献",
-            "環境",
-            "SDGs",
-            "持続可能",
-        ],
-        "snippet": ["CSR", "サステナビリティ", "ESG", "社会責任", "環境", "SDGs"],
-    },
-    "midterm_plan": {
-        "url": ["plan", "strategy", "mtp", "medium-term", "chuki", "keiei", "vision"],
-        "title": [
-            "中期経営計画",
-            "中期計画",
-            "中計",
-            "経営方針",
-            "MTP",
-            "経営戦略",
-            "事業計画",
-        ],
-        "snippet": ["中期経営計画", "経営方針", "事業戦略", "成長戦略", "計画"],
-    },
-    "corporate_site": {
-        "url": ["about", "company", "corporate", "overview", "profile", "info"],
-        "title": ["会社概要", "企業情報", "会社案内", "企業概要", "沿革", "組織"],
-        "snippet": ["会社", "企業", "概要", "沿革", "拠点", "組織"],
-    },
-}
+CONTENT_TYPE_KEYWORDS: dict[str, ContentTypeKeywords] = {}
+for ct, profile in INTENT_PROFILES.items():
+    title_keywords = list(profile.strong_keywords)
+    snippet_keywords = list(profile.strong_keywords + profile.weak_keywords)
+    CONTENT_TYPE_KEYWORDS[ct] = {
+        "url": list(profile.url_patterns),
+        "title": title_keywords,
+        "snippet": snippet_keywords,
+    }
 
 
 # Content type to search type fallback mapping

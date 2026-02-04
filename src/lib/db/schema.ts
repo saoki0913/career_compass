@@ -133,7 +133,7 @@ export const companies = sqliteTable("companies", {
   recruitmentUrl: text("recruitment_url"),
   corporateUrl: text("corporate_url"),
   // Multiple corporate info URLs for RAG (9-category contentType) - JSON array
-  corporateInfoUrls: text("corporate_info_urls"), // JSON: [{url: string, contentType: ContentType, fetchedAt?: string}]
+  corporateInfoUrls: text("corporate_info_urls"), // JSON: [{url: string, contentType: ContentType, secondaryContentTypes?: ContentType[], fetchedAt?: string}]
   // Mypage credentials (password is encrypted)
   mypageUrl: text("mypage_url"),
   mypageLoginId: text("mypage_login_id"),

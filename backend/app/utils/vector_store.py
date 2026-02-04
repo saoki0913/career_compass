@@ -128,10 +128,14 @@ def _resolve_read_backends(
 
 def _context_dedupe_key(context: dict) -> tuple:
     meta = context.get("metadata") or {}
+    secondary = meta.get("secondary_content_types") or []
+    if isinstance(secondary, str):
+        secondary = [secondary]
     return (
         meta.get("source_url"),
         meta.get("chunk_index"),
         meta.get("content_type") or meta.get("chunk_type"),
+        tuple(secondary),
         context.get("text"),
     )
 
@@ -219,6 +223,11 @@ async def store_company_info(
                 for key, value in chunk["metadata"].items():
                     if isinstance(value, (str, int, float, bool)):
                         metadata[key] = value
+                    elif key == "secondary_content_types":
+                        if isinstance(value, list):
+                            metadata[key] = [v for v in value if isinstance(v, str)]
+                        elif isinstance(value, str):
+                            metadata[key] = [value]
 
             documents.append(text)
             metadatas.append(metadata)
@@ -685,12 +694,15 @@ async def search_company_context_by_type(
             print("[RAG検索] ⚠️ 検索用の埋め込みバックエンドなし")
             return []
 
-        # Build where clause
+        # Build where clause (include secondary_content_types)
         if content_types:
+            type_filters = [{"content_type": {"$in": list(content_types)}}]
+            for ct in content_types:
+                type_filters.append({"secondary_content_types": {"$contains": ct}})
             where_clause = {
                 "$and": [
                     {"company_id": company_id},
-                    {"content_type": {"$in": list(content_types)}},
+                    {"$or": type_filters},
                 ]
             }
         else:
@@ -805,6 +817,13 @@ def get_company_rag_status(
                     else:
                         # Fallback to corporate_site for unknown types
                         counts["corporate_site"] += 1
+
+                    secondary_types = meta.get("secondary_content_types") or []
+                    if isinstance(secondary_types, str):
+                        secondary_types = [secondary_types]
+                    for secondary in secondary_types:
+                        if secondary in counts:
+                            counts[secondary] += 1
 
                     fetched_at = meta.get("fetched_at")
                     if fetched_at:

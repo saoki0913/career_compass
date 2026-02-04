@@ -30,6 +30,7 @@ interface CorporateInfoUrl {
   url: string;
   type?: "ir" | "business" | "about" | "general";
   contentType?: string;
+  secondaryContentTypes?: string[];
   fetchedAt?: string;
 }
 
@@ -130,6 +131,13 @@ function parseCorporateInfoUrls(raw: string | null | undefined): CorporateInfoUr
         const urlEntry = entry as CorporateInfoUrl;
         if (!urlEntry.contentType && urlEntry.url) {
           urlEntry.contentType = detectContentTypeFromUrl(urlEntry.url) || "corporate_site";
+        }
+        if (!Array.isArray(urlEntry.secondaryContentTypes)) {
+          urlEntry.secondaryContentTypes = [];
+        } else {
+          urlEntry.secondaryContentTypes = urlEntry.secondaryContentTypes.filter(
+            (item): item is string => typeof item === "string"
+          );
         }
         return urlEntry;
       }) as CorporateInfoUrl[];
@@ -273,17 +281,26 @@ export async function POST(
       .map((url) => ({
         url,
         contentType: contentTypeResolved || detectContentTypeFromUrl(url) || "corporate_site",
+        secondaryContentTypes: [],
         fetchedAt: new Date().toISOString(),
       }));
 
     const updatedUrls = [...existingUrls, ...newUrls];
     const backfilledUrls = updatedUrls.map((entry) => {
       if (entry.contentType) {
-        return entry;
+        return {
+          ...entry,
+          secondaryContentTypes: Array.isArray(entry.secondaryContentTypes)
+            ? entry.secondaryContentTypes
+            : [],
+        };
       }
       return {
         ...entry,
         contentType: detectContentTypeFromUrl(entry.url) || "corporate_site",
+        secondaryContentTypes: Array.isArray(entry.secondaryContentTypes)
+          ? entry.secondaryContentTypes
+          : [],
       };
     });
 

@@ -184,6 +184,25 @@ def _normalize_scores(score_map: dict[str, float]) -> dict[str, float]:
     return {k: v / max_score for k, v in score_map.items()}
 
 
+def _extract_secondary_types(metadata: dict) -> list[str]:
+    secondary = metadata.get("secondary_content_types") or []
+    if isinstance(secondary, str):
+        return [secondary]
+    return [s for s in secondary if isinstance(s, str)]
+
+
+def _matches_allowed_types(metadata: dict, allowed_types: set[str]) -> bool:
+    if not allowed_types:
+        return True
+    primary = normalize_content_type(
+        metadata.get("content_type") or metadata.get("chunk_type") or "structured"
+    )
+    if primary in allowed_types:
+        return True
+    secondary = _extract_secondary_types(metadata)
+    return any(s in allowed_types for s in secondary)
+
+
 def _apply_content_type_boost(
     results: list[dict], boosts: dict[str, float]
 ) -> list[dict]:
@@ -198,6 +217,9 @@ def _apply_content_type_boost(
             metadata.get("content_type") or metadata.get("chunk_type") or "corporate_site"
         )
         boost = boosts.get(content_type, 1.0)
+        secondary = _extract_secondary_types(metadata)
+        for sec in secondary:
+            boost = max(boost, boosts.get(sec, 1.0))
 
         base_score = item.get("hybrid_score")
         if base_score is None:
@@ -236,7 +258,7 @@ def _keyword_search(
     if not results:
         return []
 
-    allowed_types = None
+    allowed_types: set[str] = set()
     if content_types:
         allowed_types = set(expand_content_type_filter(content_types))
 
@@ -246,10 +268,7 @@ def _keyword_search(
         if not doc:
             continue
         metadata = doc.metadata or {}
-        content_type = normalize_content_type(
-            metadata.get("content_type") or metadata.get("chunk_type") or "structured"
-        )
-        if allowed_types and content_type not in allowed_types:
+        if allowed_types and not _matches_allowed_types(metadata, allowed_types):
             continue
         output.append(
             {

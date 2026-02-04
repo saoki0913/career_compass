@@ -21,6 +21,7 @@ interface CorporateInfoUrl {
   url: string;
   type?: "ir" | "business" | "about" | "general";
   contentType?: string;
+  secondaryContentTypes?: string[];
   fetchedAt?: string;
 }
 
@@ -50,13 +51,25 @@ function parseCorporateInfoUrls(
     if (!Array.isArray(parsed)) {
       return [];
     }
-    return parsed.filter((entry) => {
+    return parsed
+      .filter((entry) => {
       if (!entry || typeof entry !== "object") {
         return false;
       }
       const { url } = entry as Partial<CorporateInfoUrl>;
       return typeof url === "string";
-    }) as CorporateInfoUrl[];
+      })
+      .map((entry) => {
+        const urlEntry = entry as CorporateInfoUrl;
+        if (!Array.isArray(urlEntry.secondaryContentTypes)) {
+          urlEntry.secondaryContentTypes = [];
+        } else {
+          urlEntry.secondaryContentTypes = urlEntry.secondaryContentTypes.filter(
+            (item): item is string => typeof item === "string"
+          );
+        }
+        return urlEntry;
+      }) as CorporateInfoUrl[];
   } catch (error) {
     console.warn("Invalid corporateInfoUrls JSON, defaulting to empty.", error);
     return [];

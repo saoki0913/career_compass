@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { companies } from "@/lib/db/schema";
+import { companies, userProfiles } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
@@ -56,12 +56,20 @@ export async function POST(
     const { id } = await params;
     const session = await auth.api.getSession({ headers: await headers() });
     let company;
+    let graduationYear: number | null = null;
     if (session?.user?.id) {
       company = await db
         .select()
         .from(companies)
         .where(and(eq(companies.id, id), eq(companies.userId, session.user.id)))
         .get();
+
+      const profile = await db
+        .select()
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, session.user.id))
+        .get();
+      graduationYear = profile?.graduationYear || null;
     } else {
       const deviceToken = request.headers.get("x-device-token");
       if (!deviceToken) {
@@ -87,9 +95,13 @@ export async function POST(
     const contentType = body.contentType as string | undefined;  // 9 content types for optimized search
     const allowSnippetMatch = body.allowSnippetMatch as boolean | undefined;
     const cacheMode = body.cacheMode as string | undefined;
+    const requestedGraduationYear = body.graduationYear as number | undefined;
     const searchType = resolveSearchTypeFromContentType(contentType);
 
     const preferredDomain = extractPreferredDomain(company.corporateUrl);
+    if (requestedGraduationYear) {
+      graduationYear = requestedGraduationYear;
+    }
 
     const fastApiUrl = process.env.FASTAPI_URL || "http://localhost:8000";
     try {
@@ -104,6 +116,7 @@ export async function POST(
             preferred_domain: preferredDomain,
             max_results: 10,
             strict_company_match: true,
+            graduation_year: graduationYear || undefined,
             allow_snippet_match: allowSnippetMatch ?? false,
             cache_mode: cacheMode,
           }),

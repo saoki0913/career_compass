@@ -22,6 +22,7 @@ interface CorporateInfoUrl {
   url: string;
   type?: "ir" | "business" | "about" | "general";  // Legacy type
   contentType?: ContentType;  // New classification
+  secondaryContentTypes?: ContentType[];
   fetchedAt?: string;
 }
 
@@ -381,6 +382,11 @@ export function CorporateInfoSection({
     for (const url of status.corporateInfoUrls) {
       const type = url.contentType || (url.type ? mapLegacyToNew(url.type) : "corporate_site");
       counts[type] = (counts[type] || 0) + 1;
+      if (Array.isArray(url.secondaryContentTypes)) {
+        for (const secondary of url.secondaryContentTypes) {
+          counts[secondary] = (counts[secondary] || 0) + 1;
+        }
+      }
     }
 
     return counts;
@@ -1144,6 +1150,9 @@ export function CorporateInfoSection({
                   {status.corporateInfoUrls.map((urlInfo, i) => {
                     // Use contentType if available, otherwise map from legacy type
                     const resolvedType = urlInfo.contentType || (urlInfo.type ? mapLegacyToNew(urlInfo.type) : "corporate_site");
+                    const secondaryTypes = Array.isArray(urlInfo.secondaryContentTypes)
+                      ? urlInfo.secondaryContentTypes
+                      : [];
                     const colors = CONTENT_TYPE_COLORS[resolvedType] || {
                       bg: "bg-gray-100",
                       text: "text-gray-700",
@@ -1178,15 +1187,36 @@ export function CorporateInfoSection({
                           </span>
                         </button>
 
-                        <span
-                          className={cn(
-                            "text-xs px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5",
-                            colors.bg,
-                            colors.text
-                          )}
-                        >
-                          {label}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1 flex-shrink-0 mt-0.5">
+                          <span
+                            className={cn(
+                              "text-xs px-2 py-0.5 rounded-full",
+                              colors.bg,
+                              colors.text
+                            )}
+                          >
+                            {label}
+                          </span>
+                          {secondaryTypes.map((secondary, idx) => {
+                            const secColors = CONTENT_TYPE_COLORS[secondary] || {
+                              bg: "bg-gray-100",
+                              text: "text-gray-700",
+                            };
+                            const secLabel = CONTENT_TYPE_LABELS[secondary] || secondary;
+                            return (
+                              <span
+                                key={`${secondary}-${idx}`}
+                                className={cn(
+                                  "text-xs px-2 py-0.5 rounded-full border",
+                                  secColors.bg,
+                                  secColors.text
+                                )}
+                              >
+                                {secLabel}
+                              </span>
+                            );
+                          })}
+                        </div>
                         <div className="flex-1 min-w-0">
                           <a
                             href={urlInfo.url}

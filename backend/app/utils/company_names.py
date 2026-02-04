@@ -288,6 +288,37 @@ def get_company_candidates_for_domain(domain: str) -> set[str]:
     return candidates
 
 
+def get_conflicting_companies_for_domain(domain: str, company_name: str) -> set[str]:
+    """
+    Detect conflicting companies from domain patterns.
+
+    Returns a set of other company names that match the domain patterns,
+    excluding the target company and its parent.
+    """
+    candidates = get_company_candidates_for_domain(domain)
+    if not candidates:
+        return set()
+
+    allowed = {company_name}
+    parent = get_parent_company(company_name)
+    if parent:
+        allowed.add(parent)
+
+    return {c for c in candidates if c not in allowed}
+
+
+def resolve_domain_profile(company_name: str, content_type: str | None = None) -> dict:
+    """
+    Resolve domain patterns and parent allowances for a company.
+    """
+    return {
+        "official_patterns": get_company_domain_patterns(company_name),
+        "parent_patterns": get_parent_domain_patterns(company_name),
+        "parent_allowed": is_parent_domain_allowed(company_name, content_type),
+        "parent_company": get_parent_company(company_name),
+    }
+
+
 def get_subsidiary_companies(parent_name: str) -> dict[str, list[str]]:
     """
     親会社の全子会社とそのドメインパターンを取得。

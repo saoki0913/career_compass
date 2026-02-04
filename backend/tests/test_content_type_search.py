@@ -61,7 +61,7 @@ class TestContentTypeKeywords:
         assert "title" in result
         assert "snippet" in result
         assert "message" in result["url"]
-        assert "社長" in result["title"]
+        assert "社長メッセージ" in result["title"]
 
     def test_get_content_type_keywords_returns_none_for_invalid(self):
         """無効なContentTypeでNoneを返すこと"""
@@ -120,7 +120,6 @@ class TestContentTypeDetection:
     def test_detect_press_release_from_url(self):
         """プレスリリースURLパターンの検出"""
         urls = [
-            "https://example.co.jp/news/",
             "https://example.com/press/release/",
             "https://example.co.jp/newsroom/",
         ]
