@@ -119,6 +119,7 @@ MOTIVATION_EVALUATION_PROMPT = """以下の志望動機に関する会話を分�
 
 ## 出力形式
 必ず以下のJSON形式で回答してください：
+JSON以外の文字列・コードブロック・説明文は禁止です。
 {{
   "scores": {{
     "company_understanding": 0-100の数値,
@@ -232,6 +233,15 @@ def _format_conversation(messages: list[Message]) -> str:
     return "\n\n".join(formatted)
 
 
+def _trim_conversation_for_evaluation(
+    messages: list[Message], max_messages: int = 8
+) -> list[Message]:
+    """Trim conversation to recent messages for evaluation stability."""
+    if len(messages) <= max_messages:
+        return messages
+    return messages[-max_messages:]
+
+
 def _get_weakest_element(scores: MotivationScores) -> str:
     """Get the element with the lowest score."""
     elements = {
@@ -303,13 +313,20 @@ async def evaluate_motivation(request: NextQuestionRequest) -> dict:
             },
         }
 
+    trimmed_history = _trim_conversation_for_evaluation(request.conversation_history)
+    if settings.debug and len(trimmed_history) != len(request.conversation_history):
+        print(
+            "[Motivation] Evaluation conversation trimmed: "
+            f"{len(request.conversation_history)} -> {len(trimmed_history)}"
+        )
+
     # Get company context for evaluation
     company_context, _ = await _get_company_context(
         request.company_id,
-        _format_conversation(request.conversation_history)
+        _format_conversation(trimmed_history)
     )
 
-    conversation_text = _format_conversation(request.conversation_history)
+    conversation_text = _format_conversation(trimmed_history)
     prompt = MOTIVATION_EVALUATION_PROMPT.format(
         conversation=conversation_text,
         company_context=company_context or "（企業情報なし）",
@@ -321,12 +338,21 @@ async def evaluate_motivation(request: NextQuestionRequest) -> dict:
             f"company_context_chars={len(company_context)}"
         )
 
+    parse_retry_instructions = (
+        "JSON以外は一切出力しないでください。"
+        "コードブロックや説明文は禁止です。"
+        "必ず必要なキーをすべて含め、配列は空配列でも可とします。"
+    )
+
     llm_result = await call_llm_with_error(
         system_prompt=prompt,
         user_message="上記の会話を評価してください。",
-        max_tokens=500,
+        max_tokens=800,
         temperature=0.3,
         feature="motivation",
+        retry_on_parse=True,
+        parse_retry_instructions=parse_retry_instructions,
+        disable_fallback=True,
     )
 
     if not llm_result.success or llm_result.data is None:
@@ -446,6 +472,8 @@ async def get_next_question(request: NextQuestionRequest):
         max_tokens=800,  # 400→800: 日本語JSONレスポンス対応
         temperature=0.7,
         feature="motivation",
+        retry_on_parse=True,
+        disable_fallback=True,
     )
 
     if not llm_result.success:
@@ -515,6 +543,8 @@ async def generate_draft(request: GenerateDraftRequest):
         max_tokens=1500,
         temperature=0.5,
         feature="motivation",
+        retry_on_parse=True,
+        disable_fallback=True,
     )
 
     if not llm_result.success or llm_result.data is None:
