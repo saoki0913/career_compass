@@ -15,6 +15,16 @@ interface FreeBusySlot {
   end: string;
 }
 
+export class GoogleCalendarScopeError extends Error {
+  readonly details?: string;
+
+  constructor(message: string, details?: string) {
+    super(message);
+    this.name = "GoogleCalendarScopeError";
+    this.details = details;
+  }
+}
+
 /**
  * List calendars for the user
  */
@@ -279,6 +289,12 @@ export async function createCalendar(
   if (!response.ok) {
     const error = await response.text();
     console.error("Failed to create calendar:", error);
+    if (
+      error.includes("ACCESS_TOKEN_SCOPE_INSUFFICIENT") ||
+      error.includes("insufficientPermissions")
+    ) {
+      throw new GoogleCalendarScopeError("Google Calendar scope insufficient", error);
+    }
     throw new Error("Failed to create calendar");
   }
 

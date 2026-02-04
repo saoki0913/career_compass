@@ -11,7 +11,7 @@ import { db } from "@/lib/db";
 import { accounts, calendarSettings } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
-import { listCalendars, createCalendar, refreshAccessToken } from "@/lib/calendar/google";
+import { listCalendars, createCalendar, refreshAccessToken, GoogleCalendarScopeError } from "@/lib/calendar/google";
 
 interface GoogleAccount {
   accessToken: string | null;
@@ -173,6 +173,15 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Error creating calendar:", error);
+    if (error instanceof GoogleCalendarScopeError) {
+      return NextResponse.json(
+        {
+          error: "Googleカレンダーの再連携が必要です。権限が更新されたため、もう一度Google連携してください。",
+          code: "NEED_RECONNECT",
+        },
+        { status: 403 }
+      );
+    }
     return NextResponse.json(
       { error: "カレンダーの作成に失敗しました" },
       { status: 500 }

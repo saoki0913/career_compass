@@ -67,6 +67,7 @@ export default function CalendarSettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [needsReconnect, setNeedsReconnect] = useState(false);
   const [calendars, setCalendars] = useState<GoogleCalendar[]>([]);
   const [calendarsLoading, setCalendarsLoading] = useState(false);
   const [calendarMode, setCalendarMode] = useState<"existing" | "create">("existing");
@@ -100,6 +101,7 @@ export default function CalendarSettingsPage() {
 
     setIsCreating(true);
     setSaveError(null);
+    setNeedsReconnect(false);
 
     try {
       const res = await fetch("/api/calendar/calendars", {
@@ -111,6 +113,14 @@ export default function CalendarSettingsPage() {
       const data = await res.json();
 
       if (!res.ok) {
+        if (data?.code === "NEED_RECONNECT") {
+          setNeedsReconnect(true);
+          setSaveError(
+            data.error ||
+              "Googleカレンダーの再連携が必要です。権限が更新されたため、もう一度Google連携してください。"
+          );
+          return;
+        }
         throw new Error(data.error || "カレンダーの作成に失敗しました");
       }
 
@@ -125,6 +135,7 @@ export default function CalendarSettingsPage() {
 
       // Reset to existing mode
       setCalendarMode("existing");
+      setNeedsReconnect(false);
 
       // Refetch settings
       refresh?.();
@@ -138,6 +149,7 @@ export default function CalendarSettingsPage() {
   const handleProviderChange = async (provider: "google" | "app") => {
     setIsSaving(true);
     setSaveError(null);
+    setNeedsReconnect(false);
     setSaveSuccess(false);
 
     try {
@@ -184,6 +196,11 @@ export default function CalendarSettingsPage() {
             {error?.includes("ログイン") && (
               <Button variant="outline" className="mt-4" asChild>
                 <Link href="/login">ログイン</Link>
+              </Button>
+            )}
+            {needsReconnect && (
+              <Button variant="outline" className="mt-4" asChild>
+                <Link href="/login?callbackUrl=/calendar/settings">再連携する</Link>
               </Button>
             )}
           </div>
