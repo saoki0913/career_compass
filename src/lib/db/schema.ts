@@ -618,10 +618,21 @@ export const motivationConversations = sqliteTable("motivation_conversations", {
   // Generated ES draft
   generatedDraft: text("generated_draft"),
   charLimitType: text("char_limit_type", { enum: ["300", "400", "500"] }),
+  // JSON: string[] — last AI-generated answer suggestions for resume
+  lastSuggestions: text("last_suggestions"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Processed Stripe events table - webhook idempotency protection
+export const processedStripeEvents = sqliteTable("processed_stripe_events", {
+  eventId: text("event_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  processedAt: integer("processed_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
 });

@@ -268,8 +268,6 @@ e2e/
 | `GOOGLE_CLIENT_SECRET` | Google OAuth Secret | ✅ |
 | `STRIPE_SECRET_KEY` | Stripe シークレットキー | ✅ |
 | `STRIPE_WEBHOOK_SECRET` | Stripe Webhook シークレット | ✅ |
-| `R2_ACCESS_KEY_ID` | R2 アクセスキー | ✅ |
-| `R2_SECRET_ACCESS_KEY` | R2 シークレットキー | ✅ |
 
 ---
 

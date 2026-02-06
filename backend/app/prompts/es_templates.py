@@ -448,6 +448,7 @@ def build_template_prompt(
     has_rag: bool = True,
     intern_name: Optional[str] = None,
     role_name: Optional[str] = None,
+    rewrite_count: int = 1,
 ) -> tuple[str, str]:
     """
     Build system and user prompts for template-based ES review.
@@ -588,9 +589,15 @@ def build_template_prompt(
 - 少なすぎる場合: 具体的な数字を追加、エピソードを詳細化、結論の補強
 
 """
-    output_requirements += (
-        "・改善案を3パターン提示し、それぞれのメリット・デメリットを説明"
-    )
+    if rewrite_count == 1:
+        output_requirements += "・改善案を1パターン提示（メリット・デメリットは不要、pros/consは空配列で出力）"
+    else:
+        output_requirements += f"""・改善案を{rewrite_count}パターン提示し、それぞれのメリット・デメリットを説明
+・**各パターンのスタイルを明確に差別化すること**:
+  パターン1: バランス型（論理性と熱意を両立、最も安定した構成）
+  パターン2: 論理型（PREP法など論理構成を重視、数値やエビデンスを強調）
+  パターン3: 熱意型（具体エピソードと感情描写を重視、人物像が伝わる構成）"""
+        output_requirements += "\n・メリット・デメリットに文字数に関する言及は含めない（「文字数が多い」「文字数が少ない」等は禁止）"
     output_requirements += "\n・rewrites は出力しない（variants[*].text を本文として使用）"
     if keyword_count > 0 and has_rag:
         output_requirements += (
@@ -618,6 +625,43 @@ def build_template_prompt(
 
     # Build character budget section (only if limits are set)
     char_budget_section = f"\n{char_budget}\n" if char_budget else ""
+
+    # Build dynamic differentiation section based on rewrite_count
+    if rewrite_count == 1:
+        differentiation_section = ""
+    elif rewrite_count == 2:
+        differentiation_section = """
+
+【2パターンの差別化】
+- パターン1: バランス重視（読みやすさと具体性のバランス）
+- パターン2: 論理重視（因果関係を明確にした構成）"""
+    else:
+        differentiation_section = """
+
+【3パターンの差別化】
+- パターン1: バランス重視（読みやすさと具体性のバランス）
+- パターン2: 論理重視（因果関係を明確にした構成）
+- パターン3: 熱意重視（意欲や passion を強調）"""
+
+    # Build dynamic variant schema example
+    if rewrite_count == 1:
+        variant_schema_example = """      {{
+        "text": "改善案の本文",
+        "char_count": 文字数（整数）,
+        "pros": [],
+        "cons": [],
+        "keywords_used": ["キーワード1", "キーワード2"],
+        "keyword_sources": ["S1", "S2"]
+      }}"""
+    else:
+        variant_schema_example = """      {{
+        "text": "改善案の本文",
+        "char_count": 文字数（整数）,
+        "pros": ["メリット1", "メリット2"],
+        "cons": ["デメリット1"],
+        "keywords_used": ["キーワード1", "キーワード2"],
+        "keyword_sources": ["S1", "S2"]
+      }}"""
 
     basic_template_text = _build_basic_template_text() if template_type == "basic" else ""
     if basic_template_text:
@@ -652,14 +696,7 @@ def build_template_prompt(
   "template_review": {{
     "template_type": "{template_type}",
     "variants": [
-      {{
-        "text": "改善案の本文",
-        "char_count": 文字数（整数）,
-        "pros": ["メリット1", "メリット2"],
-        "cons": ["デメリット1"],
-        "keywords_used": ["キーワード1", "キーワード2"],
-        "keyword_sources": ["S1", "S2"]
-      }}
+{variant_schema_example}
     ],
     "keyword_sources": [
       {{"source_id": "S1", "source_url": "URL", "content_type": "種別"}}
@@ -673,12 +710,7 @@ def build_template_prompt(
 - specificity (具体性): 数字・エピソードの充実度
 - passion (熱意): 意欲・モチベーションの伝わり度
 - company_connection (企業接続): 企業との接点の明確さ（RAGあり時のみ）
-- readability (読みやすさ): 文章の流れと理解しやすさ
-
-【3パターンの差別化】
-- パターン1: バランス重視（読みやすさと具体性のバランス）
-- パターン2: 論理重視（因果関係を明確にした構成）
-- パターン3: 熱意重視（意欲や passion を強調）"""
+- readability (読みやすさ): 文章の流れと理解しやすさ{differentiation_section}"""
     else:
         system_prompt = f"""＃あなたは{template_prompt['role']}である。以下の条件で完璧な{template_prompt['target']}に添削して変更せよ。
 {no_rag_guidance}
@@ -717,14 +749,7 @@ def build_template_prompt(
   "template_review": {{
     "template_type": "{template_type}",
     "variants": [
-      {{
-        "text": "改善案の本文",
-        "char_count": 文字数（整数）,
-        "pros": ["メリット1", "メリット2"],
-        "cons": ["デメリット1"],
-        "keywords_used": ["キーワード1", "キーワード2"],
-        "keyword_sources": ["S1", "S2"]
-      }}
+{variant_schema_example}
     ],
     "keyword_sources": [
       {{"source_id": "S1", "source_url": "URL", "content_type": "種別"}}
@@ -738,12 +763,7 @@ def build_template_prompt(
 - specificity (具体性): 数字・エピソードの充実度
 - passion (熱意): 意欲・モチベーションの伝わり度
 - company_connection (企業接続): 企業との接点の明確さ（RAGあり時のみ）
-- readability (読みやすさ): 文章の流れと理解しやすさ
-
-【3パターンの差別化】
-- パターン1: バランス重視（読みやすさと具体性のバランス）
-- パターン2: 論理重視（因果関係を明確にした構成）
-- パターン3: 熱意重視（意欲や passion を強調）"""
+- readability (読みやすさ): 文章の流れと理解しやすさ{differentiation_section}"""
 
     # Build user prompt
     rag_section = ""
@@ -761,7 +781,7 @@ def build_template_prompt(
 {answer}
 {rag_section}
 
-上記の回答を添削し、3パターンの改善案をJSON形式で出力してください。"""
+上記の回答を添削し、{rewrite_count}パターンの改善案をJSON形式で出力してください。"""
 
     return system_prompt, user_prompt
 
@@ -770,6 +790,7 @@ def validate_template_output(
     template_review: dict,
     char_min: Optional[int],
     char_max: Optional[int],
+    rewrite_count: int = 3,
 ) -> tuple[bool, str]:
     """
     Validate template review output.
@@ -790,8 +811,8 @@ def validate_template_output(
 
     # Check variants exist
     variants = template_review.get("variants", [])
-    if len(variants) != 3:
-        errors.append(f"3パターンが必要ですが、{len(variants)}パターンしかありません")
+    if len(variants) != rewrite_count:
+        errors.append(f"{rewrite_count}パターンが必要ですが、{len(variants)}パターンしかありません")
         return False, "; ".join(errors)
 
     for i, variant in enumerate(variants, 1):
@@ -822,10 +843,15 @@ def validate_template_output(
                 f"パターン{i}: です・ます調が使用されています（だ・である調に統一）"
             )
 
-        # Check char_count accuracy
-        if variant.get("char_count") != char_count:
-            # Just update it, don't fail
-            variant["char_count"] = char_count
+        # Check char_count accuracy — large deviation suggests LLM miscounted
+        reported = variant.get("char_count")
+        if reported is not None and reported != char_count:
+            variant["char_count"] = char_count  # Always fix the stored value
+            deviation = abs(reported - char_count)
+            if char_count > 0 and deviation / char_count > 0.10:
+                errors.append(
+                    f"パターン{i}: char_count不正確（申告{reported}文字、実際{char_count}文字）文字数調整が必要"
+                )
 
     if errors:
         return False, "; ".join(errors)

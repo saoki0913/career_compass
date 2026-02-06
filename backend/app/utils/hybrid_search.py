@@ -6,8 +6,10 @@ Uses multi-query + HyDE + RRF + MMR + optional LLM rerank.
 """
 
 import asyncio
+import hashlib
 import json
 import math
+import time
 from collections import Counter
 from typing import Optional
 
@@ -34,11 +36,14 @@ DEFAULT_MMR_LAMBDA = 0.5
 DEFAULT_RERANK_CANDIDATES = 20
 HYDE_MAX_QUERY_CHARS = 600
 EXPANSION_MAX_QUERY_CHARS = 1200
-# 短いクエリ（10文字未満）ではクエリ拡張をスキップ
-EXPANSION_MIN_QUERY_CHARS = 10
+# 短いクエリ（5文字未満）ではクエリ拡張をスキップ
+EXPANSION_MIN_QUERY_CHARS = 5
+# Short queries (< 10 chars) get a lightweight expansion prompt
+SHORT_QUERY_THRESHOLD = 10
 
-# Content type boosts (ES review)
+# Content type boost profiles — selected by query intent
 CONTENT_TYPE_BOOSTS = {
+    # Default: ES review (recruitment-focused)
     "es_review": {
         "new_grad_recruitment": 1.5,
         "midcareer_recruitment": 1.1,
@@ -49,8 +54,96 @@ CONTENT_TYPE_BOOSTS = {
         "csr_sustainability": 0.9,
         "midterm_plan": 0.9,
         "ir_materials": 0.85,
-    }
+    },
+    # Deadline/schedule queries
+    "deadline": {
+        "new_grad_recruitment": 1.6,
+        "midcareer_recruitment": 1.3,
+        "press_release": 1.2,  # Often contains schedule announcements
+        "corporate_site": 1.0,
+        "employee_interviews": 0.8,
+        "ceo_message": 0.7,
+        "csr_sustainability": 0.6,
+        "midterm_plan": 0.6,
+        "ir_materials": 0.6,
+    },
+    # Company culture / people queries
+    "culture": {
+        "employee_interviews": 1.6,
+        "ceo_message": 1.4,
+        "new_grad_recruitment": 1.3,
+        "csr_sustainability": 1.1,
+        "corporate_site": 1.0,
+        "midcareer_recruitment": 0.95,
+        "press_release": 0.8,
+        "midterm_plan": 0.8,
+        "ir_materials": 0.7,
+    },
+    # Business / strategy queries
+    "business": {
+        "midterm_plan": 1.5,
+        "ir_materials": 1.4,
+        "corporate_site": 1.3,
+        "ceo_message": 1.2,
+        "press_release": 1.1,
+        "csr_sustainability": 1.0,
+        "new_grad_recruitment": 0.9,
+        "employee_interviews": 0.8,
+        "midcareer_recruitment": 0.8,
+    },
 }
+
+# Keywords that trigger specific boost profiles
+_DEADLINE_KEYWORDS = {"締切", "期限", "スケジュール", "選考日程", "応募期間", "エントリー"}
+_CULTURE_KEYWORDS = {"社風", "雰囲気", "働き方", "人物像", "カルチャー", "価値観", "チーム"}
+_BUSINESS_KEYWORDS = {"事業", "戦略", "売上", "成長", "市場", "競合", "ビジネスモデル", "中期経営"}
+
+
+def select_boost_profile(query: str) -> dict[str, float]:
+    """Select content type boost profile based on query intent."""
+    query_lower = query.lower()
+    if any(kw in query_lower for kw in _DEADLINE_KEYWORDS):
+        return CONTENT_TYPE_BOOSTS["deadline"]
+    if any(kw in query_lower for kw in _CULTURE_KEYWORDS):
+        return CONTENT_TYPE_BOOSTS["culture"]
+    if any(kw in query_lower for kw in _BUSINESS_KEYWORDS):
+        return CONTENT_TYPE_BOOSTS["business"]
+    return CONTENT_TYPE_BOOSTS["es_review"]
+
+# ---- Query expansion in-memory cache ----
+# Maps query hash → (timestamp, expanded_queries)
+_expansion_cache: dict[str, tuple[float, list[str]]] = {}
+_EXPANSION_CACHE_TTL = 7 * 24 * 3600  # 7 days
+_EXPANSION_CACHE_MAX = 500  # Max entries before eviction
+
+
+def _expansion_cache_key(query: str) -> str:
+    return hashlib.sha256(query.strip().lower().encode()).hexdigest()[:16]
+
+
+def _get_cached_expansion(query: str) -> Optional[list[str]]:
+    key = _expansion_cache_key(query)
+    entry = _expansion_cache.get(key)
+    if entry is None:
+        return None
+    ts, queries = entry
+    if time.time() - ts > _EXPANSION_CACHE_TTL:
+        _expansion_cache.pop(key, None)
+        return None
+    return queries
+
+
+def _set_cached_expansion(query: str, queries: list[str]) -> None:
+    # Simple eviction: clear oldest half when full
+    if len(_expansion_cache) >= _EXPANSION_CACHE_MAX:
+        sorted_keys = sorted(
+            _expansion_cache, key=lambda k: _expansion_cache[k][0]
+        )
+        for k in sorted_keys[: _EXPANSION_CACHE_MAX // 2]:
+            _expansion_cache.pop(k, None)
+    key = _expansion_cache_key(query)
+    _expansion_cache[key] = (time.time(), queries)
+
 
 QUERY_EXPANSION_SCHEMA = {
     "name": "rag_query_expansion",
@@ -103,6 +196,14 @@ RERANK_SCHEMA = {
 }
 
 
+def adaptive_rrf_k(num_queries: int, base_k: int = 30) -> int:
+    """Compute adaptive RRF k based on the number of query lists being merged.
+
+    More queries → higher k to avoid over-weighting any single list's top ranks.
+    """
+    return base_k + (num_queries * 10)
+
+
 def rrf_merge_results(results_by_query: list[list[dict]], k: int = 60) -> list[dict]:
     """Merge multiple result lists using Reciprocal Rank Fusion."""
     scores: dict[str, float] = {}
@@ -153,6 +254,18 @@ def _extract_keywords(text: str, max_terms: int = 8) -> list[str]:
 
 
 def _should_rerank(results: list[dict], threshold: float) -> bool:
+    """Decide whether LLM reranking is worthwhile.
+
+    Uses score variance among the top results to detect ambiguous rankings
+    where reranking can most help.  Very high or very low confidence results
+    are skipped (high = already good order, low = reranking won't help).
+
+    The *threshold* parameter is reinterpreted as the upper bound of the
+    "uncertain" band:
+      - avg_top >= threshold  → confident, skip rerank
+      - avg_top < 0.3         → very low quality, skip rerank
+      - otherwise             → uncertain band, check variance
+    """
     if not results:
         return False
     scores = []
@@ -169,11 +282,26 @@ def _should_rerank(results: list[dict], threshold: float) -> bool:
         scores.append(score)
     max_score = max(scores) if scores else 0.0
     if max_score <= 0:
-        return True
+        return False  # All-zero scores → nothing useful to rerank
     normalized = [s / max_score for s in scores]
     top_n = normalized[:3]
     avg_top = sum(top_n) / len(top_n) if top_n else 0.0
-    return avg_top < threshold
+
+    # High confidence → already well-ordered, skip
+    if avg_top >= threshold:
+        return False
+
+    # Very low confidence → reranking won't help
+    if avg_top < 0.3:
+        return False
+
+    # In the uncertain band (0.3 ≤ avg < threshold), use variance as tiebreaker.
+    # High variance means the ranking is ambiguous → rerank
+    if len(normalized) >= 2:
+        mean = sum(normalized) / len(normalized)
+        variance = sum((s - mean) ** 2 for s in normalized) / len(normalized)
+        return variance >= 0.02  # Empirical threshold for score spread
+    return True
 
 
 def _normalize_scores(score_map: dict[str, float]) -> dict[str, float]:
@@ -417,12 +545,30 @@ async def expand_queries_with_llm(
     max_queries: int = DEFAULT_MAX_QUERIES,
     keywords: Optional[list[str]] = None,
 ) -> list[str]:
-    """Generate query variations to improve recall."""
-    system_prompt = """あなたは就活ES向けのRAG検索クエリ拡張アシスタントです。
+    """Generate query variations to improve recall.  Uses in-memory cache."""
+    cached = _get_cached_expansion(query)
+    if cached is not None:
+        return cached[:max_queries]
+
+    is_short = len(query) < SHORT_QUERY_THRESHOLD
+
+    if is_short:
+        # Lightweight prompt for short queries (e.g. "商社", "投資銀行")
+        system_prompt = """あなたは就活向け検索クエリ拡張アシスタントです。短いキーワードを就活文脈で展開してください。出力はJSONのみ。"""
+        user_message = f"""キーワード: {query}
+
+このキーワードに関連する就活向け検索クエリを{max_queries}件生成してください。
+- 業界/企業の特徴、採用情報、求める人物像の観点で展開
+- 各クエリは10〜30文字程度
+
+出力形式:
+{{"queries": ["...","..."]}}"""
+    else:
+        system_prompt = """あなたは就活ES向けのRAG検索クエリ拡張アシスタントです。
 採用情報・事業情報・人材要件・企業文化に関連する検索クエリを生成してください。
 出力はJSONのみ。"""
 
-    user_message = f"""元のクエリ:
+        user_message = f"""元のクエリ:
 {query}
 
 指示:
@@ -432,13 +578,13 @@ async def expand_queries_with_llm(
 - 最大{max_queries}件まで
 """
 
-    if keywords:
-        user_message += f"""
+        if keywords:
+            user_message += f"""
 重要キーワード:
 {", ".join(keywords)}
 """
 
-    user_message += """
+        user_message += """
 出力形式:
 {{"queries": ["...","..."]}}"""
 
@@ -463,20 +609,26 @@ async def expand_queries_with_llm(
             q = q.strip()
             if q and q not in clean:
                 clean.append(q)
-    return clean[:max_queries]
+    result = clean[:max_queries]
+    if result:
+        _set_cached_expansion(query, result)
+    return result
 
 
 async def generate_hypothetical_document(query: str) -> str:
     """Generate a hypothetical passage (HyDE) to improve recall."""
     system_prompt = """あなたはRAG検索のHyDE生成アシスタントです。
-ユーザーのクエリに対して、検索に使える具体的な説明文（仮想文書）を日本語で生成してください。
+ユーザーのクエリに対して、実際の企業HPの採用ページや事業紹介ページに書かれているような
+具体的な文章（仮想文書）を日本語で生成してください。
 出力はJSONのみ。"""
 
     user_message = f"""クエリ:
 {query}
 
 指示:
-- 採用情報/企業情報/事業/人物像に関連する具体文を生成
+- 実際の企業の採用ページ・事業紹介・社員インタビューに近いスタイルで書く
+- 就活生が読む視点で、具体的な業務内容・求める人物像・社風を含める
+- 「当社」「私たちは」など企業側の語り口を使う
 - 300〜500文字程度
 
 出力形式:
@@ -734,7 +886,8 @@ async def dense_hybrid_search(
             bm25_task.cancel()
         return []
 
-    merged = rrf_merge_results(results_by_query)
+    rrf_k = adaptive_rrf_k(len(results_by_query))
+    merged = rrf_merge_results(results_by_query, k=rrf_k)
 
     if use_mmr:
         query_embedding = await generate_embedding(query, backend=base_backend)

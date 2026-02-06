@@ -520,7 +520,7 @@
       "smfg", "smbc"
     ],
     "みずほ銀行": {
-      "domains": ["mizuhobank"],
+      "domains": ["mizuhobank", "mizuhobank.co.jp"],
       "parent": "みずほフィナンシャルグループ",
       "allow_parent_domains_for": [
         "ir_materials",
@@ -529,7 +529,7 @@
       ]
     },
     "みずほフィナンシャルグループ": [
-      "mizuho", "mizuho-fg", "mizuhogroup"
+      "mizuho", "mizuho-fg", "mizuhogroup", "mizuho-fg.co.jp"
     ],
     "りそなホールディングス": [
       "resona-gr"
@@ -4342,7 +4342,9 @@
       "jeki"
     ],
     "東急エージェンシー": [
-      "tokyu-agc"
+      "tokyu-agc",
+      "tokyu-agc.co.jp",
+      "recruit-tokyu-agc.co.jp"
     ],
     "読売広告社": [
       "yomiko"

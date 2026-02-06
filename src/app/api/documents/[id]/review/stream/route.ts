@@ -169,7 +169,7 @@ export async function POST(
     });
     const userPlan = (session?.user as { plan?: string })?.plan || "free";
     const isPaid = userPlan === "standard" || userPlan === "pro";
-    const rewriteCount = isPaid ? 3 : 1;
+    const rewriteCount = isPaid ? Number(process.env.ES_REWRITE_COUNT || "1") : 1;
 
     // Calculate credit cost: max(2, ceil(chars/800)), max 5
     const charCount = content.length;

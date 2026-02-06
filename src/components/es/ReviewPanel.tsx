@@ -5,6 +5,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { useOperationLock } from "@/hooks/useOperationLock";
 import { useESReview, getAvailableStyles, TEMPLATE_OPTIONS, TEMPLATE_LABELS, TEMPLATE_EXTRA_FIELDS } from "@/hooks/useESReview";
 import type { SectionData, TemplateType, TemplateReview } from "@/hooks/useESReview";
 import { ScoreDisplay } from "./ScoreDisplay";
@@ -12,6 +13,7 @@ import { ImprovementList } from "./ImprovementList";
 import { RewriteDisplay } from "./RewriteDisplay";
 import { CompareView } from "./CompareView";
 import { ReflectModal } from "./ReflectModal";
+import { ReviewEmptyState } from "./ReviewEmptyState";
 import { EnhancedProcessingSteps, ES_REVIEW_STEPS } from "@/components/ui/EnhancedProcessingSteps";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { calculateESReviewCost } from "@/lib/credits/cost";
@@ -30,6 +32,7 @@ interface ReviewPanelProps {
   sectionData?: SectionData[];  // Section data with character limits
   hasCompanyRag?: boolean;
   companyId?: string;
+  companyName?: string;
   isPaid?: boolean;
   onApplyRewrite?: (newContent: string) => void;
   onUndo?: () => void;
@@ -37,6 +40,8 @@ interface ReviewPanelProps {
   // Section review mode
   sectionReviewRequest?: SectionReviewRequest | null;
   onClearSectionReview?: () => void;
+  // Cross-panel navigation
+  onScrollToEditorSection?: (sectionTitle: string) => void;
 }
 
 const SparkleIcon = () => (
@@ -124,13 +129,16 @@ export function ReviewPanel({
   sectionData,
   hasCompanyRag = false,
   companyId,
+  companyName,
   isPaid = false,
   onApplyRewrite,
   onUndo,
   className,
   sectionReviewRequest,
   onClearSectionReview,
+  onScrollToEditorSection,
 }: ReviewPanelProps) {
+  const { isLocked, acquireLock, releaseLock } = useOperationLock();
   const [selectedStyle, setSelectedStyle] = useState("バランス");
   const [showStyleDropdown, setShowStyleDropdown] = useState(false);
   const [showReflectModal, setShowReflectModal] = useState(false);
@@ -172,36 +180,58 @@ export function ReviewPanel({
     }
   }, [sectionReviewRequest]);
 
+  // Sticky score: track ScoreDisplay visibility via IntersectionObserver
+  useEffect(() => {
+    const el = scoreRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsScoreVisible(entry.isIntersecting),
+      { threshold: 0 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [review]);
+
   const availableStyles = getAvailableStyles(isPaid);
 
   const handleRequestReview = useCallback(async () => {
-    await requestReview({
-      content,
-      style: selectedStyle,
-      hasCompanyRag,
-      companyId,
-      sections: isPaid ? sections : undefined,
-      sectionData: isPaid ? sectionData : undefined,
-      reviewMode: "full",
-    });
-  }, [content, selectedStyle, hasCompanyRag, companyId, sections, sectionData, isPaid, requestReview]);
+    if (!acquireLock("ES添削を実行中")) return;
+    try {
+      await requestReview({
+        content,
+        style: selectedStyle,
+        hasCompanyRag,
+        companyId,
+        sections: isPaid ? sections : undefined,
+        sectionData: isPaid ? sectionData : undefined,
+        reviewMode: "full",
+      });
+    } finally {
+      releaseLock();
+    }
+  }, [content, selectedStyle, hasCompanyRag, companyId, sections, sectionData, isPaid, requestReview, acquireLock, releaseLock]);
 
   // Handle section review with optional template
   const handleSectionReview = useCallback(async () => {
     if (!sectionReviewRequest) return;
+    if (!acquireLock("ES添削を実行中")) return;
 
-    await requestSectionReview({
-      sectionTitle: sectionReviewRequest.sectionTitle,
-      sectionContent: sectionReviewRequest.sectionContent,
-      sectionCharLimit: sectionReviewRequest.sectionCharLimit,
-      style: selectedStyle,
-      hasCompanyRag,
-      companyId,
-      templateType: selectedTemplate || undefined,
-      internName: internName || undefined,
-      roleName: roleName || undefined,
-    });
-  }, [sectionReviewRequest, selectedStyle, hasCompanyRag, companyId, selectedTemplate, internName, roleName, requestSectionReview]);
+    try {
+      await requestSectionReview({
+        sectionTitle: sectionReviewRequest.sectionTitle,
+        sectionContent: sectionReviewRequest.sectionContent,
+        sectionCharLimit: sectionReviewRequest.sectionCharLimit,
+        style: selectedStyle,
+        hasCompanyRag,
+        companyId,
+        templateType: selectedTemplate || undefined,
+        internName: internName || undefined,
+        roleName: roleName || undefined,
+      });
+    } finally {
+      releaseLock();
+    }
+  }, [sectionReviewRequest, selectedStyle, hasCompanyRag, companyId, selectedTemplate, internName, roleName, requestSectionReview, acquireLock, releaseLock]);
 
   // Handler to return to full mode
   const handleReturnToFullMode = useCallback(() => {
@@ -232,6 +262,8 @@ export function ReviewPanel({
 
   // Scroll to improvement section when clicking low score link
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scoreRef = useRef<HTMLDivElement>(null);
+  const [isScoreVisible, setIsScoreVisible] = useState(true);
   const handleScrollToIssue = useCallback((category: string) => {
     const element = document.getElementById(`issue-${category}`);
     if (element) {
@@ -283,9 +315,66 @@ export function ReviewPanel({
           </div>
         </CardHeader>
 
-        <CardContent ref={scrollContainerRef} className="p-4">
-          {/* Initial State - Request Review */}
-          {!review && !isLoading && (
+        <CardContent ref={scrollContainerRef} className="p-4 relative">
+          {/* Sticky Score Summary - appears when ScoreDisplay scrolls out of view */}
+          {review && !isLoading && !isScoreVisible && (
+            <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-4 px-4 py-2 bg-background/95 backdrop-blur border-b border-border/50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className={cn(
+                  "text-lg font-bold",
+                  (() => {
+                    const values = Object.values(review.scores).filter((v): v is number => typeof v === "number");
+                    const avg = values.reduce((a, b) => a + b, 0) / values.length;
+                    if (avg >= 4.5) return "text-emerald-600";
+                    if (avg >= 4.0) return "text-emerald-600";
+                    if (avg >= 3.5) return "text-blue-600";
+                    if (avg >= 3.0) return "text-amber-600";
+                    return "text-red-600";
+                  })()
+                )}>
+                  {(() => {
+                    const values = Object.values(review.scores).filter((v): v is number => typeof v === "number");
+                    const avg = values.reduce((a, b) => a + b, 0) / values.length;
+                    if (avg >= 4.5) return "A+";
+                    if (avg >= 4.0) return "A";
+                    if (avg >= 3.5) return "B+";
+                    if (avg >= 3.0) return "B";
+                    if (avg >= 2.5) return "C+";
+                    if (avg >= 2.0) return "C";
+                    return "D";
+                  })()}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {(() => {
+                    const values = Object.values(review.scores).filter((v): v is number => typeof v === "number");
+                    return (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
+                  })()}/5.0
+                </span>
+              </div>
+              {review.top3 && review.top3.length > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  {review.top3.length}件の改善ポイント
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Initial State - Guided Empty State (no section selected) */}
+          {!review && !isLoading && !error && !sectionReviewRequest && (
+            <ReviewEmptyState
+              onStartFullReview={handleRequestReview}
+              hasContent={content.length >= 10}
+              selectedStyle={selectedStyle}
+              onStyleChange={setSelectedStyle}
+              availableStyles={availableStyles}
+              hasCompanyRag={hasCompanyRag}
+              companyName={companyName}
+              companyId={companyId}
+            />
+          )}
+
+          {/* Initial State - Section Review Mode */}
+          {!review && !isLoading && !error && sectionReviewRequest && (
             <div className="space-y-3">
               {/* Section Review Mode: Template Selector */}
               {sectionReviewRequest && (
@@ -426,24 +515,16 @@ export function ReviewPanel({
               </div>
 
               {/* Request Button */}
-              {sectionReviewRequest ? (
-                <Button
-                  onClick={handleSectionReview}
-                  className="w-full"
-                  disabled={sectionReviewRequest.sectionContent.length < 10}
-                >
-                  <SparkleIcon />
-                  この設問を添削
-                </Button>
-              ) : (
-                <Button onClick={handleRequestReview} className="w-full" disabled={content.length < 10}>
-                  <SparkleIcon />
-                  添削を実行
-                </Button>
-              )}
+              <Button
+                onClick={handleSectionReview}
+                className="w-full"
+                disabled={sectionReviewRequest.sectionContent.length < 10 || isLocked}
+              >
+                <SparkleIcon />
+                この設問を添削
+              </Button>
 
-              {((sectionReviewRequest && sectionReviewRequest.sectionContent.length < 10) ||
-                (!sectionReviewRequest && content.length < 10)) && (
+              {sectionReviewRequest.sectionContent.length < 10 && (
                 <p className="text-xs text-muted-foreground text-center">
                   10文字以上入力してから添削を実行してください
                 </p>
@@ -481,11 +562,12 @@ export function ReviewPanel({
           {review && !isLoading && (
             <div className="space-y-4">
               {/* Scores - with scroll-to-issue links for low scores */}
-              <ScoreDisplay
-                scores={review.scores}
-                hasCompanyRag={hasCompanyRag}
-                onScrollToIssue={handleScrollToIssue}
-              />
+              <div ref={scoreRef}>
+                <ScoreDisplay
+                  scores={review.scores}
+                  hasCompanyRag={hasCompanyRag}
+                />
+              </div>
 
               {!hasCompanyRag && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 space-y-2">
@@ -502,6 +584,35 @@ export function ReviewPanel({
                 </div>
               )}
 
+              {/* Separator: Improvements */}
+              {review.top3 && review.top3.length > 0 && (
+                <>
+                  <div className="flex items-center gap-3 pt-1">
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">改善</span>
+                    <div className="flex-1 h-px bg-border" />
+                  </div>
+
+                  <ImprovementList
+                    issues={review.top3}
+                    onNavigateToSection={
+                      reviewMode === "section" && currentSection && onScrollToEditorSection
+                        ? () => onScrollToEditorSection(currentSection.title)
+                        : undefined
+                    }
+                  />
+                </>
+              )}
+
+              {/* Separator: Rewrites */}
+              {!review.template_review && review.rewrites && review.rewrites.length > 0 && (
+                <div className="flex items-center gap-3 pt-1">
+                  <div className="flex-1 h-px bg-border" />
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">リライト</span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+              )}
+
               {/* Rewrites - Tab-based display with compare option */}
               {!review.template_review && (
                 <RewriteDisplay
@@ -513,14 +624,6 @@ export function ReviewPanel({
                   onOpenCompare={() => setShowCompareView(true)}
                 />
               )}
-
-              {/* Improvements - Collapsible, shown after rewrites */}
-              <ImprovementList
-                issues={review.top3}
-                title={reviewMode === "section" ? "改善ポイント" : undefined}
-                collapsible={true}
-                defaultExpanded={false}
-              />
 
               {/* Template Review Results (Section mode with template) */}
               {review.template_review && (
@@ -561,39 +664,50 @@ export function ReviewPanel({
                         key={index}
                         className="p-4 border border-border rounded-lg space-y-3"
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold text-primary">
-                            パターン {index + 1}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {variant.char_count}文字
-                          </span>
-                        </div>
+                        {review.template_review && review.template_review.variants.length > 1 && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-primary">
+                              パターン {index + 1}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {variant.char_count}文字
+                            </span>
+                          </div>
+                        )}
+                        {review.template_review && review.template_review.variants.length === 1 && (
+                          <div className="flex items-center justify-end">
+                            <span className="text-xs text-muted-foreground">
+                              {variant.char_count}文字
+                            </span>
+                          </div>
+                        )}
 
                         {/* Text */}
                         <p className="text-sm leading-relaxed bg-muted/30 p-3 rounded-lg">
                           {variant.text}
                         </p>
 
-                        {/* Pros and Cons */}
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <p className="text-xs font-medium text-green-700 mb-1">メリット</p>
-                            <ul className="text-xs text-green-800 space-y-0.5">
-                              {variant.pros.map((pro, i) => (
-                                <li key={i}>+ {pro}</li>
-                              ))}
-                            </ul>
+                        {/* Pros and Cons - only show when multiple variants */}
+                        {review.template_review && review.template_review.variants.length > 1 && variant.pros.length > 0 && (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-xs font-medium text-green-700 mb-1">メリット</p>
+                              <ul className="text-xs text-green-800 space-y-0.5">
+                                {variant.pros.map((pro, i) => (
+                                  <li key={i}>+ {pro}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div>
+                              <p className="text-xs font-medium text-orange-700 mb-1">デメリット</p>
+                              <ul className="text-xs text-orange-800 space-y-0.5">
+                                {variant.cons.map((con, i) => (
+                                  <li key={i}>- {con}</li>
+                                ))}
+                              </ul>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-xs font-medium text-orange-700 mb-1">デメリット</p>
-                            <ul className="text-xs text-orange-800 space-y-0.5">
-                              {variant.cons.map((con, i) => (
-                                <li key={i}>- {con}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        </div>
+                        )}
 
                         {/* Keywords */}
                         {variant.keywords_used.length > 0 && (
@@ -775,31 +889,39 @@ export function ReviewPanel({
                 )}
                 {templateReview.variants.map((variant, index) => (
                   <div key={index} className="p-4 border border-border rounded-lg space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-primary">パターン {index + 1}</span>
-                      <span className="text-xs text-muted-foreground">{variant.char_count}文字</span>
-                    </div>
+                    {templateReview.variants.length > 1 ? (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-primary">パターン {index + 1}</span>
+                        <span className="text-xs text-muted-foreground">{variant.char_count}文字</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-end">
+                        <span className="text-xs text-muted-foreground">{variant.char_count}文字</span>
+                      </div>
+                    )}
                     <p className="text-base leading-relaxed bg-muted/30 p-4 rounded-lg">
                       {variant.text}
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <p className="text-xs font-medium text-green-700 mb-1">メリット</p>
-                        <ul className="text-xs text-green-800 space-y-0.5">
-                          {variant.pros.map((pro, i) => (
-                            <li key={i}>+ {pro}</li>
-                          ))}
-                        </ul>
+                    {templateReview.variants.length > 1 && variant.pros.length > 0 && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-xs font-medium text-green-700 mb-1">メリット</p>
+                          <ul className="text-xs text-green-800 space-y-0.5">
+                            {variant.pros.map((pro, i) => (
+                              <li key={i}>+ {pro}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-orange-700 mb-1">デメリット</p>
+                          <ul className="text-xs text-orange-800 space-y-0.5">
+                            {variant.cons.map((con, i) => (
+                              <li key={i}>- {con}</li>
+                            ))}
+                          </ul>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-xs font-medium text-orange-700 mb-1">デメリット</p>
-                        <ul className="text-xs text-orange-800 space-y-0.5">
-                          {variant.cons.map((con, i) => (
-                            <li key={i}>- {con}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
+                    )}
                     {variant.keywords_used.length > 0 && (
                       <div>
                         <p className="text-xs font-medium text-muted-foreground mb-1">使用キーワード</p>

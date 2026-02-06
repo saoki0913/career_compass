@@ -47,7 +47,6 @@ career_compass/
 │       ├── db/
 │       │   ├── schema.ts         # Drizzle schema
 │       │   └── index.ts          # DB client
-│       ├── storage/              # R2 client
 │       ├── stripe/               # Stripe client
 │       └── utils.ts              # Utility functions
 ├── backend/

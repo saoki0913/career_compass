@@ -130,7 +130,7 @@ def _context_dedupe_key(context: dict) -> tuple:
     meta = context.get("metadata") or {}
     secondary = meta.get("secondary_content_types") or []
     if isinstance(secondary, str):
-        secondary = [secondary]
+        secondary = [s.strip() for s in secondary.split(",") if s.strip()]
     return (
         meta.get("source_url"),
         meta.get("chunk_index"),
@@ -224,10 +224,13 @@ async def store_company_info(
                     if isinstance(value, (str, int, float, bool)):
                         metadata[key] = value
                     elif key == "secondary_content_types":
+                        # Store as comma-separated string (ChromaDB can't filter on list metadata)
                         if isinstance(value, list):
-                            metadata[key] = [v for v in value if isinstance(v, str)]
+                            metadata[key] = ",".join(v for v in value if isinstance(v, str))
                         elif isinstance(value, str):
-                            metadata[key] = [value]
+                            metadata[key] = value
+                        else:
+                            metadata[key] = ""
 
             documents.append(text)
             metadatas.append(metadata)
@@ -265,7 +268,7 @@ async def store_company_info(
         print(
             f"[RAG保存] ✅ {len(valid_docs)}チャンク保存完了 (会社ID: {company_id[:8]}...)"
         )
-        update_bm25_index(company_id)
+        schedule_bm25_update(company_id)
         cache = get_rag_cache()
         if cache:
             await cache.invalidate_company(company_id)
@@ -406,7 +409,7 @@ def delete_company_rag(
                 collection.delete(where={"company_id": company_id})
                 deleted_any = True
         print(f"[RAG保存] ✅ RAGデータ削除完了 (会社ID: {company_id[:8]}...)")
-        update_bm25_index(company_id)
+        schedule_bm25_update(company_id)
         return deleted_any
     except Exception as e:
         print(f"[RAG保存] ❌ RAGデータ削除エラー: {e}")
@@ -529,7 +532,7 @@ async def store_full_text_content(
             any_success = any_success or success
 
         if any_success:
-            update_bm25_index(company_id)
+            schedule_bm25_update(company_id)
             cache = get_rag_cache()
             if cache:
                 await cache.invalidate_company(company_id)
@@ -694,21 +697,41 @@ async def search_company_context_by_type(
             print("[RAG検索] ⚠️ 検索用の埋め込みバックエンドなし")
             return []
 
-        # Build where clause (include secondary_content_types)
-        if content_types:
-            type_filters = [{"content_type": {"$in": list(content_types)}}]
-            for ct in content_types:
-                type_filters.append({"secondary_content_types": {"$contains": ct}})
-            where_clause = {
-                "$and": [
-                    {"company_id": company_id},
-                    {"$or": type_filters},
-                ]
-            }
-        else:
-            where_clause = {"company_id": company_id}
+        # Single wide query by company_id, then Python-side filter for both
+        # primary and secondary content types.  This avoids a redundant second
+        # ChromaDB round-trip that was previously needed for secondary types.
+        content_type_set = set(content_types) if content_types else set()
+        # Fetch 3x when filtering by type to ensure enough candidates survive
+        fetch_n = n_results * 3 if content_type_set else n_results
+        where_clause = {"company_id": company_id}
 
         all_contexts: list[dict] = []
+
+        def _parse_secondary_types(meta: dict) -> list[str]:
+            secondary = meta.get("secondary_content_types") or []
+            if isinstance(secondary, str):
+                return [s.strip() for s in secondary.split(",") if s.strip()]
+            return [s for s in secondary if isinstance(s, str)]
+
+        def _matches_type_filter(meta: dict) -> bool:
+            if not content_type_set:
+                return True
+            primary = meta.get("content_type") or meta.get("chunk_type") or ""
+            if primary in content_type_set:
+                return True
+            return any(s in content_type_set for s in _parse_secondary_types(meta))
+
+        def _build_context(doc, meta, distance, doc_id, embedding, backend_obj, coll_name):
+            return {
+                "text": doc,
+                "metadata": meta,
+                "distance": distance,
+                "id": doc_id,
+                "embedding": embedding,
+                "embedding_provider": backend_obj.provider,
+                "embedding_model": backend_obj.model,
+                "collection": coll_name,
+            }
 
         for backend in search_backends:
             query_embedding = await generate_embedding(query, backend=backend)
@@ -720,42 +743,33 @@ async def search_company_context_by_type(
                 include = ["documents", "metadatas", "distances"]
                 if include_embeddings:
                     include.append("embeddings")
-                results = collection.query(
-                    query_embeddings=[query_embedding],
-                    where=where_clause,
-                    n_results=n_results,
-                    include=include,
-                )
+
+                try:
+                    results = collection.query(
+                        query_embeddings=[query_embedding],
+                        where=where_clause,
+                        n_results=fetch_n,
+                        include=include,
+                    )
+                except Exception as e:
+                    print(f"[RAG検索] ⚠️ 検索失敗: {e}")
+                    continue
 
                 if results["documents"] and results["documents"][0]:
                     for idx, doc in enumerate(results["documents"][0]):
+                        meta = results["metadatas"][0][idx] if results["metadatas"] else {}
+                        if not _matches_type_filter(meta):
+                            continue
                         embedding = None
                         if include_embeddings and results.get("embeddings"):
                             try:
                                 embedding = results["embeddings"][0][idx]
                             except Exception:
                                 embedding = None
+                        distance = results["distances"][0][idx] if results["distances"] else None
+                        doc_id = results["ids"][0][idx] if results["ids"] else None
                         all_contexts.append(
-                            {
-                                "text": doc,
-                                "metadata": (
-                                    results["metadatas"][0][idx]
-                                    if results["metadatas"]
-                                    else {}
-                                ),
-                                "distance": (
-                                    results["distances"][0][idx]
-                                    if results["distances"]
-                                    else None
-                                ),
-                                "id": (
-                                    results["ids"][0][idx] if results["ids"] else None
-                                ),
-                                "embedding": embedding,
-                                "embedding_provider": backend.provider,
-                                "embedding_model": backend.model,
-                                "collection": name,
-                            }
+                            _build_context(doc, meta, distance, doc_id, embedding, backend, name)
                         )
 
         if not all_contexts:
@@ -820,7 +834,7 @@ def get_company_rag_status(
 
                     secondary_types = meta.get("secondary_content_types") or []
                     if isinstance(secondary_types, str):
-                        secondary_types = [secondary_types]
+                        secondary_types = [s.strip() for s in secondary_types.split(",") if s.strip()]
                     for secondary in secondary_types:
                         if secondary in counts:
                             counts[secondary] += 1
@@ -911,7 +925,7 @@ def delete_company_rag_by_type(
                 deleted_any = True
         ct_ja = CONTENT_TYPE_JA.get(content_type, content_type)
         print(f"[RAG保存] ✅ {ct_ja} RAGデータ削除完了 (会社ID: {company_id[:8]}...)")
-        update_bm25_index(company_id)
+        schedule_bm25_update(company_id)
         return deleted_any
     except Exception as e:
         print(f"[RAG保存] ❌ タイプ別RAGデータ削除エラー: {e}")
@@ -977,7 +991,7 @@ def delete_company_rag_by_urls(
         print(
             f"[RAG保存] ✅ URL別RAGデータ削除完了: {result['total_deleted']}チャンク (会社ID: {company_id[:8]}...)"
         )
-        update_bm25_index(company_id)
+        schedule_bm25_update(company_id)
         return result
 
     except Exception as e:
@@ -988,6 +1002,21 @@ def delete_company_rag_by_urls(
 # ============================================================
 # BM25 Index Integration
 # ============================================================
+
+
+def schedule_bm25_update(company_id: str) -> None:
+    """Schedule BM25 index update in the background (fire-and-forget).
+
+    If no event loop is running, falls back to synchronous update.
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(asyncio.to_thread(update_bm25_index, company_id))
+    except RuntimeError:
+        # No running event loop — run synchronously
+        update_bm25_index(company_id)
 
 
 def update_bm25_index(company_id: str) -> bool:
@@ -1118,7 +1147,7 @@ async def hybrid_search_company_context_enhanced(
     Enhanced dense search with query expansion, HyDE, MMR, and LLM reranking.
     """
     from app.utils.hybrid_search import dense_hybrid_search
-    from app.utils.hybrid_search import CONTENT_TYPE_BOOSTS
+    from app.utils.hybrid_search import select_boost_profile
 
     return await dense_hybrid_search(
         company_id=company_id,
@@ -1137,7 +1166,7 @@ async def hybrid_search_company_context_enhanced(
         max_queries=settings.rag_max_queries,
         max_total_queries=settings.rag_max_total_queries,
         mmr_lambda=settings.rag_mmr_lambda,
-        content_type_boosts=CONTENT_TYPE_BOOSTS.get("es_review"),
+        content_type_boosts=select_boost_profile(query),
         use_bm25=True,
     )
 

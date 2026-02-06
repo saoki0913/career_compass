@@ -23,10 +23,12 @@ except ImportError:
     )
 
 
-# Default models (can be configured)
-DEFAULT_CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-# Japanese-optimized alternatives:
-# - "cl-tohoku/bert-base-japanese-v3" (requires fine-tuning)
+# Default model: multilingual cross-encoder trained on mMARCO
+# Supports Japanese natively (unlike English-only ms-marco-MiniLM-L-6-v2)
+DEFAULT_CROSS_ENCODER_MODEL = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+# Alternatives:
+# - "cross-encoder/ms-marco-MiniLM-L-6-v2" (English only, faster but lower Japanese accuracy)
+# - "cl-tohoku/bert-base-japanese-v3" (requires fine-tuning for reranking)
 # - "line-corporation/line-distilbert-base-japanese" (requires fine-tuning)
 
 

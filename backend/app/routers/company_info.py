@@ -2777,13 +2777,17 @@ async def search_company_pages(request: SearchPagesRequest):
 
             # Skip irrelevant sites
             if _is_irrelevant_url(url):
-                excluded_reasons["不適切なサイト"] += 1
+                excluded_reasons["不適切なサイト"] = (
+                    excluded_reasons.get("不適切なサイト", 0) + 1
+                )
                 print(f"[サイト検索] ❌ 除外: 不適切なサイト")
                 continue
 
             # Skip subsidiaries
             if _is_subsidiary(company_name, title, url):
-                excluded_reasons["子会社サイト"] += 1
+                excluded_reasons["子会社サイト"] = (
+                    excluded_reasons.get("子会社サイト", 0) + 1
+                )
                 print(f"[サイト検索] ❌ 除外: 子会社サイト")
                 continue
 
@@ -2991,13 +2995,17 @@ async def search_company_pages(request: SearchPagesRequest):
 
             # Skip irrelevant sites (shopping, PDF viewers, etc.)
             if _is_irrelevant_url(url):
-                excluded_reasons["不適切なサイト"] += 1
+                excluded_reasons["不適切なサイト"] = (
+                    excluded_reasons.get("不適切なサイト", 0) + 1
+                )
                 print(f"[サイト検索] ❌ 除外: {url[:50]}... (不適切なサイト)")
                 continue
 
             # Skip subsidiaries
             if _is_subsidiary(company_name, title, url):
-                excluded_reasons["子会社サイト"] += 1
+                excluded_reasons["子会社サイト"] = (
+                    excluded_reasons.get("子会社サイト", 0) + 1
+                )
                 print(f"[サイト検索] ❌ 除外: {url[:50]}... (子会社サイト)")
                 continue
 
@@ -3022,7 +3030,9 @@ async def search_company_pages(request: SearchPagesRequest):
             if conflicts and not is_official_domain and not _has_strict_company_name_match(
                 company_name, title, snippet
             ):
-                excluded_reasons["競合ドメイン"] += 1
+                excluded_reasons["競合ドメイン"] = (
+                    excluded_reasons.get("競合ドメイン", 0) + 1
+                )
                 conflict_label = ", ".join(sorted(conflicts))[:50]
                 print(
                     f"[サイト検索] ❌ 除外: {url[:50]}... (競合ドメイン: {conflict_label})"
@@ -3067,7 +3077,9 @@ async def search_company_pages(request: SearchPagesRequest):
             if not is_official_domain and not _contains_company_name(
                 company_name, title, url, snippet, allow_snippet_match
             ):
-                excluded_reasons["企業名不一致"] += 1
+                excluded_reasons["企業名不一致"] = (
+                    excluded_reasons.get("企業名不一致", 0) + 1
+                )
                 print(f"[サイト検索] ❌ 除外: {url[:50]}... (企業名不一致)")
                 continue
 
@@ -4291,13 +4303,17 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
 
             # Skip irrelevant sites (shopping, PDF viewers, etc.)
             if _is_irrelevant_url(url):
-                excluded_reasons["不適切なサイト"] += 1
+                excluded_reasons["不適切なサイト"] = (
+                    excluded_reasons.get("不適切なサイト", 0) + 1
+                )
                 print(f"[{type_label}検索] ❌ 除外: {url[:50]}... (不適切なサイト)")
                 continue
 
             # Skip subsidiaries
             if _is_subsidiary(company_name, title, url):
-                excluded_reasons["子会社サイト"] += 1
+                excluded_reasons["子会社サイト"] = (
+                    excluded_reasons.get("子会社サイト", 0) + 1
+                )
                 print(f"[{type_label}検索] ❌ 除外: {url[:50]}... (子会社サイト)")
                 continue
 
@@ -4323,7 +4339,9 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             if conflicts and not is_official_domain and not _has_strict_company_name_match(
                 company_name, title, snippet
             ):
-                excluded_reasons["競合ドメイン"] += 1
+                excluded_reasons["競合ドメイン"] = (
+                    excluded_reasons.get("競合ドメイン", 0) + 1
+                )
                 conflict_label = ", ".join(sorted(conflicts))[:50]
                 print(
                     f"[{type_label}検索] ❌ 除外: {url[:50]}... (競合ドメイン: {conflict_label})"
@@ -4367,7 +4385,9 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             if not is_official_domain and not allowed_parent and not _contains_company_name(
                 company_name, title, url, snippet, allow_snippet_match
             ):
-                excluded_reasons["企業名不一致"] += 1
+                excluded_reasons["企業名不一致"] = (
+                    excluded_reasons.get("企業名不一致", 0) + 1
+                )
                 print(f"[{type_label}検索] ❌ 除外: {url[:50]}... (企業名不一致)")
                 continue
 

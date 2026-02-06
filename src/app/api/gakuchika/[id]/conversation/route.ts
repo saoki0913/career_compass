@@ -227,13 +227,57 @@ export async function GET(
       );
     }
 
-    // Get latest conversation
-    const conversation = await db
-      .select()
+    // Get sessionId from query parameter
+    const { searchParams } = new URL(request.url);
+    const sessionId = searchParams.get('sessionId');
+
+    // Get all conversations (sessions) for this gakuchika
+    const allConversations = await db
+      .select({
+        id: gakuchikaConversations.id,
+        status: gakuchikaConversations.status,
+        starScores: gakuchikaConversations.starScores,
+        questionCount: gakuchikaConversations.questionCount,
+        createdAt: gakuchikaConversations.createdAt,
+      })
       .from(gakuchikaConversations)
       .where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId))
-      .orderBy(desc(gakuchikaConversations.updatedAt))
-      .get();
+      .orderBy(desc(gakuchikaConversations.createdAt));
+
+    // Build sessions list
+    const sessions = allConversations.map(c => ({
+      id: c.id,
+      status: c.status,
+      starScores: safeParseStarScores(c.starScores),
+      questionCount: c.questionCount || 0,
+      createdAt: c.createdAt,
+    }));
+
+    // Get target conversation (by sessionId or latest)
+    let conversation;
+    if (sessionId) {
+      conversation = await db
+        .select()
+        .from(gakuchikaConversations)
+        .where(eq(gakuchikaConversations.id, sessionId))
+        .get();
+
+      // Verify this session belongs to this gakuchika
+      if (!conversation || conversation.gakuchikaId !== gakuchikaId) {
+        return NextResponse.json(
+          { error: "Session not found" },
+          { status: 404 }
+        );
+      }
+    } else {
+      // Get latest conversation
+      conversation = await db
+        .select()
+        .from(gakuchikaConversations)
+        .where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId))
+        .orderBy(desc(gakuchikaConversations.updatedAt))
+        .get();
+    }
 
     // Get gakuchika data
     const gakuchika = await db
@@ -250,58 +294,14 @@ export async function GET(
     }
 
     if (!conversation) {
-      // Get AI-powered initial question
-      const { question: initialQuestion, error, starEvaluation } = await getQuestionFromFastAPI(
-        {
-          title: gakuchika.title,
-          content: gakuchika.content,
-          charLimitType: gakuchika.charLimitType,
-        },
-        [],
-        0,
-        null
-      );
-
-      if (error) {
-        return NextResponse.json(
-          { error },
-          { status: 503 }
-        );
-      }
-
-      // Create conversation record with first question
-      const conversationId = crypto.randomUUID();
-      const now = new Date();
-      const initialMessages: Message[] = [{
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: initialQuestion!
-      }];
-
-      const initialStarScores = starEvaluation?.scores || { situation: 0, task: 0, action: 0, result: 0 };
-
-      await db.insert(gakuchikaConversations).values({
-        id: conversationId,
-        gakuchikaId,
-        messages: JSON.stringify(initialMessages),
-        questionCount: 0,
-        status: "in_progress",
-        starScores: JSON.stringify(initialStarScores),
-        createdAt: now,
-        updatedAt: now,
-      });
-
+      // No conversation exists yet - return info for "start deep dive" screen
+      // Conversation creation is handled by POST /api/gakuchika/[id]/conversation/new
       return NextResponse.json({
-        conversation: { id: conversationId, questionCount: 0, status: "in_progress" },
-        messages: initialMessages,
-        nextQuestion: null,
-        questionCount: 0,
-        isCompleted: false,
-        starScores: initialStarScores,
-        starEvaluation,
-        isAIPowered: true,
+        noConversation: true,
+        gakuchikaTitle: gakuchika.title,
         gakuchikaContent: gakuchika.content,
         charLimitType: gakuchika.charLimitType,
+        sessions: [],
       });
     }
 
@@ -310,31 +310,14 @@ export async function GET(
     const currentStarScores = safeParseStarScores(conversation.starScores);
     const starComplete = isStarComplete(currentStarScores);
 
-    // For existing conversations, get next question from FastAPI if not completed
+    // For existing conversations, use last assistant message as nextQuestion (avoid LLM call on GET)
     let nextQuestion: string | null = null;
-    let starEvaluation: STAREvaluation | null = null;
 
     if (conversation.status !== "completed" && !starComplete) {
-      const result = await getQuestionFromFastAPI(
-        {
-          title: gakuchika.title,
-          content: gakuchika.content,
-          charLimitType: gakuchika.charLimitType,
-        },
-        messages,
-        qCount,
-        currentStarScores
-      );
-
-      if (result.error) {
-        return NextResponse.json(
-          { error: result.error },
-          { status: 503 }
-        );
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.role === "assistant") {
+        nextQuestion = lastMsg.content;
       }
-
-      nextQuestion = result.question;
-      starEvaluation = result.starEvaluation;
     }
 
     return NextResponse.json({
@@ -348,10 +331,10 @@ export async function GET(
       questionCount: qCount,
       isCompleted: conversation.status === "completed" || starComplete,
       starScores: currentStarScores,
-      starEvaluation,
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,
+      sessions,
     });
   } catch (error) {
     console.error("Error fetching conversation:", error);
@@ -404,7 +387,7 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { answer } = body;
+    const { answer, sessionId } = body;
 
     if (!answer || !answer.trim()) {
       return NextResponse.json(
@@ -414,12 +397,47 @@ export async function POST(
     }
 
     // Get or create conversation
-    let conversation = await db
-      .select()
-      .from(gakuchikaConversations)
-      .where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId))
-      .orderBy(desc(gakuchikaConversations.updatedAt))
-      .get();
+    let conversation;
+    if (sessionId) {
+      // Target specific session
+      conversation = await db
+        .select()
+        .from(gakuchikaConversations)
+        .where(eq(gakuchikaConversations.id, sessionId))
+        .get();
+
+      // Verify this session belongs to this gakuchika
+      if (!conversation || conversation.gakuchikaId !== gakuchikaId) {
+        return NextResponse.json(
+          { error: "Session not found" },
+          { status: 404 }
+        );
+      }
+
+      // Check if session is already completed
+      if (conversation.status === "completed") {
+        return NextResponse.json(
+          { error: "このセッションは完了しています。新しいセッションを開始してください。" },
+          { status: 409 }
+        );
+      }
+    } else {
+      // Get latest conversation
+      conversation = await db
+        .select()
+        .from(gakuchikaConversations)
+        .where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId))
+        .orderBy(desc(gakuchikaConversations.updatedAt))
+        .get();
+
+      // If latest conversation is completed and no sessionId provided, return 409
+      if (conversation && conversation.status === "completed") {
+        return NextResponse.json(
+          { error: "最新のセッションは完了しています。新しいセッションを開始してください。" },
+          { status: 409 }
+        );
+      }
+    }
 
     const now = new Date();
     let messages: Message[] = [];
@@ -465,16 +483,17 @@ export async function POST(
     messages.push({ id: crypto.randomUUID(), role: "user", content: answer.trim() });
     questionCount++;
 
-    // Check if we should consume credit (every 5 questions) - only for logged-in users
-    if (questionCount > 0 && questionCount % QUESTIONS_PER_CREDIT === 0 && userId) {
-      const canPay = await hasEnoughCredits(userId, 1);
+    // Credit check (every QUESTIONS_PER_CREDIT questions for logged-in users)
+    // Only check availability here; consume after FastAPI success
+    const shouldConsumeCredit = questionCount > 0 && questionCount % QUESTIONS_PER_CREDIT === 0 && !!userId;
+    if (shouldConsumeCredit) {
+      const canPay = await hasEnoughCredits(userId!, 1);
       if (!canPay) {
         return NextResponse.json(
           { error: "クレジットが不足しています" },
           { status: 402 }
         );
       }
-      await consumeCredits(userId, 1, "gakuchika", gakuchikaId);
     }
 
     // Get next question with STAR evaluation
@@ -488,6 +507,11 @@ export async function POST(
       questionCount,
       currentStarScores
     );
+
+    // Consume credit only after FastAPI success (business rule: charge on success only)
+    if (shouldConsumeCredit && nextQuestion) {
+      await consumeCredits(userId!, 1, "gakuchika", gakuchikaId);
+    }
 
     // Update STAR scores from evaluation
     const newStarScores = starEvaluation?.scores || currentStarScores || { situation: 0, task: 0, action: 0, result: 0 };
@@ -522,20 +546,57 @@ export async function POST(
     }
 
     // Update gakuchika summary if completed
+    let structuredSummary = null;
     if (isCompleted) {
-      const userAnswers = messages
-        .filter((m) => m.role === "user")
-        .map((m) => m.content)
-        .join("\n\n");
-      const summary = userAnswers.substring(0, 500) + (userAnswers.length > 500 ? "..." : "");
+      let summaryJson: string;
+
+      try {
+        // Call FastAPI to generate structured summary
+        const summaryResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/summary`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversation_history: messages,
+            gakuchika_title: gakuchikaTitle,
+          }),
+        });
+
+        if (summaryResponse.ok) {
+          const summaryData = await summaryResponse.json();
+          // Store structured summary as JSON
+          summaryJson = JSON.stringify({
+            summary: summaryData.summary || "",
+            key_points: summaryData.key_points || [],
+            numbers: summaryData.numbers || [],
+            strengths: summaryData.strengths || [],
+          });
+        } else {
+          throw new Error("FastAPI summary generation failed");
+        }
+      } catch (error) {
+        console.error("Failed to generate structured summary, using fallback:", error);
+        // Fallback to simple truncation
+        const userAnswers = messages
+          .filter((m) => m.role === "user")
+          .map((m) => m.content)
+          .join("\n\n");
+        summaryJson = userAnswers.substring(0, 500) + (userAnswers.length > 500 ? "..." : "");
+      }
 
       await db
         .update(gakuchikaContents)
         .set({
-          summary,
+          summary: summaryJson,
           updatedAt: now,
         })
         .where(eq(gakuchikaContents.id, gakuchikaId));
+
+      // Parse the summary we just saved (no need to re-read from DB)
+      try {
+        structuredSummary = JSON.parse(summaryJson);
+      } catch {
+        structuredSummary = { summary: summaryJson };
+      }
     }
 
     return NextResponse.json({
@@ -549,6 +610,7 @@ export async function POST(
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,
+      ...(structuredSummary && { summary: structuredSummary }),
     });
   } catch (error) {
     console.error("Error processing conversation:", error);

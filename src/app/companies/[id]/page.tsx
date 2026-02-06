@@ -33,6 +33,8 @@ import { FetchInfoButton } from "@/components/companies/FetchInfoButton";
 import { DeadlineApprovalModal } from "@/components/companies/DeadlineApprovalModal";
 import { CorporateInfoSection } from "@/components/companies/CorporateInfoSection";
 import { CompanyEditModal, UpdateCompanyData } from "@/components/companies/CompanyEditModal";
+import { OperationLockProvider } from "@/hooks/useOperationLock";
+import { NavigationGuard } from "@/components/ui/NavigationGuard";
 
 interface Company {
   id: string;
@@ -406,6 +408,8 @@ export default function CompanyDetailPage() {
   const statusConfigData = getStatusConfig(company.status);
 
   return (
+    <OperationLockProvider>
+    <NavigationGuard />
     <div className="min-h-screen bg-background">
       <DashboardHeader />
 
@@ -1108,5 +1112,6 @@ export default function CompanyDetailPage() {
         )}
       </main>
     </div>
+    </OperationLockProvider>
   );
 }

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { useOperationLock } from "@/hooks/useOperationLock";
 
 // Extended content types for dropdown (9 categories)
 type ContentType =
@@ -332,6 +333,7 @@ export function CorporateInfoSection({
   companyName,
   onUpdate,
 }: CorporateInfoSectionProps) {
+  const { isLocked, acquireLock, releaseLock } = useOperationLock();
   const [status, setStatus] = useState<CorporateInfoStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -459,6 +461,7 @@ export function CorporateInfoSection({
       setError("タイプを選択してください");
       return;
     }
+    if (!acquireLock("企業情報ページを検索中")) return;
 
     setIsSearching(true);
     setError(null);
@@ -489,6 +492,7 @@ export function CorporateInfoSection({
       setError(err instanceof Error ? err.message : "検索に失敗しました");
     } finally {
       setIsSearching(false);
+      releaseLock();
     }
   };
 
@@ -498,6 +502,7 @@ export function CorporateInfoSection({
       setError("検索キーワードを入力してください");
       return;
     }
+    if (!acquireLock("企業情報ページを検索中")) return;
 
     setIsSearching(true);
     setError(null);
@@ -534,6 +539,7 @@ export function CorporateInfoSection({
       setError(err instanceof Error ? err.message : "検索に失敗しました");
     } finally {
       setIsSearching(false);
+      releaseLock();
     }
   };
 
@@ -547,6 +553,7 @@ export function CorporateInfoSection({
       setError("URLを選択してください");
       return;
     }
+    if (!acquireLock("企業情報ページを取得中")) return;
 
     setIsFetching(true);
     setError(null);
@@ -587,6 +594,7 @@ export function CorporateInfoSection({
       setError(err instanceof Error ? err.message : "取得に失敗しました");
     } finally {
       setIsFetching(false);
+      releaseLock();
     }
   };
 
@@ -640,6 +648,7 @@ export function CorporateInfoSection({
 
   const handleDeleteUrls = async () => {
     if (selectedUrlsForDelete.size === 0) return;
+    if (!acquireLock("RAGデータを削除中")) return;
 
     setIsDeleting(true);
     setDeleteError(null);
@@ -673,6 +682,7 @@ export function CorporateInfoSection({
       setDeleteError(err instanceof Error ? err.message : "削除に失敗しました");
     } finally {
       setIsDeleting(false);
+      releaseLock();
     }
   };
 
@@ -731,7 +741,11 @@ export function CorporateInfoSection({
           </CardTitle>
           <button
             onClick={openModal}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+            disabled={isLocked}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border transition-colors",
+              isLocked ? "text-muted-foreground cursor-not-allowed bg-muted/30 opacity-50" : "hover:bg-muted/50"
+            )}
           >
             <SparklesIcon />
             <span className="text-sm font-medium">AIで企業情報を取得</span>

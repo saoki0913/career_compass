@@ -11,9 +11,9 @@ const CheckIcon = () => (
   </svg>
 );
 
-const XIcon = () => (
-  <svg className="h-5 w-5 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+const LockIcon = () => (
+  <svg className="h-5 w-5 text-muted-foreground/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
   </svg>
 );
 
@@ -53,6 +53,8 @@ interface PlanSelectionCardProps {
   variant?: "default" | "recommended" | "premium";
   dailyPrice?: string;
   animationDelay?: number;
+  ctaLabel?: string;
+  compact?: boolean;
 }
 
 export function PlanSelectionCard({
@@ -68,6 +70,8 @@ export function PlanSelectionCard({
   variant = "default",
   dailyPrice,
   animationDelay = 0,
+  ctaLabel,
+  compact = false,
 }: PlanSelectionCardProps) {
   const isRecommended = variant === "recommended" || isPopular;
   const isPremium = variant === "premium";
@@ -100,7 +104,7 @@ export function PlanSelectionCard({
     >
       {/* Popular badge with animation */}
       {isRecommended && (
-        <div className="absolute -top-4 left-1/2 -translate-x-1/2 z-20">
+        <div className={cn("absolute left-1/2 -translate-x-1/2 z-20", compact ? "-top-3" : "-top-4")}>
           <div className="relative">
             {/* Glow effect */}
             <div className="absolute inset-0 bg-primary/50 blur-md rounded-full" />
@@ -123,7 +127,7 @@ export function PlanSelectionCard({
         </div>
       )}
 
-      <CardHeader className={cn("pb-4", (isRecommended || isPremium) && "pt-8")}>
+      <CardHeader className={cn(compact ? "pb-2" : "pb-4", (isRecommended || isPremium) && (compact ? "pt-6" : "pt-8"))}>
         <CardTitle className={cn(
           "text-xl font-bold",
           isPremium && "text-white"
@@ -137,10 +141,10 @@ export function PlanSelectionCard({
         </CardDescription>
 
         {/* Price section */}
-        <div className="mt-4 space-y-1">
+        <div className={cn(compact ? "mt-2" : "mt-4", "space-y-1")}>
           <div className="flex items-baseline gap-1">
             <span className={cn(
-              "text-4xl font-black tracking-tight",
+              compact ? "text-3xl" : "text-4xl", "font-black tracking-tight",
               isRecommended && "text-primary",
               isPremium && "text-amber-400"
             )}>
@@ -170,19 +174,19 @@ export function PlanSelectionCard({
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-col gap-5">
+      <CardContent className={cn("flex flex-col", compact ? "gap-3" : "gap-5")}>
         {/* Feature list */}
-        <ul className="space-y-3">
+        <ul className={compact ? "space-y-1.5" : "space-y-3"}>
           {features.map((feature, index) => (
             <li
               key={index}
               className={cn(
                 "flex items-start gap-3 text-sm",
-                !feature.included && "opacity-50"
+                !feature.included && "opacity-60"
               )}
             >
               <span className="mt-0.5 flex-shrink-0">
-                {feature.included ? <CheckIcon /> : <XIcon />}
+                {feature.included ? <CheckIcon /> : <LockIcon />}
               </span>
               <span className={cn(
                 feature.included ? "font-medium" : "text-muted-foreground",
@@ -225,10 +229,10 @@ export function PlanSelectionCard({
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              選択中
+              {ctaLabel || "選択中"}
             </span>
           ) : (
-            "このプランを選ぶ"
+            ctaLabel || "このプランを選ぶ"
           )}
         </Button>
       </CardContent>

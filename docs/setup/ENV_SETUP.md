@@ -220,96 +220,6 @@ GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 ---
 
-## 📦 Cloudflare R2 (ストレージ) - オプション（後で設定可）
-
-Cloudflare R2 は S3 互換のオブジェクトストレージです。エグレス（データ転送）料金が無料なのが特徴です。
-
-> 📖 公式ドキュメント: https://developers.cloudflare.com/r2/
-
-### 1. Cloudflare アカウント作成・R2 有効化
-
-1. https://dash.cloudflare.com/ でアカウントを作成
-2. ダッシュボード左メニューから「Storage & Databases」→「R2 Object Storage」を選択
-3. 初回の場合、R2 の有効化フローを完了（クレジットカード登録が必要、無料枠あり）
-
-### 2. アカウント ID の確認
-
-1. ダッシュボードの URL を確認: `https://dash.cloudflare.com/{ACCOUNT_ID}/r2`
-2. または「R2 Object Storage」→「Overview」ページの右側に表示
-
-### 3. R2 バケットの作成
-
-1. 「R2 Object Storage」→「Overview」→「Create bucket」をクリック
-2. バケット名を入力: `career-compass`（小文字、ハイフン使用可）
-3. ロケーションを選択（通常は「Automatic」でOK）
-4. 「Create bucket」をクリック
-
-### 4. API トークンの作成（S3 互換 API 用）
-
-1. 「R2 Object Storage」→「Overview」→「Manage R2 API Tokens」をクリック
-2. 「Create API token」をクリック
-3. 設定項目:
-   - **Token name**: 任意の名前（例: `career-compass-dev`）
-   - **Permissions**: 「Object Read & Write」を選択
-   - **Specify bucket(s)**: 「Apply to specific buckets only」で作成したバケットを選択
-   - **TTL**: 必要に応じて有効期限を設定（無期限も可）
-4. 「Create API Token」をクリック
-
-### 5. 認証情報の保存（重要）
-
-トークン作成後、以下の2つの値が表示されます:
-
-| 項目 | 説明 |
-|------|------|
-| **Access Key ID** | S3 互換 API のアクセスキー |
-| **Secret Access Key** | S3 互換 API のシークレットキー |
-
-⚠️ **重要**: Secret Access Key は**この画面でしか表示されません**。必ずこの時点でコピーして安全な場所に保存してください。
-
-### 6. `.env.local` に設定
-
-```env
-# Cloudflare アカウント ID（ダッシュボード URL から取得）
-CLOUDFLARE_ACCOUNT_ID=your-account-id
-
-# R2 API トークンから取得した認証情報
-R2_ACCESS_KEY_ID=your-access-key-id
-R2_SECRET_ACCESS_KEY=your-secret-access-key
-
-# バケット名
-R2_BUCKET_NAME=career-compass
-
-# パブリックアクセス URL（公開URLを使う場合のみ。Signed URLのみなら不要）
-# R2_PUBLIC_URL=https://pub-xxx.r2.dev
-```
-
-> **Note**: S3互換エンドポイント (`https://{ACCOUNT_ID}.r2.cloudflarestorage.com`) はコード内で `CLOUDFLARE_ACCOUNT_ID` から自動構築されるため、環境変数として設定不要です。
-
-### 7. パブリックアクセスの設定（任意）
-
-ファイルを公開URLでアクセス可能にする場合:
-
-1. バケットの「Settings」タブを開く
-2. 「Public access」セクションで「Allow Access」を有効化
-3. 表示された `r2.dev` サブドメインを `R2_PUBLIC_URL` に設定
-
-### 補足: S3 互換 SDK での接続例
-
-```typescript
-import { S3Client } from "@aws-sdk/client-s3";
-
-const r2Client = new S3Client({
-  region: "auto",
-  endpoint: process.env.R2_ENDPOINT,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
-  },
-});
-```
-
----
-
 ## 🤖 AI (OpenAI / Anthropic) - 必要な場合
 
 ES添削や企業RAGを使う場合はAPIキーを設定します。
@@ -388,7 +298,7 @@ BETTER_AUTH_URL=http://localhost:3000
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-Google OAuth、Stripe、R2 は機能を使う段階で設定すればOKです。
+Google OAuth、Stripe は機能を使う段階で設定すればOKです。
 
 ---
 
@@ -434,11 +344,6 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe 公開キー | 🔶 | Stripe Dashboard |
 | `STRIPE_WEBHOOK_SECRET` | Stripe Webhook シークレット | 🔶 | Stripe CLI |
 | `GITHUB_TOKEN` | GitHub Personal Access Token | 🔶 | GitHub Settings > Tokens（⚠️一度のみ表示） |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare アカウントID | 🔶 | Cloudflare Dashboard URL |
-| `R2_ACCESS_KEY_ID` | R2 アクセスキー | 🔶 | R2 API トークン作成時 |
-| `R2_SECRET_ACCESS_KEY` | R2 シークレットキー | 🔶 | R2 API トークン作成時（⚠️一度のみ表示） |
-| `R2_BUCKET_NAME` | R2 バケット名 | 🔶 | Cloudflare Dashboard |
-| `R2_PUBLIC_URL` | R2 パブリックURL | 🔶 | Cloudflare Dashboard（公開URL使用時のみ） |
 
 ✅ = 必須、🔶 = 機能使用時に必要
 

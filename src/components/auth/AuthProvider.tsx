@@ -71,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const migrateGuestData = useCallback(async () => {
     try {
       const deviceToken = getDeviceToken();
-      const response = await fetch("/api/auth/migrate", {
+      const response = await fetch("/api/guest/migrate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deviceToken }),

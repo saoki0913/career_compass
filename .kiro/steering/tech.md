@@ -22,7 +22,6 @@
 
 ### External Services
 - **Payment**: Stripe (Checkout, Webhooks, Subscriptions)
-- **Storage**: Cloudflare R2 (S3互換)
 - **AI**: OpenAI API / Claude API (FastAPI経由)
 - **Calendar**: Google Calendar API
 
@@ -44,7 +43,6 @@ career_compass/
 │   └── lib/
 │       ├── auth/            # Better Auth config
 │       ├── db/              # Drizzle schema & client
-│       ├── storage/         # R2 storage client
 │       └── stripe/          # Stripe client
 ├── backend/
 │   └── app/                 # FastAPI application
@@ -72,7 +70,6 @@ career_compass/
 - `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`
 - `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID/SECRET`
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
-- `CLOUDFLARE_ACCOUNT_ID`, `R2_*`
 
 ## Development Commands
 ```bash

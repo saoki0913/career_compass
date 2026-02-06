@@ -63,6 +63,19 @@ class Settings(BaseSettings):
     # 環境変数: OPENAI_MODEL
     openai_model: str = "gpt-5-mini"
 
+    # ===== 機能別モデル設定 =====
+    # 各機能で使用するLLMモデルティア（claude-sonnet / claude-haiku / openai）
+    # .env.local で個別にオーバーライド可能
+    model_es_review: str = "claude-sonnet"          # MODEL_ES_REVIEW - ES添削
+    model_gakuchika: str = "claude-haiku"           # MODEL_GAKUCHIKA - ガクチカ深掘り
+    model_motivation: str = "claude-haiku"          # MODEL_MOTIVATION - 志望動機作成
+    model_selection_schedule: str = "claude-haiku"  # MODEL_SELECTION_SCHEDULE - 選考スケジュール抽出
+    model_company_info: str = "openai"              # MODEL_COMPANY_INFO - 企業情報抽出
+    model_rag_query_expansion: str = "claude-haiku"  # MODEL_RAG_QUERY_EXPANSION - RAGクエリ拡張
+    model_rag_hyde: str = "claude-sonnet"           # MODEL_RAG_HYDE - RAG仮想文書生成
+    model_rag_rerank: str = "claude-sonnet"         # MODEL_RAG_RERANK - RAG再ランキング
+    model_rag_classify: str = "claude-haiku"        # MODEL_RAG_CLASSIFY - RAGコンテンツ分類
+
     # LLM タイムアウト（秒）
     # 環境変数: LLM_TIMEOUT_SECONDS
     # ES添削等の重い処理向け（max_tokens=3000-4500）
@@ -126,6 +139,11 @@ class Settings(BaseSettings):
     # 環境変数: ES_ENABLE_CONDITIONAL_RETRY
     # 2/3パターン成功時に追加リトライを行う
     es_enable_conditional_retry: bool = True
+
+    # リライト案の最大出力数
+    # 環境変数: ES_REWRITE_COUNT
+    # 1=ユーザーが迷わない、最大3まで設定可能
+    es_rewrite_count: int = 1
 
     model_config = SettingsConfigDict(
         # Try multiple env file locations

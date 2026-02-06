@@ -57,13 +57,6 @@ Career Compass（ウカルン）で使用している技術スタックの詳細
 | **Stripe** | 20.x | サブスクリプション決済 |
 | **@stripe/stripe-js** | 8.x | フロントエンド SDK |
 
-### ストレージ
-
-| 技術 | 用途 |
-|-----|------|
-| **AWS SDK (S3)** | Cloudflare R2 互換 API |
-| **Cloudflare R2** | オブジェクトストレージ |
-
 ---
 
 ## 3. バックエンド（Python FastAPI）
@@ -185,7 +178,6 @@ RAG（Retrieval-Augmented Generation）のための検索システム。
 | **Vercel** | Next.js ホスティング |
 | **Railway / Render** | FastAPI ホスティング |
 | **Turso** | データベース |
-| **Cloudflare R2** | ファイルストレージ |
 
 ---
 

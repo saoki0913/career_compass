@@ -249,30 +249,28 @@ export function ScoreDisplay({
   const lowScoreCount = scoreValues.filter((v) => v < 3).length;
 
   return (
-    <div className={cn("space-y-3", className)}>
-      {/* Overall Grade */}
-      <div className="flex items-center justify-between pb-2 border-b border-border">
-        <div>
-          <div className="flex items-center gap-2">
-            <p className="text-xs text-muted-foreground">総合評価</p>
-            <GradeExplanation currentGrade={currentGrade} average={average} />
-          </div>
-          <p className="text-sm font-medium mt-0.5">{average.toFixed(1)} / 5.0</p>
-        </div>
-        <div className="text-right">
-          <div className={cn("text-2xl font-bold", getGradeColor(average))}>
+    <div className={cn("space-y-2", className)}>
+      {/* Overall Grade - Compact single line */}
+      <div className="flex items-center justify-between pb-1.5 border-b border-border">
+        <div className="flex items-center gap-2">
+          <span className={cn("text-xl font-bold", getGradeColor(average))}>
             {currentGrade}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-medium">{average.toFixed(1)}</span>
+            <span className="text-xs text-muted-foreground">/ 5.0</span>
           </div>
           {lowScoreCount > 0 && (
-            <p className="text-[10px] text-amber-600 mt-0.5">
+            <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
               {lowScoreCount}項目要改善
-            </p>
+            </span>
           )}
         </div>
+        <GradeExplanation currentGrade={currentGrade} average={average} />
       </div>
 
       {/* Individual Scores */}
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <ScoreBar
           scoreKey="logic"
           value={scores.logic}

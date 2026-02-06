@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
+import { OperationLockProvider, useOperationLock } from "@/hooks/useOperationLock";
+import { NavigationGuard } from "@/components/ui/NavigationGuard";
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -77,6 +79,52 @@ function buildHeaders(): Record<string, string> {
   return headers;
 }
 
+// Suggestion chips component for quick answers
+function SuggestionChips({
+  suggestions,
+  onSelect,
+  disabled = false,
+}: {
+  suggestions: string[];
+  onSelect: (text: string) => void;
+  disabled?: boolean;
+}) {
+  if (suggestions.length === 0) return null;
+
+  return (
+    <div className="mb-3">
+      <p className="text-xs text-muted-foreground mb-2">選択して回答:</p>
+      <div className="flex flex-wrap gap-2">
+        {suggestions.map((suggestion, index) => (
+          <button
+            key={`${suggestion}-${index}`}
+            type="button"
+            onClick={() => !disabled && onSelect(suggestion)}
+            disabled={disabled}
+            className={cn(
+              "inline-flex items-center rounded-lg px-3 py-2 text-sm text-left",
+              "border border-amber-200 bg-amber-50 text-amber-900",
+              "hover:bg-amber-100 hover:border-amber-300",
+              "dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-200",
+              "dark:hover:bg-amber-900/40 dark:hover:border-amber-600",
+              "active:scale-[0.97]",
+              "transition-all duration-200 cursor-pointer",
+              "opacity-0 animate-fade-up",
+              index === 0 && "delay-100",
+              index === 1 && "delay-200",
+              index === 2 && "delay-300",
+              index === 3 && "delay-400",
+              disabled && "opacity-50 cursor-not-allowed pointer-events-none"
+            )}
+          >
+            {suggestion}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Progress bar component for motivation elements
 function MotivationProgressBar({ scores }: { scores: MotivationScores | null }) {
   if (!scores) return null;
@@ -111,10 +159,11 @@ function MotivationProgressBar({ scores }: { scores: MotivationScores | null }) 
   );
 }
 
-export default function MotivationConversationPage() {
+function MotivationConversationContent() {
   const params = useParams();
   const router = useRouter();
   const companyId = params.id as string;
+  const { isLocked, acquireLock, releaseLock } = useOperationLock();
 
   const [company, setCompany] = useState<Company | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -127,9 +176,11 @@ export default function MotivationConversationPage() {
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [scores, setScores] = useState<MotivationScores | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [generatedDraft, setGeneratedDraft] = useState<string | null>(null);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [charLimit, setCharLimit] = useState<300 | 400 | 500>(400);
+  const [streamingLabel, setStreamingLabel] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -141,20 +192,24 @@ export default function MotivationConversationPage() {
   // Fetch company and conversation data
   const fetchData = useCallback(async () => {
     try {
-      // Fetch company info
-      const companyRes = await fetch(`/api/companies/${companyId}`, {
-        headers: buildHeaders(),
-        credentials: "include",
-      });
+      const headers = buildHeaders();
+
+      // Fire both requests in parallel
+      const [companyRes, convRes] = await Promise.all([
+        fetch(`/api/companies/${companyId}`, {
+          headers,
+          credentials: "include",
+        }),
+        fetch(`/api/motivation/${companyId}/conversation`, {
+          headers,
+          credentials: "include",
+        }),
+      ]);
+
       if (!companyRes.ok) throw new Error("企業情報の取得に失敗しました");
       const companyData = await companyRes.json();
       setCompany(companyData.company);
 
-      // Fetch conversation if exists
-      const convRes = await fetch(`/api/motivation/${companyId}/conversation`, {
-        headers: buildHeaders(),
-        credentials: "include",
-      });
       if (convRes.ok) {
         const convData = await convRes.json();
         const messagesWithIds = (convData.messages || []).map(
@@ -168,7 +223,14 @@ export default function MotivationConversationPage() {
         setQuestionCount(convData.questionCount || 0);
         setIsCompleted(convData.isCompleted || false);
         setScores(convData.scores || null);
+        setSuggestions(convData.suggestions || []);
         setGeneratedDraft(convData.generatedDraft || null);
+        // Propagate initialization errors (e.g. FastAPI failure)
+        if (convData.error) {
+          setError(convData.error);
+        }
+      } else {
+        setError("会話データの取得に失敗しました");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "データの取得に失敗しました");
@@ -181,32 +243,42 @@ export default function MotivationConversationPage() {
     fetchData();
   }, [fetchData]);
 
-  // Send answer
-  const handleSend = async () => {
-    if (!answer.trim() || isSending) return;
+  // Send answer (from chip click or free-text input)
+  const handleSend = async (chipText?: string) => {
+    const textToSend = chipText || answer.trim();
+    if (!textToSend || isSending) return;
+    if (!acquireLock("AIに送信中")) {
+      setError("別の操作が進行中です。完了までお待ちください。");
+      return;
+    }
 
-    const trimmedAnswer = answer.trim();
     const optimisticId = `optimistic-${Date.now()}`;
+    const previousSuggestions = suggestions;
 
     const optimisticMessage: Message = {
       id: optimisticId,
       role: "user",
-      content: trimmedAnswer,
+      content: textToSend,
       isOptimistic: true,
     };
 
     setMessages((prev) => [...prev, optimisticMessage]);
     setAnswer("");
+    setSuggestions([]);
     setIsSending(true);
     setIsWaitingForResponse(true);
     setError(null);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90_000);
+
     try {
-      const response = await fetch(`/api/motivation/${companyId}/conversation`, {
+      const response = await fetch(`/api/motivation/${companyId}/conversation/stream`, {
         method: "POST",
         headers: buildHeaders(),
         credentials: "include",
-        body: JSON.stringify({ answer: trimmedAnswer }),
+        body: JSON.stringify({ answer: textToSend }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -214,32 +286,83 @@ export default function MotivationConversationPage() {
         throw new Error(data.error || "送信に失敗しました");
       }
 
-      const data = await response.json();
-      const messagesWithIds = (data.messages || []).map(
-        (msg: { role: "user" | "assistant"; content: string; id?: string }, idx: number) => ({
-          ...msg,
-          id: msg.id || `msg-${idx}`,
-        })
-      );
-      setMessages(messagesWithIds);
-      setNextQuestion(data.nextQuestion);
-      setQuestionCount(data.questionCount || 0);
-      setIsCompleted(data.isCompleted || false);
-      setScores(data.scores || null);
+      // Process SSE stream
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("ストリームが取得できませんでした");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let completed = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr) continue;
+
+          let event;
+          try {
+            event = JSON.parse(jsonStr);
+          } catch {
+            continue;
+          }
+
+          if (event.type === "progress") {
+            setStreamingLabel(event.label || null);
+          } else if (event.type === "complete") {
+            completed = true;
+            const data = event.data;
+            const messagesWithIds = (data.messages || []).map(
+              (msg: { role: "user" | "assistant"; content: string; id?: string }, idx: number) => ({
+                ...msg,
+                id: msg.id || `msg-${idx}`,
+              })
+            );
+            setMessages(messagesWithIds);
+            setNextQuestion(data.nextQuestion);
+            setQuestionCount(data.questionCount || 0);
+            setIsCompleted(data.isCompleted || false);
+            setScores(data.scores || null);
+            setSuggestions(data.suggestions || []);
+          } else if (event.type === "error") {
+            throw new Error(event.message || "AIサービスでエラーが発生しました");
+          }
+        }
+      }
+
+      if (!completed) {
+        throw new Error("ストリームが途中で切断されました");
+      }
     } catch (err) {
-      // Remove optimistic message on error
+      // Remove optimistic message on error and restore previous state
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
-      setAnswer(trimmedAnswer);
-      setError(err instanceof Error ? err.message : "送信に失敗しました");
+      setAnswer(textToSend);
+      setSuggestions(previousSuggestions);
+      if (err instanceof Error && err.name === "AbortError") {
+        setError("AIの応答に時間がかかりすぎています。再度お試しください。");
+      } else {
+        setError(err instanceof Error ? err.message : "送信に失敗しました");
+      }
     } finally {
+      clearTimeout(timeoutId);
       setIsSending(false);
       setIsWaitingForResponse(false);
+      setStreamingLabel(null);
+      releaseLock();
     }
   };
 
   // Generate ES draft and redirect to ES editor
   const handleGenerateDraft = async () => {
     if (isGeneratingDraft || messages.length === 0) return;
+    if (!acquireLock("志望動機を生成中")) return;
 
     setIsGeneratingDraft(true);
     setError(null);
@@ -266,18 +389,22 @@ export default function MotivationConversationPage() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "ES生成に失敗しました");
+    } finally {
       setIsGeneratingDraft(false);
+      releaseLock();
     }
-    // Note: We don't reset isGeneratingDraft on success because we're redirecting
   };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="h-screen bg-background flex flex-col overflow-hidden">
         <DashboardHeader />
-        <main className="max-w-4xl mx-auto px-4 py-8">
-          <div className="flex items-center justify-center py-20">
+        <main className="flex-1 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
             <LoadingSpinner />
+            <p className="text-sm text-muted-foreground animate-pulse">
+              AIが企業の情報を読み込んでいます...
+            </p>
           </div>
         </main>
       </div>
@@ -286,10 +413,10 @@ export default function MotivationConversationPage() {
 
   if (!company) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="h-screen bg-background flex flex-col overflow-hidden">
         <DashboardHeader />
-        <main className="max-w-4xl mx-auto px-4 py-8">
-          <div className="text-center py-20">
+        <main className="flex-1 flex items-center justify-center">
+          <div className="text-center">
             <p className="text-muted-foreground">企業が見つかりません</p>
             <Button asChild className="mt-4">
               <Link href="/companies">企業一覧に戻る</Link>
@@ -301,11 +428,11 @@ export default function MotivationConversationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-screen bg-background flex flex-col overflow-hidden">
       <DashboardHeader />
-      <main className="max-w-6xl mx-auto px-4 py-8">
+      <main className="flex-1 overflow-hidden max-w-6xl w-full mx-auto px-4 py-3 flex flex-col">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-6">
+        <div className="flex items-center gap-3 mb-3 shrink-0">
           <Link
             href={`/companies/${companyId}`}
             className="p-2 rounded-lg hover:bg-secondary transition-colors"
@@ -318,61 +445,79 @@ export default function MotivationConversationPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 overflow-hidden">
           {/* Chat area */}
-          <div className="lg:col-span-2">
-            <Card className="border-border/50">
-              <CardContent className="p-4">
-                {/* Messages */}
-                <div className="space-y-4 max-h-[500px] overflow-y-auto mb-4">
-                  {messages.map((msg) => (
-                    <ChatMessage
-                      key={msg.id}
-                      role={msg.role}
-                      content={msg.content}
-                      isOptimistic={msg.isOptimistic}
-                    />
-                  ))}
+          <div className="lg:col-span-2 flex flex-col overflow-hidden border border-border/50 rounded-xl bg-card">
+            {/* Messages - scrollable */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {messages.map((msg) => (
+                <ChatMessage
+                  key={msg.id}
+                  role={msg.role}
+                  content={msg.content}
+                  isOptimistic={msg.isOptimistic}
+                />
+              ))}
 
-                  {/* Next question or thinking indicator */}
-                  {isWaitingForResponse ? (
-                    <ThinkingIndicator />
-                  ) : nextQuestion ? (
-                    <ChatMessage role="assistant" content={nextQuestion} />
-                  ) : null}
+              {/* Next question or thinking indicator */}
+              {isWaitingForResponse ? (
+                <ThinkingIndicator text={streamingLabel || "次の質問を考え中"} />
+              ) : nextQuestion &&
+                !(messages.length > 0 &&
+                  messages[messages.length - 1].role === "assistant" &&
+                  messages[messages.length - 1].content === nextQuestion) ? (
+                <ChatMessage role="assistant" content={nextQuestion} />
+              ) : null}
 
-                  <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Error message */}
+            {error && (
+              <div className="shrink-0 mx-4 mb-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm flex items-center justify-between gap-2">
+                <span>{error}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 text-destructive hover:text-destructive"
+                  onClick={() => { setError(null); releaseLock(); fetchData(); }}
+                >
+                  再試行
+                </Button>
+              </div>
+            )}
+
+            {/* Bottom fixed area: suggestions + input */}
+            <div className="shrink-0 border-t border-border/50 p-4">
+              {isCompleted ? (
+                <div className="flex items-center gap-2 p-4 rounded-lg bg-emerald-500/10 text-emerald-700">
+                  <CheckIcon />
+                  <span>深掘りが完了しました！右側の「ESを作成」ボタンで志望動機ESを作成できます。</span>
                 </div>
-
-                {/* Error message */}
-                {error && (
-                  <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
-                    {error}
-                  </div>
-                )}
-
-                {/* Completed state */}
-                {isCompleted ? (
-                  <div className="flex items-center gap-2 p-4 rounded-lg bg-emerald-500/10 text-emerald-700">
-                    <CheckIcon />
-                    <span>深掘りが完了しました！右側の「ESを作成」ボタンで志望動機ESを作成できます。</span>
-                  </div>
-                ) : (
-                  /* Input area */
+              ) : (
+                <>
+                  {!isWaitingForResponse && nextQuestion && suggestions.length > 0 && (
+                    <SuggestionChips
+                      suggestions={suggestions}
+                      onSelect={(text) => handleSend(text)}
+                      disabled={isSending || isLocked}
+                    />
+                  )}
                   <ChatInput
                     value={answer}
                     onChange={setAnswer}
-                    onSend={handleSend}
+                    onSend={() => handleSend()}
                     disabled={isSending || !nextQuestion}
                     placeholder="回答を入力..."
+                    className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0"
                   />
-                )}
-              </CardContent>
-            </Card>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Sidebar */}
-          <div className="space-y-4">
+          <div className="overflow-y-auto space-y-4">
             {/* Progress */}
             <Card className="border-border/50">
               <CardHeader className="py-3">
@@ -419,7 +564,7 @@ export default function MotivationConversationPage() {
 
                 <Button
                   onClick={handleGenerateDraft}
-                  disabled={isGeneratingDraft || messages.length < 2}
+                  disabled={isGeneratingDraft || messages.length < 2 || isLocked}
                   className="w-full"
                 >
                   {isGeneratingDraft ? (
@@ -441,5 +586,14 @@ export default function MotivationConversationPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function MotivationConversationPage() {
+  return (
+    <OperationLockProvider>
+      <NavigationGuard />
+      <MotivationConversationContent />
+    </OperationLockProvider>
   );
 }

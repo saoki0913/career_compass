@@ -739,10 +739,10 @@ async def review_section_with_template(
     # Optimize retries and tokens based on rewrite_count
     if rewrite_count == 1:
         max_retries = min(2, settings.es_template_max_retries)
-        template_max_tokens = 4000  # 1 variant needs much less output
+        template_max_tokens = 2500  # 1 variant: ~400-800 chars + JSON structure
     else:
         max_retries = settings.es_template_max_retries
-        template_max_tokens = 10000
+        template_max_tokens = 6000  # 3 variants: ~1200-2400 chars total + JSON
     retry_reason = ""
     last_template_review_data = None  # Track for conditional retry
 

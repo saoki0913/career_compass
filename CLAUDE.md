@@ -14,7 +14,6 @@
 - **Database**: Turso (libSQL) + Drizzle ORM
 - **Auth**: Better Auth (Google OAuth)
 - **Payment**: Stripe
-- **Storage**: Cloudflare R2
 - **Vector DB**: ChromaDB (persistent)
 - **Embeddings**: OpenAI text-embedding-3-small
 

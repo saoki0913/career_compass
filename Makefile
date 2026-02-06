@@ -4,7 +4,7 @@
 	backend-test-mappings backend-test-subsidiary backend-test-company \
 	backend-test-comprehensive backend-test-comprehensive-quick backend-test-comprehensive-stats \
 	backend-test-content-type backend-test-content-type-unit backend-test-content-type-integration \
-	backend-test-es-char
+	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy
 
 # ===========================================
 # フロントエンド (Next.js)
@@ -127,73 +127,37 @@ backend-install:
 # バックエンドテスト (pytest)
 # ===========================================
 
+LIVE_SEARCH_MODES ?= hybrid,legacy
+LIVE_SEARCH_CACHE_MODE ?= bypass
+LIVE_SEARCH_SAMPLE_SEED ?= 1
+LIVE_SEARCH_SAMPLE_SIZE ?= 30
+LIVE_SEARCH_MAX_RESULTS ?= 5
+LIVE_SEARCH_TOKENS_PER_SECOND ?= 1.0
+LIVE_SEARCH_MAX_TOKENS ?= 1.0
+
 ## 全バックエンドテストを実行
 backend-test:
 	cd backend && python -m pytest tests/ -v
 
-## 検索精度テストを実行
-backend-test-search:
-	cd backend && python -m pytest tests/test_search_precision.py -v
+## Live検索レポートテスト（Legacy + Hybrid, ネットワーク必須）
+backend-test-live-search:
+	@echo "Running live search report test (Legacy + Hybrid; requires network; may take a while)..."
+	cd backend && \
+	RUN_LIVE_SEARCH=1 \
+	LIVE_SEARCH_MODES="$(LIVE_SEARCH_MODES)" \
+	LIVE_SEARCH_CACHE_MODE="$(LIVE_SEARCH_CACHE_MODE)" \
+	LIVE_SEARCH_SAMPLE_SEED="$(LIVE_SEARCH_SAMPLE_SEED)" \
+	LIVE_SEARCH_SAMPLE_SIZE="$(LIVE_SEARCH_SAMPLE_SIZE)" \
+	LIVE_SEARCH_MAX_RESULTS="$(LIVE_SEARCH_MAX_RESULTS)" \
+	LIVE_SEARCH_TOKENS_PER_SECOND="$(LIVE_SEARCH_TOKENS_PER_SECOND)" \
+	LIVE_SEARCH_MAX_TOKENS="$(LIVE_SEARCH_MAX_TOKENS)" \
+	python -m pytest tests/test_live_company_info_search_report.py -v -s -m "integration"
 
-## 企業マッピングテスト（1,613社分）
-backend-test-mappings:
-	@echo "Testing all 1,613 company mappings..."
-	cd backend && python -m pytest tests/test_company_mappings.py -v
+backend-test-live-search-hybrid:
+	@$(MAKE) backend-test-live-search LIVE_SEARCH_MODES=hybrid
 
-## 子会社・親会社判定テスト
-backend-test-subsidiary:
-	@echo "Testing subsidiary/parent detection..."
-	cd backend && python -m pytest tests/test_subsidiary_detection.py -v
-
-## 企業関連の全テストを実行
-backend-test-company:
-	@echo "Running all company-related tests..."
-	cd backend && python -m pytest tests/test_company_mappings.py tests/test_subsidiary_detection.py -v
-
-## 全企業包括的検索テスト（並列実行、約8-10分、推奨）
-backend-test-comprehensive:
-	@echo "Running full comprehensive search test (並列4ワーカー, 約8-10分)..."
-	cd backend && python -m pytest tests/test_comprehensive_search.py -v -n 4
-
-## 全企業包括的検索テスト（順次実行、約30分）
-backend-test-comprehensive-seq:
-	@echo "Running full comprehensive search test (順次実行, 約30分)..."
-	cd backend && python -m pytest tests/test_comprehensive_search.py -v -s
-
-## 包括テスト（クイック版：関係性検証のみ、API呼び出しなし）
-backend-test-comprehensive-quick:
-	@echo "Running quick comprehensive test (関係性検証のみ, API呼び出しなし)..."
-	cd backend && python -m pytest tests/test_comprehensive_search.py -v -k "TestCompanyRelationships"
-
-## 統計テストのみ実行
-backend-test-comprehensive-stats:
-	@echo "Running statistics tests only..."
-	cd backend && python -m pytest tests/test_comprehensive_search.py -v -s -k "TestSearchStatistics"
-
-## 統合テストのみ（実API使用）
-backend-test-comprehensive-integration:
-	@echo "Running integration tests only (実API呼び出し)..."
-	cd backend && python -m pytest tests/test_comprehensive_search.py -v -s -m integration
-
-## コンテンツタイプ検索テスト（全て）
-backend-test-content-type:
-	@echo "Running content type search tests..."
-	cd backend && python -m pytest tests/test_content_type_search.py -v
-
-## コンテンツタイプ単体テストのみ
-backend-test-content-type-unit:
-	@echo "Running content type unit tests only..."
-	cd backend && python -m pytest tests/test_content_type_search.py -v -k "not Integration"
-
-## コンテンツタイプ統合テスト（ネットワーク必要）
-backend-test-content-type-integration:
-	@echo "Running content type integration tests (requires network)..."
-	cd backend && python -m pytest tests/test_content_type_search.py -v -m integration
-
-## ES文字数制御テスト（添削結果の文字数が指定範囲内か検証）
-backend-test-es-char:
-	@echo "Running ES character control tests..."
-	cd backend && python -m pytest tests/test_es_char_control.py -v
+backend-test-live-search-legacy:
+	@$(MAKE) backend-test-live-search LIVE_SEARCH_MODES=legacy
 
 ## Pythonコードをリント（ruff/flake8）
 backend-lint:
@@ -297,10 +261,9 @@ help:
 	@echo "  🐍 バックエンド (FastAPI):"
 	@echo "    make backend-install - Python依存パッケージインストール"
 	@echo "    make backend-test    - 全テスト実行"
-	@echo "    make backend-test-search - 検索精度テスト"
-	@echo "    make backend-test-mappings - 企業マッピングテスト"
-	@echo "    make backend-test-comprehensive - 全企業検索テスト（約30分）"
-	@echo "    make backend-test-comprehensive-quick - クイック検索テスト"
+	@echo "    make backend-test-live-search - Live検索レポート（Legacy + Hybrid, ネットワーク必須）"
+	@echo "    make backend-test-live-search-hybrid - Live検索レポート（Hybridのみ）"
+	@echo "    make backend-test-live-search-legacy - Live検索レポート（Legacyのみ）"
 	@echo "    make backend-lint    - Pythonリント"
 	@echo "    make backend-format  - Python自動フォーマット"
 	@echo ""

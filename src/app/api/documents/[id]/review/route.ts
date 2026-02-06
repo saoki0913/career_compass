@@ -11,7 +11,7 @@ import { documents, aiThreads, aiMessages, companies } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
-import { consumeCredits, hasEnoughCredits, calculateESReviewCost } from "@/lib/credits";
+import { reserveCredits, confirmReservation, cancelReservation, calculateESReviewCost } from "@/lib/credits";
 import type { TemplateType } from "@/hooks/useESReview";
 
 async function getIdentity(request: NextRequest): Promise<{
@@ -129,6 +129,9 @@ export async function POST(
       templateType,         // Template type for section review
       internName,           // Intern program name (for intern templates)
       roleName,             // Role/course name (for role_course_reason template)
+      // Gakuchika linking
+      gakuchikaId,          // Link to gakuchika for context
+      gakuchikaContext,     // Gakuchika deep-dive context (key_points, strengths)
     } = body as {
       content: string;
       sectionId?: string;
@@ -143,6 +146,8 @@ export async function POST(
       templateType?: TemplateType;
       internName?: string;
       roleName?: string;
+      gakuchikaId?: string;
+      gakuchikaContext?: string;
     };
 
     // Use document's companyId if not explicitly passed
@@ -174,21 +179,24 @@ export async function POST(
     });
     const userPlan = (session?.user as { plan?: string })?.plan || "free";
     const isPaid = userPlan === "standard" || userPlan === "pro";
-    const rewriteCount = isPaid ? 3 : 1;
+    const rewriteCount = isPaid ? Number(process.env.ES_REWRITE_COUNT || "1") : 1;
 
     // Calculate credit cost: max(2, ceil(chars/800)), max 5
     const charCount = content.length;
     const creditCost = calculateESReviewCost(charCount);
 
-    // Check if user can afford (only for logged-in users)
+    // Reserve credits upfront (only for logged-in users)
+    // Credits are deducted now and refunded if the operation fails.
+    let reservationId: string | null = null;
     if (userId) {
-      const canPay = await hasEnoughCredits(userId, creditCost);
-      if (!canPay) {
+      const reservation = await reserveCredits(userId, creditCost, "es_review", documentId, `ES添削: ${documentId}`);
+      if (!reservation.success) {
         return NextResponse.json(
           { error: "クレジットが不足しています", creditCost },
           { status: 402 }
         );
       }
+      reservationId = reservation.reservationId;
     } else {
       // Guests can't use AI review - require login
       return NextResponse.json(
@@ -244,6 +252,8 @@ export async function POST(
             intern_name: internName || null,
             role_name: roleName || null,
           } : null,
+          // Gakuchika context
+          gakuchika_context: gakuchikaContext || null,
         }),
       });
 
@@ -257,6 +267,7 @@ export async function POST(
           errorDetail?.error_type &&
           ["billing", "rate_limit", "invalid_key", "no_api_key"].includes(errorDetail.error_type)
         ) {
+          if (reservationId) await cancelReservation(reservationId);
           return NextResponse.json(
             {
               error: errorDetail.error || "AIサービスが一時的に利用できません",
@@ -268,6 +279,7 @@ export async function POST(
 
         // Template validation errors → return to user, don't fallback
         if (templateType && errorDetail?.error_type === "validation") {
+          if (reservationId) await cancelReservation(reservationId);
           return NextResponse.json(
             {
               error: errorDetail.error || "テンプレート出力の検証に失敗しました",
@@ -281,6 +293,7 @@ export async function POST(
 
         // Other errors → fallback to mock (development)
         if (!allowMockReview) {
+          if (reservationId) await cancelReservation(reservationId);
           // Log detailed error server-side for debugging
           console.error("AI service error:", {
             error_type: errorDetail?.error_type,
@@ -305,6 +318,7 @@ export async function POST(
     } catch (err) {
       clearTimeout(timeoutId);
       if (!allowMockReview) {
+        if (reservationId) await cancelReservation(reservationId);
         // Log error server-side
         console.error("AI review request error:", err);
 
@@ -333,9 +347,12 @@ export async function POST(
       isMockReview = true;
     }
 
-    // Consume credits on success (only for logged-in users, only for real AI reviews)
-    if (userId && !isMockReview) {
-      await consumeCredits(userId, creditCost, "es_review", documentId);
+    // Confirm credit reservation on success (only for logged-in users, only for real AI reviews)
+    if (reservationId && !isMockReview) {
+      await confirmReservation(reservationId);
+    } else if (reservationId && isMockReview) {
+      // Mock review — refund credits
+      await cancelReservation(reservationId);
     }
 
     // Save to AI thread
@@ -354,6 +371,7 @@ export async function POST(
         .values({
           id: crypto.randomUUID(),
           documentId,
+          gakuchikaId: gakuchikaId || null,  // Link to gakuchika if provided
           title: "ES添削",
           status: "active",
           createdAt: now,

@@ -77,6 +77,17 @@ function safeParseMessages(json: string): Message[] {
   }
 }
 
+function safeParseStringArray(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((s): s is string => typeof s === "string");
+  } catch {
+    return [];
+  }
+}
+
 function safeParseScores(json: string | null): MotivationScores | null {
   if (!json) return null;
   try {
@@ -105,6 +116,7 @@ interface FastAPIQuestionResponse {
   evaluation?: MotivationEvaluation;
   target_element?: string;
   company_insight?: string;
+  suggestions?: string[];
 }
 
 interface CompanyData {
@@ -122,7 +134,11 @@ async function getQuestionFromFastAPI(
   question: string | null;
   error: string | null;
   evaluation: MotivationEvaluation | null;
+  suggestions: string[];
 }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60_000);
+
   try {
     const response = await fetch(`${FASTAPI_URL}/api/motivation/next-question`, {
       method: "POST",
@@ -138,6 +154,7 @@ async function getQuestionFromFastAPI(
         question_count: questionCount,
         scores: scores,
       }),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -146,6 +163,7 @@ async function getQuestionFromFastAPI(
         question: null,
         error: errorData.detail?.error || "AIサービスに接続できませんでした",
         evaluation: null,
+        suggestions: [],
       };
     }
 
@@ -154,14 +172,26 @@ async function getQuestionFromFastAPI(
       question: data.question,
       error: null,
       evaluation: data.evaluation || null,
+      suggestions: data.suggestions || [],
     };
   } catch (error) {
     console.error("[Motivation] FastAPI error:", error);
+    if (error instanceof Error && error.name === "AbortError") {
+      return {
+        question: null,
+        error: "AIの応答がタイムアウトしました",
+        evaluation: null,
+        suggestions: [],
+      };
+    }
     return {
       question: null,
       error: "AIサービスに接続できませんでした",
       evaluation: null,
+      suggestions: [],
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -234,13 +264,29 @@ export async function GET(
 
   // Get next question if not completed
   let nextQuestion: string | null = null;
-  if (!isCompleted && messages.length === 0) {
-    const result = await getQuestionFromFastAPI(
-      { id: company.id, name: company.name, industry: company.industry },
-      [],
-      0
-    );
-    nextQuestion = result.question;
+  let suggestions: string[] = [];
+  let initError: string | null = null;
+
+  if (!isCompleted) {
+    if (messages.length === 0) {
+      // New conversation: fetch initial question from FastAPI
+      const result = await getQuestionFromFastAPI(
+        { id: company.id, name: company.name, industry: company.industry },
+        [],
+        0
+      );
+      nextQuestion = result.question;
+      suggestions = result.suggestions;
+      initError = result.error;
+    } else {
+      // Existing conversation: extract nextQuestion from last assistant message
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage && lastMessage.role === "assistant") {
+        nextQuestion = lastMessage.content;
+      }
+      // Restore saved suggestions from DB
+      suggestions = safeParseStringArray(conversation.lastSuggestions);
+    }
   }
 
   return NextResponse.json({
@@ -251,10 +297,12 @@ export async function GET(
     },
     messages,
     nextQuestion,
+    suggestions,
     questionCount: conversation.questionCount ?? 0,
     isCompleted,
     scores,
     generatedDraft: conversation.generatedDraft,
+    error: initError,
   });
 }
 
@@ -313,12 +361,13 @@ export async function POST(
   const newQuestionCount = currentQuestionCount + 1;
 
   // Credit check (every QUESTIONS_PER_CREDIT questions for logged-in users)
-  if (newQuestionCount > 0 && newQuestionCount % QUESTIONS_PER_CREDIT === 0 && userId) {
-    const canPay = await hasEnoughCredits(userId, 1);
+  // Only check availability here; consume after FastAPI success
+  const shouldConsumeCredit = newQuestionCount > 0 && newQuestionCount % QUESTIONS_PER_CREDIT === 0 && !!userId;
+  if (shouldConsumeCredit) {
+    const canPay = await hasEnoughCredits(userId!, 1);
     if (!canPay) {
       return NextResponse.json({ error: "クレジットが不足しています" }, { status: 402 });
     }
-    await consumeCredits(userId, 1, "motivation", companyId);
   }
 
   // Add user answer
@@ -342,7 +391,12 @@ export async function POST(
     return NextResponse.json({ error: result.error }, { status: 503 });
   }
 
-  // Add AI question
+  // Consume credit only after FastAPI success (business rule: charge on success only)
+  if (shouldConsumeCredit) {
+    await consumeCredits(userId!, 1, "motivation", companyId);
+  }
+
+  // Add AI question to messages for DB storage
   let isCompleted = false;
   let newScores = scores;
 
@@ -380,6 +434,7 @@ export async function POST(
       questionCount: newQuestionCount,
       status: isCompleted ? "completed" : "in_progress",
       motivationScores: newScores ? JSON.stringify(newScores) : null,
+      lastSuggestions: JSON.stringify(result.suggestions || []),
       updatedAt: new Date(),
     })
     .where(eq(motivationConversations.id, conversation.id));
@@ -387,6 +442,7 @@ export async function POST(
   return NextResponse.json({
     messages,
     nextQuestion: isCompleted ? null : result.question,
+    suggestions: isCompleted ? [] : result.suggestions,
     questionCount: newQuestionCount,
     isCompleted,
     scores: newScores,

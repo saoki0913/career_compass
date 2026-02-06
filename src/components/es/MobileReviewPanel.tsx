@@ -27,11 +27,13 @@ interface MobileReviewPanelProps {
   sectionData?: SectionData[];
   hasCompanyRag?: boolean;
   companyId?: string;
+  companyName?: string;
   isPaid?: boolean;
   onApplyRewrite?: (newContent: string) => void;
   onUndo?: () => void;
   sectionReviewRequest?: SectionReviewRequest | null;
   onClearSectionReview?: () => void;
+  onScrollToEditorSection?: (sectionTitle: string) => void;
   className?: string;
 }
 
@@ -53,11 +55,13 @@ export function MobileReviewPanel({
   sectionData,
   hasCompanyRag = false,
   companyId,
+  companyName,
   isPaid = false,
   onApplyRewrite,
   onUndo,
   sectionReviewRequest,
   onClearSectionReview,
+  onScrollToEditorSection,
   className,
 }: MobileReviewPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -74,6 +78,15 @@ export function MobileReviewPanel({
   const handleApplyRewrite = (newContent: string) => {
     onApplyRewrite?.(newContent);
     setIsOpen(false);
+  };
+
+  // Handle scroll to editor section - close sheet first, then scroll
+  const handleScrollToEditorSection = (sectionTitle: string) => {
+    setIsOpen(false);
+    // Delay scroll until sheet close animation completes
+    setTimeout(() => {
+      onScrollToEditorSection?.(sectionTitle);
+    }, 300);
   };
 
   return (
@@ -115,11 +128,13 @@ export function MobileReviewPanel({
             sectionData={sectionData}
             hasCompanyRag={hasCompanyRag}
             companyId={companyId}
+            companyName={companyName}
             isPaid={isPaid}
             onApplyRewrite={handleApplyRewrite}
             onUndo={onUndo}
             sectionReviewRequest={sectionReviewRequest}
             onClearSectionReview={onClearSectionReview}
+            onScrollToEditorSection={handleScrollToEditorSection}
             className="h-full [&_>_div]:border-0 [&_>_div]:rounded-none [&_>_div]:shadow-none"
           />
         </div>

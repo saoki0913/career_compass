@@ -10,9 +10,13 @@ Features:
 - ES draft generation from conversation
 """
 
+import asyncio
+import json
+from typing import AsyncGenerator, Optional
+
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional
 
 from app.utils.llm import call_llm_with_error
 from app.utils.vector_store import get_enhanced_context_for_review_with_sources
@@ -61,6 +65,7 @@ class NextQuestionResponse(BaseModel):
     evaluation: Optional[dict] = None
     target_element: Optional[str] = None
     company_insight: Optional[str] = None  # RAG-based company insight used
+    suggestions: list[str] = []  # 4 suggested answer options for the user
 
 
 class GenerateDraftRequest(BaseModel):
@@ -178,10 +183,27 @@ MOTIVATION_QUESTION_PROMPT = """あなたは就活生の「志望動機」を深
 - 比較を聞く: 「同業他社ではなく御社を選ぶ理由は？」
 - ビジョンを聞く: 「入社後、どんな仕事に挑戦したいですか？」
 
+## 回答サジェスション生成ルール
+質問と同時に、ユーザーが選べる回答候補を4つ生成してください。
+
+### 要件
+- 1つあたり1〜2文、50〜100文字程度
+- 4つが異なる切り口をカバーすること
+- 対象要素（{weakest_element}）に関連した内容
+- 就活生が自然に言いそうな口語体
+- 企業RAG情報があれば1〜2つに織り込む
+
+### 多様性パターン
+1. 経験ベース: 過去の経験から答える
+2. 企業情報ベース: 企業の特徴に触れる
+3. 価値観ベース: 自分の考え方から答える
+4. 将来志向: 将来やりたいことから答える
+
 ## 出力形式
-必ず以下のJSON形式で回答してください：
+必ず以下のJSON形式で回答してください。suggestionsはquestionの直後に出力すること（重要フィールドを先に出力）：
 {{
   "question": "質問文",
+  "suggestions": ["回答候補1（経験ベース）", "回答候補2（企業情報ベース）", "回答候補3（価値観ベース）", "回答候補4（将来志向）"],
   "reasoning": "この質問をする理由（1文）",
   "target_element": "company_understanding|self_analysis|career_vision|differentiation",
   "company_insight": "質問に活用した企業情報（あれば）",
@@ -265,20 +287,66 @@ def _get_element_japanese_name(element: str) -> str:
 
 
 def _is_complete(scores: MotivationScores, threshold: int = ELEMENT_COMPLETION_THRESHOLD) -> bool:
-    """Check if all elements meet the completion threshold."""
-    return (
-        scores.company_understanding >= threshold
-        and scores.self_analysis >= threshold
-        and scores.career_vision >= threshold
-        and scores.differentiation >= threshold
+    """Check if motivation is complete using weighted scoring.
+
+    Weights reflect each element's impact on ES quality:
+    - differentiation (30%): strongest predictor of unique, compelling ESes
+    - career_vision (25%): demonstrates forward-thinking and commitment
+    - company_understanding (25%): shows genuine interest and research
+    - self_analysis (20%): foundation that supports all other elements
+    """
+    weighted = (
+        scores.differentiation * 0.30
+        + scores.career_vision * 0.25
+        + scores.company_understanding * 0.25
+        + scores.self_analysis * 0.20
     )
+    # Weighted average must meet threshold AND no element below 50%
+    min_element = min(
+        scores.company_understanding,
+        scores.self_analysis,
+        scores.career_vision,
+        scores.differentiation,
+    )
+    return weighted >= threshold and min_element >= 50
 
 
-async def _get_company_context(company_id: str, query: str = "") -> tuple[str, list[dict]]:
-    """Get company RAG context for motivation questions."""
+def _build_adaptive_rag_query(scores: Optional["MotivationScores"] = None) -> str:
+    """Build a RAG query tailored to the user's weakest motivation elements."""
+    if scores is None:
+        return "企業の特徴、事業内容、強み、社風、求める人物像"
+
+    weak_threshold = 50  # Elements below this need targeted context
+    query_parts: list[str] = []
+
+    if scores.company_understanding < weak_threshold:
+        query_parts.append("企業の事業内容、製品、サービス、業界での位置づけ")
+    if scores.self_analysis < weak_threshold:
+        query_parts.append("求める人物像、必要なスキル、企業文化、働き方")
+    if scores.career_vision < weak_threshold:
+        query_parts.append("キャリアパス、成長機会、研修制度、配属")
+    if scores.differentiation < weak_threshold:
+        query_parts.append("競合との差別化、独自の強み、特徴的な取り組み")
+
+    if not query_parts:
+        return "企業の特徴、事業内容、強み、社風、求める人物像"
+
+    return "、".join(query_parts)
+
+
+async def _get_company_context(
+    company_id: str,
+    query: str = "",
+    scores: Optional["MotivationScores"] = None,
+) -> tuple[str, list[dict]]:
+    """Get company RAG context for motivation questions.
+
+    When *scores* are provided, builds an adaptive query targeting
+    the user's weakest motivation elements.
+    """
     try:
         if not query:
-            query = "企業の特徴、事業内容、強み、社風、求める人物像"
+            query = _build_adaptive_rag_query(scores)
         context, sources = await get_enhanced_context_for_review_with_sources(
             company_id=company_id,
             es_content=query,
@@ -291,9 +359,21 @@ async def _get_company_context(company_id: str, query: str = "") -> tuple[str, l
 
 
 @router.post("/evaluate")
-async def evaluate_motivation(request: NextQuestionRequest) -> dict:
+async def evaluate_motivation_endpoint(request: NextQuestionRequest) -> dict:
     """
-    Evaluate the current conversation for motivation element coverage.
+    Public endpoint: Evaluate the current conversation for motivation element coverage.
+    Fetches RAG context internally.
+    """
+    return await _evaluate_motivation_internal(request)
+
+
+async def _evaluate_motivation_internal(
+    request: NextQuestionRequest,
+    company_context: str | None = None,
+) -> dict:
+    """
+    Internal evaluation logic. Accepts optional pre-fetched company context
+    to avoid redundant RAG calls when invoked from get_next_question().
     """
     if not request.conversation_history:
         return {
@@ -320,11 +400,12 @@ async def evaluate_motivation(request: NextQuestionRequest) -> dict:
             f"{len(request.conversation_history)} -> {len(trimmed_history)}"
         )
 
-    # Get company context for evaluation
-    company_context, _ = await _get_company_context(
-        request.company_id,
-        _format_conversation(trimmed_history)
-    )
+    # Use pre-fetched context if available, otherwise fetch from RAG
+    if company_context is None:
+        company_context, _ = await _get_company_context(
+            request.company_id,
+            _format_conversation(trimmed_history)
+        )
 
     conversation_text = _format_conversation(trimmed_history)
     prompt = MOTIVATION_EVALUATION_PROMPT.format(
@@ -347,7 +428,7 @@ async def evaluate_motivation(request: NextQuestionRequest) -> dict:
     llm_result = await call_llm_with_error(
         system_prompt=prompt,
         user_message="上記の会話を評価してください。",
-        max_tokens=800,
+        max_tokens=600,
         temperature=0.3,
         feature="motivation",
         retry_on_parse=True,
@@ -392,12 +473,17 @@ async def get_next_question(request: NextQuestionRequest):
     if not request.company_name:
         raise HTTPException(status_code=400, detail="企業名が指定されていません")
 
-    # Get company RAG context
-    company_context, _ = await _get_company_context(request.company_id)
-
-    # Handle initial question
+    # Handle initial question early — no RAG needed for the first question
     if not request.conversation_history:
         initial_question = f"{request.company_name}を志望される理由を教えてください。まずは、どんなきっかけでこの企業に興味を持ちましたか？"
+
+        industry = request.industry or "この業界"
+        initial_suggestions = [
+            f"大学の授業で{industry}について学び、{request.company_name}の取り組みに興味を持ちました",
+            f"就活サイトで{request.company_name}の社員インタビューを読んで、社風に惹かれました",
+            "インターンシップや説明会に参加して、事業内容に魅力を感じました",
+            f"もともと{industry}に関心があり、業界研究の中で{request.company_name}を知りました",
+        ]
 
         return NextQuestionResponse(
             question=initial_question,
@@ -416,10 +502,14 @@ async def get_next_question(request: NextQuestionRequest):
             },
             target_element="company_understanding",
             company_insight=None,
+            suggestions=initial_suggestions,
         )
 
-    # Evaluate current progress
-    eval_result = await evaluate_motivation(request)
+    # Get company RAG context (only for subsequent questions)
+    company_context, _ = await _get_company_context(request.company_id)
+
+    # Evaluate current progress (pass pre-fetched context to avoid duplicate RAG call)
+    eval_result = await _evaluate_motivation_internal(request, company_context=company_context)
     scores = MotivationScores(**eval_result["scores"])
     weakest_element = eval_result["weakest_element"]
     is_complete = eval_result["is_complete"]
@@ -427,6 +517,14 @@ async def get_next_question(request: NextQuestionRequest):
 
     # If complete, suggest ending
     if is_complete:
+        industry = request.industry or "この業界"
+        completion_suggestions = [
+            f"{request.company_name}で新しい価値を生み出し、社会に貢献すること",
+            "自分の強みを活かして、チームの成果を最大化すること",
+            f"{industry}の課題解決に第一線で取り組むこと",
+            "お客様に直接価値を届けられるプロフェッショナルになること",
+        ]
+
         return NextQuestionResponse(
             question="これまでの深掘りで、志望動機の核となる部分が具体的に整理できました。最後に、この企業で実現したい一番の目標を一言でまとめると何ですか？",
             reasoning="全要素が基準値に達したため、締めの質問",
@@ -435,6 +533,7 @@ async def get_next_question(request: NextQuestionRequest):
             evaluation=eval_result,
             target_element="career_vision",
             company_insight=None,
+            suggestions=completion_suggestions,
         )
 
     # Generate targeted question
@@ -469,7 +568,7 @@ async def get_next_question(request: NextQuestionRequest):
         system_prompt=prompt,
         user_message="次の深掘り質問を生成してください。",
         messages=messages,
-        max_tokens=800,  # 400→800: 日本語JSONレスポンス対応
+        max_tokens=900,  # 質問+サジェスト4つで十分
         temperature=0.7,
         feature="motivation",
         retry_on_parse=True,
@@ -493,6 +592,12 @@ async def get_next_question(request: NextQuestionRequest):
             detail={"error": "AIから有効な質問を取得できませんでした。"},
         )
 
+    # Extract and validate suggestions
+    suggestions = data.get("suggestions", [])
+    if not isinstance(suggestions, list):
+        suggestions = []
+    suggestions = [s for s in suggestions if isinstance(s, str) and len(s.strip()) > 0][:4]
+
     return NextQuestionResponse(
         question=data["question"],
         reasoning=data.get("reasoning"),
@@ -501,6 +606,204 @@ async def get_next_question(request: NextQuestionRequest):
         evaluation=eval_result,
         target_element=data.get("target_element", weakest_element),
         company_insight=data.get("company_insight"),
+        suggestions=suggestions,
+    )
+
+
+# ── SSE Streaming helpers ──────────────────────────────────────────────
+
+def _sse_event(event_type: str, data: dict) -> str:
+    """Format SSE event data."""
+    payload = {"type": event_type, **data}
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+async def _generate_next_question_progress(
+    request: NextQuestionRequest,
+) -> AsyncGenerator[str, None]:
+    """
+    Generate SSE events for motivation next-question with progress updates.
+    Reuses get_next_question logic but yields progress events.
+    """
+    try:
+        if not request.company_name:
+            yield _sse_event("error", {"message": "企業名が指定されていません"})
+            return
+
+        # Handle initial question (no history) — return immediately
+        if not request.conversation_history:
+            initial_question = f"{request.company_name}を志望される理由を教えてください。まずは、どんなきっかけでこの企業に興味を持ちましたか？"
+            industry = request.industry or "この業界"
+            initial_suggestions = [
+                f"大学の授業で{industry}について学び、{request.company_name}の取り組みに興味を持ちました",
+                f"就活サイトで{request.company_name}の社員インタビューを読んで、社風に惹かれました",
+                "インターンシップや説明会に参加して、事業内容に魅力を感じました",
+                f"もともと{industry}に関心があり、業界研究の中で{request.company_name}を知りました",
+            ]
+            yield _sse_event("complete", {
+                "data": {
+                    "question": initial_question,
+                    "reasoning": "会話開始時の導入質問",
+                    "should_continue": True,
+                    "suggested_end": False,
+                    "evaluation": {
+                        "scores": {
+                            "company_understanding": 0,
+                            "self_analysis": 0,
+                            "career_vision": 0,
+                            "differentiation": 0,
+                        },
+                        "weakest_element": "company_understanding",
+                        "is_complete": False,
+                    },
+                    "target_element": "company_understanding",
+                    "company_insight": None,
+                    "suggestions": initial_suggestions,
+                },
+            })
+            return
+
+        # Step 1: RAG context fetch
+        yield _sse_event("progress", {
+            "step": "rag", "progress": 15, "label": "企業情報を取得中...",
+        })
+        await asyncio.sleep(0.05)
+
+        company_context, _ = await _get_company_context(request.company_id)
+
+        # Step 2: Evaluation
+        yield _sse_event("progress", {
+            "step": "evaluation", "progress": 40, "label": "回答を分析中...",
+        })
+        await asyncio.sleep(0.05)
+
+        eval_result = await _evaluate_motivation_internal(
+            request, company_context=company_context
+        )
+        scores = MotivationScores(**eval_result["scores"])
+        weakest_element = eval_result["weakest_element"]
+        is_complete = eval_result["is_complete"]
+        missing_aspects = eval_result.get("missing_aspects", {})
+
+        # If complete, return final question
+        if is_complete:
+            industry = request.industry or "この業界"
+            completion_suggestions = [
+                f"{request.company_name}で新しい価値を生み出し、社会に貢献すること",
+                "自分の強みを活かして、チームの成果を最大化すること",
+                f"{industry}の課題解決に第一線で取り組むこと",
+                "お客様に直接価値を届けられるプロフェッショナルになること",
+            ]
+            yield _sse_event("complete", {
+                "data": {
+                    "question": "これまでの深掘りで、志望動機の核となる部分が具体的に整理できました。最後に、この企業で実現したい一番の目標を一言でまとめると何ですか？",
+                    "reasoning": "全要素が基準値に達したため、締めの質問",
+                    "should_continue": False,
+                    "suggested_end": True,
+                    "evaluation": eval_result,
+                    "target_element": "career_vision",
+                    "company_insight": None,
+                    "suggestions": completion_suggestions,
+                },
+            })
+            return
+
+        # Step 3: Question generation
+        yield _sse_event("progress", {
+            "step": "question", "progress": 65, "label": "質問を考え中...",
+        })
+        await asyncio.sleep(0.05)
+
+        weakest_jp = _get_element_japanese_name(weakest_element)
+        missing_for_weakest = missing_aspects.get(weakest_element, [])
+        missing_aspects_text = (
+            f"「{weakest_jp}」で不足: {', '.join(missing_for_weakest)}"
+            if missing_for_weakest
+            else ""
+        )
+
+        prompt = MOTIVATION_QUESTION_PROMPT.format(
+            company_name=request.company_name,
+            industry=request.industry or "不明",
+            company_context=company_context or "（企業情報なし）",
+            company_understanding_score=scores.company_understanding,
+            self_analysis_score=scores.self_analysis,
+            career_vision_score=scores.career_vision,
+            differentiation_score=scores.differentiation,
+            weakest_element=weakest_jp,
+            missing_aspects=missing_aspects_text,
+            threshold=ELEMENT_COMPLETION_THRESHOLD,
+        )
+
+        messages = [
+            {"role": msg.role, "content": msg.content}
+            for msg in request.conversation_history
+        ]
+
+        llm_result = await call_llm_with_error(
+            system_prompt=prompt,
+            user_message="次の深掘り質問を生成してください。",
+            messages=messages,
+            max_tokens=900,
+            temperature=0.7,
+            feature="motivation",
+            retry_on_parse=True,
+            disable_fallback=True,
+        )
+
+        if not llm_result.success:
+            error = llm_result.error
+            yield _sse_event("error", {
+                "message": error.message if error else "AIサービスに接続できませんでした。",
+            })
+            return
+
+        data = llm_result.data
+        if not data or not data.get("question"):
+            yield _sse_event("error", {
+                "message": "AIから有効な質問を取得できませんでした。",
+            })
+            return
+
+        # Extract suggestions
+        suggestions = data.get("suggestions", [])
+        if not isinstance(suggestions, list):
+            suggestions = []
+        suggestions = [
+            s for s in suggestions if isinstance(s, str) and len(s.strip()) > 0
+        ][:4]
+
+        yield _sse_event("complete", {
+            "data": {
+                "question": data["question"],
+                "reasoning": data.get("reasoning"),
+                "should_continue": data.get("should_continue", True),
+                "suggested_end": data.get("suggested_end", False),
+                "evaluation": eval_result,
+                "target_element": data.get("target_element", weakest_element),
+                "company_insight": data.get("company_insight"),
+                "suggestions": suggestions,
+            },
+        })
+
+    except Exception as e:
+        yield _sse_event("error", {"message": f"予期しないエラーが発生しました: {str(e)}"})
+
+
+@router.post("/next-question/stream")
+async def get_next_question_stream(request: NextQuestionRequest):
+    """
+    SSE streaming version of next-question.
+    Yields progress events then complete/error event.
+    """
+    return StreamingResponse(
+        _generate_next_question_progress(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -540,7 +843,7 @@ async def generate_draft(request: GenerateDraftRequest):
     llm_result = await call_llm_with_error(
         system_prompt=prompt,
         user_message="志望動機のESを作成してください。",
-        max_tokens=1500,
+        max_tokens=600,  # Draft: ~200-400 chars + JSON wrapper
         temperature=0.5,
         feature="motivation",
         retry_on_parse=True,

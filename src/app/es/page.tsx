@@ -8,6 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import { useDocuments, DOCUMENT_TYPE_LABELS, CreateDocumentInput } from "@/hooks/useDocuments";
 import { useCompanies } from "@/hooks/useCompanies";
@@ -52,6 +55,36 @@ const BuildingIcon = () => (
   </svg>
 );
 
+// Hero icon for dialog header
+const DocumentPlusIcon = () => (
+  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+    />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M14.5 2.5v4a1 1 0 001 1h4"
+    />
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+  </svg>
+);
+
+const ChevronsUpDownIcon = () => (
+  <svg className="w-4 h-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 15l5 5 5-5M7 9l5-5 5 5" />
+  </svg>
+);
+
 interface NewDocumentModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -62,8 +95,21 @@ interface NewDocumentModalProps {
 function NewDocumentModal({ isOpen, onClose, onCreate, companies }: NewDocumentModalProps) {
   const [title, setTitle] = useState("");
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
+  const [companyOpen, setCompanyOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Reset form when dialog opens/closes
+  useEffect(() => {
+    if (!isOpen) {
+      setTitle("");
+      setSelectedCompanyId("");
+      setCompanyOpen(false);
+      setError(null);
+    }
+  }, [isOpen]);
+
+  const selectedCompany = companies.find((c) => c.id === selectedCompanyId);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,8 +128,6 @@ function NewDocumentModal({ isOpen, onClose, onCreate, companies }: NewDocumentM
         type: "es",
         companyId: selectedCompanyId || undefined,
       });
-      setTitle("");
-      setSelectedCompanyId("");
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "エラーが発生しました");
@@ -92,69 +136,139 @@ function NewDocumentModal({ isOpen, onClose, onCreate, companies }: NewDocumentM
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>新しいESを作成</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {error && (
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-md">
+        <form onSubmit={handleSubmit}>
+          <DialogHeader className="text-center sm:text-center">
+            <div className="mx-auto w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-1">
+              <span className="text-primary">
+                <DocumentPlusIcon />
+              </span>
+            </div>
+            <DialogTitle>新しいESを作成</DialogTitle>
+            <DialogDescription>
+              タイトルを入力してESの編集を始めましょう
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5 py-4">
+            {/* Server error */}
+            {error && title.trim() && (
               <div className="p-3 rounded-lg bg-red-50 border border-red-200">
                 <p className="text-sm text-red-800">{error}</p>
               </div>
             )}
 
+            {/* Title field */}
             <div className="space-y-2">
-              <Label htmlFor="title">タイトル *</Label>
+              <Label htmlFor="title">
+                タイトル <span className="text-red-500">*</span>
+              </Label>
               <Input
                 id="title"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={(e) => { setTitle(e.target.value); if (error) setError(null); }}
                 placeholder="〇〇会社 夏インターンES"
                 autoFocus
+                className={cn(
+                  error && !title.trim() && "border-red-300 focus-visible:ring-red-500"
+                )}
               />
+              {error && !title.trim() && (
+                <p className="text-xs text-red-500">タイトルを入力してください</p>
+              )}
             </div>
 
+            {/* Company combobox */}
             <div className="space-y-2">
-              <Label htmlFor="company">企業（任意）</Label>
-              <select
-                id="company"
-                value={selectedCompanyId}
-                onChange={(e) => setSelectedCompanyId(e.target.value)}
-                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="">企業を選択...</option>
-                {companies.map((company) => (
-                  <option key={company.id} value={company.id}>
-                    {company.name}
-                  </option>
-                ))}
-              </select>
+              <Label>企業（任意）</Label>
+              <Popover open={companyOpen} onOpenChange={setCompanyOpen} modal={true}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={companyOpen}
+                    className="w-full justify-between font-normal h-10"
+                  >
+                    {selectedCompany ? (
+                      <span className="flex items-center gap-2 truncate">
+                        <BuildingIcon />
+                        {selectedCompany.name}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">企業を選択...</span>
+                    )}
+                    <ChevronsUpDownIcon />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                  <Command shouldFilter={true}>
+                    <CommandInput placeholder="企業名で検索..." />
+                    <CommandList>
+                      <CommandEmpty>企業が見つかりません</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem
+                          value="__none__"
+                          onSelect={() => { setSelectedCompanyId(""); setCompanyOpen(false); }}
+                        >
+                          <span className={cn("mr-2 h-4 w-4 shrink-0", !selectedCompanyId ? "opacity-100" : "opacity-0")}>
+                            <CheckIcon />
+                          </span>
+                          <span className="text-muted-foreground">選択なし</span>
+                        </CommandItem>
+                      </CommandGroup>
+                      {companies.length > 0 && (
+                        <>
+                          <CommandSeparator />
+                          <CommandGroup>
+                            {companies.map((company) => (
+                              <CommandItem
+                                key={company.id}
+                                value={company.name}
+                                onSelect={() => { setSelectedCompanyId(company.id); setCompanyOpen(false); }}
+                              >
+                                <span className={cn("mr-2 h-4 w-4 shrink-0", selectedCompanyId === company.id ? "opacity-100" : "opacity-0")}>
+                                  <CheckIcon />
+                                </span>
+                                <BuildingIcon />
+                                <span className="truncate">{company.name}</span>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </>
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
+          </div>
 
-            <div className="flex justify-end gap-3 pt-4">
-              <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <DialogClose asChild>
+              <Button type="button" variant="ghost" disabled={isSubmitting}>
                 キャンセル
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <LoadingSpinner />
-                    <span className="ml-2">作成中...</span>
-                  </>
-                ) : (
-                  "作成"
-                )}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+            </DialogClose>
+            <Button type="submit" disabled={isSubmitting || !title.trim()}>
+              {isSubmitting ? (
+                <>
+                  <LoadingSpinner />
+                  作成中...
+                </>
+              ) : (
+                <>
+                  <PlusIcon />
+                  ESを作成
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -181,12 +295,44 @@ export default function ESListPage() {
   const [showNewModal, setShowNewModal] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const [gakuchikaContext, setGakuchikaContext] = useState<{
+    id: string;
+    title: string;
+    summary: string | null;
+  } | null>(null);
 
   // Auto-open new document modal when ?new=1 is in URL
   useEffect(() => {
     if (searchParams.get("new") === "1") {
       setShowNewModal(true);
       // Remove the query parameter from URL without page reload
+      router.replace("/es", { scroll: false });
+    }
+  }, [searchParams, router]);
+
+  // Handle ?gakuchikaId=xxx from gakuchika completion screen
+  useEffect(() => {
+    const gakuchikaId = searchParams.get("gakuchikaId");
+    if (gakuchikaId) {
+      // Fetch gakuchika info for the banner
+      fetch(`/api/gakuchika/${gakuchikaId}`, {
+        credentials: "include",
+      })
+        .then((res) => res.ok ? res.json() : null)
+        .then((data) => {
+          if (data?.gakuchika) {
+            setGakuchikaContext({
+              id: data.gakuchika.id,
+              title: data.gakuchika.title,
+              summary: data.gakuchika.summary,
+            });
+          }
+        })
+        .catch(() => {});
+
+      // Auto-open the new document modal
+      setShowNewModal(true);
+      // Clean URL
       router.replace("/es", { scroll: false });
     }
   }, [searchParams, router]);
@@ -257,6 +403,36 @@ export default function ESListPage() {
             )}
           </div>
         </div>
+
+        {/* Gakuchika context banner */}
+        {gakuchikaContext && (
+          <div className="mb-6 p-4 rounded-lg bg-primary/5 border border-primary/20">
+            <div className="flex items-start gap-3">
+              <div className="shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
+                <svg className="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground">
+                  ガクチカ「{gakuchikaContext.title}」の深掘り結果を活用
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  ESを作成すると、深掘りで得られた経験や強みが添削時に自動的に参照されます。
+                </p>
+              </div>
+              <button
+                onClick={() => setGakuchikaContext(null)}
+                className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="閉じる"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Document list */}
         {isLoading ? (

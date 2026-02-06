@@ -7,3 +7,5 @@ export { CompareView } from "./CompareView";
 export { ReflectModal } from "./ReflectModal";
 export { VersionHistory } from "./VersionHistory";
 export { AIThreadHistory } from "./AIThreadHistory";
+export { SectionReviewCTA } from "./SectionReviewCTA";
+export { ReviewEmptyState } from "./ReviewEmptyState";

@@ -5,7 +5,6 @@ import type { NextRequest } from "next/server";
 const PROTECTED_ROUTES = [
   "/calendar",
   "/settings",
-  "/api/auth/plan",
 ];
 
 // Routes that require plan selection
@@ -19,14 +18,13 @@ const PLAN_REQUIRED_ROUTES = [
 // Routes that are only for unauthenticated users
 const AUTH_ROUTES = ["/login"];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Skip static files and API routes (except those we want to protect)
   if (
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/api/auth/[") || // Better Auth routes
-    pathname.startsWith("/api/auth/guest") || // Guest API
+    pathname.startsWith("/api/auth/") || // Better Auth routes
     pathname.startsWith("/api/webhooks") ||
     pathname.includes(".")
   ) {
@@ -36,10 +34,6 @@ export async function middleware(request: NextRequest) {
   // Check for session cookie (Better Auth)
   const sessionCookie = request.cookies.get("better-auth.session_token");
   const isAuthenticated = !!sessionCookie?.value;
-
-  // Check for guest token header/cookie (for future use)
-  // const guestToken = request.cookies.get("guest_device_token")?.value;
-  // const isGuest = !isAuthenticated && !!guestToken;
 
   // Auth routes - redirect to dashboard if already authenticated
   if (AUTH_ROUTES.some((route) => pathname.startsWith(route))) {
@@ -63,7 +57,7 @@ export async function middleware(request: NextRequest) {
   // and client-side AuthProvider
   if (PLAN_REQUIRED_ROUTES.some((route) => pathname.startsWith(route))) {
     // For authenticated users, we rely on client-side AuthProvider to check plan status
-    // and redirect if needed. This avoids making DB calls in middleware.
+    // and redirect if needed. This avoids making DB calls in proxy.
     // The API routes perform the actual plan check.
     return NextResponse.next();
   }

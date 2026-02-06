@@ -6,6 +6,7 @@
  */
 
 export type PlanType = "free" | "standard" | "pro";
+export type PlanTypeWithGuest = "guest" | "free" | "standard" | "pro";
 export type BillingPeriod = "monthly" | "annual";
 
 /**
@@ -32,13 +33,21 @@ export const STRIPE_PRICES: Record<
  * Plan metadata for display and credit allocation
  */
 export const PLAN_METADATA = {
+  guest: {
+    name: "Guest",
+    price: 0,
+    credits: 15,
+    companies: 3,
+    esReviews: 1,
+    gakuchika: 2,
+  },
   free: {
     name: "Free",
     price: 0,
     credits: 30,
     companies: 5,
     esReviews: 3,
-    gakuchika: 1,
+    gakuchika: 3,
   },
   standard: {
     name: "Standard",
@@ -46,7 +55,7 @@ export const PLAN_METADATA = {
     credits: 300,
     companies: 30,
     esReviews: 10,
-    gakuchika: 5,
+    gakuchika: 10,
   },
   pro: {
     name: "Pro",
@@ -54,7 +63,7 @@ export const PLAN_METADATA = {
     credits: 800,
     companies: -1, // unlimited
     esReviews: -1, // unlimited
-    gakuchika: -1, // unlimited
+    gakuchika: 20,
   },
 } as const;
 

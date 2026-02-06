@@ -114,18 +114,32 @@ LLMModel = Literal[
 ]
 ResponseFormat = Literal["json_object", "json_schema", "text"]
 
-# Feature-based model configuration
-MODEL_CONFIG: dict[str, LLMModel] = {
-    "es_review": "claude-sonnet",  # High-quality review and rewrite
-    "gakuchika": "claude-haiku",  # Interactive deep-dive questions (cost-optimized)
-    "motivation": "claude-haiku",  # Motivation deep-dive questions (cost-optimized)
-    "selection_schedule": "claude-haiku",  # Selection schedule extraction
-    "rag_query": "claude-haiku",  # Query expansion + HyDE for RAG (lightweight)
-    "rag_query_expansion": "claude-haiku",  # Query expansion for RAG (lightweight)
-    "rag_hyde": "claude-sonnet",  # HyDE for RAG (precision-critical)
-    "rag_rerank": "claude-sonnet",  # Reranking for RAG (precision-critical)
-    "rag_classify": "claude-haiku",  # Content classification for RAG (lightweight)
-}
+# Feature-based model configuration (loaded from settings / .env.local)
+def _build_model_config() -> dict[str, LLMModel]:
+    """Build MODEL_CONFIG from environment-configurable settings."""
+    return {
+        "es_review": settings.model_es_review,
+        "gakuchika": settings.model_gakuchika,
+        "motivation": settings.model_motivation,
+        "selection_schedule": settings.model_selection_schedule,
+        "company_info": settings.model_company_info,
+        "rag_query_expansion": settings.model_rag_query_expansion,
+        "rag_hyde": settings.model_rag_hyde,
+        "rag_rerank": settings.model_rag_rerank,
+        "rag_classify": settings.model_rag_classify,
+    }
+
+
+# Lazy-initialized singleton
+_model_config: dict[str, LLMModel] | None = None
+
+
+def get_model_config() -> dict[str, LLMModel]:
+    """Get MODEL_CONFIG (lazy-init on first access)."""
+    global _model_config
+    if _model_config is None:
+        _model_config = _build_model_config()
+    return _model_config
 
 # Feature name mapping for error messages and logs
 FEATURE_NAMES = {
@@ -133,7 +147,7 @@ FEATURE_NAMES = {
     "gakuchika": "ガクチカ深掘り",
     "motivation": "志望動機作成",
     "selection_schedule": "選考スケジュール抽出",
-    "rag_query": "RAGクエリ拡張",
+    "company_info": "企業情報抽出",
     "rag_query_expansion": "RAGクエリ拡張",
     "rag_hyde": "RAG仮想文書生成",
     "rag_rerank": "RAG再ランキング",
@@ -330,7 +344,7 @@ async def call_llm_with_error(
 
     # モデル選択: 明示的指定 > 機能設定 > デフォルト
     if model is None:
-        model = MODEL_CONFIG.get(feature, "claude-sonnet")
+        model = get_model_config().get(feature, "claude-sonnet")
 
     # プロバイダーを決定
     provider = "anthropic" if model in ("claude-sonnet", "claude-haiku") else "openai"
@@ -795,7 +809,7 @@ async def call_llm_with_error(
 
 def _is_rag_feature(feature: str) -> bool:
     """機能がRAG関連かどうかを判定（短いタイムアウトを使用）。"""
-    return feature in ("rag_query", "rag_query_expansion", "rag_hyde", "rag_rerank", "rag_classify")
+    return feature in ("rag_query_expansion", "rag_hyde", "rag_rerank", "rag_classify")
 
 
 async def _call_claude_raw(
@@ -878,7 +892,7 @@ async def call_llm_streaming(
     feature = feature or "unknown"
 
     if model is None:
-        model = MODEL_CONFIG.get(feature, "claude-sonnet")
+        model = get_model_config().get(feature, "claude-sonnet")
 
     # Only Claude models support streaming in this implementation
     if model not in ("claude-sonnet", "claude-haiku"):

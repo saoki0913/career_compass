@@ -11,7 +11,7 @@ import { motivationConversations, companies, documents } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
-import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
+import { reserveCredits, confirmReservation, cancelReservation } from "@/lib/credits";
 import { randomUUID } from "crypto";
 
 async function getIdentity(request: NextRequest): Promise<{
@@ -120,12 +120,14 @@ export async function POST(
     return NextResponse.json({ error: "会話が十分にありません" }, { status: 400 });
   }
 
-  // Credit check (1 credit for draft generation for logged-in users)
+  // Reserve credits upfront (1 credit for draft generation for logged-in users)
+  let reservationId: string | null = null;
   if (userId) {
-    const canPay = await hasEnoughCredits(userId, 1);
-    if (!canPay) {
+    const reservation = await reserveCredits(userId, 1, "motivation_draft", companyId, `志望動機ES生成: ${company.name}`);
+    if (!reservation.success) {
       return NextResponse.json({ error: "クレジットが不足しています" }, { status: 402 });
     }
+    reservationId = reservation.reservationId;
   }
 
   // Call FastAPI for draft generation
@@ -143,6 +145,7 @@ export async function POST(
     });
 
     if (!response.ok) {
+      if (reservationId) await cancelReservation(reservationId);
       const errorData = await response.json().catch(() => ({}));
       return NextResponse.json(
         { error: errorData.detail?.error || "ES生成に失敗しました" },
@@ -152,9 +155,9 @@ export async function POST(
 
     const data: FastAPIDraftResponse = await response.json();
 
-    // Consume credit on success
-    if (userId) {
-      await consumeCredits(userId, 1, "motivation_draft", companyId);
+    // Confirm credit reservation on success
+    if (reservationId) {
+      await confirmReservation(reservationId);
     }
 
     // Save draft to database
@@ -204,6 +207,7 @@ export async function POST(
       documentId: documentId,
     });
   } catch (error) {
+    if (reservationId) await cancelReservation(reservationId);
     console.error("[Motivation Draft] Error:", error);
     return NextResponse.json({ error: "ES生成中にエラーが発生しました" }, { status: 503 });
   }

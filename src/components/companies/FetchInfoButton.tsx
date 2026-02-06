@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { ProcessingSteps, COMPANY_FETCH_STEPS } from "@/components/ui/ProcessingSteps";
+import { useOperationLock } from "@/hooks/useOperationLock";
 
 type SelectionType = "main_selection" | "internship";
 type SelectionTypeState = SelectionType | null;
@@ -136,6 +137,7 @@ export function FetchInfoButton({
   hasRecruitmentUrl,
   onSuccess,
 }: FetchInfoButtonProps) {
+  const { isLocked, acquireLock, releaseLock } = useOperationLock();
   const [isFetching, setIsFetching] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [showUrlSelector, setShowUrlSelector] = useState(false);
@@ -178,6 +180,7 @@ export function FetchInfoButton({
   }, []);
 
   const handleSearchPages = async (customQueryOverride?: string, allowSnippetMatch = false) => {
+    if (!acquireLock("採用情報を検索中")) return;
     setIsSearching(true);
     setError(null);
     setIsRelaxedSearch(allowSnippetMatch);
@@ -224,6 +227,7 @@ export function FetchInfoButton({
       setShowResult(true);
     } finally {
       setIsSearching(false);
+      releaseLock();
     }
   };
 
@@ -339,6 +343,7 @@ export function FetchInfoButton({
   };
 
   const handleConfirmUrl = async () => {
+    if (!acquireLock("採用情報を取得中")) return;
     // Build list of URLs to fetch
     const urlsToFetch: string[] = [];
 
@@ -354,6 +359,7 @@ export function FetchInfoButton({
     if (selectedUrls.includes("custom")) {
       if (!customUrl.trim()) {
         setError("カスタムURLを入力してください");
+        releaseLock();
         return;
       }
       urlsToFetch.push(customUrl.trim());
@@ -361,6 +367,7 @@ export function FetchInfoButton({
 
     if (urlsToFetch.length === 0) {
       setError("URLを選択してください");
+      releaseLock();
       return;
     }
 
@@ -452,6 +459,7 @@ export function FetchInfoButton({
 
     setFetchProgress(null);
     setIsFetching(false);
+    releaseLock();
 
     // Build merged result
     const mergedResult: FetchResult = {
@@ -520,10 +528,10 @@ export function FetchInfoButton({
     <>
       <button
         onClick={() => setShowSelectionTypeModal(true)}
-        disabled={isSearching || isFetching}
+        disabled={isSearching || isFetching || isLocked}
         className={cn(
           "flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border transition-colors",
-          isSearching || isFetching
+          isSearching || isFetching || isLocked
             ? "text-muted-foreground cursor-wait bg-muted/30"
             : "hover:bg-muted/50"
         )}

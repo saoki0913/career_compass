@@ -8,10 +8,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
-import { eq, desc, isNull } from "drizzle-orm";
+import { gakuchikaContents, gakuchikaConversations, userProfiles } from "@/lib/db/schema";
+import { eq, desc, isNull, and, or, asc } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { PLAN_METADATA, type PlanTypeWithGuest } from "@/lib/stripe/config";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -70,6 +71,17 @@ export async function GET(request: NextRequest) {
 
     const { userId, guestId } = identity;
 
+    // Get user plan
+    let plan: PlanTypeWithGuest = "guest";
+    if (userId) {
+      const profile = await db
+        .select()
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, userId))
+        .get();
+      plan = (profile?.plan || "free") as PlanTypeWithGuest;
+    }
+
     // Get gakuchika contents with their latest conversation data
     const contents = await db
       .select()
@@ -81,7 +93,7 @@ export async function GET(request: NextRequest) {
           ? eq(gakuchikaContents.guestId, guestId)
           : isNull(gakuchikaContents.id)
       )
-      .orderBy(desc(gakuchikaContents.updatedAt));
+      .orderBy(asc(gakuchikaContents.sortOrder), desc(gakuchikaContents.updatedAt));
 
     // Get conversation data for each gakuchika
     const gakuchikasWithConversation = await Promise.all(
@@ -106,7 +118,14 @@ export async function GET(request: NextRequest) {
       })
     );
 
-    return NextResponse.json({ gakuchikas: gakuchikasWithConversation });
+    const currentCount = contents.length;
+    const maxCount = PLAN_METADATA[plan].gakuchika;
+
+    return NextResponse.json({
+      gakuchikas: gakuchikasWithConversation,
+      currentCount,
+      maxCount,
+    });
   } catch (error) {
     console.error("Error fetching gakuchikas:", error);
     return NextResponse.json(
@@ -129,6 +148,38 @@ export async function POST(request: NextRequest) {
     }
 
     const { userId, guestId } = identity;
+
+    // Get user plan
+    let plan: PlanTypeWithGuest = "guest";
+    if (userId) {
+      const profile = await db
+        .select()
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, userId))
+        .get();
+      plan = (profile?.plan || "free") as PlanTypeWithGuest;
+    }
+
+    // Check plan limits
+    const maxGakuchika = PLAN_METADATA[plan].gakuchika;
+    const existingCount = await db
+      .select()
+      .from(gakuchikaContents)
+      .where(
+        userId
+          ? eq(gakuchikaContents.userId, userId)
+          : guestId
+          ? eq(gakuchikaContents.guestId, guestId)
+          : isNull(gakuchikaContents.id)
+      );
+
+    if (existingCount.length >= maxGakuchika) {
+      return NextResponse.json(
+        { error: `ガクチカ素材の作成上限（${maxGakuchika}件）に達しています。プランをアップグレードしてください。` },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const { title, content, charLimitType } = body;
 

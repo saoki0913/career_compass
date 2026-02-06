@@ -1,6 +1,14 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverDescription,
+} from "@/components/ui/popover";
 
 interface STARScores {
   situation: number;
@@ -22,6 +30,30 @@ const STAR_ELEMENTS = [
   { key: "action", label: "行動" },
   { key: "result", label: "結果" },
 ] as const;
+
+// STAR element explanations for tooltips
+export const STAR_EXPLANATIONS = {
+  situation: {
+    title: "状況 (Situation)",
+    description: "いつ、どこで、どんな環境で起きた出来事か",
+    example: "例: 大学2年次、50人規模のサークルで副代表を務めていた時",
+  },
+  task: {
+    title: "課題 (Task)",
+    description: "その状況下でどんな問題や目標があったか",
+    example: "例: 新入生の定着率が低く、入会後1ヶ月で30%が辞めていた",
+  },
+  action: {
+    title: "行動 (Action)",
+    description: "課題に対してあなたが実際に取った行動",
+    example: "例: 退会理由をヒアリングし、メンター制度を立ち上げた",
+  },
+  result: {
+    title: "結果 (Result)",
+    description: "行動の結果、何が起きたか・何を学んだか",
+    example: "例: 定着率が90%に向上。信頼関係構築の重要性を学んだ",
+  },
+} as const;
 
 const COMPLETION_THRESHOLD = 70;
 
@@ -123,14 +155,35 @@ export function STARProgressBar({
       <div className="flex items-center gap-2 flex-1 min-w-0">
         {STAR_ELEMENTS.map((element) => {
           const score = currentScores[element.key];
+          const explanation = STAR_EXPLANATIONS[element.key];
           return (
             <div
               key={element.key}
               className="flex items-center gap-1 flex-1 min-w-0"
             >
-              <span className="text-[10px] text-muted-foreground w-5 shrink-0">
-                {element.label}
-              </span>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-[10px] text-muted-foreground w-5 shrink-0 hover:text-foreground transition-colors cursor-help"
+                  >
+                    {element.label}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent side="top" align="start" className="w-64">
+                  <PopoverHeader>
+                    <PopoverTitle className="text-sm">
+                      {explanation.title}
+                    </PopoverTitle>
+                    <PopoverDescription className="mt-1">
+                      {explanation.description}
+                    </PopoverDescription>
+                  </PopoverHeader>
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <p className="text-xs text-foreground/80">{explanation.example}</p>
+                  </div>
+                </PopoverContent>
+              </Popover>
               <div
                 className={cn(
                   "relative h-1.5 flex-1 min-w-0 rounded-full overflow-hidden",

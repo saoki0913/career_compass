@@ -18,6 +18,7 @@ const PLANS: {
   isPopular?: boolean;
   variant: "default" | "recommended" | "premium";
   dailyPrice?: string;
+  ctaLabel?: string;
   features: { text: string; included: boolean; highlight?: boolean }[];
 }[] = [
   {
@@ -26,6 +27,7 @@ const PLANS: {
     price: "¥0",
     description: "まずは無料で試してみたい方に",
     variant: "default",
+    ctaLabel: "無料で始める",
     features: [
       { text: "企業登録 5社まで", included: true },
       { text: "ESエディタ", included: true },
@@ -44,6 +46,7 @@ const PLANS: {
     isPopular: true,
     variant: "recommended",
     dailyPrice: "¥33",
+    ctaLabel: "Standardで始める",
     features: [
       { text: "企業登録 30社まで", included: true, highlight: true },
       { text: "ESエディタ", included: true },
@@ -61,6 +64,7 @@ const PLANS: {
     description: "最大限のサポートで内定を勝ち取る",
     variant: "premium",
     dailyPrice: "¥99",
+    ctaLabel: "Proで始める",
     features: [
       { text: "企業登録 無制限", included: true },
       { text: "ESエディタ", included: true },
@@ -74,7 +78,7 @@ const PLANS: {
 
 // Icons
 const ShieldCheckIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -85,7 +89,7 @@ const ShieldCheckIcon = () => (
 );
 
 const CreditCardIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -96,7 +100,7 @@ const CreditCardIcon = () => (
 );
 
 const RefreshIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -218,113 +222,96 @@ export default function PricingPage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-12">
+      <main className="max-w-5xl mx-auto px-4 py-6">
         {/* Canceled message */}
         {showCanceledMessage && (
-          <div className="mb-8 p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-center animate-in fade-in">
+          <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-center text-sm animate-in fade-in">
             チェックアウトがキャンセルされました。いつでも再度お試しいただけます。
           </div>
         )}
 
         {/* Error message */}
         {error && (
-          <div className="mb-8 p-4 rounded-lg bg-red-50 border border-red-200 text-red-800 text-center animate-in fade-in">
+          <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-center text-sm animate-in fade-in">
             {error}
           </div>
         )}
 
-        {/* Header section */}
-        <div className="text-center mb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-4 bg-gradient-to-r from-foreground via-foreground to-foreground/70 bg-clip-text">
+        {/* Header section - compact single line */}
+        <div className="text-center mb-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <h1 className="text-2xl md:text-3xl font-black tracking-tight mb-2 bg-gradient-to-r from-foreground via-foreground to-foreground/70 bg-clip-text">
             あなたに最適なプランを選ぼう
           </h1>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            就活の進め方に合わせて、3つのプランからお選びください。
-            <br className="hidden sm:block" />
-            <span className="text-primary font-medium">いつでも変更・キャンセル可能</span>です。
+          <p className="text-sm text-muted-foreground">
+            <span className="text-primary font-medium">いつでも変更・キャンセル可能</span>
+            <span className="mx-2 text-border">|</span>
+            <span className="inline-flex items-center gap-1">
+              <svg className="w-3.5 h-3.5 text-primary" fill="currentColor" viewBox="0 0 20 20"><path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" /></svg>
+              就活生の87%がStandardを選択
+            </span>
           </p>
         </div>
 
         {/* Current plan indicator for authenticated users */}
         {isAuthenticated && user && (
-          <div className="text-center mb-8 animate-in fade-in">
+          <div className="text-center mb-4 animate-in fade-in">
             <p className="text-sm text-muted-foreground">
               現在のプラン: <span className="font-semibold text-foreground">{(user as { plan?: string }).plan?.toUpperCase() || "FREE"}</span>
             </p>
           </div>
         )}
 
-        {/* Plan cards */}
-        <div className="grid gap-6 md:gap-6 md:grid-cols-3 mb-10">
+        {/* Plan cards - center stage effect with Standard scaled up */}
+        <div className="grid gap-6 md:gap-6 md:grid-cols-3 md:items-end mb-4">
           {PLANS.map((plan, index) => (
-            <PlanSelectionCard
-              key={plan.id}
-              name={plan.name}
-              price={plan.price}
-              period={plan.period}
-              description={plan.description}
-              features={plan.features}
-              isPopular={plan.isPopular}
-              variant={plan.variant}
-              dailyPrice={plan.dailyPrice}
-              isSelected={selectedPlan === plan.id}
-              onSelect={() => handlePlanSelect(plan.id)}
-              disabled={isSubmitting}
-              animationDelay={index * 100}
-            />
+            <div key={plan.id} className={plan.variant === "recommended" ? "md:scale-105 md:z-10" : ""}>
+              <PlanSelectionCard
+                name={plan.name}
+                price={plan.price}
+                period={plan.period}
+                description={plan.description}
+                features={plan.features}
+                isPopular={plan.isPopular}
+                variant={plan.variant}
+                dailyPrice={plan.dailyPrice}
+                isSelected={selectedPlan === plan.id}
+                onSelect={() => handlePlanSelect(plan.id)}
+                disabled={isSubmitting}
+                animationDelay={index * 100}
+                ctaLabel={plan.ctaLabel}
+                compact
+              />
+            </div>
           ))}
         </div>
 
-        {/* Trust badges */}
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-6 text-sm text-muted-foreground animate-in fade-in duration-700" style={{ animationDelay: "400ms" }}>
-          <div className="flex items-center gap-2">
+        {/* Trust badges - compact single row */}
+        <div className="mt-4 flex items-center justify-center gap-4 text-xs text-muted-foreground animate-in fade-in duration-700" style={{ animationDelay: "400ms" }}>
+          <div className="flex items-center gap-1.5">
             <ShieldCheckIcon />
             <span>安心のセキュリティ</span>
           </div>
-          <div className="flex items-center gap-2">
+          <span className="text-border">|</span>
+          <div className="flex items-center gap-1.5">
             <CreditCardIcon />
-            <span>Stripeによる安全な決済</span>
+            <span>Stripe安全決済</span>
           </div>
-          <div className="flex items-center gap-2">
+          <span className="text-border">|</span>
+          <div className="flex items-center gap-1.5">
             <RefreshIcon />
-            <span>いつでもプラン変更可能</span>
+            <span>いつでも変更可能</span>
           </div>
         </div>
 
-        {/* FAQ section */}
-        <section className="mt-20">
-          <h2 className="text-2xl font-bold text-center mb-8">よくある質問</h2>
-          <div className="max-w-2xl mx-auto space-y-6">
-            <div className="bg-card rounded-lg p-6 border">
-              <h3 className="font-semibold mb-2">支払い方法は何が使えますか？</h3>
-              <p className="text-muted-foreground text-sm">
-                クレジットカード（Visa, Mastercard, American Express, JCB）でお支払いいただけます。
-              </p>
-            </div>
-            <div className="bg-card rounded-lg p-6 border">
-              <h3 className="font-semibold mb-2">プランはいつでも変更できますか？</h3>
-              <p className="text-muted-foreground text-sm">
-                はい、いつでもアップグレード・ダウングレードが可能です。日割り計算で調整されます。
-              </p>
-            </div>
-            <div className="bg-card rounded-lg p-6 border">
-              <h3 className="font-semibold mb-2">解約はどうすればいいですか？</h3>
-              <p className="text-muted-foreground text-sm">
-                設定画面からいつでも解約できます。解約後も次の請求日まで有料機能をご利用いただけます。
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Additional info */}
-        <p className="mt-12 text-center text-xs text-muted-foreground">
-          有料プランはStripeを通じた安全な決済で処理されます。
-          <br />
-          ご不明な点がございましたら、
+        {/* Footer text + FAQ link */}
+        <p className="mt-4 text-center text-xs text-muted-foreground">
+          <Link href="/contact" className="text-primary hover:underline">
+            よくある質問
+          </Link>
+          <span className="mx-1.5">|</span>
           <Link href="/contact" className="text-primary hover:underline">
             お問い合わせ
           </Link>
-          ください。
         </p>
       </main>
     </div>

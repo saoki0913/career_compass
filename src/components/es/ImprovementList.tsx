@@ -15,12 +15,19 @@ const CATEGORY_TO_SCORE_KEY: Record<string, string> = {
   読みやすさ: "readability",
 };
 
+const ArrowLeftIcon = () => (
+  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+  </svg>
+);
+
 interface ImprovementListProps {
   issues: ReviewIssue[];
   title?: string;
   className?: string;
   collapsible?: boolean;
   defaultExpanded?: boolean;
+  onNavigateToSection?: () => void;
 }
 
 
@@ -65,6 +72,7 @@ export function ImprovementList({
   className,
   collapsible = false,
   defaultExpanded = true,
+  onNavigateToSection,
 }: ImprovementListProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
@@ -151,6 +159,18 @@ export function ImprovementList({
                     </span>
                     <p className="text-sm text-muted-foreground leading-relaxed">{issue.suggestion}</p>
                   </div>
+
+                  {/* Navigate to section in editor */}
+                  {onNavigateToSection && (
+                    <button
+                      type="button"
+                      onClick={onNavigateToSection}
+                      className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 mt-1 transition-colors"
+                    >
+                      <ArrowLeftIcon />
+                      該当箇所を見る
+                    </button>
+                  )}
                 </div>
               </div>
             );

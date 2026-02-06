@@ -12,7 +12,6 @@
 | 認証 | Better Auth (Google OAuth) |
 | データベース | Turso (libSQL) |
 | ORM | Drizzle |
-| ストレージ | Cloudflare R2 |
 | ベクトルDB | ChromaDB |
 | UI | shadcn/ui + Tailwind CSS 4 |
 | テスト | Playwright |
@@ -85,7 +84,6 @@ career_compass/
 
 主要なサービス設定:
 - **Turso** - データベース ([turso.tech](https://turso.tech))
-- **Cloudflare R2** - オブジェクトストレージ ([cloudflare.com](https://cloudflare.com))
 - **Stripe** - 決済 ([stripe.com](https://stripe.com))
 - **OpenAI** - LLM・埋め込み ([openai.com](https://openai.com))
 

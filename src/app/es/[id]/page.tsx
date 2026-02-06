@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useDocument, DocumentBlock } from "@/hooks/useDocuments";
-import { ReviewPanel, MobileReviewPanel, VersionHistory, AIThreadHistory } from "@/components/es";
+import { ReviewPanel, MobileReviewPanel, VersionHistory, AIThreadHistory, SectionReviewCTA } from "@/components/es";
+import { OperationLockProvider } from "@/hooks/useOperationLock";
+import { NavigationGuard } from "@/components/ui/NavigationGuard";
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -97,9 +99,10 @@ interface EditorBlockProps {
   onDelete: (index: number) => void;
   onAddBelow: (index: number) => void;
   onSectionReview?: (index: number) => void;  // 設問単位添削
+  hasCompanyRag?: boolean;
 }
 
-function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, onCharLimitChange, onDelete, onAddBelow, onSectionReview }: EditorBlockProps) {
+function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, onCharLimitChange, onDelete, onAddBelow, onSectionReview, hasCompanyRag }: EditorBlockProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [showCharLimitInput, setShowCharLimitInput] = useState(false);
@@ -155,24 +158,12 @@ function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, o
               ref={textareaRef}
               value={block.content}
               onChange={(e) => onChange(index, e.target.value)}
-              placeholder="設問を入力..."
+              placeholder="設問を入力（例: 学生時代に頑張ったこと）"
               className={cn(baseClass, "text-lg font-bold")}
               rows={1}
             />
-            {/* Character limit indicator and section review button for H2 */}
+            {/* Character limit indicator for H2 */}
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Section review button */}
-              {onSectionReview && (
-                <button
-                  type="button"
-                  onClick={() => onSectionReview(index)}
-                  className="text-xs text-primary hover:text-primary/80 px-2 py-1 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors flex items-center gap-1"
-                  title="この設問を添削"
-                >
-                  <SparkleIcon />
-                  添削
-                </button>
-              )}
               {block.charLimit ? (
                 <div className={cn(
                   "flex items-center gap-2 text-xs px-2 py-1 rounded-full",
@@ -236,6 +227,17 @@ function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, o
                 </div>
               )}
             </div>
+            {/* Full-width CTA bar for section review */}
+            {onSectionReview && (
+              <SectionReviewCTA
+                onReview={() => onSectionReview(index)}
+                charCount={sectionCharCount || 0}
+                charLimit={block.charLimit}
+                disabled={!block.content.trim()}
+                disabledReason={!block.content.trim() ? "設問名を入力してください" : undefined}
+                hasCompanyRag={hasCompanyRag}
+              />
+            )}
           </div>
         );
       case "bullet":
@@ -274,7 +276,7 @@ function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, o
             ref={textareaRef}
             value={block.content}
             onChange={(e) => onChange(index, e.target.value)}
-            placeholder="テキストを入力..."
+            placeholder="ここに回答を入力..."
             className={baseClass}
             rows={1}
           />
@@ -283,7 +285,7 @@ function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, o
   };
 
   return (
-    <div className="group relative">
+    <div className="group relative transition-all duration-300" id={block.type === "h2" ? `editor-section-${index}` : undefined}>
       <div className="flex items-start gap-2">
         {/* Block type selector */}
         <div className="relative">
@@ -374,7 +376,10 @@ export default function ESEditorPage() {
       setBlocks(
         document.content && document.content.length > 0
           ? document.content
-          : [{ id: crypto.randomUUID(), type: "h2", content: "" }]
+          : [
+              { id: crypto.randomUUID(), type: "h2" as const, content: "" },
+              { id: crypto.randomUUID(), type: "paragraph" as const, content: "" },
+            ]
       );
     }
   }, [document]);
@@ -493,6 +498,21 @@ export default function ESEditorPage() {
   const handleClearSectionReview = useCallback(() => {
     setSectionReviewRequest(null);
   }, []);
+
+  // Scroll to editor section from improvement point navigation
+  const handleScrollToEditorSection = useCallback((sectionTitle: string) => {
+    const blockIndex = blocks.findIndex(
+      (b) => b.type === "h2" && b.content.trim() === sectionTitle
+    );
+    if (blockIndex === -1) return;
+    const el = (typeof window !== "undefined") ? window.document.getElementById(`editor-section-${blockIndex}`) : null;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("ring-2", "ring-primary/50", "ring-offset-2", "rounded-lg");
+    setTimeout(() => {
+      el.classList.remove("ring-2", "ring-primary/50", "ring-offset-2", "rounded-lg");
+    }, 2500);
+  }, [blocks]);
 
   // Calculate character count for each section (H2 + following paragraphs until next H2)
   const getSectionCharCounts = useCallback(() => {
@@ -646,6 +666,8 @@ export default function ESEditorPage() {
   }
 
   return (
+    <OperationLockProvider>
+    <NavigationGuard />
     <div className="h-screen bg-background flex flex-col overflow-hidden">
       <DashboardHeader />
 
@@ -780,6 +802,7 @@ export default function ESEditorPage() {
                       onDelete={handleDeleteBlock}
                       onAddBelow={handleAddBlock}
                       onSectionReview={handleSectionReview}
+                      hasCompanyRag={hasCompanyRag}
                     />
                   ))}
                 </div>
@@ -815,11 +838,13 @@ export default function ESEditorPage() {
                 sectionData={getSectionData()}
                 hasCompanyRag={hasCompanyRag}
                 companyId={document?.company?.id}
+                companyName={document?.company?.name}
                 isPaid={false}
                 onApplyRewrite={handleApplyRewrite}
                 onUndo={handleUndoReflect}
                 sectionReviewRequest={sectionReviewRequest}
                 onClearSectionReview={handleClearSectionReview}
+                onScrollToEditorSection={handleScrollToEditorSection}
               />
               {/* Version History */}
               <div className="mt-4 pt-4 border-t border-border/50">
@@ -841,12 +866,15 @@ export default function ESEditorPage() {
         sectionData={getSectionData()}
         hasCompanyRag={hasCompanyRag}
         companyId={document?.company?.id}
+        companyName={document?.company?.name}
         isPaid={false}
         onApplyRewrite={handleApplyRewrite}
         onUndo={handleUndoReflect}
         sectionReviewRequest={sectionReviewRequest}
         onClearSectionReview={handleClearSectionReview}
+        onScrollToEditorSection={handleScrollToEditorSection}
       />
     </div>
+    </OperationLockProvider>
   );
 }
