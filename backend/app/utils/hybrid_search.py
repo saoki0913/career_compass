@@ -627,7 +627,7 @@ async def expand_queries_with_llm(
     llm_result = await call_llm_with_error(
         system_prompt=system_prompt,
         user_message=user_message,
-        max_tokens=300,
+        max_tokens=500,
         temperature=0.1,
         feature="rag_query_expansion",
         response_format="json_schema",
@@ -782,6 +782,7 @@ async def semantic_search(
     content_types: Optional[list[str]] = None,
     backends: Optional[list[EmbeddingBackend]] = None,
     include_embeddings: bool = False,
+    precomputed_query_embedding: Optional[list[float]] = None,
 ) -> list[dict]:
     """Run semantic search for a single query."""
     from app.utils.vector_store import search_company_context_by_type
@@ -793,6 +794,7 @@ async def semantic_search(
         content_types=content_types,
         backends=backends,
         include_embeddings=include_embeddings,
+        precomputed_query_embedding=precomputed_query_embedding,
     )
 
 
