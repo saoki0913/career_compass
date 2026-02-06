@@ -120,7 +120,23 @@ async def classify_content_category_with_llm(
     """LLM-based classification fallback."""
     system_prompt = """あなたは企業情報ページの分類アシスタントです。
 以下のURL/見出し/本文から、最も適切な分類を1つ選んでください。
-必ずJSONを1つだけ出力してください。コードブロックや説明文は禁止です。"""
+必ずJSONを1つだけ出力してください。コードブロックや説明文は禁止です。
+
+## カテゴリと判断基準
+- new_grad_recruitment: 新卒採用ページ（エントリー、選考フロー、募集要項）
+- midcareer_recruitment: 中途採用ページ（キャリア採用、経験者採用）
+- corporate_site: 企業HP一般（会社概要、事業紹介、拠点情報）
+- ir_materials: IR・決算資料（有価証券報告書、決算短信、株主向け）
+- ceo_message: 社長/経営者メッセージ（トップメッセージ、ビジョン表明）
+- employee_interviews: 社員インタビュー（先輩社員の声、1日のスケジュール）
+- press_release: プレスリリース（ニュース、お知らせ、報道発表）
+- csr_sustainability: CSR・サステナビリティ（ESG、環境、社会貢献）
+- midterm_plan: 中期経営計画（成長戦略、中長期目標）
+
+## 曖昧なケースの優先ルール
+- 採用ページ内のインタビュー → employee_interviews
+- IR内の中期計画 → midterm_plan
+- 社長メッセージ内のビジョン → ceo_message"""
 
     excerpt = (text or "")[:800]
     user_message = f"""URL: {source_url}

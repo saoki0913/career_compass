@@ -3492,7 +3492,7 @@ async def build_company_rag(request: BuildRagRequest):
         # If raw content provided and store_full_text is True, store full text
         if request.raw_content and request.store_full_text:
             # Use the new full text storage function
-            full_text_success = await store_full_text_content(
+            full_text_result = await store_full_text_content(
                 company_id=request.company_id,
                 company_name=request.company_name,
                 raw_text=request.raw_content,
@@ -3502,7 +3502,7 @@ async def build_company_rag(request: BuildRagRequest):
                 backend=backend,
                 raw_format=request.raw_content_format,
             )
-            if full_text_success:
+            if full_text_result["success"]:
                 # Count the chunks that were stored (approximate)
                 from app.utils.text_chunker import (
                     JapaneseTextChunker,
@@ -3798,6 +3798,7 @@ class CrawlCorporateResponse(BaseModel):
     pages_crawled: int
     chunks_stored: int
     errors: list[str]
+    url_content_types: dict[str, str] = {}  # URL -> classified content_type
 
 
 class SearchCorporatePagesRequest(BaseModel):
@@ -3855,6 +3856,7 @@ async def crawl_corporate_pages(request: CrawlCorporateRequest):
     pages_crawled = 0
     chunks_stored = 0
     errors = []
+    url_content_types: dict[str, str] = {}
 
     backend = resolve_embedding_backend()
     if backend is None:
@@ -3884,7 +3886,7 @@ async def crawl_corporate_pages(request: CrawlCorporateRequest):
 
             # Store full text content (HTML-aware chunking)
             # Pass content_type for proper 9-category classification in RAG counts
-            success = await store_full_text_content(
+            result = await store_full_text_content(
                 company_id=request.company_id,
                 company_name=request.company_name,
                 raw_text=html,
@@ -3895,8 +3897,10 @@ async def crawl_corporate_pages(request: CrawlCorporateRequest):
                 raw_format="html",
             )
 
-            if success:
+            if result["success"]:
                 pages_crawled += 1
+                if result.get("dominant_content_type"):
+                    url_content_types[url] = result["dominant_content_type"]
                 # Estimate chunk count
                 from app.utils.text_chunker import JapaneseTextChunker
 
@@ -3920,6 +3924,7 @@ async def crawl_corporate_pages(request: CrawlCorporateRequest):
         pages_crawled=pages_crawled,
         chunks_stored=chunks_stored,
         errors=errors,
+        url_content_types=url_content_types,
     )
 
 

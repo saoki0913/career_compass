@@ -576,36 +576,22 @@ export async function POST(
           throw new Error("FastAPI structured-summary generation failed");
         }
       } catch (error) {
-        console.error("Failed to generate structured summary, trying fallback:", error);
-        // Fallback: try old summary endpoint
-        try {
-          const fallbackRes = await fetch(`${FASTAPI_URL}/api/gakuchika/summary`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              conversation_history: messages.map(m => ({ role: m.role, content: m.content })),
-              gakuchika_title: gakuchikaTitle,
-            }),
-          });
-          if (fallbackRes.ok) {
-            const fbData = await fallbackRes.json();
-            summaryJson = JSON.stringify({
-              summary: fbData.summary || "",
-              key_points: fbData.key_points || [],
-              numbers: fbData.numbers || [],
-              strengths: fbData.strengths || [],
-            });
-          } else {
-            throw new Error("Fallback summary also failed");
-          }
-        } catch {
-          // Final fallback to simple truncation
-          const userAnswers = messages
-            .filter((m) => m.role === "user")
-            .map((m) => m.content)
-            .join("\n\n");
-          summaryJson = userAnswers.substring(0, 500) + (userAnswers.length > 500 ? "..." : "");
-        }
+        console.error("Failed to generate structured summary, using conversation fallback:", error);
+        // Fallback: extract user answers directly without additional LLM call
+        const userAnswers = messages
+          .filter((m) => m.role === "user")
+          .map((m) => m.content)
+          .join("\n\n");
+        summaryJson = JSON.stringify({
+          situation_text: "",
+          task_text: "",
+          action_text: "",
+          result_text: "",
+          strengths: [],
+          learnings: [],
+          numbers: [],
+          raw_answers: userAnswers.substring(0, 1000),
+        });
       }
 
       await db

@@ -12,6 +12,7 @@ Features:
 
 import asyncio
 import json
+import re
 from typing import AsyncGenerator, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -122,10 +123,15 @@ MOTIVATION_EVALUATION_PROMPT = """以下の志望動機に関する会話を分�
 ## 企業情報（参考）
 {company_context}
 
+## 評価の注意事項
+- 会話内で明確に言及された内容のみをスコアに反映する（推測で加点しない）
+- 企業情報（RAG）と学生の発言の整合性を確認: 学生が企業名や取り組み名を正しく引用していればcompany_understandingに加点
+- 「興味がある」だけではスコア50以下。具体的なエピソードや接点があって初めて50超
+
 ## 出力形式
 必ず以下のJSON形式で回答してください：
 JSON以外の文字列・コードブロック・説明文は禁止です。
-missing_aspectsの各要素は最大2項目、各項目10文字以内で簡潔に記述してください。
+missing_aspectsの各要素は最大2項目、各項目20文字以内で記述してください。不足点が具体的に分かる表現にすること。
 {{
   "scores": {{
     "company_understanding": 0-100の数値,
@@ -187,18 +193,22 @@ MOTIVATION_QUESTION_PROMPT = """あなたは就活生の「志望動機」を深
 ## 回答サジェスション生成ルール
 質問と同時に、ユーザーが選べる回答候補を4つ生成してください。
 
-### 要件
+### 厳守要件
 - 1つあたり1〜2文、50〜100文字程度
-- 4つが異なる切り口をカバーすること
-- 対象要素（{weakest_element}）に関連した内容
-- 就活生が自然に言いそうな口語体
-- 企業RAG情報があれば1〜2つに織り込む
+- 就活生が面接で自然に答えそうな口語体（「〜です」「〜しました」）
+- 対象要素（{weakest_element}）のスコアアップに直結する内容
+- 4つが明確に異なる切り口であること（同じ内容の言い換えは禁止）
 
-### 多様性パターン
-1. 経験ベース: 過去の経験から答える
-2. 企業情報ベース: 企業の特徴に触れる
-3. 価値観ベース: 自分の考え方から答える
-4. 将来志向: 将来やりたいことから答える
+### 必須: 企業情報の活用（最重要）
+- **4つのうち最低2つ**に企業RAG情報の具体的な内容（事業名、製品名、取り組み名、数字等）を含めること
+- 汎用的な回答（どの企業にも当てはまる内容）は最大2つまで
+- 企業固有の情報がない場合のみ、業界の一般的な特徴で代替可
+
+### 多様性パターン（この順序で生成）
+1. 経験×企業: 自分の経験と企業の具体的な取り組みを結びつける
+2. 企業理解: 企業の特徴・強みに直接触れて関心を示す
+3. 価値観: 自分の考え方や軸から答える
+4. 将来×企業: 企業の事業を踏まえて将来やりたいことを述べる
 
 ## 出力形式
 必ず以下のJSON形式で回答してください。suggestionsはquestionの直後に出力すること（重要フィールドを先に出力）：
@@ -263,6 +273,80 @@ def _trim_conversation_for_evaluation(
     if len(messages) <= max_messages:
         return messages
     return messages[-max_messages:]
+
+
+def _extract_company_features(company_context: str, max_features: int = 3) -> list[str]:
+    """Extract key company features from RAG context for suggestion building."""
+    if not company_context or company_context == "（企業情報なし）":
+        return []
+
+    features = []
+    lines = company_context.split("\n")
+    for line in lines:
+        line = line.strip()
+        if not line or len(line) < 10:
+            continue
+        # Look for short descriptive phrases (company features, business descriptions)
+        if len(line) <= 60 and any(kw in line for kw in [
+            "事業", "サービス", "強み", "取り組み", "ビジョン",
+            "理念", "方針", "挑戦", "グローバル", "DX",
+            "プロジェクト", "ソリューション", "イノベーション",
+        ]):
+            clean = line.lstrip("・-•●■□▪▸▹→ ")
+            if clean and len(clean) >= 8:
+                features.append(clean)
+        if len(features) >= max_features:
+            break
+
+    return features
+
+
+def _build_initial_suggestions(
+    company_name: str,
+    industry: str,
+    company_context: str,
+) -> list[str]:
+    """Build initial suggestions incorporating RAG company info when available."""
+    features = _extract_company_features(company_context)
+
+    if features:
+        return [
+            f"{features[0]}に関心を持ち、{company_name}を志望しました",
+            f"就活サイトで{company_name}の社員インタビューを読んで、社風に惹かれました",
+            f"インターンシップや説明会に参加して、{features[1] if len(features) > 1 else '事業内容'}に魅力を感じました",
+            f"もともと{industry}に関心があり、業界研究の中で{company_name}の{features[-1]}を知りました",
+        ]
+    else:
+        return [
+            f"大学の授業で{industry}について学び、{company_name}の取り組みに興味を持ちました",
+            f"就活サイトで{company_name}の社員インタビューを読んで、社風に惹かれました",
+            "インターンシップや説明会に参加して、事業内容に魅力を感じました",
+            f"もともと{industry}に関心があり、業界研究の中で{company_name}を知りました",
+        ]
+
+
+def _build_completion_suggestions(
+    company_name: str,
+    industry: str,
+    company_context: str,
+) -> list[str]:
+    """Build completion suggestions incorporating company info when available."""
+    features = _extract_company_features(company_context)
+
+    if features:
+        return [
+            f"{company_name}の{features[0]}を通じて、新しい価値を生み出すこと",
+            "自分の強みを活かして、チームの成果を最大化すること",
+            f"{features[1] if len(features) > 1 else industry + 'の課題解決'}に第一線で取り組むこと",
+            "お客様に直接価値を届けられるプロフェッショナルになること",
+        ]
+    else:
+        return [
+            f"{company_name}で新しい価値を生み出し、社会に貢献すること",
+            "自分の強みを活かして、チームの成果を最大化すること",
+            f"{industry}の課題解決に第一線で取り組むこと",
+            "お客様に直接価値を届けられるプロフェッショナルになること",
+        ]
 
 
 def _get_weakest_element(scores: MotivationScores) -> str:
@@ -474,17 +558,17 @@ async def get_next_question(request: NextQuestionRequest):
     if not request.company_name:
         raise HTTPException(status_code=400, detail="企業名が指定されていません")
 
-    # Handle initial question early — no RAG needed for the first question
+    # Handle initial question — fetch RAG for company-tailored suggestions
     if not request.conversation_history:
         initial_question = f"{request.company_name}を志望される理由を教えてください。まずは、どんなきっかけでこの企業に興味を持ちましたか？"
 
         industry = request.industry or "この業界"
-        initial_suggestions = [
-            f"大学の授業で{industry}について学び、{request.company_name}の取り組みに興味を持ちました",
-            f"就活サイトで{request.company_name}の社員インタビューを読んで、社風に惹かれました",
-            "インターンシップや説明会に参加して、事業内容に魅力を感じました",
-            f"もともと{industry}に関心があり、業界研究の中で{request.company_name}を知りました",
-        ]
+        company_context, _ = await _get_company_context(request.company_id)
+        initial_suggestions = _build_initial_suggestions(
+            company_name=request.company_name,
+            industry=industry,
+            company_context=company_context,
+        )
 
         return NextQuestionResponse(
             question=initial_question,
@@ -519,12 +603,11 @@ async def get_next_question(request: NextQuestionRequest):
     # If complete, suggest ending
     if is_complete:
         industry = request.industry or "この業界"
-        completion_suggestions = [
-            f"{request.company_name}で新しい価値を生み出し、社会に貢献すること",
-            "自分の強みを活かして、チームの成果を最大化すること",
-            f"{industry}の課題解決に第一線で取り組むこと",
-            "お客様に直接価値を届けられるプロフェッショナルになること",
-        ]
+        completion_suggestions = _build_completion_suggestions(
+            company_name=request.company_name,
+            industry=industry,
+            company_context=company_context,
+        )
 
         return NextQuestionResponse(
             question="これまでの深掘りで、志望動機の核となる部分が具体的に整理できました。最後に、この企業で実現したい一番の目標を一言でまとめると何ですか？",
@@ -570,7 +653,7 @@ async def get_next_question(request: NextQuestionRequest):
         user_message="次の深掘り質問を生成してください。",
         messages=messages,
         max_tokens=900,  # 質問+サジェスト4つで十分
-        temperature=0.7,
+        temperature=0.5,
         feature="motivation",
         retry_on_parse=True,
         disable_fallback=True,
@@ -631,16 +714,16 @@ async def _generate_next_question_progress(
             yield _sse_event("error", {"message": "企業名が指定されていません"})
             return
 
-        # Handle initial question (no history) — return immediately
+        # Handle initial question — fetch RAG for company-tailored suggestions
         if not request.conversation_history:
             initial_question = f"{request.company_name}を志望される理由を教えてください。まずは、どんなきっかけでこの企業に興味を持ちましたか？"
             industry = request.industry or "この業界"
-            initial_suggestions = [
-                f"大学の授業で{industry}について学び、{request.company_name}の取り組みに興味を持ちました",
-                f"就活サイトで{request.company_name}の社員インタビューを読んで、社風に惹かれました",
-                "インターンシップや説明会に参加して、事業内容に魅力を感じました",
-                f"もともと{industry}に関心があり、業界研究の中で{request.company_name}を知りました",
-            ]
+            company_context, _ = await _get_company_context(request.company_id)
+            initial_suggestions = _build_initial_suggestions(
+                company_name=request.company_name,
+                industry=industry,
+                company_context=company_context,
+            )
             yield _sse_event("complete", {
                 "data": {
                     "question": initial_question,
@@ -689,12 +772,11 @@ async def _generate_next_question_progress(
         # If complete, return final question
         if is_complete:
             industry = request.industry or "この業界"
-            completion_suggestions = [
-                f"{request.company_name}で新しい価値を生み出し、社会に貢献すること",
-                "自分の強みを活かして、チームの成果を最大化すること",
-                f"{industry}の課題解決に第一線で取り組むこと",
-                "お客様に直接価値を届けられるプロフェッショナルになること",
-            ]
+            completion_suggestions = _build_completion_suggestions(
+                company_name=request.company_name,
+                industry=industry,
+                company_context=company_context,
+            )
             yield _sse_event("complete", {
                 "data": {
                     "question": "これまでの深掘りで、志望動機の核となる部分が具体的に整理できました。最後に、この企業で実現したい一番の目標を一言でまとめると何ですか？",
@@ -746,7 +828,7 @@ async def _generate_next_question_progress(
             user_message="次の深掘り質問を生成してください。",
             messages=messages,
             max_tokens=900,
-            temperature=0.7,
+            temperature=0.5,
             feature="motivation",
             retry_on_parse=True,
             disable_fallback=True,
@@ -844,14 +926,36 @@ async def generate_draft(request: GenerateDraftRequest):
     llm_result = await call_llm_with_error(
         system_prompt=prompt,
         user_message="志望動機のESを作成してください。",
-        max_tokens=600,  # Draft: ~200-400 chars + JSON wrapper
-        temperature=0.5,
+        max_tokens=1200,  # Draft: ~300-500 chars + key_points + company_keywords + JSON
+        temperature=0.3,
         feature="motivation",
         retry_on_parse=True,
         disable_fallback=True,
     )
 
     if not llm_result.success or llm_result.data is None:
+        # Fallback: extract draft text from raw_text if JSON parse failed (truncation)
+        if llm_result.raw_text:
+            raw = llm_result.raw_text.strip()
+            match = re.search(r'"draft"\s*:\s*"((?:[^"\\]|\\.)*)', raw, re.DOTALL)
+            if match:
+                draft_text = match.group(1)
+                # Unescape JSON string escapes
+                draft_text = draft_text.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
+                # Remove trailing incomplete sentence if truncated
+                if not draft_text.endswith(("。", "」", "）")):
+                    last_period = draft_text.rfind("。")
+                    if last_period > len(draft_text) * 0.5:
+                        draft_text = draft_text[: last_period + 1]
+                if len(draft_text) >= 100:
+                    print(f"[志望動機作成] ⚠️ raw_textフォールバック: {len(draft_text)}字のドラフトを抽出")
+                    return GenerateDraftResponse(
+                        draft=draft_text,
+                        char_count=len(draft_text),
+                        key_points=[],
+                        company_keywords=[],
+                    )
+
         error = llm_result.error
         raise HTTPException(
             status_code=503,

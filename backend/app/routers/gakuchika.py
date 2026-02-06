@@ -14,6 +14,7 @@ Phase 1 Improvements (Deep-dive Enhancement):
 import asyncio
 import json
 import random
+import re
 from typing import AsyncGenerator, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -85,6 +86,8 @@ class NextQuestionResponse(BaseModel):
     target_element: Optional[str] = None
     # Question type for diversity tracking
     question_type: Optional[str] = None
+    # Suggested answer options for the user
+    suggestions: list[str] = []
 
 
 class StructuredSummaryRequest(BaseModel):
@@ -124,6 +127,15 @@ class GakuchikaESDraftResponse(BaseModel):
     char_count: int
 
 
+# Shared prohibition list for question generation prompts
+_PROHIBITED_EXPRESSIONS = """### 禁止表現パターン（絶対に使わない）
+以下のパターンに該当する表現は全て禁止:
+- 「〜してください」で終わる依頼文（「教えてください」「聞かせてください」「説明してください」）
+- 「もう少し」「詳しく」「具体的に」等の漠然とした深掘り依頼
+- 「他にありますか」「何かありますか」等の列挙依頼
+- 「どうでしたか」「いかがでしたか」等のyes/no誘導"""
+
+
 # STAR評価プロンプト (standalone use)
 STAR_EVALUATION_PROMPT = """以下のガクチカ会話を分析し、STAR法の各要素の充実度を0-100で評価してください。
 
@@ -145,17 +157,22 @@ STAR_EVALUATION_PROMPT = """以下のガクチカ会話を分析し、STAR法の
 
 ### 行動(Action) 0-100点
 - 0-30点: 何をしたか不明確
-- 31-50点: 行動はあるが「なぜその方法か」不明
-- 51-70点: 行動と理由あり
-- 71-90点: 工夫・困難の乗り越え方あり
-- 91-100点: PDCAサイクル・チームでの役割まで明確
+- 31-50点: 行動はあるが課題との因果関係が不明
+- 51-70点: 課題に対する行動とその理由あり
+- 71-90点: 工夫・試行錯誤・他者の巻き込み方あり（「なぜその方法を選んだか」が明確）
+- 91-100点: PDCAサイクル・チームでの役割・独自性まで明確
 
 ### 結果(Result) 0-100点
 - 0-30点: 結果が不明確(「うまくいった」等)
-- 31-50点: 定性的な結果のみ
-- 51-70点: 数字での結果あり
-- 71-90点: 数字 + 学び・気づきあり
-- 91-100点: その後の活かし方・再現性まで言及
+- 31-50点: 定性的な結果のみ(「改善された」等)
+- 51-70点: 定量的な結果あり(数字)
+- 71-90点: 数字 + そこから得た学び・気づき
+- 91-100点: 学びの汎用性・他場面での再現性まで言及
+
+## スコアリング注意事項
+- 会話の中で一度でも具体的に言及された内容は、その時点で反映する
+- 同じ要素の情報が複数ある場合、最も具体的なものでスコアリング
+- 「言及はあるが曖昧」は上位バンドに入れない
 
 ## 会話履歴
 {conversation}
@@ -223,57 +240,67 @@ STAR_EVALUATE_AND_QUESTION_PROMPT = """あなたは10年以上の経験を持つ
 
 ### 行動(Action) 0-100点
 - 0-30点: 何をしたか不明確
-- 31-50点: 行動はあるが「なぜその方法か」不明
-- 51-70点: 行動と理由あり
-- 71-90点: 工夫・困難の乗り越え方あり
-- 91-100点: PDCAサイクル・チームでの役割まで明確
+- 31-50点: 行動はあるが課題との因果関係が不明
+- 51-70点: 課題に対する行動とその理由あり
+- 71-90点: 工夫・試行錯誤・他者の巻き込み方あり（「なぜその方法を選んだか」が明確）
+- 91-100点: PDCAサイクル・チームでの役割・独自性まで明確
 
 ### 結果(Result) 0-100点
 - 0-30点: 結果が不明確(「うまくいった」等)
-- 31-50点: 定性的な結果のみ
-- 51-70点: 数字での結果あり
-- 71-90点: 数字 + 学び・気づきあり
-- 91-100点: その後の活かし方・再現性まで言及
+- 31-50点: 定性的な結果のみ(「改善された」等)
+- 51-70点: 定量的な結果あり(数字)
+- 71-90点: 数字 + そこから得た学び・気づき
+- 91-100点: 学びの汎用性・他場面での再現性まで言及
+
+## スコアリング注意事項
+- 会話の中で一度でも具体的に言及された内容は、その時点で反映する
+- 同じ要素の情報が複数ある場合、最も具体的なものでスコアリング
+- 「言及はあるが曖昧」は上位バンドに入れない
 
 ## 質問生成ルール
 
 ### 必須: 前回の回答を引用する
 前回のユーザー回答から具体的なフレーズを引用し、「先ほど『〇〇』とおっしゃいましたが...」のように始めてください。
 
-### 禁止表現(絶対に使わない)
-- ❌「もう少し詳しく教えてください」
-- ❌「具体的に説明してください」
-- ❌「他にありますか?」
-- ❌「どうでしたか?」
-- ❌「教えてください」
-- ❌「いかがでしたか?」
-- ❌「詳しく聞かせてください」
-- ❌「何かありますか?」
-- ❌「どのように感じましたか?」
-- ❌「お聞かせください」
+{prohibited_expressions}
 
 ### 推奨: 具体的な切り口で聞く(質問タイプ別)
-
-**numbers(数字)**: 「具体的に何人でしたか?」「何%変化しましたか?」「期間はどれくらいでしたか?」
-**emotions(感情)**: 「その瞬間、どんな気持ちでしたか?」「一番嬉しかったのはどんなときですか?」
-**reasoning(判断理由)**: 「なぜその方法を選んだのですか?」「他に検討した案はありましたか?」
-**others_perspective(他者視点)**: 「周りの人はどんな反応でしたか?」「誰かに褒められたり、指摘されたりしましたか?」
-**difficulty(困難)**: 「途中で壁にぶつかったことはありますか?」「うまくいかなかったときはどう対処しましたか?」
-**contrast(対比)**: 「取り組む前と後で何が変わりましたか?」「他の人とは違うアプローチでしたか?」
-**scene(場面)**: 「最も印象に残っている場面を教えてください」「ターニングポイントとなった瞬間はいつですか?」
-**learning(学び)**: 「この経験から何を学びましたか?」「今後どう活かしていきますか?」
+- **numbers(数字)**: 「何人で?」「何%変わった?」「期間は?」
+- **emotions(感情)**: 「その瞬間の気持ちは?」「一番嬉しかったのは?」
+- **reasoning(判断理由)**: 「なぜその方法を?」「他の案は?」
+- **others_perspective(他者視点)**: 「周りの反応は?」「誰かに指摘された?」
+- **difficulty(困難)**: 「壁にぶつかった?」「うまくいかないときは?」
+- **contrast(対比)**: 「前と後で何が変わった?」「他の人との違いは?」
+- **scene(場面)**: 「最も印象的な場面は?」「ターニングポイントは?」
+- **learning(学び)**: 「何を学んだ?」「今後どう活かす?」
 
 ### 質問多様性の確保
 - **重要**: 直前の質問と同じタイプを連続使用しない
 - フェーズに応じた推奨タイプを優先するが、柔軟に判断してよい
 
-### フォローアップチェーン戦略
-- **重要**: 前回の回答の中で最も重要な部分（具体的な行動、結果、感情）を特定し、そこを起点に深掘りする
-- 独立した新しい質問ではなく、前回の回答を引用しながら「その〇〇について、もう少し詳しく教えてください」のように掘り下げる
-- 2-3個の段階的な深掘りを意識する（表面的回答→具体的行動→その結果/学び）
+### フォローアップ戦略
+- 前回の回答で**最も具体性が足りない部分**を起点に深掘りする
+- 深掘りの段階: 表面的事実 → なぜ/どうやって → その結果/感情 → 学び
+- 新しい話題に飛ぶのではなく、同じエピソード内で縦に掘る
+- ただし3回同じ要素を掘ったら次の要素に移る
+
+## 回答サジェスション生成ルール
+質問と同時に、ユーザーが選べる回答候補を4つ生成してください。
+
+### 要件
+- 1つあたり1〜2文、30〜80文字程度
+- 就活生が自然に思い出せる具体的な切り口を提示
+- 対象要素のスコアアップに直結する内容
+- 4つが明確に異なる切り口であること
+
+### 多様性パターン（質問タイプに応じて調整）
+1. 具体的な数字・事実を含む回答
+2. 感情・心境の変化を含む回答
+3. 他者との関わり・反応を含む回答
+4. 学びや気づきにつながる回答
 
 ## 出力形式
-必ず以下のJSON形式で回答してください:
+必ず以下のJSON形式で回答してください。suggestionsはquestionの直後に出力すること:
 {{
   "star_scores": {{
     "situation": 0-100の数値,
@@ -288,6 +315,7 @@ STAR_EVALUATE_AND_QUESTION_PROMPT = """あなたは10年以上の経験を持つ
     "result": ["不足している観点1"]
   }},
   "question": "質問文(前回の回答を引用しつつ、具体的な切り口で)",
+  "suggestions": ["回答候補1", "回答候補2", "回答候補3", "回答候補4"],
   "question_type": "numbers|emotions|reasoning|others_perspective|difficulty|contrast|scene|learning",
   "target_element": "situation|task|action|result",
   "reasoning": "この質問をする理由(1文)",
@@ -312,27 +340,23 @@ INITIAL_QUESTION_PROMPT = """あなたは10年以上の経験を持つ就活ア�
 
 ## 質問生成ルール
 
-### 禁止表現(絶対に使わない)
-- ❌「もう少し詳しく教えてください」
-- ❌「具体的に説明してください」
-- ❌「他にありますか?」
-- ❌「どうでしたか?」
-- ❌「教えてください」
-- ❌「いかがでしたか?」
-- ❌「詳しく聞かせてください」
-- ❌「何かありますか?」
-- ❌「どのように感じましたか?」
-- ❌「お聞かせください」
+{prohibited_expressions}
 
 ### 推奨: 内容に基づいた具体的な質問
 - 記載内容から具体的なキーワードを引用する
 - 「〇〇に取り組まれたとのことですが...」のように始める
 - 場面や感情を聞く質問が効果的
 
+## 回答サジェスション
+質問と同時に、ユーザーが選べる回答候補を4つ生成してください。
+- 記載内容を踏まえ、就活生が思い出しやすい具体的な切り口を提示
+- 1つあたり30〜80文字、4つが異なる切り口であること
+
 ## 出力形式
 必ず以下のJSON形式で回答してください:
 {{
   "question": "質問文(内容を引用しつつ、具体的な切り口で)",
+  "suggestions": ["回答候補1", "回答候補2", "回答候補3", "回答候補4"],
   "question_type": "scene",
   "reasoning": "この質問をする理由(1文)"
 }}"""
@@ -377,6 +401,25 @@ def _is_star_complete(scores: STARScores, threshold: int = STAR_COMPLETION_THRES
         and scores.action >= threshold
         and scores.result >= threshold
     )
+
+
+def _compute_suggested_end_value(
+    question_count: int,
+    star_scores: Optional[dict],
+    min_questions: int = 5,
+) -> str:
+    """Compute suggested_end hint for the prompt template.
+
+    Returns "true" when enough questions have been asked AND
+    all STAR elements meet the completion threshold based on
+    previous scores, otherwise "false".
+    """
+    if question_count < min_questions or not star_scores:
+        return "false"
+    scores = STARScores(
+        **{k: v for k, v in star_scores.items() if k in ["situation", "task", "action", "result"]}
+    )
+    return "true" if _is_star_complete(scores) else "false"
 
 
 def _get_last_user_answer(messages: list[Message]) -> Optional[str]:
@@ -584,13 +627,14 @@ async def get_next_question(request: NextQuestionRequest):
             prompt = INITIAL_QUESTION_PROMPT.format(
                 gakuchika_title=request.gakuchika_title,
                 gakuchika_content=request.gakuchika_content,
+                prohibited_expressions=_PROHIBITED_EXPRESSIONS,
             )
 
             llm_result = await call_llm_with_error(
                 system_prompt=prompt,
                 user_message="最初の深掘り質問を生成してください。",
-                max_tokens=300,
-                temperature=0.7,
+                max_tokens=500,  # question + suggestions + metadata
+                temperature=0.5,
                 feature="gakuchika",
                 disable_fallback=True,
             )
@@ -600,10 +644,12 @@ async def get_next_question(request: NextQuestionRequest):
                 initial_question = data.get("question")
                 question_type = data.get("question_type", QUESTION_TYPE_SCENE)
                 reasoning = data.get("reasoning", "会話開始時の導入質問")
+                initial_suggestions = data.get("suggestions", [])
 
         # Fallback to template if LLM failed or no content
         if not initial_question:
             initial_question = random.choice(template_questions)
+            initial_suggestions = []
 
         return NextQuestionResponse(
             question=initial_question,
@@ -617,6 +663,7 @@ async def get_next_question(request: NextQuestionRequest):
             },
             target_element="situation",
             question_type=question_type,
+            suggestions=initial_suggestions,
         )
 
     # Determine conversation phase
@@ -641,7 +688,8 @@ async def get_next_question(request: NextQuestionRequest):
         preferred_target_elements=", ".join(preferred_elements),
         question_type_history=question_type_history,
         threshold=STAR_COMPLETION_THRESHOLD,
-        suggested_end_value="false" if request.question_count < 5 else "false",
+        suggested_end_value=_compute_suggested_end_value(request.question_count, request.star_scores),
+        prohibited_expressions=_PROHIBITED_EXPRESSIONS,
     )
 
     # Single LLM call for both evaluation and question generation
@@ -651,8 +699,8 @@ async def get_next_question(request: NextQuestionRequest):
     llm_result = await call_llm_with_error(
         system_prompt=prompt,
         user_message="上記の会話を分析し、STAR評価と次の質問をJSON形式で生成してください。",
-        max_tokens=600,  # 統合レスポンス (scores+question+metadata) は400-500トークンで十分
-        temperature=0.7,
+        max_tokens=800,  # 統合レスポンス (scores+question+suggestions+metadata)
+        temperature=0.5,
         feature="gakuchika",
         disable_fallback=True,
     )
@@ -722,6 +770,7 @@ async def get_next_question(request: NextQuestionRequest):
     reasoning = data.get("reasoning")
     should_continue = data.get("should_continue", True)
     suggested_end = data.get("suggested_end", False)
+    suggestions = data.get("suggestions", [])
 
     # Validate question type diversity (consecutive same type check)
     if last_question_type and question_type == last_question_type:
@@ -736,6 +785,7 @@ async def get_next_question(request: NextQuestionRequest):
         star_evaluation=star_eval,
         target_element=target_element,
         question_type=question_type,
+        suggestions=suggestions,
     )
 
 
@@ -777,12 +827,13 @@ async def _generate_next_question_progress(
                 prompt = INITIAL_QUESTION_PROMPT.format(
                     gakuchika_title=request.gakuchika_title,
                     gakuchika_content=request.gakuchika_content,
+                    prohibited_expressions=_PROHIBITED_EXPRESSIONS,
                 )
                 llm_result = await call_llm_with_error(
                     system_prompt=prompt,
                     user_message="最初の深掘り質問を生成してください。",
-                    max_tokens=300,
-                    temperature=0.7,
+                    max_tokens=500,  # question + suggestions + metadata
+                    temperature=0.5,
                     feature="gakuchika",
                     disable_fallback=True,
                 )
@@ -791,9 +842,11 @@ async def _generate_next_question_progress(
                     initial_question = data.get("question")
                     question_type = data.get("question_type", QUESTION_TYPE_SCENE)
                     reasoning = data.get("reasoning", "会話開始時の導入質問")
+                    initial_suggestions = data.get("suggestions", [])
 
             if not initial_question:
                 initial_question = random.choice(template_questions)
+                initial_suggestions = []
 
             yield _sse_event("complete", {
                 "data": {
@@ -808,6 +861,7 @@ async def _generate_next_question_progress(
                     },
                     "target_element": "situation",
                     "question_type": question_type,
+                    "suggestions": initial_suggestions,
                 },
             })
             return
@@ -843,14 +897,15 @@ async def _generate_next_question_progress(
             preferred_target_elements=", ".join(preferred_elements),
             question_type_history=question_type_history,
             threshold=STAR_COMPLETION_THRESHOLD,
-            suggested_end_value="false" if request.question_count < 5 else "false",
+            suggested_end_value=_compute_suggested_end_value(request.question_count, request.star_scores),
+            prohibited_expressions=_PROHIBITED_EXPRESSIONS,
         )
 
         llm_result = await call_llm_with_error(
             system_prompt=prompt,
             user_message="上記の会話を分析し、STAR評価と次の質問をJSON形式で生成してください。",
-            max_tokens=600,
-            temperature=0.7,
+            max_tokens=800,
+            temperature=0.5,
             feature="gakuchika",
             disable_fallback=True,
         )
@@ -901,6 +956,7 @@ async def _generate_next_question_progress(
                 "star_evaluation": star_eval,
                 "target_element": data.get("target_element", _get_weakest_element(scores)),
                 "question_type": data.get("question_type", QUESTION_TYPE_SCENE),
+                "suggestions": data.get("suggestions", []),
             },
         })
 
@@ -1002,13 +1058,13 @@ STRUCTURED_SUMMARY_PROMPT = """あなたは就活アドバイザーです。以�
 4. 具体的な数字を抽出
 
 ## 出力ルール
-- situation_text: 状況説明（50-80字）
-- task_text: 課題（50-80字）
-- action_text: 具体的な行動（80-120字）
-- result_text: 成果（50-80字）
-- strengths: 2個、各titleは5字以内、descriptionは30字以内
-- learnings: 2個、各titleは5字以内、descriptionは30字以内
-- numbers: 具体的な数字（0個でも可）
+- situation_text: 時期・場所・規模を含む状況説明（50-80字）。会話に情報なければ「記載なし」
+- task_text: 「なぜ課題か」を含む課題説明（50-80字）
+- action_text: 行動の理由・工夫を含む具体的行動（80-120字）
+- result_text: 可能な限り数字を含む成果（50-80字）
+- strengths: 2個、titleは「行動力」「分析力」等の汎用ラベルではなくエピソード固有の表現（例: 「データ駆動の改善提案力」）。descriptionは30字以内
+- learnings: 2個、「コミュニケーションの大切さ」等の定型句禁止。会話で述べた学びを抽出。descriptionは30字以内
+- numbers: 会話に出た具体的数字のみ（推測・捏造禁止、0個でも可）
 - JSONのみ出力。説明文やマークダウンは禁止
 
 ## 出力形式
@@ -1166,14 +1222,32 @@ async def generate_es_draft(request: GakuchikaESDraftRequest):
     llm_result = await call_llm_with_error(
         system_prompt=prompt,
         user_message="ガクチカのESを作成してください。",
-        max_tokens=600,
-        temperature=0.5,
+        max_tokens=1200,  # Draft: ~300-500 chars + char_count + JSON
+        temperature=0.3,
         feature="gakuchika",
         retry_on_parse=True,
         disable_fallback=True,
     )
 
     if not llm_result.success or llm_result.data is None:
+        # Fallback: extract draft text from raw_text if JSON parse failed (truncation)
+        if llm_result.raw_text:
+            raw = llm_result.raw_text.strip()
+            match = re.search(r'"draft"\s*:\s*"((?:[^"\\]|\\.)*)', raw, re.DOTALL)
+            if match:
+                draft_text = match.group(1)
+                draft_text = draft_text.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
+                # Trim at last complete sentence if truncated mid-sentence
+                if not draft_text.endswith(("。", "」", "）")):
+                    last_period = draft_text.rfind("。")
+                    if last_period > len(draft_text) * 0.5:
+                        draft_text = draft_text[: last_period + 1]
+                if len(draft_text) >= 100:
+                    print(f"[ガクチカES] ⚠️ raw_textフォールバック: {len(draft_text)}字のドラフトを抽出")
+                    return GakuchikaESDraftResponse(
+                        draft=draft_text,
+                        char_count=len(draft_text),
+                    )
         error = llm_result.error
         raise HTTPException(
             status_code=503,

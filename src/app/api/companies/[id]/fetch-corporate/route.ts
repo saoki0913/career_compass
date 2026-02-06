@@ -103,6 +103,7 @@ interface CrawlResult {
   pages_crawled: number;
   chunks_stored: number;
   errors: string[];
+  url_content_types?: Record<string, string>;
 }
 
 function parseCorporateInfoUrls(raw: string | null | undefined): CorporateInfoUrl[] {
@@ -276,11 +277,12 @@ export async function POST(
 
     // Add new URLs (avoid duplicates)
     const existingUrlSet = new Set(existingUrls.map((u) => u.url));
+    const urlContentTypes = crawlResult.url_content_types || {};
     const newUrls: CorporateInfoUrl[] = urls
       .filter((url) => !existingUrlSet.has(url))
       .map((url) => ({
         url,
-        contentType: contentTypeResolved || detectContentTypeFromUrl(url) || "corporate_site",
+        contentType: urlContentTypes[url] || contentTypeResolved || detectContentTypeFromUrl(url) || "corporate_site",
         secondaryContentTypes: [],
         fetchedAt: new Date().toISOString(),
       }));

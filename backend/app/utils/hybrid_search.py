@@ -26,6 +26,7 @@ from app.utils.embeddings import (
     resolve_embedding_backend,
 )
 from app.utils.bm25_store import get_or_create_index
+from app.utils.reranker import rerank_with_cross_encoder
 from app.utils.japanese_tokenizer import tokenize
 
 # Retrieval tuning defaults
@@ -143,6 +144,38 @@ def _set_cached_expansion(query: str, queries: list[str]) -> None:
             _expansion_cache.pop(k, None)
     key = _expansion_cache_key(query)
     _expansion_cache[key] = (time.time(), queries)
+
+
+# ---- HyDE in-memory cache ----
+# Maps query hash → (timestamp, passage)
+_hyde_cache: dict[str, tuple[float, str]] = {}
+_HYDE_CACHE_TTL = 7 * 24 * 3600  # 7 days
+_HYDE_CACHE_MAX = 500
+
+
+def _hyde_cache_key(query: str) -> str:
+    return hashlib.sha256(query.strip().lower().encode()).hexdigest()[:16]
+
+
+def _get_cached_hyde(query: str) -> Optional[str]:
+    key = _hyde_cache_key(query)
+    entry = _hyde_cache.get(key)
+    if entry is None:
+        return None
+    ts, passage = entry
+    if time.time() - ts > _HYDE_CACHE_TTL:
+        _hyde_cache.pop(key, None)
+        return None
+    return passage
+
+
+def _set_cached_hyde(query: str, passage: str) -> None:
+    if len(_hyde_cache) >= _HYDE_CACHE_MAX:
+        sorted_keys = sorted(_hyde_cache, key=lambda k: _hyde_cache[k][0])
+        for k in sorted_keys[: _HYDE_CACHE_MAX // 2]:
+            _hyde_cache.pop(k, None)
+    key = _hyde_cache_key(query)
+    _hyde_cache[key] = (time.time(), passage)
 
 
 QUERY_EXPANSION_SCHEMA = {
@@ -565,17 +598,20 @@ async def expand_queries_with_llm(
 {{"queries": ["...","..."]}}"""
     else:
         system_prompt = """あなたは就活ES向けのRAG検索クエリ拡張アシスタントです。
-採用情報・事業情報・人材要件・企業文化に関連する検索クエリを生成してください。
+元のクエリとは異なる語彙・切り口で、同じ情報を取得できる検索クエリを生成してください。
 出力はJSONのみ。"""
 
         user_message = f"""元のクエリ:
 {query}
 
 指示:
-- 元のクエリと重複しない表現を優先
-- 企業の事業/採用/人材像/選考/応募方法に関連する語を含める
-- 募集職種、配属、育成、カルチャーなど就活文脈を意識
-- 最大{max_queries}件まで
+- 元のクエリの同義語・言い換え・上位概念を使う（例: 「社風」→「企業文化」「職場環境」）
+- 以下の切り口を網羅:
+  1. 採用/選考の観点（募集要項、選考フロー、求める人物像）
+  2. 事業/業務の観点（事業内容、業務内容、配属先）
+  3. 文化/制度の観点（社風、研修、キャリアパス、福利厚生）
+- 元のクエリと単語レベルで重複しない表現を優先
+- 最大{max_queries}件
 """
 
         if keywords:
@@ -616,20 +652,29 @@ async def expand_queries_with_llm(
 
 
 async def generate_hypothetical_document(query: str) -> str:
-    """Generate a hypothetical passage (HyDE) to improve recall."""
+    """Generate a hypothetical passage (HyDE) to improve recall.  Uses in-memory cache."""
+    cached = _get_cached_hyde(query)
+    if cached is not None:
+        return cached
+
     system_prompt = """あなたはRAG検索のHyDE生成アシスタントです。
 ユーザーのクエリに対して、実際の企業HPの採用ページや事業紹介ページに書かれているような
 具体的な文章（仮想文書）を日本語で生成してください。
-出力はJSONのみ。"""
+出力はJSONのみ。
+
+## 重要な注意事項
+- 実在の数字（売上、従業員数等）は捏造しない。「X億円規模」のような表現を使う
+- 就活生が検索しそうな語彙・フレーズを意識的に含める
+- 採用ページの定型フレーズ（「求める人物像」「キャリアパス」「研修制度」等）を活用"""
 
     user_message = f"""クエリ:
 {query}
 
 指示:
 - 実際の企業の採用ページ・事業紹介・社員インタビューに近いスタイルで書く
-- 就活生が読む視点で、具体的な業務内容・求める人物像・社風を含める
+- 就活生の検索意図を推測し、その情報が含まれる文書を想定
 - 「当社」「私たちは」など企業側の語り口を使う
-- 300〜500文字程度
+- 200〜400文字程度（検索ヒットしやすい密度を意識）
 
 出力形式:
 {{"passage": "..."}}"""
@@ -653,6 +698,8 @@ async def generate_hypothetical_document(query: str) -> str:
         passage = passage.strip()
         if len(passage) > 1200:
             passage = passage[:1200]
+        if passage:
+            _set_cached_hyde(query, passage)
         return passage
     return ""
 
@@ -679,7 +726,18 @@ async def rerank_results_with_llm(
         )
 
     system_prompt = """あなたはRAG検索の再ランキング用スコアラーです。
-与えられた候補に対して、クエリとの関連度を0〜100で採点してください。
+就活生が企業研究やES作成に使うことを前提に、以下の基準で各候補を0〜100で採点してください。
+
+## スコアリング基準
+- 90-100: クエリに直接回答する情報（採用要件、締切日、具体的な事業内容）
+- 70-89: クエリに関連する有用な情報（企業文化、社員の声、関連事業）
+- 40-69: 間接的に関連（業界一般の情報、親会社の情報）
+- 0-39: 無関連またはノイズ（ニュース、広告、無関係ページ）
+
+## 重要な判断軸
+- 就活生にとっての実用性を最優先
+- 公式情報（採用ページ、IR）は非公式（ブログ、口コミ）より高評価
+- 具体的な数字・日程を含む文書は高評価
 JSONのみで返してください。"""
 
     user_message = f"""クエリ:
@@ -850,6 +908,13 @@ async def dense_hybrid_search(
     fetch_k = max(fetch_k or DEFAULT_FETCH_K, n_results * 3)
     bm25_k = max(fetch_k or DEFAULT_FETCH_K, n_results * 3)
 
+    # Pre-compute query embedding for the original query.
+    # This is reused by both semantic_search (for the first query) and MMR.
+    query_embedding = (
+        await generate_embedding(query, backend=base_backend)
+        if use_mmr else None
+    )
+
     # Start BM25 search in parallel with semantic search (they are independent)
     bm25_task = None
     if use_bm25 and keyword_weight > 0:
@@ -863,7 +928,9 @@ async def dense_hybrid_search(
             )
         )
 
-    # Run semantic search for all queries in parallel
+    # Run semantic search for all queries in parallel.
+    # Pass pre-computed embedding for the original query (first in list) to avoid
+    # a duplicate embedding API call.
     search_tasks = [
         semantic_search(
             company_id=company_id,
@@ -872,8 +939,9 @@ async def dense_hybrid_search(
             content_types=content_types,
             backends=search_backends,
             include_embeddings=use_mmr,
+            precomputed_query_embedding=query_embedding if (i == 0 and query_embedding) else None,
         )
-        for q in queries
+        for i, q in enumerate(queries)
     ]
     search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
     results_by_query: list[list[dict]] = [
@@ -890,7 +958,6 @@ async def dense_hybrid_search(
     merged = rrf_merge_results(results_by_query, k=rrf_k)
 
     if use_mmr:
-        query_embedding = await generate_embedding(query, backend=base_backend)
         if query_embedding:
             merged = _apply_mmr(merged, query_embedding, n_results, mmr_lambda)
         else:
@@ -917,8 +984,8 @@ async def dense_hybrid_search(
         merged = _apply_content_type_boost(merged, content_type_boosts)
 
     if rerank and _should_rerank(merged, rerank_threshold):
-        merged = await rerank_results_with_llm(
-            query, merged, max_items=DEFAULT_RERANK_CANDIDATES
+        merged = await rerank_with_cross_encoder(
+            query, merged, top_k=DEFAULT_RERANK_CANDIDATES
         )
     elif rerank:
         print("[RAG再ランキング] ℹ️ 上位スコアが高いためスキップ")

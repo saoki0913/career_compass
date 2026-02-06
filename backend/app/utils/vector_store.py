@@ -430,7 +430,7 @@ async def store_full_text_content(
     content_channel: Optional[str] = None,
     backend: Optional[EmbeddingBackend] = None,
     raw_format: str = "text",
-) -> bool:
+) -> dict:
     """
     Store full text content from a web page in vector database.
 
@@ -446,7 +446,9 @@ async def store_full_text_content(
         raw_format: "text" or "html"
 
     Returns:
-        True if successful, False otherwise
+        dict with keys:
+            - "success" (bool): True if any chunks were stored
+            - "dominant_content_type" (str | None): Majority content_type from classified chunks
     """
     from app.utils.text_chunker import (
         JapaneseTextChunker,
@@ -455,9 +457,11 @@ async def store_full_text_content(
         chunk_html_content,
     )
 
+    _fail = {"success": False, "dominant_content_type": None}
+
     if content_type and content_type not in CONTENT_TYPES:
         print(f"[RAG保存] ⚠️ 無効なcontent_type: {content_type}")
-        return False
+        return _fail
 
     try:
         raw_format = (raw_format or "text").lower()
@@ -466,7 +470,7 @@ async def store_full_text_content(
         backend = _resolve_write_backend(backend)
         if backend is None:
             print("[RAG保存] ❌ フルテキスト保存用の埋め込みバックエンドなし")
-            return False
+            return _fail
         effective_type = content_type or content_channel or "corporate_site"
         chunk_size, chunk_overlap = get_chunk_settings(effective_type)
 
@@ -490,7 +494,7 @@ async def store_full_text_content(
 
         if not chunks:
             print(f"[RAG保存] ⚠️ チャンク生成なし (会社ID: {company_id[:8]}...)")
-            return False
+            return _fail
 
         # Add content_type and timestamp to each chunk's metadata
         now = datetime.utcnow().isoformat()
@@ -518,6 +522,11 @@ async def store_full_text_content(
             )
             grouped.setdefault(ct, []).append(chunk)
 
+        # Determine dominant content_type by chunk count (majority vote)
+        dominant_content_type = (
+            max(grouped, key=lambda k: len(grouped[k])) if grouped else None
+        )
+
         any_success = False
         for ct, group_chunks in grouped.items():
             # Store per content type (deletes existing of that type)
@@ -537,11 +546,11 @@ async def store_full_text_content(
             if cache:
                 await cache.invalidate_company(company_id)
 
-        return any_success
+        return {"success": any_success, "dominant_content_type": dominant_content_type}
 
     except Exception as e:
         print(f"[RAG保存] ❌ フルテキスト保存エラー: {e}")
-        return False
+        return _fail
 
 
 async def _store_content_by_type(
@@ -677,6 +686,7 @@ async def search_company_context_by_type(
     content_types: Optional[list[str]] = None,
     backends: Optional[list[EmbeddingBackend]] = None,
     include_embeddings: bool = False,
+    precomputed_query_embedding: Optional[list[float]] = None,
 ) -> list[dict]:
     """
     Search for relevant company context with content type filtering.
@@ -687,6 +697,8 @@ async def search_company_context_by_type(
         n_results: Maximum results to return
         content_types: List of content types to include (None = all)
         include_embeddings: Include embeddings in results (for MMR)
+        precomputed_query_embedding: Pre-computed query embedding to avoid
+            duplicate API calls when the same query is embedded elsewhere.
 
     Returns:
         List of relevant context chunks with metadata
@@ -734,7 +746,10 @@ async def search_company_context_by_type(
             }
 
         for backend in search_backends:
-            query_embedding = await generate_embedding(query, backend=backend)
+            if precomputed_query_embedding is not None:
+                query_embedding = precomputed_query_embedding
+            else:
+                query_embedding = await generate_embedding(query, backend=backend)
             if query_embedding is None:
                 continue
 
