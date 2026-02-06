@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -94,22 +94,39 @@ function isCalendarEvent(event: DisplayEvent): event is CalendarEvent {
 
 export function EventDetailModal({ isOpen, event, onClose, onDelete }: EventDetailModalProps) {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Reset states when event changes
+  useEffect(() => {
+    setShowDeleteConfirm(false);
+    setDeleteError(null);
+    setIsDeleting(false);
+  }, [event]);
+
+  // Escape key to close
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [isOpen, onClose]);
 
   if (!isOpen || !event) return null;
 
   const handleDelete = async () => {
     if (!onDelete || !("id" in event) || isGoogleEvent(event)) return;
 
-    const confirmed = window.confirm("このタスクを削除しますか？");
-    if (!confirmed) return;
-
     setIsDeleting(true);
+    setDeleteError(null);
     try {
       await onDelete(event.id);
       onClose();
     } catch (error) {
       console.error("Failed to delete event:", error);
-      alert("削除に失敗しました");
+      setDeleteError("削除に失敗しました");
     } finally {
       setIsDeleting(false);
     }
@@ -311,22 +328,51 @@ export function EventDetailModal({ isOpen, event, onClose, onDelete }: EventDeta
               </div>
             </div>
 
+            {deleteError && (
+              <div className="p-2 rounded-lg bg-red-50 border border-red-200">
+                <p className="text-xs text-red-800">{deleteError}</p>
+              </div>
+            )}
+
             <div className="flex gap-2 pt-2">
-              {onDelete && (
+              {onDelete && !showDeleteConfirm && (
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={handleDelete}
-                  disabled={isDeleting}
+                  onClick={() => setShowDeleteConfirm(true)}
                   className="flex-1"
                 >
                   <TrashIcon />
-                  {isDeleting ? "削除中..." : "削除"}
+                  削除
                 </Button>
               )}
-              <Button variant="outline" size="sm" onClick={onClose} className="flex-1">
-                閉じる
-              </Button>
+              {onDelete && showDeleteConfirm && (
+                <>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                    className="flex-1"
+                  >
+                    {isDeleting ? "削除中..." : "本当に削除"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    disabled={isDeleting}
+                    className="flex-1"
+                  >
+                    やめる
+                  </Button>
+                </>
+              )}
+              {!showDeleteConfirm && (
+                <Button variant="outline" size="sm" onClick={onClose} className="flex-1">
+                  閉じる
+                </Button>
+              )}
             </div>
           </CardContent>
         </>
@@ -337,8 +383,8 @@ export function EventDetailModal({ isOpen, event, onClose, onDelete }: EventDeta
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-sm">{renderContent()}</Card>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <Card className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>{renderContent()}</Card>
     </div>
   );
 }

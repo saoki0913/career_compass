@@ -236,7 +236,7 @@ export function useGoogleCalendar() {
     checkConnection();
   }, [checkConnection]);
 
-  const fetchGoogleEvents = async (start: string, end: string): Promise<GoogleCalendarEvent[]> => {
+  const fetchGoogleEvents = useCallback(async (start: string, end: string): Promise<GoogleCalendarEvent[]> => {
     setIsLoading(true);
     setError(null);
     try {
@@ -260,9 +260,9 @@ export function useGoogleCalendar() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const suggestWorkBlocks = async (date: string): Promise<WorkBlockSuggestion[]> => {
+  const suggestWorkBlocks = useCallback(async (date: string): Promise<WorkBlockSuggestion[]> => {
     setIsLoading(true);
     setError(null);
     try {
@@ -286,7 +286,7 @@ export function useGoogleCalendar() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   const createGoogleEvent = async (event: {
     title: string;

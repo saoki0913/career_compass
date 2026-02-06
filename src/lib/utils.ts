@@ -51,6 +51,18 @@ export function formatRelativeTime(dateStr: string | Date): string {
  * @param seconds - Elapsed time in seconds
  * @returns Formatted time string in Japanese
  */
+/**
+ * Get a local date key string (YYYY-MM-DD) from a Date object or ISO string.
+ * Uses local timezone (not UTC) to avoid JST midnight boundary issues.
+ */
+export function getLocalDateKey(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export function formatElapsedTime(seconds: number): string {
   if (seconds < 60) {
     return `${seconds}秒`;

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { cn, getLocalDateKey } from "@/lib/utils";
 import { CalendarEvent, DeadlineEvent, GoogleCalendarEvent } from "@/hooks/useCalendar";
 
 // Icons
@@ -146,6 +146,7 @@ export function CalendarSidebar({
 
   const thisWeekDeadlines = deadlines
     .filter((d) => {
+      if (d.completedAt) return false;
       const dueDate = new Date(d.dueDate);
       dueDate.setHours(0, 0, 0, 0);
       return dueDate >= today && dueDate <= weekEnd;
@@ -153,10 +154,11 @@ export function CalendarSidebar({
     .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
   // Get today's events
-  const todayKey = today.toISOString().split("T")[0];
+  const todayKey = getLocalDateKey(today);
   const todayGoogleEvents = googleEvents.filter((e) => {
     const startDate = e.start.dateTime || e.start.date;
-    return startDate?.split("T")[0] === todayKey;
+    if (!startDate) return false;
+    return getLocalDateKey(startDate) === todayKey;
   });
 
   // Build a Set of Google event keys for duplicate detection
@@ -176,7 +178,7 @@ export function CalendarSidebar({
 
   // Filter out duplicates from app events when Google is connected
   const todayEvents = events
-    .filter((e) => e.startAt.split("T")[0] === todayKey)
+    .filter((e) => getLocalDateKey(e.startAt) === todayKey)
     .filter((event) => {
       if (!isGoogleConnected || event.type !== "work_block") return true;
       const normalizedTitle = event.title.toLowerCase().trim();
@@ -185,12 +187,12 @@ export function CalendarSidebar({
     });
 
   // Get selected date events
-  const selectedDateKey = selectedDate?.toISOString().split("T")[0];
+  const selectedDateKey = selectedDate ? getLocalDateKey(selectedDate) : null;
   const selectedDateDeadlines = selectedDateKey
-    ? deadlines.filter((d) => d.dueDate.split("T")[0] === selectedDateKey)
+    ? deadlines.filter((d) => getLocalDateKey(d.dueDate) === selectedDateKey)
     : [];
   const selectedDateEvents = selectedDateKey
-    ? events.filter((e) => e.startAt.split("T")[0] === selectedDateKey)
+    ? events.filter((e) => getLocalDateKey(e.startAt) === selectedDateKey)
     : [];
 
   return (
