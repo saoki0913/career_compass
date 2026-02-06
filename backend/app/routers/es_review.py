@@ -44,6 +44,12 @@ from app.prompts.es_templates import (
     build_template_prompt,
     validate_template_output,
 )
+from app.prompts.es_review_prompts import (
+    build_section_review_prompt,
+    build_full_review_prompt,
+    build_full_review_prompt_streaming,
+    build_review_user_message,
+)
 
 router = APIRouter(prefix="/api/es", tags=["es-review"])
 
@@ -1407,18 +1413,6 @@ async def review_section(
 
     This provides focused feedback on one specific question/section.
     """
-    # Inject gakuchika context if available
-    gakuchika_context_section = ""
-    if request.gakuchika_context:
-        gakuchika_context_section = f"""
-
-**ガクチカ深掘り情報:**
-以下はガクチカ（学生時代に力を入れたこと）の深掘りセッションから得られた情報です。
-ESの添削において、これらの経験や強みが活かされているか確認し、フィードバックに反映してください。
-
-{request.gakuchika_context}
-"""
-
     # Build scoring criteria (same as full review)
     score_criteria = """1. scores (各1-5点):
    - logic: 論理の一貫性（主張と根拠の整合性、因果関係の明確さ）
@@ -1456,71 +1450,24 @@ ESの添削において、これらの経験や強みが活かされているか
             f"   - 文字数制限: {request.section_char_limit}文字以内に収めてください"
         )
 
-    system_prompt = f"""あなたはES（エントリーシート）添削の専門家です。
-就活生のESの**特定の設問**を添削し、具体的で実用的なフィードバックを提供してください。
-
-設問タイトル: 「{request.section_title or '（タイトルなし）'}」
-{f'文字数制限: {request.section_char_limit}文字' if request.section_char_limit else ''}
-
-以下の観点で評価し、必ずJSON形式で回答してください：
-
-{score_criteria}
-
-2. top3: 改善すべき点（1〜2点）
-   - category: 評価軸の名前（論理、具体性、熱意、{"企業接続、" if company_rag_available else ""}読みやすさ）
-   - issue: 具体的な問題点（文章のどこが、なぜ問題か）
-   - suggestion: 実践的な改善案（具体的に何をどう変えるか）
-   - difficulty: 難易度（easy/medium/hard）
-   {"※企業接続の指摘では、提供された企業情報を参照して具体的な改善点を示してください" if company_rag_available else ""}
-
-3. rewrites: 改善例（1パターン）
-   - スタイル「{request.style}」に沿って{rewrite_instruction}リライト
-   - 元の文章の良い部分は活かしつつ、問題点を改善した文章
-{char_limit_instruction}
-   {"- 企業情報に基づいて、企業の事業内容や価値観と結びつく表現を追加" if company_rag_available else ""}
-
-スコアは厳しめに付けてください（平均3点程度）。
-この設問に特化した具体的なフィードバックを提供してください。
-
-出力形式（必ず有効なJSONで回答）:
-{{
-  "scores": {{"logic": 3, "specificity": 3, "passion": 3, "readability": 3{', "company_connection": 3' if company_rag_available else ''}}},
-  "top3": [
-    {{"category": "...", "issue": "...", "suggestion": "...", "difficulty": "easy"}}
-  ],
-  "rewrites": ["リライト案"]
-}}"""
+    system_prompt = build_section_review_prompt(
+        section_title=request.section_title or "（タイトルなし）",
+        section_char_limit=request.section_char_limit,
+        score_criteria=score_criteria,
+        company_rag_available=company_rag_available,
+        rewrite_instruction=rewrite_instruction,
+        style=request.style,
+        char_limit_instruction=char_limit_instruction,
+    )
 
     # Build user message
-    user_message = f"""以下の設問への回答を添削してください：
-
-**設問**: {request.section_title or '（タイトルなし）'}
-{f'**文字数制限**: {request.section_char_limit}文字' if request.section_char_limit else ''}
-
-**回答内容**:
-{request.content}"""
-
-    if company_context:
-        user_message = f"""以下の設問への回答を添削してください。
-
-**企業情報（RAGから取得）:**
-{company_context}
-{gakuchika_context_section}
-**設問**: {request.section_title or '（タイトルなし）'}
-{f'**文字数制限**: {request.section_char_limit}文字' if request.section_char_limit else ''}
-
-**回答内容**:
-{request.content}"""
-    else:
-        # No company context, but may have gakuchika context
-        if gakuchika_context_section:
-            user_message = f"""以下の設問への回答を添削してください。
-{gakuchika_context_section}
-**設問**: {request.section_title or '（タイトルなし）'}
-{f'**文字数制限**: {request.section_char_limit}文字' if request.section_char_limit else ''}
-
-**回答内容**:
-{request.content}"""
+    user_message = build_review_user_message(
+        content=request.content,
+        company_context=company_context,
+        gakuchika_context=request.gakuchika_context,
+        section_title=request.section_title or "（タイトルなし）",
+        section_char_limit=request.section_char_limit,
+    )
 
     # Call LLM
     llm_result = await call_llm_with_error(
@@ -1851,76 +1798,21 @@ async def review_es(request: ReviewRequest):
    - section_title: 設問タイトル
    - feedback: その設問に特化した改善点（100-150字）"""
 
-    system_prompt = f"""あなたはES（エントリーシート）添削の専門家です。
-就活生のESを添削し、具体的で実用的なフィードバックを提供してください。
-
-以下の観点で評価し、必ずJSON形式で回答してください：
-
-{score_criteria}
-
-2. top3: 改善すべき上位3点
-   - category: 評価軸の名前（論理、具体性、熱意、{"企業接続、" if company_rag_available else ""}読みやすさ）
-   - issue: 具体的な問題点（文章のどこが、なぜ問題か）
-   - suggestion: 実践的な改善案（具体的に何をどう変えるか）
-   - difficulty: 難易度（easy/medium/hard）
-   {"※企業接続の指摘では、提供された企業情報を参照し、『〇〇事業への言及がない』『△△という企業理念との接点が不明確』など、具体的な改善点を示してください" if company_rag_available else ""}
-
-3. rewrites: 改善例（{rewrite_count}パターン）
-   - スタイル「{request.style}」に沿って{rewrite_instruction}リライト
-   - 元の文章の良い部分は活かしつつ、問題点を改善した文章
-   - 元の文章と同程度の長さで
-   {"- 企業情報に基づいて、企業の事業内容や価値観と結びつく表現を追加" if company_rag_available else ""}
-{section_feedback_instruction}
-
-スコアは厳しめに付けてください（平均3点程度）。
-改善案は具体的で、すぐに実践できるものにしてください。
-
-出力形式（必ず有効なJSONで回答）:
-{{
-  "scores": {{"logic": 3, "specificity": 3, "passion": 3, "readability": 3{', "company_connection": 3' if company_rag_available else ''}}},
-  "top3": [
-    {{"category": "...", "issue": "...", "suggestion": "...", "difficulty": "easy"}}
-  ],
-  "rewrites": ["リライト1", "リライト2", ...],
-  "section_feedbacks": [{{"section_title": "...", "feedback": "...", "rewrite": "..."}}]
-}}"""
-
-    # Inject gakuchika context if available
-    gakuchika_context_section = ""
-    if request.gakuchika_context:
-        gakuchika_context_section = f"""
-
-**ガクチカ深掘り情報:**
-以下はガクチカ（学生時代に力を入れたこと）の深掘りセッションから得られた情報です。
-ESの添削において、これらの経験や強みが活かされているか確認し、フィードバックに反映してください。
-
-{request.gakuchika_context}
-"""
+    system_prompt = build_full_review_prompt(
+        score_criteria=score_criteria,
+        company_rag_available=company_rag_available,
+        rewrite_count=rewrite_count,
+        rewrite_instruction=rewrite_instruction,
+        style=request.style,
+        section_feedback_instruction=section_feedback_instruction,
+    )
 
     # Build user message with company context if available
-    user_message = f"以下のESを添削してください：\n\n{request.content}"
-    if company_context:
-        user_message = f"""以下のESを添削してください。
-
-**企業情報（RAGから取得）:**
-以下は企業の採用ページ、IR情報、事業紹介から抽出した情報です。ESの「企業接続」評価において、これらの情報を参照して具体的なフィードバックを行ってください。
-
-{company_context}
-{gakuchika_context_section}
-**ES内容:**
-{request.content}
-
-**評価のポイント:**
-- 企業情報に記載されている事業内容、価値観、求める人材像とESの内容が結びついているか
-- 企業の具体的な取り組みや特徴に言及しているか
-- 志望動機が企業の実態に即しているか"""
-    else:
-        # No company context, but may have gakuchika context
-        if gakuchika_context_section:
-            user_message = f"""以下のESを添削してください。
-{gakuchika_context_section}
-**ES内容:**
-{request.content}"""
+    user_message = build_review_user_message(
+        content=request.content,
+        company_context=company_context,
+        gakuchika_context=request.gakuchika_context,
+    )
 
     include_section_feedbacks = bool(
         request.is_paid and (request.section_data or request.sections)
@@ -2382,60 +2274,20 @@ async def _generate_review_progress(
    - section_title: 設問タイトル
    - feedback: その設問に特化した改善点（100-150字）"""
 
-        system_prompt = f"""あなたはES（エントリーシート）添削の専門家です。
-就活生のESを添削し、具体的で実用的なフィードバックを提供してください。
+        system_prompt = build_full_review_prompt_streaming(
+            score_criteria=score_criteria,
+            company_rag_available=company_rag_available,
+            rewrite_count=rewrite_count,
+            rewrite_instruction=rewrite_instruction,
+            style=request.style,
+            section_feedback_instruction=section_feedback_instruction,
+        )
 
-以下の観点で評価し、必ずJSON形式で回答してください：
-
-{score_criteria}
-
-2. top3: 改善すべき上位3点
-   - category: 評価軸の名前
-   - issue: 具体的な問題点
-   - suggestion: 実践的な改善案
-   - difficulty: 難易度（easy/medium/hard）
-
-3. rewrites: 改善例（{rewrite_count}パターン）
-   - スタイル「{request.style}」に沿って{rewrite_instruction}リライト
-{section_feedback_instruction}
-
-スコアは厳しめに付けてください。
-出力形式（必ず有効なJSONで回答）:
-{{
-  "scores": {{"logic": 3, "specificity": 3, "passion": 3, "readability": 3{', "company_connection": 3' if company_rag_available else ''}}},
-  "top3": [{{"category": "...", "issue": "...", "suggestion": "...", "difficulty": "easy"}}],
-  "rewrites": ["リライト1"],
-  "section_feedbacks": [{{"section_title": "...", "feedback": "..."}}]
-}}"""
-
-        # Inject gakuchika context if available
-        gakuchika_context_section = ""
-        if request.gakuchika_context:
-            gakuchika_context_section = f"""
-
-**ガクチカ深掘り情報:**
-以下はガクチカ（学生時代に力を入れたこと）の深掘りセッションから得られた情報です。
-ESの添削において、これらの経験や強みが活かされているか確認し、フィードバックに反映してください。
-
-{request.gakuchika_context}
-"""
-
-        user_message = f"以下のESを添削してください：\n\n{request.content}"
-        if company_context:
-            user_message = f"""以下のESを添削してください。
-
-**企業情報（RAGから取得）:**
-{company_context}
-{gakuchika_context_section}
-**ES内容:**
-{request.content}"""
-        else:
-            # No company context, but may have gakuchika context
-            if gakuchika_context_section:
-                user_message = f"""以下のESを添削してください。
-{gakuchika_context_section}
-**ES内容:**
-{request.content}"""
+        user_message = build_review_user_message(
+            content=request.content,
+            company_context=company_context,
+            gakuchika_context=request.gakuchika_context,
+        )
 
         yield _sse_event(
             "progress",

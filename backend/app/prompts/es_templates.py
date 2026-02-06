@@ -13,7 +13,7 @@ from typing import Optional
 from pathlib import Path
 
 BASIC_TEMPLATE_PATH = (
-    Path(__file__).resolve().parents[3] / "templates" / "00_basic_template.md"
+    Path(__file__).resolve().parent / "templates" / "00_basic_template.md"
 )
 try:
     BASIC_TEMPLATE_TEXT = BASIC_TEMPLATE_PATH.read_text(encoding="utf-8")
