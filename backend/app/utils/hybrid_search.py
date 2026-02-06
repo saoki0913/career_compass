@@ -5,6 +5,7 @@ Hybrid retrieval pipeline (dense + optional BM25).
 Uses multi-query + HyDE + RRF + MMR + optional LLM rerank.
 """
 
+import asyncio
 import json
 import math
 from collections import Counter
@@ -187,7 +188,7 @@ def _normalize_scores(score_map: dict[str, float]) -> dict[str, float]:
 def _extract_secondary_types(metadata: dict) -> list[str]:
     secondary = metadata.get("secondary_content_types") or []
     if isinstance(secondary, str):
-        return [secondary]
+        return [s.strip() for s in secondary.split(",") if s.strip()]
     return [s for s in secondary if isinstance(s, str)]
 
 
@@ -446,7 +447,7 @@ async def expand_queries_with_llm(
         user_message=user_message,
         max_tokens=300,
         temperature=0.1,
-        feature="rag_query",
+        feature="rag_query_expansion",
         response_format="json_schema",
         json_schema=QUERY_EXPANSION_SCHEMA,
         use_responses_api=True,
@@ -486,7 +487,7 @@ async def generate_hypothetical_document(query: str) -> str:
         user_message=user_message,
         max_tokens=500,
         temperature=0.2,
-        feature="rag_query",
+        feature="rag_hyde",
         response_format="json_schema",
         json_schema=HYDE_SCHEMA,
         use_responses_api=True,
@@ -659,34 +660,60 @@ async def dense_hybrid_search(
     effective_hyde = use_hyde and len(query) <= HYDE_MAX_QUERY_CHARS
 
     queries = [query]
-
-    expanded: list[str] = []
     keyword_seeds = _extract_keywords(query)
-    if effective_expand:
-        expanded = await expand_queries_with_llm(
-            query, max_queries=max_queries, keywords=keyword_seeds
-        )
 
-    if effective_hyde:
-        # Reserve one slot for HyDE if we already have many expansions
-        if len(expanded) > 2:
-            expanded = expanded[:2]
+    # Run query expansion and HyDE in parallel
+    expand_coro = (
+        expand_queries_with_llm(query, max_queries=max_queries, keywords=keyword_seeds)
+        if effective_expand else None
+    )
+    hyde_coro = (
+        generate_hypothetical_document(query)
+        if effective_hyde else None
+    )
+
+    if expand_coro and hyde_coro:
+        expanded, hyde_doc = await asyncio.gather(expand_coro, hyde_coro)
+    elif expand_coro:
+        expanded = await expand_coro
+        hyde_doc = None
+    elif hyde_coro:
+        expanded = []
+        hyde_doc = await hyde_coro
+    else:
+        expanded = []
+        hyde_doc = None
+
+    # Trim expanded if HyDE is enabled (reserve slot)
+    if effective_hyde and len(expanded) > 2:
+        expanded = expanded[:2]
 
     if expanded:
         queries.extend(expanded)
-
-    if effective_hyde:
-        hyde_doc = await generate_hypothetical_document(query)
-        if hyde_doc:
-            queries.append(hyde_doc)
+    if hyde_doc:
+        queries.append(hyde_doc)
 
     queries = _dedupe_queries(queries, max_total_queries)
 
     fetch_k = max(fetch_k or DEFAULT_FETCH_K, n_results * 3)
-    results_by_query: list[list[dict]] = []
+    bm25_k = max(fetch_k or DEFAULT_FETCH_K, n_results * 3)
 
-    for q in queries:
-        results = await semantic_search(
+    # Start BM25 search in parallel with semantic search (they are independent)
+    bm25_task = None
+    if use_bm25 and keyword_weight > 0:
+        bm25_task = asyncio.create_task(
+            asyncio.to_thread(
+                _keyword_search,
+                company_id=company_id,
+                query=query,
+                k=bm25_k,
+                content_types=content_types,
+            )
+        )
+
+    # Run semantic search for all queries in parallel
+    search_tasks = [
+        semantic_search(
             company_id=company_id,
             query=q,
             n_results=fetch_k,
@@ -694,10 +721,17 @@ async def dense_hybrid_search(
             backends=search_backends,
             include_embeddings=use_mmr,
         )
-        if results:
-            results_by_query.append(results)
+        for q in queries
+    ]
+    search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+    results_by_query: list[list[dict]] = [
+        r for r in search_results if isinstance(r, list) and r
+    ]
 
     if not results_by_query:
+        # Cancel BM25 task if no semantic results
+        if bm25_task:
+            bm25_task.cancel()
         return []
 
     merged = rrf_merge_results(results_by_query)
@@ -711,13 +745,13 @@ async def dense_hybrid_search(
     else:
         merged = merged[:n_results]
 
-    if use_bm25 and keyword_weight > 0:
-        keyword_results = _keyword_search(
-            company_id=company_id,
-            query=query,
-            k=max(fetch_k or DEFAULT_FETCH_K, n_results * 3),
-            content_types=content_types,
-        )
+    # Await BM25 results (was running concurrently with semantic search)
+    if bm25_task:
+        try:
+            keyword_results = await bm25_task
+        except Exception as e:
+            print(f"[RAG/BM25] ⚠️ BM25検索エラー: {e}")
+            keyword_results = None
         if keyword_results:
             merged = _merge_semantic_and_keyword(
                 merged,

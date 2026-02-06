@@ -206,12 +206,12 @@ export function getAvailableStyles(isPaid: boolean): string[] {
   return isPaid ? PAID_STYLES : FREE_STYLES;
 }
 
-// Default SSE steps from backend
+// Default SSE steps from backend (durations are estimates for progress animation)
 const DEFAULT_SSE_STEPS: ProcessingStep[] = [
   { id: "validation", label: "入力を検証中...", subLabel: "内容の確認", duration: 1000 },
-  { id: "rag_fetch", label: "企業情報を取得中...", subLabel: "RAGコンテキスト検索", duration: 3000 },
-  { id: "llm_review", label: "AIが添削中...", subLabel: "スコアと改善点を分析", duration: 5000 },
-  { id: "rewrite", label: "リライトを生成中...", subLabel: "複数パターン作成", duration: 2000 },
+  { id: "rag_fetch", label: "企業情報を取得中...", subLabel: "RAGコンテキスト検索", duration: 8000 },
+  { id: "llm_review", label: "AIが添削中...", subLabel: "スコアと改善点を分析", duration: 12000 },
+  { id: "rewrite", label: "リライトを生成中...", subLabel: "完了処理", duration: 1000 },
 ];
 
 export function useESReview({ documentId }: UseESReviewOptions): UseESReviewReturn {

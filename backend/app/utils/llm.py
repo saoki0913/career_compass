@@ -14,7 +14,7 @@ import openai
 from openai import APIError as OpenAIAPIError
 from app.config import settings
 import json
-from typing import Literal, Optional
+from typing import AsyncGenerator, Callable, Literal, Optional
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -120,9 +120,11 @@ MODEL_CONFIG: dict[str, LLMModel] = {
     "gakuchika": "claude-haiku",  # Interactive deep-dive questions (cost-optimized)
     "motivation": "claude-haiku",  # Motivation deep-dive questions (cost-optimized)
     "selection_schedule": "claude-haiku",  # Selection schedule extraction
-    "rag_query": "claude-sonnet",  # Query expansion for RAG
-    "rag_rerank": "claude-sonnet",  # Reranking for RAG
-    "rag_classify": "claude-sonnet",  # Content classification for RAG
+    "rag_query": "claude-haiku",  # Query expansion + HyDE for RAG (lightweight)
+    "rag_query_expansion": "claude-haiku",  # Query expansion for RAG (lightweight)
+    "rag_hyde": "claude-sonnet",  # HyDE for RAG (precision-critical)
+    "rag_rerank": "claude-sonnet",  # Reranking for RAG (precision-critical)
+    "rag_classify": "claude-haiku",  # Content classification for RAG (lightweight)
 }
 
 # Feature name mapping for error messages and logs
@@ -132,6 +134,8 @@ FEATURE_NAMES = {
     "motivation": "志望動機作成",
     "selection_schedule": "選考スケジュール抽出",
     "rag_query": "RAGクエリ拡張",
+    "rag_query_expansion": "RAGクエリ拡張",
+    "rag_hyde": "RAG仮想文書生成",
     "rag_rerank": "RAG再ランキング",
     "rag_classify": "RAGコンテンツ分類",
 }
@@ -791,7 +795,7 @@ async def call_llm_with_error(
 
 def _is_rag_feature(feature: str) -> bool:
     """機能がRAG関連かどうかを判定（短いタイムアウトを使用）。"""
-    return feature in ("rag_query", "rag_rerank", "rag_classify")
+    return feature in ("rag_query", "rag_query_expansion", "rag_hyde", "rag_rerank", "rag_classify")
 
 
 async def _call_claude_raw(
@@ -825,6 +829,137 @@ async def _call_claude_raw(
         return ""
 
     return response.content[0].text or ""
+
+
+async def _call_claude_raw_stream(
+    system_prompt: str,
+    user_message: str,
+    messages: list[dict] | None,
+    max_tokens: int,
+    temperature: float,
+    model: str | None = None,
+    feature: str = "unknown",
+) -> AsyncGenerator[str, None]:
+    """Claude APIをストリーミングで呼び出し、テキストチャンクを逐次返す。"""
+    client = await get_anthropic_client(for_rag=_is_rag_feature(feature))
+
+    if messages is None:
+        messages = [{"role": "user", "content": user_message}]
+
+    actual_model = model or settings.claude_model
+
+    async with client.messages.stream(
+        model=actual_model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        system=system_prompt,
+        messages=messages,
+    ) as stream:
+        async for text in stream.text_stream:
+            yield text
+
+
+async def call_llm_streaming(
+    system_prompt: str,
+    user_message: str,
+    max_tokens: int = 2000,
+    temperature: float = 0.3,
+    model: LLMModel | None = None,
+    feature: str | None = None,
+    on_chunk: Optional[Callable[[str, int], None]] = None,
+) -> LLMResult:
+    """
+    ストリーミングでLLMを呼び出し、チャンクごとにon_chunkコールバックを実行。
+    最終的にJSON解析して結果を返す。
+
+    Args:
+        on_chunk: コールバック(chunk_text, accumulated_length)
+    """
+    feature = feature or "unknown"
+
+    if model is None:
+        model = MODEL_CONFIG.get(feature, "claude-sonnet")
+
+    # Only Claude models support streaming in this implementation
+    if model not in ("claude-sonnet", "claude-haiku"):
+        # Fall back to non-streaming for non-Claude models
+        return await call_llm_with_error(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            model=model,
+            feature=feature,
+        )
+
+    if model == "claude-sonnet":
+        actual_model = settings.claude_model
+    else:
+        actual_model = settings.claude_haiku_model
+
+    model_display = get_model_display_name(actual_model)
+    _log(feature, f"{model_display} をストリーミング呼び出し中...")
+
+    try:
+        accumulated = ""
+        async for chunk in _call_claude_raw_stream(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            messages=None,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            model=actual_model,
+            feature=feature,
+        ):
+            accumulated += chunk
+            if on_chunk:
+                on_chunk(chunk, len(accumulated))
+
+        if not accumulated:
+            error = _create_error("parse", "anthropic", feature, "空のストリーミングレスポンス")
+            return LLMResult(success=False, error=error)
+
+        if settings.debug:
+            _log_debug(
+                feature,
+                f"Streaming response complete: chars={len(accumulated)}",
+            )
+
+        result = _parse_json_response(accumulated)
+        if result is not None:
+            _log(feature, f"{model_display} ストリーミング成功", SUCCESS)
+            return LLMResult(success=True, data=result)
+
+        # JSON parse failed - try repair via non-streaming call
+        _log(feature, "ストリーミング応答のJSON解析失敗、修復を試行", WARNING)
+        repair_prompt = f"""以下のテキストを有効なJSONに修復してください。JSON以外は出力しないでください。
+
+{accumulated[:3000]}"""
+        repair_result = await _call_claude(
+            system_prompt="あなたはJSON修復の専門家です。必ずJSONのみ出力してください。",
+            user_message=repair_prompt,
+            messages=None,
+            max_tokens=max_tokens,
+            temperature=0.1,
+            feature=feature,
+        )
+        if repair_result is not None:
+            _log(feature, f"{model_display} JSON修復成功", SUCCESS)
+            return LLMResult(success=True, data=repair_result)
+
+        error = _create_error("parse", "anthropic", feature, "ストリーミング応答の解析に失敗")
+        return LLMResult(success=False, error=error)
+
+    except AnthropicAPIError as e:
+        error_type, detail = _classify_anthropic_error(e)
+        error = _create_error(error_type, "anthropic", feature, detail)
+        _log(feature, f"Anthropic ストリーミングエラー: {detail}", ERROR)
+        return LLMResult(success=False, error=error)
+
+    except Exception as e:
+        error = _create_error("unknown", "anthropic", feature, str(e))
+        _log(feature, f"ストリーミング予期しないエラー: {e}", ERROR)
+        return LLMResult(success=False, error=error)
 
 
 async def _call_claude(

@@ -24,7 +24,7 @@ import asyncio
 import math
 
 from app.config import settings
-from app.utils.llm import call_llm_with_error
+from app.utils.llm import call_llm_with_error, call_llm_streaming
 from app.utils.vector_store import (
     get_company_context_for_review,
     get_enhanced_context_for_review,
@@ -125,6 +125,8 @@ class ReviewRequest(BaseModel):
     section_char_limit: Optional[int] = None  # Character limit for section
     # Template-based review (used when review_mode="section")
     template_request: Optional[TemplateRequest] = None
+    # Gakuchika context
+    gakuchika_context: Optional[str] = None  # Context from gakuchika deep-dive (key_points, strengths)
 
 
 class Score(BaseModel):
@@ -319,23 +321,29 @@ def should_attempt_conditional_retry(
     template_review_data: dict,
     char_min: Optional[int],
     char_max: Optional[int],
+    rewrite_count: int = 3,
 ) -> tuple[bool, list[int]]:
     """
     Determine if a conditional retry is worthwhile based on partial success.
 
-    Returns True if at least 2 out of 3 variants pass character validation,
-    meaning it's worth trying to fix just the failing variant(s).
+    For multiple variants: returns True if at least 2 pass character validation.
+    For single variant: not applicable (main retry loop handles it).
 
     Args:
         template_review_data: The template_review dict from LLM response
         char_min: Minimum character count (optional)
         char_max: Maximum character count (optional)
+        rewrite_count: Expected number of variants
 
     Returns:
         Tuple of (should_retry, failing_variant_indices)
     """
     variants = template_review_data.get("variants", [])
-    if len(variants) != 3:
+    if len(variants) != rewrite_count:
+        return False, []
+
+    # Single variant: conditional retry not applicable (main retry handles it)
+    if rewrite_count == 1:
         return False, []
 
     failing_indices = []
@@ -350,7 +358,7 @@ def should_attempt_conditional_retry(
         elif char_min and char_count < char_min:
             failing_indices.append(i)
 
-    # Worth retrying if at least 2/3 variants pass (only 1 or 0 fail)
+    # Worth retrying if at least 2 variants pass (only minority fail)
     passing_count = len(variants) - len(failing_indices)
     should_retry = passing_count >= 2 and len(failing_indices) > 0
 
@@ -423,6 +431,7 @@ def build_es_review_schema(
     include_rewrites: bool = True,
     top3_max_items: int = 3,
     keyword_source_excerpt_required: bool = True,
+    variant_count: int = 3,
 ) -> dict:
     """Build JSON schema for ES review output (OpenAI Structured Outputs)."""
     score_properties = {
@@ -510,8 +519,8 @@ def build_es_review_schema(
             "variants": {
                 "type": "array",
                 "items": variant_schema,
-                "minItems": 3,
-                "maxItems": 3,
+                "minItems": variant_count,
+                "maxItems": variant_count,
             },
             "keyword_sources": {
                 "type": "array",
@@ -545,7 +554,7 @@ def build_es_review_schema(
             "type": "array",
             "items": {"type": "string"},
             "minItems": 1,
-            "maxItems": 3,
+            "maxItems": settings.es_rewrite_count,
         }
         required.append("rewrites")
 
@@ -653,17 +662,19 @@ async def review_section_with_template(
     rag_context: str,
     rag_sources: list[dict],
     company_rag_available: bool,
+    progress_queue: "asyncio.Queue | None" = None,
 ) -> ReviewResponse:
     """
     Review a single ES section using template-based prompts.
 
     This provides template-specific feedback with:
-    - 3 pattern variants with pros/cons
+    - Pattern variants with pros/cons
     - Company keyword extraction from RAG
     - Character limit enforcement
     - Optional strengthen points
 
-    Uses a retry loop (max 3 attempts) to ensure output validation passes.
+    Uses a retry loop to ensure output validation passes.
+    When progress_queue is provided, streams LLM progress on the first attempt.
     """
     template_request = request.template_request
     if not template_request:
@@ -691,6 +702,12 @@ async def review_section_with_template(
         # Set keyword_count to 0 if no RAG available
         keyword_count = 0
 
+    # Determine rewrite_count for template review
+    rewrite_count = min(
+        request.rewrite_count,
+        settings.es_rewrite_count if request.is_paid else 1,
+    )
+
     # Build prompts (apply safety margin to reduce overflow risk)
     prompt_char_min = char_min
     prompt_char_max = char_max
@@ -715,14 +732,22 @@ async def review_section_with_template(
         has_rag=company_rag_available,
         intern_name=template_request.intern_name,
         role_name=template_request.role_name,
+        rewrite_count=rewrite_count,
     )
 
     # Retry loop for validation
-    # Configurable via ES_TEMPLATE_MAX_RETRIES environment variable
-    # Default is 3 for complex 3-variant output (increased from original 2)
-    max_retries = settings.es_template_max_retries
+    # Optimize retries and tokens based on rewrite_count
+    if rewrite_count == 1:
+        max_retries = min(2, settings.es_template_max_retries)
+        template_max_tokens = 4000  # 1 variant needs much less output
+    else:
+        max_retries = settings.es_template_max_retries
+        template_max_tokens = 10000
     retry_reason = ""
     last_template_review_data = None  # Track for conditional retry
+
+    # Estimated max output chars for progress calculation
+    estimated_max_chars = template_max_tokens * 3  # rough chars-per-token estimate
 
     for attempt in range(max_retries):
         # Add retry reason if not first attempt
@@ -736,27 +761,52 @@ async def review_section_with_template(
             f"[ES添削/テンプレート] テンプレート {template_type} 試行 {attempt + 1}/{max_retries}"
         )
 
-        # Call LLM
-        llm_result = await call_llm_with_error(
-            system_prompt=system_prompt,
-            user_message=current_user_prompt,
-            max_tokens=10000,  # 3 variants × 500字 × 2(日本語) + metadata + JSON構造 = 余裕を持って設定
-            temperature=0.4,  # Slightly higher for variety
-            feature="es_review",
-            response_format="json_schema",
-            json_schema=build_es_review_schema(
-                require_company_connection=company_rag_available,
-                include_template_review=True,
-                include_section_feedbacks=False,
-                include_rewrites=False,
-                top3_max_items=2,
-                keyword_source_excerpt_required=False,
-            ),
-            use_responses_api=True,
-            retry_on_parse=True,
-            parse_retry_instructions="必ず有効なJSONのみを出力してください。説明文やコードブロックは禁止です。",
-            disable_fallback=True,
-        )
+        # First attempt: use streaming for real-time progress
+        if attempt == 0 and progress_queue is not None:
+            def _on_chunk(chunk: str, accumulated_len: int) -> None:
+                # Calculate progress: 35% -> 85% during LLM streaming
+                progress = 35 + int(50 * min(accumulated_len / estimated_max_chars, 1.0))
+                try:
+                    progress_queue.put_nowait(("progress", {
+                        "step": "llm_review",
+                        "progress": progress,
+                        "label": "AIが添削中...",
+                        "subLabel": f"{accumulated_len}文字生成済み",
+                    }))
+                except asyncio.QueueFull:
+                    pass  # Skip if queue is full
+
+            llm_result = await call_llm_streaming(
+                system_prompt=system_prompt,
+                user_message=current_user_prompt,
+                max_tokens=template_max_tokens,
+                temperature=0.4,
+                feature="es_review",
+                on_chunk=_on_chunk,
+            )
+        else:
+            # Retries: use blocking call (faster, no streaming needed)
+            llm_result = await call_llm_with_error(
+                system_prompt=system_prompt,
+                user_message=current_user_prompt,
+                max_tokens=template_max_tokens,
+                temperature=0.4,  # Slightly higher for variety
+                feature="es_review",
+                response_format="json_schema",
+                json_schema=build_es_review_schema(
+                    require_company_connection=company_rag_available,
+                    include_template_review=True,
+                    include_section_feedbacks=False,
+                    include_rewrites=False,
+                    top3_max_items=2,
+                    keyword_source_excerpt_required=False,
+                    variant_count=rewrite_count,
+                ),
+                use_responses_api=True,
+                retry_on_parse=True,
+                parse_retry_instructions="必ず有効なJSONのみを出力してください。説明文やコードブロックは禁止です。",
+                disable_fallback=True,
+            )
 
         if not llm_result.success:
             error = llm_result.error
@@ -790,6 +840,7 @@ async def review_section_with_template(
             template_review_data,
             char_min=char_min,
             char_max=char_max,
+            rewrite_count=rewrite_count,
         )
 
         # Attempt a single repair for char limit failures (both over and under limits)
@@ -838,6 +889,7 @@ JSON以外は出力しないでください。"""
                     template_review_data,
                     char_min=char_min,
                     char_max=char_max,
+                    rewrite_count=rewrite_count,
                 )
 
         if is_valid:
@@ -880,7 +932,7 @@ JSON以外は出力しないでください。"""
                         v.get("text", "")
                         for v in template_review_data.get("variants", [])
                     ]
-                rewrites = rewrites_data[:3]
+                rewrites = rewrites_data[:rewrite_count]
 
                 # Parse template review
                 variants_data = template_review_data.get("variants", [])
@@ -975,12 +1027,12 @@ JSON以外は出力しないでください。"""
         and "文字" in retry_reason
     ):
         should_retry, failing_indices = should_attempt_conditional_retry(
-            last_template_review_data, char_min, char_max
+            last_template_review_data, char_min, char_max, rewrite_count=rewrite_count
         )
 
         if should_retry:
             print(
-                f"[ES添削/テンプレート] 🔄 条件付きリトライ: {len(failing_indices)}/3 パターンのみ修正"
+                f"[ES添削/テンプレート] 🔄 条件付きリトライ: {len(failing_indices)}/{rewrite_count} パターンのみ修正"
             )
 
             # Build targeted repair prompt
@@ -1008,6 +1060,7 @@ JSON以外は出力しないでください。"""
                     repaired_template,
                     char_min=char_min,
                     char_max=char_max,
+                    rewrite_count=rewrite_count,
                 )
 
                 if is_valid:
@@ -1122,6 +1175,18 @@ async def review_section(
 
     This provides focused feedback on one specific question/section.
     """
+    # Inject gakuchika context if available
+    gakuchika_context_section = ""
+    if request.gakuchika_context:
+        gakuchika_context_section = f"""
+
+**ガクチカ深掘り情報:**
+以下はガクチカ（学生時代に力を入れたこと）の深掘りセッションから得られた情報です。
+ESの添削において、これらの経験や強みが活かされているか確認し、フィードバックに反映してください。
+
+{request.gakuchika_context}
+"""
+
     # Build scoring criteria (same as full review)
     score_criteria = """1. scores (各1-5点):
    - logic: 論理の一貫性（主張と根拠の整合性、因果関係の明確さ）
@@ -1208,7 +1273,17 @@ async def review_section(
 
 **企業情報（RAGから取得）:**
 {company_context}
+{gakuchika_context_section}
+**設問**: {request.section_title or '（タイトルなし）'}
+{f'**文字数制限**: {request.section_char_limit}文字' if request.section_char_limit else ''}
 
+**回答内容**:
+{request.content}"""
+    else:
+        # No company context, but may have gakuchika context
+        if gakuchika_context_section:
+            user_message = f"""以下の設問への回答を添削してください。
+{gakuchika_context_section}
 **設問**: {request.section_title or '（タイトルなし）'}
 {f'**文字数制限**: {request.section_char_limit}文字' if request.section_char_limit else ''}
 
@@ -1357,7 +1432,7 @@ async def review_es(request: ReviewRequest):
         )
 
     # Cap rewrite count based on plan
-    rewrite_count = min(request.rewrite_count, 3 if request.is_paid else 1)
+    rewrite_count = min(request.rewrite_count, settings.es_rewrite_count if request.is_paid else 1)
 
     # Check and fetch company RAG context if company_id is provided
     company_context = ""
@@ -1578,6 +1653,18 @@ async def review_es(request: ReviewRequest):
   "section_feedbacks": [{{"section_title": "...", "feedback": "...", "rewrite": "..."}}]
 }}"""
 
+    # Inject gakuchika context if available
+    gakuchika_context_section = ""
+    if request.gakuchika_context:
+        gakuchika_context_section = f"""
+
+**ガクチカ深掘り情報:**
+以下はガクチカ（学生時代に力を入れたこと）の深掘りセッションから得られた情報です。
+ESの添削において、これらの経験や強みが活かされているか確認し、フィードバックに反映してください。
+
+{request.gakuchika_context}
+"""
+
     # Build user message with company context if available
     user_message = f"以下のESを添削してください：\n\n{request.content}"
     if company_context:
@@ -1587,7 +1674,7 @@ async def review_es(request: ReviewRequest):
 以下は企業の採用ページ、IR情報、事業紹介から抽出した情報です。ESの「企業接続」評価において、これらの情報を参照して具体的なフィードバックを行ってください。
 
 {company_context}
-
+{gakuchika_context_section}
 **ES内容:**
 {request.content}
 
@@ -1595,6 +1682,13 @@ async def review_es(request: ReviewRequest):
 - 企業情報に記載されている事業内容、価値観、求める人材像とESの内容が結びついているか
 - 企業の具体的な取り組みや特徴に言及しているか
 - 志望動機が企業の実態に即しているか"""
+    else:
+        # No company context, but may have gakuchika context
+        if gakuchika_context_section:
+            user_message = f"""以下のESを添削してください。
+{gakuchika_context_section}
+**ES内容:**
+{request.content}"""
 
     include_section_feedbacks = bool(
         request.is_paid and (request.section_data or request.sections)
@@ -1820,7 +1914,7 @@ async def _generate_review_progress(
         )
 
         # Step 2: RAG fetch (if company_id)
-        rewrite_count = min(request.rewrite_count, 3 if request.is_paid else 1)
+        rewrite_count = min(request.rewrite_count, settings.es_rewrite_count if request.is_paid else 1)
         company_context = ""
         rag_context = ""
         rag_sources: list[dict] = []
@@ -1931,12 +2025,45 @@ async def _generate_review_progress(
                     )
                 )
 
-                result = await review_section_with_template(
-                    request=template_request_request,
-                    rag_context=rag_context,
-                    rag_sources=rag_sources,
-                    company_rag_available=company_rag_available,
-                )
+                # Use asyncio.Queue to stream progress during LLM call
+                progress_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+
+                async def _run_template_review():
+                    return await review_section_with_template(
+                        request=template_request_request,
+                        rag_context=rag_context,
+                        rag_sources=rag_sources,
+                        company_rag_available=company_rag_available,
+                        progress_queue=progress_queue,
+                    )
+
+                # Launch review as a task so we can yield progress events concurrently
+                review_task = asyncio.create_task(_run_template_review())
+
+                # Consume progress events from queue while task runs
+                while not review_task.done():
+                    try:
+                        event_type, event_data = await asyncio.wait_for(
+                            progress_queue.get(), timeout=0.5
+                        )
+                        if event_type == "progress":
+                            yield _sse_event("progress", event_data)
+                    except asyncio.TimeoutError:
+                        # No event in queue, check if task is done
+                        continue
+
+                # Drain remaining events from queue
+                while not progress_queue.empty():
+                    try:
+                        event_type, event_data = progress_queue.get_nowait()
+                        if event_type == "progress":
+                            yield _sse_event("progress", event_data)
+                    except asyncio.QueueEmpty:
+                        break
+
+                # Get the result (may raise exception)
+                result = await review_task
+
             except HTTPException as e:
                 detail = e.detail
                 if isinstance(detail, dict):
@@ -2049,13 +2176,32 @@ async def _generate_review_progress(
   "section_feedbacks": [{{"section_title": "...", "feedback": "..."}}]
 }}"""
 
+        # Inject gakuchika context if available
+        gakuchika_context_section = ""
+        if request.gakuchika_context:
+            gakuchika_context_section = f"""
+
+**ガクチカ深掘り情報:**
+以下はガクチカ（学生時代に力を入れたこと）の深掘りセッションから得られた情報です。
+ESの添削において、これらの経験や強みが活かされているか確認し、フィードバックに反映してください。
+
+{request.gakuchika_context}
+"""
+
         user_message = f"以下のESを添削してください：\n\n{request.content}"
         if company_context:
             user_message = f"""以下のESを添削してください。
 
 **企業情報（RAGから取得）:**
 {company_context}
-
+{gakuchika_context_section}
+**ES内容:**
+{request.content}"""
+        else:
+            # No company context, but may have gakuchika context
+            if gakuchika_context_section:
+                user_message = f"""以下のESを添削してください。
+{gakuchika_context_section}
 **ES内容:**
 {request.content}"""
 
