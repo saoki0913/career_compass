@@ -29,7 +29,7 @@ interface MobileReviewPanelProps {
   companyId?: string;
   companyName?: string;
   isPaid?: boolean;
-  onApplyRewrite?: (newContent: string) => void;
+  onApplyRewrite?: (newContent: string, sectionTitle?: string | null) => void;
   onUndo?: () => void;
   sectionReviewRequest?: SectionReviewRequest | null;
   onClearSectionReview?: () => void;
@@ -75,8 +75,8 @@ export function MobileReviewPanel({
   };
 
   // Handle apply rewrite - close sheet after applying
-  const handleApplyRewrite = (newContent: string) => {
-    onApplyRewrite?.(newContent);
+  const handleApplyRewrite = (newContent: string, sectionTitle?: string | null) => {
+    onApplyRewrite?.(newContent, sectionTitle);
     setIsOpen(false);
   };
 

@@ -92,6 +92,9 @@ career_compass/
 │   │   ├── gakuchika/            # ガクチカ
 │   │   ├── calendar/             # カレンダー
 │   │   ├── tasks/                # タスク管理
+│   │   ├── pricing/              # 料金プラン
+│   │   ├── search/               # グローバル検索
+│   │   ├── profile/              # プロフィール
 │   │   ├── templates/            # テンプレート
 │   │   ├── notifications/        # 通知
 │   │   └── settings/             # 設定
@@ -100,6 +103,11 @@ career_compass/
 │   │   ├── dashboard/            # ダッシュボード用
 │   │   ├── companies/            # 企業管理用
 │   │   ├── es/                   # ES編集用
+│   │   ├── gakuchika/            # ガクチカ用
+│   │   ├── chat/                 # チャットUI
+│   │   ├── search/               # 検索用
+│   │   ├── auth/                 # 認証用
+│   │   ├── landing/              # LPセクション
 │   │   └── ...
 │   ├── hooks/                    # カスタムフック
 │   ├── lib/                      # ユーティリティ
@@ -116,6 +124,7 @@ career_compass/
 │   │   ├── routers/              # APIルーター
 │   │   │   ├── es_review.py      # ES添削
 │   │   │   ├── gakuchika.py      # ガクチカ深掘り
+│   │   │   ├── motivation.py     # 志望動機作成
 │   │   │   ├── company_info.py   # 企業情報取得
 │   │   │   └── health.py         # ヘルスチェック
 │   │   ├── utils/                # ユーティリティ
@@ -124,7 +133,14 @@ career_compass/
 │   │   │   ├── vector_store.py   # ChromaDB操作
 │   │   │   ├── hybrid_search.py  # ハイブリッド検索
 │   │   │   ├── bm25_store.py     # BM25インデックス
-│   │   │   └── text_chunker.py   # テキスト分割
+│   │   │   ├── text_chunker.py   # テキスト分割
+│   │   │   ├── reranker.py       # クロスエンコーダーリランク
+│   │   │   ├── japanese_tokenizer.py # MeCab日本語トークナイズ
+│   │   │   ├── company_names.py  # ドメイン/子会社パターン
+│   │   │   ├── content_classifier.py # コンテンツタイプ分類
+│   │   │   ├── intent_profile.py # クエリ意図分類
+│   │   │   ├── cache.py          # RAGキャッシュ
+│   │   │   └── telemetry.py      # テレメトリ
 │   │   └── prompts/              # プロンプトテンプレート
 │   └── data/                     # ランタイムデータ
 │       ├── chroma/               # ChromaDB永続化
@@ -226,6 +242,7 @@ career_compass/
 |--------------|------|
 | `/api/es/review` | ES添削（LLM使用） |
 | `/api/gakuchika/*` | ガクチカ深掘り質問生成 |
+| `/api/motivation/*` | 志望動機の質問生成・評価・下書き |
 | `/company-info/*` | 企業情報スクレイピング・RAG構築 |
 | `/health` | ヘルスチェック |
 

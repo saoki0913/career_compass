@@ -34,7 +34,7 @@ interface ReviewPanelProps {
   companyId?: string;
   companyName?: string;
   isPaid?: boolean;
-  onApplyRewrite?: (newContent: string) => void;
+  onApplyRewrite?: (newContent: string, sectionTitle?: string | null) => void;
   onUndo?: () => void;
   className?: string;
   // Section review mode
@@ -254,11 +254,14 @@ export function ReviewPanel({
 
   const handleConfirmReflect = useCallback(() => {
     if (pendingRewrite && onApplyRewrite) {
-      onApplyRewrite(pendingRewrite);
+      const sectionTitle = reviewMode === "section" && currentSection
+        ? currentSection.title
+        : null;
+      onApplyRewrite(pendingRewrite, sectionTitle);
     }
     setShowReflectModal(false);
     setPendingRewrite(null);
-  }, [pendingRewrite, onApplyRewrite]);
+  }, [pendingRewrite, onApplyRewrite, reviewMode, currentSection]);
 
   // Scroll to improvement section when clicking low score link
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -992,9 +995,11 @@ export function ReviewPanel({
         }}
         onConfirm={handleConfirmReflect}
         onUndo={onUndo}
-        originalText={content}
+        originalText={reviewMode === "section" && sectionReviewRequest
+          ? sectionReviewRequest.sectionContent
+          : content}
         newText={pendingRewrite || ""}
-        isFullDocument={true}
+        isFullDocument={reviewMode !== "section"}
       />
 
       {/* Compare View Modal */}

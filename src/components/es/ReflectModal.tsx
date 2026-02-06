@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -71,6 +71,13 @@ export function ReflectModal({
     setUndoTimer(10);
   };
 
+  const [copied, setCopied] = useState(false);
+  const handleCopyToClipboard = useCallback(() => {
+    navigator.clipboard.writeText(newText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [newText]);
+
   const handleUndo = () => {
     if (onUndo) {
       onUndo();
@@ -136,10 +143,9 @@ export function ReflectModal({
         {/* Content */}
         <div className="px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
           {isFullDocument && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="text-sm text-amber-800">
-                <strong>注意:</strong> 全文添削の反映はコピーのみ対応しています。
-                ドキュメントを直接置き換えることはできません。
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800">
+                全文モードではクリップボードにコピーされます。設問単位で添削すると、エディターに直接反映できます。
               </p>
             </div>
           )}
@@ -175,9 +181,11 @@ export function ReflectModal({
             </div>
           </div>
 
-          <p className="text-xs text-muted-foreground text-center">
-            反映後、「元に戻す」ボタンで変更を取り消せます
-          </p>
+          {!isFullDocument && (
+            <p className="text-xs text-muted-foreground text-center">
+              反映後、「元に戻す」ボタンで変更を取り消せます
+            </p>
+          )}
         </div>
 
         {/* Footer */}
@@ -185,9 +193,15 @@ export function ReflectModal({
           <Button variant="outline" onClick={onClose} className="flex-1">
             キャンセル
           </Button>
-          <Button onClick={handleConfirm} className="flex-1" disabled={isFullDocument}>
-            {isFullDocument ? "コピーのみ可能" : "反映する"}
-          </Button>
+          {isFullDocument ? (
+            <Button onClick={handleCopyToClipboard} className="flex-1">
+              {copied ? "コピーしました" : "クリップボードにコピー"}
+            </Button>
+          ) : (
+            <Button onClick={handleConfirm} className="flex-1">
+              反映する
+            </Button>
+          )}
         </div>
       </div>
     </div>

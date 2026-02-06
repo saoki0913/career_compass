@@ -87,6 +87,43 @@ class NextQuestionResponse(BaseModel):
     question_type: Optional[str] = None
 
 
+class StructuredSummaryRequest(BaseModel):
+    gakuchika_title: str
+    conversation_history: list[Message]
+
+
+class StrengthItem(BaseModel):
+    title: str
+    description: str
+
+
+class LearningItem(BaseModel):
+    title: str
+    description: str
+
+
+class StructuredSummaryResponse(BaseModel):
+    situation_text: str
+    task_text: str
+    action_text: str
+    result_text: str
+    strengths: list[StrengthItem]
+    learnings: list[LearningItem]
+    numbers: list[str]
+
+
+class GakuchikaESDraftRequest(BaseModel):
+    gakuchika_title: str
+    conversation_history: list[Message]
+    structured_summary: Optional[dict] = None
+    char_limit: int = 400
+
+
+class GakuchikaESDraftResponse(BaseModel):
+    draft: str
+    char_count: int
+
+
 # STAR評価プロンプト (standalone use)
 STAR_EVALUATION_PROMPT = """以下のガクチカ会話を分析し、STAR法の各要素の充実度を0-100で評価してください。
 
@@ -945,4 +982,210 @@ async def generate_summary(request: NextQuestionRequest):
             "provider": error.provider if error else "unknown",
             "detail": error.detail if error else "",
         },
+    )
+
+
+# ── Structured Summary (replaces /summary for new completions) ────────
+
+STRUCTURED_SUMMARY_PROMPT = """あなたは就活アドバイザーです。以下のガクチカ深掘り会話の内容を分析し、STAR構造に整理してください。
+
+## テーマ
+{gakuchika_title}
+
+## 会話履歴
+{conversation}
+
+## タスク
+1. STAR要素を簡潔に抽出
+2. 強みを2個特定（短いタイトル+説明）
+3. 学びを2個特定（短いタイトル+説明）
+4. 具体的な数字を抽出
+
+## 出力ルール
+- situation_text: 状況説明（50-80字）
+- task_text: 課題（50-80字）
+- action_text: 具体的な行動（80-120字）
+- result_text: 成果（50-80字）
+- strengths: 2個、各titleは5字以内、descriptionは30字以内
+- learnings: 2個、各titleは5字以内、descriptionは30字以内
+- numbers: 具体的な数字（0個でも可）
+- JSONのみ出力。説明文やマークダウンは禁止
+
+## 出力形式
+必ず以下のJSON形式で回答してください:
+{{
+  "situation_text": "...",
+  "task_text": "...",
+  "action_text": "...",
+  "result_text": "...",
+  "strengths": [{{"title": "強みの名前", "description": "具体的な説明"}}],
+  "learnings": [{{"title": "学びの名前", "description": "具体的な説明"}}],
+  "numbers": ["数字や成果"]
+}}"""
+
+
+@router.post("/structured-summary")
+async def generate_structured_summary(request: StructuredSummaryRequest):
+    """
+    Generate a STAR-structured summary of the Gakuchika conversation.
+    Replaces the old /summary format with richer structured output.
+    """
+    if not request.conversation_history:
+        raise HTTPException(status_code=400, detail="会話履歴がありません")
+
+    user_answers = [
+        msg.content for msg in request.conversation_history if msg.role == "user"
+    ]
+
+    if not user_answers:
+        raise HTTPException(status_code=400, detail="ユーザーの回答がありません")
+
+    conversation_text = _format_conversation_for_evaluation(request.conversation_history)
+
+    prompt = STRUCTURED_SUMMARY_PROMPT.format(
+        gakuchika_title=request.gakuchika_title,
+        conversation=conversation_text,
+    )
+
+    llm_result = await call_llm_with_error(
+        system_prompt=prompt,
+        user_message="上記の会話をSTAR構造に整理してください。",
+        max_tokens=1500,
+        temperature=0.3,
+        feature="gakuchika",
+        retry_on_parse=True,
+        disable_fallback=True,
+    )
+
+    if llm_result.success and llm_result.data is not None:
+        data = llm_result.data
+        # Ensure strengths/learnings are lists of dicts
+        strengths = data.get("strengths", [])
+        if strengths and isinstance(strengths[0], str):
+            strengths = [{"title": s, "description": ""} for s in strengths]
+        learnings = data.get("learnings", [])
+        if learnings and isinstance(learnings[0], str):
+            learnings = [{"title": l, "description": ""} for l in learnings]
+
+        return {
+            "situation_text": data.get("situation_text", ""),
+            "task_text": data.get("task_text", ""),
+            "action_text": data.get("action_text", ""),
+            "result_text": data.get("result_text", ""),
+            "strengths": strengths,
+            "learnings": learnings,
+            "numbers": data.get("numbers", []),
+        }
+
+    error = llm_result.error
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "error": (
+                error.message if error else "構造化サマリー生成中にエラーが発生しました。"
+            ),
+            "error_type": error.error_type if error else "unknown",
+            "provider": error.provider if error else "unknown",
+            "detail": error.detail if error else "",
+        },
+    )
+
+
+# ── ES Draft Generation ───────────────────────────────────────────────
+
+GAKUCHIKA_DRAFT_PROMPT = """以下のガクチカ深掘り会話から、{char_limit}字程度のガクチカESを作成してください。
+
+## テーマ
+{gakuchika_title}
+
+{structured_summary_section}
+
+## 会話内容
+{conversation}
+
+## 作成ルール
+1. だ・である調で統一
+2. 文字数: {char_min}〜{char_limit}字（厳守）
+3. 構成:
+   - 導入（15%）: 取り組みの結論・概要を一文で
+   - 本論（70%）: 状況→課題→行動（具体的な工夫・判断理由を重点的に）
+   - 結論（15%）: 数字を含む成果と、学び・今後への応用
+4. 会話で出た具体的なエピソード・数字を必ず活用する
+5. 「私は」で始め、面接官に「もっと聞きたい」と思わせる深さ
+6. 抽象的な表現を避け、自分だけの具体的な経験を描写する
+
+## 出力形式
+必ず以下のJSON形式で回答:
+{{
+  "draft": "ガクチカ本文（{char_min}〜{char_limit}字）",
+  "char_count": 実際の文字数
+}}"""
+
+
+@router.post("/generate-es-draft", response_model=GakuchikaESDraftResponse)
+async def generate_es_draft(request: GakuchikaESDraftRequest):
+    """
+    Generate an ES draft from Gakuchika conversation history.
+    """
+    if not request.conversation_history:
+        raise HTTPException(status_code=400, detail="会話履歴がありません")
+
+    if request.char_limit not in [300, 400, 500]:
+        raise HTTPException(
+            status_code=400,
+            detail="文字数は300, 400, 500のいずれかを指定してください",
+        )
+
+    conversation_text = _format_conversation_for_evaluation(request.conversation_history)
+    char_min = int(request.char_limit * 0.9)
+
+    # Build structured summary section if available
+    structured_summary_section = ""
+    if request.structured_summary:
+        ss = request.structured_summary
+        parts = []
+        if ss.get("situation_text"):
+            parts.append(f"- 状況: {ss['situation_text']}")
+        if ss.get("task_text"):
+            parts.append(f"- 課題: {ss['task_text']}")
+        if ss.get("action_text"):
+            parts.append(f"- 行動: {ss['action_text']}")
+        if ss.get("result_text"):
+            parts.append(f"- 結果: {ss['result_text']}")
+        if parts:
+            structured_summary_section = "## STAR構造（参考）\n" + "\n".join(parts)
+
+    prompt = GAKUCHIKA_DRAFT_PROMPT.format(
+        gakuchika_title=request.gakuchika_title,
+        conversation=conversation_text,
+        structured_summary_section=structured_summary_section,
+        char_limit=request.char_limit,
+        char_min=char_min,
+    )
+
+    llm_result = await call_llm_with_error(
+        system_prompt=prompt,
+        user_message="ガクチカのESを作成してください。",
+        max_tokens=600,
+        temperature=0.5,
+        feature="gakuchika",
+        retry_on_parse=True,
+        disable_fallback=True,
+    )
+
+    if not llm_result.success or llm_result.data is None:
+        error = llm_result.error
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": error.message if error else "ES生成中にエラーが発生しました。",
+            },
+        )
+
+    data = llm_result.data
+    draft = data.get("draft", "")
+
+    return GakuchikaESDraftResponse(
+        draft=draft,
+        char_count=len(draft),
     )

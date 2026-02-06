@@ -234,6 +234,38 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 LOCAL_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
 ```
 
+### LLMモデル選択（オプション）
+
+各機能で使用するLLMモデルを個別に上書き可能:
+
+```env
+MODEL_ES_REVIEW=claude-sonnet        # ES添削
+MODEL_GAKUCHIKA=claude-haiku         # ガクチカ深掘り
+MODEL_MOTIVATION=claude-haiku        # 志望動機
+MODEL_COMPANY_INFO=openai            # 企業情報抽出
+MODEL_RAG_QUERY_EXPANSION=claude-haiku # クエリ拡張
+MODEL_RAG_HYDE=claude-sonnet         # HyDE生成
+MODEL_RAG_RERANK=claude-sonnet       # リランキング
+MODEL_RAG_CLASSIFY=claude-haiku      # コンテンツ分類
+MODEL_SELECTION_SCHEDULE=claude-haiku # 選考スケジュール
+```
+
+### RAGチューニング（オプション）
+
+```env
+RAG_SEMANTIC_WEIGHT=0.6              # セマンティック検索の重み
+RAG_KEYWORD_WEIGHT=0.4               # キーワード検索の重み
+RAG_RERANK_THRESHOLD=0.7             # リランク閾値
+RAG_USE_QUERY_EXPANSION=true         # クエリ拡張の有効化
+RAG_USE_HYDE=true                    # HyDEの有効化
+RAG_USE_MMR=true                     # MMR多様性フィルタの有効化
+RAG_USE_RERANK=true                  # リランキングの有効化
+RAG_MMR_LAMBDA=0.5                   # MMRの関連性/多様性バランス
+RAG_FETCH_K=30                       # フェッチ候補数
+RAG_MAX_QUERIES=3                    # クエリ拡張の最大数
+RAG_MAX_TOTAL_QUERIES=4              # 元クエリ含む総クエリ数
+```
+
 ローカル埋め込みを使う場合は FastAPI の仮想環境で:
 
 ```bash
@@ -276,8 +308,8 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-> 現行RAGはBM25を使用しないため、`rank_bm25` / `fugashi` は必須ではありません。  
-> 将来BM25を再導入する場合のみ、`requirements.txt` から導入してください。
+> BM25キーワード検索は `bm25s` ライブラリで実装済み。日本語トークナイズには `fugashi` + `unidic-lite` を使用。
+> `requirements.txt` に含まれているため、`pip install -r requirements.txt` で自動インストールされます。
 
 http://localhost:8000/docs でAPIドキュメント確認可能
 
@@ -344,6 +376,9 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe 公開キー | 🔶 | Stripe Dashboard |
 | `STRIPE_WEBHOOK_SECRET` | Stripe Webhook シークレット | 🔶 | Stripe CLI |
 | `GITHUB_TOKEN` | GitHub Personal Access Token | 🔶 | GitHub Settings > Tokens（⚠️一度のみ表示） |
+| `OPENAI_API_KEY` | OpenAI APIキー（Embeddings + GPT） | 🔶 | OpenAI Dashboard |
+| `ANTHROPIC_API_KEY` | Anthropic APIキー（Claude） | 🔶 | Anthropic Console |
+| `NEXT_PUBLIC_FASTAPI_URL` | FastAPI バックエンドURL | 🔶 | `http://localhost:8000`（開発時） |
 
 ✅ = 必須、🔶 = 機能使用時に必要
 

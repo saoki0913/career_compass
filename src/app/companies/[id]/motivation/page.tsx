@@ -163,7 +163,7 @@ function MotivationConversationContent() {
   const params = useParams();
   const router = useRouter();
   const companyId = params.id as string;
-  const { isLocked, acquireLock, releaseLock } = useOperationLock();
+  const { isLocked, activeOperationLabel, acquireLock, releaseLock } = useOperationLock();
 
   const [company, setCompany] = useState<Company | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -248,7 +248,7 @@ function MotivationConversationContent() {
     const textToSend = chipText || answer.trim();
     if (!textToSend || isSending) return;
     if (!acquireLock("AIに送信中")) {
-      setError("別の操作が進行中です。完了までお待ちください。");
+      setError(`${activeOperationLabel || "別の操作"}が進行中です。完了までお待ちください。`);
       return;
     }
 
@@ -507,7 +507,7 @@ function MotivationConversationContent() {
                     value={answer}
                     onChange={setAnswer}
                     onSend={() => handleSend()}
-                    disabled={isSending || !nextQuestion}
+                    disabled={isSending || !nextQuestion || isLocked}
                     placeholder="回答を入力..."
                     className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0"
                   />

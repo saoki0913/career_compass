@@ -11,11 +11,29 @@ import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { headers } from "next/headers";
 
+interface StrengthItem {
+  title: string;
+  description: string;
+}
+
+interface LearningItem {
+  title: string;
+  description: string;
+}
+
 interface ParsedSummary {
-  summary: string;
-  key_points: string[];
+  // New structured format fields
+  situation_text?: string;
+  task_text?: string;
+  action_text?: string;
+  result_text?: string;
+  learnings?: LearningItem[];
+  // Shared fields
   numbers: string[];
-  strengths: string[];
+  strengths: StrengthItem[] | string[];
+  // Legacy format fields
+  summary?: string;
+  key_points?: string[];
 }
 
 interface STARScores {
@@ -30,8 +48,31 @@ function parseSummary(summaryJson: string | null): ParsedSummary | null {
 
   try {
     const parsed = JSON.parse(summaryJson);
-    // Check if it's the expected JSON structure
-    if (typeof parsed === 'object' && 'summary' in parsed) {
+    if (typeof parsed !== 'object') {
+      // Plain text summary (legacy)
+      return {
+        summary: summaryJson,
+        key_points: [],
+        numbers: [],
+        strengths: [],
+      };
+    }
+
+    // New structured format (has situation_text)
+    if ('situation_text' in parsed) {
+      return {
+        situation_text: parsed.situation_text || '',
+        task_text: parsed.task_text || '',
+        action_text: parsed.action_text || '',
+        result_text: parsed.result_text || '',
+        strengths: parsed.strengths || [],
+        learnings: parsed.learnings || [],
+        numbers: parsed.numbers || [],
+      };
+    }
+
+    // Old format (has summary)
+    if ('summary' in parsed) {
       return {
         summary: parsed.summary || '',
         key_points: parsed.key_points || [],
@@ -39,7 +80,8 @@ function parseSummary(summaryJson: string | null): ParsedSummary | null {
         strengths: parsed.strengths || [],
       };
     }
-    // Plain text summary (legacy)
+
+    // Unknown format
     return {
       summary: summaryJson,
       key_points: [],

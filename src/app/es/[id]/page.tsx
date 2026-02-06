@@ -588,12 +588,38 @@ export default function ESEditorPage() {
     return result;
   }, [blocks]);
 
-  // Handle apply rewrite (for now, just copy to clipboard)
-  const handleApplyRewrite = useCallback((newContent: string) => {
-    navigator.clipboard.writeText(newContent);
-    // TODO: Implement actual content replacement
-    alert("リライト内容をクリップボードにコピーしました");
-  }, []);
+  // Handle apply rewrite - replace section content or copy full document
+  const handleApplyRewrite = useCallback((newContent: string, sectionTitle?: string | null) => {
+    // Save current state for undo
+    setUndoContent(JSON.stringify(blocks));
+
+    if (sectionTitle) {
+      // Section mode: replace paragraph blocks under the matching H2
+      const newBlocks = [...blocks];
+      for (let i = 0; i < newBlocks.length; i++) {
+        if (newBlocks[i].type === "h2" && newBlocks[i].content.trim() === sectionTitle) {
+          // Find range of non-H2 blocks after this H2
+          let endIndex = i + 1;
+          while (endIndex < newBlocks.length && newBlocks[endIndex].type !== "h2") {
+            endIndex++;
+          }
+          // Replace with a single paragraph block containing the rewrite
+          const newParagraph: DocumentBlock = {
+            id: crypto.randomUUID(),
+            type: "paragraph",
+            content: newContent,
+          };
+          newBlocks.splice(i + 1, endIndex - (i + 1), newParagraph);
+          break;
+        }
+      }
+      setBlocks(newBlocks);
+      setHasChanges(true);
+    } else {
+      // Full document mode: copy to clipboard
+      navigator.clipboard.writeText(newContent);
+    }
+  }, [blocks]);
 
   // Handle undo for reflected content
   const handleUndoReflect = useCallback(() => {

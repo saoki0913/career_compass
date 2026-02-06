@@ -317,6 +317,88 @@ def validate_and_repair_section_rewrite(
     return rewrite[: char_limit - 3] + "..."
 
 
+def deterministic_truncate_variant(variant: dict, char_max: int) -> dict:
+    """
+    Deterministic truncation at natural Japanese sentence boundaries.
+
+    Fallback order: 。 → 、/）/」 → hard cut.
+    Search window: last 15% of char_max.
+    """
+    text = variant.get("text", "")
+    if len(text) <= char_max:
+        return variant
+
+    target_pos = char_max - 1
+    search_start = max(0, target_pos - int(char_max * 0.15))
+
+    # Priority 1: sentence end (。)
+    best_break = -1
+    for i in range(target_pos, search_start, -1):
+        if i < len(text) and text[i] == "。":
+            best_break = i
+            break
+
+    if best_break > 0:
+        truncated = text[: best_break + 1]
+    else:
+        # Priority 2: clause break (、）」)
+        for i in range(target_pos, search_start, -1):
+            if i < len(text) and text[i] in ("、", "）", "」"):
+                best_break = i
+                break
+        if best_break > 0:
+            truncated = text[: best_break + 1]
+        else:
+            # Priority 3: hard cut
+            truncated = text[:char_max]
+
+    result = dict(variant)
+    result["text"] = truncated
+    result["char_count"] = len(truncated)
+    return result
+
+
+def apply_deterministic_fallback(
+    template_review_data: dict,
+    char_min: Optional[int],
+    char_max: Optional[int],
+    rewrite_count: int,
+) -> tuple[dict, list[str]]:
+    """
+    Apply deterministic fixes to make template_review_data pass validation.
+
+    Handles:
+    - Variant count mismatch (duplicate first variant)
+    - Character limit overflow (smart truncation)
+    - char_count field correction
+
+    Returns:
+        Tuple of (fixed template_review_data, list of warning messages)
+    """
+    warnings = []
+    variants = template_review_data.get("variants", [])
+
+    # Fix variant count: duplicate first variant if insufficient
+    if 0 < len(variants) < rewrite_count:
+        while len(variants) < rewrite_count:
+            variants.append(dict(variants[0]))
+        warnings.append("パターン数不足のため補完")
+        template_review_data["variants"] = variants
+
+    # Fix char limits and char_count
+    for i, variant in enumerate(variants):
+        variant["char_count"] = len(variant.get("text", ""))
+        if char_max and len(variant.get("text", "")) > char_max:
+            original_len = len(variant["text"])
+            variants[i] = deterministic_truncate_variant(variant, char_max)
+            warnings.append(
+                f"パターン{i + 1}: {original_len}字→{len(variants[i]['text'])}字に自動調整"
+            )
+
+    template_review_data["variants"] = variants
+    return template_review_data, warnings
+
+
 def should_attempt_conditional_retry(
     template_review_data: dict,
     char_min: Optional[int],
@@ -342,8 +424,13 @@ def should_attempt_conditional_retry(
     if len(variants) != rewrite_count:
         return False, []
 
-    # Single variant: conditional retry not applicable (main retry handles it)
+    # Single variant: retry if it fails char limits
     if rewrite_count == 1:
+        if len(variants) == 1:
+            text = variants[0].get("text", "")
+            char_count = len(text)
+            if (char_max and char_count > char_max) or (char_min and char_count < char_min):
+                return True, [0]
         return False, []
 
     failing_indices = []
@@ -738,7 +825,7 @@ async def review_section_with_template(
     # Retry loop for validation
     # Optimize retries and tokens based on rewrite_count
     if rewrite_count == 1:
-        max_retries = min(2, settings.es_template_max_retries)
+        max_retries = settings.es_template_max_retries  # Same as multi-variant
         template_max_tokens = 2500  # 1 variant: ~400-800 chars + JSON structure
     else:
         max_retries = settings.es_template_max_retries
@@ -843,54 +930,91 @@ async def review_section_with_template(
             rewrite_count=rewrite_count,
         )
 
-        # Attempt a single repair for char limit failures (both over and under limits)
+        # Attempt text-only repair for char limit failures (both over and under limits)
         if (not is_valid) and error_reason and "文字" in error_reason:
-            # Parse specific character errors for targeted feedback
             variants = template_review_data.get("variants", [])
             variant_errors = parse_validation_errors(variants, char_min, char_max)
 
             if variant_errors:
-                # Build targeted adjustment prompt with specific deltas
-                adjustment_instructions = build_char_adjustment_prompt(
-                    variant_errors, char_min, char_max
-                )
-                repair_prompt = f"""{adjustment_instructions}
+                repaired_any = False
+                for err in variant_errors:
+                    idx = err["pattern"] - 1  # 1-indexed → 0-indexed
+                    if idx >= len(variants):
+                        continue
+                    variant = variants[idx]
+                    original_text = variant.get("text", "")
+                    target = err["target"]
+                    direction = err["direction"]
 
-対象JSON:
-{json.dumps(data, ensure_ascii=False)}
+                    if direction == "reduce":
+                        safety_target = int(target * 0.90)
+                        repair_prompt = f"""以下の文章を{safety_target}字以内に短縮してください。
+意味を保ち、具体的な数値やエピソードは残してください。
+だ・である調を維持してください。
+短縮後のテキストのみ出力し、それ以外は一切出力しないでください。
 
-JSON以外は出力しないでください。"""
-            else:
-                # Fallback to generic repair if no specific errors parsed
-                repair_prompt = f"""以下のJSONの形式は維持したまま、variants[*].text を指定文字数内に修正してください。
-- 文字数制約: {char_min or 0}〜{char_max or '無制限'} 文字
-- 他のフィールド構造は一切変更しない
-- JSON以外は出力しない
+---
+{original_text}
+---"""
+                    else:  # expand
+                        safety_target = int(target * 1.05)
+                        repair_prompt = f"""以下の文章を{safety_target}字以上に拡充してください。
+具体的な数値、状況説明、学びを追加してください。
+だ・である調を維持してください。
+拡充後のテキストのみ出力し、それ以外は一切出力しないでください。
 
-対象JSON:
-{json.dumps(data, ensure_ascii=False)}
-"""
+---
+{original_text}
+---"""
 
-            repair_result = await call_llm_with_error(
-                system_prompt="あなたはJSON修復の専門家です。必ずJSONのみ出力してください。",
-                user_message=repair_prompt,
-                max_tokens=4000,  # 文字数調整時も余裕を持って設定
-                temperature=0.2,
-                feature="es_review",
-                disable_fallback=True,
-            )
+                    repair_result = await call_llm_with_error(
+                        system_prompt="あなたは日本語の文章編集の専門家です。指示通りに文章を修正し、修正後のテキストのみ出力してください。",
+                        user_message=repair_prompt,
+                        max_tokens=2000,
+                        temperature=0.2,
+                        feature="es_review",
+                        disable_fallback=True,
+                    )
 
-            if repair_result.success and repair_result.data:
-                data = repair_result.data
-                template_review_data = (
-                    data.get("template_review") or template_review_data
-                )
-                is_valid, error_reason = validate_template_output(
-                    template_review_data,
-                    char_min=char_min,
-                    char_max=char_max,
-                    rewrite_count=rewrite_count,
-                )
+                    # Extract raw text from response (plain text, not JSON)
+                    repaired_text = None
+                    if repair_result.raw_text:
+                        repaired_text = repair_result.raw_text.strip()
+                    elif repair_result.success and repair_result.data:
+                        # LLM returned JSON - try to extract text
+                        d = repair_result.data
+                        repaired_text = (
+                            d.get("text")
+                            or d.get("variants", [{}])[0].get("text")
+                            if isinstance(d, dict) else str(d)
+                        )
+
+                    if repaired_text:
+                        # Clean markdown code blocks
+                        if repaired_text.startswith("```"):
+                            lines = repaired_text.split("\n")
+                            repaired_text = "\n".join(
+                                l for l in lines if not l.strip().startswith("```")
+                            ).strip()
+                        # Remove surrounding quotes
+                        if repaired_text.startswith('"') and repaired_text.endswith('"'):
+                            repaired_text = repaired_text[1:-1]
+
+                        variant["text"] = repaired_text
+                        variant["char_count"] = len(repaired_text)
+                        repaired_any = True
+                        print(
+                            f"[ES添削/テンプレート] パターン{idx+1}修復: "
+                            f"{len(original_text)}字→{len(repaired_text)}字"
+                        )
+
+                if repaired_any:
+                    is_valid, error_reason = validate_template_output(
+                        template_review_data,
+                        char_min=char_min,
+                        char_max=char_max,
+                        rewrite_count=rewrite_count,
+                    )
 
         if is_valid:
             # Build response
@@ -1154,17 +1278,125 @@ JSON以外は出力しないでください。"""
                         f"[ES添削/テンプレート] ⚠️ 条件付きリトライも失敗: {repair_error}"
                     )
 
-    # All retries exhausted
+    # All retries exhausted - apply deterministic fallback instead of failing
     record_parse_failure("es_review_template", retry_reason)
-    raise HTTPException(
-        status_code=422,
-        detail={
-            "error": "テンプレート出力の検証に失敗しました。条件を満たす出力を生成できませんでした。",
-            "error_type": "validation",
-            "provider": "template_review",
-            "detail": retry_reason,
-        },
+
+    if last_template_review_data is None:
+        # No usable data at all - truly unrecoverable
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "テンプレート出力の検証に失敗しました。条件を満たす出力を生成できませんでした。",
+                "error_type": "validation",
+                "provider": "template_review",
+                "detail": retry_reason,
+            },
+        )
+
+    # Deterministic fallback: truncate/fix variants server-side
+    last_template_review_data, fallback_warnings = apply_deterministic_fallback(
+        last_template_review_data, char_min, char_max, rewrite_count
     )
+    print(
+        f"[ES添削/テンプレート] 🔧 決定論的フォールバック適用: {'; '.join(fallback_warnings) or 'char_count修正のみ'}"
+    )
+
+    try:
+        scores_data = data.get("scores", {}) if data else {}
+        scores = Score(
+            logic=max(1, min(5, scores_data.get("logic", 3))),
+            specificity=max(1, min(5, scores_data.get("specificity", 3))),
+            passion=max(1, min(5, scores_data.get("passion", 3))),
+            company_connection=(
+                max(1, min(5, scores_data.get("company_connection", 3)))
+                if company_rag_available
+                else None
+            ),
+            readability=max(1, min(5, scores_data.get("readability", 3))),
+        )
+
+        top3_data = data.get("top3", []) if data else []
+        top3 = _parse_issues(top3_data, 2)
+        if not top3:
+            top3 = [
+                Issue(
+                    category="その他",
+                    issue="改善点を特定できませんでした",
+                    suggestion="全体的な見直しを行ってみてください",
+                    difficulty="medium",
+                )
+            ]
+
+        variants_data = last_template_review_data.get("variants", [])
+        variants = [
+            TemplateVariant(
+                text=v.get("text", ""),
+                char_count=len(v.get("text", "")),
+                pros=v.get("pros", []),
+                cons=v.get("cons", []),
+                keywords_used=v.get("keywords_used", []),
+                keyword_sources=v.get("keyword_sources", []),
+            )
+            for v in variants_data
+        ]
+
+        keyword_sources_data = last_template_review_data.get("keyword_sources", [])
+        keyword_sources = [
+            TemplateSource(
+                source_id=src.get("source_id", ""),
+                source_url=src.get("source_url", ""),
+                content_type=src.get("content_type", ""),
+                excerpt=src.get("excerpt"),
+            )
+            for src in keyword_sources_data
+        ]
+
+        if not keyword_sources and rag_sources:
+            keyword_sources = [
+                TemplateSource(
+                    source_id=src.get("source_id", ""),
+                    source_url=src.get("source_url", ""),
+                    content_type=src.get("content_type", ""),
+                    excerpt=src.get("excerpt"),
+                )
+                for src in rag_sources
+            ]
+
+        strengthen_points = None
+        if template_def.get("require_strengthen_points"):
+            strengthen_points = last_template_review_data.get(
+                "strengthen_points", []
+            )
+
+        template_review = TemplateReview(
+            template_type=template_type,
+            variants=variants,
+            keyword_sources=keyword_sources,
+            strengthen_points=strengthen_points,
+        )
+
+        rewrites = [v.get("text", "") for v in variants_data]
+
+        print("[ES添削/テンプレート] ✅ フォールバックで結果を返却")
+        return ReviewResponse(
+            scores=scores,
+            top3=top3,
+            rewrites=rewrites,
+            section_feedbacks=None,
+            template_review=template_review,
+        )
+
+    except Exception as e:
+        print(f"[ES添削/テンプレート] ❌ フォールバック構築失敗: {e}")
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "テンプレート出力の検証に失敗しました。",
+                "error_type": "validation",
+                "provider": "template_review",
+                "detail": str(e),
+            },
+        )
 
 
 async def review_section(

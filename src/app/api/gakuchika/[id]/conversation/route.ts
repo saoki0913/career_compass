@@ -551,36 +551,61 @@ export async function POST(
       let summaryJson: string;
 
       try {
-        // Call FastAPI to generate structured summary
-        const summaryResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/summary`, {
+        // Call FastAPI to generate STAR-structured summary
+        const summaryResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/structured-summary`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            conversation_history: messages,
+            conversation_history: messages.map(m => ({ role: m.role, content: m.content })),
             gakuchika_title: gakuchikaTitle,
           }),
         });
 
         if (summaryResponse.ok) {
           const summaryData = await summaryResponse.json();
-          // Store structured summary as JSON
           summaryJson = JSON.stringify({
-            summary: summaryData.summary || "",
-            key_points: summaryData.key_points || [],
-            numbers: summaryData.numbers || [],
+            situation_text: summaryData.situation_text || "",
+            task_text: summaryData.task_text || "",
+            action_text: summaryData.action_text || "",
+            result_text: summaryData.result_text || "",
             strengths: summaryData.strengths || [],
+            learnings: summaryData.learnings || [],
+            numbers: summaryData.numbers || [],
           });
         } else {
-          throw new Error("FastAPI summary generation failed");
+          throw new Error("FastAPI structured-summary generation failed");
         }
       } catch (error) {
-        console.error("Failed to generate structured summary, using fallback:", error);
-        // Fallback to simple truncation
-        const userAnswers = messages
-          .filter((m) => m.role === "user")
-          .map((m) => m.content)
-          .join("\n\n");
-        summaryJson = userAnswers.substring(0, 500) + (userAnswers.length > 500 ? "..." : "");
+        console.error("Failed to generate structured summary, trying fallback:", error);
+        // Fallback: try old summary endpoint
+        try {
+          const fallbackRes = await fetch(`${FASTAPI_URL}/api/gakuchika/summary`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              conversation_history: messages.map(m => ({ role: m.role, content: m.content })),
+              gakuchika_title: gakuchikaTitle,
+            }),
+          });
+          if (fallbackRes.ok) {
+            const fbData = await fallbackRes.json();
+            summaryJson = JSON.stringify({
+              summary: fbData.summary || "",
+              key_points: fbData.key_points || [],
+              numbers: fbData.numbers || [],
+              strengths: fbData.strengths || [],
+            });
+          } else {
+            throw new Error("Fallback summary also failed");
+          }
+        } catch {
+          // Final fallback to simple truncation
+          const userAnswers = messages
+            .filter((m) => m.role === "user")
+            .map((m) => m.content)
+            .join("\n\n");
+          summaryJson = userAnswers.substring(0, 500) + (userAnswers.length > 500 ? "..." : "");
+        }
       }
 
       await db
@@ -591,11 +616,11 @@ export async function POST(
         })
         .where(eq(gakuchikaContents.id, gakuchikaId));
 
-      // Parse the summary we just saved (no need to re-read from DB)
+      // Parse the summary we just saved
       try {
         structuredSummary = JSON.parse(summaryJson);
       } catch {
-        structuredSummary = { summary: summaryJson };
+        structuredSummary = null;
       }
     }
 

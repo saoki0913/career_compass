@@ -241,6 +241,7 @@ class LLMResult:
     success: bool
     data: dict | None = None
     error: LLMError | None = None
+    raw_text: str | None = None  # Raw LLM response before JSON parsing
 
 
 def _create_error(
@@ -462,7 +463,7 @@ async def call_llm_with_error(
 
         if result is not None:
             _log(feature, f"{model_display} で成功", SUCCESS)
-            return LLMResult(success=True, data=result)
+            return LLMResult(success=True, data=result, raw_text=raw_response)
         else:
             # パース再試行（同一プロバイダー）- より厳格なJSON指示で
             if retry_on_parse and provider == "anthropic":
@@ -487,7 +488,7 @@ async def call_llm_with_error(
                     retry_result = _parse_json_response(raw_retry)
                     if retry_result is not None:
                         _log(feature, f"{model_display} でリトライ成功", SUCCESS)
-                        return LLMResult(success=True, data=retry_result)
+                        return LLMResult(success=True, data=retry_result, raw_text=raw_retry)
 
                     repair_source = raw_retry or raw_response or ""
                     if repair_source:
@@ -513,7 +514,7 @@ async def call_llm_with_error(
                         repair_result = _parse_json_response(raw_repair)
                         if repair_result is not None:
                             _log(feature, f"{model_display} でJSON修復成功", SUCCESS)
-                            return LLMResult(success=True, data=repair_result)
+                            return LLMResult(success=True, data=repair_result, raw_text=raw_repair)
                 except Exception as retry_err:
                     _log(feature, f"リトライ失敗: {retry_err}", WARNING)
 
@@ -638,7 +639,7 @@ async def call_llm_with_error(
                 "parse", provider, feature, "空または解析不能なレスポンス"
             )
             _log(feature, "応答の解析に失敗しました", ERROR)
-            return LLMResult(success=False, error=error)
+            return LLMResult(success=False, error=error, raw_text=raw_response)
 
     except AnthropicAPIError as e:
         error_type, detail = _classify_anthropic_error(e)

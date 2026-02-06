@@ -16,7 +16,8 @@ import {
   STARScoreChange,
   CompletionSummary,
   CompanyLinker,
-  type STARScores
+  type STARScores,
+  type GakuchikaSummary,
 } from "@/components/gakuchika";
 import { STAR_EXPLANATIONS } from "@/components/gakuchika/STARProgressBar";
 
@@ -123,7 +124,7 @@ function GakuchikaConversationContent() {
   const [targetElement, setTargetElement] = useState<string | null>(null);
   const [previousScores, setPreviousScores] = useState<STARScores | null>(null);
   const [showScoreChange, setShowScoreChange] = useState(false);
-  const [summary, setSummary] = useState<{summary: string; key_points: string[]; numbers: string[]; strengths: string[]} | null>(null);
+  const [summary, setSummary] = useState<GakuchikaSummary | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [streamingLabel, setStreamingLabel] = useState<string | null>(null);
@@ -691,6 +692,7 @@ function GakuchikaConversationContent() {
               summary={summary}
               isLoading={isSummaryLoading}
               gakuchikaId={gakuchikaId}
+              gakuchikaTitle={gakuchikaTitle}
               onNewSession={handleNewSession}
             />
           )}

@@ -393,15 +393,15 @@ export async function POST(
                   })
                   .where(eq(gakuchikaConversations.id, conversation.id));
 
-                // Generate summary if completed
+                // Generate structured summary if completed
                 let structuredSummary = null;
                 if (isCompleted) {
                   try {
-                    const summaryResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/summary`, {
+                    const summaryResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/structured-summary`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({
-                        conversation_history: messages,
+                        conversation_history: messages.map(m => ({ role: m.role, content: m.content })),
                         gakuchika_title: gakuchika.title,
                       }),
                     });
@@ -409,10 +409,13 @@ export async function POST(
                     if (summaryResponse.ok) {
                       const summaryData = await summaryResponse.json();
                       const summaryJson = JSON.stringify({
-                        summary: summaryData.summary || "",
-                        key_points: summaryData.key_points || [],
-                        numbers: summaryData.numbers || [],
+                        situation_text: summaryData.situation_text || "",
+                        task_text: summaryData.task_text || "",
+                        action_text: summaryData.action_text || "",
+                        result_text: summaryData.result_text || "",
                         strengths: summaryData.strengths || [],
+                        learnings: summaryData.learnings || [],
+                        numbers: summaryData.numbers || [],
                       });
 
                       await db
@@ -423,21 +426,47 @@ export async function POST(
                       try {
                         structuredSummary = JSON.parse(summaryJson);
                       } catch {
-                        structuredSummary = { summary: summaryJson };
+                        structuredSummary = null;
                       }
                     }
                   } catch (summaryError) {
-                    console.error("[Gakuchika Stream] Summary generation failed:", summaryError);
-                    // Fallback summary
-                    const userAnswers = messages
-                      .filter(m => m.role === "user")
-                      .map(m => m.content)
-                      .join("\n\n");
-                    const fallbackSummary = userAnswers.substring(0, 500) + (userAnswers.length > 500 ? "..." : "");
-                    await db
-                      .update(gakuchikaContents)
-                      .set({ summary: fallbackSummary, updatedAt: new Date() })
-                      .where(eq(gakuchikaContents.id, gakuchikaId));
+                    console.error("[Gakuchika Stream] Structured summary generation failed:", summaryError);
+                    // Fallback: try old summary endpoint
+                    try {
+                      const fallbackRes = await fetch(`${FASTAPI_URL}/api/gakuchika/summary`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          conversation_history: messages.map(m => ({ role: m.role, content: m.content })),
+                          gakuchika_title: gakuchika.title,
+                        }),
+                      });
+                      if (fallbackRes.ok) {
+                        const fbData = await fallbackRes.json();
+                        const fbJson = JSON.stringify({
+                          summary: fbData.summary || "",
+                          key_points: fbData.key_points || [],
+                          numbers: fbData.numbers || [],
+                          strengths: fbData.strengths || [],
+                        });
+                        await db
+                          .update(gakuchikaContents)
+                          .set({ summary: fbJson, updatedAt: new Date() })
+                          .where(eq(gakuchikaContents.id, gakuchikaId));
+                        structuredSummary = JSON.parse(fbJson);
+                      }
+                    } catch {
+                      // Final fallback: plain text
+                      const userAnswers = messages
+                        .filter(m => m.role === "user")
+                        .map(m => m.content)
+                        .join("\n\n");
+                      const fallbackSummary = userAnswers.substring(0, 500) + (userAnswers.length > 500 ? "..." : "");
+                      await db
+                        .update(gakuchikaContents)
+                        .set({ summary: fallbackSummary, updatedAt: new Date() })
+                        .where(eq(gakuchikaContents.id, gakuchikaId));
+                    }
                   }
                 }
 

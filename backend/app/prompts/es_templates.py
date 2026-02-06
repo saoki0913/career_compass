@@ -849,8 +849,9 @@ def validate_template_output(
             variant["char_count"] = char_count  # Always fix the stored value
             deviation = abs(reported - char_count)
             if char_count > 0 and deviation / char_count > 0.10:
-                errors.append(
-                    f"パターン{i}: char_count不正確（申告{reported}文字、実際{char_count}文字）文字数調整が必要"
+                # Log only - char_count inaccuracy is not a text quality issue
+                print(
+                    f"[ES添削/テンプレート] char_count自動修正: パターン{i} 申告{reported}→実際{char_count}"
                 )
 
     if errors:

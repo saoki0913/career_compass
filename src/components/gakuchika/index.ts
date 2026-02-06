@@ -8,6 +8,6 @@ export {
 
 export { STARHintBanner } from "./STARHintBanner";
 export { STARScoreChange } from "./STARScoreChange";
-export { CompletionSummary } from "./CompletionSummary";
+export { CompletionSummary, type GakuchikaSummary } from "./CompletionSummary";
 export { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 export { CompanyLinker } from "./CompanyLinker";

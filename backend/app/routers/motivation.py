@@ -125,6 +125,7 @@ MOTIVATION_EVALUATION_PROMPT = """以下の志望動機に関する会話を分�
 ## 出力形式
 必ず以下のJSON形式で回答してください：
 JSON以外の文字列・コードブロック・説明文は禁止です。
+missing_aspectsの各要素は最大2項目、各項目10文字以内で簡潔に記述してください。
 {{
   "scores": {{
     "company_understanding": 0-100の数値,
@@ -133,10 +134,10 @@ JSON以外の文字列・コードブロック・説明文は禁止です。
     "differentiation": 0-100の数値
   }},
   "missing_aspects": {{
-    "company_understanding": ["不足している観点1", "不足している観点2"],
-    "self_analysis": ["不足している観点1"],
-    "career_vision": ["不足している観点1", "不足している観点2"],
-    "differentiation": ["不足している観点1"]
+    "company_understanding": ["観点1", "観点2"],
+    "self_analysis": ["観点1"],
+    "career_vision": ["観点1", "観点2"],
+    "differentiation": ["観点1"]
   }}
 }}"""
 
@@ -428,7 +429,7 @@ async def _evaluate_motivation_internal(
     llm_result = await call_llm_with_error(
         system_prompt=prompt,
         user_message="上記の会話を評価してください。",
-        max_tokens=600,
+        max_tokens=1024,
         temperature=0.3,
         feature="motivation",
         retry_on_parse=True,

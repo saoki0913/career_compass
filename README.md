@@ -34,7 +34,7 @@ npx drizzle-kit push
 npm run dev
 ```
 
-詳細なセットアップ手順は [docs/setup.md](docs/setup.md) を参照してください。
+詳細なセットアップ手順は [環境設定ガイド](docs/setup/ENV_SETUP.md) を参照してください。
 
 ## 開発コマンド
 
@@ -85,12 +85,13 @@ career_compass/
 主要なサービス設定:
 - **Turso** - データベース ([turso.tech](https://turso.tech))
 - **Stripe** - 決済 ([stripe.com](https://stripe.com))
-- **OpenAI** - LLM・埋め込み ([openai.com](https://openai.com))
+- **OpenAI** - 埋め込み・企業情報抽出 ([openai.com](https://openai.com))
+- **Anthropic** - ES添削・ガクチカ・志望動機 ([anthropic.com](https://anthropic.com))
 
 ## ドキュメント
 
 - [仕様書](docs/SPEC.md) - 詳細な機能仕様
-- [開発ガイド](docs/DEVELOPMENT.md) - 開発ルールとパターン
+- [開発ガイド](docs/setup/DEVELOPMENT.md) - 開発ルールとパターン
 - [進捗状況](docs/PROGRESS.md) - 実装状況の追跡
 
 ## ライセンス

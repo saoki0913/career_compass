@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 
 interface OperationLockContextType {
   /** Whether any long-running operation is in progress on this page */
@@ -25,23 +25,19 @@ const FALLBACK: OperationLockContextType = {
 export function OperationLockProvider({ children }: { children: ReactNode }) {
   const [isLocked, setIsLocked] = useState(false);
   const [activeOperationLabel, setActiveOperationLabel] = useState<string | null>(null);
+  // useRef for synchronous lock check — immune to React batching/concurrent mode
+  const lockRef = useRef(false);
 
   const acquireLock = useCallback((label: string): boolean => {
-    let acquired = false;
-    setIsLocked((prev) => {
-      if (prev) return prev;
-      acquired = true;
-      return true;
-    });
-    // React 19 batches setState, but functional updates execute sequentially.
-    // `acquired` is set synchronously inside the updater.
-    if (acquired) {
-      setActiveOperationLabel(label);
-    }
-    return acquired;
+    if (lockRef.current) return false;
+    lockRef.current = true;
+    setIsLocked(true);
+    setActiveOperationLabel(label);
+    return true;
   }, []);
 
   const releaseLock = useCallback(() => {
+    lockRef.current = false;
     setIsLocked(false);
     setActiveOperationLabel(null);
   }, []);
@@ -50,6 +46,7 @@ export function OperationLockProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isLocked) return;
     const timeout = setTimeout(() => {
+      lockRef.current = false;
       setIsLocked(false);
       setActiveOperationLabel(null);
     }, 120_000);

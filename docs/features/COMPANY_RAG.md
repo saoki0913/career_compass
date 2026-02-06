@@ -100,10 +100,26 @@ LLMで同義・別表現のクエリを生成し、検索の網羅性を向上�
 |-----------|-----|------|
 | max_queries | 3 | 生成する最大クエリ数 |
 | total_queries | 4 | 元クエリ + バリエーション |
+| EXPANSION_MIN_QUERY_CHARS | 5 | これ未満はクエリ拡張スキップ |
+| SHORT_QUERY_THRESHOLD | 10 | 5-10文字は軽量拡張テンプレート使用 |
 | max_query_chars | 1200 | これ以上はクエリ拡張スキップ |
 | model | Claude優先 | OpenAIはフォールバック |
 
 **参照実装**: `hybrid_search.py` - `expand_queries_with_llm()`
+
+### 3.2.1 クエリ拡張キャッシュ
+
+同一クエリのLLM呼び出しを削減するインメモリキャッシュ。
+
+| パラメータ | 値 | 説明 |
+|-----------|-----|------|
+| TTL | 7日 | キャッシュの有効期限 |
+| 最大エントリ数 | 500 | 超過時は古い半分を削除 |
+| キー生成 | SHA-256ハッシュ | クエリを正規化（小文字化・trim）後にハッシュ |
+
+**効果**: LLMコスト -20〜30%、レイテンシ改善
+
+**参照実装**: `hybrid_search.py` - `_get_cached_expansion()`, `_set_cached_expansion()`
 
 ### 3.3 HyDE（仮想文書生成）
 
@@ -114,6 +130,8 @@ LLMで同義・別表現のクエリを生成し、検索の網羅性を向上�
 | max_chars | 600 | クエリ長がこれ以下なら使用 |
 | output_length | 300-500文字 | 生成する仮想文書の長さ |
 
+**プロンプト最適化**: 日本企業の採用ページスタイルで仮想文書を生成。学生向けの視点で、実際の企業HPと同様のトーンを使用。
+
 **参照実装**: `hybrid_search.py` - `generate_hypothetical_document()`
 
 ### 3.4 Reciprocal Rank Fusion (RRF)
@@ -122,8 +140,11 @@ LLMで同義・別表現のクエリを生成し、検索の網羅性を向上�
 
 ```
 RRFスコア = Σ(1 / (k + rank + 1))
-- k = 60（定数）
+- k = adaptive_rrf_k(num_queries) = 30 + (num_queries × 10)
+- 例: 2クエリ → k=50、4クエリ → k=70
 ```
+
+**参照実装**: hybrid_search.py - adaptive_rrf_k()
 
 ### 3.5 MMR（多様性の確保）
 
@@ -134,17 +155,39 @@ score = λ * sim(query, doc) - (1 - λ) * max(sim(doc, selected))
 - λ = 0.5
 ```
 
-### 3.6 LLMリランキング
+### 3.6 リランキング
 
-検索結果をLLMで関連度スコアリングし、順位を最適化。
+#### クロスエンコーダーリランク（デフォルト）
+
+クロスエンコーダーモデルで query-document ペアを直接スコアリング。
 
 | パラメータ | 値 | 説明 |
 |-----------|-----|------|
+| モデル | `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` | 多言語対応（日本語ネイティブサポート） |
 | max_candidates | 20 | リランキング対象の最大数 |
-| threshold | 0.7 | この閾値未満でリランキング実行 |
-| model | Claude優先 | OpenAIはフォールバック |
+| テキスト切り詰め | 512文字 | OOM防止 |
 
-**参照実装**: `hybrid_search.py` - `rerank_results_with_llm()`
+**参照実装**: `backend/app/utils/reranker.py` - `CrossEncoderReranker`
+
+#### リランク実行判定
+
+スコア分散ベースの3段階判定:
+
+| 条件 | 動作 | 理由 |
+|------|------|------|
+| top-3平均 ≥ 0.7 | スキップ | 高信頼度の結果 |
+| top-3平均 < 0.3 | スキップ | 低品質データではリランク効果薄 |
+| 中間帯（0.3-0.7） | 分散 ≥ 0.02 でリランク実行 | 不確実性が高い場合のみ |
+
+**参照実装**: `hybrid_search.py` - `_should_rerank()`
+
+#### LLMリランキング（フォールバック）
+
+クロスエンコーダーが利用不可の場合、LLMで関連度スコアリング。
+
+| パラメータ | 値 | 説明 |
+|-----------|-----|------|
+| model | Claude優先 | OpenAIはフォールバック |
 
 ### 3.7 BM25キーワード検索
 
@@ -153,8 +196,10 @@ score = λ * sim(query, doc) - (1 - λ) * max(sim(doc, selected))
 | 設定 | 値 |
 |------|-----|
 | ライブラリ | bm25s（Pure Python） |
-| 永続化 | `backend/data/bm25/{company_id}.pkl` |
+| 永続化 | `backend/data/bm25/{company_id}.json` |
 | トークナイザー | MeCab (fugashi) + UniDic |
+
+**インデックス更新**: `schedule_bm25_update()` でバックグラウンド非同期更新（レイテンシ -500〜1000ms）
 
 **参照実装**: `backend/app/utils/bm25_store.py`
 
@@ -306,15 +351,20 @@ ESの文字数に応じてコンテキスト長を動的に調整。
 
 ## 10. 検索コンテキスト別ブースト
 
-RAG検索時、検索コンテキストに応じて各コンテンツタイプに異なるブースト係数が適用される。
+RAG検索時、クエリ意図に応じて各コンテンツタイプに異なるブースト係数が適用される。
 
-| コンテキスト | 最優先タイプ | ブースト |
-|------------|-------------|---------|
-| ES添削 | new_grad_recruitment | 1.5 |
-| スケジュール取得 | new_grad_recruitment | 2.0 |
-| 企業情報取得 | corporate_site | 1.3 |
+### 4つのブーストプロファイル
 
-**参照実装**: `hybrid_search.py` - `CONTENT_TYPE_BOOSTS`
+`select_boost_profile(query)` でクエリ内のキーワードに基づき自動選択。
+
+| プロファイル | トリガーキーワード例 | 最優先タイプ |
+|------------|---------------------|-------------|
+| **es_review**（デフォルト） | — | new_grad_recruitment (1.5x) |
+| **deadline** | 締切、期限、スケジュール、選考日程 | new_grad_recruitment (1.8x), press_release (1.2x) |
+| **culture** | 社風、雰囲気、働き方、人物像、カルチャー | employee_interviews (1.6x), ceo_message (1.4x) |
+| **business** | 事業、戦略、売上、成長、市場、中期経営 | midterm_plan (1.5x), ir_materials (1.4x) |
+
+**参照実装**: `hybrid_search.py` - `CONTENT_TYPE_BOOSTS`, `select_boost_profile()`
 
 ---
 
@@ -372,21 +422,23 @@ RAG検索時、検索コンテキストに応じて各コンテンツタイプ�
 
 RAGパイプライン内の各機能で使用するLLM。**既定はClaude優先**。
 
-| 機能 | 用途 | フォールバック |
-|-----|------|---------------|
-| rag_query | クエリ拡張 | gpt-5-mini |
-| rag_hyde | HyDE生成 | gpt-5-mini |
-| rag_rerank | リランキング | gpt-5-mini |
-| rag_classify | コンテンツ分類 | gpt-5-mini |
+| 機能 | デフォルトモデル | 環境変数 |
+|-----|----------------|----------|
+| rag_query | Claude Haiku | MODEL_RAG_QUERY_EXPANSION |
+| rag_hyde | Claude Sonnet | MODEL_RAG_HYDE |
+| rag_rerank | Claude Sonnet | MODEL_RAG_RERANK |
+| rag_classify | Claude Haiku | MODEL_RAG_CLASSIFY |
 
 ### コスト最適化
 
 | 最適化項目 | 実装 |
 |-----------|------|
 | HyDE | クエリ < 600文字の場合のみ |
-| クエリ拡張 | クエリ > 1200文字ならスキップ |
-| リランキング | 品質スコア < 0.7 の場合のみ |
+| クエリ拡張 | クエリ > 1200文字ならスキップ、5文字未満はスキップ |
+| クエリ拡張キャッシュ | ハッシュベース完全一致、TTL 7日、コスト -20〜30% |
+| リランキング | スコア分散ベースの3段階判定 |
 | Multi-Query | 最大3クエリ、総数4件以内 |
+| BM25更新 | バックグラウンド非同期（schedule_bm25_update） |
 
 ---
 
@@ -407,6 +459,14 @@ RAG構築は以下のタイミングで自動実行：
 |-----------|-----------|------|
 | 構造化データ | deadline, recruitment_type 等 | 抽出された項目を個別チャンク |
 | フルテキスト | full_text | 元テキスト全体をチャンキング |
+
+---
+
+## 14.1 セカンダリタイプ検索の最適化
+
+コンテンツタイプフィルタ検索は、1回のワイドクエリ（`n_results × 3`）で取得後、Python側でprimary/secondaryに振り分ける方式に最適化済み。
+
+**参照実装**: `vector_store.py` - `search_company_context_by_type()`
 
 ---
 

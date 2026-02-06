@@ -76,24 +76,32 @@ Career Compass（ウカルン）で使用している技術スタックの詳細
 | **OpenAI** | 1.x | GPT-4o-mini, GPT-5 API |
 | **Anthropic** | 0.40.x | Claude Sonnet API |
 
-**モデル用途:**
-- ES添削: Claude Sonnet
-- 企業情報抽出: GPT-4o-mini
-- ガクチカ深掘り: Claude Sonnet
+**モデル用途（feature別ルーティング）:**
+
+| 機能 | デフォルトモデル | 環境変数 |
+|------|----------------|----------|
+| ES添削 | Claude Sonnet | `MODEL_ES_REVIEW` |
+| ガクチカ深掘り | Claude Haiku | `MODEL_GAKUCHIKA` |
+| 志望動機 | Claude Haiku | `MODEL_MOTIVATION` |
+| 企業情報抽出 | GPT-5-mini | `MODEL_COMPANY_INFO` |
+| RAGクエリ拡張 | Claude Haiku | `MODEL_RAG_QUERY_EXPANSION` |
+| RAG HyDE | Claude Sonnet | `MODEL_RAG_HYDE` |
+| RAGリランク | Claude Sonnet | `MODEL_RAG_RERANK` |
+| RAG分類 | Claude Haiku | `MODEL_RAG_CLASSIFY` |
 
 ### ベクトル検索 / RAG
 
 | 技術 | バージョン | 用途 |
 |-----|----------|------|
 | **ChromaDB** | 0.4.x | ベクトルデータベース |
-| **sentence-transformers** | 2.2.x | ローカル埋め込みモデル |
+| **sentence-transformers** | 2.2.x | ローカル埋め込み + CrossEncoder リランキング |
 | **OpenAI Embeddings** | - | text-embedding-3-small |
 
 ### 検索 / NLP
 
 | 技術 | バージョン | 用途 |
 |-----|----------|------|
-| **rank_bm25** | 0.2.x | BM25 キーワード検索 |
+| **bm25s** | - | BM25 キーワード検索（Pure Python） |
 | **fugashi** | 1.3.x | MeCab 形態素解析 |
 | **unidic-lite** | 1.0.x | MeCab 辞書 |
 
@@ -139,10 +147,13 @@ RAG（Retrieval-Augmented Generation）のための検索システム。
 ```
 
 **特徴:**
-- セマンティック検索（意味的類似度）
-- BM25キーワード検索（日本語トークナイズ対応）
-- Reciprocal Rank Fusion (RRF) でスコア統合
-- クエリ拡張 / LLMリランク（オプション）
+- クエリ拡張（LLM、キャッシュ付き）+ HyDE（仮想文書生成）
+- セマンティック検索（ChromaDB、意味的類似度）
+- BM25キーワード検索（日本語MeCabトークナイズ対応）
+- Reciprocal Rank Fusion (RRF) でスコア統合（適応的k値）
+- MMR多様性フィルタリング
+- Cross-Encoder リランク（`mmarco-mMiniLMv2-L12-H384-v1`、多言語対応）
+- コンテキストアウェアなコンテンツタイプブースト（4プロファイル）
 
 ---
 

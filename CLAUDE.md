@@ -178,26 +178,33 @@ Query → [Query Expansion (LLM)] → [HyDE] → Multi-Query Semantic Search
 
 **Key Parameters**:
 ```python
-EXPANSION_MIN_QUERY_CHARS = 10
+EXPANSION_MIN_QUERY_CHARS = 5        # 短クエリ拡張対応（旧: 10）
+SHORT_QUERY_THRESHOLD = 10           # 5-10文字は軽量拡張テンプレート
 DEFAULT_MAX_TOTAL_QUERIES = 4
-RRF_K = 60
-CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+RRF_K = "adaptive: 30 + (num_queries × 10)"  # 旧: 固定60
+CROSS_ENCODER_MODEL = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"  # 多言語対応
 ```
+
+**Recent Optimizations** (✅ implemented):
+- ✅ クエリ拡張キャッシュ（ハッシュベース、TTL 7日、最大500件）— LLMコスト -20〜30%
+- ✅ 適応的RRF kパラメータ — MRR +3〜5%
+- ✅ HyDEプロンプト日本語就活コンテキスト最適化
+- ✅ スコア分散ベースのリランク判定（3段階）
+- ✅ BM25インデックス更新のバックグラウンド非同期化 — レイテンシ -500ms
+- ✅ コンテキストアウェアなコンテンツタイプブースト（4プロファイル: es_review/deadline/culture/business）
 
 **Known Issues & Improvements**:
 | Issue | Skill | Approach |
 |-------|-------|----------|
-| Query expansion遅延 | `rag-implementation` | Similarity-based expansion cache |
-| BM25が元クエリのみ | `hybrid-search-implementation` | Run BM25 on all expanded queries |
 | コンテンツ分類曖昧性 | `ai-product` | Priority-based tie-breaking rules |
-| リランク閾値固定 | `senior-ml-engineer` | Query complexity adaptive threshold |
+| プログレッシブ企業検索表示 | `frontend-design` | 3-phase UI (skeleton → interim → final) |
 
 ### 3. ES Review (ES添削)
 
 **Files**:
 ```
 backend/app/routers/es_review.py         # Main review logic
-backend/app/prompts/es_templates.py      # 7 specialized templates
+backend/app/prompts/es_templates.py      # 8 specialized templates
 backend/app/utils/llm.py                 # JSON parsing & retry logic
 src/components/es/ReviewPanel.tsx        # Review UI
 src/hooks/useESReview.ts                 # Review hook
@@ -210,9 +217,9 @@ ES Content → [RAG Context] → Template Selection → LLM Review
   → Scores + Improvements + Rewrites
 ```
 
-**Templates** (7 types):
-- company_motivation, gakuchika, intern_reason
-- intern_goals, role_course_reason, self_pr, work_values
+**Templates** (8 types):
+- basic, company_motivation, gakuchika, intern_reason
+- intern_goals, post_join_goals, role_course_reason, self_pr, work_values
 
 **JSON Parsing Recovery Chain** (`llm.py`):
 1. Direct parse
@@ -222,12 +229,15 @@ ES Content → [RAG Context] → Template Selection → LLM Review
 5. Bracket repair with depth tracking
 6. LLM retry with stricter instructions
 
+**Recent Optimizations** (✅ implemented):
+- ✅ max_tokens削減（初回: 4000→2500、3パターン: 10000→6000）— トークンコスト -30%
+- ✅ 文字数ハードバリデーション（10%超乖離でリトライ、サイレント修正廃止）
+- ✅ 3パターン差別化指示（バランス型/論理型/熱意型の明示的スタイル）
+
 **Known Issues & Improvements**:
 | Issue | Skill | Approach |
 |-------|-------|----------|
-| 文字数超過頻発 | `ai-product` | Character budget in system prompt (15/70/15) |
 | JSON切れ端許容 | `senior-ml-engineer` | Schema validation after parse |
-| リトライ回数固定 | `senior-ml-engineer` | Cascading repair with adaptive retries |
 | 添削結果の比較UI | `ux-psychology`, `frontend-design` | Side-by-side diff view |
 
 ---
