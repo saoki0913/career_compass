@@ -18,6 +18,15 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "X-Device-Token"],
 )
 
+
+# Startup event to log CORS configuration
+@app.on_event("startup")
+async def startup_event():
+    """Log security-critical configuration on startup."""
+    print(f"[Security] CORS allowed origins: {settings.cors_origins}")
+    print(f"[Security] Frontend URL: {settings.frontend_url}")
+
+
 # Include routers
 app.include_router(health.router, tags=["health"])
 app.include_router(company_info.router)

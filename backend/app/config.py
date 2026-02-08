@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, AliasChoices
+from pydantic import Field, AliasChoices, model_validator
 from functools import lru_cache
 from pathlib import Path
 
@@ -148,6 +148,16 @@ class Settings(BaseSettings):
     # 環境変数: ES_REWRITE_COUNT
     # 1=ユーザーが迷わない、最大3まで設定可能
     es_rewrite_count: int = 1
+
+    @model_validator(mode="after")
+    def validate_cors_origins(self):
+        """Validate that CORS origins do not contain wildcard '*'."""
+        if "*" in self.cors_origins:
+            raise ValueError(
+                "CORS wildcard '*' is not allowed in production. "
+                "Please specify explicit origins in CORS_ORIGINS environment variable."
+            )
+        return self
 
     model_config = SettingsConfigDict(
         # Try multiple env file locations

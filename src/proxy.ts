@@ -1,3 +1,11 @@
+/**
+ * Proxy (Next.js 16)
+ *
+ * Route protection + CSRF protection.
+ * - Origin header validation for state-changing requests (POST/PUT/DELETE/PATCH)
+ * - Route-based authentication checks
+ */
+
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -18,18 +26,98 @@ const PLAN_REQUIRED_ROUTES = [
 // Routes that are only for unauthenticated users
 const AUTH_ROUTES = ["/login"];
 
+// Paths excluded from CSRF checks
+const CSRF_EXEMPT_PATHS = [
+  "/api/auth/",       // Better Auth handles its own CSRF
+  "/api/webhooks/",   // Webhooks use signature verification
+];
+
+// State-changing HTTP methods that require CSRF protection
+const CSRF_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
+
+/**
+ * Get allowed origins for CSRF validation
+ */
+function getAllowedOrigins(): Set<string> {
+  const origins = new Set<string>();
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (appUrl) {
+    origins.add(new URL(appUrl).origin);
+  }
+
+  // Always allow localhost in development
+  if (process.env.NODE_ENV === "development") {
+    origins.add("http://localhost:3000");
+    origins.add("http://127.0.0.1:3000");
+  }
+
+  return origins;
+}
+
+/**
+ * Validate CSRF by checking Origin header against allowed origins.
+ * Returns null if valid, or a NextResponse with 403 if invalid.
+ */
+function validateCsrf(request: NextRequest): NextResponse | null {
+  const { method, nextUrl } = request;
+
+  // Only check state-changing methods
+  if (!CSRF_METHODS.has(method)) {
+    return null;
+  }
+
+  // Skip exempt paths
+  const pathname = nextUrl.pathname;
+  if (CSRF_EXEMPT_PATHS.some((path) => pathname.startsWith(path))) {
+    return null;
+  }
+
+  // Only validate API routes (non-API form posts handled by SameSite cookies)
+  if (!pathname.startsWith("/api/")) {
+    return null;
+  }
+
+  const origin = request.headers.get("origin");
+
+  // Requests without Origin header (e.g., same-origin fetch without CORS)
+  // are generally safe due to SameSite cookies, but we still validate when present
+  if (!origin) {
+    return null;
+  }
+
+  const allowedOrigins = getAllowedOrigins();
+  if (allowedOrigins.size > 0 && !allowedOrigins.has(origin)) {
+    return NextResponse.json(
+      { error: "CSRF validation failed: origin not allowed" },
+      { status: 403 }
+    );
+  }
+
+  return null;
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Skip static files and API routes (except those we want to protect)
+  // Skip static files and Better Auth / webhook routes for route protection
   if (
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/api/auth/") || // Better Auth routes
+    pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/api/webhooks") ||
     pathname.includes(".")
   ) {
+    // Still run CSRF check on API routes
+    if (pathname.startsWith("/api/") && !pathname.startsWith("/api/auth/") && !pathname.startsWith("/api/webhooks")) {
+      const csrfResult = validateCsrf(request);
+      if (csrfResult) return csrfResult;
+    }
     return NextResponse.next();
   }
+
+  // CSRF protection for API routes
+  const csrfResult = validateCsrf(request);
+  if (csrfResult) return csrfResult;
 
   // Check for session cookie (Better Auth)
   const sessionCookie = request.cookies.get("better-auth.session_token");
@@ -52,13 +140,8 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // Plan required routes - check if user has selected a plan
-  // Note: This is a basic check. Full validation happens in the API routes
-  // and client-side AuthProvider
+  // Plan required routes - client-side AuthProvider handles plan check
   if (PLAN_REQUIRED_ROUTES.some((route) => pathname.startsWith(route))) {
-    // For authenticated users, we rely on client-side AuthProvider to check plan status
-    // and redirect if needed. This avoids making DB calls in proxy.
-    // The API routes perform the actual plan check.
     return NextResponse.next();
   }
 
