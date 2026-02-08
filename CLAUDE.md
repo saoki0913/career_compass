@@ -182,7 +182,7 @@ EXPANSION_MIN_QUERY_CHARS = 5        # 短クエリ拡張対応（旧: 10）
 SHORT_QUERY_THRESHOLD = 10           # 5-10文字は軽量拡張テンプレート
 DEFAULT_MAX_TOTAL_QUERIES = 4
 RRF_K = "adaptive: 30 + (num_queries × 10)"  # 旧: 固定60
-CROSS_ENCODER_MODEL = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"  # 多言語対応
+CROSS_ENCODER_MODEL = "hotchpotch/japanese-reranker-small-v2"  # 日本語特化
 ```
 
 **Recent Optimizations** (✅ implemented):

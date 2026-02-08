@@ -15,6 +15,9 @@ ddgs>=9.0.0
 chromadb>=0.4.22
 # NumPy (for embeddings and vector operations)
 numpy>=1.24.0
+# Cross-encoder reranking
+sentence-transformers>=3.0.0
+transformers>=4.48.0
 # BM25 for hybrid search (keyword matching)
 bm25s>=0.1.0
 # LRU cache for memory management

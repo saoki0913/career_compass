@@ -23,13 +23,15 @@ except ImportError:
     )
 
 
-# Default model: multilingual cross-encoder trained on mMARCO
-# Supports Japanese natively (unlike English-only ms-marco-MiniLM-L-6-v2)
-DEFAULT_CROSS_ENCODER_MODEL = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+# Default model: Japanese-specific cross-encoder trained on native Japanese data
+# ModernBERT-based (ruri-v3-pt-70m), L13-H384, ~70M params
+# Requires transformers>=4.48.0
+DEFAULT_CROSS_ENCODER_MODEL = "hotchpotch/japanese-reranker-small-v2"
 # Alternatives:
-# - "cross-encoder/ms-marco-MiniLM-L-6-v2" (English only, faster but lower Japanese accuracy)
-# - "cl-tohoku/bert-base-japanese-v3" (requires fine-tuning for reranking)
-# - "line-corporation/line-distilbert-base-japanese" (requires fine-tuning)
+# - "hotchpotch/japanese-reranker-xsmall-v2" (faster, ~30M params, avg 0.870)
+# - "hotchpotch/japanese-reranker-base-v2" (higher accuracy, ~130M params, avg 0.893)
+# - "cl-nagoya/ruri-v3-reranker-310m" (SOTA, 315M params, avg 0.917, but heavy)
+# - "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1" (previous: multilingual, machine-translated training data)
 
 
 class CrossEncoderReranker:

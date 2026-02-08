@@ -521,6 +521,23 @@ async def test_live_company_info_search_report(monkeypatch: pytest.MonkeyPatch) 
     if not companies:
         pytest.skip("No companies found in company_mappings.json mappings.")
 
+    # Allow explicit company override for targeted testing
+    override_str = os.getenv("LIVE_SEARCH_COMPANIES")
+    if override_str:
+        override_list = [c.strip() for c in override_str.split(",") if c.strip()]
+        if override_list:
+            # Build full industry map for override companies
+            raw_mappings = json.loads(mappings_path.read_text(encoding="utf-8"))
+            full_industry_map = _build_industry_map(
+                raw_mappings.get("mappings", {})
+                if isinstance(raw_mappings, dict)
+                else {}
+            )
+            companies = override_list
+            company_industry_map = {
+                c: full_industry_map.get(c, "unknown") for c in companies
+            }
+
     # Log industry coverage
     industry_counts: Counter[str] = Counter()
     for c in companies:
