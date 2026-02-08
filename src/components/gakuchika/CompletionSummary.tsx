@@ -603,7 +603,7 @@ export function CompletionSummary({
             className="block"
           >
             <Button
-              variant="outline"
+              variant="default"
               className="w-full h-11 text-sm font-medium"
             >
               ESを手動で作成する
@@ -622,7 +622,7 @@ export function CompletionSummary({
             </Button>
           )}
           <Link href="/gakuchika" className="block">
-            <Button variant="outline" className="w-full h-10">
+            <Button variant="ghost" className="w-full h-10">
               一覧に戻る
             </Button>
           </Link>

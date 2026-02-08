@@ -235,9 +235,13 @@ export function ReviewPanel({
 
   // Handler to return to full mode
   const handleReturnToFullMode = useCallback(() => {
+    if (review) {
+      const confirmed = window.confirm("現在の添削結果は破棄されます。ES全体添削に切り替えますか？");
+      if (!confirmed) return;
+    }
     clearReview();
     onClearSectionReview?.();
-  }, [clearReview, onClearSectionReview]);
+  }, [review, clearReview, onClearSectionReview]);
 
   const handleApplyRewrite = useCallback(
     (rewriteText: string) => {
