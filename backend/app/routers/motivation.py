@@ -71,6 +71,7 @@ class NextQuestionRequest(BaseModel):
     conversation_history: list[Message]
     question_count: int = Field(default=0, ge=0)
     scores: Optional[MotivationScoresInput] = None
+    gakuchika_context: Optional[list[dict]] = None
 
 
 class NextQuestionResponse(BaseModel):
@@ -144,28 +145,81 @@ def _extract_company_features(company_context: str, max_features: int = 3) -> li
     return features
 
 
+def _format_gakuchika_for_prompt(gakuchika_context: list[dict] | None, max_items: int = 3) -> str:
+    """Format gakuchika summaries into prompt-friendly text."""
+    if not gakuchika_context:
+        return "（ガクチカ情報なし）"
+
+    sections = []
+    for g in gakuchika_context[:max_items]:
+        title = g.get("title", "経験")
+        strengths = []
+        for s in g.get("strengths", [])[:2]:
+            if isinstance(s, dict):
+                strengths.append(s.get("title", ""))
+            elif isinstance(s, str):
+                strengths.append(s)
+        strengths = [s for s in strengths if s]
+        action = str(g.get("action_text", ""))[:80]
+        result = str(g.get("result_text", ""))[:60]
+        numbers = [str(n) for n in g.get("numbers", [])[:3]]
+
+        parts = [f"- {title}"]
+        if strengths:
+            parts.append(f"  強み: {', '.join(strengths)}")
+        if action:
+            parts.append(f"  行動: {action}")
+        if result:
+            parts.append(f"  成果: {result}")
+        if numbers:
+            parts.append(f"  数字: {', '.join(numbers)}")
+        sections.append("\n".join(parts))
+
+    return "\n".join(sections)
+
+
+def _extract_gakuchika_strength(gakuchika_context: list[dict] | None) -> str | None:
+    """Extract the first strength title from gakuchika context for personalization."""
+    if not gakuchika_context:
+        return None
+    for g in gakuchika_context:
+        for s in g.get("strengths", []):
+            title = s.get("title") if isinstance(s, dict) else s
+            if title and isinstance(title, str) and len(title) >= 2:
+                return title
+    return None
+
+
 def _build_initial_suggestions(
     company_name: str,
     industry: str,
     company_context: str,
+    gakuchika_context: list[dict] | None = None,
 ) -> list[str]:
-    """Build initial suggestions incorporating RAG company info when available."""
+    """Build initial suggestions incorporating RAG company info and gakuchika when available."""
     features = _extract_company_features(company_context)
 
     if features:
-        return [
-            f"{features[0]}に関心を持ち、{company_name}を志望しました",
-            f"就活サイトで{company_name}の社員インタビューを読んで、社風に惹かれました",
-            f"インターンシップや説明会に参加して、{features[1] if len(features) > 1 else '事業内容'}に魅力を感じました",
-            f"もともと{industry}に関心があり、業界研究の中で{company_name}の{features[-1]}を知りました",
+        suggestions = [
+            f"{features[0]}への関心から",
+            f"社員インタビューで社風に共感",
+            f"{features[1] if len(features) > 1 else '事業内容'}に魅力を感じて",
+            f"{industry}の業界研究がきっかけ",
         ]
     else:
-        return [
-            f"大学の授業で{industry}について学び、{company_name}の取り組みに興味を持ちました",
-            f"就活サイトで{company_name}の社員インタビューを読んで、社風に惹かれました",
-            "インターンシップや説明会に参加して、事業内容に魅力を感じました",
-            f"もともと{industry}に関心があり、業界研究の中で{company_name}を知りました",
+        suggestions = [
+            f"{industry}を学び{company_name}に興味",
+            "社員インタビューで社風に共感",
+            "説明会で事業内容に魅力を感じて",
+            f"{industry}の業界研究がきっかけ",
         ]
+
+    # Personalize first suggestion with gakuchika strength if available
+    gakuchika_strength = _extract_gakuchika_strength(gakuchika_context)
+    if gakuchika_strength and features:
+        suggestions[0] = f"{gakuchika_strength}を活かせる{features[0]}に関心"[:45]
+
+    return suggestions
 
 
 def _build_completion_suggestions(
@@ -178,17 +232,17 @@ def _build_completion_suggestions(
 
     if features:
         return [
-            f"{company_name}の{features[0]}を通じて、新しい価値を生み出すこと",
-            "自分の強みを活かして、チームの成果を最大化すること",
-            f"{features[1] if len(features) > 1 else industry + 'の課題解決'}に第一線で取り組むこと",
-            "お客様に直接価値を届けられるプロフェッショナルになること",
+            f"{features[0]}で新しい価値を生むこと",
+            "強みを活かしチーム成果を最大化",
+            f"{features[1] if len(features) > 1 else industry + 'の課題解決'}の最前線へ",
+            "顧客に直接価値を届けるプロになる",
         ]
     else:
         return [
-            f"{company_name}で新しい価値を生み出し、社会に貢献すること",
-            "自分の強みを活かして、チームの成果を最大化すること",
-            f"{industry}の課題解決に第一線で取り組むこと",
-            "お客様に直接価値を届けられるプロフェッショナルになること",
+            f"{company_name}で新しい価値を生むこと",
+            "強みを活かしチーム成果を最大化",
+            f"{industry}の課題解決の最前線へ",
+            "顧客に直接価値を届けるプロになる",
         ]
 
 
@@ -416,6 +470,7 @@ async def get_next_question(request: NextQuestionRequest):
             company_name=request.company_name,
             industry=industry,
             company_context=company_context,
+            gakuchika_context=request.gakuchika_context,
         )
 
         return NextQuestionResponse(
@@ -474,10 +529,12 @@ async def get_next_question(request: NextQuestionRequest):
     missing_aspects_text = f"「{weakest_jp}」で不足: {', '.join(missing_for_weakest)}" if missing_for_weakest else ""
 
     safe_company_name = sanitize_prompt_input(request.company_name, max_length=200)
+    gakuchika_section = _format_gakuchika_for_prompt(request.gakuchika_context)
     prompt = MOTIVATION_QUESTION_PROMPT.format(
         company_name=safe_company_name,
         industry=sanitize_prompt_input(request.industry or "不明", max_length=100),
         company_context=company_context or "（企業情報なし）",
+        gakuchika_section=gakuchika_section,
         company_understanding_score=scores.company_understanding,
         self_analysis_score=scores.self_analysis,
         career_vision_score=scores.career_vision,
@@ -492,7 +549,8 @@ async def get_next_question(request: NextQuestionRequest):
             "[Motivation] Next question input sizes: "
             f"messages={len(request.conversation_history)}, "
             f"message_chars={message_chars}, "
-            f"company_context_chars={len(company_context)}"
+            f"company_context_chars={len(company_context)}, "
+            f"gakuchika_chars={len(gakuchika_section)}"
         )
 
     messages = [{"role": msg.role, "content": msg.content} for msg in request.conversation_history]
@@ -572,6 +630,7 @@ async def _generate_next_question_progress(
                 company_name=request.company_name,
                 industry=industry,
                 company_context=company_context,
+                gakuchika_context=request.gakuchika_context,
             )
             yield _sse_event("complete", {
                 "data": {
@@ -654,10 +713,12 @@ async def _generate_next_question_progress(
             else ""
         )
 
+        gakuchika_section = _format_gakuchika_for_prompt(request.gakuchika_context)
         prompt = MOTIVATION_QUESTION_PROMPT.format(
             company_name=sanitize_prompt_input(request.company_name, max_length=200),
             industry=sanitize_prompt_input(request.industry or "不明", max_length=100),
             company_context=company_context or "（企業情報なし）",
+            gakuchika_section=gakuchika_section,
             company_understanding_score=scores.company_understanding,
             self_analysis_score=scores.self_analysis,
             career_vision_score=scores.career_vision,

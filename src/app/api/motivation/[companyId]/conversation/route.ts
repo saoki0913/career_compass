@@ -8,8 +8,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { motivationConversations, companies } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { motivationConversations, companies, gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
+import { eq, and, desc } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
@@ -103,6 +103,66 @@ function safeParseScores(json: string | null): MotivationScores | null {
   }
 }
 
+interface GakuchikaContextItem {
+  title: string;
+  strengths: Array<{ title: string; description?: string } | string>;
+  action_text?: string;
+  result_text?: string;
+  numbers?: string[];
+}
+
+async function fetchGakuchikaContext(userId: string): Promise<GakuchikaContextItem[]> {
+  try {
+    const contents = await db
+      .select({
+        id: gakuchikaContents.id,
+        title: gakuchikaContents.title,
+        summary: gakuchikaContents.summary,
+      })
+      .from(gakuchikaContents)
+      .where(eq(gakuchikaContents.userId, userId))
+      .orderBy(desc(gakuchikaContents.updatedAt));
+
+    const results: GakuchikaContextItem[] = [];
+
+    for (const content of contents) {
+      if (results.length >= 3) break;
+
+      // Check if this gakuchika has a completed conversation
+      const latestConv = await db
+        .select({ status: gakuchikaConversations.status })
+        .from(gakuchikaConversations)
+        .where(eq(gakuchikaConversations.gakuchikaId, content.id))
+        .orderBy(desc(gakuchikaConversations.updatedAt))
+        .limit(1)
+        .get();
+
+      if (latestConv?.status !== "completed") continue;
+      if (!content.summary) continue;
+
+      try {
+        const parsed = JSON.parse(content.summary);
+        if (typeof parsed !== "object") continue;
+
+        results.push({
+          title: content.title,
+          strengths: parsed.strengths || [],
+          action_text: parsed.action_text || "",
+          result_text: parsed.result_text || "",
+          numbers: parsed.numbers || [],
+        });
+      } catch {
+        // Skip unparseable summaries
+      }
+    }
+
+    return results;
+  } catch (error) {
+    console.error("[Motivation] Failed to fetch gakuchika context:", error);
+    return [];
+  }
+}
+
 // Configuration
 const ELEMENT_COMPLETION_THRESHOLD = 70;
 const QUESTIONS_PER_CREDIT = 5;
@@ -129,7 +189,8 @@ async function getQuestionFromFastAPI(
   company: CompanyData,
   conversationHistory: Message[],
   questionCount: number,
-  scores?: MotivationScores | null
+  scores?: MotivationScores | null,
+  gakuchikaContext?: GakuchikaContextItem[],
 ): Promise<{
   question: string | null;
   error: string | null;
@@ -153,6 +214,7 @@ async function getQuestionFromFastAPI(
         })),
         question_count: questionCount,
         scores: scores,
+        gakuchika_context: gakuchikaContext && gakuchikaContext.length > 0 ? gakuchikaContext : null,
       }),
       signal: controller.signal,
     });
@@ -269,11 +331,16 @@ export async function GET(
 
   if (!isCompleted) {
     if (messages.length === 0) {
+      // Fetch gakuchika context for personalization
+      const gakuchikaContext = userId ? await fetchGakuchikaContext(userId) : [];
+
       // New conversation: fetch initial question from FastAPI
       const result = await getQuestionFromFastAPI(
         { id: company.id, name: company.name, industry: company.industry },
         [],
-        0
+        0,
+        undefined,
+        gakuchikaContext,
       );
       nextQuestion = result.question;
       suggestions = result.suggestions;
@@ -378,13 +445,17 @@ export async function POST(
   };
   messages.push(userMessage);
 
+  // Fetch gakuchika context for personalization
+  const gakuchikaContext = userId ? await fetchGakuchikaContext(userId) : [];
+
   // Get next question from FastAPI
   const scores = safeParseScores(conversation.motivationScores);
   const result = await getQuestionFromFastAPI(
     { id: company.id, name: company.name, industry: company.industry },
     messages,
     newQuestionCount,
-    scores
+    scores,
+    gakuchikaContext,
   );
 
   if (result.error) {

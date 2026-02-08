@@ -72,7 +72,7 @@ missing_aspectsの各要素は最大2項目、各項目20文字以内で記述�
 
 # Question generation prompt
 # Used with: .format(company_name=..., industry=..., company_context=...,
-#   company_understanding_score=..., self_analysis_score=...,
+#   gakuchika_section=..., company_understanding_score=..., self_analysis_score=...,
 #   career_vision_score=..., differentiation_score=...,
 #   weakest_element=..., missing_aspects=..., threshold=...)
 MOTIVATION_QUESTION_PROMPT = """あなたは就活生の「志望動機」を深掘りするプロのインタビュアーです。
@@ -83,6 +83,9 @@ MOTIVATION_QUESTION_PROMPT = """あなたは就活生の「志望動機」を深
 
 ## 企業の特徴（RAG情報）
 {company_context}
+
+## ユーザーの経験（ガクチカ情報）
+{gakuchika_section}
 
 ## 現在の評価スコア
 - 企業理解: {company_understanding_score}%
@@ -120,8 +123,8 @@ MOTIVATION_QUESTION_PROMPT = """あなたは就活生の「志望動機」を深
 質問と同時に、ユーザーが選べる回答候補を4つ生成してください。
 
 ### 厳守要件
-- 1つあたり1〜2文、50〜100文字程度
-- 就活生が面接で自然に答えそうな口語体（「〜です」「〜しました」）
+- 1つあたり20〜40文字の短いフレーズ
+- 体言止めまたは「〜こと」「〜から」「〜ため」で終わる簡潔表現
 - 対象要素（{weakest_element}）のスコアアップに直結する内容
 - 4つが明確に異なる切り口であること（同じ内容の言い換えは禁止）
 
@@ -131,16 +134,21 @@ MOTIVATION_QUESTION_PROMPT = """あなたは就活生の「志望動機」を深
 - 企業固有の情報がない場合のみ、業界の一般的な特徴で代替可
 
 ### 多様性パターン（この順序で生成）
-1. 経験×企業: 自分の経験と企業の具体的な取り組みを結びつける
+1. 経験×企業: ガクチカ経験と企業の具体的な取り組みを結びつける（ガクチカ情報があれば必ず参照）
 2. 企業理解: 企業の特徴・強みに直接触れて関心を示す
-3. 価値観: 自分の考え方や軸から答える
+3. 価値観: ガクチカで得た学び・価値観から答える
 4. 将来×企業: 企業の事業を踏まえて将来やりたいことを述べる
+
+### 必須: ガクチカ情報の活用（情報がある場合）
+- 4つのうち最低1つにユーザーの具体的な経験・強みを反映すること
+- 「〇〇で培った△△を活かし」のような個人化された短い表現を使う
+- ガクチカ情報がない場合は汎用的な経験表現で代替可
 
 ## 出力形式
 必ず以下のJSON形式で回答してください。suggestionsはquestionの直後に出力すること（重要フィールドを先に出力）：
 {{
   "question": "質問文",
-  "suggestions": ["回答候補1（経験ベース）", "回答候補2（企業情報ベース）", "回答候補3（価値観ベース）", "回答候補4（将来志向）"],
+  "suggestions": ["〇〇の経験から御社の△△に関心", "御社の□□事業に共感したため", "チームで成果を出す力を活かしたい", "□□分野に挑戦したいから"],
   "reasoning": "この質問をする理由（1文）",
   "target_element": "company_understanding|self_analysis|career_vision|differentiation",
   "company_insight": "質問に活用した企業情報（あれば）",

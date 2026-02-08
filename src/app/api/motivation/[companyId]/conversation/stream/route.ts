@@ -11,8 +11,8 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { motivationConversations, companies } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { motivationConversations, companies, gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
+import { eq, and, desc } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
@@ -85,6 +85,65 @@ function safeParseScores(json: string | null): MotivationScores | null {
     };
   } catch {
     return null;
+  }
+}
+
+interface GakuchikaContextItem {
+  title: string;
+  strengths: Array<{ title: string; description?: string } | string>;
+  action_text?: string;
+  result_text?: string;
+  numbers?: string[];
+}
+
+async function fetchGakuchikaContext(userId: string): Promise<GakuchikaContextItem[]> {
+  try {
+    const contents = await db
+      .select({
+        id: gakuchikaContents.id,
+        title: gakuchikaContents.title,
+        summary: gakuchikaContents.summary,
+      })
+      .from(gakuchikaContents)
+      .where(eq(gakuchikaContents.userId, userId))
+      .orderBy(desc(gakuchikaContents.updatedAt));
+
+    const results: GakuchikaContextItem[] = [];
+
+    for (const content of contents) {
+      if (results.length >= 3) break;
+
+      const latestConv = await db
+        .select({ status: gakuchikaConversations.status })
+        .from(gakuchikaConversations)
+        .where(eq(gakuchikaConversations.gakuchikaId, content.id))
+        .orderBy(desc(gakuchikaConversations.updatedAt))
+        .limit(1)
+        .get();
+
+      if (latestConv?.status !== "completed") continue;
+      if (!content.summary) continue;
+
+      try {
+        const parsed = JSON.parse(content.summary);
+        if (typeof parsed !== "object") continue;
+
+        results.push({
+          title: content.title,
+          strengths: parsed.strengths || [],
+          action_text: parsed.action_text || "",
+          result_text: parsed.result_text || "",
+          numbers: parsed.numbers || [],
+        });
+      } catch {
+        // Skip unparseable summaries
+      }
+    }
+
+    return results;
+  } catch (error) {
+    console.error("[Motivation Stream] Failed to fetch gakuchika context:", error);
+    return [];
   }
 }
 
@@ -184,6 +243,9 @@ export async function POST(
 
     const scores = safeParseScores(conversation.motivationScores);
 
+    // Fetch gakuchika context for personalization
+    const gakuchikaContext = userId ? await fetchGakuchikaContext(userId) : [];
+
     // Call FastAPI SSE streaming endpoint (with 60s timeout)
     const abortController = new AbortController();
     const fetchTimeoutId = setTimeout(() => abortController.abort(), 60_000);
@@ -203,6 +265,7 @@ export async function POST(
           })),
           question_count: newQuestionCount,
           scores,
+          gakuchika_context: gakuchikaContext.length > 0 ? gakuchikaContext : null,
         }),
         signal: abortController.signal,
       });
