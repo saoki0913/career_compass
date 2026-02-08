@@ -138,7 +138,25 @@ export async function POST(
       roleName?: string;
     };
 
-    const companyId = requestCompanyId || access.document.companyId;
+    // Verify requestCompanyId ownership to prevent IDOR
+    let companyId = access.document.companyId;
+    if (requestCompanyId && requestCompanyId !== access.document.companyId) {
+      const ownedCompany = await db
+        .select({ id: companies.id, userId: companies.userId, guestId: companies.guestId })
+        .from(companies)
+        .where(eq(companies.id, requestCompanyId))
+        .get();
+      if (
+        ownedCompany &&
+        ((userId && ownedCompany.userId === userId) ||
+         (guestId && ownedCompany.guestId === guestId))
+      ) {
+        companyId = requestCompanyId;
+      }
+      // else: silently fall back to document's companyId (safe default)
+    } else if (requestCompanyId) {
+      companyId = requestCompanyId;
+    }
 
     // Fetch company info for template review
     let companyInfo: { name: string | null; industry: string | null } = {

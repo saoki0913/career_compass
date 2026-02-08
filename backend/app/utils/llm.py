@@ -9,6 +9,7 @@ LLMユーティリティモジュール
 """
 
 import asyncio
+import re as _re
 from anthropic import AsyncAnthropic, APIError as AnthropicAPIError
 import openai
 from openai import APIError as OpenAIAPIError
@@ -17,6 +18,24 @@ import json
 from typing import AsyncGenerator, Callable, Literal, Optional
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+
+
+def sanitize_prompt_input(text: str, max_length: int = 5000) -> str:
+    """Sanitize user input before embedding in LLM prompts.
+
+    Mitigates prompt injection by:
+    - Truncating to max_length
+    - Removing markdown heading markers that could override prompt structure
+    - Removing triple backticks (code block injection)
+    """
+    if not text:
+        return ""
+    text = text[:max_length]
+    # Remove markdown heading markers that could override prompt structure
+    text = _re.sub(r"^#{1,6}\s", "", text, flags=_re.MULTILINE)
+    # Remove triple backticks (code block injection)
+    text = text.replace("```", "")
+    return text
 
 # Global clients for connection pooling
 _anthropic_client: Optional[AsyncAnthropic] = None

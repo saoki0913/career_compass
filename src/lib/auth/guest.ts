@@ -4,11 +4,20 @@
  * Functions for managing guest user sessions with 7-day retention.
  */
 
+import { createHash } from "crypto";
 import { db } from "@/lib/db";
 import { guestUsers, loginPrompts } from "@/lib/db/schema";
 import { eq, and, lt, isNull } from "drizzle-orm";
 
 const GUEST_RETENTION_DAYS = 7;
+
+/**
+ * Hash a device token using SHA-256 for secure storage.
+ * Raw tokens are never stored in the database.
+ */
+function hashDeviceToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
 
 /**
  * Generate a unique ID for database records
@@ -21,12 +30,31 @@ function generateId(): string {
  * Create or retrieve a guest user by device token
  */
 export async function getOrCreateGuestUser(deviceToken: string) {
-  // Check if guest exists
-  const existing = await db
+  const hashedToken = hashDeviceToken(deviceToken);
+
+  // Check if guest exists (search by hash, fall back to plaintext for migration)
+  let existing = await db
     .select()
     .from(guestUsers)
-    .where(eq(guestUsers.deviceToken, deviceToken))
+    .where(eq(guestUsers.deviceToken, hashedToken))
     .get();
+
+  // Fallback: check for un-hashed token (existing guests before migration)
+  if (!existing) {
+    existing = await db
+      .select()
+      .from(guestUsers)
+      .where(eq(guestUsers.deviceToken, deviceToken))
+      .get();
+
+    // Migrate to hashed token if found
+    if (existing) {
+      await db
+        .update(guestUsers)
+        .set({ deviceToken: hashedToken, updatedAt: new Date() })
+        .where(eq(guestUsers.id, existing.id));
+    }
+  }
 
   if (existing) {
     // Check if expired
@@ -53,13 +81,13 @@ export async function getOrCreateGuestUser(deviceToken: string) {
     }
   }
 
-  // Create new guest
+  // Create new guest (store hashed token)
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + GUEST_RETENTION_DAYS);
 
   const newGuest = {
     id: generateId(),
-    deviceToken,
+    deviceToken: hashedToken,
     expiresAt,
     migratedToUserId: null,
     createdAt: new Date(),
@@ -75,11 +103,21 @@ export async function getOrCreateGuestUser(deviceToken: string) {
  * Get guest user by device token (without creating)
  */
 export async function getGuestUser(deviceToken: string) {
-  const guest = await db
+  const hashedToken = hashDeviceToken(deviceToken);
+  let guest = await db
     .select()
     .from(guestUsers)
-    .where(eq(guestUsers.deviceToken, deviceToken))
+    .where(eq(guestUsers.deviceToken, hashedToken))
     .get();
+
+  // Fallback for un-hashed tokens
+  if (!guest) {
+    guest = await db
+      .select()
+      .from(guestUsers)
+      .where(eq(guestUsers.deviceToken, deviceToken))
+      .get();
+  }
 
   if (!guest) return null;
   if (guest.expiresAt < new Date()) return null;
@@ -92,13 +130,28 @@ export async function getGuestUser(deviceToken: string) {
  * Migrate guest data to a registered user
  */
 export async function migrateGuestToUser(deviceToken: string, userId: string) {
-  const guest = await db
+  const hashedToken = hashDeviceToken(deviceToken);
+  let guest = await db
     .select()
     .from(guestUsers)
-    .where(eq(guestUsers.deviceToken, deviceToken))
+    .where(eq(guestUsers.deviceToken, hashedToken))
     .get();
 
+  // Fallback for un-hashed tokens
+  if (!guest) {
+    guest = await db
+      .select()
+      .from(guestUsers)
+      .where(eq(guestUsers.deviceToken, deviceToken))
+      .get();
+  }
+
   if (!guest || guest.migratedToUserId) {
+    return null;
+  }
+
+  // Reject expired guests
+  if (guest.expiresAt < new Date()) {
     return null;
   }
 

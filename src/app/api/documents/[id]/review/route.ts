@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { reserveCredits, confirmReservation, cancelReservation, calculateESReviewCost } from "@/lib/credits";
+import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 import type { TemplateType } from "@/hooks/useESReview";
 
 async function getIdentity(request: NextRequest): Promise<{
@@ -104,6 +105,23 @@ export async function POST(
     }
 
     const { userId, guestId } = identity;
+
+    // Rate limiting check
+    const rateLimitKey = createRateLimitKey("review", userId, guestId);
+    const rateLimit = checkRateLimit(rateLimitKey, RATE_LIMITS.review);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "リクエストが多すぎます。しばらく待ってから再試行してください。" },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimit.resetIn),
+            "X-RateLimit-Remaining": String(rateLimit.remaining),
+          },
+        }
+      );
+    }
+
     const access = await verifyDocumentAccess(documentId, userId, guestId);
     if (!access.valid || !access.document) {
       return NextResponse.json(
@@ -150,8 +168,25 @@ export async function POST(
       gakuchikaContext?: string;
     };
 
-    // Use document's companyId if not explicitly passed
-    const companyId = requestCompanyId || access.document.companyId;
+    // Verify requestCompanyId ownership to prevent IDOR
+    let companyId = access.document.companyId;
+    if (requestCompanyId && requestCompanyId !== access.document.companyId) {
+      const ownedCompany = await db
+        .select({ id: companies.id, userId: companies.userId, guestId: companies.guestId })
+        .from(companies)
+        .where(eq(companies.id, requestCompanyId))
+        .get();
+      if (
+        ownedCompany &&
+        ((userId && ownedCompany.userId === userId) ||
+         (guestId && ownedCompany.guestId === guestId))
+      ) {
+        companyId = requestCompanyId;
+      }
+      // else: silently fall back to document's companyId (safe default)
+    } else if (requestCompanyId) {
+      companyId = requestCompanyId; // Same as document's companyId, safe
+    }
 
     // Fetch company info for template review
     let companyInfo: { name: string | null; industry: string | null } = { name: null, industry: null };
@@ -268,24 +303,22 @@ export async function POST(
           ["billing", "rate_limit", "invalid_key", "no_api_key"].includes(errorDetail.error_type)
         ) {
           if (reservationId) await cancelReservation(reservationId);
+          const statusCode = errorDetail.error_type === "rate_limit" ? 429 : 503;
           return NextResponse.json(
             {
               error: errorDetail.error || "AIサービスが一時的に利用できません",
-              error_type: errorDetail.error_type,
             },
-            { status: 503 }
+            { status: statusCode }
           );
         }
 
         // Template validation errors → return to user, don't fallback
         if (templateType && errorDetail?.error_type === "validation") {
+          console.error("[ES Review] Template validation error:", errorDetail);
           if (reservationId) await cancelReservation(reservationId);
           return NextResponse.json(
             {
               error: errorDetail.error || "テンプレート出力の検証に失敗しました",
-              detail: errorDetail.detail,
-              error_type: errorDetail.error_type,
-              provider: errorDetail.provider,
             },
             { status: 422 }
           );

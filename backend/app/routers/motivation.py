@@ -17,9 +17,9 @@ from typing import AsyncGenerator, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.utils.llm import call_llm_with_error
+from app.utils.llm import call_llm_with_error, sanitize_prompt_input
 from app.utils.vector_store import get_enhanced_context_for_review_with_sources
 from app.config import settings
 from app.prompts.motivation_prompts import (
@@ -36,15 +36,15 @@ DEFAULT_TARGET_QUESTIONS = 8
 
 
 class Message(BaseModel):
-    role: str  # "user" or "assistant"
-    content: str
+    role: str = Field(pattern=r"^(user|assistant)$")
+    content: str = Field(max_length=10000)
 
 
 class MotivationScores(BaseModel):
-    company_understanding: int = 0  # 企業理解 (0-100)
-    self_analysis: int = 0          # 自己分析 (0-100)
-    career_vision: int = 0          # キャリアビジョン (0-100)
-    differentiation: int = 0        # 差別化 (0-100)
+    company_understanding: int = Field(default=0, ge=0, le=100)
+    self_analysis: int = Field(default=0, ge=0, le=100)
+    career_vision: int = Field(default=0, ge=0, le=100)
+    differentiation: int = Field(default=0, ge=0, le=100)
 
 
 class MotivationEvaluation(BaseModel):
@@ -54,13 +54,23 @@ class MotivationEvaluation(BaseModel):
     missing_aspects: dict[str, list[str]]
 
 
+class MotivationScoresInput(BaseModel):
+    """Typed input for motivation scores from client."""
+    company_understanding: int = Field(default=0, ge=0, le=100)
+    self_analysis: int = Field(default=0, ge=0, le=100)
+    career_vision: int = Field(default=0, ge=0, le=100)
+    differentiation: int = Field(default=0, ge=0, le=100)
+
+    model_config = {"extra": "ignore"}
+
+
 class NextQuestionRequest(BaseModel):
-    company_id: str
-    company_name: str
-    industry: Optional[str] = None
+    company_id: str = Field(max_length=100)
+    company_name: str = Field(max_length=200)
+    industry: Optional[str] = Field(default=None, max_length=100)
     conversation_history: list[Message]
-    question_count: int = 0
-    scores: Optional[dict] = None  # Previous scores
+    question_count: int = Field(default=0, ge=0)
+    scores: Optional[MotivationScoresInput] = None
 
 
 class NextQuestionResponse(BaseModel):
@@ -75,11 +85,11 @@ class NextQuestionResponse(BaseModel):
 
 
 class GenerateDraftRequest(BaseModel):
-    company_id: str
-    company_name: str
-    industry: Optional[str] = None
+    company_id: str = Field(max_length=100)
+    company_name: str = Field(max_length=200)
+    industry: Optional[str] = Field(default=None, max_length=100)
     conversation_history: list[Message]
-    char_limit: int = 400  # 300, 400, or 500
+    char_limit: int = Field(default=400, ge=300, le=500)
 
 
 class GenerateDraftResponse(BaseModel):
@@ -94,7 +104,8 @@ def _format_conversation(messages: list[Message]) -> str:
     formatted = []
     for msg in messages:
         role_label = "質問" if msg.role == "assistant" else "回答"
-        formatted.append(f"{role_label}: {msg.content}")
+        content = sanitize_prompt_input(msg.content, max_length=3000) if msg.role == "user" else msg.content
+        formatted.append(f"{role_label}: {content}")
     return "\n\n".join(formatted)
 
 
@@ -355,7 +366,12 @@ async def _evaluate_motivation_internal(
 
     if not llm_result.success or llm_result.data is None:
         if request.scores:
-            scores = MotivationScores(**request.scores)
+            scores = MotivationScores(
+                company_understanding=request.scores.company_understanding,
+                self_analysis=request.scores.self_analysis,
+                career_vision=request.scores.career_vision,
+                differentiation=request.scores.differentiation,
+            )
         else:
             scores = MotivationScores()
         return {
@@ -457,9 +473,10 @@ async def get_next_question(request: NextQuestionRequest):
     missing_for_weakest = missing_aspects.get(weakest_element, [])
     missing_aspects_text = f"「{weakest_jp}」で不足: {', '.join(missing_for_weakest)}" if missing_for_weakest else ""
 
+    safe_company_name = sanitize_prompt_input(request.company_name, max_length=200)
     prompt = MOTIVATION_QUESTION_PROMPT.format(
-        company_name=request.company_name,
-        industry=request.industry or "不明",
+        company_name=safe_company_name,
+        industry=sanitize_prompt_input(request.industry or "不明", max_length=100),
         company_context=company_context or "（企業情報なし）",
         company_understanding_score=scores.company_understanding,
         self_analysis_score=scores.self_analysis,
@@ -638,8 +655,8 @@ async def _generate_next_question_progress(
         )
 
         prompt = MOTIVATION_QUESTION_PROMPT.format(
-            company_name=request.company_name,
-            industry=request.industry or "不明",
+            company_name=sanitize_prompt_input(request.company_name, max_length=200),
+            industry=sanitize_prompt_input(request.industry or "不明", max_length=100),
             company_context=company_context or "（企業情報なし）",
             company_understanding_score=scores.company_understanding,
             self_analysis_score=scores.self_analysis,
@@ -740,8 +757,8 @@ async def generate_draft(request: GenerateDraftRequest):
     char_min = int(request.char_limit * 0.9)
 
     prompt = DRAFT_GENERATION_PROMPT.format(
-        company_name=request.company_name,
-        industry=request.industry or "不明",
+        company_name=sanitize_prompt_input(request.company_name, max_length=200),
+        industry=sanitize_prompt_input(request.industry or "不明", max_length=100),
         company_context=company_context or "（企業情報なし）",
         conversation=conversation_text,
         char_limit=request.char_limit,

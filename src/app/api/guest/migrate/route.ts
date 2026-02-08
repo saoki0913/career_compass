@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { migrateGuestToUser } from "@/lib/auth/guest";
 import { headers } from "next/headers";
+import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,9 +24,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Rate limit: 5 migration attempts per user per window
+    const rateLimitKey = createRateLimitKey("fetchInfo", session.user.id, null);
+    const rateLimit = checkRateLimit(rateLimitKey, RATE_LIMITS.fetchInfo);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many migration attempts. Please try again later." },
+        { status: 429 }
+      );
+    }
+
     const { deviceToken } = await request.json();
 
-    if (!deviceToken || typeof deviceToken !== "string") {
+    if (!deviceToken || typeof deviceToken !== "string" || deviceToken.length > 100) {
       return NextResponse.json(
         { error: "Device token is required" },
         { status: 400 }

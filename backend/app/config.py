@@ -32,7 +32,11 @@ class Settings(BaseSettings):
     )
 
     # ===== CORS =====
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # Override via CORS_ORIGINS env var (JSON array string, e.g. '["http://localhost:3000","https://your-domain.com"]')
+    cors_origins: list[str] = Field(
+        default=["http://localhost:3000"],
+        validation_alias=AliasChoices("CORS_ORIGINS"),
+    )
 
     # ===== データベース (Turso) =====
     turso_database_url: str = ""

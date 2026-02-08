@@ -36,15 +36,17 @@ export async function POST(req: Request) {
     );
   }
 
-  // Idempotency check: skip already-processed events
-  const existingEvent = await db
-    .select()
-    .from(processedStripeEvents)
-    .where(eq(processedStripeEvents.eventId, event.id))
-    .get();
-
-  if (existingEvent) {
-    console.log(`[Stripe Webhook] Event ${event.id} already processed, skipping`);
+  // Atomic idempotency: claim the event before processing.
+  // If the insert fails due to unique constraint, another handler already claimed it.
+  try {
+    await db.insert(processedStripeEvents).values({
+      eventId: event.id,
+      eventType: event.type,
+      processedAt: new Date(),
+    });
+  } catch (e) {
+    // Unique constraint violation = already processing/processed
+    console.log(`[Stripe Webhook] Event ${event.id} already claimed, skipping`);
     return NextResponse.json({ received: true });
   }
 
@@ -236,12 +238,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // Record event as processed (idempotency)
-    await db.insert(processedStripeEvents).values({
-      eventId: event.id,
-      eventType: event.type,
-      processedAt: new Date(),
-    });
+    // Event already recorded at claim time (before processing)
   } catch (error) {
     console.error(`[Stripe Webhook] Error processing event ${event.id} (${event.type}):`, error);
     return NextResponse.json(

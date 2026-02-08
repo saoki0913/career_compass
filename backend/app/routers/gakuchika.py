@@ -19,9 +19,9 @@ from typing import AsyncGenerator, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.utils.llm import call_llm_with_error
+from app.utils.llm import call_llm_with_error, sanitize_prompt_input
 from app.prompts.gakuchika_prompts import (
     PROHIBITED_EXPRESSIONS as _PROHIBITED_EXPRESSIONS,
     STAR_EVALUATION_PROMPT,
@@ -55,15 +55,15 @@ QUESTION_TYPE_LEARNING = "learning"
 
 
 class Message(BaseModel):
-    role: str  # "user" or "assistant"
-    content: str
+    role: str = Field(pattern=r"^(user|assistant)$")
+    content: str = Field(max_length=10000)
 
 
 class STARScores(BaseModel):
-    situation: int = 0  # 状況・背景 (0-100)
-    task: int = 0       # 課題・目標 (0-100)
-    action: int = 0     # 行動・工夫 (0-100)
-    result: int = 0     # 結果・学び (0-100)
+    situation: int = Field(default=0, ge=0, le=100)
+    task: int = Field(default=0, ge=0, le=100)
+    action: int = Field(default=0, ge=0, le=100)
+    result: int = Field(default=0, ge=0, le=100)
 
 
 class STAREvaluation(BaseModel):
@@ -73,14 +73,24 @@ class STAREvaluation(BaseModel):
     missing_aspects: dict[str, list[str]]  # 各要素で不足している観点
 
 
+class STARScoresInput(BaseModel):
+    """Typed input for STAR scores from client (may include extended fields)."""
+    situation: int = Field(default=0, ge=0, le=100)
+    task: int = Field(default=0, ge=0, le=100)
+    action: int = Field(default=0, ge=0, le=100)
+    result: int = Field(default=0, ge=0, le=100)
+    question_types: Optional[list[str]] = None
+
+    model_config = {"extra": "ignore"}
+
+
 class NextQuestionRequest(BaseModel):
-    gakuchika_title: str
-    gakuchika_content: Optional[str] = None
-    char_limit_type: Optional[str] = None
+    gakuchika_title: str = Field(max_length=200)
+    gakuchika_content: Optional[str] = Field(default=None, max_length=5000)
+    char_limit_type: Optional[str] = Field(default=None, pattern=r"^(300|400|500)$")
     conversation_history: list[Message]
-    question_count: int = 0
-    # STAR scores from previous evaluation (optional, can include extended fields)
-    star_scores: Optional[dict] = None
+    question_count: int = Field(default=0, ge=0)
+    star_scores: Optional[STARScoresInput] = None
 
 
 class NextQuestionResponse(BaseModel):
@@ -99,7 +109,7 @@ class NextQuestionResponse(BaseModel):
 
 
 class StructuredSummaryRequest(BaseModel):
-    gakuchika_title: str
+    gakuchika_title: str = Field(max_length=200)
     conversation_history: list[Message]
 
 
@@ -124,10 +134,10 @@ class StructuredSummaryResponse(BaseModel):
 
 
 class GakuchikaESDraftRequest(BaseModel):
-    gakuchika_title: str
+    gakuchika_title: str = Field(max_length=200)
     conversation_history: list[Message]
     structured_summary: Optional[dict] = None
-    char_limit: int = 400
+    char_limit: int = Field(default=400, ge=300, le=500)
 
 
 class GakuchikaESDraftResponse(BaseModel):
@@ -147,7 +157,8 @@ def _format_conversation_for_evaluation(messages: list[Message]) -> str:
     formatted = []
     for msg in messages:
         role_label = "質問" if msg.role == "assistant" else "回答"
-        formatted.append(f"{role_label}: {msg.content}")
+        content = sanitize_prompt_input(msg.content, max_length=3000) if msg.role == "user" else msg.content
+        formatted.append(f"{role_label}: {content}")
     return "\n\n".join(formatted)
 
 
@@ -185,7 +196,7 @@ def _is_star_complete(scores: STARScores, threshold: int = STAR_COMPLETION_THRES
 
 def _compute_suggested_end_value(
     question_count: int,
-    star_scores: Optional[dict],
+    star_scores: Optional["STARScoresInput"],
     min_questions: int = 5,
 ) -> str:
     """Compute suggested_end hint for the prompt template.
@@ -197,7 +208,10 @@ def _compute_suggested_end_value(
     if question_count < min_questions or not star_scores:
         return "false"
     scores = STARScores(
-        **{k: v for k, v in star_scores.items() if k in ["situation", "task", "action", "result"]}
+        situation=star_scores.situation,
+        task=star_scores.task,
+        action=star_scores.action,
+        result=star_scores.result,
     )
     return "true" if _is_star_complete(scores) else "false"
 
@@ -247,20 +261,20 @@ def _determine_phase(question_count: int) -> tuple[str, str, list[str], list[str
         )
 
 
-def _build_question_type_history(star_scores: Optional[dict]) -> str:
+def _build_question_type_history(star_scores: Optional["STARScoresInput"]) -> str:
     """
     Build question type history string from star_scores extended field.
 
     Args:
-        star_scores: Dictionary that may contain a "question_types" list
+        star_scores: STARScoresInput that may contain a question_types list
 
     Returns:
         Formatted string describing question type history
     """
-    if not star_scores or "question_types" not in star_scores:
+    if not star_scores or not star_scores.question_types:
         return "まだ質問していません"
 
-    question_types = star_scores.get("question_types", [])
+    question_types = star_scores.question_types or []
     if not question_types:
         return "まだ質問していません"
 
@@ -286,13 +300,12 @@ def _build_question_type_history(star_scores: Optional[dict]) -> str:
     return f"{', '.join(history_items)} (直前: {last_type_name} - これは連続使用禁止)"
 
 
-def _get_last_question_type(star_scores: Optional[dict]) -> Optional[str]:
+def _get_last_question_type(star_scores: Optional["STARScoresInput"]) -> Optional[str]:
     """Get the last question type from star_scores extended field."""
-    if not star_scores or "question_types" not in star_scores:
+    if not star_scores or not star_scores.question_types:
         return None
 
-    question_types = star_scores.get("question_types", [])
-    return question_types[-1] if question_types else None
+    return star_scores.question_types[-1] if star_scores.question_types else None
 
 
 @router.post("/evaluate-star")
@@ -332,7 +345,12 @@ async def evaluate_star(request: NextQuestionRequest) -> dict:
     if not llm_result.success or llm_result.data is None:
         # Return previous scores or defaults on error
         if request.star_scores:
-            scores = STARScores(**{k: v for k, v in request.star_scores.items() if k in ["situation", "task", "action", "result"]})
+            scores = STARScores(
+                situation=request.star_scores.situation,
+                task=request.star_scores.task,
+                action=request.star_scores.action,
+                result=request.star_scores.result,
+            )
         else:
             scores = STARScores()
 
@@ -405,8 +423,8 @@ async def get_next_question(request: NextQuestionRequest):
         # If content is provided, use LLM to generate personalized initial question
         if request.gakuchika_content:
             prompt = INITIAL_QUESTION_PROMPT.format(
-                gakuchika_title=request.gakuchika_title,
-                gakuchika_content=request.gakuchika_content,
+                gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
+                gakuchika_content=sanitize_prompt_input(request.gakuchika_content, max_length=2000),
                 prohibited_expressions=_PROHIBITED_EXPRESSIONS,
             )
 
@@ -460,7 +478,7 @@ async def get_next_question(request: NextQuestionRequest):
 
     # Build unified prompt
     prompt = STAR_EVALUATE_AND_QUESTION_PROMPT.format(
-        gakuchika_title=request.gakuchika_title,
+        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
         conversation=conversation_text,
         phase_name=phase_name,
         phase_description=phase_desc,
@@ -605,8 +623,8 @@ async def _generate_next_question_progress(
 
             if request.gakuchika_content:
                 prompt = INITIAL_QUESTION_PROMPT.format(
-                    gakuchika_title=request.gakuchika_title,
-                    gakuchika_content=request.gakuchika_content,
+                    gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
+                    gakuchika_content=sanitize_prompt_input(request.gakuchika_content, max_length=2000),
                     prohibited_expressions=_PROHIBITED_EXPRESSIONS,
                 )
                 llm_result = await call_llm_with_error(
@@ -669,7 +687,7 @@ async def _generate_next_question_progress(
 
         # Build unified prompt
         prompt = STAR_EVALUATE_AND_QUESTION_PROMPT.format(
-            gakuchika_title=request.gakuchika_title,
+            gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
             conversation=conversation_text,
             phase_name=phase_name,
             phase_description=phase_desc,
@@ -797,7 +815,7 @@ async def generate_summary(request: NextQuestionRequest):
 
     llm_result = await call_llm_with_error(
         system_prompt=system_prompt,
-        user_message=f"テーマ: {request.gakuchika_title}\n\n会話履歴:\n{conversation_text}",
+        user_message=f"テーマ: {sanitize_prompt_input(request.gakuchika_title, max_length=200)}\n\n会話履歴:\n{conversation_text}",
         max_tokens=800,  # summary(200-300字)+key_points+numbers+strengths で600-700トークン
         temperature=0.3,
         feature="gakuchika",
@@ -842,7 +860,7 @@ async def generate_structured_summary(request: StructuredSummaryRequest):
     conversation_text = _format_conversation_for_evaluation(request.conversation_history)
 
     prompt = STRUCTURED_SUMMARY_PROMPT.format(
-        gakuchika_title=request.gakuchika_title,
+        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
         conversation=conversation_text,
     )
 
@@ -926,7 +944,7 @@ async def generate_es_draft(request: GakuchikaESDraftRequest):
             structured_summary_section = "## STAR構造（参考）\n" + "\n".join(parts)
 
     prompt = GAKUCHIKA_DRAFT_PROMPT.format(
-        gakuchika_title=request.gakuchika_title,
+        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
         conversation=conversation_text,
         structured_summary_section=structured_summary_section,
         char_limit=request.char_limit,

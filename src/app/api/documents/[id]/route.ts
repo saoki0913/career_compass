@@ -159,13 +159,20 @@ export async function PUT(
     };
 
     if (title !== undefined) {
-      if (!title.trim()) {
+      const trimmedTitle = title.trim();
+      if (!trimmedTitle) {
         return NextResponse.json(
           { error: "タイトルは必須です" },
           { status: 400 }
         );
       }
-      updateData.title = title.trim();
+      if (trimmedTitle.length > 200) {
+        return NextResponse.json(
+          { error: "タイトルは200文字以内で入力してください" },
+          { status: 400 }
+        );
+      }
+      updateData.title = trimmedTitle;
     }
 
     if (content !== undefined) {

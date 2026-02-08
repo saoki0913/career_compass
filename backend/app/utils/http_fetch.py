@@ -4,12 +4,15 @@ HTTP fetch utilities with SSL fallback strategies.
 
 from __future__ import annotations
 
+import logging
 import ssl
 from typing import Optional
 
 import certifi
 import httpx
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 
 def _is_ssl_related_error(exc: Exception) -> bool:
@@ -51,7 +54,7 @@ async def fetch_page_content(url: str, timeout: float = 30.0) -> bytes:
         {"verify": create_ssl_context(seclevel=0), "name": "seclevel0"},
         {"verify": create_ssl_context(seclevel=1, legacy_connect=True), "name": "legacy-seclevel1"},
         {"verify": create_ssl_context(seclevel=0, legacy_connect=True), "name": "legacy-seclevel0"},
-        {"verify": False, "name": "no-verify"},
+        # NOTE: verify=False intentionally removed — MITM risk too high
     ]
 
     last_error: Optional[Exception] = None
@@ -79,6 +82,11 @@ async def fetch_page_content(url: str, timeout: float = 30.0) -> bytes:
         except httpx.HTTPStatusError as e:
             raise
 
+    logger.warning(
+        "All SSL strategies exhausted for %s: %s",
+        url,
+        str(last_error)[:200] if last_error else "unknown",
+    )
     raise httpx.ConnectError(
         f"SSL connection failed: {str(last_error)[:100] if last_error else 'unknown'}"
     )
