@@ -719,41 +719,48 @@ export default function ESEditorPage() {
                   <>
                     <Link
                       href={`/companies/${document.company.id}`}
-                      className="text-sm text-primary hover:underline truncate max-w-[120px] sm:max-w-[200px]"
+                      className="text-sm text-primary hover:underline truncate max-w-[200px] sm:max-w-[250px] lg:max-w-[200px]"
                     >
                       {document.company.name}
                     </Link>
-                    <span className="text-muted-foreground/50 flex-shrink-0">›</span>
+                    <span className="text-muted-foreground/50 flex-shrink-0 hidden sm:inline">›</span>
                   </>
                 )}
-                <span className="text-sm font-medium truncate max-w-[150px] sm:max-w-none">
+                <span className="text-sm font-medium truncate max-w-[150px] sm:max-w-none hidden sm:inline">
                   {title || "無題のドキュメント"}
                 </span>
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-4">
               <span className="text-xs sm:text-sm text-muted-foreground">{totalCharCount}文字</span>
-              {isSaving && (
-                <span className="text-xs sm:text-sm text-muted-foreground flex items-center gap-1">
-                  <LoadingSpinner />
-                  <span className="hidden sm:inline">保存中...</span>
-                </span>
-              )}
-              {saveSuccess && (
-                <span className="text-xs sm:text-sm text-emerald-600 flex items-center gap-1">
-                  <CheckIcon />
-                  <span className="hidden sm:inline">保存しました</span>
-                </span>
-              )}
-              {restoreError && (
-                <span className="text-xs sm:text-sm text-destructive flex items-center gap-1">
-                  {restoreError}
-                  <button type="button" onClick={() => setRestoreError(null)} className="ml-1 hover:opacity-70" aria-label="閉じる">&times;</button>
-                </span>
-              )}
-              {hasChanges && !isSaving && (
-                <span className="text-xs sm:text-sm text-amber-600 hidden sm:inline">未保存</span>
-              )}
+              <span className="text-xs sm:text-sm flex items-center gap-1 min-w-[4rem]">
+                {isSaving ? (
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    <LoadingSpinner />
+                    <span className="hidden sm:inline">保存中...</span>
+                  </span>
+                ) : restoreError ? (
+                  <span className="text-destructive flex items-center gap-1">
+                    {restoreError}
+                    <button type="button" onClick={() => setRestoreError(null)} className="ml-1 hover:opacity-70" aria-label="閉じる">&times;</button>
+                  </span>
+                ) : hasChanges ? (
+                  <span className="text-amber-600 flex items-center gap-1">
+                    <span className="size-1.5 rounded-full bg-amber-500" />
+                    未保存
+                  </span>
+                ) : saveSuccess ? (
+                  <span className="text-emerald-600 flex items-center gap-1">
+                    <CheckIcon />
+                    <span className="hidden sm:inline">保存済み</span>
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground/50 flex items-center gap-1">
+                    <CheckIcon />
+                    <span className="hidden sm:inline">保存済み</span>
+                  </span>
+                )}
+              </span>
               {document.status !== "deleted" && (
                 <Button
                   variant={document.status === "published" ? "secondary" : "outline"}

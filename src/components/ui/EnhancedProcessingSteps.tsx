@@ -225,17 +225,29 @@ export function EnhancedProcessingSteps({
         {/* Progress bar */}
         <div className="w-full space-y-1.5">
           <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all duration-500",
-                isCancelling ? "bg-amber-500" : "bg-primary"
-              )}
-              style={{ width: `${progressPercentage}%` }}
-            />
+            {useSSEProgress ? (
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all duration-500",
+                  isCancelling ? "bg-amber-500" : "bg-primary"
+                )}
+                style={{ width: `${progressPercentage}%` }}
+              />
+            ) : (
+              <div
+                className={cn(
+                  "h-full rounded-full",
+                  isCancelling
+                    ? "bg-amber-500"
+                    : "bg-primary animate-[indeterminate_1.5s_ease-in-out_infinite]"
+                )}
+                style={{ width: "40%" }}
+              />
+            )}
           </div>
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>ステップ {effectiveStepIndex + 1}/{steps.length}</span>
-            <span>{progressPercentage}%</span>
+            {useSSEProgress && <span>{progressPercentage}%</span>}
           </div>
         </div>
 
@@ -260,7 +272,11 @@ export function EnhancedProcessingSteps({
         <p className="text-xs text-muted-foreground">
           {isCancelling
             ? "処理を中断しています..."
-            : "数秒〜数十秒かかる場合があります"}
+            : elapsedTime > 30
+            ? "もう少しお待ちください... 複雑な処理を実行中です"
+            : elapsedTime > 15
+            ? "処理を続けています..."
+            : "通常10〜30秒ほどかかります"}
         </p>
       </div>
 
@@ -299,25 +315,25 @@ export const ES_REVIEW_STEPS: ProcessingStep[] = [
     id: "analyze",
     label: "文章構造を分析中...",
     subLabel: "段落構成と論理展開をチェック",
-    duration: 1500,
+    duration: 4000,
   },
   {
     id: "evaluate",
     label: "5軸で評価中...",
     subLabel: "論理性・具体性・熱意・企業接続・可読性",
-    duration: 2000,
+    duration: 6000,
   },
   {
     id: "identify",
     label: "改善点を特定中...",
     subLabel: "優先度の高い3点を抽出",
-    duration: 2000,
+    duration: 6000,
   },
   {
     id: "generate",
     label: "リライトを生成中...",
     subLabel: "3パターン作成",
-    duration: 1500,
+    duration: 8000,
   },
 ];
 

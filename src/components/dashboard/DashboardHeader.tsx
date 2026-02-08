@@ -149,9 +149,11 @@ export function DashboardHeader() {
               </Link>
             </nav>
           </div>
-          <div className="flex items-center gap-2">
-            {/* Search Bar */}
-            <SearchBar />
+          <div className="flex items-center gap-1 sm:gap-2">
+            {/* Search Bar - hidden on small mobile, icon only on tablet */}
+            <div className="hidden sm:block">
+              <SearchBar />
+            </div>
 
             {/* Notification Bell */}
             <div className="relative" ref={notificationRef}>
@@ -245,10 +247,10 @@ export function DashboardHeader() {
               )}
             </div>
 
-            {/* Credit Balance */}
+            {/* Credit Balance - hidden on small mobile, shown in user dropdown */}
             <Link
               href="/pricing"
-              className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition-all duration-200"
+              className="hidden sm:flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition-all duration-200"
             >
               <CreditIcon />
               <span className="text-sm font-semibold text-primary">
@@ -327,10 +329,15 @@ export function DashboardHeader() {
                       <Link
                         href="/pricing"
                         onClick={() => setShowUserDropdown(false)}
-                        className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors cursor-pointer sm:hidden"
+                        className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors cursor-pointer"
                       >
                         <CreditIcon />
-                        <span>プラン・クレジット</span>
+                        <span className="flex items-center gap-2">
+                          プラン・クレジット
+                          <span className="text-xs font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                            {balance?.toLocaleString() ?? "---"}
+                          </span>
+                        </span>
                       </Link>
                     </div>
 
