@@ -292,7 +292,8 @@ function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, o
           <button
             type="button"
             onClick={() => setShowMenu(!showMenu)}
-            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted transition-all text-muted-foreground"
+            className="opacity-100 lg:opacity-0 lg:group-hover:opacity-100 p-2.5 lg:p-1 rounded hover:bg-muted transition-all text-muted-foreground"
+            aria-label="ブロックタイプ変更"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -338,7 +339,8 @@ function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, o
         <button
           type="button"
           onClick={() => onAddBelow(index)}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted transition-all text-muted-foreground"
+          className="opacity-100 lg:opacity-0 lg:group-hover:opacity-100 p-2.5 lg:p-1 rounded hover:bg-muted transition-all text-muted-foreground"
+          aria-label="ブロック追加"
         >
           <PlusIcon />
         </button>
@@ -359,6 +361,7 @@ export default function ESEditorPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showReviewPanel, setShowReviewPanel] = useState(true);
   const [undoContent, setUndoContent] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -639,6 +642,7 @@ export default function ESEditorPage() {
 
   // Handle version restore
   const handleRestoreVersion = useCallback((content: string) => {
+    setRestoreError(null);
     try {
       const parsedContent = JSON.parse(content);
       if (Array.isArray(parsedContent)) {
@@ -647,11 +651,11 @@ export default function ESEditorPage() {
         setBlocks(parsedContent);
         setHasChanges(true);
       } else {
-        alert("バージョンの復元に失敗しました: 無効な形式");
+        setRestoreError("バージョンの復元に失敗しました: 無効な形式");
       }
     } catch (error) {
       console.error("Failed to restore version:", error);
-      alert("バージョンの復元に失敗しました");
+      setRestoreError("バージョンの復元に失敗しました");
     }
   }, [blocks]);
 
@@ -739,6 +743,12 @@ export default function ESEditorPage() {
                 <span className="text-xs sm:text-sm text-emerald-600 flex items-center gap-1">
                   <CheckIcon />
                   <span className="hidden sm:inline">保存しました</span>
+                </span>
+              )}
+              {restoreError && (
+                <span className="text-xs sm:text-sm text-destructive flex items-center gap-1">
+                  {restoreError}
+                  <button type="button" onClick={() => setRestoreError(null)} className="ml-1 hover:opacity-70" aria-label="閉じる">&times;</button>
                 </span>
               )}
               {hasChanges && !isSaving && (

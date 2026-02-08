@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useNotifications, NOTIFICATION_TYPE_ICONS } from "@/hooks/useNotifications";
 import { useCredits } from "@/hooks/useCredits";
 import { SearchBar } from "@/components/search";
+import { BottomTabBar } from "./BottomTabBar";
 import { cn } from "@/lib/utils";
 
 const BellIcon = () => (
@@ -102,6 +103,7 @@ export function DashboardHeader() {
   };
 
   return (
+    <>
     <header className="sticky top-0 z-50 backdrop-blur-xl bg-background/80 border-b border-border/40">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
@@ -132,6 +134,12 @@ export function DashboardHeader() {
                 className="px-3 py-2 text-sm font-medium text-muted-foreground rounded-lg hover:bg-secondary hover:text-foreground transition-all duration-200 cursor-pointer whitespace-nowrap"
               >
                 ES
+              </Link>
+              <Link
+                href="/gakuchika"
+                className="px-3 py-2 text-sm font-medium text-muted-foreground rounded-lg hover:bg-secondary hover:text-foreground transition-all duration-200 cursor-pointer whitespace-nowrap"
+              >
+                ガクチカ
               </Link>
               <Link
                 href="/calendar"
@@ -240,7 +248,7 @@ export function DashboardHeader() {
             {/* Credit Balance */}
             <Link
               href="/pricing"
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition-all duration-200"
+              className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition-all duration-200"
             >
               <CreditIcon />
               <span className="text-sm font-semibold text-primary">
@@ -345,5 +353,7 @@ export function DashboardHeader() {
         </div>
       </div>
     </header>
+    <BottomTabBar />
+    </>
   );
 }

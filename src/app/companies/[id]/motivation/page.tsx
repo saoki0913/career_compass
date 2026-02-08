@@ -435,7 +435,8 @@ function MotivationConversationContent() {
         <div className="flex items-center gap-3 mb-3 shrink-0">
           <Link
             href={`/companies/${companyId}`}
-            className="p-2 rounded-lg hover:bg-secondary transition-colors"
+            className="p-2 rounded-lg hover:bg-secondary transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            aria-label="戻る"
           >
             <ArrowLeftIcon />
           </Link>
@@ -448,6 +449,17 @@ function MotivationConversationContent() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 overflow-hidden">
           {/* Chat area */}
           <div className="lg:col-span-2 flex flex-col overflow-hidden border border-border/50 rounded-xl bg-card">
+            {/* Mobile progress indicator - shown only below lg */}
+            <div className="flex items-center gap-3 px-4 py-2 border-b border-border/50 lg:hidden">
+              <span className="text-sm font-medium text-muted-foreground">進捗</span>
+              <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min((questionCount / 8) * 100, 100)}%` }}
+                />
+              </div>
+              <span className="text-sm font-semibold tabular-nums">{questionCount}/8</span>
+            </div>
             {/* Messages - scrollable */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages.map((msg) => (
