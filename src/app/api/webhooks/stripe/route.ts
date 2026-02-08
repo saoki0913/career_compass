@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import type Stripe from "stripe";
 import { getPlanFromPriceId, type PlanType } from "@/lib/stripe/config";
 import { updatePlanAllocation } from "@/lib/credits";
+import { logError } from "@/lib/logger";
 
 export async function POST(req: Request) {
   const body = await req.text();
@@ -23,13 +24,21 @@ export async function POST(req: Request) {
   let event: Stripe.Event;
 
   try {
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      logError("stripe-webhook-config", new Error("STRIPE_WEBHOOK_SECRET is not configured"));
+      return NextResponse.json(
+        { error: "Webhook not configured" },
+        { status: 500 }
+      );
+    }
     event = stripe.webhooks.constructEvent(
       body,
       signature,
-      process.env.STRIPE_WEBHOOK_SECRET!
+      webhookSecret
     );
   } catch (err) {
-    console.error("Webhook signature verification failed:", err);
+    logError("stripe-webhook-verify", err);
     return NextResponse.json(
       { error: "Webhook signature verification failed" },
       { status: 400 }
@@ -240,7 +249,7 @@ export async function POST(req: Request) {
 
     // Event already recorded at claim time (before processing)
   } catch (error) {
-    console.error(`[Stripe Webhook] Error processing event ${event.id} (${event.type}):`, error);
+    logError("stripe-webhook-process", error, { eventId: event.id, eventType: event.type });
     return NextResponse.json(
       { error: "Webhook processing failed" },
       { status: 500 }

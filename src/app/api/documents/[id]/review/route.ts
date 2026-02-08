@@ -14,6 +14,7 @@ import { getGuestUser } from "@/lib/auth/guest";
 import { reserveCredits, confirmReservation, cancelReservation, calculateESReviewCost } from "@/lib/credits";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 import type { TemplateType } from "@/hooks/useESReview";
+import { logError } from "@/lib/logger";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -314,7 +315,7 @@ export async function POST(
 
         // Template validation errors → return to user, don't fallback
         if (templateType && errorDetail?.error_type === "validation") {
-          console.error("[ES Review] Template validation error:", errorDetail);
+          logError("es-review-template-validation", errorDetail);
           if (reservationId) await cancelReservation(reservationId);
           return NextResponse.json(
             {
@@ -328,7 +329,7 @@ export async function POST(
         if (!allowMockReview) {
           if (reservationId) await cancelReservation(reservationId);
           // Log detailed error server-side for debugging
-          console.error("AI service error:", {
+          logError("es-review-ai-service", new Error("AI service error"), {
             error_type: errorDetail?.error_type,
             provider: errorDetail?.provider,
             detail: errorDetail?.detail,
@@ -353,7 +354,7 @@ export async function POST(
       if (!allowMockReview) {
         if (reservationId) await cancelReservation(reservationId);
         // Log error server-side
-        console.error("AI review request error:", err);
+        logError("es-review-request", err);
 
         // Return generic message to user
         return NextResponse.json(
@@ -449,7 +450,7 @@ export async function POST(
       sectionCharLimit: reviewMode === "section" ? sectionCharLimit : undefined,
     });
   } catch (error) {
-    console.error("Error reviewing document:", error);
+    logError("review-document", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

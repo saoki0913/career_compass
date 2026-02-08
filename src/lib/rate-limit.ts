@@ -1,8 +1,14 @@
 /**
  * Simple in-memory rate limiter with token bucket algorithm
  *
- * For production at scale, consider using @upstash/ratelimit with Redis
- * This implementation is suitable for single-instance deployments
+ * WARNING: This in-memory implementation does NOT work in serverless environments
+ * (Vercel, AWS Lambda) where each invocation gets a fresh container.
+ * For production, migrate to @upstash/ratelimit with Redis.
+ *
+ * TODO: Replace with @upstash/ratelimit for distributed rate limiting
+ * - Add UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN env vars
+ * - Use sliding window algorithm
+ * - Fail-open on Redis connection errors
  */
 
 interface RateLimitState {

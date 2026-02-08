@@ -24,7 +24,7 @@ import asyncio
 import math
 
 from app.config import settings
-from app.utils.llm import call_llm_with_error, call_llm_streaming
+from app.utils.llm import call_llm_with_error, call_llm_streaming, sanitize_es_content
 from app.utils.vector_store import (
     get_company_context_for_review,
     get_enhanced_context_for_review,
@@ -1413,6 +1413,9 @@ async def review_section(
 
     This provides focused feedback on one specific question/section.
     """
+    # Sanitize ES content to prevent prompt injection
+    request.content = sanitize_es_content(request.content, max_length=5000)
+
     # Build scoring criteria (same as full review)
     score_criteria = """1. scores (各1-5点):
    - logic: 論理の一貫性（主張と根拠の整合性、因果関係の明確さ）
@@ -1999,6 +2002,9 @@ async def _generate_review_progress(
     Yields progress updates as the review is processed.
     """
     try:
+        # Sanitize ES content to prevent prompt injection
+        request.content = sanitize_es_content(request.content, max_length=5000)
+
         # Step 1: Validation
         yield _sse_event(
             "progress",

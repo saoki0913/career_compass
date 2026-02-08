@@ -24,6 +24,7 @@ import {
   consumePartialCredits,
 } from "@/lib/credits";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
+import { logError } from "@/lib/logger";
 
 // FastAPI backend URL
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
@@ -48,6 +49,11 @@ function validateUrl(url: string): { valid: boolean; error?: string } {
     // Block localhost
     if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
       return { valid: false, error: "内部アドレスは許可されていません" };
+    }
+
+    // Block IPv6 addresses entirely (corporate sites use domain names)
+    if (hostname.includes(":") || hostname.startsWith("[")) {
+      return { valid: false, error: "IPv6アドレスは許可されていません" };
     }
 
     // Block private IP ranges
@@ -381,7 +387,7 @@ export async function POST(
 
       fetchResult = await response.json();
     } catch (error) {
-      console.error("Backend fetch error:", error);
+      logError("backend-fetch", error);
       return NextResponse.json(
         { error: "情報の取得に失敗しました。しばらく後にお試しください。" },
         { status: 503 }
@@ -450,7 +456,7 @@ export async function POST(
         });
         console.log(`RAG build initiated for company ${companyId} (partial success)`);
       } catch (ragError) {
-        console.error("RAG build error (non-blocking):", ragError);
+        logError("rag-build-partial", ragError);
       }
 
       const freeRemaining = await getRemainingFreeFetches(userId, guestId);
@@ -622,7 +628,7 @@ export async function POST(
       console.log(`RAG build initiated for company ${companyId} (full text + structured)`);
     } catch (ragError) {
       // RAG build failure should not fail the overall operation
-      console.error("RAG build error (non-blocking):", ragError);
+      logError("rag-build-full", ragError);
     }
 
     // Success: Consume credits/quota
@@ -654,7 +660,7 @@ export async function POST(
       freeRemaining,
     });
   } catch (error) {
-    console.error("Error fetching company info:", error);
+    logError("fetch-company-info", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

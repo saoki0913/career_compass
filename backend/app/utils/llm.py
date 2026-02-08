@@ -37,6 +37,54 @@ def sanitize_prompt_input(text: str, max_length: int = 5000) -> str:
     text = text.replace("```", "")
     return text
 
+
+def sanitize_es_content(text: str, max_length: int = 5000) -> str:
+    """Sanitize ES content before LLM processing.
+
+    Extends sanitize_prompt_input with additional security measures:
+    - Unicode control character removal (keeps \\n, \\r, \\t, space)
+    - Role injection pattern removal (system:, assistant:, human:, user: at start of lines)
+    - XML-like tag removal (<system>, <instructions>, </system>, etc.)
+    - Default max_length=5000
+
+    Args:
+        text: The ES content to sanitize
+        max_length: Maximum allowed length (default: 5000)
+
+    Returns:
+        Sanitized text safe for LLM processing
+    """
+    if not text:
+        return ""
+
+    # First apply basic sanitization
+    text = sanitize_prompt_input(text, max_length)
+
+    # Remove Unicode control characters (keep \n, \r, \t, space)
+    # Control characters are in ranges: U+0000-U+001F (except \t\n\r) and U+007F-U+009F
+    allowed_controls = {'\n', '\r', '\t', ' '}
+    text = ''.join(
+        char if char in allowed_controls or not (ord(char) < 32 or 127 <= ord(char) < 160)
+        else ''
+        for char in text
+    )
+
+    # Remove role injection patterns at start of lines
+    # Patterns: "system:", "assistant:", "human:", "user:" (case-insensitive)
+    text = _re.sub(
+        r"^\s*(system|assistant|human|user)\s*:\s*",
+        "",
+        text,
+        flags=_re.MULTILINE | _re.IGNORECASE
+    )
+
+    # Remove XML-like tags that could be used for instruction injection
+    # Matches: <system>, </system>, <instructions>, <prompt>, etc.
+    xml_tag_pattern = r"<\s*/?\s*(system|assistant|human|user|instructions|instruction|prompt|context|role)\s*>"
+    text = _re.sub(xml_tag_pattern, "", text, flags=_re.IGNORECASE)
+
+    return text
+
 # Global clients for connection pooling
 _anthropic_client: Optional[AsyncAnthropic] = None
 _anthropic_client_rag: Optional[AsyncAnthropic] = None
