@@ -4,7 +4,8 @@
 	backend-test-mappings backend-test-subsidiary backend-test-company \
 	backend-test-comprehensive backend-test-comprehensive-quick backend-test-comprehensive-stats \
 	backend-test-content-type backend-test-content-type-unit backend-test-content-type-integration \
-	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy
+	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy \
+	deploy
 
 # ===========================================
 # フロントエンド (Next.js)
@@ -248,6 +249,56 @@ setup: install db-push
 	@echo "Setup complete!"
 
 # ===========================================
+# デプロイ
+# ===========================================
+
+## develop → main マージ＆プッシュ（Vercel本番デプロイ）
+deploy:
+	@echo ""
+	@echo "=== Deploy: develop → main ==="
+	@echo ""
+	@# 未コミットの変更がないか確認
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "ERROR: 未コミットの変更があります。先にコミットしてください。"; \
+		git status --short; \
+		exit 1; \
+	fi
+	@# developブランチにいることを確認
+	@CURRENT=$$(git branch --show-current); \
+	if [ "$$CURRENT" != "develop" ]; then \
+		echo "ERROR: developブランチで実行してください（現在: $$CURRENT）"; \
+		exit 1; \
+	fi
+	@# リモートと同期
+	@echo "→ developを最新に更新..."
+	@git pull origin develop
+	@echo ""
+	@# mainとのdiff表示
+	@echo "→ main との差分コミット:"
+	@git log main..develop --oneline
+	@echo ""
+	@# 確認プロンプト
+	@read -p "上記の変更をmainにマージして本番デプロイしますか？ (y/N): " confirm && [ "$$confirm" = "y" ] || exit 1
+	@echo ""
+	@# mainに切り替え、マージ、プッシュ
+	@echo "→ mainにチェックアウト..."
+	@git checkout main
+	@echo "→ mainを最新に更新..."
+	@git pull origin main
+	@echo "→ developをマージ..."
+	@git merge develop
+	@echo "→ mainをプッシュ（Vercelが自動デプロイ）..."
+	@git push origin main
+	@echo ""
+	@# developに戻る
+	@echo "→ developに戻ります..."
+	@git checkout develop
+	@echo ""
+	@echo "=== デプロイ完了 ==="
+	@echo "Vercelダッシュボードでデプロイ状況を確認してください。"
+	@echo ""
+
+# ===========================================
 # ヘルプ
 # ===========================================
 
@@ -292,6 +343,9 @@ help:
 	@echo ""
 	@echo "  📋 ログ・デバッグ:"
 	@echo "    make logs         - バックエンドログ表示"
+	@echo ""
+	@echo "  🚀 デプロイ:"
+	@echo "    make deploy       - develop→mainマージ＆本番デプロイ"
 	@echo ""
 	@echo "  🔧 環境・セットアップ:"
 	@echo "    make check        - 開発環境の状態確認"
