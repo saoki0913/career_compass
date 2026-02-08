@@ -12,8 +12,10 @@ import { companies, userProfiles, deadlines, applications, documents } from "@/l
 import { eq, or, desc, and, isNull, asc, sql, count } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
-import { encrypt, decrypt } from "@/lib/crypto";
+import { encrypt } from "@/lib/crypto";
 import { CompanyStatus, VALID_STATUSES } from "@/lib/constants/status";
+import { stripCompanyCredentials } from "@/lib/db/sanitize";
+import { logError } from "@/lib/logger";
 
 // Plan limits for companies
 const COMPANY_LIMITS = {
@@ -190,14 +192,14 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Combine all data
+    // Combine all data (strip sensitive credential fields)
     const companiesWithAggregates = userCompanies.map((company) => {
       const nearestDeadline = nearestDeadlineMap.get(company.id);
       const appCounts = applicationCountMap.get(company.id) || { total: 0, active: 0 };
       const docCounts = documentCountMap.get(company.id) || { total: 0, esCount: 0 };
 
       return {
-        ...company,
+        ...stripCompanyCredentials(company),
         nearestDeadline: nearestDeadline ? {
           id: nearestDeadline.id,
           title: nearestDeadline.title,
@@ -219,7 +221,7 @@ export async function GET(request: NextRequest) {
       canAddMore: companiesWithAggregates.length < limit,
     });
   } catch (error) {
-    console.error("Error listing companies:", error);
+    logError("list-companies", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -333,11 +335,11 @@ export async function POST(request: NextRequest) {
     await db.insert(companies).values(newCompany);
 
     return NextResponse.json({
-      company: newCompany,
+      company: stripCompanyCredentials(newCompany),
       message: "Company created successfully",
     });
   } catch (error) {
-    console.error("Error creating company:", error);
+    logError("create-company", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

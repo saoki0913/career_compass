@@ -18,13 +18,14 @@ function getEncryptionKey(): Buffer {
   if (!key) {
     throw new Error("ENCRYPTION_KEY environment variable is not set");
   }
-  // If key is hex-encoded (64 chars), decode it
-  if (key.length === 64 && /^[0-9a-fA-F]+$/.test(key)) {
-    return Buffer.from(key, "hex");
+  // Key must be a 64-character hex string (32 bytes for AES-256)
+  if (key.length !== 64 || !/^[0-9a-fA-F]+$/.test(key)) {
+    throw new Error(
+      "ENCRYPTION_KEY must be a 64-character hex string (32 bytes). " +
+      "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+    );
   }
-  // Otherwise, hash it to get 32 bytes
-  const crypto = require("crypto");
-  return crypto.createHash("sha256").update(key).digest();
+  return Buffer.from(key, "hex");
 }
 
 /**

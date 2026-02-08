@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { userProfiles, users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import { logError } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Error fetching profile:", error);
+    logError("fetch-profile", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -90,6 +91,11 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const { name, university, faculty, graduationYear, targetIndustries, targetJobTypes } = body;
 
+    // Input validation constants
+    const MAX_STRING_LENGTH = 100;
+    const MAX_ARRAY_SIZE = 20;
+    const MAX_ARRAY_ITEM_LENGTH = 50;
+
     // Update user name if provided
     if (name !== undefined) {
       if (!name || !name.trim()) {
@@ -98,10 +104,48 @@ export async function PUT(request: NextRequest) {
           { status: 400 }
         );
       }
+      if (typeof name !== "string" || name.trim().length > MAX_STRING_LENGTH) {
+        return NextResponse.json(
+          { error: `名前は${MAX_STRING_LENGTH}文字以内にしてください` },
+          { status: 400 }
+        );
+      }
       await db
         .update(users)
         .set({ name: name.trim(), updatedAt: new Date() })
         .where(eq(users.id, userId));
+    }
+
+    // Validate string fields
+    for (const [field, value] of Object.entries({ university, faculty })) {
+      if (value !== undefined && value !== null) {
+        if (typeof value !== "string" || value.trim().length > MAX_STRING_LENGTH) {
+          return NextResponse.json(
+            { error: `${field}は${MAX_STRING_LENGTH}文字以内にしてください` },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    // Validate array fields
+    for (const [field, value] of Object.entries({ targetIndustries, targetJobTypes })) {
+      if (value !== undefined && value !== null) {
+        if (!Array.isArray(value) || value.length > MAX_ARRAY_SIZE) {
+          return NextResponse.json(
+            { error: `${field}は${MAX_ARRAY_SIZE}件以内にしてください` },
+            { status: 400 }
+          );
+        }
+        for (const item of value) {
+          if (typeof item !== "string" || item.length > MAX_ARRAY_ITEM_LENGTH) {
+            return NextResponse.json(
+              { error: `${field}の各項目は${MAX_ARRAY_ITEM_LENGTH}文字以内の文字列にしてください` },
+              { status: 400 }
+            );
+          }
+        }
+      }
     }
 
     // Check if profile exists
@@ -188,7 +232,7 @@ export async function PUT(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Error updating profile:", error);
+    logError("update-profile", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

@@ -66,8 +66,7 @@ export interface Company {
   recruitmentUrl: string | null;
   corporateUrl: string | null;
   mypageUrl: string | null;
-  mypageLoginId: string | null;
-  mypagePassword: string | null;
+  hasCredentials: boolean;
   notes: string | null;
   status: CompanyStatus;
 }
@@ -97,8 +96,8 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
   const [recruitmentUrl, setRecruitmentUrl] = useState(company.recruitmentUrl || "");
   const [corporateUrl, setCorporateUrl] = useState(company.corporateUrl || "");
   const [mypageUrl, setMypageUrl] = useState(company.mypageUrl || "");
-  const [mypageLoginId, setMypageLoginId] = useState(company.mypageLoginId || "");
-  const [mypagePassword, setMypagePassword] = useState(company.mypagePassword || "");
+  const [mypageLoginId, setMypageLoginId] = useState("");
+  const [mypagePassword, setMypagePassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [notes, setNotes] = useState(company.notes || "");
   const [status, setStatus] = useState<CompanyStatus>(company.status);
@@ -112,8 +111,8 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
     setRecruitmentUrl(company.recruitmentUrl || "");
     setCorporateUrl(company.corporateUrl || "");
     setMypageUrl(company.mypageUrl || "");
-    setMypageLoginId(company.mypageLoginId || "");
-    setMypagePassword(company.mypagePassword || "");
+    setMypageLoginId("");
+    setMypagePassword("");
     setNotes(company.notes || "");
     setStatus(company.status);
     setError(null);

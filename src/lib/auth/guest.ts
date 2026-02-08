@@ -11,6 +11,16 @@ import { eq, and, lt, isNull } from "drizzle-orm";
 
 const GUEST_RETENTION_DAYS = 7;
 
+// UUID v4 format validation
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Validate device token format (must be UUID v4)
+ */
+export function isValidDeviceToken(token: string): boolean {
+  return UUID_V4_REGEX.test(token);
+}
+
 /**
  * Hash a device token using SHA-256 for secure storage.
  * Raw tokens are never stored in the database.
@@ -30,6 +40,9 @@ function generateId(): string {
  * Create or retrieve a guest user by device token
  */
 export async function getOrCreateGuestUser(deviceToken: string) {
+  if (!isValidDeviceToken(deviceToken)) {
+    return null;
+  }
   const hashedToken = hashDeviceToken(deviceToken);
 
   // Check if guest exists (search by hash, fall back to plaintext for migration)
@@ -103,6 +116,9 @@ export async function getOrCreateGuestUser(deviceToken: string) {
  * Get guest user by device token (without creating)
  */
 export async function getGuestUser(deviceToken: string) {
+  if (!isValidDeviceToken(deviceToken)) {
+    return null;
+  }
   const hashedToken = hashDeviceToken(deviceToken);
   let guest = await db
     .select()
@@ -130,6 +146,9 @@ export async function getGuestUser(deviceToken: string) {
  * Migrate guest data to a registered user
  */
 export async function migrateGuestToUser(deviceToken: string, userId: string) {
+  if (!isValidDeviceToken(deviceToken)) {
+    return null;
+  }
   const hashedToken = hashDeviceToken(deviceToken);
   let guest = await db
     .select()

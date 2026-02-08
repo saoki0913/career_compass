@@ -14,6 +14,8 @@ import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { CompanyStatus, VALID_STATUSES } from "@/lib/constants/status";
+import { stripCompanyCredentials } from "@/lib/db/sanitize";
+import { logError } from "@/lib/logger";
 
 /**
  * Get current user or guest from request
@@ -117,11 +119,11 @@ export async function GET(
       .where(eq(deadlines.companyId, id));
 
     return NextResponse.json({
-      company,
+      company: stripCompanyCredentials(company),
       deadlines: companyDeadlines,
     });
   } catch (error) {
-    console.error("Error getting company:", error);
+    logError("get-company", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -199,11 +201,11 @@ export async function PUT(
       .get();
 
     return NextResponse.json({
-      company: updatedCompany,
+      company: updatedCompany ? stripCompanyCredentials(updatedCompany) : null,
       message: "Company updated successfully",
     });
   } catch (error) {
-    console.error("Error updating company:", error);
+    logError("update-company", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -244,7 +246,7 @@ export async function DELETE(
       message: "Company deleted successfully",
     });
   } catch (error) {
-    console.error("Error deleting company:", error);
+    logError("delete-company", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getOrCreateGuestUser, getGuestUser } from "@/lib/auth/guest";
+import { logError } from "@/lib/logger";
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,6 +31,13 @@ export async function POST(request: NextRequest) {
 
     const guest = await getOrCreateGuestUser(deviceToken);
 
+    if (!guest) {
+      return NextResponse.json(
+        { error: "Failed to create guest session" },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json({
       id: guest.id,
       deviceToken: guest.deviceToken,
@@ -37,7 +45,7 @@ export async function POST(request: NextRequest) {
       isMigrated: !!guest.migratedToUserId,
     });
   } catch (error) {
-    console.error("Error creating guest session:", error);
+    logError("create-guest-session", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -81,7 +89,7 @@ export async function GET(request: NextRequest) {
       isValid: true,
     });
   } catch (error) {
-    console.error("Error validating guest session:", error);
+    logError("validate-guest-session", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

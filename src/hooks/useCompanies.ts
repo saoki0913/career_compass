@@ -27,8 +27,7 @@ export interface Company {
   recruitmentUrl: string | null;
   corporateUrl: string | null;
   mypageUrl: string | null;
-  mypageLoginId: string | null;
-  mypagePassword: string | null; // Encrypted in DB
+  hasCredentials: boolean;
   notes: string | null;
   status: CompanyStatus;
   isPinned: boolean;
