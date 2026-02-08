@@ -1,43 +1,25 @@
 /**
- * Simple in-memory rate limiter with token bucket algorithm
+ * Distributed rate limiter with @upstash/ratelimit (Redis-backed)
  *
- * WARNING: This in-memory implementation does NOT work in serverless environments
- * (Vercel, AWS Lambda) where each invocation gets a fresh container.
- * For production, migrate to @upstash/ratelimit with Redis.
+ * Production: Uses Upstash Redis for distributed rate limiting across
+ * serverless function invocations (Vercel).
  *
- * TODO: Replace with @upstash/ratelimit for distributed rate limiting
- * - Add UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN env vars
- * - Use sliding window algorithm
- * - Fail-open on Redis connection errors
+ * Development: Falls back to in-memory token bucket when UPSTASH_REDIS_REST_URL
+ * is not configured.
  */
 
-interface RateLimitState {
-  tokens: number;
-  lastRefill: number;
-}
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
 
-const store = new Map<string, RateLimitState>();
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 export interface RateLimitConfig {
-  maxTokens: number; // Maximum tokens in bucket
-  refillRate: number; // Tokens added per second
-  windowMs: number; // Window for cleanup (not used in token bucket, but for future LRU)
+  maxTokens: number;
+  refillRate: number;
+  windowMs: number;
 }
-
-/**
- * Pre-configured rate limits for different operations
- */
-export const RATE_LIMITS = {
-  // High-cost LLM operations
-  review: { maxTokens: 10, refillRate: 0.1, windowMs: 60000 }, // 10 per minute, ~6/min sustained
-  conversation: { maxTokens: 20, refillRate: 0.3, windowMs: 60000 }, // 20 burst, ~18/min sustained
-
-  // External fetch operations
-  fetchInfo: { maxTokens: 5, refillRate: 0.08, windowMs: 60000 }, // 5 burst, ~5/min sustained
-
-  // Search operations
-  search: { maxTokens: 30, refillRate: 0.5, windowMs: 60000 }, // 30 burst, ~30/min sustained
-} as const;
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -45,41 +27,127 @@ export interface RateLimitResult {
   resetIn: number; // seconds until next token available
 }
 
-/**
- * Check rate limit using token bucket algorithm
- *
- * @param key Unique identifier for rate limiting (e.g., "review:userId")
- * @param config Rate limit configuration
- * @returns Rate limit result with allowed status and remaining tokens
- */
-export function checkRateLimit(
+// ---------------------------------------------------------------------------
+// Pre-configured rate limits
+// ---------------------------------------------------------------------------
+
+export const RATE_LIMITS = {
+  review: { maxTokens: 10, refillRate: 0.1, windowMs: 60000 },
+  conversation: { maxTokens: 20, refillRate: 0.3, windowMs: 60000 },
+  fetchInfo: { maxTokens: 5, refillRate: 0.08, windowMs: 60000 },
+  search: { maxTokens: 30, refillRate: 0.5, windowMs: 60000 },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Upstash Redis rate limiters (lazy-initialized, one per operation type)
+// ---------------------------------------------------------------------------
+
+const upstashLimiters = new Map<string, Ratelimit>();
+
+function isUpstashConfigured(): boolean {
+  return !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+}
+
+function getUpstashLimiter(operation: string, config: RateLimitConfig): Ratelimit {
+  const existing = upstashLimiters.get(operation);
+  if (existing) return existing;
+
+  const redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL!,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+  });
+
+  // Use token bucket algorithm matching the existing behavior.
+  // maxTokens = burst capacity, refillRate tokens per interval.
+  // Upstash tokenBucket: refillRate tokens every interval ms.
+  const limiter = new Ratelimit({
+    redis,
+    limiter: Ratelimit.tokenBucket(
+      config.maxTokens,    // maxTokens (burst)
+      `${config.windowMs}ms` as `${number} ms`,  // interval
+      config.maxTokens     // refill amount per interval
+    ),
+    prefix: `rl:${operation}`,
+    analytics: false,
+  });
+
+  upstashLimiters.set(operation, limiter);
+  return limiter;
+}
+
+// ---------------------------------------------------------------------------
+// In-memory fallback (development only)
+// ---------------------------------------------------------------------------
+
+interface InMemoryState {
+  tokens: number;
+  lastRefill: number;
+}
+
+const memoryStore = new Map<string, InMemoryState>();
+
+function checkRateLimitInMemory(
   key: string,
   config: RateLimitConfig
 ): RateLimitResult {
   const now = Date.now();
-  const state = store.get(key) || { tokens: config.maxTokens, lastRefill: now };
+  const state = memoryStore.get(key) || { tokens: config.maxTokens, lastRefill: now };
 
-  // Calculate tokens to add based on elapsed time
   const elapsed = (now - state.lastRefill) / 1000;
   const newTokens = Math.min(
     config.maxTokens,
     state.tokens + elapsed * config.refillRate
   );
 
-  // Check if we have at least 1 token
   if (newTokens < 1) {
     const resetIn = Math.ceil((1 - newTokens) / config.refillRate);
     return { allowed: false, remaining: 0, resetIn };
   }
 
-  // Consume one token
-  store.set(key, { tokens: newTokens - 1, lastRefill: now });
+  memoryStore.set(key, { tokens: newTokens - 1, lastRefill: now });
 
   return {
     allowed: true,
     remaining: Math.floor(newTokens - 1),
     resetIn: 0,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Check rate limit (async — uses Upstash Redis in production, in-memory in dev).
+ * Fail-open: if Upstash errors, the request is allowed.
+ */
+export async function checkRateLimit(
+  key: string,
+  config: RateLimitConfig,
+  operation?: string
+): Promise<RateLimitResult> {
+  // Fallback to in-memory when Upstash is not configured
+  if (!isUpstashConfigured()) {
+    return checkRateLimitInMemory(key, config);
+  }
+
+  // Determine operation name from key (format: "operation:identifier")
+  const op = operation || key.split(":")[0];
+
+  try {
+    const limiter = getUpstashLimiter(op, config);
+    const result = await limiter.limit(key);
+
+    return {
+      allowed: result.success,
+      remaining: result.remaining,
+      resetIn: result.success ? 0 : Math.ceil((result.reset - Date.now()) / 1000),
+    };
+  } catch (error) {
+    // Fail-open: allow request on Redis errors
+    console.error("[RateLimit] Upstash error, failing open:", error);
+    return { allowed: true, remaining: config.maxTokens, resetIn: 0 };
+  }
 }
 
 /**
@@ -92,17 +160,4 @@ export function createRateLimitKey(
 ): string {
   const identifier = userId || guestId || "anonymous";
   return `${operation}:${identifier}`;
-}
-
-/**
- * Cleanup old entries from store (call periodically if needed)
- * For now, the store is self-limiting due to natural usage patterns
- */
-export function cleanupStore(maxAgeMs: number = 3600000): void {
-  const now = Date.now();
-  for (const [key, state] of store.entries()) {
-    if (now - state.lastRefill > maxAgeMs) {
-      store.delete(key);
-    }
-  }
 }

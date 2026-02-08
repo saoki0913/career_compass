@@ -129,7 +129,7 @@ export async function POST(
 
     // Rate limiting check
     const rateLimitKey = createRateLimitKey("conversation", userId, guestId);
-    const rateLimit = checkRateLimit(rateLimitKey, RATE_LIMITS.conversation);
+    const rateLimit = await checkRateLimit(rateLimitKey, RATE_LIMITS.conversation);
     if (!rateLimit.allowed) {
       return new Response(
         JSON.stringify({ error: "リクエストが多すぎます。しばらく待ってから再試行してください。" }),

@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
 
     // Rate limit: 5 migration attempts per user per window
     const rateLimitKey = createRateLimitKey("fetchInfo", session.user.id, null);
-    const rateLimit = checkRateLimit(rateLimitKey, RATE_LIMITS.fetchInfo);
+    const rateLimit = await checkRateLimit(rateLimitKey, RATE_LIMITS.fetchInfo);
     if (!rateLimit.allowed) {
       return NextResponse.json(
         { error: "Too many migration attempts. Please try again later." },
