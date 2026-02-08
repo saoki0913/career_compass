@@ -50,3 +50,6 @@ __pycache__/
 .venv/
 venv/
 .env
+
+# Backend data (ChromaDB, BM25 indices - runtime generated)
+backend/data/
