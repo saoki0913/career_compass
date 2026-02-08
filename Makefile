@@ -257,46 +257,60 @@ deploy:
 	@echo ""
 	@echo "=== Deploy: develop → main ==="
 	@echo ""
-	@# 未コミットの変更がないか確認
-	@if [ -n "$$(git status --porcelain)" ]; then \
-		echo "ERROR: 未コミットの変更があります。先にコミットしてください。"; \
+	@# 未コミットの変更チェック（選択式）
+	@STASHED=0; \
+	if [ -n "$$(git status --porcelain)" ]; then \
+		echo "⚠ 未コミットの変更があります:"; \
 		git status --short; \
-		exit 1; \
-	fi
-	@# developブランチにいることを確認
-	@CURRENT=$$(git branch --show-current); \
+		echo ""; \
+		echo "どうしますか？"; \
+		echo "  1) stash して続行（デプロイ後に自動復元）"; \
+		echo "  2) そのまま続行（変更はデプロイに含まれません）"; \
+		echo "  3) 中止"; \
+		printf "選択 [1-3]: "; \
+		read choice; \
+		case "$$choice" in \
+			1) echo "→ 変更をstashします..."; git stash push -m "deploy-auto-stash"; STASHED=1 ;; \
+			2) echo "→ 未コミットの変更を残してデプロイを続行します..." ;; \
+			3) echo "中止しました。"; exit 1 ;; \
+			*) echo "無効な選択です。中止します。"; exit 1 ;; \
+		esac; \
+		echo ""; \
+	fi; \
+	CURRENT=$$(git branch --show-current); \
 	if [ "$$CURRENT" != "develop" ]; then \
 		echo "ERROR: developブランチで実行してください（現在: $$CURRENT）"; \
 		exit 1; \
-	fi
-	@# リモートと同期
-	@echo "→ developを最新に更新..."
-	@git pull origin develop
-	@echo ""
-	@# mainとのdiff表示
-	@echo "→ main との差分コミット:"
-	@git log main..develop --oneline
-	@echo ""
-	@# 確認プロンプト
-	@read -p "上記の変更をmainにマージして本番デプロイしますか？ (y/N): " confirm && [ "$$confirm" = "y" ] || exit 1
-	@echo ""
-	@# mainに切り替え、マージ、プッシュ
-	@echo "→ mainにチェックアウト..."
-	@git checkout main
-	@echo "→ mainを最新に更新..."
-	@git pull origin main
-	@echo "→ developをマージ..."
-	@git merge develop
-	@echo "→ mainをプッシュ（Vercelが自動デプロイ）..."
-	@git push origin main
-	@echo ""
-	@# developに戻る
-	@echo "→ developに戻ります..."
-	@git checkout develop
-	@echo ""
-	@echo "=== デプロイ完了 ==="
-	@echo "Vercelダッシュボードでデプロイ状況を確認してください。"
-	@echo ""
+	fi; \
+	echo "→ developを最新に更新..."; \
+	git pull origin develop; \
+	echo ""; \
+	echo "→ main との差分コミット:"; \
+	git log main..develop --oneline; \
+	echo ""; \
+	printf "上記の変更をmainにマージして本番デプロイしますか？ (y/N): "; \
+	read confirm; \
+	if [ "$$confirm" != "y" ]; then \
+		if [ "$$STASHED" = "1" ]; then echo "→ stashを復元します..."; git stash pop; fi; \
+		exit 1; \
+	fi; \
+	echo ""; \
+	echo "→ mainにチェックアウト..."; \
+	git checkout main; \
+	echo "→ mainを最新に更新..."; \
+	git pull origin main; \
+	echo "→ developをマージ..."; \
+	git merge develop; \
+	echo "→ mainをプッシュ（Vercelが自動デプロイ）..."; \
+	git push origin main; \
+	echo ""; \
+	echo "→ developに戻ります..."; \
+	git checkout develop; \
+	if [ "$$STASHED" = "1" ]; then echo "→ stashを復元します..."; git stash pop; fi; \
+	echo ""; \
+	echo "=== デプロイ完了 ==="; \
+	echo "Vercelダッシュボードでデプロイ状況を確認してください。"; \
+	echo ""
 
 # ===========================================
 # ヘルプ
