@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { ProcessingSteps, COMPANY_FETCH_STEPS } from "@/components/ui/ProcessingSteps";
 import { useOperationLock } from "@/hooks/useOperationLock";
+import { toast } from "sonner";
 
 type SelectionType = "main_selection" | "internship";
 type SelectionTypeState = SelectionType | null;
@@ -329,6 +330,10 @@ export function FetchInfoButton({
 
       if (data.success && onSuccess) {
         onSuccess();
+        // Show success toast with credit consumption info
+        toast.success("企業情報を取得しました", {
+          description: data.freeUsed ? "無料枠を使用" : `${data.creditsConsumed}クレジット消費`,
+        });
       }
 
       if (data.deadlines && data.deadlines.length > 0) {
@@ -486,6 +491,10 @@ export function FetchInfoButton({
 
     if (anySuccess && onSuccess) {
       onSuccess();
+      // Show success toast with credit consumption info
+      toast.success("企業情報を取得しました", {
+        description: freeUsed ? "無料枠を使用" : `${totalCreditsConsumed}クレジット消費`,
+      });
     }
 
     if (allDeadlines.length > 0) {
@@ -526,28 +535,33 @@ export function FetchInfoButton({
 
   return (
     <>
-      <button
-        onClick={() => setShowSelectionTypeModal(true)}
-        disabled={isSearching || isFetching || isLocked}
-        className={cn(
-          "flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border transition-colors",
-          isSearching || isFetching || isLocked
-            ? "text-muted-foreground cursor-wait bg-muted/30"
-            : "hover:bg-muted/50"
-        )}
-      >
-        {isSearching || isFetching ? (
-          <>
-            <LoadingSpinner />
-            <span className="text-sm">{isSearching ? "検索中..." : "取得中..."}</span>
-          </>
-        ) : (
-          <>
-            <SparklesIcon />
-            <span className="text-sm font-medium">AIで選考スケジュールを取得</span>
-          </>
-        )}
-      </button>
+      <div className="space-y-1">
+        <button
+          onClick={() => setShowSelectionTypeModal(true)}
+          disabled={isSearching || isFetching || isLocked}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border transition-colors w-full",
+            isSearching || isFetching || isLocked
+              ? "text-muted-foreground cursor-wait bg-muted/30"
+              : "hover:bg-muted/50"
+          )}
+        >
+          {isSearching || isFetching ? (
+            <>
+              <LoadingSpinner />
+              <span className="text-sm">{isSearching ? "検索中..." : "取得中..."}</span>
+            </>
+          ) : (
+            <>
+              <SparklesIcon />
+              <span className="text-sm font-medium">AIで選考スケジュールを取得</span>
+            </>
+          )}
+        </button>
+        <p className="text-xs text-muted-foreground text-center">
+          1クレジット消費
+        </p>
+      </div>
 
       {/* Selection Type Modal - Step 1: Choose selection type before search */}
       {showSelectionTypeModal && (

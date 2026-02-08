@@ -627,6 +627,20 @@ export function CompletionSummary({
             </Button>
           </Link>
         </div>
+
+        {/* Cross-Navigation CTA */}
+        <Link
+          href="/es?new=1"
+          className="block"
+        >
+          <Button
+            variant="default"
+            className="w-full h-11 text-sm font-medium flex items-center justify-center gap-2"
+          >
+            この経験を使ってESを作成する
+            <ArrowRightIcon />
+          </Button>
+        </Link>
       </div>
     </div>
   );

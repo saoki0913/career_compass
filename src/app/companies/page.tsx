@@ -9,6 +9,13 @@ import { IndustryGroup } from "@/components/companies/IndustryGroup";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { Plus, Building2, LayoutGrid, Layers, Search, Star } from "lucide-react";
 import {
@@ -26,6 +33,16 @@ const filterTabs = [
 ] as const;
 
 type FilterKey = "all" | StatusCategory;
+
+// Sort options
+const sortOptions = [
+  { value: "date_desc", label: "追加日 (新しい順)" },
+  { value: "date_asc", label: "追加日 (古い順)" },
+  { value: "name_asc", label: "企業名 (あ→わ)" },
+  { value: "name_desc", label: "企業名 (わ→あ)" },
+] as const;
+
+type SortKey = typeof sortOptions[number]["value"];
 
 // Industry options for multi-select
 const industryOptions = INDUSTRIES.map((industry) => ({
@@ -79,11 +96,12 @@ export default function CompaniesPage() {
   const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
   const [groupByIndustry, setGroupByIndustry] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<SortKey>("date_desc");
 
   // Filter companies by category, industry, and search query
   const filteredCompanies = useMemo(() => {
     const normalizedQuery = searchQuery.toLowerCase().trim();
-    return companies
+    const filtered = companies
       .filter((c) => filter === "all" || getStatusCategory(c.status) === filter)
       .filter(
         (c) =>
@@ -95,7 +113,25 @@ export default function CompaniesPage() {
           normalizedQuery === "" ||
           c.name.toLowerCase().includes(normalizedQuery)
       );
-  }, [companies, filter, selectedIndustries, searchQuery]);
+
+    // Apply sorting
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case "date_desc":
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        case "date_asc":
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        case "name_asc":
+          return a.name.localeCompare(b.name, "ja");
+        case "name_desc":
+          return b.name.localeCompare(a.name, "ja");
+        default:
+          return 0;
+      }
+    });
+
+    return sorted;
+  }, [companies, filter, selectedIndustries, searchQuery, sortBy]);
 
   // Split into pinned and unpinned for Visual Hierarchy
   const { pinnedCompanies, unpinnedCompanies } = useMemo(() => {
@@ -220,8 +256,22 @@ export default function CompaniesPage() {
               })}
             </div>
 
-            {/* Industry filter + View toggle */}
+            {/* Sort, Industry filter + View toggle */}
             <div className="flex items-center gap-3">
+              {/* Sort dropdown */}
+              <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortKey)}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="並び順" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               {/* Industry multi-select */}
               <MultiSelect
                 options={industryOptions}

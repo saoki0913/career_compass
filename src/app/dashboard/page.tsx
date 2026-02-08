@@ -22,6 +22,7 @@ import { useTodayTask, TASK_TYPE_LABELS } from "@/hooks/useTasks";
 import { useEsStats } from "@/hooks/useDocuments";
 import { getStatusConfig, type CompanyStatus } from "@/lib/constants/status";
 import { cn } from "@/lib/utils";
+import { FeatureTour } from "@/components/onboarding/FeatureTour";
 
 // Icons
 const CreditIcon = () => (
@@ -315,7 +316,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6 mb-8">
           <StatsCard
             title="登録企業"
             value={companyCount}
@@ -337,6 +338,7 @@ export default function DashboardPage() {
             subtitle="直近7日間"
             icon={<CalendarIcon />}
             href="/calendar"
+            className="col-span-2 lg:col-span-1"
           />
         </div>
 
@@ -537,6 +539,9 @@ export default function DashboardPage() {
           </div>
         )}
       </main>
+
+      {/* Feature Tour */}
+      <FeatureTour />
     </div>
   );
 }

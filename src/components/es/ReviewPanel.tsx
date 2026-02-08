@@ -17,6 +17,7 @@ import { ReviewEmptyState } from "./ReviewEmptyState";
 import { EnhancedProcessingSteps, ES_REVIEW_STEPS } from "@/components/ui/EnhancedProcessingSteps";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { calculateESReviewCost } from "@/lib/credits/cost";
+import { toast } from "sonner";
 
 // Section review request from parent component
 interface SectionReviewRequest {
@@ -179,6 +180,15 @@ export function ReviewPanel({
       setRoleName("");
     }
   }, [sectionReviewRequest]);
+
+  // Show toast notification when review completes successfully
+  useEffect(() => {
+    if (review && !isLoading && creditCost !== null) {
+      toast.success("添削完了", {
+        description: `${creditCost}クレジット消費しました`,
+      });
+    }
+  }, [review, isLoading, creditCost]);
 
   // Sticky score: track ScoreDisplay visibility via IntersectionObserver
   useEffect(() => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DashboardHeader } from "@/components/dashboard";
@@ -290,6 +290,14 @@ const RestoreIcon = () => (
 );
 
 export default function ESListPage() {
+  return (
+    <Suspense>
+      <ESListPageContent />
+    </Suspense>
+  );
+}
+
+function ESListPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [showNewModal, setShowNewModal] = useState(false);

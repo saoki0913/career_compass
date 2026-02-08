@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { PlanSelectionCard } from "@/components/auth/PlanSelectionCard";
@@ -111,6 +111,14 @@ const RefreshIcon = () => (
 );
 
 export default function PricingPage() {
+  return (
+    <Suspense>
+      <PricingPageContent />
+    </Suspense>
+  );
+}
+
+function PricingPageContent() {
   const searchParams = useSearchParams();
   const canceled = searchParams.get("canceled");
 
