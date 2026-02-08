@@ -1,0 +1,14 @@
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Local data / indexes (persisted via Render disk in production)
+data/chroma/
+data/bm25/
+data/*.sqlite*
+
+# Secrets / local env files
+.env
+.env.*
+
