@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "チェックリスト | ウカルン",
+  title: "チェックリスト | 就活Pass",
   description:
     "就活の締切管理やES作成を迷わず進めるためのチェックリスト集。",
 };
@@ -13,7 +13,7 @@ export default function ChecklistsPage() {
       <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="font-bold text-xl">
-            ウカルン
+            就活Pass
           </Link>
           <div className="flex items-center gap-3 text-sm">
             <Link href="/tools" className="text-muted-foreground hover:text-foreground transition-colors">

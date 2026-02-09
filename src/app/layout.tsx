@@ -9,8 +9,8 @@ const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "ウカルン（Career Compass）",
-    template: "%s | ウカルン",
+    default: "就活Pass（Career Compass）",
+    template: "%s | 就活Pass",
   },
   description: "AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」就活支援アプリ",
   alternates: {
@@ -19,14 +19,14 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     url: siteUrl,
-    siteName: "ウカルン",
-    title: "ウカルン（Career Compass）",
+    siteName: "就活Pass",
+    title: "就活Pass（Career Compass）",
     description: "AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」就活支援アプリ",
     locale: "ja_JP",
   },
   twitter: {
     card: "summary_large_image",
-    title: "ウカルン（Career Compass）",
+    title: "就活Pass（Career Compass）",
     description: "AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」就活支援アプリ",
   },
   verification: {
@@ -58,7 +58,7 @@ export default function RootLayout({
             __html: JSON.stringify({
               "@context": "https://schema.org",
               "@type": "SoftwareApplication",
-              name: "ウカルン",
+              name: "就活Pass",
               alternateName: "Career Compass",
               applicationCategory: "BusinessApplication",
               operatingSystem: "Web",

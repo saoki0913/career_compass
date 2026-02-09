@@ -47,7 +47,7 @@ export function CTASection() {
           <p className="text-lg sm:text-xl text-primary-foreground/80 mb-10 opacity-0 animate-fade-up delay-200">
             無料プランでES添削を試してみませんか？
             <br className="hidden sm:block" />
-            あなたの就活を、ウカルンがサポートします。
+            あなたの就活を、就活Passがサポートします。
           </p>
 
           {/* CTA Button */}

@@ -93,13 +93,13 @@ export function ComparisonSection() {
         <div className="text-center mb-12">
           <h2 className="text-3xl sm:text-4xl font-bold mb-4">
             なぜ
-            <span className="text-gradient">ウカルン</span>
+            <span className="text-gradient">就活Pass</span>
             なのか？
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             無料ツールの手軽さ × 就活塾の本格さ。
             <br className="hidden sm:block" />
-            ウカルンなら、その両方が手に入ります。
+            就活Passなら、その両方が手に入ります。
           </p>
         </div>
 
@@ -114,7 +114,7 @@ export function ComparisonSection() {
                 <th className="py-4 px-4 text-center">
                   <div className="inline-flex flex-col items-center gap-1">
                     <span className="text-sm font-bold text-primary">
-                      ウカルン
+                      就活Pass
                     </span>
                     <span className="text-xs text-muted-foreground">
                       {priceLabels.ukarun}
@@ -178,7 +178,7 @@ export function ComparisonSection() {
 
         {/* Bottom tagline */}
         <p className="text-center text-sm text-muted-foreground mt-8">
-          ウカルンは
+          就活Passは
           <span className="font-medium text-foreground">
             添削 + 締切管理 + 企業研究
           </span>

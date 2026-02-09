@@ -217,7 +217,7 @@ function PricingPageContent() {
       <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="font-bold text-xl">
-            ウカルン
+            就活Pass
           </Link>
           <div className="flex items-center gap-4">
             {isAuthenticated ? (

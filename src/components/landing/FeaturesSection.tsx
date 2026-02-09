@@ -45,7 +45,7 @@ export function FeaturesSection() {
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             時間がない、何から始めればいいかわからない、ESの書き方がわからない。
             <br className="hidden sm:block" />
-            そんな悩みを、ウカルンが解決します。
+            そんな悩みを、就活Passが解決します。
           </p>
         </div>
 

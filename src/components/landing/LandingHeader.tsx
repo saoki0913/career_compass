@@ -48,7 +48,7 @@ export function LandingHeader() {
           <Link href="/" className="flex items-center gap-2.5 shrink-0">
             <Image
               src="/icon.png"
-              alt="ウカルン"
+              alt="就活Pass"
               width={32}
               height={32}
               className="rounded-lg"
@@ -59,7 +59,7 @@ export function LandingHeader() {
                 isScrolled ? "text-foreground" : "text-foreground"
               )}
             >
-              ウカルン
+              就活Pass
             </span>
           </Link>
 

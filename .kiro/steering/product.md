@@ -1,7 +1,7 @@
-# Product Context - ウカルン (Career Compass)
+# Product Context - 就活Pass (Career Compass)
 
 ## Overview
-就活支援アプリ「ウカルン」- 就活塾に行かない不安層に対して、AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」ことを実現する。
+就活支援アプリ「就活Pass」- 就活塾に行かない不安層に対して、AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」ことを実現する。
 
 ## Target Users
 - 情報弱者寄り、就活塾回避層

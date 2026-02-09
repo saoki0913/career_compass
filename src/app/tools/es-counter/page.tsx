@@ -3,7 +3,7 @@ import Link from "next/link";
 import { EsCounterClient } from "@/components/tools/EsCounterClient";
 
 export const metadata: Metadata = {
-  title: "ES文字数カウント | ウカルン",
+  title: "ES文字数カウント | 就活Pass",
   description:
     "ESの文字数を300/400/500字で簡単にチェックできる無料ツール。空白・改行を除いたカウントにも対応。",
 };
@@ -14,7 +14,7 @@ export default function EsCounterPage() {
       <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="font-bold text-xl">
-            ウカルン
+            就活Pass
           </Link>
           <div className="flex items-center gap-3 text-sm">
             <Link href="/tools" className="text-muted-foreground hover:text-foreground transition-colors">

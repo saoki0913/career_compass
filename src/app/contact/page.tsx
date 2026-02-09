@@ -3,8 +3,8 @@ import Link from "next/link";
 import { ContactForm } from "@/components/marketing/ContactForm";
 
 export const metadata: Metadata = {
-  title: "お問い合わせ | ウカルン",
-  description: "ウカルン（Career Compass）へのお問い合わせ窓口です。",
+  title: "お問い合わせ | 就活Pass",
+  description: "就活Pass（Career Compass）へのお問い合わせ窓口です。",
 };
 
 export default function ContactPage() {

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "ガクチカSTARテンプレ | ウカルン",
+  title: "ガクチカSTARテンプレ | 就活Pass",
   description:
     "ガクチカをSTAR（Situation/Task/Action/Result）で整理するテンプレ。面接で深掘りされても崩れない骨格を作ります。",
 };
@@ -13,7 +13,7 @@ export default function GakuchikaStarTemplatePage() {
       <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="font-bold text-xl">
-            ウカルン
+            就活Pass
           </Link>
           <div className="flex items-center gap-3 text-sm">
             <Link href="/templates" className="text-muted-foreground hover:text-foreground transition-colors">

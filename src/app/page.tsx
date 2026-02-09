@@ -33,7 +33,7 @@ export default function Home() {
         {/* How it works - 3-step process */}
         <HowItWorksSection />
 
-        {/* Comparison - Why ウカルン */}
+        {/* Comparison - Why 就活Pass */}
         <ComparisonSection />
 
         {/* Feature Showcase */}
@@ -55,7 +55,7 @@ export default function Home() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
             {/* Brand */}
             <div>
-              <p className="font-bold text-lg mb-2">ウカルン</p>
+              <p className="font-bold text-lg mb-2">就活Pass</p>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 AIと進捗管理で就活をサポート。
                 <br />
@@ -131,7 +131,7 @@ export default function Home() {
           </div>
 
           <div className="pt-6 border-t border-border/50 text-center text-sm text-muted-foreground">
-            <p>&copy; 2025 ウカルン. All rights reserved.</p>
+            <p>&copy; 2025 就活Pass. All rights reserved.</p>
           </div>
         </div>
       </footer>

@@ -1,7 +1,7 @@
-# Career Compass (ウカルン) - Claude Code Instructions
+# Career Compass (就活Pass) - Claude Code Instructions
 
 ## Project Overview
-就活支援アプリ「ウカルン」- AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」
+就活支援アプリ「就活Pass」- AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」
 
 ### Target Users
 - 情報弱者寄り、就活塾回避層

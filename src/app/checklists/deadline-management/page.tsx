@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "締切管理チェックリスト | ウカルン",
+  title: "締切管理チェックリスト | 就活Pass",
   description:
     "就活の締切（ES/Webテスト/面接/説明会など）を落とさないためのチェックリスト。週次運用の型も掲載。",
 };
@@ -13,7 +13,7 @@ export default function DeadlineChecklistPage() {
       <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="font-bold text-xl">
-            ウカルン
+            就活Pass
           </Link>
           <div className="flex items-center gap-3 text-sm">
             <Link href="/checklists" className="text-muted-foreground hover:text-foreground transition-colors">

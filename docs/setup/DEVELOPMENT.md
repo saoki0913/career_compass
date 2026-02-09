@@ -1,4 +1,4 @@
-# Development Guide - ウカルン (Career Compass)
+# Development Guide - 就活Pass (Career Compass)
 
 ## 🚀 開発を始める/再開する
 

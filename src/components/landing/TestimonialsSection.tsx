@@ -42,7 +42,7 @@ export function TestimonialsSection() {
             無料で始められます
           </div>
           <h2 className="text-3xl sm:text-4xl font-bold mb-4">
-            ウカルンで
+            就活Passで
             <span className="text-gradient">できること</span>
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">

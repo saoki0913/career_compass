@@ -116,7 +116,7 @@ export function FeatureTour() {
       <DialogContent className="sm:max-w-[500px]" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle className="text-xl text-center">
-            ウカルンへようこそ
+            就活Passへようこそ
           </DialogTitle>
           <DialogDescription className="text-center">
             主な機能をご紹介します

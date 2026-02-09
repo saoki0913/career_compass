@@ -1,4 +1,4 @@
-# Project Structure - ウカルン (Career Compass)
+# Project Structure - 就活Pass (Career Compass)
 
 ## Directory Layout
 

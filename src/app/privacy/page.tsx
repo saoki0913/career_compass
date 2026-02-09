@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "プライバシーポリシー | ウカルン",
-  description: "就活支援アプリ「ウカルン（Career Compass）」のプライバシーポリシーです。",
+  title: "プライバシーポリシー | 就活Pass",
+  description: "就活支援アプリ「就活Pass（Career Compass）」のプライバシーポリシーです。",
 };
 
 export default function PrivacyPage() {

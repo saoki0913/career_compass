@@ -1,6 +1,6 @@
 # 本番リリース手順書（Vercel + Railway + Supabase）
 
-Career Compass (ウカルン) の本番デプロイ手順をステップバイステップで記載します。
+Career Compass (就活Pass) の本番デプロイ手順をステップバイステップで記載します。
 
 **本番ドメイン**: `shupass.jp`（お名前.com で取得済み）
 
@@ -237,7 +237,7 @@ https://dashboard.stripe.com/account/onboarding にアクセスし、以下の�
 
 | 項目 | 設定値 | 備考 |
 |---|---|---|
-| 明細書表記（漢字） | `ウカルン` | カード明細に表示 |
+| 明細書表記（漢字） | `就活Pass` | カード明細に表示 |
 | 明細書表記（ローマ字） | `SHUPASS` | 5〜22文字、英数字のみ |
 | 短縮表記 | `SHUPASS` | 一部カード会社で使用 |
 | サポート用メールアドレス | `support@shupass.jp` | 請求に関する問い合わせ先 |
@@ -544,9 +544,6 @@ ANTHROPIC_API_KEY=sk-ant-...
 # CORS（Vercel フロントエンドのドメインを許可）
 CORS_ORIGINS=["https://shupass.jp"]
 
-# フロントエンド URL
-NEXT_PUBLIC_APP_URL=https://shupass.jp
-
 # ポート（Dockerfile の EXPOSE と一致させる）
 PORT=8000
 ```
@@ -554,29 +551,54 @@ PORT=8000
 #### 任意変数（推奨）
 
 ```bash
-# LLM モデル設定
+# LLM ベースモデルID
 CLAUDE_MODEL=claude-sonnet-4-5-20250929
 CLAUDE_HAIKU_MODEL=claude-haiku-4-5-20251001
 OPENAI_MODEL=gpt-5-mini
+
+# 機能別モデルティア設定（claude-sonnet / claude-haiku / openai）
+MODEL_ES_REVIEW=claude-sonnet
+MODEL_GAKUCHIKA=claude-haiku
+MODEL_MOTIVATION=claude-haiku
+MODEL_SELECTION_SCHEDULE=claude-haiku
+MODEL_COMPANY_INFO=openai
+MODEL_RAG_QUERY_EXPANSION=claude-haiku
+MODEL_RAG_HYDE=claude-sonnet
+MODEL_RAG_RERANK=claude-sonnet
+MODEL_RAG_CLASSIFY=claude-haiku
+
+# RAG 埋め込み設定
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_MAX_INPUT_CHARS=8000
+
+# ハイブリッド検索
+USE_HYBRID_SEARCH=true
 
 # ES 添削設定
 ES_REWRITE_COUNT=1
 
 # デバッグ無効化（本番）
 DEBUG=false
-FASTAPI_DEBUG=false
 COMPANY_SEARCH_DEBUG=false
 WEB_SEARCH_DEBUG=false
+
+# Redis キャッシュ（任意）
+# REDIS_URL=redis://...
 ```
 
 #### 設定不要な変数
 
 | 変数 | 理由 |
 |---|---|
-| `DATABASE_URL` | DB アクセスはフロントエンド (Drizzle ORM) が担当 |
-| `DIRECT_URL` | 同上（マイグレーション用。バックエンドは不要） |
-| `STRIPE_*` | 決済はフロントエンド (Vercel) 側のみ |
+| `DATABASE_URL` / `DIRECT_URL` | DB アクセスはフロントエンド (Drizzle ORM) が担当 |
+| `NEXT_PUBLIC_APP_URL` | フロントエンド専用の環境変数 |
 | `BETTER_AUTH_*` | 認証はフロントエンド側のみ |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth はフロントエンド側のみ |
+| `ENCRYPTION_KEY` | 暗号化はフロントエンド側のみ |
+| `STRIPE_*` | 決済はフロントエンド (Vercel) 側のみ |
+| `CLOUDFLARE_*` / `R2_*` | オブジェクトストレージはフロントエンド側のみ |
+| `UPSTASH_REDIS_*` | レート制限はフロントエンド側のみ |
+| `CRON_SECRET` | Vercel Cron 用の認証トークン |
 
 > **Tip**: Railway の Variables 画面では **Shared Variables**（プロジェクト全体で共有）と **Service Variables**（サービス固有）を分けて管理できます。API キーは Service Variables に設定してください。
 
@@ -732,7 +754,7 @@ Vercel Dashboard → 対象プロジェクト → **「Settings」** → 左メ�
 
 > **重要**: 環境変数の変更は **次回デプロイから** 反映されます。既存のデプロイには影響しません。変数設定後に再デプロイが必要な場合は、Deployments タブから最新デプロイの **「...」** → **「Redeploy」** をクリック。
 
-shupass-backend-production.up.railway.app
+
 
 
 #### 必須変数
@@ -764,7 +786,7 @@ STRIPE_PRICE_STANDARD_MONTHLY=price_...
 STRIPE_PRICE_PRO_MONTHLY=price_...
 
 # === FastAPI バックエンド URL ===
-FASTAPI_URL=https://career-compass-backend.up.railway.app
+FASTAPI_URL=https://shupass-backend-production.up.railway.app
 
 # === Vercel Cron 認証 ===
 CRON_SECRET=<openssl rand -hex 32 で生成>
@@ -906,7 +928,7 @@ Google Cloud Console → **API とサービス** → **OAuth 同意画面**
 | 設定項目 | 値 | 説明 |
 |---|---|---|
 | User Type | **外部** | Google Workspace 外のユーザーも対象 |
-| アプリ名 | `ウカルン` | ログイン時の同意画面に表示 |
+| アプリ名 | `就活Pass` | ログイン時の同意画面に表示 |
 | ユーザー サポートメール | `support@shupass.jp` | ユーザーからの問い合わせ先 |
 | アプリのロゴ | ロゴ画像をアップロード | 同意画面に表示（120x120px 推奨） |
 
@@ -953,7 +975,7 @@ Google Cloud Console → **API とサービス** → **認証情報** → **認�
 | 設定項目 | 値 | 説明 |
 |---|---|---|
 | アプリケーションの種類 | **ウェブ アプリケーション** | — |
-| 名前 | `ウカルン 本番` | 識別用（任意） |
+| 名前 | `就活Pass 本番` | 識別用（任意） |
 
 #### 承認済みの JavaScript 生成元
 

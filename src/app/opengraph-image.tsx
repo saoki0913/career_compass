@@ -54,7 +54,7 @@ export default function OpenGraphImage() {
               U
             </div>
             <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -0.2 }}>
-              ウカルン
+              就活Pass
             </div>
           </div>
 

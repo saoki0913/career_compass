@@ -3,7 +3,7 @@ import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "特定商取引法に基づく表記",
-  description: "ウカルンの特定商取引法に基づく表記です。",
+  description: "就活Passの特定商取引法に基づく表記です。",
 };
 
 export default function LegalPage() {
@@ -12,7 +12,7 @@ export default function LegalPage() {
       <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-3xl mx-auto px-4 h-16 flex items-center">
           <Link href="/" className="font-bold text-xl">
-            ウカルン
+            就活Pass
           </Link>
         </div>
       </header>
@@ -27,7 +27,7 @@ export default function LegalPage() {
                 <th className="text-left py-4 pr-4 font-medium text-foreground w-1/3 align-top">
                   販売事業者
                 </th>
-                <td className="py-4">ウカルン運営事務局</td>
+                <td className="py-4">就活Pass運営事務局</td>
               </tr>
               <tr>
                 <th className="text-left py-4 pr-4 font-medium text-foreground align-top">
