@@ -32,51 +32,37 @@ cp .env.example .env.local
 
 ---
 
-## 🗄️ Turso (データベース) - 必須
+## 🗄️ データベース設定の詳細（Supabase）
 
-Turso は SQLite 互換の分散データベースです。
+Supabase のプロジェクト作成、`DATABASE_URL` / `DIRECT_URL` の設定、Drizzle でのテーブル作成手順は以下を参照:
 
-### 1. アカウント作成
+- [SUPABASE_SETUP.md](./SUPABASE_SETUP.md)
 
-https://turso.tech/ でアカウントを作成
+---
 
-### 2. Turso CLI のインストール
+## 🗄️ Supabase (PostgreSQL) - 必須
 
-```bash
-# macOS
-brew install tursodatabase/tap/turso
+Supabase はマネージド PostgreSQL です。
 
-# その他
-curl -sSfL https://get.tur.so/install.sh | bash
-```
+### 1. プロジェクト作成
 
-### 3. ログイン
+1. Supabase Dashboard で **New project** を作成
+2. Region は可能なら **Tokyo**、なければ **Singapore** を選択
+3. Database Password を安全に保管
 
-```bash
-turso auth login
-```
+### 2. 接続文字列の取得
 
-### 4. データベース作成
+Supabase Dashboard → **Settings** → **Database** → **Connection string**
 
-```bash
-turso db create career-compass
-```
+推奨:
+- `DATABASE_URL`: Pooler (Transaction mode / 6543)
+- `DIRECT_URL`: Direct connection (5432)（マイグレーション用に推奨）
 
-### 5. 接続情報の取得
-
-```bash
-# データベースURL
-turso db show career-compass --url
-
-# 認証トークン
-turso db tokens create career-compass
-```
-
-### 6. `.env.local` に設定
+### 3. `.env.local` に設定
 
 ```env
-TURSO_DATABASE_URL=libsql://career-compass-your-account.turso.io
-TURSO_AUTH_TOKEN=eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...
+DATABASE_URL=postgresql://postgres.<project-ref>:<password>@<pooler-host>:6543/postgres
+DIRECT_URL=postgresql://postgres.<project-ref>:<password>@<direct-host>:5432/postgres
 ```
 
 ---
@@ -321,8 +307,8 @@ http://localhost:8000/docs でAPIドキュメント確認可能
 
 ```env
 # 必須
-TURSO_DATABASE_URL=libsql://...
-TURSO_AUTH_TOKEN=eyJ...
+DATABASE_URL=postgresql://...
+# DIRECT_URL=postgresql://...   # マイグレーション用（推奨）
 BETTER_AUTH_SECRET=（32文字以上のランダム文字列）
 BETTER_AUTH_URL=http://localhost:3000
 
@@ -339,8 +325,8 @@ Google OAuth、Stripe は機能を使う段階で設定すればOKです。
 ### データベース接続エラー
 
 ```bash
-# Turso CLI で直接接続して確認
-turso db shell career-compass
+# 接続確認（psql が入っている場合）
+psql "$DIRECT_URL"
 ```
 
 ### Better Auth のエラー
@@ -366,8 +352,8 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 
 | 変数名 | 説明 | 必須 | 取得先 |
 |--------|------|:----:|--------|
-| `TURSO_DATABASE_URL` | Turso DB URL | ✅ | Turso CLI |
-| `TURSO_AUTH_TOKEN` | Turso 認証トークン | ✅ | Turso CLI |
+| `DATABASE_URL` | Supabase Postgres 接続URL（推奨: Pooler/6543） | ✅ | Supabase Dashboard |
+| `DIRECT_URL` | Supabase Postgres 直通URL（5432, マイグレーション推奨） | 🔶 | Supabase Dashboard |
 | `BETTER_AUTH_SECRET` | 認証シークレット | ✅ | `openssl rand -base64 32` |
 | `BETTER_AUTH_URL` | 認証ベースURL | ✅ | `http://localhost:3000` |
 | `GOOGLE_CLIENT_ID` | Google OAuth ID | 🔶 | Google Cloud Console |

@@ -1,0 +1,7008 @@
+{
+  "_comment": "企業名→ドメインパターンのマッピング。編集は本ファイルのみ。",
+  "_usage": "企業公式サイト検出に使用。部分一致でチェックされる（例: 'mitsui' in 'career.mitsui.com'）",
+  "_categories": "アプリの業界カテゴリ（src/lib/constants/industries.ts）に準拠",
+  "short_domain_allowlist": {
+    "EY": [
+      "ey"
+    ],
+    "P&G": [
+      "pg"
+    ],
+    "エムスリー": [
+      "m3"
+    ],
+    "スタンダードチャータード銀行": [
+      "sc"
+    ],
+    "ドイツ銀行": [
+      "db"
+    ],
+    "日本HP": [
+      "hp"
+    ]
+  },
+  "mappings": {
+    "_section_01": "=== 商社 ===",
+    "_subsection_01a": "--- 総合商社 ---",
+    "三井物産": [
+      "mitsui",
+      "mitsuibussan"
+    ],
+    "三菱商事": [
+      "career-mc",
+      "mitsubishicorp"
+    ],
+    "伊藤忠商事": [
+      "itochu"
+    ],
+    "住友商事": [
+      "sumitomocorp",
+      "sumitomo"
+    ],
+    "丸紅": [
+      "marubeni"
+    ],
+    "豊田通商": [
+      "toyota-tsusho",
+      "toyotatsusho"
+    ],
+    "双日": [
+      "sojitz"
+    ],
+    "兼松": [
+      "kanematsu",
+      "kanenavi"
+    ],
+    "_subsection_01b": "--- 専門商社（鉄鋼） ---",
+    "日鉄物産": [
+      "nst"
+    ],
+    "JFE商事": [
+      "jfe-shoji",
+      "jfetc"
+    ],
+    "伊藤忠丸紅鉄鋼": [
+      "misi"
+    ],
+    "メタルワン": [
+      "metalone",
+      "mtlo"
+    ],
+    "阪和興業": [
+      "hanwa"
+    ],
+    "_subsection_01c": "--- 専門商社（化学・繊維） ---",
+    "長瀬産業": [
+      "nagase"
+    ],
+    "稲畑産業": [
+      "inabata"
+    ],
+    "蝶理": [
+      "chori"
+    ],
+    "_subsection_01d": "--- 専門商社（エネルギー） ---",
+    "岩谷産業": [
+      "iwatani"
+    ],
+    "_subsection_01e": "--- 専門商社（食品） ---",
+    "三菱食品": [
+      "mitsubishi-shokuhin"
+    ],
+    "国分グループ": [
+      "kokubu"
+    ],
+    "加藤産業": [
+      "katosangyo"
+    ],
+    "_subsection_01f": "--- 専門商社（追加） ---",
+    "伊藤忠エネクス": {
+      "domains": [
+        "itcenex"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "住友商事ケミカル": {
+      "domains": [
+        "scchemi"
+      ],
+      "parent": "住友商事"
+    },
+    "三井物産スチール": {
+      "domains": [
+        "msi",
+        "mitsui-steel"
+      ],
+      "parent": "三井物産"
+    },
+    "_subsection_01g": "--- 三菱商事グループ子会社 ---",
+    "三菱オートリース": {
+      "domains": [
+        "mal"
+      ],
+      "parent": "三菱商事"
+    },
+    "三菱商事ロジスティクス": {
+      "domains": [
+        "mcl"
+      ],
+      "parent": "三菱商事"
+    },
+    "三菱商事都市開発": {
+      "domains": [
+        "mcud"
+      ],
+      "parent": "三菱商事"
+    },
+    "三菱商事フィナンシャルサービス": {
+      "domains": [
+        "mcfs"
+      ],
+      "parent": "三菱商事"
+    },
+    "三菱マテリアル": {
+      "domains": [
+        "mmc"
+      ],
+      "parent": "三菱商事"
+    },
+    "_subsection_01h": "--- 三井物産グループ子会社 ---",
+    "三井物産セキュアディレクション": {
+      "domains": [
+        "mbsd"
+      ],
+      "parent": "三井物産"
+    },
+    "三井物産プラスチック": {
+      "domains": [
+        "mbp"
+      ],
+      "parent": "三井物産"
+    },
+    "三井物産ケミカル": {
+      "domains": [
+        "mitsui-chem"
+      ],
+      "parent": "三井物産"
+    },
+    "三井情報": {
+      "domains": [
+        "mki"
+      ],
+      "parent": "三井物産"
+    },
+    "三井E&Sホールディングス": [
+      "mes"
+    ],
+    "三井金属": [
+      "mitsui-kinzoku"
+    ],
+    "_subsection_01i": "--- 伊藤忠グループ子会社 ---",
+    "伊藤忠プラスチックス": {
+      "domains": [
+        "iplastics"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠食品": {
+      "domains": [
+        "itochu-shokuhin"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠建材": {
+      "domains": [
+        "itochu-kenzai"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠アーバンコミュニティ": {
+      "domains": [
+        "itc-uc"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠ロジスティクス": {
+      "domains": [
+        "itochu-logistics"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠都市開発": {
+      "domains": [
+        "itc-ud"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠ファッションシステム": {
+      "domains": [
+        "ifs"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠オートモービル": {
+      "domains": [
+        "itc-auto",
+        "itac"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "エドウイン": {
+      "domains": [
+        "edwin"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠インタラクティブ": {
+      "domains": [
+        "itochu-interactive"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠フィナンシャルマネジメント": {
+      "domains": [
+        "itc-fm"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "_subsection_01j": "--- 丸紅グループ子会社 ---",
+    "丸紅情報システムズ": {
+      "domains": [
+        "marubeni-sys"
+      ],
+      "parent": "丸紅"
+    },
+    "丸紅建材リース": {
+      "domains": [
+        "marubeni-lease"
+      ],
+      "parent": "丸紅"
+    },
+    "丸紅エネルギー": {
+      "domains": [
+        "marubeni-energy"
+      ],
+      "parent": "丸紅"
+    },
+    "丸紅インテックス": {
+      "domains": [
+        "marubeni-intex"
+      ],
+      "parent": "丸紅"
+    },
+    "丸紅ITソリューションズ": {
+      "domains": [
+        "marubeni-it"
+      ],
+      "parent": "丸紅"
+    },
+    "丸紅ロジスティクス": {
+      "domains": [
+        "marubeni-logi"
+      ],
+      "parent": "丸紅"
+    },
+    "丸紅リアルエステート": {
+      "domains": [
+        "marubeni-re"
+      ],
+      "parent": "丸紅"
+    },
+    "丸紅プラックス": {
+      "domains": [
+        "marubeni-plax"
+      ],
+      "parent": "丸紅"
+    },
+    "丸紅フォレストリンクス": {
+      "domains": [
+        "marubeni-forest"
+      ],
+      "parent": "丸紅"
+    },
+    "_subsection_01l": "--- 住友グループ追加子会社 ---",
+    "住友電設": [
+      "sds"
+    ],
+    "住友三井オートサービス": {
+      "domains": [
+        "smauto"
+      ],
+      "parent": "住友商事"
+    },
+    "住友精密工業": {
+      "domains": [
+        "spp"
+      ],
+      "parent": "住友商事"
+    },
+    "住友ベークライト": {
+      "domains": [
+        "sumibe"
+      ],
+      "parent": "住友商事"
+    },
+    "住友大阪セメント": {
+      "domains": [
+        "soc"
+      ],
+      "parent": "住友商事"
+    },
+    "住友理工": {
+      "domains": [
+        "sumitomoriko"
+      ],
+      "parent": "住友商事"
+    },
+    "住友商事マシネックス": {
+      "domains": [
+        "scm",
+        "smx"
+      ],
+      "parent": "住友商事"
+    },
+    "住友商事グローバルメタルズ": {
+      "domains": [
+        "scgm"
+      ],
+      "parent": "住友商事"
+    },
+    "住友精化": {
+      "domains": [
+        "sumitomoseika"
+      ],
+      "parent": "住友商事"
+    },
+    "住友ファーマ": {
+      "domains": [
+        "sumitomo-pharma",
+        "ds-pharma"
+      ],
+      "parent": "住友化学"
+    },
+    "住友建機": {
+      "domains": [
+        "sumitomo-kenki"
+      ],
+      "parent": "住友商事"
+    },
+    "_subsection_01k": "--- 豊田通商グループ子会社 ---",
+    "豊田通商システムズ": {
+      "domains": [
+        "ttsystems"
+      ],
+      "parent": "豊田通商"
+    },
+    "ネクスティエレクトロニクス": {
+      "domains": [
+        "nexty-ele"
+      ],
+      "parent": "豊田通商"
+    },
+    "エレマテック": {
+      "domains": [
+        "elematec"
+      ],
+      "parent": "豊田通商"
+    },
+    "豊田スチールセンター": {
+      "domains": [
+        "toyotasc"
+      ],
+      "parent": "豊田通商"
+    },
+    "豊通マシナリー": {
+      "domains": [
+        "toyotsu-machinery"
+      ],
+      "parent": "豊田通商"
+    },
+    "豊通食料": {
+      "domains": [
+        "toyotsu-shokuryo"
+      ],
+      "parent": "豊田通商"
+    },
+    "_subsection_01m": "--- 双日グループ子会社 ---",
+    "双日インフィニティ": {
+      "domains": [
+        "sojitz-infinity"
+      ],
+      "parent": "双日"
+    },
+    "双日マシナリー": {
+      "domains": [
+        "sojitz-machinery"
+      ],
+      "parent": "双日"
+    },
+    "双日建材": {
+      "domains": [
+        "sojitz-kenzai"
+      ],
+      "parent": "双日"
+    },
+    "双日ロジスティクス": {
+      "domains": [
+        "sojitz-logi"
+      ],
+      "parent": "双日"
+    },
+    "双日九州": {
+      "domains": [
+        "sojitz-kyushu"
+      ],
+      "parent": "双日"
+    },
+    "双日ツーリスト": {
+      "domains": [
+        "sojitz-tourist"
+      ],
+      "parent": "双日"
+    },
+    "_subsection_01n": "--- 商社追加（人気企業100）---",
+    "三菱商事RtMジャパン": {
+      "domains": [
+        "mc-rtm"
+      ],
+      "parent": "三菱商事"
+    },
+    "住友商事グローバルリサーチ": {
+      "domains": [
+        "scgr"
+      ],
+      "parent": "住友商事"
+    },
+    "丸紅ケミックス": {
+      "domains": [
+        "marubeni-chemix"
+      ],
+      "parent": "丸紅"
+    },
+    "伊藤忠メタルズ": {
+      "domains": [
+        "itochu-metals"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "三井物産アグロビジネス": {
+      "domains": [
+        "mitsui-agro"
+      ],
+      "parent": "三井物産"
+    },
+    "豊田通商マテリアル": {
+      "domains": [
+        "toyotsu-material"
+      ],
+      "parent": "豊田通商"
+    },
+    "双日食料": {
+      "domains": [
+        "sojitz-shokuryo"
+      ],
+      "parent": "双日"
+    },
+    "JFE商事エレクトロニクス": {
+      "domains": [
+        "jfe-shoji-ele"
+      ],
+      "parent": "JFE商事"
+    },
+    "メタルワン鋼管": {
+      "domains": [
+        "mtlo-koukan"
+      ],
+      "parent": "メタルワン"
+    },
+    "CBC": [
+      "cbc"
+    ],
+    "ケミプロ化成": [
+      "chemi-pro",
+      "chemipro"
+    ],
+    "蝶理マテックス": {
+      "domains": [
+        "chori-matex"
+      ],
+      "parent": "蝶理"
+    },
+    "_section_02": "=== 金融・保険 ===",
+    "三菱UFJ銀行": {
+      "domains": [
+        "bk.mufg",
+        "mufgbank"
+      ],
+      "parent": "三菱UFJフィナンシャル・グループ",
+      "allow_parent_domains_for": [
+        "ir_materials",
+        "midterm_plan",
+        "csr_sustainability"
+      ]
+    },
+    "三菱UFJフィナンシャル・グループ": [
+      "mufg",
+      "mufg-hd"
+    ],
+    "三井住友銀行": {
+      "domains": [
+        "smbc-freshers",
+        "smbcbank"
+      ],
+      "parent": "三井住友フィナンシャルグループ",
+      "allow_parent_domains_for": [
+        "ir_materials",
+        "midterm_plan",
+        "csr_sustainability"
+      ]
+    },
+    "三井住友フィナンシャルグループ": [
+      "smfg",
+      "smbc"
+    ],
+    "みずほ銀行": {
+      "domains": [
+        "mizuhobank",
+        "mizuhobank.co.jp"
+      ],
+      "parent": "みずほフィナンシャルグループ",
+      "allow_parent_domains_for": [
+        "ir_materials",
+        "midterm_plan",
+        "csr_sustainability"
+      ]
+    },
+    "みずほフィナンシャルグループ": [
+      "mizuho",
+      "mizuho-fg",
+      "mizuhogroup",
+      "mizuho-fg.co.jp"
+    ],
+    "りそなホールディングス": [
+      "resona-gr"
+    ],
+    "りそな銀行": {
+      "domains": [
+        "resonabank",
+        "resona"
+      ],
+      "parent": "りそなホールディングス",
+      "allow_parent_domains_for": [
+        "ir_materials",
+        "midterm_plan",
+        "csr_sustainability"
+      ]
+    },
+    "野村證券": {
+      "domains": [
+        "nomura-recruit",
+        "nomurasec"
+      ],
+      "parent": "野村ホールディングス"
+    },
+    "野村ホールディングス": [
+      "nomura",
+      "nomura-hd"
+    ],
+    "大和証券": [
+      "daiwa",
+      "daiwa-grp",
+      "daiwa-grp-recruit"
+    ],
+    "SMBC日興証券": {
+      "domains": [
+        "smbcnikko"
+      ],
+      "parent": "三井住友フィナンシャルグループ"
+    },
+    "東京海上ホールディングス": [
+      "tokiomarine-hd"
+    ],
+    "東京海上日動火災保険": {
+      "domains": [
+        "tokiomarine-nichido"
+      ],
+      "parent": "東京海上ホールディングス"
+    },
+    "三井住友海上火災保険": [
+      "ms-ins"
+    ],
+    "損害保険ジャパン": [
+      "sompo"
+    ],
+    "日本生命": [
+      "nissay",
+      "nissay-saiyo"
+    ],
+    "第一生命": [
+      "dai-ichi-life",
+      "daiichilife",
+      "dai-ichi-saiyo"
+    ],
+    "明治安田生命": [
+      "meijiyasuda"
+    ],
+    "住友生命": [
+      "sumitomolife"
+    ],
+    "ゴールドマン・サックス": [
+      "goldmansachs"
+    ],
+    "モルガン・スタンレー": [
+      "morganstanley"
+    ],
+    "JPモルガン": [
+      "jpmorgan"
+    ],
+    "シティグループ": [
+      "citi"
+    ],
+    "バンク・オブ・アメリカ": [
+      "bankofamerica",
+      "bofa"
+    ],
+    "_subsection_02b": "--- 地方銀行・ネット銀行 ---",
+    "横浜銀行": [
+      "boy"
+    ],
+    "千葉銀行": [
+      "chibabank"
+    ],
+    "楽天銀行": {
+      "domains": [
+        "rakuten-bank"
+      ],
+      "parent": "楽天グループ"
+    },
+    "あおぞら銀行": [
+      "aozorabank"
+    ],
+    "新生銀行": [
+      "shinseibank",
+      "sbishinseibank",
+      "sbishinseibank-recruit"
+    ],
+    "ソニー銀行": {
+      "domains": [
+        "moneykit",
+        "sonybank"
+      ],
+      "parent": "ソニーグループ"
+    },
+    "_subsection_02c": "--- 信託銀行・政府系金融 ---",
+    "三菱UFJ信託銀行": {
+      "domains": [
+        "tr.mufg"
+      ],
+      "parent": "三菱UFJフィナンシャル・グループ"
+    },
+    "三井住友トラスト・ホールディングス": [
+      "smth-hd"
+    ],
+    "三井住友信託銀行": {
+      "domains": [
+        "smth"
+      ],
+      "parent": "三井住友トラスト・ホールディングス"
+    },
+    "日本政策投資銀行": [
+      "dbj"
+    ],
+    "国際協力銀行": [
+      "jbic"
+    ],
+    "農林中央金庫": [
+      "nochubank"
+    ],
+    "日本政策金融公庫": [
+      "jfc"
+    ],
+    "_subsection_02d": "--- 証券（追加） ---",
+    "三菱UFJモルガン・スタンレー証券": [
+      "mufg-sec",
+      "sc.mufg"
+    ],
+    "みずほ証券": [
+      "mizuho-sc"
+    ],
+    "SBI証券": {
+      "domains": [
+        "sbi-sec",
+        "sbisec"
+      ],
+      "parent": "SBIホールディングス"
+    },
+    "_subsection_02e": "--- カード・リース ---",
+    "JCB": [
+      "jcb"
+    ],
+    "三井住友カード": [
+      "smcc"
+    ],
+    "三菱UFJニコス": [
+      "cr.mufg"
+    ],
+    "クレディセゾン": [
+      "saisoncard"
+    ],
+    "オリックス": [
+      "orix"
+    ],
+    "三井住友ファイナンス&リース": [
+      "smfl"
+    ],
+    "三菱HCキャピタル": [
+      "mitsubishi-hc-capital"
+    ],
+    "東京センチュリー": [
+      "tokyocentury"
+    ],
+    "_subsection_02f": "--- 地方銀行（追加） ---",
+    "静岡銀行": [
+      "shizuokabank"
+    ],
+    "福岡銀行": [
+      "fukuokabank"
+    ],
+    "北陸銀行": [
+      "hokugin"
+    ],
+    "七十七銀行": [
+      "77bank"
+    ],
+    "常陽銀行": [
+      "joyobank"
+    ],
+    "京都銀行": [
+      "kyotobank"
+    ],
+    "広島銀行": [
+      "hirogin"
+    ],
+    "群馬銀行": [
+      "gunmabank"
+    ],
+    "足利銀行": [
+      "ashikagabank"
+    ],
+    "北海道銀行": [
+      "hokkaidobank"
+    ],
+    "_subsection_02g": "--- 保険（追加） ---",
+    "あいおいニッセイ同和損保": [
+      "aioinissaydowa"
+    ],
+    "朝日生命": [
+      "asahi-life"
+    ],
+    "太陽生命": [
+      "taiyo-seimei"
+    ],
+    "大同生命": [
+      "daido-life"
+    ],
+    "富国生命": [
+      "fukoku-life"
+    ],
+    "かんぽ生命": [
+      "jp-life"
+    ],
+    "アフラック": [
+      "aflac"
+    ],
+    "ソニー生命": {
+      "domains": [
+        "sonylife"
+      ],
+      "parent": "ソニーグループ"
+    },
+    "_subsection_02h": "--- 外資系生命保険 ---",
+    "三菱UFJインフォメーションテクノロジー": {
+      "domains": [
+        "muit"
+      ],
+      "parent": "三菱UFJフィナンシャル・グループ"
+    },
+    "三菱UFJトラストシステム": {
+      "domains": [
+        "mutss"
+      ],
+      "parent": "三菱UFJフィナンシャル・グループ"
+    },
+    "三菱総研DCS": {
+      "domains": [
+        "dcs"
+      ],
+      "parent": "三菱UFJフィナンシャル・グループ"
+    },
+    "三菱UFJ国際投信": {
+      "domains": [
+        "am.mufg"
+      ],
+      "parent": "三菱UFJフィナンシャル・グループ"
+    },
+    "三井住友建設": {
+      "domains": [
+        "smcon"
+      ],
+      "parent": "三井住友フィナンシャルグループ"
+    },
+    "三井住友トラスト・アセットマネジメント": {
+      "domains": [
+        "smtam"
+      ],
+      "parent": "三井住友トラスト・ホールディングス"
+    },
+    "三井住友DSアセットマネジメント": {
+      "domains": [
+        "smd-am"
+      ],
+      "parent": "三井住友フィナンシャルグループ"
+    },
+    "みずほ情報総研": {
+      "domains": [
+        "mizuho-ir"
+      ],
+      "parent": "みずほフィナンシャルグループ"
+    },
+    "みずほファクター": {
+      "domains": [
+        "mizuho-factor"
+      ],
+      "parent": "みずほフィナンシャルグループ"
+    },
+    "大和アセットマネジメント": {
+      "domains": [
+        "daiwa-am"
+      ],
+      "parent": "大和証券"
+    },
+    "野村アセットマネジメント": {
+      "domains": [
+        "nomura-am"
+      ],
+      "parent": "野村ホールディングス"
+    },
+    "東京海上日動システムズ": {
+      "domains": [
+        "tmn-systems"
+      ],
+      "parent": "東京海上ホールディングス"
+    },
+    "東京海上日動あんしん生命": {
+      "domains": [
+        "tmn-anshin"
+      ],
+      "parent": "東京海上ホールディングス"
+    },
+    "損保ジャパンパートナーズ": {
+      "domains": [
+        "sompo-partners"
+      ],
+      "parent": "損害保険ジャパン"
+    },
+    "住友生命情報システム": {
+      "domains": [
+        "sumisei-is"
+      ],
+      "parent": "住友生命"
+    },
+    "_subsection_02i": "--- ネット損保・その他保険 ---",
+    "三菱UFJファクター": {
+      "domains": [
+        "mufg-factor"
+      ],
+      "parent": "三菱UFJフィナンシャル・グループ"
+    },
+    "三菱UFJアセットマネジメント": {
+      "domains": [
+        "mufg-am"
+      ],
+      "parent": "三菱UFJフィナンシャル・グループ"
+    },
+    "ジャパンデジタルデザイン": {
+      "domains": [
+        "japan-d2"
+      ],
+      "parent": "三菱UFJフィナンシャル・グループ"
+    },
+    "auカブコム証券": {
+      "domains": [
+        "kabu"
+      ],
+      "parent": "三菱UFJフィナンシャル・グループ"
+    },
+    "_subsection_02j": "--- 三井住友グループ追加子会社 ---",
+    "三井住友トラストクラブ": {
+      "domains": [
+        "smtc"
+      ],
+      "parent": "三井住友トラスト・ホールディングス"
+    },
+    "三井住友トラスト・ローン&ファイナンス": {
+      "domains": [
+        "smtlf",
+        "smtg",
+        "smtpfc",
+        "smtpfc-recruit"
+      ],
+      "parent": "三井住友トラスト・ホールディングス"
+    },
+    "日本カストディ銀行": [
+      "custody"
+    ],
+    "SMBCコンシューマーファイナンス": {
+      "domains": [
+        "promise"
+      ],
+      "parent": "三井住友フィナンシャルグループ"
+    },
+    "_subsection_02k": "--- みずほグループ追加子会社 ---",
+    "みずほキャピタル": {
+      "domains": [
+        "mizuho-cap"
+      ],
+      "parent": "みずほフィナンシャルグループ"
+    },
+    "みずほ信託銀行": {
+      "domains": [
+        "mizuho-tb"
+      ],
+      "parent": "みずほフィナンシャルグループ"
+    },
+    "みずほリース": {
+      "domains": [
+        "mizuho-lease"
+      ],
+      "parent": "みずほフィナンシャルグループ"
+    },
+    "みずほビジネスパートナー": {
+      "domains": [
+        "mizuho-bp"
+      ],
+      "parent": "みずほフィナンシャルグループ"
+    },
+    "_subsection_02n": "--- オリックスグループ子会社 ---",
+    "オリックス自動車": {
+      "domains": [
+        "orix-auto"
+      ],
+      "parent": "オリックス"
+    },
+    "オリックス・レンテック": {
+      "domains": [
+        "orix-rentec"
+      ],
+      "parent": "オリックス"
+    },
+    "オリックス不動産": {
+      "domains": [
+        "orix-realestate"
+      ],
+      "parent": "オリックス"
+    },
+    "オリックス銀行": {
+      "domains": [
+        "orixbank"
+      ],
+      "parent": "オリックス"
+    },
+    "オリックス・クレジット": {
+      "domains": [
+        "orix-credit"
+      ],
+      "parent": "オリックス"
+    },
+    "_subsection_02o": "--- 損保・生保グループ追加子会社 ---",
+    "東京海上ディーアール": {
+      "domains": [
+        "tokio-dr"
+      ],
+      "parent": "東京海上ホールディングス"
+    },
+    "三井住友海上あいおい生命": {
+      "domains": [
+        "msa-life"
+      ],
+      "parent": "三井住友海上火災保険"
+    },
+    "SOMPOシステムズ": {
+      "domains": [
+        "sompo-sys"
+      ],
+      "parent": "損害保険ジャパン"
+    },
+    "第一生命情報システム": {
+      "domains": [
+        "dlri"
+      ],
+      "parent": "第一生命"
+    },
+    "明治安田システム・テクノロジー": {
+      "domains": [
+        "mydc"
+      ],
+      "parent": "明治安田生命"
+    },
+    "MS&ADインシュアランスグループホールディングス": [
+      "msad-holdings"
+    ],
+    "MS&ADシステムズ": {
+      "domains": [
+        "msad-systems"
+      ],
+      "parent": "MS&ADインシュアランスグループホールディングス"
+    },
+    "東京海上日動調査サービス": {
+      "domains": [
+        "tmn-survey"
+      ],
+      "parent": "東京海上ホールディングス"
+    },
+    "損保ジャパン日本興亜ひまわり生命": {
+      "domains": [
+        "himawari-life"
+      ],
+      "parent": "損害保険ジャパン"
+    },
+    "_subsection_02p": "--- 野村グループ追加子会社 ---",
+    "野村システム開発": {
+      "domains": [
+        "nomura-sys"
+      ],
+      "parent": "野村ホールディングス"
+    },
+    "野村不動産アーバンネット": {
+      "domains": [
+        "nomura-un"
+      ],
+      "parent": "野村ホールディングス"
+    },
+    "野村資本市場研究所": {
+      "domains": [
+        "nicmr"
+      ],
+      "parent": "野村ホールディングス"
+    },
+    "野村信託銀行": {
+      "domains": [
+        "nomura-trust"
+      ],
+      "parent": "野村ホールディングス"
+    },
+    "野村ビジネスサービス": {
+      "domains": [
+        "nomura-bs"
+      ],
+      "parent": "野村ホールディングス"
+    },
+    "野村プロパティーズ": {
+      "domains": [
+        "nomura-properties"
+      ],
+      "parent": "野村ホールディングス"
+    },
+    "_subsection_02q": "--- 大和グループ追加子会社 ---",
+    "大和証券ビジネスセンター": {
+      "domains": [
+        "daiwa-dsc",
+        "daiwa-grp",
+        "daiwa-grp-recruit"
+      ],
+      "parent": "大和証券"
+    },
+    "大和ネクスト銀行": {
+      "domains": [
+        "bank-daiwa"
+      ],
+      "parent": "大和証券"
+    },
+    "大和証券グループ本社": [
+      "daiwa-grp-hd"
+    ],
+    "_subsection_02r": "--- 外資系金融（追加） ---",
+    "ブラックロック・ジャパン": [
+      "blackrock"
+    ],
+    "フィデリティ投信": [
+      "fidelity"
+    ],
+    "バークレイズ": [
+      "barclays"
+    ],
+    "ドイツ銀行": [
+      "db"
+    ],
+    "BNPパリバ": [
+      "bnpparibas"
+    ],
+    "ソシエテ・ジェネラル": [
+      "societegenerale"
+    ],
+    "HSBC": [
+      "hsbc"
+    ],
+    "スタンダードチャータード銀行": [
+      "sc"
+    ],
+    "ステート・ストリート": [
+      "statestreet"
+    ],
+    "ピムコ": [
+      "pimco"
+    ],
+    "バンガード": [
+      "vanguard"
+    ],
+    "アライアンス・バーンスタイン": [
+      "alliancebernstein"
+    ],
+    "アクサ生命": [
+      "axa",
+      "axa-direct"
+    ],
+    "チューリッヒ生命": [
+      "zurichlife"
+    ],
+    "プルデンシャル生命": [
+      "prudential"
+    ],
+    "ジブラルタ生命": [
+      "gib-life"
+    ],
+    "メットライフ生命": [
+      "metlife"
+    ],
+    "マニュライフ生命": [
+      "manulife"
+    ],
+    "ライフネット生命": [
+      "lifenet-seimei"
+    ],
+    "SBI損保": {
+      "domains": [
+        "sbisonpo"
+      ],
+      "parent": "SBIホールディングス"
+    },
+    "イーデザイン損保": [
+      "edsp"
+    ],
+    "三井住友海上プライマリー生命": [
+      "ms-primary"
+    ],
+    "東京海上日動キャリアサービス": {
+      "domains": [
+        "tmcs"
+      ],
+      "parent": "東京海上ホールディングス"
+    },
+    "損保ジャパンキャリアビューロー": {
+      "domains": [
+        "sompo-cb"
+      ],
+      "parent": "損害保険ジャパン"
+    },
+    "_subsection_02s": "--- 金融追加（人気企業100）---",
+    "ニッセイ情報テクノロジー": {
+      "domains": [
+        "nissay-it"
+      ],
+      "parent": "日本生命"
+    },
+    "日本マスタートラスト信託銀行": [
+      "mtbj"
+    ],
+    "T&Dホールディングス": [
+      "td-holdings"
+    ],
+    "全国保証": [
+      "zenshinhosho"
+    ],
+    "日本証券金融": [
+      "jsf"
+    ],
+    "マネックスグループ": [
+      "monex"
+    ],
+    "松井証券": [
+      "matsui"
+    ],
+    "SBIホールディングス": [
+      "sbih"
+    ],
+    "GMOフィナンシャルホールディングス": [
+      "gmo-fh",
+      "gmofh",
+      "gmo-fg"
+    ],
+    "東京短資": [
+      "tokyotanshi"
+    ],
+    "日本取引所グループ子会社追加": [
+      "jpx-sub"
+    ],
+    "資産管理サービス信託銀行": [
+      "tcsb",
+      "mastertrust"
+    ],
+    "_section_03": "=== コンサルティング ===",
+    "_subsection_03a": "--- 戦略コンサルティング ---",
+    "アクセンチュア": [
+      "accenture"
+    ],
+    "マッキンゼー": [
+      "mckinsey"
+    ],
+    "BCG": [
+      "bcg"
+    ],
+    "ベイン・アンド・カンパニー": [
+      "bain"
+    ],
+    "_subsection_03b": "--- 総合コンサルティング（Big4） ---",
+    "PwC": [
+      "pwc"
+    ],
+    "デロイト": [
+      "deloitte"
+    ],
+    "EY": [
+      "ey"
+    ],
+    "KPMG": [
+      "kpmg"
+    ],
+    "_subsection_03c": "--- 日系コンサルティング ---",
+    "アビームコンサルティング": [
+      "abeam"
+    ],
+    "シグマクシス": [
+      "sigmaxyz"
+    ],
+    "ベイカレント": [
+      "baycurrent"
+    ],
+    "クニエ": [
+      "qunie"
+    ],
+    "経営共創基盤": [
+      "igpi"
+    ],
+    "ドリームインキュベータ": [
+      "dreamincubator"
+    ],
+    "リンクアンドモチベーション": [
+      "lmi"
+    ],
+    "_subsection_03e": "--- 戦略コンサル（追加） ---",
+    "A.T.カーニー": [
+      "atkearney",
+      "kearney"
+    ],
+    "ローランド・ベルガー": [
+      "rolandberger"
+    ],
+    "アーサー・D・リトル": [
+      "adlittle"
+    ],
+    "_subsection_03d": "--- シンクタンク ---",
+    "野村総合研究所": [
+      "nri"
+    ],
+    "三菱総合研究所": [
+      "mri"
+    ],
+    "日本総合研究所": [
+      "jri"
+    ],
+    "大和総研": [
+      "dir"
+    ],
+    "三菱UFJリサーチ&コンサルティング": [
+      "murc"
+    ],
+    "みずほリサーチ&テクノロジーズ": [
+      "mizuho-rt"
+    ],
+    "NTTデータ経営研究所": {
+      "domains": [
+        "nttdata-strategy"
+      ],
+      "parent": "NTTデータ"
+    },
+    "_subsection_03f": "--- 外資系コンサル（追加） ---",
+    "オリバー・ワイマン": [
+      "oliverwyman"
+    ],
+    "L.E.K.コンサルティング": [
+      "lek"
+    ],
+    "マーサージャパン": [
+      "mercer"
+    ],
+    "ウィリス・タワーズワトソン": [
+      "wtwco",
+      "willistowerswatson"
+    ],
+    "コーン・フェリー": [
+      "kornferry"
+    ],
+    "スペンサースチュアート": [
+      "spencerstuart"
+    ],
+    "エゴンゼンダー": [
+      "egonzehnder"
+    ],
+    "ラッセル・レイノルズ": [
+      "russellreynolds"
+    ],
+    "_section_04": "=== IT・通信 ===",
+    "NTT": [
+      "ntt",
+      "ntt-group"
+    ],
+    "NTTデータ": {
+      "domains": [
+        "nttdata"
+      ],
+      "parent": "NTT"
+    },
+    "NTTドコモ": {
+      "domains": [
+        "docomo",
+        "nttdocomo"
+      ],
+      "parent": "NTT"
+    },
+    "NTTコミュニケーションズ": {
+      "domains": [
+        "ntt.com"
+      ],
+      "parent": "NTT"
+    },
+    "KDDI": [
+      "kddi"
+    ],
+    "ソフトバンク": [
+      "softbank"
+    ],
+    "ソフトバンクグループ": [
+      "softbank-group"
+    ],
+    "楽天グループ": [
+      "rakuten",
+      "rakuten-group"
+    ],
+    "サイバーエージェント": [
+      "cyberagent"
+    ],
+    "DeNA": [
+      "dena"
+    ],
+    "グリー": [
+      "gree"
+    ],
+    "メルカリ": [
+      "mercari"
+    ],
+    "LINE": [
+      "linecorp"
+    ],
+    "ヤフー": [
+      "yahoo"
+    ],
+    "Zホールディングス": [
+      "z-holdings"
+    ],
+    "Google": [
+      "google"
+    ],
+    "Amazon": [
+      "amazon"
+    ],
+    "Apple": [
+      "apple"
+    ],
+    "Microsoft": [
+      "microsoft"
+    ],
+    "Meta": [
+      "meta"
+    ],
+    "富士通": [
+      "fujitsu"
+    ],
+    "NEC": [
+      "nec"
+    ],
+    "_subsection_04b": "--- SIer ---",
+    "SCSK": [
+      "scsk"
+    ],
+    "TIS": [
+      "tis"
+    ],
+    "NTTコムウェア": {
+      "domains": [
+        "nttcom",
+        "ntt-comware"
+      ],
+      "parent": "NTT"
+    },
+    "富士ソフト": [
+      "fsi"
+    ],
+    "オービック": [
+      "obic"
+    ],
+    "BIPROGY": [
+      "biprogy"
+    ],
+    "_subsection_04c": "--- NTTグループ ---",
+    "NTT東日本": {
+      "domains": [
+        "ntt-east"
+      ],
+      "parent": "NTT"
+    },
+    "NTT西日本": {
+      "domains": [
+        "ntt-west"
+      ],
+      "parent": "NTT"
+    },
+    "NTTファシリティーズ": {
+      "domains": [
+        "ntt-f"
+      ],
+      "parent": "NTT"
+    },
+    "NTTアドバンステクノロジ": {
+      "domains": [
+        "ntt-at"
+      ],
+      "parent": "NTT"
+    },
+    "NTT都市開発": {
+      "domains": [
+        "nttud"
+      ],
+      "parent": "NTT"
+    },
+    "NTTアーバンソリューションズ": {
+      "domains": [
+        "ntt-us"
+      ],
+      "parent": "NTT"
+    },
+    "NTTビジネスソリューションズ": {
+      "domains": [
+        "nttbizsol"
+      ],
+      "parent": "NTT"
+    },
+    "NTTテクノクロス": {
+      "domains": [
+        "ntt-tx"
+      ],
+      "parent": "NTT"
+    },
+    "NTTビジネスアソシエ": {
+      "domains": [
+        "nttba"
+      ],
+      "parent": "NTT"
+    },
+    "NTTファイナンス": {
+      "domains": [
+        "ntt-finance"
+      ],
+      "parent": "NTT"
+    },
+    "NTTアノードエナジー": {
+      "domains": [
+        "ntt-ae"
+      ],
+      "parent": "NTT"
+    },
+    "NTT ExCパートナー": {
+      "domains": [
+        "nttexc"
+      ],
+      "parent": "NTT"
+    },
+    "NTTセキュリティ": {
+      "domains": [
+        "nttsecurity"
+      ],
+      "parent": "NTT"
+    },
+    "NTTネクシア": {
+      "domains": [
+        "ntt-nexia"
+      ],
+      "parent": "NTT"
+    },
+    "_subsection_04d": "--- 外資系IT ---",
+    "日本IBM": [
+      "ibm"
+    ],
+    "日本オラクル": [
+      "oracle"
+    ],
+    "セールスフォース・ジャパン": [
+      "salesforce"
+    ],
+    "SAPジャパン": [
+      "sap"
+    ],
+    "アドビ": [
+      "adobe"
+    ],
+    "インテル": [
+      "intel"
+    ],
+    "シスコシステムズ": [
+      "cisco"
+    ],
+    "デル・テクノロジーズ": [
+      "dell"
+    ],
+    "日本HP": [
+      "hp"
+    ],
+    "AWS": [
+      "aws.amazon"
+    ],
+    "_subsection_04e": "--- スタートアップ・SaaS ---",
+    "LINEヤフー": [
+      "lycorp"
+    ],
+    "PayPay": [
+      "paypay"
+    ],
+    "ZOZO": [
+      "zozo"
+    ],
+    "freee": [
+      "freee"
+    ],
+    "マネーフォワード": [
+      "moneyforward"
+    ],
+    "Sansan": [
+      "sansan"
+    ],
+    "SmartHR": [
+      "smarthr"
+    ],
+    "Preferred Networks": [
+      "preferred"
+    ],
+    "PKSHA Technology": [
+      "pkshatech"
+    ],
+    "ラクスル": [
+      "raksul"
+    ],
+    "_subsection_04f": "--- IT・SIer（追加） ---",
+    "大塚商会": [
+      "otsuka-shokai"
+    ],
+    "ネットワンシステムズ": [
+      "netone"
+    ],
+    "日鉄ソリューションズ": [
+      "nssol"
+    ],
+    "インフォコム": [
+      "infocom"
+    ],
+    "ユニアデックス": [
+      "uniadex"
+    ],
+    "伊藤忠テクノソリューションズ": [
+      "ctc-g"
+    ],
+    "電通国際情報サービス": {
+      "domains": [
+        "isid"
+      ],
+      "parent": "電通グループ"
+    },
+    "JBCCホールディングス": [
+      "jbcc"
+    ],
+    "DTS": [
+      "dts"
+    ],
+    "システナ": [
+      "systena"
+    ],
+    "_subsection_04g": "--- 人気IT・SIer追加 ---",
+    "NTTデータMSE": {
+      "domains": [
+        "nttdata-mse",
+        "nttdmse"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータ関西": {
+      "domains": [
+        "nttdata-kansai"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータCCS": {
+      "domains": [
+        "nttdata-ccs"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータ先端技術": {
+      "domains": [
+        "intellilink"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータビジネスシステムズ": {
+      "domains": [
+        "nttdata-bizsys"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータフィナンシャルテクノロジー": {
+      "domains": [
+        "nttdata-ft",
+        "nttdft"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータ・スマートソーシング": {
+      "domains": [
+        "nttdata-smart"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータSBC": {
+      "domains": [
+        "nttdata-sbc"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータフォース": {
+      "domains": [
+        "nttdata-force"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータインフォメーションテクノロジー": {
+      "domains": [
+        "nttdata-it"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータフロンティア": {
+      "domains": [
+        "nttd-fr",
+        "nttdata-frontier"
+      ],
+      "parent": "NTTデータ"
+    },
+    "_subsection_04h": "--- NECグループ子会社 ---",
+    "NECマネジメントパートナー": {
+      "domains": [
+        "nec-mp"
+      ],
+      "parent": "NEC"
+    },
+    "NECプラットフォームズ": {
+      "domains": [
+        "nec-platforms"
+      ],
+      "parent": "NEC"
+    },
+    "NECフィールディング": {
+      "domains": [
+        "fielding"
+      ],
+      "parent": "NEC"
+    },
+    "NECキャピタルソリューション": {
+      "domains": [
+        "necap"
+      ],
+      "parent": "NEC"
+    },
+    "NECマグナスコミュニケーションズ": {
+      "domains": [
+        "nec-magnus"
+      ],
+      "parent": "NEC"
+    },
+    "NEC通信システム": {
+      "domains": [
+        "ncos"
+      ],
+      "parent": "NEC"
+    },
+    "日本電気航空宇宙システム": {
+      "domains": [
+        "nec-aero"
+      ],
+      "parent": "NEC"
+    },
+    "NECディスプレイソリューションズ": {
+      "domains": [
+        "nec-display"
+      ],
+      "parent": "NEC"
+    },
+    "日本航空電子工業": {
+      "domains": [
+        "jae"
+      ],
+      "parent": "NEC"
+    },
+    "NECファシリティーズ": {
+      "domains": [
+        "necf"
+      ],
+      "parent": "NEC"
+    },
+    "NECビジネスインテリジェンス": {
+      "domains": [
+        "necbi"
+      ],
+      "parent": "NEC"
+    },
+    "NECセキュリティ": {
+      "domains": [
+        "nec-security"
+      ],
+      "parent": "NEC"
+    },
+    "_subsection_04i": "--- 富士通グループ子会社 ---",
+    "富士通Japan": {
+      "domains": [
+        "fujitsu-japan"
+      ],
+      "parent": "富士通"
+    },
+    "富士通エフサス": {
+      "domains": [
+        "fujitsu-fsas",
+        "fsastech"
+      ],
+      "parent": "富士通"
+    },
+    "富士通コミュニケーションサービス": {
+      "domains": [
+        "fujitsu-csl"
+      ],
+      "parent": "富士通"
+    },
+    "富士通クラウドテクノロジーズ": {
+      "domains": [
+        "fujitsu-cloud"
+      ],
+      "parent": "富士通"
+    },
+    "富士通ネットワークソリューションズ": {
+      "domains": [
+        "fnets"
+      ],
+      "parent": "富士通"
+    },
+    "富士通ディフェンスシステムエンジニアリング": {
+      "domains": [
+        "fujitsu-dse"
+      ],
+      "parent": "富士通"
+    },
+    "富士通ラーニングメディア": {
+      "domains": [
+        "fujitsu-learning"
+      ],
+      "parent": "富士通"
+    },
+    "富士通エフ・アイ・ピー": {
+      "domains": [
+        "fujitsu-fip",
+        "fujitsu"
+      ],
+      "parent": "富士通"
+    },
+    "富士通ゼネラル": {
+      "domains": [
+        "fujitsu-general"
+      ],
+      "parent": "富士通"
+    },
+    "富士通コンポーネント": {
+      "domains": [
+        "fcl"
+      ],
+      "parent": "富士通"
+    },
+    "富士通アドバンストエンジニアリング": {
+      "domains": [
+        "fae"
+      ],
+      "parent": "富士通"
+    },
+    "富士通総研": {
+      "domains": [
+        "fri",
+        "fujitsu"
+      ],
+      "parent": "富士通"
+    },
+    "富士通フロンテック": {
+      "domains": [
+        "frontech"
+      ],
+      "parent": "富士通"
+    },
+    "_subsection_04j": "--- KDDIグループ子会社 ---",
+    "KDDIエンジニアリング": {
+      "domains": [
+        "kddi-eng"
+      ],
+      "parent": "KDDI"
+    },
+    "KDDIまとめてオフィス": {
+      "domains": [
+        "kddi-matomete",
+        "kddimatomete"
+      ],
+      "parent": "KDDI"
+    },
+    "auフィナンシャルサービス": {
+      "domains": [
+        "au-financial"
+      ],
+      "parent": "KDDI"
+    },
+    "BIGLOBE": {
+      "domains": [
+        "biglobe"
+      ],
+      "parent": "KDDI"
+    },
+    "UQコミュニケーションズ": {
+      "domains": [
+        "uqwimax"
+      ],
+      "parent": "KDDI"
+    },
+    "KDDIウェブコミュニケーションズ": {
+      "domains": [
+        "kddi-web"
+      ],
+      "parent": "KDDI"
+    },
+    "_subsection_04k": "--- ソフトバンクグループ子会社 ---",
+    "SBテクノロジー": {
+      "domains": [
+        "softbanktech"
+      ],
+      "parent": "ソフトバンクグループ"
+    },
+    "SBペイメントサービス": {
+      "domains": [
+        "sbpayment"
+      ],
+      "parent": "ソフトバンクグループ"
+    },
+    "ソフトバンクロボティクス": {
+      "domains": [
+        "softbankrobotics"
+      ],
+      "parent": "ソフトバンクグループ"
+    },
+    "ワイモバイル": {
+      "domains": [
+        "ymobile"
+      ],
+      "parent": "ソフトバンクグループ"
+    },
+    "SBクラウド": {
+      "domains": [
+        "sbcloud"
+      ],
+      "parent": "ソフトバンクグループ"
+    },
+    "_subsection_04l": "--- 楽天グループ子会社 ---",
+    "楽天カード": {
+      "domains": [
+        "rakuten-card"
+      ],
+      "parent": "楽天グループ"
+    },
+    "楽天モバイル": {
+      "domains": [
+        "rakuten-mobile",
+        "mobile.rakuten"
+      ],
+      "parent": "楽天グループ"
+    },
+    "楽天証券": {
+      "domains": [
+        "rakuten-sec"
+      ],
+      "parent": "楽天グループ"
+    },
+    "楽天Edy": {
+      "domains": [
+        "edy"
+      ],
+      "parent": "楽天グループ"
+    },
+    "楽天ペイメント": {
+      "domains": [
+        "payment.rakuten"
+      ],
+      "parent": "楽天グループ"
+    },
+    "_subsection_04m": "--- SaaS・クラウドサービス ---",
+    "ラクス": [
+      "rakus"
+    ],
+    "サイボウズ": [
+      "cybozu"
+    ],
+    "カオナビ": [
+      "kaonavi"
+    ],
+    "チームスピリット": [
+      "teamspirit"
+    ],
+    "プラスアルファ・コンサルティング": [
+      "pa-consul"
+    ],
+    "Chatwork": [
+      "chatwork"
+    ],
+    "インフォマート": [
+      "infomart"
+    ],
+    "ヤプリ": [
+      "yappli"
+    ],
+    "HENNGE": [
+      "hennge"
+    ],
+    "スマレジ": [
+      "smaregi"
+    ],
+    "ユーザベース": [
+      "uzabase"
+    ],
+    "Wantedly": [
+      "wantedly"
+    ],
+    "_subsection_04n": "--- フィンテック・決済 ---",
+    "ウェルスナビ": [
+      "wealthnavi"
+    ],
+    "Paidy": [
+      "paidy"
+    ],
+    "bitFlyer": [
+      "bitflyer"
+    ],
+    "Coincheck": [
+      "coincheck"
+    ],
+    "OLTA": [
+      "olta"
+    ],
+    "マネーツリー": [
+      "moneytree",
+      "getmoneytree"
+    ],
+    "BASE": [
+      "thebase"
+    ],
+    "STORES": [
+      "stores"
+    ],
+    "Kyash": [
+      "kyash"
+    ],
+    "GMOペイメントゲートウェイ": [
+      "gmo-pg"
+    ],
+    "_subsection_04o": "--- HRテック・人材サービス ---",
+    "HERP": [
+      "herp"
+    ],
+    "ワンキャリア": [
+      "onecareer"
+    ],
+    "スローガン": [
+      "slogan"
+    ],
+    "Visional": [
+      "visional"
+    ],
+    "ネオキャリア": [
+      "neo-career"
+    ],
+    "レバレジーズ": [
+      "leverages"
+    ],
+    "LAPRAS": [
+      "lapras"
+    ],
+    "Green": [
+      "green-japan"
+    ],
+    "_subsection_04p": "--- AI・テクノロジー ---",
+    "エクサウィザーズ": [
+      "exawizards"
+    ],
+    "ABEJA": [
+      "abeja"
+    ],
+    "アイデミー": [
+      "aidemy"
+    ],
+    "RevComm": [
+      "revcomm"
+    ],
+    "ストックマーク": [
+      "stockmark"
+    ],
+    "Cogent Labs": [
+      "cogent"
+    ],
+    "LeapMind": [
+      "leapmind"
+    ],
+    "AI inside": [
+      "inside.ai"
+    ],
+    "_subsection_04q": "--- バーティカルSaaS ---",
+    "LayerX": [
+      "layerx"
+    ],
+    "Ubie": [
+      "ubie"
+    ],
+    "カケハシ": [
+      "kakehashi"
+    ],
+    "アンドパッド": [
+      "andpad"
+    ],
+    "hacomono": [
+      "hacomono"
+    ],
+    "スタディスト": [
+      "studist"
+    ],
+    "オープンロジ": [
+      "openlogi"
+    ],
+    "_subsection_04r": "--- マーケティング・広告テック ---",
+    "プレイド": [
+      "plaid"
+    ],
+    "Repro": [
+      "repro"
+    ],
+    "フリークアウト": [
+      "freakout"
+    ],
+    "ログリー": [
+      "logly"
+    ],
+    "アイレップ": [
+      "irep"
+    ],
+    "_subsection_04s": "--- D2C・EC・メディア ---",
+    "note": [
+      "note"
+    ],
+    "Voicy": [
+      "voicy"
+    ],
+    "スペースマーケット": [
+      "spacemarket"
+    ],
+    "クラシコム": [
+      "kurashicom",
+      "kurashi",
+      "hokuohkurashi"
+    ],
+    "Anycolor": [
+      "anycolor"
+    ],
+    "_subsection_04t": "--- IT・SIer（追加） ---",
+    "日本タタ・コンサルタンシー・サービシズ": [
+      "tcs-japan"
+    ],
+    "インフォシス": [
+      "infosys"
+    ],
+    "ウィプロ": [
+      "wipro"
+    ],
+    "コグニザントジャパン": [
+      "cognizant"
+    ],
+    "NTTデータアイ": {
+      "domains": [
+        "nttdata-i",
+        "nttd-i",
+        "nttd-i-saiyo"
+      ],
+      "parent": "NTTデータ"
+    },
+    "SCSKサービスウェア": {
+      "domains": [
+        "scsk-sw"
+      ],
+      "parent": "SCSK"
+    },
+    "インテック": [
+      "intec"
+    ],
+    "CAC": [
+      "cac"
+    ],
+    "日本ビジネスシステムズ": [
+      "jbs"
+    ],
+    "アイネット": [
+      "inet"
+    ],
+    "NSW": [
+      "nsw"
+    ],
+    "シーイーシー": [
+      "cec-ltd"
+    ],
+    "Sky": [
+      "skygroup"
+    ],
+    "SHIFT": [
+      "shiftinc"
+    ],
+    "ワークスアプリケーションズ": [
+      "worksap"
+    ],
+    "オプト": [
+      "opt"
+    ],
+    "TDCソフト": [
+      "tdc"
+    ],
+    "コア": [
+      "core-net"
+    ],
+    "クレスコ": [
+      "cresco"
+    ],
+    "JIEC": [
+      "jiec"
+    ],
+    "ラック": [
+      "lac"
+    ],
+    "アイ・エス・ビー": [
+      "isb"
+    ],
+    "ソルクシーズ": [
+      "solxyz"
+    ],
+    "フューチャー": [
+      "future"
+    ],
+    "_subsection_04u": "--- NRI・シンクタンクグループ子会社 ---",
+    "NRIセキュアテクノロジーズ": {
+      "domains": [
+        "nri-secure"
+      ],
+      "parent": "野村総合研究所"
+    },
+    "NRIネットコム": {
+      "domains": [
+        "nri-net"
+      ],
+      "parent": "野村総合研究所"
+    },
+    "NRIデータiテック": {
+      "domains": [
+        "nri-dit",
+        "n-itech"
+      ],
+      "parent": "野村総合研究所"
+    },
+    "NRIワークプレイスサービス": {
+      "domains": [
+        "nri-wps"
+      ],
+      "parent": "野村総合研究所"
+    },
+    "_subsection_04v": "--- IT人気企業追加（スタートアップ・SaaS）---",
+    "スマートニュース": [
+      "smartnews"
+    ],
+    "ビットキー": [
+      "bitkey"
+    ],
+    "Retty": [
+      "retty"
+    ],
+    "Speee": [
+      "speee"
+    ],
+    "ベルシステム24": [
+      "bell24"
+    ],
+    "トランスコスモス": [
+      "trans-cosmos"
+    ],
+    "GMOインターネットグループ": [
+      "gmo"
+    ],
+    "DMM.com": [
+      "dmm"
+    ],
+    "クラウドワークス": [
+      "crowdworks"
+    ],
+    "ランサーズ": [
+      "lancers"
+    ],
+    "UUUM": [
+      "uuum"
+    ],
+    "マクロミル": [
+      "macromill"
+    ],
+    "_subsection_04w": "--- IT子会社追加 ---",
+    "パーソルプロセス&テクノロジー": {
+      "domains": [
+        "persol-pt"
+      ],
+      "parent": "パーソル"
+    },
+    "CTCテクノロジー": {
+      "domains": [
+        "ctct"
+      ],
+      "parent": "伊藤忠テクノソリューションズ"
+    },
+    "ネットワンパートナーズ": {
+      "domains": [
+        "netone-partners"
+      ],
+      "parent": "ネットワンシステムズ"
+    },
+    "ラクスパートナーズ": {
+      "domains": [
+        "rakus-partners"
+      ],
+      "parent": "ラクス"
+    },
+    "_section_05": "=== メーカー（電機・機械） ===",
+    "_subsection_05a": "--- 自動車 ---",
+    "トヨタ自動車": [
+      "toyota",
+      "toyota-recruit"
+    ],
+    "本田技研工業": [
+      "honda"
+    ],
+    "日産自動車": [
+      "nissan"
+    ],
+    "マツダ": [
+      "mazda"
+    ],
+    "SUBARU": [
+      "subaru"
+    ],
+    "スズキ": [
+      "suzuki"
+    ],
+    "_subsection_05b": "--- 自動車部品 ---",
+    "デンソー": [
+      "denso"
+    ],
+    "アイシン": [
+      "aisin"
+    ],
+    "豊田自動織機": {
+      "domains": [
+        "toyota-shokki"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "トヨタ紡織": {
+      "domains": [
+        "toyota-boshoku"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "豊田合成": {
+      "domains": [
+        "toyoda-gosei"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "ジェイテクト": [
+      "jtekt"
+    ],
+    "トヨタ車体": {
+      "domains": [
+        "toyota-body"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "_subsection_05d": "--- 自動車（追加） ---",
+    "日野自動車": [
+      "hino"
+    ],
+    "ダイハツ工業": [
+      "daihatsu"
+    ],
+    "ヤマハ発動機": [
+      "yamaha-motor"
+    ],
+    "いすゞ自動車": [
+      "isuzu"
+    ],
+    "_subsection_05j": "--- 自動車部品（追加） ---",
+    "小糸製作所": [
+      "koito"
+    ],
+    "スタンレー電気": [
+      "stanley"
+    ],
+    "NOK": [
+      "nok"
+    ],
+    "NTN": [
+      "ntn"
+    ],
+    "日本精工": [
+      "jp.nsk",
+      "nsk"
+    ],
+    "ミネベアミツミ": [
+      "minebeamitsumi"
+    ],
+    "矢崎総業": [
+      "yazaki"
+    ],
+    "住友電装": [
+      "sws"
+    ],
+    "フタバ産業": [
+      "futaba"
+    ],
+    "ユニプレス": [
+      "unipres"
+    ],
+    "プレス工業": [
+      "presskogyo"
+    ],
+    "_subsection_05q": "--- トヨタグループ子会社 ---",
+    "トヨタファイナンス": {
+      "domains": [
+        "toyota-finance"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "トヨタモビリティサービス": {
+      "domains": [
+        "toyota-ms",
+        "toyotamobility",
+        "recruit-toyota-mobi"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "トヨタシステムズ": {
+      "domains": [
+        "toyotasystems"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "トヨタコネクティッド": {
+      "domains": [
+        "toyotaconnected"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "トヨタモビリティ東京": {
+      "domains": [
+        "toyota-mobi-tokyo"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "トヨタエンタプライズ": {
+      "domains": [
+        "toyota-ent"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "トヨタテクニカルディベロップメント": {
+      "domains": [
+        "ttdc"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "トヨタホーム": {
+      "domains": [
+        "toyotahome"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "_subsection_05qa": "--- ホンダグループ子会社 ---",
+    "本田技術研究所": {
+      "domains": [
+        "rd.honda"
+      ],
+      "parent": "本田技研工業"
+    },
+    "ホンダトレーディング": {
+      "domains": [
+        "hondatrading"
+      ],
+      "parent": "本田技研工業"
+    },
+    "ホンダファイナンス": {
+      "domains": [
+        "honda-fs"
+      ],
+      "parent": "本田技研工業"
+    },
+    "ホンダ開発": {
+      "domains": [
+        "honda-kaihatsu"
+      ],
+      "parent": "本田技研工業"
+    },
+    "ホンダアクセス": {
+      "domains": [
+        "honda-access"
+      ],
+      "parent": "本田技研工業"
+    },
+    "ホンダモビリティソリューションズ": {
+      "domains": [
+        "honda-ms"
+      ],
+      "parent": "本田技研工業"
+    },
+    "八千代工業": {
+      "domains": [
+        "yachiyo-ind"
+      ],
+      "parent": "本田技研工業"
+    },
+    "ユタカ技研": {
+      "domains": [
+        "yutakagiken"
+      ],
+      "parent": "本田技研工業"
+    },
+    "_subsection_05qb": "--- 日産グループ子会社 ---",
+    "ニッサン・モータースポーツ・インターナショナル": {
+      "domains": [
+        "nismo"
+      ],
+      "parent": "日産自動車"
+    },
+    "オーテックジャパン": {
+      "domains": [
+        "autech"
+      ],
+      "parent": "日産自動車"
+    },
+    "日産フィナンシャルサービス": {
+      "domains": [
+        "nissan-fs"
+      ],
+      "parent": "日産自動車"
+    },
+    "日産オートモーティブテクノロジー": {
+      "domains": [
+        "nissan-at"
+      ],
+      "parent": "日産自動車"
+    },
+    "日産トレーデイング": {
+      "domains": [
+        "nissantrading",
+        "nitco"
+      ],
+      "parent": "日産自動車"
+    },
+    "ジヤトコ": {
+      "domains": [
+        "jatco"
+      ],
+      "parent": "日産自動車"
+    },
+    "マレリ": {
+      "domains": [
+        "marelli"
+      ],
+      "parent": "日産自動車"
+    },
+    "愛知機械工業": {
+      "domains": [
+        "aichi-machine"
+      ],
+      "parent": "日産自動車"
+    },
+    "_subsection_05qc": "--- SUBARUグループ子会社 ---",
+    "スバルテクニカインターナショナル": {
+      "domains": [
+        "sti"
+      ],
+      "parent": "SUBARU"
+    },
+    "スバル興産": {
+      "domains": [
+        "subaru-kosan"
+      ],
+      "parent": "SUBARU"
+    },
+    "富士機械": {
+      "domains": [
+        "fuji-machinery"
+      ],
+      "parent": "SUBARU"
+    },
+    "桐生工業": {
+      "domains": [
+        "kiryu"
+      ],
+      "parent": "SUBARU"
+    },
+    "イチタン": {
+      "domains": [
+        "ichitan"
+      ],
+      "parent": "SUBARU"
+    },
+    "_subsection_05qd": "--- マツダグループ子会社 ---",
+    "マツダE&T": {
+      "domains": [
+        "mazda-et",
+        "mazda-eandt"
+      ],
+      "parent": "マツダ"
+    },
+    "倉敷化工": {
+      "domains": [
+        "kurashiki-kako"
+      ],
+      "parent": "マツダ"
+    },
+    "マツダロジスティクス": {
+      "domains": [
+        "mazda-logi"
+      ],
+      "parent": "マツダ"
+    },
+    "マツダエース": {
+      "domains": [
+        "mazda-ace",
+        "mazdaace"
+      ],
+      "parent": "マツダ"
+    },
+    "_subsection_05qe": "--- スズキグループ子会社 ---",
+    "スズキファイナンス": {
+      "domains": [
+        "suzuki-finance"
+      ],
+      "parent": "スズキ"
+    },
+    "浜松パイプ": {
+      "domains": [
+        "hamamatsu-pipe"
+      ],
+      "parent": "スズキ"
+    },
+    "スズキ部品製造": {
+      "domains": [
+        "suzuki-buhin"
+      ],
+      "parent": "スズキ"
+    },
+    "スズキエンジニアリング": {
+      "domains": [
+        "suzuki-eng"
+      ],
+      "parent": "スズキ"
+    },
+    "_subsection_05c": "--- 電機・重工 ---",
+    "ソニーグループ": [
+      "sony",
+      "sony-group"
+    ],
+    "パナソニックホールディングス": [
+      "holdings.panasonic",
+      "panasonic-hd"
+    ],
+    "パナソニック": [
+      "panasonic"
+    ],
+    "日立製作所": [
+      "hitachi"
+    ],
+    "三菱電機": [
+      "mitsubishielectric"
+    ],
+    "住友電気工業": [
+      "sei"
+    ],
+    "東芝": [
+      "toshiba"
+    ],
+    "キヤノン": [
+      "canon"
+    ],
+    "三菱重工業": [
+      "mhi"
+    ],
+    "川崎重工業": [
+      "khi"
+    ],
+    "IHI": [
+      "ihi"
+    ],
+    "日本製鉄": [
+      "nipponsteel"
+    ],
+    "JFEスチール": [
+      "jfe"
+    ],
+    "住友金属鉱山": [
+      "smm.co.jp"
+    ],
+    "旭化成": [
+      "asahi-kasei"
+    ],
+    "三菱ケミカル": [
+      "m-chemical"
+    ],
+    "住友化学": [
+      "sumitomo-chem"
+    ],
+    "信越化学": [
+      "shinetsu"
+    ],
+    "東レ": [
+      "toray"
+    ],
+    "帝人": [
+      "teijin"
+    ],
+    "クラレ": [
+      "kuraray"
+    ],
+    "王子製紙": [
+      "ojiholdings"
+    ],
+    "日本製紙": [
+      "nipponpapergroup"
+    ],
+    "AGC": [
+      "agc"
+    ],
+    "日本ガイシ": [
+      "ngk"
+    ],
+    "TOTO": [
+      "toto"
+    ],
+    "LIXIL": [
+      "lixil"
+    ],
+    "富士フイルム": [
+      "fujifilm"
+    ],
+    "オムロン": [
+      "omron"
+    ],
+    "キーエンス": [
+      "keyence"
+    ],
+    "村田製作所": [
+      "murata"
+    ],
+    "TDK": [
+      "tdk"
+    ],
+    "京セラ": [
+      "kyocera"
+    ],
+    "ローム": [
+      "rohm"
+    ],
+    "ルネサス": [
+      "renesas"
+    ],
+    "東京エレクトロン": [
+      "tel"
+    ],
+    "SCREEN": [
+      "screen"
+    ],
+    "ディスコ": [
+      "disco"
+    ],
+    "アドバンテスト": [
+      "advantest"
+    ],
+    "ファナック": [
+      "fanuc"
+    ],
+    "SMC": [
+      "smcworld",
+      "smc"
+    ],
+    "ダイキン": [
+      "daikin"
+    ],
+    "_subsection_05e": "--- 電機・重工系子会社 ---",
+    "日立システムズ": {
+      "domains": [
+        "hitachi-systems"
+      ],
+      "parent": "日立製作所"
+    },
+    "日立ソリューションズ": {
+      "domains": [
+        "hitachi-solutions"
+      ],
+      "parent": "日立製作所"
+    },
+    "日立ハイテク": {
+      "domains": [
+        "hitachi-hightech"
+      ],
+      "parent": "日立製作所"
+    },
+    "パナソニックコネクト": {
+      "domains": [
+        "connect.panasonic"
+      ],
+      "parent": "パナソニック"
+    },
+    "ソニーセミコンダクタソリューションズ": {
+      "domains": [
+        "sony-semicon"
+      ],
+      "parent": "ソニーグループ"
+    },
+    "東芝デジタルソリューションズ": {
+      "domains": [
+        "toshiba-sol"
+      ],
+      "parent": "東芝"
+    },
+    "NECソリューションイノベータ": {
+      "domains": [
+        "nec-solutioninnovators"
+      ],
+      "parent": "NEC"
+    },
+    "NECネッツエスアイ": {
+      "domains": [
+        "nesic"
+      ],
+      "parent": "NEC"
+    },
+    "三菱電機インフォメーションシステムズ": {
+      "domains": [
+        "mdis"
+      ],
+      "parent": "三菱電機"
+    },
+    "三菱電機ビルソリューションズ": {
+      "domains": [
+        "meltec",
+        "mebs"
+      ],
+      "parent": "三菱電機"
+    },
+    "_subsection_05m": "--- 日立グループ子会社 ---",
+    "日立Astemo": {
+      "domains": [
+        "astemo"
+      ],
+      "parent": "日立製作所"
+    },
+    "日立社会情報サービス": {
+      "domains": [
+        "hitachi-sis"
+      ],
+      "parent": "日立製作所"
+    },
+    "日立産業制御ソリューションズ": {
+      "domains": [
+        "hitachi-ics"
+      ],
+      "parent": "日立製作所"
+    },
+    "日立チャネルソリューションズ": {
+      "domains": [
+        "hitachi-ch"
+      ],
+      "parent": "日立製作所"
+    },
+    "日立プラントサービス": {
+      "domains": [
+        "hitachi-hps"
+      ],
+      "parent": "日立製作所"
+    },
+    "日立パワーソリューションズ": {
+      "domains": [
+        "hitachi-power"
+      ],
+      "parent": "日立製作所"
+    },
+    "日立グローバルライフソリューションズ": {
+      "domains": [
+        "hitachi-gls"
+      ],
+      "parent": "日立製作所"
+    },
+    "日立インダストリアルプロダクツ": {
+      "domains": [
+        "hitachi-ip"
+      ],
+      "parent": "日立製作所"
+    },
+    "日立金属": {
+      "domains": [
+        "hitachi-metals",
+        "proterial"
+      ],
+      "parent": "日立製作所"
+    },
+    "日立建設設計": {
+      "domains": [
+        "hitachi-kensekkei"
+      ],
+      "parent": "日立製作所"
+    },
+    "_subsection_05f": "--- 電子部品・精密機器（追加） ---",
+    "日本電産": [
+      "nidec"
+    ],
+    "浜松ホトニクス": [
+      "hamamatsu"
+    ],
+    "島津製作所": [
+      "shimadzu"
+    ],
+    "堀場製作所": [
+      "horiba"
+    ],
+    "_subsection_05g": "--- 機械・プラント ---",
+    "コマツ": [
+      "komatsu"
+    ],
+    "日揮ホールディングス": [
+      "jgc"
+    ],
+    "千代田化工建設": [
+      "chiyodacorp"
+    ],
+    "日立建機": {
+      "domains": [
+        "hitachicm"
+      ],
+      "parent": "日立製作所"
+    },
+    "クボタ": [
+      "kubota"
+    ],
+    "ヤンマー": [
+      "yanmar"
+    ],
+    "住友重機械工業": [
+      "shi"
+    ],
+    "荏原製作所": [
+      "ebara"
+    ],
+    "ダイフク": [
+      "daifuku"
+    ],
+    "_subsection_05ga": "--- コマツグループ子会社 ---",
+    "コマツカスタマーサポート": {
+      "domains": [
+        "komatsu-cs"
+      ],
+      "parent": "コマツ"
+    },
+    "コマツ産機": {
+      "domains": [
+        "komatsusanki"
+      ],
+      "parent": "コマツ"
+    },
+    "コマツNTC": {
+      "domains": [
+        "komatsu-ntc"
+      ],
+      "parent": "コマツ"
+    },
+    "コマツ物流": {
+      "domains": [
+        "komatsu-logistics"
+      ],
+      "parent": "コマツ"
+    },
+    "ギガフォトン": {
+      "domains": [
+        "gigaphoton"
+      ],
+      "parent": "コマツ"
+    },
+    "コマツキャステックス": {
+      "domains": [
+        "komatsucastex"
+      ],
+      "parent": "コマツ"
+    },
+    "_subsection_05gb": "--- クボタグループ子会社 ---",
+    "クボタ環境サービス": {
+      "domains": [
+        "kubota-kankyo",
+        "kubota-environmentaleng"
+      ],
+      "parent": "クボタ"
+    },
+    "クボタ建機ジャパン": {
+      "domains": [
+        "kubota-kenki"
+      ],
+      "parent": "クボタ"
+    },
+    "クボタシーアイ": {
+      "domains": [
+        "kubota-ci"
+      ],
+      "parent": "クボタ"
+    },
+    "クボタケミックス": {
+      "domains": [
+        "kubota-chemix"
+      ],
+      "parent": "クボタ"
+    },
+    "クボタクレジット": {
+      "domains": [
+        "kubota-credit"
+      ],
+      "parent": "クボタ"
+    },
+    "_subsection_05gc": "--- ダイキングループ子会社 ---",
+    "ダイキンエアテクノ": {
+      "domains": [
+        "daikin-at"
+      ],
+      "parent": "ダイキン"
+    },
+    "ダイキンアプライドシステムズ": {
+      "domains": [
+        "daikin-applied"
+      ],
+      "parent": "ダイキン"
+    },
+    "ダイキンHVACソリューション東京": {
+      "domains": [
+        "daikin-hvac-tokyo"
+      ],
+      "parent": "ダイキン"
+    },
+    "ダイキンファシリティーズ": {
+      "domains": [
+        "daikin-facilities"
+      ],
+      "parent": "ダイキン"
+    },
+    "ダイキン工業": {
+      "domains": [
+        "daikin-kogyo"
+      ],
+      "parent": "ダイキン"
+    },
+    "_subsection_05gd": "--- 村田製作所グループ子会社 ---",
+    "村田機械": {
+      "domains": [
+        "muratec"
+      ],
+      "parent": "村田製作所"
+    },
+    "金沢村田製作所": {
+      "domains": [
+        "kanazawa-murata"
+      ],
+      "parent": "村田製作所"
+    },
+    "出雲村田製作所": {
+      "domains": [
+        "izumo-murata"
+      ],
+      "parent": "村田製作所"
+    },
+    "福井村田製作所": {
+      "domains": [
+        "fukui-murata",
+        "murata"
+      ],
+      "parent": "村田製作所"
+    },
+    "_subsection_05ge": "--- 京セラグループ子会社 ---",
+    "京セラコミュニケーションシステム": {
+      "domains": [
+        "kccs"
+      ],
+      "parent": "京セラ"
+    },
+    "京セラドキュメントソリューションズ": {
+      "domains": [
+        "kyoceradocument"
+      ],
+      "parent": "京セラ"
+    },
+    "京セラインダストリアルツールズ": {
+      "domains": [
+        "kyocera-tools"
+      ],
+      "parent": "京セラ"
+    },
+    "京セラクリスタルデバイス": {
+      "domains": [
+        "kcd"
+      ],
+      "parent": "京セラ"
+    },
+    "京セラみらいエンビジョン": {
+      "domains": [
+        "kyocera-mirai"
+      ],
+      "parent": "京セラ"
+    },
+    "_subsection_05gf": "--- TDKグループ子会社 ---",
+    "TDKラムダ": {
+      "domains": [
+        "tdk-lambda"
+      ],
+      "parent": "TDK"
+    },
+    "TDKエレクトロニクスファクトリーズ": {
+      "domains": [
+        "tdk-ef"
+      ],
+      "parent": "TDK"
+    },
+    "TDKマニュファクチャリングサービス": {
+      "domains": [
+        "tdk-ms"
+      ],
+      "parent": "TDK"
+    },
+    "_subsection_05gg": "--- オムロングループ子会社 ---",
+    "オムロンソーシアルソリューションズ": {
+      "domains": [
+        "omron-ss"
+      ],
+      "parent": "オムロン"
+    },
+    "オムロンヘルスケア": {
+      "domains": [
+        "omron-healthcare"
+      ],
+      "parent": "オムロン"
+    },
+    "オムロンフィールドエンジニアリング": {
+      "domains": [
+        "omron-fe"
+      ],
+      "parent": "オムロン"
+    },
+    "オムロンエキスパートエンジニアリング": {
+      "domains": [
+        "omron-ee"
+      ],
+      "parent": "オムロン"
+    },
+    "オムロンリレーアンドデバイス": {
+      "domains": [
+        "omron-relay"
+      ],
+      "parent": "オムロン"
+    },
+    "_subsection_05gh": "--- ファナックグループ子会社 ---",
+    "ファナックサービス": {
+      "domains": [
+        "fanuc-service"
+      ],
+      "parent": "ファナック"
+    },
+    "ファナックトヨタマ": {
+      "domains": [
+        "fanuc-toyama"
+      ],
+      "parent": "ファナック"
+    },
+    "ファナックオートメーション": {
+      "domains": [
+        "fanuc-automation"
+      ],
+      "parent": "ファナック"
+    },
+    "_subsection_05h": "--- 素材・化学（追加） ---",
+    "ブリヂストン": [
+      "bridgestone"
+    ],
+    "住友ゴム": [
+      "srigroup"
+    ],
+    "横浜ゴム": [
+      "y-yokohama"
+    ],
+    "日本ペイント": [
+      "nipponpaint"
+    ],
+    "DIC": [
+      "dic"
+    ],
+    "日東電工": [
+      "nitto"
+    ],
+    "日本触媒": [
+      "shokubai"
+    ],
+    "三井化学": [
+      "mitsuichemicals"
+    ],
+    "リコー": [
+      "ricoh"
+    ],
+    "東ソー": [
+      "tosoh"
+    ],
+    "UBE": [
+      "ube-ind"
+    ],
+    "カネカ": [
+      "kaneka"
+    ],
+    "JSR": [
+      "jsr"
+    ],
+    "レゾナック": [
+      "resonac"
+    ],
+    "三菱ガス化学": [
+      "mgc"
+    ],
+    "デンカ": [
+      "denka"
+    ],
+    "日本ゼオン": [
+      "zeon"
+    ],
+    "積水化学工業": [
+      "sekisui-chem"
+    ],
+    "富士フイルムビジネスイノベーション": [
+      "fujifilm-fb"
+    ],
+    "_subsection_05ha": "--- ブリヂストングループ子会社 ---",
+    "ブリヂストンリテールジャパン": {
+      "domains": [
+        "bridgestone-retail"
+      ],
+      "parent": "ブリヂストン"
+    },
+    "ブリヂストンソフトウェア": {
+      "domains": [
+        "bridgestone-sw"
+      ],
+      "parent": "ブリヂストン"
+    },
+    "ブリヂストンサイクル": {
+      "domains": [
+        "bridgestone-cycle"
+      ],
+      "parent": "ブリヂストン"
+    },
+    "ブリヂストンファイナンス": {
+      "domains": [
+        "bridgestone-finance"
+      ],
+      "parent": "ブリヂストン"
+    },
+    "ブリヂストン物流": {
+      "domains": [
+        "bridgestone-logi",
+        "bsb"
+      ],
+      "parent": "ブリヂストン"
+    },
+    "_subsection_05hb": "--- AGCグループ子会社 ---",
+    "AGCセラミックス": {
+      "domains": [
+        "agc-ceramics"
+      ],
+      "parent": "AGC"
+    },
+    "AGCポリマー建材": {
+      "domains": [
+        "agc-polymer"
+      ],
+      "parent": "AGC"
+    },
+    "AGCエレクトロニクス": {
+      "domains": [
+        "agc-electronics"
+      ],
+      "parent": "AGC"
+    },
+    "AGCエンジニアリング": {
+      "domains": [
+        "agc-eng"
+      ],
+      "parent": "AGC"
+    },
+    "_subsection_05hc": "--- LIXILグループ子会社 ---",
+    "LIXILビバ": {
+      "domains": [
+        "viva-home"
+      ],
+      "parent": "LIXIL"
+    },
+    "LIXIL住宅研究所": {
+      "domains": [
+        "lixil-jyutaku"
+      ],
+      "parent": "LIXIL"
+    },
+    "LIXILトータルサービス": {
+      "domains": [
+        "lixil-ts"
+      ],
+      "parent": "LIXIL"
+    },
+    "LIXILリアルティ": {
+      "domains": [
+        "lixil-realty"
+      ],
+      "parent": "LIXIL"
+    },
+    "LIXILアドバンストショールーム": {
+      "domains": [
+        "lixil-as"
+      ],
+      "parent": "LIXIL"
+    },
+    "_subsection_05hd": "--- 日本製鉄グループ子会社 ---",
+    "日鉄エンジニアリング": {
+      "domains": [
+        "nipponsteel-eng"
+      ],
+      "parent": "日本製鉄"
+    },
+    "日鉄テックスエンジ": {
+      "domains": [
+        "nstec"
+      ],
+      "parent": "日本製鉄"
+    },
+    "日鉄ケミカル&マテリアル": {
+      "domains": [
+        "nscm"
+      ],
+      "parent": "日本製鉄"
+    },
+    "日鉄SGワイヤ": {
+      "domains": [
+        "nssw"
+      ],
+      "parent": "日本製鉄"
+    },
+    "日鉄ステンレス": {
+      "domains": [
+        "nssc"
+      ],
+      "parent": "日本製鉄"
+    },
+    "山陽特殊製鋼": {
+      "domains": [
+        "sanyo-steel"
+      ],
+      "parent": "日本製鉄"
+    },
+    "_subsection_05he": "--- JFEグループ子会社 ---",
+    "JFEエンジニアリング": {
+      "domains": [
+        "jfe-eng"
+      ],
+      "parent": "JFEスチール"
+    },
+    "JFE条鋼": {
+      "domains": [
+        "jfe-bars"
+      ],
+      "parent": "JFEスチール"
+    },
+    "JFEシステムズ": {
+      "domains": [
+        "jfe-systems"
+      ],
+      "parent": "JFEスチール"
+    },
+    "JFEテクノリサーチ": {
+      "domains": [
+        "jfe-techno"
+      ],
+      "parent": "JFEスチール"
+    },
+    "_subsection_05i": "--- 医療機器 ---",
+    "オリンパス": [
+      "olympus"
+    ],
+    "シスメックス": [
+      "sysmex"
+    ],
+    "HOYA": [
+      "hoya"
+    ],
+    "ニプロ": [
+      "nipro"
+    ],
+    "_subsection_05k": "--- 電機・電子（追加） ---",
+    "シャープ": [
+      "sharp"
+    ],
+    "富士電機": [
+      "fujielectric"
+    ],
+    "安川電機": [
+      "yaskawa"
+    ],
+    "明電舎": [
+      "meidensha"
+    ],
+    "日本電気硝子": [
+      "neg"
+    ],
+    "ミツミ電機": [
+      "mitsumi"
+    ],
+    "アルプスアルパイン": [
+      "alpsalpine"
+    ],
+    "イビデン": [
+      "ibiden"
+    ],
+    "太陽誘電": [
+      "yuden"
+    ],
+    "新光電気工業": [
+      "shinko"
+    ],
+    "_subsection_05l": "--- 半導体・精密機器（追加） ---",
+    "ソシオネクスト": [
+      "socionext"
+    ],
+    "ラピダス": [
+      "rapidus"
+    ],
+    "富士通セミコンダクター": {
+      "domains": [
+        "fsl"
+      ],
+      "parent": "富士通"
+    },
+    "キオクシア": [
+      "kioxia"
+    ],
+    "ニコン": [
+      "nikon"
+    ],
+    "トプコン": [
+      "topcon"
+    ],
+    "アズビル": [
+      "azbil"
+    ],
+    "横河電機": [
+      "yokogawa"
+    ],
+    "_subsection_05n": "--- ソニーグループ子会社 ---",
+    "ソニー・インタラクティブエンタテインメント": {
+      "domains": [
+        "sie",
+        "playstation"
+      ],
+      "parent": "ソニーグループ"
+    },
+    "ソニーネットワークコミュニケーションズ": {
+      "domains": [
+        "sonynetwork"
+      ],
+      "parent": "ソニーグループ"
+    },
+    "ソニーペイメントサービス": {
+      "domains": [
+        "sonypaymentservices"
+      ],
+      "parent": "ソニーグループ"
+    },
+    "ソニーグローバルソリューションズ": {
+      "domains": [
+        "sonyglobalsolutions"
+      ],
+      "parent": "ソニーグループ"
+    },
+    "ソニービズネットワークス": {
+      "domains": [
+        "sonybiz"
+      ],
+      "parent": "ソニーグループ"
+    },
+    "ソニーマーケティング": {
+      "domains": [
+        "sonymarketing"
+      ],
+      "parent": "ソニーグループ"
+    },
+    "_subsection_05o": "--- パナソニックグループ子会社 ---",
+    "パナソニックインダストリー": {
+      "domains": [
+        "panasonic-industry",
+        "panasonic"
+      ],
+      "parent": "パナソニック"
+    },
+    "パナソニックオートモーティブシステムズ": {
+      "domains": [
+        "panasonic-automotive"
+      ],
+      "parent": "パナソニック"
+    },
+    "パナソニックエナジー": {
+      "domains": [
+        "panasonic-energy"
+      ],
+      "parent": "パナソニック"
+    },
+    "パナソニックエンターテインメント&コミュニケーション": {
+      "domains": [
+        "panasonic-ec"
+      ],
+      "parent": "パナソニック"
+    },
+    "パナソニックハウジングソリューションズ": {
+      "domains": [
+        "panasonic-hs"
+      ],
+      "parent": "パナソニック"
+    },
+    "パナソニックオペレーショナルエクセレンス": {
+      "domains": [
+        "panasonic-oe"
+      ],
+      "parent": "パナソニック"
+    },
+    "パナソニックライフソリューションズ": {
+      "domains": [
+        "panasonic-ls"
+      ],
+      "parent": "パナソニック"
+    },
+    "_subsection_05p": "--- 三菱電機グループ子会社 ---",
+    "三菱電機エンジニアリング": {
+      "domains": [
+        "mee"
+      ],
+      "parent": "三菱電機"
+    },
+    "三菱電機システムサービス": {
+      "domains": [
+        "melsc"
+      ],
+      "parent": "三菱電機"
+    },
+    "三菱電機ソフトウエア": {
+      "domains": [
+        "mesw"
+      ],
+      "parent": "三菱電機"
+    },
+    "_subsection_05u": "--- キヤノングループ子会社 ---",
+    "キヤノンマーケティングジャパン": {
+      "domains": [
+        "canon-mj"
+      ],
+      "parent": "キヤノン"
+    },
+    "キヤノンITソリューションズ": {
+      "domains": [
+        "canon-its"
+      ],
+      "parent": "キヤノン"
+    },
+    "キヤノンメディカルシステムズ": {
+      "domains": [
+        "medical.canon"
+      ],
+      "parent": "キヤノン"
+    },
+    "キヤノンシステムアンドサポート": {
+      "domains": [
+        "canon-sas",
+        "canon",
+        "www2.canon-sas"
+      ],
+      "parent": "キヤノン"
+    },
+    "キヤノン電子": {
+      "domains": [
+        "canon-elec"
+      ],
+      "parent": "キヤノン"
+    },
+    "_subsection_05v": "--- 旭化成グループ子会社 ---",
+    "旭化成ファーマ": {
+      "domains": [
+        "ak-pharma"
+      ],
+      "parent": "旭化成"
+    },
+    "旭化成エレクトロニクス": {
+      "domains": [
+        "ak-elec"
+      ],
+      "parent": "旭化成"
+    },
+    "旭化成メディカル": {
+      "domains": [
+        "asahi-kasei-medical"
+      ],
+      "parent": "旭化成"
+    },
+    "旭化成ホームズ": {
+      "domains": [
+        "asahi-kasei-homes",
+        "hebel"
+      ],
+      "parent": "旭化成"
+    },
+    "旭化成建材": {
+      "domains": [
+        "ak-kenzai"
+      ],
+      "parent": "旭化成"
+    },
+    "_subsection_05w": "--- 東芝グループ子会社 ---",
+    "東芝インフラシステムズ": {
+      "domains": [
+        "toshiba-infrastructure"
+      ],
+      "parent": "東芝"
+    },
+    "東芝エネルギーシステムズ": {
+      "domains": [
+        "toshiba-energy"
+      ],
+      "parent": "東芝"
+    },
+    "東芝デバイス&ストレージ": {
+      "domains": [
+        "toshiba-device"
+      ],
+      "parent": "東芝"
+    },
+    "東芝テック": {
+      "domains": [
+        "toshibatec"
+      ],
+      "parent": "東芝"
+    },
+    "東芝エレベータ": {
+      "domains": [
+        "toshiba-elevator"
+      ],
+      "parent": "東芝"
+    },
+    "東芝ライテック": {
+      "domains": [
+        "tlt"
+      ],
+      "parent": "東芝"
+    },
+    "東芝ITサービス": {
+      "domains": [
+        "toshiba-its"
+      ],
+      "parent": "東芝"
+    },
+    "東芝プラントシステム": {
+      "domains": [
+        "toshiba-tpsc"
+      ],
+      "parent": "東芝"
+    },
+    "_subsection_05x": "--- 三菱重工グループ子会社 ---",
+    "三菱重工エンジニアリング": {
+      "domains": [
+        "mhi-eng"
+      ],
+      "parent": "三菱重工業"
+    },
+    "三菱パワー": {
+      "domains": [
+        "mhps"
+      ],
+      "parent": "三菱重工業"
+    },
+    "三菱重工機械システム": {
+      "domains": [
+        "mhi-ms"
+      ],
+      "parent": "三菱重工業"
+    },
+    "三菱重工航空エンジン": {
+      "domains": [
+        "mhi-aero"
+      ],
+      "parent": "三菱重工業"
+    },
+    "三菱重工コンプレッサ": {
+      "domains": [
+        "mhi-compressor"
+      ],
+      "parent": "三菱重工業"
+    },
+    "三菱重工サーマルシステムズ": {
+      "domains": [
+        "mhi-thermal",
+        "mhi"
+      ],
+      "parent": "三菱重工業"
+    },
+    "三菱重工マリタイムシステムズ": {
+      "domains": [
+        "mhi-maritime"
+      ],
+      "parent": "三菱重工業"
+    },
+    "三菱ロジスネクスト": {
+      "domains": [
+        "logisnext"
+      ],
+      "parent": "三菱重工業"
+    },
+    "_subsection_05y": "--- 川崎重工グループ子会社 ---",
+    "川崎車両": {
+      "domains": [
+        "kawasakirailcar"
+      ],
+      "parent": "川崎重工業"
+    },
+    "カワサキロボティクス": {
+      "domains": [
+        "kawasakirobot"
+      ],
+      "parent": "川崎重工業"
+    },
+    "川崎造船": {
+      "domains": [
+        "kawasakishipbuilding"
+      ],
+      "parent": "川崎重工業"
+    },
+    "川重テクノロジー": {
+      "domains": [
+        "kawaju-tech"
+      ],
+      "parent": "川崎重工業"
+    },
+    "カワサキモータース": {
+      "domains": [
+        "kawasaki-motors"
+      ],
+      "parent": "川崎重工業"
+    },
+    "川重ファシリティーズ": {
+      "domains": [
+        "khi-facilities"
+      ],
+      "parent": "川崎重工業"
+    },
+    "川重商事": {
+      "domains": [
+        "khi-trading"
+      ],
+      "parent": "川崎重工業"
+    },
+    "_subsection_05zb": "--- 精密機器・隠れ優良企業 ---",
+    "IHI運搬機械": {
+      "domains": [
+        "iuk"
+      ],
+      "parent": "IHI"
+    },
+    "IHIインフラシステム": {
+      "domains": [
+        "ihi-infra",
+        "ihi"
+      ],
+      "parent": "IHI"
+    },
+    "IHI原動機": {
+      "domains": [
+        "ihi-motor"
+      ],
+      "parent": "IHI"
+    },
+    "IHI検査計測": {
+      "domains": [
+        "ihi-inspection"
+      ],
+      "parent": "IHI"
+    },
+    "_subsection_05z": "--- デンソーグループ子会社 ---",
+    "デンソーウェーブ": {
+      "domains": [
+        "denso-wave"
+      ],
+      "parent": "デンソー"
+    },
+    "デンソーテン": {
+      "domains": [
+        "denso-ten"
+      ],
+      "parent": "デンソー"
+    },
+    "デンソーエアシステムズ": {
+      "domains": [
+        "denso-airtec",
+        "denso"
+      ],
+      "parent": "デンソー"
+    },
+    "デンソートリム": {
+      "domains": [
+        "denso-trim"
+      ],
+      "parent": "デンソー"
+    },
+    "デンソーITソリューションズ": {
+      "domains": [
+        "denso-its"
+      ],
+      "parent": "デンソー"
+    },
+    "_subsection_05za": "--- アイシングループ子会社 ---",
+    "アイシン・ソフトウェア": {
+      "domains": [
+        "aisin-sw"
+      ],
+      "parent": "アイシン"
+    },
+    "アイシン高丘": {
+      "domains": [
+        "aisin-takaoka"
+      ],
+      "parent": "アイシン"
+    },
+    "アイシン辰栄": {
+      "domains": [
+        "aisin-shinei",
+        "aisin-sinei"
+      ],
+      "parent": "アイシン"
+    },
+    "アドヴィックス": {
+      "domains": [
+        "advics"
+      ],
+      "parent": "アイシン"
+    },
+    "レーザーテック": [
+      "lasertec"
+    ],
+    "日本電子": [
+      "jeol"
+    ],
+    "シマノ": [
+      "shimano"
+    ],
+    "THK": [
+      "thk"
+    ],
+    "ナブテスコ": [
+      "nabtesco"
+    ],
+    "不二越": [
+      "nachi-fujikoshi"
+    ],
+    "日本トムソン": [
+      "ikont"
+    ],
+    "グローリー": [
+      "glory"
+    ],
+    "マキタ": [
+      "makita"
+    ],
+    "_subsection_05zc": "--- 工作機械・機械メーカー ---",
+    "DMG森精機": [
+      "dmgmori"
+    ],
+    "オークマ": [
+      "okuma"
+    ],
+    "牧野フライス製作所": [
+      "makino"
+    ],
+    "アマダ": [
+      "amada"
+    ],
+    "栗田工業": [
+      "kurita"
+    ],
+    "オルガノ": [
+      "organo"
+    ],
+    "月島ホールディングス": [
+      "tsukishima"
+    ],
+    "タクマ": [
+      "takuma"
+    ],
+    "メタウォーター": [
+      "metawater"
+    ],
+    "荏原環境プラント": [
+      "eep"
+    ],
+    "_subsection_05zd": "--- 電子部品・半導体追加 ---",
+    "ヒロセ電機": [
+      "hirose"
+    ],
+    "古河電気工業": [
+      "furukawa"
+    ],
+    "フジクラ": [
+      "fujikura"
+    ],
+    "昭和電線": [
+      "swcc"
+    ],
+    "サンケン電気": [
+      "sanken-ele"
+    ],
+    "新電元工業": [
+      "shindengen"
+    ],
+    "三社電機製作所": [
+      "sansha"
+    ],
+    "オリジン": [
+      "origin"
+    ],
+    "サンワテクノス": [
+      "sunwa"
+    ],
+    "_subsection_05ze": "--- メーカー追加（人気企業100）---",
+    "セイコーエプソン": [
+      "epson"
+    ],
+    "ブラザー工業": [
+      "brother"
+    ],
+    "コニカミノルタ": [
+      "konicaminolta"
+    ],
+    "SMK": [
+      "smk"
+    ],
+    "新光商事": [
+      "shinko-shoji"
+    ],
+    "菱電商事": [
+      "ryoden"
+    ],
+    "フクダ電子": [
+      "fukuda-denshi",
+      "fukuda"
+    ],
+    "PHCホールディングス": [
+      "phchd"
+    ],
+    "テクノメディカ": [
+      "techno-medica"
+    ],
+    "日機装": [
+      "nikkiso"
+    ],
+    "荏原製作所子会社追加": [
+      "ebara-sub",
+      "ejk"
+    ],
+    "サトーホールディングス": [
+      "sato"
+    ],
+    "ヤマザキマザック": [
+      "mazak"
+    ],
+    "オーエスジー": [
+      "osg"
+    ],
+    "住友重機械工業子会社": {
+      "domains": [
+        "shi-sub"
+      ],
+      "parent": "住友重機械工業"
+    },
+    "神戸製鋼所": [
+      "kobelco"
+    ],
+    "DOWAホールディングス": [
+      "dowa"
+    ],
+    "JX金属": [
+      "jx-nm"
+    ],
+    "ウシオ電機": [
+      "ushio"
+    ],
+    "_section_06": "=== メーカー（食品・日用品） ===",
+    "花王": [
+      "kao"
+    ],
+    "資生堂": [
+      "shiseido"
+    ],
+    "コーセー": [
+      "kose"
+    ],
+    "ポーラ": [
+      "pola"
+    ],
+    "オルビス": [
+      "orbis"
+    ],
+    "ファンケル": [
+      "fancl"
+    ],
+    "ライオン": [
+      "lion"
+    ],
+    "ユニ・チャーム": [
+      "unicharm"
+    ],
+    "P&G": [
+      "pg"
+    ],
+    "ユニリーバ": [
+      "unilever"
+    ],
+    "味の素": [
+      "ajinomoto"
+    ],
+    "サントリー": [
+      "suntory"
+    ],
+    "キリン": [
+      "kirin"
+    ],
+    "アサヒ": [
+      "asahigroup"
+    ],
+    "明治": [
+      "meiji"
+    ],
+    "日清食品": [
+      "nissin"
+    ],
+    "伊藤園": [
+      "itoen"
+    ],
+    "JT": [
+      "jti"
+    ],
+    "ハウス食品": [
+      "housefoods"
+    ],
+    "カゴメ": [
+      "kagome"
+    ],
+    "ヤクルト": [
+      "yakult"
+    ],
+    "森永製菓": [
+      "morinaga"
+    ],
+    "森永乳業": [
+      "morinagamilk"
+    ],
+    "江崎グリコ": [
+      "glico"
+    ],
+    "カルビー": [
+      "calbee"
+    ],
+    "日本ハム": [
+      "nipponham"
+    ],
+    "伊藤ハム": [
+      "itoham"
+    ],
+    "マルハニチロ": [
+      "maruha-nichiro"
+    ],
+    "ニチレイ": [
+      "nichirei"
+    ],
+    "キッコーマン": [
+      "kikkoman"
+    ],
+    "ヤマサ": [
+      "yamasa"
+    ],
+    "日清オイリオ": [
+      "nisshin-oillio"
+    ],
+    "_subsection_06b": "--- 食品（追加） ---",
+    "宝ホールディングス": [
+      "takara"
+    ],
+    "雪印メグミルク": [
+      "meg-snow"
+    ],
+    "日清製粉グループ": [
+      "nisshin"
+    ],
+    "不二製油": [
+      "fujioil"
+    ],
+    "S&B食品": [
+      "sbfoods"
+    ],
+    "日本水産": [
+      "nissui"
+    ],
+    "東洋水産": [
+      "maruchan"
+    ],
+    "ポッカサッポロ": [
+      "pokkasapporo"
+    ],
+    "_subsection_06d": "--- 食品・飲料追加 ---",
+    "サントリー食品インターナショナル": {
+      "domains": [
+        "suntory-sic"
+      ],
+      "parent": "サントリー"
+    },
+    "サントリービバレッジサービス": {
+      "domains": [
+        "suntory-sbs",
+        "suntory"
+      ],
+      "parent": "サントリー"
+    },
+    "サントリーフーズ": {
+      "domains": [
+        "suntoryfoods"
+      ],
+      "parent": "サントリー"
+    },
+    "キリンビバレッジ": {
+      "domains": [
+        "kirinbeverage"
+      ],
+      "parent": "キリン"
+    },
+    "キリンホールディングス": [
+      "kirinholdings"
+    ],
+    "アサヒ飲料": {
+      "domains": [
+        "asahiinryo"
+      ],
+      "parent": "アサヒ"
+    },
+    "アサヒビール": {
+      "domains": [
+        "asahibeer"
+      ],
+      "parent": "アサヒ"
+    },
+    "味の素AGF": {
+      "domains": [
+        "agf"
+      ],
+      "parent": "味の素"
+    },
+    "花王グループカスタマーマーケティング": {
+      "domains": [
+        "kao-gcm"
+      ],
+      "parent": "花王"
+    },
+    "資生堂ジャパン": {
+      "domains": [
+        "shiseido-japan",
+        "shiseido"
+      ],
+      "parent": "資生堂"
+    },
+    "_subsection_06e": "--- 素材・化学追加 ---",
+    "味の素冷凍食品": {
+      "domains": [
+        "ffa"
+      ],
+      "parent": "味の素"
+    },
+    "味の素エンジニアリング": {
+      "domains": [
+        "ajinomoto-eng"
+      ],
+      "parent": "味の素"
+    },
+    "日清食品チルド": {
+      "domains": [
+        "nissin-chilled",
+        "nissin"
+      ],
+      "parent": "日清食品"
+    },
+    "日清食品冷凍": {
+      "domains": [
+        "nissin-frozen",
+        "nissinreitou",
+        "nissin"
+      ],
+      "parent": "日清食品"
+    },
+    "日清シスコ": {
+      "domains": [
+        "nissincisco"
+      ],
+      "parent": "日清食品"
+    },
+    "雪印種苗": {
+      "domains": [
+        "snowseed"
+      ],
+      "parent": "雪印メグミルク"
+    },
+    "ニチレイフーズ": {
+      "domains": [
+        "nichirei-foods"
+      ],
+      "parent": "ニチレイ"
+    },
+    "ニチレイロジグループ": {
+      "domains": [
+        "nichirei-logi"
+      ],
+      "parent": "ニチレイ"
+    },
+    "_subsection_06c": "--- 外資系消費財 ---",
+    "ジョンソン・エンド・ジョンソン": [
+      "jnj"
+    ],
+    "ロレアル": [
+      "loreal"
+    ],
+    "ネスレ日本": [
+      "nestle"
+    ],
+    "コカ・コーラ": [
+      "cocacola"
+    ],
+    "ルイ・ヴィトン": [
+      "lvmh"
+    ],
+    "ナイキ": [
+      "nike"
+    ],
+    "ブルームバーグ": [
+      "bloomberg"
+    ],
+    "ロイター": [
+      "reuters"
+    ],
+    "UBS": [
+      "ubs"
+    ],
+    "クレディ・スイス": [
+      "credit-suisse"
+    ],
+    "ロッテ": [
+      "lotte"
+    ],
+    "ブルボン": [
+      "bourbon"
+    ],
+    "亀田製菓": [
+      "kamedaseika"
+    ],
+    "湖池屋": [
+      "koikeya"
+    ],
+    "コカ・コーラボトラーズジャパン": [
+      "ccbji"
+    ],
+    "ダイドードリンコ": [
+      "dydo"
+    ],
+    "大塚食品": [
+      "otsukafoods"
+    ],
+    "永谷園": [
+      "nagatanien"
+    ],
+    "はごろもフーズ": [
+      "hagoromofoods"
+    ],
+    "J-オイルミルズ": [
+      "j-oil"
+    ],
+    "昭和産業": [
+      "showa-sangyo"
+    ],
+    "日本食研": [
+      "nihonshokken"
+    ],
+    "関西ペイント": [
+      "kansaipaint"
+    ],
+    "トクヤマ": [
+      "tokuyama"
+    ],
+    "日本曹達": [
+      "nippon-soda"
+    ],
+    "日産化学": [
+      "nissanchem"
+    ],
+    "クレハ": [
+      "kureha"
+    ],
+    "日本化薬": [
+      "nipponkayaku"
+    ],
+    "堺化学工業": [
+      "sakai-chem"
+    ],
+    "エア・ウォーター": [
+      "awi"
+    ],
+    "大陽日酸": [
+      "tn-sanso"
+    ],
+    "日本酸素ホールディングス": [
+      "nipponsanso-hd"
+    ],
+    "_subsection_06f": "--- 食品追加（人気企業100）---",
+    "山崎製パン": [
+      "yamazakipan"
+    ],
+    "フジパングループ本社": [
+      "fujipan"
+    ],
+    "敷島製パン": [
+      "pasco"
+    ],
+    "神戸物産": [
+      "kobebussan"
+    ],
+    "日本製粉": [
+      "nippn"
+    ],
+    "昭和冷凍食品": [
+      "showa-frozen"
+    ],
+    "丸大食品": [
+      "marudai"
+    ],
+    "プリマハム": [
+      "primaham"
+    ],
+    "スターゼン": [
+      "starzen"
+    ],
+    "ケンコーマヨネーズ": [
+      "kenkomayo"
+    ],
+    "キユーピー": [
+      "kewpie"
+    ],
+    "エバラ食品工業": [
+      "ebarafoods"
+    ],
+    "_section_07": "=== 広告・マスコミ ===",
+    "電通グループ": [
+      "dentsu"
+    ],
+    "博報堂": [
+      "hakuhodo"
+    ],
+    "博報堂DYホールディングス": [
+      "hakuhodody"
+    ],
+    "ADKホールディングス": [
+      "adk"
+    ],
+    "リクルート": [
+      "recruit"
+    ],
+    "リクルートホールディングス": [
+      "recruit-holdings"
+    ],
+    "日本テレビ": [
+      "ntv"
+    ],
+    "TBS": [
+      "tbs"
+    ],
+    "フジテレビ": [
+      "fujitv"
+    ],
+    "テレビ朝日": [
+      "tv-asahi"
+    ],
+    "テレビ東京": [
+      "tv-tokyo"
+    ],
+    "NHK": [
+      "nhk-mt",
+      "nhk"
+    ],
+    "読売新聞": [
+      "yomiuri"
+    ],
+    "朝日新聞": [
+      "asahi"
+    ],
+    "毎日新聞": [
+      "mainichi"
+    ],
+    "日本経済新聞": [
+      "nikkei"
+    ],
+    "集英社": [
+      "shueisha"
+    ],
+    "講談社": [
+      "kodansha"
+    ],
+    "小学館": [
+      "shogakukan"
+    ],
+    "KADOKAWA": [
+      "kadokawa"
+    ],
+    "ソニーミュージック": {
+      "domains": [
+        "sonymusic"
+      ],
+      "parent": "ソニーグループ"
+    },
+    "エイベックス": [
+      "avex"
+    ],
+    "ワーナーミュージック": [
+      "wmg"
+    ],
+    "東映": [
+      "toei"
+    ],
+    "東宝": [
+      "toho"
+    ],
+    "松竹": [
+      "shochiku"
+    ],
+    "吉本興業": [
+      "yoshimoto"
+    ],
+    "オリエンタルランド": [
+      "olc"
+    ],
+    "USJ": [
+      "usj"
+    ],
+    "任天堂": [
+      "nintendo"
+    ],
+    "バンダイナムコ": [
+      "bandainamco"
+    ],
+    "スクウェア・エニックス": [
+      "square-enix",
+      "squareenix"
+    ],
+    "カプコン": [
+      "capcom"
+    ],
+    "コナミ": [
+      "konami"
+    ],
+    "セガサミー": [
+      "segasammy"
+    ],
+    "_subsection_07b": "--- 広告（追加） ---",
+    "大広": [
+      "daiko"
+    ],
+    "JR東日本企画": [
+      "jeki"
+    ],
+    "東急エージェンシー": [
+      "tokyu-agc",
+      "tokyu-agc.co.jp",
+      "recruit-tokyu-agc.co.jp"
+    ],
+    "読売広告社": [
+      "yomiko"
+    ],
+    "サイバー・コミュニケーションズ": [
+      "cci"
+    ],
+    "CARTA HOLDINGS": [
+      "cartaholdings"
+    ],
+    "_subsection_07d": "--- 広告・メディアグループ子会社 ---",
+    "電通デジタル": {
+      "domains": [
+        "dentsudigital"
+      ],
+      "parent": "電通グループ"
+    },
+    "電通ライブ": {
+      "domains": [
+        "dentsulive"
+      ],
+      "parent": "電通グループ"
+    },
+    "電通テック": {
+      "domains": [
+        "dentsu-tec"
+      ],
+      "parent": "電通グループ"
+    },
+    "電通クリエーティブX": {
+      "domains": [
+        "dentsu-cx",
+        "dcrp"
+      ],
+      "parent": "電通グループ"
+    },
+    "博報堂プロダクツ": {
+      "domains": [
+        "h-products"
+      ],
+      "parent": "博報堂DYホールディングス"
+    },
+    "博報堂DYメディアパートナーズ": {
+      "domains": [
+        "hakuhodody-media"
+      ],
+      "parent": "博報堂DYホールディングス"
+    },
+    "リクルートマネジメントソリューションズ": {
+      "domains": [
+        "recruit-ms"
+      ],
+      "parent": "リクルートホールディングス"
+    },
+    "リクルートスタッフィング": {
+      "domains": [
+        "r-staffing"
+      ],
+      "parent": "リクルートホールディングス"
+    },
+    "リクルートコミュニケーションズ": {
+      "domains": [
+        "recruit-co"
+      ],
+      "parent": "リクルートホールディングス"
+    },
+    "リクルートキャリア": {
+      "domains": [
+        "recruit-c",
+        "recruit"
+      ],
+      "parent": "リクルートホールディングス"
+    },
+    "_subsection_07e": "--- リクルートグループ追加子会社 ---",
+    "リクルート住まいカンパニー": {
+      "domains": [
+        "suumo"
+      ],
+      "parent": "リクルートホールディングス"
+    },
+    "リクルートライフスタイル": {
+      "domains": [
+        "recruit-lifestyle",
+        "recruit"
+      ],
+      "parent": "リクルートホールディングス"
+    },
+    "スタディサプリ": {
+      "domains": [
+        "studysapuri"
+      ],
+      "parent": "リクルートホールディングス"
+    },
+    "ホットペッパービューティー": {
+      "domains": [
+        "hotpepper"
+      ],
+      "parent": "リクルートホールディングス"
+    },
+    "_subsection_07f": "--- バンダイナムコグループ子会社 ---",
+    "バンダイナムコエンターテインメント": {
+      "domains": [
+        "bandainamcoent"
+      ],
+      "parent": "バンダイナムコ"
+    },
+    "バンダイナムコスタジオ": {
+      "domains": [
+        "bandainamcostudios"
+      ],
+      "parent": "バンダイナムコ"
+    },
+    "バンダイナムコフィルムワークス": {
+      "domains": [
+        "sunrise-inc"
+      ],
+      "parent": "バンダイナムコ"
+    },
+    "バンダイナムコアミューズメント": {
+      "domains": [
+        "bandainamco-am"
+      ],
+      "parent": "バンダイナムコ"
+    },
+    "バンダイスピリッツ": {
+      "domains": [
+        "bandai-hobby"
+      ],
+      "parent": "バンダイナムコ"
+    },
+    "_subsection_07g": "--- 電通グループ追加子会社 ---",
+    "電通アイソバー": {
+      "domains": [
+        "isobar"
+      ],
+      "parent": "電通グループ"
+    },
+    "電通ダイレクト": {
+      "domains": [
+        "dentsu-direct",
+        "ddir"
+      ],
+      "parent": "電通グループ"
+    },
+    "電通スマートプレッシュ": {
+      "domains": [
+        "dentsu-sp"
+      ],
+      "parent": "電通グループ"
+    },
+    "dentsu Japan": {
+      "domains": [
+        "dentsu-japan"
+      ],
+      "parent": "電通グループ"
+    },
+    "_subsection_07c": "--- 動画配信 ---",
+    "Netflix": [
+      "netflix"
+    ],
+    "Spotify": [
+      "spotify"
+    ],
+    "_subsection_07h": "--- ゲーム・エンタメ（追加） ---",
+    "セガ": [
+      "sega"
+    ],
+    "アトラス": [
+      "atlus"
+    ],
+    "フロム・ソフトウェア": [
+      "fromsoftware"
+    ],
+    "ネクソン": [
+      "nexon"
+    ],
+    "ガンホー・オンライン・エンターテイメント": [
+      "gungho"
+    ],
+    "コーエーテクモ": [
+      "koeitecmo",
+      "koei"
+    ],
+    "プラチナゲームズ": [
+      "platinumgames"
+    ],
+    "レベルファイブ": [
+      "level5"
+    ],
+    "ゲームフリーク": [
+      "gamefreak"
+    ],
+    "_subsection_07i": "--- キャラクター・玩具・アニメ ---",
+    "サンリオ": [
+      "sanrio"
+    ],
+    "サンエックス": [
+      "san-x"
+    ],
+    "タカラトミー": [
+      "takaratomy"
+    ],
+    "ハピネット": [
+      "happinet"
+    ],
+    "ブシロード": [
+      "bushiroad"
+    ],
+    "アニプレックス": [
+      "aniplex"
+    ],
+    "A-1 Pictures": [
+      "a1p"
+    ],
+    "ufotable": [
+      "ufotable"
+    ],
+    "MAPPA": [
+      "mappa"
+    ],
+    "WIT STUDIO": [
+      "witstudio"
+    ],
+    "_subsection_07j": "--- エンタメ・メディア追加（人気企業100）---",
+    "ポニーキャニオン": [
+      "ponycanyon"
+    ],
+    "キングレコード": [
+      "kingrecords"
+    ],
+    "ユニバーサルミュージック": [
+      "universalmusic"
+    ],
+    "ビクターエンタテインメント": [
+      "jvcmusic"
+    ],
+    "ホリプロ": [
+      "horipro"
+    ],
+    "アミューズ": [
+      "amuse"
+    ],
+    "LDH JAPAN": [
+      "ldh"
+    ],
+    "ジャニーズ事務所": [
+      "johnnys"
+    ],
+    "ぴあ": [
+      "pia"
+    ],
+    "イープラス": [
+      "eplus"
+    ],
+    "テレビマンユニオン": [
+      "tvu"
+    ],
+    "NHKエンタープライズ": {
+      "domains": [
+        "nhk-ep"
+      ],
+      "parent": "NHK"
+    },
+    "日テレアックスオン": {
+      "domains": [
+        "ntv-axon"
+      ],
+      "parent": "日本テレビ"
+    },
+    "TBSスパークル": {
+      "domains": [
+        "tbs-sparkle"
+      ],
+      "parent": "TBS"
+    },
+    "テレビ朝日映像": {
+      "domains": [
+        "vivia"
+      ],
+      "parent": "テレビ朝日"
+    },
+    "_section_08": "=== 不動産・建設 ===",
+    "_subsection_08a": "--- デベロッパー ---",
+    "三井不動産": [
+      "mitsuifudosan"
+    ],
+    "三菱地所": [
+      "mec"
+    ],
+    "住友不動産": [
+      "sumitomo-rd"
+    ],
+    "東急不動産": [
+      "tokyu-land"
+    ],
+    "野村不動産": [
+      "nomura-re"
+    ],
+    "森ビル": [
+      "mori"
+    ],
+    "ヒューリック": [
+      "hulic"
+    ],
+    "東京建物": [
+      "tatemono"
+    ],
+    "_subsection_08b": "--- ゼネコン・住宅 ---",
+    "大林組": [
+      "obayashi"
+    ],
+    "鹿島建設": [
+      "kajima"
+    ],
+    "清水建設": [
+      "shimz"
+    ],
+    "大成建設": [
+      "taisei"
+    ],
+    "竹中工務店": [
+      "takenaka"
+    ],
+    "積水ハウス": [
+      "sekisuihouse"
+    ],
+    "大和ハウス": [
+      "daiwahouse"
+    ],
+    "住友林業": [
+      "sfc"
+    ],
+    "長谷工コーポレーション": [
+      "haseko"
+    ],
+    "フジタ": [
+      "fujita"
+    ],
+    "前田建設工業": [
+      "maeda"
+    ],
+    "五洋建設": [
+      "penta-ocean"
+    ],
+    "戸田建設": [
+      "toda"
+    ],
+    "_subsection_08c": "--- 住宅（追加） ---",
+    "ミサワホーム": [
+      "misawa"
+    ],
+    "パナソニックホームズ": {
+      "domains": [
+        "homes.panasonic"
+      ],
+      "parent": "パナソニック"
+    },
+    "三菱地所レジデンス": [
+      "mec-r"
+    ],
+    "東急リバブル": [
+      "livable"
+    ],
+    "_subsection_08d": "--- 不動産（追加） ---",
+    "オープンハウス": [
+      "openhouse"
+    ],
+    "飯田グループホールディングス": [
+      "ighd"
+    ],
+    "レオパレス21": [
+      "leopalace21"
+    ],
+    "東建コーポレーション": [
+      "token"
+    ],
+    "ケイアイスター不動産": [
+      "ki-group"
+    ],
+    "プレサンス": [
+      "pressance"
+    ],
+    "_subsection_08f": "--- 建設・道路追加 ---",
+    "鹿島道路": {
+      "domains": [
+        "kajimaroad"
+      ],
+      "parent": "鹿島建設"
+    },
+    "清水建設リース": {
+      "domains": [
+        "shimz-lease"
+      ],
+      "parent": "清水建設"
+    },
+    "大成ユーレック": {
+      "domains": [
+        "taisei-u"
+      ],
+      "parent": "大成建設"
+    },
+    "大和ハウスリフォーム": {
+      "domains": [
+        "daiwahouse-reform"
+      ],
+      "parent": "大和ハウス"
+    },
+    "積水ハウスリフォーム": {
+      "domains": [
+        "sekisuihouse-reform"
+      ],
+      "parent": "積水ハウス"
+    },
+    "積水ハウス不動産": {
+      "domains": [
+        "sekisuihouse-fudousan"
+      ],
+      "parent": "積水ハウス"
+    },
+    "_subsection_08g": "--- ゼネコン・建設グループ子会社（追加） ---",
+    "大林道路": {
+      "domains": [
+        "obayashi-road"
+      ],
+      "parent": "大林組"
+    },
+    "大林ファシリティーズ": {
+      "domains": [
+        "obayashi-fm"
+      ],
+      "parent": "大林組"
+    },
+    "鹿島リース": {
+      "domains": [
+        "kajima-lease"
+      ],
+      "parent": "鹿島建設"
+    },
+    "鹿島建物総合管理": {
+      "domains": [
+        "kajima-tatemono"
+      ],
+      "parent": "鹿島建設"
+    },
+    "大成ロテック": {
+      "domains": [
+        "taisei-rotec"
+      ],
+      "parent": "大成建設"
+    },
+    "竹中土木": {
+      "domains": [
+        "takenaka-doboku"
+      ],
+      "parent": "竹中工務店"
+    },
+    "住友林業ホームテック": {
+      "domains": [
+        "sumirin-ht"
+      ],
+      "parent": "住友林業"
+    },
+    "住友林業クレスト": {
+      "domains": [
+        "sumirin-crest"
+      ],
+      "parent": "住友林業"
+    },
+    "前田道路": {
+      "domains": [
+        "maedaroad"
+      ],
+      "parent": "前田建設工業"
+    },
+    "戸田ビルパートナーズ": {
+      "domains": [
+        "toda-bp"
+      ],
+      "parent": "戸田建設"
+    },
+    "長谷工アネシス": {
+      "domains": [
+        "haseko-anesis"
+      ],
+      "parent": "長谷工コーポレーション"
+    },
+    "五洋建設技術研究所": {
+      "domains": [
+        "penta-tech",
+        "penta-ocean"
+      ],
+      "parent": "五洋建設"
+    },
+    "_subsection_08e": "--- 不動産・住宅追加 ---",
+    "三井不動産レジデンシャル": {
+      "domains": [
+        "mfr"
+      ],
+      "parent": "三井不動産"
+    },
+    "三井不動産リアルティ": {
+      "domains": [
+        "rehouse"
+      ],
+      "parent": "三井不動産"
+    },
+    "三井不動産商業マネジメント": {
+      "domains": [
+        "mitsui-shopping-park"
+      ],
+      "parent": "三井不動産"
+    },
+    "三菱地所プロパティマネジメント": {
+      "domains": [
+        "mjpm"
+      ],
+      "parent": "三菱地所"
+    },
+    "三菱地所ホーム": {
+      "domains": [
+        "mitsubishi-home"
+      ],
+      "parent": "三菱地所"
+    },
+    "三菱地所設計": {
+      "domains": [
+        "mjd"
+      ],
+      "parent": "三菱地所"
+    },
+    "住友不動産販売": {
+      "domains": [
+        "stepon"
+      ],
+      "parent": "住友不動産"
+    },
+    "住友不動産建物サービス": {
+      "domains": [
+        "sumitomo-bs"
+      ],
+      "parent": "住友不動産"
+    },
+    "野村不動産ソリューションズ": {
+      "domains": [
+        "nomu"
+      ],
+      "parent": "野村不動産"
+    },
+    "野村不動産パートナーズ": {
+      "domains": [
+        "nomura-pt"
+      ],
+      "parent": "野村不動産"
+    },
+    "東急コミュニティー": {
+      "domains": [
+        "tokyu-community",
+        "tokyu-com"
+      ],
+      "parent": "東急不動産"
+    },
+    "東急住宅リース": {
+      "domains": [
+        "tokyu-housing-lease"
+      ],
+      "parent": "東急不動産"
+    },
+    "東急建設": {
+      "domains": [
+        "tokyu-cnst"
+      ],
+      "parent": "東急不動産"
+    },
+    "イッツ・コミュニケーションズ": {
+      "domains": [
+        "itscom"
+      ],
+      "parent": "東急不動産"
+    },
+    "東急モールズデベロップメント": {
+      "domains": [
+        "tokyu-md"
+      ],
+      "parent": "東急不動産"
+    },
+    "東急ハンズ": {
+      "domains": [
+        "tokyu-hands"
+      ],
+      "parent": "東急不動産"
+    },
+    "東急ストア": {
+      "domains": [
+        "tokyu-store"
+      ],
+      "parent": "東急不動産"
+    },
+    "東急パワーサプライ": {
+      "domains": [
+        "tokyu-ps"
+      ],
+      "parent": "東急不動産"
+    },
+    "コスモスイニシア": [
+      "cigr"
+    ],
+    "日鉄興和不動産": [
+      "nskre"
+    ],
+    "タカラレーベン": [
+      "leben"
+    ],
+    "プロパティエージェント": [
+      "propertyagent"
+    ],
+    "グローバル・リンク・マネジメント": [
+      "glm"
+    ],
+    "サンケイビル": [
+      "skhd"
+    ],
+    "平和不動産": [
+      "heiwa-re"
+    ],
+    "ザイマックス": [
+      "xymax"
+    ],
+    "ケネディクス": [
+      "kenedix"
+    ],
+    "いちご": [
+      "ichigo"
+    ],
+    "_subsection_08h": "--- 不動産追加（人気企業100）---",
+    "大京": [
+      "daikyo"
+    ],
+    "スターツコーポレーション": [
+      "starts"
+    ],
+    "阪急阪神不動産": {
+      "domains": [
+        "hhp"
+      ],
+      "parent": "阪急阪神ホールディングス"
+    },
+    "京王不動産": {
+      "domains": [
+        "keio-re"
+      ],
+      "parent": "京王電鉄"
+    },
+    "西鉄ビルマネジメント": {
+      "domains": [
+        "nishitetsu-bm"
+      ],
+      "parent": "西日本鉄道"
+    },
+    "CBREジャパン": [
+      "cbre"
+    ],
+    "JLL日本": [
+      "jll"
+    ],
+    "クッシュマン・アンド・ウェイクフィールド": [
+      "cushwake"
+    ],
+    "NTT都市開発ビルサービス": {
+      "domains": [
+        "nttud-bs"
+      ],
+      "parent": "NTT都市開発"
+    },
+    "森ビルホスピタリティコーポレーション": {
+      "domains": [
+        "mori-hospitality"
+      ],
+      "parent": "森ビル"
+    },
+    "ヒューリックリート投資法人": [
+      "hulic-reit"
+    ],
+    "日本プロロジスリート投資法人": [
+      "prologis-reit"
+    ],
+    "NIPPO": [
+      "nippo-c"
+    ],
+    "東亜道路工業": [
+      "toadoro"
+    ],
+    "世紀東急工業": [
+      "seikitokyu"
+    ],
+    "日本道路": [
+      "nipponroad"
+    ],
+    "奥村組": [
+      "okumuragumi"
+    ],
+    "安藤ハザマ": [
+      "ad-hzm"
+    ],
+    "西松建設": [
+      "nishimatsu"
+    ],
+    "鴻池組": [
+      "konoike"
+    ],
+    "錢高組": [
+      "zenitaka"
+    ],
+    "淺沼組": [
+      "asanuma"
+    ],
+    "_section_09": "=== 小売・流通 ===",
+    "ユニクロ": [
+      "uniqlo"
+    ],
+    "ファーストリテイリング": [
+      "fastretailing"
+    ],
+    "イオン": [
+      "aeon"
+    ],
+    "セブン&アイ": [
+      "7andi"
+    ],
+    "セブン-イレブン・ジャパン": [
+      "sej"
+    ],
+    "ローソン": [
+      "lawson"
+    ],
+    "ファミリーマート": [
+      "family"
+    ],
+    "三越伊勢丹": [
+      "mistore",
+      "isetan",
+      "imhds",
+      "imhd"
+    ],
+    "高島屋": [
+      "takashimaya"
+    ],
+    "大丸松坂屋": [
+      "daimaru-matsuzakaya"
+    ],
+    "マツモトキヨシ": [
+      "matsukiyo"
+    ],
+    "スギ薬局": [
+      "sugi-net",
+      "sugi-recruit",
+      "drug-sugi"
+    ],
+    "ニトリ": [
+      "nitori"
+    ],
+    "良品計画": [
+      "muji",
+      "ryohin-keikaku"
+    ],
+    "ABCマート": [
+      "abc-mart"
+    ],
+    "ワークマン": [
+      "workman"
+    ],
+    "スターバックス": [
+      "starbucks"
+    ],
+    "マクドナルド": [
+      "mcdonalds"
+    ],
+    "すかいらーく": [
+      "skylark"
+    ],
+    "_subsection_09b": "--- 小売（追加） ---",
+    "ヨドバシカメラ": [
+      "yodobashi"
+    ],
+    "ビックカメラ": [
+      "biccamera"
+    ],
+    "ヤマダホールディングス": [
+      "yamada-holdings"
+    ],
+    "ドン・キホーテ": [
+      "ppih",
+      "donki"
+    ],
+    "コストコ": [
+      "costco"
+    ],
+    "イケア": [
+      "ikea"
+    ],
+    "しまむら": [
+      "shimamura"
+    ],
+    "トライアル": [
+      "trial-net"
+    ],
+    "ウエルシア": [
+      "welcia"
+    ],
+    "ツルハ": [
+      "tsuruha"
+    ],
+    "_subsection_09c": "--- 外食（追加） ---",
+    "ゼンショー": [
+      "zensho"
+    ],
+    "日本KFC": [
+      "kfc"
+    ],
+    "モスフードサービス": [
+      "mos"
+    ],
+    "ロイヤルホールディングス": [
+      "royal"
+    ],
+    "ワタミ": [
+      "watami"
+    ],
+    "サイゼリヤ": [
+      "saizeriya"
+    ],
+    "_subsection_09d": "--- 小売・流通グループ子会社 ---",
+    "イオンモール": {
+      "domains": [
+        "aeonmall"
+      ],
+      "parent": "イオン"
+    },
+    "イオンリテール": {
+      "domains": [
+        "aeonretail"
+      ],
+      "parent": "イオン"
+    },
+    "イオンクレジットサービス": {
+      "domains": [
+        "aeoncredit"
+      ],
+      "parent": "イオン"
+    },
+    "イオンフィナンシャルサービス": {
+      "domains": [
+        "aeonfinancial"
+      ],
+      "parent": "イオン"
+    },
+    "セブン銀行": {
+      "domains": [
+        "sevenbank"
+      ],
+      "parent": "セブン&アイ"
+    },
+    "セブン&アイ・ネットメディア": {
+      "domains": [
+        "7andi-nm"
+      ],
+      "parent": "セブン&アイ"
+    },
+    "イトーヨーカ堂": {
+      "domains": [
+        "itoyokado"
+      ],
+      "parent": "セブン&アイ"
+    },
+    "セブン・カードサービス": {
+      "domains": [
+        "7card"
+      ],
+      "parent": "セブン&アイ"
+    },
+    "ファミリーマートコーポレートサービス": {
+      "domains": [
+        "family-cs"
+      ],
+      "parent": "ファミリーマート"
+    },
+    "ローソンエンタテインメント": {
+      "domains": [
+        "l-tike",
+        "lawson",
+        "ent-lawson-saiyo"
+      ],
+      "parent": "ローソン"
+    },
+    "_section_10": "=== サービス・インフラ ===",
+    "_subsection_10a": "--- JR ---",
+    "JR東日本": [
+      "jreast"
+    ],
+    "JR西日本": [
+      "westjr"
+    ],
+    "JR東海": [
+      "jr-central"
+    ],
+    "_subsection_10b": "--- 私鉄 ---",
+    "東急電鉄": [
+      "tokyu",
+      "tokyurailways"
+    ],
+    "小田急電鉄": [
+      "odakyu"
+    ],
+    "阪急阪神ホールディングス": [
+      "hankyu-hanshin"
+    ],
+    "京王電鉄": [
+      "keio"
+    ],
+    "西武鉄道": [
+      "seiburailway"
+    ],
+    "京浜急行電鉄": [
+      "keikyu"
+    ],
+    "相鉄": [
+      "sotetsu"
+    ],
+    "名古屋鉄道": [
+      "meitetsu"
+    ],
+    "近畿日本鉄道": [
+      "kintetsu"
+    ],
+    "南海電気鉄道": [
+      "nankai"
+    ],
+    "西日本鉄道": [
+      "nishitetsu"
+    ],
+    "_subsection_10ba": "--- 私鉄グループ子会社 ---",
+    "小田急不動産": {
+      "domains": [
+        "odakyu-fudosan"
+      ],
+      "parent": "小田急電鉄"
+    },
+    "小田急ビルサービス": {
+      "domains": [
+        "odakyu-bs"
+      ],
+      "parent": "小田急電鉄"
+    },
+    "京王プラザホテル": {
+      "domains": [
+        "keioplaza"
+      ],
+      "parent": "京王電鉄"
+    },
+    "西武プロパティーズ": {
+      "domains": [
+        "seibu-properties"
+      ],
+      "parent": "西武鉄道"
+    },
+    "西武リアルティソリューションズ": {
+      "domains": [
+        "seibu-rs"
+      ],
+      "parent": "西武鉄道"
+    },
+    "京急不動産": {
+      "domains": [
+        "keikyu-fudosan"
+      ],
+      "parent": "京浜急行電鉄"
+    },
+    "相鉄アーバンクリエイツ": {
+      "domains": [
+        "sotetsu-urban"
+      ],
+      "parent": "相鉄"
+    },
+    "相鉄ビルマネジメント": {
+      "domains": [
+        "sotetsu-bm"
+      ],
+      "parent": "相鉄"
+    },
+    "名鉄不動産": {
+      "domains": [
+        "meitetsu-fudosan",
+        "m-cd"
+      ],
+      "parent": "名古屋鉄道"
+    },
+    "近鉄不動産": {
+      "domains": [
+        "kintetsu-re"
+      ],
+      "parent": "近畿日本鉄道"
+    },
+    "_subsection_10d": "--- JR（追加） ---",
+    "JR九州": [
+      "jrkyushu"
+    ],
+    "JR北海道": [
+      "jrhokkaido"
+    ],
+    "JR四国": [
+      "jr-shikoku"
+    ],
+    "_subsection_10c": "--- 航空 ---",
+    "ANA": [
+      "ana"
+    ],
+    "JAL": [
+      "jal"
+    ],
+    "東京電力": [
+      "tepco"
+    ],
+    "関西電力": [
+      "kepco"
+    ],
+    "中部電力": [
+      "chuden"
+    ],
+    "東京ガス": [
+      "tokyo-gas"
+    ],
+    "大阪ガス": [
+      "osakagas"
+    ],
+    "ENEOS": [
+      "eneos"
+    ],
+    "出光興産": [
+      "idemitsu"
+    ],
+    "コスモエネルギー": [
+      "cosmo-oil"
+    ],
+    "INPEX": [
+      "inpex"
+    ],
+    "JERA": [
+      "jera"
+    ],
+    "東京メトロ": [
+      "tokyometro"
+    ],
+    "首都高速道路": [
+      "shutoko"
+    ],
+    "日本郵船": [
+      "nyk"
+    ],
+    "商船三井": [
+      "mol"
+    ],
+    "川崎汽船": [
+      "kline"
+    ],
+    "ヤマト運輸": [
+      "kuronekoyamato",
+      "yamato"
+    ],
+    "佐川急便": [
+      "sagawa"
+    ],
+    "日本通運": [
+      "nipponexpress",
+      "nittsu"
+    ],
+    "SGホールディングス": [
+      "sg-hldgs"
+    ],
+    "セイノー": [
+      "seino"
+    ],
+    "センコー": [
+      "senko"
+    ],
+    "ロジスティード（旧日立物流）": [
+      "hitachi-hb",
+      "logisteed"
+    ],
+    "JTB": [
+      "jtb"
+    ],
+    "HIS": [
+      "his"
+    ],
+    "星野リゾート": [
+      "hoshinoresorts"
+    ],
+    "帝国ホテル": [
+      "imperialhotel"
+    ],
+    "プリンスホテル": [
+      "princehotels"
+    ],
+    "アパホテル": [
+      "apahotel"
+    ],
+    "東横イン": [
+      "toyoko-inn"
+    ],
+    "ルートイン": [
+      "route-inn"
+    ],
+    "パーソル": [
+      "persol"
+    ],
+    "パソナ": [
+      "pasona"
+    ],
+    "エン・ジャパン": [
+      "en-japan"
+    ],
+    "ビズリーチ": [
+      "bizreach"
+    ],
+    "マイナビ": [
+      "mynavi"
+    ],
+    "dip": [
+      "dip-net"
+    ],
+    "ランスタッド": [
+      "randstad"
+    ],
+    "アデコ": [
+      "adecco"
+    ],
+    "マンパワー": [
+      "manpower"
+    ],
+    "_subsection_10e": "--- ヘルスケア ---",
+    "エス・エム・エス": [
+      "bm-sms"
+    ],
+    "エムスリー": [
+      "m3"
+    ],
+    "ウィルグループ": [
+      "willgroup"
+    ],
+    "_subsection_10g": "--- 公的機関・独法追加 ---",
+    "セコム": [
+      "secom"
+    ],
+    "ALSOK": [
+      "alsok"
+    ],
+    "セントラル警備保障": [
+      "csp"
+    ],
+    "イオンディライト": [
+      "aeondelight"
+    ],
+    "日本管財": [
+      "nkanzai"
+    ],
+    "ベネフィット・ワン": [
+      "benefit-one"
+    ],
+    "_subsection_10k": "--- JRグループ子会社 ---",
+    "JR東日本情報システム": {
+      "domains": [
+        "jeis"
+      ],
+      "parent": "JR東日本"
+    },
+    "JR東日本ビルテック": {
+      "domains": [
+        "jre-bt"
+      ],
+      "parent": "JR東日本"
+    },
+    "JR東日本ステーションサービス": {
+      "domains": [
+        "jess"
+      ],
+      "parent": "JR東日本"
+    },
+    "JR東日本リテールネット": {
+      "domains": [
+        "jr-retailnet"
+      ],
+      "parent": "JR東日本"
+    },
+    "JR東日本メカトロニクス": {
+      "domains": [
+        "jrem"
+      ],
+      "parent": "JR東日本"
+    },
+    "JR東日本テクノハートTESSEI": {
+      "domains": [
+        "tessei"
+      ],
+      "parent": "JR東日本"
+    },
+    "JR東海エージェンシー": {
+      "domains": [
+        "jrc-agency"
+      ],
+      "parent": "JR東海"
+    },
+    "JR東海パッセンジャーズ": {
+      "domains": [
+        "jr-cp"
+      ],
+      "parent": "JR東海"
+    },
+    "ジェイアール西日本コミュニケーションズ": {
+      "domains": [
+        "jrcomm"
+      ],
+      "parent": "JR西日本"
+    },
+    "JR西日本テクノス": {
+      "domains": [
+        "jr-technos"
+      ],
+      "parent": "JR西日本"
+    },
+    "JR西日本ホテルズ": {
+      "domains": [
+        "jrw-hotels",
+        "hotels.westjr",
+        "westjr"
+      ],
+      "parent": "JR西日本"
+    },
+    "JRシステム": {
+      "domains": [
+        "jrs"
+      ],
+      "parent": "JR東日本"
+    },
+    "日本車輌製造": {
+      "domains": [
+        "n-sharyo"
+      ],
+      "parent": "JR東海"
+    },
+    "東京モノレール": {
+      "domains": [
+        "tokyo-monorail"
+      ],
+      "parent": "JR東日本"
+    },
+    "ジェイアールバス関東": {
+      "domains": [
+        "jrbuskanto"
+      ],
+      "parent": "JR東日本"
+    },
+    "JR東日本クロスステーション": {
+      "domains": [
+        "jre-cross"
+      ],
+      "parent": "JR東日本"
+    },
+    "JR東海不動産": {
+      "domains": [
+        "jrc-fudosan"
+      ],
+      "parent": "JR東海"
+    },
+    "_subsection_10l": "--- 電力・ガスグループ子会社 ---",
+    "東京電力エナジーパートナー": {
+      "domains": [
+        "tepco-ep"
+      ],
+      "parent": "東京電力"
+    },
+    "東京電力パワーグリッド": {
+      "domains": [
+        "tepco-pg"
+      ],
+      "parent": "東京電力"
+    },
+    "関西電力送配電": {
+      "domains": [
+        "kanden-td"
+      ],
+      "parent": "関西電力"
+    },
+    "東京ガスネットワーク": {
+      "domains": [
+        "tokyo-gas-network"
+      ],
+      "parent": "東京ガス"
+    },
+    "東京ガスiネット": {
+      "domains": [
+        "tg-inet"
+      ],
+      "parent": "東京ガス"
+    },
+    "大阪ガスマーケティング": {
+      "domains": [
+        "osakagasmarketing"
+      ],
+      "parent": "大阪ガス"
+    },
+    "中部電力パワーグリッド": {
+      "domains": [
+        "chuden-pg",
+        "powergrid.chuden",
+        "chudenpg-recruiting-site",
+        "chuden"
+      ],
+      "parent": "中部電力"
+    },
+    "東邦ガス": [
+      "tohogas"
+    ],
+    "_subsection_10m": "--- セコム・ALSOKグループ子会社 ---",
+    "セコムトラストシステムズ": {
+      "domains": [
+        "secomtrust"
+      ],
+      "parent": "セコム"
+    },
+    "セコム医療システム": {
+      "domains": [
+        "secom-msl"
+      ],
+      "parent": "セコム"
+    },
+    "ALSOK綜合警備保障": {
+      "domains": [
+        "alsok-gs"
+      ],
+      "parent": "ALSOK"
+    },
+    "ALSOKビルサービス": {
+      "domains": [
+        "alsok-bs"
+      ],
+      "parent": "ALSOK"
+    },
+    "_subsection_10n": "--- ホテル・旅行グループ子会社 ---",
+    "JTBビジネストラベルソリューションズ": {
+      "domains": [
+        "jtbbt"
+      ],
+      "parent": "JTB"
+    },
+    "日本旅行サービス": [
+      "nta-service"
+    ],
+    "星野リゾート・マネジメント": {
+      "domains": [
+        "hoshino-m"
+      ],
+      "parent": "星野リゾート"
+    },
+    "帝国ホテル東京": {
+      "domains": [
+        "imperialhotel-tokyo"
+      ],
+      "parent": "帝国ホテル"
+    },
+    "阪急阪神ホテルズ": {
+      "domains": [
+        "hankyu-hotel"
+      ],
+      "parent": "阪急阪神ホールディングス"
+    },
+    "_subsection_10h": "--- 人材・派遣サービス ---",
+    "福山通運": [
+      "fukutsu"
+    ],
+    "丸和運輸機関": [
+      "momotaro"
+    ],
+    "近鉄エクスプレス": [
+      "kwe"
+    ],
+    "郵船ロジスティクス": [
+      "yusen-logistics"
+    ],
+    "三井倉庫": [
+      "mitsui-soko"
+    ],
+    "住友倉庫": [
+      "sumitomo-soko"
+    ],
+    "西濃運輸": [
+      "seino-trans"
+    ],
+    "トナミ運輸": [
+      "tonami"
+    ],
+    "名鉄運輸": [
+      "meitetsu-trans"
+    ],
+    "第一貨物": [
+      "daiichi-kamotsu"
+    ],
+    "アルプス物流": [
+      "alps-logistics"
+    ],
+    "ハマキョウレックス": [
+      "hamakyorex"
+    ],
+    "丸全昭和運輸": [
+      "maruzenshowa"
+    ],
+    "遠州トラック": [
+      "enshu-truck"
+    ],
+    "トランコム": [
+      "trancom"
+    ],
+    "SBSホールディングス": [
+      "sbs-group"
+    ],
+    "_subsection_10j": "--- 物流・運輸グループ子会社 ---",
+    "ヤマトロジスティクス": {
+      "domains": [
+        "y-logi"
+      ],
+      "parent": "ヤマト運輸"
+    },
+    "ヤマトシステム開発": {
+      "domains": [
+        "nekonet"
+      ],
+      "parent": "ヤマト運輸"
+    },
+    "ANAケータリングサービス": {
+      "domains": [
+        "anacatering"
+      ],
+      "parent": "ANA"
+    },
+    "ANAエアポートサービス": {
+      "domains": [
+        "ana-as"
+      ],
+      "parent": "ANA"
+    },
+    "JALスカイ": {
+      "domains": [
+        "jalsky"
+      ],
+      "parent": "JAL"
+    },
+    "JALエンジニアリング": {
+      "domains": [
+        "jalec"
+      ],
+      "parent": "JAL"
+    },
+    "ANAセールス": {
+      "domains": [
+        "ana-sales"
+      ],
+      "parent": "ANA"
+    },
+    "ANAテレマート": {
+      "domains": [
+        "ana-telemart"
+      ],
+      "parent": "ANA"
+    },
+    "ANAシステムズ": {
+      "domains": [
+        "ana-systems"
+      ],
+      "parent": "ANA"
+    },
+    "JALインフォテック": {
+      "domains": [
+        "jal-infotec"
+      ],
+      "parent": "JAL"
+    },
+    "JALナビア": {
+      "domains": [
+        "jal-navia"
+      ],
+      "parent": "JAL"
+    },
+    "JALカード": {
+      "domains": [
+        "jalcard"
+      ],
+      "parent": "JAL"
+    },
+    "_subsection_10o": "--- 物流追加（人気企業100）---",
+    "NXホールディングス": [
+      "nxhd"
+    ],
+    "鴻池運輸": [
+      "konoike-trans",
+      "konoike"
+    ],
+    "セイノーホールディングス": [
+      "seino-hd"
+    ],
+    "ヤマトホールディングス": [
+      "yamato-hd"
+    ],
+    "AZ-COM丸和ホールディングス": [
+      "azcom",
+      "az-com-maruwa-hd",
+      "az-com"
+    ],
+    "C&Fロジホールディングス": [
+      "cf-logi"
+    ],
+    "鈴与": [
+      "suzuyo"
+    ],
+    "日本ロジテム": [
+      "logi-tem"
+    ],
+    "カンダホールディングス": [
+      "kanda-hd",
+      "kanda-web",
+      "kanda-recruit"
+    ],
+    "杉村倉庫": [
+      "sugimura"
+    ],
+    "ケイヒン": [
+      "keihin"
+    ],
+    "_subsection_10i": "--- 電力・ガス（追加） ---",
+    "北海道電力": [
+      "hepco"
+    ],
+    "東北電力": [
+      "tohoku-epco"
+    ],
+    "北陸電力": [
+      "rikuden"
+    ],
+    "中国電力": [
+      "energia"
+    ],
+    "四国電力": [
+      "yonden"
+    ],
+    "九州電力": [
+      "kyuden"
+    ],
+    "_subsection_10f": "--- 公的機関・独法 ---",
+    "日本銀行": [
+      "boj"
+    ],
+    "日本貿易振興機構": [
+      "jetro"
+    ],
+    "日本年金機構": [
+      "nenkin"
+    ],
+    "国際協力機構": [
+      "jica"
+    ],
+    "日本取引所グループ": [
+      "jpx"
+    ],
+    "日本郵政グループ": [
+      "japanpost"
+    ],
+    "日本郵便": [
+      "post.japanpost"
+    ],
+    "ゆうちょ銀行": [
+      "jp-bank"
+    ],
+    "日本中央競馬会": [
+      "jra"
+    ],
+    "日本赤十字社": [
+      "jrc"
+    ],
+    "JAXA": [
+      "jaxa"
+    ],
+    "NEXCO東日本": [
+      "e-nexco"
+    ],
+    "NEXCO西日本": [
+      "w-nexco"
+    ],
+    "NEXCO中日本": [
+      "c-nexco"
+    ],
+    "テンプスタッフ": [
+      "tempstaff"
+    ],
+    "スタッフサービス": [
+      "staffservice"
+    ],
+    "ヒューマンリソシア": [
+      "resocia"
+    ],
+    "ウィルオブ・ワーク": [
+      "willof-work"
+    ],
+    "UTグループ": [
+      "ut-g"
+    ],
+    "テクノプロ": [
+      "technopro"
+    ],
+    "メイテック": [
+      "meitec"
+    ],
+    "アウトソーシング": [
+      "outsourcing"
+    ],
+    "ワールドインテック": [
+      "witc"
+    ],
+    "フルキャスト": [
+      "fullcast"
+    ],
+    "_section_11": "=== 医療・福祉 ===",
+    "武田薬品工業": [
+      "takeda"
+    ],
+    "アステラス製薬": [
+      "astellas"
+    ],
+    "第一三共": [
+      "daiichisankyo"
+    ],
+    "エーザイ": [
+      "eisai"
+    ],
+    "中外製薬": [
+      "chugai-pharm"
+    ],
+    "大塚製薬": [
+      "otsuka"
+    ],
+    "塩野義製薬": [
+      "shionogi"
+    ],
+    "小野薬品工業": [
+      "ono-pharma",
+      "ono"
+    ],
+    "田辺三菱製薬": [
+      "mt-pharma"
+    ],
+    "協和キリン": [
+      "kyowakirin"
+    ],
+    "参天製薬": [
+      "santen"
+    ],
+    "テルモ": [
+      "terumo"
+    ],
+    "_subsection_11b": "--- 製薬グループ子会社 ---",
+    "第一三共ヘルスケア": {
+      "domains": [
+        "daiichisankyo-hc"
+      ],
+      "parent": "第一三共"
+    },
+    "アステラス・アムジェン・バイオファーマ": {
+      "domains": [
+        "astellas-amgen"
+      ],
+      "parent": "アステラス製薬"
+    },
+    "中外製薬工業": {
+      "domains": [
+        "chugai"
+      ],
+      "parent": "中外製薬"
+    },
+    "塩野義テクノアドバンス": {
+      "domains": [
+        "shionogi-tech"
+      ],
+      "parent": "塩野義製薬"
+    },
+    "協和キリンフロンティア": {
+      "domains": [
+        "kyowakirin-frontier",
+        "kyowa-kirin-frontier"
+      ],
+      "parent": "協和キリン"
+    },
+    "エーザイ物流": {
+      "domains": [
+        "eisai-logistics"
+      ],
+      "parent": "エーザイ"
+    },
+    "ファイザー": [
+      "pfizer"
+    ],
+    "ジョンソン・エンド・ジョンソン日本法人": [
+      "jnj-jp"
+    ],
+    "第一三共ビジネスアソシエ": {
+      "domains": [
+        "daiichisankyo-ba"
+      ],
+      "parent": "第一三共"
+    },
+    "武田コンシューマーヘルスケア": {
+      "domains": [
+        "takeda-chc"
+      ],
+      "parent": "武田薬品工業"
+    },
+    "アステラス・ファーマテック": {
+      "domains": [
+        "astellas-pharmatech"
+      ],
+      "parent": "アステラス製薬"
+    },
+    "大塚メディカルデバイス": [
+      "otsuka-md"
+    ],
+    "_subsection_11c": "--- 医療機器・ヘルスケア ---",
+    "日本光電": [
+      "nihonkohden"
+    ],
+    "JCRファーマ": [
+      "jcrpharm"
+    ],
+    "ペプチドリーム": [
+      "peptidream"
+    ],
+    "そーせいグループ": [
+      "sosei"
+    ],
+    "メドレー": [
+      "medley"
+    ],
+    "エムスリーキャリア": {
+      "domains": [
+        "m3career"
+      ],
+      "parent": "エムスリー"
+    },
+    "キッセイ薬品工業": [
+      "kissei"
+    ],
+    "杏林製薬": [
+      "kyorin-pharm"
+    ],
+    "科研製薬": [
+      "kaken"
+    ],
+    "生化学工業": [
+      "seikagaku"
+    ],
+    "_subsection_11d": "--- 製薬追加（人気企業100）---",
+    "ロート製薬": [
+      "rohto"
+    ],
+    "久光製薬": [
+      "hisamitsu"
+    ],
+    "大正製薬ホールディングス": [
+      "taisho"
+    ],
+    "ツムラ": [
+      "tsumura"
+    ],
+    "沢井製薬": [
+      "sawai"
+    ],
+    "日医工": [
+      "nichiiko"
+    ],
+    "あすか製薬ホールディングス": [
+      "aska-pharma"
+    ],
+    "持田製薬": [
+      "mochida"
+    ],
+    "富士製薬工業": [
+      "fujipharma"
+    ],
+    "富士薬品": [
+      "fujiyakuhin"
+    ],
+    "興和": [
+      "kowa"
+    ],
+    "佐藤製薬": [
+      "sato-pharma",
+      "sato-seiyaku"
+    ],
+    "小林製薬": [
+      "kobayashi"
+    ],
+    "_section_12": "=== 教育 ===",
+    "ベネッセ": [
+      "benesse"
+    ],
+    "学研": [
+      "gakken"
+    ],
+    "河合塾": [
+      "kawai-juku"
+    ],
+    "東進": [
+      "toshin"
+    ],
+    "Z会": [
+      "zkai"
+    ],
+    "_subsection_12a": "--- 予備校・学習塾 ---",
+    "駿台予備学校": [
+      "sundai"
+    ],
+    "代々木ゼミナール": [
+      "yozemi"
+    ],
+    "早稲田アカデミー": [
+      "waseda-ac"
+    ],
+    "栄光ゼミナール": [
+      "eikoh-seminar"
+    ],
+    "日能研": [
+      "nichinoken"
+    ],
+    "SAPIX": [
+      "sapix",
+      "sapientica"
+    ],
+    "四谷大塚": [
+      "yotsuya-otsuka",
+      "yotsuyaotsuka"
+    ],
+    "臨海セミナー": [
+      "rinkaiseminar"
+    ],
+    "東京個別指導学院": [
+      "kobetsu",
+      "tkg"
+    ],
+    "トライグループ": [
+      "trygroup"
+    ],
+    "明光義塾": [
+      "meikogijuku"
+    ],
+    "ナガセ": [
+      "nagase-edu"
+    ],
+    "_section_13": "=== 印刷・包装 ===",
+    "大日本印刷": [
+      "dnp"
+    ],
+    "凸版印刷": [
+      "toppan"
+    ],
+    "トッパン・フォームズ": [
+      "toppan-f"
+    ],
+    "共同印刷": [
+      "kyodoprinting"
+    ],
+    "レンゴー": [
+      "rengo"
+    ],
+    "_subsection_13a": "--- 印刷・包装グループ子会社 ---",
+    "DNPデータテクノ": {
+      "domains": [
+        "dnp-data"
+      ],
+      "parent": "大日本印刷"
+    },
+    "DNPファインケミカル": {
+      "domains": [
+        "dnp-fc"
+      ],
+      "parent": "大日本印刷"
+    },
+    "DNPメディアクリエイト": {
+      "domains": [
+        "dnp-media"
+      ],
+      "parent": "大日本印刷"
+    },
+    "TOPPANエッジ": {
+      "domains": [
+        "toppan-edge"
+      ],
+      "parent": "凸版印刷"
+    },
+    "TOPPANデジタル": {
+      "domains": [
+        "toppan-digital"
+      ],
+      "parent": "凸版印刷"
+    },
+    "図書印刷": [
+      "tosho-printing"
+    ],
+    "日経印刷": [
+      "nikkei-printing"
+    ],
+    "廣済堂": [
+      "kosaido"
+    ],
+    "グラフィック": [
+      "graphic"
+    ],
+    "プリントパック": [
+      "printpac"
+    ],
+    "_section_14": "=== アパレル・繊維 ===",
+    "ワコール": [
+      "wacoal"
+    ],
+    "オンワード": [
+      "onward"
+    ],
+    "三陽商会": [
+      "sanyo-shokai"
+    ],
+    "TSIホールディングス": [
+      "tsi-holdings"
+    ],
+    "アダストリア": [
+      "adastria"
+    ],
+    "ユナイテッドアローズ": [
+      "united-arrows"
+    ],
+    "ビームス": [
+      "beams"
+    ],
+    "ベイクルーズ": [
+      "baycrews"
+    ],
+    "_subsection_14a": "--- アパレル・繊維（追加） ---",
+    "ストライプインターナショナル": [
+      "stripe-intl",
+      "stripe-department"
+    ],
+    "パルグループホールディングス": [
+      "palgroup",
+      "pal-closet"
+    ],
+    "ジーユー": [
+      "gu-global"
+    ],
+    "ワールド": [
+      "world"
+    ],
+    "ゴールドウイン": [
+      "goldwin"
+    ],
+    "デサント": [
+      "descente"
+    ],
+    "青山商事": [
+      "aoyama-syouji"
+    ],
+    "AOKIホールディングス": [
+      "aoki-hd"
+    ],
+    "ナルミヤ・インターナショナル": [
+      "narumiya"
+    ],
+    "はるやまホールディングス": [
+      "haruyama"
+    ],
+    "_section_15": "=== 設備工事・エンジニアリング ===",
+    "関電工": [
+      "kandenko"
+    ],
+    "きんでん": [
+      "kinden"
+    ],
+    "九電工": [
+      "kyudenko"
+    ],
+    "中電工": [
+      "chudenko"
+    ],
+    "トーエネック": [
+      "toenec"
+    ],
+    "日本電設工業": [
+      "densetsuko"
+    ],
+    "高砂熱学工業": [
+      "tte-net"
+    ],
+    "新菱冷熱工業": [
+      "shinryo"
+    ],
+    "大気社": [
+      "taikisha"
+    ],
+    "三機工業": [
+      "sanki"
+    ],
+    "_subsection_15a": "--- 設備工事・エンジニアリング（追加） ---",
+    "三菱電機プラントエンジニアリング": {
+      "domains": [
+        "mpec"
+      ],
+      "parent": "三菱電機"
+    },
+    "東洋エンジニアリング": [
+      "toyo-eng"
+    ],
+    "レイズネクスト": [
+      "raiznext"
+    ],
+    "NECネットワーク・センサ": {
+      "domains": [
+        "nec-nes"
+      ],
+      "parent": "NEC"
+    },
+    "協和エクシオ": [
+      "exeo"
+    ],
+    "コムシスホールディングス": [
+      "comsys-hd"
+    ],
+    "ミライト・ワン": [
+      "mirait-one"
+    ],
+    "ユアテック": [
+      "yurtec"
+    ],
+    "北陸電気工事": [
+      "hokuriku-elec",
+      "rikudenko"
+    ],
+    "四電工": [
+      "yondenko"
+    ],
+    "東光電気工事": [
+      "toko-elec"
+    ],
+    "_section_16": "=== その他人気企業 ===",
+    "ポケモン": [
+      "pokemon"
+    ],
+    "コロプラ": [
+      "colopl"
+    ],
+    "Cygames": [
+      "cygames"
+    ],
+    "ミクシィ": [
+      "mixi"
+    ],
+    "ぐるなび": [
+      "gnavi"
+    ],
+    "クックパッド": [
+      "cookpad"
+    ],
+    "一休": [
+      "ikyu"
+    ],
+    "ビジョン": [
+      "vision-net"
+    ],
+    "NTTデータIMジェイエスピー": {
+      "domains": [
+        "nttdata-imjsp"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータイントラマート": {
+      "domains": [
+        "intra-mart"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータウェーブ": {
+      "domains": [
+        "nttdata-wave"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータSMS": {
+      "domains": [
+        "nttdata-sms"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータNJK": {
+      "domains": [
+        "nttdata-njk",
+        "njk"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータMCS": {
+      "domains": [
+        "nttdata-mcs",
+        "mcserve",
+        "ntt-mcs"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータNCB": {
+      "domains": [
+        "nttdata-ncb"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータMHIシステムズ": {
+      "domains": [
+        "nttdata-mhi"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータカスタマサービス": {
+      "domains": [
+        "nttdata-cs"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータスミス": {
+      "domains": [
+        "nttdata-smith"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータセキスイシステムズ": {
+      "domains": [
+        "nttdata-sekisui"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータソフィア": {
+      "domains": [
+        "nttdata-sophia"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータ中国": {
+      "domains": [
+        "nttdata-chugoku"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータニューソン": {
+      "domains": [
+        "newson"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータ・ビズインテグラル": {
+      "domains": [
+        "nttdata-biz"
+      ],
+      "parent": "NTTデータ"
+    },
+    "NTTデータルウィーブ": {
+      "domains": [
+        "nttdata-luweave",
+        "luweave"
+      ],
+      "parent": "NTTデータ"
+    },
+    "日本電子計算": {
+      "domains": [
+        "jip"
+      ],
+      "parent": "NTTデータ"
+    },
+    "ジャステック": {
+      "domains": [
+        "jastec"
+      ],
+      "parent": "NTTデータ"
+    },
+    "ジェイエスフィット": {
+      "domains": [
+        "jsfit"
+      ],
+      "parent": "NTTデータ"
+    },
+    "伊藤忠丸紅住商テクノスチール": {
+      "domains": [
+        "imsts"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠プランテック": {
+      "domains": [
+        "itochu-plantec"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠サイバー＆インテリジェンス": {
+      "domains": [
+        "itochu-ci"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠食糧": {
+      "domains": [
+        "itochu-shokuryo"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠マシンテクノス": {
+      "domains": [
+        "itochu-machine",
+        "itcmt"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠リーテイルリンク": {
+      "domains": [
+        "itochu-retail"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠ケミカルフロンティア": {
+      "domains": [
+        "itochu-chemical"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "伊藤忠紙パルプ": {
+      "domains": [
+        "itochu-pulp"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "日本エアロスペース": {
+      "domains": [
+        "nasc"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "ポケットカード": {
+      "domains": [
+        "pocketcard"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "ヤナセ": {
+      "domains": [
+        "yanase"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "レリアン": {
+      "domains": [
+        "leilian"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "中設エンジ": {
+      "domains": [
+        "chusetsu"
+      ],
+      "parent": "伊藤忠商事"
+    },
+    "三井物産エアロスペース": {
+      "domains": [
+        "mbkaero"
+      ],
+      "parent": "三井物産"
+    },
+    "三井物産インシュアランス": {
+      "domains": [
+        "mitsui-insurance"
+      ],
+      "parent": "三井物産"
+    },
+    "JA三井リース": {
+      "domains": [
+        "jamitsuilease"
+      ],
+      "parent": "三井物産"
+    },
+    "三井物産リアルティ・マネジメント": {
+      "domains": [
+        "mitsui-rm"
+      ],
+      "parent": "三井物産"
+    },
+    "三菱商事ライフサイエンス": {
+      "domains": [
+        "mcls-ltd"
+      ],
+      "parent": "三菱商事"
+    },
+    "三菱商事テクノス": {
+      "domains": [
+        "mct"
+      ],
+      "parent": "三菱商事"
+    },
+    "三菱商事エネルギー": {
+      "domains": [
+        "mce",
+        "mc-ene",
+        "mc-ene-recruit"
+      ],
+      "parent": "三菱商事"
+    },
+    "富士通Japanサービス": {
+      "domains": [
+        "fjm"
+      ],
+      "parent": "富士通"
+    },
+    "富士通システムズウエスト": {
+      "domains": [
+        "fujitsu-west"
+      ],
+      "parent": "富士通"
+    },
+    "TISソリューションリンク": {
+      "domains": [
+        "tis-sl"
+      ],
+      "parent": "TIS"
+    },
+    "TISシステムサービス": {
+      "domains": [
+        "tis-ss"
+      ],
+      "parent": "TIS"
+    },
+    "アグレックス": {
+      "domains": [
+        "agrex"
+      ],
+      "parent": "TIS"
+    },
+    "クオリカ": {
+      "domains": [
+        "qualica"
+      ],
+      "parent": "TIS"
+    },
+    "SCSKニアショアシステムズ": {
+      "domains": [
+        "scsk-nearshore"
+      ],
+      "parent": "SCSK"
+    },
+    "SCSKシステムマネジメント": {
+      "domains": [
+        "scsk-sm"
+      ],
+      "parent": "SCSK"
+    },
+    "ベリサーブ": {
+      "domains": [
+        "veriserve"
+      ],
+      "parent": "SCSK"
+    },
+    "インテックソリューションパワー": {
+      "domains": [
+        "intec-sp"
+      ],
+      "parent": "TIS"
+    },
+    "AJS": {
+      "domains": [
+        "ajs"
+      ],
+      "parent": "TIS"
+    },
+    "ネクスウェイ": {
+      "domains": [
+        "nexway"
+      ],
+      "parent": "TIS"
+    },
+    "Gran Manibus": {
+      "domains": [
+        "granmanibus"
+      ],
+      "parent": "SCSK"
+    },
+    "NRIフィナンシャル・グラフィックス": {
+      "domains": [
+        "nri-fg"
+      ],
+      "parent": "野村総合研究所"
+    },
+    "ユービーセキュア": {
+      "domains": [
+        "ubsecure"
+      ],
+      "parent": "野村総合研究所"
+    },
+    "NRIリテールネクスト": {
+      "domains": [
+        "nri-rn"
+      ],
+      "parent": "野村総合研究所"
+    },
+    "アコム": {
+      "domains": [
+        "acom"
+      ],
+      "parent": "三菱UFJフィナンシャル・グループ"
+    },
+    "SMBC信託銀行": {
+      "domains": [
+        "smbctb"
+      ],
+      "parent": "三井住友フィナンシャルグループ"
+    },
+    "アルティウスリンク": {
+      "domains": [
+        "altius-link"
+      ],
+      "parent": "KDDI"
+    },
+    "沖縄セルラー電話": {
+      "domains": [
+        "au-okinawa"
+      ],
+      "parent": "KDDI"
+    },
+    "Supership": {
+      "domains": [
+        "supership"
+      ],
+      "parent": "KDDI"
+    },
+    "au損害保険": {
+      "domains": [
+        "au-sonpo"
+      ],
+      "parent": "KDDI"
+    },
+    "auフィナンシャルホールディングス": {
+      "domains": [
+        "aufh"
+      ],
+      "parent": "KDDI"
+    },
+    "auコマース&ライフ": {
+      "domains": [
+        "aucl"
+      ],
+      "parent": "KDDI"
+    },
+    "SB C&S": {
+      "domains": [
+        "softbankcs"
+      ],
+      "parent": "ソフトバンクグループ"
+    },
+    "楽天生命": {
+      "domains": [
+        "rakuten-life"
+      ],
+      "parent": "楽天グループ"
+    },
+    "パナソニック インダストリー": {
+      "domains": [
+        "industry.panasonic"
+      ],
+      "parent": "パナソニック"
+    },
+    "パナソニック インフォメーションシステムズ": {
+      "domains": [
+        "panasonic-is"
+      ],
+      "parent": "パナソニック"
+    },
+    "パナソニック アドバンストテクノロジー": {
+      "domains": [
+        "panasonic-at"
+      ],
+      "parent": "パナソニック"
+    },
+    "ソニー・ピクチャーズエンターテイメント": {
+      "domains": [
+        "sonypictures"
+      ],
+      "parent": "ソニーグループ"
+    },
+    "ソニーフィナンシャルグループ": {
+      "domains": [
+        "sonyfg"
+      ],
+      "parent": "ソニーグループ"
+    },
+    "トヨタ自動車東日本": {
+      "domains": [
+        "toyota-ej"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "トヨタ自動車九州": {
+      "domains": [
+        "toyota-kyushu"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "愛知製鋼": {
+      "domains": [
+        "aichi-steel"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "ウーブン・バイ・トヨタ": {
+      "domains": [
+        "woven-by-toyota"
+      ],
+      "parent": "トヨタ自動車"
+    },
+    "ホンダモビリティランド": {
+      "domains": [
+        "mobilityland"
+      ],
+      "parent": "本田技研工業"
+    },
+    "日産カーリース": {
+      "domains": [
+        "nissan-carlease"
+      ],
+      "parent": "日産自動車"
+    }
+  }
+}

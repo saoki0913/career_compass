@@ -46,9 +46,9 @@ Career Compass（ウカルン）で使用している技術スタックの詳細
 
 | 技術 | バージョン | 用途 |
 |-----|----------|------|
-| **Turso** | - | libSQL ベースの分散 DB |
+| **Supabase (PostgreSQL)** | - | マネージド PostgreSQL |
 | **Drizzle ORM** | 0.45.x | TypeScript ORM |
-| **@libsql/client** | 0.17.x | Turso クライアント |
+| **postgres (postgres.js)** | 3.4.x | DBクライアント（Drizzle postgres-js ドライバー） |
 
 ### 決済
 
@@ -187,8 +187,8 @@ RAG（Retrieval-Augmented Generation）のための検索システム。
 | サービス | 用途 |
 |---------|------|
 | **Vercel** | Next.js ホスティング |
-| **Railway / Render** | FastAPI ホスティング |
-| **Turso** | データベース |
+| **Railway** | FastAPI ホスティング |
+| **Supabase** | データベース（PostgreSQL） |
 
 ---
 
@@ -228,7 +228,6 @@ RAG（Retrieval-Augmented Generation）のための検索システム。
 {
   "@aws-sdk/client-s3": "^3.975.0",
   "@aws-sdk/s3-request-presigner": "^3.975.0",
-  "@libsql/client": "^0.17.0",
   "@radix-ui/react-label": "^2.1.8",
   "@radix-ui/react-select": "^2.2.6",
   "@radix-ui/react-slot": "^1.2.4",
@@ -240,6 +239,7 @@ RAG（Retrieval-Augmented Generation）のための検索システム。
   "drizzle-orm": "^0.45.1",
   "lucide-react": "^0.563.0",
   "next": "16.1.5",
+  "postgres": "^3.4.7",
   "react": "19.2.3",
   "react-dom": "19.2.3",
   "stripe": "^20.2.0",

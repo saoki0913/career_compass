@@ -8,7 +8,7 @@ Career Compass（ウカルン）のデータベース構造とマイグレーシ
 
 | 技術 | 用途 |
 |-----|------|
-| **Turso** | libSQL ベースの分散データベース（SQLite 互換） |
+| **Supabase** | マネージド PostgreSQL |
 | **Drizzle ORM** | TypeScript ORM |
 | **drizzle-kit** | マイグレーション生成・管理 |
 
@@ -22,13 +22,15 @@ career_compass/
 │   ├── schema.ts          # テーブル定義（Drizzle スキーマ）
 │   └── index.ts           # DB クライアント初期化
 │
-├── drizzle/               # マイグレーションファイル
+├── drizzle_pg/            # マイグレーションファイル（PostgreSQL: 現行）
 │   ├── 0000_*.sql         # 初期スキーマ
 │   ├── 0001_*.sql         # 追加マイグレーション
 │   ├── 0002_*.sql         # ...
 │   └── meta/              # Drizzle メタデータ
 │       ├── _journal.json  # マイグレーション履歴
 │       └── 0000_snapshot.json
+│
+├── drizzle/               # (legacy) Turso/SQLite のマイグレーション（履歴保持）
 │
 └── drizzle.config.ts      # Drizzle 設定ファイル
 ```
@@ -41,8 +43,11 @@ career_compass/
 # スキーマからマイグレーションSQLを生成
 npm run db:generate
 
-# マイグレーションをDBに適用
-npm run db:push
+# マイグレーションをDBに適用（推奨）
+npm run db:migrate
+
+# 空のDBに一気に反映したい場合（開発向け）
+# npm run db:push
 
 # Drizzle Studio（GUI）を起動
 npm run db:studio
@@ -57,13 +62,14 @@ npm run db:studio
 スキーマは `src/lib/db/schema.ts` で定義されています。
 
 ```typescript
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
-export const users = sqliteTable("users", {
+export const users = pgTable("users", {
   id: text("id").primaryKey(),
-  name: text("name"),
   email: text("email").notNull().unique(),
-  // ...
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .defaultNow(),
 });
 ```
 
@@ -304,13 +310,8 @@ const user: User = await db.query.users.findFirst();
 
 ## 9. マイグレーション履歴
 
-| ファイル | 内容 |
-|---------|------|
-| `0000_strong_spacker_dave.sql` | 初期スキーマ（全テーブル） |
-| `0001_heavy_proudstar.sql` | 追加カラム |
-| `0001_custom_deadline_tasks.sql` | カスタム：sort_order, is_pinned 等 |
-| `0002_regular_black_bird.sql` | shared_at カラム追加 |
-| `0003_add_corporate_info_urls.sql` | 企業情報URL関連カラム |
+- PostgreSQL（現行）: `drizzle_pg/` と `drizzle_pg/meta/_journal.json`
+- legacy（Turso/SQLite）: `drizzle/`（履歴保持。新規変更は `drizzle_pg/` に追加）
 
 ---
 
@@ -318,13 +319,14 @@ const user: User = await db.query.users.findFirst();
 
 ```typescript
 // src/lib/db/index.ts
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import * as schema from "./schema";
 
-const client = createClient({
-  url: process.env.TURSO_DATABASE_URL!,
-  authToken: process.env.TURSO_AUTH_TOKEN,
+const client = postgres(process.env.DATABASE_URL!, {
+  // Supabase pooler (transaction mode) では prepare を無効化
+  prepare: false,
+  ssl: "require",
 });
 
 export const db = drizzle(client, { schema });
@@ -382,6 +384,7 @@ await db.update(companies)
 
 ## 関連ドキュメント
 
+- [DB_OPERATIONS.md](../setup/DB_OPERATIONS.md) - DB 運用ガイド（ローカル/本番の切り替え・トラブルシューティング）
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - システムアーキテクチャ
 - [TECH_STACK.md](./TECH_STACK.md) - 使用技術一覧
 - [ENV_SETUP.md](../setup/ENV_SETUP.md) - 環境変数設定

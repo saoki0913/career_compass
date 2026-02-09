@@ -1,4 +1,4 @@
-# 本番リリース手順書（Vercel + Render + Turso）
+# 本番リリース手順書（Vercel + Railway + Supabase）
 
 Career Compass (ウカルン) の本番デプロイ手順をステップバイステップで記載します。
 
@@ -17,13 +17,13 @@ Career Compass (ウカルン) の本番デプロイ手順をステップバイ�
                     └────┬────┘
                          │
 ┌─────────────┐     ┌───▼──────────┐     ┌─────────┐
-│   Vercel     │────▶│  Render      │────▶│  Turso   │
-│  (Next.js)   │     │  (FastAPI)   │     │ (libSQL) │
+│   Vercel     │────▶│  Railway     │────▶│ Supabase │
+│  (Next.js)   │     │  (FastAPI)   │     │(Postgres)│
 │  shupass.jp  │     │  Port 8000   │     │          │
 └──────┬───────┘     └──────┬───────┘     └──────────┘
        │                    │
-       │                    ├── ChromaDB (永続ディスク)
-       │                    └── BM25 Index (永続ディスク)
+       │                    ├── ChromaDB (Railway Volume)
+       │                    └── BM25 Index (Railway Volume)
        │
        ├── Stripe (決済)
        ├── Google OAuth (認証)
@@ -33,9 +33,9 @@ Career Compass (ウカルン) の本番デプロイ手順をステップバイ�
 | コンポーネント | デプロイ先 | ドメイン / パス |
 |---|---|---|
 | フロントエンド | Vercel | `shupass.jp` / `/` (ルート) |
-| バックエンド | Render | `career-compass-backend.onrender.com` |
-| データベース | Turso (マネージド) | — |
-| ベクトルDB / BM25 | Render 永続ディスク | `backend/data/` |
+| バックエンド | Railway | `career-compass-backend.up.railway.app` |
+| データベース | Supabase (PostgreSQL) | — |
+| ベクトルDB / BM25 | Railway Volume | `/app/data` |
 
 ---
 
@@ -114,49 +114,96 @@ Vercel Dashboard → Settings → **Domains** で以下を確認:
 
 ---
 
-## Step 1: Turso 本番データベースの作成
+## Step 1: Supabase (PostgreSQL) 本番データベースの作成
 
-### 1-1. Turso CLI インストール
+### 1-0. Supabase プロジェクト作成
 
-```bash
-# macOS
-brew install tursodatabase/tap/turso
+1. https://supabase.com/dashboard にログイン（GitHub 連携でサインアップ可能）
+2. 左上の **「New Project」** ボタンをクリック
+3. Organization を選択（初回は自動作成される）
+4. 以下を入力:
 
-# ログイン
-turso auth login
+| 項目 | 値 | 備考 |
+|---|---|---|
+| Project name | `career-compass` | 任意の識別名 |
+| Database Password | 安全なパスワード | **必ず控えること**（接続文字列で使用） |
+| Region | **Northeast Asia (Tokyo)** | なければ **Southeast Asia (Singapore)** |
+| Pricing Plan | Free で開始可能 | 後から Pro にアップグレード可 |
+
+5. **「Create new project」** ボタンをクリック
+6. プロジェクト作成に 1〜2 分かかる → Dashboard に遷移するまで待つ
+
+### 1-1. 接続文字列の取得
+
+1. Supabase Dashboard 上部の **「Connect」** ボタンをクリック
+2. Connection String セクションが表示される
+3. 以下の 2 つの接続文字列をコピー:
+
+#### DATABASE_URL（Transaction Pooler / Port 6543）
+
+Vercel 等の serverless 環境向け。接続プーリングにより多数の短命接続を効率的に処理。
+
+```
+postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres
 ```
 
-### 1-2. 本番用データベース作成
+- 「Connect」ダイアログで **Transaction Pooler** タブを選択してコピー
+- `[PASSWORD]` 部分をプロジェクト作成時のパスワードに置換
 
-```bash
-# 東京リージョン にDBを作成
-turso db create career-compass-production --location aws-ap-northeast-1
+#### DIRECT_URL（Direct Connection / Port 5432）
 
-# 接続URLを取得（控えておく）
-turso db show career-compass-production --url
-# => libsql://career-compass-production-xxx.turso.io
+マイグレーション実行用（Drizzle Kit が使用）。
 
-# 認証トークンを取得（控えておく）
-turso db tokens create career-compass-production
-# => eyJ...
+```
+postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres
 ```
 
-### 1-3. スキーマを本番DBに適用
+- 「Connect」ダイアログで **Session Pooler** または **Direct Connection** タブを選択してコピー
+- `[PASSWORD]` 部分をプロジェクト作成時のパスワードに置換
+
+> **Tip**: Transaction Pooler は Prepared Statements をサポートしません。Drizzle ORM のランタイム接続には Transaction Pooler（6543）、マイグレーション実行には Direct Connection または Session Pooler（5432）を使い分けてください。
+
+### 1-2. .env.local に接続文字列を設定
+
+ローカルでマイグレーションを実行するため、`.env.local` に接続文字列を設定:
 
 ```bash
-# プロジェクトルートで実行
-TURSO_DATABASE_URL=libsql://career-compass-production-xxx.turso.io \
-TURSO_AUTH_TOKEN=eyJ... \
-npm run db:push
+# .env.local に追記
+DATABASE_URL=postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres
+DIRECT_URL=postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres
 ```
 
-> **確認**: `npm run db:studio` でテーブルが作成されたことを確認。
+### 1-3. 依存関係インストール & スキーマを本番 DB に適用
+
+```bash
+# 1) 依存関係インストール
+npm install
+
+# 2) マイグレーション生成（既に drizzle_pg/ にある場合はスキップ可）
+npm run db:generate
+
+# 3) マイグレーション適用
+npm run db:migrate
+```
+
+> `npm run db:migrate` は `.env.local` の `DIRECT_URL` を使用してマイグレーションを実行します（`drizzle.config.ts` で `DIRECT_URL` 優先に設定済み）。
+
+### 1-4. DB 状態の確認
+
+1. Supabase Dashboard 左サイドバー → **「Table Editor」** をクリック
+2. 全テーブル（`user`, `session`, `account`, `company`, `es` 等）が作成されていることを確認
+
+Drizzle Studio で確認する場合:
+
+```bash
+npm run db:studio
+```
 
 ---
 
 ## Step 2: Stripe 本番設定
 
-Stripe は Vercel (フロントエンド) 側のみで使用します。バックエンド (Render) には Stripe 関連の設定は不要です。
+Stripe は Vercel (フロントエンド) 側のみで使用します。バックエンド (Railway) には Stripe 関連の設定は不要です。
 
 ### 2-1. Stripe アカウントの本番利用申請
 
@@ -299,7 +346,7 @@ Stripe Dashboard → **設定** → **Billing** → **カスタマーポータ�
 
 | 項目 | 値 |
 |---|---|
-| ビジネス名 | `ウカルン` |
+| ビジネス名 | `就活Pass` |
 | プライバシーポリシー URL | `https://shupass.jp/privacy` |
 | 利用規約 URL | `https://shupass.jp/terms` |
 
@@ -347,90 +394,267 @@ stripe trigger invoice.payment_succeeded
 
 ---
 
-## Step 3: Render にバックエンドをデプロイ
+## Step 3: Railway にバックエンドをデプロイ
 
-### 3-1. Render で Web Service 作成
+### 3-0. Railway アカウント作成 & CLI インストール
 
-1. https://render.com にログイン
-2. **New** → **Web Service** を選択
-3. GitHub リポジトリ `saoki0913/career_compass` を連携
+#### アカウント作成
 
-| 設定項目 | 値 |
-|---|---|
-| Name | `career-compass-backend` |
-| Branch | `main` |
-| Root Directory | `backend` |
-| Runtime | **Docker** |
-| Instance Type | **Standard** ($25/月, 2GB RAM) 推奨 |
+1. https://railway.com/ にアクセス
+2. **Start a New Project** → **GitHub で登録**（推奨）
+3. GitHub アカウントと連携を許可
 
-> **メモリ要件**: Cross-encoder モデル (`japanese-reranker-small-v2`, ~70M params) + ChromaDB + FastAPI で約 800MB〜1.2GB 使用。Starter (512MB) では不足する可能性が高いため Standard (2GB) を推奨。
+> GitHub 連携すると、リポジトリからの自動デプロイが可能になります。
 
-### 3-2. 永続ディスクを設定
-
-ChromaDB と BM25 インデックスはファイルに保存されるため、永続ディスクが必要です。
-
-Render Dashboard → 対象 Web Service → **Disks**
-
-| 設定 | 値 |
-|---|---|
-| Name | `career-compass-data` |
-| Mount Path | `/app/data` |
-| Size | 1 GB |
-
-> `backend/Dockerfile` の `WORKDIR` が `/app` なので、マウントパスは `/app/data` になります。
-
-### 3-3. 環境変数を設定
-
-Render Dashboard → 対象 Web Service → **Environment**
+#### CLI インストール（任意）
 
 ```bash
-# === AI API キー（必須） ===
+# グローバルインストール（任意のディレクトリで実行可能）
+npm install -g @railway/cli
+
+# ログイン（ブラウザが開きます）
+railway login
+
+# 確認
+railway whoami
+```
+
+> CLI はデプロイやログ確認に便利ですが、Dashboard のみでも運用できます。
+
+### 3-1. プロジェクト & サービス作成
+
+#### Dashboard から作成（推奨）
+
+1. https://railway.com/dashboard にログイン
+2. 右上の **「New Project」** ボタンをクリック
+3. **「Deploy from GitHub repo」** を選択
+4. GitHub 連携がまだの場合は GitHub アカウントとの連携を許可
+5. リポジトリ検索欄で `career_compass` と入力 → `saoki0913/career_compass` をクリック
+6. 2 つの選択肢が表示される:
+   - **「Add Variables」** → 先に環境変数を設定してからデプロイ（推奨）
+   - **「Deploy Now」** → 即座にデプロイ開始（変数は後から設定可能）
+7. 初回デプロイは設定が未完了のため失敗しても問題ない
+
+> デプロイ後、**Project Canvas**（プロジェクトの全体管理画面）に遷移します。
+
+#### サービスの Source 設定
+
+1. Project Canvas 上でサービスのカードをクリック
+2. 右パネルが開く → **「Settings」** タブをクリック
+3. **Source** セクションを見つける
+
+| 設定項目 | 値 | 説明 |
+|---|---|---|
+| Repository | `saoki0913/career_compass` | GitHub リポジトリ（自動設定済み） |
+| Branch | `main` | 本番デプロイ対象ブランチ |
+| Root Directory | `/backend` | **重要**: 入力欄に `/backend` と入力 |
+
+> **Root Directory**: プロジェクトのルートに Next.js と FastAPI が共存しているため、`/backend` を指定して FastAPI のみをビルド対象にします。
+
+#### Build 設定
+
+1. 同じ **「Settings」** タブ内の **Build** セクションを見つける
+
+| 設定項目 | 値 | 説明 |
+|---|---|---|
+| Builder | **Dockerfile** | `backend/railway.toml` で自動検出 |
+| Dockerfile Path | `Dockerfile` | Root Directory (`/backend`) からの相対パス |
+| Watch Paths | `/backend/**` | バックエンドの変更のみでデプロイトリガー |
+
+> Watch Paths を設定すると、フロントエンドだけの変更時にバックエンドが無駄に再デプロイされるのを防げます。
+
+> **メモリ要件**: Cross-encoder モデル (`japanese-reranker-small-v2`, ~70M params) + ChromaDB + FastAPI で約 800MB〜1.2GB 使用。Railway はデフォルトで 8GB RAM まで利用可能（従量課金）。
+
+### 3-2. Networking 設定（公開ドメイン）
+
+デフォルトではサービスは外部からアクセスできません。公開ドメインを生成する必要があります。
+
+1. サービスの **「Settings」** タブ → **「Networking」** セクションを見つける
+
+#### Public Networking
+
+1. **Public Networking** セクション内の **「Generate Domain」** ボタンをクリック
+2. 自動生成されるドメイン（例: `career-compass-backend-production.up.railway.app`）を確認
+3. このドメインをコピー → Vercel の `FASTAPI_URL` に設定する（Step 4-4 参照）
+4. SSL 証明書は自動で発行・更新される（設定不要）
+
+> カスタムドメインを使う場合は **Custom Domain** から設定可能（DNS の CNAME レコード設定が必要）。
+
+#### Private Networking
+
+同じ Railway プロジェクト内のサービス間通信に使用。今回は Vercel（外部）からのアクセスなので **Public Networking のみ必要**。
+
+### 3-3. Volume を設定（永続ストレージ）
+
+ChromaDB と BM25 インデックスはファイルに保存されるため、永続 Volume が必要です。
+Volume がないとデプロイごとにデータが消失します。
+
+#### Volume の作成方法（2 通り）
+
+**方法 1: Project Canvas で右クリック**
+1. Project Canvas の空白部分を **右クリック**
+2. コンテキストメニューから **Volume** の作成オプションを選択
+
+**方法 2: Command Palette**
+1. `⌘K`（Mac）/ `Ctrl+K`（Windows）で Command Palette を開く
+2. 「volume」と入力して Volume 作成を選択
+
+#### Volume の設定
+
+1. 接続先サービスを選択するプロンプトが表示 → バックエンドサービスを選択
+2. 以下を設定:
+
+| 設定 | 値 | 説明 |
+|---|---|---|
+| Name | `career-compass-data` | 任意の名前 |
+| Mount Path | `/app/data` | Dockerfile の WORKDIR `/app` + `data/` |
+
+> **重要**: Volume はランタイム時にマウントされます（ビルド時ではない）。ビルドフェーズ中に書き込んだデータは Volume には保存されません。
+>
+> `backend/docker-entrypoint.sh` が `/app/data/chroma` と `/app/data/bm25` サブディレクトリを自動作成し、パーミッションを設定します。
+>
+> **初回起動時**: Volume は空の状態。企業情報を取得するたびにデータが蓄積されます。
+>
+> Railway は `RAILWAY_VOLUME_NAME` と `RAILWAY_VOLUME_MOUNT_PATH` 環境変数を自動で注入します（手動設定不要）。
+
+### 3-4. 環境変数を設定
+
+1. Project Canvas 上でサービスのカードをクリック
+2. 右パネルの **「Variables」** タブをクリック
+
+#### 変数の追加方法（3 通り）
+
+**方法 1: 個別追加**
+- **「New Variable」** ボタンをクリック → キーと値を入力
+
+**方法 2: RAW Editor で一括ペースト（推奨）**
+- **「RAW Editor」** ボタンをクリック（Variables タブ内右上付近）
+- `.env` 形式（`KEY=VALUE`、1 行 1 変数）でまとめてペースト → **「Update Variables」** で保存
+
+**方法 3: 自動サジェスト**
+- Railway が GitHub リポジトリ内の `.env` / `.env.example` ファイルを検出した場合、サジェストが表示される → ワンクリックでインポート可能
+
+#### 必須変数
+
+```bash
+# AI API キー
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 
-# === CORS（必須） ===
+# CORS（Vercel フロントエンドのドメインを許可）
 CORS_ORIGINS=["https://shupass.jp"]
 
-# === フロントエンド URL（必須） ===
+# フロントエンド URL
 NEXT_PUBLIC_APP_URL=https://shupass.jp
 
-# === LLM モデル設定（任意） ===
+# ポート（Dockerfile の EXPOSE と一致させる）
+PORT=8000
+```
+
+#### 任意変数（推奨）
+
+```bash
+# LLM モデル設定
 CLAUDE_MODEL=claude-sonnet-4-5-20250929
 CLAUDE_HAIKU_MODEL=claude-haiku-4-5-20251001
-OPENAI_MODEL=gpt-4.1-mini
+OPENAI_MODEL=gpt-5-mini
 
-# === ES 添削設定（任意） ===
+# ES 添削設定
 ES_REWRITE_COUNT=1
 
-# === デバッグ無効化（任意） ===
+# デバッグ無効化（本番）
 DEBUG=false
 FASTAPI_DEBUG=false
 COMPANY_SEARCH_DEBUG=false
 WEB_SEARCH_DEBUG=false
-
-# === キャッシュ（任意） ===
-# REDIS_URL=redis://...
 ```
 
-> **注意**: `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` は**不要**です。データベースアクセスはフロントエンド (Next.js + Drizzle ORM) が担当し、バックエンド (FastAPI) は DB に直接アクセスしません。
+#### 設定不要な変数
 
-### 3-4. Health Check 設定
-
-Render Dashboard → 対象 Web Service → **Settings** → **Health Check**
-
-| 設定 | 値 |
+| 変数 | 理由 |
 |---|---|
-| Path | `/` |
-| Expected Code | `200` |
+| `DATABASE_URL` | DB アクセスはフロントエンド (Drizzle ORM) が担当 |
+| `DIRECT_URL` | 同上（マイグレーション用。バックエンドは不要） |
+| `STRIPE_*` | 決済はフロントエンド (Vercel) 側のみ |
+| `BETTER_AUTH_*` | 認証はフロントエンド側のみ |
 
-### 3-5. デプロイ確認
+> **Tip**: Railway の Variables 画面では **Shared Variables**（プロジェクト全体で共有）と **Service Variables**（サービス固有）を分けて管理できます。API キーは Service Variables に設定してください。
 
-デプロイ完了後、以下にアクセスして応答を確認:
+### 3-5. Deploy 設定
 
+サービスの **「Settings」** タブ → **Deploy** セクション
+
+| 設定項目 | 推奨値 | 説明 |
+|---|---|---|
+| Healthcheck Path | `/health` | `railway.toml` で設定済み |
+| Healthcheck Timeout | `10` (秒) | `railway.toml` で設定済み |
+| Restart Policy | `On Failure` | クラッシュ時のみ再起動 |
+| Max Retries | `3` | 3回失敗で停止 |
+| Railway Config File | `railway.toml` | Root Directory からの相対パス |
+
+> `backend/railway.toml` にこれらの設定が含まれているため、Dashboard での手動設定は不要です。変更したい場合は `railway.toml` を編集するか、Dashboard から上書きできます。
+
+### 3-6. リソース制限（任意）
+
+サービスの **「Settings」** タブ → **Resource Limits** セクション
+
+デフォルトでは制限なし（8 vCPU / 8GB RAM まで利用可能）。コスト管理のため上限を設定することを推奨。
+
+| リソース | 推奨上限 | 説明 |
+|---|---|---|
+| vCPU | `2` | 通常利用なら十分 |
+| Memory | `2 GB` | Cross-encoder + ChromaDB で ~1.2GB |
+
+> 月額コストの上限は Railway Dashboard → **Settings** → **Usage** → **Spending Limit** で設定できます。
+
+### 3-7. デプロイ実行 & 確認
+
+#### 自動デプロイ
+
+GitHub 連携済みの場合、`main` ブランチへの push で自動デプロイが開始されます。
+
+Project Canvas 上でサービスをクリック → 右パネルの **「Deployments」** タブでデプロイ状況を確認。
+
+#### CLI でデプロイ（手動）
+
+```bash
+cd backend
+railway up
 ```
-https://career-compass-backend.onrender.com/
+
+#### デプロイログの確認
+
+サービスの **「Deployments」** タブ → 対象デプロイをクリック → **Build Logs** / **Deploy Logs**
+
+または CLI:
+```bash
+railway logs
+```
+
+#### ヘルスチェック
+
+デプロイ完了後、公開ドメインにアクセス:
+
+```bash
+curl https://career-compass-backend-production.up.railway.app/
 # => {"message": "Career Compass API", "version": "0.1.0"}
+
+curl https://career-compass-backend-production.up.railway.app/health
+# => {"status": "healthy"}
 ```
+
+> デプロイ直後は Cross-encoder モデルのダウンロード（初回のみ、~200MB）に数分かかる場合があります。ヘルスチェックが通るまで待ってください。
+
+### 3-8. トラブルシューティング
+
+| 症状 | 原因 | 対処 |
+|---|---|---|
+| ビルド失敗 | Root Directory 未設定 | Settings → Source → Root Directory を `/backend` に |
+| 起動後すぐクラッシュ | メモリ不足 | Resource Limits で Memory を 2GB 以上に |
+| ヘルスチェック失敗 | ポート不一致 | `PORT=8000` が Variables に設定されているか確認 |
+| Volume データ消失 | Volume 未マウント | Settings → Volumes で `/app/data` にマウントされているか確認 |
+| CORS エラー | `CORS_ORIGINS` 未設定 | Variables に `CORS_ORIGINS=["https://shupass.jp"]` を追加 |
+| 外部からアクセス不可 | Public Domain 未生成 | Settings → Networking → Generate Domain |
 
 ---
 
@@ -438,91 +662,331 @@ https://career-compass-backend.onrender.com/
 
 ### 4-1. Vercel にプロジェクトをインポート
 
-1. https://vercel.com/new にアクセス
-2. **Import Git Repository** → `saoki0913/career_compass` を選択
+1. https://vercel.com/new にアクセス（ログイン済みであること）
+2. **「Import Git Repository」** セクションに GitHub リポジトリ一覧が表示される
+3. `career_compass` を検索 → **「Import」** ボタンをクリック
+4. **Configure Project** 画面が表示される:
 
-| 設定項目 | 値 |
-|---|---|
-| Framework Preset | **Next.js** (自動検出) |
-| Root Directory | `.` (ルート) |
-| Build Command | `npm run build` |
-| Node.js Version | **20.x** |
+| 設定項目 | 値 | 説明 |
+|---|---|---|
+| Framework Preset | **Next.js** (自動検出) | Vercel がフレームワークを自動判別 |
+| Root Directory | `.` (ルート) | バックエンドは Railway のため変更不要 |
+| Build Command | `npm run build` | デフォルトのまま |
+| Node.js Version | **20.x** | LTS 版 |
 
-### 4-2. ブランチ設定
+5. **Environment Variables** セクション（Configure Project 画面下部）で環境変数を事前設定可能:
+   - Variable Name / Value を入力 → **「Add」** ボタンで追加
+   - ここで全変数を設定してからデプロイすると初回ビルドから成功する
+6. **「Deploy」** ボタンをクリック
 
-Vercel Dashboard → Settings → **Git**
+> 環境変数を後から設定する場合、初回ビルドは失敗する可能性があります。4-4 で設定後に再デプロイしてください。
 
-| 設定 | 値 |
-|---|---|
-| Production Branch | `main` |
-| Preview Branches | `develop` (自動プレビュー) |
+### 4-2. General 設定
 
-### 4-3. 環境変数を設定
+Vercel Dashboard → 対象プロジェクト → **「Settings」** → 左メニュー **「General」**
 
-Vercel Dashboard → Settings → **Environment Variables**
+| 設定項目 | 推奨値 | 説明 |
+|---|---|---|
+| Project Name | `career-compass` | ダッシュボードでの識別名、デフォルトドメインの一部 |
+| Framework Preset | Next.js | 自動検出済み |
+| Root Directory | `.` | リポジトリルート |
+| Node.js Version | `20.x` | LTS 版を推奨 |
+| Build Command | `npm run build` | デフォルトのまま |
+| Output Directory | — | Next.js は自動検出（`.next`） |
+| Install Command | `npm install` | デフォルトのまま |
+
+### 4-3. Git 設定
+
+Vercel Dashboard → 対象プロジェクト → **「Settings」** → 左メニュー **「Git」**
+
+| 設定項目 | 値 | 説明 |
+|---|---|---|
+| Connected Git Repository | `saoki0913/career_compass` | GitHub 連携済み |
+| Production Branch | `main` | 本番デプロイ対象ブランチ |
+| Ignored Build Step | — | 未設定（全 push でビルド） |
+| Auto-cancel Deployments | `On`（推奨） | 同ブランチへの連続 push で前のビルドをキャンセル |
+
+> `develop` ブランチへの push は自動的にプレビューデプロイが作成されます。
+
+### 4-4. 環境変数を設定
+
+1. Vercel Dashboard → 対象プロジェクトをクリック
+2. 上部の **「Settings」** タブをクリック
+3. 左サイドメニューから **「Environment Variables」** をクリック
+
+#### 変数の追加手順
+
+1. **Key** 欄に変数名を入力（例: `DATABASE_URL`）
+2. **Value** 欄に値を入力
+3. **Environment** チェックボックスで適用先を選択:
+
+| Environment | 適用タイミング | 用途 |
+|---|---|---|
+| **Production** | `main` ブランチのデプロイ | 本番 API キー・本番 URL |
+| **Preview** | `develop` 等のプレビューデプロイ | テスト用 API キー・テスト URL |
+| **Development** | `vercel dev` ローカル実行時 | ローカル開発用 |
+
+4. シークレットキー（`STRIPE_SECRET_KEY` 等）は **「Sensitive」** トグルを ON にする
+   - ON にすると保存後に値を再表示できなくなる（セキュリティ強化）
+5. **「Save」** ボタンをクリック
+
+> **重要**: 環境変数の変更は **次回デプロイから** 反映されます。既存のデプロイには影響しません。変数設定後に再デプロイが必要な場合は、Deployments タブから最新デプロイの **「...」** → **「Redeploy」** をクリック。
+
+shupass-backend-production.up.railway.app
+
+
+#### 必須変数
 
 ```bash
-# === アプリケーション（必須） ===
+# === アプリケーション ===
 NEXT_PUBLIC_APP_URL=https://shupass.jp
 
-# === データベース（必須） ===
-TURSO_DATABASE_URL=libsql://career-compass-production-xxx.turso.io
-TURSO_AUTH_TOKEN=eyJ...
+# === データベース ===
+DATABASE_URL=postgresql://...   # 推奨: Pooler (Transaction mode / 6543)
+DIRECT_URL=postgresql://...     # 推奨: Direct connection (5432)
 
-# === 認証 - Better Auth（必須） ===
+# === 認証 - Better Auth ===
 BETTER_AUTH_SECRET=<openssl rand -base64 32 で生成>
 BETTER_AUTH_URL=https://shupass.jp
 
-# === 認証 - Google OAuth（必須） ===
+# === 認証 - Google OAuth ===
 GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=GOCSPX-...
 
-# === セキュリティ（必須） ===
+# === セキュリティ ===
 ENCRYPTION_KEY=<openssl rand -hex 32 で生成（64桁hex）>
 
-# === Stripe 決済（必須） ===
+# === Stripe 決済 ===
 STRIPE_SECRET_KEY=sk_live_...
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_PRICE_STANDARD_MONTHLY=price_...
 STRIPE_PRICE_PRO_MONTHLY=price_...
 
-# === FastAPI バックエンド URL（必須） ===
-FASTAPI_URL=https://career-compass-backend.onrender.com
+# === FastAPI バックエンド URL ===
+FASTAPI_URL=https://career-compass-backend.up.railway.app
 
-# === Vercel Cron 認証（必須） ===
+# === Vercel Cron 認証 ===
 CRON_SECRET=<openssl rand -hex 32 で生成>
 ```
 
-> **注意**: `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `CLAUDE_MODEL` / `OPENAI_MODEL` は Vercel には**不要**です。AI API はすべてバックエンド (Render) 経由で呼び出されます。
+#### 任意変数（推奨）
 
-### 4-4. カスタムドメイン
+```bash
+# === レート制限 (Upstash Redis) ===
+UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
+UPSTASH_REDIS_REST_TOKEN=AXxx...
+```
 
-**Step 0 で設定済み。** Vercel Dashboard → Settings → **Domains** で `shupass.jp` が **Valid Configuration** であることを再確認。
+#### 設定不要な変数
+
+| 変数 | 理由 |
+|---|---|
+| `OPENAI_API_KEY` | AI API はバックエンド (Railway) 経由 |
+| `ANTHROPIC_API_KEY` | 同上 |
+| `CLAUDE_MODEL` / `OPENAI_MODEL` | バックエンド側で設定 |
+| `CORS_ORIGINS` | バックエンド側の設定 |
+
+### 4-5. Domains 設定
+
+1. Vercel Dashboard → 対象プロジェクト → **「Settings」** → 左メニュー **「Domains」**
+2. ドメイン入力欄に `shupass.jp` と入力 → **「Add」** ボタンをクリック
+3. DNS 設定の指示が表示される（Step 0 で設定済み）
+
+**Step 0 で設定済み。** 以下が Valid Configuration であることを確認:
+
+| ドメイン | 状態 | 説明 |
+|---|---|---|
+| `shupass.jp` | Valid Configuration | A レコード → `76.76.21.21` |
+| `www.shupass.jp` | Redirects to shupass.jp | CNAME → `cname.vercel-dns.com` |
+
+| 設定項目 | 値 | 説明 |
+|---|---|---|
+| SSL Certificate | 自動発行 (Let's Encrypt) | DNS 設定後に自動 |
+| Git Branch | `main` (Production) | ドメインに紐づくブランチ |
+
+> デフォルトドメイン (`career-compass-xxx.vercel.app`) はプレビュー環境として残しておくと便利。
+
+### 4-6. Functions 設定
+
+Vercel Dashboard → 対象プロジェクト → **「Settings」** → 左メニュー **「Functions」**
+
+| 設定項目 | 推奨値 | 説明 |
+|---|---|---|
+| Default Function Region | `hnd1` (Tokyo, Japan) | ユーザーに最も近いリージョン |
+| Max Duration | `60s` (Pro) / `10s` (Hobby) | Serverless Function のタイムアウト |
+
+> **重要**: ES 添削や企業情報取得は FastAPI (Railway) に中継します。Railway からの応答を待つ時間も含まれるため、Pro プラン（60s）を推奨。Hobby プラン（10s）では長時間処理がタイムアウトする可能性があります。
+
+### 4-7. Cron Jobs 設定
+
+`vercel.json` で定義済み（Dashboard での追加設定は不要）:
+
+```json
+{
+  "crons": [
+    {
+      "path": "/api/cron/daily-notifications",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
+```
+
+| 設定項目 | 値 | 説明 |
+|---|---|---|
+| スケジュール | `0 0 * * *` | UTC 0:00 = **JST 9:00** に実行 |
+| エンドポイント | `/api/cron/daily-notifications` | 日次の締切通知チェック |
+| 認証 | `CRON_SECRET` 環境変数 | Bearer トークンで不正実行を防止 |
+| プラン要件 | **Pro 以上** | Hobby プランでは Cron 利用不可 |
+
+> Vercel Dashboard → 対象プロジェクト → **Cron Jobs** タブで実行履歴を確認可能。
+
+### 4-8. Security Headers
+
+`next.config.ts` で設定済み（Vercel Dashboard での追加設定は不要）:
+
+| ヘッダー | 値 | 目的 |
+|---|---|---|
+| `X-Frame-Options` | `DENY` | クリックジャッキング防止 |
+| `X-Content-Type-Options` | `nosniff` | MIME タイプスニッフィング防止 |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | リファラー情報の制限 |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | ブラウザ機能の制限 |
+| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains` | HTTPS 強制 |
+| `Content-Security-Policy` | 詳細は `next.config.ts` 参照 | XSS 防止（Stripe・Google 許可済み） |
+
+### 4-9. デプロイ実行 & 確認
+
+#### 自動デプロイ
+
+GitHub 連携済みの場合、`main` ブランチへの push で自動デプロイが開始されます。
+
+#### デプロイ状況の確認
+
+1. Vercel Dashboard → 対象プロジェクト → 上部の **「Deployments」** タブをクリック
+2. 各デプロイのステータスを確認:
+   - **Building**: ビルド中（デプロイをクリック → Build Logs で進捗確認）
+   - **Ready**: デプロイ完了
+   - **Error**: ビルド失敗（デプロイをクリック → Build Logs でエラー確認）
+3. デプロイの **「...」**（三点メニュー）→ **「Redeploy」** で再デプロイ可能
+
+> プレビューデプロイ: `develop` ブランチへの push で自動作成。一意の URL（`career-compass-xxx-yyy.vercel.app`）が発行されます。
 
 ---
 
 ## Step 5: 外部サービスの本番設定
 
-### 5-1. Google OAuth リダイレクトURI
+### 5-1. Google Cloud Console プロジェクト設定
 
-Google Cloud Console → **APIとサービス** → **認証情報** → OAuth 2.0 クライアント
+Google Cloud Console (https://console.cloud.google.com/)
 
-**承認済みの JavaScript 生成元** に追加:
+#### プロジェクト作成
+
+1. 上部メニューの **プロジェクト選択** → **新しいプロジェクト**
+2. プロジェクト名: `career-compass`（任意）
+3. 作成後、プロジェクトを選択
+
+#### API の有効化
+
+**API とサービス** → **ライブラリ** → 以下の API を検索して **有効にする**:
+
+| API | 用途 | 必須 |
+|---|---|---|
+| **Google People API** | ユーザープロフィール取得（OAuth ログイン） | Yes |
+| **Google Calendar API** | カレンダー同期（将来機能） | No |
+
+> Google+ API は非推奨。**People API** を使用してください。
+
+### 5-2. Google OAuth 同意画面の設定
+
+Google Cloud Console → **API とサービス** → **OAuth 同意画面**
+
+#### 基本情報
+
+| 設定項目 | 値 | 説明 |
+|---|---|---|
+| User Type | **外部** | Google Workspace 外のユーザーも対象 |
+| アプリ名 | `ウカルン` | ログイン時の同意画面に表示 |
+| ユーザー サポートメール | `support@shupass.jp` | ユーザーからの問い合わせ先 |
+| アプリのロゴ | ロゴ画像をアップロード | 同意画面に表示（120x120px 推奨） |
+
+#### アプリのドメイン
+
+| 設定項目 | 値 |
+|---|---|
+| アプリのホームページ | `https://shupass.jp` |
+| アプリのプライバシー ポリシー リンク | `https://shupass.jp/privacy` |
+| アプリの利用規約リンク | `https://shupass.jp/terms` |
+| 承認済みドメイン | `shupass.jp` |
+
+#### デベロッパーの連絡先情報
+
+| 設定項目 | 値 |
+|---|---|
+| メールアドレス | 開発者のメールアドレス（Google からの連絡用） |
+
+#### スコープ
+
+**スコープを追加または削除** → 以下を選択:
+
+| スコープ | 説明 | 種別 |
+|---|---|---|
+| `.../auth/userinfo.email` | メールアドレス | 非機密 |
+| `.../auth/userinfo.profile` | 名前、プロフィール画像 | 非機密 |
+| `openid` | OpenID Connect 認証 | 非機密 |
+
+> 全て「非機密」スコープのため、Google の審査は不要です。
+
+#### 公開ステータス
+
+| ステータス | 説明 |
+|---|---|
+| **テスト** | テストユーザーのみログイン可能（最大 100 名） |
+| **本番** | 全 Google ユーザーがログイン可能 |
+
+> **重要**: 本番リリース前に **アプリを公開** をクリックしてステータスを「本番」に変更してください。テストのままだと登録したテストユーザー以外はログインできません。
+
+### 5-3. Google OAuth 認証情報の作成
+
+Google Cloud Console → **API とサービス** → **認証情報** → **認証情報を作成** → **OAuth クライアント ID**
+
+| 設定項目 | 値 | 説明 |
+|---|---|---|
+| アプリケーションの種類 | **ウェブ アプリケーション** | — |
+| 名前 | `ウカルン 本番` | 識別用（任意） |
+
+#### 承認済みの JavaScript 生成元
+
 ```
 https://shupass.jp
 ```
 
-**承認済みのリダイレクト URI** に追加:
+#### 承認済みのリダイレクト URI
+
 ```
 https://shupass.jp/api/auth/callback/google
 ```
 
-> Vercel のデフォルトドメイン（`xxx.vercel.app`）も残しておくとプレビュー環境で便利。
+> プレビュー環境も使う場合は以下も追加:
+> ```
+> https://career-compass-xxx.vercel.app
+> https://career-compass-xxx.vercel.app/api/auth/callback/google
+> ```
 
-### 5-2. Render の CORS 更新
+#### 作成後に控えるキー
 
-Render 側の `CORS_ORIGINS` にカスタムドメインを設定:
+| キー | 環境変数名 | 設定先 |
+|---|---|---|
+| クライアント ID | `GOOGLE_CLIENT_ID` | Vercel |
+| クライアント シークレット | `GOOGLE_CLIENT_SECRET` | Vercel |
+
+> **注意**: クライアント シークレットは作成後に一度だけ表示されます。安全に保管してください。
+
+### 5-4. Railway の CORS 更新
+
+Railway 側の `CORS_ORIGINS` にカスタムドメインを設定:
+
+Railway Dashboard → 対象 Service → **Variables**
 
 ```
 CORS_ORIGINS=["https://shupass.jp"]
@@ -532,6 +996,40 @@ CORS_ORIGINS=["https://shupass.jp"]
 > ```
 > CORS_ORIGINS=["https://shupass.jp","https://career-compass-xxx.vercel.app"]
 > ```
+
+### 5-5. Upstash Redis 設定（レート制限用）
+
+Vercel のサーバーレス環境ではインメモリのレート制限が使えないため、Upstash Redis を使用します。
+未設定の場合はインメモリフォールバックで動作しますが、分散環境では正確なレート制限になりません。
+
+#### アカウント作成 & データベース作成
+
+1. https://console.upstash.com/ にアクセス（GitHub 連携でサインアップ可能）
+2. **Create Database** をクリック
+
+| 設定項目 | 推奨値 | 説明 |
+|---|---|---|
+| Name | `career-compass-ratelimit` | 識別名（任意） |
+| Type | **Regional** | 単一リージョン（グローバル不要） |
+| Region | `ap-northeast-1` (Tokyo) | レイテンシ最小化 |
+| TLS | Enabled | デフォルトのまま |
+| Eviction | **Enabled** | メモリ上限時に古いキーを自動削除 |
+
+#### REST API 認証情報の取得
+
+データベース作成後、**REST API** セクションに表示される:
+
+| キー | 環境変数名 | 設定先 |
+|---|---|---|
+| `UPSTASH_REDIS_REST_URL` | `UPSTASH_REDIS_REST_URL` | Vercel |
+| `UPSTASH_REDIS_REST_TOKEN` | `UPSTASH_REDIS_REST_TOKEN` | Vercel |
+
+#### 料金
+
+| プラン | 制限 | 備考 |
+|---|---|---|
+| **Free** | 10,000 コマンド/日, 256MB | 就活アプリの規模では十分 |
+| **Pay As You Go** | $0.2/100K コマンド | 超過時の自動課金 |
 
 ---
 
@@ -552,12 +1050,12 @@ git merge develop
 git push origin main
 ```
 
-> `git push` により Vercel と Render の両方で自動デプロイが開始されます。
+> `git push` により Vercel と Railway の両方で自動デプロイが開始されます。
 
 ### 6-2. デプロイ状況の確認
 
 - **Vercel**: https://vercel.com/dashboard → Deployments タブ
-- **Render**: https://dashboard.render.com → Events タブ
+- **Railway**: https://railway.app/dashboard → 対象 Service → Deployments タブ
 
 ---
 
@@ -565,7 +1063,7 @@ git push origin main
 
 ### 必須チェックリスト
 
-- [ ] **バックエンド Health Check**: `https://career-compass-backend.onrender.com/` で JSON 応答を確認
+- [ ] **バックエンド Health Check**: `https://career-compass-backend.up.railway.app/` で JSON 応答を確認
 - [ ] **フロントエンド表示**: `https://shupass.jp` でページが表示される
 - [ ] **ドメイン SSL**: `https://shupass.jp` で証明書が有効（ブラウザの鍵アイコン確認）
 - [ ] **www リダイレクト**: `https://www.shupass.jp` → `https://shupass.jp` にリダイレクトされる
@@ -581,30 +1079,33 @@ git push origin main
 
 - [ ] Vercel Cron (`/api/cron/daily-notifications`) の実行ログ確認
 - [ ] Sentry にイベントが届くことを確認（設定した場合）
-- [ ] Render の永続ディスク使用量確認
+- [ ] Railway の Volume 使用量確認
 
 ---
 
 ## 注意事項
 
-### Render コールドスタート
+### Railway の料金体系
 
-Starter プランではアイドル時にスリープします。初回アクセスに 30秒〜1分 かかる場合があります。
-フロントエンドからバックエンドへのリクエストがタイムアウトする可能性があるため、タイムアウト設定に注意。
+Railway は従量課金制です。月 $5 の無料クレジットが付与されます。
+
+| リソース | 単価 | 備考 |
+|---|---|---|
+| CPU | $0.000463/分/vCPU | 使用した分だけ |
+| メモリ | $0.000231/分/GB | デフォルト上限 8GB |
+| Volume | $0.25/GB/月 | 永続ディスク |
+| ネットワーク（送信） | $0.10/GB | 受信は無料 |
+
+> 低トラフィック（就活生向けアプリ）の場合、月 $5-15 程度の見込み。
 
 ### メモリ要件
 
 Cross-encoder モデル (`hotchpotch/japanese-reranker-small-v2`, ~70M params) のロードに約 400MB のメモリが必要です。
-
-| Render プラン | RAM | 推奨度 |
-|---|---|---|
-| Free | 512MB | 不可（メモリ不足） |
-| Starter | 512MB | 不可（ぎりぎりで不安定） |
-| Standard | 2GB | 推奨 |
+Railway はデフォルトで 8GB まで利用可能なため、メモリ不足の心配はありません。
 
 ### ChromaDB / BM25 データ
 
-開発環境の `backend/data/` は Git に含まれていません。本番では空の状態からスタートし、企業情報を取得するたびにデータが蓄積されます。
+開発環境の `backend/data/` は Git に含まれていません。本番では空の状態からスタートし、企業情報を取得するたびにデータが蓄積されます。Railway Volume にデータが永続化されます。
 
 ### Vercel Cron
 
@@ -629,8 +1130,8 @@ Cross-encoder モデル (`hotchpotch/japanese-reranker-small-v2`, ~70M params) �
 | 変数名 | 必須 | 本番値 / 説明 |
 |---|---|---|
 | `NEXT_PUBLIC_APP_URL` | Yes | `https://shupass.jp` |
-| `TURSO_DATABASE_URL` | Yes | Turso 接続URL |
-| `TURSO_AUTH_TOKEN` | Yes | Turso 認証トークン |
+| `DATABASE_URL` | Yes | Supabase Postgres 接続URL（推奨: Pooler/6543） |
+| `DIRECT_URL` | No | Supabase Postgres 直通URL（5432, マイグレーション推奨） |
 | `BETTER_AUTH_SECRET` | Yes | 認証シークレット (32文字以上) |
 | `BETTER_AUTH_URL` | Yes | `https://shupass.jp` |
 | `GOOGLE_CLIENT_ID` | Yes | Google OAuth クライアントID |
@@ -641,10 +1142,12 @@ Cross-encoder モデル (`hotchpotch/japanese-reranker-small-v2`, ~70M params) �
 | `STRIPE_WEBHOOK_SECRET` | Yes | Stripe Webhook シークレット (`whsec_...`) |
 | `STRIPE_PRICE_STANDARD_MONTHLY` | Yes | Standard 月額 Price ID (`price_...`) |
 | `STRIPE_PRICE_PRO_MONTHLY` | Yes | Pro 月額 Price ID (`price_...`) |
-| `FASTAPI_URL` | Yes | `https://career-compass-backend.onrender.com` |
+| `FASTAPI_URL` | Yes | `https://career-compass-backend.up.railway.app` |
 | `CRON_SECRET` | Yes | Cron 認証トークン (hex 32) |
+| `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST URL (`https://xxx.upstash.io`) |
+| `UPSTASH_REDIS_REST_TOKEN` | No | Upstash Redis REST トークン |
 
-### Render (バックエンド)
+### Railway (バックエンド)
 
 | 変数名 | 必須 | 本番値 / 説明 |
 |---|---|---|

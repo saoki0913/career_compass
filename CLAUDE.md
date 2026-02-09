@@ -11,7 +11,7 @@
 - **Frontend**: Next.js 16 + React 19 + Tailwind CSS 4 + shadcn/ui
 - **Backend (API)**: Next.js App Router
 - **Backend (AI)**: Python FastAPI
-- **Database**: Turso (libSQL) + Drizzle ORM
+- **Database**: Supabase (PostgreSQL) + Drizzle ORM
 - **Auth**: Better Auth (Google OAuth)
 - **Payment**: Stripe
 - **Vector DB**: ChromaDB (persistent)
@@ -382,7 +382,9 @@ npm run dev                  # Next.js dev server
 cd backend && uvicorn app.main:app --reload  # FastAPI dev
 
 # Database
-npm run db:push              # Push schema to Turso
+npm run db:generate          # Generate migrations (PostgreSQL)
+npm run db:migrate           # Apply migrations (PostgreSQL)
+# npm run db:push            # (dev) Push schema to an empty DB without migrations
 npm run db:studio            # Open Drizzle Studio
 
 # Build & Test

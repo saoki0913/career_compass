@@ -116,49 +116,15 @@ https://www.googleapis.com/auth/calendar.events      # 予定作成/更新/削�
 
 ---
 
-## Database MCP Server (Turso/SQLite)
+## Database (Supabase/PostgreSQL)
 
-データベース操作の開発・デバッグに使用します。
+このプロジェクトのメインDBは Supabase (PostgreSQL) です。
 
-### インストール
+開発・デバッグは以下で行えます:
+- Supabase Dashboard の SQL Editor
+- ローカルから `psql "$DIRECT_URL"`（Direct connection 推奨）
 
-```bash
-npm install -g @anthropic/mcp-server-sqlite
-```
-
-### 設定
-
-```json
-{
-  "mcpServers": {
-    "sqlite": {
-      "command": "mcp-server-sqlite",
-      "args": ["--db-url", "libsql://your-db.turso.io"],
-      "env": {
-        "TURSO_AUTH_TOKEN": "your-auth-token"
-      }
-    }
-  }
-}
-```
-
-### ローカル開発用（SQLite直接）
-
-```json
-{
-  "mcpServers": {
-    "sqlite-local": {
-      "command": "mcp-server-sqlite",
-      "args": ["--db-path", "./local.db"]
-    }
-  }
-}
-```
-
-### 利用可能なツール
-- `execute_query` - SQLクエリ実行
-- `list_tables` - テーブル一覧
-- `describe_table` - テーブル構造
+MCP 経由で DB を操作したい場合は、PostgreSQL 対応の MCP Server を利用し、接続情報として `DIRECT_URL` を渡してください。
 
 ---
 
@@ -251,28 +217,21 @@ async def fetch_company_info(url: str):
 
 ```json
 {
-  "mcpServers": {
-    "stripe": {
-      "command": "npx",
-      "args": ["-y", "@anthropic/claude-code-stripe-mcp"],
-      "env": {
-        "STRIPE_SECRET_KEY": "${STRIPE_SECRET_KEY}"
-      }
-    },
-    "github": {
-      "command": "mcp-server-github",
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
-      }
-    },
-    "sqlite": {
-      "command": "mcp-server-sqlite",
-      "args": ["--db-url", "${TURSO_DATABASE_URL}"],
-      "env": {
-        "TURSO_AUTH_TOKEN": "${TURSO_AUTH_TOKEN}"
-      }
-    }
-  }
+	"mcpServers": {
+	  "stripe": {
+	    "command": "npx",
+	    "args": ["-y", "@anthropic/claude-code-stripe-mcp"],
+	    "env": {
+	      "STRIPE_SECRET_KEY": "${STRIPE_SECRET_KEY}"
+	    }
+	  },
+	  "github": {
+	    "command": "mcp-server-github",
+	    "env": {
+	      "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+	    }
+	  }
+	}
 }
 ```
 
@@ -306,4 +265,4 @@ async def fetch_company_info(url: str):
 - [Claude Code MCP設定](https://docs.anthropic.com/claude-code/mcp)
 - [Stripe API ドキュメント](https://stripe.com/docs/api)
 - [Google Calendar API](https://developers.google.com/calendar/api)
-- [Turso ドキュメント](https://docs.turso.tech/)
+- [Supabase Docs](https://supabase.com/docs)

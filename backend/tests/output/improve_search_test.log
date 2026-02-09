@@ -1,0 +1,39 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0 -- /Users/saoki/.pyenv/versions/3.11.9/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/saoki/work/career_compass
+plugins: xdist-3.8.0, anyio-4.10.0, asyncio-1.3.0, cov-7.0.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+backend/tests/test_live_company_info_search_report.py::test_live_company_info_search_report [live-search] Industry coverage: {'IT・通信': 6, 'その他人気企業': 1, 'アパレル・繊維': 1, 'コンサルティング': 1, 'サービス・インフラ': 1, 'メーカー（電機・機械）': 2, 'メーカー（食品・日用品）': 3, '不動産・建設': 1, '医療・福祉': 2, '印刷・包装': 1, '商社': 1, '小売・流通': 2, '広告・マスコミ': 1, '教育': 1, '設備工事・エンジニアリング': 2, '金融・保険': 4}
+[live-search] (1/30) NRIセキュアテクノロジーズ [IT・通信]
+[live-search] (2/30) パナソニック インダストリー [その他人気企業]
+[live-search] (3/30) 三陽商会 [アパレル・繊維]
+[live-search] (4/30) エゴンゼンダー [コンサルティング]
+[live-search] (5/30) アデコ [サービス・インフラ]
+[live-search] (6/30) スタンレー電気 [メーカー（電機・機械）]
+[live-search] (7/30) 花王 [メーカー（食品・日用品）]
+[live-search] (8/30) 前田建設工業 [不動産・建設]
+[live-search] (9/30) 富士製薬工業 [医療・福祉]
+[live-search] (10/30) TOPPANデジタル [印刷・包装]
+[live-search] (11/30) 住友商事マシネックス [商社]
+[live-search] (12/30) コストコ [小売・流通]
+[live-search] (13/30) CARTA HOLDINGS [広告・マスコミ]
+[live-search] (14/30) ベネッセ [教育]
+[live-search] (15/30) 大気社 [設備工事・エンジニアリング]
+[live-search] (16/30) ステート・ストリート [金融・保険]
+[live-search] (17/30) システナ [IT・通信]
+[live-search] (18/30) アサヒ飲料 [メーカー（食品・日用品）]
+[live-search] (19/30) すかいらーく [小売・流通]
+[live-search] (20/30) 農林中央金庫 [金融・保険]
+[live-search] (21/30) アイレップ [IT・通信]
+[live-search] (22/30) 中電工 [設備工事・エンジニアリング]
+[live-search] (23/30) 武田薬品工業 [医療・福祉]
+[live-search] (24/30) NTTデータMSE [IT・通信]
+[live-search] (25/30) NTTデータ先端技術 [IT・通信]
+[live-search] (26/30) アサヒビール [メーカー（食品・日用品）]
+[live-search] (27/30) 旭化成ファーマ [メーカー（電機・機械）]
+[live-search] (28/30) ソニー銀行 [金融・保険]
+[live-search] (29/30) HENNGE [IT・通信]
+[live-search] (30/30) GMOフィナンシャルホールディングス [金融・保険]

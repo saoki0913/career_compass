@@ -29,7 +29,7 @@ cp .env.example .env.local
 # .env.local を編集して必要な値を設定
 # → 詳細: docs/ENV_SETUP.md
 
-# データベースセットアップ
+# データベースセットアップ（→ 詳細: docs/setup/DB_OPERATIONS.md）
 npm run db:push
 
 # 開発サーバー起動
@@ -261,8 +261,8 @@ e2e/
 
 | 変数名 | 説明 | 必須 |
 |--------|------|------|
-| `TURSO_DATABASE_URL` | Turso DB URL | ✅ |
-| `TURSO_AUTH_TOKEN` | Turso 認証トークン | ✅ |
+| `DATABASE_URL` | Supabase Postgres 接続URL（推奨: Pooler/6543） | ✅ |
+| `DIRECT_URL` | Supabase Postgres 直通URL（5432, マイグレーション推奨） | 🔶 |
 | `BETTER_AUTH_SECRET` | 認証シークレット | ✅ |
 | `GOOGLE_CLIENT_ID` | Google OAuth ID | ✅ |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth Secret | ✅ |
@@ -277,8 +277,8 @@ e2e/
 
 **Q: データベース接続エラー**
 ```bash
-# Turso CLIで確認
-turso db shell your-db-name
+# 接続確認（psql が入っている場合）
+psql \"$DIRECT_URL\"
 ```
 
 **Q: Stripe Webhookが受信できない**
@@ -301,6 +301,7 @@ npm run db:generate
 ## 参考リンク
 
 - [SPEC.md](../SPEC.md) - 機能仕様書
+- [DB_OPERATIONS.md](./DB_OPERATIONS.md) - DB 運用ガイド（ローカル/本番切り替え）
 - [ENV_SETUP.md](./ENV_SETUP.md) - 環境設定ガイド
 - [MCP_SETUP.md](./MCP_SETUP.md) - MCPサーバー設定
 - [Next.js Docs](https://nextjs.org/docs)

@@ -20,7 +20,8 @@
 | ドキュメント | 説明 |
 |------------|------|
 | [DEVELOPMENT.md](./setup/DEVELOPMENT.md) | 開発ガイド（Quick Start、コマンド一覧） |
-| [ENV_SETUP.md](./setup/ENV_SETUP.md) | 環境変数設定（Turso, OAuth, Stripe等） |
+| [ENV_SETUP.md](./setup/ENV_SETUP.md) | 環境変数設定（Supabase, OAuth, Stripe等） |
+| [SUPABASE_SETUP.md](./setup/SUPABASE_SETUP.md) | Supabase セットアップ（DB作成〜起動までコマンド付き） |
 | [MCP_SETUP.md](./setup/MCP_SETUP.md) | MCPサーバー設定（Claude Code連携） |
 
 ---
@@ -66,7 +67,7 @@
 
 | ドキュメント | 説明 |
 |------------|------|
-| [PRODUCTION.md](./release/PRODUCTION.md) | 本番リリース計画（Vercel + Render） |
+| [PRODUCTION.md](./release/PRODUCTION.md) | 本番リリース手順書（Vercel + Railway + Supabase） |
 
 ---
 

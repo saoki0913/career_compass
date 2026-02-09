@@ -44,7 +44,7 @@ test-headed:
 	npx playwright test --headed
 
 # ===========================================
-# データベース (Drizzle + Turso)
+# データベース (Drizzle + Supabase/PostgreSQL)
 # ===========================================
 
 # 環境変数を.env.localから読み込む
@@ -130,7 +130,7 @@ backend-install:
 
 LIVE_SEARCH_MODES ?= hybrid,legacy
 LIVE_SEARCH_CACHE_MODE ?= bypass
-LIVE_SEARCH_SAMPLE_SEED ?= 6
+LIVE_SEARCH_SAMPLE_SEED ?= 9
 LIVE_SEARCH_SAMPLE_SIZE ?= 30
 LIVE_SEARCH_MAX_RESULTS ?= 5
 LIVE_SEARCH_TOKENS_PER_SECOND ?= 1.0
@@ -203,7 +203,8 @@ check:
 	@echo "Backend: " && (test -d backend/.venv && echo "venv exists" || echo "venv not found")
 	@echo ""
 	@echo "=== Database ==="
-	@echo "Turso CLI:" && (command -v turso >/dev/null && echo "installed" || echo "not installed")
+	@echo "psql:" && (command -v psql >/dev/null && echo "installed" || echo "not installed")
+	@echo "Supabase CLI:" && (command -v supabase >/dev/null && echo "installed" || echo "not installed")
 	@echo ""
 	@echo "=== Services ==="
 	@echo "Backend (port 8000):" && (lsof -i :8000 >/dev/null 2>&1 && echo "running" || echo "not running")

@@ -29,8 +29,8 @@ Career Compass（ウカルン）のシステム全体構成を説明します。
             ┌───────────────────┼───────────────────┐
             ▼                   ▼                   ▼
 ┌───────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│   Turso (libSQL)  │ │  Python FastAPI │ │ External APIs   │
-│   データベース     │ │  AI バックエンド │ │                 │
+│ Supabase (PostgreSQL) │ │  Python FastAPI │ │ External APIs   │
+│     データベース       │ │  AI バックエンド │ │                 │
 │                   │ │                 │ │ - Stripe        │
 │ - ユーザー        │ │ - ES添削        │ │ - Google OAuth  │
 │ - 企業情報        │ │ - ガクチカ深掘り │ │ - Google Calendar│
@@ -73,7 +73,7 @@ Career Compass（ウカルン）のシステム全体構成を説明します。
 
 | コンポーネント | 役割 |
 |--------------|------|
-| Turso (libSQL) | メインデータベース |
+| Supabase (PostgreSQL) | メインデータベース |
 | ChromaDB | 企業情報のベクトルデータ |
 
 ---
@@ -165,7 +165,7 @@ career_compass/
 ```
 1. ユーザーがESを編集・保存
    └─> Next.js API (/api/documents/[id])
-       └─> Turso DB に保存
+       └─> Supabase (PostgreSQL) に保存
 
 2. ユーザーが「AI添削」をリクエスト
    └─> Next.js API (/api/documents/[id]/review)
@@ -252,8 +252,8 @@ career_compass/
 
 | 環境 | フロントエンド | バックエンド | データベース |
 |-----|--------------|-------------|-------------|
-| 開発 | `npm run dev` | `uvicorn` | Turso (dev) |
-| 本番 | Vercel | Railway/Render | Turso (prod) |
+| 開発 | `npm run dev` | `uvicorn` | Supabase (dev) |
+| 本番 | Vercel | Railway | Supabase (prod) |
 
 ---
 

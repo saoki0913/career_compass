@@ -10,7 +10,7 @@
 | バックエンド（API） | Next.js App Router |
 | バックエンド（AI） | FastAPI (Python) |
 | 認証 | Better Auth (Google OAuth) |
-| データベース | Turso (libSQL) |
+| データベース | Supabase (PostgreSQL) |
 | ORM | Drizzle |
 | ベクトルDB | ChromaDB |
 | UI | shadcn/ui + Tailwind CSS 4 |
@@ -27,8 +27,13 @@ npm install
 # 環境変数のコピー
 cp .env.example .env.local
 
-# データベーススキーマのプッシュ
-npx drizzle-kit push
+# データベース（初回）
+# 空のDBに一気に反映（開発/初期構築向け）
+npm run db:push
+#
+# 推奨: マイグレーション生成 -> 適用
+# npm run db:generate
+# npm run db:migrate
 
 # 開発サーバーの起動
 npm run dev
@@ -83,7 +88,7 @@ career_compass/
 必要な環境変数は [.env.example](.env.example) を参照してください。
 
 主要なサービス設定:
-- **Turso** - データベース ([turso.tech](https://turso.tech))
+- **Supabase** - データベース ([supabase.com](https://supabase.com))
 - **Stripe** - 決済 ([stripe.com](https://stripe.com))
 - **OpenAI** - 埋め込み・企業情報抽出 ([openai.com](https://openai.com))
 - **Anthropic** - ES添削・ガクチカ・志望動機 ([anthropic.com](https://anthropic.com))
