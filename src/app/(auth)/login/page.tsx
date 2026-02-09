@@ -3,8 +3,8 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
@@ -43,50 +43,60 @@ function FeaturePill({
   );
 }
 
-export default function LoginPage() {
+function LoginFallback() {
+  return (
+    <div className="flex flex-col items-center justify-center">
+      <div className="flex items-center gap-4 mb-8">
+        <div className="relative">
+          <div
+            className="absolute inset-0 bg-primary/20 blur-xl rounded-full scale-150"
+            aria-hidden="true"
+          />
+          <Image
+            src="/icon.png"
+            alt="Career Compass"
+            width={56}
+            height={56}
+            className="relative rounded-xl shadow-lg"
+          />
+        </div>
+        <span className="text-3xl font-extrabold text-foreground tracking-tight">
+          Career Compass
+        </span>
+      </div>
+
+      <Card className="w-full max-w-sm border-border/50 shadow-xl shadow-black/5">
+        <CardContent className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function LoginPageContent() {
   const { isAuthenticated, isLoading, userPlan } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectParam = searchParams.get("redirect") || searchParams.get("callbackUrl");
+  const safeRedirect = redirectParam && redirectParam.startsWith("/") ? redirectParam : null;
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      // Already logged in, redirect based on status
-      if (userPlan?.needsPlanSelection) {
-        router.push("/pricing");
+      // Already logged in, redirect based on requested redirect or status.
+      // Note: plan selection is no longer a blocking step (Free by default).
+      if (safeRedirect) {
+        router.push(safeRedirect);
       } else if (userPlan?.needsOnboarding) {
         router.push("/onboarding");
       } else {
         router.push("/dashboard");
       }
     }
-  }, [isAuthenticated, isLoading, userPlan, router]);
+  }, [isAuthenticated, isLoading, userPlan, router, safeRedirect]);
 
   if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center">
-        {/* Logo + Brand (static during loading) */}
-        <div className="flex items-center gap-4 mb-8">
-          <div className="relative">
-            <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full scale-150" aria-hidden="true" />
-            <Image
-              src="/icon.png"
-              alt="Career Compass"
-              width={56}
-              height={56}
-              className="relative rounded-xl shadow-lg"
-            />
-          </div>
-          <span className="text-3xl font-extrabold text-foreground tracking-tight">
-            Career Compass
-          </span>
-        </div>
-
-        <Card className="w-full max-w-sm border-border/50 shadow-xl shadow-black/5">
-          <CardContent className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-          </CardContent>
-        </Card>
-      </div>
-    );
+    return <LoginFallback />;
   }
 
   return (
@@ -133,7 +143,10 @@ export default function LoginPage() {
         <Card className="border-border/50 shadow-xl shadow-black/5">
           <CardContent className="pt-6 pb-6">
             {/* Primary CTA: Google Login */}
-            <GoogleSignInButton className="w-full h-12 text-base" />
+            <GoogleSignInButton
+              callbackURL={safeRedirect ?? "/dashboard"}
+              className="w-full h-12 text-base"
+            />
           </CardContent>
         </Card>
       </motion.div>
@@ -202,5 +215,14 @@ export default function LoginPage() {
         に同意したものとみなされます。
       </motion.p>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  // Next.js requires `useSearchParams()` to be inside a Suspense boundary.
+  return (
+    <Suspense fallback={<LoginFallback />}>
+      <LoginPageContent />
+    </Suspense>
   );
 }

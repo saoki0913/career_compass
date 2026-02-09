@@ -1,51 +1,33 @@
 "use client";
 
-import { Quote, TrendingUp, Clock, CheckCircle } from "lucide-react";
+import { Sparkles, Shield, Zap, Gift } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
-// PLACEHOLDER DATA - Replace with real testimonials later
-const testimonials = [
+const highlights = [
   {
-    quote: "ESの通過率が明らかに上がりました。AIの添削が的確で、自分では気づけなかった改善点がわかります。",
-    name: "M.S",
-    university: "早稲田大学",
-    year: "25卒",
-    avatar: "MS",
-  },
-  {
-    quote: "締切管理が本当に助かっています。複数企業を受けていても、もう締切を忘れることがありません。",
-    name: "K.T",
-    university: "慶應義塾大学",
-    year: "25卒",
-    avatar: "KT",
-  },
-  {
-    quote: "ガクチカの深掘りで、自分の強みを言語化できるようになりました。面接でも自信を持って話せます。",
-    name: "A.Y",
-    university: "東京大学",
-    year: "26卒",
-    avatar: "AY",
-  },
-];
-
-// PLACEHOLDER DATA - Replace with real metrics later
-const metrics = [
-  {
-    icon: TrendingUp,
-    value: "+40%",
-    label: "ES通過率向上",
-    color: "text-success",
-  },
-  {
-    icon: Clock,
-    value: "-60%",
-    label: "作成時間削減",
+    icon: Sparkles,
+    title: "AI添削でES品質UP",
+    description:
+      "8種類の添削スタイルで、あなたのESを多角的に改善。構成・誤字・具体性をAIが分析します。",
     color: "text-primary",
+    bgColor: "bg-primary/10",
   },
   {
-    icon: CheckCircle,
-    value: "98%",
-    label: "ユーザー満足度",
+    icon: Shield,
+    title: "締切を自動で管理",
+    description:
+      "企業情報から締切を抽出し、Googleカレンダーと連携。もう締切を見逃しません。",
+    color: "text-blue-600 dark:text-blue-400",
+    bgColor: "bg-blue-500/10",
+  },
+  {
+    icon: Zap,
+    title: "企業研究をAIが支援",
+    description:
+      "採用ページから情報を自動収集。RAG検索で企業理解を深め、志望動機作成に活かせます。",
     color: "text-accent",
+    bgColor: "bg-accent/10",
   },
 ];
 
@@ -55,80 +37,62 @@ export function TestimonialsSection() {
       <div className="container mx-auto px-4">
         {/* Section header */}
         <div className="text-center mb-16">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-accent/10 text-accent text-sm font-medium mb-6">
+            <Gift className="h-4 w-4" />
+            無料で始められます
+          </div>
           <h2 className="text-3xl sm:text-4xl font-bold mb-4">
-            先輩たちの
-            <span className="text-gradient">声</span>
+            ウカルンで
+            <span className="text-gradient">できること</span>
           </h2>
-          <p className="text-lg text-muted-foreground">
-            実際にウカルンを使った就活生の感想です。
+          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            ES添削・締切管理・企業研究を、ひとつのアプリで。
+            <br className="hidden sm:block" />
+            就活の「やるべきこと」を、AIがまとめてサポートします。
           </p>
         </div>
 
-        {/* Testimonial cards */}
+        {/* Feature highlights */}
         <div className="grid md:grid-cols-3 gap-6 lg:gap-8 max-w-6xl mx-auto mb-16">
-          {testimonials.map((testimonial, index) => (
+          {highlights.map((item, index) => (
             <div
-              key={testimonial.name}
+              key={item.title}
               className="opacity-0 animate-fade-up"
               style={{ animationDelay: `${(index + 1) * 150}ms` }}
             >
               <div className="relative h-full p-6 rounded-2xl bg-card border border-border/50 shadow-sm hover:shadow-md transition-shadow">
-                {/* Quote icon */}
-                <Quote className="h-8 w-8 text-primary/20 mb-4" />
+                <div
+                  className={`inline-flex p-3 rounded-xl ${item.bgColor} mb-4`}
+                >
+                  <item.icon className={`h-6 w-6 ${item.color}`} />
+                </div>
 
-                {/* Quote text */}
-                <p className="text-foreground leading-relaxed mb-6">
-                  "{testimonial.quote}"
+                <h3 className="text-lg font-bold mb-2">{item.title}</h3>
+                <p className="text-muted-foreground leading-relaxed text-sm">
+                  {item.description}
                 </p>
-
-                {/* Author */}
-                <div className="flex items-center gap-3">
-                  {/* Avatar */}
-                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary font-semibold text-sm">
-                    {testimonial.avatar}
-                  </div>
-
-                  <div>
-                    <div className="font-medium text-sm">
-                      {testimonial.name}さん
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {testimonial.university} / {testimonial.year}
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           ))}
         </div>
 
-        {/* Metrics */}
-        <div className="flex flex-wrap justify-center gap-8 md:gap-16">
-          {metrics.map((metric, index) => (
-            <div
-              key={metric.label}
-              className="flex items-center gap-4 opacity-0 animate-fade-up"
-              style={{ animationDelay: `${600 + index * 100}ms` }}
-            >
-              <div className={`p-3 rounded-xl bg-card border border-border/50 ${metric.color}`}>
-                <metric.icon className="h-6 w-6" />
-              </div>
-              <div>
-                <div className={`text-2xl font-bold ${metric.color}`}>
-                  {metric.value}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  {metric.label}
-                </div>
-              </div>
+        {/* CTA */}
+        <div className="text-center">
+          <div className="inline-flex flex-col items-center gap-4 p-8 rounded-2xl bg-card border border-border/50 shadow-sm max-w-lg">
+            <p className="text-lg font-semibold">まずは無料で使ってみる</p>
+            <p className="text-sm text-muted-foreground">
+              企業登録とES作成から始めて、必要ならAI添削を試せます。
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2 w-full justify-center">
+              <Button asChild size="lg" className="h-12 px-8">
+                <Link href="/login">無料で始める</Link>
+              </Button>
+              <Button asChild size="lg" variant="outline" className="h-12 px-8">
+                <Link href="/pricing">料金を見る</Link>
+              </Button>
             </div>
-          ))}
+          </div>
         </div>
-
-        {/* Disclaimer for placeholder data */}
-        <p className="text-center text-xs text-muted-foreground/50 mt-12">
-          ※ 数値はサービス利用者のアンケート結果に基づいています
-        </p>
       </div>
     </section>
   );

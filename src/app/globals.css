@@ -4,8 +4,11 @@
 
 @theme inline {
   /* Fonts */
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP",
+    "Meiryo", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
 
   /* Core colors */
   --color-background: var(--background);
@@ -96,7 +99,7 @@
 
   /* Muted */
   --muted: oklch(0.96 0.01 265);
-  --muted-foreground: oklch(0.5 0.02 265);
+  --muted-foreground: oklch(0.4 0.02 265);
 
   /* Accent - Original warm yellow */
   --accent: oklch(0.7 0.18 45);
@@ -277,8 +280,8 @@
 }
 
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
 @keyframes fade-up {
@@ -319,8 +322,8 @@
 }
 
 @keyframes draw-line {
-  0% { width: 0; }
-  100% { width: 100%; }
+  0% { transform: scaleX(0); transform-origin: left; }
+  100% { transform: scaleX(1); transform-origin: left; }
 }
 
 /* New Hero Section Animations */
@@ -381,7 +384,7 @@
   }
 
   .animate-shimmer {
-    background-size: 200% 100%;
+    overflow: hidden;
     animation: shimmer 2s linear infinite;
   }
 

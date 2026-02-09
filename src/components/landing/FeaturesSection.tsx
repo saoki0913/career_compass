@@ -34,7 +34,7 @@ const features = [
 
 export function FeaturesSection() {
   return (
-    <section className="py-24 bg-secondary/30">
+    <section id="features" className="py-24 bg-secondary/30">
       <div className="container mx-auto px-4">
         {/* Section header */}
         <div className="text-center mb-16">
@@ -61,7 +61,7 @@ export function FeaturesSection() {
                 className={`
                   relative h-full p-8 rounded-2xl bg-card border-2 border-transparent
                   shadow-sm transition-all duration-300
-                  hover:shadow-lg hover:-translate-y-1
+                  hover:shadow-lg
                   ${feature.borderColor}
                 `}
               >

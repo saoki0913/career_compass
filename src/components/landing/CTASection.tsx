@@ -31,16 +31,21 @@ export function CTASection() {
 
       <div className="relative container mx-auto px-4">
         <div className="max-w-3xl mx-auto text-center text-primary-foreground">
+          {/* Urgency line */}
+          <p className="text-sm font-medium text-primary-foreground/70 mb-4 opacity-0 animate-fade-up">
+            就活シーズンは待ってくれない
+          </p>
+
           {/* Headline */}
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6 opacity-0 animate-fade-up">
-            就活の第一歩を、
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6 opacity-0 animate-fade-up delay-100">
+            今日から、就活の準備を
             <br className="sm:hidden" />
-            今日から。
+            始めよう。
           </h2>
 
           {/* Subtext */}
           <p className="text-lg sm:text-xl text-primary-foreground/80 mb-10 opacity-0 animate-fade-up delay-200">
-            無料プランで今すぐ始められます。
+            無料プランでES添削を試してみませんか？
             <br className="hidden sm:block" />
             あなたの就活を、ウカルンがサポートします。
           </p>
@@ -74,7 +79,7 @@ export function CTASection() {
                 className="h-14 px-10 text-lg bg-white text-primary hover:bg-white/90 shadow-xl hover:shadow-2xl hover:-translate-y-0.5 transition-all"
               >
                 <Link href="/login">
-                  今すぐ無料で始める
+                  無料でES添削を試してみる
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Link>
               </Button>

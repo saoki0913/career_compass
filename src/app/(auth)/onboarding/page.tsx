@@ -81,9 +81,6 @@ export default function OnboardingPage() {
     if (!isLoading && !isAuthenticated) {
       router.push("/login");
     }
-    if (!isLoading && isAuthenticated && userPlan?.needsPlanSelection) {
-      router.push("/pricing");
-    }
     if (!isLoading && isAuthenticated && userPlan?.onboardingCompleted) {
       router.push("/dashboard");
     }
@@ -184,7 +181,7 @@ export default function OnboardingPage() {
     );
   }
 
-  if (!isAuthenticated || userPlan?.needsPlanSelection) {
+  if (!isAuthenticated) {
     return null;
   }
 

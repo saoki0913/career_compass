@@ -25,7 +25,7 @@ export function GoogleSignInButton({
         callbackURL,
       });
 
-      if (result.error) {
+      if (result.error && typeof result.error === "object" && "message" in result.error) {
         console.error("Sign in error:", result.error);
         setError(result.error.message || "ログインに失敗しました");
         setIsLoading(false);

@@ -76,7 +76,7 @@ const ChevronDownIcon = () => (
 export function DashboardHeader() {
   const { user, isGuest } = useAuth();
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications({ limit: 5 });
-  const { balance } = useCredits();
+  const { balance, nextResetAt, plan } = useCredits();
   const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -101,6 +101,11 @@ export function DashboardHeader() {
     await signOut();
     window.location.href = "/";
   };
+
+  const creditTitle =
+    plan !== "guest" && nextResetAt
+      ? `次回リセット: ${nextResetAt.toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" })}`
+      : undefined;
 
   return (
     <>
@@ -250,6 +255,7 @@ export function DashboardHeader() {
             {/* Credit Balance - hidden on small mobile, shown in user dropdown */}
             <Link
               href="/pricing"
+              title={creditTitle}
               className="hidden sm:flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition-all duration-200"
             >
               <CreditIcon />
@@ -339,6 +345,18 @@ export function DashboardHeader() {
                           </span>
                         </span>
                       </Link>
+                      {nextResetAt ? (
+                        <div className="px-4 pb-2 text-xs text-muted-foreground">
+                          次回リセット:{" "}
+                          <span className="tabular-nums">
+                            {nextResetAt.toLocaleDateString("ja-JP", {
+                              year: "numeric",
+                              month: "2-digit",
+                              day: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
 
                     {/* Logout */}

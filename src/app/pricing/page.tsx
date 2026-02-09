@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { PlanSelectionCard } from "@/components/auth/PlanSelectionCard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
+import { trackEvent } from "@/lib/analytics/client";
 
 type PlanType = "free" | "standard" | "pro";
 
@@ -29,12 +30,12 @@ const PLANS: {
     variant: "default",
     ctaLabel: "無料で始める",
     features: [
+      { text: "月30クレジット", included: true, highlight: true },
       { text: "企業登録 5社まで", included: true },
       { text: "ESエディタ", included: true },
-      { text: "AI添削 月3回", included: true },
-      { text: "ガクチカ深掘り 月1回", included: true },
-      { text: "カレンダー連携", included: false },
-      { text: "テンプレ閲覧", included: false },
+      { text: "AI添削（2〜5クレジット/回）", included: true },
+      { text: "添削スタイル 3種", included: true },
+      { text: "カレンダー連携（Google/アプリ内）", included: true },
     ],
   },
   {
@@ -48,12 +49,12 @@ const PLANS: {
     dailyPrice: "¥33",
     ctaLabel: "Standardで始める",
     features: [
-      { text: "企業登録 30社まで", included: true, highlight: true },
+      { text: "月300クレジット", included: true, highlight: true },
+      { text: "企業登録 無制限", included: true, highlight: true },
       { text: "ESエディタ", included: true },
-      { text: "AI添削 月10回", included: true, highlight: true },
-      { text: "ガクチカ深掘り 月5回", included: true, highlight: true },
-      { text: "カレンダー連携", included: true },
-      { text: "テンプレ閲覧", included: true },
+      { text: "添削スタイル 8種", included: true, highlight: true },
+      { text: "ガクチカ素材 10件まで", included: true },
+      { text: "企業RAG 50ページ/社まで", included: true },
     ],
   },
   {
@@ -66,12 +67,12 @@ const PLANS: {
     dailyPrice: "¥99",
     ctaLabel: "Proで始める",
     features: [
+      { text: "月800クレジット", included: true, highlight: true },
       { text: "企業登録 無制限", included: true },
       { text: "ESエディタ", included: true },
-      { text: "AI添削 無制限", included: true },
-      { text: "ガクチカ深掘り 無制限", included: true },
-      { text: "カレンダー連携", included: true },
-      { text: "テンプレ閲覧・投稿", included: true },
+      { text: "添削スタイル 8種", included: true },
+      { text: "ガクチカ素材 20件まで", included: true },
+      { text: "企業RAG 150ページ/社まで", included: true },
     ],
   },
 ];
@@ -126,10 +127,14 @@ function PricingPageContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading, userPlan } = useAuth();
 
   // State for canceled message
   const showCanceledMessage = canceled === "true";
+
+  useEffect(() => {
+    trackEvent("pricing_view");
+  }, []);
 
   const handlePlanSelect = async (planId: PlanType) => {
     setSelectedPlan(planId);
@@ -139,7 +144,7 @@ function PricingPageContent() {
       if (!isAuthenticated) {
         router.push("/login?redirect=/onboarding");
       } else {
-        router.push("/dashboard");
+        router.push(userPlan?.needsOnboarding ? "/onboarding" : "/dashboard");
       }
       return;
     }
@@ -148,6 +153,7 @@ function PricingPageContent() {
     if (!isAuthenticated) {
       // Save selected plan to localStorage and redirect to login
       localStorage.setItem("selectedPlan", planId);
+      trackEvent("checkout_intent_login", { plan: planId });
       router.push("/login?redirect=/pricing");
       return;
     }
@@ -176,11 +182,13 @@ function PricingPageContent() {
 
       // Redirect to Stripe Checkout
       if (data.url) {
+        trackEvent("checkout_start", { plan });
         window.location.href = data.url;
       }
     } catch (err) {
       console.error("Checkout error:", err);
       setError(err instanceof Error ? err.message : "エラーが発生しました");
+      trackEvent("checkout_error");
     } finally {
       setIsSubmitting(false);
     }
@@ -255,16 +263,19 @@ function PricingPageContent() {
             <span className="mx-2 text-border">|</span>
             <span className="inline-flex items-center gap-1">
               <svg className="w-3.5 h-3.5 text-primary" fill="currentColor" viewBox="0 0 20 20"><path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" /></svg>
-              就活生の87%がStandardを選択
+              おすすめ: Standard
             </span>
           </p>
         </div>
 
         {/* Current plan indicator for authenticated users */}
-        {isAuthenticated && user && (
+        {isAuthenticated && userPlan?.plan && (
           <div className="text-center mb-4 animate-in fade-in">
             <p className="text-sm text-muted-foreground">
-              現在のプラン: <span className="font-semibold text-foreground">{(user as { plan?: string }).plan?.toUpperCase() || "FREE"}</span>
+              現在のプラン:{" "}
+              <span className="font-semibold text-foreground">
+                {userPlan.plan.toUpperCase()}
+              </span>
             </p>
           </div>
         )}
@@ -311,9 +322,71 @@ function PricingPageContent() {
           </div>
         </div>
 
+        {/* FAQ */}
+        <section id="faq" className="mt-10 max-w-3xl mx-auto">
+          <h2 className="text-lg font-bold mb-4">よくある質問</h2>
+          <div className="space-y-3">
+            <details className="rounded-lg border bg-background/70 p-4">
+              <summary className="cursor-pointer font-medium">
+                クレジットとは何ですか？
+              </summary>
+              <p className="mt-2 text-sm text-muted-foreground leading-6">
+                AI実行や企業情報取得などの機能に使うポイントです。クレジットは
+                <span className="font-medium text-foreground">成功時のみ消費</span>
+                され、毎月リセットされます（繰り越しなし）。
+              </p>
+            </details>
+            <details className="rounded-lg border bg-background/70 p-4">
+              <summary className="cursor-pointer font-medium">
+                AI添削は何回できますか？
+              </summary>
+              <p className="mt-2 text-sm text-muted-foreground leading-6">
+                文章の長さにより消費クレジットが変わります（目安: 2〜5クレジット/回）。
+                実行前に見積が表示されます。
+              </p>
+              <div className="mt-3 text-sm text-muted-foreground leading-6">
+                <p className="font-medium text-foreground">例（ES添削）</p>
+                <ul className="mt-1 list-disc pl-5 space-y-1">
+                  <li>〜800字: 2クレジット</li>
+                  <li>801〜1600字: 3クレジット</li>
+                  <li>1601〜2400字: 4クレジット</li>
+                </ul>
+              </div>
+            </details>
+            <details className="rounded-lg border bg-background/70 p-4">
+              <summary className="cursor-pointer font-medium">
+                ゲストでも利用できますか？
+              </summary>
+              <p className="mt-2 text-sm text-muted-foreground leading-6">
+                はい。まずはゲストで試せます（企業登録などに上限があります）。Googleカレンダー連携や一部の機能はログインが必要です。
+              </p>
+            </details>
+            <details className="rounded-lg border bg-background/70 p-4">
+              <summary className="cursor-pointer font-medium">
+                解約はいつでもできますか？
+              </summary>
+              <p className="mt-2 text-sm text-muted-foreground leading-6">
+                はい。Stripeのサブスクリプションをいつでも解約できます。解約後の扱いは決済画面およびアプリ内表示に従います。
+              </p>
+            </details>
+            <details className="rounded-lg border bg-background/70 p-4">
+              <summary className="cursor-pointer font-medium">
+                入力した文章はどのように扱われますか？
+              </summary>
+              <p className="mt-2 text-sm text-muted-foreground leading-6">
+                添削や生成のために外部AIサービスへ送信して処理する場合があります。詳細は
+                <Link href="/privacy" className="underline hover:text-foreground">
+                  プライバシーポリシー
+                </Link>
+                をご確認ください。
+              </p>
+            </details>
+          </div>
+        </section>
+
         {/* Footer text + FAQ link */}
         <p className="mt-4 text-center text-xs text-muted-foreground">
-          <Link href="/contact" className="text-primary hover:underline">
+          <Link href="#faq" className="text-primary hover:underline">
             よくある質問
           </Link>
           <span className="mx-1.5">|</span>

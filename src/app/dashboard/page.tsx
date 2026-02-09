@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
   DashboardHeader,
+  ActivationChecklistCard,
   StatsCard,
   EmptyState,
   QuickActions,
@@ -23,6 +24,7 @@ import { useEsStats } from "@/hooks/useDocuments";
 import { getStatusConfig, type CompanyStatus } from "@/lib/constants/status";
 import { cn } from "@/lib/utils";
 import { FeatureTour } from "@/components/onboarding/FeatureTour";
+import { useActivation } from "@/hooks/useActivation";
 
 // Icons
 const CreditIcon = () => (
@@ -232,6 +234,7 @@ export default function DashboardPage() {
   const { draftCount, publishedCount, total: esTotal } = useEsStats();
   const { deadlines, count: deadlineCount } = useDeadlines(7);
   const todayTask = useTodayTask();
+  const { data: activationData, refresh: refreshActivation } = useActivation();
 
   // Build quick actions with onClick handler for motivation
   const quickActions = [
@@ -248,13 +251,18 @@ export default function DashboardPage() {
   // Check if plan selection or onboarding is needed
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      if (userPlan?.needsPlanSelection) {
-        router.push("/pricing");
-      } else if (userPlan?.needsOnboarding) {
+      if (userPlan?.needsOnboarding) {
         router.push("/onboarding");
       }
     }
   }, [isLoading, isAuthenticated, userPlan, router]);
+
+  // Activation checklist needs guest/user identity (device token or session).
+  useEffect(() => {
+    if (!isLoading && (isAuthenticated || isGuest)) {
+      refreshActivation();
+    }
+  }, [isLoading, isAuthenticated, isGuest, refreshActivation]);
 
   if (isLoading) {
     return (
@@ -314,6 +322,11 @@ export default function DashboardPage() {
             今日も就活を一歩前へ進めましょう
           </p>
         </div>
+
+        {/* Activation Checklist (first value path) */}
+        {activationData && activationData.completedSteps < activationData.totalSteps ? (
+          <ActivationChecklistCard progress={activationData} />
+        ) : null}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6 mb-8">

@@ -104,7 +104,7 @@ function FeatureTab({
           )}
           initial={{ width: "0%" }}
           animate={{ width: "100%" }}
-          transition={{ duration: 4, ease: "linear" }}
+          transition={{ duration: 6, ease: "linear" }}
         />
       )}
     </button>
@@ -140,16 +140,16 @@ function HeroContent() {
         </span>
       </motion.div>
 
-      {/* Headline - Short and powerful */}
+      {/* Headline - Outcome-oriented */}
       <motion.h1
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, delay: 0.1 }}
         className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-6"
       >
-        <span className="text-gradient">ESも締切も、</span>
+        <span className="text-gradient">内定に、最短で</span>
         <br />
-        <span className="text-foreground">AIが見逃さない。</span>
+        <span className="text-foreground">近づく就活AI。</span>
       </motion.h1>
 
       {/* One-line description */}
@@ -159,9 +159,9 @@ function HeroContent() {
         transition={{ duration: 0.5, delay: 0.2 }}
         className="text-lg text-muted-foreground mb-8 max-w-md"
       >
-        ES添削・締切管理・ガクチカ深掘り。
+        ES添削 × 締切管理 × 企業研究 —
         <br className="hidden sm:block" />
-        就活の面倒をAIがまとめてサポート。
+        3つのAI機能で就活の不安をなくす。
       </motion.p>
 
       {/* CTAs */}
@@ -189,26 +189,49 @@ function HeroContent() {
           </Button>
         ) : (
           <>
-            <Button
-              size="lg"
-              asChild
-              className="min-w-[180px] h-12 text-base shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5 transition-all"
-            >
-              <Link href="/login">
-                今すぐ始める
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              asChild
-              className="min-w-[140px] h-12 text-base border-2 hover:bg-secondary/80 hover:-translate-y-0.5 transition-all"
-            >
-              <Link href="/dashboard">
-                {isGuest ? "続ける" : "ゲストで試す"}
-              </Link>
-            </Button>
+            {isGuest ? (
+              <>
+                <Button
+                  size="lg"
+                  asChild
+                  className="min-w-[180px] h-12 text-base shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5 transition-all"
+                >
+                  <Link href="/dashboard">
+                    続ける
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  asChild
+                  className="min-w-[140px] h-12 text-base border-2 hover:bg-secondary/80 hover:-translate-y-0.5 transition-all"
+                >
+                  <Link href="/login">ログイン</Link>
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  size="lg"
+                  asChild
+                  className="min-w-[180px] h-12 text-base shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5 transition-all"
+                >
+                  <Link href="/login">
+                    無料で始める
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  asChild
+                  className="min-w-[140px] h-12 text-base border-2 hover:bg-secondary/80 hover:-translate-y-0.5 transition-all"
+                >
+                  <Link href="/dashboard">ゲストで試す</Link>
+                </Button>
+              </>
+            )}
           </>
         )}
       </motion.div>
@@ -248,7 +271,7 @@ function HeroProducts() {
     const interval = setInterval(() => {
       setDirection(1);
       setActiveIndex((prev) => (prev + 1) % features.length);
-    }, 4000);
+    }, 6000);
 
     return () => clearInterval(interval);
   }, [isAutoPlaying, activeIndex]);
