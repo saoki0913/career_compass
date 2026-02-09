@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, AliasChoices, model_validator
+from pydantic import Field, AliasChoices, model_validator, field_validator
 from functools import lru_cache
 from pathlib import Path
 
@@ -38,12 +38,35 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CORS_ORIGINS"),
     )
 
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """
+        Support multiple formats for CORS_ORIGINS:
+          - JSON array string: '["https://a.com","https://b.com"]' (recommended)
+          - Comma-separated: "https://a.com,https://b.com"
+        """
+        if v is None:
+            return v
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return []
+            if s.startswith("["):
+                # Let Pydantic parse JSON array strings.
+                return v
+            return [item.strip() for item in s.split(",") if item.strip()]
+        return v
+
     # ===== データベース =====
     # NOTE: メインDBは Next.js (フロントエンド) が Supabase (PostgreSQL) に接続します。
     # FastAPI バックエンドは DB に直接接続しません。
 
     # ===== フロントエンド =====
-    frontend_url: str = "http://localhost:3000"
+    frontend_url: str = Field(
+        default="http://localhost:3000",
+        validation_alias=AliasChoices("FRONTEND_URL", "NEXT_PUBLIC_APP_URL"),
+    )
 
     # ===== API キー =====
     openai_api_key: str = ""
