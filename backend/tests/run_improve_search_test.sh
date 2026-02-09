@@ -12,7 +12,7 @@ nohup bash -c '
   LIVE_SEARCH_SAMPLE_SIZE=30 \
   LIVE_SEARCH_MODES=hybrid,legacy \
   LIVE_SEARCH_CACHE_MODE=use \
-  LIVE_SEARCH_SAMPLE_SEED=6 \
+  LIVE_SEARCH_SAMPLE_SEED=7 \
   LIVE_SEARCH_TOKENS_PER_SECOND=1.0 \
   LIVE_SEARCH_MAX_TOKENS=1.0 \
   python -m pytest backend/tests/test_live_company_info_search_report.py -v -s -m "integration" \
