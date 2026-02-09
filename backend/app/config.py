@@ -38,9 +38,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CORS_ORIGINS"),
     )
 
-    # ===== データベース (Turso) =====
-    turso_database_url: str = ""
-    turso_auth_token: str = ""
+    # ===== データベース =====
+    # NOTE: メインDBは Next.js (フロントエンド) が Supabase (PostgreSQL) に接続します。
+    # FastAPI バックエンドは DB に直接接続しません。
 
     # ===== フロントエンド =====
     frontend_url: str = "http://localhost:3000"

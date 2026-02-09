@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { CompanyStatus } from "@/lib/constants/status";
+import { trackEvent } from "@/lib/analytics/client";
 
 export type { CompanyStatus } from "@/lib/constants/status";
 
@@ -135,6 +136,7 @@ export function useCompanies() {
       }
 
       const result = await response.json();
+      trackEvent("company_create");
       await fetchCompanies();
       return result.company;
     } catch (err) {

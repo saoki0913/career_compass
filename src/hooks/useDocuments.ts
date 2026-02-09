@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { trackEvent } from "@/lib/analytics/client";
 
 export type DocumentType = "es" | "tips" | "company_analysis";
 export type DocumentStatus = "draft" | "published" | "deleted";
@@ -145,6 +146,9 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         }
 
         const data = await response.json();
+        if (input.type === "es") {
+          trackEvent("es_create");
+        }
         await fetchDocuments();
         return data.document;
       } catch (err) {

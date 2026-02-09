@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import type { ProcessingStep } from "@/components/ui/EnhancedProcessingSteps";
+import { trackEvent } from "@/lib/analytics/client";
 
 export interface ReviewScores {
   logic: number;
@@ -325,6 +326,12 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
       }
 
       try {
+        trackEvent("ai_review_start", {
+          mode,
+          templateType: params.templateType ?? null,
+          hasCompanyRag: params.hasCompanyRag ?? false,
+        });
+
         // Use SSE streaming endpoint
         const response = await fetch(`/api/documents/${documentId}/review/stream`, {
           method: "POST",
@@ -361,6 +368,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
           } else {
             setError(data.error || "添削リクエストに失敗しました");
           }
+          trackEvent("ai_review_error", { status: response.status });
           return false;
         }
 
@@ -413,6 +421,16 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
               case "complete":
                 setReview(event.result);
                 setCreditCost(event.creditCost);
+                trackEvent("ai_review_complete", {
+                  mode,
+                  templateType: params.templateType ?? null,
+                  creditCost: event.creditCost,
+                });
+                try {
+                  localStorage.setItem("cc_activation_ai_review_done", "1");
+                } catch {
+                  // ignore
+                }
                 setSSEProgress((prev) => ({
                   ...prev,
                   progress: 100,
@@ -422,6 +440,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
 
               case "error":
                 setError(event.message || "添削処理でエラーが発生しました");
+                trackEvent("ai_review_error");
                 return false;
             }
           }
@@ -443,6 +462,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
         }
         console.error("Review request error:", err);
         setError("ネットワークエラーが発生しました");
+        trackEvent("ai_review_error");
         return false;
       } finally {
         clearTimer();

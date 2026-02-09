@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { trackEvent } from "@/lib/analytics/client";
 
 export type DeadlineType =
   | "es_submission"
@@ -134,6 +135,8 @@ export function useCompanyDeadlines(companyId: string | null) {
 
         const data = await response.json();
         const newDeadline = data.deadline;
+
+        trackEvent("deadline_create", { type: input.type });
 
         // Update local state
         setDeadlines((prev) => [...prev, newDeadline].sort(

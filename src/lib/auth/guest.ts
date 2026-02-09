@@ -46,19 +46,19 @@ export async function getOrCreateGuestUser(deviceToken: string) {
   const hashedToken = hashDeviceToken(deviceToken);
 
   // Check if guest exists (search by hash, fall back to plaintext for migration)
-  let existing = await db
+  let existing = (await db
     .select()
     .from(guestUsers)
     .where(eq(guestUsers.deviceToken, hashedToken))
-    .get();
+    .limit(1))[0];
 
   // Fallback: check for un-hashed token (existing guests before migration)
   if (!existing) {
-    existing = await db
+    existing = (await db
       .select()
       .from(guestUsers)
       .where(eq(guestUsers.deviceToken, deviceToken))
-      .get();
+      .limit(1))[0];
 
     // Migrate to hashed token if found
     if (existing) {
@@ -120,19 +120,19 @@ export async function getGuestUser(deviceToken: string) {
     return null;
   }
   const hashedToken = hashDeviceToken(deviceToken);
-  let guest = await db
+  let guest = (await db
     .select()
     .from(guestUsers)
     .where(eq(guestUsers.deviceToken, hashedToken))
-    .get();
+    .limit(1))[0];
 
   // Fallback for un-hashed tokens
   if (!guest) {
-    guest = await db
+    guest = (await db
       .select()
       .from(guestUsers)
       .where(eq(guestUsers.deviceToken, deviceToken))
-      .get();
+      .limit(1))[0];
   }
 
   if (!guest) return null;
@@ -150,19 +150,19 @@ export async function migrateGuestToUser(deviceToken: string, userId: string) {
     return null;
   }
   const hashedToken = hashDeviceToken(deviceToken);
-  let guest = await db
+  let guest = (await db
     .select()
     .from(guestUsers)
     .where(eq(guestUsers.deviceToken, hashedToken))
-    .get();
+    .limit(1))[0];
 
   // Fallback for un-hashed tokens
   if (!guest) {
-    guest = await db
+    guest = (await db
       .select()
       .from(guestUsers)
       .where(eq(guestUsers.deviceToken, deviceToken))
-      .get();
+      .limit(1))[0];
   }
 
   if (!guest || guest.migratedToUserId) {
@@ -193,7 +193,7 @@ export async function migrateGuestToUser(deviceToken: string, userId: string) {
  * Check if a login prompt has been shown for a feature
  */
 export async function hasShownLoginPrompt(guestId: string, feature: string) {
-  const prompt = await db
+  const [prompt] = await db
     .select()
     .from(loginPrompts)
     .where(
@@ -202,7 +202,7 @@ export async function hasShownLoginPrompt(guestId: string, feature: string) {
         eq(loginPrompts.feature, feature)
       )
     )
-    .get();
+    .limit(1);
 
   return !!prompt;
 }

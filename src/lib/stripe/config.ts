@@ -38,6 +38,7 @@ export const PLAN_METADATA = {
     price: 0,
     credits: 15,
     companies: 3,
+    // Credit-based. Values below are display-only hints (not hard limits).
     esReviews: 1,
     gakuchika: 2,
   },
@@ -53,8 +54,8 @@ export const PLAN_METADATA = {
     name: "Standard",
     price: 980,
     credits: 300,
-    companies: 30,
-    esReviews: 10,
+    companies: -1, // unlimited
+    esReviews: 10, // display-only hint
     gakuchika: 10,
   },
   pro: {
@@ -62,7 +63,7 @@ export const PLAN_METADATA = {
     price: 2980,
     credits: 800,
     companies: -1, // unlimited
-    esReviews: -1, // unlimited
+    esReviews: -1, // display-only hint
     gakuchika: 20,
   },
 } as const;

@@ -1,1 +1,0 @@
-ALTER TABLE `es_templates` ADD `shared_at` integer;

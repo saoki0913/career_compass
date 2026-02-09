@@ -89,29 +89,29 @@ export async function initializeCredits(userId: string, plan: PlanType = "free")
  * Get user's current credits info
  */
 export async function getCreditsInfo(userId: string) {
-  const userCredits = await db
+  const [userCredits] = await db
     .select()
     .from(credits)
     .where(eq(credits.userId, userId))
-    .get();
+    .limit(1);
 
   if (!userCredits) {
     // Get user's plan and initialize credits
-    const profile = await db
+    const [profile] = await db
       .select()
       .from(userProfiles)
       .where(eq(userProfiles.userId, userId))
-      .get();
+      .limit(1);
 
     const plan = (profile?.plan || "free") as PlanType;
     await initializeCredits(userId, plan);
 
     // Fetch the newly created credits
-    const newCredits = await db
+    const [newCredits] = await db
       .select()
       .from(credits)
       .where(eq(credits.userId, userId))
-      .get();
+      .limit(1);
 
     if (!newCredits) {
       throw new Error("Failed to initialize credits");
@@ -129,11 +129,11 @@ export async function getCreditsInfo(userId: string) {
   if (shouldGrantMonthlyCredits(userCredits.lastResetAt)) {
     await grantMonthlyCredits(userId);
     // Re-fetch after granting
-    const updatedCredits = await db
+    const [updatedCredits] = await db
       .select()
       .from(credits)
       .where(eq(credits.userId, userId))
-      .get();
+      .limit(1);
 
     if (updatedCredits) {
       return {
@@ -157,11 +157,11 @@ export async function getCreditsInfo(userId: string) {
  * Grant monthly credits (reset balance to monthly allocation)
  */
 export async function grantMonthlyCredits(userId: string) {
-  const userCredits = await db
+  const [userCredits] = await db
     .select()
     .from(credits)
     .where(eq(credits.userId, userId))
-    .get();
+    .limit(1);
 
   if (!userCredits) {
     return;
@@ -198,11 +198,11 @@ export async function updatePlanAllocation(userId: string, newPlan: PlanType) {
   const allocation = PLAN_CREDITS[newPlan];
   const now = new Date();
 
-  const userCredits = await db
+  const [userCredits] = await db
     .select()
     .from(credits)
     .where(eq(credits.userId, userId))
-    .get();
+    .limit(1);
 
   if (!userCredits) {
     await initializeCredits(userId, newPlan);
@@ -263,11 +263,11 @@ export async function consumeCredits(
 
   if (updated.length === 0) {
     // Either user not found or insufficient balance
-    const userCredits = await db
+    const [userCredits] = await db
       .select({ balance: credits.balance })
       .from(credits)
       .where(eq(credits.userId, userId))
-      .get();
+      .limit(1);
 
     if (!userCredits) {
       return { success: false, newBalance: 0, error: "Credits not initialized" };
@@ -312,11 +312,11 @@ export async function getDailyFreeUsage(userId: string | null, guestId: string |
     return { companyFetchCount: 0 };
   }
 
-  const usage = await db
+  const [usage] = await db
     .select()
     .from(dailyFreeUsage)
     .where(whereClause)
-    .get();
+    .limit(1);
 
   return {
     companyFetchCount: usage?.companyFetchCount || 0,
@@ -375,7 +375,14 @@ export async function incrementDailyFreeUsage(
       });
     } catch (err: unknown) {
       // If a concurrent request already inserted, retry the atomic update
-      if (err instanceof Error && err.message?.includes("UNIQUE")) {
+      // - Postgres: code 23505
+      // - SQLite/libSQL: message includes "UNIQUE constraint failed"
+      const pgCode = (err as { code?: unknown } | null)?.code;
+      const message = err instanceof Error ? err.message : "";
+      const isUniqueViolation =
+        pgCode === "23505" || message.toLowerCase().includes("unique");
+
+      if (isUniqueViolation) {
         await db
           .update(dailyFreeUsage)
           .set({
@@ -451,7 +458,11 @@ export async function consumePartialCredits(
 
   if (deducted.length === 0) {
     // Insufficient balance for deduction
-    const userCredits = await db.select({ balance: credits.balance }).from(credits).where(eq(credits.userId, userId)).get();
+    const [userCredits] = await db
+      .select({ balance: credits.balance })
+      .from(credits)
+      .where(eq(credits.userId, userId))
+      .limit(1);
     return { success: false, newBalance: userCredits?.balance ?? 0, actualConsumed: 0 };
   }
 
@@ -501,11 +512,11 @@ export async function reserveCredits(
     .returning({ newBalance: credits.balance });
 
   if (updated.length === 0) {
-    const userCredits = await db
+    const [userCredits] = await db
       .select({ balance: credits.balance })
       .from(credits)
       .where(eq(credits.userId, userId))
-      .get();
+      .limit(1);
 
     if (!userCredits) {
       return { success: false, reservationId: "", newBalance: 0, error: "Credits not initialized" };
@@ -541,20 +552,20 @@ export async function reserveCredits(
  * Marks the transaction as confirmed.
  */
 export async function confirmReservation(reservationId: string): Promise<void> {
-  const tx = await db
+  const [tx] = await db
     .select()
     .from(creditTransactions)
     .where(eq(creditTransactions.id, reservationId))
-    .get();
+    .limit(1);
 
   if (!tx) return;
 
   // Get current balance for accurate balanceAfter
-  const userCredits = await db
+  const [userCredits] = await db
     .select({ balance: credits.balance })
     .from(credits)
     .where(eq(credits.userId, tx.userId))
-    .get();
+    .limit(1);
 
   await db
     .update(creditTransactions)
@@ -570,11 +581,11 @@ export async function confirmReservation(reservationId: string): Promise<void> {
  * Only refunds if the transaction is still in Reserved state.
  */
 export async function cancelReservation(reservationId: string): Promise<void> {
-  const tx = await db
+  const [tx] = await db
     .select()
     .from(creditTransactions)
     .where(eq(creditTransactions.id, reservationId))
-    .get();
+    .limit(1);
 
   if (!tx || !tx.description?.includes("[Reserved]")) return;
 
