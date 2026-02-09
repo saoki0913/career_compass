@@ -1128,7 +1128,8 @@
       "sc"
     ],
     "ステート・ストリート": [
-      "statestreet"
+      "statestreet",
+      "ssga"
     ],
     "ピムコ": [
       "pimco"
@@ -2103,7 +2104,8 @@
       "logly"
     ],
     "アイレップ": [
-      "irep"
+      "irep",
+      "hakuhodody-one"
     ],
     "_subsection_04s": "--- D2C・EC・メディア ---",
     "note": [
@@ -3569,7 +3571,9 @@
     "_subsection_05v": "--- 旭化成グループ子会社 ---",
     "旭化成ファーマ": {
       "domains": [
-        "ak-pharma"
+        "asahi-kasei",
+        "ak-pharma",
+        "akp-pharma-digital"
       ],
       "parent": "旭化成"
     },
@@ -5596,7 +5600,8 @@
       "randstad"
     ],
     "アデコ": [
-      "adecco"
+      "adecco",
+      "adeccogroup"
     ],
     "マンパワー": [
       "manpower"
@@ -6092,7 +6097,8 @@
     ],
     "_section_11": "=== 医療・福祉 ===",
     "武田薬品工業": [
-      "takeda"
+      "takeda",
+      "takedajobs"
     ],
     "アステラス製薬": [
       "astellas"
@@ -6367,7 +6373,9 @@
     },
     "TOPPANデジタル": {
       "domains": [
-        "toppan-digital"
+        "solution.toppan",
+        "toppan-digital",
+        "toppan"
       ],
       "parent": "凸版印刷"
     },
