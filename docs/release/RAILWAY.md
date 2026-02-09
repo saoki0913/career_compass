@@ -152,8 +152,10 @@ ANTHROPIC_API_KEY=sk-ant-...
 # CORS（Vercel フロントエンドのドメインを許可）
 CORS_ORIGINS=["https://shupass.jp"]
 
-# ポート（Dockerfile の EXPOSE と一致させる）
-PORT=8000
+# ポート
+# Railway などの PaaS は PORT を自動注入することが多いため、通常は手動設定不要です。
+# (ローカル/固定したい場合のみ) PORT=8000
+# PORT=8000
 ```
 
 ### 任意変数（推奨）
@@ -281,7 +283,7 @@ curl https://career-compass-backend-production.up.railway.app/health
 |---|---|---|
 | ビルド失敗 | Root Directory 未設定 | Settings → Source → Root Directory を `/backend` に |
 | 起動後すぐクラッシュ | メモリ不足 | Resource Limits で Memory を 2GB 以上に |
-| ヘルスチェック失敗 | ポート不一致 | `PORT=8000` が Variables に設定されているか確認 |
+| ヘルスチェック失敗 | ポート不一致 | アプリが `$PORT` で待受できているか確認。Variables で `PORT` を手動上書きしている場合は削除（Railway 自動注入を優先） |
 | Volume データ消失 | Volume 未マウント | Settings → Volumes で `/app/data` にマウントされているか確認 |
 | CORS エラー | `CORS_ORIGINS` 未設定 | Variables に `CORS_ORIGINS=["https://shupass.jp"]` を追加 |
 | 外部からアクセス不可 | Public Domain 未生成 | Settings → Networking → Generate Domain |

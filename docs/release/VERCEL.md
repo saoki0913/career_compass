@@ -212,3 +212,41 @@ GitHub 連携済みの場合、`main` ブランチへの push で自動デプロ
 3. デプロイの **「...」**（三点メニュー）→ **「Redeploy」** で再デプロイ可能
 
 > プレビューデプロイ: `develop` ブランチへの push で自動作成。一意の URL（`career-compass-xxx-yyy.vercel.app`）が発行されます。
+
+## 4-10. トラブルシューティング（`404: NOT_FOUND`）
+
+Vercel の画面/ブラウザで **Vercelロゴ付きの `404: NOT_FOUND`** が表示される場合、アプリ内部の 404 ではなく
+「そのドメインが正しいデプロイに紐づいていない」か「デプロイ対象ディレクトリが誤っている」可能性が高いです。
+
+### チェック項目（UI）
+
+Vercel Dashboard → 対象プロジェクト → Settings → General:
+
+- Framework Preset: **Next.js**
+- Root Directory: **`.`**
+- Build Command: `npm run build`
+
+> 環境変数の変更は **次回デプロイから** 反映されます。設定後は Redeploy が必要です。
+
+### チェック項目（CLI）
+
+```bash
+# ログイン済みユーザー確認
+vercel whoami
+
+# プロジェクト一覧（チーム/スコープの取り違えがないか）
+vercel projects ls
+
+# 本番デプロイ一覧
+vercel ls --prod
+
+# ドメイン一覧
+vercel domains ls
+```
+
+### 追加の切り分け
+
+- `*.vercel.app` でも `NOT_FOUND` の場合:
+  - 「別プロジェクトを見ている」「Root Directory が違う」可能性が高い
+- カスタムドメインだけ `NOT_FOUND` の場合:
+  - ドメインが別プロジェクトに紐づいている/Production ではなく Preview に紐づいている可能性

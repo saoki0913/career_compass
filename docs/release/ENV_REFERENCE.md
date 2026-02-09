@@ -33,7 +33,7 @@
 | `OPENAI_API_KEY` | Yes | OpenAI API キー (`sk-...`) |
 | `ANTHROPIC_API_KEY` | Yes | Anthropic API キー (`sk-ant-...`) |
 | `CORS_ORIGINS` | Yes | `["https://shupass.jp"]` |
-| `PORT` | Yes | `8000`（Dockerfile の EXPOSE と一致） |
+| `PORT` | No | Railway が自動注入することが多い。アプリは `${PORT:-8000}` で待受（ローカルは 8000） |
 | `CLAUDE_MODEL` | No | Claude Sonnet モデル名 (デフォルト: `claude-sonnet-4-5-20250929`) |
 | `CLAUDE_HAIKU_MODEL` | No | Claude Haiku モデル名 (デフォルト: `claude-haiku-4-5-20251001`) |
 | `OPENAI_MODEL` | No | OpenAI モデル名 (デフォルト: `gpt-5-mini`) |
