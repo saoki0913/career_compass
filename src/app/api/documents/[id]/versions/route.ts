@@ -41,11 +41,11 @@ async function verifyDocumentAccess(
   userId: string | null,
   guestId: string | null
 ): Promise<{ valid: boolean; document?: typeof documents.$inferSelect }> {
-  const doc = await db
+  const [doc] = await db
     .select()
     .from(documents)
     .where(eq(documents.id, documentId))
-    .get();
+    .limit(1);
 
   if (!doc) {
     return { valid: false };

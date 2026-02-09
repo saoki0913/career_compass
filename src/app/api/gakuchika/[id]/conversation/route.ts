@@ -45,11 +45,11 @@ async function verifyGakuchikaAccess(
   userId: string | null,
   guestId: string | null
 ): Promise<boolean> {
-  const gakuchika = await db
+  const [gakuchika] = await db
     .select()
     .from(gakuchikaContents)
     .where(eq(gakuchikaContents.id, gakuchikaId))
-    .get();
+    .limit(1);
 
   if (!gakuchika) return false;
   if (userId && gakuchika.userId === userId) return true;
@@ -256,11 +256,11 @@ export async function GET(
     // Get target conversation (by sessionId or latest)
     let conversation;
     if (sessionId) {
-      conversation = await db
+      conversation = (await db
         .select()
         .from(gakuchikaConversations)
         .where(eq(gakuchikaConversations.id, sessionId))
-        .get();
+        .limit(1))[0];
 
       // Verify this session belongs to this gakuchika
       if (!conversation || conversation.gakuchikaId !== gakuchikaId) {
@@ -271,20 +271,20 @@ export async function GET(
       }
     } else {
       // Get latest conversation
-      conversation = await db
+      conversation = (await db
         .select()
         .from(gakuchikaConversations)
         .where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId))
         .orderBy(desc(gakuchikaConversations.updatedAt))
-        .get();
+        .limit(1))[0];
     }
 
     // Get gakuchika data
-    const gakuchika = await db
+    const [gakuchika] = await db
       .select()
       .from(gakuchikaContents)
       .where(eq(gakuchikaContents.id, gakuchikaId))
-      .get();
+      .limit(1);
 
     if (!gakuchika) {
       return NextResponse.json(
@@ -400,11 +400,11 @@ export async function POST(
     let conversation;
     if (sessionId) {
       // Target specific session
-      conversation = await db
+      conversation = (await db
         .select()
         .from(gakuchikaConversations)
         .where(eq(gakuchikaConversations.id, sessionId))
-        .get();
+        .limit(1))[0];
 
       // Verify this session belongs to this gakuchika
       if (!conversation || conversation.gakuchikaId !== gakuchikaId) {
@@ -423,12 +423,12 @@ export async function POST(
       }
     } else {
       // Get latest conversation
-      conversation = await db
+      conversation = (await db
         .select()
         .from(gakuchikaConversations)
         .where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId))
         .orderBy(desc(gakuchikaConversations.updatedAt))
-        .get();
+        .limit(1))[0];
 
       // If latest conversation is completed and no sessionId provided, return 409
       if (conversation && conversation.status === "completed") {
@@ -451,11 +451,11 @@ export async function POST(
     }
 
     // Get gakuchika data for context
-    const gakuchika = await db
+    const [gakuchika] = await db
       .select()
       .from(gakuchikaContents)
       .where(eq(gakuchikaContents.id, gakuchikaId))
-      .get();
+      .limit(1);
 
     if (!gakuchika) {
       return NextResponse.json(

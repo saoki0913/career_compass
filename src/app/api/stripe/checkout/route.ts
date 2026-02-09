@@ -49,11 +49,11 @@ export async function POST(req: NextRequest) {
     let stripeCustomerId: string | undefined;
 
     // Check if user already has a subscription with customer ID
-    const existingSubscription = await db
+    const [existingSubscription] = await db
       .select()
       .from(subscriptions)
       .where(eq(subscriptions.userId, session.user.id))
-      .get();
+      .limit(1);
 
     if (existingSubscription?.stripeCustomerId) {
       stripeCustomerId = existingSubscription.stripeCustomerId;

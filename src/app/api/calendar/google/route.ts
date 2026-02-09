@@ -15,11 +15,11 @@ interface GoogleAccount {
 
 async function getGoogleAccount(userId: string): Promise<GoogleAccount | null> {
   // Get Google account from Better Auth accounts table
-  const account = await db
+  const [account] = await db
     .select()
     .from(accounts)
     .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "google")))
-    .get();
+    .limit(1);
 
   if (!account) return null;
 
@@ -80,11 +80,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Get user's preferred calendar
-    const settings = await db
+    const [settings] = await db
       .select()
       .from(calendarSettings)
       .where(eq(calendarSettings.userId, session.user.id))
-      .get();
+      .limit(1);
 
     const calendarId = settings?.targetCalendarId || "primary";
 
@@ -127,11 +127,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Google Calendar not connected", code: "NOT_CONNECTED" }, { status: 403 });
     }
 
-    const settings = await db
+    const [settings] = await db
       .select()
       .from(calendarSettings)
       .where(eq(calendarSettings.userId, session.user.id))
-      .get();
+      .limit(1);
 
     const calendarId = settings?.targetCalendarId || "primary";
     const body = await request.json();

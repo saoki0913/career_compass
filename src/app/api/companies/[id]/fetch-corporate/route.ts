@@ -159,11 +159,11 @@ async function getAuthenticatedUser(
     return null;
   }
 
-  const profile = await db
+  const [profile] = await db
     .select()
     .from(userProfiles)
     .where(eq(userProfiles.userId, session.user.id))
-    .get();
+    .limit(1);
 
   return {
     userId: session.user.id,
@@ -175,11 +175,11 @@ async function verifyCompanyAccess(
   companyId: string,
   userId: string
 ): Promise<{ valid: boolean; company?: typeof companies.$inferSelect }> {
-  const company = await db
+  const [company] = await db
     .select()
     .from(companies)
     .where(and(eq(companies.id, companyId), eq(companies.userId, userId)))
-    .get();
+    .limit(1);
 
   return { valid: !!company, company };
 }
@@ -223,18 +223,6 @@ export async function POST(
 
     const { userId, plan } = authUser;
 
-    // Check page limit
-    const pageLimit = PAGE_LIMITS[plan];
-    if (urls.length > pageLimit) {
-      return NextResponse.json(
-        {
-          error: `プラン制限: ${plan}プランでは最大${pageLimit}ページまで取得できます`,
-          limit: pageLimit,
-        },
-        { status: 402 }
-      );
-    }
-
     // Verify company access
     const access = await verifyCompanyAccess(companyId, userId);
     if (!access.valid || !access.company) {
@@ -242,6 +230,37 @@ export async function POST(
     }
 
     const company = access.company;
+
+    // Check total page limit per company (not just per request)
+    const pageLimit = PAGE_LIMITS[plan];
+    const existingUrls = parseCorporateInfoUrls(company.corporateInfoUrls);
+    const existingUrlSet = new Set(existingUrls.map((u) => u.url));
+
+    const uniqueRequestedUrls = urls
+      .map((u) => String(u).trim())
+      .filter((u) => u.length > 0 && !existingUrlSet.has(u));
+
+    const remaining = Math.max(0, pageLimit - existingUrlSet.size);
+    if (remaining <= 0) {
+      return NextResponse.json(
+        {
+          error: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ページまで保存できます（上限に達しています）`,
+          limit: pageLimit,
+          remaining,
+        },
+        { status: 402 }
+      );
+    }
+    if (uniqueRequestedUrls.length > remaining) {
+      return NextResponse.json(
+        {
+          error: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ページまで保存できます（残り${remaining}ページ）`,
+          limit: pageLimit,
+          remaining,
+        },
+        { status: 402 }
+      );
+    }
 
     // Call FastAPI backend to crawl pages
     let crawlResult: CrawlResult;
@@ -252,7 +271,7 @@ export async function POST(
         body: JSON.stringify({
           company_id: companyId,
           company_name: company.name,
-          urls,
+          urls: uniqueRequestedUrls,
           content_channel: contentChannelResolved,
           content_type: contentTypeResolved, // 9-category content type for proper counting
         }),
@@ -273,13 +292,8 @@ export async function POST(
     }
 
     // Update company record with URLs
-    const existingUrls = parseCorporateInfoUrls(company.corporateInfoUrls);
-
-    // Add new URLs (avoid duplicates)
-    const existingUrlSet = new Set(existingUrls.map((u) => u.url));
     const urlContentTypes = crawlResult.url_content_types || {};
-    const newUrls: CorporateInfoUrl[] = urls
-      .filter((url) => !existingUrlSet.has(url))
+    const newUrls: CorporateInfoUrl[] = uniqueRequestedUrls
       .map((url) => ({
         url,
         contentType: urlContentTypes[url] || contentTypeResolved || detectContentTypeFromUrl(url) || "corporate_site",

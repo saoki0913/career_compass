@@ -40,11 +40,11 @@ async function verifyNotificationAccess(
   userId: string | null,
   guestId: string | null
 ): Promise<boolean> {
-  const notification = await db
+  const [notification] = await db
     .select()
     .from(notifications)
     .where(eq(notifications.id, notificationId))
-    .get();
+    .limit(1);
 
   if (!notification) return false;
   if (userId && notification.userId === userId) return true;

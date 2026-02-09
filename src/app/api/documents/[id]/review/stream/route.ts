@@ -43,11 +43,11 @@ async function verifyDocumentAccess(
   userId: string | null,
   guestId: string | null
 ): Promise<{ valid: boolean; document?: typeof documents.$inferSelect }> {
-  const doc = await db
+  const [doc] = await db
     .select()
     .from(documents)
     .where(eq(documents.id, documentId))
-    .get();
+    .limit(1);
 
   if (!doc) {
     return { valid: false };
@@ -141,11 +141,11 @@ export async function POST(
     // Verify requestCompanyId ownership to prevent IDOR
     let companyId = access.document.companyId;
     if (requestCompanyId && requestCompanyId !== access.document.companyId) {
-      const ownedCompany = await db
+      const [ownedCompany] = await db
         .select({ id: companies.id, userId: companies.userId, guestId: companies.guestId })
         .from(companies)
         .where(eq(companies.id, requestCompanyId))
-        .get();
+        .limit(1);
       if (
         ownedCompany &&
         ((userId && ownedCompany.userId === userId) ||
@@ -164,11 +164,11 @@ export async function POST(
       industry: null,
     };
     if (companyId && templateType) {
-      const company = await db
+      const [company] = await db
         .select({ name: companies.name, industry: companies.industry })
         .from(companies)
         .where(eq(companies.id, companyId))
-        .get();
+        .limit(1);
       if (company) {
         companyInfo = { name: company.name, industry: company.industry };
       }

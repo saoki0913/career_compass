@@ -21,11 +21,11 @@ interface GoogleAccount {
 }
 
 async function getGoogleAccount(userId: string): Promise<GoogleAccount | null> {
-  const account = await db
+  const [account] = await db
     .select()
     .from(accounts)
     .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "google")))
-    .get();
+    .limit(1);
 
   if (!account) return null;
 
@@ -136,11 +136,11 @@ export async function POST(request: NextRequest) {
 
     // Automatically set this as the target calendar
     const userId = session.user.id;
-    const existing = await db
+    const [existing] = await db
       .select()
       .from(calendarSettings)
       .where(eq(calendarSettings.userId, userId))
-      .get();
+      .limit(1);
 
     const now = new Date();
 

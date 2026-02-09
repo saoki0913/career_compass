@@ -40,11 +40,11 @@ async function verifyGakuchikaAccess(
   userId: string | null,
   guestId: string | null
 ): Promise<boolean> {
-  const gakuchika = await db
+  const [gakuchika] = await db
     .select()
     .from(gakuchikaContents)
     .where(eq(gakuchikaContents.id, gakuchikaId))
-    .get();
+    .limit(1);
 
   if (!gakuchika) return false;
   if (userId && gakuchika.userId === userId) return true;
@@ -181,11 +181,11 @@ export async function POST(
     }
 
     // Get gakuchika data
-    const gakuchika = await db
+    const [gakuchika] = await db
       .select()
       .from(gakuchikaContents)
       .where(eq(gakuchikaContents.id, gakuchikaId))
-      .get();
+      .limit(1);
 
     if (!gakuchika) {
       return NextResponse.json(

@@ -145,11 +145,11 @@ export async function POST(
     }
 
     // Verify gakuchika access
-    const gakuchika = await db
+    const [gakuchika] = await db
       .select()
       .from(gakuchikaContents)
       .where(eq(gakuchikaContents.id, gakuchikaId))
-      .get();
+      .limit(1);
 
     if (!gakuchika) {
       return new Response(
@@ -184,11 +184,11 @@ export async function POST(
     // Get conversation by sessionId or latest
     let conversation;
     if (sessionId) {
-      conversation = await db
+      conversation = (await db
         .select()
         .from(gakuchikaConversations)
         .where(eq(gakuchikaConversations.id, sessionId))
-        .get();
+        .limit(1))[0];
 
       if (!conversation || conversation.gakuchikaId !== gakuchikaId) {
         return new Response(
@@ -197,12 +197,12 @@ export async function POST(
         );
       }
     } else {
-      conversation = await db
+      conversation = (await db
         .select()
         .from(gakuchikaConversations)
         .where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId))
         .orderBy(desc(gakuchikaConversations.updatedAt))
-        .get();
+        .limit(1))[0];
     }
 
     if (!conversation) {

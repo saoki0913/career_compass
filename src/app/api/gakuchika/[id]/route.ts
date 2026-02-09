@@ -52,11 +52,11 @@ export async function GET(
     const { id } = await params;
     const { userId, guestId } = identity;
 
-    const gakuchika = await db
+    const [gakuchika] = await db
       .select()
       .from(gakuchikaContents)
       .where(eq(gakuchikaContents.id, id))
-      .get();
+      .limit(1);
 
     if (!gakuchika) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -109,11 +109,11 @@ export async function PUT(
     const { userId, guestId } = identity;
     const body = await request.json();
 
-    const gakuchika = await db
+    const [gakuchika] = await db
       .select()
       .from(gakuchikaContents)
       .where(eq(gakuchikaContents.id, id))
-      .get();
+      .limit(1);
 
     if (!gakuchika) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -221,11 +221,11 @@ export async function DELETE(
     const { id } = await params;
     const { userId, guestId } = identity;
 
-    const gakuchika = await db
+    const [gakuchika] = await db
       .select()
       .from(gakuchikaContents)
       .where(eq(gakuchikaContents.id, id))
-      .get();
+      .limit(1);
 
     if (!gakuchika) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });

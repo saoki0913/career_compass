@@ -74,11 +74,11 @@ export async function GET(request: NextRequest) {
     // Get user plan
     let plan: PlanTypeWithGuest = "guest";
     if (userId) {
-      const profile = await db
+      const [profile] = await db
         .select()
         .from(userProfiles)
         .where(eq(userProfiles.userId, userId))
-        .get();
+        .limit(1);
       plan = (profile?.plan || "free") as PlanTypeWithGuest;
     }
 
@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
     // Get conversation data for each gakuchika
     const gakuchikasWithConversation = await Promise.all(
       contents.map(async (gakuchika) => {
-        const conversation = await db
+        const [conversation] = await db
           .select({
             status: gakuchikaConversations.status,
             starScores: gakuchikaConversations.starScores,
@@ -107,7 +107,7 @@ export async function GET(request: NextRequest) {
           .from(gakuchikaConversations)
           .where(eq(gakuchikaConversations.gakuchikaId, gakuchika.id))
           .orderBy(desc(gakuchikaConversations.updatedAt))
-          .get();
+          .limit(1);
 
         return {
           ...gakuchika,
@@ -152,11 +152,11 @@ export async function POST(request: NextRequest) {
     // Get user plan
     let plan: PlanTypeWithGuest = "guest";
     if (userId) {
-      const profile = await db
+      const [profile] = await db
         .select()
         .from(userProfiles)
         .where(eq(userProfiles.userId, userId))
-        .get();
+        .limit(1);
       plan = (profile?.plan || "free") as PlanTypeWithGuest;
     }
 

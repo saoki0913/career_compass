@@ -14,7 +14,7 @@ import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 
 // Application type labels
-export const APPLICATION_TYPE_LABELS: Record<string, string> = {
+const APPLICATION_TYPE_LABELS: Record<string, string> = {
   summer_intern: "夏インターン",
   fall_intern: "秋インターン",
   winter_intern: "冬インターン",
@@ -79,7 +79,7 @@ async function verifyCompanyAccess(
     return false;
   }
 
-  const company = await db.select().from(companies).where(whereClause).get();
+  const [company] = await db.select().from(companies).where(whereClause).limit(1);
   return !!company;
 }
 

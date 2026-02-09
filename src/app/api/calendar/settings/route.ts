@@ -16,11 +16,11 @@ import { headers } from "next/headers";
  * Check if user has Google Calendar connected via Better Auth
  */
 async function checkGoogleConnection(userId: string): Promise<boolean> {
-  const account = await db
+  const [account] = await db
     .select()
     .from(accounts)
     .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "google")))
-    .get();
+    .limit(1);
   return !!account?.accessToken;
 }
 
@@ -39,11 +39,11 @@ export async function GET() {
 
     const userId = session.user.id;
 
-    const settings = await db
+    const [settings] = await db
       .select()
       .from(calendarSettings)
       .where(eq(calendarSettings.userId, userId))
-      .get();
+      .limit(1);
 
     // Check if user has Google connected via OAuth
     const isGoogleConnected = await checkGoogleConnection(userId);
@@ -99,11 +99,11 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const { provider, targetCalendarId, freebusyCalendarIds, preferredTimeSlots } = body;
 
-    const existing = await db
+    const [existing] = await db
       .select()
       .from(calendarSettings)
       .where(eq(calendarSettings.userId, userId))
-      .get();
+      .limit(1);
 
     const now = new Date();
 
@@ -140,11 +140,11 @@ export async function PUT(request: NextRequest) {
       });
     }
 
-    const settings = await db
+    const [settings] = await db
       .select()
       .from(calendarSettings)
       .where(eq(calendarSettings.userId, userId))
-      .get();
+      .limit(1);
 
     // Check if user has Google connected via OAuth
     const isGoogleConnected = await checkGoogleConnection(userId);

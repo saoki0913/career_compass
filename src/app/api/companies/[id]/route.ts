@@ -26,11 +26,11 @@ async function getCurrentIdentity(request: NextRequest) {
   });
 
   if (session?.user?.id) {
-    const profile = await db
+    const [profile] = await db
       .select()
       .from(userProfiles)
       .where(eq(userProfiles.userId, session.user.id))
-      .get();
+      .limit(1);
 
     return {
       type: "user" as const,
@@ -60,11 +60,11 @@ async function getCurrentIdentity(request: NextRequest) {
  * Check if company belongs to the current user/guest
  */
 async function getCompanyIfOwned(companyId: string, identity: NonNullable<Awaited<ReturnType<typeof getCurrentIdentity>>>) {
-  const company = await db
+  const [company] = await db
     .select()
     .from(companies)
     .where(eq(companies.id, companyId))
-    .get();
+    .limit(1);
 
   if (!company) {
     return null;
@@ -194,11 +194,11 @@ export async function PUT(
       .where(eq(companies.id, id));
 
     // Get updated company
-    const updatedCompany = await db
+    const [updatedCompany] = await db
       .select()
       .from(companies)
       .where(eq(companies.id, id))
-      .get();
+      .limit(1);
 
     return NextResponse.json({
       company: updatedCompany ? stripCompanyCredentials(updatedCompany) : null,

@@ -88,11 +88,11 @@ async function getAuthenticatedUser(): Promise<{
     return null;
   }
 
-  const profile = await db
+  const [profile] = await db
     .select()
     .from(userProfiles)
     .where(eq(userProfiles.userId, session.user.id))
-    .get();
+    .limit(1);
 
   return {
     userId: session.user.id,
@@ -104,11 +104,11 @@ async function verifyCompanyAccess(
   companyId: string,
   userId: string
 ): Promise<{ valid: boolean; company?: typeof companies.$inferSelect }> {
-  const company = await db
+  const [company] = await db
     .select()
     .from(companies)
     .where(and(eq(companies.id, companyId), eq(companies.userId, userId)))
-    .get();
+    .limit(1);
 
   return { valid: !!company, company };
 }

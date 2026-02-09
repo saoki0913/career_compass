@@ -60,11 +60,11 @@ async function verifyCompanyAccess(
 
   if (session?.user?.id) {
     // Check if company belongs to user
-    const company = await db
+    const [company] = await db
       .select()
       .from(companies)
       .where(and(eq(companies.id, companyId), eq(companies.userId, session.user.id)))
-      .get();
+      .limit(1);
 
     if (!company) {
       return { valid: false, error: "Company not found" };
@@ -77,11 +77,11 @@ async function verifyCompanyAccess(
   if (deviceToken) {
     const guest = await getGuestUser(deviceToken);
     if (guest) {
-      const company = await db
+      const [company] = await db
         .select()
         .from(companies)
         .where(and(eq(companies.id, companyId), eq(companies.guestId, guest.id)))
-        .get();
+        .limit(1);
 
       if (!company) {
         return { valid: false, error: "Company not found" };

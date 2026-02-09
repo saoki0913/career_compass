@@ -66,23 +66,27 @@ export async function POST(request: NextRequest) {
           )
         );
 
-      let created = 0;
-      for (const { deadline, company } of upcomingDeadlines) {
-        const hoursUntilDue = (deadline.dueDate.getTime() - now.getTime()) / (1000 * 60 * 60);
-        const notifType = hoursUntilDue <= 24 ? "deadline_near" : "deadline_reminder";
-        const urgency = hoursUntilDue <= 24 ? "24時間以内" : "3日以内";
-
-        // Determine userId from company
-        const companyData = await db.select().from(companies).where(eq(companies.id, deadline.companyId)).get();
-        if (!companyData) continue;
-
-        // Check user's notification settings
-        if (companyData.userId) {
-          const settings = await db
-            .select()
-            .from(notificationSettings)
-            .where(eq(notificationSettings.userId, companyData.userId))
-            .get();
+	      let created = 0;
+	      for (const { deadline, company } of upcomingDeadlines) {
+	        const hoursUntilDue = (deadline.dueDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+	        const notifType = hoursUntilDue <= 24 ? "deadline_near" : "deadline_reminder";
+	        const urgency = hoursUntilDue <= 24 ? "24時間以内" : "3日以内";
+	
+	        // Determine userId from company
+	        const [companyData] = await db
+	          .select()
+	          .from(companies)
+	          .where(eq(companies.id, deadline.companyId))
+	          .limit(1);
+	        if (!companyData) continue;
+	
+	        // Check user's notification settings
+	        if (companyData.userId) {
+	          const [settings] = await db
+	            .select()
+	            .from(notificationSettings)
+	            .where(eq(notificationSettings.userId, companyData.userId))
+	            .limit(1);
 
           // Skip if user has disabled this notification type
           if (settings) {
@@ -101,19 +105,19 @@ export async function POST(request: NextRequest) {
 
         if (!userCondition) continue;
 
-        const existingNotif = await db
-          .select()
-          .from(notifications)
-          .where(
-            and(
-              userCondition,
-              eq(notifications.type, notifType),
-              gte(notifications.createdAt, todayStart)
-            )
-          )
-          .get();
-
-        if (existingNotif) continue;
+	        const [existingNotif] = await db
+	          .select()
+	          .from(notifications)
+	          .where(
+	            and(
+	              userCondition,
+	              eq(notifications.type, notifType),
+	              gte(notifications.createdAt, todayStart)
+	            )
+	          )
+	          .limit(1);
+	
+	        if (existingNotif) continue;
 
         // Create notification
         await db.insert(notifications).values({
@@ -151,13 +155,13 @@ export async function POST(request: NextRequest) {
       const profiles = await db.select().from(userProfiles);
       let created = 0;
 
-      for (const profile of profiles) {
-        // Check user's notification settings
-        const settings = await db
-          .select()
-          .from(notificationSettings)
-          .where(eq(notificationSettings.userId, profile.userId))
-          .get();
+	      for (const profile of profiles) {
+	        // Check user's notification settings
+	        const [settings] = await db
+	          .select()
+	          .from(notificationSettings)
+	          .where(eq(notificationSettings.userId, profile.userId))
+	          .limit(1);
 
         if (settings && !settings.dailySummary) continue;
 

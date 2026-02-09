@@ -76,15 +76,15 @@ export async function POST(req: Request) {
           const newPlan = planFromMetadata || getPlanFromPriceId(priceId) || "standard";
 
           // Use batch to ensure atomicity of subscription + profile + credit updates
-          const existingSub = await db
+          const [existingSub] = await db
             .select()
             .from(subscriptions)
             .where(eq(subscriptions.userId, userId))
-            .get();
+            .limit(1);
 
           if (existingSub) {
-            await db.batch([
-              db
+            await db.transaction(async (tx) => {
+              await tx
                 .update(subscriptions)
                 .set({
                   stripeCustomerId: session.customer as string,
@@ -94,18 +94,18 @@ export async function POST(req: Request) {
                   currentPeriodEnd: new Date(subscriptionItem.current_period_end * 1000),
                   updatedAt: new Date(),
                 })
-                .where(eq(subscriptions.userId, userId)),
-              db
+                .where(eq(subscriptions.userId, userId));
+              await tx
                 .update(userProfiles)
                 .set({
                   plan: newPlan,
                   planSelectedAt: new Date(),
                 })
-                .where(eq(userProfiles.userId, userId)),
-            ]);
+                .where(eq(userProfiles.userId, userId));
+            });
           } else {
-            await db.batch([
-              db.insert(subscriptions).values({
+            await db.transaction(async (tx) => {
+              await tx.insert(subscriptions).values({
                 id: crypto.randomUUID(),
                 userId,
                 stripeCustomerId: session.customer as string,
@@ -115,15 +115,15 @@ export async function POST(req: Request) {
                 currentPeriodEnd: new Date(subscriptionItem.current_period_end * 1000),
                 createdAt: new Date(),
                 updatedAt: new Date(),
-              }),
-              db
+              });
+              await tx
                 .update(userProfiles)
                 .set({
                   plan: newPlan,
                   planSelectedAt: new Date(),
                 })
-                .where(eq(userProfiles.userId, userId)),
-            ]);
+                .where(eq(userProfiles.userId, userId));
+            });
           }
 
           // Update credit allocation (separate call since it has its own logic)
@@ -139,11 +139,11 @@ export async function POST(req: Request) {
         const priceId = subscriptionItem.price.id;
         const newPlan = getPlanFromPriceId(priceId);
 
-        const existingSub = await db
+        const [existingSub] = await db
           .select()
           .from(subscriptions)
           .where(eq(subscriptions.stripeSubscriptionId, subscription.id))
-          .get();
+          .limit(1);
 
         // Batch: update subscription record + user profile
         await db
@@ -173,11 +173,11 @@ export async function POST(req: Request) {
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
 
-        const existingSub = await db
+        const [existingSub] = await db
           .select()
           .from(subscriptions)
           .where(eq(subscriptions.stripeSubscriptionId, subscription.id))
-          .get();
+          .limit(1);
 
         await db
           .update(subscriptions)
@@ -216,11 +216,11 @@ export async function POST(req: Request) {
             })
             .where(eq(subscriptions.stripeSubscriptionId, subscriptionId));
 
-          const sub = await db
+          const [sub] = await db
             .select()
             .from(subscriptions)
             .where(eq(subscriptions.stripeSubscriptionId, subscriptionId))
-            .get();
+            .limit(1);
 
           if (sub?.userId) {
             console.log(`[Stripe Webhook] Payment failed for user ${sub.userId}, subscription ${subscriptionId}`);

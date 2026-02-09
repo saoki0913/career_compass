@@ -42,11 +42,11 @@ async function verifyDocumentAccess(
   userId: string | null,
   guestId: string | null
 ): Promise<{ valid: boolean; document?: typeof documents.$inferSelect }> {
-  const doc = await db
+  const [doc] = await db
     .select()
     .from(documents)
     .where(eq(documents.id, documentId))
-    .get();
+    .limit(1);
 
   if (!doc) {
     return { valid: false };
@@ -90,7 +90,7 @@ export async function GET(
     // Get company if linked (include infoFetchedAt to check RAG data availability)
     let company = null;
     if (doc.companyId) {
-      company = await db
+      company = (await db
         .select({
           id: companies.id,
           name: companies.name,
@@ -98,17 +98,17 @@ export async function GET(
         })
         .from(companies)
         .where(eq(companies.id, doc.companyId))
-        .get();
+        .limit(1))[0] ?? null;
     }
 
     // Get application if linked
     let application = null;
     if (doc.applicationId) {
-      application = await db
+      application = (await db
         .select({ id: applications.id, name: applications.name })
         .from(applications)
         .where(eq(applications.id, doc.applicationId))
-        .get();
+        .limit(1))[0] ?? null;
     }
 
     return NextResponse.json({

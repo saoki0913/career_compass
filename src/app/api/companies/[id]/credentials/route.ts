@@ -56,7 +56,7 @@ export async function GET(
     }
 
     // Fetch only credential fields + ownership fields
-    const company = await db
+    const [company] = await db
       .select({
         id: companies.id,
         userId: companies.userId,
@@ -66,7 +66,7 @@ export async function GET(
       })
       .from(companies)
       .where(eq(companies.id, id))
-      .get();
+      .limit(1);
 
     if (!company) {
       return NextResponse.json(

@@ -40,11 +40,11 @@ async function verifyDocumentAccess(
   userId: string | null,
   guestId: string | null
 ): Promise<{ valid: boolean; document?: typeof documents.$inferSelect }> {
-  const doc = await db
+  const [doc] = await db
     .select()
     .from(documents)
     .where(eq(documents.id, documentId))
-    .get();
+    .limit(1);
 
   if (!doc) {
     return { valid: false };
@@ -84,11 +84,11 @@ export async function GET(
     }
 
     // Get thread
-    const thread = await db
+    const [thread] = await db
       .select()
       .from(aiThreads)
       .where(eq(aiThreads.id, threadId))
-      .get();
+      .limit(1);
 
     if (!thread || thread.documentId !== documentId) {
       return NextResponse.json(

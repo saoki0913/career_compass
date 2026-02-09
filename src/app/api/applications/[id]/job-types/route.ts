@@ -41,11 +41,11 @@ async function verifyApplicationAccess(
   userId: string | null,
   guestId: string | null
 ): Promise<boolean> {
-  const app = await db
+  const [app] = await db
     .select()
     .from(applications)
     .where(eq(applications.id, applicationId))
-    .get();
+    .limit(1);
 
   if (!app) return false;
   if (userId && app.userId === userId) return true;

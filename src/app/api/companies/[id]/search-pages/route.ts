@@ -35,18 +35,18 @@ export async function POST(
     let graduationYear: number | null = null;
 
     if (session?.user?.id) {
-      company = await db
+      company = (await db
         .select()
         .from(companies)
         .where(and(eq(companies.id, id), eq(companies.userId, session.user.id)))
-        .get();
+        .limit(1))[0];
 
       // Get user's graduation year from profile
-      const profile = await db
+      const [profile] = await db
         .select()
         .from(userProfiles)
         .where(eq(userProfiles.userId, session.user.id))
-        .get();
+        .limit(1);
       graduationYear = profile?.graduationYear || null;
     } else {
       const deviceToken = request.headers.get("x-device-token");
@@ -57,11 +57,11 @@ export async function POST(
       if (!guest) {
         return NextResponse.json({ error: "Authentication required" }, { status: 401 });
       }
-      company = await db
+      company = (await db
         .select()
         .from(companies)
         .where(and(eq(companies.id, id), eq(companies.guestId, guest.id)))
-        .get();
+        .limit(1))[0];
       // Guests don't have a graduation year setting
     }
 

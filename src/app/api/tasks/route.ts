@@ -13,7 +13,7 @@ import { eq, and, or, desc, asc, isNull } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 
-export const TASK_TYPE_LABELS: Record<string, string> = {
+const TASK_TYPE_LABELS: Record<string, string> = {
   es: "ES作成",
   web_test: "WEBテスト",
   self_analysis: "自己分析",
@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const validTypes = ["es", "web_test", "self_analysis", "gakuchika", "video", "other"];
+    const validTypes = Object.keys(TASK_TYPE_LABELS);
     if (!type || !validTypes.includes(type)) {
       return NextResponse.json(
         { error: "有効なタイプを選択してください" },
@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
 
     // Verify company access if provided
     if (companyId) {
-      const company = await db
+      const [company] = await db
         .select()
         .from(companies)
         .where(
@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
               : isNull(companies.id)
           )
         )
-        .get();
+        .limit(1);
 
       if (!company) {
         return NextResponse.json(

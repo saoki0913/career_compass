@@ -28,11 +28,11 @@ export async function DELETE(request: NextRequest) {
     const userId = session.user.id;
 
     // Check if user has an active Stripe subscription
-    const sub = await db
+    const [sub] = await db
       .select()
       .from(subscriptions)
       .where(eq(subscriptions.userId, userId))
-      .get();
+      .limit(1);
 
     if (sub?.stripeSubscriptionId && sub.status !== "canceled") {
       try {

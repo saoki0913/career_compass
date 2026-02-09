@@ -113,13 +113,12 @@ async function fetchGakuchikaContext(userId: string): Promise<GakuchikaContextIt
     for (const content of contents) {
       if (results.length >= 3) break;
 
-      const latestConv = await db
+      const [latestConv] = await db
         .select({ status: gakuchikaConversations.status })
         .from(gakuchikaConversations)
         .where(eq(gakuchikaConversations.gakuchikaId, content.id))
         .orderBy(desc(gakuchikaConversations.updatedAt))
-        .limit(1)
-        .get();
+        .limit(1);
 
       if (latestConv?.status !== "completed") continue;
       if (!content.summary) continue;
@@ -179,11 +178,11 @@ export async function POST(
     }
 
     // Get company
-    const company = await db
+    const [company] = await db
       .select()
       .from(companies)
       .where(eq(companies.id, companyId))
-      .get();
+      .limit(1);
 
     if (!company) {
       return new Response(
@@ -193,7 +192,7 @@ export async function POST(
     }
 
     // Get conversation
-    const conversation = await db
+    const [conversation] = await db
       .select()
       .from(motivationConversations)
       .where(
@@ -201,7 +200,7 @@ export async function POST(
           ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
           : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
       )
-      .get();
+      .limit(1);
 
     if (!conversation) {
       return new Response(

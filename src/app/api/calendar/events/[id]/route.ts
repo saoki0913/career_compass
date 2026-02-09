@@ -31,11 +31,11 @@ export async function DELETE(
 
     const userId = session.user.id;
 
-    const event = await db
+    const [event] = await db
       .select()
       .from(calendarEvents)
       .where(eq(calendarEvents.id, eventId))
-      .get();
+      .limit(1);
 
     if (!event) {
       return NextResponse.json(

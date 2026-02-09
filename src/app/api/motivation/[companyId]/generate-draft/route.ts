@@ -90,18 +90,18 @@ export async function POST(
   }
 
   // Get company
-  const company = await db
+  const [company] = await db
     .select()
     .from(companies)
     .where(eq(companies.id, companyId))
-    .get();
+    .limit(1);
 
   if (!company) {
     return NextResponse.json({ error: "企業が見つかりません" }, { status: 404 });
   }
 
   // Get conversation
-  const conversation = await db
+  const [conversation] = await db
     .select()
     .from(motivationConversations)
     .where(
@@ -109,7 +109,7 @@ export async function POST(
         ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
         : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
     )
-    .get();
+    .limit(1);
 
   if (!conversation) {
     return NextResponse.json({ error: "会話が見つかりません" }, { status: 404 });

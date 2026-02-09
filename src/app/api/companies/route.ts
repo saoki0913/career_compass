@@ -36,11 +36,11 @@ async function getCurrentIdentity(request: NextRequest) {
 
   if (session?.user?.id) {
     // Get user's plan
-    const profile = await db
+    const [profile] = await db
       .select()
       .from(userProfiles)
       .where(eq(userProfiles.userId, session.user.id))
-      .get();
+      .limit(1);
 
     return {
       type: "user" as const,

@@ -48,11 +48,11 @@ async function verifyApplicationAccess(
   userId: string | null,
   guestId: string | null
 ): Promise<{ valid: boolean; application?: typeof applications.$inferSelect }> {
-  const app = await db
+  const [app] = await db
     .select()
     .from(applications)
     .where(eq(applications.id, applicationId))
-    .get();
+    .limit(1);
 
   if (!app) {
     return { valid: false };
@@ -95,11 +95,11 @@ export async function GET(
     }
 
     // Get company
-    const company = await db
+    const [company] = await db
       .select()
       .from(companies)
       .where(eq(companies.id, access.application.companyId))
-      .get();
+      .limit(1);
 
     // Get job types
     const jobTypeList = await db

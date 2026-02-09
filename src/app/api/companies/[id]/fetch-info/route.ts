@@ -131,11 +131,11 @@ async function getIdentity(request: NextRequest): Promise<{
   });
 
   if (session?.user?.id) {
-    const profile = await db
+    const [profile] = await db
       .select()
       .from(userProfiles)
       .where(eq(userProfiles.userId, session.user.id))
-      .get();
+      .limit(1);
 
     return {
       userId: session.user.id,
@@ -175,7 +175,7 @@ async function verifyCompanyAccess(
     return { valid: false };
   }
 
-  const company = await db.select().from(companies).where(whereClause).get();
+  const [company] = await db.select().from(companies).where(whereClause).limit(1);
 
   if (!company) {
     return { valid: false };
@@ -226,8 +226,7 @@ async function findExistingDeadline(
         eq(deadlines.companyId, companyId),
         eq(deadlines.type, type as any)
       )
-    )
-    .all();
+    );
 
   const normalizedNewTitle = normalizeTitle(title);
 
@@ -344,11 +343,11 @@ export async function POST(
     // Get user's graduation year from profile if not provided in request
     let effectiveGraduationYear = graduationYear;
     if (!effectiveGraduationYear && userId) {
-      const profile = await db
+      const [profile] = await db
         .select()
         .from(userProfiles)
         .where(eq(userProfiles.userId, userId))
-        .get();
+        .limit(1);
       effectiveGraduationYear = profile?.graduationYear || undefined;
     }
 

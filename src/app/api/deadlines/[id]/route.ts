@@ -59,13 +59,13 @@ async function verifyDeadlineAccess(
   valid: boolean;
   error?: string;
   deadline?: typeof deadlines.$inferSelect;
-}> {
+  }> {
   // Get the deadline first
-  const deadline = await db
+  const [deadline] = await db
     .select()
     .from(deadlines)
     .where(eq(deadlines.id, deadlineId))
-    .get();
+    .limit(1);
 
   if (!deadline) {
     return { valid: false, error: "Deadline not found" };
@@ -78,13 +78,13 @@ async function verifyDeadlineAccess(
 
   if (session?.user?.id) {
     // Check if the deadline's company belongs to user
-    const company = await db
+    const [company] = await db
       .select()
       .from(companies)
       .where(
         and(eq(companies.id, deadline.companyId), eq(companies.userId, session.user.id))
       )
-      .get();
+      .limit(1);
 
     if (!company) {
       return { valid: false, error: "Deadline not found" };
@@ -97,13 +97,13 @@ async function verifyDeadlineAccess(
   if (deviceToken) {
     const guest = await getGuestUser(deviceToken);
     if (guest) {
-      const company = await db
+      const [company] = await db
         .select()
         .from(companies)
         .where(
           and(eq(companies.id, deadline.companyId), eq(companies.guestId, guest.id))
         )
-        .get();
+        .limit(1);
 
       if (!company) {
         return { valid: false, error: "Deadline not found" };

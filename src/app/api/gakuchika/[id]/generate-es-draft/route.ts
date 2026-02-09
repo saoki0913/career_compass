@@ -103,11 +103,11 @@ export async function POST(
   }
 
   // Get gakuchika
-  const gakuchika = await db
+  const [gakuchika] = await db
     .select()
     .from(gakuchikaContents)
     .where(eq(gakuchikaContents.id, gakuchikaId))
-    .get();
+    .limit(1);
 
   if (!gakuchika) {
     return NextResponse.json(
@@ -131,7 +131,7 @@ export async function POST(
   }
 
   // Get latest completed conversation
-  const conversation = await db
+  const [conversation] = await db
     .select()
     .from(gakuchikaConversations)
     .where(
@@ -141,7 +141,7 @@ export async function POST(
       )
     )
     .orderBy(desc(gakuchikaConversations.updatedAt))
-    .get();
+    .limit(1);
 
   if (!conversation) {
     return NextResponse.json(

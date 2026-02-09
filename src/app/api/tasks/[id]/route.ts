@@ -42,11 +42,11 @@ async function verifyTaskAccess(
   userId: string | null,
   guestId: string | null
 ): Promise<{ valid: boolean; task?: typeof tasks.$inferSelect }> {
-  const task = await db
+  const [task] = await db
     .select()
     .from(tasks)
     .where(eq(tasks.id, taskId))
-    .get();
+    .limit(1);
 
   if (!task) {
     return { valid: false };

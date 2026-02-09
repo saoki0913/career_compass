@@ -23,11 +23,11 @@ export async function POST() {
     }
 
     // Get user's subscription
-    const subscription = await db
+    const [subscription] = await db
       .select()
       .from(subscriptions)
       .where(eq(subscriptions.userId, session.user.id))
-      .get();
+      .limit(1);
 
     if (!subscription?.stripeCustomerId) {
       return NextResponse.json(

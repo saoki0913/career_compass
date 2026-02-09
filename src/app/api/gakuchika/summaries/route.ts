@@ -147,7 +147,7 @@ export async function GET(request: NextRequest) {
     const summaries = await Promise.all(
       contents.map(async (content) => {
         // Get latest completed conversation for this gakuchika
-        const latestConversation = await db
+        const [latestConversation] = await db
           .select({
             status: gakuchikaConversations.status,
             starScores: gakuchikaConversations.starScores,
@@ -155,8 +155,7 @@ export async function GET(request: NextRequest) {
           .from(gakuchikaConversations)
           .where(eq(gakuchikaConversations.gakuchikaId, content.id))
           .orderBy(desc(gakuchikaConversations.updatedAt))
-          .limit(1)
-          .get();
+          .limit(1);
 
         // Parse summary (handle both JSON and plain text)
         const parsedSummary = parseSummary(content.summary);

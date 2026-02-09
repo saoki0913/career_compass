@@ -50,11 +50,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if profile exists
-    const existingProfile = await db
+    const [existingProfile] = await db
       .select()
       .from(userProfiles)
       .where(eq(userProfiles.userId, userId))
-      .get();
+      .limit(1);
 
     const now = new Date();
 
@@ -115,11 +115,11 @@ export async function GET() {
       );
     }
 
-    const profile = await db
+    const [profile] = await db
       .select()
       .from(userProfiles)
       .where(eq(userProfiles.userId, session.user.id))
-      .get();
+      .limit(1);
 
     if (!profile) {
       return NextResponse.json({

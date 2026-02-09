@@ -42,11 +42,11 @@ export async function POST(request: NextRequest) {
     const userId = session.user.id;
 
     // Check if profile exists
-    const existingProfile = await db
+    const [existingProfile] = await db
       .select()
       .from(userProfiles)
       .where(eq(userProfiles.userId, userId))
-      .get();
+      .limit(1);
 
     const now = new Date();
 
@@ -101,17 +101,55 @@ export async function GET() {
       );
     }
 
-    const profile = await db
+    const userId = session.user.id;
+
+    const [profile] = await db
       .select()
       .from(userProfiles)
-      .where(eq(userProfiles.userId, session.user.id))
-      .get();
+      .where(eq(userProfiles.userId, userId))
+      .limit(1);
 
     if (!profile) {
+      // Default to Free on first login.
+      // We intentionally do NOT gate the product behind plan selection.
+      const now = new Date();
+      await db.insert(userProfiles).values({
+        id: crypto.randomUUID(),
+        userId,
+        plan: "free",
+        planSelectedAt: now,
+        onboardingCompleted: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+
       return NextResponse.json({
-        plan: null,
-        planSelectedAt: null,
-        needsPlanSelection: true,
+        plan: "free",
+        planSelectedAt: now.toISOString(),
+        onboardingCompleted: false,
+        needsPlanSelection: false,
+        needsOnboarding: true,
+      });
+    }
+
+    // Backfill: older users may have planSelectedAt = null due to previous
+    // "select a plan before continuing" flow. We now default to Free.
+    if (!profile.planSelectedAt) {
+      const now = new Date();
+      await db
+        .update(userProfiles)
+        .set({
+          planSelectedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(userProfiles.userId, userId));
+
+      return NextResponse.json({
+        plan: profile.plan,
+        planSelectedAt: now.toISOString(),
+        onboardingCompleted: profile.onboardingCompleted,
+        needsPlanSelection: false,
+        needsOnboarding: !profile.onboardingCompleted,
       });
     }
 
@@ -119,8 +157,8 @@ export async function GET() {
       plan: profile.plan,
       planSelectedAt: profile.planSelectedAt?.toISOString() || null,
       onboardingCompleted: profile.onboardingCompleted,
-      needsPlanSelection: !profile.planSelectedAt,
-      needsOnboarding: profile.planSelectedAt && !profile.onboardingCompleted,
+      needsPlanSelection: false,
+      needsOnboarding: !profile.onboardingCompleted,
     });
   } catch (error) {
     console.error("Error getting plan:", error);

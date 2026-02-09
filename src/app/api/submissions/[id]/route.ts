@@ -53,11 +53,11 @@ export async function PUT(
 
     const { userId, guestId } = identity;
 
-    const item = await db
+    const [item] = await db
       .select()
       .from(submissionItems)
       .where(eq(submissionItems.id, submissionId))
-      .get();
+      .limit(1);
 
     if (!item) {
       return NextResponse.json(
@@ -144,11 +144,11 @@ export async function DELETE(
 
     const { userId, guestId } = identity;
 
-    const item = await db
+    const [item] = await db
       .select()
       .from(submissionItems)
       .where(eq(submissionItems.id, submissionId))
-      .get();
+      .limit(1);
 
     if (!item) {
       return NextResponse.json(

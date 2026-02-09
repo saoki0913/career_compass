@@ -13,7 +13,7 @@ import { eq, and, desc, isNull } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 
-export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
+const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   deadline_reminder: "締切リマインド",
   deadline_near: "締切が近づいています",
   company_fetch: "企業情報取得",

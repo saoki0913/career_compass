@@ -28,11 +28,11 @@ export async function GET(request: NextRequest) {
     const userId = session.user.id;
 
     // Get or create notification settings
-    let settings = await db
+    let settings = (await db
       .select()
       .from(notificationSettings)
       .where(eq(notificationSettings.userId, userId))
-      .get();
+      .limit(1))[0];
 
     // If settings don't exist, create default settings
     if (!settings) {
@@ -104,11 +104,11 @@ export async function PUT(request: NextRequest) {
     } = body;
 
     // Check if settings exist
-    const existingSettings = await db
+    const [existingSettings] = await db
       .select()
       .from(notificationSettings)
       .where(eq(notificationSettings.userId, userId))
-      .get();
+      .limit(1);
 
     const settingsData: Record<string, unknown> = {
       updatedAt: new Date(),
@@ -165,11 +165,11 @@ export async function PUT(request: NextRequest) {
     }
 
     // Get updated settings
-    const updated = await db
+    const [updated] = await db
       .select()
       .from(notificationSettings)
       .where(eq(notificationSettings.userId, userId))
-      .get();
+      .limit(1);
 
     return NextResponse.json({
       settings: {

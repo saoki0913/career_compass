@@ -40,11 +40,11 @@ async function verifyDocumentAccess(
   userId: string | null,
   guestId: string | null
 ): Promise<{ valid: boolean; document?: typeof documents.$inferSelect }> {
-  const doc = await db
+  const [doc] = await db
     .select()
     .from(documents)
     .where(eq(documents.id, documentId))
-    .get();
+    .limit(1);
 
   if (!doc) {
     return { valid: false };
@@ -98,11 +98,11 @@ export async function GET(
     // Get message counts for each thread
     const threadsWithCounts = await Promise.all(
       threads.map(async (thread) => {
-        const messageCount = await db
+        const [messageCount] = await db
           .select({ count: sql<number>`count(*)` })
           .from(aiMessages)
           .where(eq(aiMessages.threadId, thread.id))
-          .get();
+          .limit(1);
 
         return {
           ...thread,

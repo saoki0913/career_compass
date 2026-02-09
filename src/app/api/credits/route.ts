@@ -29,11 +29,11 @@ export async function GET(request: NextRequest) {
       const userId = session.user.id;
 
       // Get user's plan
-      const profile = await db
+      const [profile] = await db
         .select()
         .from(userProfiles)
         .where(eq(userProfiles.userId, userId))
-        .get();
+        .limit(1);
 
       const plan = (profile?.plan || "free") as "free" | "standard" | "pro";
 

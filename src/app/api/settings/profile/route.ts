@@ -29,17 +29,17 @@ export async function GET(request: NextRequest) {
     const userId = session.user.id;
 
     // Get user and profile
-    const user = await db
+    const [user] = await db
       .select()
       .from(users)
       .where(eq(users.id, userId))
-      .get();
+      .limit(1);
 
-    const profile = await db
+    const [profile] = await db
       .select()
       .from(userProfiles)
       .where(eq(userProfiles.userId, userId))
-      .get();
+      .limit(1);
 
     if (!user) {
       return NextResponse.json(
@@ -149,11 +149,11 @@ export async function PUT(request: NextRequest) {
     }
 
     // Check if profile exists
-    const existingProfile = await db
+    const [existingProfile] = await db
       .select()
       .from(userProfiles)
       .where(eq(userProfiles.userId, userId))
-      .get();
+      .limit(1);
 
     const profileData: Record<string, unknown> = {
       updatedAt: new Date(),
@@ -202,17 +202,17 @@ export async function PUT(request: NextRequest) {
     }
 
     // Get updated profile
-    const user = await db
+    const [user] = await db
       .select()
       .from(users)
       .where(eq(users.id, userId))
-      .get();
+      .limit(1);
 
-    const profile = await db
+    const [profile] = await db
       .select()
       .from(userProfiles)
       .where(eq(userProfiles.userId, userId))
-      .get();
+      .limit(1);
 
     return NextResponse.json({
       profile: {

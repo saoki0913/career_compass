@@ -13,7 +13,7 @@ import { eq, and, desc, isNull, ne } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 
-export const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   es: "エントリーシート",
   tips: "就活TIPS",
   company_analysis: "企業分析",
@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
 
     // Verify company access if provided
     if (companyId) {
-      const company = await db
+      const [company] = await db
         .select()
         .from(companies)
         .where(
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
               : isNull(companies.id)
           )
         )
-        .get();
+        .limit(1);
 
       if (!company) {
         return NextResponse.json(
