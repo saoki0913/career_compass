@@ -2,25 +2,31 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ActivationProgress, ActivationStepId } from "@/hooks/useActivation";
 import { trackEvent } from "@/lib/analytics/client";
 
 const CheckIcon = ({ className }: { className?: string }) => (
-  <svg className={cn("w-4 h-4", className)} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <svg className={cn("w-3.5 h-3.5", className)} fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
   </svg>
 );
 
 const CircleIcon = ({ className }: { className?: string }) => (
-  <svg className={cn("w-4 h-4", className)} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <svg className={cn("w-3.5 h-3.5", className)} fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <circle cx="12" cy="12" r="9" strokeWidth={2} />
   </svg>
 );
 
 const ORDER: ActivationStepId[] = ["company", "deadline", "es", "ai_review"];
+
+const SHORT_LABELS: Record<ActivationStepId, string> = {
+  company: "企業",
+  deadline: "締切",
+  es: "ES",
+  ai_review: "AI添削",
+};
 
 export function ActivationChecklistCard({
   progress,
@@ -46,60 +52,45 @@ export function ActivationChecklistCard({
   }, [progress.completedSteps, progress.totalSteps]);
 
   return (
-    <Card className="mb-8 border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle className="text-base sm:text-lg">はじめにやること</CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              {progress.completedSteps === progress.totalSteps
-                ? "完了しました。おつかれさまです。"
-                : `あと ${progress.totalSteps - progress.completedSteps} つで準備完了`}
-            </p>
+    <div className="mb-6 rounded-xl border border-primary/20 bg-gradient-to-r from-primary/5 via-transparent to-accent/5 px-4 py-3">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        {/* Title + Progress */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <span className="text-sm font-semibold">はじめにやること</span>
+          <div className="flex items-center gap-2">
+            <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
+              <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
+            </div>
+            <span className="text-xs font-semibold tabular-nums text-primary">{pct}%</span>
           </div>
-          <p className="text-sm font-semibold tabular-nums text-primary">{pct}%</p>
         </div>
-        <div className="mt-3 h-2 rounded-full bg-muted overflow-hidden">
-          <div className="h-full bg-primary rounded-full" style={{ width: `${pct}%` }} />
-        </div>
-      </CardHeader>
 
-      <CardContent className="pt-0">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Steps (horizontal) */}
+        <div className="flex items-center gap-3 sm:gap-4 flex-wrap flex-1">
           {steps.map((s) => (
             <Link
               key={s.id}
               href={s.href}
               className={cn(
-                "flex items-start gap-3 rounded-xl border bg-background/60 p-4 hover:bg-background/80 transition-colors",
-                s.done && "opacity-70"
+                "flex items-center gap-1.5 text-xs hover:text-primary transition-colors",
+                s.done ? "text-muted-foreground" : "text-foreground font-medium"
               )}
             >
-              <div className={cn("mt-0.5", s.done ? "text-success" : "text-muted-foreground")}>
+              <span className={s.done ? "text-success" : "text-muted-foreground"}>
                 {s.done ? <CheckIcon /> : <CircleIcon />}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium">{s.label}</p>
-                <p className="text-xs text-muted-foreground mt-1 tabular-nums">
-                  現在: {s.count.toLocaleString()}
-                </p>
-              </div>
+              </span>
+              {SHORT_LABELS[s.id]}
             </Link>
           ))}
         </div>
 
-        {progress.nextAction ? (
-          <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">
-              次のおすすめ: <span className="font-medium text-foreground">{progress.nextAction.label}</span>
-            </p>
-            <Button asChild>
-              <Link href={progress.nextAction.href}>{progress.nextAction.label}</Link>
-            </Button>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
+        {/* Next Action */}
+        {progress.nextAction && (
+          <Button size="sm" className="h-7 text-xs flex-shrink-0" asChild>
+            <Link href={progress.nextAction.href}>{progress.nextAction.label}</Link>
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
-

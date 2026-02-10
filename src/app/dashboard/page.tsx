@@ -306,24 +306,85 @@ export default function DashboardPage() {
       <DashboardHeader />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight">
-              {greeting}、{displayName}さん
-            </h1>
-            {isGuest && (
-              <span className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary font-medium">
-                ゲストモードで利用中
-              </span>
-            )}
+        {/* Welcome + Today's Task Row */}
+        <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6 mb-6">
+          {/* Greeting */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight">
+                {greeting}、{displayName}さん
+              </h1>
+              {isGuest && (
+                <span className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary font-medium">
+                  ゲストモードで利用中
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-muted-foreground">
+              今日も就活を一歩前へ進めましょう
+            </p>
           </div>
-          <p className="mt-1 text-muted-foreground">
-            今日も就活を一歩前へ進めましょう
-          </p>
+
+          {/* Today's Most Important Task (inline) */}
+          {todayTask.task && (
+            <Card className="sm:w-[420px] w-full flex-shrink-0 border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5">
+              <CardHeader className="pb-2 pt-3 px-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-primary">
+                    <StarIcon />
+                    <span className="text-xs font-medium">
+                      今日の最重要タスク
+                      {todayTask.mode === "DEADLINE" && " - 締切優先モード"}
+                      {todayTask.mode === "DEEP_DIVE" && " - 深掘りモード"}
+                    </span>
+                  </div>
+                  <Button variant="outline" size="sm" className="h-7 text-xs px-2" asChild>
+                    <Link href="/tasks">タスク一覧</Link>
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="px-4 pb-3 pt-0">
+                <div className="flex items-start gap-3">
+                  <button
+                    type="button"
+                    onClick={() => todayTask.markComplete()}
+                    className="w-5 h-5 mt-0.5 rounded-full border-2 border-primary flex items-center justify-center flex-shrink-0 hover:bg-primary/10 transition-colors"
+                    title="完了にする"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                        {TASK_TYPE_LABELS[todayTask.task.type]}
+                      </span>
+                      {todayTask.task.company && (
+                        <Link
+                          href={`/companies/${todayTask.task.company.id}`}
+                          className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
+                        >
+                          <CompanyIcon />
+                          {todayTask.task.company.name}
+                        </Link>
+                      )}
+                    </div>
+                    <p className="font-medium mt-0.5">{todayTask.task.title}</p>
+                    {todayTask.task.deadline && (
+                      <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                        <ClockIcon />
+                        {new Date(todayTask.task.deadline.dueDate).toLocaleDateString("ja-JP", {
+                          month: "long",
+                          day: "numeric",
+                        })}
+                        まで
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
-        {/* Activation Checklist (first value path) */}
+        {/* Activation Checklist (compact bar) */}
         {activationData && activationData.completedSteps < activationData.totalSteps ? (
           <ActivationChecklistCard progress={activationData} />
         ) : null}
@@ -354,64 +415,6 @@ export default function DashboardPage() {
             className="col-span-2 lg:col-span-1"
           />
         </div>
-
-        {/* Today's Most Important Task */}
-        {todayTask.task && (
-          <Card className="mb-8 border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-primary">
-                  <StarIcon />
-                  <span className="text-sm font-medium">
-                    今日の最重要タスク
-                    {todayTask.mode === "DEADLINE" && " - 締切優先モード"}
-                    {todayTask.mode === "DEEP_DIVE" && " - 深掘りモード"}
-                  </span>
-                </div>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href="/tasks">タスク一覧</Link>
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-start gap-4">
-                <button
-                  type="button"
-                  onClick={() => todayTask.markComplete()}
-                  className="w-6 h-6 mt-0.5 rounded-full border-2 border-primary flex items-center justify-center flex-shrink-0 hover:bg-primary/10 transition-colors"
-                  title="完了にする"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                      {TASK_TYPE_LABELS[todayTask.task.type]}
-                    </span>
-                    {todayTask.task.company && (
-                      <Link
-                        href={`/companies/${todayTask.task.company.id}`}
-                        className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
-                      >
-                        <CompanyIcon />
-                        {todayTask.task.company.name}
-                      </Link>
-                    )}
-                  </div>
-                  <p className="font-medium text-lg mt-1">{todayTask.task.title}</p>
-                  {todayTask.task.deadline && (
-                    <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
-                      <ClockIcon />
-                      {new Date(todayTask.task.deadline.dueDate).toLocaleDateString("ja-JP", {
-                        month: "long",
-                        day: "numeric",
-                      })}
-                      まで
-                    </p>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Action Zone - 3 Column Grid */}
         <section className="mb-8">
