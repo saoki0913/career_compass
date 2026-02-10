@@ -11,7 +11,7 @@ import { documents, companies } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
-import { hasEnoughCredits, calculateESReviewCost } from "@/lib/credits";
+import { reserveCredits, confirmReservation, cancelReservation, calculateESReviewCost } from "@/lib/credits";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 import type { TemplateType } from "@/hooks/useESReview";
 
@@ -193,15 +193,18 @@ export async function POST(
     const charCount = content.length;
     const creditCost = calculateESReviewCost(charCount);
 
-    // Check if user can afford (only for logged-in users)
+    // Reserve credits upfront (only for logged-in users)
+    // Credits are deducted now and refunded if the stream fails.
+    let reservationId: string | null = null;
     if (userId) {
-      const canPay = await hasEnoughCredits(userId, creditCost);
-      if (!canPay) {
+      const reservation = await reserveCredits(userId, creditCost, "es_review", documentId, `ES添削: ${documentId}`);
+      if (!reservation.success) {
         return new Response(
           JSON.stringify({ error: "クレジットが不足しています", creditCost }),
           { status: 402, headers: { "Content-Type": "application/json" } }
         );
       }
+      reservationId = reservation.reservationId;
     } else {
       // Guests can't use AI review - require login
       return new Response(
@@ -255,6 +258,10 @@ export async function POST(
     });
 
     if (!aiResponse.ok) {
+      // FastAPI rejected the request — refund reserved credits
+      if (reservationId) {
+        await cancelReservation(reservationId).catch(console.error);
+      }
       const errorBody = await aiResponse.json().catch(() => null);
       return new Response(
         JSON.stringify({
@@ -265,8 +272,39 @@ export async function POST(
       );
     }
 
-    // Proxy the SSE stream
-    return new Response(aiResponse.body, {
+    // Proxy the SSE stream, intercepting events to manage credit reservation
+    const capturedReservationId = reservationId;
+    let creditConfirmed = false;
+
+    const { readable, writable } = new TransformStream({
+      async transform(chunk, controller) {
+        controller.enqueue(chunk);
+
+        // Check for "complete" event in the SSE data to confirm credits
+        if (!creditConfirmed && capturedReservationId) {
+          const text = new TextDecoder().decode(chunk);
+          if (text.includes('event: complete') || text.includes('"type":"complete"') || text.includes('"type": "complete"')) {
+            creditConfirmed = true;
+            await confirmReservation(capturedReservationId).catch(console.error);
+          }
+        }
+      },
+      async flush() {
+        // If stream ended without a "complete" event, cancel the reservation
+        if (!creditConfirmed && capturedReservationId) {
+          await cancelReservation(capturedReservationId).catch(console.error);
+        }
+      },
+    });
+
+    aiResponse.body!.pipeTo(writable).catch(() => {
+      // Stream error — cancel reservation if not yet confirmed
+      if (!creditConfirmed && capturedReservationId) {
+        cancelReservation(capturedReservationId).catch(console.error);
+      }
+    });
+
+    return new Response(readable, {
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
