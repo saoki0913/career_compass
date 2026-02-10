@@ -142,6 +142,8 @@ Volume がないとデプロイごとにデータが消失します。
 **方法 3: 自動サジェスト**
 - Railway が GitHub リポジトリ内の `.env` / `.env.example` ファイルを検出した場合、サジェストが表示される → ワンクリックでインポート可能
 
+> **重要**: 変数の変更は、既に動いているデプロイには即反映されません。保存後は `Deployments` から **Redeploy** するか、サービスを再起動してください。
+
 ### 必須変数
 
 ```bash
@@ -150,7 +152,8 @@ OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 
 # CORS（Vercel フロントエンドのドメインを許可）
-CORS_ORIGINS=["https://shupass.jp"]
+CORS_ORIGINS=["https://www.shupass.jp","https://shupass.jp"]
+# 形式: JSON配列文字列（推奨） or カンマ区切り（例: "https://www.shupass.jp,https://shupass.jp"）
 
 # ポート
 # Railway などの PaaS は PORT を自動注入することが多いため、通常は手動設定不要です。
@@ -191,6 +194,9 @@ ES_REWRITE_COUNT=1
 DEBUG=false
 COMPANY_SEARCH_DEBUG=false
 WEB_SEARCH_DEBUG=false
+
+# フロントエンドURL（任意: ログ出力用）
+FRONTEND_URL=https://www.shupass.jp
 
 # Redis キャッシュ（任意）
 # REDIS_URL=redis://...
@@ -285,5 +291,11 @@ curl https://career-compass-backend-production.up.railway.app/health
 | 起動後すぐクラッシュ | メモリ不足 | Resource Limits で Memory を 2GB 以上に |
 | ヘルスチェック失敗 | ポート不一致 | アプリが `$PORT` で待受できているか確認。Variables で `PORT` を手動上書きしている場合は削除（Railway 自動注入を優先） |
 | Volume データ消失 | Volume 未マウント | Settings → Volumes で `/app/data` にマウントされているか確認 |
-| CORS エラー | `CORS_ORIGINS` 未設定 | Variables に `CORS_ORIGINS=["https://shupass.jp"]` を追加 |
+| CORS エラー | `CORS_ORIGINS` 未設定 | Variables に `CORS_ORIGINS=["https://www.shupass.jp","https://shupass.jp"]` を追加 |
 | 外部からアクセス不可 | Public Domain 未生成 | Settings → Networking → Generate Domain |
+
+CLI でまとめて確認する場合:
+
+```bash
+./scripts/diagnose-deploy.sh https://www.shupass.jp https://<your-railway-domain>/health
+```

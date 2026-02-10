@@ -8,11 +8,11 @@
 
 | 変数名 | 必須 | 本番値 / 説明 |
 |---|---|---|
-| `NEXT_PUBLIC_APP_URL` | Yes | `https://shupass.jp` |
+| `NEXT_PUBLIC_APP_URL` | Yes | `https://www.shupass.jp` |
 | `DATABASE_URL` | Yes | Supabase Postgres 接続URL（推奨: Pooler/6543） |
 | `DIRECT_URL` | No | Supabase Postgres 直通URL（5432, マイグレーション推奨） |
 | `BETTER_AUTH_SECRET` | Yes | 認証シークレット (32文字以上) |
-| `BETTER_AUTH_URL` | Yes | `https://shupass.jp` |
+| `BETTER_AUTH_URL` | Yes | `https://www.shupass.jp` |
 | `GOOGLE_CLIENT_ID` | Yes | Google OAuth クライアントID |
 | `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth シークレット |
 | `ENCRYPTION_KEY` | Yes | 暗号化キー (64桁hex) |
@@ -32,8 +32,9 @@
 |---|---|---|
 | `OPENAI_API_KEY` | Yes | OpenAI API キー (`sk-...`) |
 | `ANTHROPIC_API_KEY` | Yes | Anthropic API キー (`sk-ant-...`) |
-| `CORS_ORIGINS` | Yes | `["https://shupass.jp"]` |
+| `CORS_ORIGINS` | Yes | `["https://www.shupass.jp","https://shupass.jp"]` |
 | `PORT` | No | Railway が自動注入することが多い。アプリは `${PORT:-8000}` で待受（ローカルは 8000） |
+| `FRONTEND_URL` | No | 任意（ログ出力用）。例: `https://www.shupass.jp` |
 | `CLAUDE_MODEL` | No | Claude Sonnet モデル名 (デフォルト: `claude-sonnet-4-5-20250929`) |
 | `CLAUDE_HAIKU_MODEL` | No | Claude Haiku モデル名 (デフォルト: `claude-haiku-4-5-20251001`) |
 | `OPENAI_MODEL` | No | OpenAI モデル名 (デフォルト: `gpt-5-mini`) |

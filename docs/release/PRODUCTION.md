@@ -2,14 +2,19 @@
 
 Career Compass (ウカルン) の本番デプロイ手順をステップバイステップで記載します。
 
-**本番ドメイン**: `shupass.jp`（お名前.com で取得済み）
+**本番ドメイン**: `www.shupass.jp`（`shupass.jp` は `www` にリダイレクト）
+
+## セキュリティ注意（重要）
+
+- 認証情報やAPIキー（Google/Stripe/DB/各種Secret）は **チャットやIssueに貼らない**（漏洩扱いになります）
+- もし貼ってしまった場合は **全てローテーション** して、Vercel/Railway の環境変数を更新して **再デプロイ** してください
 
 ---
 
 ## 構成
 
 ```
-                    shupass.jp
+                 www.shupass.jp
                         │
                     ┌────▼────┐
                     │ お名前   │  DNS (NS → Vercel)
@@ -19,7 +24,7 @@ Career Compass (ウカルン) の本番デプロイ手順をステップバイ�
 ┌─────────────┐     ┌───▼──────────┐     ┌─────────┐
 │   Vercel     │────▶│  Railway     │────▶│ Supabase │
 │  (Next.js)   │     │  (FastAPI)   │     │(Postgres)│
-│  shupass.jp  │     │  Port 8000   │     │          │
+│ www.shupass.jp│     │  Port $PORT  │     │          │
 └──────┬───────┘     └──────┬───────┘     └──────────┘
        │                    │
        │                    ├── ChromaDB (Railway Volume)
@@ -32,8 +37,8 @@ Career Compass (ウカルン) の本番デプロイ手順をステップバイ�
 
 | コンポーネント | デプロイ先 | ドメイン / パス |
 |---|---|---|
-| フロントエンド | Vercel | `shupass.jp` / `/` (ルート) |
-| バックエンド | Railway | `career-compass-backend.up.railway.app` |
+| フロントエンド | Vercel | `www.shupass.jp` / `/` (ルート) |
+| バックエンド | Railway | `*.up.railway.app`（Railway で生成される公開ドメイン） |
 | データベース | Supabase (PostgreSQL) | — |
 | ベクトルDB / BM25 | Railway Volume | `/app/data` |
 
@@ -83,10 +88,10 @@ git push origin main
 
 ### 必須チェックリスト
 
-- [ ] **バックエンド Health Check**: `https://career-compass-backend.up.railway.app/` で JSON 応答を確認
-- [ ] **フロントエンド表示**: `https://shupass.jp` でページが表示される
-- [ ] **ドメイン SSL**: `https://shupass.jp` で証明書が有効（ブラウザの鍵アイコン確認）
-- [ ] **www リダイレクト**: `https://www.shupass.jp` → `https://shupass.jp` にリダイレクトされる
+- [ ] **バックエンド Health Check**: `https://<your-railway-domain>/health` が 200 で返る
+- [ ] **フロントエンド表示**: `https://www.shupass.jp` でページが表示される
+- [ ] **ドメイン SSL**: `https://www.shupass.jp` で証明書が有効（ブラウザの鍵アイコン確認）
+- [ ] **Apex リダイレクト**: `https://shupass.jp` → `https://www.shupass.jp` にリダイレクトされる
 - [ ] **Google ログイン**: ログイン → オンボーディング → ダッシュボード
 - [ ] **企業登録**: 企業を作成し、情報取得が正常に動作する
 - [ ] **ES 添削**: ES を作成 → 添削実行 → スコア・リライト結果表示
@@ -100,6 +105,14 @@ git push origin main
 - [ ] Vercel Cron (`/api/cron/daily-notifications`) の実行ログ確認
 - [ ] Sentry にイベントが届くことを確認（設定した場合）
 - [ ] Railway の Volume 使用量確認
+
+### デプロイ不具合の切り分け（CLI）
+
+Vercel の `404: NOT_FOUND` や Railway の到達不可が出たときは、まず CLI で現状を確認します（シークレットは出力しません）:
+
+```bash
+./scripts/diagnose-deploy.sh https://www.shupass.jp https://<your-railway-domain>/health
+```
 
 ---
 

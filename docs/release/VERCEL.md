@@ -80,7 +80,7 @@ Vercel Dashboard → 対象プロジェクト → **「Settings」** → 左メ�
 
 ```bash
 # === アプリケーション ===
-NEXT_PUBLIC_APP_URL=https://shupass.jp
+NEXT_PUBLIC_APP_URL=https://www.shupass.jp
 
 # === データベース ===
 DATABASE_URL=postgresql://...   # 推奨: Pooler (Transaction mode / 6543)
@@ -88,7 +88,7 @@ DIRECT_URL=postgresql://...     # 推奨: Direct connection (5432)
 
 # === 認証 - Better Auth ===
 BETTER_AUTH_SECRET=<openssl rand -base64 32 で生成>
-BETTER_AUTH_URL=https://shupass.jp
+BETTER_AUTH_URL=https://www.shupass.jp
 
 # === 認証 - Google OAuth ===
 GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
@@ -138,8 +138,8 @@ UPSTASH_REDIS_REST_TOKEN=AXxx...
 
 | ドメイン | 状態 | 説明 |
 |---|---|---|
-| `shupass.jp` | Valid Configuration | A レコード → `76.76.21.21` |
-| `www.shupass.jp` | Redirects to shupass.jp | CNAME → `cname.vercel-dns.com` |
+| `www.shupass.jp` | Valid Configuration | CNAME → `cname.vercel-dns.com` |
+| `shupass.jp` | Redirects to www.shupass.jp | A レコード → `76.76.21.21` |
 
 | 設定項目 | 値 | 説明 |
 |---|---|---|
@@ -231,6 +231,9 @@ Vercel Dashboard → 対象プロジェクト → Settings → General:
 ### チェック項目（CLI）
 
 ```bash
+# まとめて診断（推奨: Vercel/Railway/HTTP を一括で確認）
+./scripts/diagnose-deploy.sh https://www.shupass.jp
+
 # ログイン済みユーザー確認
 vercel whoami
 

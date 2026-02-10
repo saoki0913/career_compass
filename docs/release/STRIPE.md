@@ -16,7 +16,7 @@ https://dashboard.stripe.com/account/onboarding にアクセスし、以下の�
 |---|---|
 | 事業形態 | 個人事業主 or 法人（該当するものを選択） |
 | 業種 | 「ソフトウェア」 |
-| 事業のウェブサイト | `https://shupass.jp` |
+| 事業のウェブサイト | `https://www.shupass.jp` |
 | 商品の説明 | 「就活支援 AI サービス。ES 添削・企業情報検索・スケジュール管理を提供」 |
 
 ### 申請者（個人）の本人確認
@@ -43,7 +43,7 @@ https://dashboard.stripe.com/account/onboarding にアクセスし、以下の�
 | 短縮表記 | `SHUPASS` | 一部カード会社で使用 |
 | サポート用メールアドレス | `support@shupass.jp` | 請求に関する問い合わせ先 |
 | サポート用電話番号 | — | 任意 |
-| サポート用 URL | `https://shupass.jp` | — |
+| サポート用 URL | `https://www.shupass.jp` | — |
 
 ### 銀行口座（売上の入金先）
 
@@ -115,7 +115,7 @@ Stripe Dashboard → **開発者** → **Webhook** → **エンドポイント�
 
 | 設定 | 値 |
 |---|---|
-| Endpoint URL | `https://shupass.jp/api/webhooks/stripe` |
+| Endpoint URL | `https://www.shupass.jp/api/webhooks/stripe` |
 | バージョン | 最新の API バージョン |
 
 **受信するイベント** (5 つ選択):
@@ -148,8 +148,8 @@ Stripe Dashboard → **設定** → **Billing** → **カスタマーポータ�
 | 項目 | 値 |
 |---|---|
 | ビジネス名 | `就活Pass` |
-| プライバシーポリシー URL | `https://shupass.jp/privacy` |
-| 利用規約 URL | `https://shupass.jp/terms` |
+| プライバシーポリシー URL | `https://www.shupass.jp/privacy` |
+| 利用規約 URL | `https://www.shupass.jp/terms` |
 
 ## 2-6. Webhook のテスト
 

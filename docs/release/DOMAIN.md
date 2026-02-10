@@ -31,7 +31,10 @@ Vercel は以下の 2 パターンを提示します:
 | CNAME | `www` | `cname.vercel-dns.com` |
 
 > **推奨**: 両方設定する。`shupass.jp` (A レコード) + `www.shupass.jp` (CNAME)。
-> Vercel 側で `www.shupass.jp` → `shupass.jp` への自動リダイレクトを設定可能。
+> Vercel 側で **どちらをメインにするか** を選べます（片方をもう片方へリダイレクト可能）。
+>
+> - 推奨（本書の前提）: `shupass.jp` → `www.shupass.jp` にリダイレクト（メイン: `www.shupass.jp`）
+> - 逆パターン: `www.shupass.jp` → `shupass.jp` にリダイレクト（メイン: `shupass.jp`）
 
 ## 0-3. お名前.com で DNS レコードを設定
 
@@ -61,8 +64,11 @@ dig www.shupass.jp CNAME +short
 # => cname.vercel-dns.com.
 
 # HTTPS でアクセス確認
-curl -I https://shupass.jp
+curl -I https://www.shupass.jp
 # => HTTP/2 200 (Vercel が応答)
+
+curl -I https://shupass.jp
+# => HTTP/2 307 (www にリダイレクト)
 ```
 
 ## 0-5. SSL 証明書の確認
@@ -70,7 +76,12 @@ curl -I https://shupass.jp
 Vercel が DNS 設定を検証し、自動的に SSL 証明書（Let's Encrypt）を発行します。
 
 Vercel Dashboard → Settings → **Domains** で以下を確認:
-- `shupass.jp` → **Valid Configuration** (緑チェック)
-- `www.shupass.jp` → **Redirects to shupass.jp** (緑チェック)
+- 推奨（本書の前提: メイン = `www.shupass.jp`）
+  - `www.shupass.jp` → **Valid Configuration** (緑チェック)
+  - `shupass.jp` → **Redirects to www.shupass.jp** (緑チェック)
+
+- 逆パターン（メイン = `shupass.jp`）
+  - `shupass.jp` → **Valid Configuration** (緑チェック)
+  - `www.shupass.jp` → **Redirects to shupass.jp** (緑チェック)
 
 > SSL 証明書の発行には DNS 反映後、数分かかります。
