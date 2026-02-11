@@ -309,6 +309,22 @@ CONTENT_TYPE_SEARCH_INTENT = {
     "corporate_site": "corporate_about",
 }
 
+# Japanese rerank query templates for cross-encoder
+# The cross-encoder (hotchpotch/japanese-reranker-small-v2) expects natural Japanese queries.
+RERANK_QUERY_TEMPLATES: dict[str, str] = {
+    "new_grad": "{company}の新卒採用ページ",
+    "midcareer": "{company}の中途採用・キャリア採用情報",
+    "ceo_message": "{company}の社長メッセージ・トップメッセージ",
+    "employee_interviews": "{company}の社員インタビュー・先輩社員の声",
+    "corporate_ir": "{company}のIR情報・投資家向け資料",
+    "csr": "{company}のCSR・サステナビリティ活動",
+    "midterm_plan": "{company}の中期経営計画",
+    "press_release": "{company}のプレスリリース・ニュース",
+    "corporate_about": "{company}の企業情報・会社概要",
+    "recruitment": "{company}の採用情報",
+    "recruitment_intern": "{company}のインターンシップ情報",
+}
+
 
 # =============================================================================
 # Data Classes
@@ -858,23 +874,19 @@ def rerank_web_results(
         # Prepare documents for reranking (title + snippet)
         docs = [{"text": f"{r.title} {r.snippet}"[:512]} for r in results[:top_k]]
 
-        # Rerank
+        # Rerank with sort=False to preserve index alignment with results
         reranked = reranker.rerank(
             query=query,
             results=docs,
             top_k=top_k,
             text_key="text",
+            sort=False,
         )
 
-        # Map scores back to WebSearchResult objects
-        url_to_score = {}
+        # Map scores back to WebSearchResult objects (index-aligned)
         for i, doc in enumerate(reranked):
             if i < len(results):
-                url_to_score[results[i].url] = doc.get("rerank_score", 0.0)
-
-        # Update results with rerank scores
-        for result in results[:top_k]:
-            result.rerank_score = url_to_score.get(result.url, 0.0)
+                results[i].rerank_score = doc.get("rerank_score", 0.0)
 
         # Sort by rerank score
         results[:top_k] = sorted(
@@ -1960,8 +1972,11 @@ async def hybrid_web_search(
         return []
 
     # Step 4: Cross-encoder reranking
-    # Create combined query for reranking
-    rerank_query = f"{company_name} {search_intent.replace('_', ' ')}"
+    # Use Japanese template for natural language rerank query
+    rerank_template = RERANK_QUERY_TEMPLATES.get(
+        search_intent, "{company}の企業情報"
+    )
+    rerank_query = rerank_template.format(company=company_name)
     if graduation_year:
         rerank_query += f" {graduation_year}"
 

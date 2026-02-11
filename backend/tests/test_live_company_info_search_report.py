@@ -573,7 +573,27 @@ async def test_live_company_info_search_report(monkeypatch: pytest.MonkeyPatch) 
             rate_limiter=limiter,
         )
 
-    monkeypatch.setattr(web_search_mod, "_search_ddg_async", _rate_limited_search_ddg_async)
+    # Optional: DDG response snapshot cache
+    # Set SNAPSHOT_MODE env var to enable (capture / fallback / snapshot_only)
+    snapshot_mode = os.getenv("SNAPSHOT_MODE", "live_only")
+    snapshot_db = os.getenv(
+        "SNAPSHOT_DB",
+        str(backend_root / "tests" / "output" / "ddg_snapshots.db"),
+    )
+    if snapshot_mode != "live_only":
+        from tests.utils.snapshot_cache import SnapshotCache
+
+        snapshot_cache = SnapshotCache(mode=snapshot_mode, db_path=snapshot_db)
+        _final_search_fn = snapshot_cache.wrap(_rate_limited_search_ddg_async)
+        sys.__stdout__.write(
+            f"[live-search] Snapshot cache: mode={snapshot_mode}, "
+            f"db={snapshot_db}, entries={snapshot_cache.entry_count()}\n"
+        )
+    else:
+        snapshot_cache = None
+        _final_search_fn = _rate_limited_search_ddg_async
+
+    monkeypatch.setattr(web_search_mod, "_search_ddg_async", _final_search_fn)
 
     # Patch company_info._search_with_ddgs to force cache_mode and rate-limit per-query
     original_search_with_ddgs = company_info._search_with_ddgs
@@ -924,6 +944,11 @@ async def test_live_company_info_search_report(monkeypatch: pytest.MonkeyPatch) 
             "WEB_SEARCH_RESULTS_PER_QUERY": patched_results_per_query,
             "WEB_SEARCH_RERANK_TOP_K": patched_rerank_top_k,
         },
+        "snapshot_cache": (
+            {"mode": snapshot_mode, "db": snapshot_db, **snapshot_cache.stats}
+            if snapshot_cache
+            else {"mode": "live_only"}
+        ),
     }
 
     # Serialize judgments

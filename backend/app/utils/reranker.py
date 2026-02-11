@@ -98,6 +98,7 @@ class CrossEncoderReranker:
         top_k: int = 10,
         text_key: str = "text",
         min_score: Optional[float] = None,
+        sort: bool = True,
     ) -> list[dict]:
         """
         Rerank search results using cross-encoder scores.
@@ -108,6 +109,9 @@ class CrossEncoderReranker:
             top_k: Number of top results to return
             text_key: Key for text content in results
             min_score: Minimum score threshold (optional)
+            sort: Whether to sort results by rerank_score (default True).
+                  Set to False when the caller needs to preserve original order
+                  and map scores back by index.
 
         Returns:
             Reranked results with 'rerank_score' field added
@@ -145,12 +149,15 @@ class CrossEncoderReranker:
                 if "rerank_score" not in result:
                     result["rerank_score"] = -float("inf")
 
-            # Sort by rerank score
-            reranked = sorted(
-                results,
-                key=lambda x: x.get("rerank_score", -float("inf")),
-                reverse=True,
-            )
+            # Sort by rerank score (unless caller wants original order)
+            if sort:
+                reranked = sorted(
+                    results,
+                    key=lambda x: x.get("rerank_score", -float("inf")),
+                    reverse=True,
+                )
+            else:
+                reranked = results
 
             # Apply minimum score filter if specified
             if min_score is not None:
@@ -183,6 +190,51 @@ class CrossEncoderReranker:
         except Exception as e:
             logger.error(f"Scoring failed: {e}")
             return [0.0] * len(pairs)
+
+
+def check_reranker_health() -> dict:
+    """
+    Run a health check on the cross-encoder reranker.
+
+    Returns:
+        dict with keys: available, model_name, test_score, error
+    """
+    result = {
+        "available": False,
+        "model_name": DEFAULT_CROSS_ENCODER_MODEL,
+        "test_score": None,
+        "error": None,
+    }
+
+    if not HAS_CROSS_ENCODER:
+        result["error"] = "sentence-transformers not installed"
+        logger.error(
+            "Reranker health check FAILED: sentence-transformers not installed. "
+            "Install with: pip install sentence-transformers sentencepiece"
+        )
+        return result
+
+    try:
+        reranker = CrossEncoderReranker.get_instance()
+        if not reranker.is_available():
+            result["error"] = "Cross-encoder model failed to load"
+            logger.error("Reranker health check FAILED: model not loaded")
+            return result
+
+        # Quick sanity test with a known-good pair
+        test_pairs = [("テスト用クエリ", "テスト用クエリに関する公式ページ")]
+        scores = reranker.score_pairs(test_pairs)
+        result["available"] = True
+        result["test_score"] = scores[0] if scores else None
+        logger.info(
+            f"Reranker health check PASSED: model={reranker.model_name}, "
+            f"test_score={result['test_score']:.4f}"
+        )
+    except Exception as e:
+        result["error"] = str(e)
+        logger.error(f"Reranker health check FAILED: {e}")
+
+    return result
 
 
 # Convenience function for direct use
