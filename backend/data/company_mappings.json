@@ -6948,7 +6948,9 @@
     },
     "パナソニック インダストリー": {
       "domains": [
-        "industry.panasonic"
+        "industry.panasonic",
+        "panasonic-industry",
+        "panasonic"
       ],
       "parent": "パナソニック"
     },
