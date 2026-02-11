@@ -9,11 +9,9 @@ import { db } from "@/lib/db";
 import { contactMessages } from "@/lib/db/schema";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
-
-function isLikelyEmail(email: string): boolean {
-  // Simple sanity check (avoid heavy validation / rejecting valid emails).
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
+import { parseBody, contactSchema } from "@/lib/validation";
+import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
+import { logError } from "@/lib/logger";
 
 function getClientIp(request: NextRequest): string | null {
   const xff = request.headers.get("x-forwarded-for");
@@ -25,23 +23,21 @@ function getClientIp(request: NextRequest): string | null {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const email = String(body?.email || "").trim();
-    const subject = body?.subject ? String(body.subject).trim() : null;
-    const message = String(body?.message || "").trim();
+    // Rate limit by IP to prevent spam
+    const ip = getClientIp(request) || "unknown";
+    const rateLimitKey = createRateLimitKey("contact", null, ip);
+    const rateLimit = await checkRateLimit(rateLimitKey, RATE_LIMITS.contact);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "リクエストが多すぎます。しばらく待ってから再試行してください。" },
+        { status: 429, headers: { "Retry-After": String(rateLimit.resetIn) } }
+      );
+    }
 
-    if (!email || !isLikelyEmail(email) || email.length > 254) {
-      return NextResponse.json({ error: "正しいメールアドレスを入力してください" }, { status: 400 });
-    }
-    if (!message || message.length < 10) {
-      return NextResponse.json({ error: "お問い合わせ内容は10文字以上で入力してください" }, { status: 400 });
-    }
-    if (message.length > 5000) {
-      return NextResponse.json({ error: "お問い合わせ内容が長すぎます（最大5000文字）" }, { status: 400 });
-    }
-    if (subject && subject.length > 200) {
-      return NextResponse.json({ error: "件名が長すぎます（最大200文字）" }, { status: 400 });
-    }
+    // Validate request body with Zod schema
+    const parsed = await parseBody(request, contactSchema);
+    if (parsed.error) return parsed.error;
+    const { email, subject, message } = parsed.data;
 
     // Try to attach a userId when available; contact itself does not require auth.
     const session = await auth.api.getSession({ headers: await headers() });
@@ -52,16 +48,16 @@ export async function POST(request: NextRequest) {
       id: crypto.randomUUID(),
       userId,
       email,
-      subject,
+      subject: subject ?? null,
       message,
       userAgent: request.headers.get("user-agent"),
-      ipAddress: getClientIp(request),
+      ipAddress: ip,
       createdAt: now,
     });
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error saving contact message:", error);
+    logError("save-contact-message", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
