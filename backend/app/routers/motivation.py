@@ -22,11 +22,14 @@ from pydantic import BaseModel, Field
 from app.utils.llm import call_llm_with_error, sanitize_prompt_input
 from app.utils.vector_store import get_enhanced_context_for_review_with_sources
 from app.config import settings
+from app.utils.secure_logger import get_logger
 from app.prompts.motivation_prompts import (
     MOTIVATION_EVALUATION_PROMPT,
     MOTIVATION_QUESTION_PROMPT,
     DRAFT_GENERATION_PROMPT,
 )
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/motivation", tags=["motivation"])
 
@@ -336,7 +339,7 @@ async def _get_company_context(
         )
         return context, sources
     except Exception as e:
-        print(f"[Motivation] RAG context error: {e}")
+        logger.error(f"[Motivation] RAG context error: {e}")
         return "", []
 
 
@@ -377,7 +380,7 @@ async def _evaluate_motivation_internal(
 
     trimmed_history = _trim_conversation_for_evaluation(request.conversation_history)
     if settings.debug and len(trimmed_history) != len(request.conversation_history):
-        print(
+        logger.debug(
             "[Motivation] Evaluation conversation trimmed: "
             f"{len(request.conversation_history)} -> {len(trimmed_history)}"
         )
@@ -395,7 +398,7 @@ async def _evaluate_motivation_internal(
         company_context=company_context or "（企業情報なし）",
     )
     if settings.debug:
-        print(
+        logger.debug(
             "[Motivation] Evaluation input sizes: "
             f"conversation_chars={len(conversation_text)}, "
             f"company_context_chars={len(company_context)}"
@@ -545,7 +548,7 @@ async def get_next_question(request: NextQuestionRequest):
     )
     if settings.debug:
         message_chars = sum(len(msg.content) for msg in request.conversation_history)
-        print(
+        logger.debug(
             "[Motivation] Next question input sizes: "
             f"messages={len(request.conversation_history)}, "
             f"message_chars={message_chars}, "
@@ -826,7 +829,7 @@ async def generate_draft(request: GenerateDraftRequest):
         char_min=char_min,
     )
     if settings.debug:
-        print(
+        logger.debug(
             "[Motivation] Draft input sizes: "
             f"conversation_chars={len(conversation_text)}, "
             f"company_context_chars={len(company_context)}, "
@@ -858,7 +861,7 @@ async def generate_draft(request: GenerateDraftRequest):
                     if last_period > len(draft_text) * 0.5:
                         draft_text = draft_text[: last_period + 1]
                 if len(draft_text) >= 100:
-                    print(f"[志望動機作成] ⚠️ raw_textフォールバック: {len(draft_text)}字のドラフトを抽出")
+                    logger.warning(f"[志望動機作成] ⚠️ raw_textフォールバック: {len(draft_text)}字のドラフトを抽出")
                     return GenerateDraftResponse(
                         draft=draft_text,
                         char_count=len(draft_text),

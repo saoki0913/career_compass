@@ -25,10 +25,11 @@ try:
     HAS_DDGS = True
 except ImportError:
     HAS_DDGS = False
-    print("[企業サイト検索] ⚠️ ddgs 未インストール - モック結果を使用")
+    # Logger will be initialized later, so we'll handle this in the function
 
 from app.utils.llm import call_llm_with_error
 from app.config import settings
+from app.utils.secure_logger import get_logger
 from app.utils.company_names import (
     get_company_domain_patterns,
     is_blog_platform,
@@ -36,6 +37,8 @@ from app.utils.company_names import (
     BLOG_PLATFORMS,
     PERSONAL_SITE_PATTERNS,
 )
+
+logger = get_logger(__name__)
 from app.utils.content_type_keywords import (
     CONTENT_TYPE_KEYWORDS,
     get_content_type_keywords,
@@ -562,7 +565,7 @@ async def extract_info_with_llm(text: str, url: str) -> ExtractedInfo:
             selection_process=selection_process,
         )
     except Exception as e:
-        print(f"[企業情報抽出] ❌ LLM応答解析失敗: {e}")
+        logger.error(f"[企業情報抽出] ❌ LLM応答解析失敗: {e}")
         raise HTTPException(
             status_code=503,
             detail={
@@ -793,7 +796,7 @@ async def extract_schedule_with_llm(
             selection_process=selection_process,
         )
     except Exception as e:
-        print(f"[選考スケジュール抽出] ❌ LLM応答解析失敗: {e}")
+        logger.error(f"[選考スケジュール抽出] ❌ LLM応答解析失敗: {e}")
         raise HTTPException(
             status_code=503,
             detail={
@@ -2396,7 +2399,7 @@ async def _search_with_ddgs(
                 )
                 return results
         except Exception as e:
-            print(f"[企業サイト検索] ❌ DuckDuckGo 検索エラー: {e}")
+            logger.error(f"[企業サイト検索] ❌ DuckDuckGo 検索エラー: {e}")
             return []
 
     # 1回目の検索
@@ -2714,14 +2717,14 @@ async def search_company_pages(request: SearchPagesRequest):
     candidates = []
 
     # ログ: 検索開始
-    print(f"\n[サイト検索] {'='*50}")
-    print(f"[サイト検索] 🔍 企業名: {company_name}")
+    logger.debug(f"\n[サイト検索] {'='*50}")
+    logger.debug(f"[サイト検索] 🔍 企業名: {company_name}")
     if industry:
-        print(f"[サイト検索] 🏢 業界: {industry}")
+        logger.debug(f"[サイト検索] 🏢 業界: {industry}")
 
     # ===== Hybrid Search Path (RRF + Cross-Encoder Reranking) =====
     if USE_HYBRID_SEARCH and not custom_query:
-        print(f"[サイト検索] 🚀 Hybrid Search モード (RRF + Reranking)")
+        logger.debug(f"[サイト検索] 🚀 Hybrid Search モード (RRF + Reranking)")
 
         # Get domain patterns for scoring
         domain_patterns = get_company_domain_patterns(company_name)
@@ -2751,11 +2754,11 @@ async def search_company_pages(request: SearchPagesRequest):
                 graduation_year=graduation_year,
                 selection_type=selection_type,
             )
-            print(f"[サイト検索] 🔍 Hybridクエリ一覧: {hybrid_queries}")
+            logger.debug(f"[サイト検索] 🔍 Hybridクエリ一覧: {hybrid_queries}")
         except Exception:
             pass
 
-        print(f"[サイト検索] 📊 Hybrid検索結果: {len(hybrid_results)}件")
+        logger.debug(f"[サイト検索] 📊 Hybrid検索結果: {len(hybrid_results)}件")
 
         # Apply filtering (subsidiary, parent company, etc.)
         filtered_candidates = []
@@ -2770,8 +2773,8 @@ async def search_company_pages(request: SearchPagesRequest):
             snippet = result.snippet
 
             # Log score breakdown
-            print(f"[サイト検索] 📋 {url[:60]}...")
-            print(
+            logger.debug(f"[サイト検索] 📋 {url[:60]}...")
+            logger.debug(
                 f"  │  RRF: {result.rrf_score:.3f}, Rerank: {result.rerank_score:.3f}, Combined: {result.combined_score:.3f}"
             )
 
@@ -2780,7 +2783,7 @@ async def search_company_pages(request: SearchPagesRequest):
                 excluded_reasons["不適切なサイト"] = (
                     excluded_reasons.get("不適切なサイト", 0) + 1
                 )
-                print(f"[サイト検索] ❌ 除外: 不適切なサイト")
+                logger.debug(f"[サイト検索] ❌ 除外: 不適切なサイト")
                 continue
 
             # Skip subsidiaries
@@ -2788,7 +2791,7 @@ async def search_company_pages(request: SearchPagesRequest):
                 excluded_reasons["子会社サイト"] = (
                     excluded_reasons.get("子会社サイト", 0) + 1
                 )
-                print(f"[サイト検索] ❌ 除外: 子会社サイト")
+                logger.debug(f"[サイト検索] ❌ 除外: 子会社サイト")
                 continue
 
             # Official domain check (domain pattern match)
@@ -2841,7 +2844,7 @@ async def search_company_pages(request: SearchPagesRequest):
                 "subsidiary": "子会社",
                 "other": "その他",
             }.get(source_type, source_type)
-            print(f"[サイト検索] ✅ 採用: {source_label}, {confidence}")
+            logger.debug(f"[サイト検索] ✅ 採用: {source_label}, {confidence}")
 
             filtered_candidates.append(
                 SearchCandidate(
@@ -2886,16 +2889,16 @@ async def search_company_pages(request: SearchPagesRequest):
             )
 
         # Log summary
-        print(f"\n[サイト検索] 📊 Hybrid検索結果サマリー:")
-        print(
+        logger.debug(f"\n[サイト検索] 📊 Hybrid検索結果サマリー:")
+        logger.debug(
             f"  └─ 検索結果: {len(hybrid_results)}件 → 採用: {len(filtered_candidates)}件"
         )
         if any(excluded_reasons.values()):
             excluded_str = ", ".join(
                 f"{k}: {v}件" for k, v in excluded_reasons.items() if v > 0
             )
-            print(f"     除外内訳: {excluded_str}")
-        print(f"[サイト検索] {'='*50}\n")
+            logger.debug(f"     除外内訳: {excluded_str}")
+        logger.debug(f"[サイト検索] {'='*50}\n")
 
         return {"candidates": filtered_candidates}
 
@@ -2915,9 +2918,9 @@ async def search_company_pages(request: SearchPagesRequest):
         per_query = min(8, max_results + 3)
 
         for query in queries:
-            print(f"[サイト検索] 🔍 検索クエリ: {query}")
+            logger.debug(f"[サイト検索] 🔍 検索クエリ: {query}")
             search_results = await _search_with_ddgs(query, per_query)
-            print(f"[サイト検索] 📊 DuckDuckGo結果: {len(search_results)}件")
+            logger.debug(f"[サイト検索] 📊 DuckDuckGo結果: {len(search_results)}件")
 
             for result in search_results:
                 url = result.get("href", result.get("url", ""))
@@ -2938,7 +2941,7 @@ async def search_company_pages(request: SearchPagesRequest):
                     graduation_year=graduation_year,
                 )
                 if score is None:
-                    print(f"[サイト検索] ❌ 除外: {url[:60]}... (除外ドメイン)")
+                    logger.debug(f"[サイト検索] ❌ 除外: {url[:60]}... (除外ドメイン)")
                     continue
 
                 existing = results_map.get(normalized)
@@ -2959,7 +2962,7 @@ async def search_company_pages(request: SearchPagesRequest):
         )
 
         # ログ: スコア詳細
-        print(f"\n[サイト検索] 📋 スコア詳細 ({len(scored)}件):")
+        logger.debug(f"\n[サイト検索] 📋 スコア詳細 ({len(scored)}件):")
         for i, item in enumerate(scored[:10]):  # 上位10件のみ表示
             url = item["url"]
             normalized = _normalize_url(url)
@@ -2968,17 +2971,17 @@ async def search_company_pages(request: SearchPagesRequest):
             patterns = details.get("patterns", [])
 
             prefix = "├─" if i < min(9, len(scored) - 1) else "└─"
-            print(f"  {prefix} URL: {url[:70]}{'...' if len(url) > 70 else ''}")
-            print(
+            logger.debug(f"  {prefix} URL: {url[:70]}{'...' if len(url) > 70 else ''}")
+            logger.debug(
                 f"  │  タイトル: {(item['title'] or '')[:50]}{'...' if len(item['title'] or '') > 50 else ''}"
             )
-            print(f"  │  スコア: {item['score']:.1f}pt")
+            logger.debug(f"  │  スコア: {item['score']:.1f}pt")
             if patterns:
-                print(f"  │  ドメインパターン: {patterns}")
+                logger.debug(f"  │  ドメインパターン: {patterns}")
             if breakdown:
                 breakdown_str = ", ".join(f"{k}{v}" for k, v in breakdown.items())
-                print(f"  │  内訳: {breakdown_str}")
-            print(f"  │")
+                logger.debug(f"  │  内訳: {breakdown_str}")
+            logger.debug(f"  │")
 
         # Filter out irrelevant sites, subsidiaries, and unrelated companies
         filtered_count = 0
@@ -2998,7 +3001,7 @@ async def search_company_pages(request: SearchPagesRequest):
                 excluded_reasons["不適切なサイト"] = (
                     excluded_reasons.get("不適切なサイト", 0) + 1
                 )
-                print(f"[サイト検索] ❌ 除外: {url[:50]}... (不適切なサイト)")
+                logger.debug(f"[サイト検索] ❌ 除外: {url[:50]}... (不適切なサイト)")
                 continue
 
             # Skip subsidiaries
@@ -3006,7 +3009,7 @@ async def search_company_pages(request: SearchPagesRequest):
                 excluded_reasons["子会社サイト"] = (
                     excluded_reasons.get("子会社サイト", 0) + 1
                 )
-                print(f"[サイト検索] ❌ 除外: {url[:50]}... (子会社サイト)")
+                logger.debug(f"[サイト検索] ❌ 除外: {url[:50]}... (子会社サイト)")
                 continue
 
             # Official domain check (domain pattern match)
@@ -3034,7 +3037,7 @@ async def search_company_pages(request: SearchPagesRequest):
                     excluded_reasons.get("競合ドメイン", 0) + 1
                 )
                 conflict_label = ", ".join(sorted(conflicts))[:50]
-                print(
+                logger.debug(
                     f"[サイト検索] ❌ 除外: {url[:50]}... (競合ドメイン: {conflict_label})"
                 )
                 continue
@@ -3045,7 +3048,7 @@ async def search_company_pages(request: SearchPagesRequest):
             if is_parent_site and not is_official_domain:
                 item["score"] *= 0.5  # 親会社サイトペナルティ
                 item["is_parent_company"] = True
-                print(f"[サイト検索] ⚠️ ペナルティ: {url[:50]}... (親会社サイト, 0.5x)")
+                logger.debug(f"[サイト検索] ⚠️ ペナルティ: {url[:50]}... (親会社サイト, 0.5x)")
 
             # Apply penalty for subsidiary sites (when searching for parent)
             # 注: 完全除外ではなくペナルティを適用
@@ -3056,7 +3059,7 @@ async def search_company_pages(request: SearchPagesRequest):
                 item["score"] *= 0.3  # 子会社サイトペナルティ
                 item["is_subsidiary"] = True
                 item["subsidiary_name"] = sub_name
-                print(
+                logger.debug(
                     f"[サイト検索] ⚠️ ペナルティ: {url[:50]}... (子会社: {sub_name}, 0.3x)"
                 )
 
@@ -3080,7 +3083,7 @@ async def search_company_pages(request: SearchPagesRequest):
                 excluded_reasons["企業名不一致"] = (
                     excluded_reasons.get("企業名不一致", 0) + 1
                 )
-                print(f"[サイト検索] ❌ 除外: {url[:50]}... (企業名不一致)")
+                logger.debug(f"[サイト検索] ❌ 除外: {url[:50]}... (企業名不一致)")
                 continue
 
             source_type = _get_source_type(url, company_name)
@@ -3108,7 +3111,7 @@ async def search_company_pages(request: SearchPagesRequest):
                 "subsidiary": "子会社",
                 "parent": "親会社",
             }.get(source_type, source_type)
-            print(f"[サイト検索] ✅ 採用: {url[:50]}... ({source_label}, {confidence})")
+            logger.debug(f"[サイト検索] ✅ 採用: {url[:50]}... ({source_label}, {confidence})")
 
             candidates.append(
                 SearchCandidate(
@@ -3124,14 +3127,14 @@ async def search_company_pages(request: SearchPagesRequest):
                 break
 
         # ログ: 結果サマリー
-        print(f"\n[サイト検索] 📊 結果サマリー:")
-        print(f"  └─ 検索結果: {len(scored)}件 → 採用: {len(candidates)}件")
+        logger.debug(f"\n[サイト検索] 📊 結果サマリー:")
+        logger.debug(f"  └─ 検索結果: {len(scored)}件 → 採用: {len(candidates)}件")
         if any(excluded_reasons.values()):
             excluded_str = ", ".join(
                 f"{k}: {v}件" for k, v in excluded_reasons.items() if v > 0
             )
-            print(f"     除外内訳: {excluded_str}")
-        print(f"[サイト検索] {'='*50}\n")
+            logger.debug(f"     除外内訳: {excluded_str}")
+        logger.debug(f"[サイト検索] {'='*50}\n")
 
         # Sort candidates by source_type → confidence → original order
         # This ensures official/high results appear at the top
@@ -3154,7 +3157,7 @@ async def search_company_pages(request: SearchPagesRequest):
             return {"candidates": candidates}
 
     # Fallback: DDGS unavailable
-    print("[サイト検索] ⚠️ DuckDuckGo 検索が利用できません。手動URL入力が必要です。")
+    logger.warning("[サイト検索] ⚠️ DuckDuckGo 検索が利用できません。手動URL入力が必要です。")
     return {
         "candidates": [],
         "error": "検索機能が無効です。公式URLを手動入力してください。",
@@ -3525,7 +3528,7 @@ async def build_company_rag(request: BuildRagRequest):
                     chunker = JapaneseTextChunker(chunk_size=500, chunk_overlap=100)
                     chunks = chunker.chunk(request.raw_content)
                 full_text_stored = len(chunks)
-                print(
+                logger.info(
                     f"[RAG保存] ✅ フルテキスト {full_text_stored}チャンク保存完了 (会社ID: {request.company_id[:8]}...)"
                 )
 
@@ -3553,7 +3556,7 @@ async def build_company_rag(request: BuildRagRequest):
                     backend=backend,
                 )
                 if not success:
-                    print(
+                    logger.error(
                         f"[RAG保存] ❌ 構造化データ保存失敗 (会社ID: {request.company_id[:8]}...)"
                     )
 
@@ -3581,7 +3584,7 @@ async def build_company_rag(request: BuildRagRequest):
         )
 
     except Exception as e:
-        print(f"[RAG保存] ❌ RAG構築失敗: {e}")
+        logger.error(f"[RAG保存] ❌ RAG構築失敗: {e}")
         return BuildRagResponse(
             success=False,
             company_id=request.company_id,
@@ -3632,7 +3635,7 @@ async def get_rag_context(request: RagContextRequest):
         )
 
     except Exception as e:
-        print(f"[RAG検索] ❌ コンテキスト取得失敗: {e}")
+        logger.error(f"[RAG検索] ❌ コンテキスト取得失敗: {e}")
         return RagContextResponse(
             success=False, company_id=request.company_id, context="", has_rag=False
         )
@@ -3763,7 +3766,7 @@ async def delete_rag_by_urls(company_id: str, request: DeleteByUrlsRequest):
             errors=[],
         )
     except Exception as e:
-        print(f"[RAG削除] ❌ URL別削除エラー: {e}")
+        logger.error(f"[RAG削除] ❌ URL別削除エラー: {e}")
         return DeleteByUrlsResponse(
             success=False,
             company_id=company_id,
@@ -3981,13 +3984,13 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
 
     # ===== Hybrid Search Path (RRF + Cross-Encoder Reranking) =====
     if USE_HYBRID_SEARCH and not custom_query:
-        print(
+        logger.debug(
             f"\n[{type_label}検索] =================================================="
         )
-        print(f"[{type_label}検索] 🔍 企業名: {company_name}")
-        print(f"[{type_label}検索] 🚀 Hybrid Search モード (RRF + Reranking)")
+        logger.debug(f"[{type_label}検索] 🔍 企業名: {company_name}")
+        logger.debug(f"[{type_label}検索] 🚀 Hybrid Search モード (RRF + Reranking)")
         if content_type:
-            print(f"[{type_label}検索] 📂 コンテンツタイプ: {content_type}")
+            logger.debug(f"[{type_label}検索] 📂 コンテンツタイプ: {content_type}")
 
         try:
             from app.utils.web_search import generate_query_variations
@@ -3998,7 +4001,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 graduation_year=graduation_year,
                 selection_type=None,
             )
-            print(f"[{type_label}検索] 🔍 Hybridクエリ一覧: {hybrid_queries}")
+            logger.debug(f"[{type_label}検索] 🔍 Hybridクエリ一覧: {hybrid_queries}")
         except Exception:
             pass
 
@@ -4027,7 +4030,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             allow_snippet_match=allow_snippet_match,
         )
 
-        print(f"[{type_label}検索] 📊 Hybrid検索結果: {len(hybrid_results)}件")
+        logger.debug(f"[{type_label}検索] 📊 Hybrid検索結果: {len(hybrid_results)}件")
 
         # Apply filtering (subsidiary, parent company, company name check)
         filtered_candidates = []
@@ -4044,21 +4047,21 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             snippet = result.snippet
 
             # Log score breakdown
-            print(f"[{type_label}検索] 📋 {url[:60]}...")
-            print(
+            logger.debug(f"[{type_label}検索] 📋 {url[:60]}...")
+            logger.debug(
                 f"  │  RRF: {result.rrf_score:.3f}, Rerank: {result.rerank_score:.3f}, Combined: {result.combined_score:.3f}"
             )
 
             # Skip irrelevant sites
             if _is_irrelevant_url(url):
                 excluded_reasons["不適切なサイト"] += 1
-                print(f"[{type_label}検索] ❌ 除外: 不適切なサイト")
+                logger.debug(f"[{type_label}検索] ❌ 除外: 不適切なサイト")
                 continue
 
             # Skip subsidiaries
             if _is_subsidiary(company_name, title, url):
                 excluded_reasons["子会社サイト"] += 1
-                print(f"[{type_label}検索] ❌ 除外: 子会社サイト")
+                logger.debug(f"[{type_label}検索] ❌ 除外: 子会社サイト")
                 continue
 
             # Official domain check (domain pattern match)
@@ -4114,7 +4117,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 "subsidiary": "子会社",
                 "other": "その他",
             }.get(source_type, source_type)
-            print(f"[{type_label}検索] ✅ 採用: {source_label}, {confidence}")
+            logger.debug(f"[{type_label}検索] ✅ 採用: {source_label}, {confidence}")
 
             filtered_candidates.append(
                 SearchCandidate(
@@ -4159,16 +4162,16 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             )
 
         # Log summary
-        print(f"\n[{type_label}検索] 📊 Hybrid検索結果サマリー:")
-        print(
+        logger.debug(f"\n[{type_label}検索] 📊 Hybrid検索結果サマリー:")
+        logger.debug(
             f"  └─ 検索結果: {len(hybrid_results)}件 → 採用: {len(filtered_candidates)}件"
         )
         if any(excluded_reasons.values()):
             excluded_str = ", ".join(
                 f"{k}: {v}件" for k, v in excluded_reasons.items() if v > 0
             )
-            print(f"     除外内訳: {excluded_str}")
-        print(
+            logger.debug(f"     除外内訳: {excluded_str}")
+        logger.debug(
             f"[{type_label}検索] ==================================================\n"
         )
 
@@ -4194,24 +4197,24 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
 
         # type_label is already defined above
 
-        print(
+        logger.debug(
             f"\n[{type_label}検索] =================================================="
         )
-        print(f"[{type_label}検索] 🔍 企業名: {company_name}")
+        logger.debug(f"[{type_label}検索] 🔍 企業名: {company_name}")
         if content_type:
-            print(f"[{type_label}検索] 📂 コンテンツタイプ: {content_type}")
+            logger.debug(f"[{type_label}検索] 📂 コンテンツタイプ: {content_type}")
         else:
-            print(f"[{type_label}検索] 📂 検索タイプ: {search_type}")
+            logger.debug(f"[{type_label}検索] 📂 検索タイプ: {search_type}")
         if preferred_domain:
-            print(f"[{type_label}検索] 🌐 優先ドメイン: {preferred_domain}")
+            logger.debug(f"[{type_label}検索] 🌐 優先ドメイン: {preferred_domain}")
 
         async def _collect_results(strict_match: bool, allow_aggs: bool) -> None:
             for query in queries:
-                print(f"[{type_label}検索] 🔍 検索クエリ: {query}")
+                logger.debug(f"[{type_label}検索] 🔍 検索クエリ: {query}")
                 search_results = await _search_with_ddgs(
                     query, per_query, cache_mode=cache_mode
                 )
-                print(f"[{type_label}検索] 📊 DuckDuckGo結果: {len(search_results)}件")
+                logger.debug(f"[{type_label}検索] 📊 DuckDuckGo結果: {len(search_results)}件")
 
                 for result in search_results:
                     url = result.get("href", result.get("url", ""))
@@ -4237,7 +4240,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                     )
                     if score is None:
                         reason = breakdown.get("除外", "除外")
-                        print(f"[{type_label}検索] ❌ 除外: {url[:60]}... ({reason})")
+                        logger.debug(f"[{type_label}検索] ❌ 除外: {url[:60]}... ({reason})")
                         continue
                     if score < CORP_SEARCH_MIN_SCORE:
                         continue
@@ -4271,7 +4274,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
         )
 
         # ログ: スコア詳細
-        print(f"\n[{type_label}検索] 📋 スコア詳細 ({len(scored)}件):")
+        logger.debug(f"\n[{type_label}検索] 📋 スコア詳細 ({len(scored)}件):")
         for i, item in enumerate(scored[:10]):  # 上位10件のみ表示
             url = item["url"]
             normalized = _normalize_url(url)
@@ -4280,17 +4283,17 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             patterns = details.get("patterns", [])
 
             prefix = "├─" if i < min(9, len(scored) - 1) else "└─"
-            print(f"  {prefix} URL: {url[:70]}{'...' if len(url) > 70 else ''}")
-            print(
+            logger.debug(f"  {prefix} URL: {url[:70]}{'...' if len(url) > 70 else ''}")
+            logger.debug(
                 f"  │  タイトル: {(item['title'] or '')[:50]}{'...' if len(item['title'] or '') > 50 else ''}"
             )
-            print(f"  │  スコア: {item['score']:.1f}pt")
+            logger.debug(f"  │  スコア: {item['score']:.1f}pt")
             if patterns:
-                print(f"  │  ドメインパターン: {patterns}")
+                logger.debug(f"  │  ドメインパターン: {patterns}")
             if breakdown:
                 breakdown_str = ", ".join(f"{k}{v}" for k, v in breakdown.items())
-                print(f"  │  内訳: {breakdown_str}")
-            print(f"  │")
+                logger.debug(f"  │  内訳: {breakdown_str}")
+            logger.debug(f"  │")
 
         # Filter and add source_type
         excluded_reasons = {
@@ -4311,7 +4314,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 excluded_reasons["不適切なサイト"] = (
                     excluded_reasons.get("不適切なサイト", 0) + 1
                 )
-                print(f"[{type_label}検索] ❌ 除外: {url[:50]}... (不適切なサイト)")
+                logger.debug(f"[{type_label}検索] ❌ 除外: {url[:50]}... (不適切なサイト)")
                 continue
 
             # Skip subsidiaries
@@ -4319,7 +4322,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 excluded_reasons["子会社サイト"] = (
                     excluded_reasons.get("子会社サイト", 0) + 1
                 )
-                print(f"[{type_label}検索] ❌ 除外: {url[:50]}... (子会社サイト)")
+                logger.debug(f"[{type_label}検索] ❌ 除外: {url[:50]}... (子会社サイト)")
                 continue
 
             # Official domain check (domain pattern match)
@@ -4348,7 +4351,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                     excluded_reasons.get("競合ドメイン", 0) + 1
                 )
                 conflict_label = ", ".join(sorted(conflicts))[:50]
-                print(
+                logger.debug(
                     f"[{type_label}検索] ❌ 除外: {url[:50]}... (競合ドメイン: {conflict_label})"
                 )
                 continue
@@ -4366,7 +4369,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             if is_parent_site and not is_official_domain:
                 item["score"] *= 0.8 if allowed_parent else 0.5  # 親会社サイトペナルティ
                 item["is_parent_company"] = True
-                print(
+                logger.debug(
                     f"[{type_label}検索] ⚠️ ペナルティ: {url[:50]}... (親会社サイト, {'0.8x' if allowed_parent else '0.5x'})"
                 )
 
@@ -4378,7 +4381,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 item["score"] *= 0.3  # 子会社サイトペナルティ
                 item["is_subsidiary"] = True
                 item["subsidiary_name"] = sub_name
-                print(
+                logger.debug(
                     f"[{type_label}検索] ⚠️ ペナルティ: {url[:50]}... (子会社: {sub_name}, 0.3x)"
                 )
 
@@ -4393,7 +4396,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 excluded_reasons["企業名不一致"] = (
                     excluded_reasons.get("企業名不一致", 0) + 1
                 )
-                print(f"[{type_label}検索] ❌ 除外: {url[:50]}... (企業名不一致)")
+                logger.debug(f"[{type_label}検索] ❌ 除外: {url[:50]}... (企業名不一致)")
                 continue
 
             source_type = _get_source_type(url, company_name)
@@ -4415,7 +4418,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 "subsidiary": "子会社",
                 "parent": "親会社",
             }.get(source_type, source_type)
-            print(
+            logger.debug(
                 f"[{type_label}検索] ✅ 採用: {url[:50]}... ({source_label}, {confidence})"
             )
 
@@ -4434,14 +4437,14 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 break
 
         # ログ: 結果サマリー
-        print(f"\n[{type_label}検索] 📊 結果サマリー:")
-        print(f"  └─ 検索結果: {len(scored)}件 → 採用: {len(candidates)}件")
+        logger.debug(f"\n[{type_label}検索] 📊 結果サマリー:")
+        logger.debug(f"  └─ 検索結果: {len(scored)}件 → 採用: {len(candidates)}件")
         if any(excluded_reasons.values()):
             excluded_str = ", ".join(
                 f"{k}: {v}件" for k, v in excluded_reasons.items() if v > 0
             )
-            print(f"     除外内訳: {excluded_str}")
-        print(f"[{type_label}検索] ==================================================")
+            logger.debug(f"     除外内訳: {excluded_str}")
+        logger.debug(f"[{type_label}検索] ==================================================")
 
     # Sort candidates by source_type → confidence → original order
     # This ensures official/high results appear at the top
@@ -4486,4 +4489,4 @@ def _classify_corporate_url_confidence(
 
 def _log_corporate_search_debug(message: str) -> None:
     if settings.company_search_debug:
-        print(f"[企業サイト検索] {message}")
+        logger.debug(f"[企業サイト検索] {message}")

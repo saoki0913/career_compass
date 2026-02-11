@@ -22,6 +22,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.utils.llm import call_llm_with_error, sanitize_prompt_input
+from app.utils.secure_logger import get_logger
+
+logger = get_logger(__name__)
 from app.prompts.gakuchika_prompts import (
     PROHIBITED_EXPRESSIONS as _PROHIBITED_EXPRESSIONS,
     STAR_EVALUATION_PROMPT,
@@ -505,7 +508,7 @@ async def get_next_question(request: NextQuestionRequest):
 
     if not llm_result.success:
         error = llm_result.error
-        print(f"[Gakuchika] LLM error: {error.detail if error else 'unknown'}")
+        logger.error(f"[Gakuchika] LLM error: {error.detail if error else 'unknown'}")
         raise HTTPException(
             status_code=503,
             detail={
@@ -572,7 +575,7 @@ async def get_next_question(request: NextQuestionRequest):
 
     # Validate question type diversity (consecutive same type check)
     if last_question_type and question_type == last_question_type:
-        print(f"[Gakuchika] Warning: Consecutive same question type '{question_type}' detected")
+        logger.warning(f"[Gakuchika] Consecutive same question type '{question_type}' detected")
         # Note: We allow it but log the warning. LLM should handle this based on prompt.
 
     return NextQuestionResponse(
@@ -975,7 +978,7 @@ async def generate_es_draft(request: GakuchikaESDraftRequest):
                     if last_period > len(draft_text) * 0.5:
                         draft_text = draft_text[: last_period + 1]
                 if len(draft_text) >= 100:
-                    print(f"[ガクチカES] ⚠️ raw_textフォールバック: {len(draft_text)}字のドラフトを抽出")
+                    logger.warning(f"[ガクチカES] raw_textフォールバック: {len(draft_text)}字のドラフトを抽出")
                     return GakuchikaESDraftResponse(
                         draft=draft_text,
                         char_count=len(draft_text),

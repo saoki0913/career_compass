@@ -15,7 +15,7 @@ Style options (SPEC Section 16.3):
 - Paid: above + 短く/熱意強め/結論先出し/具体例強め/端的 (8 types)
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, AsyncGenerator
@@ -24,6 +24,7 @@ import asyncio
 import math
 
 from app.config import settings
+from app.utils.secure_logger import get_logger
 from app.utils.llm import call_llm_with_error, call_llm_streaming, sanitize_es_content
 from app.utils.vector_store import (
     get_company_context_for_review,
@@ -33,6 +34,8 @@ from app.utils.vector_store import (
     get_company_rag_status,
     get_dynamic_context_length,
 )
+
+logger = get_logger(__name__)
 from app.utils.cache import get_es_review_cache, build_cache_key
 from app.utils.telemetry import (
     record_es_scores,
@@ -789,7 +792,7 @@ async def review_section_with_template(
 
     # Check if template requires company RAG but none available
     if template_def["requires_company_rag"] and not company_rag_available:
-        print(
+        logger.warning(
             f"[ES添削/テンプレート] ⚠️ テンプレート {template_type} は RAG 必須だが利用不可 - キーワードなしで続行"
         )
         # Set keyword_count to 0 if no RAG available
@@ -850,7 +853,7 @@ async def review_section_with_template(
                 f"\n\n【前回のエラー - 以下を修正してください】\n{retry_reason}"
             )
 
-        print(
+        logger.warning(
             f"[ES添削/テンプレート] テンプレート {template_type} 試行 {attempt + 1}/{max_retries}"
         )
 
@@ -1009,7 +1012,7 @@ async def review_section_with_template(
                         variant["text"] = repaired_text
                         variant["char_count"] = len(repaired_text)
                         repaired_any = True
-                        print(
+                        logger.warning(
                             f"[ES添削/テンプレート] パターン{idx+1}修復: "
                             f"{len(original_text)}字→{len(repaired_text)}字"
                         )
@@ -1116,7 +1119,7 @@ async def review_section_with_template(
                     strengthen_points=strengthen_points,
                 )
 
-                print(f"[ES添削/テンプレート] ✅ 試行 {attempt + 1} で成功")
+                logger.info(f"[ES添削/テンプレート] ✅ 試行 {attempt + 1} で成功")
                 return ReviewResponse(
                     scores=scores,
                     top3=top3,
@@ -1126,11 +1129,11 @@ async def review_section_with_template(
                 )
 
             except Exception as e:
-                print(f"[ES添削/テンプレート] ❌ 試行 {attempt + 1} 解析エラー: {e}")
+                logger.error(f"[ES添削/テンプレート] ❌ 試行 {attempt + 1} 解析エラー: {e}")
                 retry_reason = f"レスポンスの解析に失敗しました: {str(e)}"
                 continue
         else:
-            print(
+            logger.warning(
                 f"[ES添削/テンプレート] ⚠️ 試行 {attempt + 1} 検証失敗: {error_reason}"
             )
             # Track for potential conditional retry
@@ -1161,7 +1164,7 @@ async def review_section_with_template(
         )
 
         if should_retry:
-            print(
+            logger.warning(
                 f"[ES添削/テンプレート] 🔄 条件付きリトライ: {len(failing_indices)}/{rewrite_count} パターンのみ修正"
             )
 
@@ -1194,7 +1197,7 @@ async def review_section_with_template(
                 )
 
                 if is_valid:
-                    print("[ES添削/テンプレート] ✅ 条件付きリトライ成功")
+                    logger.info("[ES添削/テンプレート] ✅ 条件付きリトライ成功")
 
                     # Build and return successful response
                     scores_data = data.get("scores", {}) if data else {}
@@ -1280,7 +1283,7 @@ async def review_section_with_template(
                         template_review=template_review,
                     )
                 else:
-                    print(
+                    logger.warning(
                         f"[ES添削/テンプレート] ⚠️ 条件付きリトライも失敗: {repair_error}"
                     )
 
@@ -1303,7 +1306,7 @@ async def review_section_with_template(
     last_template_review_data, fallback_warnings = apply_deterministic_fallback(
         last_template_review_data, char_min, char_max, rewrite_count
     )
-    print(
+    logger.warning(
         f"[ES添削/テンプレート] 🔧 決定論的フォールバック適用: {'; '.join(fallback_warnings) or 'char_count修正のみ'}"
     )
 
@@ -1383,7 +1386,7 @@ async def review_section_with_template(
 
         rewrites = [v.get("text", "") for v in variants_data]
 
-        print("[ES添削/テンプレート] ✅ フォールバックで結果を返却")
+        logger.info("[ES添削/テンプレート] ✅ フォールバックで結果を返却")
         return ReviewResponse(
             scores=scores,
             top3=top3,
@@ -1393,7 +1396,7 @@ async def review_section_with_template(
         )
 
     except Exception as e:
-        print(f"[ES添削/テンプレート] ❌ フォールバック構築失敗: {e}")
+        logger.error(f"[ES添削/テンプレート] ❌ フォールバック構築失敗: {e}")
         raise HTTPException(
             status_code=422,
             detail={
@@ -1559,7 +1562,7 @@ async def review_section(
         )
 
     except Exception as e:
-        print(f"[ES添削/セクション] ❌ LLM応答解析失敗: {e}")
+        logger.error(f"[ES添削/セクション] ❌ LLM応答解析失敗: {e}")
         record_parse_failure("es_review_section", str(e))
         raise HTTPException(
             status_code=503,
@@ -1652,8 +1655,8 @@ async def review_es(request: ReviewRequest):
         # Validate context before logging success (Bug #7 fix)
         min_context_length = max(0, settings.rag_min_context_chars)
         if company_context and len(company_context) >= min_context_length:
-            print(f"[ES添削] ✅ RAGコンテキスト取得完了 ({len(company_context)}文字)")
-            print(
+            logger.info(f"[ES添削] ✅ RAGコンテキスト取得完了 ({len(company_context)}文字)")
+            logger.warning(
                 f"[ES添削] RAG状況: 全{rag_status.get('total_chunks', 0)}チャンク "
                 f"(新卒: {rag_status.get('new_grad_recruitment_chunks', 0)}, "
                 f"中途: {rag_status.get('midcareer_recruitment_chunks', 0)}, "
@@ -1667,7 +1670,7 @@ async def review_es(request: ReviewRequest):
             )
         else:
             context_len = len(company_context) if company_context else 0
-            print(
+            logger.warning(
                 f"[ES添削] ⚠️ RAGコンテキスト不足 ({context_len}文字 < {min_context_length}文字の閾値)"
             )
             company_context = ""
@@ -1683,14 +1686,14 @@ async def review_es(request: ReviewRequest):
 
     # Branch based on review_mode
     if request.review_mode == "section":
-        print(
+        logger.warning(
             f"[ES添削/セクション] 設問「{request.section_title or '(無題)'}」を添削中 "
             f"({len(request.content)}文字)"
         )
 
         # Check if template-based review is requested
         if request.template_request:
-            print(
+            logger.warning(
                 f"[ES添削/テンプレート] テンプレート添削開始: {request.template_request.template_type}"
             )
 
@@ -1705,7 +1708,7 @@ async def review_es(request: ReviewRequest):
                         max_context_length=context_length,
                     )
                 )
-                print(
+                logger.warning(
                     f"[ES添削/テンプレート] ✅ RAGコンテキスト取得完了 ({len(rag_sources)}ソース)"
                 )
                 if len(rag_context) < 200 or not rag_sources:
@@ -1741,7 +1744,7 @@ async def review_es(request: ReviewRequest):
         return result
 
     # Full ES review mode (default)
-    print(f"[ES添削] ES全体を添削中 ({len(request.content)}文字)")
+    logger.info(f"[ES添削] ES全体を添削中 ({len(request.content)}文字)")
 
     # Build scoring criteria based on RAG availability
     score_criteria = """1. scores (各1-5点):
@@ -1941,7 +1944,7 @@ async def review_es(request: ReviewRequest):
         return result
 
     except Exception as e:
-        print(f"[ES添削] ❌ LLM応答解析失敗: {e}")
+        logger.error(f"[ES添削] ❌ LLM応答解析失敗: {e}")
         record_parse_failure("es_review_full", str(e))
         raise HTTPException(
             status_code=503,
@@ -2440,7 +2443,7 @@ async def _generate_review_progress(
         yield _sse_event("complete", {"result": result})
 
     except Exception as e:
-        print(f"[ES添削/SSE] ❌ エラー: {e}")
+        logger.error(f"[ES添削/SSE] ❌ エラー: {e}")
         yield _sse_event("error", {"message": str(e)})
 
 
