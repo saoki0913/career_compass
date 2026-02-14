@@ -1031,7 +1031,8 @@
     ],
     "MS&ADシステムズ": {
       "domains": [
-        "msad-systems"
+        "msad-systems",
+        "ms-ad-systems"
       ],
       "parent": "MS&ADインシュアランスグループホールディングス"
     },
@@ -2614,7 +2615,8 @@
     },
     "浜松パイプ": {
       "domains": [
-        "hamamatsu-pipe"
+        "hamamatsu-pipe",
+        "snic"
       ],
       "parent": "スズキ"
     },
@@ -3512,7 +3514,8 @@
     },
     "パナソニックライフソリューションズ": {
       "domains": [
-        "panasonic-ls"
+        "panasonic-ls",
+        "panasonic"
       ],
       "parent": "パナソニック"
     },
@@ -3538,7 +3541,8 @@
     "_subsection_05u": "--- キヤノングループ子会社 ---",
     "キヤノンマーケティングジャパン": {
       "domains": [
-        "canon-mj"
+        "canon-mj",
+        "canon"
       ],
       "parent": "キヤノン"
     },
@@ -5644,7 +5648,8 @@
     },
     "JR東日本ビルテック": {
       "domains": [
-        "jre-bt"
+        "jre-bt",
+        "jrefm"
       ],
       "parent": "JR東日本"
     },
@@ -6380,7 +6385,9 @@
       "parent": "凸版印刷"
     },
     "図書印刷": [
-      "tosho-printing"
+      "tosho-printing",
+      "tosho",
+      "toppan-colorer"
     ],
     "日経印刷": [
       "nikkei-printing"
