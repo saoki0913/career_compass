@@ -753,6 +753,46 @@ def _build_review_cache_key(
     return build_cache_key(*parts)
 
 
+def _evaluate_template_rag_availability(
+    rag_context: str, rag_sources: list[dict], min_context_length: int
+) -> tuple[bool, str]:
+    """
+    Evaluate template RAG availability.
+
+    Returns:
+        tuple[available, reason]
+        reason: "ok" | "context_short" | "sources_missing_but_continue"
+    """
+    context_len = len(rag_context) if rag_context else 0
+    if context_len < max(0, min_context_length):
+        return False, "context_short"
+    if not rag_sources:
+        return True, "sources_missing_but_continue"
+    return True, "ok"
+
+
+def _resolve_template_keyword_count(
+    template_type: str,
+    requires_company_rag: bool,
+    default_keyword_count: int,
+    company_rag_available: bool,
+    rag_sources: list[dict],
+) -> tuple[int, Optional[str]]:
+    """
+    Resolve effective keyword_count for template review.
+
+    Returns:
+        tuple[keyword_count, fallback_reason]
+        fallback_reason: None | "rag_unavailable" | "sources_missing"
+    """
+    _ = template_type
+    if requires_company_rag and not company_rag_available:
+        return 0, "rag_unavailable"
+    if company_rag_available and default_keyword_count > 0 and not rag_sources:
+        return 0, "sources_missing"
+    return default_keyword_count, None
+
+
 async def review_section_with_template(
     request: ReviewRequest,
     rag_context: str,
@@ -784,19 +824,27 @@ async def review_section_with_template(
         )
 
     template_def = TEMPLATE_DEFS[template_type]
-    keyword_count = template_def["keyword_count"]
+    keyword_count, keyword_fallback_reason = _resolve_template_keyword_count(
+        template_type=template_type,
+        requires_company_rag=template_def["requires_company_rag"],
+        default_keyword_count=template_def["keyword_count"],
+        company_rag_available=company_rag_available,
+        rag_sources=rag_sources,
+    )
 
     # Character limits
     char_min = template_request.char_min
     char_max = template_request.char_max
 
     # Check if template requires company RAG but none available
-    if template_def["requires_company_rag"] and not company_rag_available:
+    if keyword_fallback_reason == "rag_unavailable":
         logger.warning(
             f"[ES添削/テンプレート] ⚠️ テンプレート {template_type} は RAG 必須だが利用不可 - キーワードなしで続行"
         )
-        # Set keyword_count to 0 if no RAG available
-        keyword_count = 0
+    elif keyword_fallback_reason == "sources_missing":
+        logger.warning(
+            f"[ES添削/テンプレート] ⚠️ テンプレート {template_type} は RAG本文ありだが出典不足 - キーワード抽出なしで続行"
+        )
 
     # Determine rewrite_count for template review
     rewrite_count = min(
@@ -1711,10 +1759,26 @@ async def review_es(request: ReviewRequest):
                 logger.warning(
                     f"[ES添削/テンプレート] ✅ RAGコンテキスト取得完了 ({len(rag_sources)}ソース)"
                 )
-                if len(rag_context) < 200 or not rag_sources:
+                min_context_length = max(0, settings.rag_min_context_chars)
+                is_rag_available, rag_reason = _evaluate_template_rag_availability(
+                    rag_context=rag_context,
+                    rag_sources=rag_sources,
+                    min_context_length=min_context_length,
+                )
+                logger.warning(
+                    f"[ES添削/テンプレート] RAG判定: context_len={len(rag_context)} "
+                    f"source_count={len(rag_sources)} min_context={min_context_length} "
+                    f"result={rag_reason}"
+                )
+                if not is_rag_available:
                     rag_context = ""
                     rag_sources = []
                     company_rag_available = False
+                elif not rag_sources:
+                    logger.warning(
+                        "[ES添削/テンプレート] ⚠️ RAG本文は利用可だが出典情報不足 - "
+                        "企業接続評価は継続しキーワード抽出はフォールバック"
+                    )
                 record_rag_context(
                     company_id=request.company_id,
                     context_length=len(rag_context),
@@ -2080,10 +2144,25 @@ async def _generate_review_progress(
                             max_context_length=context_length,
                         )
                     )
-                    if len(rag_context) < min_context_length or not rag_sources:
+                    is_rag_available, rag_reason = _evaluate_template_rag_availability(
+                        rag_context=rag_context,
+                        rag_sources=rag_sources,
+                        min_context_length=min_context_length,
+                    )
+                    logger.warning(
+                        f"[ES添削/SSE/テンプレート] RAG判定: context_len={len(rag_context)} "
+                        f"source_count={len(rag_sources)} min_context={min_context_length} "
+                        f"result={rag_reason}"
+                    )
+                    if not is_rag_available:
                         rag_context = ""
                         rag_sources = []
                         company_rag_available = False
+                    elif not rag_sources:
+                        logger.warning(
+                            "[ES添削/SSE/テンプレート] ⚠️ RAG本文は利用可だが出典情報不足 - "
+                            "企業接続評価は継続しキーワード抽出はフォールバック"
+                        )
                 else:
                     company_context = await get_enhanced_context_for_review(
                         company_id=request.company_id,
