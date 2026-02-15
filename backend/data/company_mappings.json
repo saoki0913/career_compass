@@ -3102,7 +3102,8 @@
     },
     "TDKマニュファクチャリングサービス": {
       "domains": [
-        "tdk-ms"
+        "tdk-ms",
+        "tdk"
       ],
       "parent": "TDK"
     },
@@ -3621,7 +3622,9 @@
     },
     "東芝デバイス&ストレージ": {
       "domains": [
-        "toshiba-device"
+        "toshiba-device",
+        "semicon-storage",
+        "toshiba"
       ],
       "parent": "東芝"
     },
@@ -5592,7 +5595,8 @@
       "en-japan"
     ],
     "ビズリーチ": [
-      "bizreach"
+      "bizreach",
+      "visional"
     ],
     "マイナビ": [
       "mynavi"
