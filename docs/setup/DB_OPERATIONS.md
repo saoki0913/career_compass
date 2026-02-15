@@ -1,6 +1,6 @@
 # データベース運用ガイド
 
-Career Compass（就活Pass）のローカル開発環境と本番環境におけるデータベース運用方法をまとめます。
+就活Compass（シューパス）のローカル開発環境と本番環境におけるデータベース運用方法をまとめます。
 
 ---
 
@@ -329,7 +329,71 @@ psql "$DIRECT_URL"
 
 ---
 
-## 7. よくあるエラーと対処
+## 7. RLS（Row Level Security）
+
+### 7.1 概要
+
+全テーブルに RLS（行レベルセキュリティ）が有効化されています。
+
+- **方式**: Defense-in-Depth（全テーブル ENABLE RLS、ポリシーなし = DENY-ALL）
+- **アプリへの影響**: なし（`postgres` superuser は RLS をバイパス）
+- **保護対象**: Supabase REST API（`anon`/`authenticated` キー）からの直接アクセス
+
+### 7.2 RLS の確認方法
+
+```sql
+-- 全テーブルの RLS 状態確認
+SELECT tablename, rowsecurity
+FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename;
+```
+
+Supabase Dashboard → Table Editor で各テーブルに「RLS enabled」バッジが表示されていれば正常。
+
+### 7.3 新しいテーブルを追加する場合
+
+`schema.ts` にテーブルを追加した際は、Supabase マイグレーションで RLS も有効化すること:
+
+```bash
+supabase migration new enable_rls_<table_name>
+```
+
+生成されたファイルに以下を記述:
+```sql
+ALTER TABLE <table_name> ENABLE ROW LEVEL SECURITY;
+```
+
+適用:
+```bash
+# ローカル
+supabase db reset
+
+# 本番
+supabase db push
+```
+
+### 7.4 マイグレーション管理
+
+RLS マイグレーションは Drizzle（`drizzle_pg/`）ではなく **Supabase CLI（`supabase/migrations/`）** で管理。
+
+| ディレクトリ | 管理対象 |
+|-------------|---------|
+| `drizzle_pg/` | スキーマ定義（テーブル、カラム、インデックス） |
+| `supabase/migrations/` | RLS ポリシー、PostgreSQL 固有の設定 |
+
+### 7.5 トラブルシューティング
+
+**Q: Dashboard でテーブルデータが見えなくなった**
+A: Dashboard は `postgres` ロールで接続するため RLS をバイパスします。見えなくなった場合は他の原因を調査してください。
+
+**Q: 新しいテーブルに RLS が適用されていない**
+A: `supabase/migrations/` に `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` を追加し、`supabase db push` で適用。
+
+**Q: 将来 Supabase JS クライアントを使う場合**
+A: テーブルごとに適切な USING ポリシーを作成する必要があります。現在の DENY-ALL 方式ではクライアントからのアクセスは全てブロックされます。
+
+---
+
+## 8. よくあるエラーと対処
 
 ### Circuit breaker open
 
