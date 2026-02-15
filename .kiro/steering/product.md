@@ -1,4 +1,4 @@
-# Product Context - 就活Pass (Career Compass)
+# Product Context - 就活Compass (シューパス)
 
 ## Overview
 就活支援アプリ「就活Pass」- 就活塾に行かない不安層に対して、AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」ことを実現する。

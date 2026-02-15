@@ -3,7 +3,7 @@ import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "利用規約 | 就活Pass",
-  description: "就活支援アプリ「就活Pass（Career Compass）」の利用規約です。",
+  description: "就活支援アプリ「就活Compass（シューパス）」の利用規約です。",
 };
 
 export default function TermsPage() {
@@ -27,7 +27,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-base font-semibold mb-2">1. 適用</h2>
             <p>
-              本規約は、就活支援アプリ「就活Pass（Career Compass）」（以下「本サービス」）の利用条件を定めるものです。ユーザーは本規約に同意の上、本サービスを利用します。
+              本規約は、就活支援アプリ「就活Compass（シューパス）」（以下「本サービス」）の利用条件を定めるものです。ユーザーは本規約に同意の上、本サービスを利用します。
             </p>
           </section>
 

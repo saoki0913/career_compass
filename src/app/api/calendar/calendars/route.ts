@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const name = body.name || "Career Compass";
+    const name = body.name || "就活Compass";
 
     // Create the calendar in Google
     const newCalendar = await createCalendar(accessToken, name);

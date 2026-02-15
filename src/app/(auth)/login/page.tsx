@@ -54,14 +54,14 @@ function LoginFallback() {
           />
           <Image
             src="/icon.png"
-            alt="Career Compass"
+            alt="就活Compass"
             width={56}
             height={56}
             className="relative rounded-xl shadow-lg"
           />
         </div>
         <span className="text-3xl font-extrabold text-foreground tracking-tight">
-          Career Compass
+          就活Compass
         </span>
       </div>
 
@@ -112,14 +112,14 @@ function LoginPageContent() {
           <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full scale-150" aria-hidden="true" />
           <Image
             src="/icon.png"
-            alt="Career Compass"
+            alt="就活Compass"
             width={56}
             height={56}
             className="relative rounded-xl shadow-lg"
           />
         </div>
         <span className="text-3xl font-extrabold text-foreground tracking-tight">
-          Career Compass
+          就活Compass
         </span>
       </motion.div>
 

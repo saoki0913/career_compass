@@ -71,7 +71,7 @@ export default function CalendarSettingsPage() {
   const [calendars, setCalendars] = useState<GoogleCalendar[]>([]);
   const [calendarsLoading, setCalendarsLoading] = useState(false);
   const [calendarMode, setCalendarMode] = useState<"existing" | "create">("existing");
-  const [newCalendarName, setNewCalendarName] = useState("Career Compass");
+  const [newCalendarName, setNewCalendarName] = useState("就活Compass");
   const [isCreating, setIsCreating] = useState(false);
 
   // Fetch calendar list when connected
@@ -254,7 +254,7 @@ export default function CalendarSettingsPage() {
                       </svg>
                     </div>
                     <div className="flex-1">
-                      <p className="font-medium">Career Compassカレンダー</p>
+                      <p className="font-medium">就活Compassカレンダー</p>
                       <p className="text-sm text-muted-foreground">アプリ内でのみ管理</p>
                     </div>
                     {settings.provider === "app" && (
@@ -412,8 +412,8 @@ export default function CalendarSettingsPage() {
             {/* Note */}
             <div className="p-4 rounded-lg bg-muted/50">
               <p className="text-sm text-muted-foreground">
-                Career Compassで作成した予定には「[Career Compass]」が付きます。
-                Googleカレンダーから直接編集・削除するとCareer Compassには反映されません。
+                就活Compassで作成した予定には「[就活Compass]」が付きます。
+                Googleカレンダーから直接編集・削除すると就活Compassには反映されません。
               </p>
             </div>
           </div>

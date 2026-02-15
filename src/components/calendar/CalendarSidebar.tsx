@@ -168,7 +168,7 @@ export function CalendarSidebar({
       const startDateTime = googleEvent.start.dateTime || googleEvent.start.date;
       if (!startDateTime) return;
       const normalizedTitle = googleEvent.summary
-        .replace("[Career Compass] ", "")
+        .replace("[就活Compass] ", "")
         .toLowerCase()
         .trim();
       const startMinute = Math.floor(new Date(startDateTime).getTime() / 60000);

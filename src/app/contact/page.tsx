@@ -4,7 +4,7 @@ import { ContactForm } from "@/components/marketing/ContactForm";
 
 export const metadata: Metadata = {
   title: "お問い合わせ | 就活Pass",
-  description: "就活Pass（Career Compass）へのお問い合わせ窓口です。",
+  description: "就活Compass（シューパス）へのお問い合わせ窓口です。",
 };
 
 export default function ContactPage() {

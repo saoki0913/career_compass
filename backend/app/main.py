@@ -25,8 +25,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 app = FastAPI(
-    title="Career Compass API",
-    description="Backend API for Career Compass",
+    title="就活Compass API",
+    description="Backend API for 就活Compass",
     version="0.1.0",
 )
 
@@ -74,4 +74,4 @@ app.include_router(motivation.router)
 
 @app.get("/")
 async def root():
-    return {"message": "Career Compass API", "version": "0.1.0"}
+    return {"message": "就活Compass API", "version": "0.1.0"}

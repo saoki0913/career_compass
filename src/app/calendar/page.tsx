@@ -428,9 +428,9 @@ export default function CalendarPage() {
         const startDateTime = googleEvent.start.dateTime || googleEvent.start.date;
         if (!startDateTime) return;
         const dateKey = getLocalDateKey(startDateTime);
-        // Normalize title: remove "[Career Compass] " prefix and lowercase
+        // Normalize title: remove "[就活Compass] " prefix and lowercase
         const normalizedTitle = googleEvent.summary
-          .replace("[Career Compass] ", "")
+          .replace("[就活Compass] ", "")
           .toLowerCase()
           .trim();
         // Round to minute for time comparison

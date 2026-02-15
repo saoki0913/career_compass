@@ -1,1 +1,1 @@
-# Career Compass FastAPI Backend
+# 就活Compass FastAPI Backend

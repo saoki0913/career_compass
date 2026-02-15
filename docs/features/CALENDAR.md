@@ -58,7 +58,7 @@ useGoogleCalendar().fetchGoogleEvents(start, end)  ※Google連携時のみ
   ↓
 POST /api/calendar/events
   → アプリDB + Google Calendar（連携時は二重書き込み）
-  → タイトルに "[Career Compass] " プレフィックス付与（Google側）
+  → タイトルに "[就活Compass] " プレフィックス付与（Google側）
 ```
 
 ### 3.3 ワークブロック提案（AI）
@@ -83,7 +83,7 @@ Google Calendar連携時、アプリ登録のワークブロックとGoogle側�
 ```
 1. Google eventsからキーのSetを構築
    キー = "${dateKey}|${normalizedTitle}|${startMinute}"
-   ※ "[Career Compass] " プレフィックスを除去し小文字正規化
+   ※ "[就活Compass] " プレフィックスを除去し小文字正規化
 
 2. アプリイベント（work_blockのみ）をフィルタ
    → 同じキーがGoogle側に存在する場合はスキップ

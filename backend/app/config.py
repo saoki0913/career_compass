@@ -6,7 +6,7 @@ from pathlib import Path
 
 class Settings(BaseSettings):
     """
-    Career Compass API 設定
+    就活Compass API 設定
 
     全ての設定は環境変数から読み込まれます。
     環境変数が設定されていない場合はデフォルト値が使用されます。
@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     """
 
     # ===== アプリケーション =====
-    app_name: str = "Career Compass API"
+    app_name: str = "就活Compass API"
     debug: bool = False
     company_search_debug: bool = False
     web_search_debug: bool = Field(

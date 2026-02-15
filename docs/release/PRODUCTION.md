@@ -1,6 +1,6 @@
 # 本番リリース手順書（Vercel + Railway + Supabase）
 
-Career Compass (ウカルン) の本番デプロイ手順をステップバイステップで記載します。
+就活Compass (シューパス) の本番デプロイ手順をステップバイステップで記載します。
 
 **本番ドメイン**: `www.shupass.jp`（`shupass.jp` は `www` にリダイレクト）
 

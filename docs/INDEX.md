@@ -1,4 +1,4 @@
-# Career Compass (就活Pass) - ドキュメント
+# 就活Compass (シューパス) - ドキュメント
 
 就活支援アプリ「就活Pass」のドキュメント一覧
 

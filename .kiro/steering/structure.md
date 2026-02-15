@@ -1,4 +1,4 @@
-# Project Structure - 就活Pass (Career Compass)
+# Project Structure - 就活Compass (シューパス)
 
 ## Directory Layout
 

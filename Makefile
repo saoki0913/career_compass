@@ -545,7 +545,7 @@ deploy-migrate:
 
 ## 使用可能なコマンド一覧を表示
 help:
-	@echo "Career Compass (就活Pass) - Makefile コマンド一覧"
+	@echo "就活Compass (シューパス) - Makefile コマンド一覧"
 	@echo "  (本番: $(FRONTEND_URL))"
 	@echo ""
 	@echo "  📦 開発サーバー:"

@@ -116,10 +116,10 @@ export function DashboardHeader() {
             <Link href="/dashboard" className="flex items-center gap-2 group">
               <img
                 src="/icon.png"
-                alt="Career Compass"
-                className="w-8 h-8 rounded-lg shadow-sm group-hover:shadow-md transition-all duration-200"
+                alt="就活Compass"
+                className="w-10 h-10"
               />
-              <span className="font-bold text-lg tracking-tight">Career Compass</span>
+              <span className="font-bold text-lg tracking-tight">就活Compass</span>
             </Link>
             <nav className="hidden lg:flex items-center">
               <Link

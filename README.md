@@ -1,4 +1,4 @@
-# Career Compass（就活Pass）
+# 就活Compass（シューパス）
 
 就活支援アプリ「就活Pass」- AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」
 
