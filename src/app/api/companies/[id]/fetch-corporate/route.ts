@@ -398,9 +398,15 @@ export async function GET(
       // Ignore errors - return default status
     }
 
+    const VALID_CONTENT_TYPES = new Set([
+      "new_grad_recruitment", "midcareer_recruitment", "corporate_site",
+      "ir_materials", "ceo_message", "employee_interviews",
+      "press_release", "csr_sustainability", "midterm_plan",
+    ]);
+
     const corporateInfoUrls = parseCorporateInfoUrls(company.corporateInfoUrls);
     const backfilledUrls = corporateInfoUrls.map((entry) => {
-      if (entry.contentType) {
+      if (entry.contentType && VALID_CONTENT_TYPES.has(entry.contentType)) {
         return entry;
       }
       return {

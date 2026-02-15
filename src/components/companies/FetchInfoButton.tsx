@@ -535,33 +535,29 @@ export function FetchInfoButton({
 
   return (
     <>
-      <div className="space-y-1">
-        <button
-          onClick={() => setShowSelectionTypeModal(true)}
-          disabled={isSearching || isFetching || isLocked}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border transition-colors w-full",
-            isSearching || isFetching || isLocked
-              ? "text-muted-foreground cursor-wait bg-muted/30"
-              : "hover:bg-muted/50"
-          )}
-        >
-          {isSearching || isFetching ? (
-            <>
-              <LoadingSpinner />
-              <span className="text-sm">{isSearching ? "検索中..." : "取得中..."}</span>
-            </>
-          ) : (
-            <>
-              <SparklesIcon />
-              <span className="text-sm font-medium">AIで選考スケジュールを取得</span>
-            </>
-          )}
-        </button>
-        <p className="text-xs text-muted-foreground text-center">
-          1クレジット消費
-        </p>
-      </div>
+      <button
+        onClick={() => setShowSelectionTypeModal(true)}
+        disabled={isSearching || isFetching || isLocked}
+        title="1クレジット消費"
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border transition-colors text-sm font-medium",
+          isSearching || isFetching || isLocked
+            ? "text-muted-foreground cursor-wait bg-muted/30"
+            : "hover:bg-muted/50"
+        )}
+      >
+        {isSearching || isFetching ? (
+          <>
+            <LoadingSpinner />
+            <span>{isSearching ? "検索中..." : "取得中..."}</span>
+          </>
+        ) : (
+          <>
+            <SparklesIcon />
+            <span>AIで選考スケジュールを取得</span>
+          </>
+        )}
+      </button>
 
       {/* Selection Type Modal - Step 1: Choose selection type before search */}
       {showSelectionTypeModal && (

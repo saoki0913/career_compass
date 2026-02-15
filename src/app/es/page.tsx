@@ -90,24 +90,31 @@ interface NewDocumentModalProps {
   onClose: () => void;
   onCreate: (data: CreateDocumentInput) => Promise<void>;
   companies: Array<{ id: string; name: string }>;
+  initialCompanyId?: string;
 }
 
-function NewDocumentModal({ isOpen, onClose, onCreate, companies }: NewDocumentModalProps) {
+function NewDocumentModal({ isOpen, onClose, onCreate, companies, initialCompanyId }: NewDocumentModalProps) {
   const [title, setTitle] = useState("");
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [companyOpen, setCompanyOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset form when dialog opens/closes
+  // Reset form when dialog opens/closes, pre-fill if initialCompanyId is provided
   useEffect(() => {
     if (!isOpen) {
       setTitle("");
       setSelectedCompanyId("");
       setCompanyOpen(false);
       setError(null);
+    } else if (initialCompanyId) {
+      const company = companies.find((c) => c.id === initialCompanyId);
+      if (company) {
+        setSelectedCompanyId(initialCompanyId);
+        setTitle(`${company.name}ES`);
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, initialCompanyId, companies]);
 
   const selectedCompany = companies.find((c) => c.id === selectedCompanyId);
 
@@ -303,6 +310,7 @@ function ESListPageContent() {
   const [showNewModal, setShowNewModal] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const [initialCompanyId, setInitialCompanyId] = useState<string | undefined>();
   const [gakuchikaContext, setGakuchikaContext] = useState<{
     id: string;
     title: string;
@@ -313,7 +321,16 @@ function ESListPageContent() {
   useEffect(() => {
     if (searchParams.get("new") === "1") {
       setShowNewModal(true);
-      // Remove the query parameter from URL without page reload
+      router.replace("/es", { scroll: false });
+    }
+  }, [searchParams, router]);
+
+  // Auto-open new document modal with company pre-filled when ?companyId=xxx is in URL
+  useEffect(() => {
+    const companyId = searchParams.get("companyId");
+    if (companyId) {
+      setInitialCompanyId(companyId);
+      setShowNewModal(true);
       router.replace("/es", { scroll: false });
     }
   }, [searchParams, router]);
@@ -568,9 +585,10 @@ function ESListPageContent() {
         {/* New Document Modal */}
         <NewDocumentModal
           isOpen={showNewModal}
-          onClose={() => setShowNewModal(false)}
+          onClose={() => { setShowNewModal(false); setInitialCompanyId(undefined); }}
           onCreate={handleCreate}
           companies={companies}
+          initialCompanyId={initialCompanyId}
         />
       </main>
     </div>

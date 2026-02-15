@@ -1171,7 +1171,7 @@ export function CorporateInfoSection({
                       bg: "bg-gray-100",
                       text: "text-gray-700",
                     };
-                    const label = CONTENT_TYPE_LABELS[resolvedType] || resolvedType;
+                    const label = CONTENT_TYPE_LABELS[resolvedType] || CONTENT_TYPE_LABELS["corporate_site"];
                     const isSelected = selectedUrlsForDelete.has(urlInfo.url);
 
                     return (
@@ -1216,7 +1216,7 @@ export function CorporateInfoSection({
                               bg: "bg-gray-100",
                               text: "text-gray-700",
                             };
-                            const secLabel = CONTENT_TYPE_LABELS[secondary] || secondary;
+                            const secLabel = CONTENT_TYPE_LABELS[secondary] || CONTENT_TYPE_LABELS["corporate_site"];
                             return (
                               <span
                                 key={`${secondary}-${idx}`}
