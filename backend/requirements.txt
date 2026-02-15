@@ -16,8 +16,10 @@ chromadb>=0.4.22
 # NOTE: numpy<2 required for PyTorch 2.2.x compatibility
 numpy>=1.24.0,<2.0.0
 # Cross-encoder reranking
+# NOTE: transformers<4.50 required for PyTorch 2.2.x compatibility
+#   (4.50+ calls torch.is_autocast_enabled(device_type) which needs torch>=2.4)
 sentence-transformers>=3.0.0
-transformers>=4.48.0,<5.0.0
+transformers>=4.48.0,<4.50.0
 sentencepiece>=0.2.0
 # BM25 for hybrid search (keyword matching)
 bm25s>=0.1.0

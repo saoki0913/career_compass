@@ -222,14 +222,25 @@ def check_reranker_health() -> dict:
             return result
 
         # Quick sanity test with a known-good pair
+        # A matching query-document pair should score well above 0.5
         test_pairs = [("テスト用クエリ", "テスト用クエリに関する公式ページ")]
         scores = reranker.score_pairs(test_pairs)
-        result["available"] = True
-        result["test_score"] = scores[0] if scores else None
-        logger.info(
-            f"Reranker health check PASSED: model={reranker.model_name}, "
-            f"test_score={result['test_score']:.4f}"
-        )
+        test_score = scores[0] if scores else 0.0
+        result["test_score"] = test_score
+
+        if test_score < 0.5:
+            result["available"] = False
+            result["error"] = (
+                f"Scoring sanity check failed: test_score={test_score:.4f} "
+                f"(expected >0.5). Likely a torch/transformers version mismatch."
+            )
+            logger.error(f"Reranker health check FAILED: {result['error']}")
+        else:
+            result["available"] = True
+            logger.info(
+                f"Reranker health check PASSED: model={reranker.model_name}, "
+                f"test_score={test_score:.4f}"
+            )
     except Exception as e:
         result["error"] = str(e)
         logger.error(f"Reranker health check FAILED: {e}")

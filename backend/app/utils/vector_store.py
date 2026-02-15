@@ -517,7 +517,6 @@ async def store_full_text_content(
             ct = (
                 meta.get("content_type")
                 or content_type
-                or content_channel
                 or "corporate_site"
             )
             grouped.setdefault(ct, []).append(chunk)
