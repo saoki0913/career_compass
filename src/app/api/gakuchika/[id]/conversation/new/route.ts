@@ -70,6 +70,7 @@ interface STAREvaluation {
   weakest_element: string;
   is_complete: boolean;
   missing_aspects?: Record<string, string[]>;
+  quality_rationale?: string[];
 }
 
 interface GakuchikaData {
@@ -87,6 +88,7 @@ interface FastAPIQuestionResponse {
   suggested_end?: boolean;
   star_evaluation?: STAREvaluation;
   target_element?: string;
+  quality_rationale?: string[];
 }
 
 async function getQuestionFromFastAPI(
@@ -99,6 +101,7 @@ async function getQuestionFromFastAPI(
   error: string | null;
   starEvaluation: STAREvaluation | null;
   targetElement: string | null;
+  qualityRationale: string[] | null;
 }> {
   try {
     const fastApiResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/next-question`, {
@@ -121,6 +124,7 @@ async function getQuestionFromFastAPI(
         error: null,
         starEvaluation: result.star_evaluation || null,
         targetElement: result.target_element || null,
+        qualityRationale: result.quality_rationale || result.star_evaluation?.quality_rationale || null,
       };
     } else {
       console.error("FastAPI error status:", fastApiResponse.status);
@@ -129,6 +133,7 @@ async function getQuestionFromFastAPI(
         error: "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。",
         starEvaluation: null,
         targetElement: null,
+        qualityRationale: null,
       };
     }
   } catch (err) {
@@ -138,6 +143,7 @@ async function getQuestionFromFastAPI(
       error: "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。",
       starEvaluation: null,
       targetElement: null,
+      qualityRationale: null,
     };
   }
 }
@@ -195,7 +201,12 @@ export async function POST(
     }
 
     // Get AI-powered initial question
-    const { question: initialQuestion, error, starEvaluation } = await getQuestionFromFastAPI(
+    const {
+      question: initialQuestion,
+      error,
+      starEvaluation,
+      qualityRationale,
+    } = await getQuestionFromFastAPI(
       {
         title: gakuchika.title,
         content: gakuchika.content,
@@ -264,6 +275,7 @@ export async function POST(
       isCompleted: false,
       starScores: initialStarScores,
       starEvaluation,
+      qualityRationale,
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,

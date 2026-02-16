@@ -59,6 +59,7 @@ interface STAREvaluation {
   weakest_element: string;
   is_complete: boolean;
   missing_aspects?: Record<string, string[]>;
+  quality_rationale?: string[];
 }
 
 function safeParseMessages(json: string): Message[] {
@@ -360,6 +361,7 @@ export async function POST(
                 let newStarScores = currentStarScores || { situation: 0, task: 0, action: 0, result: 0 };
                 let starEvaluation: STAREvaluation | null = null;
                 let targetElement: string | null = null;
+                let qualityRationale: string[] | null = null;
 
                 if (fastApiData.question) {
                   const aiMessage: Message = {
@@ -375,6 +377,11 @@ export async function POST(
                   newStarScores = fastApiData.star_evaluation.scores;
                   targetElement = fastApiData.star_evaluation.weakest_element || null;
                 }
+
+                qualityRationale =
+                  fastApiData.quality_rationale ||
+                  fastApiData.star_evaluation?.quality_rationale ||
+                  null;
 
                 // Check completion
                 const starComplete = isStarComplete(newStarScores);
@@ -481,6 +488,7 @@ export async function POST(
                     starScores: newStarScores,
                     starEvaluation,
                     targetElement,
+                    qualityRationale,
                     isAIPowered: true,
                     ...(structuredSummary && { summary: structuredSummary }),
                   },

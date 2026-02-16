@@ -129,6 +129,7 @@ function GakuchikaConversationContent() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [streamingLabel, setStreamingLabel] = useState<string | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [qualityRationale, setQualityRationale] = useState<string[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -172,6 +173,7 @@ function GakuchikaConversationContent() {
         setGakuchikaTitle(conversationData.gakuchikaTitle || "");
         setGakuchikaContent(conversationData.gakuchikaContent || null);
         setSessions([]);
+        setQualityRationale([]);
       } else {
         // Existing conversation - show chat UI
         setConversationStarted(true);
@@ -190,6 +192,9 @@ function GakuchikaConversationContent() {
 
         setSessions(conversationData.sessions || []);
         setCurrentSessionId(conversationData.conversation?.id || null);
+        if ("qualityRationale" in conversationData) {
+          setQualityRationale(Array.isArray(conversationData.qualityRationale) ? conversationData.qualityRationale : []);
+        }
 
         if (conversationData.starEvaluation?.weakest_element) {
           setTargetElement(conversationData.starEvaluation.weakest_element);
@@ -238,6 +243,7 @@ function GakuchikaConversationContent() {
 
       const data = await response.json();
       setCurrentSessionId(data.conversation?.id || null);
+      setQualityRationale(Array.isArray(data.qualityRationale) ? data.qualityRationale : []);
       setConversationStarted(true);
 
       // Fetch the full conversation data
@@ -336,6 +342,7 @@ function GakuchikaConversationContent() {
             if (data.targetElement) {
               setTargetElement(data.targetElement);
             }
+            setQualityRationale(Array.isArray(data.qualityRationale) ? data.qualityRationale : []);
 
             // Check if scores changed and show score change notification
             const newScores = data.starScores || null;
@@ -404,6 +411,7 @@ function GakuchikaConversationContent() {
   // Handle session selection
   const handleSessionSelect = async (sessionId: string) => {
     setCurrentSessionId(sessionId);
+    setQualityRationale([]);
     setIsLoading(true);
     await fetchConversation(sessionId);
   };
@@ -422,8 +430,9 @@ function GakuchikaConversationContent() {
       }
 
       const data = await response.json();
-      setCurrentSessionId(data.sessionId);
-      await fetchConversation(data.sessionId);
+      setCurrentSessionId(data.conversation?.id || null);
+      setQualityRationale(Array.isArray(data.qualityRationale) ? data.qualityRationale : []);
+      await fetchConversation(data.conversation?.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "新しいセッションの作成に失敗しました");
     }
@@ -712,6 +721,20 @@ function GakuchikaConversationContent() {
                   <span>{STAR_HINT_ICONS[targetElement]}</span>
                   <span>この質問は <strong className="font-medium text-foreground/80">{STAR_HINT_LABELS[targetElement]}</strong> に関するものです</span>
                 </span>
+              </div>
+            )}
+            {qualityRationale.length > 0 && (
+              <div className="px-4 pb-1">
+                <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
+                  <p className="text-[11px] font-medium text-foreground/80">この質問の狙い</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {qualityRationale.slice(0, 2).map((reason, idx) => (
+                      <li key={`${reason}-${idx}`} className="text-[11px] text-muted-foreground leading-relaxed">
+                        ・{reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
             )}
 

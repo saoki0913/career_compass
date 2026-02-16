@@ -109,6 +109,8 @@ class NextQuestionResponse(BaseModel):
     question_type: Optional[str] = None
     # Suggested answer options for the user
     suggestions: list[str] = []
+    # Why this question/evaluation quality was judged this way
+    quality_rationale: list[str] = []
 
 
 class StructuredSummaryRequest(BaseModel):
@@ -367,6 +369,7 @@ async def evaluate_star(request: NextQuestionRequest) -> dict:
                 "action": [],
                 "result": [],
             },
+            "quality_rationale": [],
         }
 
     data = llm_result.data
@@ -383,6 +386,7 @@ async def evaluate_star(request: NextQuestionRequest) -> dict:
         "weakest_element": _get_weakest_element(scores),
         "is_complete": _is_star_complete(scores),
         "missing_aspects": data.get("missing_aspects", {}),
+        "quality_rationale": data.get("quality_rationale", []),
     }
 
 
@@ -446,11 +450,17 @@ async def get_next_question(request: NextQuestionRequest):
                 question_type = data.get("question_type", QUESTION_TYPE_SCENE)
                 reasoning = data.get("reasoning", "会話開始時の導入質問")
                 initial_suggestions = data.get("suggestions", [])
+                quality_rationale = data.get("quality_rationale", [])
+            else:
+                quality_rationale = []
+        else:
+            quality_rationale = []
 
         # Fallback to template if LLM failed or no content
         if not initial_question:
             initial_question = random.choice(template_questions)
             initial_suggestions = []
+            quality_rationale = []
 
         return NextQuestionResponse(
             question=initial_question,
@@ -465,6 +475,7 @@ async def get_next_question(request: NextQuestionRequest):
             target_element="situation",
             question_type=question_type,
             suggestions=initial_suggestions,
+            quality_rationale=quality_rationale,
         )
 
     # Determine conversation phase
@@ -550,6 +561,7 @@ async def get_next_question(request: NextQuestionRequest):
         "weakest_element": _get_weakest_element(scores),
         "is_complete": _is_star_complete(scores),
         "missing_aspects": data.get("missing_aspects", {}),
+        "quality_rationale": data.get("quality_rationale", []),
     }
 
     # Extract question
@@ -572,6 +584,7 @@ async def get_next_question(request: NextQuestionRequest):
     should_continue = data.get("should_continue", True)
     suggested_end = data.get("suggested_end", False)
     suggestions = data.get("suggestions", [])
+    quality_rationale = data.get("quality_rationale", [])
 
     # Validate question type diversity (consecutive same type check)
     if last_question_type and question_type == last_question_type:
@@ -587,6 +600,7 @@ async def get_next_question(request: NextQuestionRequest):
         target_element=target_element,
         question_type=question_type,
         suggestions=suggestions,
+        quality_rationale=quality_rationale,
     )
 
 
@@ -644,10 +658,16 @@ async def _generate_next_question_progress(
                     question_type = data.get("question_type", QUESTION_TYPE_SCENE)
                     reasoning = data.get("reasoning", "会話開始時の導入質問")
                     initial_suggestions = data.get("suggestions", [])
+                    quality_rationale = data.get("quality_rationale", [])
+                else:
+                    quality_rationale = []
+            else:
+                quality_rationale = []
 
             if not initial_question:
                 initial_question = random.choice(template_questions)
                 initial_suggestions = []
+                quality_rationale = []
 
             yield _sse_event("complete", {
                 "data": {
@@ -663,6 +683,7 @@ async def _generate_next_question_progress(
                     "target_element": "situation",
                     "question_type": question_type,
                     "suggestions": initial_suggestions,
+                    "quality_rationale": quality_rationale,
                 },
             })
             return
@@ -739,6 +760,7 @@ async def _generate_next_question_progress(
             "weakest_element": _get_weakest_element(scores),
             "is_complete": _is_star_complete(scores),
             "missing_aspects": data.get("missing_aspects", {}),
+            "quality_rationale": data.get("quality_rationale", []),
         }
 
         question = data.get("question")
@@ -758,6 +780,7 @@ async def _generate_next_question_progress(
                 "target_element": data.get("target_element", _get_weakest_element(scores)),
                 "question_type": data.get("question_type", QUESTION_TYPE_SCENE),
                 "suggestions": data.get("suggestions", []),
+                "quality_rationale": data.get("quality_rationale", []),
             },
         })
 
