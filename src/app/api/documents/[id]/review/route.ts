@@ -80,6 +80,7 @@ interface ReviewResult {
     category: string;
     issue: string;
     suggestion: string;
+    why_now?: string;
     difficulty?: "easy" | "medium" | "hard";
   }>;
   rewrites: string[];        // Multiple rewrites based on plan
@@ -502,18 +503,21 @@ function generateMockReview(
       category: "具体性",
       issue: "具体的なエピソードが不足しています",
       suggestion: "数値や具体的な結果を追加してみましょう",
+      why_now: "数値根拠を先に補強すると、他の指摘の改善効果も大きくなるためです。",
       difficulty: "easy",
     },
     {
       category: "論理",
       issue: "因果関係が曖昧な部分があります",
       suggestion: "「なぜそう考えたか」を明確にしましょう",
+      why_now: "論理のつながりが弱いと、強みが伝わる前に説得力が落ちるためです。",
       difficulty: "medium",
     },
     {
       category: "熱意",
       issue: "志望度の高さが伝わりにくい表現になっています",
       suggestion: "その企業・職種でなければならない理由を具体的に述べましょう",
+      why_now: "熱意の根拠は選考の初期段階で差がつきやすく、早めの補強が有効なためです。",
       difficulty: "medium",
     },
   ];
@@ -524,6 +528,7 @@ function generateMockReview(
       category: "企業接続",
       issue: "企業の事業内容や求める人材像との接点が薄いです",
       suggestion: "企業の具体的な事業や価値観に触れながら、自分との接点を示しましょう",
+      why_now: "企業接続が弱いと志望理由の一貫性が崩れ、通過率に直結するためです。",
       difficulty: "hard",
     };
   }

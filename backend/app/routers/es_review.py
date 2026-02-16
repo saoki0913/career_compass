@@ -150,6 +150,7 @@ class Issue(BaseModel):
     category: str  # 評価カテゴリ
     issue: str  # 問題点の説明
     suggestion: str  # 改善提案
+    why_now: Optional[str] = None  # 今この改善を優先すべき理由
     difficulty: Optional[str] = None  # easy | medium | hard
 
 
@@ -544,11 +545,12 @@ def build_es_review_schema(
     issue_schema = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["category", "issue", "suggestion", "difficulty"],
+        "required": ["category", "issue", "suggestion", "why_now", "difficulty"],
         "properties": {
             "category": {"type": "string"},
             "issue": {"type": "string"},
             "suggestion": {"type": "string"},
+            "why_now": {"type": "string"},
             "difficulty": {"type": "string", "enum": ["easy", "medium", "hard"]},
         },
     }
@@ -708,6 +710,7 @@ def _parse_issues(items: list[dict], max_items: int) -> list[Issue]:
                 category=item.get("category", "その他"),
                 issue=item.get("issue", ""),
                 suggestion=item.get("suggestion", ""),
+                why_now=item.get("why_now", ""),
                 difficulty=_normalize_difficulty(item.get("difficulty")) or "medium",
             )
         )
@@ -1099,6 +1102,7 @@ async def review_section_with_template(
                             category="その他",
                             issue="改善点を特定できませんでした",
                             suggestion="全体的な見直しを行ってみてください",
+                            why_now="優先改善点が不明なため、全体の論旨を先に整えると品質が安定するため",
                             difficulty="medium",
                         )
                     ]
@@ -1269,6 +1273,7 @@ async def review_section_with_template(
                                 category="その他",
                                 issue="改善点を特定できませんでした",
                                 suggestion="全体的な見直しを行ってみてください",
+                                why_now="優先改善点が不明なため、全体の論旨を先に整えると品質が安定するため",
                                 difficulty="medium",
                             )
                         ]
@@ -1380,6 +1385,7 @@ async def review_section_with_template(
                     category="その他",
                     issue="改善点を特定できませんでした",
                     suggestion="全体的な見直しを行ってみてください",
+                    why_now="優先改善点が不明なため、全体の論旨を先に整えると品質が安定するため",
                     difficulty="medium",
                 )
             ]
@@ -1592,6 +1598,7 @@ async def review_section(
                     category="その他",
                     issue="改善点を特定できませんでした",
                     suggestion="全体的な見直しを行ってみてください",
+                    why_now="優先改善点が不明なため、全体の論旨を先に整えると品質が安定するため",
                     difficulty="medium",
                 )
             ]
@@ -1955,6 +1962,7 @@ async def review_es(request: ReviewRequest):
                     category="その他",
                     issue="追加の改善点を特定できませんでした",
                     suggestion="全体的な見直しを行ってみてください",
+                    why_now="他の指摘を優先しつつ、全体見直しで再発防止効果が高いため",
                     difficulty="medium",
                 )
             )
@@ -2455,12 +2463,14 @@ async def _generate_review_progress(
         top3_data = data.get("top3", [])
         top3 = []
         for item in top3_data[:3]:
+            difficulty = _normalize_difficulty(item.get("difficulty")) or "medium"
             top3.append(
                 {
                     "category": item.get("category", "その他"),
                     "issue": item.get("issue", ""),
                     "suggestion": item.get("suggestion", ""),
-                    "difficulty": item.get("difficulty", "medium"),
+                    "why_now": item.get("why_now", ""),
+                    "difficulty": difficulty,
                 }
             )
 
@@ -2470,6 +2480,7 @@ async def _generate_review_progress(
                     "category": "その他",
                     "issue": "追加の改善点を特定できませんでした",
                     "suggestion": "全体的な見直しを行ってみてください",
+                    "why_now": "他の指摘を優先しつつ、全体見直しで再発防止効果が高いため",
                     "difficulty": "medium",
                 }
             )

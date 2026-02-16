@@ -603,7 +603,7 @@ def build_template_prompt(
         output_requirements += (
             "\n・強化すべきポイントを企業の求める人材像と照らし合わせて指摘"
         )
-    output_requirements += "\n・top3 には difficulty（easy/medium/hard）を付与"
+    output_requirements += "\n・top3 には why_now（なぜ今直すべきか）と difficulty（easy/medium/hard）を付与"
     if char_constraint:
         output_requirements += f"\n・各パターンは必ず{char_constraint}の範囲内（char_countにはlen(text)の正確な値を記録）"
 
@@ -689,7 +689,7 @@ def build_template_prompt(
     "readability": 1-5の整数
   }},
   "top3": [
-    {{"category": "評価軸名", "issue": "問題点", "suggestion": "改善提案", "difficulty": "easy"}}
+    {{"category": "評価軸名", "issue": "問題点", "suggestion": "改善提案", "why_now": "今直すべき理由", "difficulty": "easy"}}
   ],
   "template_review": {{
     "template_type": "{template_type}",
@@ -742,7 +742,7 @@ def build_template_prompt(
     "readability": 1-5の整数
   }},
   "top3": [
-    {{"category": "評価軸名", "issue": "問題点", "suggestion": "改善提案", "difficulty": "easy"}}
+    {{"category": "評価軸名", "issue": "問題点", "suggestion": "改善提案", "why_now": "今直すべき理由", "difficulty": "easy"}}
   ],
   "template_review": {{
     "template_type": "{template_type}",

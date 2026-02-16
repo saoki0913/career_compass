@@ -64,6 +64,7 @@ def build_section_review_prompt(
    - category: 評価軸の名前（論理、具体性、熱意、{company_category}読みやすさ）
    - issue: 具体的な問題点（文章のどこが、なぜ問題か）
    - suggestion: 実践的な改善案（具体的に何をどう変えるか）
+   - why_now: 今この指摘を優先すべき理由（放置リスク or 修正効果）
    - difficulty: 難易度（easy/medium/hard）
    {company_top3_note}
 
@@ -80,7 +81,7 @@ def build_section_review_prompt(
 {{
   "scores": {{"logic": 3, "specificity": 3, "passion": 3, "readability": 3{company_score_example}}},
   "top3": [
-    {{"category": "...", "issue": "...", "suggestion": "...", "difficulty": "easy"}}
+    {{"category": "...", "issue": "...", "suggestion": "...", "why_now": "...", "difficulty": "easy"}}
   ],
   "rewrites": ["リライト案"]
 }}"""
@@ -132,6 +133,7 @@ def build_full_review_prompt(
    - category: 評価軸の名前（論理、具体性、熱意、{company_category}読みやすさ）
    - issue: 具体的な問題点（文章のどこが、なぜ問題か）
    - suggestion: 実践的な改善案（具体的に何をどう変えるか）
+   - why_now: 今この指摘を優先すべき理由（放置リスク or 修正効果）
    - difficulty: 難易度（easy/medium/hard）
    {company_top3_note}
 
@@ -149,7 +151,7 @@ def build_full_review_prompt(
 {{
   "scores": {{"logic": 3, "specificity": 3, "passion": 3, "readability": 3{company_score_example}}},
   "top3": [
-    {{"category": "...", "issue": "...", "suggestion": "...", "difficulty": "easy"}}
+    {{"category": "...", "issue": "...", "suggestion": "...", "why_now": "...", "difficulty": "easy"}}
   ],
   "rewrites": ["リライト1", "リライト2", ...],
   "section_feedbacks": [{{"section_title": "...", "feedback": "...", "rewrite": "..."}}]
@@ -184,6 +186,7 @@ def build_full_review_prompt_streaming(
    - category: 評価軸の名前
    - issue: 具体的な問題点
    - suggestion: 実践的な改善案
+   - why_now: 今この指摘を優先すべき理由
    - difficulty: 難易度（easy/medium/hard）
 
 3. rewrites: 改善例（{rewrite_count}パターン）
@@ -194,7 +197,7 @@ def build_full_review_prompt_streaming(
 出力形式（必ず有効なJSONで回答）:
 {{
   "scores": {{"logic": 3, "specificity": 3, "passion": 3, "readability": 3{company_score_example}}},
-  "top3": [{{"category": "...", "issue": "...", "suggestion": "...", "difficulty": "easy"}}],
+  "top3": [{{"category": "...", "issue": "...", "suggestion": "...", "why_now": "...", "difficulty": "easy"}}],
   "rewrites": ["リライト1"],
   "section_feedbacks": [{{"section_title": "...", "feedback": "..."}}]
 }}"""

@@ -16,6 +16,7 @@ export interface ReviewIssue {
   category: string;
   issue: string;
   suggestion: string;
+  why_now?: string;
   difficulty?: "easy" | "medium" | "hard";
 }
 

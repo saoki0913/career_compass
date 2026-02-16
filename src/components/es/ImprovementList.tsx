@@ -54,6 +54,17 @@ const LightbulbIcon = () => (
   </svg>
 );
 
+const ClockIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+    />
+  </svg>
+);
+
 const ChevronDownIcon = () => (
   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -159,6 +170,15 @@ export function ImprovementList({
                     </span>
                     <p className="text-sm text-muted-foreground leading-relaxed">{issue.suggestion}</p>
                   </div>
+
+                  {issue.why_now && (
+                    <div className="flex items-start gap-2 bg-primary/5 rounded-md p-2 -mx-1 border border-primary/15">
+                      <span className="text-primary/80 mt-0.5 shrink-0">
+                        <ClockIcon />
+                      </span>
+                      <p className="text-sm text-foreground/80 leading-relaxed">{issue.why_now}</p>
+                    </div>
+                  )}
 
                   {/* Navigate to section in editor */}
                   {onNavigateToSection && (
