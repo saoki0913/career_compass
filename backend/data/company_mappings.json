@@ -505,7 +505,8 @@
     ],
     "蝶理マテックス": {
       "domains": [
-        "chori-matex"
+        "chori-matex",
+        "chori"
       ],
       "parent": "蝶理"
     },
@@ -1111,7 +1112,8 @@
       "fidelity"
     ],
     "バークレイズ": [
-      "barclays"
+      "barclays",
+      "jp-barclays"
     ],
     "ドイツ銀行": [
       "db"
@@ -1195,7 +1197,8 @@
       "parent": "日本生命"
     },
     "日本マスタートラスト信託銀行": [
-      "mtbj"
+      "mtbj",
+      "mastertrust"
     ],
     "T&Dホールディングス": [
       "td-holdings"
@@ -1207,7 +1210,8 @@
       "jsf"
     ],
     "マネックスグループ": [
-      "monex"
+      "monex",
+      "monexgroup"
     ],
     "松井証券": [
       "matsui"
@@ -5122,7 +5126,8 @@
     },
     "京王不動産": {
       "domains": [
-        "keio-re"
+        "keio-re",
+        "keiofudosan"
       ],
       "parent": "京王電鉄"
     },
@@ -6346,9 +6351,13 @@
     "凸版印刷": [
       "toppan"
     ],
-    "トッパン・フォームズ": [
-      "toppan-f"
-    ],
+    "トッパン・フォームズ": {
+      "domains": [
+        "toppan-f",
+        "edge.toppan"
+      ],
+      "parent": "TOPPAN"
+    },
     "共同印刷": [
       "kyodoprinting"
     ],
