@@ -402,6 +402,7 @@ export async function POST(
                     questionCount: newQuestionCount,
                     isCompleted,
                     scores: newScores,
+                    evidenceSummary: fastApiData.evidence_summary || null,
                   },
                 };
                 controller.enqueue(

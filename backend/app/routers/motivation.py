@@ -86,6 +86,7 @@ class NextQuestionResponse(BaseModel):
     target_element: Optional[str] = None
     company_insight: Optional[str] = None  # RAG-based company insight used
     suggestions: list[str] = []  # 4 suggested answer options for the user
+    evidence_summary: Optional[str] = None  # RAG根拠の短い要約
 
 
 class GenerateDraftRequest(BaseModel):
@@ -191,6 +192,43 @@ def _extract_gakuchika_strength(gakuchika_context: list[dict] | None) -> str | N
             if title and isinstance(title, str) and len(title) >= 2:
                 return title
     return None
+
+
+def _normalize_excerpt(text: str, max_len: int = 60) -> str:
+    cleaned = " ".join((text or "").split())
+    if len(cleaned) <= max_len:
+        return cleaned
+    return cleaned[: max_len - 1].rstrip() + "…"
+
+
+def _build_evidence_summary_from_sources(
+    sources: list[dict] | None, max_items: int = 2
+) -> str | None:
+    """Build a compact evidence summary from RAG sources for UI display."""
+    if not sources:
+        return None
+
+    chips: list[str] = []
+    for src in sources:
+        if not isinstance(src, dict):
+            continue
+        source_id = str(src.get("source_id") or "").strip()
+        content_type = str(src.get("content_type") or "").strip()
+        excerpt = _normalize_excerpt(str(src.get("excerpt") or "").strip(), max_len=56)
+
+        prefix = source_id or "S?"
+        if content_type:
+            prefix = f"{prefix} {content_type}"
+
+        if excerpt:
+            chips.append(f"{prefix}: {excerpt}")
+        else:
+            chips.append(prefix)
+
+        if len(chips) >= max_items:
+            break
+
+    return " / ".join(chips) if chips else None
 
 
 def _build_initial_suggestions(
@@ -468,13 +506,14 @@ async def get_next_question(request: NextQuestionRequest):
         initial_question = f"{request.company_name}を志望される理由を教えてください。まずは、どんなきっかけでこの企業に興味を持ちましたか？"
 
         industry = request.industry or "この業界"
-        company_context, _ = await _get_company_context(request.company_id)
+        company_context, company_sources = await _get_company_context(request.company_id)
         initial_suggestions = _build_initial_suggestions(
             company_name=request.company_name,
             industry=industry,
             company_context=company_context,
             gakuchika_context=request.gakuchika_context,
         )
+        evidence_summary = _build_evidence_summary_from_sources(company_sources)
 
         return NextQuestionResponse(
             question=initial_question,
@@ -494,10 +533,11 @@ async def get_next_question(request: NextQuestionRequest):
             target_element="company_understanding",
             company_insight=None,
             suggestions=initial_suggestions,
+            evidence_summary=evidence_summary,
         )
 
     # Get company RAG context (only for subsequent questions)
-    company_context, _ = await _get_company_context(request.company_id)
+    company_context, company_sources = await _get_company_context(request.company_id)
 
     # Evaluate current progress (pass pre-fetched context to avoid duplicate RAG call)
     eval_result = await _evaluate_motivation_internal(request, company_context=company_context)
@@ -514,6 +554,7 @@ async def get_next_question(request: NextQuestionRequest):
             industry=industry,
             company_context=company_context,
         )
+        evidence_summary = _build_evidence_summary_from_sources(company_sources)
 
         return NextQuestionResponse(
             question="これまでの深掘りで、志望動機の核となる部分が具体的に整理できました。最後に、この企業で実現したい一番の目標を一言でまとめると何ですか？",
@@ -524,6 +565,7 @@ async def get_next_question(request: NextQuestionRequest):
             target_element="career_vision",
             company_insight=None,
             suggestions=completion_suggestions,
+            evidence_summary=evidence_summary,
         )
 
     # Generate targeted question
@@ -591,6 +633,10 @@ async def get_next_question(request: NextQuestionRequest):
     if not isinstance(suggestions, list):
         suggestions = []
     suggestions = [s for s in suggestions if isinstance(s, str) and len(s.strip()) > 0][:4]
+    evidence_summary = (
+        data.get("evidence_summary")
+        or _build_evidence_summary_from_sources(company_sources)
+    )
 
     return NextQuestionResponse(
         question=data["question"],
@@ -601,6 +647,7 @@ async def get_next_question(request: NextQuestionRequest):
         target_element=data.get("target_element", weakest_element),
         company_insight=data.get("company_insight"),
         suggestions=suggestions,
+        evidence_summary=evidence_summary,
     )
 
 
@@ -628,13 +675,14 @@ async def _generate_next_question_progress(
         if not request.conversation_history:
             initial_question = f"{request.company_name}を志望される理由を教えてください。まずは、どんなきっかけでこの企業に興味を持ちましたか？"
             industry = request.industry or "この業界"
-            company_context, _ = await _get_company_context(request.company_id)
+            company_context, company_sources = await _get_company_context(request.company_id)
             initial_suggestions = _build_initial_suggestions(
                 company_name=request.company_name,
                 industry=industry,
                 company_context=company_context,
                 gakuchika_context=request.gakuchika_context,
             )
+            evidence_summary = _build_evidence_summary_from_sources(company_sources)
             yield _sse_event("complete", {
                 "data": {
                     "question": initial_question,
@@ -654,6 +702,7 @@ async def _generate_next_question_progress(
                     "target_element": "company_understanding",
                     "company_insight": None,
                     "suggestions": initial_suggestions,
+                    "evidence_summary": evidence_summary,
                 },
             })
             return
@@ -664,7 +713,7 @@ async def _generate_next_question_progress(
         })
         await asyncio.sleep(0.05)
 
-        company_context, _ = await _get_company_context(request.company_id)
+        company_context, company_sources = await _get_company_context(request.company_id)
 
         # Step 2: Evaluation
         yield _sse_event("progress", {
@@ -688,6 +737,7 @@ async def _generate_next_question_progress(
                 industry=industry,
                 company_context=company_context,
             )
+            evidence_summary = _build_evidence_summary_from_sources(company_sources)
             yield _sse_event("complete", {
                 "data": {
                     "question": "これまでの深掘りで、志望動機の核となる部分が具体的に整理できました。最後に、この企業で実現したい一番の目標を一言でまとめると何ですか？",
@@ -698,6 +748,7 @@ async def _generate_next_question_progress(
                     "target_element": "career_vision",
                     "company_insight": None,
                     "suggestions": completion_suggestions,
+                    "evidence_summary": evidence_summary,
                 },
             })
             return
@@ -768,6 +819,10 @@ async def _generate_next_question_progress(
         suggestions = [
             s for s in suggestions if isinstance(s, str) and len(s.strip()) > 0
         ][:4]
+        evidence_summary = (
+            data.get("evidence_summary")
+            or _build_evidence_summary_from_sources(company_sources)
+        )
 
         yield _sse_event("complete", {
             "data": {
@@ -779,6 +834,7 @@ async def _generate_next_question_progress(
                 "target_element": data.get("target_element", weakest_element),
                 "company_insight": data.get("company_insight"),
                 "suggestions": suggestions,
+                "evidence_summary": evidence_summary,
             },
         })
 

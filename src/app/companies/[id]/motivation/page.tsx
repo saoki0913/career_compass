@@ -177,6 +177,7 @@ function MotivationConversationContent() {
   const [error, setError] = useState<string | null>(null);
   const [scores, setScores] = useState<MotivationScores | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [evidenceSummary, setEvidenceSummary] = useState<string | null>(null);
   const [generatedDraft, setGeneratedDraft] = useState<string | null>(null);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [charLimit, setCharLimit] = useState<300 | 400 | 500>(400);
@@ -224,6 +225,7 @@ function MotivationConversationContent() {
         setIsCompleted(convData.isCompleted || false);
         setScores(convData.scores || null);
         setSuggestions(convData.suggestions || []);
+        setEvidenceSummary(convData.evidenceSummary || null);
         setGeneratedDraft(convData.generatedDraft || null);
         // Propagate initialization errors (e.g. FastAPI failure)
         if (convData.error) {
@@ -331,6 +333,7 @@ function MotivationConversationContent() {
             setIsCompleted(data.isCompleted || false);
             setScores(data.scores || null);
             setSuggestions(data.suggestions || []);
+            setEvidenceSummary(data.evidenceSummary || null);
           } else if (event.type === "error") {
             throw new Error(event.message || "AIサービスでエラーが発生しました");
           }
@@ -541,6 +544,21 @@ function MotivationConversationContent() {
                   <span className="text-muted-foreground"> / 8問</span>
                 </div>
                 <MotivationProgressBar scores={scores} />
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/50">
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm font-medium">企業根拠サマリー</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {evidenceSummary ? (
+                  <p className="text-sm text-muted-foreground leading-relaxed">{evidenceSummary}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    次の質問生成時に、参照した企業情報の要約がここに表示されます。
+                  </p>
+                )}
               </CardContent>
             </Card>
 

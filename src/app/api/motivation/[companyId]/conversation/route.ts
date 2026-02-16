@@ -176,6 +176,7 @@ interface FastAPIQuestionResponse {
   target_element?: string;
   company_insight?: string;
   suggestions?: string[];
+  evidence_summary?: string;
 }
 
 interface CompanyData {
@@ -195,6 +196,7 @@ async function getQuestionFromFastAPI(
   error: string | null;
   evaluation: MotivationEvaluation | null;
   suggestions: string[];
+  evidenceSummary: string | null;
 }> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60_000);
@@ -225,6 +227,7 @@ async function getQuestionFromFastAPI(
         error: errorData.detail?.error || "AIサービスに接続できませんでした",
         evaluation: null,
         suggestions: [],
+        evidenceSummary: null,
       };
     }
 
@@ -234,6 +237,7 @@ async function getQuestionFromFastAPI(
       error: null,
       evaluation: data.evaluation || null,
       suggestions: data.suggestions || [],
+      evidenceSummary: data.evidence_summary || null,
     };
   } catch (error) {
     console.error("[Motivation] FastAPI error:", error);
@@ -243,6 +247,7 @@ async function getQuestionFromFastAPI(
         error: "AIの応答がタイムアウトしました",
         evaluation: null,
         suggestions: [],
+        evidenceSummary: null,
       };
     }
     return {
@@ -250,6 +255,7 @@ async function getQuestionFromFastAPI(
       error: "AIサービスに接続できませんでした",
       evaluation: null,
       suggestions: [],
+      evidenceSummary: null,
     };
   } finally {
     clearTimeout(timeoutId);
@@ -326,6 +332,7 @@ export async function GET(
   // Get next question if not completed
   let nextQuestion: string | null = null;
   let suggestions: string[] = [];
+  let evidenceSummary: string | null = null;
   let initError: string | null = null;
 
   if (!isCompleted) {
@@ -343,6 +350,7 @@ export async function GET(
       );
       nextQuestion = result.question;
       suggestions = result.suggestions;
+      evidenceSummary = result.evidenceSummary;
       initError = result.error;
     } else {
       // Existing conversation: extract nextQuestion from last assistant message
@@ -367,6 +375,7 @@ export async function GET(
     questionCount: conversation.questionCount ?? 0,
     isCompleted,
     scores,
+    evidenceSummary,
     generatedDraft: conversation.generatedDraft,
     error: initError,
   });
@@ -516,5 +525,6 @@ export async function POST(
     questionCount: newQuestionCount,
     isCompleted,
     scores: newScores,
+    evidenceSummary: result.evidenceSummary,
   });
 }
