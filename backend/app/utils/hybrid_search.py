@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import json
 import math
+import re
 import time
 from collections import Counter
 from typing import Optional
@@ -98,6 +99,7 @@ CONTENT_TYPE_BOOSTS = {
 _DEADLINE_KEYWORDS = {"締切", "期限", "スケジュール", "選考日程", "応募期間", "エントリー"}
 _CULTURE_KEYWORDS = {"社風", "雰囲気", "働き方", "人物像", "カルチャー", "価値観", "チーム"}
 _BUSINESS_KEYWORDS = {"事業", "戦略", "売上", "成長", "市場", "競合", "ビジネスモデル", "中期経営"}
+_FACT_KEYWORDS = {"いつ", "何日", "何月", "募集要項", "必須", "条件", "勤務地", "年収", "初任給"}
 
 
 def select_boost_profile(query: str) -> dict[str, float]:
@@ -110,6 +112,96 @@ def select_boost_profile(query: str) -> dict[str, float]:
     if any(kw in query_lower for kw in _BUSINESS_KEYWORDS):
         return CONTENT_TYPE_BOOSTS["business"]
     return CONTENT_TYPE_BOOSTS["es_review"]
+
+
+def infer_retrieval_profile(query: str, base_fetch_k: int = DEFAULT_FETCH_K) -> dict:
+    """Infer retrieval tuning from query intent/shape."""
+    q = (query or "").strip()
+    q_lower = q.lower()
+    q_len = len(q)
+    has_deadline_intent = any(kw in q_lower for kw in _DEADLINE_KEYWORDS | _FACT_KEYWORDS)
+    has_culture_intent = any(kw in q_lower for kw in _CULTURE_KEYWORDS)
+    has_business_intent = any(kw in q_lower for kw in _BUSINESS_KEYWORDS)
+    has_date_or_number = bool(re.search(r"(\d{4}年|\d{1,2}月|\d{1,2}日|\d+[%％])", q))
+
+    # Query is likely a full draft or long answer text.
+    if q_len >= 280:
+        return {
+            "profile": "long_form",
+            "semantic_weight": 0.7,
+            "keyword_weight": 0.3,
+            "fetch_k": max(base_fetch_k, 36),
+            "max_queries": 2,
+            "max_total_queries": 3,
+            "rerank_threshold": 0.65,
+            "mmr_lambda": 0.42,
+            "use_hyde": True,
+        }
+
+    # Fact/date style queries benefit from stronger keyword bias.
+    if has_deadline_intent or has_date_or_number:
+        return {
+            "profile": "fact_lookup",
+            "semantic_weight": 0.42,
+            "keyword_weight": 0.58,
+            "fetch_k": max(18, int(base_fetch_k * 0.8)),
+            "max_queries": 1,
+            "max_total_queries": 2,
+            "rerank_threshold": 0.8,
+            "mmr_lambda": 0.64,
+            "use_hyde": False,
+        }
+
+    if has_culture_intent:
+        return {
+            "profile": "culture_fit",
+            "semantic_weight": 0.72,
+            "keyword_weight": 0.28,
+            "fetch_k": max(base_fetch_k, 34),
+            "max_queries": 4,
+            "max_total_queries": 5,
+            "rerank_threshold": 0.62,
+            "mmr_lambda": 0.45,
+            "use_hyde": True,
+        }
+
+    if has_business_intent:
+        return {
+            "profile": "business_strategy",
+            "semantic_weight": 0.62,
+            "keyword_weight": 0.38,
+            "fetch_k": max(base_fetch_k, 32),
+            "max_queries": 3,
+            "max_total_queries": 4,
+            "rerank_threshold": 0.68,
+            "mmr_lambda": 0.5,
+            "use_hyde": True,
+        }
+
+    if q_len <= 8:
+        return {
+            "profile": "short_query",
+            "semantic_weight": 0.48,
+            "keyword_weight": 0.52,
+            "fetch_k": max(20, int(base_fetch_k * 0.85)),
+            "max_queries": 2,
+            "max_total_queries": 3,
+            "rerank_threshold": 0.75,
+            "mmr_lambda": 0.58,
+            "use_hyde": False,
+        }
+
+    return {
+        "profile": "default",
+        "semantic_weight": settings.rag_semantic_weight,
+        "keyword_weight": settings.rag_keyword_weight,
+        "fetch_k": base_fetch_k,
+        "max_queries": settings.rag_max_queries,
+        "max_total_queries": settings.rag_max_total_queries,
+        "rerank_threshold": settings.rag_rerank_threshold,
+        "mmr_lambda": settings.rag_mmr_lambda,
+        "use_hyde": True,
+    }
 
 # ---- Query expansion in-memory cache ----
 # Maps query hash → (timestamp, expanded_queries)
@@ -335,6 +427,45 @@ def _should_rerank(results: list[dict], threshold: float) -> bool:
         variance = sum((s - mean) ** 2 for s in normalized) / len(normalized)
         return variance >= 0.02  # Empirical threshold for score spread
     return True
+
+
+def _clean_excerpt_text(text: str) -> str:
+    return " ".join((text or "").replace("\u3000", " ").split())
+
+
+def _truncate_on_sentence_boundary(text: str, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    head = text[:max_len].rstrip()
+    cutoff = max(
+        head.rfind("。"),
+        head.rfind("！"),
+        head.rfind("？"),
+        head.rfind("."),
+        head.rfind("!"),
+        head.rfind("?"),
+    )
+    # Use sentence boundary only if it is not too early.
+    if cutoff >= int(max_len * 0.55):
+        return head[: cutoff + 1].rstrip()
+    return head + "…"
+
+
+def _build_source_excerpt(result: dict, max_len: int = 150) -> str:
+    text = _clean_excerpt_text(result.get("text", ""))
+    metadata = result.get("metadata", {}) or {}
+    heading = _clean_excerpt_text(
+        str(metadata.get("heading_path") or metadata.get("heading") or "")
+    )
+
+    if heading and text:
+        merged = f"{heading}: {text}"
+    elif heading:
+        merged = heading
+    else:
+        merged = text
+
+    return _truncate_on_sentence_boundary(merged, max_len)
 
 
 def _normalize_scores(score_map: dict[str, float]) -> dict[str, float]:
@@ -1171,7 +1302,7 @@ def get_context_and_sources_for_review_hybrid(
                     "source_url": source_url,
                     "content_type": normalized_type,
                     "chunk_type": chunk_type,
-                    "excerpt": text[:150] + "..." if len(text) > 150 else text,
+                    "excerpt": _build_source_excerpt(result, max_len=150),
                 }
             )
 

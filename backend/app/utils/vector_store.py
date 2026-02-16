@@ -1160,8 +1160,29 @@ async def hybrid_search_company_context_enhanced(
     """
     Enhanced dense search with query expansion, HyDE, MMR, and LLM reranking.
     """
-    from app.utils.hybrid_search import dense_hybrid_search
-    from app.utils.hybrid_search import select_boost_profile
+    from app.utils.hybrid_search import (
+        dense_hybrid_search,
+        infer_retrieval_profile,
+        select_boost_profile,
+    )
+
+    profile = infer_retrieval_profile(query, base_fetch_k=settings.rag_fetch_k)
+    semantic_weight = float(profile.get("semantic_weight", settings.rag_semantic_weight))
+    keyword_weight = float(profile.get("keyword_weight", settings.rag_keyword_weight))
+    fetch_k = int(profile.get("fetch_k", settings.rag_fetch_k))
+    max_queries = min(
+        settings.rag_max_queries,
+        int(profile.get("max_queries", settings.rag_max_queries)),
+    )
+    max_total_queries = min(
+        settings.rag_max_total_queries,
+        int(profile.get("max_total_queries", settings.rag_max_total_queries)),
+    )
+    rerank_threshold = float(
+        profile.get("rerank_threshold", settings.rag_rerank_threshold)
+    )
+    mmr_lambda = float(profile.get("mmr_lambda", settings.rag_mmr_lambda))
+    use_hyde = settings.rag_use_hyde and bool(profile.get("use_hyde", True))
 
     return await dense_hybrid_search(
         company_id=company_id,
@@ -1170,16 +1191,16 @@ async def hybrid_search_company_context_enhanced(
         content_types=content_types,
         backends=backends,
         expand_queries=expand_queries,
-        use_hyde=settings.rag_use_hyde,
+        use_hyde=use_hyde,
         rerank=rerank,
         use_mmr=settings.rag_use_mmr,
-        semantic_weight=settings.rag_semantic_weight,
-        keyword_weight=settings.rag_keyword_weight,
-        rerank_threshold=settings.rag_rerank_threshold,
-        fetch_k=settings.rag_fetch_k,
-        max_queries=settings.rag_max_queries,
-        max_total_queries=settings.rag_max_total_queries,
-        mmr_lambda=settings.rag_mmr_lambda,
+        semantic_weight=semantic_weight,
+        keyword_weight=keyword_weight,
+        rerank_threshold=rerank_threshold,
+        fetch_k=fetch_k,
+        max_queries=max_queries,
+        max_total_queries=max_total_queries,
+        mmr_lambda=mmr_lambda,
         content_type_boosts=select_boost_profile(query),
         use_bm25=True,
     )
