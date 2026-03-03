@@ -60,6 +60,8 @@ interface STAREvaluation {
   is_complete: boolean;
   missing_aspects?: Record<string, string[]>;
   quality_rationale?: string[];
+  hidden_eval?: Record<string, number>;
+  risk_flags?: string[];
 }
 
 function safeParseMessages(json: string): Message[] {
@@ -348,6 +350,20 @@ export async function POST(
               if (event.type === "progress") {
                 // Forward progress events immediately
                 controller.enqueue(encoder.encode(line + "\n\n"));
+              } else if (
+                event.type === "field_complete" &&
+                event.path === "question" &&
+                typeof event.value === "string"
+              ) {
+                const questionReadyEvent = {
+                  type: "question_ready",
+                  data: {
+                    question: event.value,
+                  },
+                };
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify(questionReadyEvent)}\n\n`)
+                );
               } else if (event.type === "complete") {
                 // Process complete event: DB save + credit consumption
                 const fastApiData = event.data;
@@ -362,6 +378,8 @@ export async function POST(
                 let starEvaluation: STAREvaluation | null = null;
                 let targetElement: string | null = null;
                 let qualityRationale: string[] | null = null;
+                let coachingFocus: string | null = null;
+                let riskFlags: string[] = [];
 
                 if (fastApiData.question) {
                   const aiMessage: Message = {
@@ -382,6 +400,12 @@ export async function POST(
                   fastApiData.quality_rationale ||
                   fastApiData.star_evaluation?.quality_rationale ||
                   null;
+                coachingFocus = typeof fastApiData.coaching_focus === "string"
+                  ? fastApiData.coaching_focus
+                  : null;
+                riskFlags = Array.isArray(fastApiData.risk_flags)
+                  ? fastApiData.risk_flags.filter((item: unknown): item is string => typeof item === "string")
+                  : [];
 
                 // Check completion
                 const starComplete = isStarComplete(newStarScores);
@@ -423,6 +447,12 @@ export async function POST(
                         strengths: summaryData.strengths || [],
                         learnings: summaryData.learnings || [],
                         numbers: summaryData.numbers || [],
+                        interviewer_hooks: summaryData.interviewer_hooks || [],
+                        decision_reasons: summaryData.decision_reasons || [],
+                        before_after_comparisons: summaryData.before_after_comparisons || [],
+                        credibility_notes: summaryData.credibility_notes || [],
+                        role_scope: summaryData.role_scope || "",
+                        reusable_principles: summaryData.reusable_principles || [],
                       });
 
                       await db
@@ -489,6 +519,8 @@ export async function POST(
                     starEvaluation,
                     targetElement,
                     qualityRationale,
+                    coachingFocus,
+                    riskFlags,
                     isAIPowered: true,
                     ...(structuredSummary && { summary: structuredSummary }),
                   },

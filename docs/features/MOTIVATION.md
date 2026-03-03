@@ -8,10 +8,10 @@
 ## 1. 概要
 
 - **目的**: 会話形式で企業特化の志望動機を深掘りし、ES用の下書きを生成する
-- **質問数目安**: 8問（4要素が70%以上で完了判定）
+- **質問数目安**: 8問
 - **クレジット**: 5問回答ごとに1クレジット + 下書き生成で1クレジット
-- **LLM**: Claude Sonnet（feature=`motivation`）
-- **特徴**: 企業RAGと連携し、企業情報を質問に反映
+- **LLM**: `feature="motivation"` を使用（デフォルト: Claude Haiku, `MODEL_MOTIVATION` で切替可能）
+- **特徴**: 企業RAGと連携し、企業情報を質問に反映。ガクチカ要約がある場合は質問生成に活用
 
 ---
 
@@ -64,6 +64,11 @@ weighted = (
    - `documents` テーブルにES（type="es"）として保存
    - ESエディタ（`/es/{documentId}`）へ自動遷移
 
+5. **UI補助**
+   - 回答候補 `suggestions` を最大4件返す
+   - 企業RAGの根拠要約 `evidenceSummary` を返す
+   - 回答送信はSSEストリーミング経路を利用する
+
 ---
 
 ## 4. Next.js API（会話管理）
@@ -71,15 +76,24 @@ weighted = (
 **ファイル:** `src/app/api/motivation/[companyId]/conversation/route.ts`
 
 ### GET の動き
-- 会話履歴がない場合、初回質問を生成（「なぜ{企業名}に興味を持ちましたか？」）
-- 会話がある場合、FastAPIで評価→次質問を生成
-- 返却: `nextQuestion`, `questionCount`, `isCompleted`, `scores`
+- 会話履歴がない場合、FastAPIから初回質問を取得
+- ログインユーザーは完了済みガクチカ要約を読み込み、初回質問の `suggestions` に反映
+- 返却: `nextQuestion`, `questionCount`, `isCompleted`, `scores`, `suggestions`, `evidenceSummary`, `generatedDraft`
 
 ### POST の動き
 - ユーザー回答を会話履歴に追加
 - FastAPIで4要素を評価
-- 5問ごとにクレジット消費（ログインユーザーのみ）
-- 全要素70%以上で `isCompleted: true`
+- 5問ごとにクレジット消費（ログインユーザーのみ、FastAPI成功後に消費）
+- 完了判定は FastAPI の重み付きスコアを優先
+- 後方互換として、`questionCount >= 8` かつ全要素70%以上でも完了扱い
+
+### SSE POST の動き
+**ファイル:** `src/app/api/motivation/[companyId]/conversation/stream/route.ts`
+
+- フロントの通常送信経路はこちらを利用
+- FastAPI の `next-question/stream` を consume-and-re-emit で中継
+- `progress` / `string_chunk` / `complete` / `error` を処理
+- `complete` 時にDB更新とクレジット消費を行い、フロント向け整形済みデータを返却
 
 **ファイル:** `src/app/api/motivation/[companyId]/generate-draft/route.ts`
 
@@ -132,16 +146,18 @@ weighted = (
 入力:
 ```json
 {
+  "company_id": "company_xxx",
   "company_name": "株式会社〇〇",
   "industry": "IT",
   "conversation_history": [...],
+  "question_count": 3,
   "scores": {
     "company_understanding": 65,
     "self_analysis": 40,
     "career_vision": 55,
     "differentiation": 30
   },
-  "missing_aspects": {...}
+  "gakuchika_context": [...]
 }
 ```
 
@@ -150,9 +166,21 @@ weighted = (
 {
   "question": "先ほど『〇〇』とおっしゃいましたが、その経験で得た強みは具体的にどのような場面で発揮できると思いますか？",
   "reasoning": "自己分析のスコアが最も低いため、経験と強みの具体化を促す",
-  "target_element": "self_analysis"
+  "target_element": "self_analysis",
+  "suggestions": ["関連経験がある", "社風に共感した", "事業内容に惹かれた"],
+  "evidence_summary": "S1 careers: ..."
 }
 ```
+
+### 5.2.1 次質問ストリーミング
+**`POST /api/motivation/next-question/stream`**
+
+- SSEで進捗と質問本文を段階返却
+- 主なイベント:
+  - `progress`: `企業情報を取得中...` / `回答を分析中...` / `質問を考え中...`
+  - `string_chunk`: 質問本文のトークン単位ストリーミング
+  - `complete`: `question` / `evaluation` / `suggestions` / `evidence_summary`
+  - `error`: エラーメッセージ
 
 ### 5.3 下書き生成
 **`POST /api/motivation/generate-draft`**
@@ -183,6 +211,13 @@ weighted = (
 ### 連携ポイント
 - **質問生成時**: 企業情報を取得し、質問に反映
 - **下書き生成時**: 企業キーワードを抽出し、具体性を向上
+- **根拠表示**: 取得ソースから `evidence_summary` を構築し、UIに表示
+- **サジェスト生成**: 企業特徴を使って `suggestions` を組み立て
+
+### ガクチカ連携
+- ログインユーザーは完了済みガクチカ要約を最大3件取得
+- `strengths` / `action_text` / `result_text` / `numbers` を質問生成プロンプトへ埋め込む
+- 強みが取得できる場合、初回 `suggestions` の1件目を個別化する
 
 ### 適応的RAGクエリ
 
@@ -209,12 +244,15 @@ weighted = (
 - **出力**: JSON（4要素のスコア + 不足点リスト）
 
 ### 7.2 質問生成プロンプト
-- **Temperature**: 0.7（自然な変化）
-- **Max tokens**: 400
+- **Temperature**: 0.5（自然さと一貫性のバランス）
+- **Max tokens**: 900
 - **禁止表現**:
   - 「もう少し詳しく教えてください」
   - 「具体的に説明してください」
   - 「他にありますか？」
+- **付随出力**:
+  - `suggestions` 配列
+  - `evidence_summary` 文字列
 - **切り口**:
   - 経験を聞く: 「関連する経験は？」
   - 接点を聞く: 「その経験と企業のXはどう繋がる？」
@@ -272,6 +310,7 @@ CREATE TABLE motivation_conversations (
   motivation_scores TEXT,              -- JSON: 4要素スコア
   generated_draft TEXT,
   char_limit_type TEXT,                -- '300' | '400' | '500'
+  last_suggestions TEXT,               -- JSON: 直近の回答候補
 
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -282,7 +321,7 @@ CREATE TABLE motivation_conversations (
 
 ## 11. 代表ログ
 
-- `[LLM] Calling claude-sonnet (...) for feature: motivation`
+- `[LLM] Calling claude-haiku (...) for feature: motivation`
 - `[Motivation] Evaluation scores: {...}`
 - `[Motivation] Generated question for element: self_analysis`
 - `[Motivation] Draft generated: 398 chars`
@@ -299,6 +338,7 @@ CREATE TABLE motivation_conversations (
 ### フロントエンド
 - `src/app/companies/[id]/motivation/page.tsx` - 志望動機作成ページ
 - `src/app/api/motivation/[companyId]/conversation/route.ts` - 会話API
+- `src/app/api/motivation/[companyId]/conversation/stream/route.ts` - 会話SSE API
 - `src/app/api/motivation/[companyId]/generate-draft/route.ts` - 下書き生成API
 
 ### データベース

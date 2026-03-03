@@ -77,30 +77,17 @@ function buildHeaders(): Record<string, string> {
   return headers;
 }
 
-type CharLimitType = "300" | "400" | "500";
-
-const CHAR_LIMITS: { value: CharLimitType; label: string }[] = [
-  { value: "300", label: "300文字" },
-  { value: "400", label: "400文字" },
-  { value: "500", label: "500文字" },
-];
-
 interface NewGakuchikaModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (title: string, content: string, charLimitType: CharLimitType) => Promise<void>;
+  onCreate: (title: string, content: string) => Promise<void>;
 }
 
 function NewGakuchikaModal({ isOpen, onClose, onCreate }: NewGakuchikaModalProps) {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [charLimitType, setCharLimitType] = useState<CharLimitType>("400");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const charLimit = parseInt(charLimitType);
-  const charCount = content.length;
-  const isOverLimit = charCount > charLimit;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,19 +102,13 @@ function NewGakuchikaModal({ isOpen, onClose, onCreate }: NewGakuchikaModalProps
       return;
     }
 
-    if (isOverLimit) {
-      setError(`文字数が${charLimit}文字を超えています`);
-      return;
-    }
-
     setIsSubmitting(true);
     setError(null);
 
     try {
-      await onCreate(title.trim(), content.trim(), charLimitType);
+      await onCreate(title.trim(), content.trim());
       setTitle("");
       setContent("");
-      setCharLimitType("400");
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "エラーが発生しました");
@@ -140,7 +121,6 @@ function NewGakuchikaModal({ isOpen, onClose, onCreate }: NewGakuchikaModalProps
     setTitle("");
     setContent("");
     setError(null);
-    setCharLimitType("400");
     onClose();
   };
 
@@ -172,58 +152,21 @@ function NewGakuchikaModal({ isOpen, onClose, onCreate }: NewGakuchikaModalProps
             </div>
 
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="charLimit">文字数制限</Label>
-                <div className="flex gap-1">
-                  {CHAR_LIMITS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setCharLimitType(option.value)}
-                      className={cn(
-                        "px-3 py-1 text-xs rounded-full transition-colors",
-                        charLimitType === option.value
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted hover:bg-muted/80"
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="content">ガクチカ内容 *</Label>
-                <span
-                  className={cn(
-                    "text-xs",
-                    isOverLimit
-                      ? "text-red-600 font-medium"
-                      : charCount > charLimit * 0.9
-                      ? "text-amber-600"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  {charCount} / {charLimit}文字
-                </span>
-              </div>
+              <Label htmlFor="content">ガクチカ内容 *</Label>
               <textarea
                 id="content"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="学生時代に力を入れたことを記入してください..."
+                placeholder="学生時代に力を入れたことを400文字程度で記入してください..."
                 rows={8}
                 className={cn(
                   "w-full px-3 py-2 border rounded-lg text-sm resize-none",
                   "focus:outline-none focus:ring-2 focus:ring-primary/20",
-                  isOverLimit ? "border-red-300 focus:ring-red-200" : "border-border"
+                  "border-border"
                 )}
               />
               <p className="text-xs text-muted-foreground">
-                入力したガクチカをもとにAIが深掘り質問をします
+                深掘りの材料として使うため、400文字程度を目安に入力してください
               </p>
             </div>
 
@@ -231,7 +174,7 @@ function NewGakuchikaModal({ isOpen, onClose, onCreate }: NewGakuchikaModalProps
               <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting}>
                 キャンセル
               </Button>
-              <Button type="submit" disabled={isSubmitting || isOverLimit}>
+              <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? (
                   <>
                     <LoadingSpinner />
@@ -294,12 +237,12 @@ export default function GakuchikaListPage() {
     fetchGakuchikas();
   }, [fetchGakuchikas]);
 
-  const handleCreate = async (title: string, content: string, charLimitType: CharLimitType) => {
+  const handleCreate = async (title: string, content: string) => {
     const response = await fetch("/api/gakuchika", {
       method: "POST",
       headers: buildHeaders(),
       credentials: "include",
-      body: JSON.stringify({ title, content, charLimitType }),
+      body: JSON.stringify({ title, content }),
     });
 
     if (!response.ok) {

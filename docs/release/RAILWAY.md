@@ -275,7 +275,7 @@ railway logs
 
 ```bash
 curl https://career-compass-backend-production.up.railway.app/
-# => {"message": "就活Compass API", "version": "0.1.0"}
+# => {"message": "就活Pass API", "version": "0.1.0"}
 
 curl https://career-compass-backend-production.up.railway.app/health
 # => {"status": "healthy"}

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
+import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { OperationLockProvider, useOperationLock } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
 import {
@@ -78,6 +79,19 @@ interface Message {
   isOptimistic?: boolean;
 }
 
+interface PendingCompleteData {
+  messages: Message[];
+  nextQuestion: string | null;
+  questionCount: number;
+  isCompleted: boolean;
+  starScores: STARScores | null;
+  targetElement: string | null;
+  qualityRationale: string[];
+  coachingFocus: string | null;
+  isAIPowered: boolean;
+  summary?: GakuchikaSummary | null;
+}
+
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -128,8 +142,13 @@ function GakuchikaConversationContent() {
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [streamingLabel, setStreamingLabel] = useState<string | null>(null);
+  const [streamingText, setStreamingText] = useState("");
+  const [isTextStreaming, setIsTextStreaming] = useState(false);
+  const [isPostProcessing, setIsPostProcessing] = useState(false);
+  const [pendingCompleteData, setPendingCompleteData] = useState<PendingCompleteData | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [qualityRationale, setQualityRationale] = useState<string[]>([]);
+  const [coachingFocus, setCoachingFocus] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -137,6 +156,43 @@ function GakuchikaConversationContent() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, nextQuestion]);
+
+  useEffect(() => {
+    if (!pendingCompleteData || isTextStreaming) return;
+
+    setMessages(pendingCompleteData.messages);
+    setNextQuestion(pendingCompleteData.nextQuestion);
+    setQuestionCount(pendingCompleteData.questionCount);
+    setIsCompleted(pendingCompleteData.isCompleted);
+    setIsAIPowered(pendingCompleteData.isAIPowered);
+    setTargetElement(pendingCompleteData.targetElement);
+    setQualityRationale(pendingCompleteData.qualityRationale);
+    setCoachingFocus(pendingCompleteData.coachingFocus);
+
+    const newScores = pendingCompleteData.starScores;
+    if (previousScores && newScores) {
+      const scoresChanged =
+        previousScores.situation !== newScores.situation ||
+        previousScores.task !== newScores.task ||
+        previousScores.action !== newScores.action ||
+        previousScores.result !== newScores.result;
+
+      if (scoresChanged) {
+        setShowScoreChange(true);
+      }
+    }
+    setStarScores(newScores);
+
+    if (pendingCompleteData.isCompleted && pendingCompleteData.summary) {
+      setSummary(pendingCompleteData.summary);
+      setIsSummaryLoading(false);
+    } else if (pendingCompleteData.isCompleted) {
+      setIsSummaryLoading(true);
+    }
+
+    setPendingCompleteData(null);
+    setIsPostProcessing(false);
+  }, [isTextStreaming, pendingCompleteData, previousScores]);
 
   // Fetch conversation and gakuchika data
   const fetchConversation = useCallback(async (sessionId?: string) => {
@@ -195,6 +251,7 @@ function GakuchikaConversationContent() {
         if ("qualityRationale" in conversationData) {
           setQualityRationale(Array.isArray(conversationData.qualityRationale) ? conversationData.qualityRationale : []);
         }
+        setCoachingFocus(typeof conversationData.coachingFocus === "string" ? conversationData.coachingFocus : null);
 
         if (conversationData.starEvaluation?.weakest_element) {
           setTargetElement(conversationData.starEvaluation.weakest_element);
@@ -244,6 +301,7 @@ function GakuchikaConversationContent() {
       const data = await response.json();
       setCurrentSessionId(data.conversation?.id || null);
       setQualityRationale(Array.isArray(data.qualityRationale) ? data.qualityRationale : []);
+      setCoachingFocus(typeof data.coachingFocus === "string" ? data.coachingFocus : null);
       setConversationStarted(true);
 
       // Fetch the full conversation data
@@ -257,7 +315,7 @@ function GakuchikaConversationContent() {
 
   // Send answer with optimistic UI update via SSE streaming
   const handleSend = async () => {
-    if (!answer.trim() || isSending) return;
+    if (!answer.trim() || isSending || isPostProcessing) return;
     if (!acquireLock("AIに送信中")) return;
 
     const trimmedAnswer = answer.trim();
@@ -277,9 +335,19 @@ function GakuchikaConversationContent() {
     setIsWaitingForResponse(true);
     setError(null);
     setStreamingLabel(null);
+    setStreamingText("");
+    setIsTextStreaming(false);
+    setIsPostProcessing(false);
+    setPendingCompleteData(null);
+    setNextQuestion(null);
+    setTargetElement(null);
+    setQualityRationale([]);
+    setCoachingFocus(null);
 
     // Save previous scores for score change detection
     setPreviousScores(starScores);
+    let sawQuestionReady = false;
+    let deferredComplete = false;
 
     try {
       const response = await fetch(`/api/gakuchika/${gakuchikaId}/conversation/stream`, {
@@ -321,50 +389,82 @@ function GakuchikaConversationContent() {
             continue;
           }
 
-          if (event.type === "progress") {
-            setStreamingLabel(event.label || "処理中...");
+          if (event.type === "string_chunk") {
+            // Token-level streaming: accumulate question text
+            setStreamingText((prev) => prev + event.text);
+            setIsTextStreaming(true);
+            setIsWaitingForResponse(false);
+          } else if (event.type === "question_ready") {
+            const question = typeof event.data?.question === "string" ? event.data.question : "";
+            if (!question) continue;
+            sawQuestionReady = true;
+            setNextQuestion(question);
+            setStreamingText("");
+            setIsTextStreaming(false);
+            setIsWaitingForResponse(false);
+            setIsSending(false);
+            setStreamingLabel(null);
+            setIsPostProcessing(true);
+          } else if (event.type === "progress") {
+            if (!sawQuestionReady) {
+              setStreamingLabel(event.label || "処理中...");
+            }
           } else if (event.type === "complete") {
             const data = event.data;
-            // Replace messages with server response (includes IDs)
             const messagesWithIds = (data.messages || []).map(
               (msg: { role: "user" | "assistant"; content: string; id?: string }, idx: number) => ({
                 ...msg,
                 id: msg.id || `msg-${idx}`,
               })
             );
-            setMessages(messagesWithIds);
-            setNextQuestion(data.nextQuestion);
-            setQuestionCount(data.questionCount || 0);
-            setIsCompleted(data.isCompleted || false);
-            setIsAIPowered(data.isAIPowered ?? true);
+            const nextData: PendingCompleteData = {
+              messages: messagesWithIds,
+              nextQuestion: data.nextQuestion,
+              questionCount: data.questionCount || 0,
+              isCompleted: data.isCompleted || false,
+              starScores: data.starScores || null,
+              targetElement: data.targetElement || null,
+              qualityRationale: Array.isArray(data.qualityRationale) ? data.qualityRationale : [],
+              coachingFocus: typeof data.coachingFocus === "string" ? data.coachingFocus : null,
+              isAIPowered: data.isAIPowered ?? true,
+              summary: data.summary || null,
+            };
 
-            // Set target element from response
-            if (data.targetElement) {
-              setTargetElement(data.targetElement);
-            }
-            setQualityRationale(Array.isArray(data.qualityRationale) ? data.qualityRationale : []);
+            if (sawQuestionReady) {
+              deferredComplete = true;
+              setPendingCompleteData(nextData);
+            } else {
+              setMessages(nextData.messages);
+              setNextQuestion(nextData.nextQuestion);
+              setQuestionCount(nextData.questionCount);
+              setIsCompleted(nextData.isCompleted);
+              setIsAIPowered(nextData.isAIPowered);
+              setTargetElement(nextData.targetElement);
+              setQualityRationale(nextData.qualityRationale);
+              setCoachingFocus(nextData.coachingFocus);
 
-            // Check if scores changed and show score change notification
-            const newScores = data.starScores || null;
-            if (previousScores && newScores) {
-              const scoresChanged =
-                previousScores.situation !== newScores.situation ||
-                previousScores.task !== newScores.task ||
-                previousScores.action !== newScores.action ||
-                previousScores.result !== newScores.result;
+              const newScores = nextData.starScores;
+              if (previousScores && newScores) {
+                const scoresChanged =
+                  previousScores.situation !== newScores.situation ||
+                  previousScores.task !== newScores.task ||
+                  previousScores.action !== newScores.action ||
+                  previousScores.result !== newScores.result;
 
-              if (scoresChanged) {
-                setShowScoreChange(true);
+                if (scoresChanged) {
+                  setShowScoreChange(true);
+                }
               }
-            }
-            setStarScores(newScores);
+              setStarScores(newScores);
 
-            // Handle completion summary
-            if (data.isCompleted && data.summary) {
-              setSummary(data.summary);
-              setIsSummaryLoading(false);
-            } else if (data.isCompleted) {
-              setIsSummaryLoading(true);
+              if (nextData.isCompleted && nextData.summary) {
+                setSummary(nextData.summary);
+                setIsSummaryLoading(false);
+              } else if (nextData.isCompleted) {
+                setIsSummaryLoading(true);
+              }
+
+              setIsPostProcessing(false);
             }
           } else if (event.type === "error") {
             throw new Error(event.message || "AIエラーが発生しました");
@@ -375,11 +475,19 @@ function GakuchikaConversationContent() {
       // Remove optimistic message on error
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       setAnswer(trimmedAnswer); // Restore the answer
+      setNextQuestion(null);
+      setPendingCompleteData(null);
+      setIsPostProcessing(false);
       setError(err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
       setIsSending(false);
       setIsWaitingForResponse(false);
       setStreamingLabel(null);
+      setStreamingText("");
+      setIsTextStreaming(false);
+      if (!deferredComplete) {
+        setIsPostProcessing(false);
+      }
       releaseLock();
     }
   };
@@ -432,6 +540,7 @@ function GakuchikaConversationContent() {
       const data = await response.json();
       setCurrentSessionId(data.conversation?.id || null);
       setQualityRationale(Array.isArray(data.qualityRationale) ? data.qualityRationale : []);
+      setCoachingFocus(typeof data.coachingFocus === "string" ? data.coachingFocus : null);
       await fetchConversation(data.conversation?.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "新しいセッションの作成に失敗しました");
@@ -678,8 +787,13 @@ function GakuchikaConversationContent() {
             />
           ))}
 
-          {/* Thinking indicator while waiting for AI response */}
-          {isWaitingForResponse && (
+          {/* Streaming text from AI (token-level) */}
+          {isTextStreaming && (
+            <StreamingChatMessage streamingText={streamingText} isStreaming={true} />
+          )}
+
+          {/* Thinking indicator while waiting before streaming starts */}
+          {isWaitingForResponse && !isTextStreaming && !nextQuestion && (
             <ThinkingIndicator text={streamingLabel || "次の質問を考え中"} />
           )}
 
@@ -692,6 +806,12 @@ function GakuchikaConversationContent() {
               role="assistant"
               content={nextQuestion}
             />
+          )}
+
+          {nextQuestion && isPostProcessing && !isCompleted && (
+            <div className="pl-2">
+              <p className="text-[11px] text-muted-foreground">質問の意図を整理中...</p>
+            </div>
           )}
 
           {/* CompletionSummary */}
@@ -723,6 +843,14 @@ function GakuchikaConversationContent() {
                 </span>
               </div>
             )}
+            {coachingFocus && (
+              <div className="px-4 pb-1">
+                <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-muted-foreground">
+                  <span>今回の狙い</span>
+                  <strong className="font-medium text-foreground/80">{coachingFocus}</strong>
+                </span>
+              </div>
+            )}
             {qualityRationale.length > 0 && (
               <div className="px-4 pb-1">
                 <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
@@ -743,12 +871,13 @@ function GakuchikaConversationContent() {
               onChange={setAnswer}
               onSend={handleSend}
               placeholder="回答を入力..."
-              disabled={isWaitingForResponse}
-              isSending={isSending}
+              disabled={false}
+              disableSend={isWaitingForResponse || isPostProcessing}
+              isSending={isSending && !nextQuestion}
               className="border-t-0 [&>div]:max-w-none [&>div]:px-4 [&>div]:py-2 [&>p]:hidden"
             />
             {/* Save and continue later - only show after at least 1 answer */}
-            {questionCount > 0 && !isWaitingForResponse && (
+            {questionCount > 0 && !isWaitingForResponse && !isPostProcessing && (
               <div className="px-4 pb-2">
                 <Link
                   href="/gakuchika"

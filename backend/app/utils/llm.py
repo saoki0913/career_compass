@@ -1044,6 +1044,187 @@ async def call_llm_streaming(
         return LLMResult(success=False, error=error)
 
 
+# ── Token-level streaming with field extraction ──────────────────────────
+
+
+@dataclass
+class StreamFieldEvent:
+    """Event emitted during token-level streaming."""
+
+    type: str  # "chunk", "string_chunk", "field_complete", "array_item_complete", "complete", "error"
+    path: str = ""  # e.g., "scores", "top3.0", "rewrites.1"
+    text: str = ""  # For chunk/string_chunk events
+    value: object = None  # For field_complete/array_item_complete events
+    result: Optional["LLMResult"] = None  # For complete event
+
+
+async def call_llm_streaming_fields(
+    system_prompt: str,
+    user_message: str,
+    messages: list[dict] | None = None,
+    max_tokens: int = 2000,
+    temperature: float = 0.3,
+    model: LLMModel | None = None,
+    feature: str | None = None,
+    schema_hints: dict[str, str] | None = None,
+    stream_string_fields: list[str] | None = None,
+) -> AsyncGenerator["StreamFieldEvent", None]:
+    """Stream LLM response with incremental JSON field extraction.
+
+    Yields StreamFieldEvent instances:
+    - "chunk": Raw text fragment from LLM
+    - "string_chunk": Partial content of a streamed string field (e.g., question text)
+    - "field_complete": A top-level JSON field finished parsing
+    - "array_item_complete": An array element finished parsing
+    - "complete": Final validated LLMResult (always the last event on success)
+    - "error": An error occurred
+
+    The "complete" event carries the authoritative final result parsed via
+    the full 6-layer JSON recovery chain. Frontend should treat field_complete
+    events as progressive previews and overwrite with complete's result.
+    """
+    from app.utils.streaming_json import StreamingJSONExtractor, StreamEventType
+
+    feature = feature or "unknown"
+
+    if model is None:
+        model = get_model_config().get(feature, "claude-sonnet")
+
+    # Non-Claude models: fall back to non-streaming
+    if model not in ("claude-sonnet", "claude-haiku"):
+        result = await call_llm_with_error(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            model=model,
+            feature=feature,
+        )
+        yield StreamFieldEvent(type="complete", result=result)
+        return
+
+    if model == "claude-sonnet":
+        actual_model = settings.claude_model
+    else:
+        actual_model = settings.claude_haiku_model
+
+    model_display = get_model_display_name(actual_model)
+    _log(feature, f"{model_display} をフィールドストリーミング呼び出し中...")
+
+    extractor = StreamingJSONExtractor(
+        schema_hints=schema_hints,
+        stream_string_fields=stream_string_fields,
+    )
+
+    try:
+        async for chunk in _call_claude_raw_stream(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            model=actual_model,
+            feature=feature,
+        ):
+            # Emit raw chunk event
+            yield StreamFieldEvent(type="chunk", text=chunk)
+
+            # Feed to JSON extractor
+            field_events = extractor.feed(chunk)
+            for fe in field_events:
+                if fe.type == StreamEventType.STRING_CHUNK:
+                    yield StreamFieldEvent(
+                        type="string_chunk", path=fe.path, text=fe.text
+                    )
+                elif fe.type == StreamEventType.FIELD_COMPLETE:
+                    yield StreamFieldEvent(
+                        type="field_complete", path=fe.path, value=fe.value
+                    )
+                elif fe.type == StreamEventType.ARRAY_ITEM_COMPLETE:
+                    yield StreamFieldEvent(
+                        type="array_item_complete", path=fe.path, value=fe.value
+                    )
+
+        # Stream finished — parse the full accumulated text
+        accumulated = extractor.get_accumulated()
+
+        if not accumulated:
+            error = _create_error("parse", "anthropic", feature, "空のストリーミングレスポンス")
+            yield StreamFieldEvent(
+                type="error",
+                result=LLMResult(success=False, error=error),
+            )
+            return
+
+        if settings.debug:
+            _log_debug(feature, f"Field streaming complete: chars={len(accumulated)}")
+
+        result = _parse_json_response(accumulated)
+        if result is not None:
+            _log(feature, f"{model_display} フィールドストリーミング成功", SUCCESS)
+            _anthropic_circuit.record_success()
+            yield StreamFieldEvent(
+                type="complete",
+                result=LLMResult(success=True, data=result, raw_text=accumulated),
+            )
+            return
+
+        # JSON parse failed — try repair
+        _log(feature, "フィールドストリーミング応答のJSON解析失敗、修復を試行", WARNING)
+        repair_prompt = f"""以下のテキストを有効なJSONに修復してください。JSON以外は出力しないでください。
+
+{accumulated[:3000]}"""
+        repair_result = await _call_claude(
+            system_prompt="あなたはJSON修復の専門家です。必ずJSONのみ出力してください。",
+            user_message=repair_prompt,
+            messages=None,
+            max_tokens=max_tokens,
+            temperature=0.1,
+            feature=feature,
+        )
+        if repair_result is not None:
+            _log(feature, f"{model_display} JSON修復成功", SUCCESS)
+            yield StreamFieldEvent(
+                type="complete",
+                result=LLMResult(success=True, data=repair_result, raw_text=accumulated),
+            )
+            return
+
+        # Use partial fields as best-effort fallback
+        partial = extractor.get_completed_fields()
+        if partial:
+            _log(feature, f"部分フィールドをフォールバックとして使用 (fields={list(partial.keys())})", WARNING)
+            yield StreamFieldEvent(
+                type="complete",
+                result=LLMResult(success=True, data=partial, raw_text=accumulated),
+            )
+            return
+
+        error = _create_error("parse", "anthropic", feature, "フィールドストリーミング応答の解析に失敗")
+        yield StreamFieldEvent(
+            type="error",
+            result=LLMResult(success=False, error=error, raw_text=accumulated),
+        )
+
+    except AnthropicAPIError as e:
+        error_type, detail = _classify_anthropic_error(e)
+        error = _create_error(error_type, "anthropic", feature, detail)
+        _log(feature, f"Anthropic フィールドストリーミングエラー: {detail}", ERROR)
+        _anthropic_circuit.record_failure()
+        yield StreamFieldEvent(
+            type="error",
+            result=LLMResult(success=False, error=error),
+        )
+
+    except Exception as e:
+        error = _create_error("unknown", "anthropic", feature, str(e))
+        _log(feature, f"フィールドストリーミング予期しないエラー: {e}", ERROR)
+        yield StreamFieldEvent(
+            type="error",
+            result=LLMResult(success=False, error=error),
+        )
+
+
 async def _call_claude(
     system_prompt: str,
     user_message: str,

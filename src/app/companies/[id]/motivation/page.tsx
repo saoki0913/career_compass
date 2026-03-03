@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
+import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { OperationLockProvider, useOperationLock } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
 
@@ -62,6 +63,30 @@ interface Company {
   industry: string | null;
 }
 
+interface SuggestionOption {
+  id: string;
+  label: string;
+  sourceType: "company" | "gakuchika" | "profile" | "hybrid" | "generic";
+  intent:
+    | "industry_reason"
+    | "company_reason"
+    | "role_selection"
+    | "desired_work"
+    | "fit_connection"
+    | "differentiation"
+    | "closing";
+}
+
+const STAGE_LABELS: Record<SuggestionOption["intent"], string> = {
+  industry_reason: "業界の軸を確認中",
+  company_reason: "企業志望理由を整理中",
+  role_selection: "志望職種を確認中",
+  desired_work: "やりたい仕事を確認中",
+  fit_connection: "経験との接続を深掘り中",
+  differentiation: "他社との差を整理中",
+  closing: "仕上げを整理中",
+};
+
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -79,36 +104,40 @@ function buildHeaders(): Record<string, string> {
   return headers;
 }
 
-// Suggestion chips component for quick answers
 function SuggestionChips({
-  suggestions,
+  suggestionOptions,
+  stage,
   onSelect,
   disabled = false,
 }: {
-  suggestions: string[];
+  suggestionOptions: SuggestionOption[];
+  stage?: SuggestionOption["intent"] | null;
   onSelect: (text: string) => void;
   disabled?: boolean;
 }) {
-  if (suggestions.length === 0) return null;
+  if (suggestionOptions.length === 0) return null;
+
+  const isRoleStage = stage === "role_selection";
+  const isWorkStage = stage === "desired_work";
+  const isReasonStage = stage === "industry_reason" || stage === "company_reason";
 
   return (
-    <div className="mb-3">
+    <div className="mt-3">
       <p className="text-xs text-muted-foreground mb-2">選択して回答:</p>
-      <div className="flex flex-wrap gap-2">
-        {suggestions.map((suggestion, index) => (
+      <div className={cn("gap-2", isRoleStage || isWorkStage || isReasonStage ? "grid grid-cols-1" : "flex flex-wrap")}>
+        {suggestionOptions.map((option, index) => (
           <button
-            key={`${suggestion}-${index}`}
+            key={`${option.id}-${index}`}
             type="button"
-            onClick={() => !disabled && onSelect(suggestion)}
+            onClick={() => !disabled && onSelect(option.label)}
             disabled={disabled}
             className={cn(
-              "inline-flex items-center rounded-lg px-3 py-2 text-sm text-left",
-              "border border-amber-200 bg-amber-50 text-amber-900",
+              "rounded-xl border text-left transition-all duration-200 cursor-pointer",
+              isRoleStage || isWorkStage || isReasonStage ? "w-full px-4 py-3" : "inline-flex items-center px-3 py-2 text-sm",
+              "border-amber-200 bg-amber-50 text-amber-900",
               "hover:bg-amber-100 hover:border-amber-300",
-              "dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-200",
-              "dark:hover:bg-amber-900/40 dark:hover:border-amber-600",
+              "dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-900/40 dark:hover:border-amber-600",
               "active:scale-[0.97]",
-              "transition-all duration-200 cursor-pointer",
               "opacity-0 animate-fade-up",
               index === 0 && "delay-100",
               index === 1 && "delay-200",
@@ -117,7 +146,16 @@ function SuggestionChips({
               disabled && "opacity-50 cursor-not-allowed pointer-events-none"
             )}
           >
-            {suggestion}
+            <span className="block text-sm font-medium">{option.label}</span>
+            {(isRoleStage || isReasonStage || isWorkStage) && (
+              <span className="mt-1 block text-xs text-amber-800/80 dark:text-amber-200/80">
+                {option.sourceType === "company" && "企業情報を踏まえた候補"}
+                {option.sourceType === "gakuchika" && "ガクチカを踏まえた候補"}
+                {option.sourceType === "profile" && "プロフィールを踏まえた候補"}
+                {option.sourceType === "hybrid" && "企業情報とあなたの経験を踏まえた候補"}
+                {option.sourceType === "generic" && "回答のたたき台"}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -177,11 +215,29 @@ function MotivationConversationContent() {
   const [error, setError] = useState<string | null>(null);
   const [scores, setScores] = useState<MotivationScores | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestionOptions, setSuggestionOptions] = useState<SuggestionOption[]>([]);
   const [evidenceSummary, setEvidenceSummary] = useState<string | null>(null);
-  const [generatedDraft, setGeneratedDraft] = useState<string | null>(null);
+  const [, setGeneratedDraft] = useState<string | null>(null);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [charLimit, setCharLimit] = useState<300 | 400 | 500>(400);
   const [streamingLabel, setStreamingLabel] = useState<string | null>(null);
+  const [streamingText, setStreamingText] = useState("");
+  const [streamingTargetText, setStreamingTargetText] = useState("");
+  const [isTextStreaming, setIsTextStreaming] = useState(false);
+  const [questionStage, setQuestionStage] = useState<SuggestionOption["intent"] | null>(null);
+  const [coachingFocus, setCoachingFocus] = useState<string | null>(null);
+  const [pendingCompleteData, setPendingCompleteData] = useState<{
+    messages: Message[];
+    nextQuestion: string | null;
+    questionCount: number;
+    isCompleted: boolean;
+    scores: MotivationScores | null;
+    suggestions: string[];
+    suggestionOptions: SuggestionOption[];
+    evidenceSummary: string | null;
+    questionStage: SuggestionOption["intent"] | null;
+    coachingFocus: string | null;
+  } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -189,6 +245,49 @@ function MotivationConversationContent() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, nextQuestion]);
+
+  useEffect(() => {
+    if (!isTextStreaming) return;
+    if (streamingText === streamingTargetText) return;
+
+    const nextChunk = streamingTargetText.slice(streamingText.length, streamingText.length + 2);
+    const lastChar = nextChunk.slice(-1);
+    const delay = lastChar === "。" || lastChar === "！" || lastChar === "？"
+      ? 140
+      : lastChar === "、"
+        ? 60
+        : 24;
+
+    const timer = window.setTimeout(() => {
+      setStreamingText((prev) => prev + nextChunk);
+    }, delay);
+
+    return () => window.clearTimeout(timer);
+  }, [isTextStreaming, streamingTargetText, streamingText]);
+
+  useEffect(() => {
+    if (!pendingCompleteData || !isTextStreaming) return;
+    if (streamingText !== streamingTargetText) return;
+
+    const timer = window.setTimeout(() => {
+      setMessages(pendingCompleteData.messages);
+      setNextQuestion(pendingCompleteData.nextQuestion);
+      setQuestionCount(pendingCompleteData.questionCount || 0);
+      setIsCompleted(pendingCompleteData.isCompleted || false);
+      setScores(pendingCompleteData.scores || null);
+      setSuggestions(pendingCompleteData.suggestions || []);
+      setSuggestionOptions(pendingCompleteData.suggestionOptions || []);
+      setEvidenceSummary(pendingCompleteData.evidenceSummary || null);
+      setQuestionStage(pendingCompleteData.questionStage || null);
+      setCoachingFocus(pendingCompleteData.coachingFocus || null);
+      setPendingCompleteData(null);
+      setIsTextStreaming(false);
+      setStreamingTargetText("");
+      setStreamingText("");
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [isTextStreaming, pendingCompleteData, streamingTargetText, streamingText]);
 
   // Fetch company and conversation data
   const fetchData = useCallback(async () => {
@@ -225,8 +324,11 @@ function MotivationConversationContent() {
         setIsCompleted(convData.isCompleted || false);
         setScores(convData.scores || null);
         setSuggestions(convData.suggestions || []);
+        setSuggestionOptions(convData.suggestionOptions || []);
         setEvidenceSummary(convData.evidenceSummary || null);
         setGeneratedDraft(convData.generatedDraft || null);
+        setQuestionStage(convData.questionStage || null);
+        setCoachingFocus(convData.coachingFocus || null);
         // Propagate initialization errors (e.g. FastAPI failure)
         if (convData.error) {
           setError(convData.error);
@@ -256,6 +358,7 @@ function MotivationConversationContent() {
 
     const optimisticId = `optimistic-${Date.now()}`;
     const previousSuggestions = suggestions;
+    const previousSuggestionOptions = suggestionOptions;
 
     const optimisticMessage: Message = {
       id: optimisticId,
@@ -267,12 +370,18 @@ function MotivationConversationContent() {
     setMessages((prev) => [...prev, optimisticMessage]);
     setAnswer("");
     setSuggestions([]);
+    setSuggestionOptions([]);
     setIsSending(true);
     setIsWaitingForResponse(true);
     setError(null);
+    setPendingCompleteData(null);
+    setStreamingTargetText("");
+    setStreamingText("");
+    setIsTextStreaming(false);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 90_000);
+    let sawTextStream = false;
 
     try {
       const response = await fetch(`/api/motivation/${companyId}/conversation/stream`, {
@@ -316,7 +425,12 @@ function MotivationConversationContent() {
             continue;
           }
 
-          if (event.type === "progress") {
+          if (event.type === "string_chunk") {
+            setStreamingTargetText((prev) => prev + event.text);
+            setIsTextStreaming(true);
+            setIsWaitingForResponse(false);
+            sawTextStream = true;
+          } else if (event.type === "progress") {
             setStreamingLabel(event.label || null);
           } else if (event.type === "complete") {
             completed = true;
@@ -327,13 +441,32 @@ function MotivationConversationContent() {
                 id: msg.id || `msg-${idx}`,
               })
             );
-            setMessages(messagesWithIds);
-            setNextQuestion(data.nextQuestion);
-            setQuestionCount(data.questionCount || 0);
-            setIsCompleted(data.isCompleted || false);
-            setScores(data.scores || null);
-            setSuggestions(data.suggestions || []);
-            setEvidenceSummary(data.evidenceSummary || null);
+            const nextData = {
+              messages: messagesWithIds,
+              nextQuestion: data.nextQuestion,
+              questionCount: data.questionCount || 0,
+              isCompleted: data.isCompleted || false,
+              scores: data.scores || null,
+              suggestions: data.suggestions || [],
+              suggestionOptions: data.suggestionOptions || [],
+              evidenceSummary: data.evidenceSummary || null,
+              questionStage: data.questionStage || null,
+              coachingFocus: data.coachingFocus || null,
+            };
+            if (sawTextStream) {
+              setPendingCompleteData(nextData);
+            } else {
+              setMessages(nextData.messages);
+              setNextQuestion(nextData.nextQuestion);
+              setQuestionCount(nextData.questionCount);
+              setIsCompleted(nextData.isCompleted);
+              setScores(nextData.scores);
+              setSuggestions(nextData.suggestions);
+              setSuggestionOptions(nextData.suggestionOptions);
+              setEvidenceSummary(nextData.evidenceSummary);
+              setQuestionStage(nextData.questionStage);
+              setCoachingFocus(nextData.coachingFocus || null);
+            }
           } else if (event.type === "error") {
             throw new Error(event.message || "AIサービスでエラーが発生しました");
           }
@@ -348,6 +481,7 @@ function MotivationConversationContent() {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       setAnswer(textToSend);
       setSuggestions(previousSuggestions);
+      setSuggestionOptions(previousSuggestionOptions);
       if (err instanceof Error && err.name === "AbortError") {
         setError("AIの応答に時間がかかりすぎています。再度お試しください。");
       } else {
@@ -358,6 +492,11 @@ function MotivationConversationContent() {
       setIsSending(false);
       setIsWaitingForResponse(false);
       setStreamingLabel(null);
+      if (!sawTextStream) {
+        setStreamingTargetText("");
+        setStreamingText("");
+        setIsTextStreaming(false);
+      }
       releaseLock();
     }
   };
@@ -430,6 +569,13 @@ function MotivationConversationContent() {
     );
   }
 
+  const showStandaloneQuestion =
+    !isTextStreaming &&
+    !!nextQuestion &&
+    !(messages.length > 0 &&
+      messages[messages.length - 1].role === "assistant" &&
+      messages[messages.length - 1].content === nextQuestion);
+
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
       <DashboardHeader />
@@ -462,6 +608,9 @@ function MotivationConversationContent() {
                 />
               </div>
               <span className="text-sm font-semibold tabular-nums">{questionCount}/8</span>
+              {questionStage && (
+                <span className="text-xs text-muted-foreground">{STAGE_LABELS[questionStage]}</span>
+              )}
             </div>
             {/* Messages - scrollable */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -474,15 +623,58 @@ function MotivationConversationContent() {
                 />
               ))}
 
+              {/* Streaming text from AI (token-level) */}
+              {isTextStreaming && (
+                <StreamingChatMessage streamingText={streamingText} isStreaming={true} />
+              )}
+
               {/* Next question or thinking indicator */}
-              {isWaitingForResponse ? (
+              {isWaitingForResponse && !isTextStreaming ? (
                 <ThinkingIndicator text={streamingLabel || "次の質問を考え中"} />
-              ) : nextQuestion &&
-                !(messages.length > 0 &&
-                  messages[messages.length - 1].role === "assistant" &&
-                  messages[messages.length - 1].content === nextQuestion) ? (
-                <ChatMessage role="assistant" content={nextQuestion} />
+              ) : showStandaloneQuestion ? (
+                <div className="space-y-3">
+                  {coachingFocus && (
+                    <div className="inline-flex items-center rounded-full border border-border/60 bg-background px-3 py-1 text-[11px] text-muted-foreground">
+                      今回の狙い: <span className="ml-1 font-medium text-foreground/80">{coachingFocus}</span>
+                    </div>
+                  )}
+                  <ChatMessage role="assistant" content={nextQuestion} />
+                  {!isWaitingForResponse && suggestionOptions.length > 0 && (
+                    <div className="-mt-1 pl-2">
+                      <SuggestionChips
+                        suggestionOptions={suggestionOptions}
+                        stage={questionStage}
+                        onSelect={(text) => handleSend(text)}
+                        disabled={isSending || isLocked}
+                      />
+                    </div>
+                  )}
+                  {evidenceSummary && (
+                    <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 lg:hidden">
+                      <p className="text-[11px] font-medium text-muted-foreground mb-1">企業根拠</p>
+                      <p className="text-xs leading-relaxed text-muted-foreground">{evidenceSummary}</p>
+                    </div>
+                  )}
+                </div>
               ) : null}
+
+              {!isWaitingForResponse && !isTextStreaming && !showStandaloneQuestion && suggestionOptions.length > 0 && (
+                <div className="pl-2">
+                  <SuggestionChips
+                    suggestionOptions={suggestionOptions}
+                    stage={questionStage}
+                    onSelect={(text) => handleSend(text)}
+                    disabled={isSending || isLocked}
+                  />
+                </div>
+              )}
+
+              {!isWaitingForResponse && !isTextStreaming && !showStandaloneQuestion && evidenceSummary && (
+                <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 lg:hidden">
+                  <p className="text-[11px] font-medium text-muted-foreground mb-1">企業根拠</p>
+                  <p className="text-xs leading-relaxed text-muted-foreground">{evidenceSummary}</p>
+                </div>
+              )}
 
               <div ref={messagesEndRef} />
             </div>
@@ -502,7 +694,7 @@ function MotivationConversationContent() {
               </div>
             )}
 
-            {/* Bottom fixed area: suggestions + input */}
+            {/* Bottom fixed area: input */}
             <div className="shrink-0 border-t border-border/50 p-4">
               {isCompleted ? (
                 <div className="flex items-center gap-2 p-4 rounded-lg bg-emerald-500/10 text-emerald-700">
@@ -510,23 +702,14 @@ function MotivationConversationContent() {
                   <span>深掘りが完了しました！右側の「ESを作成」ボタンで志望動機ESを作成できます。</span>
                 </div>
               ) : (
-                <>
-                  {!isWaitingForResponse && nextQuestion && suggestions.length > 0 && (
-                    <SuggestionChips
-                      suggestions={suggestions}
-                      onSelect={(text) => handleSend(text)}
-                      disabled={isSending || isLocked}
-                    />
-                  )}
-                  <ChatInput
-                    value={answer}
-                    onChange={setAnswer}
-                    onSend={() => handleSend()}
-                    disabled={isSending || !nextQuestion || isLocked}
-                    placeholder="回答を入力..."
-                    className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0"
-                  />
-                </>
+                <ChatInput
+                  value={answer}
+                  onChange={setAnswer}
+                  onSend={() => handleSend()}
+                  disabled={isSending || !nextQuestion || isLocked}
+                  placeholder="回答を入力..."
+                  className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0"
+                />
               )}
             </div>
           </div>
@@ -543,6 +726,14 @@ function MotivationConversationContent() {
                   <span className="text-3xl font-bold">{questionCount}</span>
                   <span className="text-muted-foreground"> / 8問</span>
                 </div>
+                {questionStage && (
+                  <p className="mb-3 text-xs text-center text-muted-foreground">{STAGE_LABELS[questionStage]}</p>
+                )}
+                {coachingFocus && (
+                  <p className="mb-3 text-xs text-center text-muted-foreground">
+                    今回の狙い: <span className="font-medium text-foreground/80">{coachingFocus}</span>
+                  </p>
+                )}
                 <MotivationProgressBar scores={scores} />
               </CardContent>
             </Card>

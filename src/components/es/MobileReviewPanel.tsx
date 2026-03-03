@@ -1,19 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ReviewPanel } from "./ReviewPanel";
 import type { SectionData } from "@/hooks/useESReview";
 
-// Section review request from parent component
 interface SectionReviewRequest {
   sectionTitle: string;
   sectionContent: string;
@@ -38,7 +31,7 @@ interface MobileReviewPanelProps {
 }
 
 const SparkleIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -47,6 +40,15 @@ const SparkleIcon = () => (
     />
   </svg>
 );
+
+const MOBILE_MEDIA_QUERY = "(max-width: 1023px)";
+
+function isMobileViewport() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return window.matchMedia(MOBILE_MEDIA_QUERY).matches;
+}
 
 export function MobileReviewPanel({
   documentId,
@@ -66,27 +68,37 @@ export function MobileReviewPanel({
 }: MobileReviewPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
 
-  // Auto-open when section review is requested
+  useEffect(() => {
+    if (sectionReviewRequest && isMobileViewport()) {
+      const openId = window.setTimeout(() => setIsOpen(true), 0);
+      return () => window.clearTimeout(openId);
+    }
+  }, [sectionReviewRequest]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia(MOBILE_MEDIA_QUERY);
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      if (!event.matches) {
+        setIsOpen(false);
+      }
+    };
+
+    mediaQuery.addEventListener("change", handleViewportChange);
+    return () => mediaQuery.removeEventListener("change", handleViewportChange);
+  }, []);
+
   const handleOpenChange = (open: boolean) => {
+    if (open && !isMobileViewport()) {
+      return;
+    }
     setIsOpen(open);
     if (!open && sectionReviewRequest) {
       onClearSectionReview?.();
     }
-  };
-
-  // Handle apply rewrite - close sheet after applying
-  const handleApplyRewrite = (newContent: string, sectionTitle?: string | null) => {
-    onApplyRewrite?.(newContent, sectionTitle);
-    setIsOpen(false);
-  };
-
-  // Handle scroll to editor section - close sheet first, then scroll
-  const handleScrollToEditorSection = (sectionTitle: string) => {
-    setIsOpen(false);
-    // Delay scroll until sheet close animation completes
-    setTimeout(() => {
-      onScrollToEditorSection?.(sectionTitle);
-    }, 300);
   };
 
   return (
@@ -94,10 +106,8 @@ export function MobileReviewPanel({
       <SheetTrigger asChild>
         <Button
           className={cn(
-            "fixed bottom-20 right-4 z-40 rounded-full h-14 w-14 shadow-lg lg:hidden",
-            "bg-primary text-primary-foreground hover:bg-primary/90",
-            "flex items-center justify-center p-0",
-            className
+            "fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full p-0 shadow-lg lg:hidden",
+            className,
           )}
           size="icon"
         >
@@ -105,19 +115,11 @@ export function MobileReviewPanel({
           <span className="sr-only">AI添削</span>
         </Button>
       </SheetTrigger>
-      <SheetContent
-        side="bottom"
-        className="min-h-[60vh] max-h-[90vh] h-[85vh] overflow-hidden flex flex-col p-0"
-      >
-        <SheetHeader className="px-4 py-3 border-b shrink-0">
+      <SheetContent side="bottom" className="flex h-[88vh] min-h-[60vh] flex-col overflow-hidden p-0 lg:hidden">
+        <SheetHeader className="border-b px-4 py-3">
           <SheetTitle className="flex items-center gap-2 text-base">
             <SparkleIcon />
             AI添削
-            {sectionReviewRequest && (
-              <span className="text-xs font-normal text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                設問モード
-              </span>
-            )}
           </SheetTitle>
         </SheetHeader>
         <div className="flex-1 overflow-hidden">
@@ -130,12 +132,12 @@ export function MobileReviewPanel({
             companyId={companyId}
             companyName={companyName}
             isPaid={isPaid}
-            onApplyRewrite={handleApplyRewrite}
+            onApplyRewrite={onApplyRewrite}
             onUndo={onUndo}
             sectionReviewRequest={sectionReviewRequest}
             onClearSectionReview={onClearSectionReview}
-            onScrollToEditorSection={handleScrollToEditorSection}
-            className="h-full [&_>_div]:border-0 [&_>_div]:rounded-none [&_>_div]:shadow-none"
+            onScrollToEditorSection={onScrollToEditorSection}
+            className="h-full [&_>_div]:rounded-none [&_>_div]:border-0 [&_>_div]:shadow-none"
           />
         </div>
       </SheetContent>

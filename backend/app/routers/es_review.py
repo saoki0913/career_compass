@@ -25,7 +25,7 @@ import math
 
 from app.config import settings
 from app.utils.secure_logger import get_logger
-from app.utils.llm import call_llm_with_error, call_llm_streaming, sanitize_es_content
+from app.utils.llm import call_llm_with_error, call_llm_streaming_fields, sanitize_es_content
 from app.utils.vector_store import (
     get_company_context_for_review,
     get_enhanced_context_for_review,
@@ -644,6 +644,7 @@ def build_es_review_schema(
             "minItems": 1,
             "maxItems": top3_max_items,
         },
+        "streaming_rewrite": {"type": "string"},
     }
 
     required = ["scores", "top3"]
@@ -849,11 +850,8 @@ async def review_section_with_template(
             f"[ES添削/テンプレート] ⚠️ テンプレート {template_type} は RAG本文ありだが出典不足 - キーワード抽出なしで続行"
         )
 
-    # Determine rewrite_count for template review
-    rewrite_count = min(
-        request.rewrite_count,
-        settings.es_rewrite_count if request.is_paid else 1,
-    )
+    # Template-based section review always returns a single complete draft.
+    rewrite_count = 1
 
     # Build prompts (apply safety margin to reduce overflow risk)
     prompt_char_min = char_min
@@ -908,29 +906,50 @@ async def review_section_with_template(
             f"[ES添削/テンプレート] テンプレート {template_type} 試行 {attempt + 1}/{max_retries}"
         )
 
-        # First attempt: use streaming for real-time progress
+        # First attempt: use field streaming for real-time progress and draft preview
         if attempt == 0 and progress_queue is not None:
-            def _on_chunk(chunk: str, accumulated_len: int) -> None:
-                # Calculate progress: 35% -> 85% during LLM streaming
-                progress = 35 + int(50 * min(accumulated_len / estimated_max_chars, 1.0))
-                try:
-                    progress_queue.put_nowait(("progress", {
-                        "step": "llm_review",
-                        "progress": progress,
-                        "label": "AIが添削中...",
-                        "subLabel": f"{accumulated_len}文字生成済み",
-                    }))
-                except asyncio.QueueFull:
-                    pass  # Skip if queue is full
-
-            llm_result = await call_llm_streaming(
+            llm_result = None
+            accumulated_len = 0
+            async for event in call_llm_streaming_fields(
                 system_prompt=system_prompt,
                 user_message=current_user_prompt,
                 max_tokens=template_max_tokens,
                 temperature=0.4,
                 feature="es_review",
-                on_chunk=_on_chunk,
-            )
+                schema_hints={
+                    "scores": "object",
+                    "top3": "array",
+                    "rewrites": "array",
+                    "streaming_rewrite": "string",
+                    "template_review": "object",
+                },
+                stream_string_fields=["streaming_rewrite"],
+            ):
+                if event.type == "chunk":
+                    accumulated_len += len(event.text)
+                    progress = 35 + int(50 * min(accumulated_len / estimated_max_chars, 1.0))
+                    try:
+                        progress_queue.put_nowait(("progress", {
+                            "step": "rewrite",
+                            "progress": progress,
+                            "label": "改善案を作成中...",
+                            "subLabel": "設問に合う表現へ整えています",
+                        }))
+                    except asyncio.QueueFull:
+                        pass
+                elif event.type == "string_chunk":
+                    try:
+                        progress_queue.put_nowait(("string_chunk", {
+                            "path": event.path,
+                            "text": event.text,
+                        }))
+                    except asyncio.QueueFull:
+                        pass
+                elif event.type == "complete":
+                    llm_result = event.result
+                elif event.type == "error":
+                    llm_result = event.result
+                    break
         else:
             # Retries: use blocking call (faster, no streaming needed)
             llm_result = await call_llm_with_error(
@@ -944,7 +963,7 @@ async def review_section_with_template(
                     require_company_connection=company_rag_available,
                     include_template_review=True,
                     include_section_feedbacks=False,
-                    include_rewrites=False,
+                    include_rewrites=True,
                     top3_max_items=2,
                     keyword_source_excerpt_required=False,
                     variant_count=rewrite_count,
@@ -1007,20 +1026,22 @@ async def review_section_with_template(
                     direction = err["direction"]
 
                     if direction == "reduce":
-                        safety_target = int(target * 0.90)
+                        safety_target = max(1, int(target * 0.97))
                         repair_prompt = f"""以下の文章を{safety_target}字以内に短縮してください。
 意味を保ち、具体的な数値やエピソードは残してください。
 だ・である調を維持してください。
+未完の文で終えず、設問への答え・根拠・企業や経験との接点を残してください。
 短縮後のテキストのみ出力し、それ以外は一切出力しないでください。
 
 ---
 {original_text}
 ---"""
                     else:  # expand
-                        safety_target = int(target * 1.05)
+                        safety_target = int(target * 1.03)
                         repair_prompt = f"""以下の文章を{safety_target}字以上に拡充してください。
-具体的な数値、状況説明、学びを追加してください。
+不足している根拠、具体的な状況説明、学びのみを補ってください。
 だ・である調を維持してください。
+冗長に膨らませず、完成した回答文として自然に終えてください。
 拡充後のテキストのみ出力し、それ以外は一切出力しないでください。
 
 ---
@@ -1340,7 +1361,7 @@ async def review_section_with_template(
                         f"[ES添削/テンプレート] ⚠️ 条件付きリトライも失敗: {repair_error}"
                     )
 
-    # All retries exhausted - apply deterministic fallback instead of failing
+    # All retries exhausted - fail explicitly rather than returning truncated output.
     record_parse_failure("es_review_template", retry_reason)
 
     if last_template_review_data is None:
@@ -1355,111 +1376,15 @@ async def review_section_with_template(
             },
         )
 
-    # Deterministic fallback: truncate/fix variants server-side
-    last_template_review_data, fallback_warnings = apply_deterministic_fallback(
-        last_template_review_data, char_min, char_max, rewrite_count
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "error": "文字数制約に収まる完成稿を生成できませんでした。条件を調整して再実行してください。",
+            "error_type": "validation",
+            "provider": "template_review",
+            "detail": retry_reason,
+        },
     )
-    logger.warning(
-        f"[ES添削/テンプレート] 🔧 決定論的フォールバック適用: {'; '.join(fallback_warnings) or 'char_count修正のみ'}"
-    )
-
-    try:
-        scores_data = data.get("scores", {}) if data else {}
-        scores = Score(
-            logic=max(1, min(5, scores_data.get("logic", 3))),
-            specificity=max(1, min(5, scores_data.get("specificity", 3))),
-            passion=max(1, min(5, scores_data.get("passion", 3))),
-            company_connection=(
-                max(1, min(5, scores_data.get("company_connection", 3)))
-                if company_rag_available
-                else None
-            ),
-            readability=max(1, min(5, scores_data.get("readability", 3))),
-        )
-
-        top3_data = data.get("top3", []) if data else []
-        top3 = _parse_issues(top3_data, 2)
-        if not top3:
-            top3 = [
-                Issue(
-                    category="その他",
-                    issue="改善点を特定できませんでした",
-                    suggestion="全体的な見直しを行ってみてください",
-                    why_now="優先改善点が不明なため、全体の論旨を先に整えると品質が安定するため",
-                    difficulty="medium",
-                )
-            ]
-
-        variants_data = last_template_review_data.get("variants", [])
-        variants = [
-            TemplateVariant(
-                text=v.get("text", ""),
-                char_count=len(v.get("text", "")),
-                pros=v.get("pros", []),
-                cons=v.get("cons", []),
-                keywords_used=v.get("keywords_used", []),
-                keyword_sources=v.get("keyword_sources", []),
-            )
-            for v in variants_data
-        ]
-
-        keyword_sources_data = last_template_review_data.get("keyword_sources", [])
-        keyword_sources = [
-            TemplateSource(
-                source_id=src.get("source_id", ""),
-                source_url=src.get("source_url", ""),
-                content_type=src.get("content_type", ""),
-                excerpt=src.get("excerpt"),
-            )
-            for src in keyword_sources_data
-        ]
-
-        if not keyword_sources and rag_sources:
-            keyword_sources = [
-                TemplateSource(
-                    source_id=src.get("source_id", ""),
-                    source_url=src.get("source_url", ""),
-                    content_type=src.get("content_type", ""),
-                    excerpt=src.get("excerpt"),
-                )
-                for src in rag_sources
-            ]
-
-        strengthen_points = None
-        if template_def.get("require_strengthen_points"):
-            strengthen_points = last_template_review_data.get(
-                "strengthen_points", []
-            )
-
-        template_review = TemplateReview(
-            template_type=template_type,
-            variants=variants,
-            keyword_sources=keyword_sources,
-            strengthen_points=strengthen_points,
-        )
-
-        rewrites = [v.get("text", "") for v in variants_data]
-
-        logger.info("[ES添削/テンプレート] ✅ フォールバックで結果を返却")
-        return ReviewResponse(
-            scores=scores,
-            top3=top3,
-            rewrites=rewrites,
-            section_feedbacks=None,
-            template_review=template_review,
-        )
-
-    except Exception as e:
-        logger.error(f"[ES添削/テンプレート] ❌ フォールバック構築失敗: {e}")
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "テンプレート出力の検証に失敗しました。",
-                "error_type": "validation",
-                "provider": "template_review",
-                "detail": str(e),
-            },
-        )
 
 
 async def review_section(
@@ -2046,19 +1971,19 @@ PROGRESS_STEPS = [
         "subLabel": "RAGコンテキスト検索",
     },
     {
-        "id": "llm_review",
-        "label": "AIが添削中...",
-        "subLabel": "スコアと改善点を分析",
+        "id": "analysis",
+        "label": "設問を分析中...",
+        "subLabel": "論点と改善余地を整理",
     },
     {
         "id": "rewrite",
-        "label": "リライトを生成中...",
-        "subLabel": "複数パターン作成",
+        "label": "改善案を作成中...",
+        "subLabel": "設問に合う表現へ整えています",
     },
     {
-        "id": "retry",
-        "label": "文字数を調整中...",
-        "subLabel": "リトライ処理",
+        "id": "finalize",
+        "label": "表示を整えています...",
+        "subLabel": "結果をまとめています",
     },
 ]
 
@@ -2213,7 +2138,7 @@ async def _generate_review_progress(
         # Step 3: LLM Review
         yield _sse_event(
             "progress",
-            {"step": "llm_review", "progress": 35, "label": "AIが添削中..."},
+            {"step": "analysis", "progress": 35, "label": "設問を分析中..."},
         )
 
         # Section mode (always template-based) handled here for SSE
@@ -2268,6 +2193,8 @@ async def _generate_review_progress(
                         )
                         if event_type == "progress":
                             yield _sse_event("progress", event_data)
+                        elif event_type == "string_chunk":
+                            yield _sse_event("string_chunk", event_data)
                     except asyncio.TimeoutError:
                         # No event in queue, check if task is done
                         continue
@@ -2278,6 +2205,8 @@ async def _generate_review_progress(
                         event_type, event_data = progress_queue.get_nowait()
                         if event_type == "progress":
                             yield _sse_event("progress", event_data)
+                        elif event_type == "string_chunk":
+                            yield _sse_event("string_chunk", event_data)
                     except asyncio.QueueEmpty:
                         break
 
@@ -2304,14 +2233,14 @@ async def _generate_review_progress(
             yield _sse_event(
                 "progress",
                 {
-                    "step": "rewrite",
-                    "progress": 90,
-                    "label": "リライトを生成中...",
+                    "step": "finalize",
+                    "progress": 92,
+                    "label": "表示を整えています...",
                 },
             )
             yield _sse_event(
                 "progress",
-                {"step": "rewrite", "progress": 100, "label": "完了"},
+                {"step": "finalize", "progress": 100, "label": "完了"},
             )
             yield _sse_event("complete", {"result": result.model_dump()})
             return
@@ -2387,38 +2316,58 @@ async def _generate_review_progress(
 
         yield _sse_event(
             "progress",
-            {"step": "llm_review", "progress": 50, "label": "AIが分析中..."},
+            {"step": "analysis", "progress": 50, "label": "設問を分析中..."},
         )
 
         include_section_feedbacks = bool(
             request.is_paid and (request.section_data or request.sections)
         )
 
-        llm_result = await call_llm_with_error(
+        # Stream LLM response with field-level events
+        llm_result = None
+        async for event in call_llm_streaming_fields(
             system_prompt=system_prompt,
             user_message=user_message,
             max_tokens=3000,
             temperature=0.3,
             feature="es_review",
-            response_format="json_schema",
-            json_schema=build_es_review_schema(
-                require_company_connection=company_rag_available,
-                include_template_review=False,
-                include_section_feedbacks=include_section_feedbacks,
-            ),
-            use_responses_api=True,
-            retry_on_parse=True,
-            parse_retry_instructions="必ず有効なJSONのみを出力してください。",
-            disable_fallback=True,
-        )
+            schema_hints={
+                "scores": "object",
+                "top3": "array",
+                "rewrites": "array",
+                "streaming_rewrite": "string",
+            },
+            stream_string_fields=["streaming_rewrite"],
+        ):
+            if event.type == "chunk":
+                yield _sse_event("chunk", {"text": event.text})
+            elif event.type == "string_chunk":
+                yield _sse_event("string_chunk", {"path": event.path, "text": event.text})
+            elif event.type == "field_complete":
+                yield _sse_event("field_complete", {"path": event.path, "value": event.value})
+            elif event.type == "array_item_complete":
+                yield _sse_event("array_item_complete", {"path": event.path, "value": event.value})
+            elif event.type == "error":
+                error = event.result.error if event.result else None
+                yield _sse_event(
+                    "error",
+                    {
+                        "message": error.message
+                        if error
+                        else "AI処理中にエラーが発生しました"
+                    },
+                )
+                return
+            elif event.type == "complete":
+                llm_result = event.result
 
         yield _sse_event(
             "progress",
-            {"step": "llm_review", "progress": 80, "label": "添削完了"},
+            {"step": "finalize", "progress": 80, "label": "表示を整えています..."},
         )
 
-        if not llm_result.success:
-            error = llm_result.error
+        if llm_result is None or not llm_result.success:
+            error = llm_result.error if llm_result else None
             yield _sse_event(
                 "error",
                 {
@@ -2443,7 +2392,7 @@ async def _generate_review_progress(
             {
                 "step": "rewrite",
                 "progress": 90,
-                "label": "リライトを生成中...",
+                "label": "改善案を作成中...",
             },
         )
 

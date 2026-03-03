@@ -76,6 +76,8 @@ interface STAREvaluation {
   is_complete: boolean;
   missing_aspects?: Record<string, string[]>;
   quality_rationale?: string[];
+  hidden_eval?: Record<string, number>;
+  risk_flags?: string[];
 }
 
 // Safe JSON parse for messages with backward compatibility
@@ -134,6 +136,8 @@ interface FastAPIQuestionResponse {
   star_evaluation?: STAREvaluation;
   target_element?: string;
   quality_rationale?: string[];
+  coaching_focus?: string;
+  risk_flags?: string[];
 }
 
 interface GakuchikaData {
@@ -153,6 +157,8 @@ async function getQuestionFromFastAPI(
   starEvaluation: STAREvaluation | null;
   targetElement: string | null;
   qualityRationale: string[] | null;
+  coachingFocus: string | null;
+  riskFlags: string[];
 }> {
   try {
     const fastApiResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/next-question`, {
@@ -176,6 +182,8 @@ async function getQuestionFromFastAPI(
         starEvaluation: result.star_evaluation || null,
         targetElement: result.target_element || null,
         qualityRationale: result.quality_rationale || result.star_evaluation?.quality_rationale || null,
+        coachingFocus: result.coaching_focus || null,
+        riskFlags: Array.isArray(result.risk_flags) ? result.risk_flags : [],
       };
     } else {
       console.error("FastAPI error status:", fastApiResponse.status);
@@ -185,6 +193,8 @@ async function getQuestionFromFastAPI(
         starEvaluation: null,
         targetElement: null,
         qualityRationale: null,
+        coachingFocus: null,
+        riskFlags: [],
       };
     }
   } catch (err) {
@@ -195,6 +205,8 @@ async function getQuestionFromFastAPI(
       starEvaluation: null,
       targetElement: null,
       qualityRationale: null,
+      coachingFocus: null,
+      riskFlags: [],
     };
   }
 }
@@ -508,6 +520,8 @@ export async function POST(
       starEvaluation,
       targetElement,
       qualityRationale,
+      coachingFocus,
+      riskFlags,
     } = await getQuestionFromFastAPI(
       {
         title: gakuchikaTitle,
@@ -582,6 +596,12 @@ export async function POST(
             strengths: summaryData.strengths || [],
             learnings: summaryData.learnings || [],
             numbers: summaryData.numbers || [],
+            interviewer_hooks: summaryData.interviewer_hooks || [],
+            decision_reasons: summaryData.decision_reasons || [],
+            before_after_comparisons: summaryData.before_after_comparisons || [],
+            credibility_notes: summaryData.credibility_notes || [],
+            role_scope: summaryData.role_scope || "",
+            reusable_principles: summaryData.reusable_principles || [],
           });
         } else {
           throw new Error("FastAPI structured-summary generation failed");
@@ -630,6 +650,8 @@ export async function POST(
       starEvaluation,
       targetElement,
       qualityRationale,
+      coachingFocus,
+      riskFlags,
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,

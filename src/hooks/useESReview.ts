@@ -156,7 +156,46 @@ export interface SSEErrorEvent {
   error_type?: string;
 }
 
-export type SSEEvent = SSEProgressEvent | SSECompleteEvent | SSEErrorEvent;
+// Streaming field events from backend StreamingJSONExtractor
+export interface SSEFieldCompleteEvent {
+  type: "field_complete";
+  path: string;
+  value: unknown;
+}
+
+export interface SSEArrayItemCompleteEvent {
+  type: "array_item_complete";
+  path: string;
+  value: unknown;
+}
+
+export interface SSEChunkEvent {
+  type: "chunk";
+  text: string;
+}
+
+export interface SSEStringChunkEvent {
+  type: "string_chunk";
+  path: string;
+  text: string;
+}
+
+export type SSEEvent =
+  | SSEProgressEvent
+  | SSECompleteEvent
+  | SSEErrorEvent
+  | SSEFieldCompleteEvent
+  | SSEArrayItemCompleteEvent
+  | SSEChunkEvent
+  | SSEStringChunkEvent;
+
+// Partial streaming state for progressive display
+export interface PartialReviewState {
+  scores: Partial<ReviewScores> | null;
+  top3: ReviewIssue[];
+  rewrites: string[];
+  streamingRewriteText: string;
+}
 
 export interface UseESReviewReturn {
   review: ReviewResult | null;
@@ -171,6 +210,8 @@ export interface UseESReviewReturn {
   elapsedTime: number;  // Elapsed time in seconds
   // SSE streaming progress
   sseProgress: SSEProgressState;
+  // Partial streaming state (progressive display before complete)
+  partialReview: PartialReviewState;
   requestReview: (params: {
     content: string;
     style?: string;
@@ -185,6 +226,8 @@ export interface UseESReviewReturn {
     sectionCharLimit?: number;
     // Template-based review
     templateType?: TemplateType;
+    internName?: string;
+    roleName?: string;
   }) => Promise<boolean>;
   requestSectionReview: (params: {
     sectionTitle: string;
@@ -210,10 +253,11 @@ export function getAvailableStyles(isPaid: boolean): string[] {
 
 // Default SSE steps from backend (durations are estimates for progress animation)
 const DEFAULT_SSE_STEPS: ProcessingStep[] = [
-  { id: "validation", label: "入力を検証中...", subLabel: "内容の確認", duration: 1000 },
-  { id: "rag_fetch", label: "企業情報を取得中...", subLabel: "RAGコンテキスト検索", duration: 8000 },
-  { id: "llm_review", label: "AIが添削中...", subLabel: "スコアと改善点を分析", duration: 12000 },
-  { id: "rewrite", label: "リライトを生成中...", subLabel: "完了処理", duration: 1000 },
+  { id: "validation", label: "入力内容を確認中...", subLabel: "設問と条件をチェック", duration: 1000 },
+  { id: "rag_fetch", label: "企業情報を取得中...", subLabel: "関連情報を絞り込んでいます", duration: 8000 },
+  { id: "analysis", label: "設問を分析中...", subLabel: "改善の優先度を整理しています", duration: 10000 },
+  { id: "rewrite", label: "改善案を作成中...", subLabel: "伝わり方を整えています", duration: 8000 },
+  { id: "finalize", label: "表示を整えています...", subLabel: "結果をまとめています", duration: 1000 },
 ];
 
 export function useESReview({ documentId }: UseESReviewOptions): UseESReviewReturn {
@@ -221,7 +265,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creditCost, setCreditCost] = useState<number | null>(null);
-  const [reviewMode, setReviewMode] = useState<ReviewMode>("full");
+  const [reviewMode, setReviewMode] = useState<ReviewMode>("section");
   const [currentSection, setCurrentSection] = useState<CurrentSectionInfo | null>(null);
 
   // Cancel support
@@ -229,6 +273,14 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
   const [elapsedTime, setElapsedTime] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Partial streaming state for progressive display
+  const [partialReview, setPartialReview] = useState<PartialReviewState>({
+    scores: null,
+    top3: [],
+    rewrites: [],
+    streamingRewriteText: "",
+  });
 
   // SSE streaming progress
   const [sseProgress, setSSEProgress] = useState<SSEProgressState>({
@@ -293,19 +345,21 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
       // Create new AbortController
       abortControllerRef.current = new AbortController();
 
+      setReview(null);
       setIsLoading(true);
       setError(null);
       setCreditCost(null);
       setIsCancelling(false);
       setElapsedTime(0);
 
-      // Reset SSE progress
+      // Reset SSE progress and partial state
       setSSEProgress({
         currentStep: null,
         progress: 0,
         steps: DEFAULT_SSE_STEPS,
         isStreaming: true,
       });
+      setPartialReview({ scores: null, top3: [], rewrites: [], streamingRewriteText: "" });
 
       // Start elapsed time counter
       clearTimer();
@@ -383,6 +437,8 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
         const decoder = new TextDecoder();
         let buffer = "";
 
+        let receivedComplete = false;
+
         while (true) {
           const { done, value } = await reader.read();
 
@@ -419,9 +475,45 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
                 }));
                 break;
 
+              case "field_complete":
+                // Progressive field completion from streaming JSON parser
+                if (event.path === "scores") {
+                  setPartialReview((prev) => ({ ...prev, scores: event.value as Partial<ReviewScores> }));
+                } else if (event.path === "streaming_rewrite" && typeof event.value === "string") {
+                  const streamingRewriteText = event.value;
+                  setPartialReview((prev) => ({ ...prev, streamingRewriteText }));
+                }
+                break;
+
+              case "array_item_complete":
+                // Progressive array item completion
+                if (event.path?.startsWith("top3.")) {
+                  setPartialReview((prev) => ({
+                    ...prev,
+                    top3: [...prev.top3, event.value as ReviewIssue],
+                  }));
+                } else if (event.path?.startsWith("rewrites.")) {
+                  setPartialReview((prev) => ({
+                    ...prev,
+                    rewrites: [...prev.rewrites, event.value as string],
+                  }));
+                }
+                break;
+
+              case "string_chunk":
+                if (event.path === "streaming_rewrite") {
+                  setPartialReview((prev) => ({
+                    ...prev,
+                    streamingRewriteText: prev.streamingRewriteText + event.text,
+                  }));
+                }
+                break;
+
               case "complete":
+                receivedComplete = true;
                 setReview(event.result);
                 setCreditCost(event.creditCost);
+                setPartialReview({ scores: null, top3: [], rewrites: [], streamingRewriteText: "" });
                 trackEvent("ai_review_complete", {
                   mode,
                   templateType: params.templateType ?? null,
@@ -448,7 +540,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
         }
 
         // If we got here without a complete event, something went wrong
-        if (!review) {
+        if (!receivedComplete) {
           setError("添削結果を受信できませんでした");
           return false;
         }
@@ -473,7 +565,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
         abortControllerRef.current = null;
       }
     },
-    [documentId, clearTimer, parseSSEEvent, review]
+    [documentId, clearTimer, parseSSEEvent]
   );
 
   // Convenience function for section review
@@ -509,7 +601,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
     setReview(null);
     setError(null);
     setCreditCost(null);
-    setReviewMode("full");
+    setReviewMode("section");
     setCurrentSection(null);
     setSSEProgress({
       currentStep: null,
@@ -517,6 +609,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
       steps: DEFAULT_SSE_STEPS,
       isStreaming: false,
     });
+    setPartialReview({ scores: null, top3: [], rewrites: [], streamingRewriteText: "" });
   }, []);
 
   return {
@@ -530,6 +623,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
     isCancelling,
     elapsedTime,
     sseProgress,
+    partialReview,
     requestReview,
     requestSectionReview,
     clearReview,

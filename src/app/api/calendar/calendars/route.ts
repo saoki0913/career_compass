@@ -8,64 +8,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { accounts, calendarSettings } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { calendarSettings } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
-import { listCalendars, createCalendar, refreshAccessToken, GoogleCalendarScopeError } from "@/lib/calendar/google";
-
-interface GoogleAccount {
-  accessToken: string | null;
-  refreshToken: string | null;
-  accessTokenExpiresAt: Date | null;
-  id: string;
-}
-
-async function getGoogleAccount(userId: string): Promise<GoogleAccount | null> {
-  const [account] = await db
-    .select()
-    .from(accounts)
-    .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "google")))
-    .limit(1);
-
-  if (!account) return null;
-
-  return {
-    accessToken: account.accessToken,
-    refreshToken: account.refreshToken,
-    accessTokenExpiresAt: account.accessTokenExpiresAt,
-    id: account.id,
-  };
-}
-
-async function getValidAccessToken(userId: string): Promise<string | null> {
-  const account = await getGoogleAccount(userId);
-  if (!account?.accessToken) return null;
-
-  // Check if token is expired or about to expire (within 5 minutes)
-  const now = new Date();
-  const expiresAt = account.accessTokenExpiresAt;
-  const isExpired = expiresAt && expiresAt.getTime() - now.getTime() < 5 * 60 * 1000;
-
-  if (isExpired && account.refreshToken) {
-    try {
-      const refreshed = await refreshAccessToken(account.refreshToken);
-      await db
-        .update(accounts)
-        .set({
-          accessToken: refreshed.accessToken,
-          accessTokenExpiresAt: refreshed.expiresAt,
-          updatedAt: now,
-        })
-        .where(eq(accounts.id, account.id));
-      return refreshed.accessToken;
-    } catch (error) {
-      console.error("Failed to refresh token:", error);
-      return null;
-    }
-  }
-
-  return account.accessToken;
-}
+import { listCalendars, createCalendar, GoogleCalendarScopeError } from "@/lib/calendar/google";
+import { getValidGoogleCalendarAccessToken } from "@/lib/calendar/connection";
 
 export async function GET() {
   try {
@@ -80,10 +27,10 @@ export async function GET() {
       );
     }
 
-    const accessToken = await getValidAccessToken(session.user.id);
+    const { accessToken, status } = await getValidGoogleCalendarAccessToken(session.user.id);
     if (!accessToken) {
       return NextResponse.json(
-        { error: "Google Calendar not connected", code: "NOT_CONNECTED" },
+        { error: status.needsReconnect ? "Googleカレンダーの再連携が必要です" : "Google Calendar not connected", code: status.needsReconnect ? "NEED_RECONNECT" : "NOT_CONNECTED" },
         { status: 403 }
       );
     }
@@ -120,21 +67,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const accessToken = await getValidAccessToken(session.user.id);
+    const { accessToken, status } = await getValidGoogleCalendarAccessToken(session.user.id);
     if (!accessToken) {
       return NextResponse.json(
-        { error: "Google Calendar not connected", code: "NOT_CONNECTED" },
+        { error: status.needsReconnect ? "Googleカレンダーの再連携が必要です" : "Google Calendar not connected", code: status.needsReconnect ? "NEED_RECONNECT" : "NOT_CONNECTED" },
         { status: 403 }
       );
     }
 
     const body = await request.json();
-    const name = body.name || "就活Compass";
+    const name = body.name || "就活Pass";
 
     // Create the calendar in Google
     const newCalendar = await createCalendar(accessToken, name);
 
-    // Automatically set this as the target calendar
     const userId = session.user.id;
     const [existing] = await db
       .select()
@@ -149,7 +95,6 @@ export async function POST(request: NextRequest) {
         .update(calendarSettings)
         .set({
           targetCalendarId: newCalendar.id,
-          provider: "google",
           updatedAt: now,
         })
         .where(eq(calendarSettings.id, existing.id));
@@ -157,7 +102,7 @@ export async function POST(request: NextRequest) {
       await db.insert(calendarSettings).values({
         id: crypto.randomUUID(),
         userId,
-        provider: "google",
+        provider: "app",
         targetCalendarId: newCalendar.id,
         createdAt: now,
         updatedAt: now,

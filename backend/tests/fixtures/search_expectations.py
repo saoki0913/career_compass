@@ -118,11 +118,7 @@ DEFAULT_PASS_TOP_N = 5
 # Domain Matching Utility
 # =========================================================================
 def _url_matches_domain_patterns(url: str, patterns: list[str]) -> bool:
-    """Check if URL's domain matches any of the given domain patterns.
-
-    Uses segment-based matching consistent with the production code in
-    company_info._domain_pattern_matches and web_search._domain_pattern_matches.
-    """
+    """Check if URL's domain matches any of the given domain patterns."""
     if not patterns:
         return False
     try:
@@ -131,35 +127,8 @@ def _url_matches_domain_patterns(url: str, patterns: list[str]) -> bool:
         domain = ""
     if not domain:
         return False
-
-    for pattern in patterns:
-        if not pattern:
-            continue
-        pattern_lower = pattern.lower()
-
-        # Multi-segment pattern (e.g., "bk.mufg")
-        if "." in pattern_lower:
-            if domain == pattern_lower or domain.endswith("." + pattern_lower):
-                return True
-            if re.search(
-                rf"(?:^|\.){re.escape(pattern_lower)}(?:\.|$)", domain
-            ):
-                return True
-            continue
-
-        # Single-segment pattern
-        segments = domain.split(".")
-        for segment in segments:
-            if segment == pattern_lower:
-                return True
-            # Prefix match: pattern at start of segment followed by '-'
-            if segment.startswith(pattern_lower + "-"):
-                return True
-            # Suffix match: pattern at end of segment preceded by '-'
-            if segment.endswith("-" + pattern_lower):
-                return True
-
-    return False
+    from app.utils.company_names import domain_pattern_matches
+    return any(domain_pattern_matches(domain, p) for p in patterns if p)
 
 
 def _url_has_content_pattern(url: str, content_type: str) -> bool:

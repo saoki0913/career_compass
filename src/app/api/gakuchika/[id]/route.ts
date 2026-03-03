@@ -158,19 +158,6 @@ export async function PUT(
         );
       }
 
-      // Validate content length against charLimitType
-      const charLimitType = body.charLimitType !== undefined
-        ? body.charLimitType
-        : gakuchika.charLimitType || "400";
-      const charLimit = parseInt(charLimitType);
-
-      if (body.content.trim().length > charLimit) {
-        return NextResponse.json(
-          { error: `文字数が${charLimit}文字を超えています` },
-          { status: 400 }
-        );
-      }
-
       updateData.content = body.content.trim();
     }
 

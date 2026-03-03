@@ -104,6 +104,67 @@ def get_short_domain_allowlist_patterns() -> set[str]:
     return patterns
 
 
+def domain_pattern_matches(domain: str, pattern: str) -> bool:
+    """
+    Check if domain matches pattern using segment-based matching.
+
+    Avoids false positives from substring matching.
+    e.g., "mec" matches "mec.co.jp" but not "mecyes.co.jp"
+    """
+    if len(pattern) < 3:
+        if pattern.lower() not in get_short_domain_allowlist_patterns():
+            return False
+
+    pattern_lower = pattern.lower()
+    domain_lower = domain.lower()
+
+    if "." in pattern_lower:
+        if domain_lower == pattern_lower:
+            return True
+        if domain_lower.endswith("." + pattern_lower):
+            return True
+        # Allow multi-segment pattern like "bk.mufg"
+        if re.search(rf"(?:^|\.){re.escape(pattern_lower)}(?:\.|$)", domain_lower):
+            return True
+        return False
+
+    segments = domain_lower.split(".")
+    for segment in segments:
+        # Exact match
+        if segment == pattern_lower:
+            return True
+        # Prefix match (e.g., "mec-recruit")
+        if segment.startswith(pattern_lower + "-"):
+            return True
+        # Suffix match (e.g., "recruit-mec")
+        if segment.endswith("-" + pattern_lower):
+            return True
+
+        # Hyphen-normalized matching:
+        # Handles cases like "tokiomarine-hd" matching "tokiomarinehd.com"
+        if "-" in pattern_lower:
+            pattern_no_hyphen = pattern_lower.replace("-", "")
+            if len(pattern_no_hyphen) >= 4:
+                segment_no_hyphen = segment.replace("-", "")
+                # Exact match after dehyphenation
+                if segment_no_hyphen == pattern_no_hyphen:
+                    return True
+                # Prefix match after dehyphenation (with length guard)
+                if segment_no_hyphen.startswith(pattern_no_hyphen):
+                    if len(segment_no_hyphen) <= len(pattern_no_hyphen) + 8:
+                        return True
+                # Suffix match after dehyphenation
+                if segment_no_hyphen.endswith(pattern_no_hyphen):
+                    return True
+        # Reverse: segment has hyphens, pattern doesn't
+        if "-" in segment and "-" not in pattern_lower:
+            segment_no_hyphen = segment.replace("-", "")
+            if segment_no_hyphen == pattern_lower:
+                return True
+
+    return False
+
+
 @lru_cache(maxsize=1)
 def _get_domain_pattern_index() -> dict[str, set[str]]:
     """
@@ -592,27 +653,7 @@ def is_parent_domain(url: str, company_name: str) -> bool:
     domain_segments = domain.split(".")
 
     def _matches_domain_pattern(domain: str, pattern: str) -> bool:
-        pattern_lower = pattern.lower()
-        domain_lower = domain.lower()
-        if "." in pattern_lower:
-            if domain_lower == pattern_lower:
-                return True
-            if domain_lower.endswith("." + pattern_lower):
-                return True
-            # Allow multi-segment patterns like "bk.mufg"
-            if re.search(rf"(?:^|\.){re.escape(pattern_lower)}(?:\.|$)", domain_lower):
-                return True
-            return False
-
-        # Segment-based match (same as _domain_pattern_matches)
-        for segment in domain_lower.split("."):
-            if segment == pattern_lower:
-                return True
-            if segment.startswith(pattern_lower + "-") or segment.endswith(
-                "-" + pattern_lower
-            ):
-                return True
-        return False
+        return domain_pattern_matches(domain, pattern)
 
     # 3. まず子会社自身のドメインかチェック（親会社と共通のパターンを除外）
     # 子会社固有のパターン = 子会社パターン - 親会社パターン

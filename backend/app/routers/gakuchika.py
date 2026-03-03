@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.utils.llm import call_llm_with_error, sanitize_prompt_input
+from app.utils.llm import call_llm_with_error, call_llm_streaming_fields, sanitize_prompt_input
 from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)
@@ -111,6 +111,8 @@ class NextQuestionResponse(BaseModel):
     suggestions: list[str] = []
     # Why this question/evaluation quality was judged this way
     quality_rationale: list[str] = []
+    coaching_focus: Optional[str] = None
+    risk_flags: list[str] = []
 
 
 class StructuredSummaryRequest(BaseModel):
@@ -136,6 +138,12 @@ class StructuredSummaryResponse(BaseModel):
     strengths: list[StrengthItem]
     learnings: list[LearningItem]
     numbers: list[str]
+    interviewer_hooks: list[str] = []
+    decision_reasons: list[str] = []
+    before_after_comparisons: list[str] = []
+    credibility_notes: list[str] = []
+    role_scope: str = ""
+    reusable_principles: list[str] = []
 
 
 class GakuchikaESDraftRequest(BaseModel):
@@ -313,6 +321,21 @@ def _get_last_question_type(star_scores: Optional["STARScoresInput"]) -> Optiona
     return star_scores.question_types[-1] if star_scores.question_types else None
 
 
+def _clean_string_list(values: object, max_items: int = 3) -> list[str]:
+    """Normalize optional string array fields from LLM output."""
+    if not isinstance(values, list):
+        return []
+    cleaned: list[str] = []
+    for value in values:
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                cleaned.append(text)
+        if len(cleaned) >= max_items:
+            break
+    return cleaned
+
+
 @router.post("/evaluate-star")
 async def evaluate_star(request: NextQuestionRequest) -> dict:
     """
@@ -327,12 +350,19 @@ async def evaluate_star(request: NextQuestionRequest) -> dict:
             "scores": {"situation": 0, "task": 0, "action": 0, "result": 0},
             "weakest_element": "situation",
             "is_complete": False,
+            "hidden_eval": {
+                "credibility": 0,
+                "role_scope_validity": 0,
+                "scene_vividness": 0,
+                "transferability": 0,
+            },
             "missing_aspects": {
                 "situation": ["時期", "場所", "規模"],
                 "task": ["課題の内容", "なぜ課題だったか"],
                 "action": ["具体的な行動", "工夫した点"],
                 "result": ["数字での成果", "学び"],
             },
+            "risk_flags": [],
         }
 
     conversation_text = _format_conversation_for_evaluation(request.conversation_history)
@@ -363,6 +393,12 @@ async def evaluate_star(request: NextQuestionRequest) -> dict:
             "scores": scores.model_dump(),
             "weakest_element": _get_weakest_element(scores),
             "is_complete": _is_star_complete(scores),
+            "hidden_eval": {
+                "credibility": 0,
+                "role_scope_validity": 0,
+                "scene_vividness": 0,
+                "transferability": 0,
+            },
             "missing_aspects": {
                 "situation": [],
                 "task": [],
@@ -370,6 +406,7 @@ async def evaluate_star(request: NextQuestionRequest) -> dict:
                 "result": [],
             },
             "quality_rationale": [],
+            "risk_flags": [],
         }
 
     data = llm_result.data
@@ -385,8 +422,10 @@ async def evaluate_star(request: NextQuestionRequest) -> dict:
         "scores": scores.model_dump(),
         "weakest_element": _get_weakest_element(scores),
         "is_complete": _is_star_complete(scores),
+        "hidden_eval": data.get("hidden_eval", {}),
         "missing_aspects": data.get("missing_aspects", {}),
         "quality_rationale": data.get("quality_rationale", []),
+        "risk_flags": _clean_string_list(data.get("risk_flags"), max_items=2),
     }
 
 
@@ -476,6 +515,8 @@ async def get_next_question(request: NextQuestionRequest):
             question_type=question_type,
             suggestions=initial_suggestions,
             quality_rationale=quality_rationale,
+            coaching_focus="全体像をつかむ",
+            risk_flags=[],
         )
 
     # Determine conversation phase
@@ -560,8 +601,10 @@ async def get_next_question(request: NextQuestionRequest):
         "scores": scores.model_dump(),
         "weakest_element": _get_weakest_element(scores),
         "is_complete": _is_star_complete(scores),
+        "hidden_eval": data.get("hidden_eval", {}),
         "missing_aspects": data.get("missing_aspects", {}),
         "quality_rationale": data.get("quality_rationale", []),
+        "risk_flags": _clean_string_list(data.get("risk_flags"), max_items=2),
     }
 
     # Extract question
@@ -585,6 +628,8 @@ async def get_next_question(request: NextQuestionRequest):
     suggested_end = data.get("suggested_end", False)
     suggestions = data.get("suggestions", [])
     quality_rationale = data.get("quality_rationale", [])
+    coaching_focus = data.get("coaching_focus")
+    risk_flags = _clean_string_list(data.get("risk_flags"), max_items=2)
 
     # Validate question type diversity (consecutive same type check)
     if last_question_type and question_type == last_question_type:
@@ -601,6 +646,8 @@ async def get_next_question(request: NextQuestionRequest):
         question_type=question_type,
         suggestions=suggestions,
         quality_rationale=quality_rationale,
+        coaching_focus=coaching_focus,
+        risk_flags=risk_flags,
     )
 
 
@@ -684,6 +731,8 @@ async def _generate_next_question_progress(
                     "question_type": question_type,
                     "suggestions": initial_suggestions,
                     "quality_rationale": quality_rationale,
+                    "coaching_focus": "全体像をつかむ",
+                    "risk_flags": [],
                 },
             })
             return
@@ -723,17 +772,44 @@ async def _generate_next_question_progress(
             prohibited_expressions=_PROHIBITED_EXPRESSIONS,
         )
 
-        llm_result = await call_llm_with_error(
+        # Stream LLM response with field-level events
+        llm_result = None
+        async for event in call_llm_streaming_fields(
             system_prompt=prompt,
             user_message="上記の会話を分析し、STAR評価と次の質問をJSON形式で生成してください。",
             max_tokens=800,
             temperature=0.5,
             feature="gakuchika",
-            disable_fallback=True,
-        )
+            schema_hints={
+                "question": "string",
+                "star_scores": "object",
+                "hidden_eval": "object",
+                "suggestions": "array",
+                "quality_rationale": "array",
+                "coaching_focus": "string",
+                "risk_flags": "array",
+            },
+            stream_string_fields=["question"],
+        ):
+            if event.type == "chunk":
+                yield _sse_event("chunk", {"text": event.text})
+            elif event.type == "string_chunk":
+                yield _sse_event("string_chunk", {"path": event.path, "text": event.text})
+            elif event.type == "field_complete":
+                yield _sse_event("field_complete", {"path": event.path, "value": event.value})
+            elif event.type == "array_item_complete":
+                yield _sse_event("array_item_complete", {"path": event.path, "value": event.value})
+            elif event.type == "error":
+                error = event.result.error if event.result else None
+                yield _sse_event("error", {
+                    "message": error.message if error else "AIサービスに接続できませんでした。",
+                })
+                return
+            elif event.type == "complete":
+                llm_result = event.result
 
-        if not llm_result.success:
-            error = llm_result.error
+        if llm_result is None or not llm_result.success:
+            error = llm_result.error if llm_result else None
             yield _sse_event("error", {
                 "message": error.message if error else "AIサービスに接続できませんでした。",
             })
@@ -759,8 +835,10 @@ async def _generate_next_question_progress(
             "scores": scores.model_dump(),
             "weakest_element": _get_weakest_element(scores),
             "is_complete": _is_star_complete(scores),
+            "hidden_eval": data.get("hidden_eval", {}),
             "missing_aspects": data.get("missing_aspects", {}),
             "quality_rationale": data.get("quality_rationale", []),
+            "risk_flags": _clean_string_list(data.get("risk_flags"), max_items=2),
         }
 
         question = data.get("question")
@@ -781,6 +859,8 @@ async def _generate_next_question_progress(
                 "question_type": data.get("question_type", QUESTION_TYPE_SCENE),
                 "suggestions": data.get("suggestions", []),
                 "quality_rationale": data.get("quality_rationale", []),
+                "coaching_focus": data.get("coaching_focus"),
+                "risk_flags": _clean_string_list(data.get("risk_flags"), max_items=2),
             },
         })
 
@@ -918,6 +998,12 @@ async def generate_structured_summary(request: StructuredSummaryRequest):
             "strengths": strengths,
             "learnings": learnings,
             "numbers": data.get("numbers", []),
+            "interviewer_hooks": _clean_string_list(data.get("interviewer_hooks")),
+            "decision_reasons": _clean_string_list(data.get("decision_reasons")),
+            "before_after_comparisons": _clean_string_list(data.get("before_after_comparisons")),
+            "credibility_notes": _clean_string_list(data.get("credibility_notes"), max_items=2),
+            "role_scope": str(data.get("role_scope", "")).strip(),
+            "reusable_principles": _clean_string_list(data.get("reusable_principles")),
         }
 
     error = llm_result.error

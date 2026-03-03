@@ -5,78 +5,91 @@ import type { ReviewScores } from "@/hooks/useESReview";
 import {
   Popover,
   PopoverContent,
-  PopoverTrigger,
+  PopoverDescription,
   PopoverHeader,
   PopoverTitle,
-  PopoverDescription,
+  PopoverTrigger,
 } from "@/components/ui/popover";
 
-// Score axis explanations for UX clarity
 const SCORE_EXPLANATIONS = {
   logic: {
     title: "論理性",
-    description: "主張と根拠の整合性、因果関係の明確さ",
-    goodExample: "結論→理由→具体例の流れが明確",
-    icon: "🔗",
+    description: "主張と根拠のつながりが自然か",
+    goodExample: "結論から入り、理由と具体例が素直につながっている状態",
+    icon: "L",
   },
   specificity: {
     title: "具体性",
-    description: "数値、固有名詞、具体的エピソードの有無",
-    goodExample: "「3ヶ月で売上20%向上」のような記述",
-    icon: "🎯",
+    description: "状況や行動が具体的に見えるか",
+    goodExample: "経験の場面や役割が読み手に伝わる状態",
+    icon: "S",
   },
   passion: {
     title: "熱意",
-    description: "志望度の強さ、入社意欲が伝わる表現",
-    goodExample: "「御社でしか実現できない」という意志",
-    icon: "🔥",
+    description: "志望度や意欲が伝わるか",
+    goodExample: "なぜ取り組みたいかが自分の言葉で示されている状態",
+    icon: "P",
   },
   company_connection: {
     title: "企業接続",
-    description: "企業研究に基づく具体的な接続の有無",
-    goodExample: "事業・理念と経験を結びつけた記述",
-    icon: "🏢",
+    description: "企業情報と自分の経験が結びついているか",
+    goodExample: "事業や価値観との接点が具体的に書かれている状態",
+    icon: "C",
   },
   readability: {
     title: "読みやすさ",
-    description: "文の長さ、段落構成、接続詞の適切さ",
-    goodExample: "一文60字以内、適切な段落分け",
-    icon: "📖",
+    description: "文の長さや流れが読みやすいか",
+    goodExample: "一文が重すぎず、読み進めやすい状態",
+    icon: "R",
   },
 } as const;
 
-// Grade threshold explanations
 const GRADE_THRESHOLDS = [
-  { grade: "A+", min: 4.5, label: "このまま提出可能", color: "text-emerald-600" },
-  { grade: "A", min: 4.0, label: "微調整で完成", color: "text-emerald-500" },
-  { grade: "B+", min: 3.5, label: "いくつかの改善で向上", color: "text-blue-500" },
-  { grade: "B", min: 3.0, label: "重点的な改善が必要", color: "text-amber-500" },
-  { grade: "C", min: 0, label: "大幅な見直しが必要", color: "text-red-500" },
+  { grade: "S", min: 4.6, label: "かなり完成度が高い", color: "text-emerald-600" },
+  { grade: "A", min: 4.1, label: "十分に強い内容", color: "text-emerald-500" },
+  { grade: "B", min: 3.5, label: "通過水準に近い", color: "text-blue-600" },
+  { grade: "C", min: 2.8, label: "伸ばしどころがある", color: "text-amber-600" },
+  { grade: "D", min: 0, label: "構成から見直したい", color: "text-red-600" },
 ] as const;
 
 interface ScoreDisplayProps {
   scores: ReviewScores;
   hasCompanyRag: boolean;
   className?: string;
-  onScrollToIssue?: (category: string) => void;
 }
 
-interface ScoreBarProps {
-  scoreKey: keyof typeof SCORE_EXPLANATIONS;
-  value: number;
-  color: string;
-  onScrollToIssue?: (category: string) => void;
+interface ScoreSummary {
+  average: number;
+  grade: string;
+  gradeColor: string;
+  label: string;
+  lowScoreCount: number;
 }
 
-// Info icon component
+function getVisibleScores(scores: ReviewScores, hasCompanyRag: boolean) {
+  return Object.entries(scores)
+    .filter(([key, value]) => (key !== "company_connection" || hasCompanyRag) && typeof value === "number")
+    .map(([key, value]) => [key, value as number] as const);
+}
+
+export function getScoreSummary(scores: ReviewScores, hasCompanyRag: boolean): ScoreSummary {
+  const entries = getVisibleScores(scores, hasCompanyRag);
+  const values = entries.map(([, value]) => value);
+  const average = values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
+  const threshold = GRADE_THRESHOLDS.find((item) => average >= item.min) ?? GRADE_THRESHOLDS[GRADE_THRESHOLDS.length - 1];
+
+  return {
+    average,
+    grade: threshold.grade,
+    gradeColor: threshold.color,
+    label: threshold.label,
+    lowScoreCount: values.filter((value) => value < 3.2).length,
+  };
+}
+
 function InfoIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={cn("w-3.5 h-3.5", className)}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
+    <svg className={cn("h-3.5 w-3.5", className)} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -87,229 +100,110 @@ function InfoIcon({ className }: { className?: string }) {
   );
 }
 
-function ScoreBar({ scoreKey, value, color, onScrollToIssue }: ScoreBarProps) {
-  const percentage = (value / 5) * 100;
+function AxisHelp({ scoreKey }: { scoreKey: keyof typeof SCORE_EXPLANATIONS }) {
   const explanation = SCORE_EXPLANATIONS[scoreKey];
-  const isLowScore = value < 3;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+          <span>{explanation.title}</span>
+          <InfoIcon className="text-muted-foreground/70" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="left" align="start" className="w-64">
+        <PopoverHeader>
+          <PopoverTitle className="flex items-center gap-2">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-foreground">
+              {explanation.icon}
+            </span>
+            <span>{explanation.title}</span>
+          </PopoverTitle>
+          <PopoverDescription>{explanation.description}</PopoverDescription>
+        </PopoverHeader>
+        <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">良い状態: {explanation.goodExample}</p>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ScoreBar({ scoreKey, value }: { scoreKey: keyof typeof SCORE_EXPLANATIONS; value: number }) {
+  const percentage = Math.max(0, Math.min(100, (value / 5) * 100));
+  const color = value >= 4.2 ? "bg-emerald-500" : value >= 3.5 ? "bg-blue-500" : value >= 2.8 ? "bg-amber-500" : "bg-red-500";
 
   return (
-    <div className="flex items-center gap-2">
-      {/* Label with popover tooltip */}
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="flex items-center gap-1 text-xs font-medium text-muted-foreground w-20 shrink-0 hover:text-foreground transition-colors group"
-          >
-            <span>{explanation.title}</span>
-            <InfoIcon className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/60" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent side="left" align="start" className="w-64">
-          <PopoverHeader>
-            <PopoverTitle className="flex items-center gap-2">
-              <span>{explanation.icon}</span>
-              <span>{explanation.title}</span>
-            </PopoverTitle>
-            <PopoverDescription className="mt-1">
-              {explanation.description}
-            </PopoverDescription>
-          </PopoverHeader>
-          <div className="mt-3 pt-3 border-t border-border">
-            <p className="text-xs text-muted-foreground">良い例:</p>
-            <p className="text-xs mt-1 text-foreground/80">{explanation.goodExample}</p>
-          </div>
-        </PopoverContent>
-      </Popover>
-
-      {/* Progress bar */}
-      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-        <div
-          className={cn("h-full rounded-full transition-all duration-500", color)}
-          style={{ width: `${percentage}%` }}
-        />
+    <div className="flex items-center gap-3">
+      <div className="w-24 shrink-0">
+        <AxisHelp scoreKey={scoreKey} />
       </div>
-
-      {/* Score value */}
-      <span
-        className={cn(
-          "text-xs font-bold w-6 text-right tabular-nums",
-          isLowScore && "text-amber-600"
-        )}
-      >
-        {value}
-      </span>
-
-      {/* Low score link to improvements */}
-      {isLowScore && onScrollToIssue && (
-        <button
-          type="button"
-          onClick={() => onScrollToIssue(scoreKey)}
-          className="text-[10px] text-amber-600 hover:text-amber-700 underline underline-offset-2 shrink-0"
-        >
-          改善点→
-        </button>
-      )}
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+        <div className={cn("h-full rounded-full transition-all duration-300", color)} style={{ width: `${percentage}%` }} />
+      </div>
+      <span className="w-9 text-right text-sm font-semibold tabular-nums text-foreground">{value.toFixed(1)}</span>
     </div>
   );
 }
 
-// Grade explanation popover
-function GradeExplanation({
-  currentGrade,
-  average,
-}: {
-  currentGrade: string;
-  average: number;
-}) {
+function GradeHelp({ summary }: { summary: ScoreSummary }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
+        <button type="button" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
           <span>評価基準</span>
           <InfoIcon />
         </button>
       </PopoverTrigger>
-      <PopoverContent side="bottom" align="end" className="w-56">
+      <PopoverContent side="bottom" align="end" className="w-64">
         <PopoverHeader>
-          <PopoverTitle>グレード基準</PopoverTitle>
+          <PopoverTitle>評価の見方</PopoverTitle>
+          <PopoverDescription>良い回答でも改善余地は出る前提で、実務的に見ています。</PopoverDescription>
         </PopoverHeader>
-        <div className="mt-3 space-y-2">
+        <div className="mt-3 space-y-2 text-xs">
           {GRADE_THRESHOLDS.map((threshold) => (
-            <div
-              key={threshold.grade}
-              className={cn(
-                "flex items-center justify-between text-xs py-1 px-2 rounded",
-                currentGrade === threshold.grade && "bg-muted"
-              )}
-            >
-              <span className={cn("font-bold", threshold.color)}>
-                {threshold.grade}
-              </span>
-              <span className="text-muted-foreground">
-                {threshold.min > 0 ? `${threshold.min}+` : `<${GRADE_THRESHOLDS[GRADE_THRESHOLDS.length - 2].min}`}
-              </span>
-              <span className="text-foreground/80">{threshold.label}</span>
+            <div key={threshold.grade} className={cn("flex items-center justify-between rounded px-2 py-1", threshold.grade === summary.grade && "bg-muted")}>
+              <span className={cn("font-bold", threshold.color)}>{threshold.grade}</span>
+              <span className="text-muted-foreground">{threshold.min > 0 ? `${threshold.min.toFixed(1)}+` : "-"}</span>
+              <span className="text-foreground/85">{threshold.label}</span>
             </div>
           ))}
-        </div>
-        <div className="mt-3 pt-3 border-t border-border">
-          <p className="text-xs text-muted-foreground">
-            現在のスコア: <span className="font-medium text-foreground">{average.toFixed(1)}</span>
-          </p>
         </div>
       </PopoverContent>
     </Popover>
   );
 }
 
-const SCORE_CONFIG: Record<keyof ReviewScores, { color: string }> = {
-  logic: { color: "bg-primary" },
-  specificity: { color: "bg-primary" },
-  passion: { color: "bg-primary" },
-  company_connection: { color: "bg-primary" },
-  readability: { color: "bg-primary" },
-};
-
-export function ScoreDisplay({
-  scores,
-  hasCompanyRag,
-  className,
-  onScrollToIssue,
-}: ScoreDisplayProps) {
-  // Calculate average score
-  const scoreValues = Object.entries(scores)
-    .filter(([key]) => key !== "company_connection" || hasCompanyRag)
-    .map(([, value]) => value as number);
-  const average = scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length;
-
-  const getGradeColor = (avg: number) => {
-    if (avg >= 4) return "text-emerald-500";
-    if (avg >= 3) return "text-blue-500";
-    if (avg >= 2) return "text-amber-500";
-    return "text-red-500";
-  };
-
-  const getGradeLabel = (avg: number) => {
-    if (avg >= 4.5) return "A+";
-    if (avg >= 4) return "A";
-    if (avg >= 3.5) return "B+";
-    if (avg >= 3) return "B";
-    if (avg >= 2.5) return "C+";
-    if (avg >= 2) return "C";
-    return "D";
-  };
-
-  const currentGrade = getGradeLabel(average);
-
-  // Count low scores for summary
-  const lowScoreCount = scoreValues.filter((v) => v < 3).length;
+export function ScoreDisplay({ scores, hasCompanyRag, className }: ScoreDisplayProps) {
+  const summary = getScoreSummary(scores, hasCompanyRag);
+  const visibleScores = getVisibleScores(scores, hasCompanyRag) as Array<[keyof typeof SCORE_EXPLANATIONS, number]>;
 
   return (
-    <div className={cn("space-y-2", className)}>
-      {/* Overall Grade - Compact single line */}
-      <div className="flex items-center justify-between pb-1.5 border-b border-border">
-        <div className="flex items-center gap-2">
-          <span className={cn("text-xl font-bold", getGradeColor(average))}>
-            {currentGrade}
-          </span>
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm font-medium">{average.toFixed(1)}</span>
+    <div className={cn("space-y-3 rounded-2xl border border-border bg-card p-4", className)}>
+      <div className="flex items-start justify-between gap-3 border-b border-border pb-3">
+        <div>
+          <div className="flex items-baseline gap-2">
+            <span className={cn("text-2xl font-bold", summary.gradeColor)}>{summary.grade}</span>
+            <span className="text-base font-semibold text-foreground">{summary.average.toFixed(1)}</span>
             <span className="text-xs text-muted-foreground">/ 5.0</span>
           </div>
-          {lowScoreCount > 0 && (
-            <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
-              {lowScoreCount}項目要改善
+          <p className="mt-1 text-xs text-muted-foreground">{summary.label}</p>
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          <GradeHelp summary={summary} />
+          {summary.lowScoreCount > 0 && (
+            <span className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
+              要調整 {summary.lowScoreCount}項目
             </span>
           )}
         </div>
-        <GradeExplanation currentGrade={currentGrade} average={average} />
       </div>
 
-      {/* Individual Scores */}
-      <div className="space-y-1.5">
-        <ScoreBar
-          scoreKey="logic"
-          value={scores.logic}
-          color={SCORE_CONFIG.logic.color}
-          onScrollToIssue={onScrollToIssue}
-        />
-        <ScoreBar
-          scoreKey="specificity"
-          value={scores.specificity}
-          color={SCORE_CONFIG.specificity.color}
-          onScrollToIssue={onScrollToIssue}
-        />
-        <ScoreBar
-          scoreKey="passion"
-          value={scores.passion}
-          color={SCORE_CONFIG.passion.color}
-          onScrollToIssue={onScrollToIssue}
-        />
-        {hasCompanyRag && scores.company_connection !== undefined && (
-          <ScoreBar
-            scoreKey="company_connection"
-            value={scores.company_connection}
-            color={SCORE_CONFIG.company_connection.color}
-            onScrollToIssue={onScrollToIssue}
-          />
-        )}
-        <ScoreBar
-          scoreKey="readability"
-          value={scores.readability}
-          color={SCORE_CONFIG.readability.color}
-          onScrollToIssue={onScrollToIssue}
-        />
+      <div className="space-y-2.5">
+        {visibleScores.map(([key, value]) => (
+          <ScoreBar key={key} scoreKey={key} value={value} />
+        ))}
       </div>
 
-      {/* Note when company RAG not available */}
       {!hasCompanyRag && (
-        <p className="text-xs text-muted-foreground italic">
-          ※ 企業情報を取得すると「企業接続」評価も表示されます
-        </p>
+        <p className="text-xs text-muted-foreground">企業情報があると、企業接続も含めて評価されます。</p>
       )}
     </div>
   );

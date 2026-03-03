@@ -9,10 +9,10 @@ const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "就活Compass（シューパス）",
+    default: "就活Pass | 就活AI・ES添削・締切管理",
     template: "%s | 就活Pass",
   },
-  description: "AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」就活支援アプリ",
+  description: "就活Pass（シューパス）は、就活AI・ES添削・締切管理をまとめて使える就活アプリです。",
   alternates: {
     canonical: "/",
   },
@@ -20,14 +20,14 @@ export const metadata: Metadata = {
     type: "website",
     url: siteUrl,
     siteName: "就活Pass",
-    title: "就活Compass（シューパス）",
-    description: "AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」就活支援アプリ",
+    title: "就活Pass | 就活AI・ES添削・締切管理",
+    description: "就活Pass（シューパス）は、就活AI・ES添削・締切管理をまとめて使える就活アプリです。",
     locale: "ja_JP",
   },
   twitter: {
     card: "summary_large_image",
-    title: "就活Compass（シューパス）",
-    description: "AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」就活支援アプリ",
+    title: "就活Pass | 就活AI・ES添削・締切管理",
+    description: "就活Pass（シューパス）は、就活AI・ES添削・締切管理をまとめて使える就活アプリです。",
   },
   verification: {
     google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || undefined,
@@ -59,12 +59,12 @@ export default function RootLayout({
               "@context": "https://schema.org",
               "@type": "SoftwareApplication",
               name: "就活Pass",
-              alternateName: "就活Compass",
+              alternateName: ["シューパス", "就活Compass", "Career Compass"],
               applicationCategory: "BusinessApplication",
               operatingSystem: "Web",
               url: siteUrl,
               description:
-                "AIと進捗管理で就活をサポート。ES添削・締切管理・企業研究をひとつのアプリに統合。",
+                "就活Pass（シューパス）は、ES添削・締切管理・企業研究をひとつにまとめた就活AIアプリです。",
               offers: [
                 {
                   "@type": "Offer",

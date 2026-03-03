@@ -7,7 +7,7 @@ type FeatureStatus = "yes" | "no" | "partial";
 
 interface ComparisonFeature {
   name: string;
-  ukarun: FeatureStatus;
+  shupass: FeatureStatus;
   freeTools: FeatureStatus;
   jukatsujuku: FeatureStatus;
 }
@@ -15,50 +15,50 @@ interface ComparisonFeature {
 const features: ComparisonFeature[] = [
   {
     name: "ES添削（AI）",
-    ukarun: "yes",
+    shupass: "yes",
     freeTools: "partial",
     jukatsujuku: "yes",
   },
   {
     name: "添削スタイル 8種",
-    ukarun: "yes",
+    shupass: "yes",
     freeTools: "no",
     jukatsujuku: "no",
   },
   {
     name: "締切自動管理",
-    ukarun: "yes",
+    shupass: "yes",
     freeTools: "no",
     jukatsujuku: "partial",
   },
   {
     name: "企業研究（RAG）",
-    ukarun: "yes",
+    shupass: "yes",
     freeTools: "no",
     jukatsujuku: "no",
   },
   {
     name: "ガクチカ深掘りAI",
-    ukarun: "yes",
+    shupass: "yes",
     freeTools: "no",
     jukatsujuku: "yes",
   },
   {
     name: "Googleカレンダー連携",
-    ukarun: "yes",
+    shupass: "yes",
     freeTools: "no",
     jukatsujuku: "no",
   },
   {
     name: "月額料金",
-    ukarun: "yes",
+    shupass: "yes",
     freeTools: "yes",
     jukatsujuku: "no",
   },
 ];
 
 const priceLabels = {
-  ukarun: "¥0〜980",
+  shupass: "¥0〜980",
   freeTools: "¥0",
   jukatsujuku: "¥30,000〜100,000",
 };
@@ -117,7 +117,7 @@ export function ComparisonSection() {
                       就活Pass
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {priceLabels.ukarun}
+                      {priceLabels.shupass}
                     </span>
                   </div>
                 </th>
@@ -157,7 +157,7 @@ export function ComparisonSection() {
                   </td>
                   <td className="py-4 px-4">
                     <div className="flex justify-center">
-                      <StatusIcon status={feature.ukarun} />
+                      <StatusIcon status={feature.shupass} />
                     </div>
                   </td>
                   <td className="py-4 px-4">

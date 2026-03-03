@@ -73,8 +73,11 @@ def build_section_review_prompt(
    - 元の文章の良い部分は活かしつつ、問題点を改善した文章
 {char_limit_instruction}
    {company_rewrite_note}
+4. streaming_rewrite: rewrites[0] と同じ本文
+   - 途中表示用
+   - rewrites[0] と完全に同一にする
 
-スコアは厳しめに付けてください（平均3点程度）。
+スコアは実務的に付けてください。通過水準に近い回答は4前後、強い回答は4.5以上も付けて構いません。
 この設問に特化した具体的なフィードバックを提供してください。
 
 出力形式（必ず有効なJSONで回答）:
@@ -83,6 +86,7 @@ def build_section_review_prompt(
   "top3": [
     {{"category": "...", "issue": "...", "suggestion": "...", "why_now": "...", "difficulty": "easy"}}
   ],
+  "streaming_rewrite": "リライト案",
   "rewrites": ["リライト案"]
 }}"""
 
@@ -142,9 +146,12 @@ def build_full_review_prompt(
    - 元の文章の良い部分は活かしつつ、問題点を改善した文章
    - 元の文章と同程度の長さで
    {company_rewrite_note}
+4. streaming_rewrite: rewrites[0] と同じ本文
+   - 途中表示用
+   - rewrites[0] と完全に同一にする
 {section_feedback_instruction}
 
-スコアは厳しめに付けてください（平均3点程度）。
+スコアは実務的に付けてください。通過水準に近い回答は4前後、強い回答は4.5以上も付けて構いません。
 改善案は具体的で、すぐに実践できるものにしてください。
 
 出力形式（必ず有効なJSONで回答）:
@@ -153,6 +160,7 @@ def build_full_review_prompt(
   "top3": [
     {{"category": "...", "issue": "...", "suggestion": "...", "why_now": "...", "difficulty": "easy"}}
   ],
+  "streaming_rewrite": "リライト1",
   "rewrites": ["リライト1", "リライト2", ...],
   "section_feedbacks": [{{"section_title": "...", "feedback": "...", "rewrite": "..."}}]
 }}"""
@@ -191,13 +199,17 @@ def build_full_review_prompt_streaming(
 
 3. rewrites: 改善例（{rewrite_count}パターン）
    - スタイル「{style}」に沿って{rewrite_instruction}リライト
+4. streaming_rewrite: rewrites[0] と同じ本文
+   - 途中表示用
+   - rewrites[0] と完全に同一にする
 {section_feedback_instruction}
 
-スコアは厳しめに付けてください。
+スコアは実務的に付けてください。通過水準に近い回答は4前後、強い回答は4.5以上も付けて構いません。
 出力形式（必ず有効なJSONで回答）:
 {{
   "scores": {{"logic": 3, "specificity": 3, "passion": 3, "readability": 3{company_score_example}}},
   "top3": [{{"category": "...", "issue": "...", "suggestion": "...", "why_now": "...", "difficulty": "easy"}}],
+  "streaming_rewrite": "リライト1",
   "rewrites": ["リライト1"],
   "section_feedbacks": [{{"section_title": "...", "feedback": "..."}}]
 }}"""

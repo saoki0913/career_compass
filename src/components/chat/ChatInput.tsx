@@ -10,6 +10,7 @@ interface ChatInputProps {
   onSend: () => void;
   placeholder?: string;
   disabled?: boolean;
+  disableSend?: boolean;
   isSending?: boolean;
   className?: string;
 }
@@ -56,6 +57,7 @@ export function ChatInput({
   onSend,
   placeholder = "回答を入力...",
   disabled = false,
+  disableSend = false,
   isSending = false,
   className,
 }: ChatInputProps) {
@@ -94,6 +96,7 @@ export function ChatInput({
       !isComposing &&
       !e.nativeEvent.isComposing &&
       !isSending &&
+      !disableSend &&
       !disabled
     ) {
       e.preventDefault();
@@ -128,18 +131,18 @@ export function ChatInput({
             onCompositionStart={handleCompositionStart}
             onCompositionEnd={handleCompositionEnd}
             placeholder={placeholder}
-            disabled={disabled || isSending}
+            disabled={disabled}
             className={cn(
               "flex-1 px-4 py-3 rounded-xl border border-input bg-background text-sm",
               "resize-none focus:outline-none focus:ring-2 focus:ring-ring",
               "min-h-[48px] max-h-[120px] transition-colors",
-              (disabled || isSending) && "opacity-50 cursor-not-allowed"
+              disabled && "opacity-50 cursor-not-allowed"
             )}
             style={{ height: "48px" }}
           />
           <Button
             onClick={onSend}
-            disabled={!value.trim() || isSending || disabled}
+            disabled={!value.trim() || isSending || disableSend || disabled}
             size="icon"
             className="w-12 h-12 rounded-xl shrink-0"
           >

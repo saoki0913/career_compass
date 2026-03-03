@@ -530,7 +530,8 @@
     "三井住友銀行": {
       "domains": [
         "smbc-freshers",
-        "smbcbank"
+        "smbcbank",
+        "smbc"
       ],
       "parent": "三井住友フィナンシャルグループ",
       "allow_parent_domains_for": [
@@ -599,7 +600,9 @@
       "parent": "三井住友フィナンシャルグループ"
     },
     "東京海上ホールディングス": [
-      "tokiomarine-hd"
+      "tokiomarine-hd",
+      "tokiomarinehd",
+      "tokiomarineam"
     ],
     "東京海上日動火災保険": {
       "domains": [
@@ -611,7 +614,8 @@
       "ms-ins"
     ],
     "損害保険ジャパン": [
-      "sompo"
+      "sompo",
+      "sompo-japan"
     ],
     "日本生命": [
       "nissay",
@@ -638,7 +642,9 @@
       "jpmorgan"
     ],
     "シティグループ": [
-      "citi"
+      "citi",
+      "citigroup",
+      "citibank"
     ],
     "バンク・オブ・アメリカ": [
       "bankofamerica",
@@ -680,11 +686,18 @@
       "parent": "三菱UFJフィナンシャル・グループ"
     },
     "三井住友トラスト・ホールディングス": [
-      "smth-hd"
+      "smth-hd",
+      "smtb",
+      "smtrc",
+      "smtbs",
+      "smtss",
+      "smtic"
     ],
     "三井住友信託銀行": {
       "domains": [
-        "smth"
+        "smth",
+        "smtb",
+        "smtgs"
       ],
       "parent": "三井住友トラスト・ホールディングス"
     },
@@ -720,7 +733,8 @@
       "jcb"
     ],
     "三井住友カード": [
-      "smcc"
+      "smcc",
+      "smbc-card"
     ],
     "三菱UFJニコス": [
       "cr.mufg"
@@ -1407,7 +1421,10 @@
       "google"
     ],
     "Amazon": [
-      "amazon"
+      "amazon",
+      "aboutamazon",
+      "amazon.jobs",
+      "shigoto.amazon"
     ],
     "Apple": [
       "apple"
@@ -1439,7 +1456,8 @@
       "parent": "NTT"
     },
     "富士ソフト": [
-      "fsi"
+      "fsi",
+      "fujisoft"
     ],
     "オービック": [
       "obic"
@@ -1561,7 +1579,8 @@
       "hp"
     ],
     "AWS": [
-      "aws.amazon"
+      "aws.amazon",
+      "aws"
     ],
     "_subsection_04e": "--- スタートアップ・SaaS ---",
     "LINEヤフー": [
@@ -3214,7 +3233,9 @@
       "zeon"
     ],
     "積水化学工業": [
-      "sekisui-chem"
+      "sekisui-chem",
+      "sekisui",
+      "sekisuichemical"
     ],
     "富士フイルムビジネスイノベーション": [
       "fujifilm-fb"
@@ -3996,7 +4017,8 @@
       "shiseido"
     ],
     "コーセー": [
-      "kose"
+      "kose",
+      "koseholdings"
     ],
     "ポーラ": [
       "pola"
@@ -4420,7 +4442,9 @@
     ],
     "ソニーミュージック": {
       "domains": [
-        "sonymusic"
+        "sonymusic",
+        "sme",
+        "sonymusicsolutions"
       ],
       "parent": "ソニーグループ"
     },
@@ -5226,10 +5250,14 @@
       "takashimaya"
     ],
     "大丸松坂屋": [
-      "daimaru-matsuzakaya"
+      "daimaru-matsuzakaya",
+      "daimaru",
+      "dmdepart"
     ],
     "マツモトキヨシ": [
-      "matsukiyo"
+      "matsukiyo",
+      "matsukiyococokara",
+      "matsumoto-inc"
     ],
     "スギ薬局": [
       "sugi-net",
@@ -5378,7 +5406,9 @@
       "jreast"
     ],
     "JR西日本": [
-      "westjr"
+      "westjr",
+      "jrwsc",
+      "jr-odekake"
     ],
     "JR東海": [
       "jr-central"
@@ -6349,7 +6379,8 @@
       "dnp"
     ],
     "凸版印刷": [
-      "toppan"
+      "toppan",
+      "toppan.co.jp"
     ],
     "トッパン・フォームズ": {
       "domains": [
@@ -6416,7 +6447,8 @@
     ],
     "_section_14": "=== アパレル・繊維 ===",
     "ワコール": [
-      "wacoal"
+      "wacoal",
+      "wacoalholdings"
     ],
     "オンワード": [
       "onward"
@@ -6480,7 +6512,8 @@
       "kinden"
     ],
     "九電工": [
-      "kyudenko"
+      "kyudenko",
+      "kraftia"
     ],
     "中電工": [
       "chudenko"

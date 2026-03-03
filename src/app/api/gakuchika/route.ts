@@ -202,15 +202,6 @@ export async function POST(request: NextRequest) {
       ? charLimitType
       : "400";
 
-    // Validate content length
-    const charLimit = parseInt(validCharLimitType);
-    if (content.length > charLimit) {
-      return NextResponse.json(
-        { error: `文字数が${charLimit}文字を超えています` },
-        { status: 400 }
-      );
-    }
-
     const now = new Date();
     const newGakuchika = await db
       .insert(gakuchikaContents)

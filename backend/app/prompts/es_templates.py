@@ -575,9 +575,11 @@ def build_template_prompt(
     else:
         char_constraint = ""
 
+    effective_rewrite_count = 1
+
     # Output requirements - character limits are now emphasized first
     output_requirements = """【最重要: 文字数厳守】
-各パターンを出力する前に、以下の手順を必ず実行:
+完成稿を出力する前に、以下の手順を必ず実行:
 1. 文章を仮作成
 2. len(text) で文字数を計算
 3. 範囲外なら上記の文字数管理の削減/追加テクニックで調整
@@ -585,16 +587,12 @@ def build_template_prompt(
 5. 範囲内になったら char_count に正確な文字数を記録
 
 """
-    if rewrite_count == 1:
-        output_requirements += "・改善案を1パターン提示（メリット・デメリットは不要、pros/consは空配列で出力）"
-    else:
-        output_requirements += f"""・改善案を{rewrite_count}パターン提示し、それぞれのメリット・デメリットを説明
-・**各パターンのスタイルを明確に差別化すること**:
-  パターン1: 結論先行型（冒頭1文で主張、根拠→具体例→展望の順。最も安定した構成）
-  パターン2: エピソード導入型（具体的場面から始め、そこから主張へ。数値やエビデンスを強調）
-  パターン3: 問題提起型（課題や気づきから入り、解決過程→結論へ。人物像が伝わる構成）"""
-        output_requirements += "\n・メリット・デメリットに文字数に関する言及は含めない（「文字数が多い」「文字数が少ない」等は禁止）"
-    output_requirements += "\n・rewrites は出力しない（variants[*].text を本文として使用）"
+    output_requirements += "・この設問タイプに最適化した完成稿を1案だけ提示（pros/consは空配列で出力）"
+    output_requirements += "\n・完成稿は未完の文で終えない"
+    output_requirements += "\n・結論、根拠、企業や経験との接点が自然につながる文章にする"
+    output_requirements += "\n・思考過程、文字数の数え方、下書きメモは出力しない"
+    output_requirements += "\n・streaming_rewrite には variants[0].text と同じ本文を入れる"
+    output_requirements += "\n・rewrites には variants[0].text と同じ本文を1件だけ入れる"
     if keyword_count > 0 and has_rag:
         output_requirements += (
             "\n・使用したキーワードがどの資料から取ったものか明記（keyword_sources は excerpt なしでOK）"
@@ -605,7 +603,7 @@ def build_template_prompt(
         )
     output_requirements += "\n・top3 には why_now（なぜ今直すべきか）と difficulty（easy/medium/hard）を付与"
     if char_constraint:
-        output_requirements += f"\n・各パターンは必ず{char_constraint}の範囲内（char_countにはlen(text)の正確な値を記録）"
+        output_requirements += f"\n・完成稿は必ず{char_constraint}の範囲内（char_countにはlen(text)の正確な値を記録）"
 
     # RAG-less mode guidance for templates that usually require company RAG
     no_rag_guidance = ""
@@ -622,41 +620,19 @@ def build_template_prompt(
     # Build character budget section (only if limits are set)
     char_budget_section = f"\n{char_budget}\n" if char_budget else ""
 
-    # Build dynamic differentiation section based on rewrite_count
-    if rewrite_count == 1:
-        differentiation_section = ""
-    elif rewrite_count == 2:
-        differentiation_section = """
+    differentiation_section = """
 
-【2パターンの差別化】
-- パターン1: バランス重視（読みやすさと具体性のバランス）
-- パターン2: 論理重視（因果関係を明確にした構成）"""
-    else:
-        differentiation_section = """
+【完成稿の要件】
+- 1案で完結させる
+- 冒頭で設問への答えが伝わるようにする
+- 根拠や具体例は削りすぎず、文字数制約内で圧縮する
+- 企業情報がある場合は、企業との接点を自然に織り込む"""
 
-【3パターンの差別化】
-- パターン1: 結論先行型 — 冒頭1文で主張を述べ、根拠→具体例→展望の順（読みやすさと具体性のバランス）
-- パターン2: エピソード導入型 — 具体的場面から始め、そこから主張へ展開（因果関係を明確にした構成）
-- パターン3: 問題提起型 — 課題や気づきから入り、その解決過程→結論へ（意欲やpassionを強調）
-
-各パターンは**冒頭の書き出し方**が明確に異なること。同じ文で始めることは禁止。"""
-
-    # Build dynamic variant schema example
-    if rewrite_count == 1:
-        variant_schema_example = """      {{
+    variant_schema_example = """      {{
         "text": "改善案の本文",
         "char_count": 文字数（整数）,
         "pros": [],
         "cons": [],
-        "keywords_used": ["キーワード1", "キーワード2"],
-        "keyword_sources": ["S1", "S2"]
-      }}"""
-    else:
-        variant_schema_example = """      {{
-        "text": "改善案の本文",
-        "char_count": 文字数（整数）,
-        "pros": ["メリット1", "メリット2"],
-        "cons": ["デメリット1"],
         "keywords_used": ["キーワード1", "キーワード2"],
         "keyword_sources": ["S1", "S2"]
       }}"""
@@ -691,6 +667,8 @@ def build_template_prompt(
   "top3": [
     {{"category": "評価軸名", "issue": "問題点", "suggestion": "改善提案", "why_now": "今直すべき理由", "difficulty": "easy"}}
   ],
+  "streaming_rewrite": "改善案の本文",
+  "rewrites": ["改善案の本文"],
   "template_review": {{
     "template_type": "{template_type}",
     "variants": [
@@ -703,12 +681,13 @@ def build_template_prompt(
   }}
 }}
 
-【スコア基準（厳しめに付ける、平均3点程度）】
+【スコア基準】
 - logic (論理): 主張と根拠の一貫性
 - specificity (具体性): 数字・エピソードの充実度
 - passion (熱意): 意欲・モチベーションの伝わり度
 - company_connection (企業接続): 企業との接点の明確さ（RAGあり時のみ）
-- readability (読みやすさ): 文章の流れと理解しやすさ{differentiation_section}"""
+- readability (読みやすさ): 文章の流れと理解しやすさ
+- 通過水準に近い回答は4前後、強い回答は4.5以上も付けて構わない{differentiation_section}"""
     else:
         system_prompt = f"""＃あなたは{template_prompt['role']}である。以下の条件で完璧な{template_prompt['target']}に添削して変更せよ。
 {no_rag_guidance}
@@ -744,6 +723,8 @@ def build_template_prompt(
   "top3": [
     {{"category": "評価軸名", "issue": "問題点", "suggestion": "改善提案", "why_now": "今直すべき理由", "difficulty": "easy"}}
   ],
+  "streaming_rewrite": "改善案の本文",
+  "rewrites": ["改善案の本文"],
   "template_review": {{
     "template_type": "{template_type}",
     "variants": [
@@ -756,12 +737,13 @@ def build_template_prompt(
   }}
 }}
 
-【スコア基準（厳しめに付ける、平均3点程度）】
+【スコア基準】
 - logic (論理): 主張と根拠の一貫性
 - specificity (具体性): 数字・エピソードの充実度
 - passion (熱意): 意欲・モチベーションの伝わり度
 - company_connection (企業接続): 企業との接点の明確さ（RAGあり時のみ）
-- readability (読みやすさ): 文章の流れと理解しやすさ{differentiation_section}"""
+- readability (読みやすさ): 文章の流れと理解しやすさ
+- 通過水準に近い回答は4前後、強い回答は4.5以上も付けて構わない{differentiation_section}"""
 
     # Build user prompt
     rag_section = ""
@@ -779,7 +761,7 @@ def build_template_prompt(
 {answer}
 {rag_section}
 
-上記の回答を添削し、{rewrite_count}パターンの改善案をJSON形式で出力してください。"""
+上記の回答を添削し、この設問タイプに合う完成稿を1案だけJSON形式で出力してください。"""
 
     return system_prompt, user_prompt
 

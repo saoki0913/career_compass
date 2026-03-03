@@ -95,4 +95,3 @@ export default function DeadlineChecklistPage() {
     </div>
   );
 }
-

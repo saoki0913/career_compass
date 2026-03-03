@@ -15,6 +15,13 @@
       "when": 1770551264197,
       "tag": "0001_yummy_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772457600000,
+      "tag": "0002_calendar_connection_refactor",
+      "breakpoints": true
     }
   ]
 }

@@ -294,6 +294,9 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 中断/再開 | ✅ 完了 | `motivationConversations` テーブル |
 | クレジット消費（5問ごと1） | ✅ 完了 | ガクチカと同様のロジック |
 | 企業RAG連携 | ✅ 完了 | 企業情報を質問に反映 |
+| 回答候補 / 根拠サマリー | ✅ 完了 | `suggestions`, `evidenceSummary` を返却 |
+| ガクチカ連携 | ✅ 完了 | 完了済み要約を質問生成に反映 |
+| SSEストリーミング送信 | ✅ 完了 | 進捗表示と質問文の逐次表示 |
 | ES下書き生成 | ✅ 完了 | 300/400/500文字指定 |
 | 企業ページからの導線 | ✅ 完了 | 「志望動機を作成」ボタン |
 | 進捗バー（4要素） | ✅ 完了 | スコア表示UI |
@@ -302,6 +305,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 - `backend/app/routers/motivation.py`
 - `src/app/companies/[id]/motivation/page.tsx`
 - `src/app/api/motivation/[companyId]/conversation/route.ts`
+- `src/app/api/motivation/[companyId]/conversation/stream/route.ts`
 - `src/app/api/motivation/[companyId]/generate-draft/route.ts`
 
 ---

@@ -30,6 +30,12 @@ interface StructuredSummary {
   strengths: StrengthItem[];
   learnings: LearningItem[];
   numbers: string[];
+  interviewer_hooks?: string[];
+  decision_reasons?: string[];
+  before_after_comparisons?: string[];
+  credibility_notes?: string[];
+  role_scope?: string;
+  reusable_principles?: string[];
 }
 
 /** Legacy format from /summary */
@@ -444,6 +450,36 @@ export function CompletionSummary({
                     )
                   )}
                 </div>
+              </div>
+            )}
+
+            {structured && structured.interviewer_hooks && structured.interviewer_hooks.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-2">面接で刺さるポイント</h3>
+                <div className="flex flex-wrap gap-2">
+                  {structured.interviewer_hooks.slice(0, 3).map((hook, idx) => (
+                    <Badge key={`${hook}-${idx}`} variant="soft-info" className="text-xs">
+                      {hook}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {structured && structured.reusable_principles && structured.reusable_principles.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-foreground mb-2">再現できる強み</h3>
+                <ul className="space-y-1.5">
+                  {structured.reusable_principles.slice(0, 3).map((principle, idx) => (
+                    <li
+                      key={`${principle}-${idx}`}
+                      className="flex items-start gap-2 text-sm text-foreground/90"
+                    >
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-success mt-2 shrink-0" />
+                      <span>{principle}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </CardContent>

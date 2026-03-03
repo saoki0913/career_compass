@@ -245,7 +245,7 @@ export function FetchInfoButton({
       }
 
       const settingsData = await settingsResponse.json();
-      if (!settingsData?.settings?.isGoogleConnected) {
+      if (!settingsData?.settings?.connectionStatus?.connected) {
         setCalendarNotice("Googleカレンダー未連携のため追加されませんでした");
         return;
       }
@@ -291,59 +291,6 @@ export function FetchInfoButton({
       }
     } catch {
       setCalendarNotice("Googleカレンダーへの追加に失敗しました");
-    }
-  };
-
-  const handleFetchFromUrl = async (url: string) => {
-    setIsFetching(true);
-    setError(null);
-    setCalendarNotice(null);
-
-    try {
-      const response = await fetch(`/api/companies/${companyId}/fetch-info`, {
-        method: "POST",
-        headers: buildHeaders(),
-        credentials: "include",
-        body: JSON.stringify({
-          url,
-          selectionType: selectionType || undefined,
-          graduationYear: graduationYear || undefined,
-        }),
-      });
-
-      if (response.status === 402) {
-        const data = await response.json();
-        setError(data.error || "クレジットが不足しています");
-        setShowResult(true);
-        return;
-      }
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "情報の取得に失敗しました");
-      }
-
-      const data: FetchResult = await response.json();
-      setResult(data);
-      setShowUrlSelector(false);
-      setShowResult(true);
-
-      if (data.success && onSuccess) {
-        onSuccess();
-        // Show success toast with credit consumption info
-        toast.success("企業情報を取得しました", {
-          description: data.freeUsed ? "無料枠を使用" : `${data.creditsConsumed}クレジット消費`,
-        });
-      }
-
-      if (data.deadlines && data.deadlines.length > 0) {
-        await addDeadlinesToGoogleCalendar(data.deadlines);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "情報の取得に失敗しました");
-      setShowResult(true);
-    } finally {
-      setIsFetching(false);
     }
   };
 

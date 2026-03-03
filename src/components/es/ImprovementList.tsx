@@ -5,33 +5,14 @@ import { cn } from "@/lib/utils";
 import type { ReviewIssue } from "@/hooks/useESReview";
 import { PriorityBadge, difficultyToPriority, type Difficulty } from "./PriorityBadge";
 
-// Map category names to score keys for scroll anchors
-const CATEGORY_TO_SCORE_KEY: Record<string, string> = {
-  論理: "logic",
-  論理性: "logic",
-  具体性: "specificity",
-  熱意: "passion",
-  企業接続: "company_connection",
-  読みやすさ: "readability",
-};
-
-const ArrowLeftIcon = () => (
-  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-  </svg>
-);
-
 interface ImprovementListProps {
   issues: ReviewIssue[];
   title?: string;
   className?: string;
   collapsible?: boolean;
   defaultExpanded?: boolean;
-  onNavigateToSection?: () => void;
 }
 
-
-// Icons
 const AlertIcon = () => (
   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
@@ -79,119 +60,78 @@ const ChevronUpIcon = () => (
 
 export function ImprovementList({
   issues,
-  title,
+  title = "改善ポイント",
   className,
   collapsible = false,
   defaultExpanded = true,
-  onNavigateToSection,
 }: ImprovementListProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   if (issues.length === 0) {
-    return (
-      <div className={cn("text-center py-4 text-muted-foreground", className)}>
-        改善点はありません
-      </div>
-    );
+    return <div className={cn("py-4 text-center text-muted-foreground", className)}>改善ポイントはありません</div>;
   }
 
-  const displayTitle = title || "改善ポイント";
-  const displayCount = issues.length;
-
-  const headerContent = (
-    <div className="flex items-center gap-2 flex-1">
-      <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-xs font-bold shrink-0">
-        {displayCount}
+  const header = (
+    <div className="flex items-center gap-2">
+      <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-100 px-2 text-xs font-semibold text-amber-700">
+        {issues.length}
       </span>
-      <span className="font-medium">{displayTitle}</span>
+      <span className="text-sm font-semibold text-foreground">{title}</span>
     </div>
   );
 
   return (
-    <div className={cn("space-y-3", className)} id="improvement-list">
+    <div className={cn("space-y-3", className)}>
       {collapsible ? (
         <button
           type="button"
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full text-left text-sm flex items-center gap-2 py-2 px-3 -mx-3 rounded-lg hover:bg-muted/50 transition-colors group"
+          onClick={() => setIsExpanded((prev) => !prev)}
+          className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-left"
         >
-          {headerContent}
-          {!isExpanded && (
-            <span className="text-xs text-muted-foreground">
-              クリックで展開
-            </span>
-          )}
-          <span className="text-muted-foreground group-hover:text-foreground transition-colors">
-            {isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
-          </span>
+          {header}
+          {isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
         </button>
       ) : (
-        <h4 className="text-sm flex items-center gap-2">
-          {headerContent}
-        </h4>
+        header
       )}
 
       {(!collapsible || isExpanded) && (
         <div className="space-y-3">
           {issues.map((issue, index) => {
-            const scoreKey = CATEGORY_TO_SCORE_KEY[issue.category] || issue.category.toLowerCase();
             const priority = difficultyToPriority(issue.difficulty as Difficulty | undefined);
-
             return (
-              <div
-                key={index}
-                id={`issue-${scoreKey}`}
-                className="rounded-lg border border-border bg-muted/30 overflow-hidden transition-all hover:shadow-sm scroll-mt-4"
-              >
-                <div className="p-3 space-y-2">
-                  {/* Header with category and priority */}
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      #{index + 1} {issue.category}
-                    </span>
-                    <PriorityBadge
-                      priority={priority}
-                      showLabel={true}
-                    />
-                  </div>
+              <div key={`${issue.category}-${index}`} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">{issue.category}</span>
+                  <PriorityBadge priority={priority} showLabel />
+                </div>
 
-                  {/* Issue description */}
+                <div className="mt-3 flex items-start gap-2">
+                  <span className="mt-0.5 text-amber-600">
+                    <AlertIcon />
+                  </span>
+                  <p className="text-sm leading-6 text-foreground">{issue.issue}</p>
+                </div>
+
+                <div className="mt-3 rounded-lg bg-muted/40 p-3">
                   <div className="flex items-start gap-2">
-                    <span className="text-muted-foreground mt-0.5 shrink-0">
-                      <AlertIcon />
-                    </span>
-                    <p className="text-sm text-foreground leading-relaxed">{issue.issue}</p>
-                  </div>
-
-                  {/* Suggestion */}
-                  <div className="flex items-start gap-2 bg-background/50 rounded-md p-2 -mx-1">
-                    <span className="text-muted-foreground mt-0.5 shrink-0">
+                    <span className="mt-0.5 text-primary">
                       <LightbulbIcon />
                     </span>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{issue.suggestion}</p>
+                    <p className="text-sm leading-6 text-foreground/85">{issue.suggestion}</p>
                   </div>
+                </div>
 
-                  {issue.why_now && (
-                    <div className="flex items-start gap-2 bg-primary/5 rounded-md p-2 -mx-1 border border-primary/15">
-                      <span className="text-primary/80 mt-0.5 shrink-0">
+                {issue.why_now && (
+                  <div className="mt-3 rounded-lg border border-border/70 bg-background p-3">
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 text-muted-foreground">
                         <ClockIcon />
                       </span>
-                      <p className="text-sm text-foreground/80 leading-relaxed">{issue.why_now}</p>
+                      <p className="text-sm leading-6 text-muted-foreground">{issue.why_now}</p>
                     </div>
-                  )}
-
-                  {/* Navigate to section in editor */}
-                  {onNavigateToSection && (
-                    <button
-                      type="button"
-                      onClick={onNavigateToSection}
-                      className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 mt-1 transition-colors"
-                    >
-                      <ArrowLeftIcon />
-                      該当箇所を見る
-                    </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             );
           })}

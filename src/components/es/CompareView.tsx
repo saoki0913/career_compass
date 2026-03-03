@@ -199,7 +199,7 @@ export function CompareView({
   const rewriteLength = currentRewrite.length;
   const charDiff = rewriteLength - originalLength;
   const diffPercent = originalLength > 0 ? Math.round((charDiff / originalLength) * 100) : 0;
-  const isOverLimit = charLimit && rewriteLength > charLimit;
+  const isOverLimit = typeof charLimit === "number" && rewriteLength > charLimit;
 
   // Compute diff for current rewrite
   const diff = useMemo(() => {
@@ -342,7 +342,7 @@ export function CompareView({
         {isOverLimit && (
           <div className="px-6 py-2 bg-red-50 border-t border-red-200 shrink-0">
             <p className="text-xs text-red-600 font-medium">
-              文字数制限を{rewriteLength - charLimit!}字超過しています
+              文字数制限を{rewriteLength - (charLimit || 0)}字超過しています
             </p>
           </div>
         )}

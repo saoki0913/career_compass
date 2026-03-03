@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 
 from app.config import settings
 from app.utils.company_names import (
+    domain_pattern_matches,
     get_conflicting_companies_for_domain,
     is_parent_domain,
     is_subsidiary_domain,
@@ -97,6 +98,9 @@ WEIGHT_RRF = 0.15  # Multi-query frequency
 
 # Short company name guard (e.g., "AGC", "TDK")
 SHORT_NAME_OFFICIAL_TLDS = (".co.jp", ".jp", ".com")
+
+# Common TLDs for site: query synthesis from non-dotted patterns
+SITE_RESCUE_TLDS = (".co.jp", ".com", ".jp")
 
 # Intent score normalization (fixed range + bias)
 INTENT_SCORE_MIN = -6.0
@@ -1014,36 +1018,56 @@ def _is_official_domain(
     if short_name_guard:
         dotted = [p for p in patterns if "." in p]
         if dotted:
-            return any(_domain_pattern_matches(domain, pattern) for pattern in dotted)
+            return any(domain_pattern_matches(domain, pattern) for pattern in dotted)
         if not _has_short_name_allowed_tld(domain):
             return False
 
-    return any(_domain_pattern_matches(domain, pattern) for pattern in patterns)
+    return any(domain_pattern_matches(domain, pattern) for pattern in patterns)
 
 
 def _resolve_site_domains(
     domain_profile: dict,
     preferred_domain: str | None,
-    max_domains: int = 2,
+    max_domains: int = 3,
 ) -> list[str]:
+    """Resolve site: query domains from domain profile.
+
+    First collects explicitly dotted patterns, then synthesizes domains
+    from non-dotted patterns using common TLDs.
+    """
     if preferred_domain:
         return [preferred_domain]
 
     patterns = domain_profile.get("official_patterns") or []
-    dotted: list[str] = []
+    domains: list[str] = []
     seen: set[str] = set()
+
+    # Pass 1: collect already-dotted patterns (existing behavior)
     for pattern in patterns:
         if "." not in pattern:
             continue
         key = pattern.lower()
-        if key in seen:
+        if key not in seen:
+            seen.add(key)
+            domains.append(pattern)
+        if len(domains) >= max_domains:
+            return domains
+
+    # Pass 2: synthesize domains from non-dotted patterns using common TLDs
+    for pattern in patterns:
+        if "." in pattern or len(pattern) < 3:
             continue
-        seen.add(key)
-        dotted.append(pattern)
-        if len(dotted) >= max_domains:
+        for tld in SITE_RESCUE_TLDS:
+            candidate = f"{pattern}{tld}"
+            key = candidate.lower()
+            if key not in seen:
+                seen.add(key)
+                domains.append(candidate)
+                break  # Use first (most common) TLD per pattern
+        if len(domains) >= max_domains:
             break
 
-    return dotted
+    return domains
 
 
 def _build_site_queries(base_queries: list[str], site_domains: list[str]) -> list[str]:
@@ -1154,7 +1178,7 @@ def _prefilter_results(
                         "official": is_official,
                         "preferred": bool(
                             preferred_domain
-                            and _domain_pattern_matches(domain, preferred_domain)
+                            and domain_pattern_matches(domain, preferred_domain)
                         ),
                         "parent": is_parent_site,
                         "company_match": company_match,
@@ -1176,6 +1200,67 @@ def _prefilter_results(
         )
     if debug_records:
         _debug_log("[WebSearch] Prefilter samples=%s", debug_records[:LOG_MAX_ITEMS])
+
+    # Safety net: if external_excluded filtering removed ALL results,
+    # fall back to keeping results with company name match on corporate TLDs
+    if not filtered and exclude_external:
+        _CORPORATE_TLDS = (".co.jp", ".or.jp", ".ne.jp")
+        _debug_log(
+            "[WebSearch] Prefilter safety net: relaxing external_strict for 0-result case"
+        )
+        # Phase 1: corporate TLD + company name match (high confidence)
+        for result in results:
+            domain = result.domain
+            if any(excl in domain for excl in EXCLUDED_DOMAINS):
+                continue
+            if not allow_aggs and any(agg in domain for agg in AGGREGATOR_DOMAINS):
+                continue
+            is_corporate = any(domain.endswith(tld) for tld in _CORPORATE_TLDS)
+            name_match = _contains_company_name(
+                company_name,
+                title=result.title,
+                url=result.url,
+                snippet=result.snippet,
+                allow_snippet_match=allow_snippet_match,
+            )
+            if is_corporate and name_match:
+                result.company_name_matched = True
+                filtered.append(result)
+                if len(filtered) >= 3:
+                    break
+        # Phase 2: broader TLDs (.com, .jp) with domain pattern match required
+        if not filtered and official_patterns:
+            _BROAD_TLDS = (".com", ".jp", ".net")
+            for result in results:
+                domain = result.domain
+                if any(excl in domain for excl in EXCLUDED_DOMAINS):
+                    continue
+                if not allow_aggs and any(agg in domain for agg in AGGREGATOR_DOMAINS):
+                    continue
+                is_broad = any(domain.endswith(tld) for tld in _BROAD_TLDS)
+                if not is_broad:
+                    continue
+                name_match = _contains_company_name(
+                    company_name,
+                    title=result.title,
+                    url=result.url,
+                    snippet=result.snippet,
+                    allow_snippet_match=allow_snippet_match,
+                )
+                pattern_match = any(
+                    domain_pattern_matches(domain, p) for p in official_patterns if p
+                )
+                if name_match and pattern_match:
+                    result.company_name_matched = True
+                    result.is_official = True
+                    filtered.append(result)
+                    if len(filtered) >= 3:
+                        break
+        if filtered:
+            _debug_log(
+                "[WebSearch] Prefilter safety net recovered %d results",
+                len(filtered),
+            )
 
     return filtered
 
@@ -1396,7 +1481,7 @@ def calculate_domain_score(
         official_score = max(official_score, 4.5)
         breakdown["official_domain"] = 4.5
 
-    if preferred_domain and _domain_pattern_matches(domain, preferred_domain):
+    if preferred_domain and domain_pattern_matches(domain, preferred_domain):
         official_score += 3.0
         breakdown["preferred_domain"] = 3.0
 
@@ -1495,47 +1580,6 @@ def score_results(
         result.heuristic_score = result.intent_score_raw
 
     return results
-
-
-def _domain_pattern_matches(domain: str, pattern: str) -> bool:
-    """
-    Check if domain matches pattern using segment-based matching.
-
-    Avoids false positives from substring matching.
-    e.g., "mec" matches "mec.co.jp" but not "mecyes.co.jp"
-    """
-    if len(pattern) < 3:
-        from app.utils.company_names import get_short_domain_allowlist_patterns
-
-        if pattern.lower() not in get_short_domain_allowlist_patterns():
-            return False
-
-    pattern_lower = pattern.lower()
-    domain_lower = domain.lower()
-
-    if "." in pattern_lower:
-        if domain_lower == pattern_lower:
-            return True
-        if domain_lower.endswith("." + pattern_lower):
-            return True
-        # Allow multi-segment pattern like "bk.mufg"
-        if re.search(rf"(?:^|\.){re.escape(pattern_lower)}(?:\.|$)", domain_lower):
-            return True
-        return False
-
-    segments = domain_lower.split(".")
-    for segment in segments:
-        # Exact match
-        if segment == pattern_lower:
-            return True
-        # Prefix match (e.g., "mec-recruit")
-        if segment.startswith(pattern_lower + "-"):
-            return True
-        # Suffix match (e.g., "recruit-mec")
-        if segment.endswith("-" + pattern_lower):
-            return True
-
-    return False
 
 
 # =============================================================================

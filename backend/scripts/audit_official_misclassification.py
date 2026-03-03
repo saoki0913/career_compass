@@ -30,12 +30,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.routers.company_info import (  # noqa: E402
     _contains_company_name,
-    _domain_pattern_matches,
     _is_irrelevant_url,
     _is_parent_company_site,
     _is_subsidiary,
 )
 from app.utils.company_names import (  # noqa: E402
+    domain_pattern_matches,
     get_company_domain_patterns,
     is_subsidiary_domain,
 )
@@ -164,7 +164,7 @@ def _filter_hybrid_results(
         url_domain = result.domain
         is_official_domain = (
             any(
-                _domain_pattern_matches(url_domain, pattern)
+                domain_pattern_matches(url_domain, pattern)
                 for pattern in domain_patterns
             )
             if domain_patterns

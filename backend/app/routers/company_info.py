@@ -31,6 +31,7 @@ from app.utils.llm import call_llm_with_error
 from app.config import settings
 from app.utils.secure_logger import get_logger
 from app.utils.company_names import (
+    domain_pattern_matches,
     get_company_domain_patterns,
     is_blog_platform,
     has_personal_site_pattern,
@@ -1221,55 +1222,6 @@ def _score_to_confidence(
         return "low"
 
 
-def _domain_pattern_matches(domain: str, pattern: str) -> bool:
-    """
-    Check if a domain matches a pattern using segment-based matching.
-
-    This avoids false positives from substring matching.
-    For example:
-    - "mec" matches "mec.co.jp", "www.mec.co.jp", "mec-recruit.co.jp"
-    - "mec" does NOT match "mecyes.co.jp" (different company)
-
-    Args:
-        domain: The full domain (e.g., "office.mecyes.co.jp")
-        pattern: The pattern to match (e.g., "mec")
-
-    Returns:
-        True if the pattern matches a domain segment correctly
-    """
-    if len(pattern) < 3:
-        from app.utils.company_names import get_short_domain_allowlist_patterns
-
-        if pattern.lower() not in get_short_domain_allowlist_patterns():
-            return False
-
-    pattern_lower = pattern.lower()
-    domain_lower = domain.lower()
-
-    if "." in pattern_lower:
-        if domain_lower == pattern_lower:
-            return True
-        if domain_lower.endswith("." + pattern_lower):
-            return True
-        if re.search(rf"(?:^|\.){re.escape(pattern_lower)}(?:\.|$)", domain_lower):
-            return True
-        return False
-
-    segments = domain_lower.split(".")
-    for segment in segments:
-        # Exact match: mec.co.jp → segment "mec"
-        if segment == pattern_lower:
-            return True
-        # Pattern as prefix: mec-recruit.co.jp → segment "mec-recruit"
-        if segment.startswith(pattern_lower + "-"):
-            return True
-        # Pattern as suffix: office-mec.co.jp → segment "office-mec"
-        if segment.endswith("-" + pattern_lower):
-            return True
-
-    return False
-
-
 def _is_excluded_url(url: str) -> bool:
     url_lower = url.lower()
     return any(site in url_lower for site in EXCLUDE_SITES_STRONG)
@@ -1306,7 +1258,7 @@ def _is_subsidiary(company_name: str, title: str, url: str) -> bool:
 
     # If domain matches official pattern → NOT a subsidiary
     for pattern in domain_patterns:
-        if _domain_pattern_matches(domain, pattern):
+        if domain_pattern_matches(domain, pattern):
             return False
 
     # Step 2: Existing subsidiary detection logic
@@ -1434,7 +1386,7 @@ def _get_source_type(url: str, company_name: str) -> str:
     domain_patterns = get_company_domain_patterns(company_name, ascii_name)
 
     for pattern in domain_patterns:
-        if _domain_pattern_matches(domain, pattern):
+        if domain_pattern_matches(domain, pattern):
             return "official"
 
     # 4. Additional check: recruitment subdomain with partial name match
@@ -1445,7 +1397,7 @@ def _get_source_type(url: str, company_name: str) -> str:
             if sub in domain:
                 base_domain = domain.replace(sub, "")
                 for pattern in domain_patterns:
-                    if _domain_pattern_matches(base_domain, pattern):
+                    if domain_pattern_matches(base_domain, pattern):
                         return "official"
 
     # 5. Legacy: short name check (fallback)
@@ -1639,7 +1591,7 @@ def _score_recruit_candidate(
     # --- Domain Pattern Match (improved) ---
     domain_matched = False
     for pattern in domain_patterns:
-        if _domain_pattern_matches(domain, pattern):
+        if domain_pattern_matches(domain, pattern):
             score += 4.0  # Increased from 3.0
             domain_matched = True
             break
@@ -1756,7 +1708,7 @@ def _score_recruit_candidate_with_breakdown(
     domain_matched = False
     matched_pattern = None
     for pattern in domain_patterns:
-        if _domain_pattern_matches(domain, pattern):
+        if domain_pattern_matches(domain, pattern):
             score += 4.0
             domain_matched = True
             matched_pattern = pattern
@@ -2049,7 +2001,7 @@ def _score_corporate_candidate(
     # ドメインパターンマッチング（企業マッピングから）
     domain_matched = False
     for pattern in domain_patterns:
-        if _domain_pattern_matches(domain, pattern):
+        if domain_pattern_matches(domain, pattern):
             score += 4.0  # マッピングパターン一致は高スコア
             domain_matched = True
             break
@@ -2177,7 +2129,7 @@ def _score_corporate_candidate_with_breakdown(
 
     # Official domain check (domain pattern match)
     is_official_domain = any(
-        _domain_pattern_matches(domain, pattern) for pattern in domain_patterns
+        domain_pattern_matches(domain, pattern) for pattern in domain_patterns
     )
 
     if strict_company_match and not (
@@ -2200,7 +2152,7 @@ def _score_corporate_candidate_with_breakdown(
     domain_matched = False
     matched_pattern = None
     for pattern in domain_patterns:
-        if _domain_pattern_matches(domain, pattern):
+        if domain_pattern_matches(domain, pattern):
             score += 4.0
             domain_matched = True
             matched_pattern = pattern
@@ -2798,7 +2750,7 @@ async def search_company_pages(request: SearchPagesRequest):
             url_domain = result.domain
             is_official_domain = (
                 any(
-                    _domain_pattern_matches(url_domain, pattern)
+                    domain_pattern_matches(url_domain, pattern)
                     for pattern in domain_patterns
                 )
                 if domain_patterns
@@ -3020,7 +2972,7 @@ async def search_company_pages(request: SearchPagesRequest):
                 url_domain = ""
             is_official_domain = (
                 any(
-                    _domain_pattern_matches(url_domain, pattern)
+                    domain_pattern_matches(url_domain, pattern)
                     for pattern in domain_patterns
                 )
                 if domain_patterns
@@ -4068,7 +4020,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             url_domain = result.domain
             is_official_domain = (
                 any(
-                    _domain_pattern_matches(url_domain, pattern)
+                    domain_pattern_matches(url_domain, pattern)
                     for pattern in domain_patterns
                 )
                 if domain_patterns
@@ -4334,7 +4286,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
 
             is_official_domain = (
                 any(
-                    _domain_pattern_matches(url_domain, pattern)
+                    domain_pattern_matches(url_domain, pattern)
                     for pattern in domain_patterns
                 )
                 if domain_patterns
