@@ -1,6 +1,7 @@
 export { LandingHeader } from "./LandingHeader";
 export { HeroSection } from "./HeroSection";
 export { SocialProofStrip } from "./SocialProofStrip";
+export { PainPointsSection } from "./PainPointsSection";
 export { FeaturesSection } from "./FeaturesSection";
 export { HowItWorksSection } from "./HowItWorksSection";
 export { TestimonialsSection } from "./TestimonialsSection";

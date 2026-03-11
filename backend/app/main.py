@@ -53,15 +53,7 @@ async def startup_event():
     """Log security-critical configuration on startup."""
     logger.info(f"[Security] CORS allowed origins: {settings.cors_origins}")
     logger.info(f"[Security] Frontend URL: {settings.frontend_url}")
-
-    # Cross-encoder reranker health check
-    from app.utils.reranker import check_reranker_health
-
-    health = check_reranker_health()
-    if health["available"]:
-        logger.info(f"[Reranker] OK: {health['model_name']} (test_score={health['test_score']:.4f})")
-    else:
-        logger.warning(f"[Reranker] WARNING: {health['error']}")
+    logger.info("[Reranker] lazy load enabled")
 
 
 # Include routers

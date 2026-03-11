@@ -13,6 +13,10 @@ import { eq, desc, isNull, and, or, asc } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { PLAN_METADATA, type PlanTypeWithGuest } from "@/lib/stripe/config";
+import {
+  getGakuchikaSummaryKind,
+  getGakuchikaSummaryPreview,
+} from "@/lib/gakuchika/summary";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -114,6 +118,8 @@ export async function GET(request: NextRequest) {
           conversationStatus: conversation?.status || null,
           starScores: safeParseStarScores(conversation?.starScores || null),
           questionCount: conversation?.questionCount || 0,
+          summaryKind: getGakuchikaSummaryKind(gakuchika.summary),
+          summaryPreview: getGakuchikaSummaryPreview(gakuchika.summary),
         };
       })
     );

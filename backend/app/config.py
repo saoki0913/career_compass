@@ -90,6 +90,15 @@ class Settings(BaseSettings):
     # 環境変数: OPENAI_MODEL
     openai_model: str = "gpt-5-mini"
 
+    # Qwen3 ES添削 beta 推論サービス
+    # 環境変数: QWEN_ES_REVIEW_BASE_URL / QWEN_ES_REVIEW_MODEL / QWEN_ES_REVIEW_API_KEY
+    qwen_es_review_enabled: bool = False
+    qwen_es_review_base_url: str = ""
+    qwen_es_review_model: str = "Qwen/Qwen3-14B"
+    qwen_es_review_api_key: str = ""
+    qwen_es_review_timeout_seconds: int = 120
+    qwen_es_review_adapter_id: str = ""
+
     # ===== 機能別モデル設定 =====
     # 各機能で使用するLLMモデルティア（claude-sonnet / claude-haiku / openai）
     # .env.local で個別にオーバーライド可能
@@ -156,21 +165,6 @@ class Settings(BaseSettings):
     # 環境変数: ES_CHAR_TOLERANCE_MIN
     # 短い制限でも最低この文字数の幅を確保
     es_char_tolerance_min: int = 20
-
-    # テンプレート添削の最大リトライ回数
-    # 環境変数: ES_TEMPLATE_MAX_RETRIES
-    # 3回で十分（タイムアウト防止のため）
-    es_template_max_retries: int = 3
-
-    # 条件付き追加リトライを有効にするか
-    # 環境変数: ES_ENABLE_CONDITIONAL_RETRY
-    # 2/3パターン成功時に追加リトライを行う
-    es_enable_conditional_retry: bool = True
-
-    # リライト案の最大出力数
-    # 環境変数: ES_REWRITE_COUNT
-    # 1=ユーザーが迷わない、最大3まで設定可能
-    es_rewrite_count: int = 1
 
     @model_validator(mode="after")
     def validate_cors_origins(self):

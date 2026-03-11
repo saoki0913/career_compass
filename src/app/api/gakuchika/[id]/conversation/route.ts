@@ -8,219 +8,24 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
 import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
-
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
-}
-
-async function verifyGakuchikaAccess(
-  gakuchikaId: string,
-  userId: string | null,
-  guestId: string | null
-): Promise<boolean> {
-  const [gakuchika] = await db
-    .select()
-    .from(gakuchikaContents)
-    .where(eq(gakuchikaContents.id, gakuchikaId))
-    .limit(1);
-
-  if (!gakuchika) return false;
-  if (userId && gakuchika.userId === userId) return true;
-  if (guestId && gakuchika.guestId === guestId) return true;
-  return false;
-}
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
-
-interface STARScores {
-  situation: number;
-  task: number;
-  action: number;
-  result: number;
-}
-
-interface STAREvaluation {
-  scores: STARScores;
-  weakest_element: string;
-  is_complete: boolean;
-  missing_aspects?: Record<string, string[]>;
-  quality_rationale?: string[];
-  hidden_eval?: Record<string, number>;
-  risk_flags?: string[];
-}
-
-// Safe JSON parse for messages with backward compatibility
-function safeParseMessages(json: string): Message[] {
-  try {
-    const parsed = JSON.parse(json);
-    if (!Array.isArray(parsed)) {
-      console.error("Invalid messages format: not an array");
-      return [];
-    }
-    return parsed
-      .filter((m): m is { role: string; content: string; id?: string } =>
-        m && typeof m === "object" &&
-        (m.role === "user" || m.role === "assistant") &&
-        typeof m.content === "string"
-      )
-      .map(m => ({
-        id: m.id || crypto.randomUUID(),
-        role: m.role as "user" | "assistant",
-        content: m.content
-      }));
-  } catch (error) {
-    console.error("Failed to parse messages JSON:", error);
-    return [];
-  }
-}
-
-// Safe JSON parse for STAR scores
-function safeParseStarScores(json: string | null): STARScores | null {
-  if (!json) return null;
-  try {
-    const parsed = JSON.parse(json);
-    return {
-      situation: parsed.situation ?? 0,
-      task: parsed.task ?? 0,
-      action: parsed.action ?? 0,
-      result: parsed.result ?? 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
-// Configuration
-const STAR_COMPLETION_THRESHOLD = 70; // 各STAR要素がこの%以上で完了
-const QUESTIONS_PER_CREDIT = 5; // 5問回答ごとに1クレジット消費
-
-// FastAPI URL for AI-powered questions
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
-
-interface FastAPIQuestionResponse {
-  question: string;
-  reasoning?: string;
-  should_continue?: boolean;
-  suggested_end?: boolean;
-  star_evaluation?: STAREvaluation;
-  target_element?: string;
-  quality_rationale?: string[];
-  coaching_focus?: string;
-  risk_flags?: string[];
-}
-
-interface GakuchikaData {
-  title: string;
-  content?: string | null;
-  charLimitType?: string | null;
-}
-
-async function getQuestionFromFastAPI(
-  gakuchika: GakuchikaData,
-  conversationHistory: Message[],
-  questionCount: number,
-  starScores?: STARScores | null
-): Promise<{
-  question: string | null;
-  error: string | null;
-  starEvaluation: STAREvaluation | null;
-  targetElement: string | null;
-  qualityRationale: string[] | null;
-  coachingFocus: string | null;
-  riskFlags: string[];
-}> {
-  try {
-    const fastApiResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/next-question`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        gakuchika_title: gakuchika.title,
-        gakuchika_content: gakuchika.content || null,
-        char_limit_type: gakuchika.charLimitType || null,
-        conversation_history: conversationHistory,
-        question_count: questionCount,
-        star_scores: starScores || null,
-      }),
-    });
-
-    if (fastApiResponse.ok) {
-      const result: FastAPIQuestionResponse = await fastApiResponse.json();
-      return {
-        question: result.question,
-        error: null,
-        starEvaluation: result.star_evaluation || null,
-        targetElement: result.target_element || null,
-        qualityRationale: result.quality_rationale || result.star_evaluation?.quality_rationale || null,
-        coachingFocus: result.coaching_focus || null,
-        riskFlags: Array.isArray(result.risk_flags) ? result.risk_flags : [],
-      };
-    } else {
-      console.error("FastAPI error status:", fastApiResponse.status);
-      return {
-        question: null,
-        error: "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。",
-        starEvaluation: null,
-        targetElement: null,
-        qualityRationale: null,
-        coachingFocus: null,
-        riskFlags: [],
-      };
-    }
-  } catch (err) {
-    console.error("FastAPI connection error:", err);
-    return {
-      question: null,
-      error: "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。",
-      starEvaluation: null,
-      targetElement: null,
-      qualityRationale: null,
-      coachingFocus: null,
-      riskFlags: [],
-    };
-  }
-}
-
-// Check if STAR is complete (all elements >= threshold)
-function isStarComplete(scores: STARScores | null): boolean {
-  if (!scores) return false;
-  return (
-    scores.situation >= STAR_COMPLETION_THRESHOLD &&
-    scores.task >= STAR_COMPLETION_THRESHOLD &&
-    scores.action >= STAR_COMPLETION_THRESHOLD &&
-    scores.result >= STAR_COMPLETION_THRESHOLD
-  );
-}
+import { persistGakuchikaSummary } from "@/app/api/gakuchika/summary-server";
+import {
+  QUESTIONS_PER_CREDIT,
+  getIdentity,
+  getQuestionFromFastAPI,
+  getWeakestElement,
+  isStarComplete,
+  safeParseMessages,
+  safeParseStarScores,
+  verifyGakuchikaAccess,
+  type Message,
+  type STARScores,
+} from "@/app/api/gakuchika/shared";
 
 export async function GET(
   request: NextRequest,
@@ -327,6 +132,7 @@ export async function GET(
     const qCount = conversation.questionCount || 0;
     const currentStarScores = safeParseStarScores(conversation.starScores);
     const starComplete = isStarComplete(currentStarScores);
+    const targetElement = getWeakestElement(currentStarScores);
 
     // For existing conversations, use last assistant message as nextQuestion (avoid LLM call on GET)
     let nextQuestion: string | null = null;
@@ -349,6 +155,7 @@ export async function GET(
       questionCount: qCount,
       isCompleted: conversation.status === "completed" || starComplete,
       starScores: currentStarScores,
+      targetElement,
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,
@@ -519,9 +326,6 @@ export async function POST(
       question: nextQuestion,
       starEvaluation,
       targetElement,
-      qualityRationale,
-      coachingFocus,
-      riskFlags,
     } = await getQuestionFromFastAPI(
       {
         title: gakuchikaTitle,
@@ -573,72 +377,11 @@ export async function POST(
     // Update gakuchika summary if completed
     let structuredSummary = null;
     if (isCompleted) {
-      let summaryJson: string;
-
-      try {
-        // Call FastAPI to generate STAR-structured summary
-        const summaryResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/structured-summary`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            conversation_history: messages.map(m => ({ role: m.role, content: m.content })),
-            gakuchika_title: gakuchikaTitle,
-          }),
-        });
-
-        if (summaryResponse.ok) {
-          const summaryData = await summaryResponse.json();
-          summaryJson = JSON.stringify({
-            situation_text: summaryData.situation_text || "",
-            task_text: summaryData.task_text || "",
-            action_text: summaryData.action_text || "",
-            result_text: summaryData.result_text || "",
-            strengths: summaryData.strengths || [],
-            learnings: summaryData.learnings || [],
-            numbers: summaryData.numbers || [],
-            interviewer_hooks: summaryData.interviewer_hooks || [],
-            decision_reasons: summaryData.decision_reasons || [],
-            before_after_comparisons: summaryData.before_after_comparisons || [],
-            credibility_notes: summaryData.credibility_notes || [],
-            role_scope: summaryData.role_scope || "",
-            reusable_principles: summaryData.reusable_principles || [],
-          });
-        } else {
-          throw new Error("FastAPI structured-summary generation failed");
-        }
-      } catch (error) {
-        console.error("Failed to generate structured summary, using conversation fallback:", error);
-        // Fallback: extract user answers directly without additional LLM call
-        const userAnswers = messages
-          .filter((m) => m.role === "user")
-          .map((m) => m.content)
-          .join("\n\n");
-        summaryJson = JSON.stringify({
-          situation_text: "",
-          task_text: "",
-          action_text: "",
-          result_text: "",
-          strengths: [],
-          learnings: [],
-          numbers: [],
-          raw_answers: userAnswers.substring(0, 1000),
-        });
-      }
-
-      await db
-        .update(gakuchikaContents)
-        .set({
-          summary: summaryJson,
-          updatedAt: now,
-        })
-        .where(eq(gakuchikaContents.id, gakuchikaId));
-
-      // Parse the summary we just saved
-      try {
-        structuredSummary = JSON.parse(summaryJson);
-      } catch {
-        structuredSummary = null;
-      }
+      structuredSummary = await persistGakuchikaSummary(
+        gakuchikaId,
+        gakuchikaTitle,
+        messages
+      );
     }
 
     return NextResponse.json({
@@ -649,9 +392,6 @@ export async function POST(
       starScores: newStarScores,
       starEvaluation,
       targetElement,
-      qualityRationale,
-      coachingFocus,
-      riskFlags,
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,

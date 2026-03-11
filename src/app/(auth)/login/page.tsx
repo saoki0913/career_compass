@@ -75,7 +75,7 @@ function LoginFallback() {
 }
 
 function LoginPageContent() {
-  const { isAuthenticated, isLoading, userPlan } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectParam = searchParams.get("redirect") || searchParams.get("callbackUrl");
@@ -83,17 +83,13 @@ function LoginPageContent() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      // Already logged in, redirect based on requested redirect or status.
-      // Note: plan selection is no longer a blocking step (Free by default).
       if (safeRedirect) {
         router.push(safeRedirect);
-      } else if (userPlan?.needsOnboarding) {
-        router.push("/onboarding");
       } else {
         router.push("/dashboard");
       }
     }
-  }, [isAuthenticated, isLoading, userPlan, router, safeRedirect]);
+  }, [isAuthenticated, isLoading, router, safeRedirect]);
 
   if (isLoading) {
     return <LoginFallback />;

@@ -53,6 +53,8 @@ interface Gakuchika {
   id: string;
   title: string;
   summary: string | null;
+  summaryPreview?: string | null;
+  summaryKind?: "structured" | "legacy" | "none";
   createdAt: string;
   updatedAt: string;
   conversationStatus: "in_progress" | "completed" | null;
@@ -354,16 +356,6 @@ export default function GakuchikaListPage() {
     });
   };
 
-  const parseSummary = (summary: string | null): string => {
-    if (!summary) return "";
-    try {
-      const parsed = JSON.parse(summary);
-      return parsed.summary || summary;
-    } catch {
-      return summary;
-    }
-  };
-
   const isAtLimit = currentCount >= maxCount;
 
   return (
@@ -495,10 +487,12 @@ export default function GakuchikaListPage() {
                                 <STARStatusBadge scores={gakuchika.starScores} />
                               </div>
                             )}
-                            {gakuchika.summary ? (
+                            {gakuchika.summaryPreview ? (
                               <p className="text-sm text-muted-foreground line-clamp-2">
-                                {parseSummary(gakuchika.summary)}
+                                {gakuchika.summaryPreview}
                               </p>
+                            ) : gakuchika.conversationStatus === "completed" ? (
+                              <p className="text-sm text-muted-foreground">要約を生成中...</p>
                             ) : gakuchika.conversationStatus === "in_progress" ? (
                               <p className="text-sm text-muted-foreground">深掘り中...</p>
                             ) : (

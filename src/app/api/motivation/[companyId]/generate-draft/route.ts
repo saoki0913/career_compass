@@ -13,6 +13,10 @@ import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { reserveCredits, confirmReservation, cancelReservation } from "@/lib/credits";
 import { randomUUID } from "crypto";
+import {
+  filterMotivationConversationUpdate,
+  getMotivationConversationByCondition,
+} from "@/lib/db/motivationConversationCompat";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -101,15 +105,11 @@ export async function POST(
   }
 
   // Get conversation
-  const [conversation] = await db
-    .select()
-    .from(motivationConversations)
-    .where(
-      userId
-        ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
-        : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
-    )
-    .limit(1);
+  const conversation = await getMotivationConversationByCondition(
+    userId
+      ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
+      : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
+  );
 
   if (!conversation) {
     return NextResponse.json({ error: "会話が見つかりません" }, { status: 404 });
@@ -163,11 +163,11 @@ export async function POST(
     // Save draft to database
     await db
       .update(motivationConversations)
-      .set({
+      .set(await filterMotivationConversationUpdate({
         generatedDraft: data.draft,
         charLimitType: String(charLimit) as "300" | "400" | "500",
         updatedAt: new Date(),
-      })
+      }))
       .where(eq(motivationConversations.id, conversation.id));
 
     // Create ES document with the generated draft

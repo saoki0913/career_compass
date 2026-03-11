@@ -169,6 +169,14 @@ CLAUDE_MODEL=claude-sonnet-4-5-20250929
 CLAUDE_HAIKU_MODEL=claude-haiku-4-5-20251001
 OPENAI_MODEL=gpt-5-mini
 
+# Qwen3 ES添削 beta（別の vLLM / OpenAI-compatible service を使う）
+QWEN_ES_REVIEW_ENABLED=true
+QWEN_ES_REVIEW_BASE_URL=http://qwen-es-review.internal:8000/v1
+QWEN_ES_REVIEW_MODEL=Qwen/Qwen3-14B
+QWEN_ES_REVIEW_ADAPTER_ID=es_review
+# QWEN_ES_REVIEW_API_KEY=local-qwen
+# QWEN_ES_REVIEW_TIMEOUT_SECONDS=120
+
 # 機能別モデルティア設定（claude-sonnet / claude-haiku / openai）
 MODEL_ES_REVIEW=claude-sonnet
 MODEL_GAKUCHIKA=claude-haiku
@@ -187,9 +195,6 @@ EMBEDDING_MAX_INPUT_CHARS=8000
 # ハイブリッド検索
 USE_HYBRID_SEARCH=true
 
-# ES 添削設定
-ES_REWRITE_COUNT=1
-
 # デバッグ無効化（本番）
 DEBUG=false
 COMPANY_SEARCH_DEBUG=false
@@ -201,6 +206,8 @@ FRONTEND_URL=https://www.shupass.jp
 # Redis キャッシュ（任意）
 # REDIS_URL=redis://...
 ```
+
+> `QWEN_ES_REVIEW_BASE_URL` は既存 FastAPI コンテナ自身ではなく、別サービスとして立てた vLLM endpoint を向ける。既存の Claude 経路を残したまま、Qwen3 β だけを sidecar / 別 Railway service に逃がす構成を前提にする。
 
 ### 設定不要な変数
 
@@ -294,8 +301,4 @@ curl https://career-compass-backend-production.up.railway.app/health
 | CORS エラー | `CORS_ORIGINS` 未設定 | Variables に `CORS_ORIGINS=["https://www.shupass.jp","https://shupass.jp"]` を追加 |
 | 外部からアクセス不可 | Public Domain 未生成 | Settings → Networking → Generate Domain |
 
-CLI でまとめて確認する場合:
-
-```bash
-./scripts/diagnose-deploy.sh https://www.shupass.jp https://<your-railway-domain>/health
-```
+CLI で確認する場合は、`vercel whoami` / `vercel projects ls` / `railway status` / `railway logs --tail 200` / `curl -I` を個別に実行する。

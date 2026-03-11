@@ -3,354 +3,231 @@ ES Template Definitions and Prompt Builder
 
 Template-based ES review with company RAG source integration.
 Each template specifies:
-- keyword_count: Number of company keywords to use from RAG
-- require_strengthen_points: Whether to suggest self-strengthening points
 - requires_company_rag: Whether company RAG data is required
+- company_grounding: How deeply company grounding should be used
 - extra_fields: Additional fields required for this template (intern_name, role_name)
 """
 
 from typing import Optional
-from pathlib import Path
-
-BASIC_TEMPLATE_PATH = (
-    Path(__file__).resolve().parent / "templates" / "00_basic_template.md"
-)
-try:
-    BASIC_TEMPLATE_TEXT = BASIC_TEMPLATE_PATH.read_text(encoding="utf-8")
-except Exception:
-    BASIC_TEMPLATE_TEXT = None
 
 # Template definitions
 TEMPLATE_DEFS = {
     "basic": {
         "label": "汎用ES添削",
-        "keyword_count": 2,
-        "require_strengthen_points": False,
-        "requires_company_rag": True,
+        "requires_company_rag": False,
+        "company_grounding": "assistive",
         "description": "設問への適合性、企業理解、自己アピール、論理性を総合的に評価。",
     },
     "company_motivation": {
         "label": "企業志望理由",
-        "keyword_count": 2,
-        "require_strengthen_points": False,
         "requires_company_rag": True,
+        "company_grounding": "required",
         "description": "企業への志望理由を述べる設問。企業の特徴・事業・価値観との接点を示す。",
     },
     "intern_reason": {
         "label": "インターン志望理由",
-        "keyword_count": 0,
-        "require_strengthen_points": True,
         "requires_company_rag": True,
+        "company_grounding": "required",
         "description": "インターンへの参加理由を述べる設問。参加目的と自己成長の接点を示す。",
         "extra_fields": ["intern_name"],
     },
     "intern_goals": {
         "label": "インターンでやりたいこと・学びたいこと",
-        "keyword_count": 2,
-        "require_strengthen_points": False,
         "requires_company_rag": True,
+        "company_grounding": "required",
         "description": "インターンで達成したい目標や学びたいことを述べる設問。",
         "extra_fields": ["intern_name"],
     },
     "gakuchika": {
         "label": "ガクチカ",
-        "keyword_count": 0,
-        "require_strengthen_points": True,
         "requires_company_rag": False,
+        "company_grounding": "assistive",
         "description": "学生時代に力を入れたことを述べる設問。STAR形式で具体的に。",
+    },
+    "self_pr": {
+        "label": "自己PR",
+        "requires_company_rag": False,
+        "company_grounding": "assistive",
+        "description": "強み、その根拠となる経験、企業や職種での活かし方を述べる設問。",
     },
     "post_join_goals": {
         "label": "入社後やりたいこと",
-        "keyword_count": 2,
-        "require_strengthen_points": False,
         "requires_company_rag": True,
+        "company_grounding": "required",
         "description": "入社後のキャリアビジョンや挑戦したいことを述べる設問。",
     },
     "role_course_reason": {
         "label": "職種・コース選択理由",
-        "keyword_count": 0,
-        "require_strengthen_points": False,
         "requires_company_rag": True,
+        "company_grounding": "required",
         "description": "特定の職種やコースを選んだ理由を述べる設問。",
         "extra_fields": ["role_name"],
     },
     "work_values": {
         "label": "働くうえで大切にしている価値観",
-        "keyword_count": 0,
-        "require_strengthen_points": True,
         "requires_company_rag": False,
+        "company_grounding": "assistive",
         "description": "仕事に対する価値観や姿勢を述べる設問。",
     },
 }
 
-# Template-specific prompt components
-TEMPLATE_PROMPTS = {
+TEMPLATE_RAG_PROFILES = {
     "basic": {
-        "role": "就活ES作成のプロフェッショナル",
-        "target": "ES",
-        "aspects": """■ 設問への適合性
-・設問の意図を正確に理解し、直接的な回答になっているか
-・設問で求められている要素（理由、経験、目標等）が網羅されているか
-・設問の指示（具体的に、簡潔に等）に従っているか
-
-■ 企業理解・整合性
-・企業が重視するキーワードが適切に2つ含まれているか
-・企業が重視するキーワードが過剰（3つ以上）に含まれていないか
-・企業の事業戦略・方向性・理念との整合性があるか
-・競合他社との差別化ができているか
-
-■ 自己アピール
-・自分の経験・スキル・価値観と企業の接点が明確か
-・抽象的な表現（「成長したい」「挑戦したい」）を具体化しているか
-・具体的な数字やエピソードで裏付けているか
-・学生らしい成長意欲と学習姿勢が表現されているか
-
-■ 論理性・説得力
-・主張と根拠が論理的に繋がっているか
-・「なぜ」が明確に説明されているか
-・読み手が納得できる内容か
-
-■ 文章構成
-・結論ファーストで書かれていて、読み手に伝えたいことが明確に伝わるか
-・だ・である調で統一されているか
-・冗長な部分や、省略しすぎて伝わりにくい部分はないか
-・面接で深掘りされた時に答えられる内容か""",
-        "checklist": """□ 設問への直接的な回答になっている
-□ 企業研究に基づく具体的なキーワード2つ
-□ 自分の経験・強みとの接点が明確
-□ 論理的で説得力のある構成
-□ だ・である調で統一
-□ 指定文字数の範囲内""",
+        "profile_name": "es_light",
+        "expand_queries": False,
+        "rerank": False,
+        "use_bm25": False,
+        "profile_overrides": {
+            "semantic_weight": 0.82,
+            "keyword_weight": 0.18,
+            "fetch_k": 16,
+            "max_queries": 0,
+            "max_total_queries": 1,
+            "rerank_threshold": 0.82,
+            "mmr_lambda": 0.62,
+            "use_hyde": False,
+        },
     },
     "company_motivation": {
-        "role": "就活ESの志望理由作成のプロフェッショナル",
-        "target": "企業の志望理由",
-        "aspects": """■ 企業理解・整合性
-・企業が重視するキーワードが適切に2つ含まれているか
-・企業が重視するキーワードが過剰（3つ以上）に含まれていないか
-・企業の事業戦略・方向性・理念との整合性があるか
-・競合他社との明確な差別化ができているか（なぜこの企業でなければならないか）
-
-■ 自己アピール
-・自分の経験・スキル・価値観と企業の接点が明確か
-・抽象的な表現（「成長したい」「挑戦したい」）を具体化しているか
-・学生らしい成長意欲と学習姿勢が表現されているか
-
-■ キャリアビジョン
-・入社後に何をしたいかが具体的に示されているか
-・キャリアビジョンと企業の事業・キャリアパスが接続されているか
-
-■ 文章構成
-・結論ファーストで書かれていて、読み手に伝えたいことが明確に伝わるか
-・だ・である調で統一されているか
-・冗長な部分や、省略しすぎて伝わりにくい部分はないか
-・面接で深掘りされた時に答えられる内容か""",
-        "checklist": """□ 「貴社でなければならない理由」が明確
-□ 企業研究に基づく具体的なキーワード2つ
-□ 自分の経験と企業の接点
-□ 入社後の具体的なビジョン""",
+        "profile_name": "es_company_focus",
+        "expand_queries": True,
+        "rerank": True,
+        "use_bm25": True,
+        "profile_overrides": {
+            "semantic_weight": 0.68,
+            "keyword_weight": 0.32,
+            "fetch_k": 24,
+            "max_queries": 1,
+            "max_total_queries": 2,
+            "rerank_threshold": 0.66,
+            "mmr_lambda": 0.48,
+            "use_hyde": False,
+        },
     },
     "intern_reason": {
-        "role": "就活ESのインターン志望理由作成のプロフェッショナル",
-        "target": "インターン志望理由",
-        "aspects": """■ インターン理解
-・このインターンでしか得られない価値・経験を示しているか
-・インターンプログラムの内容を正確に理解しているか
-・他社インターンとの差別化ができているか
-
-■ 自己との接続
-・自分の現状の課題・不足点を認識しているか
-・インターンでの成長イメージが具体的か
-・自分の強み・素養がどう活きるか示しているか
-
-■ 志望度・意欲
-・企業への興味・関心が伝わるか
-・本選考への接続を意識した内容か
-・受け身でなく主体的な姿勢が見えるか
-
-■ 文章構成
-・設問への直接的な回答になっているか
-・結論ファーストで書かれているか
-・だ・である調で統一されているか
-・簡潔で読みやすい文章か
-・面接で深掘りされた時に答えられる内容か""",
-        "checklist": """□ このインターンでしか得られない価値が明確
-□ 自分の課題と成長イメージの接続
-□ 主体的な姿勢・意欲
-□ 設問への直接的な回答""",
+        "profile_name": "es_company_focus",
+        "expand_queries": True,
+        "rerank": True,
+        "use_bm25": True,
+        "profile_overrides": {
+            "semantic_weight": 0.7,
+            "keyword_weight": 0.3,
+            "fetch_k": 22,
+            "max_queries": 1,
+            "max_total_queries": 2,
+            "rerank_threshold": 0.67,
+            "mmr_lambda": 0.5,
+            "use_hyde": False,
+        },
     },
     "intern_goals": {
-        "role": "就活ESのインターン目標作成のプロフェッショナル",
-        "target": "インターンでやりたいこと・学びたいこと",
-        "aspects": """■ 目標の明確性
-・やりたい仕事・業務領域が具体的に絞られているか（1〜2つ）
-・経験したいことが明確か
-・身につけたいことが具体的か
-・そう考えた理由が論理的に説明されているか
-
-■ 企業・インターンとの整合性
-・企業が重視するキーワードが適切に2つ含まれているか
-・企業が重視するキーワードが過剰（3つ以上）に含まれていないか
-・企業の事業戦略・方向性との整合性があるか
-・インターンプログラムの内容と目標が合致しているか
-・競合他社との差別化ができているか
-
-■ 自己との接続
-・自分の経験・スキルと目標の接点が明確か
-・インターン後のキャリアビジョンとの関連性があるか
-・学生らしい成長意欲と学習姿勢が表現されているか
-
-■ 文章構成
-・結論ファーストで書かれていて、読み手に伝えたいことが明確に伝わるか
-・だ・である調で統一されているか
-・冗長な部分や、省略しすぎて伝わりにくい部分はないか
-・面接で深掘りされた時に答えられる内容か""",
-        "checklist": """□ 目標が1〜2つに絞られている
-□ 企業の事業・プログラムとの接続
-□ 自分の経験との接点が明確
-□ 目標達成後のビジョン
-□ 受け身でなく主体的な姿勢""",
+        "profile_name": "es_company_focus",
+        "expand_queries": True,
+        "rerank": True,
+        "use_bm25": True,
+        "profile_overrides": {
+            "semantic_weight": 0.68,
+            "keyword_weight": 0.32,
+            "fetch_k": 22,
+            "max_queries": 1,
+            "max_total_queries": 2,
+            "rerank_threshold": 0.66,
+            "mmr_lambda": 0.48,
+            "use_hyde": False,
+        },
     },
     "gakuchika": {
-        "role": "就活ESのガクチカ作成のプロフェッショナル",
-        "target": "ガクチカ",
-        "aspects": """■ STAR形式の充実度
-・Situation（状況）：活動期間、役割、人数等の具体的なイメージができるか
-・Task（課題）：取り組んだ課題・目標が明確か
-・Action（行動）：自分の役割と主体的な行動が明確か
-・Result（結果）：具体的な成果・数字が示されているか
-
-■ 企業適合性
-・企業が重視する能力・スキルがアピールできているか
-・企業文化・価値観との適合性があるか
-・入社後の活躍イメージが想起できるか
-
-■ 差別化・独自性
-・他の応募者との差別化ができているか
-・自分ならではの視点・工夫があるか
-・再現性のある強みとして伝わるか
-
-■ 学び・成長
-・具体的な学びが示されているか
-・その経験から得た強みが明確か
-・企業で活かせる強みとして伝わるか
-
-■ 文章構成
-・結論ファーストで書かれているか
-・だ・である調で統一されているか
-・冗長な部分がないか
-・面接で深掘りされた時に答えられる内容か""",
-        "checklist": """□ 活動期間・役割・人数が明記されている
-□ 課題・目標が明確
-□ 主体的な行動・工夫が具体的
-□ 成果が数字で示されている
-□ 学び・得た強みが明確
-□ 企業で活かせる強みとして伝わる""",
+        "profile_name": "es_self_focus",
+        "expand_queries": False,
+        "rerank": False,
+        "use_bm25": False,
+        "profile_overrides": {
+            "semantic_weight": 0.86,
+            "keyword_weight": 0.14,
+            "fetch_k": 12,
+            "max_queries": 0,
+            "max_total_queries": 1,
+            "rerank_threshold": 0.84,
+            "mmr_lambda": 0.7,
+            "use_hyde": False,
+        },
+    },
+    "self_pr": {
+        "profile_name": "es_self_focus",
+        "expand_queries": False,
+        "rerank": False,
+        "use_bm25": False,
+        "profile_overrides": {
+            "semantic_weight": 0.86,
+            "keyword_weight": 0.14,
+            "fetch_k": 12,
+            "max_queries": 0,
+            "max_total_queries": 1,
+            "rerank_threshold": 0.84,
+            "mmr_lambda": 0.7,
+            "use_hyde": False,
+        },
     },
     "post_join_goals": {
-        "role": "就活ESの入社後ビジョン作成のプロフェッショナル",
-        "target": "入社後やりたいこと",
-        "aspects": """■ ビジョンの具体性
-・短期（1-3年）と中長期のキャリアビジョンが区別されているか
-・具体的なプロジェクト・事業・目標に言及しているか
-・「何を」「どのように」「なぜ」が明確か
-
-■ 企業との整合性
-・企業が重視するキーワードが適切に2つ含まれているか
-・企業が重視するキーワードが過剰（3つ以上）に含まれていないか
-・企業の事業戦略・成長領域との整合性があるか
-・企業のキャリアパス・研修制度と接続しているか
-・実現可能性のあるビジョンか
-
-■ 自己との接続
-・自分の強み・経験がどう活きるかを説明しているか
-・なぜそのビジョンを持つに至ったか（原体験）が示されているか
-・成長意欲・学習姿勢が表現されているか
-
-■ 貢献意識
-・企業・社会への貢献イメージが示されているか
-・受け身でなく主体的な姿勢か
-・独りよがりでなくチームでの協働意識があるか
-
-■ 文章構成
-・結論ファーストで書かれているか
-・だ・である調で統一されているか
-・冗長な部分がないか
-・面接で深掘りされた時に答えられる内容か""",
-        "checklist": """□ 短期・中長期のビジョンが明確
-□ 企業の事業・キャリアパスと接続
-□ 自分の強み・経験との接点
-□ 具体的なプロジェクト・目標への言及
-□ 企業・社会への貢献イメージ""",
+        "profile_name": "es_company_future",
+        "expand_queries": True,
+        "rerank": True,
+        "use_bm25": True,
+        "profile_overrides": {
+            "semantic_weight": 0.66,
+            "keyword_weight": 0.34,
+            "fetch_k": 26,
+            "max_queries": 1,
+            "max_total_queries": 2,
+            "rerank_threshold": 0.65,
+            "mmr_lambda": 0.46,
+            "use_hyde": True,
+        },
     },
     "role_course_reason": {
-        "role": "就活ESの職種選択理由作成のプロフェッショナル",
-        "target": "職種・コース選択理由",
-        "aspects": """■ 職種理解
-・その職種・コースの役割・業務内容を正確に理解しているか
-・企業におけるその職種の特徴・強みを把握しているか
-・他職種との違いを理解しているか
-
-■ 自己との接続
-・なぜその職種なのかを自分の経験と接続しているか
-・職種で求められるスキルと自分の素養の接点があるか
-・その職種を志望するに至った原体験があるか
-
-■ キャリアビジョン
-・その職種でのキャリアビジョンが明確か
-・企業のキャリアパスとの整合性があるか
-・長期的な成長イメージが示されているか
-
-■ 適性アピール
-・その職種に向いている理由が示されているか
-・具体的なエピソードで適性を裏付けているか
-・入社後の活躍イメージが想起できるか
-
-■ 文章構成
-・結論ファーストで書かれているか
-・だ・である調で統一されているか
-・冗長な部分がないか
-・面接で深掘りされた時に答えられる内容か""",
-        "checklist": """□ 自分の経験と職種の接点が明確
-□ 企業のその職種の特徴との接点
-□ 職種で求められるスキルと自分の素養
-□ その職種でのキャリアビジョン
-□ 具体的なエピソードで適性を裏付け""",
+        "profile_name": "es_role_fit",
+        "expand_queries": True,
+        "rerank": True,
+        "use_bm25": True,
+        "profile_overrides": {
+            "semantic_weight": 0.7,
+            "keyword_weight": 0.3,
+            "fetch_k": 24,
+            "max_queries": 1,
+            "max_total_queries": 2,
+            "rerank_threshold": 0.64,
+            "mmr_lambda": 0.46,
+            "use_hyde": False,
+        },
     },
     "work_values": {
-        "role": "就活ESの価値観表現作成のプロフェッショナル",
-        "target": "働くうえで大切にしている価値観",
-        "aspects": """■ 価値観の具体性
-・抽象的な価値観を具体的な行動指針に落とし込んでいるか
-・その価値観を形成した具体的なエピソードがあるか
-・一貫性のある価値観として伝わるか
-
-■ 裏付け
-・その価値観を裏付ける経験・エピソードがあるか
-・実際の行動として表れている例があるか
-・複数の場面で発揮された価値観か
-
-■ 仕事への接続
-・その価値観が仕事でどう活きるか示しているか
-・企業の価値観・文化との親和性があるか
-・チームでの協働における意義が示されているか
-
-■ 独自性
-・他の応募者との差別化ができているか
-・自分ならではの視点・表現があるか
-・深みのある内容か
-
-■ 文章構成
-・結論ファーストで書かれているか
-・だ・である調で統一されているか
-・冗長な部分がないか
-・面接で深掘りされた時に答えられる内容か""",
-        "checklist": """□ 具体的なエピソードから価値観を導出
-□ 抽象→具体への落とし込み
-□ 価値観が仕事でどう活きるか
-□ 企業文化との親和性
-□ 自分ならではの視点・表現""",
+        "profile_name": "es_self_focus",
+        "expand_queries": False,
+        "rerank": False,
+        "use_bm25": False,
+        "profile_overrides": {
+            "semantic_weight": 0.88,
+            "keyword_weight": 0.12,
+            "fetch_k": 10,
+            "max_queries": 0,
+            "max_total_queries": 1,
+            "rerank_threshold": 0.86,
+            "mmr_lambda": 0.72,
+            "use_hyde": False,
+        },
     },
+}
+
+TEMPLATE_ROLES = {
+    "basic": "就活ES作成のプロフェッショナル",
+    "company_motivation": "就活ESの志望理由作成のプロフェッショナル",
+    "intern_reason": "就活ESのインターン志望理由作成のプロフェッショナル",
+    "intern_goals": "就活ESのインターン目標作成のプロフェッショナル",
+    "gakuchika": "就活ESのガクチカ作成のプロフェッショナル",
+    "self_pr": "就活ESの自己PR作成のプロフェッショナル",
+    "post_join_goals": "就活ESの入社後ビジョン作成のプロフェッショナル",
+    "role_course_reason": "就活ESの職種選択理由作成のプロフェッショナル",
+    "work_values": "就活ESの価値観表現作成のプロフェッショナル",
 }
 
 
@@ -359,82 +236,156 @@ def get_template_labels() -> dict[str, str]:
     return {k: v["label"] for k, v in TEMPLATE_DEFS.items()}
 
 
-def get_character_budget(char_min: Optional[int], char_max: Optional[int]) -> str:
-    """
-    Generate section-by-section character budget guidance with safety margins.
+def get_template_company_grounding_policy(template_type: str) -> str:
+    template_def = TEMPLATE_DEFS.get(template_type, TEMPLATE_DEFS["basic"])
+    return str(template_def.get("company_grounding") or "assistive")
 
-    This helps the LLM plan content distribution before writing,
-    improving character limit compliance. Uses safety margins to reduce
-    character count failures.
 
-    Args:
-        char_min: Minimum character count (optional)
-        char_max: Maximum character count (optional)
+def _format_char_condition(char_min: Optional[int], char_max: Optional[int]) -> str:
+    if char_min and char_max:
+        return f"{char_min}字〜{char_max}字"
+    if char_max:
+        return f"{char_max}字以内"
+    if char_min:
+        return f"{char_min}字以上"
+    return "未指定"
 
-    Returns:
-        Character budget guidance string, or empty string if no limits set
-    """
-    if not char_min and not char_max:
+
+def _format_target_char_window(char_min: Optional[int], char_max: Optional[int]) -> str:
+    if not char_max:
+        return _format_char_condition(char_min, char_max)
+
+    gap = 6 if char_max <= 220 else 8
+    target_low = max(char_min or 0, char_max - gap)
+    target_high = max(target_low, char_max - 2)
+    return f"{target_low}字〜{target_high}字"
+
+
+def _format_user_fact_guidance(allowed_user_facts: Optional[list[dict]]) -> str:
+    if not allowed_user_facts:
+        return ""
+    fact_lines = [
+        f"- [{str(item.get('source', 'unknown'))}] {str(item.get('text', '')).strip()}"
+        for item in allowed_user_facts
+        if str(item.get("text", "")).strip()
+    ]
+    if not fact_lines:
+        return ""
+    return f"""
+【使えるユーザー事実】
+{chr(10).join(fact_lines)}
+
+- 上記にない具体的な経験・役割・成果・数字は足さない
+- raw material 由来の内容は、書かれている範囲を超えて解釈しない
+- 情報が足りない場合は一般化して書く"""
+
+
+def _format_reference_quality_guidance(reference_quality_block: str) -> str:
+    if not reference_quality_block:
+        return ""
+    return f"\n{reference_quality_block}"
+
+
+def _format_company_guidance(
+    *,
+    company_evidence_cards: Optional[list[dict]],
+    has_rag: bool,
+    grounding_mode: str,
+    requires_company_rag: bool,
+    company_grounding: str = "required",
+    generic_role_mode: bool = False,
+    evidence_coverage_level: str = "none",
+) -> str:
+    if has_rag and company_evidence_cards:
+        card_lines = []
+        for card in company_evidence_cards[:5]:
+            theme = str(card.get("theme") or "").strip()
+            claim = str(card.get("claim") or "").strip()
+            excerpt = str(card.get("excerpt") or "").strip()
+            line = " / ".join(part for part in [claim, excerpt] if part)
+            if not line:
+                continue
+            prefix = f"[{theme}] " if theme else ""
+            card_lines.append(f"- {prefix}{line}")
+        if not card_lines:
+            return ""
+        usage_lines = [
+            "- 設問との接点が強い根拠を1〜2点だけ使う",
+            "- 企業が重視する能力・価値観・方向性との整合を優先する",
+            "- cards にない固有施策・制度・体制は新しく断定しない",
+            "- cards の固有名詞や言い回しをそのまま増殖させない",
+        ]
+        if company_grounding == "assistive":
+            usage_lines.extend(
+                [
+                    "- 本文の主軸は自分の経験・行動・学び・価値観に置く",
+                    "- 企業理解は 0〜1 文だけ補助的に使い、本文の中心にしない",
+                    "- 学びや強みが会社でどう活きるかを短くつなぐ程度にとどめる",
+                ]
+            )
+        if grounding_mode == "company_general":
+            usage_lines.append("- 職種別の断定や配属前提の表現は避ける")
+        else:
+            usage_lines.append("- 役割理解やインターン価値が取れている card を優先する")
+        if generic_role_mode:
+            usage_lines.append("- broad な職種名ではなく、事業理解と得たい経験・スキルの2軸で企業理解を示す")
+        if evidence_coverage_level in {"weak", "partial"} and company_grounding == "required":
+            usage_lines.append("- 根拠が限定的な場合は、企業理解を1軸に絞って一般化した表現を優先する")
+        elif evidence_coverage_level in {"weak", "partial"}:
+            usage_lines.append("- 根拠が限定的な場合は、本文では薄く触れるか触れず、改善の方向づけだけに使う")
+        return f"""
+【企業根拠カード】
+{chr(10).join(card_lines)}
+
+【企業根拠の使い方】
+{chr(10).join(usage_lines)}"""
+    if requires_company_rag or company_grounding == "required":
+        return """
+【企業根拠なし】
+- 推測で企業固有情報を書かない
+- 自分の経験・関心・職種理解を軸にまとめる"""
+    if company_grounding == "assistive":
+        return """
+【企業情報は補助扱い】
+- 企業固有の断定を無理に広げない
+- 自分の経験・強み・価値観を主軸にまとめる
+- 使うとしても fit や活かし方を短く補助する程度にとどめる"""
+    return ""
+
+
+def _format_short_answer_guidance(
+    template_type: str,
+    char_min: Optional[int],
+    char_max: Optional[int],
+) -> str:
+    if not char_max or char_max > 220:
         return ""
 
-    # Calculate targets with safety margins
-    # Aim for 95% of max to leave buffer for adjustment
-    if char_min and char_max:
-        # Target the middle of safe range (min to 95% of max)
-        safe_max = int(char_max * 0.95)
-        target = (char_min + safe_max) // 2
-        safe_range = f"{char_min}〜{safe_max}字"
-        constraint = f"{char_min}字〜{char_max}字"
-    elif char_max:
-        # For upper-only limits, aim for 90% of max
-        target = int(char_max * 0.90)
-        safe_max = int(char_max * 0.95)
-        safe_range = f"{safe_max}字以内"
-        constraint = f"{char_max}字以内"
-    else:
-        # For lower-only limits, aim for 5% above min
-        target = int(char_min * 1.05)
-        safe_range = f"{int(char_min * 1.02)}字以上"
-        constraint = f"{char_min}字以上"
-
-    # Typical ES structure allocation
-    intro_budget = int(target * 0.15)  # 15% for opening statement
-    body_budget = int(target * 0.70)  # 70% for main content
-    conclusion_budget = int(target * 0.15)  # 15% for conclusion
-
-    return f"""【文字数管理 - 厳守事項】
-
-■ 目標文字数: {target}字（安全範囲: {safe_range}）
-■ 制限: {constraint}
-
-■ 構成配分ガイド:
-  - 導入（結論/主張）: 約{intro_budget}字
-  - 本論（具体的経験・根拠）: 約{body_budget}字
-  - 結論（まとめ・展望）: 約{conclusion_budget}字
-
-■ 必須検証手順:
-  1. 各パターンを書き終えた後、len(text) で文字数を計算
-  2. {safe_range}の範囲外なら以下で調整:
-     【多い場合の削減テクニック】
-     - 「〜ということ」→「〜こと」
-     - 「〜というような」→「〜のような」または省略
-     - 「〜させていただく」→「〜する」
-     - 「非常に大きな」→「大きな」
-     - 重複する修飾語を統合
-     【少ない場合の追加テクニック】
-     - 具体的な数値（期間、人数、成果の数字）
-     - エピソードの背景説明（「〜の状況下で」）
-     - 学びや気づきの補強
-  3. 調整後、再度 len(text) で確認
-  4. char_count に正確な文字数を記録
-
-■ よくある失敗:
-  × char_countに概算値を記録 → 必ずlen()の結果を使用
-  × 上限ギリギリを狙う → 安全範囲内を目標に
-  × 数値を削って短縮 → 具体性は維持、冗長表現を削減"""
+    target = max(0, char_max - 2)
+    structure_map = {
+        "intern_reason": "1文目で参加理由、2文目で根拠経験、必要なら3文目でこのインターンで得たいことを置く",
+        "intern_goals": "1文目で学びたいこと、2文目で根拠経験、必要なら3文目でインターン接点を置く",
+        "role_course_reason": "1文目で職種志望、2文目で根拠経験、必要なら3文目で企業接点を置く",
+        "company_motivation": "1文目で志望理由、2文目で根拠経験、必要なら3文目で企業接点を置く",
+        "post_join_goals": "1文目でやりたいこと、2文目で根拠経験、必要なら3文目で企業接点を置く",
+    }
+    structure = structure_map.get(
+        template_type,
+        "1文目で結論、2文目で根拠、必要なら3文目で企業や仕事との接点を置く",
+    )
+    return f"""
+【短字数設問の書き方】
+- 2〜3文で構成する
+- {structure}
+- 目標は {target}字前後で、短く終わらせない
+- 文を細かく切りすぎず、各文に意味を持たせる"""
 
 
-def build_template_prompt(
+def get_template_rag_profile(template_type: str) -> dict:
+    return TEMPLATE_RAG_PROFILES.get(template_type, TEMPLATE_RAG_PROFILES["basic"]).copy()
+
+
+def build_template_rewrite_prompt(
     template_type: str,
     company_name: Optional[str],
     industry: Optional[str],
@@ -442,399 +393,303 @@ def build_template_prompt(
     answer: str,
     char_min: Optional[int],
     char_max: Optional[int],
-    rag_sources: list[dict],
-    rag_context: str,
-    keyword_count: int,
-    has_rag: bool = True,
+    company_evidence_cards: Optional[list[dict]],
+    has_rag: bool,
+    improvement_points: Optional[list[dict]] = None,
+    allowed_user_facts: Optional[list[dict]] = None,
     intern_name: Optional[str] = None,
     role_name: Optional[str] = None,
-    rewrite_count: int = 1,
+    grounding_mode: str = "none",
+    retry_hint: Optional[str] = None,
+    reference_quality_block: str = "",
+    generic_role_mode: bool = False,
+    evidence_coverage_level: str = "none",
 ) -> tuple[str, str]:
-    """
-    Build system and user prompts for template-based ES review.
-
-    Args:
-        template_type: Template type ID
-        company_name: Company name (optional)
-        industry: Industry name (optional)
-        question: ES question text
-        answer: User's answer text
-        char_min: Minimum character count (optional)
-        char_max: Maximum character count (optional)
-        rag_sources: List of source dicts with source_id, source_url, content_type, excerpt
-        rag_context: RAG context text
-        keyword_count: Number of keywords to use
-        has_rag: Whether company RAG data is available
-        intern_name: Intern program name (for intern templates)
-        role_name: Role/course name (for role_course_reason template)
-
-    Returns:
-        Tuple of (system_prompt, user_prompt)
-    """
     template_def = TEMPLATE_DEFS.get(template_type)
     if not template_def:
         raise ValueError(f"Unknown template type: {template_type}")
+    template_role = TEMPLATE_ROLES.get(template_type, TEMPLATE_ROLES["basic"])
 
-    template_prompt = TEMPLATE_PROMPTS.get(template_type)
-    if not template_prompt:
-        # Fallback to basic template
-        template_prompt = TEMPLATE_PROMPTS["basic"]
-
-    def _build_basic_template_text() -> str:
-        if not BASIC_TEMPLATE_TEXT:
-            return ""
-
-        # Character limit instructions
-        if char_min and char_max:
-            char_line = f"文字数：{char_min}字〜{char_max}字（Python len() でカウント・厳守）"
-        elif char_max:
-            char_line = f"文字数：{char_max}字以内（Python len() でカウント・厳守）"
-        elif char_min:
-            char_line = f"文字数：{char_min}字以上（Python len() でカウント・厳守）"
-        else:
-            char_line = "文字数：指定なし"
-
-        lines: list[str] = []
-        for line in BASIC_TEMPLATE_TEXT.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("文字数："):
-                lines.append(char_line)
-                continue
-            if stripped.startswith("業界：") and not industry:
-                continue
-            if stripped.startswith("企業：") and not company_name:
-                continue
-            if stripped.startswith("設問："):
-                lines.append(f"設問：{question}")
-                continue
-            lines.append(line)
-
-        text = "\n".join(lines)
-        replacements = {
-            "{min_chars}": str(char_min) if char_min is not None else "",
-            "{max_chars}": str(char_max) if char_max is not None else "",
-            "{industry}": industry or "",
-            "{company}": company_name or "",
-            "{question}": question or "",
-            "{draft_text}": answer,
-        }
-        for key, value in replacements.items():
-            text = text.replace(key, value)
-
-        return text.strip()
-
-    # Build source reference section
-    source_refs = ""
-    if rag_sources:
-        source_lines = []
-        for src in rag_sources:
-            source_lines.append(
-                f"- {src['source_id']}: [{src['content_type']}] {src.get('excerpt', '')[:100]}..."
-            )
-        source_refs = "\n".join(source_lines)
-
-    # Character limit instructions
-    char_instruction = ""
-    if char_min and char_max:
-        if char_min == char_max:
-            char_instruction = f"文字数：{char_min}字（Python len() でカウント・厳守）"
-        else:
-            char_instruction = (
-                f"文字数：{char_min}字〜{char_max}字（Python len() でカウント・厳守）"
-            )
-    elif char_max:
-        char_instruction = f"文字数：{char_max}字以内（Python len() でカウント・厳守）"
-    elif char_min:
-        char_instruction = f"文字数：{char_min}字以上（Python len() でカウント・厳守）"
-    else:
-        char_instruction = "文字数：指定なし"
-
-    # Build conditions section
-    conditions = [char_instruction]
-    if industry:
-        conditions.append(f"業界：{industry}")
+    conditions = [f"設問: {question}"]
     if company_name:
-        conditions.append(f"企業：{company_name}")
+        conditions.append(f"企業: {company_name}")
+    if industry:
+        conditions.append(f"業界: {industry}")
     if intern_name:
-        conditions.append(f"インターン名：{intern_name}")
+        conditions.append(f"インターン名: {intern_name}")
     if role_name:
-        conditions.append(f"職種・コース名：{role_name}")
-    conditions.append(f"設問：{question}")
-    conditions_text = "\n".join(conditions)
+        conditions.append(f"職種・コース名: {role_name}")
+    conditions.append(f"文字数: {_format_char_condition(char_min, char_max)}")
 
-    # Generate character budget guide
-    char_budget = get_character_budget(char_min, char_max)
+    improvement_guidance = ""
+    if improvement_points:
+        improvement_lines = []
+        for index, item in enumerate(improvement_points, 1):
+            issue = str(item.get("issue", "")).strip()
+            suggestion = str(item.get("suggestion", "")).strip()
+            required_action = str(item.get("required_action", "")).strip()
+            if issue or suggestion:
+                improvement_lines.append(
+                    (
+                        f"{index}. 問題点: {issue or '未設定'} / 改善指示: {suggestion or '未設定'}"
+                        + (f" / 必須動作: {required_action}" if required_action else "")
+                    )
+                )
+        if improvement_lines:
+            improvement_guidance = f"""
+【改善ポイント】
+{chr(10).join(improvement_lines)}
 
-    # Build character limit constraint description for self-verification
-    if char_min and char_max:
-        char_constraint = f"{char_min}字〜{char_max}字"
-    elif char_max:
-        char_constraint = f"{char_max}字以内"
-    elif char_min:
-        char_constraint = f"{char_min}字以上"
-    else:
-        char_constraint = ""
+- 上記を本文で解消する
+- 改善ポイントと矛盾する内容を書かない"""
 
-    effective_rewrite_count = 1
+    retry_guidance = f"\n【前回失敗の回避】\n- {retry_hint}" if retry_hint else ""
+    system_prompt = f"""あなたは{template_role}である。
+目的は、提出できる改善案本文を1件だけ作ること。
 
-    # Output requirements - character limits are now emphasized first
-    output_requirements = """【最重要: 文字数厳守】
-完成稿を出力する前に、以下の手順を必ず実行:
-1. 文章を仮作成
-2. len(text) で文字数を計算
-3. 範囲外なら上記の文字数管理の削減/追加テクニックで調整
-4. 再度 len(text) で確認
-5. 範囲内になったら char_count に正確な文字数を記録
+【必須ルール】
+- 出力は改善案本文のみ
+- 説明、前置き、箇条書き、引用符、JSON、コードブロックは禁止
+- だ・である調で統一
+- 設問に正面から答える
+- 元回答の具体的事実は保ち、構成と伝わり方を改善する
+- ユーザー事実にない経験・役割・成果・数字を足さない
+- role_name があっても別職種や別コースを仮定しない
+- 企業情報は設問タイプに応じて使い、required でない設問では補助的にだけ使う
+- 企業根拠カードの固有名詞・施策名・組織名・英字略語を本文でそのまま増殖させない
+- 本文で企業に触れるときは、方向性・価値観・重視姿勢に抽象化する
+- 冗長な接続詞で文字数を浪費しない
+- 文字数条件は {_format_char_condition(char_min, char_max)}
+- 目標は {_format_target_char_window(char_min, char_max)} の提出用本文
 
+【設問タイプの焦点】
+{template_def["description"]}
+{_format_short_answer_guidance(template_type, char_min, char_max)}
+{_format_company_guidance(
+    company_evidence_cards=company_evidence_cards,
+    has_rag=has_rag,
+    grounding_mode=grounding_mode,
+    requires_company_rag=bool(template_def.get("requires_company_rag")),
+    company_grounding=str(template_def.get("company_grounding") or "assistive"),
+    generic_role_mode=generic_role_mode,
+    evidence_coverage_level=evidence_coverage_level,
+)}
+{_format_reference_quality_guidance(reference_quality_block)}
+{_format_user_fact_guidance(allowed_user_facts)}
+{improvement_guidance}
+{retry_guidance}
 """
-    output_requirements += "・この設問タイプに最適化した完成稿を1案だけ提示（pros/consは空配列で出力）"
-    output_requirements += "\n・完成稿は未完の文で終えない"
-    output_requirements += "\n・結論、根拠、企業や経験との接点が自然につながる文章にする"
-    output_requirements += "\n・思考過程、文字数の数え方、下書きメモは出力しない"
-    output_requirements += "\n・streaming_rewrite には variants[0].text と同じ本文を入れる"
-    output_requirements += "\n・rewrites には variants[0].text と同じ本文を1件だけ入れる"
-    if keyword_count > 0 and has_rag:
-        output_requirements += (
-            "\n・使用したキーワードがどの資料から取ったものか明記（keyword_sources は excerpt なしでOK）"
-        )
-    if template_def.get("require_strengthen_points"):
-        output_requirements += (
-            "\n・強化すべきポイントを企業の求める人材像と照らし合わせて指摘"
-        )
-    output_requirements += "\n・top3 には why_now（なぜ今直すべきか）と difficulty（easy/medium/hard）を付与"
-    if char_constraint:
-        output_requirements += f"\n・完成稿は必ず{char_constraint}の範囲内（char_countにはlen(text)の正確な値を記録）"
 
-    # RAG-less mode guidance for templates that usually require company RAG
-    no_rag_guidance = ""
-    if not has_rag and template_def.get("requires_company_rag"):
-        no_rag_guidance = """
-【企業情報なしモード】
-この企業のRAGデータがないため、以下の点に注意して添削してください:
-- 企業キーワードは使用せず、variants の keywords_used と keyword_sources は空配列で出力
-- 志望理由系テンプレートでは、「企業研究のヒント」として調べるべきポイントを top3 の suggestion に含める
-  - 例: 「企業のIR資料や採用ページから具体的な事業内容を調べ、○○のような具体例を追加してください」
-- 応募者自身の経験・価値観・成長目標を軸にした説得力のある構成を重視
-"""
+    user_prompt = f"""【条件】
+{chr(10).join(conditions)}
 
-    # Build character budget section (only if limits are set)
-    char_budget_section = f"\n{char_budget}\n" if char_budget else ""
-
-    differentiation_section = """
-
-【完成稿の要件】
-- 1案で完結させる
-- 冒頭で設問への答えが伝わるようにする
-- 根拠や具体例は削りすぎず、文字数制約内で圧縮する
-- 企業情報がある場合は、企業との接点を自然に織り込む"""
-
-    variant_schema_example = """      {{
-        "text": "改善案の本文",
-        "char_count": 文字数（整数）,
-        "pros": [],
-        "cons": [],
-        "keywords_used": ["キーワード1", "キーワード2"],
-        "keyword_sources": ["S1", "S2"]
-      }}"""
-
-    basic_template_text = _build_basic_template_text() if template_type == "basic" else ""
-    if basic_template_text:
-        base_prompt = basic_template_text
-        if no_rag_guidance:
-            base_prompt = f"{no_rag_guidance.strip()}\n\n{base_prompt}"
-        system_prompt = f"""{base_prompt}
-
-【出力要件（補足）】
-{output_requirements}
-
-【JSON出力形式 - 厳守】
-# 以下の制約を必ず守ること:
-1. JSONオブジェクトのみを出力（マークダウン、説明文、```コードブロック禁止）
-2. {{ で始まり }} で終わる（前後に何も付けない）
-3. 全ての文字列は必ずダブルクォート（"）で囲む
-4. 文字列内の改行は \\n、タブは \\t でエスケープ
-5. 配列・オブジェクトの最後の要素にカンマを付けない（[1, 2,] ← 禁止）
-6. strengthen_points は空配列 [] でも必ず含めること
-
-{{
-  "scores": {{
-    "logic": 1-5の整数,
-    "specificity": 1-5の整数,
-    "passion": 1-5の整数,
-    "company_connection": 1-5の整数または省略,
-    "readability": 1-5の整数
-  }},
-  "top3": [
-    {{"category": "評価軸名", "issue": "問題点", "suggestion": "改善提案", "why_now": "今直すべき理由", "difficulty": "easy"}}
-  ],
-  "streaming_rewrite": "改善案の本文",
-  "rewrites": ["改善案の本文"],
-  "template_review": {{
-    "template_type": "{template_type}",
-    "variants": [
-{variant_schema_example}
-    ],
-    "keyword_sources": [
-      {{"source_id": "S1", "source_url": "URL", "content_type": "種別"}}
-    ],
-    "strengthen_points": ["強化ポイント1"] // require_strengthen_pointsがtrueの場合のみ
-  }}
-}}
-
-【スコア基準】
-- logic (論理): 主張と根拠の一貫性
-- specificity (具体性): 数字・エピソードの充実度
-- passion (熱意): 意欲・モチベーションの伝わり度
-- company_connection (企業接続): 企業との接点の明確さ（RAGあり時のみ）
-- readability (読みやすさ): 文章の流れと理解しやすさ
-- 通過水準に近い回答は4前後、強い回答は4.5以上も付けて構わない{differentiation_section}"""
-    else:
-        system_prompt = f"""＃あなたは{template_prompt['role']}である。以下の条件で完璧な{template_prompt['target']}に添削して変更せよ。
-{no_rag_guidance}
-【条件】
-{conditions_text}
-{char_budget_section}
-【添削の観点】
-{template_prompt['aspects']}
-
-【出力要件】
-{output_requirements}
-
-【チェックリスト】
-{template_prompt['checklist']}
-
-【JSON出力形式 - 厳守】
-# 以下の制約を必ず守ること:
-1. JSONオブジェクトのみを出力（マークダウン、説明文、```コードブロック禁止）
-2. {{ で始まり }} で終わる（前後に何も付けない）
-3. 全ての文字列は必ずダブルクォート（"）で囲む
-4. 文字列内の改行は \\n、タブは \\t でエスケープ
-5. 配列・オブジェクトの最後の要素にカンマを付けない（[1, 2,] ← 禁止）
-6. strengthen_points は空配列 [] でも必ず含めること
-
-{{
-  "scores": {{
-    "logic": 1-5の整数,
-    "specificity": 1-5の整数,
-    "passion": 1-5の整数,
-    "company_connection": 1-5の整数または省略,
-    "readability": 1-5の整数
-  }},
-  "top3": [
-    {{"category": "評価軸名", "issue": "問題点", "suggestion": "改善提案", "why_now": "今直すべき理由", "difficulty": "easy"}}
-  ],
-  "streaming_rewrite": "改善案の本文",
-  "rewrites": ["改善案の本文"],
-  "template_review": {{
-    "template_type": "{template_type}",
-    "variants": [
-{variant_schema_example}
-    ],
-    "keyword_sources": [
-      {{"source_id": "S1", "source_url": "URL", "content_type": "種別"}}
-    ],
-    "strengthen_points": ["強化ポイント1"] // require_strengthen_pointsがtrueの場合のみ
-  }}
-}}
-
-【スコア基準】
-- logic (論理): 主張と根拠の一貫性
-- specificity (具体性): 数字・エピソードの充実度
-- passion (熱意): 意欲・モチベーションの伝わり度
-- company_connection (企業接続): 企業との接点の明確さ（RAGあり時のみ）
-- readability (読みやすさ): 文章の流れと理解しやすさ
-- 通過水準に近い回答は4前後、強い回答は4.5以上も付けて構わない{differentiation_section}"""
-
-    # Build user prompt
-    rag_section = ""
-    if rag_context:
-        rag_section = f"""
-【企業RAG資料】
-以下はこの企業に関する資料です。キーワードや企業特徴の参照に使用してください。
-
-{rag_context}
-
-【出典一覧】
-{source_refs}"""
-
-    user_prompt = f"""【添削前の{template_prompt['target']}】
+【元の回答】
 {answer}
-{rag_section}
 
-上記の回答を添削し、この設問タイプに合う完成稿を1案だけJSON形式で出力してください。"""
+この回答を、提出できる改善案に書き直してください。改善案本文のみを返してください。"""
 
     return system_prompt, user_prompt
 
 
-def validate_template_output(
-    template_review: dict,
+def build_template_fallback_rewrite_prompt(
+    template_type: str,
+    company_name: Optional[str],
+    industry: Optional[str],
+    question: str,
+    answer: str,
     char_min: Optional[int],
     char_max: Optional[int],
-    rewrite_count: int = 3,
-) -> tuple[bool, str]:
-    """
-    Validate template review output.
+    company_evidence_cards: Optional[list[dict]],
+    has_rag: bool,
+    improvement_points: Optional[list[dict]] = None,
+    allowed_user_facts: Optional[list[dict]] = None,
+    intern_name: Optional[str] = None,
+    role_name: Optional[str] = None,
+    grounding_mode: str = "none",
+    retry_hint: Optional[str] = None,
+    reference_quality_block: str = "",
+    generic_role_mode: bool = False,
+    evidence_coverage_level: str = "none",
+) -> tuple[str, str]:
+    template_def = TEMPLATE_DEFS.get(template_type)
+    if not template_def:
+        raise ValueError(f"Unknown template type: {template_type}")
 
-    Args:
-        template_review: Parsed template_review dict from LLM
-        char_min: Minimum character count (optional)
-        char_max: Maximum character count (optional)
+    conditions = [f"設問: {question}", f"文字数: {_format_char_condition(char_min, char_max)}"]
+    if company_name:
+        conditions.append(f"企業: {company_name}")
+    if industry:
+        conditions.append(f"業界: {industry}")
+    if intern_name:
+        conditions.append(f"インターン名: {intern_name}")
+    if role_name:
+        conditions.append(f"職種・コース名: {role_name}")
 
-    Returns:
-        Tuple of (is_valid, error_reason)
+    issue_lines = []
+    for index, item in enumerate(improvement_points or [], 1):
+        issue = str(item.get("issue", "")).strip()
+        suggestion = str(item.get("suggestion", "")).strip()
+        if issue or suggestion:
+            issue_lines.append(f"{index}. {issue} / {suggestion}")
 
-    Note:
-        Keyword validation is not performed here - keyword count is
-        treated as soft guidance in the prompt only.
-    """
-    errors = []
+    retry_guidance = f"\n【前回失敗の回避】\n- {retry_hint}" if retry_hint else ""
+    system_prompt = f"""あなたは日本語のES編集者である。
+目的は、元回答の事実を保ったまま、提出できる本文に安全に整えること。
 
-    # Check variants exist
-    variants = template_review.get("variants", [])
-    if len(variants) != rewrite_count:
-        errors.append(f"{rewrite_count}パターンが必要ですが、{len(variants)}パターンしかありません")
-        return False, "; ".join(errors)
+【必須ルール】
+- 具体的事実は元回答とユーザー事実の範囲から出さない
+- 足りない情報は創作せず、一般化してつなぐ
+- 企業情報は設問タイプに応じて使い、required でない設問では補助的にだけ使う
+- 固有施策、社内体制、数値、成果を新しく断定しない
+- 出力は本文のみ、だ・である調、{_format_char_condition(char_min, char_max)}
+- 目標は {_format_target_char_window(char_min, char_max)}
+{_format_short_answer_guidance(template_type, char_min, char_max)}
+{_format_company_guidance(
+    company_evidence_cards=company_evidence_cards,
+    has_rag=has_rag,
+    grounding_mode=grounding_mode,
+    requires_company_rag=bool(template_def.get("requires_company_rag")),
+    company_grounding=str(template_def.get("company_grounding") or "assistive"),
+    generic_role_mode=generic_role_mode,
+    evidence_coverage_level=evidence_coverage_level,
+)}
+{_format_reference_quality_guidance(reference_quality_block)}
+{_format_user_fact_guidance(allowed_user_facts)}
+{retry_guidance}
+"""
 
-    for i, variant in enumerate(variants, 1):
-        text = variant.get("text", "")
-        char_count = len(text)
+    issue_block = f"\n【最低限反映する改善点】\n{chr(10).join(issue_lines)}" if issue_lines else ""
+    user_prompt = f"""【条件】
+{chr(10).join(conditions)}
 
-        # Character count validation (only if limits are set)
-        if char_max:
-            if char_count > char_max:
-                excess = char_count - char_max
-                errors.append(
-                    f"パターン{i}: {char_count}文字（{excess}文字削減が必要、上限{char_max}文字）"
-                )
+【元の回答】
+{answer}{issue_block}
 
-        if char_min:
-            if char_count < char_min:
-                shortage = char_min - char_count
-                errors.append(
-                    f"パターン{i}: {char_count}文字（{shortage}文字追加が必要、下限{char_min}文字）"
-                )
+元の具体的事実を極力保ちつつ、構成だけを整えた安全な改善案本文を1件だけ返してください。"""
+    return system_prompt, user_prompt
 
-        # Note: Keyword validation removed - treated as soft guidance in prompt only
-        # LLM decides keyword usage based on context; no hard validation
 
-        # Check for です/ます (should use だ・である)
-        if "です" in text or "ます" in text:
-            errors.append(
-                f"パターン{i}: です・ます調が使用されています（だ・である調に統一）"
-            )
+def build_template_improvement_prompt(
+    template_type: str,
+    question: str,
+    original_answer: str,
+    company_name: Optional[str],
+    company_evidence_cards: Optional[list[dict]],
+    has_rag: bool,
+    char_min: Optional[int],
+    char_max: Optional[int],
+    allowed_user_facts: Optional[list[dict]] = None,
+    role_name: Optional[str] = None,
+    grounding_mode: str = "none",
+    reference_quality_block: str = "",
+    generic_role_mode: bool = False,
+    evidence_coverage_level: str = "none",
+) -> tuple[str, str]:
+    template_role = TEMPLATE_ROLES.get(template_type, TEMPLATE_ROLES["basic"])
+    company_grounding = str(TEMPLATE_DEFS.get(template_type, {}).get("company_grounding") or "assistive")
+    company_eval_rule = (
+        "企業根拠がある場合は、企業理解・職種理解・事業方向性とのズレを評価する"
+        if company_grounding == "required"
+        else "企業根拠がある場合でも、自分の強み・価値観・学びの活かし方を補助的に見る"
+    )
+    system_prompt = f"""あなたは{template_role}である。
+目的は、元回答の不足を改善ポイントとして3件以内で返すこと。
 
-        # Check char_count accuracy — large deviation suggests LLM miscounted
-        reported = variant.get("char_count")
-        if reported is not None and reported != char_count:
-            variant["char_count"] = char_count  # Always fix the stored value
-            deviation = abs(reported - char_count)
-            if char_count > 0 and deviation / char_count > 0.10:
-                # Log only - char_count inaccuracy is not a text quality issue
-                print(
-                    f"[ES添削/テンプレート] char_count自動修正: パターン{i} 申告{reported}→実際{char_count}"
-                )
+【必須ルール】
+- 改善案は書かない
+- 指摘は必ず元回答に対して行う
+- 改善後の理想像ではなく、今足りない点を述べる
+- role_name がある場合は職種・コース適合も評価する
+- {company_eval_rule}
+- 企業根拠にない固有施策や社内体制を新しく前提にしない
+- 元回答やユーザー事実にない経験・役割・成果・数字を前提にしない
+- JSONのみを返す
+- コードブロック、前置き、後書きは書かない
+- 各要素は category / issue / suggestion のみ
+- top3 は 3 件以内
+- category は 12 文字以内
+- issue と suggestion は各 60 文字以内
+- issue と suggestion に改行や箇条書きを入れない
+{_format_short_answer_guidance(template_type, char_min, char_max)}
+{_format_company_guidance(
+    company_evidence_cards=company_evidence_cards,
+    has_rag=has_rag,
+    grounding_mode=grounding_mode,
+    requires_company_rag=bool(TEMPLATE_DEFS.get(template_type, {}).get("requires_company_rag")),
+    company_grounding=company_grounding,
+    generic_role_mode=generic_role_mode,
+    evidence_coverage_level=evidence_coverage_level,
+)}
+{_format_reference_quality_guidance(reference_quality_block)}
+{_format_user_fact_guidance(allowed_user_facts)}
+"""
 
-    if errors:
-        return False, "; ".join(errors)
+    user_prompt = f"""以下の設問と回答を確認し、改善ポイントをJSONで返してください。
 
-    return True, ""
+【設問】
+{question}
+
+【元の回答】
+{original_answer}
+
+【企業】
+{company_name or "未指定"}
+
+【職種・コース】
+{role_name or "未指定"}
+
+【改善案の文字数条件】
+{_format_char_condition(char_min, char_max)}
+
+【grounding mode】
+{grounding_mode}
+
+出力形式:
+{{
+  "top3": [
+    {{
+      "category": "評価軸名",
+      "issue": "問題点",
+      "suggestion": "改善提案"
+    }}
+  ]
+}}"""
+
+    return system_prompt, user_prompt
+
+
+def build_template_length_fix_prompt(
+    template_type: str,
+    current_text: str,
+    char_min: Optional[int],
+    char_max: Optional[int],
+    fix_mode: str,
+) -> tuple[str, str]:
+    template_def = TEMPLATE_DEFS.get(template_type)
+    if not template_def:
+        raise ValueError(f"Unknown template type: {template_type}")
+
+    mode_instruction = (
+        "意味を変えず、冗長な句・重複・一般論だけを削って収める"
+        if fix_mode == "over_max"
+        else "意味を変えず、短い補足句を1つだけ足して指定字数に近づける"
+    )
+    system_prompt = f"""あなたは日本語のES編集者である。
+目的は、既にある改善案本文の意味と事実を変えず、文字数だけを整えること。
+
+【必須ルール】
+- 出力は修正後の本文のみ
+- だ・である調を維持する
+- 新しい経験・役割・成果・数字・企業施策を足さない
+- 本文の主張順と意味は極力維持する
+- {mode_instruction}
+- 文字数条件は {_format_char_condition(char_min, char_max)}
+- 目標は {_format_target_char_window(char_min, char_max)}
+- 説明、前置き、箇条書き、JSON、引用符は禁止
+"""
+
+    user_prompt = f"""【現在の本文】
+{current_text}
+
+上の本文を、意味を変えずに文字数だけ調整した改善案本文として返してください。"""
+    return system_prompt, user_prompt

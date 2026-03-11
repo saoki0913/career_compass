@@ -23,6 +23,7 @@ from app.utils.llm import call_llm_with_error, call_llm_streaming_fields, saniti
 from app.utils.vector_store import get_enhanced_context_for_review_with_sources
 from app.config import settings
 from app.utils.secure_logger import get_logger
+from app.utils.content_types import content_type_label
 from app.prompts.motivation_prompts import (
     MOTIVATION_EVALUATION_PROMPT,
     MOTIVATION_QUESTION_PROMPT,
@@ -73,12 +74,15 @@ class NextQuestionRequest(BaseModel):
     company_id: str = Field(max_length=100)
     company_name: str = Field(max_length=200)
     industry: Optional[str] = Field(default=None, max_length=100)
+    requires_industry_selection: bool = False
+    industry_options: Optional[list[str]] = None
     conversation_history: list[Message]
     question_count: int = Field(default=0, ge=0)
     scores: Optional[MotivationScoresInput] = None
     gakuchika_context: Optional[list[dict]] = None
     conversation_context: Optional[dict[str, Any]] = None
     profile_context: Optional[dict[str, Any]] = None
+    application_job_candidates: Optional[list[str]] = None
     company_role_candidates: Optional[list[str]] = None
     company_work_candidates: Optional[list[str]] = None
 
@@ -88,6 +92,24 @@ class SuggestionOption(BaseModel):
     label: str
     sourceType: str
     intent: str
+    evidenceSourceIds: list[str] = []
+    rationale: Optional[str] = None
+    isTentative: bool = False
+
+
+class EvidenceCard(BaseModel):
+    sourceId: str
+    title: str
+    contentType: str
+    excerpt: str
+    sourceUrl: str
+    relevanceLabel: str
+
+
+class StageStatus(BaseModel):
+    current: str
+    completed: list[str]
+    pending: list[str]
 
 
 class NextQuestionResponse(BaseModel):
@@ -101,7 +123,9 @@ class NextQuestionResponse(BaseModel):
     suggestions: list[str] = []  # 4 suggested answer options for the user
     suggestion_options: list[SuggestionOption] = []
     evidence_summary: Optional[str] = None  # RAG根拠の短い要約
+    evidence_cards: list[EvidenceCard] = []
     question_stage: Optional[str] = None
+    stage_status: Optional[StageStatus] = None
     captured_context: Optional[dict[str, Any]] = None
     coaching_focus: Optional[str] = None
     risk_flags: list[str] = []
@@ -141,30 +165,25 @@ def _trim_conversation_for_evaluation(
     return messages[-max_messages:]
 
 
-def _extract_company_features(company_context: str, max_features: int = 3) -> list[str]:
-    """Extract key company features from RAG context for suggestion building."""
-    if not company_context or company_context == "（企業情報なし）":
-        return []
+def _format_recent_conversation_for_prompt(
+    messages: list[Message],
+    max_messages: int = 6,
+) -> str:
+    if not messages:
+        return "（まだ会話履歴なし）"
+    return _format_conversation(_trim_conversation_for_evaluation(messages, max_messages=max_messages))
 
-    features = []
-    lines = company_context.split("\n")
-    for line in lines:
-        line = line.strip()
-        if not line or len(line) < 10:
-            continue
-        # Look for short descriptive phrases (company features, business descriptions)
-        if len(line) <= 60 and any(kw in line for kw in [
-            "事業", "サービス", "強み", "取り組み", "ビジョン",
-            "理念", "方針", "挑戦", "グローバル", "DX",
-            "プロジェクト", "ソリューション", "イノベーション",
-        ]):
-            clean = line.lstrip("・-•●■□▪▸▹→ ")
-            if clean and len(clean) >= 8:
-                features.append(clean)
-        if len(features) >= max_features:
-            break
 
-    return features
+def _build_question_messages(messages: list[Message]) -> list[dict[str, str]] | None:
+    if not messages:
+        return None
+    return [{"role": msg.role, "content": msg.content} for msg in messages]
+
+
+def _build_question_user_message(messages: list[Message]) -> str:
+    if not messages:
+        return "会話開始用の最初の深掘り質問を1問生成してください。"
+    return "次の深掘り質問を生成してください。"
 
 
 def _format_gakuchika_for_prompt(gakuchika_context: list[dict] | None, max_items: int = 3) -> str:
@@ -213,9 +232,7 @@ def _extract_gakuchika_strength(gakuchika_context: list[dict] | None) -> str | N
 
 
 STAGE_ORDER = [
-    "industry_reason",
     "company_reason",
-    "role_selection",
     "desired_work",
     "fit_connection",
     "differentiation",
@@ -223,9 +240,7 @@ STAGE_ORDER = [
 ]
 
 STAGE_LABELS = {
-    "industry_reason": "業界志望理由",
     "company_reason": "企業志望理由",
-    "role_selection": "志望職種",
     "desired_work": "やりたい仕事",
     "fit_connection": "経験との接続",
     "differentiation": "差別化",
@@ -262,6 +277,8 @@ def _coerce_risk_flags(value: Any, max_items: int = 2) -> list[str]:
 def _normalize_conversation_context(value: dict[str, Any] | None) -> dict[str, Any]:
     context = value.copy() if isinstance(value, dict) else {}
     normalized = {
+        "selectedIndustry": str(context.get("selectedIndustry") or "").strip() or None,
+        "selectedIndustrySource": str(context.get("selectedIndustrySource") or "").strip() or None,
         "industryReason": str(context.get("industryReason") or "").strip() or None,
         "companyReason": str(context.get("companyReason") or "").strip() or None,
         "selectedRole": str(context.get("selectedRole") or "").strip() or None,
@@ -271,10 +288,18 @@ def _normalize_conversation_context(value: dict[str, Any] | None) -> dict[str, A
         "userAnchorEpisodes": _coerce_string_list(context.get("userAnchorEpisodes"), max_items=4),
         "profileAnchorIndustries": _coerce_string_list(context.get("profileAnchorIndustries"), max_items=4),
         "profileAnchorJobTypes": _coerce_string_list(context.get("profileAnchorJobTypes"), max_items=4),
-        "companyAnchorKeywords": _coerce_string_list(context.get("companyAnchorKeywords"), max_items=6),
+        "companyAnchorKeywords": _sanitize_existing_grounding_candidates(
+            context.get("companyAnchorKeywords"),
+            max_items=6,
+            max_len=32,
+        ),
         "companyRoleCandidates": _coerce_string_list(context.get("companyRoleCandidates"), max_items=4),
-        "companyWorkCandidates": _coerce_string_list(context.get("companyWorkCandidates"), max_items=4),
-        "questionStage": str(context.get("questionStage") or "").strip() or "industry_reason",
+        "companyWorkCandidates": _sanitize_existing_grounding_candidates(
+            context.get("companyWorkCandidates"),
+            max_items=4,
+            max_len=32,
+        ),
+        "questionStage": str(context.get("questionStage") or "").strip() or "company_reason",
     }
     return normalized
 
@@ -301,10 +326,17 @@ def _format_profile_for_prompt(profile_context: dict[str, Any] | None) -> str:
     return "\n".join(lines) if lines else "（プロフィール情報なし）"
 
 
+def _format_application_jobs_for_prompt(application_job_candidates: list[str] | None) -> str:
+    candidates = _coerce_string_list(application_job_candidates, max_items=6)
+    if not candidates:
+        return "（応募中・検討中の職種情報なし）"
+    return "\n".join(f"- {candidate}" for candidate in candidates)
+
+
 def _format_conversation_context_for_prompt(conversation_context: dict[str, Any] | None) -> str:
     context = _normalize_conversation_context(conversation_context)
     lines = [
-        f"- 業界志望理由: {context['industryReason'] or '未整理'}",
+        f"- 確定業界: {context['selectedIndustry'] or '未確定'}",
         f"- 企業志望理由: {context['companyReason'] or '未整理'}",
         f"- 志望職種: {context['selectedRole'] or '未整理'}",
         f"- やりたい仕事: {context['desiredWork'] or '未整理'}",
@@ -317,20 +349,251 @@ def _format_conversation_context_for_prompt(conversation_context: dict[str, Any]
     return "\n".join(lines)
 
 
-def _extract_company_keywords(company_context: str, max_items: int = 6) -> list[str]:
-    keywords: list[str] = []
-    if not company_context:
-        return keywords
-    for line in company_context.splitlines():
-        cleaned = _clean_short_phrase(line, max_len=32)
-        if not cleaned or len(cleaned) < 6:
+COMPANY_TEXT_NOISE_PATTERNS = (
+    re.compile(r"^[QＱ]\s*\d+\b", re.IGNORECASE),
+    re.compile(r"^(見出し|質問|回答)[:：]"),
+    re.compile(r"^https?://", re.IGNORECASE),
+)
+
+COMPANY_TEXT_NOISE_KEYWORDS = (
+    "ご紹介します",
+    "エントリー",
+    "マイページ",
+    "募集要項",
+    "選考フロー",
+    "選考情報",
+    "応募方法",
+    "応募する",
+    "よくある質問",
+    "FAQ",
+    "ニュース",
+    "トピックス",
+    "一覧",
+    "詳細はこちら",
+    "クリック",
+    "社員紹介",
+    "採用情報",
+    "インターンシップ",
+    "見出し",
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4",
+)
+
+COMPANY_FEATURE_ENDINGS = (
+    "事業投資",
+    "バリューチェーン",
+    "社会課題解決",
+    "デジタル変革",
+    "脱炭素ソリューション",
+    "エネルギー事業",
+    "インフラ事業",
+    "物流事業",
+    "金融事業",
+    "DX支援",
+    "業務改革",
+    "事業開発",
+    "事業基盤",
+    "ソリューション",
+    "グローバル事業",
+    "価値創出",
+    "価値提供",
+    "トレーディング",
+    "投資",
+    "物流",
+    "金融",
+    "インフラ",
+    "エネルギー",
+    "食料",
+    "DX",
+    "事業",
+)
+
+WORK_CANDIDATE_ENDINGS = (
+    "顧客課題解決",
+    "事業開発",
+    "商品企画",
+    "営業企画",
+    "提案営業",
+    "法人営業",
+    "データ分析",
+    "業務改善",
+    "運用改善",
+    "改善提案",
+    "課題分析",
+    "顧客提案",
+    "提案",
+    "企画",
+    "開発",
+    "運用",
+    "改善",
+    "推進",
+    "分析",
+    "支援",
+    "設計",
+    "研究",
+    "営業",
+    "投資",
+)
+
+ROLE_WORK_FALLBACKS = {
+    "営業": "顧客課題の整理と提案",
+    "企画": "新しい企画の立案と改善",
+    "マーケティング": "顧客理解をもとにした企画提案",
+    "コンサル": "課題整理と改善提案",
+    "エンジニア": "課題を技術で解決する開発",
+    "開発": "課題を技術で解決する開発",
+    "研究": "新しい価値につながる研究開発",
+    "データ": "データ分析を通じた改善提案",
+    "人事": "人や組織の課題解決",
+    "財務": "数字を起点にした課題分析",
+    "法務": "事業推進を支える法務支援",
+    "総合職": "事業課題を捉えて関係者を巻き込む仕事",
+}
+
+GENERIC_OPTION_BLOCKLIST = {
+    "成長したい",
+    "頑張りたい",
+    "学びたい",
+    "興味がある",
+    "貢献したい",
+    "挑戦したい",
+}
+
+DIRECT_ANSWER_REQUIRED_TERMS = {
+    "company_reason": ("ため", "から", "魅力", "惹かれ", "理由"),
+    "desired_work": ("したい", "挑戦", "関わりたい", "担いたい", "取り組みたい", "向き合いたい"),
+    "fit_connection": ("活か", "活き", "つなが", "再現", "役立", "生か"),
+    "differentiation": ("他社", "違い", "理由", "合うため", "最も", "だからこそ"),
+    "closing": ("したい", "目指", "貢献", "実現", "価値を出", "なりたい"),
+}
+
+QUESTION_FIT_KEYWORDS = {
+    ("company_reason", "industry_choice"): ("業界", "産業", "横断", "幅広", "選択肢", "つなぐ", "商社"),
+    ("company_reason", "why_now"): ("きっかけ", "関心", "高ま", "強まり", "惹かれ", "志望度"),
+    ("company_reason", "role_value"): ("職種", "役割", "関わ", "担", "志望"),
+    ("company_reason", "feature_appeal"): ("魅力", "強み", "特徴", "惹かれ", "姿勢"),
+    ("company_reason", "axis_match"): ("軸", "合う", "重なる", "一致"),
+    ("desired_work", "customer_problem"): ("入社後", "課題", "提案", "向き合", "整理"),
+    ("desired_work", "value_creation"): ("入社後", "価値", "貢献", "成果", "形"),
+    ("desired_work", "work_image"): ("入社後", "挑戦", "担いたい", "関わりたい"),
+    ("fit_connection", "strength_application"): ("強み", "活か", "再現", "巻き込み", "つなが"),
+    ("fit_connection", "experience_connection"): ("経験", "培った", "活か", "つなが", "エピソード"),
+    ("fit_connection", "fit_connection"): ("活か", "つなが", "共通点", "経験"),
+    ("differentiation", "compare"): ("他社", "違う", "比べ", "最も", "だからこそ"),
+    ("differentiation", "role_specific"): ("職種", "役割", "仕事", "描ける", "実務"),
+    ("differentiation", "why_this_company"): ("この企業", "合う", "理由", "最も"),
+    ("closing", "one_line"): ("貢献", "価値", "実現", "目指", "したい"),
+    ("closing", "goal"): ("目指", "価値", "貢献", "実現", "したい"),
+}
+
+
+def _iter_company_grounding_segments(
+    company_context: str,
+    company_sources: list[dict] | None,
+) -> list[str]:
+    segments: list[str] = []
+    seen: set[str] = set()
+
+    def add(text: str | None) -> None:
+        normalized = " ".join((text or "").split())
+        if not normalized or normalized in seen:
+            return
+        seen.add(normalized)
+        segments.append(normalized)
+
+    for source in company_sources or []:
+        if not isinstance(source, dict):
             continue
-        if any(token in cleaned for token in ["事業", "採用", "DX", "ソリューション", "サービス", "営業", "開発", "企画", "研究", "技術"]):
-            if cleaned not in keywords:
-                keywords.append(cleaned)
-        if len(keywords) >= max_items:
+        add(str(source.get("excerpt") or "").strip())
+        add(str(source.get("title") or "").strip())
+
+    for line in company_context.splitlines():
+        add(line.strip())
+
+    return segments
+
+
+def _is_noisy_company_text(text: str) -> bool:
+    cleaned = " ".join((text or "").split())
+    if len(cleaned) < 4:
+        return True
+    if any(pattern.search(cleaned) for pattern in COMPANY_TEXT_NOISE_PATTERNS):
+        return True
+    if any(keyword in cleaned for keyword in COMPANY_TEXT_NOISE_KEYWORDS):
+        return True
+    if "?" in cleaned or "？" in cleaned:
+        return True
+    if any(token in cleaned for token in ("|", ">", "＞", "http://", "https://")):
+        return True
+    return False
+
+
+def _extract_compound_nouns(
+    text: str,
+    endings: tuple[str, ...],
+    *,
+    max_len: int,
+) -> list[str]:
+    candidates: list[str] = []
+    if _is_noisy_company_text(text):
+        return candidates
+
+    for ending in endings:
+        pattern = re.compile(
+            rf"([一-龠ァ-ヶA-Za-z0-9・／/&ー]{{0,20}}{re.escape(ending)})"
+        )
+        for match in pattern.finditer(text):
+            candidate = _clean_short_phrase(match.group(1), max_len=max_len)
+            if len(candidate) < 4 or candidate in candidates:
+                continue
+            if _is_noisy_company_text(candidate):
+                continue
+            candidates.append(candidate)
+    return candidates
+
+
+def _sanitize_existing_grounding_candidates(
+    values: list[str] | None,
+    *,
+    max_items: int = 4,
+    max_len: int = 32,
+) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    cleaned_values: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        cleaned = _clean_short_phrase(value, max_len=max_len)
+        if not cleaned or cleaned in cleaned_values:
+            continue
+        if _is_noisy_company_text(cleaned):
+            continue
+        cleaned_values.append(cleaned)
+        if len(cleaned_values) >= max_items:
             break
-    return keywords
+    return cleaned_values
+
+
+def _extract_company_keywords(
+    company_context: str,
+    company_sources: list[dict] | None = None,
+    *,
+    selected_role: str | None = None,
+    max_items: int = 6,
+) -> list[str]:
+    return _merge_candidate_lists(
+        _extract_company_features(company_context, company_sources, max_features=min(4, max_items)),
+        _extract_work_candidates_from_context(
+            company_context,
+            company_sources,
+            selected_role=selected_role,
+            max_items=min(4, max_items),
+        ),
+        max_items=max_items,
+    )
 
 
 def _extract_role_candidates_from_context(company_context: str, max_items: int = 4) -> list[str]:
@@ -350,18 +613,39 @@ def _extract_role_candidates_from_context(company_context: str, max_items: int =
     return candidates
 
 
-def _extract_work_candidates_from_context(company_context: str, max_items: int = 4) -> list[str]:
-    patterns = [
-        r"([^\n。]{0,20}(企画|提案|開発|運用|改善|推進|分析|支援|設計|研究)[^\n。]{0,12})",
-    ]
+def _extract_company_features(
+    company_context: str,
+    company_sources: list[dict] | None = None,
+    *,
+    max_features: int = 3,
+) -> list[str]:
     candidates: list[str] = []
-    for line in company_context.splitlines():
-        for pattern in patterns:
-            match = re.search(pattern, line)
-            if not match:
-                continue
-            candidate = _clean_short_phrase(match.group(1), max_len=34)
-            if candidate and candidate not in candidates:
+    for segment in _iter_company_grounding_segments(company_context, company_sources):
+        for candidate in _extract_compound_nouns(segment, COMPANY_FEATURE_ENDINGS, max_len=26):
+            if candidate not in candidates:
+                candidates.append(candidate)
+            if len(candidates) >= max_features:
+                return candidates
+    return candidates
+
+
+def _extract_work_candidates_from_context(
+    company_context: str,
+    company_sources: list[dict] | None = None,
+    *,
+    selected_role: str | None = None,
+    max_items: int = 4,
+) -> list[str]:
+    segments = _iter_company_grounding_segments(company_context, company_sources)
+    if selected_role:
+        segments = sorted(
+            segments,
+            key=lambda segment: 0 if selected_role in segment else 1,
+        )
+    candidates: list[str] = []
+    for segment in segments:
+        for candidate in _extract_compound_nouns(segment, WORK_CANDIDATE_ENDINGS, max_len=28):
+            if candidate not in candidates:
                 candidates.append(candidate)
             if len(candidates) >= max_items:
                 return candidates
@@ -390,10 +674,36 @@ def _extract_profile_industries(profile_context: dict[str, Any] | None) -> list[
     return _coerce_string_list(profile_context.get("target_industries"), max_items=4)
 
 
+def _extract_profile_anchor(profile_context: dict[str, Any] | None) -> str | None:
+    if not isinstance(profile_context, dict):
+        return None
+    faculty = str(profile_context.get("faculty") or "").strip()
+    if faculty:
+        return _clean_short_phrase(faculty, max_len=24)
+    job_types = _extract_profile_job_types(profile_context)
+    if job_types:
+        return job_types[0]
+    industries = _extract_profile_industries(profile_context)
+    if industries:
+        return industries[0]
+    return None
+
+
+def _fallback_work_for_role(role: str | None) -> str:
+    cleaned_role = (role or "").strip()
+    if not cleaned_role:
+        return "顧客課題の解決"
+    for keyword, fallback in ROLE_WORK_FALLBACKS.items():
+        if keyword in cleaned_role:
+            return fallback
+    return "顧客課題の解決"
+
+
 def _build_suggestion_option(label: str, source_type: str, intent: str) -> SuggestionOption:
+    cleaned_label = _clean_short_phrase(label, max_len=68)
     return SuggestionOption(
-        id=re.sub(r"[^a-z0-9]+", "-", f"{intent}-{label.lower()}").strip("-")[:48] or intent,
-        label=label[:48],
+        id=re.sub(r"[^a-z0-9]+", "-", f"{intent}-{cleaned_label.lower()}").strip("-")[:48] or intent,
+        label=cleaned_label,
         sourceType=source_type,
         intent=intent,
     )
@@ -410,17 +720,126 @@ def _merge_candidate_lists(*candidate_lists: list[str], max_items: int = 4) -> l
     return merged
 
 
-def _get_next_stage(conversation_context: dict[str, Any] | None) -> str:
+def _top_source_ids(sources: list[dict] | None, max_items: int = 2) -> list[str]:
+    if not sources:
+        return []
+    ids: list[str] = []
+    for source in sources:
+        source_id = str(source.get("source_id") or "").strip()
+        if source_id and source_id not in ids:
+            ids.append(source_id)
+        if len(ids) >= max_items:
+            break
+    return ids
+
+
+def _build_evidence_cards_from_sources(
+    sources: list[dict] | None,
+    max_items: int = 4,
+) -> list[EvidenceCard]:
+    if not sources:
+        return []
+
+    cards: list[EvidenceCard] = []
+    for source in sources[:max_items]:
+        if not isinstance(source, dict):
+            continue
+        source_id = str(source.get("source_id") or "").strip()
+        source_url = str(source.get("source_url") or "").strip()
+        if not source_id or not source_url:
+            continue
+        content_type = str(source.get("content_type") or "").strip() or "general"
+        cards.append(
+            EvidenceCard(
+                sourceId=source_id,
+                title=_clean_short_phrase(
+                    str(source.get("title") or content_type_label(content_type) or "参照資料"),
+                    max_len=48,
+                ),
+                contentType=content_type,
+                excerpt=_normalize_excerpt(str(source.get("excerpt") or "").strip(), max_len=120),
+                sourceUrl=source_url,
+                relevanceLabel=content_type_label(content_type) or "企業情報",
+            )
+        )
+    return cards
+
+
+def _build_stage_status(conversation_context: dict[str, Any] | None, current_stage: str) -> StageStatus:
     context = _normalize_conversation_context(conversation_context)
-    if not context["industryReason"]:
-        return "industry_reason"
-    if not context["companyReason"]:
-        return "company_reason"
-    if not context["selectedRole"]:
-        return "role_selection"
-    if not context["desiredWork"]:
-        return "desired_work"
-    return "fit_connection"
+    completed: list[str] = []
+    if context["companyReason"]:
+        completed.append("company_reason")
+    if context["desiredWork"]:
+        completed.append("desired_work")
+
+    current_index = STAGE_ORDER.index(current_stage) if current_stage in STAGE_ORDER else 0
+    for stage in STAGE_ORDER[:current_index]:
+        if stage not in completed:
+            completed.append(stage)
+
+    pending = [stage for stage in STAGE_ORDER if stage not in completed and stage != current_stage]
+    return StageStatus(current=current_stage, completed=completed, pending=pending)
+
+
+def _build_suggestion_rationale(stage: str, source_type: str) -> str:
+    rationale_map = {
+        "company_reason": {
+            "company": "企業固有の特徴に直接触れる候補",
+            "gakuchika": "過去経験と企業の接点を示す候補",
+            "profile": "志望軸との整合を示す候補",
+            "hybrid": "企業情報と本人経験を両方使う候補",
+            "application_job_type": "応募職種から企業志望理由へつなぐ候補",
+        },
+        "desired_work": {
+            "company": "企業資料の仕事内容に沿った候補",
+            "gakuchika": "経験を活かせる仕事へ寄せた候補",
+            "profile": "志望職種と整合する仕事候補",
+            "hybrid": "仕事内容と本人経験をつなぐ候補",
+            "application_job_type": "応募職種から自然に導いた仕事候補",
+        },
+        "fit_connection": {
+            "company": "企業理解を補強しつつ接点を示す候補",
+            "gakuchika": "強みや経験を前面に出す候補",
+            "profile": "志向や専攻を踏まえた候補",
+            "hybrid": "企業と本人の因果接続を作る候補",
+            "application_job_type": "職種選択と経験を結びつける候補",
+        },
+        "differentiation": {
+            "company": "この企業ならではの理由を示す候補",
+            "gakuchika": "経験から他社差分を語る候補",
+            "profile": "自分の志向軸から選ぶ理由を示す候補",
+            "hybrid": "企業固有性と本人固有性を同時に出す候補",
+            "application_job_type": "職種選択まで含めて差別化する候補",
+        },
+        "closing": {
+            "company": "企業で実現したい姿をまとめる候補",
+            "gakuchika": "経験起点の締め候補",
+            "profile": "志向を軸にした締め候補",
+            "hybrid": "企業理解と経験をまとめる締め候補",
+            "application_job_type": "職種軸で締める候補",
+        },
+    }
+    return rationale_map.get(stage, rationale_map["fit_connection"]).get(
+        source_type,
+        "回答のたたき台として使える候補",
+    )
+
+
+def _decorate_suggestion_option(
+    label: str,
+    source_type: str,
+    intent: str,
+    evidence_source_ids: list[str] | None = None,
+    *,
+    is_tentative: bool = False,
+    rationale: str | None = None,
+) -> SuggestionOption:
+    option = _build_suggestion_option(label, source_type, intent)
+    option.evidenceSourceIds = evidence_source_ids or []
+    option.rationale = rationale or _build_suggestion_rationale(intent, source_type)
+    option.isTentative = is_tentative
+    return option
 
 
 def _normalize_excerpt(text: str, max_len: int = 60) -> str:
@@ -466,134 +885,765 @@ def _build_evidence_summary_from_sources(
     return f"{focus}: {summary}" if focus else summary
 
 
-def _build_stage_question(
-    stage: str,
-    company_name: str,
-    company_features: list[str],
-    role_candidates: list[str],
-) -> str:
-    feature = company_features[0] if company_features else f"{company_name}の事業"
-    if stage == "industry_reason":
-        return f"{feature}に触れて、なぜこの業界を志望したいと感じましたか。"
+def _question_has_any_keyword(text: str, keywords: tuple[str, ...]) -> bool:
+    return any(keyword in text for keyword in keywords)
+
+
+def _detect_question_focus(stage: str, question: str | None) -> str:
+    text = (question or "").strip()
+    if not text:
+        return "default"
+
     if stage == "company_reason":
-        return f"{company_name}のどの点が、他社ではなく志望先として強く残っていますか。"
-    if stage == "role_selection":
-        role_hint = role_candidates[0] if role_candidates else "職種"
-        return f"{company_name}では、どの職種で力を発揮したいと考えていますか。{role_hint}に近いものがあれば教えてください。"
+        if _question_has_any_keyword(text, ("なぜ商社", "選択肢", "業界", "多岐", "幅広", "横断")):
+            return "industry_choice"
+        if _question_has_any_keyword(text, ("なぜ今", "きっかけ", "関心が強", "興味を持っ", "原体験")):
+            return "why_now"
+        if _question_has_any_keyword(text, ("職種", "役割", "どのような役割", "どんな役割")):
+            return "role_value"
+        if _question_has_any_keyword(text, ("どの点", "どんな点", "どこに魅力", "惹かれ", "魅力")):
+            return "feature_appeal"
+        return "axis_match"
+
     if stage == "desired_work":
-        return f"{company_name}に入社したら、まずどんな仕事に取り組みたいですか。"
+        if _question_has_any_keyword(text, ("顧客", "課題", "解決", "向き合")):
+            return "customer_problem"
+        if _question_has_any_keyword(text, ("価値", "貢献", "成果", "実現")):
+            return "value_creation"
+        return "work_image"
+
+    if stage == "fit_connection":
+        if _question_has_any_keyword(text, ("強み", "再現", "活か")):
+            return "strength_application"
+        if _question_has_any_keyword(text, ("経験", "原体験", "エピソード")):
+            return "experience_connection"
+        return "fit_connection"
+
+    if stage == "differentiation":
+        if _question_has_any_keyword(text, ("他社", "比べ", "比較", "違い")):
+            return "compare"
+        if _question_has_any_keyword(text, ("職種", "役割", "仕事")):
+            return "role_specific"
+        return "why_this_company"
+
     if stage == "closing":
-        return f"{company_name}で実現したい目標を、一言でまとめると何ですか。"
-    return f"{company_name}で活かせるご自身の経験や強みを、どこに結びつけたいですか。"
+        if _question_has_any_keyword(text, ("一言", "端的", "まとめる")):
+            return "one_line"
+        return "goal"
+
+    return "default"
+
+
+def _format_industry_axis(profile_industries: list[str]) -> str:
+    cleaned = [industry for industry in profile_industries if industry][:2]
+    if len(cleaned) >= 2:
+        return f"{cleaned[0]}や{cleaned[1]}"
+    if cleaned:
+        return cleaned[0]
+    return "複数の業界"
+
+
+def _is_noisy_suggestion_label(label: str) -> bool:
+    if not label or label in GENERIC_OPTION_BLOCKLIST:
+        return True
+    if _is_noisy_company_text(label):
+        return True
+    return any(token in label for token in ("見出し", "Q1", "Q2", "Q3", "Q4", "ご紹介します"))
+
+
+def _is_direct_answer_label(label: str, stage: str) -> bool:
+    required_terms = DIRECT_ANSWER_REQUIRED_TERMS.get(stage, ())
+    if not required_terms:
+        return True
+    return any(term in label for term in required_terms)
+
+
+def _score_suggestion_question_fit(
+    label: str,
+    *,
+    stage: str,
+    focus: str,
+    selected_role: str | None,
+    desired_work: str | None,
+) -> int:
+    score = 2
+    keywords = QUESTION_FIT_KEYWORDS.get((stage, focus), ())
+    if keywords:
+        score += 3 if any(keyword in label for keyword in keywords) else -2
+
+    if stage == "company_reason":
+        if label.startswith("入社後は"):
+            score -= 4
+        else:
+            score += 1
+    elif stage == "desired_work":
+        if label.startswith("入社後は"):
+            score += 2
+        else:
+            score -= 3
+    elif stage == "fit_connection" and any(token in label for token in ("経験", "培った", "活か", "つなが", "再現")):
+        score += 2
+    elif stage == "differentiation" and focus == "compare" and "他社" in label:
+        score += 2
+    elif stage == "closing" and any(token in label for token in ("貢献", "価値", "実現", "目指")):
+        score += 1
+
+    if selected_role and selected_role in label:
+        score += 1
+    if desired_work and desired_work in label and stage in ("fit_connection", "differentiation", "closing"):
+        score += 1
+    return score
+
+
+def _finalize_suggestion_options(
+    options: list[SuggestionOption],
+    *,
+    stage: str,
+    focus: str,
+    selected_role: str | None = None,
+    desired_work: str | None = None,
+    max_items: int = 4,
+) -> list[SuggestionOption]:
+    scored_options: list[tuple[int, SuggestionOption]] = []
+    for option in options:
+        if not isinstance(option, SuggestionOption):
+            continue
+        label = _clean_short_phrase(option.label, max_len=68)
+        if len(label) < 10:
+            continue
+        if _is_noisy_suggestion_label(label):
+            continue
+        if not _is_direct_answer_label(label, stage):
+            continue
+        option.label = label
+        scored_options.append(
+            (
+                _score_suggestion_question_fit(
+                    label,
+                    stage=stage,
+                    focus=focus,
+                    selected_role=selected_role,
+                    desired_work=desired_work,
+                ),
+                option,
+            )
+        )
+
+    scored_options.sort(key=lambda item: item[0], reverse=True)
+
+    output: list[SuggestionOption] = []
+    seen_labels: set[str] = set()
+    seen_signatures: set[str] = set()
+    thresholds = (5, 3, 1) if focus != "default" else (4, 2, 1)
+    minimum_grounded_options = 3 if selected_role else 2
+
+    for threshold in thresholds:
+        for score, option in scored_options:
+            label = option.label
+            if score < threshold or label in seen_labels:
+                continue
+            signature = re.sub(r"[\s、。・/／]", "", label)
+            if signature in seen_signatures:
+                continue
+            option.id = re.sub(r"[^a-z0-9]+", "-", f"{option.intent}-{label.lower()}").strip("-")[:48] or option.intent
+            output.append(option)
+            seen_labels.add(label)
+            seen_signatures.add(signature)
+            if len(output) >= max_items:
+                return output
+            if len(output) >= minimum_grounded_options and threshold != thresholds[0]:
+                return output
+        if len(output) >= minimum_grounded_options:
+            break
+
+    return output
 
 
 def _build_stage_specific_suggestion_options(
+    *,
     stage: str,
+    question: str,
     company_name: str,
-    industry: str,
     company_context: str,
+    company_sources: list[dict] | None,
     gakuchika_context: list[dict] | None,
     profile_context: dict[str, Any] | None,
+    application_job_candidates: list[str] | None,
     company_role_candidates: list[str] | None,
     company_work_candidates: list[str] | None,
     conversation_context: dict[str, Any] | None,
 ) -> list[SuggestionOption]:
-    features = _extract_company_features(company_context, max_features=4)
-    company_keywords = _extract_company_keywords(company_context, max_items=6)
+    context = _normalize_conversation_context(conversation_context)
+    selected_role_from_context = context["selectedRole"]
+    features = _extract_company_features(company_context, company_sources, max_features=4)
     role_candidates = _merge_candidate_lists(
+        application_job_candidates or [],
         company_role_candidates or [],
         _extract_role_candidates_from_context(company_context),
         _extract_profile_job_types(profile_context),
         max_items=4,
     )
     work_candidates = _merge_candidate_lists(
-        company_work_candidates or [],
-        _extract_work_candidates_from_context(company_context),
+        _sanitize_existing_grounding_candidates(company_work_candidates, max_items=4, max_len=32),
+        _extract_work_candidates_from_context(
+            company_context,
+            company_sources,
+            selected_role=selected_role_from_context,
+            max_items=4,
+        ),
         max_items=4,
     )
-    gakuchika_strength = _extract_gakuchika_strength(gakuchika_context) or "強み"
-    gakuchika_episode = _extract_gakuchika_episode(gakuchika_context) or "学生時代の経験"
+    gakuchika_strength = _extract_gakuchika_strength(gakuchika_context)
+    gakuchika_episode = _extract_gakuchika_episode(gakuchika_context)
     profile_job_types = _extract_profile_job_types(profile_context)
     profile_industries = _extract_profile_industries(profile_context)
+    profile_anchor = _extract_profile_anchor(profile_context)
+    source_ids = _top_source_ids(company_sources, max_items=2)
+    focus = _detect_question_focus(stage, question)
+
+    feature1 = features[0] if features else None
+    feature2 = features[1] if len(features) > 1 else feature1
+    application_role = (application_job_candidates or [None])[0]
+    role1 = role_candidates[0] if role_candidates else (profile_job_types[0] if profile_job_types else None)
+    selected_role = selected_role_from_context or application_role or role1
+    fallback_work = _fallback_work_for_role(selected_role) if selected_role else None
+    work1 = work_candidates[0] if work_candidates else fallback_work
+    work2 = work_candidates[1] if len(work_candidates) > 1 else fallback_work
+    desired_work = context["desiredWork"] or work1
+    industry_axis = _format_industry_axis(profile_industries)
+    has_multi_industry_axis = len(profile_industries) >= 2
+
+    def option(
+        label: str,
+        source_type: str,
+        *,
+        include_company_evidence: bool = False,
+        is_tentative: bool = False,
+        rationale: str | None = None,
+    ) -> SuggestionOption:
+        return _decorate_suggestion_option(
+            label,
+            source_type,
+            stage,
+            source_ids if include_company_evidence else [],
+            is_tentative=is_tentative,
+            rationale=rationale,
+        )
+
+    options: list[SuggestionOption] = []
+    grounded_company_anchor = feature1 or (work_candidates[0] if work_candidates else None)
+    secondary_company_anchor = feature2 or grounded_company_anchor
+    has_company_evidence = bool(grounded_company_anchor)
+    role_based_source = (
+        "application_job_type"
+        if application_role and application_role == selected_role
+        else "profile"
+    )
+
+    if stage == "company_reason":
+        if focus == "industry_choice":
+            if has_multi_industry_axis:
+                options.append(
+                    option(
+                        f"{industry_axis}に関心がある中でも、複数の産業を横断して価値を出せる点に魅力を感じたため",
+                        "profile",
+                    )
+                )
+            if selected_role and grounded_company_anchor:
+                options.append(
+                    option(
+                        f"{selected_role}として{grounded_company_anchor}に関わり、幅広い事業をつなぐ役割に惹かれたため",
+                        "company",
+                        include_company_evidence=True,
+                    )
+                )
+            if gakuchika_episode and grounded_company_anchor:
+                options.append(
+                    option(
+                        f"{gakuchika_episode}を通じて課題解決への関心が強まり、{grounded_company_anchor}で価値を出せる環境に惹かれたため",
+                        "hybrid",
+                        include_company_evidence=True,
+                    )
+                )
+        if focus == "why_now":
+            if gakuchika_episode and grounded_company_anchor:
+                options.append(
+                    option(
+                        f"{gakuchika_episode}を通じて課題解決への関心が強まり、{grounded_company_anchor}にも惹かれたため",
+                        "hybrid",
+                        include_company_evidence=True,
+                    )
+                )
+            if selected_role and grounded_company_anchor:
+                options.append(
+                    option(
+                        f"{selected_role}として{grounded_company_anchor}に関われる仕事を具体的に想像できたため",
+                        "company",
+                        include_company_evidence=True,
+                    )
+                )
+            if secondary_company_anchor:
+                options.append(
+                    option(
+                        f"{company_name}の{secondary_company_anchor}が自分の就活軸と重なり、志望度が高まったため",
+                        "company",
+                        include_company_evidence=True,
+                    )
+                )
+        elif focus == "role_value":
+            if selected_role and work1:
+                options.append(
+                    option(
+                        f"{selected_role}として{work1}に関われる点に魅力を感じるため",
+                        "company" if has_company_evidence else role_based_source,
+                        include_company_evidence=has_company_evidence,
+                    )
+                )
+            if selected_role and grounded_company_anchor:
+                options.append(
+                    option(
+                        f"{selected_role}志望の軸と{company_name}の{grounded_company_anchor}が重なるため",
+                        "profile",
+                        include_company_evidence=True,
+                    )
+                )
+            if gakuchika_strength and selected_role:
+                options.append(
+                    option(
+                        f"{gakuchika_strength}を活かしながら{selected_role}で価値を出せると感じるため",
+                        "hybrid" if has_company_evidence else "gakuchika",
+                        include_company_evidence=has_company_evidence,
+                    )
+                )
+        elif focus == "feature_appeal":
+            if grounded_company_anchor:
+                options.append(
+                    option(
+                        f"{company_name}の{grounded_company_anchor}のような企業固有の強みに魅力を感じているため",
+                        "company",
+                        include_company_evidence=True,
+                    )
+                )
+            if secondary_company_anchor:
+                options.append(
+                    option(
+                        f"{secondary_company_anchor}まで踏み込む姿勢が、自分の価値観に合うため",
+                        "company",
+                        include_company_evidence=True,
+                    )
+                )
+
+        if selected_role and work1 and grounded_company_anchor:
+            options.append(
+                option(
+                    f"{selected_role}として{work1}に関わり、{grounded_company_anchor}に貢献できると感じるため",
+                    "company",
+                    include_company_evidence=True,
+                )
+            )
+        if gakuchika_episode and gakuchika_strength:
+            options.append(
+                option(
+                    f"{gakuchika_episode}で培った{gakuchika_strength}を{company_name}で活かせると感じるため",
+                    "hybrid" if has_company_evidence else "gakuchika",
+                    include_company_evidence=has_company_evidence,
+                )
+            )
+        if selected_role and secondary_company_anchor:
+            options.append(
+                option(
+                    f"{selected_role}志望の軸と{company_name}の{secondary_company_anchor}が重なるため",
+                    "profile",
+                    include_company_evidence=True,
+                )
+            )
+        return _finalize_suggestion_options(
+            options,
+            stage=stage,
+            focus=focus,
+            selected_role=selected_role,
+            desired_work=desired_work,
+        )
+
+    if stage == "desired_work":
+        if focus == "customer_problem":
+            if selected_role and work1:
+                options.append(
+                    option(
+                        f"入社後は{selected_role}として、顧客の課題整理から{work1}まで担いたい",
+                        "company" if has_company_evidence else role_based_source,
+                        include_company_evidence=has_company_evidence,
+                        is_tentative=True,
+                    )
+                )
+            if gakuchika_episode:
+                options.append(
+                    option(
+                        f"入社後は{gakuchika_episode}で向き合ったように、相手の課題を言語化して提案したい",
+                        "gakuchika",
+                        is_tentative=True,
+                    )
+                )
+            if grounded_company_anchor:
+                options.append(
+                    option(
+                        f"入社後は{grounded_company_anchor}に関わる中で、顧客ごとの改善策を考えたい",
+                        "company",
+                        include_company_evidence=True,
+                        is_tentative=True,
+                    )
+                )
+        elif focus == "value_creation":
+            if work1:
+                options.append(
+                    option(
+                        f"入社後は{work1}を通じて顧客に具体的な価値を届けたい",
+                        "company" if has_company_evidence else role_based_source,
+                        include_company_evidence=has_company_evidence,
+                        is_tentative=True,
+                    )
+                )
+            if selected_role and grounded_company_anchor:
+                options.append(
+                    option(
+                        f"入社後は{selected_role}として{grounded_company_anchor}の強みを現場で形にしたい",
+                        "company",
+                        include_company_evidence=True,
+                        is_tentative=True,
+                    )
+                )
+            if gakuchika_strength:
+                options.append(
+                    option(
+                        f"入社後は{gakuchika_strength}を活かして周囲を巻き込みながら改善を進めたい",
+                        "gakuchika",
+                        is_tentative=True,
+                    )
+                )
+
+        if selected_role and work1:
+            options.append(
+                option(
+                    f"入社後は{selected_role}として{work1}に挑戦したい",
+                    role_based_source if not has_company_evidence else (
+                        "application_job_type" if application_role and application_role == selected_role else "company"
+                    ),
+                    include_company_evidence=has_company_evidence,
+                    is_tentative=True,
+                )
+            )
+        if gakuchika_episode and work2:
+            options.append(
+                option(
+                    f"入社後は{gakuchika_episode}の経験を活かして{work2}を担いたい",
+                    "hybrid" if has_company_evidence else "gakuchika",
+                    include_company_evidence=has_company_evidence,
+                    is_tentative=True,
+                )
+            )
+        if grounded_company_anchor:
+            options.append(
+                option(
+                    f"入社後は{grounded_company_anchor}に関わりながら顧客課題の解決に向き合いたい",
+                    "company",
+                    include_company_evidence=True,
+                    is_tentative=True,
+                )
+            )
+        if selected_role:
+            options.append(
+                option(
+                    f"入社後は{selected_role}として現場や顧客に近い立場で改善を進めたい",
+                    role_based_source,
+                    is_tentative=True,
+                )
+            )
+        return _finalize_suggestion_options(
+            options,
+            stage=stage,
+            focus=focus,
+            selected_role=selected_role,
+            desired_work=desired_work,
+        )
+
+    if stage == "fit_connection":
+        if focus == "strength_application":
+            if gakuchika_strength and selected_role:
+                options.append(
+                    option(
+                        f"{gakuchika_strength}は{selected_role}で周囲を巻き込みながら進める場面で活かせる",
+                        "gakuchika",
+                    )
+                )
+            if gakuchika_episode and work1:
+                options.append(
+                    option(
+                        f"{gakuchika_episode}での経験が、{work1}に必要な粘り強さにつながる",
+                        "hybrid" if has_company_evidence else "gakuchika",
+                        include_company_evidence=has_company_evidence,
+                    )
+                )
+            if grounded_company_anchor and gakuchika_strength:
+                options.append(
+                    option(
+                        f"{grounded_company_anchor}に向き合う上でも、自分の{gakuchika_strength}を再現できると考えている",
+                        "hybrid",
+                        include_company_evidence=True,
+                    )
+                )
+        elif focus == "experience_connection":
+            if gakuchika_episode and gakuchika_strength and selected_role:
+                options.append(
+                    option(
+                        f"{gakuchika_episode}で培った{gakuchika_strength}を{selected_role}で活かせると考えている",
+                        "gakuchika",
+                    )
+                )
+            if selected_role and desired_work:
+                options.append(
+                    option(
+                        f"{selected_role}として{desired_work}に取り組む際に、自分の経験が活きると考えている",
+                        role_based_source if not has_company_evidence else (
+                            "application_job_type" if application_role and application_role == selected_role else "hybrid"
+                        ),
+                        include_company_evidence=has_company_evidence,
+                    )
+                )
+
+        if gakuchika_episode and gakuchika_strength and selected_role:
+            options.append(
+                option(
+                    f"{gakuchika_episode}で培った{gakuchika_strength}を{selected_role}で活かせると考えている",
+                    "gakuchika",
+                )
+            )
+        if grounded_company_anchor:
+            options.append(
+                option(
+                    f"{grounded_company_anchor}で求められる視点と自分の経験には共通点がある",
+                    "hybrid" if gakuchika_episode else "company",
+                    include_company_evidence=True,
+                )
+            )
+        if selected_role and desired_work:
+            options.append(
+                option(
+                    f"{selected_role}として{desired_work}に取り組む際に、自分の経験が活きると考えている",
+                    role_based_source if not has_company_evidence else (
+                        "application_job_type" if application_role and application_role == selected_role else "hybrid"
+                    ),
+                    include_company_evidence=has_company_evidence,
+                )
+            )
+        if profile_anchor and selected_role:
+            options.append(
+                option(
+                    f"{profile_anchor}で培った視点も、{selected_role}で価値を出す上でつながっている",
+                    "profile",
+                )
+            )
+        return _finalize_suggestion_options(
+            options,
+            stage=stage,
+            focus=focus,
+            selected_role=selected_role,
+            desired_work=desired_work,
+        )
+
+    if stage == "differentiation":
+        if focus == "compare":
+            if grounded_company_anchor:
+                options.append(
+                    option(
+                        f"{company_name}は{grounded_company_anchor}まで踏み込める点が、他社より自分の軸に合うため",
+                        "company",
+                        include_company_evidence=True,
+                    )
+                )
+            if selected_role and work1:
+                options.append(
+                    option(
+                        f"{selected_role}として{work1}に関われるイメージが最も具体的に持てるため",
+                        "company" if has_company_evidence else role_based_source,
+                        include_company_evidence=has_company_evidence,
+                    )
+                )
+            if gakuchika_episode:
+                options.append(
+                    option(
+                        f"{gakuchika_episode}の経験を最も自然に活かせるのが{company_name}だと感じるため",
+                        "hybrid" if has_company_evidence else "gakuchika",
+                        include_company_evidence=has_company_evidence,
+                    )
+                )
+        elif focus == "role_specific":
+            if selected_role and work1:
+                options.append(
+                    option(
+                        f"{selected_role}として{work1}に携われる点が、この企業を選ぶ理由になっている",
+                        "company" if has_company_evidence else role_based_source,
+                        include_company_evidence=has_company_evidence,
+                    )
+                )
+            if grounded_company_anchor:
+                options.append(
+                    option(
+                        f"{company_name}の{grounded_company_anchor}なら、志望職種の軸を実務に落とし込みやすいと感じるため",
+                        "hybrid" if gakuchika_strength else "company",
+                        include_company_evidence=True,
+                    )
+                )
+            if gakuchika_strength and selected_role:
+                options.append(
+                    option(
+                        f"{gakuchika_strength}を活かしながら{selected_role}で価値を出す姿が描きやすいため",
+                        "hybrid" if has_company_evidence else "gakuchika",
+                        include_company_evidence=has_company_evidence,
+                    )
+                )
+
+        if grounded_company_anchor:
+            options.append(
+                option(
+                    f"{company_name}の{grounded_company_anchor}が自分の軸に最も合うため",
+                    "company",
+                    include_company_evidence=True,
+                )
+            )
+        if gakuchika_episode:
+            options.append(
+                option(
+                    f"{gakuchika_episode}の経験を{company_name}で最も再現しやすいと感じるため",
+                    "hybrid" if has_company_evidence else "gakuchika",
+                    include_company_evidence=has_company_evidence,
+                )
+            )
+        if selected_role and desired_work:
+            options.append(
+                option(
+                    f"{selected_role}と{desired_work}の両方が描ける点で他社と違うため",
+                    role_based_source if not has_company_evidence else (
+                        "application_job_type" if application_role and application_role == selected_role else "hybrid"
+                    ),
+                    include_company_evidence=has_company_evidence and not bool(application_role and application_role == selected_role),
+                )
+            )
+        if has_multi_industry_axis:
+            options.append(
+                option(
+                    f"{industry_axis}に関心がある中でも、{company_name}は複数の産業と接点を持てる点が自分の軸に最も合うため",
+                    "profile",
+                )
+            )
+        return _finalize_suggestion_options(
+            options,
+            stage=stage,
+            focus=focus,
+            selected_role=selected_role,
+            desired_work=desired_work,
+        )
+
+    if stage == "closing":
+        if focus == "one_line":
+            if selected_role and desired_work:
+                options.append(
+                    option(
+                        f"{selected_role}として{desired_work}を通じて顧客課題の解決に貢献したい",
+                        "company" if has_company_evidence else role_based_source,
+                        include_company_evidence=has_company_evidence,
+                    )
+                )
+            if gakuchika_strength and selected_role:
+                options.append(
+                    option(
+                        f"{gakuchika_strength}を活かして{selected_role}で価値を出したい",
+                        "hybrid" if has_company_evidence else "gakuchika",
+                        include_company_evidence=has_company_evidence,
+                    )
+                )
+
+        if selected_role and grounded_company_anchor:
+            options.append(
+                option(
+                    f"{selected_role}として{grounded_company_anchor}で新しい価値を生みたい",
+                    "company",
+                    include_company_evidence=True,
+                )
+            )
+        if gakuchika_strength:
+            options.append(
+                option(
+                    f"{gakuchika_strength}を軸に成果を出したい",
+                    "gakuchika",
+                )
+            )
+        if desired_work:
+            options.append(
+                option(
+                    f"{desired_work}を形にして価値を出したい",
+                    "hybrid" if has_company_evidence else role_based_source,
+                    include_company_evidence=has_company_evidence,
+                )
+            )
+        if selected_role:
+            options.append(
+                option(
+                    f"{company_name}で{selected_role}の専門性を磨きたい",
+                    "profile",
+                )
+            )
+        return _finalize_suggestion_options(
+            options,
+            stage=stage,
+            focus=focus,
+            selected_role=selected_role,
+            desired_work=desired_work,
+        )
+
+    return _finalize_suggestion_options(
+        [
+            option(
+                f"{gakuchika_episode}の経験を{grounded_company_anchor}に結びつけたいと考えている",
+                "hybrid",
+                include_company_evidence=True,
+            ) if gakuchika_episode and grounded_company_anchor else None,
+            option(
+                f"{selected_role}で{gakuchika_strength}を再現したい",
+                "gakuchika",
+            ) if selected_role and gakuchika_strength else None,
+            option(
+                f"{secondary_company_anchor}に自分の価値観が重なるため",
+                "company",
+                include_company_evidence=True,
+            ) if secondary_company_anchor else None,
+            option(
+                f"{desired_work}につなげたいと考えている",
+                "profile",
+            ) if desired_work else None,
+        ],
+        stage=stage,
+        focus=focus,
+        selected_role=selected_role,
+        desired_work=desired_work,
+    )
+
+
+def _get_next_stage(
+    conversation_context: dict[str, Any] | None,
+    *,
+    weakest_element: str | None = None,
+    is_complete: bool = False,
+) -> str:
     context = _normalize_conversation_context(conversation_context)
-
-    feature1 = features[0] if features else f"{company_name}の事業"
-    feature2 = features[1] if len(features) > 1 else (company_keywords[0] if company_keywords else feature1)
-    role1 = role_candidates[0] if role_candidates else (profile_job_types[0] if profile_job_types else "企画職")
-    role2 = role_candidates[1] if len(role_candidates) > 1 else (profile_job_types[0] if profile_job_types else "営業職")
-    work1 = work_candidates[0] if work_candidates else f"{feature1}に関わる企画"
-    work2 = work_candidates[1] if len(work_candidates) > 1 else f"{feature2}の改善提案"
-    profile_industry = profile_industries[0] if profile_industries else industry
-
-    if stage == "industry_reason":
-        labels = [
-            (f"{feature1}を通じて{profile_industry}に惹かれたため", "hybrid"),
-            (f"{gakuchika_episode}で培った{gakuchika_strength}を業界で活かしたいため", "gakuchika"),
-            (f"{feature2}の社会的な価値に魅力を感じたから", "company"),
-            (f"{profile_industry}×{company_name}の接点が自分の軸に合うため", "profile"),
-        ]
-    elif stage == "company_reason":
-        labels = [
-            (f"{feature1}と{gakuchika_strength}の接点を感じたため", "hybrid"),
-            (f"{company_name}の{feature2}が志望業界の中でも印象的なため", "company"),
-            (f"{gakuchika_episode}の経験を{company_name}で再現したいため", "gakuchika"),
-            (f"{profile_job_types[0] if profile_job_types else role1}志望の軸と合うため", "profile"),
-        ]
-    elif stage == "role_selection":
-        labels = [
-            (f"{role1}で{gakuchika_strength}を活かしたい", "hybrid"),
-            (f"{role2}で{feature1}に関わりたい", "company"),
-            (f"{profile_job_types[0] if profile_job_types else role1}に近い役割を志望", "profile"),
-            (f"{gakuchika_episode}の経験から{role1}に挑戦したい", "gakuchika"),
-        ]
-    elif stage == "desired_work":
-        selected_role = context["selectedRole"] or role1
-        labels = [
-            (f"{selected_role}として{work1}に挑戦したい", "company"),
-            (f"{gakuchika_episode}の経験を活かして{work2}を担いたい", "hybrid"),
-            (f"{feature1}に近い領域で価値提供したい", "company"),
-            (f"{selected_role}で顧客や現場に近い仕事をしたい", "profile"),
-        ]
-    elif stage == "closing":
-        labels = [
-            (f"{feature1}で新しい価値を生むこと", "company"),
-            (f"{gakuchika_strength}を軸に成果を出すこと", "gakuchika"),
-            (f"{context['desiredWork'] or work1}を形にすること", "hybrid"),
-            (f"{company_name}で長く専門性を磨くこと", "profile"),
-        ]
-    else:
-        labels = [
-            (f"{gakuchika_episode}の経験を{feature1}に結びつけたい", "hybrid"),
-            (f"{role1}で{gakuchika_strength}を再現したい", "gakuchika"),
-            (f"{feature2}に自分の価値観が重なるため", "company"),
-            (f"{context['desiredWork'] or work1}へ繋げたい", "profile"),
-        ]
-
-    return [_build_suggestion_option(label, source_type, stage) for label, source_type in labels[:4]]
-
-
-def _build_completion_suggestions(
-    company_name: str,
-    industry: str,
-    company_context: str,
-) -> list[str]:
-    """Build completion suggestions incorporating company info when available."""
-    features = _extract_company_features(company_context)
-
-    if features:
-        return [
-            f"{features[0]}で新しい価値を生むこと",
-            "強みを活かしチーム成果を最大化",
-            f"{features[1] if len(features) > 1 else industry + 'の課題解決'}の最前線へ",
-            "顧客に直接価値を届けるプロになる",
-        ]
-    else:
-        return [
-            f"{company_name}で新しい価値を生むこと",
-            "強みを活かしチーム成果を最大化",
-            f"{industry}の課題解決の最前線へ",
-            "顧客に直接価値を届けるプロになる",
-        ]
+    if not context["companyReason"]:
+        return "company_reason"
+    if not context["desiredWork"]:
+        return "desired_work"
+    if is_complete:
+        return "closing"
+    if weakest_element == "differentiation":
+        return "differentiation"
+    return "fit_connection"
 
 
 def _get_weakest_element(scores: MotivationScores) -> str:
@@ -835,25 +1885,35 @@ async def get_next_question(request: NextQuestionRequest):
     if not request.company_name:
         raise HTTPException(status_code=400, detail="企業名が指定されていません")
 
-    industry = request.industry or "この業界"
     conversation_context = _normalize_conversation_context(request.conversation_context)
+    industry = request.industry or conversation_context["selectedIndustry"] or "この業界"
     company_context, company_sources = await _get_company_context(request.company_id)
-    company_features = _extract_company_features(company_context, max_features=4)
+    company_features = _extract_company_features(company_context, company_sources, max_features=4)
     role_candidates = _merge_candidate_lists(
+        request.application_job_candidates or [],
         request.company_role_candidates or [],
         _extract_role_candidates_from_context(company_context),
         _extract_profile_job_types(request.profile_context),
         max_items=4,
     )
     work_candidates = _merge_candidate_lists(
-        request.company_work_candidates or [],
-        _extract_work_candidates_from_context(company_context),
+        _sanitize_existing_grounding_candidates(request.company_work_candidates, max_items=4, max_len=32),
+        _extract_work_candidates_from_context(
+            company_context,
+            company_sources,
+            selected_role=conversation_context["selectedRole"],
+            max_items=4,
+        ),
         max_items=4,
     )
     conversation_context["companyAnchorKeywords"] = _merge_candidate_lists(
         conversation_context["companyAnchorKeywords"],
         company_features,
-        _extract_company_keywords(company_context),
+        _extract_company_keywords(
+            company_context,
+            company_sources,
+            selected_role=conversation_context["selectedRole"],
+        ),
         max_items=6,
     )
     conversation_context["companyRoleCandidates"] = _merge_candidate_lists(
@@ -867,11 +1927,6 @@ async def get_next_question(request: NextQuestionRequest):
         max_items=4,
     )
 
-    stage = _get_next_stage(conversation_context)
-    if not request.conversation_history:
-        stage = "industry_reason"
-    conversation_context["questionStage"] = stage
-
     # Evaluate current progress (pass pre-fetched context to avoid duplicate RAG call)
     eval_result = await _evaluate_motivation_internal(request, company_context=company_context)
     scores = MotivationScores(**eval_result["scores"])
@@ -879,24 +1934,42 @@ async def get_next_question(request: NextQuestionRequest):
     is_complete = eval_result["is_complete"]
     missing_aspects = eval_result.get("missing_aspects", {})
 
+    stage = _get_next_stage(
+        conversation_context,
+        weakest_element=weakest_element,
+        is_complete=is_complete,
+    )
+    conversation_context["questionStage"] = stage
+
     # If complete, suggest ending
     if is_complete:
-        completion_suggestions = _build_completion_suggestions(
-            company_name=request.company_name,
-            industry=industry,
-            company_context=company_context,
+        closing_question = (
+            "これまでの深掘りで、志望動機の核となる部分が具体的に整理できました。"
+            "最後に、この企業で実現したい一番の目標を一言でまとめると何ですか？"
         )
-        completion_options = [
-            _build_suggestion_option(label, "hybrid" if index == 2 else "company", "closing")
-            for index, label in enumerate(completion_suggestions)
-        ]
+        completion_options = _build_stage_specific_suggestion_options(
+            stage="closing",
+            question=closing_question,
+            company_name=request.company_name,
+            company_context=company_context,
+            company_sources=company_sources,
+            gakuchika_context=request.gakuchika_context,
+            profile_context=request.profile_context,
+            application_job_candidates=request.application_job_candidates,
+            company_role_candidates=role_candidates,
+            company_work_candidates=work_candidates,
+            conversation_context=conversation_context,
+        )
+        completion_suggestions = [option.label for option in completion_options]
         evidence_summary = _build_evidence_summary_from_sources(
             company_sources, focus="締めに使う企業根拠"
         )
+        evidence_cards = _build_evidence_cards_from_sources(company_sources)
         conversation_context["questionStage"] = "closing"
+        stage_status = _build_stage_status(conversation_context, "closing")
 
         return NextQuestionResponse(
-            question="これまでの深掘りで、志望動機の核となる部分が具体的に整理できました。最後に、この企業で実現したい一番の目標を一言でまとめると何ですか？",
+            question=closing_question,
             reasoning="全要素が基準値に達したため、締めの質問",
             should_continue=False,
             suggested_end=True,
@@ -906,48 +1979,11 @@ async def get_next_question(request: NextQuestionRequest):
             suggestions=completion_suggestions,
             suggestion_options=completion_options,
             evidence_summary=evidence_summary,
+            evidence_cards=evidence_cards,
             question_stage="closing",
+            stage_status=stage_status,
             captured_context=conversation_context,
             coaching_focus="志望動機を締める",
-            risk_flags=_coerce_risk_flags(eval_result.get("risk_flags"), max_items=2),
-        )
-
-    if stage in {"industry_reason", "company_reason", "role_selection", "desired_work"}:
-        stage_options = _build_stage_specific_suggestion_options(
-            stage=stage,
-            company_name=request.company_name,
-            industry=industry,
-            company_context=company_context,
-            gakuchika_context=request.gakuchika_context,
-            profile_context=request.profile_context,
-            company_role_candidates=role_candidates,
-            company_work_candidates=work_candidates,
-            conversation_context=conversation_context,
-        )
-        question = _build_stage_question(stage, request.company_name, company_features, role_candidates)
-        evidence_summary = _build_evidence_summary_from_sources(
-            company_sources, focus=f"{STAGE_LABELS.get(stage, stage)}の根拠"
-        )
-        target_element = {
-            "industry_reason": "company_understanding",
-            "company_reason": "differentiation",
-            "role_selection": "career_vision",
-            "desired_work": "career_vision",
-        }.get(stage, weakest_element)
-        return NextQuestionResponse(
-            question=question,
-            reasoning=f"{STAGE_LABELS.get(stage, stage)}を先に固めるための質問",
-            should_continue=True,
-            suggested_end=False,
-            evaluation=eval_result,
-            target_element=target_element,
-            company_insight=company_features[0] if company_features else None,
-            suggestions=[option.label for option in stage_options],
-            suggestion_options=stage_options,
-            evidence_summary=evidence_summary,
-            question_stage=stage,
-            captured_context=conversation_context,
-            coaching_focus=STAGE_LABELS.get(stage, stage),
             risk_flags=_coerce_risk_flags(eval_result.get("risk_flags"), max_items=2),
         )
 
@@ -955,18 +1991,21 @@ async def get_next_question(request: NextQuestionRequest):
     weakest_jp = _get_element_japanese_name(weakest_element)
     missing_for_weakest = missing_aspects.get(weakest_element, [])
     missing_aspects_text = f"「{weakest_jp}」で不足: {', '.join(missing_for_weakest)}" if missing_for_weakest else ""
-
     safe_company_name = sanitize_prompt_input(request.company_name, max_length=200)
     gakuchika_section = _format_gakuchika_for_prompt(request.gakuchika_context)
     profile_section = _format_profile_for_prompt(request.profile_context)
+    application_job_section = _format_application_jobs_for_prompt(request.application_job_candidates)
     conversation_context_section = _format_conversation_context_for_prompt(conversation_context)
+    conversation_history_section = _format_recent_conversation_for_prompt(request.conversation_history)
     prompt = MOTIVATION_QUESTION_PROMPT.format(
         company_name=safe_company_name,
-        industry=sanitize_prompt_input(request.industry or "不明", max_length=100),
+        industry=sanitize_prompt_input(industry or "不明", max_length=100),
         company_context=company_context or "（企業情報なし）",
         gakuchika_section=gakuchika_section,
         profile_section=profile_section,
+        application_job_section=application_job_section,
         conversation_context=conversation_context_section,
+        conversation_history=conversation_history_section,
         company_understanding_score=scores.company_understanding,
         self_analysis_score=scores.self_analysis,
         career_vision_score=scores.career_vision,
@@ -986,13 +2025,14 @@ async def get_next_question(request: NextQuestionRequest):
             f"gakuchika_chars={len(gakuchika_section)}"
         )
 
-    messages = [{"role": msg.role, "content": msg.content} for msg in request.conversation_history]
+    messages = _build_question_messages(request.conversation_history)
+    user_message = _build_question_user_message(request.conversation_history)
 
     llm_result = await call_llm_with_error(
         system_prompt=prompt,
-        user_message="次の深掘り質問を生成してください。",
+        user_message=user_message,
         messages=messages,
-        max_tokens=900,  # 質問+サジェスト4つで十分
+        max_tokens=700,
         temperature=0.5,
         feature="motivation",
         retry_on_parse=True,
@@ -1016,20 +2056,27 @@ async def get_next_question(request: NextQuestionRequest):
             detail={"error": "AIから有効な質問を取得できませんでした。"},
         )
 
-    # Extract and validate suggestions
-    suggestions = data.get("suggestions", [])
-    if not isinstance(suggestions, list):
-        suggestions = []
-    suggestions = [s for s in suggestions if isinstance(s, str) and len(s.strip()) > 0][:4]
-    suggestion_options = [
-        _build_suggestion_option(s, "hybrid" if index == 0 else "company", stage)
-        for index, s in enumerate(suggestions)
-    ]
+    suggestion_options = _build_stage_specific_suggestion_options(
+        stage=stage,
+        question=str(data["question"]),
+        company_name=request.company_name,
+        company_context=company_context,
+        company_sources=company_sources,
+        gakuchika_context=request.gakuchika_context,
+        profile_context=request.profile_context,
+        application_job_candidates=request.application_job_candidates,
+        company_role_candidates=role_candidates,
+        company_work_candidates=work_candidates,
+        conversation_context=conversation_context,
+    )
+    suggestions = [option.label for option in suggestion_options]
     evidence_summary = (
         data.get("evidence_summary")
         or _build_evidence_summary_from_sources(company_sources, focus="質問の根拠")
     )
+    evidence_cards = _build_evidence_cards_from_sources(company_sources)
     conversation_context["questionStage"] = stage
+    stage_status = _build_stage_status(conversation_context, stage)
     risk_flags = _coerce_risk_flags(data.get("risk_flags"), max_items=2) or _coerce_risk_flags(
         eval_result.get("risk_flags"), max_items=2
     )
@@ -1045,7 +2092,9 @@ async def get_next_question(request: NextQuestionRequest):
         suggestions=suggestions,
         suggestion_options=suggestion_options,
         evidence_summary=evidence_summary,
+        evidence_cards=evidence_cards,
         question_stage=stage,
+        stage_status=stage_status,
         captured_context=conversation_context,
         coaching_focus=str(data.get("coaching_focus") or STAGE_LABELS.get(stage, stage)),
         risk_flags=risk_flags,
@@ -1072,8 +2121,8 @@ async def _generate_next_question_progress(
             yield _sse_event("error", {"message": "企業名が指定されていません"})
             return
 
-        industry = request.industry or "この業界"
         conversation_context = _normalize_conversation_context(request.conversation_context)
+        industry = request.industry or conversation_context.get("selectedIndustry") or "この業界"
 
         # Step 1: RAG context fetch
         yield _sse_event("progress", {
@@ -1082,22 +2131,32 @@ async def _generate_next_question_progress(
         await asyncio.sleep(0.05)
 
         company_context, company_sources = await _get_company_context(request.company_id)
-        company_features = _extract_company_features(company_context, max_features=4)
+        company_features = _extract_company_features(company_context, company_sources, max_features=4)
         role_candidates = _merge_candidate_lists(
+            request.application_job_candidates or [],
             request.company_role_candidates or [],
             _extract_role_candidates_from_context(company_context),
             _extract_profile_job_types(request.profile_context),
             max_items=4,
         )
         work_candidates = _merge_candidate_lists(
-            request.company_work_candidates or [],
-            _extract_work_candidates_from_context(company_context),
+            _sanitize_existing_grounding_candidates(request.company_work_candidates, max_items=4, max_len=32),
+            _extract_work_candidates_from_context(
+                company_context,
+                company_sources,
+                selected_role=conversation_context["selectedRole"],
+                max_items=4,
+            ),
             max_items=4,
         )
         conversation_context["companyAnchorKeywords"] = _merge_candidate_lists(
             conversation_context["companyAnchorKeywords"],
             company_features,
-            _extract_company_keywords(company_context),
+            _extract_company_keywords(
+                company_context,
+                company_sources,
+                selected_role=conversation_context["selectedRole"],
+            ),
             max_items=6,
         )
         conversation_context["companyRoleCandidates"] = _merge_candidate_lists(
@@ -1110,11 +2169,6 @@ async def _generate_next_question_progress(
             work_candidates,
             max_items=4,
         )
-        stage = _get_next_stage(conversation_context)
-        if not request.conversation_history:
-            stage = "industry_reason"
-        conversation_context["questionStage"] = stage
-
         # Step 2: Evaluation
         yield _sse_event("progress", {
             "step": "evaluation", "progress": 40, "label": "回答を分析中...",
@@ -1128,24 +2182,41 @@ async def _generate_next_question_progress(
         weakest_element = eval_result["weakest_element"]
         is_complete = eval_result["is_complete"]
         missing_aspects = eval_result.get("missing_aspects", {})
+        stage = _get_next_stage(
+            conversation_context,
+            weakest_element=weakest_element,
+            is_complete=is_complete,
+        )
+        conversation_context["questionStage"] = stage
 
         # If complete, return final question
         if is_complete:
-            completion_suggestions = _build_completion_suggestions(
-                company_name=request.company_name,
-                industry=industry,
-                company_context=company_context,
+            closing_question = (
+                "これまでの深掘りで、志望動機の核となる部分が具体的に整理できました。"
+                "最後に、この企業で実現したい一番の目標を一言でまとめると何ですか？"
             )
-            completion_options = [
-                _build_suggestion_option(label, "hybrid" if index == 2 else "company", "closing")
-                for index, label in enumerate(completion_suggestions)
-            ]
+            completion_options = _build_stage_specific_suggestion_options(
+                stage="closing",
+                question=closing_question,
+                company_name=request.company_name,
+                company_context=company_context,
+                company_sources=company_sources,
+                gakuchika_context=request.gakuchika_context,
+                profile_context=request.profile_context,
+                application_job_candidates=request.application_job_candidates,
+                company_role_candidates=role_candidates,
+                company_work_candidates=work_candidates,
+                conversation_context=conversation_context,
+            )
+            completion_suggestions = [option.label for option in completion_options]
             evidence_summary = _build_evidence_summary_from_sources(
                 company_sources, focus="締めに使う企業根拠"
             )
+            evidence_cards = _build_evidence_cards_from_sources(company_sources)
+            stage_status = _build_stage_status(conversation_context, "closing")
             yield _sse_event("complete", {
                 "data": {
-                    "question": "これまでの深掘りで、志望動機の核となる部分が具体的に整理できました。最後に、この企業で実現したい一番の目標を一言でまとめると何ですか？",
+                    "question": closing_question,
                     "reasoning": "全要素が基準値に達したため、締めの質問",
                     "should_continue": False,
                     "suggested_end": True,
@@ -1155,49 +2226,11 @@ async def _generate_next_question_progress(
                     "suggestions": completion_suggestions,
                     "suggestion_options": [option.model_dump() for option in completion_options],
                     "evidence_summary": evidence_summary,
+                    "evidence_cards": [card.model_dump() for card in evidence_cards],
                     "question_stage": "closing",
+                    "stage_status": stage_status.model_dump(),
                     "captured_context": conversation_context,
                     "coaching_focus": "志望動機を締める",
-                    "risk_flags": _coerce_risk_flags(eval_result.get("risk_flags"), max_items=2),
-                },
-            })
-            return
-
-        if stage in {"industry_reason", "company_reason", "role_selection", "desired_work"}:
-            stage_options = _build_stage_specific_suggestion_options(
-                stage=stage,
-                company_name=request.company_name,
-                industry=industry,
-                company_context=company_context,
-                gakuchika_context=request.gakuchika_context,
-                profile_context=request.profile_context,
-                company_role_candidates=role_candidates,
-                company_work_candidates=work_candidates,
-                conversation_context=conversation_context,
-            )
-            evidence_summary = _build_evidence_summary_from_sources(
-                company_sources, focus=f"{STAGE_LABELS.get(stage, stage)}の根拠"
-            )
-            yield _sse_event("complete", {
-                "data": {
-                    "question": _build_stage_question(stage, request.company_name, company_features, role_candidates),
-                    "reasoning": f"{STAGE_LABELS.get(stage, stage)}を先に固めるための質問",
-                    "should_continue": True,
-                    "suggested_end": False,
-                    "evaluation": eval_result,
-                    "target_element": {
-                        "industry_reason": "company_understanding",
-                        "company_reason": "differentiation",
-                        "role_selection": "career_vision",
-                        "desired_work": "career_vision",
-                    }.get(stage, weakest_element),
-                    "company_insight": company_features[0] if company_features else None,
-                    "suggestions": [option.label for option in stage_options],
-                    "suggestion_options": [option.model_dump() for option in stage_options],
-                    "evidence_summary": evidence_summary,
-                    "question_stage": stage,
-                    "captured_context": conversation_context,
-                    "coaching_focus": STAGE_LABELS.get(stage, stage),
                     "risk_flags": _coerce_risk_flags(eval_result.get("risk_flags"), max_items=2),
                 },
             })
@@ -1216,17 +2249,20 @@ async def _generate_next_question_progress(
             if missing_for_weakest
             else ""
         )
-
         gakuchika_section = _format_gakuchika_for_prompt(request.gakuchika_context)
         profile_section = _format_profile_for_prompt(request.profile_context)
+        application_job_section = _format_application_jobs_for_prompt(request.application_job_candidates)
         conversation_context_section = _format_conversation_context_for_prompt(conversation_context)
+        conversation_history_section = _format_recent_conversation_for_prompt(request.conversation_history)
         prompt = MOTIVATION_QUESTION_PROMPT.format(
             company_name=sanitize_prompt_input(request.company_name, max_length=200),
-            industry=sanitize_prompt_input(request.industry or "不明", max_length=100),
+            industry=sanitize_prompt_input(industry or "不明", max_length=100),
             company_context=company_context or "（企業情報なし）",
             gakuchika_section=gakuchika_section,
             profile_section=profile_section,
+            application_job_section=application_job_section,
             conversation_context=conversation_context_section,
+            conversation_history=conversation_history_section,
             company_understanding_score=scores.company_understanding,
             self_analysis_score=scores.self_analysis,
             career_vision_score=scores.career_vision,
@@ -1237,28 +2273,26 @@ async def _generate_next_question_progress(
             threshold=ELEMENT_COMPLETION_THRESHOLD,
         )
 
-        messages = [
-            {"role": msg.role, "content": msg.content}
-            for msg in request.conversation_history
-        ]
+        messages = _build_question_messages(request.conversation_history)
+        user_message = _build_question_user_message(request.conversation_history)
 
         # Stream LLM response with field-level events
         llm_result = None
         async for event in call_llm_streaming_fields(
             system_prompt=prompt,
-            user_message="次の深掘り質問を生成してください。",
+            user_message=user_message,
             messages=messages,
-            max_tokens=900,
+            max_tokens=700,
             temperature=0.5,
             feature="motivation",
             schema_hints={
                 "question": "string",
-                "suggestions": "array",
                 "evidence_summary": "string",
                 "coaching_focus": "string",
                 "risk_flags": "array",
             },
             stream_string_fields=["question"],
+            partial_required_fields=("question",),
         ):
             if event.type == "chunk":
                 yield _sse_event("chunk", {"text": event.text})
@@ -1291,21 +2325,26 @@ async def _generate_next_question_progress(
             })
             return
 
-        # Extract suggestions
-        suggestions = data.get("suggestions", [])
-        if not isinstance(suggestions, list):
-            suggestions = []
-        suggestions = [
-            s for s in suggestions if isinstance(s, str) and len(s.strip()) > 0
-        ][:4]
-        suggestion_options = [
-            _build_suggestion_option(s, "hybrid" if index == 0 else "company", stage)
-            for index, s in enumerate(suggestions)
-        ]
+        suggestion_options = _build_stage_specific_suggestion_options(
+            stage=stage,
+            question=str(data["question"]),
+            company_name=request.company_name,
+            company_context=company_context,
+            company_sources=company_sources,
+            gakuchika_context=request.gakuchika_context,
+            profile_context=request.profile_context,
+            application_job_candidates=request.application_job_candidates,
+            company_role_candidates=role_candidates,
+            company_work_candidates=work_candidates,
+            conversation_context=conversation_context,
+        )
+        suggestions = [option.label for option in suggestion_options]
         evidence_summary = (
             data.get("evidence_summary")
             or _build_evidence_summary_from_sources(company_sources, focus="質問の根拠")
         )
+        evidence_cards = _build_evidence_cards_from_sources(company_sources)
+        stage_status = _build_stage_status(conversation_context, stage)
         risk_flags = _coerce_risk_flags(data.get("risk_flags"), max_items=2) or _coerce_risk_flags(
             eval_result.get("risk_flags"), max_items=2
         )
@@ -1322,7 +2361,9 @@ async def _generate_next_question_progress(
                 "suggestions": suggestions,
                 "suggestion_options": [option.model_dump() for option in suggestion_options],
                 "evidence_summary": evidence_summary,
+                "evidence_cards": [card.model_dump() for card in evidence_cards],
                 "question_stage": stage,
+                "stage_status": stage_status.model_dump(),
                 "captured_context": conversation_context,
                 "coaching_focus": str(data.get("coaching_focus") or STAGE_LABELS.get(stage, stage)),
                 "risk_flags": risk_flags,

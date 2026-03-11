@@ -1,28 +1,51 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  ArrowUpRight,
+  Building2,
+  CheckCircle2,
+  FileText,
+  Loader2,
+  Sparkles,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useOperationLock } from "@/hooks/useOperationLock";
 import {
-  getAvailableStyles,
+  COMPANYLESS_TEMPLATE_TYPES,
+  EXTRA_FIELD_LABELS,
   TEMPLATE_EXTRA_FIELDS,
   TEMPLATE_LABELS,
   TEMPLATE_OPTIONS,
   useESReview,
 } from "@/hooks/useESReview";
-import type { ReviewScores, SectionData, TemplateReview, TemplateType } from "@/hooks/useESReview";
-import { ScoreDisplay, getScoreSummary } from "./ScoreDisplay";
-import { ImprovementList } from "./ImprovementList";
-import { RewriteDisplay } from "./RewriteDisplay";
-import { CompareView } from "./CompareView";
+import type { ReviewMode, TemplateType } from "@/hooks/useESReview";
+import { calculateESReviewCost } from "@/lib/credits/cost";
+import type { Industry } from "@/lib/constants/industries";
+import { notifyReviewComplete } from "@/lib/notifications";
 import { ReflectModal } from "./ReflectModal";
 import { ReviewEmptyState } from "./ReviewEmptyState";
-import { EnhancedProcessingSteps, ES_REVIEW_STEPS } from "@/components/ui/EnhancedProcessingSteps";
-import { calculateESReviewCost } from "@/lib/credits/cost";
-import { toast } from "sonner";
+import { StreamingReviewResponse } from "./StreamingReviewResponse";
+
+export type CompanyReviewStatus =
+  | "no_company_selected"
+  | "company_selected_not_fetched"
+  | "company_status_checking"
+  | "company_fetched_but_not_ready"
+  | "ready_for_es_review";
 
 interface SectionReviewRequest {
   sectionTitle: string;
@@ -32,285 +55,694 @@ interface SectionReviewRequest {
 
 interface ReviewPanelProps {
   documentId: string;
-  content: string;
-  sections?: string[];
-  sectionData?: SectionData[];
-  hasCompanyRag?: boolean;
+  companyReviewStatus?: CompanyReviewStatus;
   companyId?: string;
   companyName?: string;
-  isPaid?: boolean;
   onApplyRewrite?: (newContent: string, sectionTitle?: string | null) => void;
   onUndo?: () => void;
   className?: string;
   sectionReviewRequest?: SectionReviewRequest | null;
   onClearSectionReview?: () => void;
-  onScrollToEditorSection?: (sectionTitle: string) => void;
+  supplementalContent?: ReactNode;
 }
 
-const SparkleIcon = () => (
-  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-    />
-  </svg>
-);
-
-interface CreditCostIndicatorProps {
-  charCount: number;
+interface RoleOptionResponse {
+  companyId: string;
+  companyName: string;
+  industry: string | null;
+  requiresIndustrySelection: boolean;
+  industryOptions: string[];
+  roleGroups: Array<{
+    id: string;
+    label: string;
+    options: Array<{
+      value: string;
+      label: string;
+      source: "industry_default" | "company_override" | "application_job_type" | "document_job_type";
+    }>;
+  }>;
 }
 
-function CreditCostIndicator({ charCount }: CreditCostIndicatorProps) {
-  const cost = calculateESReviewCost(charCount);
-  return (
-    <div className="rounded-xl border border-border bg-muted/20 p-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-medium text-muted-foreground">予想消費クレジット</span>
-        <span className="text-sm font-semibold text-foreground">{cost} クレジット</span>
+const QWEN_ES_REVIEW_BETA_ENABLED =
+  process.env.NEXT_PUBLIC_QWEN_ES_REVIEW_ENABLED === "true";
+
+function getStreamingStatusCopy(step: string | null) {
+  if (step === "rag_fetch") {
+    return {
+      title: "企業情報を確認しています",
+      description: "添削に必要な情報を集めています。",
+    };
+  }
+
+  if (step === "analysis") {
+    return {
+      title: "設問を整理しています",
+      description: "改善案の方向性を固めています。",
+    };
+  }
+
+  if (step === "rewrite") {
+    return {
+      title: "改善した回答を提案しています",
+      description: "回答の伝わり方を整えています。",
+    };
+  }
+
+  if (step === "finalize") {
+    return {
+      title: "改善ポイントを整理しています",
+      description: "修正すべき点を順にまとめています。",
+    };
+  }
+
+  if (step === "sources") {
+    return {
+      title: "出典リンクを整理しています",
+      description: "参照した情報をまとめています。",
+    };
+  }
+
+  return {
+    title: "AI添削を準備しています",
+    description: "結果を順番に表示する準備をしています。",
+  };
+}
+
+function CompanyStatusBanner({
+  status,
+  companyName,
+  companyId,
+  density = "full",
+}: {
+  status: CompanyReviewStatus;
+  companyName?: string;
+  companyId?: string;
+  density?: "full" | "compact";
+}) {
+  if (status === "no_company_selected") {
+    return null;
+  }
+
+  const sharedLink = companyId ? (
+    <Link
+      href={`/companies/${companyId}`}
+      className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-foreground underline underline-offset-2"
+    >
+      企業情報を見る
+      <ArrowUpRight className="size-3.5" />
+    </Link>
+  ) : null;
+  const compactLink = companyId ? (
+    <Link
+      href={`/companies/${companyId}`}
+      className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-foreground underline underline-offset-2"
+    >
+      {status === "company_selected_not_fetched" ? "企業情報を取得する" : "企業情報を見る"}
+      <ArrowUpRight className="size-3.5" />
+    </Link>
+  ) : null;
+
+  if (density === "compact") {
+    if (status === "ready_for_es_review") {
+      return (
+        <div className="rounded-[18px] border border-success/20 bg-success/8 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-success/12 text-success">
+                <CheckCircle2 className="size-4" />
+              </div>
+              <p className="text-sm font-medium text-foreground">
+                {companyName ? `${companyName}の企業情報と連携済みです。` : "企業情報連携済みです。"}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (status === "company_status_checking") {
+      return (
+        <div className="rounded-[18px] border border-border/60 bg-background/80 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+            </div>
+            <p className="text-sm font-medium text-foreground">企業情報の連携状況を確認中です。</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (status === "company_fetched_but_not_ready") {
+      return (
+        <div className="rounded-[18px] border border-info/20 bg-info/8 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-info/14 text-info">
+                <Building2 className="size-4" />
+              </div>
+              <p className="text-sm font-medium text-foreground">
+                企業情報は取得済みですが、ES添削に使える情報がまだ不足しています。
+              </p>
+            </div>
+            {compactLink}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="rounded-[18px] border border-warning/20 bg-warning/10 px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-warning/20 text-warning-foreground">
+              <Building2 className="size-4" />
+            </div>
+            <p className="text-sm font-medium text-foreground">
+              企業情報を取得すると、企業に合わせた添削ができます。
+            </p>
+          </div>
+          {compactLink}
+        </div>
       </div>
-      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span>{charCount}文字</span>
-        <span>800文字ごとに+1</span>
+    );
+  }
+
+  if (status === "ready_for_es_review") {
+    return (
+      <div className="rounded-[22px] border border-success/20 bg-success/8 p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-success/12 text-success">
+            <CheckCircle2 className="size-4" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">
+              {companyName ? `${companyName}の企業情報と連携してAI添削できます。` : "企業情報連携済みです。"}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              改善案、改善ポイント、出典リンクを順に返します。
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "company_status_checking") {
+    return (
+      <div className="rounded-[22px] border border-border/60 bg-background/80 p-4">
+        <p className="text-sm font-semibold text-foreground">企業情報の連携状況を確認中です。</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          判定が完了すると、出典表示の有無もこのパネルへ自動反映します。
+        </p>
+      </div>
+    );
+  }
+
+  if (status === "company_fetched_but_not_ready") {
+    return (
+      <div className="rounded-[22px] border border-info/20 bg-info/8 p-4">
+        <p className="text-sm font-semibold text-foreground">
+          企業情報は取得済みですが、ES添削に使える情報がまだ不足しています。
+        </p>
+        {sharedLink}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-[22px] border border-warning/20 bg-warning/10 p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-warning/20 text-warning-foreground">
+          <Building2 className="size-4" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-foreground">
+            企業情報を取得すると、企業に合わせた添削ができます。
+          </p>
+          {companyId ? (
+            <Link
+              href={`/companies/${companyId}`}
+              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-foreground underline underline-offset-2"
+            >
+              企業情報を取得する
+              <ArrowUpRight className="size-3.5" />
+            </Link>
+          ) : null}
+        </div>
       </div>
     </div>
   );
 }
 
-function SelectionChips({
-  options,
+function SetupField({
+  label,
+  placeholder,
   value,
   onChange,
 }: {
-  options: Array<{ value: string; label: string }>;
+  label: string;
+  placeholder: string;
   value: string;
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-2">
-      {options.map((option) => {
-        const isActive = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => onChange(option.value)}
-            className={cn(
-              "rounded-full border px-3 py-1.5 text-sm transition-colors",
-              isActive
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border bg-background text-foreground hover:bg-muted",
-            )}
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function SourceLinks({
-  sources,
-}: {
-  sources: Array<{ source_id: string; source_url: string; content_type: string; excerpt?: string }>;
-}) {
-  if (sources.length === 0) return null;
-
-  return (
     <div className="space-y-2">
-      <h4 className="text-sm font-semibold text-foreground">キーワード出典</h4>
-      <div className="space-y-2">
-        {sources.map((source) => {
-          const clickable = Boolean(source.source_url);
-          const content = (
-            <div className="rounded-xl border border-border bg-card p-3 transition-colors hover:bg-muted/30">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-foreground">{source.content_type || "参考情報"}</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">{source.source_id}</p>
-                </div>
-                {clickable && <span className="text-xs font-medium text-primary">外部サイトへ</span>}
-              </div>
-              {source.excerpt && (
-                <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">{source.excerpt}</p>
-              )}
-            </div>
-          );
+      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      <Input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+    </div>
+  );
+}
 
-          if (!clickable) {
-            return <div key={source.source_id}>{content}</div>;
-          }
+function ReviewModeSelector({
+  value,
+  onChange,
+}: {
+  value: ReviewMode;
+  onChange: (value: ReviewMode) => void;
+}) {
+  return (
+    <div className="rounded-[26px] border border-border/60 bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-foreground">モデル経路</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Qwen3 β は既存の Claude 添削とは別経路で実行します。
+          </p>
+        </div>
+        <Badge variant="soft-warning" className="px-3 py-1 text-[11px]">
+          Beta
+        </Badge>
+      </div>
 
-          return (
-            <a key={source.source_id} href={source.source_url} target="_blank" rel="noopener noreferrer">
-              {content}
-            </a>
-          );
-        })}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          className={cn(
+            "rounded-[22px] border px-4 py-4 text-left transition-colors",
+            value === "claude"
+              ? "border-primary/30 bg-primary/8"
+              : "border-border/60 bg-background/85 hover:border-border",
+          )}
+          onClick={() => onChange("claude")}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-foreground">Claude</p>
+            {value === "claude" ? (
+              <Badge variant="soft-primary" className="px-2 py-0.5 text-[11px]">
+                標準
+              </Badge>
+            ) : null}
+          </div>
+          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+            既存の本番経路です。現在の ES 添削体験はこちらを基準に維持します。
+          </p>
+        </button>
+
+        <button
+          type="button"
+          className={cn(
+            "rounded-[22px] border px-4 py-4 text-left transition-colors",
+            value === "qwen_beta"
+              ? "border-info/30 bg-info/8"
+              : "border-border/60 bg-background/85 hover:border-border",
+          )}
+          onClick={() => onChange("qwen_beta")}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-foreground">Qwen3 β</p>
+            {value === "qwen_beta" ? (
+              <Badge variant="soft-info" className="px-2 py-0.5 text-[11px]">
+                選択中
+              </Badge>
+            ) : null}
+          </div>
+          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+            就活向けに微調整する OSS LLM 経路です。失敗しても通常の Claude 経路には影響しません。
+          </p>
+        </button>
       </div>
     </div>
   );
 }
 
-function TemplateResults({
-  templateReview,
-  onApply,
-  onOpenFullscreen,
-  showFullscreenButton = true,
+function ReviewActionFooter({
+  charCount,
+  creditCost,
+  helperText,
+  buttonLabel,
+  disabled,
+  onClick,
 }: {
-  templateReview: TemplateReview;
-  onApply: (text: string) => void;
-  onOpenFullscreen: () => void;
-  showFullscreenButton?: boolean;
+  charCount: number;
+  creditCost: number;
+  helperText: string;
+  buttonLabel: string;
+  disabled: boolean;
+  onClick: () => void;
 }) {
-  const variant = templateReview.variants[0];
-  if (!variant) return null;
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <h4 className="text-sm font-semibold text-foreground">リライト案</h4>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-            {TEMPLATE_LABELS[templateReview.template_type as TemplateType]}
-          </span>
-        </div>
-        {showFullscreenButton && (
-          <Button variant="outline" size="sm" className="h-8 px-3 text-xs" onClick={onOpenFullscreen}>
-            全画面で表示
-          </Button>
-        )}
-      </div>
-
-      <div className="rounded-2xl border border-border bg-card p-4">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium text-muted-foreground">完成稿の改善案</span>
-          <span className="text-xs text-muted-foreground">{variant.char_count}文字</span>
-        </div>
-        <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-foreground">{variant.text}</p>
-        {variant.keywords_used.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {variant.keywords_used.map((keyword, index) => (
-              <span key={`${keyword}-${index}`} className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
-                {keyword}
-              </span>
-            ))}
+    <div className="border-t border-border/60 bg-muted/20 px-4 py-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium text-foreground">消費クレジット</p>
+            <Badge variant="outline" className="bg-background/80 px-2 py-0.5 text-[11px] text-foreground">
+              {creditCost} クレジット
+            </Badge>
+            <span className="text-xs text-muted-foreground sm:text-sm">{charCount}文字</span>
           </div>
-        )}
-        <Button className="mt-4 w-full" onClick={() => onApply(variant.text)}>
-          このリライト案を反映
+          <p className="truncate text-xs leading-5 text-muted-foreground">{helperText}</p>
+        </div>
+
+        <Button
+          className="h-11 self-stretch rounded-full px-5 sm:min-w-[220px] sm:self-auto sm:px-6"
+          disabled={disabled}
+          onClick={onClick}
+        >
+          <Sparkles className="size-4" />
+          {buttonLabel}
         </Button>
       </div>
-
-      <SourceLinks sources={templateReview.keyword_sources} />
     </div>
   );
 }
 
 export function ReviewPanel({
   documentId,
-  content,
-  hasCompanyRag = false,
+  companyReviewStatus = "no_company_selected",
   companyId,
   companyName,
-  isPaid = false,
   onApplyRewrite,
   onUndo,
   className,
   sectionReviewRequest,
   onClearSectionReview,
+  supplementalContent,
 }: ReviewPanelProps) {
   const { acquireLock, releaseLock } = useOperationLock();
-  const [selectedStyle, setSelectedStyle] = useState("バランス");
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateType | null>(null);
   const [internName, setInternName] = useState("");
+  const [selectedIndustry, setSelectedIndustry] = useState<Industry | null>(null);
   const [roleName, setRoleName] = useState("");
+  const [roleSelectionSource, setRoleSelectionSource] = useState<
+    "industry_default" | "company_override" | "application_job_type" | "document_job_type" | "custom" | null
+  >(null);
+  const [customRoleInput, setCustomRoleInput] = useState("");
+  const [roleOptionsData, setRoleOptionsData] = useState<RoleOptionResponse | null>(null);
+  const [isRoleOptionsLoading, setIsRoleOptionsLoading] = useState(false);
+  const [roleOptionsError, setRoleOptionsError] = useState<string | null>(null);
+  const [reviewMode, setReviewMode] = useState<ReviewMode>("claude");
   const [showReflectModal, setShowReflectModal] = useState(false);
   const [pendingRewrite, setPendingRewrite] = useState<string | null>(null);
-  const [showCompareView, setShowCompareView] = useState(false);
-  const [showFullscreen, setShowFullscreen] = useState(false);
-  const [isScoreVisible, setIsScoreVisible] = useState(true);
-  const scoreRef = useRef<HTMLDivElement>(null);
+  const [responseInstanceKey, setResponseInstanceKey] = useState(0);
+  const [hasShownCompletionToast, setHasShownCompletionToast] = useState(false);
 
   const {
     review,
+    visibleRewriteText,
+    visibleIssues,
+    visibleSources,
+    finalRewriteText,
+    playbackPhase,
+    isPlaybackComplete,
     isLoading,
     error,
-    creditCost,
-    reviewMode,
     currentSection,
-    cancelReview,
-    isCancelling,
     elapsedTime,
     sseProgress,
-    partialReview,
     requestSectionReview,
     clearReview,
   } = useESReview({ documentId });
 
-  const availableStyles = getAvailableStyles(isPaid);
-  const styleOptions = availableStyles.map((style) => ({ value: style, label: style }));
-  const templateOptions = [
-    { value: "auto", label: "自動" },
-    ...TEMPLATE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
-  ];
+  const hasSelectedCompany = companyReviewStatus !== "no_company_selected";
+  const templateOptions = hasSelectedCompany
+    ? [
+        { value: "auto", label: "自動" },
+        ...TEMPLATE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+      ]
+    : TEMPLATE_OPTIONS.filter((option) => COMPANYLESS_TEMPLATE_TYPES.includes(option.value)).map(
+        (option) => ({
+          value: option.value,
+          label: option.label,
+        }),
+      );
 
-  const displayScores = (review?.scores ?? partialReview.scores ?? null) as ReviewScores | null;
-  const displayTop3 = review?.top3 ?? (partialReview.top3.length > 0 ? partialReview.top3 : null);
-  const displayRewrites = review?.rewrites ?? (partialReview.rewrites.length > 0 ? partialReview.rewrites : null);
-  const streamingRewriteText = partialReview.streamingRewriteText.trim();
-  const currentCharLimit = sectionReviewRequest?.sectionCharLimit;
-  const effectiveHasCompanyRag = useMemo(() => {
-    if (review?.scores?.company_connection !== undefined) return true;
-    if (partialReview.scores?.company_connection !== undefined) return true;
-    if (review?.template_review?.keyword_sources?.length) return true;
-    return hasCompanyRag;
-  }, [hasCompanyRag, partialReview.scores?.company_connection, review]);
+  const selectedTemplateFields = selectedTemplate ? TEMPLATE_EXTRA_FIELDS[selectedTemplate] : [];
+  const requiresInternName = Boolean(
+    selectedTemplate && TEMPLATE_EXTRA_FIELDS[selectedTemplate].includes("intern_name"),
+  );
+  const requiresIndustrySelection = hasSelectedCompany && Boolean(roleOptionsData?.requiresIndustrySelection);
+  const needsExplicitTemplate = !hasSelectedCompany;
+  const needsRoleSelection = hasSelectedCompany;
+  const currentCharLimit = currentSection?.charLimit ?? sectionReviewRequest?.sectionCharLimit;
+  const selectedRoleName = roleName.trim();
+  const selectedTemplateValue = selectedTemplate ?? (hasSelectedCompany ? "auto" : "");
+  const currentTemplateLabel = selectedTemplate
+    ? TEMPLATE_LABELS[selectedTemplate]
+    : hasSelectedCompany
+      ? "自動判定"
+      : undefined;
+  const currentReviewModeLabel = reviewMode === "qwen_beta" ? "Qwen3 β" : "Claude";
+  const missingTemplateField = selectedTemplateFields.find((fieldName) => {
+    if (fieldName === "intern_name") {
+      return !internName.trim();
+    }
+
+    if (fieldName === "role_name") {
+      return !selectedRoleName;
+    }
+
+    return false;
+  });
+  const missingTemplateFieldLabel = missingTemplateField
+    ? (EXTRA_FIELD_LABELS[missingTemplateField] ?? missingTemplateField)
+    : null;
+  const templateLabel = review?.template_review
+    ? TEMPLATE_LABELS[review.template_review.template_type as TemplateType]
+    : selectedTemplate
+      ? TEMPLATE_LABELS[selectedTemplate]
+      : undefined;
+  const streamingStatus = getStreamingStatusCopy(sseProgress.currentStep);
+  const hasVisibleResults = Boolean(
+    visibleRewriteText.trim() || visibleIssues.length > 0 || visibleSources.length > 0,
+  );
+  const hasResponse = isLoading || hasVisibleResults;
+  const hasFinalResult = Boolean(review);
+  const hasCompletedReview = hasFinalResult && isPlaybackComplete;
+  const companyStatusDensity = hasResponse || Boolean(error) ? "compact" : "full";
+  const showFooter = Boolean(sectionReviewRequest);
+  const isCustomRoleActive = roleSelectionSource === "custom" && Boolean(customRoleInput.trim());
+  const isTemplateSetupComplete =
+    (!needsExplicitTemplate || Boolean(selectedTemplate)) && !missingTemplateField;
+  const isRoleSetupComplete =
+    !needsRoleSelection ||
+    ((!requiresIndustrySelection || Boolean(selectedIndustry)) && Boolean(selectedRoleName));
+  const creditCost = calculateESReviewCost(sectionReviewRequest?.sectionContent.length ?? 0);
+  const isFooterLocked = isLoading || (hasResponse && !isPlaybackComplete);
+  const reviewActionHint =
+    !sectionReviewRequest?.sectionContent || sectionReviewRequest.sectionContent.length < 10
+      ? "本文を10文字以上入力してください。"
+      : !isTemplateSetupComplete && needsExplicitTemplate && !selectedTemplate
+        ? "先に設問タイプを選択してください。"
+        : !isTemplateSetupComplete && missingTemplateFieldLabel
+          ? `${missingTemplateFieldLabel}を入力してください。`
+          : isRoleOptionsLoading
+            ? "職種候補を読み込んでいます。"
+            : roleOptionsError
+              ? "職種候補を取得できていません。再読み込みしてからお試しください。"
+              : requiresIndustrySelection && !selectedIndustry
+                ? "先に業界を選択してください。"
+                : needsRoleSelection && !selectedRoleName
+                  ? "先に職種を選択してください。"
+                  : "準備できました。この設問をAI添削できます。";
+  const canStartReview =
+    Boolean(sectionReviewRequest?.sectionContent) &&
+    (sectionReviewRequest?.sectionContent.length ?? 0) >= 10 &&
+    isTemplateSetupComplete &&
+    !isRoleOptionsLoading &&
+    !roleOptionsError &&
+    (!requiresIndustrySelection || Boolean(selectedIndustry)) &&
+    (!needsRoleSelection || Boolean(selectedRoleName));
+  const footerButtonLabel = error
+    ? "この設問を再試行"
+    : isFooterLocked
+      ? "添削中..."
+      : hasCompletedReview
+        ? "条件を見直して再添削"
+        : reviewMode === "qwen_beta"
+          ? "この設問をQwen3 βで添削"
+          : "この設問をAI添削";
+  const footerHelperText = error
+    ? "添削結果を表示できませんでした。もう一度お試しください。"
+    : isFooterLocked
+      ? "添削中です。完了までお待ちください。"
+      : hasCompletedReview
+        ? "前回の条件を保持したまま、設定を見直して再添削できます。"
+        : canStartReview
+          ? reviewMode === "qwen_beta"
+            ? "Qwen3 β 経路で実行します。800文字ごとに +1、最小2クレジットです。"
+            : "800文字ごとに +1、最小2クレジットです。"
+          : reviewActionHint;
+  const footerActionDisabled = error ? false : isFooterLocked || !canStartReview;
 
   useEffect(() => {
-    if (sectionReviewRequest) {
-      setSelectedTemplate(null);
-      setInternName("");
+    if (!sectionReviewRequest) {
+      return;
+    }
+
+    setSelectedTemplate(hasSelectedCompany ? null : COMPANYLESS_TEMPLATE_TYPES[0]);
+    setInternName("");
+  }, [hasSelectedCompany, sectionReviewRequest]);
+
+  useEffect(() => {
+    if (!hasSelectedCompany && selectedTemplate && !COMPANYLESS_TEMPLATE_TYPES.includes(selectedTemplate)) {
+      setSelectedTemplate(COMPANYLESS_TEMPLATE_TYPES[0]);
+    }
+  }, [hasSelectedCompany, selectedTemplate]);
+
+  useEffect(() => {
+    setSelectedIndustry(null);
+    setRoleName("");
+    setRoleSelectionSource(null);
+    setCustomRoleInput("");
+    setRoleOptionsData(null);
+    setRoleOptionsError(null);
+  }, [companyId, documentId, hasSelectedCompany]);
+
+  useEffect(() => {
+    if (!sectionReviewRequest || !hasSelectedCompany || !companyId) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const searchParams = new URLSearchParams({ documentId });
+    if (selectedIndustry) {
+      searchParams.set("industry", selectedIndustry);
+    }
+
+    setIsRoleOptionsLoading(true);
+    setRoleOptionsError(null);
+
+    fetch(`/api/companies/${companyId}/es-role-options?${searchParams.toString()}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || "職種候補を取得できませんでした");
+        }
+        return response.json() as Promise<RoleOptionResponse>;
+      })
+      .then((data) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setRoleOptionsData(data);
+        setSelectedIndustry((prev) => {
+          if (prev && data.industryOptions.includes(prev)) {
+            return prev;
+          }
+          return data.industry && data.industryOptions.includes(data.industry)
+            ? (data.industry as Industry)
+            : null;
+        });
+      })
+      .catch((fetchError: unknown) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setRoleOptionsData(null);
+        setRoleOptionsError(
+          fetchError instanceof Error ? fetchError.message : "職種候補を取得できませんでした",
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsRoleOptionsLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [companyId, documentId, hasSelectedCompany, sectionReviewRequest, selectedIndustry]);
+
+  useEffect(() => {
+    if (!roleOptionsData || roleSelectionSource === "custom") {
+      return;
+    }
+
+    const availableRoles = new Set(
+      roleOptionsData.roleGroups.flatMap((group) => group.options.map((option) => option.value)),
+    );
+    if (selectedRoleName && !availableRoles.has(selectedRoleName)) {
       setRoleName("");
+      setRoleSelectionSource(null);
     }
-  }, [sectionReviewRequest]);
+  }, [roleOptionsData, roleSelectionSource, selectedRoleName]);
 
   useEffect(() => {
-    if (review && !isLoading && creditCost !== null) {
-      toast.success("添削完了", { description: `${creditCost}クレジット消費しました` });
+    if (review && isPlaybackComplete && !hasShownCompletionToast) {
+      notifyReviewComplete(companyReviewStatus === "ready_for_es_review");
+      setHasShownCompletionToast(true);
     }
-  }, [creditCost, isLoading, review]);
+  }, [companyReviewStatus, hasShownCompletionToast, isPlaybackComplete, review]);
 
   useEffect(() => {
-    const element = scoreRef.current;
-    if (!element) return;
-    const observer = new IntersectionObserver(([entry]) => setIsScoreVisible(entry.isIntersecting), { threshold: 0.1 });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [displayScores]);
+    if (!hasResponse) {
+      setHasShownCompletionToast(false);
+    }
+  }, [hasResponse]);
 
   const handleSectionReview = useCallback(async () => {
-    if (!sectionReviewRequest) return;
-    if (!acquireLock("ES添削を実行中")) return;
+    if (!sectionReviewRequest) {
+      return;
+    }
+    if (!acquireLock("ES添削を実行中")) {
+      return;
+    }
 
     try {
+      setResponseInstanceKey((prev) => prev + 1);
+      setHasShownCompletionToast(false);
       await requestSectionReview({
         sectionTitle: sectionReviewRequest.sectionTitle,
         sectionContent: sectionReviewRequest.sectionContent,
         sectionCharLimit: sectionReviewRequest.sectionCharLimit,
-        style: selectedStyle,
-        hasCompanyRag,
+        hasCompanyRag: companyReviewStatus === "ready_for_es_review",
         companyId,
         templateType: selectedTemplate ?? undefined,
-        internName: internName || undefined,
-        roleName: roleName || undefined,
+        internName: requiresInternName ? internName || undefined : undefined,
+        roleName: selectedRoleName || undefined,
+        industryOverride: selectedIndustry || undefined,
+        roleSelectionSource: roleSelectionSource || undefined,
+        reviewMode,
       });
     } finally {
       releaseLock();
     }
-  }, [acquireLock, companyId, hasCompanyRag, internName, releaseLock, requestSectionReview, roleName, sectionReviewRequest, selectedStyle, selectedTemplate]);
+  }, [
+    acquireLock,
+    companyId,
+    companyReviewStatus,
+    internName,
+    roleSelectionSource,
+    releaseLock,
+    requestSectionReview,
+    reviewMode,
+    selectedRoleName,
+    selectedIndustry,
+    sectionReviewRequest,
+    requiresInternName,
+    selectedTemplate,
+  ]);
+
+  const handleReviewFooterAction = useCallback(async () => {
+    if (hasCompletedReview) {
+      clearReview();
+      return;
+    }
+    await handleSectionReview();
+  }, [clearReview, handleSectionReview, hasCompletedReview]);
 
   const handleApplyRewrite = useCallback((rewriteText: string) => {
     setPendingRewrite(rewriteText);
@@ -319,256 +751,365 @@ export function ReviewPanel({
 
   const handleConfirmReflect = useCallback(() => {
     if (pendingRewrite && onApplyRewrite) {
-      onApplyRewrite(pendingRewrite, reviewMode === "section" && currentSection ? currentSection.title : null);
+      onApplyRewrite(pendingRewrite, currentSection ? currentSection.title : null);
     }
     setShowReflectModal(false);
     setPendingRewrite(null);
-  }, [currentSection, onApplyRewrite, pendingRewrite, reviewMode]);
+  }, [currentSection, onApplyRewrite, pendingRewrite]);
 
   const handleReset = useCallback(() => {
     clearReview();
     onClearSectionReview?.();
   }, [clearReview, onClearSectionReview]);
 
-  const scoreSummary = displayScores ? getScoreSummary(displayScores, effectiveHasCompanyRag) : null;
-
-  const selectedTemplateFields = selectedTemplate ? TEMPLATE_EXTRA_FIELDS[selectedTemplate] : [];
-
   return (
-    <div className={cn("flex flex-col", className)}>
-      <Card className="flex flex-col gap-0 py-0">
-        <CardHeader className="border-b px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <SparkleIcon />
-                <span className="text-sm font-semibold text-foreground">AI添削</span>
-                {sectionReviewRequest?.sectionTitle && (
-                  <span className="truncate text-sm text-muted-foreground">{sectionReviewRequest.sectionTitle}</span>
-                )}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                企業情報と結びつけて、改善点とリライト案を返します。
-              </p>
-            </div>
-            {creditCost !== null && <span className="text-xs text-muted-foreground">{creditCost}pt</span>}
-          </div>
-        </CardHeader>
+    <div className={cn("flex min-h-0 flex-col", className)}>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="space-y-4">
+          {hasSelectedCompany ? (
+            <CompanyStatusBanner
+              status={companyReviewStatus}
+              companyName={companyName}
+              companyId={companyId}
+              density={companyStatusDensity}
+            />
+          ) : null}
 
-        <CardContent className="relative p-4">
-          {scoreSummary && !isLoading && !isScoreVisible && (
-            <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-4 flex items-center justify-between border-b border-border bg-background/95 px-4 py-2 backdrop-blur">
-              <div className="flex items-baseline gap-2">
-                <span className={cn("text-lg font-bold", scoreSummary.gradeColor)}>{scoreSummary.grade}</span>
-                <span className="text-xs text-muted-foreground">{scoreSummary.average.toFixed(1)}/5.0</span>
-              </div>
-              {displayTop3 && <span className="text-xs text-muted-foreground">改善ポイント {displayTop3.length}件</span>}
-            </div>
-          )}
+          {!sectionReviewRequest && !hasResponse && !error ? (
+            <ReviewEmptyState
+              companyReviewStatus={companyReviewStatus}
+              companyName={companyName}
+              companyId={companyId}
+            />
+          ) : null}
 
-          {!sectionReviewRequest && !review && !isLoading && !error && (
-            <ReviewEmptyState hasCompanyRag={effectiveHasCompanyRag} companyName={companyName} companyId={companyId} />
-          )}
-
-          {sectionReviewRequest && !review && !isLoading && !error && (
+          {sectionReviewRequest && !hasResponse && !error ? (
             <div className="space-y-4">
-              <div className="rounded-2xl border border-border bg-card p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-semibold text-foreground">{sectionReviewRequest.sectionTitle}</h3>
-                    <p className="mt-1 text-xs leading-6 text-muted-foreground">
-                      この設問に合わせて評価し、改善ポイントとリライト案を返します。
-                    </p>
+              <div className="rounded-[26px] border border-border/70 bg-background p-4 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                      <FileText className="size-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                        対象設問
+                      </p>
+                      <h3 className="mt-1 text-base font-semibold text-foreground">
+                        {sectionReviewRequest.sectionTitle}
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                        改善案、改善ポイント、出典リンクをこの順で表示します。
+                      </p>
+                    </div>
                   </div>
-                  {sectionReviewRequest.sectionCharLimit && (
-                    <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
-                      {sectionReviewRequest.sectionCharLimit}字
-                    </span>
-                  )}
+
+                  {sectionReviewRequest.sectionCharLimit ? (
+                    <Badge variant="soft-info" className="px-3 py-1 text-[11px]">
+                      {sectionReviewRequest.sectionCharLimit}字上限
+                    </Badge>
+                  ) : null}
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">設問タイプ</label>
-                <SelectionChips
-                  options={templateOptions}
-                  value={selectedTemplate ?? "auto"}
-                  onChange={(value) => setSelectedTemplate(value === "auto" ? null : (value as TemplateType))}
-                />
-              </div>
-
-              {selectedTemplateFields.includes("intern_name") && (
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">インターン名</label>
-                  <input
-                    type="text"
-                    value={internName}
-                    onChange={(event) => setInternName(event.target.value)}
-                    placeholder="例: 夏季インターン"
-                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none ring-0 transition-colors focus:border-primary"
-                  />
-                </div>
-              )}
-
-              {selectedTemplateFields.includes("role_name") && (
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">職種・コース名</label>
-                  <input
-                    type="text"
-                    value={roleName}
-                    onChange={(event) => setRoleName(event.target.value)}
-                    placeholder="例: エンジニアコース"
-                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none ring-0 transition-colors focus:border-primary"
-                  />
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">リライトスタイル</label>
-                <SelectionChips options={styleOptions} value={selectedStyle} onChange={setSelectedStyle} />
-                <p className="text-xs text-muted-foreground">選択したスタイルに寄せて、読みやすさと伝わり方を整えます。</p>
-              </div>
-
-              <CreditCostIndicator charCount={sectionReviewRequest.sectionContent.length} />
-
-              <Button className="w-full" disabled={sectionReviewRequest.sectionContent.length < 10} onClick={handleSectionReview}>
-                <SparkleIcon />
-                この設問を添削
-              </Button>
-            </div>
-          )}
-
-          {isLoading && (
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-border bg-card p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">添削中</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {sseProgress.currentStep === "rag_fetch"
-                        ? "企業情報を確認しています"
-                        : sseProgress.currentStep === "analysis"
-                          ? "設問の改善ポイントを整理しています"
-                          : sseProgress.currentStep === "rewrite"
-                            ? "リライト案を生成しています"
-                            : "結果を準備しています"}
-                    </p>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={cancelReview} disabled={isCancelling}>
-                    {isCancelling ? "停止中" : "キャンセル"}
-                  </Button>
-                </div>
-                <div className="mt-4">
-                  <EnhancedProcessingSteps
-                    steps={sseProgress.isStreaming ? sseProgress.steps : ES_REVIEW_STEPS}
-                    isActive={isLoading}
-                    elapsedTime={elapsedTime}
-                    sseCurrentStep={sseProgress.currentStep ?? undefined}
-                    sseProgress={sseProgress.progress}
-                  />
-                </div>
-              </div>
-
-              {(streamingRewriteText || displayRewrites?.[0]) && (
-                <div className="rounded-2xl border border-border bg-card p-4">
-                  <p className="text-xs font-medium text-muted-foreground">生成中のリライト案</p>
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-foreground">
-                    {streamingRewriteText || displayRewrites?.[0]}
-                    {streamingRewriteText && <span className="ml-1 inline-block h-4 w-2 animate-pulse rounded-sm bg-primary/60 align-middle" />}
+                <div className="mt-4 rounded-[22px] border border-border/60 bg-background/85 px-4 py-3">
+                  <p className="line-clamp-5 whitespace-pre-wrap text-sm leading-7 text-foreground/88">
+                    {sectionReviewRequest.sectionContent}
                   </p>
                 </div>
-              )}
-            </div>
-          )}
-
-          {error && (
-            <div className="space-y-3 rounded-2xl border border-red-200 bg-red-50 p-4">
-              <p className="text-sm text-red-700">{error}</p>
-              <Button variant="outline" onClick={handleReset}>閉じる</Button>
-            </div>
-          )}
-
-          {((review && !isLoading) || displayScores || displayTop3 || displayRewrites) && (
-            <div className="space-y-5">
-              {displayScores && (
-                <div ref={scoreRef}>
-                  <ScoreDisplay scores={displayScores} hasCompanyRag={effectiveHasCompanyRag} />
-                </div>
-              )}
-
-              {displayTop3 && <ImprovementList issues={displayTop3} />}
-
-              {review?.template_review ? (
-                <TemplateResults
-                  templateReview={review.template_review}
-                  onApply={handleApplyRewrite}
-                  onOpenFullscreen={() => setShowFullscreen(true)}
-                />
-              ) : (
-                displayRewrites && (
-                  <RewriteDisplay
-                    rewrites={displayRewrites}
-                    onApply={handleApplyRewrite}
-                    originalText={sectionReviewRequest?.sectionContent || content}
-                    charLimit={currentCharLimit}
-                    onOpenFullscreen={() => setShowFullscreen(true)}
-                    onOpenCompare={() => setShowCompareView(true)}
-                  />
-                )
-              )}
-
-              {review && (
-                <Button variant="outline" className="w-full" onClick={clearReview}>
-                  この設問を再添削
-                </Button>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Dialog open={showFullscreen} onOpenChange={setShowFullscreen}>
-        <DialogContent className="h-[92vh] w-[min(96vw,1200px)] max-w-[1200px] overflow-hidden p-0">
-          <DialogHeader className="border-b px-5 py-4">
-            <DialogTitle>リライト案</DialogTitle>
-          </DialogHeader>
-          <div className="h-full overflow-y-auto px-5 py-4">
-            {review?.template_review ? (
-              <div className="mx-auto max-w-4xl space-y-4">
-                <TemplateResults
-                  templateReview={review.template_review}
-                  onApply={handleApplyRewrite}
-                  onOpenFullscreen={() => undefined}
-                  showFullscreenButton={false}
-                />
               </div>
-            ) : (
-              displayRewrites && (
-                <div className="mx-auto max-w-4xl">
-                  <RewriteDisplay
-                    rewrites={displayRewrites}
-                    onApply={handleApplyRewrite}
-                    originalText={sectionReviewRequest?.sectionContent || content}
-                    charLimit={currentCharLimit}
-                    layout="stack"
-                  />
-                </div>
-              )
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
 
-      {!review?.template_review && displayRewrites && (
-        <CompareView
-          isOpen={showCompareView}
-          onClose={() => setShowCompareView(false)}
-          originalText={sectionReviewRequest?.sectionContent || content}
-          rewrites={displayRewrites}
-          charLimit={currentCharLimit}
-          onApply={handleApplyRewrite}
+              <div className="rounded-[26px] border border-border/60 bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">設問タイプ</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      {hasSelectedCompany
+                        ? "分かる場合は指定し、迷うときは自動判定のまま添削できます。"
+                        : "企業未選択では、企業に依存しない設問タイプだけ選択できます。"}
+                    </p>
+                  </div>
+                  {isTemplateSetupComplete ? (
+                    <Badge variant="soft-success" className="px-3 py-1 text-[11px]">
+                      準備完了
+                    </Badge>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 rounded-[22px] border border-border/60 bg-background/85 p-4">
+                  <p className="text-sm font-semibold text-foreground">設問タイプを選択してください</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {selectedTemplate
+                      ? "選択した型に合わせて添削の観点を調整します。"
+                      : hasSelectedCompany
+                        ? "自動判定では設問文から最適な型を推定します。"
+                        : "この設問に近い型をひとつ選んでください。"}
+                  </p>
+                  <Select
+                    value={selectedTemplateValue}
+                    onValueChange={(value) => {
+                      const nextTemplate = value === "auto" ? null : (value as TemplateType);
+                      setSelectedTemplate(nextTemplate);
+                      if (!nextTemplate || !TEMPLATE_EXTRA_FIELDS[nextTemplate].includes("intern_name")) {
+                        setInternName("");
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="mt-3 h-11 rounded-2xl">
+                      <SelectValue placeholder="設問タイプを選択してください" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {templateOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {selectedTemplateFields.length > 0 ? (
+                    <div className="mt-4 space-y-3">
+                      {selectedTemplateFields.map((fieldName) => (
+                        <SetupField
+                          key={fieldName}
+                          label={EXTRA_FIELD_LABELS[fieldName] ?? fieldName}
+                          placeholder={
+                            fieldName === "intern_name"
+                              ? "例: 夏季インターン"
+                              : "例: エンジニアコース"
+                          }
+                          value={fieldName === "intern_name" ? internName : roleName}
+                          onChange={fieldName === "intern_name" ? setInternName : setRoleName}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              {QWEN_ES_REVIEW_BETA_ENABLED ? (
+                <ReviewModeSelector value={reviewMode} onChange={setReviewMode} />
+              ) : null}
+
+              {hasSelectedCompany ? (
+                <div className="rounded-[26px] border border-border/60 bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">業界・職種</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        企業に合わせた添削では、業界と職種を明示してから実行します。
+                      </p>
+                    </div>
+                    {isRoleSetupComplete ? (
+                      <Badge variant="soft-success" className="px-3 py-1 text-[11px]">
+                        準備完了
+                      </Badge>
+                    ) : null}
+                  </div>
+
+                  {isRoleOptionsLoading ? (
+                    <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="size-4 animate-spin" />
+                      職種候補を読み込んでいます。
+                    </div>
+                  ) : null}
+
+                  {roleOptionsError ? (
+                    <div className="mt-4 rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-muted-foreground">
+                      {roleOptionsError}
+                    </div>
+                  ) : null}
+
+                  {roleOptionsData ? (
+                    <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                      <div className="space-y-2 rounded-[22px] border border-border/60 bg-background/85 p-4">
+                        <p className="text-sm font-semibold text-foreground">業界を選択してください</p>
+                        <p className="text-xs leading-5 text-muted-foreground">
+                          {requiresIndustrySelection
+                            ? "企業情報だけでは業界が広いため、添削前に選択が必要です。"
+                            : selectedIndustry
+                              ? `「${selectedIndustry}」を初期選択しています。必要なら変更してください。`
+                              : "企業情報に合わせて業界を選択してください。"}
+                        </p>
+                        <Select
+                          value={selectedIndustry ?? ""}
+                          onValueChange={(value) => {
+                            setSelectedIndustry(value as Industry);
+                            setRoleName("");
+                            setRoleSelectionSource(null);
+                            setCustomRoleInput("");
+                          }}
+                        >
+                          <SelectTrigger className="mt-3 h-11 rounded-2xl">
+                            <SelectValue placeholder="業界を選択してください" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {roleOptionsData.industryOptions.map((industry) => (
+                              <SelectItem key={industry} value={industry}>
+                                {industry}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2 rounded-[22px] border border-border/60 bg-background/85 p-4">
+                        <p className="text-sm font-semibold text-foreground">職種を選択してください</p>
+                        <p className="text-xs leading-5 text-muted-foreground">
+                          {selectedIndustry
+                            ? "候補から選び、見つからない場合だけ自由入力を使ってください。"
+                            : "先に業界を選ぶと、この企業向けの職種候補を表示します。"}
+                        </p>
+                        <Select
+                          disabled={!selectedIndustry || roleOptionsData.roleGroups.length === 0}
+                          value={roleSelectionSource === "custom" ? "" : selectedRoleName}
+                          onValueChange={(value) => {
+                            const matched = roleOptionsData.roleGroups
+                              .flatMap((group) => group.options)
+                              .find((option) => option.value === value);
+                            setRoleName(value);
+                            setRoleSelectionSource(matched?.source ?? "industry_default");
+                            setCustomRoleInput("");
+                          }}
+                        >
+                          <SelectTrigger className="mt-3 h-11 rounded-2xl">
+                            <SelectValue
+                              placeholder={
+                                selectedIndustry
+                                  ? "職種を選択してください"
+                                  : "先に業界を選択してください"
+                              }
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {roleOptionsData.roleGroups.map((group) => (
+                              <SelectGroup key={group.id}>
+                                <SelectLabel className="text-xs font-normal text-muted-foreground">
+                                  {group.label}
+                                </SelectLabel>
+                                {group.options.map((option) => (
+                                  <SelectItem key={`${group.id}-${option.value}`} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            ))}
+                          </SelectContent>
+                        </Select>
+
+                        <div className="pt-2">
+                          <label className="text-xs font-medium text-muted-foreground">
+                            候補にない場合のみ職種を入力
+                          </label>
+                          <Input
+                            className="mt-2"
+                            disabled={!selectedIndustry}
+                            placeholder="例: デジタル企画、プロダクトマネージャー"
+                            value={customRoleInput}
+                            onChange={(event) => {
+                              const nextValue = event.target.value;
+                              setCustomRoleInput(nextValue);
+                              setRoleName(nextValue);
+                              setRoleSelectionSource(nextValue.trim() ? "custom" : null);
+                            }}
+                          />
+                          {isCustomRoleActive ? (
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              現在は自由入力の職種を優先して添削します。
+                            </p>
+                          ) : null}
+                        </div>
+
+                        {selectedIndustry && roleOptionsData.roleGroups.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            候補がないため、下の自由入力欄から職種を指定してください。
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {currentTemplateLabel || selectedIndustry || selectedRoleName ? (
+                <div className="rounded-[22px] border border-border/60 bg-muted/30 px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    現在の設定
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {currentTemplateLabel ? (
+                      <Badge variant="soft-primary" className="px-3 py-1 text-[11px]">
+                        設問タイプ: {currentTemplateLabel}
+                      </Badge>
+                    ) : null}
+                    {selectedIndustry ? (
+                      <Badge variant="soft-info" className="px-3 py-1 text-[11px]">
+                        業界: {selectedIndustry}
+                      </Badge>
+                    ) : null}
+                    {selectedRoleName ? (
+                      <Badge variant="soft-primary" className="px-3 py-1 text-[11px]">
+                        職種: {selectedRoleName}
+                      </Badge>
+                    ) : null}
+                    {QWEN_ES_REVIEW_BETA_ENABLED ? (
+                      <Badge variant="outline" className="px-3 py-1 text-[11px]">
+                        モデル: {currentReviewModeLabel}
+                      </Badge>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {hasResponse ? (
+            <div className="space-y-3">
+              <StreamingReviewResponse
+                key={responseInstanceKey}
+                visibleRewriteText={visibleRewriteText}
+                finalRewriteText={finalRewriteText}
+                issues={visibleIssues}
+                sources={visibleSources}
+                charLimit={currentCharLimit}
+                templateLabel={templateLabel}
+                isStreaming={isLoading}
+                playbackPhase={playbackPhase}
+                isPlaybackComplete={isPlaybackComplete}
+                progressTitle={streamingStatus.title}
+                progressDescription={streamingStatus.description}
+                progressPercent={sseProgress.progress}
+                elapsedTime={elapsedTime}
+                showActions={hasFinalResult}
+                reviewMeta={review?.review_meta}
+                onApply={handleApplyRewrite}
+              />
+            </div>
+          ) : null}
+
+          {error ? (
+            <div className="rounded-[24px] border border-destructive/20 bg-destructive/8 p-4">
+              <p className="text-sm font-semibold text-foreground">添削結果を表示できませんでした。</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{error}</p>
+              <Button variant="outline" className="mt-4 rounded-full" onClick={handleReset}>
+                閉じる
+              </Button>
+            </div>
+          ) : null}
+
+          {supplementalContent}
+        </div>
+      </div>
+
+      {showFooter && sectionReviewRequest ? (
+        <ReviewActionFooter
+          charCount={sectionReviewRequest.sectionContent.length}
+          creditCost={creditCost}
+          helperText={footerHelperText}
+          buttonLabel={footerButtonLabel}
+          disabled={footerActionDisabled}
+          onClick={handleReviewFooterAction}
         />
-      )}
+      ) : null}
 
       <ReflectModal
         isOpen={showReflectModal}
@@ -578,7 +1119,7 @@ export function ReviewPanel({
         }}
         onConfirm={handleConfirmReflect}
         onUndo={onUndo}
-        originalText={reviewMode === "section" && sectionReviewRequest ? sectionReviewRequest.sectionContent : content}
+        originalText={sectionReviewRequest?.sectionContent || ""}
         newText={pendingRewrite || ""}
         isFullDocument={false}
       />

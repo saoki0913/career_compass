@@ -7,6 +7,7 @@ This module provides content-type-specific keywords for:
 3. Validation: Detect content type mismatches
 """
 
+import re
 from typing import TypedDict
 
 from app.utils.intent_profile import INTENT_PROFILES
@@ -29,6 +30,16 @@ for ct, profile in INTENT_PROFILES.items():
         "title": title_keywords,
         "snippet": snippet_keywords,
     }
+
+# URL pattern aliases to absorb CMS/page naming variations.
+URL_PATTERN_ALIASES: dict[str, set[str]] = {
+    "ir": {"investor", "investors", "ir-library", "financial", "disclosure"},
+    "message": {"greeting", "top-message", "top_message", "president", "ceo"},
+    "interview": {"voice", "people", "member", "staff", "story"},
+    "news": {"press", "release", "newsroom", "topics"},
+    "sustainability": {"csr", "esg", "sdgs", "environment", "social"},
+    "midterm": {"management-plan", "management_strategy", "vision", "strategy"},
+}
 
 
 # Content type to search type fallback mapping
@@ -132,11 +143,13 @@ def detect_content_type_from_url(url: str) -> str | None:
         score = 0.0
         matched_strong = False
         for pattern in keywords["url"]:
-            if pattern in url_lower:
+            for token in _expand_url_pattern_aliases(pattern):
+                if token not in url_lower:
+                    continue
                 exact_match = (
-                    f"/{pattern}/" in url_lower
-                    or url_lower.endswith(f"/{pattern}")
-                    or url_lower.endswith(f"/{pattern}.html")
+                    f"/{token}/" in url_lower
+                    or url_lower.endswith(f"/{token}")
+                    or url_lower.endswith(f"/{token}.html")
                 )
                 weight = 0.5 if pattern in weak_patterns else 1.0
                 if pattern == "message" and exact_match:
@@ -155,6 +168,35 @@ def detect_content_type_from_url(url: str) -> str | None:
                 best_match = ct
 
     return best_match
+
+
+def _expand_url_pattern_aliases(pattern: str) -> set[str]:
+    tokens = {pattern.lower()}
+    tokens.update(URL_PATTERN_ALIASES.get(pattern.lower(), set()))
+    return {t for t in tokens if t}
+
+
+def url_matches_content_type(url: str, content_type: str) -> bool:
+    """Check URL match against content-type patterns with alias expansion."""
+    keywords = get_content_type_keywords(content_type)
+    if not keywords:
+        return False
+
+    url_lower = (url or "").lower()
+    if not url_lower:
+        return False
+    path_lower = re.sub(r"[^a-z0-9/_.\-]", "", url_lower)
+
+    for pattern in keywords["url"]:
+        for token in _expand_url_pattern_aliases(pattern):
+            if (
+                f"/{token}/" in path_lower
+                or f"/{token}" in path_lower
+                or token in path_lower
+            ):
+                return True
+
+    return False
 
 
 def get_conflicting_content_types(content_type: str) -> list[str]:

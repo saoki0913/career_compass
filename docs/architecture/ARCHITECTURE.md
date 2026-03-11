@@ -168,19 +168,24 @@ career_compass/
        └─> Supabase (PostgreSQL) に保存
 
 2. ユーザーが「AI添削」をリクエスト
-   └─> Next.js API (/api/documents/[id]/review)
+   └─> Next.js API (/api/documents/[id]/review/stream)
        ├─> 認証・クレジット確認
        ├─> 企業情報をDBから取得（テンプレ添削時）
-       └─> FastAPI (/api/es/review) に中継
+       ├─> company-sensitive 設問では bounded pre-stream 補強を実行
+       └─> FastAPI (/api/es/review/stream) に中継
+           ├─> 入力防御と sanitize
            ├─> RAGコンテキスト取得（ChromaDB + BM25）
-           ├─> LLM呼び出し（Claude Sonnet）
-           └─> 結果をJSON形式で返却
+           ├─> company evidence cards / reference quality profile / selected user facts を構築
+           ├─> 改善ポイント生成（最小JSON schema）
+           ├─> 改善案生成（通常 5 回 + 簡易化 1 回）
+           ├─> 決定論的検証（文字数・文体・参考ES類似、短字数では soft-min 可）
+           └─> SSEで `改善案 → 改善ポイント → 出典リンク` を返却
 
 3. 結果を受け取り
    └─> Next.js API
        ├─> 成功時のみクレジット消費
        ├─> AIスレッドに履歴保存
-       └─> フロントエンドに返却
+       └─> フロントエンドにストリーミング返却
 ```
 
 ### 企業情報取得フロー
@@ -240,7 +245,7 @@ career_compass/
 
 | エンドポイント | 役割 |
 |--------------|------|
-| `/api/es/review` | ES添削（LLM使用） |
+| `/api/es/review/stream` | ES添削SSE（改善ポイント生成→改善案生成） |
 | `/api/gakuchika/*` | ガクチカ深掘り質問生成 |
 | `/api/motivation/*` | 志望動機の質問生成・評価・下書き |
 | `/company-info/*` | 企業情報スクレイピング・RAG構築 |

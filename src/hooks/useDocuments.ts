@@ -42,6 +42,7 @@ export interface Document {
     id: string;
     name: string;
     infoFetchedAt?: Date | null;  // Indicates if company has RAG data
+    corporateInfoFetchedAt?: Date | null;
   } | null;
   application?: {
     id: string;
@@ -321,7 +322,20 @@ export function useDocument(documentId: string) {
         }
 
         const data = await response.json();
-        setDocument(data.document);
+        const nextDocument = data.document as Document;
+        setDocument((prev) => {
+          if (!prev) {
+            return nextDocument;
+          }
+
+          return {
+            ...prev,
+            ...nextDocument,
+            company: nextDocument.company === undefined ? prev.company : nextDocument.company,
+            application:
+              nextDocument.application === undefined ? prev.application : nextDocument.application,
+          };
+        });
         return true;
       } catch (err) {
         setError(err instanceof Error ? err.message : "ドキュメントの更新に失敗しました");

@@ -8,111 +8,25 @@
  *   - error event -> forwarded (no credit consumed)
  */
 
-import { NextRequest } from "next/server";
-import { auth } from "@/lib/auth";
+import { after, NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
 import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
-
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
-}
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
-
-interface STARScores {
-  situation: number;
-  task: number;
-  action: number;
-  result: number;
-}
-
-interface STAREvaluation {
-  scores: STARScores;
-  weakest_element: string;
-  is_complete: boolean;
-  missing_aspects?: Record<string, string[]>;
-  quality_rationale?: string[];
-  hidden_eval?: Record<string, number>;
-  risk_flags?: string[];
-}
-
-function safeParseMessages(json: string): Message[] {
-  try {
-    const parsed = JSON.parse(json);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((m): m is { role: string; content: string; id?: string } =>
-        m && typeof m === "object" &&
-        (m.role === "user" || m.role === "assistant") &&
-        typeof m.content === "string"
-      )
-      .map(m => ({
-        id: m.id || crypto.randomUUID(),
-        role: m.role as "user" | "assistant",
-        content: m.content
-      }));
-  } catch {
-    return [];
-  }
-}
-
-function safeParseStarScores(json: string | null): STARScores | null {
-  if (!json) return null;
-  try {
-    const parsed = JSON.parse(json);
-    return {
-      situation: parsed.situation ?? 0,
-      task: parsed.task ?? 0,
-      action: parsed.action ?? 0,
-      result: parsed.result ?? 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
-// Configuration (must match non-stream route)
-const STAR_COMPLETION_THRESHOLD = 70;
-const QUESTIONS_PER_CREDIT = 5;
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
-
-function isStarComplete(scores: STARScores | null): boolean {
-  if (!scores) return false;
-  return (
-    scores.situation >= STAR_COMPLETION_THRESHOLD &&
-    scores.task >= STAR_COMPLETION_THRESHOLD &&
-    scores.action >= STAR_COMPLETION_THRESHOLD &&
-    scores.result >= STAR_COMPLETION_THRESHOLD
-  );
-}
+import { persistGakuchikaSummary } from "@/app/api/gakuchika/summary-server";
+import {
+  FASTAPI_URL,
+  QUESTIONS_PER_CREDIT,
+  buildHintPayload,
+  getIdentity,
+  getWeakestElement,
+  isStarComplete,
+  safeParseMessages,
+  safeParseStarScores,
+  type Message,
+  type STAREvaluation,
+} from "@/app/api/gakuchika/shared";
 
 export async function POST(
   request: NextRequest,
@@ -320,6 +234,9 @@ export async function POST(
       async start(controller) {
         const encoder = new TextEncoder();
         let buffer = "";
+        let streamedQuestionText = "";
+        let hasStartedQuestionStream = false;
+        let hintedTargetElement: string | null = getWeakestElement(currentStarScores);
 
         try {
           while (true) {
@@ -342,50 +259,61 @@ export async function POST(
               try {
                 event = JSON.parse(jsonStr);
               } catch {
-                // Forward unparseable lines as-is
-                controller.enqueue(encoder.encode(line + "\n\n"));
                 continue;
               }
 
-              if (event.type === "progress") {
-                // Forward progress events immediately
+              if (event.type === "progress" && !hasStartedQuestionStream) {
+                controller.enqueue(encoder.encode(line + "\n\n"));
+              } else if (
+                event.type === "string_chunk" &&
+                event.path === "question" &&
+                typeof event.text === "string"
+              ) {
+                hasStartedQuestionStream = true;
+                streamedQuestionText += event.text;
                 controller.enqueue(encoder.encode(line + "\n\n"));
               } else if (
                 event.type === "field_complete" &&
-                event.path === "question" &&
-                typeof event.value === "string"
+                event.path === "star_scores" &&
+                event.value &&
+                typeof event.value === "object"
               ) {
-                const questionReadyEvent = {
-                  type: "question_ready",
-                  data: {
-                    question: event.value,
-                  },
+                const partialScores = {
+                  situation: Number((event.value as Record<string, unknown>).situation ?? 0),
+                  task: Number((event.value as Record<string, unknown>).task ?? 0),
+                  action: Number((event.value as Record<string, unknown>).action ?? 0),
+                  result: Number((event.value as Record<string, unknown>).result ?? 0),
                 };
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify(questionReadyEvent)}\n\n`)
-                );
+                hintedTargetElement = getWeakestElement(partialScores);
+                const hintPayload = buildHintPayload(hintedTargetElement);
+                if (hintPayload) {
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ type: "hint_ready", data: hintPayload })}\n\n`)
+                  );
+                }
               } else if (event.type === "complete") {
-                // Process complete event: DB save + credit consumption
                 const fastApiData = event.data;
 
-                // Consume credit only after FastAPI success
                 if (shouldConsumeCredit) {
                   await consumeCredits(userId!, 1, "gakuchika", gakuchikaId);
                 }
 
-                // Add AI question to messages
                 let newStarScores = currentStarScores || { situation: 0, task: 0, action: 0, result: 0 };
                 let starEvaluation: STAREvaluation | null = null;
-                let targetElement: string | null = null;
-                let qualityRationale: string[] | null = null;
-                let coachingFocus: string | null = null;
-                let riskFlags: string[] = [];
+                let targetElement: string | null =
+                  typeof fastApiData.target_element === "string"
+                    ? fastApiData.target_element
+                    : hintedTargetElement;
+                const nextQuestionText =
+                  typeof fastApiData.question === "string" && fastApiData.question
+                    ? fastApiData.question
+                    : streamedQuestionText;
 
-                if (fastApiData.question) {
+                if (nextQuestionText) {
                   const aiMessage: Message = {
                     id: crypto.randomUUID(),
                     role: "assistant",
-                    content: fastApiData.question,
+                    content: nextQuestionText,
                   };
                   messages.push(aiMessage);
                 }
@@ -393,26 +321,19 @@ export async function POST(
                 if (fastApiData.star_evaluation) {
                   starEvaluation = fastApiData.star_evaluation;
                   newStarScores = fastApiData.star_evaluation.scores;
-                  targetElement = fastApiData.star_evaluation.weakest_element || null;
+                  targetElement =
+                    (typeof fastApiData.target_element === "string" && fastApiData.target_element) ||
+                    fastApiData.star_evaluation.weakest_element || getWeakestElement(newStarScores);
                 }
 
-                qualityRationale =
-                  fastApiData.quality_rationale ||
-                  fastApiData.star_evaluation?.quality_rationale ||
-                  null;
-                coachingFocus = typeof fastApiData.coaching_focus === "string"
-                  ? fastApiData.coaching_focus
-                  : null;
-                riskFlags = Array.isArray(fastApiData.risk_flags)
-                  ? fastApiData.risk_flags.filter((item: unknown): item is string => typeof item === "string")
-                  : [];
+                if (!targetElement) {
+                  targetElement = getWeakestElement(newStarScores);
+                }
 
-                // Check completion
                 const starComplete = isStarComplete(newStarScores);
                 const isCompleted = starComplete || (starEvaluation?.is_complete ?? false);
                 const status = isCompleted ? "completed" : "in_progress";
 
-                // Update conversation in database
                 await db
                   .update(gakuchikaConversations)
                   .set({
@@ -424,115 +345,35 @@ export async function POST(
                   })
                   .where(eq(gakuchikaConversations.id, conversation.id));
 
-                // Generate structured summary if completed
-                let structuredSummary = null;
                 if (isCompleted) {
-                  try {
-                    const summaryResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/structured-summary`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        conversation_history: messages.map(m => ({ role: m.role, content: m.content })),
-                        gakuchika_title: gakuchika.title,
-                      }),
-                    });
-
-                    if (summaryResponse.ok) {
-                      const summaryData = await summaryResponse.json();
-                      const summaryJson = JSON.stringify({
-                        situation_text: summaryData.situation_text || "",
-                        task_text: summaryData.task_text || "",
-                        action_text: summaryData.action_text || "",
-                        result_text: summaryData.result_text || "",
-                        strengths: summaryData.strengths || [],
-                        learnings: summaryData.learnings || [],
-                        numbers: summaryData.numbers || [],
-                        interviewer_hooks: summaryData.interviewer_hooks || [],
-                        decision_reasons: summaryData.decision_reasons || [],
-                        before_after_comparisons: summaryData.before_after_comparisons || [],
-                        credibility_notes: summaryData.credibility_notes || [],
-                        role_scope: summaryData.role_scope || "",
-                        reusable_principles: summaryData.reusable_principles || [],
-                      });
-
-                      await db
-                        .update(gakuchikaContents)
-                        .set({ summary: summaryJson, updatedAt: new Date() })
-                        .where(eq(gakuchikaContents.id, gakuchikaId));
-
-                      try {
-                        structuredSummary = JSON.parse(summaryJson);
-                      } catch {
-                        structuredSummary = null;
-                      }
-                    }
-                  } catch (summaryError) {
-                    console.error("[Gakuchika Stream] Structured summary generation failed:", summaryError);
-                    // Fallback: try old summary endpoint
-                    try {
-                      const fallbackRes = await fetch(`${FASTAPI_URL}/api/gakuchika/summary`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          conversation_history: messages.map(m => ({ role: m.role, content: m.content })),
-                          gakuchika_title: gakuchika.title,
-                        }),
-                      });
-                      if (fallbackRes.ok) {
-                        const fbData = await fallbackRes.json();
-                        const fbJson = JSON.stringify({
-                          summary: fbData.summary || "",
-                          key_points: fbData.key_points || [],
-                          numbers: fbData.numbers || [],
-                          strengths: fbData.strengths || [],
-                        });
-                        await db
-                          .update(gakuchikaContents)
-                          .set({ summary: fbJson, updatedAt: new Date() })
-                          .where(eq(gakuchikaContents.id, gakuchikaId));
-                        structuredSummary = JSON.parse(fbJson);
-                      }
-                    } catch {
-                      // Final fallback: plain text
-                      const userAnswers = messages
-                        .filter(m => m.role === "user")
-                        .map(m => m.content)
-                        .join("\n\n");
-                      const fallbackSummary = userAnswers.substring(0, 500) + (userAnswers.length > 500 ? "..." : "");
-                      await db
-                        .update(gakuchikaContents)
-                        .set({ summary: fallbackSummary, updatedAt: new Date() })
-                        .where(eq(gakuchikaContents.id, gakuchikaId));
-                    }
-                  }
+                  const summaryMessages = messages.map((message) => ({ ...message }));
+                  after(async () => {
+                    await persistGakuchikaSummary(
+                      gakuchikaId,
+                      gakuchika.title,
+                      summaryMessages
+                    );
+                  });
                 }
 
-                // Re-emit complete event with enriched data for frontend
                 const enrichedEvent = {
                   type: "complete",
                   data: {
                     messages,
-                    nextQuestion: isCompleted ? null : fastApiData.question,
+                    nextQuestion: isCompleted ? null : nextQuestionText,
                     questionCount: newQuestionCount,
                     isCompleted,
                     starScores: newStarScores,
                     starEvaluation,
                     targetElement,
-                    qualityRationale,
-                    coachingFocus,
-                    riskFlags,
                     isAIPowered: true,
-                    ...(structuredSummary && { summary: structuredSummary }),
+                    summaryPending: isCompleted,
                   },
                 };
                 controller.enqueue(
                   encoder.encode(`data: ${JSON.stringify(enrichedEvent)}\n\n`)
                 );
               } else if (event.type === "error") {
-                // Forward error events (no credit consumed)
-                controller.enqueue(encoder.encode(line + "\n\n"));
-              } else {
-                // Forward unknown events
                 controller.enqueue(encoder.encode(line + "\n\n"));
               }
             }

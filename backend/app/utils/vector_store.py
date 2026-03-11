@@ -140,6 +140,15 @@ def _context_dedupe_key(context: dict) -> tuple:
     )
 
 
+def _search_options_signature(search_options: Optional[dict]) -> str:
+    if not search_options:
+        return "default"
+    try:
+        return str(sorted(search_options.items()))
+    except Exception:
+        return "custom"
+
+
 # _fallback_local_backend removed - only OpenAI embeddings are supported
 
 
@@ -1156,6 +1165,10 @@ async def hybrid_search_company_context_enhanced(
     backends: Optional[list[EmbeddingBackend]] = None,
     expand_queries: bool = True,
     rerank: bool = True,
+    use_bm25: Optional[bool] = None,
+    profile_overrides: Optional[dict] = None,
+    content_type_boosts: Optional[dict[str, float]] = None,
+    short_circuit: bool = True,
 ) -> list[dict]:
     """
     Enhanced dense search with query expansion, HyDE, MMR, and LLM reranking.
@@ -1167,6 +1180,8 @@ async def hybrid_search_company_context_enhanced(
     )
 
     profile = infer_retrieval_profile(query, base_fetch_k=settings.rag_fetch_k)
+    if profile_overrides:
+        profile.update(profile_overrides)
     semantic_weight = float(profile.get("semantic_weight", settings.rag_semantic_weight))
     keyword_weight = float(profile.get("keyword_weight", settings.rag_keyword_weight))
     fetch_k = int(profile.get("fetch_k", settings.rag_fetch_k))
@@ -1183,6 +1198,7 @@ async def hybrid_search_company_context_enhanced(
     )
     mmr_lambda = float(profile.get("mmr_lambda", settings.rag_mmr_lambda))
     use_hyde = settings.rag_use_hyde and bool(profile.get("use_hyde", True))
+    effective_bm25 = settings.rag_keyword_weight > 0 if use_bm25 is None else use_bm25
 
     return await dense_hybrid_search(
         company_id=company_id,
@@ -1201,13 +1217,17 @@ async def hybrid_search_company_context_enhanced(
         max_queries=max_queries,
         max_total_queries=max_total_queries,
         mmr_lambda=mmr_lambda,
-        content_type_boosts=select_boost_profile(query),
-        use_bm25=True,
+        content_type_boosts=content_type_boosts or select_boost_profile(query),
+        use_bm25=effective_bm25,
+        short_circuit=short_circuit,
     )
 
 
 async def get_enhanced_context_for_review(
-    company_id: str, es_content: str, max_context_length: Optional[int] = None
+    company_id: str,
+    es_content: str,
+    max_context_length: Optional[int] = None,
+    search_options: Optional[dict] = None,
 ) -> str:
     """
     Get enhanced context for ES review using hybrid search.
@@ -1233,7 +1253,11 @@ async def get_enhanced_context_for_review(
 
     cache = get_rag_cache()
     cache_key = build_cache_key(
-        "enhanced_context", company_id, es_content, str(max_context_length)
+        "enhanced_context",
+        company_id,
+        es_content,
+        str(max_context_length),
+        _search_options_signature(search_options),
     )
     if cache:
         cached = await cache.get_context(company_id, cache_key)
@@ -1246,8 +1270,14 @@ async def get_enhanced_context_for_review(
         query=es_content,
         n_results=15,  # Get more for better coverage
         content_types=None,  # Include all types
-        expand_queries=settings.rag_use_query_expansion,
-        rerank=settings.rag_use_rerank,
+        expand_queries=(search_options or {}).get(
+            "expand_queries", settings.rag_use_query_expansion
+        ),
+        rerank=(search_options or {}).get("rerank", settings.rag_use_rerank),
+        use_bm25=(search_options or {}).get("use_bm25"),
+        profile_overrides=(search_options or {}).get("profile_overrides"),
+        content_type_boosts=(search_options or {}).get("content_type_boosts"),
+        short_circuit=(search_options or {}).get("short_circuit", True),
     )
 
     if not results:
@@ -1268,7 +1298,10 @@ async def get_enhanced_context_for_review(
 
 
 async def get_enhanced_context_for_review_with_sources(
-    company_id: str, es_content: str, max_context_length: Optional[int] = None
+    company_id: str,
+    es_content: str,
+    max_context_length: Optional[int] = None,
+    search_options: Optional[dict] = None,
 ) -> tuple[str, list[dict]]:
     """
     Get enhanced context for ES review using dense search, with source tracking.
@@ -1297,7 +1330,11 @@ async def get_enhanced_context_for_review_with_sources(
 
     cache = get_rag_cache()
     cache_key = build_cache_key(
-        "enhanced_context_sources", company_id, es_content, str(max_context_length)
+        "enhanced_context_sources",
+        company_id,
+        es_content,
+        str(max_context_length),
+        _search_options_signature(search_options),
     )
     if cache:
         cached = await cache.get_context(company_id, cache_key)
@@ -1314,8 +1351,14 @@ async def get_enhanced_context_for_review_with_sources(
         query=es_content,
         n_results=15,  # Get more for better coverage
         content_types=None,  # Include all types
-        expand_queries=settings.rag_use_query_expansion,
-        rerank=settings.rag_use_rerank,
+        expand_queries=(search_options or {}).get(
+            "expand_queries", settings.rag_use_query_expansion
+        ),
+        rerank=(search_options or {}).get("rerank", settings.rag_use_rerank),
+        use_bm25=(search_options or {}).get("use_bm25"),
+        profile_overrides=(search_options or {}).get("profile_overrides"),
+        content_type_boosts=(search_options or {}).get("content_type_boosts"),
+        short_circuit=(search_options or {}).get("short_circuit", True),
     )
 
     if not results:

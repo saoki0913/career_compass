@@ -180,7 +180,7 @@ export default function NewCompanyPage() {
                     onChange={setName}
                     onSelect={(selectedName, selectedIndustry) => {
                       setName(selectedName);
-                      if (selectedIndustry && !industry) {
+                      if (selectedIndustry) {
                         setIndustry(selectedIndustry);
                       }
                     }}

@@ -61,29 +61,37 @@
 ```
 入力: 企業名, URL
     │
-    ├─ get_company_domain() で公式ドメイン取得
-    │
-    ├─ _domain_pattern() でパターンマッチング
+    ├─ classify_company_domain_relation() で登録済みドメイン所有関係を判定
+    │   - official / parent / subsidiary / other / ambiguous
     │   - 短いパターンは許可リスト制
     │   - 例: "sony" → "sony.co.jp", "sony.com"
     │
     └─ 判定結果: official / job_site / parent / subsidiary / other / blog
+
+**採用ページ検索の追加ルール:**
+- `classify_company_domain_relation()` の relation が最優先
+- 親会社 / 子会社ドメインは検索結果に残してよいが、`official` へ昇格させない
+- trusted job site は `job.mynavi.jp`, `job.rikunabi.com`, `onecareer.jp` のみ
+- parent / subsidiary / job_site は自動選択しない
 ```
+
+- `official` は対象企業の登録済みドメイン所有関係で一意に判定できる場合だけ付与する
+- 親会社/子会社ページは候補から除外せず、`parent` / `subsidiary` のまま保持する
+- `preferred_domain` や検索エンジン由来の raw `source_type` は順位調整には使えても、関連会社ページを `official` に昇格させない
 
 ### 2. 除外フィルタ
 
 | チェック項目 | 除外条件 |
 |------------|---------|
 | **無関係URL** | `_is_irrelevant_url()` で判定<br>- Wikipedia, LinkedIn等 |
-| **子会社** | `_is_subsidiary()` で判定 |
 | **競合ドメイン** | `_get_conflicting_companies()` で判定<br>- **厳密一致時のみ**タイトル/スニペットチェック |
-| **企業名不一致** | `_contains_company_name()` で判定<br>- **公式ドメインは免除** |
+| **企業名不一致** | `_contains_company_name()` で判定<br>- **公式ドメインと親子会社ドメインは免除** |
 
 ### 3. スコアペナルティ
 
 | 対象 | 乗数 | 備考 |
 |-----|------|------|
-| **親会社ドメイン** | `×0.5` | コーポレート検索では `×0.8` も適用可能 |
+| **親会社ドメイン** | `×0.5` | 関連会社候補として残す |
 | **子会社ドメイン** | `×0.3` | - |
 
 ### 4. 共通ソートロジック
@@ -180,8 +188,9 @@ custom_query 指定あり?
 |---------------|-------------|--------------|------------|
 | ≥ 0.7 | official | true | **high** |
 | ≥ 0.7 | official | false | **medium** (降格) |
-| ≥ 0.5 | - | - | **medium** |
-| < 0.5 | - | - | **low** |
+| ≥ 0.7 | job_site | - | **medium** |
+| 任意 | parent / subsidiary | - | **low** |
+| その他 | - | - | **low** |
 
 #### Legacy検索の場合
 
@@ -191,10 +200,10 @@ custom_query 指定あり?
 | official | ≥ 6 | false | **medium** (上限) |
 | official | 3-5 | - | **medium** |
 | official | < 3 | - | **low** |
-| job_site/blog/parent/subsidiary | ≥ 6 | - | **medium** |
-| job_site/blog/parent/subsidiary | < 6 | - | **low** |
-| other | ≥ 4 | - | **medium** |
-| other | < 4 | - | **low** |
+| job_site | ≥ 6 | - | **medium** |
+| job_site | < 6 | - | **low** |
+| parent / subsidiary | 任意 | - | **low** |
+| blog / other | 任意 | - | **low** |
 
 ### スコアリング内訳 (Legacy)
 
@@ -333,8 +342,10 @@ custom_query 指定あり?
 | adjusted_score | source_type | confidence |
 |---------------|-------------|------------|
 | ≥ 0.7 | official | **high** |
-| ≥ 0.5 | - | **medium** |
-| < 0.5 | - | **low** |
+| ≥ 0.6 | parent / subsidiary | **medium** |
+| ≥ 0.7 | job_site / blog | **medium** |
+| ≥ 0.5 | other | **medium** |
+| < threshold | - | **low** |
 
 #### Legacy検索の場合
 
@@ -343,7 +354,8 @@ custom_query 指定あり?
 | official | ≥ 6 | **high** |
 | official | 3-5 | **medium** |
 | official | < 3 | **low** |
-| job_site/blog/parent/subsidiary | ≥ 6 | **medium** |
+| parent/subsidiary | ≥ 6 | **medium** |
+| job_site/blog | ≥ 6 | **medium** |
 | job_site/blog/parent/subsidiary | < 6 | **low** |
 | other | ≥ 4 | **medium** |
 | other | < 4 | **low** |
@@ -394,7 +406,9 @@ custom_query 指定あり?
 1. 企業名一致
 2. preferred_domain 一致
 3. 公式ドメイン
-4. 親会社許可フラグあり
+4. 親会社/子会社ドメイン
+
+**注意:** 親会社/子会社ドメインは strict pass を通過しても `official` にはならず、採用ページ検索では confidence は `low` 上限
 
 ### スコアリング分岐
 

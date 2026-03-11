@@ -1,17 +1,17 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { startTransition, useState, useEffect, useCallback, useRef } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { DashboardHeader } from "@/components/dashboard";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useDocument, DocumentBlock } from "@/hooks/useDocuments";
-import { ReviewPanel, MobileReviewPanel, VersionHistory, AIThreadHistory, SectionReviewCTA } from "@/components/es";
+import { ReviewPanel, MobileReviewPanel, VersionHistory, SectionReviewCTA } from "@/components/es";
 import { OperationLockProvider } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
+import { getDeviceToken } from "@/lib/auth/device-token";
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -23,17 +23,6 @@ const ArrowLeftIcon = () => (
 const PlusIcon = () => (
   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-  </svg>
-);
-
-const TrashIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-    />
   </svg>
 );
 
@@ -99,10 +88,9 @@ interface EditorBlockProps {
   onDelete: (index: number) => void;
   onAddBelow: (index: number) => void;
   onSectionReview?: (index: number) => void;  // 設問単位添削
-  hasCompanyRag?: boolean;
 }
 
-function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, onCharLimitChange, onDelete, onAddBelow, onSectionReview, hasCompanyRag }: EditorBlockProps) {
+function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, onCharLimitChange, onDelete, onAddBelow, onSectionReview }: EditorBlockProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [showCharLimitInput, setShowCharLimitInput] = useState(false);
@@ -122,10 +110,9 @@ function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, o
     if (block.type !== "h2" || !block.charLimit || sectionCharCount === undefined) {
       return null;
     }
-    const percentage = (sectionCharCount / block.charLimit) * 100;
-    if (percentage >= 100) return { color: "text-red-600 bg-red-50", label: "超過" };
-    if (percentage >= 90) return { color: "text-red-600 bg-red-50", label: "注意" };
-    if (percentage >= 70) return { color: "text-amber-600 bg-amber-50", label: "" };
+    if (sectionCharCount > block.charLimit) {
+      return { color: "text-red-600 bg-red-50", label: "超過" };
+    }
     return { color: "text-emerald-600 bg-emerald-50", label: "" };
   };
 
@@ -235,7 +222,6 @@ function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, o
                 charLimit={block.charLimit}
                 disabled={!block.content.trim()}
                 disabledReason={!block.content.trim() ? "設問名を入力してください" : undefined}
-                hasCompanyRag={hasCompanyRag}
               />
             )}
           </div>
@@ -350,7 +336,6 @@ function EditorBlock({ block, index, sectionCharCount, onChange, onTypeChange, o
 }
 
 export default function ESEditorPage() {
-  const router = useRouter();
   const params = useParams();
   const documentId = params.id as string;
 
@@ -363,6 +348,10 @@ export default function ESEditorPage() {
   const [undoContent, setUndoContent] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [companyReviewStatusOverride, setCompanyReviewStatusOverride] = useState<{
+    companyId: string;
+    status: "company_status_checking" | "company_fetched_but_not_ready" | "ready_for_es_review";
+  } | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Section review request state
@@ -371,21 +360,83 @@ export default function ESEditorPage() {
     sectionContent: string;
     sectionCharLimit?: number;
   } | null>(null);
+  const currentCompanyId = document?.companyId ?? document?.company?.id ?? null;
+  const currentCompanyInfoFetchedAt = document?.company?.infoFetchedAt ?? null;
+  const currentCompanyCorporateInfoFetchedAt =
+    document?.company?.corporateInfoFetchedAt ?? null;
+  const currentCompanyAnyFetchedAt =
+    currentCompanyCorporateInfoFetchedAt ?? currentCompanyInfoFetchedAt;
 
   // Initialize state from document
   useEffect(() => {
     if (document) {
-      setTitle(document.title);
-      setBlocks(
-        document.content && document.content.length > 0
-          ? document.content
-          : [
-              { id: crypto.randomUUID(), type: "h2" as const, content: "" },
-              { id: crypto.randomUUID(), type: "paragraph" as const, content: "" },
-            ]
-      );
+      startTransition(() => {
+        setTitle(document.title);
+        setBlocks(
+          document.content && document.content.length > 0
+            ? document.content
+            : [
+                { id: crypto.randomUUID(), type: "h2" as const, content: "" },
+                { id: crypto.randomUUID(), type: "paragraph" as const, content: "" },
+              ]
+        );
+      });
     }
   }, [document]);
+
+  useEffect(() => {
+    if (!currentCompanyId || !currentCompanyAnyFetchedAt) {
+      return;
+    }
+
+    let cancelled = false;
+    const headers: Record<string, string> = {};
+    try {
+      const deviceToken = getDeviceToken();
+      if (deviceToken) {
+        headers["x-device-token"] = deviceToken;
+      }
+    } catch {
+      // Ignore device token errors.
+    }
+
+    void fetch(`/api/companies/${currentCompanyId}/es-review-status`, {
+      headers,
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          return { status: "company_status_checking" as const };
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setCompanyReviewStatusOverride({
+            companyId: currentCompanyId,
+            status:
+              data.status === "ready_for_es_review"
+                ? "ready_for_es_review"
+                : data.status === "company_fetched_but_not_ready"
+                  ? "company_fetched_but_not_ready"
+                  : "company_status_checking",
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCompanyReviewStatusOverride({
+            companyId: currentCompanyId,
+            status: "company_status_checking",
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentCompanyAnyFetchedAt, currentCompanyId]);
 
   // Auto-save with debounce
   const saveChanges = useCallback(async () => {
@@ -502,21 +553,6 @@ export default function ESEditorPage() {
     setSectionReviewRequest(null);
   }, []);
 
-  // Scroll to editor section from improvement point navigation
-  const handleScrollToEditorSection = useCallback((sectionTitle: string) => {
-    const blockIndex = blocks.findIndex(
-      (b) => b.type === "h2" && b.content.trim() === sectionTitle
-    );
-    if (blockIndex === -1) return;
-    const el = (typeof window !== "undefined") ? window.document.getElementById(`editor-section-${blockIndex}`) : null;
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.classList.add("ring-2", "ring-primary/50", "ring-offset-2", "rounded-lg");
-    setTimeout(() => {
-      el.classList.remove("ring-2", "ring-primary/50", "ring-offset-2", "rounded-lg");
-    }, 2500);
-  }, [blocks]);
-
   // Calculate character count for each section (H2 + following paragraphs until next H2)
   const getSectionCharCounts = useCallback(() => {
     const counts: { [index: number]: number } = {};
@@ -551,46 +587,6 @@ export default function ESEditorPage() {
   // Calculate character count
   const totalCharCount = blocks.reduce((acc, block) => acc + block.content.length, 0);
 
-  // Get content for review
-  const getContentForReview = useCallback(() => {
-    return blocks.map((block) => block.content).join("\n\n");
-  }, [blocks]);
-
-  // Get section titles (H2 blocks)
-  const getSectionTitles = useCallback(() => {
-    return blocks
-      .filter((block) => block.type === "h2" && block.content.trim())
-      .map((block) => block.content.trim());
-  }, [blocks]);
-
-  // Get section data with character limits for review
-  const getSectionData = useCallback(() => {
-    const result: Array<{
-      title: string;
-      content: string;
-      charLimit?: number;
-    }> = [];
-
-    // Find all H2 blocks and their following content
-    for (let i = 0; i < blocks.length; i++) {
-      const block = blocks[i];
-      if (block.type === "h2" && block.content.trim()) {
-        // Collect content until next H2
-        let sectionContent = "";
-        for (let j = i + 1; j < blocks.length; j++) {
-          if (blocks[j].type === "h2") break;
-          sectionContent += blocks[j].content;
-        }
-        result.push({
-          title: block.content.trim(),
-          content: sectionContent,
-          charLimit: block.charLimit,
-        });
-      }
-    }
-    return result;
-  }, [blocks]);
-
   // Handle apply rewrite - replace section content or copy full document
   const handleApplyRewrite = useCallback((newContent: string, sectionTitle?: string | null) => {
     // Save current state for undo
@@ -618,9 +614,6 @@ export default function ESEditorPage() {
       }
       setBlocks(newBlocks);
       setHasChanges(true);
-    } else {
-      // Full document mode: copy to clipboard
-      navigator.clipboard.writeText(newContent);
     }
   }, [blocks]);
 
@@ -659,8 +652,15 @@ export default function ESEditorPage() {
     }
   }, [blocks]);
 
-  // Check if document has company RAG data (company info was fetched by AI)
-  const hasCompanyRag = document?.company?.infoFetchedAt != null;
+  const companyReviewStatus = !currentCompanyId
+    ? "no_company_selected"
+    : !currentCompanyAnyFetchedAt
+      ? companyReviewStatusOverride?.companyId === currentCompanyId
+        ? companyReviewStatusOverride.status
+        : "company_selected_not_fetched"
+      : companyReviewStatusOverride?.companyId === currentCompanyId
+        ? companyReviewStatusOverride.status
+        : "company_status_checking";
 
   if (isLoading) {
     return (
@@ -804,7 +804,7 @@ export default function ESEditorPage() {
         <div
           className={cn(
             "flex-1 overflow-y-auto transition-all duration-300",
-            showReviewPanel ? "lg:w-[60%]" : "w-full"
+            showReviewPanel ? "lg:w-[55%]" : "w-full"
           )}
         >
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -845,7 +845,6 @@ export default function ESEditorPage() {
                       onDelete={handleDeleteBlock}
                       onAddBelow={handleAddBlock}
                       onSectionReview={handleSectionReview}
-                      hasCompanyRag={hasCompanyRag}
                     />
                   ))}
                 </div>
@@ -871,31 +870,27 @@ export default function ESEditorPage() {
 
         {/* Review Panel */}
         {showReviewPanel && (
-          <div className="hidden lg:flex lg:flex-col w-[40%] border-l border-border bg-muted/20 overflow-hidden min-h-0">
-            {/* AI Review Panel + Version History - スクロール領域 */}
-            <div className="flex-1 min-h-0 p-4 overflow-y-auto">
+          <div className="hidden lg:flex lg:flex-col w-[45%] border-l border-border bg-muted/20 overflow-hidden min-h-0">
+            <div className="flex-1 min-h-0 p-4">
               <ReviewPanel
                 documentId={documentId}
-                content={getContentForReview()}
-                sections={getSectionTitles()}
-                sectionData={getSectionData()}
-                hasCompanyRag={hasCompanyRag}
+                companyReviewStatus={companyReviewStatus}
                 companyId={document?.company?.id}
                 companyName={document?.company?.name}
-                isPaid={false}
                 onApplyRewrite={handleApplyRewrite}
                 onUndo={handleUndoReflect}
                 sectionReviewRequest={sectionReviewRequest}
                 onClearSectionReview={handleClearSectionReview}
-                onScrollToEditorSection={handleScrollToEditorSection}
+                supplementalContent={
+                  <div className="mt-4 pt-4 border-t border-border/50">
+                    <VersionHistory
+                      documentId={documentId}
+                      onRestore={handleRestoreVersion}
+                    />
+                  </div>
+                }
+                className="h-full"
               />
-              {/* Version History */}
-              <div className="mt-4 pt-4 border-t border-border/50">
-                <VersionHistory
-                  documentId={documentId}
-                  onRestore={handleRestoreVersion}
-                />
-              </div>
             </div>
           </div>
         )}
@@ -904,18 +899,13 @@ export default function ESEditorPage() {
       {/* Mobile Review Panel - Bottom Sheet */}
       <MobileReviewPanel
         documentId={documentId}
-        content={getContentForReview()}
-        sections={getSectionTitles()}
-        sectionData={getSectionData()}
-        hasCompanyRag={hasCompanyRag}
+        companyReviewStatus={companyReviewStatus}
         companyId={document?.company?.id}
         companyName={document?.company?.name}
-        isPaid={false}
         onApplyRewrite={handleApplyRewrite}
         onUndo={handleUndoReflect}
         sectionReviewRequest={sectionReviewRequest}
         onClearSectionReview={handleClearSectionReview}
-        onScrollToEditorSection={handleScrollToEditorSection}
       />
     </div>
     </OperationLockProvider>

@@ -5,163 +5,16 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
-
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
-}
-
-async function verifyGakuchikaAccess(
-  gakuchikaId: string,
-  userId: string | null,
-  guestId: string | null
-): Promise<boolean> {
-  const [gakuchika] = await db
-    .select()
-    .from(gakuchikaContents)
-    .where(eq(gakuchikaContents.id, gakuchikaId))
-    .limit(1);
-
-  if (!gakuchika) return false;
-  if (userId && gakuchika.userId === userId) return true;
-  if (guestId && gakuchika.guestId === guestId) return true;
-  return false;
-}
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
-
-interface STARScores {
-  situation: number;
-  task: number;
-  action: number;
-  result: number;
-}
-
-interface STAREvaluation {
-  scores: STARScores;
-  weakest_element: string;
-  is_complete: boolean;
-  missing_aspects?: Record<string, string[]>;
-  quality_rationale?: string[];
-}
-
-interface GakuchikaData {
-  title: string;
-  content?: string | null;
-  charLimitType?: string | null;
-}
-
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
-
-interface FastAPIQuestionResponse {
-  question: string;
-  reasoning?: string;
-  should_continue?: boolean;
-  suggested_end?: boolean;
-  star_evaluation?: STAREvaluation;
-  target_element?: string;
-  quality_rationale?: string[];
-}
-
-async function getQuestionFromFastAPI(
-  gakuchika: GakuchikaData,
-  conversationHistory: Message[],
-  questionCount: number,
-  starScores?: STARScores | null
-): Promise<{
-  question: string | null;
-  error: string | null;
-  starEvaluation: STAREvaluation | null;
-  targetElement: string | null;
-  qualityRationale: string[] | null;
-}> {
-  try {
-    const fastApiResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/next-question`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        gakuchika_title: gakuchika.title,
-        gakuchika_content: gakuchika.content || null,
-        char_limit_type: gakuchika.charLimitType || null,
-        conversation_history: conversationHistory,
-        question_count: questionCount,
-        star_scores: starScores || null,
-      }),
-    });
-
-    if (fastApiResponse.ok) {
-      const result: FastAPIQuestionResponse = await fastApiResponse.json();
-      return {
-        question: result.question,
-        error: null,
-        starEvaluation: result.star_evaluation || null,
-        targetElement: result.target_element || null,
-        qualityRationale: result.quality_rationale || result.star_evaluation?.quality_rationale || null,
-      };
-    } else {
-      console.error("FastAPI error status:", fastApiResponse.status);
-      return {
-        question: null,
-        error: "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。",
-        starEvaluation: null,
-        targetElement: null,
-        qualityRationale: null,
-      };
-    }
-  } catch (err) {
-    console.error("FastAPI connection error:", err);
-    return {
-      question: null,
-      error: "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。",
-      starEvaluation: null,
-      targetElement: null,
-      qualityRationale: null,
-    };
-  }
-}
-
-function safeParseStarScores(json: string | null): STARScores | null {
-  if (!json) return null;
-  try {
-    const parsed = JSON.parse(json);
-    return {
-      situation: parsed.situation ?? 0,
-      task: parsed.task ?? 0,
-      action: parsed.action ?? 0,
-      result: parsed.result ?? 0,
-    };
-  } catch {
-    return null;
-  }
-}
+import {
+  getIdentity,
+  getQuestionFromFastAPI,
+  safeParseStarScores,
+  verifyGakuchikaAccess,
+  type Message,
+} from "@/app/api/gakuchika/shared";
 
 export async function POST(
   request: NextRequest,
@@ -205,7 +58,7 @@ export async function POST(
       question: initialQuestion,
       error,
       starEvaluation,
-      qualityRationale,
+      targetElement,
     } = await getQuestionFromFastAPI(
       {
         title: gakuchika.title,
@@ -275,7 +128,7 @@ export async function POST(
       isCompleted: false,
       starScores: initialStarScores,
       starEvaluation,
-      qualityRationale,
+      targetElement,
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,

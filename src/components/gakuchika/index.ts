@@ -7,7 +7,6 @@ export {
 } from "./STARProgressBar";
 
 export { STARHintBanner } from "./STARHintBanner";
-export { STARScoreChange } from "./STARScoreChange";
-export { CompletionSummary, type GakuchikaSummary } from "./CompletionSummary";
+export { CompletionSummary } from "./CompletionSummary";
 export { DeleteConfirmDialog } from "./DeleteConfirmDialog";
-export { CompanyLinker } from "./CompanyLinker";
+export type { GakuchikaSummary } from "@/lib/gakuchika/summary";

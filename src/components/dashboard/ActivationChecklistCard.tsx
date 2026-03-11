@@ -30,8 +30,10 @@ const SHORT_LABELS: Record<ActivationStepId, string> = {
 
 export function ActivationChecklistCard({
   progress,
+  muted = false,
 }: {
   progress: ActivationProgress;
+  muted?: boolean;
 }) {
   const lastTracked = useRef<string | null>(null);
 
@@ -52,11 +54,18 @@ export function ActivationChecklistCard({
   }, [progress.completedSteps, progress.totalSteps]);
 
   return (
-    <div className="mb-6 rounded-xl border border-primary/20 bg-gradient-to-r from-primary/5 via-transparent to-accent/5 px-4 py-3">
+    <div
+      className={cn(
+        "mb-6 rounded-xl border px-4 py-3 transition-colors",
+        muted
+          ? "border-border/70 bg-muted/30"
+          : "border-primary/20 bg-gradient-to-r from-primary/5 via-transparent to-accent/5"
+      )}
+    >
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         {/* Title + Progress */}
         <div className="flex items-center gap-3 flex-shrink-0">
-          <span className="text-sm font-semibold">はじめにやること</span>
+          <span className="text-sm font-semibold">使い始めチェック</span>
           <div className="flex items-center gap-2">
             <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
               <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
@@ -87,7 +96,7 @@ export function ActivationChecklistCard({
         {/* Next Action */}
         {progress.nextAction && (
           <Button size="sm" className="h-7 text-xs flex-shrink-0" asChild>
-            <Link href={progress.nextAction.href}>{progress.nextAction.label}</Link>
+            <Link href={progress.nextAction.href}>続ける</Link>
           </Button>
         )}
       </div>

@@ -15,7 +15,6 @@ import { CompanySelectModal } from "@/components/dashboard/CompanySelectModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useCompanies } from "@/hooks/useCompanies";
 import { useDeadlines } from "@/hooks/useDeadlines";
@@ -23,21 +22,10 @@ import { useTodayTask, TASK_TYPE_LABELS } from "@/hooks/useTasks";
 import { useEsStats } from "@/hooks/useDocuments";
 import { getStatusConfig, type CompanyStatus } from "@/lib/constants/status";
 import { cn } from "@/lib/utils";
-import { FeatureTour } from "@/components/onboarding/FeatureTour";
 import { useActivation } from "@/hooks/useActivation";
+import { FirstRunGuideCard } from "@/components/onboarding/FirstRunGuideCard";
 
 // Icons
-const CreditIcon = () => (
-  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-    />
-  </svg>
-);
-
 const CompanyIcon = () => (
   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
@@ -94,26 +82,9 @@ const StarIcon = () => (
   </svg>
 );
 
-const CheckCircleIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
 const ClockIcon = () => (
   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
-const GlobeIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
-    />
   </svg>
 );
 
@@ -226,11 +197,10 @@ const deadlineTypeLabels: Record<string, string> = {
 
 export default function DashboardPage() {
   const { user, isGuest, isLoading, isAuthenticated, userPlan } = useAuth();
-  const router = useRouter();
   const [showCompanySelect, setShowCompanySelect] = useState(false);
 
   // Fetch real data
-  const { companies, count: companyCount, limit: companyLimit } = useCompanies();
+  const { companies, count: companyCount } = useCompanies();
   const { draftCount, publishedCount, total: esTotal } = useEsStats();
   const { deadlines, count: deadlineCount } = useDeadlines(7);
   const todayTask = useTodayTask();
@@ -247,15 +217,6 @@ export default function DashboardPage() {
       color: "sky" as const,
     },
   ];
-
-  // Check if plan selection or onboarding is needed
-  useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      if (userPlan?.needsOnboarding) {
-        router.push("/onboarding");
-      }
-    }
-  }, [isLoading, isAuthenticated, userPlan, router]);
 
   // Activation checklist needs guest/user identity (device token or session).
   useEffect(() => {
@@ -300,6 +261,8 @@ export default function DashboardPage() {
     if (userPlan?.plan === "free") return "最大5社まで";
     return "無制限";
   };
+
+  const shouldShowFirstRunGuide = activationData?.completedSteps === 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -384,9 +347,11 @@ export default function DashboardPage() {
           )}
         </div>
 
+        <FirstRunGuideCard isVisible={!!shouldShowFirstRunGuide} />
+
         {/* Activation Checklist (compact bar) */}
         {activationData && activationData.completedSteps < activationData.totalSteps ? (
-          <ActivationChecklistCard progress={activationData} />
+          <ActivationChecklistCard progress={activationData} muted={!!shouldShowFirstRunGuide} />
         ) : null}
 
         {/* Stats Cards */}
@@ -556,8 +521,6 @@ export default function DashboardPage() {
         )}
       </main>
 
-      {/* Feature Tour */}
-      <FeatureTour />
     </div>
   );
 }

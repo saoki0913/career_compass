@@ -722,6 +722,8 @@ export const motivationConversations = pgTable(
     questionStage: text("question_stage"),
     lastSuggestions: text("last_suggestions"),
     lastSuggestionOptions: text("last_suggestion_options"),
+    lastEvidenceCards: text("last_evidence_cards"),
+    stageStatus: text("stage_status"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
   },

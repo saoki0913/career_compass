@@ -28,6 +28,8 @@ const PAGE_LIMITS = {
 
 interface CorporateInfoUrl {
   url: string;
+  kind?: "url" | "upload_pdf";
+  fileName?: string;
   type?: "ir" | "business" | "about" | "general";
   contentType?: string;
   secondaryContentTypes?: string[];
@@ -130,8 +132,14 @@ function parseCorporateInfoUrls(raw: string | null | undefined): CorporateInfoUr
       })
       .map((entry) => {
         const urlEntry = entry as CorporateInfoUrl;
+        urlEntry.kind = urlEntry.kind === "upload_pdf" || urlEntry.url?.startsWith("upload://")
+          ? "upload_pdf"
+          : "url";
+        urlEntry.fileName = typeof urlEntry.fileName === "string" ? urlEntry.fileName : undefined;
         if (!urlEntry.contentType && urlEntry.url) {
-          urlEntry.contentType = detectContentTypeFromUrl(urlEntry.url) || "corporate_site";
+          urlEntry.contentType = urlEntry.url.startsWith("upload://")
+            ? "corporate_site"
+            : detectContentTypeFromUrl(urlEntry.url) || "corporate_site";
         }
         if (!Array.isArray(urlEntry.secondaryContentTypes)) {
           urlEntry.secondaryContentTypes = [];
@@ -148,9 +156,7 @@ function parseCorporateInfoUrls(raw: string | null | undefined): CorporateInfoUr
   }
 }
 
-async function getAuthenticatedUser(
-  request: NextRequest
-): Promise<{ userId: string; plan: "free" | "standard" | "pro" } | null> {
+async function getAuthenticatedUser(): Promise<{ userId: string; plan: "free" | "standard" | "pro" } | null> {
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -213,7 +219,7 @@ export async function POST(
         : "corporate_general");
 
     // Authenticate user (guests not allowed)
-    const authUser = await getAuthenticatedUser(request);
+    const authUser = await getAuthenticatedUser();
     if (!authUser) {
       return NextResponse.json(
         { error: "この機能を利用するにはログインが必要です" },
@@ -244,7 +250,7 @@ export async function POST(
     if (remaining <= 0) {
       return NextResponse.json(
         {
-          error: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ページまで保存できます（上限に達しています）`,
+          error: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ソースまで保存できます（上限に達しています）`,
           limit: pageLimit,
           remaining,
         },
@@ -254,7 +260,7 @@ export async function POST(
     if (uniqueRequestedUrls.length > remaining) {
       return NextResponse.json(
         {
-          error: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ページまで保存できます（残り${remaining}ページ）`,
+          error: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ソースまで保存できます（残り${remaining}ソース）`,
           limit: pageLimit,
           remaining,
         },
@@ -278,8 +284,16 @@ export async function POST(
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || "Backend request failed");
+        const errorText = await response.text().catch(() => "");
+        console.error("[企業情報取得] backend crawl failed", {
+          companyId,
+          contentType: contentTypeResolved,
+          contentChannel: contentChannelResolved,
+          urls: uniqueRequestedUrls,
+          status: response.status,
+          body: errorText,
+        });
+        throw new Error(errorText || "Backend request failed");
       }
 
       crawlResult = await response.json();
@@ -296,6 +310,7 @@ export async function POST(
     const newUrls: CorporateInfoUrl[] = uniqueRequestedUrls
       .map((url) => ({
         url,
+        kind: "url",
         contentType: urlContentTypes[url] || contentTypeResolved || detectContentTypeFromUrl(url) || "corporate_site",
         secondaryContentTypes: [],
         fetchedAt: new Date().toISOString(),
@@ -313,7 +328,9 @@ export async function POST(
       }
       return {
         ...entry,
-        contentType: detectContentTypeFromUrl(entry.url) || "corporate_site",
+        contentType: entry.url.startsWith("upload://")
+          ? "corporate_site"
+          : detectContentTypeFromUrl(entry.url) || "corporate_site",
         secondaryContentTypes: Array.isArray(entry.secondaryContentTypes)
           ? entry.secondaryContentTypes
           : [],
@@ -347,14 +364,14 @@ export async function POST(
 
 // GET: Get current corporate info status
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id: companyId } = await params;
 
     // Authenticate user
-    const authUser = await getAuthenticatedUser(request);
+    const authUser = await getAuthenticatedUser();
     if (!authUser) {
       return NextResponse.json(
         { error: "Authentication required" },

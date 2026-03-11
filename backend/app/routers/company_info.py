@@ -10,7 +10,7 @@ SPEC Section 9.5 Requirements:
 - Partial success: if deadline not found but other items extracted = 0.5 credit
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, HttpUrl
 from typing import Optional
 from datetime import datetime, timedelta
@@ -18,6 +18,7 @@ from urllib.parse import urlparse, urlunparse
 import re
 import hashlib
 import asyncio
+import io
 
 try:
     from ddgs import DDGS
@@ -27,14 +28,17 @@ except ImportError:
     HAS_DDGS = False
     # Logger will be initialized later, so we'll handle this in the function
 
-from app.utils.llm import call_llm_with_error
+from app.utils.llm import call_llm_with_error, extract_text_from_pdf_with_openai
 from app.config import settings
 from app.utils.secure_logger import get_logger
 from app.utils.company_names import (
+    classify_company_domain_relation,
     domain_pattern_matches,
     get_company_domain_patterns,
     is_blog_platform,
+    is_registered_official_domain,
     has_personal_site_pattern,
+    normalize_company_result_source_type,
     BLOG_PLATFORMS,
     PERSONAL_SITE_PATTERNS,
 )
@@ -46,6 +50,7 @@ from app.utils.content_type_keywords import (
     get_search_type_for_content_type,
     detect_content_type_from_url,
     get_conflicting_content_types,
+    url_matches_content_type,
 )
 from app.utils.vector_store import (
     store_company_info,
@@ -68,6 +73,7 @@ from app.utils.web_search import (
     generate_company_variants,
     CONTENT_TYPE_SEARCH_INTENT,
     COMPANY_QUERY_ALIASES,
+    is_trusted_schedule_job_site,
 )
 from app.utils.http_fetch import fetch_page_content, extract_text_from_html
 
@@ -134,6 +140,7 @@ router = APIRouter(prefix="/company-info", tags=["company-info"])
 
 class FetchRequest(BaseModel):
     url: HttpUrl
+    company_name: Optional[str] = None
     graduation_year: Optional[int] = None  # 卒業年度 (e.g., 2027 for 27卒)
     selection_type: Optional[str] = None  # "main_selection" | "internship" | None
 
@@ -159,6 +166,7 @@ class SearchCandidate(BaseModel):
     title: str
     confidence: str  # high, medium, low
     source_type: str = "other"  # official, job_site, other
+    relation_company_name: str | None = None
 
 
 class ExtractedItem(BaseModel):
@@ -238,6 +246,10 @@ class SelectionScheduleResponse(BaseModel):
     partial_success: bool = False
     data: Optional[ExtractedScheduleInfo]
     source_url: str
+    source_type: str = "other"
+    relation_company_name: str | None = None
+    year_matched: bool | None = None
+    used_graduation_year: int | None = None
     extracted_at: str
     error: Optional[str]
     deadlines_found: bool = False
@@ -661,10 +673,16 @@ async def extract_schedule_with_llm(
 
 {year_rules}
 
-### 2. 部分的な情報も抽出
+### 2. 対象外情報を締切として採らない
+- **{grad_year_short}卒以外** の年次が明記されている情報は原則除外してください
+- 体験談、口コミ、選考レポート、過去実績、OB/OG訪問記事は締切として扱わないでください
+- 就活サイトでも、募集要項・選考スケジュール・エントリー締切のような一次的な案内だけを採用してください
+- 有効範囲 **{start_year}年4月〜{end_year}年6月** 外の日付は締切として返さないでください
+
+### 3. 部分的な情報も抽出
 締切情報がなくても、他の情報（応募方法、提出物、選考プロセス）があれば抽出してください。
 
-### 3. 信頼度の判定
+### 4. 信頼度の判定
 - **high**: 明確に記載されている（日付、具体的な手順など）
 - **medium**: 推測を含む（曖昧な日付、一般的な記述など）
 - **low**: 不確実（断片的な情報、古い可能性がある情報など）
@@ -1165,8 +1183,196 @@ def _domain_from_url(url: str) -> str:
         return ""
 
 
+def _classify_company_relation(
+    url: str, company_name: str, content_type: str | None = None
+) -> dict[str, str | bool | None]:
+    return classify_company_domain_relation(url, company_name, content_type)
+
+
+def _normalize_domain_input(value: str | None) -> str | None:
+    if not value:
+        return None
+    candidate = value.strip().lower()
+    if not candidate:
+        return None
+    if "://" in candidate:
+        return _domain_from_url(candidate) or None
+    return candidate.split("/", 1)[0]
+
+
+def _sanitize_preferred_domain(
+    company_name: str,
+    preferred_domain: str | None,
+    content_type: str | None = None,
+) -> str | None:
+    normalized = _normalize_domain_input(preferred_domain)
+    if not normalized:
+        return None
+
+    relation = _classify_company_relation(normalized, company_name, content_type)
+    if relation["is_official"]:
+        return normalized
+    return None
+
+
+def _should_include_corporate_candidate(
+    source_type: str,
+    _content_type: str | None,
+    relation: dict[str, str | bool | None],
+) -> tuple[bool, str | None]:
+    return True, None
+
+
+def _candidate_sort_key(
+    candidate: SearchCandidate, score_hint: float = 0.0
+) -> tuple[int, int, float]:
+    source_priority = {
+        "official": 0,
+        "job_site": 1,
+        "parent": 2,
+        "subsidiary": 3,
+        "other": 4,
+        "blog": 5,
+    }
+    confidence_priority = {"high": 0, "medium": 1, "low": 2}
+    return (
+        source_priority.get(candidate.source_type, 99),
+        confidence_priority.get(candidate.confidence, 99),
+        -float(score_hint),
+    )
+
+
+def _normalize_recruitment_source_type(
+    url: str,
+    raw_source_type: str | None,
+    relation: dict[str, str | bool | None],
+) -> str:
+    normalized = normalize_company_result_source_type(raw_source_type, relation)
+    if normalized in {"official", "parent", "subsidiary", "job_site"}:
+        return normalized
+    if is_trusted_schedule_job_site(url):
+        return "job_site"
+    return "other"
+
+
+def _recruitment_score_to_confidence(
+    score: float,
+    source_type: str = "other",
+    year_matched: bool = True,
+) -> str:
+    if source_type == "official":
+        if score >= 6:
+            return "high" if year_matched else "medium"
+        if score >= 3:
+            return "medium"
+        return "low"
+    if source_type == "job_site":
+        return "medium" if score >= 6 else "low"
+    if source_type in {"parent", "subsidiary", "blog", "other"}:
+        return "low"
+    return "low"
+
+
+def _recruitment_hybrid_score_to_confidence(
+    score: float,
+    source_type: str,
+    year_matched: bool = True,
+) -> str:
+    if source_type == "official":
+        if score >= 0.7:
+            return "high" if year_matched else "medium"
+        if score >= 0.5:
+            return "medium"
+        return "low"
+    if source_type == "job_site":
+        return "medium" if score >= 0.7 else "low"
+    if source_type in {"parent", "subsidiary", "blog", "other"}:
+        return "low"
+    return "low"
+
+
+def _cap_schedule_confidence(
+    confidence: str | None,
+    source_type: str,
+    year_matched: bool | None,
+) -> str:
+    normalized_confidence = (confidence or "low").lower()
+    if normalized_confidence not in {"high", "medium", "low"}:
+        normalized_confidence = "low"
+
+    if source_type == "official":
+        if year_matched is False and normalized_confidence == "high":
+            return "medium"
+        return normalized_confidence
+
+    if source_type == "job_site":
+        if normalized_confidence == "high":
+            return "medium"
+        return normalized_confidence if normalized_confidence in {"medium", "low"} else "low"
+
+    return "low"
+
+
+def _apply_schedule_source_confidence_caps(
+    extracted: ExtractedScheduleInfo,
+    source_type: str,
+    year_matched: bool | None,
+) -> ExtractedScheduleInfo:
+    deadlines = [
+        ExtractedDeadline(
+            type=deadline.type,
+            title=deadline.title,
+            due_date=deadline.due_date,
+            source_url=deadline.source_url,
+            confidence=_cap_schedule_confidence(
+                deadline.confidence, source_type, year_matched
+            ),
+        )
+        for deadline in extracted.deadlines
+    ]
+    required_documents = [
+        ExtractedDocument(
+            name=document.name,
+            required=document.required,
+            source_url=document.source_url,
+            confidence=_cap_schedule_confidence(
+                document.confidence, source_type, year_matched
+            ),
+        )
+        for document in extracted.required_documents
+    ]
+    application_method = None
+    if extracted.application_method:
+        application_method = ExtractedItem(
+            value=extracted.application_method.value,
+            source_url=extracted.application_method.source_url,
+            confidence=_cap_schedule_confidence(
+                extracted.application_method.confidence, source_type, year_matched
+            ),
+        )
+    selection_process = None
+    if extracted.selection_process:
+        selection_process = ExtractedItem(
+            value=extracted.selection_process.value,
+            source_url=extracted.selection_process.source_url,
+            confidence=_cap_schedule_confidence(
+                extracted.selection_process.confidence, source_type, year_matched
+            ),
+        )
+    return ExtractedScheduleInfo(
+        deadlines=deadlines,
+        required_documents=required_documents,
+        application_method=application_method,
+        selection_process=selection_process,
+    )
+
+
 def _score_to_confidence(
-    score: float, source_type: str = "other", year_matched: bool = True
+    score: float,
+    source_type: str = "other",
+    year_matched: bool = True,
+    content_type: str | None = None,
+    company_match: bool = False,
 ) -> str:
     """
     Convert score to confidence level.
@@ -1209,7 +1415,7 @@ def _score_to_confidence(
             return "medium"
         return "low"
     elif source_type in {"parent", "subsidiary"}:
-        # Parent/subsidiary sites should not be "high"
+        # Related-company material can be useful, but must stay below official.
         if score >= 6:
             return "medium"
         return "low"
@@ -1222,6 +1428,28 @@ def _score_to_confidence(
         return "low"
 
 
+def _hybrid_score_to_confidence(
+    score: float,
+    source_type: str,
+    year_matched: bool = True,
+    content_type: str | None = None,
+) -> str:
+    """Confidence mapping for hybrid search's normalized score range."""
+    if source_type == "official":
+        if score >= 0.7:
+            return "high" if year_matched else "medium"
+        if score >= 0.5:
+            return "medium"
+        return "low"
+    if source_type in {"parent", "subsidiary"}:
+        if score >= 0.6:
+            return "medium"
+        return "low"
+    if source_type in {"job_site", "aggregator", "blog"}:
+        return "medium" if score >= 0.7 else "low"
+    return "medium" if score >= 0.5 else "low"
+
+
 def _is_excluded_url(url: str) -> bool:
     url_lower = url.lower()
     return any(site in url_lower for site in EXCLUDE_SITES_STRONG)
@@ -1231,91 +1459,6 @@ def _is_irrelevant_url(url: str) -> bool:
     """Filter out completely irrelevant URLs like shopping sites, PDF viewers, etc."""
     url_lower = url.lower()
     return any(pattern in url_lower for pattern in IRRELEVANT_SITES)
-
-
-def _is_subsidiary(company_name: str, title: str, url: str) -> bool:
-    """
-    Detect if a search result is for a subsidiary company.
-
-    Returns False (not a subsidiary) if:
-    - The URL domain matches a registered official domain pattern
-
-    Returns True if the title/URL contains parent name + subsidiary keyword.
-    """
-    from urllib.parse import urlparse
-    from app.utils.company_names import get_company_domain_patterns
-
-    # Step 1: Check if domain matches registered official patterns (WHITELIST)
-    _, ascii_name = _normalize_company_name(company_name)
-    domain_patterns = get_company_domain_patterns(company_name, ascii_name)
-
-    # Extract domain from URL
-    try:
-        parsed = urlparse(url)
-        domain = parsed.netloc.lower()
-    except Exception:
-        domain = ""
-
-    # If domain matches official pattern → NOT a subsidiary
-    for pattern in domain_patterns:
-        if domain_pattern_matches(domain, pattern):
-            return False
-
-    # Step 2: Existing subsidiary detection logic
-    title_lower = (title or "").lower()
-    url_lower = (url or "").lower()
-
-    # Get normalized parent company name
-    normalized_name, _ = _normalize_company_name(company_name)
-    if not normalized_name:
-        return False
-
-    normalized_name_lower = normalized_name.lower()
-
-    # Check if title/URL contains parent company name
-    has_parent_name = (
-        normalized_name_lower in title_lower or normalized_name_lower in url_lower
-    )
-
-    if not has_parent_name:
-        return False
-
-    # Check for subsidiary keywords in title or URL
-    for keyword in SUBSIDIARY_KEYWORDS:
-        keyword_lower = keyword.lower()
-        if keyword_lower in title_lower or keyword_lower in url_lower:
-            return True
-
-    return False
-
-
-def _is_parent_company_site(company_name: str, title: str, url: str) -> bool:
-    """
-    Detect if a search result is for a parent company site.
-
-    When searching for a subsidiary company, this function checks if the URL
-    belongs to the parent company's domain, which should be excluded from results.
-
-    Args:
-        company_name: The subsidiary company name being searched
-        title: Search result title
-        url: Search result URL
-
-    Returns:
-        True if the URL belongs to a parent company domain (should be excluded)
-        False if the URL is not a parent company domain (keep in results)
-
-    Example:
-        >>> _is_parent_company_site("三井物産スチール", "採用情報", "https://career.mitsui.com/recruit/")
-        True  # Parent company "三井物産" domain "mitsui" is in URL → Exclude
-
-        >>> _is_parent_company_site("三井物産スチール", "採用情報", "https://www.mitsui-steel.com/")
-        False  # Subsidiary's own domain → Keep
-    """
-    from app.utils.company_names import is_parent_domain
-
-    # Check if URL contains parent company domain pattern
-    return is_parent_domain(url, company_name)
 
 
 def _get_blog_penalty(url: str, domain: str, company_name: str) -> float:
@@ -1363,60 +1506,26 @@ def _get_source_type(url: str, company_name: str) -> str:
     """
     Classify the source type of a URL.
 
-    ドメインパターンマッチングを使用して公式サイトを検出。
-    企業マッピング（backend/data/company_mappings.json）を活用。
+    Registered ownership is the source of truth. Job-site/blog detection is
+    layered on top, but related-company domains are never promoted to official.
 
-    Returns: "official" | "job_site" | "blog" | "other"
+    Returns: "official" | "parent" | "subsidiary" | "job_site" | "blog" | "other"
     """
     domain = _domain_from_url(url).lower()
-    url_lower = url.lower()
+    raw_source_type: str | None = None
 
-    # 1. Check if it's a known job site
     for site in JOB_SITES:
         if site in domain:
-            return "job_site"
+            raw_source_type = "job_site"
+            break
 
-    # 2. Check if it's a blog/personal site
-    blog_penalty = _get_blog_penalty(url, domain, company_name)
-    if blog_penalty <= -3.0:
-        return "blog"
+    if raw_source_type is None:
+        blog_penalty = _get_blog_penalty(url, domain, company_name)
+        if blog_penalty <= -3.0:
+            raw_source_type = "blog"
 
-    # 3. Check if it's the company's official site using domain patterns
-    _, ascii_name = _normalize_company_name(company_name)
-    domain_patterns = get_company_domain_patterns(company_name, ascii_name)
-
-    for pattern in domain_patterns:
-        if domain_pattern_matches(domain, pattern):
-            return "official"
-
-    # 4. Additional check: recruitment subdomain with partial name match
-    recruit_subdomains = ["career.", "recruit.", "saiyo.", "jobs.", "entry."]
-    if any(sub in domain for sub in recruit_subdomains):
-        # Remove subdomain and check if remaining part matches any pattern
-        for sub in recruit_subdomains:
-            if sub in domain:
-                base_domain = domain.replace(sub, "")
-                for pattern in domain_patterns:
-                    if domain_pattern_matches(base_domain, pattern):
-                        return "official"
-
-    # 5. Legacy: short name check (fallback)
-    if ascii_name and len(ascii_name) >= 6:
-        short_name = ascii_name[: len(ascii_name) // 2]
-        if len(short_name) >= 3 and short_name in domain:
-            recruit_keywords = [
-                "career",
-                "recruit",
-                "saiyo",
-                "jobs",
-                "entry",
-                "newgrad",
-                "shinsotsu",
-            ]
-            if any(kw in domain or kw in url_lower for kw in recruit_keywords):
-                return "official"
-
-    return "other"
+    relation = _classify_company_relation(url, company_name)
+    return normalize_company_result_source_type(raw_source_type, relation)
 
 
 def _contains_company_name(
@@ -1578,7 +1687,6 @@ def _score_recruit_candidate(
     path = urlparse(url).path.lower()
 
     normalized_name, ascii_name = _normalize_company_name(company_name)
-    domain_patterns = get_company_domain_patterns(company_name, ascii_name)
 
     score = 0.0
 
@@ -1589,12 +1697,9 @@ def _score_recruit_candidate(
         score += 2.0
 
     # --- Domain Pattern Match (improved) ---
-    domain_matched = False
-    for pattern in domain_patterns:
-        if domain_pattern_matches(domain, pattern):
-            score += 4.0  # Increased from 3.0
-            domain_matched = True
-            break
+    domain_matched = is_registered_official_domain(url, company_name)
+    if domain_matched:
+        score += 4.0  # Increased from 3.0
 
     # Legacy fallback for ASCII name
     if not domain_matched and ascii_name and ascii_name in domain:
@@ -1692,7 +1797,6 @@ def _score_recruit_candidate_with_breakdown(
     path = urlparse(url).path.lower()
 
     normalized_name, ascii_name = _normalize_company_name(company_name)
-    domain_patterns = get_company_domain_patterns(company_name, ascii_name)
 
     score = 0.0
 
@@ -1705,15 +1809,10 @@ def _score_recruit_candidate_with_breakdown(
         breakdown["企業名スニペット一致"] = "+2.0"
 
     # --- Domain Pattern Match (improved) ---
-    domain_matched = False
-    matched_pattern = None
-    for pattern in domain_patterns:
-        if domain_pattern_matches(domain, pattern):
-            score += 4.0
-            domain_matched = True
-            matched_pattern = pattern
-            breakdown["ドメインパターン一致"] = f"+4.0 ({pattern})"
-            break
+    domain_matched = is_registered_official_domain(url, company_name)
+    if domain_matched:
+        score += 4.0
+        breakdown["ドメインパターン一致"] = "+4.0 (registered)"
 
     # Legacy fallback for ASCII name
     if not domain_matched and ascii_name and ascii_name in domain:
@@ -1980,16 +2079,20 @@ def _score_corporate_candidate(
         return None
 
     normalized_name, ascii_name = _normalize_company_name(company_name)
-    domain_patterns = get_company_domain_patterns(company_name, ascii_name)
     normalized_title = _normalize_text_for_match(title)
     normalized_snippet = _normalize_text_for_match(snippet)
     company_match = _company_name_matches(title, snippet, domain, company_name)
+    relation = _classify_company_relation(url, company_name)
+    is_official_domain = bool(relation["is_official"])
+    is_related_company = bool(relation["is_parent"]) or bool(relation["is_subsidiary"])
     preferred_domain_match = False
     if preferred_domain:
         preferred_domain_match = domain == preferred_domain or domain.endswith(
             f".{preferred_domain}"
         )
-    if strict_company_match and not (company_match or preferred_domain_match):
+    if strict_company_match and not (
+        company_match or preferred_domain_match or is_official_domain or is_related_company
+    ):
         return None
     score = 0.0
 
@@ -1999,15 +2102,12 @@ def _score_corporate_candidate(
     if normalized_name and normalized_name in normalized_snippet:
         score += 2.0
     # ドメインパターンマッチング（企業マッピングから）
-    domain_matched = False
-    for pattern in domain_patterns:
-        if domain_pattern_matches(domain, pattern):
-            score += 4.0  # マッピングパターン一致は高スコア
-            domain_matched = True
-            break
+    domain_matched = is_official_domain
+    if domain_matched:
+        score += 4.0  # マッピングパターン一致は高スコア
     if not domain_matched and ascii_name and ascii_name in domain:
         score += 3.0  # フォールバック
-    if not company_match and not preferred_domain_match:
+    if not company_match and not preferred_domain_match and not is_related_company:
         score -= 4.0
 
     if domain.endswith((".co.jp", ".jp", ".com", ".net")):
@@ -2115,25 +2215,12 @@ def _score_corporate_candidate_with_breakdown(
             f".{preferred_domain}"
         )
 
-    # Parent domain allowlist (content-type specific)
-    from app.utils.company_names import is_parent_domain, is_parent_domain_allowed
-
-    is_parent_site = is_parent_domain(url, company_name)
-    allowed_parent = (
-        True
-        if is_parent_site and is_parent_domain_allowed(company_name, content_type)
-        else False
-    )
-    if allowed_parent:
-        breakdown["親会社許可"] = "allow"
-
-    # Official domain check (domain pattern match)
-    is_official_domain = any(
-        domain_pattern_matches(domain, pattern) for pattern in domain_patterns
-    )
+    relation = _classify_company_relation(url, company_name, content_type)
+    is_official_domain = bool(relation["is_official"])
+    is_related_company = bool(relation["is_parent"]) or bool(relation["is_subsidiary"])
 
     if strict_company_match and not (
-        company_match or preferred_domain_match or is_official_domain or allowed_parent
+        company_match or preferred_domain_match or is_official_domain or is_related_company
     ):
         return None, {"除外": "企業名不一致(strict)"}, domain_patterns
 
@@ -2149,20 +2236,15 @@ def _score_corporate_candidate_with_breakdown(
         breakdown["企業名スニペット一致"] = "+2.0"
 
     # ドメインパターンマッチング（企業マッピングから）
-    domain_matched = False
-    matched_pattern = None
-    for pattern in domain_patterns:
-        if domain_pattern_matches(domain, pattern):
-            score += 4.0
-            domain_matched = True
-            matched_pattern = pattern
-            breakdown["ドメインパターン一致"] = f"+4.0 ({pattern})"
-            break
+    domain_matched = is_official_domain
+    if domain_matched:
+        score += 4.0
+        breakdown["ドメインパターン一致"] = "+4.0 (registered)"
     if not domain_matched and ascii_name and ascii_name in domain:
         score += 3.0
         breakdown["ASCII名一致"] = "+3.0"
 
-    if not company_match and not preferred_domain_match and not allowed_parent:
+    if not company_match and not preferred_domain_match and not is_related_company:
         score -= 4.0
         breakdown["企業不一致ペナルティ"] = "-4.0"
 
@@ -2201,14 +2283,10 @@ def _score_corporate_candidate_with_breakdown(
         }.get(content_type, content_type)
 
         # ContentType URL pattern matching (+2.5)
-        ct_url_matched = False
-        for pattern in ct_keywords["url"]:
-            # Check both path and full URL
-            if f"/{pattern}/" in path or f"/{pattern}" in path or pattern in url_lower:
-                score += 2.5
-                ct_url_matched = True
-                breakdown[f"{ct_label}URLパターン"] = f"+2.5 ({pattern})"
-                break
+        ct_url_matched = url_matches_content_type(url, content_type)
+        if ct_url_matched:
+            score += 2.5
+            breakdown[f"{ct_label}URLパターン"] = "+2.5"
 
         # ContentType title matching (+2.0)
         ct_title_matched = False
@@ -2301,7 +2379,7 @@ def _score_corporate_candidate_with_breakdown(
         score -= 2.0
         breakdown["アグリゲーターペナルティ"] = "-2.0"
 
-    return score, breakdown, domain_patterns
+    return score, breakdown, get_company_domain_patterns(company_name, ascii_name)
 
 
 async def _search_with_ddgs(
@@ -2407,37 +2485,90 @@ def _detect_other_graduation_years(
         List of detected years that don't match target_year
     """
     combined = f"{url} {title} {snippet}"
+    text = (combined or "").lower()
 
-    # Patterns to detect graduation years
+    # Recruitment context guard: avoid treating generic page dates as grad years.
+    recruit_context_terms = (
+        "採用",
+        "新卒",
+        "インターン",
+        "entry",
+        "recruit",
+        "career",
+        "graduate",
+        "freshers",
+        "intern",
+    )
+    has_recruit_context = any(term in text for term in recruit_context_terms)
+    if not has_recruit_context:
+        return []
+
+    # Patterns to detect grad/fiscal year expressions.
     patterns = [
-        r"(\d{4})卒",  # 2025卒, 2026卒
-        r"(\d{2})卒",  # 25卒, 26卒
-        r"(\d{4})年度新卒",  # 2025年度新卒
-        r"新卒採用(\d{4})",  # 新卒採用2025
-        r"(\d{4})年度.*採用",  # 2025年度〇〇採用
+        r"(20\d{2})\s*卒",                 # 2027卒
+        r"(?<!\d)(\d{2})\s*卒",            # 27卒
+        r"(20\d{2})\s*年度",               # 2027年度
+        r"(?:fy|fiscal)\s*[-/]?\s*(20\d{2})",  # FY2027 / fiscal 2027
+        r"(?:fy|fiscal)\s*[-/]?\s*(\d{2})",    # FY27
+        r"(20\d{2})\s*年(?:度)?\s*(?:新卒|採用|entry|recruit)",
     ]
 
-    detected_years = set()
-    target_short = target_year % 100  # e.g., 27
+    detected_years: set[int] = set()
+    min_year = max(2020, target_year - 5)
+    max_year = target_year + 3
 
     for pattern in patterns:
-        for match in re.finditer(pattern, combined):
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
             year_str = match.group(1)
+            if not year_str:
+                continue
             year = int(year_str)
-
-            # Normalize 2-digit to 4-digit year
             if year < 100:
                 year = 2000 + year
-
-            # Ignore if matches target year
             if year == target_year:
                 continue
-
-            # Only consider recent/future years (2024-2030)
-            if 2024 <= year <= 2030:
+            if min_year <= year <= max_year:
                 detected_years.add(year)
 
-    return list(detected_years)
+    return sorted(detected_years)
+
+
+def _build_schedule_source_metadata(
+    url: str,
+    company_name: str | None,
+    page_text: str,
+    graduation_year: int | None,
+) -> dict[str, str | bool | int | None]:
+    used_graduation_year = graduation_year or _get_graduation_year()
+    relation = (
+        _classify_company_relation(url, company_name)
+        if company_name
+        else {
+            "source_type": "other",
+            "relation_company_name": None,
+            "is_official": False,
+            "is_parent": False,
+            "is_subsidiary": False,
+        }
+    )
+    source_type = _normalize_recruitment_source_type(url, None, relation)
+    other_years = _detect_other_graduation_years(
+        url,
+        "",
+        (page_text or "")[:8000],
+        used_graduation_year,
+    )
+    year_matched = not bool(other_years)
+    return {
+        "source_type": source_type,
+        "relation_company_name": (
+            relation.get("relation_company_name")
+            if isinstance(relation.get("relation_company_name"), str)
+            else None
+        ),
+        "year_matched": year_matched,
+        "used_graduation_year": used_graduation_year,
+    }
 
 
 def _build_recruit_queries(
@@ -2474,41 +2605,41 @@ def _build_recruit_queries(
     if selection_type == "internship":
         queries = [
             f"{company_name} インターン {grad_year_short}卒",
+            f"{company_name} インターン 選考スケジュール {grad_year_short}卒",
             f"{company_name} インターンシップ 募集",
-            f"{company_name} サマーインターン {grad_year}",
-            f"{company_name} インターン エントリー",
+            f"{company_name} インターン 募集要項 {grad_year}",
         ]
     elif selection_type == "main_selection":
         queries = [
             f"{company_name} 本選考 {grad_year_short}卒",
-            f"{company_name} 新卒採用 {grad_year}",
-            f"{company_name} 本選考 エントリー",
-            f"{company_name} {grad_year_short}卒 選考",
+            f"{company_name} 選考スケジュール {grad_year_short}卒",
+            f"{company_name} 新卒採用 {grad_year} 募集要項",
+            f"{company_name} エントリー 締切",
         ]
     else:
         # Default: mixed queries for both
         queries = [
             f"{company_name} 新卒採用 {grad_year_short}卒",
+            f"{company_name} 選考スケジュール {grad_year_short}卒",
             f"{company_name} 採用サイト {grad_year}",
-            f"{company_name} エントリー",
-            f"{company_name} 採用情報 {grad_year_short}卒",
+            f"{company_name} 募集要項 {grad_year}",
         ]
 
     if alias_name:
         if selection_type == "internship":
             alias_queries = [
                 f"{alias_name} インターン {grad_year_short}卒",
-                f"{alias_name} インターンシップ 募集",
+                f"{alias_name} インターン 選考スケジュール {grad_year_short}卒",
             ]
         elif selection_type == "main_selection":
             alias_queries = [
                 f"{alias_name} 本選考 {grad_year_short}卒",
-                f"{alias_name} 新卒採用 {grad_year}",
+                f"{alias_name} 選考スケジュール {grad_year_short}卒",
             ]
         else:
             alias_queries = [
                 f"{alias_name} 新卒採用 {grad_year_short}卒",
-                f"{alias_name} 採用情報",
+                f"{alias_name} 選考スケジュール {grad_year_short}卒",
             ]
         queries = alias_queries + queries
 
@@ -2713,10 +2844,10 @@ async def search_company_pages(request: SearchPagesRequest):
         logger.debug(f"[サイト検索] 📊 Hybrid検索結果: {len(hybrid_results)}件")
 
         # Apply filtering (subsidiary, parent company, etc.)
-        filtered_candidates = []
+        ranked_candidates: list[tuple[tuple[int, int, float], SearchCandidate]] = []
         excluded_reasons = {
             "不適切なサイト": 0,
-            "子会社サイト": 0,
+            "非許可信頼サイト": 0,
         }
 
         for result in hybrid_results:
@@ -2738,54 +2869,27 @@ async def search_company_pages(request: SearchPagesRequest):
                 logger.debug(f"[サイト検索] ❌ 除外: 不適切なサイト")
                 continue
 
-            # Skip subsidiaries
-            if _is_subsidiary(company_name, title, url):
-                excluded_reasons["子会社サイト"] = (
-                    excluded_reasons.get("子会社サイト", 0) + 1
+            relation = _classify_company_relation(url, company_name)
+            relation_company_name = relation["relation_company_name"]
+            source_type = _normalize_recruitment_source_type(
+                url,
+                result.source_type,
+                relation,
+            )
+
+            if source_type == "other":
+                excluded_reasons["非許可信頼サイト"] = (
+                    excluded_reasons.get("非許可信頼サイト", 0) + 1
                 )
-                logger.debug(f"[サイト検索] ❌ 除外: 子会社サイト")
+                logger.debug(f"[サイト検索] ❌ 除外: 非許可の外部サイト")
                 continue
 
-            # Official domain check (domain pattern match)
-            url_domain = result.domain
-            is_official_domain = (
-                any(
-                    domain_pattern_matches(url_domain, pattern)
-                    for pattern in domain_patterns
-                )
-                if domain_patterns
-                else False
-            )
-
-            # Determine source type
-            source_type = result.source_type
-            if source_type == "aggregator":
-                source_type = "job_site"
-            is_parent_site = result.is_parent or _is_parent_company_site(
-                company_name, title, url
-            )
-            if is_parent_site and not is_official_domain:
-                source_type = "parent"
-
-            is_sub = result.is_subsidiary
-            if is_sub and not is_official_domain:
-                source_type = "subsidiary"
-
-            # Calculate confidence from adjusted score
-            # Map combined score (0-1) to confidence levels
             adjusted_score = result.combined_score
-            if adjusted_score >= 0.7 and (
-                source_type == "official" or is_official_domain
-            ):
-                confidence = "high"
-            elif adjusted_score >= 0.5:
-                confidence = "medium"
-            else:
-                confidence = "low"
-
-            # Adjust confidence based on year match
-            if not result.year_matched and confidence == "high":
-                confidence = "medium"
+            confidence = _recruitment_hybrid_score_to_confidence(
+                adjusted_score,
+                source_type,
+                year_matched=result.year_matched,
+            )
 
             # Log adoption
             source_label = {
@@ -2798,47 +2902,33 @@ async def search_company_pages(request: SearchPagesRequest):
             }.get(source_type, source_type)
             logger.debug(f"[サイト検索] ✅ 採用: {source_label}, {confidence}")
 
-            filtered_candidates.append(
-                SearchCandidate(
-                    url=url,
-                    title=title[:100] if title else url[:50],
-                    confidence=confidence,
-                    source_type=(
-                        source_type
-                        if source_type
-                        in [
-                            "official",
-                            "job_site",
-                            "parent",
-                            "subsidiary",
-                            "blog",
-                            "other",
-                        ]
-                        else "other"
-                    ),
-                )
+            candidate = SearchCandidate(
+                url=url,
+                title=title[:100] if title else url[:50],
+                confidence=confidence,
+                source_type=source_type,
+                relation_company_name=(
+                    relation_company_name
+                    if isinstance(relation_company_name, str)
+                    else None
+                ),
+            )
+            score_for_rank = float(result.combined_score)
+            if source_type == "official":
+                score_for_rank += 0.015
+            if result.year_matched:
+                score_for_rank += 0.01
+            ranked_candidates.append(
+                (_candidate_sort_key(candidate, score_for_rank), candidate)
             )
 
-            if len(filtered_candidates) >= max_results:
-                break
-
-        # Sort candidates
-        if filtered_candidates:
-            SOURCE_TYPE_PRIORITY = {
-                "official": 0,
-                "job_site": 1,
-                "parent": 2,
-                "subsidiary": 2,
-                "other": 3,
-                "blog": 4,
-            }
-            CONFIDENCE_PRIORITY = {"high": 0, "medium": 1, "low": 2}
-            filtered_candidates.sort(
-                key=lambda x: (
-                    SOURCE_TYPE_PRIORITY.get(x.source_type, 99),
-                    CONFIDENCE_PRIORITY.get(x.confidence, 99),
-                )
-            )
+        filtered_candidates = [
+            candidate
+            for _, candidate in sorted(
+                ranked_candidates,
+                key=lambda item: item[0],
+            )[:max_results]
+        ]
 
         # Log summary
         logger.debug(f"\n[サイト検索] 📊 Hybrid検索結果サマリー:")
@@ -2936,10 +3026,10 @@ async def search_company_pages(request: SearchPagesRequest):
             logger.debug(f"  │")
 
         # Filter out irrelevant sites, subsidiaries, and unrelated companies
-        filtered_count = 0
+        ranked_candidates: list[tuple[tuple[int, int, float], SearchCandidate]] = []
         excluded_reasons = {
             "不適切なサイト": 0,
-            "子会社サイト": 0,
+            "非許可信頼サイト": 0,
         }
 
         for item in scored:
@@ -2956,28 +3046,9 @@ async def search_company_pages(request: SearchPagesRequest):
                 logger.debug(f"[サイト検索] ❌ 除外: {url[:50]}... (不適切なサイト)")
                 continue
 
-            # Skip subsidiaries
-            if _is_subsidiary(company_name, title, url):
-                excluded_reasons["子会社サイト"] = (
-                    excluded_reasons.get("子会社サイト", 0) + 1
-                )
-                logger.debug(f"[サイト検索] ❌ 除外: {url[:50]}... (子会社サイト)")
-                continue
-
-            # Official domain check (domain pattern match)
-            try:
-                parsed_url = urlparse(url)
-                url_domain = parsed_url.netloc.lower()
-            except Exception:
-                url_domain = ""
-            is_official_domain = (
-                any(
-                    domain_pattern_matches(url_domain, pattern)
-                    for pattern in domain_patterns
-                )
-                if domain_patterns
-                else False
-            )
+            relation = _classify_company_relation(url, company_name)
+            is_official_domain = bool(relation["is_official"])
+            relation_company_name = relation["relation_company_name"]
 
             # Exclude conflicting company domains (unless strict name match)
             url_domain = _domain_from_url(url)
@@ -2996,7 +3067,7 @@ async def search_company_pages(request: SearchPagesRequest):
 
             # Apply penalty for parent company sites (when searching for subsidiary)
             # 注: 完全除外ではなくペナルティを適用（グループ採用サイトの可能性を考慮）
-            is_parent_site = _is_parent_company_site(company_name, title, url)
+            is_parent_site = bool(relation["is_parent"])
             if is_parent_site and not is_official_domain:
                 item["score"] *= 0.5  # 親会社サイトペナルティ
                 item["is_parent_company"] = True
@@ -3004,9 +3075,12 @@ async def search_company_pages(request: SearchPagesRequest):
 
             # Apply penalty for subsidiary sites (when searching for parent)
             # 注: 完全除外ではなくペナルティを適用
-            from app.utils.company_names import is_subsidiary_domain
-
-            is_sub, sub_name = is_subsidiary_domain(url, company_name)
+            is_sub = bool(relation["is_subsidiary"])
+            sub_name = (
+                relation_company_name
+                if isinstance(relation_company_name, str)
+                else None
+            )
             if is_sub and not is_official_domain:
                 item["score"] *= 0.3  # 子会社サイトペナルティ
                 item["is_subsidiary"] = True
@@ -3014,6 +3088,18 @@ async def search_company_pages(request: SearchPagesRequest):
                 logger.debug(
                     f"[サイト検索] ⚠️ ペナルティ: {url[:50]}... (子会社: {sub_name}, 0.3x)"
                 )
+
+            source_type = _normalize_recruitment_source_type(
+                url,
+                _get_source_type(url, company_name),
+                relation,
+            )
+            if source_type == "other":
+                excluded_reasons["非許可信頼サイト"] = (
+                    excluded_reasons.get("非許可信頼サイト", 0) + 1
+                )
+                logger.debug(f"[サイト検索] ❌ 除外: {url[:50]}... (非許可の外部サイト)")
+                continue
 
             # Check if URL matches official domain patterns
             # If it's an official domain, skip company name check (e.g., nttdata-recruit.com for NTTデータ)
@@ -3038,21 +3124,17 @@ async def search_company_pages(request: SearchPagesRequest):
                 logger.debug(f"[サイト検索] ❌ 除外: {url[:50]}... (企業名不一致)")
                 continue
 
-            source_type = _get_source_type(url, company_name)
-            # 子会社サイトの場合は source_type を "subsidiary" に変更
-            if is_sub:
-                source_type = "subsidiary"
-            # 親会社サイトの場合は source_type を "parent" に変更
-            if is_parent_site:
-                source_type = "parent"
-
             # Check year match for confidence calculation
             grad_year_for_check = graduation_year or _get_graduation_year()
             other_years = _detect_other_graduation_years(
                 url, title, snippet, grad_year_for_check
             )
             year_matched = not bool(other_years)
-            confidence = _score_to_confidence(item["score"], source_type, year_matched)
+            confidence = _recruitment_score_to_confidence(
+                item["score"],
+                source_type,
+                year_matched,
+            )
 
             # ログ: 採用
             source_label = {
@@ -3065,22 +3147,26 @@ async def search_company_pages(request: SearchPagesRequest):
             }.get(source_type, source_type)
             logger.debug(f"[サイト検索] ✅ 採用: {url[:50]}... ({source_label}, {confidence})")
 
-            candidates.append(
-                SearchCandidate(
-                    url=url,
-                    title=title[:100] if title else url[:50],
-                    confidence=confidence,
-                    source_type=source_type,
-                )
+            candidate = SearchCandidate(
+                url=url,
+                title=title[:100] if title else url[:50],
+                confidence=confidence,
+                source_type=source_type,
+                relation_company_name=(
+                    relation_company_name
+                    if isinstance(relation_company_name, str)
+                    else None
+                ),
             )
-
-            # Stop if we have enough candidates
-            if len(candidates) >= max_results:
-                break
+            ranked_candidates.append(
+                (_candidate_sort_key(candidate, float(item["score"])), candidate)
+            )
 
         # ログ: 結果サマリー
         logger.debug(f"\n[サイト検索] 📊 結果サマリー:")
-        logger.debug(f"  └─ 検索結果: {len(scored)}件 → 採用: {len(candidates)}件")
+        logger.debug(
+            f"  └─ 検索結果: {len(scored)}件 → 採用: {len(ranked_candidates)}件"
+        )
         if any(excluded_reasons.values()):
             excluded_str = ", ".join(
                 f"{k}: {v}件" for k, v in excluded_reasons.items() if v > 0
@@ -3088,24 +3174,13 @@ async def search_company_pages(request: SearchPagesRequest):
             logger.debug(f"     除外内訳: {excluded_str}")
         logger.debug(f"[サイト検索] {'='*50}\n")
 
-        # Sort candidates by source_type → confidence → original order
-        # This ensures official/high results appear at the top
-        if candidates:
-            SOURCE_TYPE_PRIORITY = {
-                "official": 0,
-                "job_site": 1,
-                "parent": 2,
-                "subsidiary": 2,
-                "other": 3,
-                "blog": 4,
-            }
-            CONFIDENCE_PRIORITY = {"high": 0, "medium": 1, "low": 2}
-            candidates.sort(
-                key=lambda x: (
-                    SOURCE_TYPE_PRIORITY.get(x.source_type, 99),
-                    CONFIDENCE_PRIORITY.get(x.confidence, 99),
-                )
-            )
+        if ranked_candidates:
+            candidates = [
+                candidate
+                for _, candidate in sorted(ranked_candidates, key=lambda item: item[0])[
+                    :max_results
+                ]
+            ]
             return {"candidates": candidates}
 
     # Fallback: DDGS unavailable
@@ -3125,10 +3200,22 @@ async def _fetch_schedule_response(
     Uses graduation_year and selection_type from request if available.
     """
     try:
+        source_metadata = {
+            "source_type": "other",
+            "relation_company_name": None,
+            "year_matched": None,
+            "used_graduation_year": request.graduation_year or _get_graduation_year(),
+        }
         html = await fetch_page_content(str(request.url))
         raw_html = html[:200000] if html else None
 
         text = extract_text_from_html(html)
+        source_metadata = _build_schedule_source_metadata(
+            str(request.url),
+            request.company_name,
+            text,
+            request.graduation_year,
+        )
 
         if not text or len(text) < 100:
             return SelectionScheduleResponse(
@@ -3136,6 +3223,22 @@ async def _fetch_schedule_response(
                 partial_success=False,
                 data=None,
                 source_url=str(request.url),
+                source_type=str(source_metadata["source_type"]),
+                relation_company_name=(
+                    source_metadata["relation_company_name"]
+                    if isinstance(source_metadata["relation_company_name"], str)
+                    else None
+                ),
+                year_matched=(
+                    bool(source_metadata["year_matched"])
+                    if source_metadata["year_matched"] is not None
+                    else None
+                ),
+                used_graduation_year=(
+                    int(source_metadata["used_graduation_year"])
+                    if isinstance(source_metadata["used_graduation_year"], int)
+                    else None
+                ),
                 extracted_at=datetime.utcnow().isoformat(),
                 error="ページの内容を取得できませんでした。JavaScriptで描画されるページの可能性があります。別のURLをお試しください。",
                 deadlines_found=False,
@@ -3151,6 +3254,15 @@ async def _fetch_schedule_response(
             feature=feature,
             graduation_year=request.graduation_year,
             selection_type=request.selection_type,
+        )
+        extracted = _apply_schedule_source_confidence_caps(
+            extracted,
+            str(source_metadata["source_type"]),
+            (
+                bool(source_metadata["year_matched"])
+                if source_metadata["year_matched"] is not None
+                else None
+            ),
         )
 
         deadlines_found = len(extracted.deadlines) > 0
@@ -3174,6 +3286,22 @@ async def _fetch_schedule_response(
             partial_success=partial_success,
             data=extracted if success else None,
             source_url=str(request.url),
+            source_type=str(source_metadata["source_type"]),
+            relation_company_name=(
+                source_metadata["relation_company_name"]
+                if isinstance(source_metadata["relation_company_name"], str)
+                else None
+            ),
+            year_matched=(
+                bool(source_metadata["year_matched"])
+                if source_metadata["year_matched"] is not None
+                else None
+            ),
+            used_graduation_year=(
+                int(source_metadata["used_graduation_year"])
+                if isinstance(source_metadata["used_graduation_year"], int)
+                else None
+            ),
             extracted_at=datetime.utcnow().isoformat(),
             error=error_message,
             deadlines_found=deadlines_found,
@@ -3190,6 +3318,22 @@ async def _fetch_schedule_response(
             partial_success=False,
             data=None,
             source_url=str(request.url),
+            source_type=str(source_metadata["source_type"]),
+            relation_company_name=(
+                source_metadata["relation_company_name"]
+                if isinstance(source_metadata["relation_company_name"], str)
+                else None
+            ),
+            year_matched=(
+                bool(source_metadata["year_matched"])
+                if source_metadata["year_matched"] is not None
+                else None
+            ),
+            used_graduation_year=(
+                int(source_metadata["used_graduation_year"])
+                if isinstance(source_metadata["used_graduation_year"], int)
+                else None
+            ),
             extracted_at=datetime.utcnow().isoformat(),
             error=f"情報の抽出に失敗しました: {str(e)}",
             deadlines_found=False,
@@ -3756,6 +3900,19 @@ class CrawlCorporateResponse(BaseModel):
     url_content_types: dict[str, str] = {}  # URL -> classified content_type
 
 
+class UploadCorporatePdfResponse(BaseModel):
+    """Response from uploaded corporate PDF ingestion."""
+
+    success: bool
+    company_id: str
+    source_url: str
+    chunks_stored: int
+    extracted_chars: int
+    content_type: str | None = None
+    extraction_method: str
+    errors: list[str] = []
+
+
 class SearchCorporatePagesRequest(BaseModel):
     """Request to search for corporate page candidates."""
 
@@ -3782,6 +3939,149 @@ class CorporatePageCandidate(BaseModel):
     snippet: str
     confidence: str
     source_type: str = "other"  # official, job_site, other
+    relation_company_name: str | None = None
+
+
+MAX_UPLOAD_PDF_BYTES = 20 * 1024 * 1024
+
+
+def _extract_text_from_pdf_locally(pdf_bytes: bytes) -> str:
+    """Best-effort embedded-text extraction from a PDF."""
+    try:
+        from pypdf import PdfReader
+    except Exception:
+        return ""
+
+    try:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+    except Exception:
+        return ""
+
+    pages: list[str] = []
+    for page in reader.pages:
+        try:
+            text = page.extract_text() or ""
+        except Exception:
+            text = ""
+        if text.strip():
+            pages.append(text.strip())
+
+    return "\n\n".join(pages).strip()
+
+
+@router.post("/rag/upload-pdf", response_model=UploadCorporatePdfResponse)
+async def upload_corporate_pdf(
+    company_id: str = Form(...),
+    company_name: str = Form(...),
+    source_url: str = Form(...),
+    content_type: Optional[str] = Form(None),
+    content_channel: Optional[str] = Form(None),
+    file: UploadFile = File(...),
+):
+    """Extract text from an uploaded PDF and store it in company RAG."""
+    filename = file.filename or "document.pdf"
+    mime_type = (file.content_type or "").lower()
+    if not filename.lower().endswith(".pdf") and mime_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="PDFファイルを指定してください。")
+
+    pdf_bytes = await file.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="PDFファイルが空です。")
+    if len(pdf_bytes) > MAX_UPLOAD_PDF_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail="PDFファイルが大きすぎます。20MB以下にしてください。",
+        )
+
+    backend = resolve_embedding_backend()
+    if backend is None:
+        return UploadCorporatePdfResponse(
+            success=False,
+            company_id=company_id,
+            source_url=source_url,
+            chunks_stored=0,
+            extracted_chars=0,
+            extraction_method="unavailable",
+            errors=[
+                "No embedding backend available. Set OPENAI_API_KEY or install sentence-transformers."
+            ],
+        )
+
+    extracted_text = _extract_text_from_pdf_locally(pdf_bytes)
+    extraction_method = "pypdf"
+
+    if len(extracted_text) < 200:
+        try:
+            ocr_text = await extract_text_from_pdf_with_openai(
+                pdf_bytes,
+                filename,
+                feature="company_info",
+            )
+        except Exception as e:
+            logger.warning(f"[PDF取込] OCR fallback failed: {e}")
+            ocr_text = ""
+        if len(ocr_text.strip()) > len(extracted_text.strip()):
+            extracted_text = ocr_text.strip()
+            extraction_method = "openai_pdf_ocr"
+
+    if len(extracted_text.strip()) < 100:
+        return UploadCorporatePdfResponse(
+            success=False,
+            company_id=company_id,
+            source_url=source_url,
+            chunks_stored=0,
+            extracted_chars=len(extracted_text.strip()),
+            content_type=content_type,
+            extraction_method=extraction_method,
+            errors=["PDFから十分な本文テキストを抽出できませんでした。"],
+        )
+
+    channel = content_channel or (
+        "corporate_ir"
+        if content_type in {"ir_materials", "midterm_plan"}
+        else "corporate_general"
+    )
+
+    result = await store_full_text_content(
+        company_id=company_id,
+        company_name=company_name,
+        raw_text=extracted_text,
+        source_url=source_url,
+        content_type=content_type,
+        content_channel=channel,
+        backend=backend,
+        raw_format="text",
+    )
+
+    if not result["success"]:
+        return UploadCorporatePdfResponse(
+            success=False,
+            company_id=company_id,
+            source_url=source_url,
+            chunks_stored=0,
+            extracted_chars=len(extracted_text),
+            content_type=content_type,
+            extraction_method=extraction_method,
+            errors=["PDFのRAG保存に失敗しました。"],
+        )
+
+    from app.utils.text_chunker import JapaneseTextChunker, get_chunk_settings
+
+    effective_type = result.get("dominant_content_type") or content_type or "corporate_site"
+    chunk_size, chunk_overlap = get_chunk_settings(effective_type)
+    chunker = JapaneseTextChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = chunker.chunk(extracted_text)
+
+    return UploadCorporatePdfResponse(
+        success=True,
+        company_id=company_id,
+        source_url=source_url,
+        chunks_stored=len(chunks),
+        extracted_chars=len(extracted_text),
+        content_type=result.get("dominant_content_type") or content_type,
+        extraction_method=extraction_method,
+        errors=[],
+    )
 
 
 @router.post("/rag/crawl-corporate", response_model=CrawlCorporateResponse)
@@ -3914,6 +4214,9 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
     allow_snippet_match = request.allow_snippet_match
     cache_mode = _normalize_cache_mode(request.cache_mode, "bypass")
     graduation_year = request.graduation_year
+    preferred_domain = _sanitize_preferred_domain(
+        company_name, preferred_domain, content_type
+    )
 
     # Determine label for logging
     ct_labels = {
@@ -3985,10 +4288,9 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
         logger.debug(f"[{type_label}検索] 📊 Hybrid検索結果: {len(hybrid_results)}件")
 
         # Apply filtering (subsidiary, parent company, company name check)
-        filtered_candidates = []
+        ranked_candidates = []
         excluded_reasons = {
             "不適切なサイト": 0,
-            "子会社サイト": 0,
             "競合ドメイン": 0,
             "企業名不一致": 0,
         }
@@ -4010,55 +4312,40 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 logger.debug(f"[{type_label}検索] ❌ 除外: 不適切なサイト")
                 continue
 
-            # Skip subsidiaries
-            if _is_subsidiary(company_name, title, url):
-                excluded_reasons["子会社サイト"] += 1
-                logger.debug(f"[{type_label}検索] ❌ 除外: 子会社サイト")
-                continue
-
-            # Official domain check (domain pattern match)
-            url_domain = result.domain
-            is_official_domain = (
-                any(
-                    domain_pattern_matches(url_domain, pattern)
-                    for pattern in domain_patterns
-                )
-                if domain_patterns
-                else False
+            relation = _classify_company_relation(url, company_name, content_type)
+            is_official_domain = bool(relation["is_official"])
+            relation_company_name = relation["relation_company_name"]
+            is_related_company = bool(relation["is_parent"]) or bool(
+                relation["is_subsidiary"]
             )
 
             # Determine source type
-            source_type = result.source_type
-            if source_type == "aggregator":
-                source_type = "job_site"
-            is_parent_site = result.is_parent or _is_parent_company_site(
-                company_name, title, url
-            )
-            from app.utils.company_names import is_parent_domain_allowed
-
-            allowed_parent = (
-                True
-                if is_parent_site and is_parent_domain_allowed(company_name, content_type)
-                else False
+            source_type = normalize_company_result_source_type(
+                result.source_type,
+                relation,
             )
 
-            if is_parent_site and not is_official_domain:
-                source_type = "parent"
+            keep_candidate, exclude_reason = _should_include_corporate_candidate(
+                source_type,
+                content_type,
+                relation,
+            )
+            if not keep_candidate:
+                excluded_reasons[exclude_reason or "関連会社サイト"] = (
+                    excluded_reasons.get(exclude_reason or "関連会社サイト", 0) + 1
+                )
+                logger.debug(
+                    f"[{type_label}検索] ❌ 除外: {exclude_reason or '関連会社サイト'}"
+                )
+                continue
 
-            is_sub = result.is_subsidiary
-            if is_sub and not is_official_domain:
-                source_type = "subsidiary"
-
-            # Calculate confidence from adjusted score
             adjusted_score = result.combined_score
-            if adjusted_score >= 0.7 and (
-                source_type == "official" or is_official_domain
-            ):
-                confidence = "high"
-            elif adjusted_score >= 0.5:
-                confidence = "medium"
-            else:
-                confidence = "low"
+            confidence = _hybrid_score_to_confidence(
+                adjusted_score,
+                source_type,
+                year_matched=result.year_matched,
+                content_type=content_type,
+            )
 
             # Log adoption
             source_label = {
@@ -4071,47 +4358,47 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             }.get(source_type, source_type)
             logger.debug(f"[{type_label}検索] ✅ 採用: {source_label}, {confidence}")
 
-            filtered_candidates.append(
-                SearchCandidate(
-                    url=url,
-                    title=title[:100] if title else url[:50],
-                    confidence=confidence,
-                    source_type=(
-                        source_type
-                        if source_type
-                        in [
-                            "official",
-                            "job_site",
-                            "parent",
-                            "subsidiary",
-                            "blog",
-                            "other",
-                        ]
-                        else "other"
-                    ),
-                )
+            normalized_source_type = (
+                source_type
+                if source_type
+                in [
+                    "official",
+                    "job_site",
+                    "parent",
+                    "subsidiary",
+                    "blog",
+                    "other",
+                ]
+                else "other"
             )
 
-            if len(filtered_candidates) >= max_results:
-                break
+            url_pattern_match = True
+            if content_type and content_type != "corporate_site":
+                url_pattern_match = url_matches_content_type(url, content_type)
 
-        # Sort candidates
-        if filtered_candidates:
-            SOURCE_TYPE_PRIORITY = {
-                "official": 0,
-                "job_site": 1,
-                "parent": 2,
-                "subsidiary": 2,
-                "other": 3,
-                "blog": 4,
-            }
-            CONFIDENCE_PRIORITY = {"high": 0, "medium": 1, "low": 2}
-            filtered_candidates.sort(
-                key=lambda x: (
-                    SOURCE_TYPE_PRIORITY.get(x.source_type, 99),
-                    CONFIDENCE_PRIORITY.get(x.confidence, 99),
-                )
+            candidate = SearchCandidate(
+                url=url,
+                title=title[:100] if title else url[:50],
+                confidence=confidence,
+                source_type=normalized_source_type,
+                relation_company_name=(
+                    relation_company_name
+                    if isinstance(relation_company_name, str)
+                    else None
+                ),
             )
+            score_for_rank = float(result.combined_score)
+            if url_pattern_match:
+                score_for_rank += 0.015
+            ranked_candidates.append((_candidate_sort_key(candidate, score_for_rank), candidate))
+
+        filtered_candidates = [
+            candidate
+            for _, candidate in sorted(
+                ranked_candidates,
+                key=lambda item: item[0],
+            )[:max_results]
+        ]
 
         # Log summary
         logger.debug(f"\n[{type_label}検索] 📊 Hybrid検索結果サマリー:")
@@ -4250,7 +4537,6 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
         # Filter and add source_type
         excluded_reasons = {
             "不適切なサイト": 0,
-            "子会社サイト": 0,
             "競合ドメイン": 0,
             "企業名不一致": 0,
         }
@@ -4259,7 +4545,6 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             url = item["url"]
             title = item["title"]
             snippet = item.get("snippet", "")
-            domain_patterns = get_company_domain_patterns(company_name)
 
             # Skip irrelevant sites (shopping, PDF viewers, etc.)
             if _is_irrelevant_url(url):
@@ -4269,35 +4554,21 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 logger.debug(f"[{type_label}検索] ❌ 除外: {url[:50]}... (不適切なサイト)")
                 continue
 
-            # Skip subsidiaries
-            if _is_subsidiary(company_name, title, url):
-                excluded_reasons["子会社サイト"] = (
-                    excluded_reasons.get("子会社サイト", 0) + 1
-                )
-                logger.debug(f"[{type_label}検索] ❌ 除外: {url[:50]}... (子会社サイト)")
-                continue
-
-            # Official domain check (domain pattern match)
-            try:
-                parsed_url = urlparse(url)
-                url_domain = parsed_url.netloc.lower()
-            except Exception:
-                url_domain = ""
-
-            is_official_domain = (
-                any(
-                    domain_pattern_matches(url_domain, pattern)
-                    for pattern in domain_patterns
-                )
-                if domain_patterns
-                else False
+            relation = _classify_company_relation(url, company_name, content_type)
+            is_official_domain = bool(relation["is_official"])
+            relation_company_name = relation["relation_company_name"]
+            is_related_company = bool(relation["is_parent"]) or bool(
+                relation["is_subsidiary"]
             )
 
             # Exclude conflicting company domains (unless strict name match)
             url_domain = _domain_from_url(url)
             conflicts = _get_conflicting_companies(url_domain, company_name)
-            if conflicts and not is_official_domain and not _has_strict_company_name_match(
-                company_name, title, snippet
+            if (
+                conflicts
+                and not is_official_domain
+                and not is_related_company
+                and not _has_strict_company_name_match(company_name, title, snippet)
             ):
                 excluded_reasons["競合ドメイン"] = (
                     excluded_reasons.get("競合ドメイン", 0) + 1
@@ -4308,27 +4579,21 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 )
                 continue
 
-            # Apply penalty for parent company sites (when searching for subsidiary)
-            # 注: 完全除外ではなくペナルティを適用（グループ採用サイトの可能性を考慮）
-            is_parent_site = _is_parent_company_site(company_name, title, url)
-            from app.utils.company_names import is_parent_domain_allowed
-
-            allowed_parent = (
-                True
-                if is_parent_site and is_parent_domain_allowed(company_name, content_type)
-                else False
-            )
+            is_parent_site = bool(relation["is_parent"])
             if is_parent_site and not is_official_domain:
-                item["score"] *= 0.8 if allowed_parent else 0.5  # 親会社サイトペナルティ
+                item["score"] *= 0.5
                 item["is_parent_company"] = True
                 logger.debug(
-                    f"[{type_label}検索] ⚠️ ペナルティ: {url[:50]}... (親会社サイト, {'0.8x' if allowed_parent else '0.5x'})"
+                    f"[{type_label}検索] ⚠️ ペナルティ: {url[:50]}... (親会社サイト, 0.5x)"
                 )
 
             # Apply penalty for subsidiary sites (when searching for parent)
-            from app.utils.company_names import is_subsidiary_domain
-
-            is_sub, sub_name = is_subsidiary_domain(url, company_name)
+            is_sub = bool(relation["is_subsidiary"])
+            sub_name = (
+                relation_company_name
+                if isinstance(relation_company_name, str)
+                else None
+            )
             if is_sub and not is_official_domain:
                 item["score"] *= 0.3  # 子会社サイトペナルティ
                 item["is_subsidiary"] = True
@@ -4342,8 +4607,12 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
             # Skip results that don't contain the company name
             # By default, only check title/URL (not snippet) to avoid false positives
             # Exception: Skip this check for official domain matches
-            if not is_official_domain and not allowed_parent and not _contains_company_name(
-                company_name, title, url, snippet, allow_snippet_match
+            if (
+                not is_official_domain
+                and not is_related_company
+                and not _contains_company_name(
+                    company_name, title, url, snippet, allow_snippet_match
+                )
             ):
                 excluded_reasons["企業名不一致"] = (
                     excluded_reasons.get("企業名不一致", 0) + 1
@@ -4351,15 +4620,33 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 logger.debug(f"[{type_label}検索] ❌ 除外: {url[:50]}... (企業名不一致)")
                 continue
 
-            source_type = _get_source_type(url, company_name)
-            # 子会社サイトの場合は source_type を "subsidiary" に変更
-            if is_sub:
-                source_type = "subsidiary"
-            # 親会社サイトの場合は source_type を "parent" に変更
-            if is_parent_site:
-                source_type = "parent"
+            source_type = normalize_company_result_source_type(
+                _get_source_type(url, company_name),
+                relation,
+            )
 
-            confidence = _score_to_confidence(item["score"], source_type)
+            confidence = _score_to_confidence(
+                item["score"],
+                source_type,
+                content_type=content_type,
+                company_match=_contains_company_name(
+                    company_name, title, url, snippet, allow_snippet_match
+                ),
+            )
+
+            keep_candidate, exclude_reason = _should_include_corporate_candidate(
+                source_type,
+                content_type,
+                relation,
+            )
+            if not keep_candidate:
+                excluded_reasons[exclude_reason or "関連会社サイト"] = (
+                    excluded_reasons.get(exclude_reason or "関連会社サイト", 0) + 1
+                )
+                logger.debug(
+                    f"[{type_label}検索] ❌ 除外: {url[:50]}... ({exclude_reason or '関連会社サイト'})"
+                )
+                continue
 
             # ログ: 採用
             source_label = {
@@ -4381,6 +4668,11 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                     snippet=snippet[:200] if snippet else "",
                     confidence=confidence,
                     source_type=source_type,
+                    relation_company_name=(
+                        relation_company_name
+                        if isinstance(relation_company_name, str)
+                        else None
+                    ),
                 )
             )
 

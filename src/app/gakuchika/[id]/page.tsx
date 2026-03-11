@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { startTransition, useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { DashboardHeader } from "@/components/dashboard";
@@ -9,18 +9,16 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
-import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { OperationLockProvider, useOperationLock } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
 import {
   STARProgressBar,
-  STARScoreChange,
   CompletionSummary,
-  CompanyLinker,
   type STARScores,
   type GakuchikaSummary,
 } from "@/components/gakuchika";
 import { STAR_EXPLANATIONS } from "@/components/gakuchika/STARProgressBar";
+import { parseGakuchikaSummary } from "@/lib/gakuchika/summary";
 
 const STAR_HINT_ICONS: Record<string, string> = {
   situation: "\u{1F4CD}",
@@ -28,16 +26,50 @@ const STAR_HINT_ICONS: Record<string, string> = {
   action: "\u26A1",
   result: "\u{1F31F}",
 };
-const STAR_HINT_LABELS: Record<string, string> = {
-  situation: "\u72B6\u6CC1",
-  task: "\u8AB2\u984C",
-  action: "\u884C\u52D5",
-  result: "\u7D50\u679C",
+const STAR_HINT_TEXTS: Record<string, string> = {
+  situation: "この質問では、当時の状況や背景が伝わると答えやすくなります",
+  task: "この質問では、何が課題だったのかをはっきりさせると伝わりやすいです",
+  action: "この質問では、自分がどう考えて動いたかまで話せると強くなります",
+  result: "この質問では、結果とそこから得た学びまでつなげるとまとまりやすいです",
 };
+const PROCESSING_LABELS = {
+  organizing_intent: "質問の意図を整理中",
+  generating_question: "次の質問を生成中...",
+} as const;
+const SUMMARY_POLL_INTERVAL_MS = 1500;
+const SUMMARY_POLL_MAX_ATTEMPTS = 8;
+const STAR_ELEMENT_KEYS = ["situation", "task", "action", "result"] as const;
 
-interface Company {
-  id: string;
-  name: string;
+type AssistantProcessingPhase =
+  | "idle"
+  | "organizing_intent"
+  | "generating_question";
+
+interface ConversationUpdate {
+  messages: Message[];
+  nextQuestion: string | null;
+  questionCount: number;
+  isCompleted: boolean;
+  starScores: STARScores | null;
+  targetElement: string | null;
+  isAIPowered: boolean;
+  summary: GakuchikaSummary | null;
+  summaryPending: boolean;
+}
+
+function getProcessingPhase(step?: string): AssistantProcessingPhase {
+  if (step === "analysis") return "organizing_intent";
+  if (step === "question") return "generating_question";
+  return "organizing_intent";
+}
+
+function getWeakestElement(scores: STARScores | null): string | null {
+  if (!scores) return null;
+
+  return STAR_ELEMENT_KEYS.reduce(
+    (weakest, key) => (scores[key] < scores[weakest] ? key : weakest),
+    STAR_ELEMENT_KEYS[0]
+  );
 }
 
 interface Session {
@@ -66,30 +98,11 @@ const LoadingSpinner = () => (
   </svg>
 );
 
-const CheckIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-  </svg>
-);
-
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   isOptimistic?: boolean;
-}
-
-interface PendingCompleteData {
-  messages: Message[];
-  nextQuestion: string | null;
-  questionCount: number;
-  isCompleted: boolean;
-  starScores: STARScores | null;
-  targetElement: string | null;
-  qualityRationale: string[];
-  coachingFocus: string | null;
-  isAIPowered: boolean;
-  summary?: GakuchikaSummary | null;
 }
 
 function buildHeaders(): Record<string, string> {
@@ -112,7 +125,7 @@ function buildHeaders(): Record<string, string> {
 function GakuchikaConversationContent() {
   const params = useParams();
   const gakuchikaId = params.id as string;
-  const { isLocked, acquireLock, releaseLock } = useOperationLock();
+  const { acquireLock, releaseLock } = useOperationLock();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [nextQuestion, setNextQuestion] = useState<string | null>(null);
@@ -125,8 +138,6 @@ function GakuchikaConversationContent() {
   const [error, setError] = useState<string | null>(null);
   const [isAIPowered, setIsAIPowered] = useState(true);
   const [starScores, setStarScores] = useState<STARScores | null>(null);
-  const [linkedCompanies, setLinkedCompanies] = useState<string[]>([]);
-  const [companies, setCompanies] = useState<Company[]>([]);
 
   // Conversation start state
   const [conversationStarted, setConversationStarted] = useState(false);
@@ -136,63 +147,66 @@ function GakuchikaConversationContent() {
   const [showStarInfo, setShowStarInfo] = useState(false);
 
   const [targetElement, setTargetElement] = useState<string | null>(null);
-  const [previousScores, setPreviousScores] = useState<STARScores | null>(null);
-  const [showScoreChange, setShowScoreChange] = useState(false);
   const [summary, setSummary] = useState<GakuchikaSummary | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [streamingLabel, setStreamingLabel] = useState<string | null>(null);
-  const [streamingText, setStreamingText] = useState("");
-  const [isTextStreaming, setIsTextStreaming] = useState(false);
-  const [isPostProcessing, setIsPostProcessing] = useState(false);
-  const [pendingCompleteData, setPendingCompleteData] = useState<PendingCompleteData | null>(null);
+  const [assistantPhase, setAssistantPhase] = useState<AssistantProcessingPhase>("idle");
+  const [streamingAssistantText, setStreamingAssistantText] = useState("");
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [qualityRationale, setQualityRationale] = useState<string[]>([]);
-  const [coachingFocus, setCoachingFocus] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, nextQuestion]);
+  }, [assistantPhase, messages, nextQuestion, streamingAssistantText]);
 
-  useEffect(() => {
-    if (!pendingCompleteData || isTextStreaming) return;
+  const applyConversationUpdate = useCallback((update: ConversationUpdate) => {
+    startTransition(() => {
+      setMessages(update.messages);
+      setNextQuestion(update.nextQuestion);
+      setQuestionCount(update.questionCount);
+      setIsCompleted(update.isCompleted);
+      setIsAIPowered(update.isAIPowered);
+      setTargetElement(update.targetElement);
+      setStarScores(update.starScores);
 
-    setMessages(pendingCompleteData.messages);
-    setNextQuestion(pendingCompleteData.nextQuestion);
-    setQuestionCount(pendingCompleteData.questionCount);
-    setIsCompleted(pendingCompleteData.isCompleted);
-    setIsAIPowered(pendingCompleteData.isAIPowered);
-    setTargetElement(pendingCompleteData.targetElement);
-    setQualityRationale(pendingCompleteData.qualityRationale);
-    setCoachingFocus(pendingCompleteData.coachingFocus);
-
-    const newScores = pendingCompleteData.starScores;
-    if (previousScores && newScores) {
-      const scoresChanged =
-        previousScores.situation !== newScores.situation ||
-        previousScores.task !== newScores.task ||
-        previousScores.action !== newScores.action ||
-        previousScores.result !== newScores.result;
-
-      if (scoresChanged) {
-        setShowScoreChange(true);
+      if (update.isCompleted) {
+        if (update.summary) {
+          setSummary(update.summary);
+          setIsSummaryLoading(false);
+        } else {
+          setSummary(null);
+          setIsSummaryLoading(update.summaryPending);
+        }
+      } else {
+        setSummary(null);
+        setIsSummaryLoading(false);
       }
-    }
-    setStarScores(newScores);
+    });
+  }, []);
 
-    if (pendingCompleteData.isCompleted && pendingCompleteData.summary) {
-      setSummary(pendingCompleteData.summary);
-      setIsSummaryLoading(false);
-    } else if (pendingCompleteData.isCompleted) {
-      setIsSummaryLoading(true);
-    }
+  const fetchSummaryIfAvailable = useCallback(async (): Promise<boolean> => {
+    try {
+      const response = await fetch(`/api/gakuchika/${gakuchikaId}`, {
+        headers: buildHeaders(),
+        credentials: "include",
+      });
+      if (!response.ok) return false;
 
-    setPendingCompleteData(null);
-    setIsPostProcessing(false);
-  }, [isTextStreaming, pendingCompleteData, previousScores]);
+      const data = await response.json();
+      const parsedSummary = parseGakuchikaSummary(data.gakuchika?.summary ?? null);
+      if (!parsedSummary) return false;
+
+      startTransition(() => {
+        setSummary(parsedSummary);
+        setIsSummaryLoading(false);
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, [gakuchikaId]);
 
   // Fetch conversation and gakuchika data
   const fetchConversation = useCallback(async (sessionId?: string) => {
@@ -201,16 +215,12 @@ function GakuchikaConversationContent() {
         ? `/api/gakuchika/${gakuchikaId}/conversation?sessionId=${sessionId}`
         : `/api/gakuchika/${gakuchikaId}/conversation`;
 
-      const [conversationRes, gakuchikaRes, companiesRes] = await Promise.all([
+      const [conversationRes, gakuchikaRes] = await Promise.all([
         fetch(url, {
           headers: buildHeaders(),
           credentials: "include",
         }),
         fetch(`/api/gakuchika/${gakuchikaId}`, {
-          headers: buildHeaders(),
-          credentials: "include",
-        }),
-        fetch("/api/companies", {
           headers: buildHeaders(),
           credentials: "include",
         }),
@@ -229,7 +239,9 @@ function GakuchikaConversationContent() {
         setGakuchikaTitle(conversationData.gakuchikaTitle || "");
         setGakuchikaContent(conversationData.gakuchikaContent || null);
         setSessions([]);
-        setQualityRationale([]);
+        setTargetElement(null);
+        setSummary(null);
+        setIsSummaryLoading(false);
       } else {
         // Existing conversation - show chat UI
         setConversationStarted(true);
@@ -245,34 +257,32 @@ function GakuchikaConversationContent() {
         setIsCompleted(conversationData.isCompleted || false);
         setIsAIPowered(conversationData.isAIPowered ?? true);
         setStarScores(conversationData.starScores || null);
+        setTargetElement(typeof conversationData.targetElement === "string" ? conversationData.targetElement : null);
 
         setSessions(conversationData.sessions || []);
         setCurrentSessionId(conversationData.conversation?.id || null);
-        if ("qualityRationale" in conversationData) {
-          setQualityRationale(Array.isArray(conversationData.qualityRationale) ? conversationData.qualityRationale : []);
-        }
-        setCoachingFocus(typeof conversationData.coachingFocus === "string" ? conversationData.coachingFocus : null);
-
-        if (conversationData.starEvaluation?.weakest_element) {
-          setTargetElement(conversationData.starEvaluation.weakest_element);
-        }
       }
 
       if (gakuchikaRes.ok) {
         const gakuchikaData = await gakuchikaRes.json();
-        setLinkedCompanies(gakuchikaData.gakuchika?.linkedCompanyIds || []);
-        if (!conversationData.noConversation) {
-          setGakuchikaTitle(gakuchikaData.gakuchika?.title || "");
+        setGakuchikaTitle(gakuchikaData.gakuchika?.title || "");
+        setGakuchikaContent(gakuchikaData.gakuchika?.content || null);
+        const parsedSummary = parseGakuchikaSummary(gakuchikaData.gakuchika?.summary ?? null);
+        if (parsedSummary) {
+          setSummary(parsedSummary);
+          setIsSummaryLoading(false);
+        } else if (conversationData.isCompleted) {
+          setSummary(null);
+          setIsSummaryLoading(true);
+        } else {
+          setSummary(null);
+          setIsSummaryLoading(false);
         }
-      }
-
-      if (companiesRes.ok) {
-        const companiesData = await companiesRes.json();
-        setCompanies(companiesData.companies || []);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "会話の取得に失敗しました");
     } finally {
+      setAssistantPhase("idle");
       setIsLoading(false);
     }
   }, [gakuchikaId]);
@@ -280,6 +290,32 @@ function GakuchikaConversationContent() {
   useEffect(() => {
     fetchConversation();
   }, [fetchConversation]);
+
+  useEffect(() => {
+    if (!isCompleted || !isSummaryLoading || summary) return;
+
+    let cancelled = false;
+    let attempts = 0;
+
+    const poll = async () => {
+      while (!cancelled && attempts < SUMMARY_POLL_MAX_ATTEMPTS) {
+        attempts += 1;
+        const found = await fetchSummaryIfAvailable();
+        if (found || cancelled) return;
+        await new Promise((resolve) => setTimeout(resolve, SUMMARY_POLL_INTERVAL_MS));
+      }
+
+      if (!cancelled) {
+        setIsSummaryLoading(false);
+      }
+    };
+
+    void poll();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchSummaryIfAvailable, isCompleted, isSummaryLoading, summary]);
 
   // Start deep dive - create new conversation session
   const handleStartDeepDive = async () => {
@@ -300,8 +336,6 @@ function GakuchikaConversationContent() {
 
       const data = await response.json();
       setCurrentSessionId(data.conversation?.id || null);
-      setQualityRationale(Array.isArray(data.qualityRationale) ? data.qualityRationale : []);
-      setCoachingFocus(typeof data.coachingFocus === "string" ? data.coachingFocus : null);
       setConversationStarted(true);
 
       // Fetch the full conversation data
@@ -314,8 +348,8 @@ function GakuchikaConversationContent() {
   };
 
   // Send answer with optimistic UI update via SSE streaming
-  const handleSend = async () => {
-    if (!answer.trim() || isSending || isPostProcessing) return;
+  const handleSend = useCallback(async () => {
+    if (!answer.trim() || isSending) return;
     if (!acquireLock("AIに送信中")) return;
 
     const trimmedAnswer = answer.trim();
@@ -334,20 +368,14 @@ function GakuchikaConversationContent() {
     setIsSending(true);
     setIsWaitingForResponse(true);
     setError(null);
-    setStreamingLabel(null);
-    setStreamingText("");
-    setIsTextStreaming(false);
-    setIsPostProcessing(false);
-    setPendingCompleteData(null);
+    setAssistantPhase("organizing_intent");
+    setStreamingAssistantText("");
     setNextQuestion(null);
-    setTargetElement(null);
-    setQualityRationale([]);
-    setCoachingFocus(null);
+    setTargetElement(getWeakestElement(starScores) ?? targetElement);
 
-    // Save previous scores for score change detection
-    setPreviousScores(starScores);
-    let sawQuestionReady = false;
-    let deferredComplete = false;
+    let receivedComplete = false;
+    let hasReceivedQuestionStream = false;
+    let streamedQuestionText = "";
 
     try {
       const response = await fetch(`/api/gakuchika/${gakuchikaId}/conversation/stream`, {
@@ -389,26 +417,23 @@ function GakuchikaConversationContent() {
             continue;
           }
 
-          if (event.type === "string_chunk") {
-            // Token-level streaming: accumulate question text
-            setStreamingText((prev) => prev + event.text);
-            setIsTextStreaming(true);
-            setIsWaitingForResponse(false);
-          } else if (event.type === "question_ready") {
-            const question = typeof event.data?.question === "string" ? event.data.question : "";
-            if (!question) continue;
-            sawQuestionReady = true;
-            setNextQuestion(question);
-            setStreamingText("");
-            setIsTextStreaming(false);
-            setIsWaitingForResponse(false);
-            setIsSending(false);
-            setStreamingLabel(null);
-            setIsPostProcessing(true);
-          } else if (event.type === "progress") {
-            if (!sawQuestionReady) {
-              setStreamingLabel(event.label || "処理中...");
+          if (event.type === "hint_ready") {
+            const nextTargetElement =
+              typeof event.data?.targetElement === "string" ? event.data.targetElement : null;
+            if (nextTargetElement) {
+              setTargetElement(nextTargetElement);
             }
+          } else if (event.type === "progress" && !hasReceivedQuestionStream) {
+            setAssistantPhase(getProcessingPhase(event.step));
+          } else if (
+            event.type === "string_chunk" &&
+            event.path === "question" &&
+            typeof event.text === "string"
+          ) {
+            hasReceivedQuestionStream = true;
+            streamedQuestionText += event.text;
+            setAssistantPhase("idle");
+            setStreamingAssistantText(streamedQuestionText);
           } else if (event.type === "complete") {
             const data = event.data;
             const messagesWithIds = (data.messages || []).map(
@@ -417,55 +442,22 @@ function GakuchikaConversationContent() {
                 id: msg.id || `msg-${idx}`,
               })
             );
-            const nextData: PendingCompleteData = {
+            const nextData = {
               messages: messagesWithIds,
               nextQuestion: data.nextQuestion,
               questionCount: data.questionCount || 0,
               isCompleted: data.isCompleted || false,
               starScores: data.starScores || null,
               targetElement: data.targetElement || null,
-              qualityRationale: Array.isArray(data.qualityRationale) ? data.qualityRationale : [],
-              coachingFocus: typeof data.coachingFocus === "string" ? data.coachingFocus : null,
               isAIPowered: data.isAIPowered ?? true,
-              summary: data.summary || null,
+              summary: parseGakuchikaSummary(data.summary || null),
+              summaryPending: Boolean(data.summaryPending),
             };
-
-            if (sawQuestionReady) {
-              deferredComplete = true;
-              setPendingCompleteData(nextData);
-            } else {
-              setMessages(nextData.messages);
-              setNextQuestion(nextData.nextQuestion);
-              setQuestionCount(nextData.questionCount);
-              setIsCompleted(nextData.isCompleted);
-              setIsAIPowered(nextData.isAIPowered);
-              setTargetElement(nextData.targetElement);
-              setQualityRationale(nextData.qualityRationale);
-              setCoachingFocus(nextData.coachingFocus);
-
-              const newScores = nextData.starScores;
-              if (previousScores && newScores) {
-                const scoresChanged =
-                  previousScores.situation !== newScores.situation ||
-                  previousScores.task !== newScores.task ||
-                  previousScores.action !== newScores.action ||
-                  previousScores.result !== newScores.result;
-
-                if (scoresChanged) {
-                  setShowScoreChange(true);
-                }
-              }
-              setStarScores(newScores);
-
-              if (nextData.isCompleted && nextData.summary) {
-                setSummary(nextData.summary);
-                setIsSummaryLoading(false);
-              } else if (nextData.isCompleted) {
-                setIsSummaryLoading(true);
-              }
-
-              setIsPostProcessing(false);
-            }
+            receivedComplete = true;
+            setStreamingAssistantText("");
+            applyConversationUpdate(nextData);
+            setIsWaitingForResponse(false);
+            setAssistantPhase("idle");
           } else if (event.type === "error") {
             throw new Error(event.message || "AIエラーが発生しました");
           }
@@ -476,76 +468,82 @@ function GakuchikaConversationContent() {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       setAnswer(trimmedAnswer); // Restore the answer
       setNextQuestion(null);
-      setPendingCompleteData(null);
-      setIsPostProcessing(false);
+      setStreamingAssistantText("");
+      setAssistantPhase("idle");
+      setIsWaitingForResponse(false);
       setError(err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
       setIsSending(false);
-      setIsWaitingForResponse(false);
-      setStreamingLabel(null);
-      setStreamingText("");
-      setIsTextStreaming(false);
-      if (!deferredComplete) {
-        setIsPostProcessing(false);
+      if (!receivedComplete) {
+        setStreamingAssistantText("");
+        setIsWaitingForResponse(false);
+        setAssistantPhase("idle");
       }
       releaseLock();
     }
-  };
-
-  // Handle company linking
-  const handleToggleCompany = async (companyId: string) => {
-    const newLinkedCompanies = linkedCompanies.includes(companyId)
-      ? linkedCompanies.filter((id) => id !== companyId)
-      : [...linkedCompanies, companyId];
-
-    try {
-      const response = await fetch(`/api/gakuchika/${gakuchikaId}`, {
-        method: "PUT",
-        headers: buildHeaders(),
-        credentials: "include",
-        body: JSON.stringify({ linkedCompanyIds: newLinkedCompanies }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to update");
-      }
-
-      setLinkedCompanies(newLinkedCompanies);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "企業の紐づけに失敗しました");
-    }
-  };
+  }, [
+    acquireLock,
+    answer,
+    applyConversationUpdate,
+    currentSessionId,
+    gakuchikaId,
+    isSending,
+    releaseLock,
+    starScores,
+    targetElement,
+  ]);
 
   // Handle session selection
   const handleSessionSelect = async (sessionId: string) => {
     setCurrentSessionId(sessionId);
-    setQualityRationale([]);
     setIsLoading(true);
     await fetchConversation(sessionId);
   };
 
-  // Handle new session creation
-  const handleNewSession = async () => {
+  const handleResumeSession = async () => {
     try {
-      const response = await fetch(`/api/gakuchika/${gakuchikaId}/conversation/new`, {
+      const response = await fetch(`/api/gakuchika/${gakuchikaId}/conversation/resume`, {
         method: "POST",
         headers: buildHeaders(),
         credentials: "include",
+        body: JSON.stringify({ sessionId: currentSessionId }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to create new session");
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "深掘りの再開に失敗しました");
       }
 
       const data = await response.json();
+      const messagesWithIds = (data.messages || []).map(
+        (msg: { role: "user" | "assistant"; content: string; id?: string }, idx: number) => ({
+          ...msg,
+          id: msg.id || `msg-${idx}`,
+        })
+      );
+
+      setConversationStarted(true);
       setCurrentSessionId(data.conversation?.id || null);
-      setQualityRationale(Array.isArray(data.qualityRationale) ? data.qualityRationale : []);
-      setCoachingFocus(typeof data.coachingFocus === "string" ? data.coachingFocus : null);
-      await fetchConversation(data.conversation?.id);
+      setMessages(messagesWithIds);
+      setNextQuestion(data.nextQuestion || null);
+      setQuestionCount(data.questionCount || 0);
+      setIsCompleted(false);
+      setStarScores(data.starScores || null);
+      setTargetElement(typeof data.targetElement === "string" ? data.targetElement : null);
+      setSessions(data.sessions || []);
+      setIsAIPowered(data.isAIPowered ?? true);
+      setSummary(null);
+      setIsSummaryLoading(false);
+      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "新しいセッションの作成に失敗しました");
+      setError(err instanceof Error ? err.message : "深掘りの再開に失敗しました");
     }
   };
+
+  const processingText =
+    assistantPhase === "organizing_intent" || assistantPhase === "generating_question"
+      ? PROCESSING_LABELS[assistantPhase]
+      : null;
 
   if (isLoading) {
     return (
@@ -727,16 +725,6 @@ function GakuchikaConversationContent() {
             )}
           </div>
 
-          {/* Row 2: Company linking (only if companies exist) */}
-          {companies.length > 0 && (
-            <div className="mt-1">
-              <CompanyLinker
-                companies={companies}
-                linkedCompanyIds={linkedCompanies}
-                onToggle={handleToggleCompany}
-              />
-            </div>
-          )}
         </div>
       </div>
 
@@ -769,15 +757,6 @@ function GakuchikaConversationContent() {
             </div>
           )}
 
-          {/* STARScoreChange notification */}
-          {showScoreChange && previousScores && starScores && (
-            <STARScoreChange
-              previousScores={previousScores}
-              currentScores={starScores}
-              onDismiss={() => setShowScoreChange(false)}
-            />
-          )}
-
           {messages.map((message) => (
             <ChatMessage
               key={message.id}
@@ -787,14 +766,16 @@ function GakuchikaConversationContent() {
             />
           ))}
 
-          {/* Streaming text from AI (token-level) */}
-          {isTextStreaming && (
-            <StreamingChatMessage streamingText={streamingText} isStreaming={true} />
+          {isWaitingForResponse && !streamingAssistantText && processingText && (
+            <ThinkingIndicator text={processingText} />
           )}
 
-          {/* Thinking indicator while waiting before streaming starts */}
-          {isWaitingForResponse && !isTextStreaming && !nextQuestion && (
-            <ThinkingIndicator text={streamingLabel || "次の質問を考え中"} />
+          {isWaitingForResponse && streamingAssistantText && (
+            <ChatMessage
+              role="assistant"
+              content={streamingAssistantText}
+              isStreaming
+            />
           )}
 
           {/* Next question from AI (skip if already shown in messages) */}
@@ -808,12 +789,6 @@ function GakuchikaConversationContent() {
             />
           )}
 
-          {nextQuestion && isPostProcessing && !isCompleted && (
-            <div className="pl-2">
-              <p className="text-[11px] text-muted-foreground">質問の意図を整理中...</p>
-            </div>
-          )}
-
           {/* CompletionSummary */}
           {isCompleted && (
             <CompletionSummary
@@ -821,8 +796,7 @@ function GakuchikaConversationContent() {
               summary={summary}
               isLoading={isSummaryLoading}
               gakuchikaId={gakuchikaId}
-              gakuchikaTitle={gakuchikaTitle}
-              onNewSession={handleNewSession}
+              onResumeSession={handleResumeSession}
             />
           )}
 
@@ -835,34 +809,12 @@ function GakuchikaConversationContent() {
         <div className="border-t border-border bg-background pb-[env(safe-area-inset-bottom)]">
           <div className="max-w-3xl mx-auto">
             {/* STAR hint - inline */}
-            {targetElement && STAR_HINT_LABELS[targetElement] && (
+            {targetElement && STAR_HINT_TEXTS[targetElement] && (
               <div className="px-4 pt-2 pb-1">
                 <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
                   <span>{STAR_HINT_ICONS[targetElement]}</span>
-                  <span>この質問は <strong className="font-medium text-foreground/80">{STAR_HINT_LABELS[targetElement]}</strong> に関するものです</span>
+                  <span>{STAR_HINT_TEXTS[targetElement]}</span>
                 </span>
-              </div>
-            )}
-            {coachingFocus && (
-              <div className="px-4 pb-1">
-                <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-muted-foreground">
-                  <span>今回の狙い</span>
-                  <strong className="font-medium text-foreground/80">{coachingFocus}</strong>
-                </span>
-              </div>
-            )}
-            {qualityRationale.length > 0 && (
-              <div className="px-4 pb-1">
-                <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
-                  <p className="text-[11px] font-medium text-foreground/80">この質問の狙い</p>
-                  <ul className="mt-1 space-y-0.5">
-                    {qualityRationale.slice(0, 2).map((reason, idx) => (
-                      <li key={`${reason}-${idx}`} className="text-[11px] text-muted-foreground leading-relaxed">
-                        ・{reason}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
               </div>
             )}
 
@@ -872,12 +824,12 @@ function GakuchikaConversationContent() {
               onSend={handleSend}
               placeholder="回答を入力..."
               disabled={false}
-              disableSend={isWaitingForResponse || isPostProcessing}
-              isSending={isSending && !nextQuestion}
+              disableSend={assistantPhase !== "idle"}
+              isSending={isSending}
               className="border-t-0 [&>div]:max-w-none [&>div]:px-4 [&>div]:py-2 [&>p]:hidden"
             />
             {/* Save and continue later - only show after at least 1 answer */}
-            {questionCount > 0 && !isWaitingForResponse && !isPostProcessing && (
+            {questionCount > 0 && assistantPhase === "idle" && (
               <div className="px-4 pb-2">
                 <Link
                   href="/gakuchika"

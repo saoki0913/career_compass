@@ -68,13 +68,19 @@
 ```
 1. 採用ページ検索
    POST /company-info/search-pages
-   DuckDuckGo「{企業名} 新卒採用」→ 候補URL 5-10件
+   DuckDuckGo / Hybrid検索「{企業名} {選考タイプ} {卒業年度}」→ 候補URL 5-10件
+   - プロフィールの卒業年度を初期値に使用
+   - 公式候補 → trusted job site の順で優先
+   - 親会社 / 子会社候補は表示するが、自動選択しない
          ↓
 2. ユーザーがURL選択（複数可）
          ↓
 3. 情報抽出（URLごと順次処理）
    POST /company-info/fetch-schedule
    HTML取得 → テキスト抽出 → GPT構造化抽出
+   - 取得元URLの relation / trusted job site / 年度一致を metadata 化
+   - parent / subsidiary は confidence を low 上限に補正
+   - trusted job site は medium 上限に補正
          ↓
 4. DB保存 & RAG構築（非同期）
    - 締切 → deadlinesテーブル
@@ -132,9 +138,9 @@
 | 卒業年度（2025, 2026等） | +2 |
 
 **信頼度判定**:
-- `high`: 企業公式ドメイン + recruitパス
-- `medium`: 就活サイト（リクナビ、マイナビ等）
-- `low`: その他
+- `high`: 対象企業の direct official ドメイン かつ 年度一致
+- `medium`: direct official だが年度不一致、または trusted job site（マイナビ / リクナビ / ONE CAREER）
+- `low`: 親会社 / 子会社 / その他
 
 ---
 
@@ -188,9 +194,13 @@
 
 **除外対象**:
 - ショッピングサイト、PDFビューア
-- 子会社サイト
 - アグリゲーターサイト（設定による）
 - Wikipedia、金融情報サイト等
+
+**親会社/子会社ドメインの扱い**:
+- 親会社/子会社ページは候補として残す
+- ただし `sourceType` は `parent` / `subsidiary` のままで、`official` へ昇格させない
+- `confidence` は `low` 上限。`official && high` の自動選択対象にはならない
 
 ### 短ドメイン許可リスト
 
@@ -234,7 +244,7 @@ COMPANY_QUERY_ALIASES = {
 |------|--------|
 | 企業名フィルタ | 「条件を緩和して再検索」ボタン |
 | スコア不足 | カスタム検索を使用 |
-| グループ会社 | 親会社名で検索 |
+| グループ会社 | 関連会社候補として表示されるため、`親会社` / `子会社` ラベルを確認して選択 |
 
 ---
 
@@ -270,10 +280,14 @@ COMPANY_QUERY_ALIASES = {
 
 ### FetchInfoButton.tsx（選考スケジュール取得）
 
+- モーダルは step を切り替えても同じ shell 幅を維持
+- 卒業年度はプロフィール値を初期選択し、その場で変更可能
 - URL候補リスト（チェックボックスで複数選択）
 - 信頼度バッジ（high=緑、medium=黄、low=灰）
+- 親会社 / 子会社候補には relation ラベルを表示し、自動選択しない
 - カスタムURL入力
 - 進捗表示（「2/3 処理中...」）
+- Google Calendar 追加失敗は「未連携 / 再連携必要 / 追加先未設定 / 一部失敗」を分けて表示
 
 ### CorporateInfoSection.tsx（コーポレート情報）
 
@@ -296,6 +310,8 @@ COMPANY_QUERY_ALIASES = {
 3. **RAG構築は自動トリガー**: 情報取得成功時に非同期で実行
 4. **部分成功**: 締切なしでも他データがあれば0.5クレジット消費
 5. **複数URL順次処理**: 1つずつ順次処理し進捗を表示
+6. **親子会社のラベルは relation-first**: `classify_company_domain_relation()` を source of truth とし、関連会社ページは `official` にしない
+7. **URL自動選択は strict**: `official + high` だけを自動選択し、parent / subsidiary / job_site は手動選択のみ
 
 ---
 

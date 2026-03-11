@@ -9,7 +9,6 @@ interface SectionReviewCTAProps {
   isLoading?: boolean;
   disabled?: boolean;
   disabledReason?: string;
-  hasCompanyRag?: boolean;
 }
 
 const SparkleIcon = () => (
@@ -41,7 +40,6 @@ export function SectionReviewCTA({
   isLoading = false,
   disabled = false,
   disabledReason,
-  hasCompanyRag = false,
 }: SectionReviewCTAProps) {
   const isDisabled = disabled || isLoading;
 
@@ -89,7 +87,7 @@ export function SectionReviewCTA({
         )}>
           {isLoading
             ? "添削中..."
-            : disabledReason || (hasCompanyRag ? "企業情報をもとにAI添削する" : "この設問をAI添削する")}
+            : disabledReason || "この設問をAI添削"}
         </span>
       </div>
 
@@ -97,8 +95,10 @@ export function SectionReviewCTA({
       {charDisplay && !isLoading && (
         <span className={cn(
           "text-xs px-2 py-0.5 rounded-full shrink-0",
-          charLimit && charCount > charLimit
-            ? "bg-red-100 text-red-600"
+          charLimit
+            ? charCount > charLimit
+              ? "bg-red-100 text-red-600"
+              : "bg-emerald-100 text-emerald-700"
             : "bg-muted text-muted-foreground"
         )}>
           {charDisplay}

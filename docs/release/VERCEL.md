@@ -107,6 +107,10 @@ STRIPE_PRICE_PRO_MONTHLY=price_...
 # === FastAPI バックエンド URL ===
 FASTAPI_URL=https://shupass-backend-production.up.railway.app
 
+# === Qwen3 ES添削 beta UI ===
+# 有効化したいときだけ設定
+# NEXT_PUBLIC_QWEN_ES_REVIEW_ENABLED=true
+
 # === Vercel Cron 認証 ===
 CRON_SECRET=<openssl rand -hex 32 で生成>
 ```
@@ -231,9 +235,6 @@ Vercel Dashboard → 対象プロジェクト → Settings → General:
 ### チェック項目（CLI）
 
 ```bash
-# まとめて診断（推奨: Vercel/Railway/HTTP を一括で確認）
-./scripts/diagnose-deploy.sh https://www.shupass.jp
-
 # ログイン済みユーザー確認
 vercel whoami
 

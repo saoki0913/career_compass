@@ -14,14 +14,22 @@ import { db } from "@/lib/db";
 import {
   motivationConversations,
   companies,
-  gakuchikaContents,
-  gakuchikaConversations,
-  userProfiles,
+  applications,
+  jobTypes,
 } from "@/lib/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
+import {
+  fetchGakuchikaContext,
+  fetchProfileContext,
+} from "@/lib/ai/user-context";
+import {
+  filterMotivationConversationUpdate,
+  getMotivationConversationByCondition,
+} from "@/lib/db/motivationConversationCompat";
+import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -62,11 +70,16 @@ interface MotivationScores {
 interface SuggestionOption {
   id: string;
   label: string;
-  sourceType: "company" | "gakuchika" | "profile" | "hybrid" | "generic";
+  sourceType: "company" | "gakuchika" | "profile" | "application_job_type" | "hybrid";
   intent: string;
+  evidenceSourceIds?: string[];
+  rationale?: string | null;
+  isTentative?: boolean;
 }
 
 interface MotivationConversationContext {
+  selectedIndustry?: string;
+  selectedIndustrySource?: "company_field" | "company_override" | "user_selected";
   industryReason?: string;
   companyReason?: string;
   selectedRole?: string;
@@ -82,12 +95,26 @@ interface MotivationConversationContext {
   questionStage: string;
 }
 
-interface ProfileContext {
-  university: string | null;
-  faculty: string | null;
-  graduation_year: number | null;
-  target_industries: string[];
-  target_job_types: string[];
+interface CompanyData {
+  id: string;
+  name: string;
+  industry: string | null;
+}
+
+interface ResolvedMotivationInputs {
+  company: CompanyData;
+  conversationContext: MotivationConversationContext;
+  requiresIndustrySelection: boolean;
+  industryOptions: string[];
+  companyRoleCandidates: string[];
+}
+
+function isSetupComplete(
+  conversationContext: MotivationConversationContext,
+  requiresIndustrySelection: boolean,
+): boolean {
+  const hasIndustry = !requiresIndustrySelection || Boolean(conversationContext.selectedIndustry);
+  return hasIndustry && Boolean(conversationContext.selectedRole);
 }
 
 function safeParseMessages(json: string): Message[] {
@@ -135,12 +162,14 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: [],
       companyRoleCandidates: [],
       companyWorkCandidates: [],
-      questionStage: "industry_reason",
+      questionStage: "company_reason",
     };
   }
   try {
     const parsed = JSON.parse(json);
     return {
+      selectedIndustry: typeof parsed.selectedIndustry === "string" ? parsed.selectedIndustry : undefined,
+      selectedIndustrySource: typeof parsed.selectedIndustrySource === "string" ? parsed.selectedIndustrySource : undefined,
       industryReason: typeof parsed.industryReason === "string" ? parsed.industryReason : undefined,
       companyReason: typeof parsed.companyReason === "string" ? parsed.companyReason : undefined,
       selectedRole: typeof parsed.selectedRole === "string" ? parsed.selectedRole : undefined,
@@ -153,7 +182,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: Array.isArray(parsed.companyAnchorKeywords) ? parsed.companyAnchorKeywords.filter((v: unknown): v is string => typeof v === "string") : [],
       companyRoleCandidates: Array.isArray(parsed.companyRoleCandidates) ? parsed.companyRoleCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
       companyWorkCandidates: Array.isArray(parsed.companyWorkCandidates) ? parsed.companyWorkCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
-      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "industry_reason",
+      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "company_reason",
     };
   } catch {
     return {
@@ -164,45 +193,97 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: [],
       companyRoleCandidates: [],
       companyWorkCandidates: [],
-      questionStage: "industry_reason",
+      questionStage: "company_reason",
     };
   }
 }
 
-async function fetchProfileContext(userId: string | null): Promise<ProfileContext | null> {
-  if (!userId) return null;
-  const [profile] = await db
-    .select()
-    .from(userProfiles)
-    .where(eq(userProfiles.userId, userId))
-    .limit(1);
-  if (!profile) return null;
+async function fetchApplicationJobCandidates(
+  companyId: string,
+  userId: string | null,
+  guestId: string | null,
+): Promise<string[]> {
+  const rows = await db
+    .select({
+      jobTypeName: jobTypes.name,
+    })
+    .from(applications)
+    .leftJoin(jobTypes, eq(jobTypes.applicationId, applications.id))
+    .where(
+      userId
+        ? and(eq(applications.companyId, companyId), eq(applications.userId, userId))
+        : and(eq(applications.companyId, companyId), eq(applications.guestId, guestId!))
+    );
+
+  const candidates: string[] = [];
+  for (const row of rows) {
+    const value = row.jobTypeName?.trim();
+    if (value && !candidates.includes(value)) {
+      candidates.push(value);
+    }
+  }
+  return candidates.slice(0, 6);
+}
+
+function uniqueStrings(values: Array<string | null | undefined>, maxItems = 8): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    const normalized = value?.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    output.push(normalized);
+    if (output.length >= maxItems) break;
+  }
+  return output;
+}
+
+function resolveMotivationInputs(
+  company: CompanyData,
+  conversationContext: MotivationConversationContext,
+  applicationJobCandidates: string[],
+): ResolvedMotivationInputs {
+  const resolution = resolveMotivationRoleContext({
+    companyName: company.name,
+    companyIndustry: company.industry,
+    selectedIndustry: conversationContext.selectedIndustry,
+    applicationRoles: applicationJobCandidates,
+  });
+
+  const nextContext: MotivationConversationContext = {
+    ...conversationContext,
+    selectedIndustry: conversationContext.selectedIndustry || resolution.resolvedIndustry || undefined,
+    selectedIndustrySource:
+      conversationContext.selectedIndustrySource ||
+      resolution.industrySource ||
+      undefined,
+    companyRoleCandidates: uniqueStrings([
+      ...conversationContext.companyRoleCandidates,
+      ...resolution.roleCandidates,
+    ]),
+  };
+
   return {
-    university: profile.university || null,
-    faculty: profile.faculty || null,
-    graduation_year: profile.graduationYear || null,
-    target_industries: profile.targetIndustries ? JSON.parse(profile.targetIndustries) : [],
-    target_job_types: profile.targetJobTypes ? JSON.parse(profile.targetJobTypes) : [],
+    company: {
+      ...company,
+      industry: resolution.resolvedIndustry,
+    },
+    conversationContext: nextContext,
+    requiresIndustrySelection: resolution.requiresIndustrySelection,
+    industryOptions: [...resolution.industryOptions],
+    companyRoleCandidates: resolution.roleCandidates,
   };
 }
 
 function applyAnswerToConversationContext(
   context: MotivationConversationContext,
   answer: string,
-  profileContext: ProfileContext | null,
 ): MotivationConversationContext {
   const next = { ...context };
   const trimmed = answer.trim();
   switch (context.questionStage) {
-    case "industry_reason":
-      next.industryReason = trimmed;
-      break;
     case "company_reason":
       next.companyReason = trimmed;
-      break;
-    case "role_selection":
-      next.selectedRole = trimmed;
-      next.selectedRoleSource = profileContext?.target_job_types.includes(trimmed) ? "profile" : "user_free_text";
       break;
     case "desired_work":
       next.desiredWork = trimmed;
@@ -211,64 +292,6 @@ function applyAnswerToConversationContext(
       break;
   }
   return next;
-}
-
-interface GakuchikaContextItem {
-  title: string;
-  strengths: Array<{ title: string; description?: string } | string>;
-  action_text?: string;
-  result_text?: string;
-  numbers?: string[];
-}
-
-async function fetchGakuchikaContext(userId: string): Promise<GakuchikaContextItem[]> {
-  try {
-    const contents = await db
-      .select({
-        id: gakuchikaContents.id,
-        title: gakuchikaContents.title,
-        summary: gakuchikaContents.summary,
-      })
-      .from(gakuchikaContents)
-      .where(eq(gakuchikaContents.userId, userId))
-      .orderBy(desc(gakuchikaContents.updatedAt));
-
-    const results: GakuchikaContextItem[] = [];
-
-    for (const content of contents) {
-      if (results.length >= 3) break;
-
-      const [latestConv] = await db
-        .select({ status: gakuchikaConversations.status })
-        .from(gakuchikaConversations)
-        .where(eq(gakuchikaConversations.gakuchikaId, content.id))
-        .orderBy(desc(gakuchikaConversations.updatedAt))
-        .limit(1);
-
-      if (latestConv?.status !== "completed") continue;
-      if (!content.summary) continue;
-
-      try {
-        const parsed = JSON.parse(content.summary);
-        if (typeof parsed !== "object") continue;
-
-        results.push({
-          title: content.title,
-          strengths: parsed.strengths || [],
-          action_text: parsed.action_text || "",
-          result_text: parsed.result_text || "",
-          numbers: parsed.numbers || [],
-        });
-      } catch {
-        // Skip unparseable summaries
-      }
-    }
-
-    return results;
-  } catch (error) {
-    console.error("[Motivation Stream] Failed to fetch gakuchika context:", error);
-    return [];
-  }
 }
 
 // Configuration (must match non-stream route)
@@ -317,15 +340,11 @@ export async function POST(
     }
 
     // Get conversation
-    const [conversation] = await db
-      .select()
-      .from(motivationConversations)
-      .where(
-        userId
-          ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
-          : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
-      )
-      .limit(1);
+    const conversation = await getMotivationConversationByCondition(
+      userId
+        ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
+        : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
+    );
 
     if (!conversation) {
       return new Response(
@@ -345,10 +364,35 @@ export async function POST(
     const currentQuestionCount = conversation.questionCount ?? 0;
     const newQuestionCount = currentQuestionCount + 1;
     const profileContext = await fetchProfileContext(userId);
-    const conversationContext = applyAnswerToConversationContext(
+    const applicationJobCandidates = await fetchApplicationJobCandidates(companyId, userId, guestId);
+    const resolvedBeforeAnswer = resolveMotivationInputs(
+      { id: company.id, name: company.name, industry: company.industry },
       safeParseConversationContext(conversation.conversationContext),
+      applicationJobCandidates,
+    );
+
+    if (!isSetupComplete(resolvedBeforeAnswer.conversationContext, resolvedBeforeAnswer.requiresIndustrySelection)) {
+      return new Response(
+        JSON.stringify({ error: "先に業界・職種の設定を完了してください" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    if (messages.length === 0) {
+      return new Response(
+        JSON.stringify({ error: "先に質問を開始してください" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const conversationContext = applyAnswerToConversationContext(
+      resolvedBeforeAnswer.conversationContext,
       answer.trim(),
-      profileContext,
+    );
+    const resolvedAfterAnswer = resolveMotivationInputs(
+      { id: company.id, name: company.name, industry: company.industry },
+      conversationContext,
+      applicationJobCandidates,
     );
 
     // Credit check (every QUESTIONS_PER_CREDIT questions for logged-in users)
@@ -388,7 +432,7 @@ export async function POST(
         body: JSON.stringify({
           company_id: company.id,
           company_name: company.name,
-          industry: company.industry,
+          industry: resolvedAfterAnswer.company.industry,
           conversation_history: messages.map(m => ({
             role: m.role,
             content: m.content,
@@ -396,8 +440,15 @@ export async function POST(
           question_count: newQuestionCount,
           scores,
           gakuchika_context: gakuchikaContext.length > 0 ? gakuchikaContext : null,
-          conversation_context: conversationContext,
+          conversation_context: resolvedAfterAnswer.conversationContext,
           profile_context: profileContext,
+          application_job_candidates: applicationJobCandidates.length > 0 ? applicationJobCandidates : null,
+          company_role_candidates: resolvedAfterAnswer.companyRoleCandidates.length > 0 ? resolvedAfterAnswer.companyRoleCandidates : null,
+          company_work_candidates: resolvedAfterAnswer.conversationContext.companyWorkCandidates.length > 0
+            ? resolvedAfterAnswer.conversationContext.companyWorkCandidates
+            : null,
+          requires_industry_selection: resolvedAfterAnswer.requiresIndustrySelection,
+          industry_options: resolvedAfterAnswer.industryOptions.length > 0 ? resolvedAfterAnswer.industryOptions : null,
         }),
         signal: abortController.signal,
       });
@@ -517,34 +568,42 @@ export async function POST(
                 // Update database
                 await db
                   .update(motivationConversations)
-                  .set({
+                  .set(await filterMotivationConversationUpdate({
                     messages: JSON.stringify(messages),
                     questionCount: newQuestionCount,
                     status: isCompleted ? "completed" : "in_progress",
                     motivationScores: newScores ? JSON.stringify(newScores) : null,
                     conversationContext: JSON.stringify({
-                      ...conversationContext,
+                      ...resolvedAfterAnswer.conversationContext,
                       ...(fastApiData.captured_context || {}),
                     }),
                     selectedRole:
                       fastApiData.captured_context?.selectedRole ??
-                      conversationContext.selectedRole ??
+                      resolvedAfterAnswer.conversationContext.selectedRole ??
                       null,
                     selectedRoleSource:
                       fastApiData.captured_context?.selectedRoleSource ??
-                      conversationContext.selectedRoleSource ??
+                      resolvedAfterAnswer.conversationContext.selectedRoleSource ??
                       null,
                     desiredWork:
                       fastApiData.captured_context?.desiredWork ??
-                      conversationContext.desiredWork ??
+                      resolvedAfterAnswer.conversationContext.desiredWork ??
                       null,
                     questionStage:
                       fastApiData.question_stage ??
-                      conversationContext.questionStage,
+                      resolvedAfterAnswer.conversationContext.questionStage,
                     lastSuggestions: JSON.stringify(fastApiData.suggestions || []),
                     lastSuggestionOptions: JSON.stringify(fastApiData.suggestion_options || []),
+                    lastEvidenceCards: JSON.stringify(fastApiData.evidence_cards || []),
+                    stageStatus: JSON.stringify(
+                      fastApiData.stage_status || {
+                        current: fastApiData.question_stage || resolvedAfterAnswer.conversationContext.questionStage,
+                        completed: [],
+                        pending: [],
+                      }
+                    ),
                     updatedAt: new Date(),
-                  })
+                  }))
                   .where(eq(motivationConversations.id, conversation.id));
 
                 // Re-emit complete event with enriched data for frontend
@@ -559,9 +618,11 @@ export async function POST(
                     isCompleted,
                     scores: newScores,
                     evidenceSummary: fastApiData.evidence_summary || null,
+                    evidenceCards: fastApiData.evidence_cards || [],
                     coachingFocus: typeof fastApiData.coaching_focus === "string" ? fastApiData.coaching_focus : null,
                     riskFlags: Array.isArray(fastApiData.risk_flags) ? fastApiData.risk_flags : [],
-                    questionStage: fastApiData.question_stage || conversationContext.questionStage,
+                    questionStage: fastApiData.question_stage || resolvedAfterAnswer.conversationContext.questionStage,
+                    stageStatus: fastApiData.stage_status || null,
                   },
                 };
                 controller.enqueue(

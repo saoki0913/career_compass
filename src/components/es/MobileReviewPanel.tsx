@@ -1,11 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { ReviewPanel } from "./ReviewPanel";
-import type { SectionData } from "@/hooks/useESReview";
+import type { CompanyReviewStatus } from "./ReviewPanel";
 
 interface SectionReviewRequest {
   sectionTitle: string;
@@ -15,31 +23,15 @@ interface SectionReviewRequest {
 
 interface MobileReviewPanelProps {
   documentId: string;
-  content: string;
-  sections?: string[];
-  sectionData?: SectionData[];
-  hasCompanyRag?: boolean;
+  companyReviewStatus?: CompanyReviewStatus;
   companyId?: string;
   companyName?: string;
-  isPaid?: boolean;
   onApplyRewrite?: (newContent: string, sectionTitle?: string | null) => void;
   onUndo?: () => void;
   sectionReviewRequest?: SectionReviewRequest | null;
   onClearSectionReview?: () => void;
-  onScrollToEditorSection?: (sectionTitle: string) => void;
   className?: string;
 }
-
-const SparkleIcon = () => (
-  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-    />
-  </svg>
-);
 
 const MOBILE_MEDIA_QUERY = "(max-width: 1023px)";
 
@@ -52,21 +44,20 @@ function isMobileViewport() {
 
 export function MobileReviewPanel({
   documentId,
-  content,
-  sections,
-  sectionData,
-  hasCompanyRag = false,
+  companyReviewStatus = "no_company_selected",
   companyId,
   companyName,
-  isPaid = false,
   onApplyRewrite,
   onUndo,
   sectionReviewRequest,
   onClearSectionReview,
-  onScrollToEditorSection,
   className,
 }: MobileReviewPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const headerDescription =
+    companyReviewStatus === "ready_for_es_review" && companyName
+      ? `設問を選択すると、ここで${companyName}に合わせたAI添削ができます`
+      : "設問を選択すると、ここでAI添削ができます";
 
   useEffect(() => {
     if (sectionReviewRequest && isMobileViewport()) {
@@ -106,38 +97,39 @@ export function MobileReviewPanel({
       <SheetTrigger asChild>
         <Button
           className={cn(
-            "fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full p-0 shadow-lg lg:hidden",
+            "fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full border border-primary/20 bg-primary p-0 shadow-lg lg:hidden",
             className,
           )}
           size="icon"
         >
-          <SparkleIcon />
+          <Sparkles className="size-5 text-primary-foreground" />
           <span className="sr-only">AI添削</span>
         </Button>
       </SheetTrigger>
-      <SheetContent side="bottom" className="flex h-[88vh] min-h-[60vh] flex-col overflow-hidden p-0 lg:hidden">
-        <SheetHeader className="border-b px-4 py-3">
+      <SheetContent
+        side="bottom"
+        className="flex h-[94vh] min-h-[70vh] flex-col overflow-hidden rounded-t-[30px] border-0 bg-background p-0 lg:hidden"
+      >
+        <SheetHeader className="border-b border-border/60 px-4 py-4 text-left">
           <SheetTitle className="flex items-center gap-2 text-base">
-            <SparkleIcon />
+            <Sparkles className="size-4 text-primary" />
             AI添削
           </SheetTitle>
+          <SheetDescription className="text-sm leading-6">
+            {headerDescription}
+          </SheetDescription>
         </SheetHeader>
         <div className="flex-1 overflow-hidden">
           <ReviewPanel
             documentId={documentId}
-            content={content}
-            sections={sections}
-            sectionData={sectionData}
-            hasCompanyRag={hasCompanyRag}
+            companyReviewStatus={companyReviewStatus}
             companyId={companyId}
             companyName={companyName}
-            isPaid={isPaid}
             onApplyRewrite={onApplyRewrite}
             onUndo={onUndo}
             sectionReviewRequest={sectionReviewRequest}
             onClearSectionReview={onClearSectionReview}
-            onScrollToEditorSection={onScrollToEditorSection}
-            className="h-full [&_>_div]:rounded-none [&_>_div]:border-0 [&_>_div]:shadow-none"
+            className="h-full"
           />
         </div>
       </SheetContent>

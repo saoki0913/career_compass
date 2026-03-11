@@ -102,6 +102,10 @@ interface ExtractedDocument {
 interface FetchResult {
   success: boolean;
   partial_success?: boolean;
+  source_type?: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
+  relation_company_name?: string | null;
+  year_matched?: boolean | null;
+  used_graduation_year?: number | null;
   data?: {
     deadlines: ExtractedDeadline[];
     recruitment_types?: { name: string; source_url: string; confidence: string }[];
@@ -118,6 +122,32 @@ interface FetchResult {
   raw_text?: string | null;
   // NEW: Raw HTML for section-aware chunking
   raw_html?: string | null;
+}
+
+type FetchInfoResultStatus = "success" | "duplicates_only" | "no_deadlines" | "error";
+type DeadlineType = typeof deadlines.$inferInsert.type;
+
+type ScheduleSourceType = NonNullable<FetchResult["source_type"]>;
+
+function capScheduleConfidence(
+  confidence: string | undefined,
+  sourceType: ScheduleSourceType,
+  yearMatched: boolean | null | undefined
+): "high" | "medium" | "low" {
+  const normalizedConfidence = confidence === "high" || confidence === "medium" ? confidence : "low";
+
+  if (sourceType === "official") {
+    if (yearMatched === false && normalizedConfidence === "high") {
+      return "medium";
+    }
+    return normalizedConfidence;
+  }
+
+  if (sourceType === "job_site") {
+    return normalizedConfidence === "high" ? "medium" : normalizedConfidence;
+  }
+
+  return "low";
 }
 
 async function getIdentity(request: NextRequest): Promise<{
@@ -211,7 +241,7 @@ function isSameDay(date1: Date, date2: Date): boolean {
  */
 async function findExistingDeadline(
   companyId: string,
-  type: string,
+  type: DeadlineType,
   title: string,
   dueDate: Date | null
 ): Promise<typeof deadlines.$inferSelect | null> {
@@ -224,7 +254,7 @@ async function findExistingDeadline(
     .where(
       and(
         eq(deadlines.companyId, companyId),
-        eq(deadlines.type, type as any)
+        eq(deadlines.type, type)
       )
     );
 
@@ -267,7 +297,7 @@ export async function POST(
       );
     }
 
-    const { userId, guestId, plan } = identity;
+    const { userId, guestId } = identity;
 
     // Rate limiting check
     const rateLimitKey = createRateLimitKey("fetchInfo", userId, guestId);
@@ -361,6 +391,7 @@ export async function POST(
         },
         body: JSON.stringify({
           url: urlToFetch,
+          company_name: company.name,
           graduation_year: effectiveGraduationYear,
           selection_type: selectionType,
         }),
@@ -393,32 +424,87 @@ export async function POST(
       );
     }
 
-    // Handle failure
-    if (!fetchResult.success) {
-      return NextResponse.json({
-        success: false,
-        error: fetchResult.error || "情報を抽出できませんでした",
-        creditsConsumed: 0,
-      });
-    }
+    const sourceType = fetchResult.source_type || "other";
+    const yearMatched = fetchResult.year_matched ?? null;
+    const normalizedFetchResult: FetchResult = fetchResult.data
+      ? {
+          ...fetchResult,
+          data: {
+            ...fetchResult.data,
+            deadlines: (fetchResult.data.deadlines || []).map((deadline) => ({
+              ...deadline,
+              confidence: capScheduleConfidence(deadline.confidence, sourceType, yearMatched),
+            })),
+            required_documents: (fetchResult.data.required_documents || []).map((document) => ({
+              ...document,
+              confidence: capScheduleConfidence(document.confidence, sourceType, yearMatched),
+            })),
+            application_method: fetchResult.data.application_method
+              ? {
+                  ...fetchResult.data.application_method,
+                  confidence: capScheduleConfidence(
+                    fetchResult.data.application_method.confidence,
+                    sourceType,
+                    yearMatched
+                  ),
+                }
+              : null,
+            selection_process: fetchResult.data.selection_process
+              ? {
+                  ...fetchResult.data.selection_process,
+                  confidence: capScheduleConfidence(
+                    fetchResult.data.selection_process.confidence,
+                    sourceType,
+                    yearMatched
+                  ),
+                }
+              : null,
+          },
+        }
+      : fetchResult;
+    fetchResult = normalizedFetchResult;
 
     const rawContent = fetchResult.raw_html || fetchResult.raw_text || null;
     const rawContentFormat = fetchResult.raw_html ? "html" : "text";
+    const deadlinesExtractedCount = fetchResult.data?.deadlines?.length ?? 0;
 
     // 成功判定の細分化（SPEC.md 4.2）
-    const hasDeadlines = fetchResult.data?.deadlines && fetchResult.data.deadlines.length > 0;
+    const hasDeadlines = deadlinesExtractedCount > 0;
     const hasOtherData = fetchResult.data?.application_method ||
                          (fetchResult.data?.required_documents && fetchResult.data.required_documents.length > 0) ||
                          fetchResult.data?.selection_process;
 
-    // 締切なし & 他データあり = 部分成功（0.5クレジット消費）
-    if (!hasDeadlines && hasOtherData && userId && !useDailyFree) {
-      const partialResult = await consumePartialCredits(
-        userId,
-        "company_fetch",
-        companyId,
-        `選考スケジュール取得（部分成功）: ${company.name}`
-      );
+    // Handle failure from backend fetch/extract stage
+    if (!fetchResult.success) {
+      const resultStatus: FetchInfoResultStatus =
+        hasDeadlines || hasOtherData ? "no_deadlines" : "error";
+      return NextResponse.json({
+        success: false,
+        resultStatus,
+        error: fetchResult.error || "情報を抽出できませんでした",
+        deadlinesExtractedCount,
+        deadlinesSavedCount: 0,
+        creditsConsumed: 0,
+        freeUsed: false,
+        freeRemaining: await getRemainingFreeFetches(userId, guestId),
+      });
+    }
+
+    // 締切なし & 他データあり = no_deadlines
+    if (!hasDeadlines && hasOtherData) {
+      let creditsConsumed = 0;
+      let actualCreditsDeducted: number | undefined;
+
+      if (userId && !useDailyFree) {
+        const partialResult = await consumePartialCredits(
+          userId,
+          "company_fetch",
+          companyId,
+          `選考スケジュール取得（部分成功）: ${company.name}`
+        );
+        creditsConsumed = 0.5;
+        actualCreditsDeducted = partialResult.actualConsumed;
+      }
 
       // Update company's recruitmentUrl and infoFetchedAt
       await db
@@ -439,7 +525,6 @@ export async function POST(
             company_id: companyId,
             company_name: company.name,
             source_url: urlToFetch,
-            // Include raw text for full-text indexing
             raw_content: rawContent,
             raw_content_format: rawContentFormat,
             store_full_text: true,
@@ -461,7 +546,8 @@ export async function POST(
       const freeRemaining = await getRemainingFreeFetches(userId, guestId);
 
       return NextResponse.json({
-        success: true,
+        success: false,
+        resultStatus: "no_deadlines" satisfies FetchInfoResultStatus,
         partial: true,
         data: {
           deadlinesCount: 0,
@@ -471,11 +557,16 @@ export async function POST(
           selectionProcess: fetchResult.data?.selection_process?.value || null,
         },
         deadlines: [],
-        creditsConsumed: 0.5,
-        actualCreditsDeducted: partialResult.actualConsumed,
+        deadlinesExtractedCount,
+        deadlinesSavedCount: 0,
+        creditsConsumed,
+        actualCreditsDeducted,
         freeUsed: false,
         freeRemaining,
-        message: "締切情報は見つかりませんでしたが、他の情報を取得しました（0.5クレジット消費）",
+        message:
+          creditsConsumed > 0
+            ? "締切情報は見つかりませんでしたが、他の情報を取得しました（0.5クレジット消費）"
+            : "締切情報は見つかりませんでしたが、他の情報を取得しました",
       });
     }
 
@@ -483,8 +574,13 @@ export async function POST(
     if (!hasDeadlines && !hasOtherData) {
       return NextResponse.json({
         success: false,
+        resultStatus: "no_deadlines" satisfies FetchInfoResultStatus,
         error: "情報を抽出できませんでした",
+        deadlinesExtractedCount,
+        deadlinesSavedCount: 0,
         creditsConsumed: 0,
+        freeUsed: false,
+        freeRemaining: await getRemainingFreeFetches(userId, guestId),
       });
     }
 
@@ -504,12 +600,14 @@ export async function POST(
 
       for (const d of fetchResult.data.deadlines) {
         // Map type to valid enum value
-        const validTypes = [
+        const validTypes: DeadlineType[] = [
           "es_submission", "web_test", "aptitude_test",
           "interview_1", "interview_2", "interview_3", "interview_final",
           "briefing", "internship", "offer_response", "other"
         ];
-        const type = validTypes.includes(d.type) ? d.type : "other";
+        const type: DeadlineType = validTypes.includes(d.type as DeadlineType)
+          ? (d.type as DeadlineType)
+          : "other";
 
         let dueDate: Date | null = null;
         // Backend uses snake_case: due_date
@@ -558,14 +656,14 @@ export async function POST(
           .values({
             id: crypto.randomUUID(),
             companyId,
-            type: type as any,
+            type,
             title: d.title,
             description: null,
             memo: null,
             dueDate,
             isConfirmed: false, // AI-extracted deadlines need confirmation
             confidence: (d.confidence as "high" | "medium" | "low") || "low",
-            sourceUrl: urlToFetch,
+            sourceUrl: d.source_url || urlToFetch,
             createdAt: now,
             updatedAt: now,
           })
@@ -581,6 +679,9 @@ export async function POST(
         });
       }
     }
+
+    const deadlinesSavedCount = savedDeadlines.length;
+    const duplicatesOnly = deadlinesExtractedCount > 0 && deadlinesSavedCount === 0 && skippedDuplicates.length > 0;
 
     // Update company's recruitmentUrl and infoFetchedAt
     await db
@@ -642,10 +743,34 @@ export async function POST(
     // Get updated free remaining
     const freeRemaining = await getRemainingFreeFetches(userId, guestId);
 
+    if (duplicatesOnly) {
+      return NextResponse.json({
+        success: false,
+        resultStatus: "duplicates_only" satisfies FetchInfoResultStatus,
+        data: {
+          deadlinesCount: 0,
+          deadlineIds: [],
+          duplicatesSkipped: skippedDuplicates.length,
+          duplicateIds: skippedDuplicates,
+          applicationMethod: fetchResult.data?.application_method?.value || null,
+          requiredDocuments: fetchResult.data?.required_documents?.map(d => d.name) || [],
+          selectionProcess: fetchResult.data?.selection_process?.value || null,
+        },
+        deadlines: savedDeadlineSummaries,
+        deadlinesExtractedCount,
+        deadlinesSavedCount,
+        creditsConsumed,
+        freeUsed: useDailyFree,
+        freeRemaining,
+        message: "取得した締切はすべて既存データと重複していたため、新規追加はありませんでした。",
+      });
+    }
+
     return NextResponse.json({
       success: true,
+      resultStatus: "success" satisfies FetchInfoResultStatus,
       data: {
-        deadlinesCount: savedDeadlines.length,
+        deadlinesCount: deadlinesSavedCount,
         deadlineIds: savedDeadlines,
         duplicatesSkipped: skippedDuplicates.length,
         duplicateIds: skippedDuplicates,
@@ -654,6 +779,8 @@ export async function POST(
         selectionProcess: fetchResult.data?.selection_process?.value || null,
       },
       deadlines: savedDeadlineSummaries,
+      deadlinesExtractedCount,
+      deadlinesSavedCount,
       creditsConsumed,
       freeUsed: useDailyFree,
       freeRemaining,

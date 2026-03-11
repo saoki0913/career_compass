@@ -19,6 +19,8 @@ const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
 interface CorporateInfoUrl {
   url: string;
+  kind?: "url" | "upload_pdf";
+  fileName?: string;
   type?: "ir" | "business" | "about" | "general";
   contentType?: string;
   secondaryContentTypes?: string[];
@@ -53,14 +55,18 @@ function parseCorporateInfoUrls(
     }
     return parsed
       .filter((entry) => {
-      if (!entry || typeof entry !== "object") {
-        return false;
-      }
-      const { url } = entry as Partial<CorporateInfoUrl>;
-      return typeof url === "string";
+        if (!entry || typeof entry !== "object") {
+          return false;
+        }
+        const { url } = entry as Partial<CorporateInfoUrl>;
+        return typeof url === "string";
       })
       .map((entry) => {
         const urlEntry = entry as CorporateInfoUrl;
+        urlEntry.kind = urlEntry.kind === "upload_pdf" || urlEntry.url?.startsWith("upload://")
+          ? "upload_pdf"
+          : "url";
+        urlEntry.fileName = typeof urlEntry.fileName === "string" ? urlEntry.fileName : undefined;
         if (!Array.isArray(urlEntry.secondaryContentTypes)) {
           urlEntry.secondaryContentTypes = [];
         } else {

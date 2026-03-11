@@ -199,7 +199,7 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
                   onChange={setName}
                   onSelect={(selectedName, selectedIndustry) => {
                     setName(selectedName);
-                    if (selectedIndustry && !industry) {
+                    if (selectedIndustry) {
                       setIndustry(selectedIndustry);
                     }
                   }}

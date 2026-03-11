@@ -22,6 +22,7 @@
 | `STRIPE_PRICE_STANDARD_MONTHLY` | Yes | Standard 月額 Price ID (`price_...`) |
 | `STRIPE_PRICE_PRO_MONTHLY` | Yes | Pro 月額 Price ID (`price_...`) |
 | `FASTAPI_URL` | Yes | `https://career-compass-backend.up.railway.app` |
+| `NEXT_PUBLIC_QWEN_ES_REVIEW_ENABLED` | No | `true` にすると Qwen3 ES添削 β の UI 導線を表示 |
 | `CRON_SECRET` | Yes | Cron 認証トークン (hex 32) |
 | `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST URL (`https://xxx.upstash.io`) |
 | `UPSTASH_REDIS_REST_TOKEN` | No | Upstash Redis REST トークン |
@@ -38,6 +39,12 @@
 | `CLAUDE_MODEL` | No | Claude Sonnet モデル名 (デフォルト: `claude-sonnet-4-5-20250929`) |
 | `CLAUDE_HAIKU_MODEL` | No | Claude Haiku モデル名 (デフォルト: `claude-haiku-4-5-20251001`) |
 | `OPENAI_MODEL` | No | OpenAI モデル名 (デフォルト: `gpt-5-mini`) |
+| `QWEN_ES_REVIEW_ENABLED` | No | `true` にすると FastAPI 側の `POST /api/es/review/qwen/stream` を有効化 |
+| `QWEN_ES_REVIEW_BASE_URL` | No | vLLM / OpenAI-compatible 推論サービス URL。例: `http://qwen-es-review:8000/v1` |
+| `QWEN_ES_REVIEW_MODEL` | No | base model 名。例: `Qwen/Qwen3-14B` |
+| `QWEN_ES_REVIEW_ADAPTER_ID` | No | vLLM の static LoRA alias。設定時はこちらを優先 |
+| `QWEN_ES_REVIEW_API_KEY` | No | 推論サービス API key。ローカル閉域なら空でも可 |
+| `QWEN_ES_REVIEW_TIMEOUT_SECONDS` | No | Qwen3 β 呼び出しタイムアウト秒。デフォルト `120` |
 | `MODEL_ES_REVIEW` | No | ES添削モデルティア (デフォルト: `claude-sonnet`) |
 | `MODEL_GAKUCHIKA` | No | ガクチカ深掘りモデルティア (デフォルト: `claude-haiku`) |
 | `MODEL_MOTIVATION` | No | 志望動機作成モデルティア (デフォルト: `claude-haiku`) |
@@ -50,7 +57,6 @@
 | `OPENAI_EMBEDDING_MODEL` | No | 埋め込みモデル (デフォルト: `text-embedding-3-small`) |
 | `EMBEDDING_MAX_INPUT_CHARS` | No | 埋め込み最大入力文字数 (デフォルト: `8000`) |
 | `USE_HYBRID_SEARCH` | No | ハイブリッド検索の有効化 (デフォルト: `false`) |
-| `ES_REWRITE_COUNT` | No | リライト案の出力数 (デフォルト: `1`) |
 | `DEBUG` | No | `false` |
 | `COMPANY_SEARCH_DEBUG` | No | `false` |
 | `WEB_SEARCH_DEBUG` | No | `false` |

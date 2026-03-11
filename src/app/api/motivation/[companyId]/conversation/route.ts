@@ -11,14 +11,25 @@ import { db } from "@/lib/db";
 import {
   motivationConversations,
   companies,
-  gakuchikaContents,
-  gakuchikaConversations,
-  userProfiles,
+  applications,
+  jobTypes,
 } from "@/lib/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
+import { logError } from "@/lib/logger";
+import {
+  fetchGakuchikaContext,
+  fetchProfileContext,
+  type GakuchikaContextItem,
+  type ProfileContext,
+} from "@/lib/ai/user-context";
+import {
+  filterMotivationConversationUpdate,
+  getMotivationConversationByCondition,
+} from "@/lib/db/motivationConversationCompat";
+import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -68,18 +79,36 @@ interface MotivationEvaluation {
 interface SuggestionOption {
   id: string;
   label: string;
-  sourceType: "company" | "gakuchika" | "profile" | "hybrid" | "generic";
+  sourceType: "company" | "gakuchika" | "profile" | "application_job_type" | "hybrid";
   intent:
-    | "industry_reason"
     | "company_reason"
-    | "role_selection"
     | "desired_work"
     | "fit_connection"
     | "differentiation"
     | "closing";
+  evidenceSourceIds?: string[];
+  rationale?: string | null;
+  isTentative?: boolean;
+}
+
+interface EvidenceCard {
+  sourceId: string;
+  title: string;
+  contentType: string;
+  excerpt: string;
+  sourceUrl: string;
+  relevanceLabel: string;
+}
+
+interface StageStatus {
+  current: MotivationConversationContext["questionStage"];
+  completed: MotivationConversationContext["questionStage"][];
+  pending: MotivationConversationContext["questionStage"][];
 }
 
 interface MotivationConversationContext {
+  selectedIndustry?: string;
+  selectedIndustrySource?: "company_field" | "company_override" | "user_selected";
   industryReason?: string;
   companyReason?: string;
   selectedRole?: string;
@@ -93,21 +122,11 @@ interface MotivationConversationContext {
   companyRoleCandidates: string[];
   companyWorkCandidates: string[];
   questionStage:
-    | "industry_reason"
     | "company_reason"
-    | "role_selection"
     | "desired_work"
     | "fit_connection"
     | "differentiation"
     | "closing";
-}
-
-interface ProfileContext {
-  university: string | null;
-  faculty: string | null;
-  graduation_year: number | null;
-  target_industries: string[];
-  target_job_types: string[];
 }
 
 function safeParseMessages(json: string): Message[] {
@@ -159,6 +178,70 @@ function safeParseSuggestionOptions(json: string | null): SuggestionOption[] {
   }
 }
 
+function safeParseEvidenceCards(json: string | null): EvidenceCard[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is EvidenceCard =>
+      item &&
+      typeof item === "object" &&
+      typeof item.sourceId === "string" &&
+      typeof item.title === "string" &&
+      typeof item.contentType === "string" &&
+      typeof item.excerpt === "string" &&
+      typeof item.sourceUrl === "string" &&
+      typeof item.relevanceLabel === "string"
+    );
+  } catch {
+    return [];
+  }
+}
+
+const STAGE_ORDER: MotivationConversationContext["questionStage"][] = [
+  "company_reason",
+  "desired_work",
+  "fit_connection",
+  "differentiation",
+  "closing",
+];
+
+function safeParseStageStatus(
+  json: string | null,
+  conversationContext?: MotivationConversationContext | null,
+): StageStatus {
+  if (json) {
+    try {
+      const parsed = JSON.parse(json);
+      if (parsed && typeof parsed === "object" && typeof parsed.current === "string") {
+        return {
+          current: parsed.current,
+          completed: Array.isArray(parsed.completed) ? parsed.completed : [],
+          pending: Array.isArray(parsed.pending) ? parsed.pending : [],
+        } as StageStatus;
+      }
+    } catch {
+      // Fall through to derived value
+    }
+  }
+
+  const context = conversationContext || safeParseConversationContext(null);
+  const current = context.questionStage || (context.companyReason ? "desired_work" : "company_reason");
+  const completed: StageStatus["completed"] = [];
+  if (context.companyReason) completed.push("company_reason");
+  if (context.desiredWork) completed.push("desired_work");
+  const pending = STAGE_ORDER.filter((stage) => stage !== current && !completed.includes(stage));
+  return { current, completed, pending };
+}
+
+function buildEvidenceSummaryFromCards(cards: EvidenceCard[]): string | null {
+  if (cards.length === 0) return null;
+  return cards
+    .slice(0, 2)
+    .map((card) => `${card.sourceId} ${card.title}: ${card.excerpt}`)
+    .join(" / ");
+}
+
 function safeParseConversationContext(json: string | null): MotivationConversationContext {
   if (!json) {
     return {
@@ -169,13 +252,15 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: [],
       companyRoleCandidates: [],
       companyWorkCandidates: [],
-      questionStage: "industry_reason",
+      questionStage: "company_reason",
     };
   }
 
   try {
     const parsed = JSON.parse(json);
     return {
+      selectedIndustry: typeof parsed.selectedIndustry === "string" ? parsed.selectedIndustry : undefined,
+      selectedIndustrySource: typeof parsed.selectedIndustrySource === "string" ? parsed.selectedIndustrySource : undefined,
       industryReason: typeof parsed.industryReason === "string" ? parsed.industryReason : undefined,
       companyReason: typeof parsed.companyReason === "string" ? parsed.companyReason : undefined,
       selectedRole: typeof parsed.selectedRole === "string" ? parsed.selectedRole : undefined,
@@ -188,7 +273,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: Array.isArray(parsed.companyAnchorKeywords) ? parsed.companyAnchorKeywords.filter((v: unknown): v is string => typeof v === "string") : [],
       companyRoleCandidates: Array.isArray(parsed.companyRoleCandidates) ? parsed.companyRoleCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
       companyWorkCandidates: Array.isArray(parsed.companyWorkCandidates) ? parsed.companyWorkCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
-      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "industry_reason",
+      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "company_reason",
     };
   } catch {
     return {
@@ -199,7 +284,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: [],
       companyRoleCandidates: [],
       companyWorkCandidates: [],
-      questionStage: "industry_reason",
+      questionStage: "company_reason",
     };
   }
 }
@@ -219,65 +304,6 @@ function safeParseScores(json: string | null): MotivationScores | null {
   }
 }
 
-interface GakuchikaContextItem {
-  title: string;
-  strengths: Array<{ title: string; description?: string } | string>;
-  action_text?: string;
-  result_text?: string;
-  numbers?: string[];
-}
-
-async function fetchGakuchikaContext(userId: string): Promise<GakuchikaContextItem[]> {
-  try {
-    const contents = await db
-      .select({
-        id: gakuchikaContents.id,
-        title: gakuchikaContents.title,
-        summary: gakuchikaContents.summary,
-      })
-      .from(gakuchikaContents)
-      .where(eq(gakuchikaContents.userId, userId))
-      .orderBy(desc(gakuchikaContents.updatedAt));
-
-    const results: GakuchikaContextItem[] = [];
-
-    for (const content of contents) {
-      if (results.length >= 3) break;
-
-      // Check if this gakuchika has a completed conversation
-      const [latestConv] = await db
-        .select({ status: gakuchikaConversations.status })
-        .from(gakuchikaConversations)
-        .where(eq(gakuchikaConversations.gakuchikaId, content.id))
-        .orderBy(desc(gakuchikaConversations.updatedAt))
-        .limit(1);
-
-      if (latestConv?.status !== "completed") continue;
-      if (!content.summary) continue;
-
-      try {
-        const parsed = JSON.parse(content.summary);
-        if (typeof parsed !== "object") continue;
-
-        results.push({
-          title: content.title,
-          strengths: parsed.strengths || [],
-          action_text: parsed.action_text || "",
-          result_text: parsed.result_text || "",
-          numbers: parsed.numbers || [],
-        });
-      } catch {
-        // Skip unparseable summaries
-      }
-    }
-
-    return results;
-  } catch (error) {
-    console.error("[Motivation] Failed to fetch gakuchika context:", error);
-    return [];
-  }
-}
-
 // Configuration
 const ELEMENT_COMPLETION_THRESHOLD = 70;
 const QUESTIONS_PER_CREDIT = 5;
@@ -294,9 +320,11 @@ interface FastAPIQuestionResponse {
   suggestions?: string[];
   suggestion_options?: SuggestionOption[];
   evidence_summary?: string;
+  evidence_cards?: EvidenceCard[];
   coaching_focus?: string;
   risk_flags?: string[];
   question_stage?: MotivationConversationContext["questionStage"];
+  stage_status?: StageStatus;
   captured_context?: Partial<MotivationConversationContext>;
 }
 
@@ -306,42 +334,108 @@ interface CompanyData {
   industry: string | null;
 }
 
-async function fetchProfileContext(userId: string | null): Promise<ProfileContext | null> {
-  if (!userId) return null;
-  const [profile] = await db
-    .select()
-    .from(userProfiles)
-    .where(eq(userProfiles.userId, userId))
-    .limit(1);
+interface ResolvedMotivationInputs {
+  company: CompanyData;
+  conversationContext: MotivationConversationContext;
+  requiresIndustrySelection: boolean;
+  industryOptions: string[];
+  companyRoleCandidates: string[];
+}
 
-  if (!profile) return null;
+function isSetupComplete(
+  conversationContext: MotivationConversationContext,
+  requiresIndustrySelection: boolean,
+): boolean {
+  const hasIndustry = !requiresIndustrySelection || Boolean(conversationContext.selectedIndustry);
+  return hasIndustry && Boolean(conversationContext.selectedRole);
+}
+
+function uniqueStrings(values: Array<string | null | undefined>, maxItems = 8): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    const normalized = value?.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    output.push(normalized);
+    if (output.length >= maxItems) break;
+  }
+  return output;
+}
+
+function resolveMotivationInputs(
+  company: CompanyData,
+  conversationContext: MotivationConversationContext,
+  applicationJobCandidates: string[],
+): ResolvedMotivationInputs {
+  const resolution = resolveMotivationRoleContext({
+    companyName: company.name,
+    companyIndustry: company.industry,
+    selectedIndustry: conversationContext.selectedIndustry,
+    applicationRoles: applicationJobCandidates,
+  });
+
+  const nextContext: MotivationConversationContext = {
+    ...conversationContext,
+    selectedIndustry: conversationContext.selectedIndustry || resolution.resolvedIndustry || undefined,
+    selectedIndustrySource:
+      conversationContext.selectedIndustrySource ||
+      resolution.industrySource ||
+      undefined,
+    companyRoleCandidates: uniqueStrings([
+      ...conversationContext.companyRoleCandidates,
+      ...resolution.roleCandidates,
+    ]),
+  };
 
   return {
-    university: profile.university || null,
-    faculty: profile.faculty || null,
-    graduation_year: profile.graduationYear || null,
-    target_industries: profile.targetIndustries ? JSON.parse(profile.targetIndustries) : [],
-    target_job_types: profile.targetJobTypes ? JSON.parse(profile.targetJobTypes) : [],
+    company: {
+      ...company,
+      industry: resolution.resolvedIndustry,
+    },
+    conversationContext: nextContext,
+    requiresIndustrySelection: resolution.requiresIndustrySelection,
+    industryOptions: [...resolution.industryOptions],
+    companyRoleCandidates: resolution.roleCandidates,
   };
+}
+
+async function fetchApplicationJobCandidates(
+  companyId: string,
+  userId: string | null,
+  guestId: string | null,
+): Promise<string[]> {
+  const rows = await db
+    .select({
+      jobTypeName: jobTypes.name,
+    })
+    .from(applications)
+    .leftJoin(jobTypes, eq(jobTypes.applicationId, applications.id))
+    .where(
+      userId
+        ? and(eq(applications.companyId, companyId), eq(applications.userId, userId))
+        : and(eq(applications.companyId, companyId), eq(applications.guestId, guestId!))
+    );
+
+  const candidates: string[] = [];
+  for (const row of rows) {
+    const value = row.jobTypeName?.trim();
+    if (value && !candidates.includes(value)) {
+      candidates.push(value);
+    }
+  }
+  return candidates.slice(0, 6);
 }
 
 function applyAnswerToConversationContext(
   context: MotivationConversationContext,
   answer: string,
-  profileContext: ProfileContext | null,
 ): MotivationConversationContext {
   const next = { ...context };
   const trimmed = answer.trim();
   switch (context.questionStage) {
-    case "industry_reason":
-      next.industryReason = trimmed;
-      break;
     case "company_reason":
       next.companyReason = trimmed;
-      break;
-    case "role_selection":
-      next.selectedRole = trimmed;
-      next.selectedRoleSource = profileContext?.target_job_types.includes(trimmed) ? "profile" : "user_free_text";
       break;
     case "desired_work":
       next.desiredWork = trimmed;
@@ -360,6 +454,10 @@ async function getQuestionFromFastAPI(
   gakuchikaContext?: GakuchikaContextItem[],
   conversationContext?: MotivationConversationContext,
   profileContext?: ProfileContext | null,
+  applicationJobCandidates?: string[],
+  companyRoleCandidates?: string[],
+  requiresIndustrySelection?: boolean,
+  industryOptions?: string[],
 ): Promise<{
   question: string | null;
   error: string | null;
@@ -367,9 +465,11 @@ async function getQuestionFromFastAPI(
   suggestions: string[];
   suggestionOptions: SuggestionOption[];
   evidenceSummary: string | null;
+  evidenceCards: EvidenceCard[];
   coachingFocus: string | null;
   riskFlags: string[];
   questionStage: MotivationConversationContext["questionStage"] | null;
+  stageStatus: StageStatus | null;
   capturedContext: Partial<MotivationConversationContext> | null;
 }> {
   const controller = new AbortController();
@@ -392,6 +492,11 @@ async function getQuestionFromFastAPI(
         gakuchika_context: gakuchikaContext && gakuchikaContext.length > 0 ? gakuchikaContext : null,
         conversation_context: conversationContext,
         profile_context: profileContext,
+        application_job_candidates: applicationJobCandidates && applicationJobCandidates.length > 0 ? applicationJobCandidates : null,
+        company_role_candidates: companyRoleCandidates && companyRoleCandidates.length > 0 ? companyRoleCandidates : null,
+        company_work_candidates: conversationContext.companyWorkCandidates.length > 0 ? conversationContext.companyWorkCandidates : null,
+        requires_industry_selection: Boolean(requiresIndustrySelection),
+        industry_options: industryOptions && industryOptions.length > 0 ? industryOptions : null,
       }),
       signal: controller.signal,
     });
@@ -405,9 +510,11 @@ async function getQuestionFromFastAPI(
         suggestions: [],
         suggestionOptions: [],
         evidenceSummary: null,
+        evidenceCards: [],
         coachingFocus: null,
         riskFlags: [],
         questionStage: null,
+        stageStatus: null,
         capturedContext: null,
       };
     }
@@ -420,9 +527,11 @@ async function getQuestionFromFastAPI(
       suggestions: data.suggestions || [],
       suggestionOptions: data.suggestion_options || [],
       evidenceSummary: data.evidence_summary || null,
+      evidenceCards: data.evidence_cards || [],
       coachingFocus: data.coaching_focus || null,
       riskFlags: Array.isArray(data.risk_flags) ? data.risk_flags : [],
       questionStage: data.question_stage || null,
+      stageStatus: data.stage_status || null,
       capturedContext: data.captured_context || null,
     };
   } catch (error) {
@@ -435,9 +544,11 @@ async function getQuestionFromFastAPI(
         suggestions: [],
         suggestionOptions: [],
         evidenceSummary: null,
+        evidenceCards: [],
         coachingFocus: null,
         riskFlags: [],
         questionStage: null,
+        stageStatus: null,
         capturedContext: null,
       };
     }
@@ -448,9 +559,11 @@ async function getQuestionFromFastAPI(
       suggestions: [],
       suggestionOptions: [],
       evidenceSummary: null,
+      evidenceCards: [],
       coachingFocus: null,
       riskFlags: [],
       questionStage: null,
+      stageStatus: null,
       capturedContext: null,
     };
   } finally {
@@ -463,135 +576,182 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ companyId: string }> }
 ) {
-  const { companyId } = await params;
-  const identity = await getIdentity(request);
-  if (!identity) {
-    return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
-  }
-
-  const { userId, guestId } = identity;
-
-  // Get company
-  const [company] = await db
-    .select()
-    .from(companies)
-    .where(eq(companies.id, companyId))
-    .limit(1);
-
-  if (!company) {
-    return NextResponse.json({ error: "企業が見つかりません" }, { status: 404 });
-  }
-
-  // Find or create conversation
-  let conversation = (await db
-    .select()
-    .from(motivationConversations)
-    .where(
-      userId
-        ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
-        : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
-    )
-    .limit(1))[0];
-
-  if (!conversation) {
-    // Create new conversation
-    const newId = crypto.randomUUID();
-    const now = new Date();
-
-    await db.insert(motivationConversations).values({
-      id: newId,
-      userId,
-      guestId,
-      companyId,
-      messages: "[]",
-      questionCount: 0,
-      status: "in_progress",
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    conversation = (await db
-      .select()
-      .from(motivationConversations)
-      .where(eq(motivationConversations.id, newId))
-      .limit(1))[0];
-  }
-
-  if (!conversation) {
-    return NextResponse.json({ error: "会話の作成に失敗しました" }, { status: 500 });
-  }
-
-  const messages = safeParseMessages(conversation.messages);
-  const scores = safeParseScores(conversation.motivationScores);
-  const isCompleted = conversation.status === "completed";
-  const conversationContext = safeParseConversationContext(conversation.conversationContext);
-  const suggestionOptionsFromDb = safeParseSuggestionOptions(conversation.lastSuggestionOptions);
-  const profileContext = await fetchProfileContext(userId);
-
-  // Get next question if not completed
-  let nextQuestion: string | null = null;
-  let suggestions: string[] = [];
-  let suggestionOptions: SuggestionOption[] = [];
-  let evidenceSummary: string | null = null;
-  let coachingFocus: string | null = null;
-  let riskFlags: string[] = [];
-  let initError: string | null = null;
-
-  if (!isCompleted) {
-    if (messages.length === 0) {
-      // Fetch gakuchika context for personalization
-      const gakuchikaContext = userId ? await fetchGakuchikaContext(userId) : [];
-
-      // New conversation: fetch initial question from FastAPI
-      const result = await getQuestionFromFastAPI(
-        { id: company.id, name: company.name, industry: company.industry },
-        [],
-        0,
-        undefined,
-        gakuchikaContext,
-        conversationContext,
-        profileContext,
-      );
-      nextQuestion = result.question;
-      suggestions = result.suggestions;
-      suggestionOptions = result.suggestionOptions;
-      evidenceSummary = result.evidenceSummary;
-      coachingFocus = result.coachingFocus;
-      riskFlags = result.riskFlags;
-      initError = result.error;
-    } else {
-      // Existing conversation: extract nextQuestion from last assistant message
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage && lastMessage.role === "assistant") {
-        nextQuestion = lastMessage.content;
-      }
-      // Restore saved suggestions from DB
-      suggestions = safeParseStringArray(conversation.lastSuggestions);
-      suggestionOptions = suggestionOptionsFromDb;
+  try {
+    const { companyId } = await params;
+    const identity = await getIdentity(request);
+    if (!identity) {
+      return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
     }
-  }
 
-  return NextResponse.json({
-    conversation: {
-      id: conversation.id,
-      questionCount: conversation.questionCount,
-      status: conversation.status,
-    },
-    messages,
-    nextQuestion,
-    suggestions,
-    suggestionOptions,
-    questionCount: conversation.questionCount ?? 0,
-    isCompleted,
-    scores,
-    evidenceSummary,
-    coachingFocus,
-    riskFlags,
-    generatedDraft: conversation.generatedDraft,
-    conversationContext,
-    questionStage: conversation.questionStage || conversationContext.questionStage,
-    error: initError,
-  });
+    const { userId, guestId } = identity;
+    const ownerCondition = userId
+      ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
+      : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!));
+
+    // Get company
+    const [company] = await db
+      .select()
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .limit(1);
+
+    if (!company) {
+      return NextResponse.json({ error: "企業が見つかりません" }, { status: 404 });
+    }
+
+    // Find or create conversation
+    let conversation = await getMotivationConversationByCondition(ownerCondition);
+
+    if (!conversation) {
+      const newId = crypto.randomUUID();
+      const now = new Date();
+      const baseConversation = {
+        id: newId,
+        userId,
+        guestId,
+        companyId,
+        messages: "[]",
+        questionCount: 0,
+        status: "in_progress" as const,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      if (userId) {
+        await db
+          .insert(motivationConversations)
+          .values(baseConversation)
+          .onConflictDoNothing({
+            target: [motivationConversations.companyId, motivationConversations.userId],
+          });
+      } else {
+        await db
+          .insert(motivationConversations)
+          .values(baseConversation)
+          .onConflictDoNothing({
+            target: [motivationConversations.companyId, motivationConversations.guestId],
+          });
+      }
+
+      conversation = await getMotivationConversationByCondition(ownerCondition);
+    }
+
+    if (!conversation) {
+      return NextResponse.json({ error: "会話の作成に失敗しました" }, { status: 500 });
+    }
+
+    const messages = safeParseMessages(conversation.messages);
+    const scores = safeParseScores(conversation.motivationScores);
+    const isCompleted = conversation.status === "completed";
+    const initialConversationContext = safeParseConversationContext(conversation.conversationContext);
+    const suggestionOptionsFromDb = safeParseSuggestionOptions(conversation.lastSuggestionOptions);
+    const evidenceCardsFromDb = safeParseEvidenceCards(conversation.lastEvidenceCards);
+    let applicationJobCandidates: string[] = [];
+    try {
+      applicationJobCandidates = await fetchApplicationJobCandidates(companyId, userId, guestId);
+    } catch (error) {
+      logError("get-motivation-conversation:application-job-candidates", error, {
+        companyId,
+        userId: userId ?? undefined,
+        guestId: guestId ?? undefined,
+      });
+    }
+    const resolvedInputs = resolveMotivationInputs(
+      { id: company.id, name: company.name, industry: company.industry },
+      initialConversationContext,
+      applicationJobCandidates,
+    );
+    const conversationContext = resolvedInputs.conversationContext;
+    const setupComplete = isSetupComplete(
+      conversationContext,
+      resolvedInputs.requiresIndustrySelection,
+    );
+    const requiresRestartForSetup = messages.length > 0 && !setupComplete;
+    const stageStatusFromDb = safeParseStageStatus(
+      conversation.stageStatus,
+      {
+        ...conversationContext,
+        questionStage: (conversation.questionStage as MotivationConversationContext["questionStage"] | null) || conversationContext.questionStage,
+      },
+    );
+
+    // Get next question if not completed
+    let nextQuestion: string | null = null;
+    let suggestions: string[] = [];
+    let suggestionOptions: SuggestionOption[] = [];
+    let evidenceSummary: string | null = buildEvidenceSummaryFromCards(evidenceCardsFromDb);
+    let evidenceCards: EvidenceCard[] = evidenceCardsFromDb;
+    let coachingFocus: string | null = null;
+    let riskFlags: string[] = [];
+    let stageStatus: StageStatus | null = stageStatusFromDb;
+    const initError: string | null = null;
+
+    if (!isCompleted) {
+      if (messages.length > 0) {
+        // Existing conversation: extract nextQuestion from last assistant message
+        const lastMessage = messages[messages.length - 1];
+        if (lastMessage && lastMessage.role === "assistant") {
+          nextQuestion = lastMessage.content;
+        }
+        // Restore saved suggestions from DB
+        suggestions = safeParseStringArray(conversation.lastSuggestions);
+        suggestionOptions = suggestionOptionsFromDb;
+        evidenceCards = evidenceCardsFromDb;
+        evidenceSummary = buildEvidenceSummaryFromCards(evidenceCardsFromDb);
+      }
+    }
+
+    if (requiresRestartForSetup) {
+      nextQuestion = null;
+      suggestions = [];
+      suggestionOptions = [];
+      evidenceSummary = null;
+      evidenceCards = [];
+      coachingFocus = null;
+      riskFlags = [];
+      stageStatus = null;
+    }
+
+    return NextResponse.json({
+      conversation: {
+        id: conversation.id,
+        questionCount: conversation.questionCount,
+        status: conversation.status,
+      },
+      messages,
+      nextQuestion,
+      suggestions,
+      suggestionOptions,
+      questionCount: conversation.questionCount ?? 0,
+      isCompleted,
+      scores,
+      evidenceSummary,
+      evidenceCards,
+      coachingFocus,
+      riskFlags,
+      generatedDraft: conversation.generatedDraft,
+      conversationContext,
+      setup: {
+        selectedIndustry: conversationContext.selectedIndustry || resolvedInputs.company.industry,
+        selectedRole: conversationContext.selectedRole || null,
+        selectedRoleSource: conversationContext.selectedRoleSource || null,
+        requiresIndustrySelection: resolvedInputs.requiresIndustrySelection,
+        resolvedIndustry: resolvedInputs.company.industry,
+        isComplete: setupComplete,
+        requiresRestart: requiresRestartForSetup,
+        hasSavedConversation: (conversation.questionCount ?? 0) > 0 || messages.length > 0 || isCompleted,
+      },
+      questionStage: conversation.questionStage || conversationContext.questionStage,
+      stageStatus,
+      error: initError,
+    });
+  } catch (error) {
+    logError("get-motivation-conversation", error);
+    return NextResponse.json(
+      { error: "会話データの取得中にエラーが発生しました" },
+      { status: 500 }
+    );
+  }
 }
 
 // POST: Send answer
@@ -626,15 +786,11 @@ export async function POST(
   }
 
   // Get conversation
-  const [conversation] = await db
-    .select()
-    .from(motivationConversations)
-    .where(
-      userId
-        ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
-        : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
-    )
-    .limit(1);
+  const conversation = await getMotivationConversationByCondition(
+    userId
+      ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
+      : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
+  );
 
   if (!conversation) {
     return NextResponse.json({ error: "会話が見つかりません" }, { status: 404 });
@@ -648,10 +804,29 @@ export async function POST(
   const currentQuestionCount = conversation.questionCount ?? 0;
   const newQuestionCount = currentQuestionCount + 1;
   const profileContext = await fetchProfileContext(userId);
-  const conversationContext = applyAnswerToConversationContext(
+  const applicationJobCandidates = await fetchApplicationJobCandidates(companyId, userId, guestId);
+  const resolvedBeforeAnswer = resolveMotivationInputs(
+    { id: company.id, name: company.name, industry: company.industry },
     safeParseConversationContext(conversation.conversationContext),
+    applicationJobCandidates,
+  );
+
+  if (!isSetupComplete(resolvedBeforeAnswer.conversationContext, resolvedBeforeAnswer.requiresIndustrySelection)) {
+    return NextResponse.json({ error: "先に業界・職種の設定を完了してください" }, { status: 400 });
+  }
+
+  if (messages.length === 0) {
+    return NextResponse.json({ error: "先に質問を開始してください" }, { status: 400 });
+  }
+
+  const conversationContext = applyAnswerToConversationContext(
+    resolvedBeforeAnswer.conversationContext,
     answer.trim(),
-    profileContext,
+  );
+  const resolvedAfterAnswer = resolveMotivationInputs(
+    { id: company.id, name: company.name, industry: company.industry },
+    conversationContext,
+    applicationJobCandidates,
   );
 
   // Credit check (every QUESTIONS_PER_CREDIT questions for logged-in users)
@@ -678,13 +853,17 @@ export async function POST(
   // Get next question from FastAPI
   const scores = safeParseScores(conversation.motivationScores);
   const result = await getQuestionFromFastAPI(
-    { id: company.id, name: company.name, industry: company.industry },
+    resolvedAfterAnswer.company,
     messages,
     newQuestionCount,
     scores,
     gakuchikaContext,
-    conversationContext,
+    resolvedAfterAnswer.conversationContext,
     profileContext,
+    applicationJobCandidates,
+    resolvedAfterAnswer.companyRoleCandidates,
+    resolvedAfterAnswer.requiresIndustrySelection,
+    resolvedAfterAnswer.industryOptions,
   );
 
   if (result.error) {
@@ -729,32 +908,34 @@ export async function POST(
   // Update database
   await db
     .update(motivationConversations)
-    .set({
+    .set(await filterMotivationConversationUpdate({
       messages: JSON.stringify(messages),
       questionCount: newQuestionCount,
       status: isCompleted ? "completed" : "in_progress",
       motivationScores: newScores ? JSON.stringify(newScores) : null,
       conversationContext: JSON.stringify({
-        ...conversationContext,
+        ...resolvedAfterAnswer.conversationContext,
         ...(result.capturedContext || {}),
       }),
       selectedRole:
         (result.capturedContext?.selectedRole as string | undefined) ??
-        conversationContext.selectedRole ??
+        resolvedAfterAnswer.conversationContext.selectedRole ??
         null,
       selectedRoleSource:
         (result.capturedContext?.selectedRoleSource as string | undefined) ??
-        conversationContext.selectedRoleSource ??
+        resolvedAfterAnswer.conversationContext.selectedRoleSource ??
         null,
       desiredWork:
         (result.capturedContext?.desiredWork as string | undefined) ??
-        conversationContext.desiredWork ??
+        resolvedAfterAnswer.conversationContext.desiredWork ??
         null,
-      questionStage: result.questionStage ?? conversationContext.questionStage,
+      questionStage: result.questionStage ?? resolvedAfterAnswer.conversationContext.questionStage,
       lastSuggestions: JSON.stringify(result.suggestions || []),
       lastSuggestionOptions: JSON.stringify(result.suggestionOptions || []),
+      lastEvidenceCards: JSON.stringify(result.evidenceCards || []),
+      stageStatus: JSON.stringify(result.stageStatus || safeParseStageStatus(null, resolvedAfterAnswer.conversationContext)),
       updatedAt: new Date(),
-    })
+    }))
     .where(eq(motivationConversations.id, conversation.id));
 
   return NextResponse.json({
@@ -766,8 +947,58 @@ export async function POST(
     isCompleted,
     scores: newScores,
     evidenceSummary: result.evidenceSummary,
+    evidenceCards: result.evidenceCards,
     coachingFocus: result.coachingFocus,
     riskFlags: result.riskFlags,
     questionStage: result.questionStage,
+    stageStatus: result.stageStatus,
   });
+}
+
+// DELETE: Reset conversation history
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ companyId: string }> }
+) {
+  const { companyId } = await params;
+  const identity = await getIdentity(request);
+  if (!identity) {
+    return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
+  }
+
+  const { userId, guestId } = identity;
+
+  const conversation = await getMotivationConversationByCondition(
+    userId
+      ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
+      : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
+  );
+
+  if (!conversation) {
+    return NextResponse.json({ success: true, reset: false });
+  }
+
+  await db
+    .update(motivationConversations)
+    .set(await filterMotivationConversationUpdate({
+      messages: "[]",
+      questionCount: 0,
+      status: "in_progress" as const,
+      motivationScores: null,
+      generatedDraft: null,
+      charLimitType: null,
+      conversationContext: null,
+      selectedRole: null,
+      selectedRoleSource: null,
+      desiredWork: null,
+      questionStage: null,
+      lastSuggestions: null,
+      lastSuggestionOptions: null,
+      lastEvidenceCards: null,
+      stageStatus: null,
+      updatedAt: new Date(),
+    }))
+    .where(eq(motivationConversations.id, conversation.id));
+
+  return NextResponse.json({ success: true, reset: true });
 }

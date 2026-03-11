@@ -100,20 +100,46 @@ export async function POST(request: NextRequest) {
 
     if (action === "create") {
       if (!settings?.targetCalendarId) {
-        return NextResponse.json({ error: "追加先カレンダーを設定してください" }, { status: 400 });
+        return NextResponse.json(
+          { error: "追加先カレンダーを設定してください", code: "TARGET_CALENDAR_REQUIRED" },
+          { status: 400 }
+        );
       }
       const { title, startAt, endAt, description } = body;
-      const event = await createCalendarEvent(accessToken, calendarId, { title, startAt, endAt, description });
-      return NextResponse.json({ event });
+      if (!title || !startAt || !endAt) {
+        return NextResponse.json(
+          { error: "イベント情報が不足しています", code: "INVALID_EVENT_PAYLOAD" },
+          { status: 400 }
+        );
+      }
+      try {
+        const event = await createCalendarEvent(accessToken, calendarId, { title, startAt, endAt, description });
+        return NextResponse.json({ event });
+      } catch {
+        return NextResponse.json(
+          { error: "Googleカレンダーへの追加に失敗しました", code: "CALENDAR_CREATE_FAILED" },
+          { status: 502 }
+        );
+      }
     }
 
     if (action === "replace") {
       if (!settings?.targetCalendarId) {
-        return NextResponse.json({ error: "追加先カレンダーを設定してください" }, { status: 400 });
+        return NextResponse.json(
+          { error: "追加先カレンダーを設定してください", code: "TARGET_CALENDAR_REQUIRED" },
+          { status: 400 }
+        );
       }
       const { timeMin, timeMax, events: newEvents } = body;
-      const created = await replaceUkarunEvents(accessToken, calendarId, timeMin, timeMax, newEvents);
-      return NextResponse.json({ created });
+      try {
+        const created = await replaceUkarunEvents(accessToken, calendarId, timeMin, timeMax, newEvents);
+        return NextResponse.json({ created });
+      } catch {
+        return NextResponse.json(
+          { error: "Googleカレンダーへの反映に失敗しました", code: "CALENDAR_REPLACE_FAILED" },
+          { status: 502 }
+        );
+      }
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

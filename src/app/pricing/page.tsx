@@ -142,9 +142,9 @@ function PricingPageContent() {
     // For free plan, just redirect to signup/login
     if (planId === "free") {
       if (!isAuthenticated) {
-        router.push("/login?redirect=/onboarding");
+        router.push("/login?redirect=/dashboard");
       } else {
-        router.push(userPlan?.needsOnboarding ? "/onboarding" : "/dashboard");
+        router.push("/dashboard");
       }
       return;
     }

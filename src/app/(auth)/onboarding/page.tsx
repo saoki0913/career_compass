@@ -7,38 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-
-// Industry options
-const INDUSTRIES = [
-  "IT・通信",
-  "メーカー（電機・機械）",
-  "メーカー（食品・日用品）",
-  "金融・保険",
-  "商社",
-  "コンサルティング",
-  "広告・マスコミ",
-  "不動産・建設",
-  "小売・流通",
-  "サービス・インフラ",
-  "医療・福祉",
-  "教育",
-  "公務員・団体",
-  "その他",
-];
-
-// Job type options
-const JOB_TYPES = [
-  "営業",
-  "企画・マーケティング",
-  "エンジニア",
-  "研究・開発",
-  "デザイナー",
-  "事務・管理",
-  "コンサルタント",
-  "財務・経理",
-  "人事・総務",
-  "その他",
-];
+import { INDUSTRIES, PROFILE_JOB_TYPES } from "@/lib/constants/industries";
 
 // Generate graduation year options (current year to +5 years)
 function getGraduationYears(): number[] {
@@ -58,12 +27,24 @@ interface OnboardingData {
   targetJobTypes: string[];
 }
 
+interface OnboardingResponse {
+  onboardingCompleted: boolean;
+  data: {
+    university: string | null;
+    faculty: string | null;
+    graduationYear: number | null;
+    targetIndustries: string[];
+    targetJobTypes: string[];
+  } | null;
+}
+
 export default function OnboardingPage() {
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isFetching, setIsFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const { isAuthenticated, isLoading, userPlan, refreshPlan } = useAuth();
+  const { isAuthenticated, isLoading, refreshPlan } = useAuth();
 
   const [data, setData] = useState<OnboardingData>({
     university: "",
@@ -76,15 +57,43 @@ export default function OnboardingPage() {
   const [gakuchikaTitle, setGakuchikaTitle] = useState("");
   const [gakuchikaContent, setGakuchikaContent] = useState("");
 
-  // Redirect if not authenticated or needs plan selection
+  // Redirect if not authenticated.
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push("/login");
     }
-    if (!isLoading && isAuthenticated && userPlan?.onboardingCompleted) {
-      router.push("/dashboard");
-    }
-  }, [isLoading, isAuthenticated, userPlan, router]);
+  }, [isLoading, isAuthenticated, router]);
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) return;
+
+    const loadOnboarding = async () => {
+      try {
+        setIsFetching(true);
+        const response = await fetch("/api/auth/onboarding");
+        if (!response.ok) {
+          throw new Error("プロフィール情報の取得に失敗しました");
+        }
+
+        const result: OnboardingResponse = await response.json();
+        if (!result.data) return;
+
+        setData({
+          university: result.data.university || "",
+          faculty: result.data.faculty || "",
+          graduationYear: result.data.graduationYear,
+          targetIndustries: result.data.targetIndustries || [],
+          targetJobTypes: result.data.targetJobTypes || [],
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "エラーが発生しました");
+      } finally {
+        setIsFetching(false);
+      }
+    };
+
+    loadOnboarding();
+  }, [isLoading, isAuthenticated]);
 
   const handleIndustryToggle = (industry: string) => {
     setData((prev) => ({
@@ -173,7 +182,7 @@ export default function OnboardingPage() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || isFetching) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
@@ -239,6 +248,7 @@ export default function OnboardingPage() {
 
       {/* Header */}
       <div className="text-center mb-8">
+        <p className="text-sm font-medium text-primary mb-2">プロフィール設定</p>
         <h1 className="text-2xl font-bold mb-2">
           {step === 1
             ? "あなたについて教えてください"
@@ -248,10 +258,10 @@ export default function OnboardingPage() {
         </h1>
         <p className="text-muted-foreground text-sm">
           {step === 1
-            ? "就活に役立つ情報を提供するために使用します"
+            ? "入力した内容はおすすめ企業や作業提案の精度向上に使います"
             : step === 2
-            ? "企業情報やES添削をより適切に行うために使用します"
-            : "AIがあなたの経験を深掘りします（スキップ可）"}
+            ? "志望業界と職種を入れておくと、企業管理やES作成が整理しやすくなります"
+            : "ここで作ったガクチカは、そのままAI深掘りに進めます（任意）"}
         </p>
       </div>
 
@@ -337,7 +347,7 @@ export default function OnboardingPage() {
             <CardContent className="pt-6">
               <Label className="mb-4 block">志望職種（複数選択可）</Label>
               <div className="flex flex-wrap gap-2">
-                {JOB_TYPES.map((jobType) => (
+                {PROFILE_JOB_TYPES.map((jobType) => (
                   <button
                     key={jobType}
                     type="button"
@@ -425,7 +435,7 @@ export default function OnboardingPage() {
                 onClick={() => handleSubmit(false, true)}
                 disabled={isSubmitting}
               >
-                スキップ
+                ガクチカはあとで
               </Button>
               <Button onClick={() => handleSubmit(false, false)} disabled={isSubmitting}>
                 {isSubmitting ? (
@@ -434,7 +444,7 @@ export default function OnboardingPage() {
                     保存中...
                   </>
                 ) : (
-                  "完了"
+                  "保存する"
                 )}
               </Button>
             </div>
@@ -443,7 +453,7 @@ export default function OnboardingPage() {
       </div>
 
       <p className="mt-6 text-center text-xs text-muted-foreground">
-        この情報は後から設定画面でいつでも変更できます
+        この情報は後からいつでも更新できます
       </p>
     </div>
   );

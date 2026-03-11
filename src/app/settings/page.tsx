@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { INDUSTRIES, PROFILE_JOB_TYPES } from "@/lib/constants/industries";
 
 const LoadingSpinner = () => (
   <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -27,33 +28,6 @@ const CheckIcon = () => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
   </svg>
 );
-
-// Industry options
-const INDUSTRIES = [
-  "IT・通信",
-  "メーカー",
-  "金融",
-  "商社",
-  "コンサル",
-  "広告・メディア",
-  "インフラ",
-  "サービス",
-  "不動産",
-  "その他",
-];
-
-// Job type options
-const JOB_TYPES = [
-  "総合職",
-  "エンジニア",
-  "営業",
-  "マーケティング",
-  "企画",
-  "コンサルタント",
-  "デザイナー",
-  "データサイエンティスト",
-  "その他",
-];
 
 interface Profile {
   name: string;
@@ -564,7 +538,7 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
-              {JOB_TYPES.map((jobType) => (
+              {PROFILE_JOB_TYPES.map((jobType) => (
                 <button
                   key={jobType}
                   type="button"

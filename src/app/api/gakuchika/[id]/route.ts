@@ -70,16 +70,10 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Parse linkedCompanyIds from JSON string
-    const linkedCompanyIds = gakuchika.linkedCompanyIds
-      ? JSON.parse(gakuchika.linkedCompanyIds)
-      : [];
+    const { linkedCompanyIds: _linkedCompanyIds, ...safeGakuchika } = gakuchika;
 
     return NextResponse.json({
-      gakuchika: {
-        ...gakuchika,
-        linkedCompanyIds,
-      },
+      gakuchika: safeGakuchika,
     });
   } catch (error) {
     console.error("Error fetching gakuchika:", error);
@@ -132,7 +126,6 @@ export async function PUT(
       title?: string;
       content?: string;
       charLimitType?: "300" | "400" | "500";
-      linkedCompanyIds?: string;
       updatedAt: Date;
     } = {
       updatedAt: new Date(),
@@ -170,11 +163,6 @@ export async function PUT(
         );
       }
       updateData.charLimitType = body.charLimitType;
-    }
-
-    // Add linkedCompanyIds if provided
-    if (body.linkedCompanyIds !== undefined) {
-      updateData.linkedCompanyIds = JSON.stringify(body.linkedCompanyIds);
     }
 
     await db

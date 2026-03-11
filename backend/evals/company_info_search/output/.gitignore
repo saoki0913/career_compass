@@ -1,0 +1,7 @@
+# Ignore test result files but keep directory
+*.json
+*.md
+*.db
+*.log
+!.gitkeep
+!.gitignore

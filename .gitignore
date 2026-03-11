@@ -54,3 +54,13 @@ venv/
 # Backend runtime data (ChromaDB, BM25 indices)
 backend/data/chroma/
 backend/data/bm25/
+
+# Local-only ES reference samples
+private/reference_es/*
+!private/reference_es/.gitignore
+!private/reference_es/README.md
+
+# Qwen ES review training artifacts
+ml/es_review_qwen/data/generated/
+ml/es_review_qwen/outputs/
+ml/es_review_qwen/.venv/

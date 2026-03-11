@@ -19,6 +19,39 @@ ES添削時に企業固有のコンテキストを提供するRAG（Retrieval-Au
 
 - **「企業接続」軸のスコアリング**: 企業の求める人材像とESの内容の一致度を評価
 - **企業キーワードの抽出**: 企業固有のキーワードをES添削フィードバックに反映
+- **職種依存クエリの補強**: `設問 + 企業名 + primary role + 元回答要点` を検索語に使い、role-sensitive な設問で職種向けページを優先する
+- **grounding mode 判定**: 職種向け根拠が弱い場合は `company_general` に降格し、企業固有の職種断定を抑える
+- **pre-stream 補強**: company-sensitive な設問では、rewrite の streaming 開始前に企業ページ検索・取得 API を同期実行し、その request 自体の grounding を改善する
+- **上限付き待機**: pre-stream 補強は time budget 内でだけ待機し、間に合わない場合は既存 source で安全に続行する
+- **インターン設問の追加補強**: `intern_reason` / `intern_goals` では `company + intern_name + question` の second pass を 1 回だけ走らせ、募集ページや社員インタビューを優先する
+- **employee_interviews の候補制御**: official root 採用トップは社員インタビュー候補に入れない
+- **二次情報の扱い**: 高信頼な二次情報は検索語補助には使うが、出典表示や本文根拠には使わない
+- **coverage-driven 補強**: 既存 coverage が薄い content type を優先し、broad role では `事業理解 / 成長機会 / 価値観 / 将来接続` の theme を増やす
+
+### ES添削で優先する content type
+
+role-sensitive / intern-sensitive な設問では、次の順を優先する。
+
+1. `new_grad_recruitment`
+2. `employee_interviews`
+3. `corporate_site`
+
+補助として使うもの:
+
+- `midterm_plan`
+- `press_release`
+- `ir_materials`
+
+root の採用トップや generic page しか取れていない場合は、`grounding_mode=company_general` に留める。
+
+### employee_interviews 候補ルール
+
+`employee_interviews` の補強候補は、公式ドメインであっても次を満たさないと採らない。
+
+- root path ではない
+- URL / title / snippet のいずれかに `interview`, `voice`, `people`, `member`, `staff`, `先輩社員`, `社員の声`, `働く人` の強い signal がある
+
+したがって、`career-mc.com/` のような generic root 採用トップは `employee_interviews` 候補から除外する。
 
 ---
 
@@ -325,6 +358,26 @@ ES添削プロンプトに注入される形式：
 
 ---
 
+## ES添削向けの role-aware 補強
+
+ES添削では、`role_course_reason` など職種依存が強い設問で first pass retrieval 後も `grounding_mode=company_general` の場合、backend で role-focused second pass を 1 回だけ追加する。
+
+- query: `company_name + role_name + section_title`
+- 優先 content type:
+  - `new_grad_recruitment`
+  - `employee_interviews`
+  - `corporate_site`
+- `short_circuit=False`
+
+2nd pass で source が増えれば、ES添削側で grounding を再評価する。
+それでも職種根拠が弱い場合は `company_general` のまま返し、企業固有の強い断定は prompt で抑制する。
+
+Next.js 側の background enrichment は `fetch-corporate` に `contentChannel: "corporate_general"` を送る。
+`ir_materials` / `midterm_plan` だけ `corporate_ir` を使い、旧 `contentChannel: "url"` は使わない。
+backend 非 2xx の場合は `status`, `body`, `contentType`, `contentChannel`, `urls` をログへ残し、`crawl-corporate` の 400 を追えるようにする。
+
+---
+
 ## 8. 動的コンテキスト長
 
 ESの文字数に応じてコンテキスト長を動的に調整。
@@ -485,3 +538,25 @@ RAG構築は以下のタイミングで自動実行：
 | `backend/app/routers/es_review.py` | ES添削でのRAG活用 |
 
 **企業情報検索**: `docs/COMPANY_INFO_FETCH.md` を参照
+
+---
+
+## 16. 品質拡張と受け入れ条件
+
+### 参考資料反映
+
+対象資料: `/Users/saoki/work/references/gakuchika_QA_guide.md`
+
+- 検索意図に応じた RAG 取得最適化:
+  `backend/app/utils/hybrid_search.py`, `backend/app/utils/vector_store.py` で意図とクエリ長に応じた adaptive retrieval を導入し、weight, fetch_k, query 数, rerank 閾値, HyDE の有効化を切り替える
+- 出典抜粋の可読性改善:
+  `backend/app/utils/hybrid_search.py` で見出し付与と文境界トリムを行う excerpt 整形を導入
+
+### 受け入れチェック
+- 長文クエリ、短文クエリ、事実照会クエリで retrieval profile が変化する
+- `sources.excerpt` に見出しが付与され、極端な文途中切断が減る
+- 既存の RAG 取得が空になる退行がない
+
+### 実施済み静的検証
+- `python -m compileall`（関連 backend ファイル）: 成功
+- `pnpm -s tsc --noEmit`: 成功

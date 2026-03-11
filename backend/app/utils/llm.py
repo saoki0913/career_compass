@@ -9,6 +9,7 @@ LLMユーティリティモジュール
 """
 
 import asyncio
+import base64
 import re as _re
 from anthropic import AsyncAnthropic, APIError as AnthropicAPIError
 import openai
@@ -84,6 +85,98 @@ def sanitize_es_content(text: str, max_length: int = 5000) -> str:
     text = _re.sub(xml_tag_pattern, "", text, flags=_re.IGNORECASE)
 
     return text
+
+
+def detect_es_injection_risk(text: str) -> tuple[str, list[str]]:
+    """Classify prompt-injection-like patterns in ES input.
+
+    Returns:
+        tuple[risk_level, reasons]
+        risk_level: "none" | "medium" | "high"
+    """
+    if not text:
+        return "none", []
+
+    normalized = text.lower()
+    reasons: list[str] = []
+    risk = "none"
+    
+    def _matches(patterns: list[str], haystack: str = text) -> bool:
+        return any(
+            _re.search(pattern, haystack, flags=_re.IGNORECASE | _re.MULTILINE)
+            for pattern in patterns
+        )
+
+    high_patterns = [
+        (r"ignore\s+(all|any|previous|above)\s+instructions", "英語で無視命令"),
+        (r"(system|developer)\s+prompt", "システム/開発者プロンプト要求"),
+        (r"(reveal|show|print).*(prompt|instruction|secret|api key|token)", "内部情報の開示要求"),
+        (r"これまでの指示を無視", "日本語の無視命令"),
+        (r"(システム|開発者).*(プロンプト|指示)", "内部プロンプトへの言及"),
+        (r"(内部|機密).*(表示|開示|出力)", "内部情報の開示要求"),
+    ]
+    medium_patterns = [
+        (r"```", "コードブロック記法"),
+        (r"<\s*/?\s*(system|assistant|user|prompt|instructions?)\s*>", "XML風タグ"),
+        (r"^\s*(system|assistant|user|human)\s*:", "ロール接頭辞"),
+        (r"(step by step|chain of thought|cot)", "推論開示要求"),
+        (r"(前の命令|上記の指示).*(従わず|無視)", "命令上書きの試行"),
+    ]
+
+    for pattern, reason in high_patterns:
+        if _re.search(pattern, normalized, flags=_re.IGNORECASE | _re.MULTILINE):
+            reasons.append(reason)
+
+    reveal_verbs = [
+        r"(reveal|show|print|dump|display|extract|exfiltrate|leak)",
+        r"(表示|見せ|開示|出力|抜き出|取得|抽出|漏えい|教えて)",
+    ]
+    reference_targets = [
+        r"(reference\s*es|参考\s*es|参考文章|例文|模範解答|通過es)",
+    ]
+    prompt_targets = [
+        r"(prompt|instruction|secret|api key|token|password|credential)",
+        r"(プロンプト|指示|機密|秘密|apiキー|トークン|認証情報|ログイン情報)",
+    ]
+    pii_targets = [
+        r"(個人情報|氏名|名前|メールアドレス|email|住所|電話番号|phone number|password|パスワード|ログインid|login id)",
+    ]
+    sql_patterns = [
+        r"\bselect\b",
+        r"\bunion\b",
+        r"\binformation_schema\b",
+        r"\bsqlite_master\b",
+        r"\bpg_[a-z_]+\b",
+        r"\bfrom\b",
+        r"\bwhere\b",
+    ]
+    execution_targets = [
+        r"(function call|tool call|use tool|open.*browser|run.*terminal|run.*psql|run.*sql|use.*database|use.*shell|use.*cli)",
+        r"((ツール|ブラウザ|ターミナル|端末|データベース|sql\s*editor|シェル|コマンド).*(使って|実行して|叩いて|開いて)|psqlを実行)",
+    ]
+
+    if _matches(reference_targets) and _matches(reveal_verbs):
+        reasons.append("参考ESの開示要求")
+    if _matches(prompt_targets) and _matches(reveal_verbs):
+        reasons.append("内部情報の開示要求")
+    if _matches(execution_targets):
+        reasons.append("外部機能の実行誘導")
+    if _matches(sql_patterns) and (_matches(reveal_verbs) or _matches(pii_targets) or _matches([r"\busers?\b", r"会員", r"応募者"])):
+        reasons.append("SQLによる情報抽出要求")
+    if _matches(pii_targets) and (_matches(reveal_verbs) or _matches(sql_patterns)):
+        reasons.append("個人情報の抽出要求")
+
+    if reasons:
+        return "high", reasons
+
+    for pattern, reason in medium_patterns:
+        if _re.search(pattern, text, flags=_re.IGNORECASE | _re.MULTILINE):
+            reasons.append(reason)
+
+    if reasons:
+        risk = "medium"
+
+    return risk, reasons
 
 # Global clients for connection pooling
 _anthropic_client: Optional[AsyncAnthropic] = None
@@ -226,6 +319,12 @@ SUCCESS = "✅"
 WARNING = "⚠️"
 ERROR = "❌"
 INFO = "ℹ️"
+_DEBUG_ONLY_FEATURES = {
+    "rag_query_expansion",
+    "rag_hyde",
+    "rag_rerank",
+    "rag_classify",
+}
 
 
 def get_model_display_name(model: str) -> str:
@@ -256,6 +355,9 @@ def get_model_display_name(model: str) -> str:
 
 def _log(feature: str, message: str, marker: str = ""):
     """機能名プレフィックス付きでログを出力。"""
+    if feature in _DEBUG_ONLY_FEATURES and marker not in {WARNING, ERROR}:
+        return
+
     feature_ja = FEATURE_NAMES.get(feature, feature)
     if marker:
         print(f"[{feature_ja}] {marker} {message}")
@@ -459,13 +561,14 @@ async def call_llm_with_error(
         model_display = get_model_display_name(actual_model)
         _log(feature, f"{model_display} を呼び出し中...")
 
-        if messages is None:
+        normalized_messages, used_user_message = _normalize_chat_messages(messages, user_message)
+        if used_user_message:
             message_count = 1
             message_chars = len(user_message or "")
             message_mode = "user_message"
         else:
-            message_count = len(messages)
-            message_chars = sum(len(str(m.get("content", ""))) for m in messages)
+            message_count = len(normalized_messages)
+            message_chars = sum(len(str(m.get("content", ""))) for m in normalized_messages)
             message_mode = "messages"
 
         _log_debug(
@@ -481,7 +584,7 @@ async def call_llm_with_error(
             raw_response = await _call_claude_raw(
                 system_prompt,
                 user_message,
-                messages,
+                normalized_messages,
                 max_tokens,
                 temperature,
                 actual_model,
@@ -507,7 +610,7 @@ async def call_llm_with_error(
                 result = await _call_openai_responses(
                     system_prompt,
                     user_message,
-                    messages,
+                    normalized_messages,
                     max_tokens,
                     temperature,
                     actual_model,
@@ -519,7 +622,7 @@ async def call_llm_with_error(
                 result = await _call_openai(
                     system_prompt,
                     user_message,
-                    messages,
+                    normalized_messages,
                     max_tokens,
                     temperature,
                     actual_model,
@@ -875,9 +978,224 @@ async def call_llm_with_error(
         return LLMResult(success=False, error=error)
 
 
+async def call_llm_text_with_error(
+    system_prompt: str,
+    user_message: str,
+    messages: list[dict] | None = None,
+    max_tokens: int = 2000,
+    temperature: float = 0.3,
+    model: LLMModel | None = None,
+    feature: str | None = None,
+    use_responses_api: bool = False,
+    disable_fallback: bool = False,
+) -> LLMResult:
+    """Plain text response path with provider fallback and no JSON parsing."""
+    feature = feature or "unknown"
+
+    if model is None:
+        model = get_model_config().get(feature, "claude-sonnet")
+
+    provider = "anthropic" if model in ("claude-sonnet", "claude-haiku") else "openai"
+
+    if model in ("claude-sonnet", "claude-haiku") and not settings.anthropic_api_key:
+        if settings.openai_api_key and not disable_fallback:
+            _log(feature, "Anthropic APIキー未設定、OpenAIにフォールバック", WARNING)
+            model = "openai"
+            provider = "openai"
+        else:
+            error = _create_error(
+                "no_api_key",
+                "anthropic",
+                feature,
+                "ANTHROPIC_API_KEYとOPENAI_API_KEYの両方が未設定です",
+            )
+            _log(feature, "APIキーが設定されていません", ERROR)
+            return LLMResult(success=False, error=error)
+
+    if provider == "openai" and not settings.openai_api_key:
+        if settings.anthropic_api_key and not disable_fallback:
+            _log(feature, "OpenAI APIキー未設定、Claudeにフォールバック", WARNING)
+            model = "claude-sonnet"
+            provider = "anthropic"
+        else:
+            error = _create_error(
+                "no_api_key",
+                "openai",
+                feature,
+                "ANTHROPIC_API_KEYとOPENAI_API_KEYの両方が未設定です",
+            )
+            _log(feature, "APIキーが設定されていません", ERROR)
+            return LLMResult(success=False, error=error)
+
+    try:
+        if model == "claude-sonnet":
+            actual_model = settings.claude_model
+        elif model == "claude-haiku":
+            actual_model = settings.claude_haiku_model
+        else:
+            actual_model = _resolve_openai_model(feature, model_hint=model)
+
+        model_display = get_model_display_name(actual_model)
+        _log(feature, f"{model_display} を呼び出し中...")
+
+        normalized_messages, used_user_message = _normalize_chat_messages(messages, user_message)
+        if used_user_message:
+            message_count = 1
+            message_chars = len(user_message or "")
+            message_mode = "user_message"
+        else:
+            message_count = len(normalized_messages)
+            message_chars = sum(len(str(m.get("content", ""))) for m in normalized_messages)
+            message_mode = "messages"
+
+        _log_debug(
+            feature,
+            "LLM input size: "
+            f"system={len(system_prompt)} chars, "
+            f"{message_mode}={message_count} items/{message_chars} chars, "
+            f"max_tokens={max_tokens}, temperature={temperature}, model={actual_model}",
+        )
+
+        raw_response = None
+        text_response = None
+        if provider == "anthropic":
+            raw_response = await _call_claude_raw(
+                system_prompt,
+                user_message,
+                normalized_messages,
+                max_tokens,
+                temperature,
+                actual_model,
+                feature=feature,
+            )
+            text_response = raw_response.strip() if raw_response else None
+        else:
+            if use_responses_api:
+                raw_response = await _call_openai_responses_raw_text(
+                    system_prompt,
+                    user_message,
+                    normalized_messages,
+                    max_tokens,
+                    temperature,
+                    actual_model,
+                    feature=feature,
+                )
+            else:
+                raw_response = await _call_openai_raw_text(
+                    system_prompt,
+                    user_message,
+                    normalized_messages,
+                    max_tokens,
+                    temperature,
+                    actual_model,
+                    feature=feature,
+                )
+            text_response = raw_response.strip() if raw_response else None
+
+        if text_response:
+            _log(feature, f"{model_display} で成功", SUCCESS)
+            return LLMResult(
+                success=True,
+                data={"text": text_response},
+                raw_text=raw_response,
+            )
+
+        fallback_provider = "anthropic" if provider == "openai" else "openai"
+        fallback_api_key = (
+            settings.anthropic_api_key
+            if fallback_provider == "anthropic"
+            else settings.openai_api_key
+        )
+        if fallback_api_key and not disable_fallback:
+            fallback_name = "Claude" if fallback_provider == "anthropic" else "OpenAI"
+            _log(feature, f"空応答、{fallback_name} にフォールバック", WARNING)
+            try:
+                if fallback_provider == "anthropic":
+                    fallback_raw = await _call_claude_raw(
+                        system_prompt,
+                        user_message,
+                        messages,
+                        max_tokens,
+                        temperature,
+                        settings.claude_model,
+                        feature=feature,
+                    )
+                else:
+                    fallback_model = _resolve_openai_model(
+                        feature, model_hint=settings.openai_model
+                    )
+                    if use_responses_api:
+                        fallback_raw = await _call_openai_responses_raw_text(
+                            system_prompt,
+                            user_message,
+                            messages,
+                            max_tokens,
+                            temperature,
+                            fallback_model,
+                            feature=feature,
+                        )
+                    else:
+                        fallback_raw = await _call_openai_raw_text(
+                            system_prompt,
+                            user_message,
+                            messages,
+                            max_tokens,
+                            temperature,
+                            fallback_model,
+                            feature=feature,
+                        )
+                fallback_text = fallback_raw.strip() if fallback_raw else None
+                if fallback_text:
+                    _log(feature, f"{fallback_name} へのフォールバック成功", SUCCESS)
+                    return LLMResult(
+                        success=True,
+                        data={"text": fallback_text},
+                        raw_text=fallback_raw,
+                    )
+            except Exception as fallback_err:
+                _log(feature, f"{fallback_name} フォールバック失敗: {fallback_err}", ERROR)
+
+        error = _create_error("parse", provider, feature, "空のテキストレスポンス")
+        _log(feature, "応答の解析に失敗しました", ERROR)
+        return LLMResult(success=False, error=error, raw_text=raw_response)
+
+    except AnthropicAPIError as e:
+        error_type, detail = _classify_anthropic_error(e)
+        error = _create_error(error_type, "anthropic", feature, detail)
+        _log(feature, f"Anthropic APIエラー: {detail}", ERROR)
+        return LLMResult(success=False, error=error)
+
+    except OpenAIAPIError as e:
+        error_type, detail = _classify_openai_error(e)
+        error = _create_error(error_type, "openai", feature, detail)
+        _log(feature, f"OpenAI APIエラー: {detail}", ERROR)
+        return LLMResult(success=False, error=error)
+
+    except Exception as e:
+        error_type, detail = (
+            _classify_anthropic_error(e)
+            if provider == "anthropic"
+            else _classify_openai_error(e)
+        )
+        error = _create_error(error_type, provider, feature, detail)
+        provider_name = "Anthropic" if provider == "anthropic" else "OpenAI"
+        _log(feature, f"{provider_name} 予期しないエラー: {e}", ERROR)
+        return LLMResult(success=False, error=error)
+
+
 def _is_rag_feature(feature: str) -> bool:
     """機能がRAG関連かどうかを判定（短いタイムアウトを使用）。"""
     return feature in ("rag_query_expansion", "rag_hyde", "rag_rerank", "rag_classify")
+
+
+def _normalize_chat_messages(
+    messages: list[dict] | None,
+    user_message: str,
+) -> tuple[list[dict], bool]:
+    """Treat an empty chat history the same as an omitted one."""
+    if messages:
+        return messages, False
+    return [{"role": "user", "content": user_message}], True
 
 
 async def _call_claude_raw(
@@ -891,9 +1209,7 @@ async def _call_claude_raw(
 ) -> str:
     """Claude APIを呼び出し、生のテキストを返す。"""
     client = await get_anthropic_client(for_rag=_is_rag_feature(feature))
-
-    if messages is None:
-        messages = [{"role": "user", "content": user_message}]
+    normalized_messages, _ = _normalize_chat_messages(messages, user_message)
 
     # 指定されたモデルを使用、なければclaude_model（Sonnet）をデフォルトに
     actual_model = model or settings.claude_model
@@ -903,7 +1219,7 @@ async def _call_claude_raw(
         max_tokens=max_tokens,
         temperature=temperature,
         system=system_prompt,
-        messages=messages,
+        messages=normalized_messages,
     )
 
     if not response.content:
@@ -924,9 +1240,7 @@ async def _call_claude_raw_stream(
 ) -> AsyncGenerator[str, None]:
     """Claude APIをストリーミングで呼び出し、テキストチャンクを逐次返す。"""
     client = await get_anthropic_client(for_rag=_is_rag_feature(feature))
-
-    if messages is None:
-        messages = [{"role": "user", "content": user_message}]
+    normalized_messages, _ = _normalize_chat_messages(messages, user_message)
 
     actual_model = model or settings.claude_model
 
@@ -935,10 +1249,19 @@ async def _call_claude_raw_stream(
         max_tokens=max_tokens,
         temperature=temperature,
         system=system_prompt,
-        messages=messages,
+        messages=normalized_messages,
     ) as stream:
         async for text in stream.text_stream:
             yield text
+        final_message = await stream.get_final_message()
+        stop_reason = getattr(final_message, "stop_reason", None)
+        stop_sequence = getattr(final_message, "stop_sequence", None)
+        if stop_reason:
+            _log(feature, f"{get_model_display_name(actual_model)} stop_reason={stop_reason}", INFO)
+        if stop_sequence:
+            _log_debug(feature, f"stop_sequence={stop_sequence}")
+        if stop_reason == "max_tokens":
+            _log(feature, f"{get_model_display_name(actual_model)} が max_tokens={max_tokens} に到達", WARNING)
 
 
 async def call_llm_streaming(
@@ -1068,6 +1391,8 @@ async def call_llm_streaming_fields(
     feature: str | None = None,
     schema_hints: dict[str, str] | None = None,
     stream_string_fields: list[str] | None = None,
+    attempt_repair_on_parse_failure: bool = True,
+    partial_required_fields: tuple[str, ...] | None = None,
 ) -> AsyncGenerator["StreamFieldEvent", None]:
     """Stream LLM response with incremental JSON field extraction.
 
@@ -1115,6 +1440,7 @@ async def call_llm_streaming_fields(
         schema_hints=schema_hints,
         stream_string_fields=stream_string_fields,
     )
+    partial_required_fields = partial_required_fields or ()
 
     try:
         async for chunk in _call_claude_raw_stream(
@@ -1169,6 +1495,44 @@ async def call_llm_streaming_fields(
             )
             return
 
+        partial = extractor.get_completed_fields()
+        if partial and partial_required_fields and all(
+            field in partial for field in partial_required_fields
+        ):
+            _log(
+                feature,
+                f"部分フィールドをフォールバックとして使用 (fields={list(partial.keys())})",
+                WARNING,
+            )
+            yield StreamFieldEvent(
+                type="complete",
+                result=LLMResult(success=True, data=partial, raw_text=accumulated),
+            )
+            return
+
+        if not attempt_repair_on_parse_failure:
+            if partial and partial_required_fields:
+                missing_required = [
+                    field for field in partial_required_fields if field not in partial
+                ]
+                if missing_required:
+                    _log(
+                        feature,
+                        f"フォールバック時に必須フィールド欠落: {missing_required}",
+                        WARNING,
+                    )
+            error = _create_error(
+                "parse",
+                "anthropic",
+                feature,
+                "フィールドストリーミング応答の解析に失敗",
+            )
+            yield StreamFieldEvent(
+                type="error",
+                result=LLMResult(success=False, error=error, raw_text=accumulated),
+            )
+            return
+
         # JSON parse failed — try repair
         _log(feature, "フィールドストリーミング応答のJSON解析失敗、修復を試行", WARNING)
         repair_prompt = f"""以下のテキストを有効なJSONに修復してください。JSON以外は出力しないでください。
@@ -1191,9 +1555,12 @@ async def call_llm_streaming_fields(
             return
 
         # Use partial fields as best-effort fallback
-        partial = extractor.get_completed_fields()
         if partial:
-            _log(feature, f"部分フィールドをフォールバックとして使用 (fields={list(partial.keys())})", WARNING)
+            _log(
+                feature,
+                f"部分フィールドをフォールバックとして使用 (fields={list(partial.keys())})",
+                WARNING,
+            )
             yield StreamFieldEvent(
                 type="complete",
                 result=LLMResult(success=True, data=partial, raw_text=accumulated),
@@ -1262,14 +1629,8 @@ async def _call_openai(
 ) -> dict | None:
     """OpenAI Chat Completions APIを呼び出す。"""
     client = await get_openai_client(for_rag=_is_rag_feature(feature))
-
-    if messages is None:
-        api_messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ]
-    else:
-        api_messages = [{"role": "system", "content": system_prompt}] + messages
+    normalized_messages, _ = _normalize_chat_messages(messages, user_message)
+    api_messages = [{"role": "system", "content": system_prompt}] + normalized_messages
 
     response_format_payload = None
     if response_format == "json_schema" and json_schema:
@@ -1312,6 +1673,40 @@ async def _call_openai(
     return _parse_json_response(content)
 
 
+async def _call_openai_raw_text(
+    system_prompt: str,
+    user_message: str,
+    messages: list[dict] | None,
+    max_tokens: int,
+    temperature: float,
+    model: str,
+    feature: str = "unknown",
+) -> str:
+    """OpenAI Chat Completions APIを呼び出し、生テキストを返す。"""
+    client = await get_openai_client(for_rag=_is_rag_feature(feature))
+    normalized_messages, _ = _normalize_chat_messages(messages, user_message)
+    api_messages = [{"role": "system", "content": system_prompt}] + normalized_messages
+
+    request_kwargs = {
+        "model": model,
+        "messages": api_messages,
+    }
+    if _openai_uses_max_completion_tokens(model):
+        request_kwargs["max_completion_tokens"] = max_tokens
+    else:
+        request_kwargs["max_tokens"] = max_tokens
+    if _openai_supports_temperature(model):
+        request_kwargs["temperature"] = temperature
+
+    response = await client.chat.completions.create(**request_kwargs)
+
+    content = response.choices[0].message.content
+    if not content:
+        print("[OpenAI] 空のレスポンスを受信")
+        return ""
+    return content
+
+
 async def _call_openai_responses(
     system_prompt: str,
     user_message: str,
@@ -1325,14 +1720,8 @@ async def _call_openai_responses(
 ) -> dict | None:
     """OpenAI Responses APIを呼び出す（オプションでStructured Outputs対応）。"""
     client = await get_openai_client(for_rag=_is_rag_feature(feature))
-
-    if messages is None:
-        input_messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ]
-    else:
-        input_messages = [{"role": "system", "content": system_prompt}] + messages
+    normalized_messages, _ = _normalize_chat_messages(messages, user_message)
+    input_messages = [{"role": "system", "content": system_prompt}] + normalized_messages
 
     text_format = None
     if response_format == "json_schema" and json_schema:
@@ -1448,6 +1837,129 @@ async def _call_openai_responses(
     return None
 
 
+async def _call_openai_responses_raw_text(
+    system_prompt: str,
+    user_message: str,
+    messages: list[dict] | None,
+    max_tokens: int,
+    temperature: float,
+    model: str,
+    feature: str = "unknown",
+) -> str:
+    """OpenAI Responses APIを呼び出し、生テキストを返す。"""
+    client = await get_openai_client(for_rag=_is_rag_feature(feature))
+    normalized_messages, _ = _normalize_chat_messages(messages, user_message)
+    input_messages = [{"role": "system", "content": system_prompt}] + normalized_messages
+
+    request_kwargs = {
+        "model": model,
+        "input": input_messages,
+        "max_output_tokens": max_tokens,
+        "text": {"format": {"type": "text"}},
+    }
+    if _openai_supports_temperature(model):
+        request_kwargs["temperature"] = temperature
+
+    response = await client.responses.create(**request_kwargs)
+
+    output_text = getattr(response, "output_text", None)
+    if isinstance(output_text, str) and output_text:
+        return output_text
+
+    output_items = getattr(response, "output", None) or []
+    for output in output_items:
+        content_items = getattr(output, "content", None)
+        if content_items is None and isinstance(output, dict):
+            content_items = output.get("content")
+        if not content_items:
+            continue
+        for item in content_items:
+            if isinstance(item, dict):
+                text_payload = item.get("text") or item.get("output_text")
+            else:
+                text_payload = getattr(item, "text", None) or getattr(
+                    item, "output_text", None
+                )
+            if isinstance(text_payload, str) and text_payload:
+                return text_payload
+
+    return ""
+
+
+async def extract_text_from_pdf_with_openai(
+    pdf_bytes: bytes,
+    filename: str,
+    *,
+    model: str | None = None,
+    max_output_tokens: int = 12000,
+    feature: str = "company_info",
+) -> str:
+    """
+    Extract readable text from a PDF using OpenAI Responses API.
+
+    Used as an OCR-capable fallback for uploaded PDFs, including scanned
+    documents where local text extraction is unavailable or insufficient.
+    """
+    if not pdf_bytes:
+        return ""
+
+    client = await get_openai_client(for_rag=_is_rag_feature(feature))
+    model_name = model or _resolve_openai_model(feature)
+    file_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+
+    request_kwargs = {
+        "model": model_name,
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "以下のPDFから、読める本文をできるだけ漏れなく抽出してください。"
+                            "見出し・箇条書き・表の主要テキストは保持し、説明や要約は加えず、"
+                            "プレーンテキストのみを返してください。"
+                        ),
+                    },
+                    {
+                        "type": "input_file",
+                        "filename": filename or "document.pdf",
+                        "file_data": f"data:application/pdf;base64,{file_b64}",
+                    },
+                ],
+            }
+        ],
+        "max_output_tokens": max_output_tokens,
+        "text": {"format": {"type": "text"}},
+    }
+    if _openai_supports_temperature(model_name):
+        request_kwargs["temperature"] = 0
+
+    response = await client.responses.create(**request_kwargs)
+    output_text = getattr(response, "output_text", None)
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text
+
+    output_items = getattr(response, "output", None) or []
+    for output in output_items:
+        content_items = getattr(output, "content", None)
+        if content_items is None and isinstance(output, dict):
+            content_items = output.get("content")
+        if not content_items:
+            continue
+        for item in content_items:
+            if isinstance(item, dict):
+                text_payload = item.get("text") or item.get("output_text")
+            else:
+                text_payload = getattr(item, "text", None) or getattr(
+                    item, "output_text", None
+                )
+            if isinstance(text_payload, str) and text_payload.strip():
+                return text_payload
+
+    return ""
+
+
 def _openai_supports_temperature(model: str) -> bool:
     """temperature設定を拒否するOpenAIモデル（例: GPT-5）の場合はFalseを返す。"""
     model_lower = (model or "").lower()
@@ -1491,7 +2003,8 @@ def _parse_json_response(content: str) -> dict | None:
     import re
 
     if not content:
-        print("[JSON解析] 空のコンテンツ")
+        if settings.debug:
+            print("[JSON解析] 空のコンテンツ")
         return None
 
     original_content = content
@@ -1499,9 +2012,10 @@ def _parse_json_response(content: str) -> dict | None:
     # トランケーション検出
     if _detect_truncation(content):
         open_braces = content.count("{") - content.count("}")
-        print(
-            f"[JSON解析] ⚠️ 切り詰められたレスポンスの可能性 (未閉じブレース: {open_braces}, 長さ: {len(content)}文字)"
-        )
+        if settings.debug:
+            print(
+                f"[JSON解析] ⚠️ 切り詰められたレスポンスの可能性 (未閉じブレース: {open_braces}, 長さ: {len(content)}文字)"
+            )
 
     def extract_first_balanced_object(raw: str) -> str | None:
         start = raw.find("{")
@@ -1702,5 +2216,6 @@ def _parse_json_response(content: str) -> dict | None:
     preview = (
         original_content[:200] if len(original_content) > 200 else original_content
     )
-    print(f"[JSON解析] ⚠️ 解析失敗（{len(original_content)}文字）: {preview[:100]}...")
+    if settings.debug:
+        print(f"[JSON解析] ⚠️ 解析失敗（{len(original_content)}文字）: {preview[:100]}...")
     return None

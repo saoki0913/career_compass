@@ -108,11 +108,7 @@ git push origin main
 
 ### デプロイ不具合の切り分け（CLI）
 
-Vercel の `404: NOT_FOUND` や Railway の到達不可が出たときは、まず CLI で現状を確認します（シークレットは出力しません）:
-
-```bash
-./scripts/diagnose-deploy.sh https://www.shupass.jp https://<your-railway-domain>/health
-```
+Vercel の `404: NOT_FOUND` や Railway の到達不可が出たときは、`vercel whoami`、`vercel projects ls`、`vercel ls --prod`、`railway status`、`railway logs --tail 200`、`curl -I` を個別に実行して切り分けます。
 
 ---
 

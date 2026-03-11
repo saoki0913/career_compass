@@ -9,10 +9,11 @@ const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "就活Pass | 就活AI・ES添削・締切管理",
+    default: "就活Pass | ES添削・志望動機作成・締切管理",
     template: "%s | 就活Pass",
   },
-  description: "就活Pass（シューパス）は、就活AI・ES添削・締切管理をまとめて使える就活アプリです。",
+  description:
+    "就活Pass（シューパス）は、ES添削・志望動機作成・ガクチカ深掘り・締切管理をまとめて使える就活アプリです。",
   alternates: {
     canonical: "/",
   },
@@ -20,14 +21,16 @@ export const metadata: Metadata = {
     type: "website",
     url: siteUrl,
     siteName: "就活Pass",
-    title: "就活Pass | 就活AI・ES添削・締切管理",
-    description: "就活Pass（シューパス）は、就活AI・ES添削・締切管理をまとめて使える就活アプリです。",
+    title: "就活Pass | ES添削・志望動機作成・締切管理",
+    description:
+      "就活Pass（シューパス）は、ES添削・志望動機作成・ガクチカ深掘り・締切管理をまとめて使える就活アプリです。",
     locale: "ja_JP",
   },
   twitter: {
     card: "summary_large_image",
-    title: "就活Pass | 就活AI・ES添削・締切管理",
-    description: "就活Pass（シューパス）は、就活AI・ES添削・締切管理をまとめて使える就活アプリです。",
+    title: "就活Pass | ES添削・志望動機作成・締切管理",
+    description:
+      "就活Pass（シューパス）は、ES添削・志望動機作成・ガクチカ深掘り・締切管理をまとめて使える就活アプリです。",
   },
   verification: {
     google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || undefined,
@@ -64,7 +67,7 @@ export default function RootLayout({
               operatingSystem: "Web",
               url: siteUrl,
               description:
-                "就活Pass（シューパス）は、ES添削・締切管理・企業研究をひとつにまとめた就活AIアプリです。",
+                "就活Pass（シューパス）は、ES添削・志望動機作成・ガクチカ深掘り・締切管理をひとつにまとめた就活アプリです。",
               offers: [
                 {
                   "@type": "Offer",
@@ -95,12 +98,27 @@ export default function RootLayout({
         {gaId ? <GoogleAnalytics measurementId={gaId} /> : null}
         <AuthProvider>{children}</AuthProvider>
         <Toaster
-          position="top-right"
-          richColors
-          closeButton
+          position="top-center"
+          visibleToasts={1}
+          theme="light"
           toastOptions={{
-            className: "text-sm",
-            duration: 4000,
+            className:
+              "border border-slate-200/80 bg-white/96 text-slate-900 shadow-[0_18px_52px_rgba(15,23,42,0.14)] backdrop-blur-md",
+            descriptionClassName: "text-slate-600",
+            duration: 3600,
+            closeButton: false,
+            classNames: {
+              toast:
+                "rounded-[22px] px-4 py-3",
+              title: "text-[13px] font-semibold tracking-[0.01em]",
+              description: "text-[12px] leading-5 text-slate-600",
+              success:
+                "border-emerald-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.99),rgba(236,253,245,0.98))] text-slate-900",
+              error:
+                "border-rose-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.99),rgba(255,241,242,0.98))] text-slate-900",
+              info:
+                "border-sky-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.99),rgba(240,249,255,0.98))] text-slate-900",
+            },
           }}
         />
       </body>

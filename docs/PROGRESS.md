@@ -1,6 +1,6 @@
 # 実装進捗ドキュメント
 
-最終更新: 2026-02-04
+最終更新: 2026-03-11
 
 このドキュメントは `docs/SPEC.md` に記載されている機能の実装状況を追跡します。
 
@@ -277,9 +277,9 @@
 | 中断/再開 | ✅ 完了 | |
 | クレジット消費（5問ごと1） | ✅ 完了 | |
 | Q&A保存 | ✅ 完了 | `gakuchikaConversations` |
-| 再実行時の履歴保持（17.2） | ✅ 完了 | 前回結果は履歴として保持 |
-| 素材の企業紐づけ | 🟡 部分実装 | スキーマあり、UI未実装 |
-| サマリー生成 | ✅ 完了 | `/summary` エンドポイント |
+| 再実行時の履歴保持（17.2） | ✅ 完了 | 別セッション開始と同一セッション再開の両方に対応 |
+| 素材の企業紐づけ | ⚪︎ スキーマ残存 | 現行の深掘り UI / API では未使用 |
+| サマリー生成 | ✅ 完了 | 完了時は `/structured-summary` を使用 |
 
 ---
 
@@ -294,17 +294,21 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 中断/再開 | ✅ 完了 | `motivationConversations` テーブル |
 | クレジット消費（5問ごと1） | ✅ 完了 | ガクチカと同様のロジック |
 | 企業RAG連携 | ✅ 完了 | 企業情報を質問に反映 |
-| 回答候補 / 根拠サマリー | ✅ 完了 | `suggestions`, `evidenceSummary` を返却 |
+| 回答候補 / 参考企業情報 | ✅ 完了 | `suggestionOptions` を質問適合で生成し、`evidenceCards` を source card UI で表示 |
 | ガクチカ連携 | ✅ 完了 | 完了済み要約を質問生成に反映 |
 | SSEストリーミング送信 | ✅ 完了 | 進捗表示と質問文の逐次表示 |
 | ES下書き生成 | ✅ 完了 | 300/400/500文字指定 |
 | 企業ページからの導線 | ✅ 完了 | 「志望動機を作成」ボタン |
 | 進捗バー（4要素） | ✅ 完了 | スコア表示UI |
+| setup-first 初期設定 | ✅ 完了 | 業界/職種をチャット前に確定 |
+| 初回開始の空履歴処理 | ✅ 完了 | 空 `messages=[]` をそのまま LLM に渡さない |
+| 質問適合4択 | ✅ 完了 | LLMは質問のみ生成、回答候補は grounded builder で `2〜4件` を基本に生成。question-fit scoring でズレた候補を落とし、raw企業文や見出しは除外 |
 
 **関連ファイル:**
 - `backend/app/routers/motivation.py`
 - `src/app/companies/[id]/motivation/page.tsx`
 - `src/app/api/motivation/[companyId]/conversation/route.ts`
+- `src/app/api/motivation/[companyId]/conversation/start/route.ts`
 - `src/app/api/motivation/[companyId]/conversation/stream/route.ts`
 - `src/app/api/motivation/[companyId]/generate-draft/route.ts`
 
@@ -493,6 +497,75 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 ---
 
 ## 最近の更新履歴
+
+### 2026-03-11
+- 🧠 **ES添削の企業補強を current-run 品質向上向けに更新**
+  - `complete` 後の次回向け補強をやめ、streaming rewrite 開始前に企業ページ検索・取得を同期実行する pre-stream 補強へ変更
+  - broad role では `事業理解 / 成長機会 / 価値観 / 将来接続` の設問軸で query を組み立て、公式 source の不足を補う
+  - 高信頼二次情報は query hint にだけ使い、本文根拠と UI 出典は一次情報に限定
+  - pre-stream 補強は bounded wait にし、coverage 不足の content type を優先して time budget 内でだけ補う
+- ✍️ **ES添削の参考ES活用を quality + outline へ拡張**
+  - `reference quality block` に coarse な骨子を追加し、品質ヒントに加えて論点配置も prompt へ渡すよう更新
+  - `review_meta` に `enrichment_completed` / `enrichment_sources_added` / `reference_outline_used` を追加
+- 📏 **ES添削の根拠カバレッジ通知を追加**
+  - `review_meta` に `evidence_coverage_level` / `weak_evidence_notice` を追加
+  - 企業根拠が薄いときは安全寄りに返しつつ UI で通知できるよう更新
+- 🧪 **ES添削の固定 rubric 評価を追加**
+  - `backend/tests/test_es_review_quality_rubric.py` を追加し、broad role / weak evidence / companyless の固定ケースを継続監視対象にした
+- 🛡️ **企業情報取得の親子会社誤判定を是正**
+  - 企業情報検索の `official / parent / subsidiary / other` 判定を `classify_company_domain_relation()` 起点に一本化
+  - 親会社検索で子会社サイト、子会社検索で親会社サイトが `公式` や `公式・高` に昇格しないよう修正
+  - 親会社/子会社候補は除外せずに残しつつ、`parent` / `subsidiary` のまま表示し、自動選択させず confidence は `low` 上限に固定
+- 🎯 **AI選考スケジュール取得の年度・モーダルUXを更新**
+  - 卒業年度はプロフィール値を初期選択しつつ、モーダル内で常時変更可能に修正
+  - `選考条件を設定` と `採用ページURLを選択` のモーダル幅を統一し、検索中コピーを `候補URLを検索中です。` に簡素化
+  - 候補一覧に `親会社` / `子会社` と relation 企業名を表示し、手動選択前提で判断できるよう改善
+- 📅 **Google Calendar 追加失敗の原因を分離**
+  - `未連携 / 再連携必要 / 追加先カレンダー未設定 / 一部失敗 / dueDate不正` を個別通知に変更
+  - `/api/calendar/google` は `TARGET_CALENDAR_REQUIRED` などの原因別 code を返すよう更新
+- 🧹 **企業情報取得の旧 helper 依存を削除**
+  - 監査スクリプトから `_is_subsidiary()` / `_is_parent_company_site()` 依存を削除し、本番の classifier と同じ基準へ統一
+- 📝 **企業情報取得ドキュメントを更新**
+  - `docs/features/COMPANY_INFO_SEARCH.md` と `docs/features/COMPANY_INFO_FETCH.md` に relation-first 判定と confidence ルールを反映
+
+### 2026-03-10
+- 🧠 **ES添削の生成パイプラインを簡素化**
+  - 改善ポイント生成を最小 JSON schema に縮小し、backend 側で `issue_id / required_action / difficulty` などを補完
+  - rewrite plan、LLM validator、targeted repair、LLM 文字数補修を削除
+  - rewrite は `通常 5 回 + 簡易化 1 回` に固定し、簡易化採用時は `fallback_to_generic=true` を返す
+- 🎯 **ES添削の文脈活用を強化**
+  - `allowed_user_facts` から relevance と source balance で `selected_user_facts` を作り、prompt に入れる情報量を整理
+  - `rag_sources` を `company evidence cards` に圧縮し、企業理解を深めつつ固有施策の幻覚を抑える構成へ更新
+  - 参考ESは本文注入をやめ、`reference quality profile` と overlap guard の二段用途に限定
+  - `総合職` など broad role label のときは、role 軸ではなく設問軸で 2nd pass retrieval と evidence selection を行うよう更新
+- ✍️ **短字数設問の失敗耐性を改善**
+  - `char_max <= 220` では short-answer mode を有効化
+  - 上限厳守のまま、下限未達が小さい場合は `soft_min_applied` として安全返却できるように更新
+- ✨ **ES添削の業界・職種 UI を簡素化**
+  - 業界・職種の選択を chip 群から dropdown に変更
+  - broad / 未設定業界では `業界 → 職種` を段階表示し、同一 ES 内で選択を保持
+- ✨ **ES添削の設定 UI と CTA 導線を整理**
+  - `設問タイプ` も dropdown カード化し、`準備完了` バッジと `現在の設定` に統一
+  - `消費クレジット` と CTA を右パネル / mobile sheet の固定フッターに移し、結果後も同じ高さで切り替わるように更新
+- 🧭 **企業連携ステータス表示を安定化**
+  - autosave 後も company 情報を落とさないよう、documents API の返却 shape を `GET`/`PUT` で統一
+  - 企業連携ステータスを右パネル上部に常時表示し、添削中と結果表示中は compact bar に縮約
+- 🔒 **ES添削の prompt injection 対策を強化**
+  - `参考ESの開示要求` と `SQL / 個人情報抽出要求` を高リスク遮断に追加
+  - `content` 以外の prompt 入力もサーバー入口で検査・無害化するよう更新
+- 📝 **ES添削ドキュメントを更新**
+  - `docs/features/ES_REVIEW.md` に company evidence cards、reference quality profile、soft-min policy を反映
+
+### 2026-03-09
+- ✨ **ES添削ストリーミング UX を更新**
+  - `改善案 → 改善ポイント → 出典リンク` を単一カード内で順に表示
+  - 改善ポイントと出典リンクも文字単位 playback に変更
+  - 表示完了時はカーソルを自動で消すように調整
+- 🧹 **ES添削の未使用 UI コードを削除**
+  - 旧 UI の残骸だった未使用コンポーネントを整理
+- 📝 **ES添削ドキュメントを更新**
+  - `docs/features/ES_REVIEW.md` を現行 UI と SSE 契約に合わせて更新
+  - `docs/INDEX.md` の ES添削説明を更新
 
 ### 2026-02-04
 - 📝 **README.md 日本語化**

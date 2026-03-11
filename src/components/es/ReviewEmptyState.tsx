@@ -1,91 +1,97 @@
 "use client";
 
-import Link from "next/link";
+import type { ReactNode } from "react";
+import { Link2, Sparkles, Target } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 interface ReviewEmptyStateProps {
-  hasCompanyRag?: boolean;
+  companyReviewStatus?:
+    | "no_company_selected"
+    | "company_selected_not_fetched"
+    | "company_status_checking"
+    | "company_fetched_but_not_ready"
+    | "ready_for_es_review";
   companyName?: string;
   companyId?: string;
   className?: string;
 }
 
-const SparkleIcon = () => (
-  <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.8}
-      d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-    />
-  </svg>
-);
-
-const CheckIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-  </svg>
-);
+function CapabilityCard({
+  icon,
+  title,
+  description,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-[22px] border border-border/60 bg-background/90 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+        {icon}
+      </div>
+      <p className="mt-4 text-sm font-semibold text-foreground">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p>
+    </div>
+  );
+}
 
 export function ReviewEmptyState({
-  hasCompanyRag = false,
+  companyReviewStatus = "no_company_selected",
   companyName,
-  companyId,
   className,
 }: ReviewEmptyStateProps) {
-  const title = hasCompanyRag && companyName
-    ? `${companyName}向けに設問ごとで添削できます`
-    : "設問を選ぶと、このパネルで添削できます";
+  const hasSelectedCompany = companyReviewStatus !== "no_company_selected";
+  const title = hasSelectedCompany && companyName
+    ? `設問を選択すると、ここで${companyName}に合わせたAI添削ができます`
+    : hasSelectedCompany
+      ? "設問を選択すると、ここで企業情報に合わせたAI添削ができます"
+      : "設問を選択すると、ここでAI添削ができます";
+
+  const description = "この設問に対する改善案、改善ポイント、出典リンクをこの順で見やすく表示します。";
 
   return (
-    <div className={cn("flex flex-col items-center px-3 py-8 text-center", className)}>
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted text-primary">
-        <SparkleIcon />
-      </div>
-
-      <div className="mt-4 space-y-2">
-        <h3 className="text-base font-semibold text-foreground">{title}</h3>
-        <p className="mx-auto max-w-[300px] text-sm leading-6 text-muted-foreground">
-          左の設問バーから対象の設問を選ぶと、企業情報と結びつけて、改善点とリライト案を返します。
-        </p>
-      </div>
-
-      <div className="mt-5 w-full space-y-2 rounded-2xl border border-border/60 bg-muted/20 p-4 text-left">
-        <div className="flex items-start gap-2">
-          <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <CheckIcon />
-          </span>
-          <p className="text-sm text-foreground">設問ごとに評価と改善ポイントを整理</p>
-        </div>
-        <div className="flex items-start gap-2">
-          <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <CheckIcon />
-          </span>
-          <p className="text-sm text-foreground">文字数を意識したリライト案を返却</p>
-        </div>
-        <div className="flex items-start gap-2">
-          <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <CheckIcon />
-          </span>
-          <p className="text-sm text-foreground">
-            {hasCompanyRag ? "企業情報を反映した企業接続の改善も確認可能" : "企業情報があると企業接続まで含めて添削可能"}
-          </p>
-        </div>
-      </div>
-
-      {!hasCompanyRag && companyId && (
-        <div className="mt-4 w-full rounded-xl border border-amber-200 bg-amber-50 p-3 text-left">
-          <p className="text-xs leading-5 text-amber-800">
-            企業情報を取得すると、企業接続の評価と出典リンクも一緒に確認できます。
-          </p>
-          <Link
-            href={`/companies/${companyId}`}
-            className="mt-2 inline-flex text-xs font-medium text-amber-900 underline underline-offset-2"
-          >
-            企業情報を確認する
-          </Link>
-        </div>
+    <div
+      className={cn(
+        "overflow-hidden rounded-[28px] border border-border/70 bg-background p-5 shadow-sm",
+        className,
       )}
+    >
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-2">
+            <Badge variant="soft-primary" className="gap-1.5 px-3 py-1 text-[11px]">
+              <Sparkles className="size-3.5" />
+              AI添削
+            </Badge>
+            <div>
+              <h3 className="text-base font-semibold text-foreground">{title}</h3>
+              <p className="mt-2 max-w-[460px] text-sm leading-6 text-muted-foreground">
+                {description}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <CapabilityCard
+            icon={<Target className="size-4" />}
+            title="改善した回答を提案"
+            description="改善した回答を表示します。"
+          />
+          <CapabilityCard
+            icon={<Sparkles className="size-4" />}
+            title="改善ポイントを整理"
+            description="修正すべき点を順に整理して表示します。"
+          />
+          <CapabilityCard
+            icon={<Link2 className="size-4" />}
+            title="情報取得元を確認"
+            description="企業情報を使用したときは参照元も表示します。"
+          />
+        </div>
+      </div>
     </div>
   );
 }

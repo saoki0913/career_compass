@@ -10,19 +10,25 @@ interface SearchCandidate {
   url: string;
   title: string;
   confidence: "high" | "medium" | "low";
-  sourceType: "official" | "job_site" | "other";
+  sourceType: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
+  relationCompanyName?: string | null;
 }
 
 interface BackendSearchCandidate {
   url: string;
   title: string;
   confidence: "high" | "medium" | "low";
-  source_type: "official" | "job_site" | "other";
+  source_type: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
+  relation_company_name?: string | null;
 }
 
 interface SearchPagesResponse {
   candidates: SearchCandidate[];
+  usedGraduationYear: number | null;
+  yearSource: "profile" | "manual" | "none";
 }
+
+const TRUSTED_JOB_SITE_MOCKS = ["job.mynavi.jp", "job.rikunabi.com", "onecareer.jp"] as const;
 
 export async function POST(
   request: NextRequest,
@@ -74,6 +80,13 @@ export async function POST(
     const customQuery = body.customQuery as string | undefined;
     const selectionType = body.selectionType as "main_selection" | "internship" | undefined;
     const allowSnippetMatch = body.allowSnippetMatch as boolean | undefined;
+    const requestedGraduationYear = body.graduationYear as number | undefined;
+    let yearSource: SearchPagesResponse["yearSource"] = graduationYear ? "profile" : "none";
+
+    if (requestedGraduationYear) {
+      graduationYear = requestedGraduationYear;
+      yearSource = "manual";
+    }
 
     // Try to call FastAPI for real search
     const fastApiUrl = process.env.FASTAPI_URL || "http://localhost:8000";
@@ -86,7 +99,7 @@ export async function POST(
           industry: company.industry,
           custom_query: customQuery,
           max_results: 10,
-          graduation_year: graduationYear,
+          graduation_year: graduationYear || undefined,
           selection_type: selectionType,
           allow_snippet_match: allowSnippetMatch ?? false,
         }),
@@ -100,10 +113,15 @@ export async function POST(
           title: c.title,
           confidence: c.confidence,
           sourceType: c.source_type,
+          relationCompanyName: c.relation_company_name ?? null,
         }));
-        return NextResponse.json({ candidates });
+        return NextResponse.json({
+          candidates,
+          usedGraduationYear: graduationYear,
+          yearSource,
+        } satisfies SearchPagesResponse);
       }
-    } catch (e) {
+    } catch {
       // FastAPI not available, use mock
       console.log("FastAPI not available, using mock search results");
     }
@@ -125,26 +143,20 @@ export async function POST(
         sourceType: "official",
       },
       {
-        url: `https://job.mynavi.jp/search/?searchButton=1&keyword=${encodedName}`,
+        url: `https://${TRUSTED_JOB_SITE_MOCKS[0]}/search/corp/recruit/?keyword=${encodedName}`,
         title: `${company.name} - マイナビ`,
         confidence: "medium",
         sourceType: "job_site",
       },
       {
-        url: `https://job.rikunabi.com/2026/company/${cleanName}/`,
-        title: `${company.name} - リクナビ2026`,
+        url: `https://${TRUSTED_JOB_SITE_MOCKS[1]}/${graduationYear ?? 2027}/company/${cleanName}/`,
+        title: `${company.name} - リクナビ${graduationYear ?? 2027}`,
         confidence: "medium",
         sourceType: "job_site",
       },
       {
-        url: `https://www.onecareer.jp/companies/${cleanName}`,
+        url: `https://www.${TRUSTED_JOB_SITE_MOCKS[2]}/companies/${cleanName}`,
         title: `${company.name} - ONE CAREER`,
-        confidence: "medium",
-        sourceType: "job_site",
-      },
-      {
-        url: `https://unistyle.jp/companies/${cleanName}`,
-        title: `${company.name} - Unistyle`,
         confidence: "medium",
         sourceType: "job_site",
       },
@@ -160,21 +172,13 @@ export async function POST(
         confidence: "low",
         sourceType: "official",
       },
-      {
-        url: `https://www.openwork.jp/company/${cleanName}`,
-        title: `${company.name} - OpenWork`,
-        confidence: "low",
-        sourceType: "other",
-      },
-      {
-        url: `https://www.vorkers.com/company/${cleanName}`,
-        title: `${company.name} - 口コミ`,
-        confidence: "low",
-        sourceType: "other",
-      },
     ];
 
-    return NextResponse.json({ candidates } as SearchPagesResponse);
+    return NextResponse.json({
+      candidates,
+      usedGraduationYear: graduationYear,
+      yearSource,
+    } satisfies SearchPagesResponse);
   } catch (error) {
     console.error("Error searching pages:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
