@@ -414,3 +414,156 @@ async def test_final_quality_self_pr_uses_assistive_company_fit(monkeypatch: pyt
     assert result.review_meta.company_grounding_policy == "assistive"
     assert result.review_meta.company_evidence_count == 1
     assert result.review_meta.evidence_coverage_level in {"partial", "strong"}
+
+
+@pytest.mark.asyncio
+async def test_final_quality_role_course_reason_uses_role_and_company_axes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_prompts: list[str] = []
+
+    async def fake_json_caller(*args, **kwargs):
+        return FakeJsonResult(
+            {
+                "top3": [
+                    {
+                        "category": "職種適合",
+                        "issue": "職種を選ぶ理由と企業理解の接点が分かれています。",
+                        "suggestion": "デジタル企画で価値を出したい理由を、企業の方向性と一文でつなぐ。",
+                    }
+                ]
+            }
+        )
+
+    async def fake_text_caller(*args, **kwargs):
+        captured_prompts.append(kwargs.get("system_prompt", "") or (args[0] if args else ""))
+        return FakeTextResult(
+            "デジタル企画コースを志望するのは、事業理解と技術理解をつなぎながら価値を形にしたいからだ。研究で関係者の意図を整理し前進させた経験を土台に、成長領域へ挑む貴社で事業と開発をつなぐ役割を担いたい。"
+        )
+
+    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
+
+    result = await review_section_with_template(
+        request=ReviewRequest(
+            content="事業理解と技術理解をつなぐ仕事に関心があります。",
+            section_title="デジタル企画コースを選んだ理由を教えてください。",
+            template_request=TemplateRequest(
+                template_type="role_course_reason",
+                question="デジタル企画コースを選んだ理由を教えてください。",
+                answer="事業理解と技術理解をつなぐ仕事に関心があります。",
+                company_name="三菱商事",
+                role_name="デジタル企画",
+                char_min=100,
+                char_max=140,
+            ),
+        ),
+        rag_sources=[
+            {
+                "content_type": "employee_interviews",
+                "title": "デジタル企画の社員インタビュー",
+                "excerpt": "事業部門と開発をつなぐ",
+            },
+            {
+                "content_type": "corporate_site",
+                "title": "事業戦略",
+                "excerpt": "成長領域への投資を進める",
+            },
+            {
+                "content_type": "new_grad_recruitment",
+                "title": "求める人物像",
+                "excerpt": "若手の挑戦を後押しする",
+            },
+        ],
+        company_rag_available=True,
+        grounding_mode="company_general",
+        json_caller=fake_json_caller,
+        text_caller=fake_text_caller,
+        progress_queue=None,
+    )
+
+    rewrite = result.rewrites[0]
+    assert 100 <= len(rewrite) <= 140
+    _assert_dearu_style(rewrite)
+    assert "デジタル企画" in rewrite
+    assert "成長領域" in rewrite
+    assert any("【企業根拠カード】" in prompt for prompt in captured_prompts)
+    assert result.review_meta is not None
+    assert result.review_meta.company_evidence_count >= 2
+    assert result.review_meta.evidence_coverage_level in {"partial", "strong"}
+
+
+@pytest.mark.asyncio
+async def test_final_quality_intern_goals_anchors_program_and_growth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_prompts: list[str] = []
+
+    async def fake_json_caller(*args, **kwargs):
+        return FakeJsonResult(
+            {
+                "top3": [
+                    {
+                        "category": "参加目的",
+                        "issue": "実務で何を学びたいかが抽象的です。",
+                        "suggestion": "インターンで得たい視点と、今の経験との接点を明示する。",
+                    }
+                ]
+            }
+        )
+
+    async def fake_text_caller(*args, **kwargs):
+        captured_prompts.append(kwargs.get("system_prompt", "") or (args[0] if args else ""))
+        return FakeTextResult(
+            "Business Intelligence Internshipでは、分析結果を事業判断へつなげる視点を学びたい。研究で示し方を改善してきた経験を土台に、実務に近いテーマを通じて仮説を価値へ変える力を磨きたい。"
+        )
+
+    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
+
+    result = await review_section_with_template(
+        request=ReviewRequest(
+            content="データ分析を価値に変える視点を実務で磨きたいです。",
+            section_title="Business Intelligence Internshipで学びたいことを教えてください。",
+            template_request=TemplateRequest(
+                template_type="intern_goals",
+                question="Business Intelligence Internshipで学びたいことを教えてください。",
+                answer="データ分析を価値に変える視点を実務で磨きたいです。",
+                company_name="三井物産",
+                role_name="Business Intelligence",
+                intern_name="Business Intelligence Internship",
+                char_min=100,
+                char_max=140,
+            ),
+        ),
+        rag_sources=[
+            {
+                "content_type": "new_grad_recruitment",
+                "title": "Business Intelligence Internship",
+                "excerpt": "実務に近いテーマを扱う",
+            },
+            {
+                "content_type": "employee_interviews",
+                "title": "社員インタビュー",
+                "excerpt": "分析を事業判断につなげる",
+            },
+            {
+                "content_type": "corporate_site",
+                "title": "事業紹介",
+                "excerpt": "データ活用を通じて価値を広げる",
+            },
+        ],
+        company_rag_available=True,
+        grounding_mode="role_grounded",
+        json_caller=fake_json_caller,
+        text_caller=fake_text_caller,
+        progress_queue=None,
+    )
+
+    rewrite = result.rewrites[0]
+    assert 100 <= len(rewrite) <= 140
+    _assert_dearu_style(rewrite)
+    assert "Business Intelligence Internship" in rewrite
+    assert "実務に近いテーマ" in rewrite
+    assert any("【企業根拠カード】" in prompt for prompt in captured_prompts)
+    assert result.review_meta is not None
+    assert result.review_meta.company_evidence_count >= 2
+    assert result.review_meta.evidence_coverage_level in {"strong", "partial"}
