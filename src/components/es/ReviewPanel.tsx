@@ -33,6 +33,12 @@ import {
   useESReview,
 } from "@/hooks/useESReview";
 import type { ReviewMode, TemplateType } from "@/hooks/useESReview";
+import {
+  DEFAULT_STANDARD_ES_REVIEW_MODEL,
+  getStandardESReviewModelLabel,
+  STANDARD_ES_REVIEW_MODEL_OPTIONS,
+  type StandardESReviewModel,
+} from "@/lib/ai/es-review-models";
 import { calculateESReviewCost } from "@/lib/credits/cost";
 import type { Industry } from "@/lib/constants/industries";
 import { notifyReviewComplete } from "@/lib/notifications";
@@ -317,70 +323,106 @@ function SetupField({
 function ReviewModeSelector({
   value,
   onChange,
+  standardModel,
+  onStandardModelChange,
 }: {
   value: ReviewMode;
   onChange: (value: ReviewMode) => void;
+  standardModel: StandardESReviewModel;
+  onStandardModelChange: (value: StandardESReviewModel) => void;
 }) {
   return (
     <div className="rounded-[26px] border border-border/60 bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-foreground">モデル経路</p>
+          <p className="text-sm font-semibold text-foreground">モデル選択</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Qwen3 β は既存の Claude 添削とは別経路で実行します。
+            標準添削で使うモデルを選択できます。
+            {QWEN_ES_REVIEW_BETA_ENABLED
+              ? " Qwen3 Swallow 32B β は別経路で実行します。"
+              : ""}
           </p>
         </div>
-        <Badge variant="soft-warning" className="px-3 py-1 text-[11px]">
-          Beta
-        </Badge>
+        {QWEN_ES_REVIEW_BETA_ENABLED ? (
+          <Badge variant="soft-warning" className="px-3 py-1 text-[11px]">
+            Beta
+          </Badge>
+        ) : null}
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <button
-          type="button"
-          className={cn(
-            "rounded-[22px] border px-4 py-4 text-left transition-colors",
-            value === "claude"
-              ? "border-primary/30 bg-primary/8"
-              : "border-border/60 bg-background/85 hover:border-border",
-          )}
-          onClick={() => onChange("claude")}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-foreground">Claude</p>
-            {value === "claude" ? (
+      <div className="mt-4 space-y-3">
+        <div className="rounded-[22px] border border-border/60 bg-background/85 px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold text-foreground">標準添削</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                商用 API の本番経路です。ここで選んだモデルで標準添削を実行します。
+              </p>
+            </div>
+            {value === "standard" ? (
               <Badge variant="soft-primary" className="px-2 py-0.5 text-[11px]">
-                標準
-              </Badge>
-            ) : null}
-          </div>
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            既存の本番経路です。現在の ES 添削体験はこちらを基準に維持します。
-          </p>
-        </button>
-
-        <button
-          type="button"
-          className={cn(
-            "rounded-[22px] border px-4 py-4 text-left transition-colors",
-            value === "qwen_beta"
-              ? "border-info/30 bg-info/8"
-              : "border-border/60 bg-background/85 hover:border-border",
-          )}
-          onClick={() => onChange("qwen_beta")}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-foreground">Qwen3 β</p>
-            {value === "qwen_beta" ? (
-              <Badge variant="soft-info" className="px-2 py-0.5 text-[11px]">
                 選択中
               </Badge>
             ) : null}
           </div>
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            就活向けに微調整する OSS LLM 経路です。失敗しても通常の Claude 経路には影響しません。
+          <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <Select
+              value={standardModel}
+              onValueChange={(nextValue) => {
+                onStandardModelChange(nextValue as StandardESReviewModel);
+                onChange("standard");
+              }}
+            >
+              <SelectTrigger className="h-11 rounded-2xl border-border/60 bg-background">
+                <SelectValue placeholder="モデルを選択" />
+              </SelectTrigger>
+              <SelectContent>
+                {STANDARD_ES_REVIEW_MODEL_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value} disabled={!option.enabled}>
+                    {option.label}
+                    {!option.enabled && option.disabledReason ? ` (${option.disabledReason})` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant={value === "standard" ? "default" : "outline"}
+              className="h-11 rounded-full px-5"
+              onClick={() => onChange("standard")}
+            >
+              {value === "standard" ? "標準添削を使用中" : "標準添削を使う"}
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            現在選択できるのは Claude Sonnet 4.5 と GPT-5.1 です。その他の標準モデルは調整中のため一時的に無効化しています。
           </p>
-        </button>
+        </div>
+
+        {QWEN_ES_REVIEW_BETA_ENABLED ? (
+          <button
+            type="button"
+            className={cn(
+              "w-full rounded-[22px] border px-4 py-4 text-left transition-colors",
+              value === "qwen_beta"
+                ? "border-info/30 bg-info/8"
+                : "border-border/60 bg-background/85 hover:border-border",
+            )}
+            onClick={() => onChange("qwen_beta")}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-foreground">Qwen3 Swallow 32B β</p>
+              {value === "qwen_beta" ? (
+                <Badge variant="soft-info" className="px-2 py-0.5 text-[11px]">
+                  選択中
+                </Badge>
+              ) : null}
+            </div>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              就活向けに微調整する Swallow 32B の OSS LLM 経路です。失敗しても通常の標準経路には影響しません。
+            </p>
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -452,7 +494,10 @@ export function ReviewPanel({
   const [roleOptionsData, setRoleOptionsData] = useState<RoleOptionResponse | null>(null);
   const [isRoleOptionsLoading, setIsRoleOptionsLoading] = useState(false);
   const [roleOptionsError, setRoleOptionsError] = useState<string | null>(null);
-  const [reviewMode, setReviewMode] = useState<ReviewMode>("claude");
+  const [reviewMode, setReviewMode] = useState<ReviewMode>("standard");
+  const [selectedStandardModel, setSelectedStandardModel] = useState<StandardESReviewModel>(
+    DEFAULT_STANDARD_ES_REVIEW_MODEL,
+  );
   const [showReflectModal, setShowReflectModal] = useState(false);
   const [pendingRewrite, setPendingRewrite] = useState<string | null>(null);
   const [responseInstanceKey, setResponseInstanceKey] = useState(0);
@@ -503,7 +548,10 @@ export function ReviewPanel({
     : hasSelectedCompany
       ? "自動判定"
       : undefined;
-  const currentReviewModeLabel = reviewMode === "qwen_beta" ? "Qwen3 β" : "Claude";
+  const currentReviewModeLabel =
+    reviewMode === "qwen_beta"
+      ? "Qwen3 Swallow 32B β"
+      : getStandardESReviewModelLabel(selectedStandardModel);
   const missingTemplateField = selectedTemplateFields.find((fieldName) => {
     if (fieldName === "intern_name") {
       return !internName.trim();
@@ -571,7 +619,7 @@ export function ReviewPanel({
       : hasCompletedReview
         ? "条件を見直して再添削"
         : reviewMode === "qwen_beta"
-          ? "この設問をQwen3 βで添削"
+          ? "この設問をQwen3 Swallow 32B βで添削"
           : "この設問をAI添削";
   const footerHelperText = error
     ? "添削結果を表示できませんでした。もう一度お試しください。"
@@ -581,8 +629,8 @@ export function ReviewPanel({
         ? "前回の条件を保持したまま、設定を見直して再添削できます。"
         : canStartReview
           ? reviewMode === "qwen_beta"
-            ? "Qwen3 β 経路で実行します。800文字ごとに +1、最小2クレジットです。"
-            : "800文字ごとに +1、最小2クレジットです。"
+            ? "Qwen3 Swallow 32B β 経路で実行します。800文字ごとに +1、最小2クレジットです。"
+            : `${getStandardESReviewModelLabel(selectedStandardModel)} で実行します。800文字ごとに +1、最小2クレジットです。`
           : reviewActionHint;
   const footerActionDisabled = error ? false : isFooterLocked || !canStartReview;
 
@@ -716,6 +764,7 @@ export function ReviewPanel({
         industryOverride: selectedIndustry || undefined,
         roleSelectionSource: roleSelectionSource || undefined,
         reviewMode,
+        llmModel: reviewMode === "standard" ? selectedStandardModel : undefined,
       });
     } finally {
       releaseLock();
@@ -729,6 +778,7 @@ export function ReviewPanel({
     releaseLock,
     requestSectionReview,
     reviewMode,
+    selectedStandardModel,
     selectedRoleName,
     selectedIndustry,
     sectionReviewRequest,
@@ -886,9 +936,12 @@ export function ReviewPanel({
                 </div>
               </div>
 
-              {QWEN_ES_REVIEW_BETA_ENABLED ? (
-                <ReviewModeSelector value={reviewMode} onChange={setReviewMode} />
-              ) : null}
+              <ReviewModeSelector
+                value={reviewMode}
+                onChange={setReviewMode}
+                standardModel={selectedStandardModel}
+                onStandardModelChange={setSelectedStandardModel}
+              />
 
               {hasSelectedCompany ? (
                 <div className="rounded-[26px] border border-border/60 bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
@@ -1030,7 +1083,7 @@ export function ReviewPanel({
                 </div>
               ) : null}
 
-              {currentTemplateLabel || selectedIndustry || selectedRoleName ? (
+              {currentTemplateLabel || selectedIndustry || selectedRoleName || currentReviewModeLabel ? (
                 <div className="rounded-[22px] border border-border/60 bg-muted/30 px-4 py-3">
                   <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
                     現在の設定
@@ -1051,11 +1104,9 @@ export function ReviewPanel({
                         職種: {selectedRoleName}
                       </Badge>
                     ) : null}
-                    {QWEN_ES_REVIEW_BETA_ENABLED ? (
-                      <Badge variant="outline" className="px-3 py-1 text-[11px]">
-                        モデル: {currentReviewModeLabel}
-                      </Badge>
-                    ) : null}
+                    <Badge variant="outline" className="px-3 py-1 text-[11px]">
+                      モデル: {currentReviewModeLabel}
+                    </Badge>
                   </div>
                 </div>
               ) : null}

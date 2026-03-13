@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { getLLMResultLabel } from "@/lib/ai/model-labels";
 import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
 import type {
   ReviewPlaybackPhase,
@@ -119,13 +120,11 @@ function ProgressChip({
 }
 
 function getReviewProviderLabel(reviewMeta?: StreamingReviewResponseProps["reviewMeta"]) {
-  if (reviewMeta?.review_variant === "qwen3-beta" || reviewMeta?.llm_provider === "qwen-es-review") {
-    return "Qwen3 β";
-  }
-  if (reviewMeta?.llm_provider === "claude") {
-    return "Claude";
-  }
-  return null;
+  return getLLMResultLabel({
+    provider: reviewMeta?.llm_provider,
+    modelId: reviewMeta?.llm_model,
+    reviewVariant: reviewMeta?.review_variant,
+  });
 }
 
 function RewriteSkeleton() {

@@ -23,7 +23,7 @@ export interface SectionData {
   charLimit?: number;
 }
 
-export type ReviewMode = "claude" | "qwen_beta";
+export type ReviewMode = "standard" | "qwen_beta";
 
 export type TemplateType =
   | "basic"
@@ -254,6 +254,7 @@ export interface UseESReviewReturn {
     industryOverride?: string;
     roleSelectionSource?: string;
     reviewMode?: ReviewMode;
+    llmModel?: string;
   }) => Promise<boolean>;
   clearReview: () => void;
 }
@@ -524,8 +525,9 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
       industryOverride?: string;
       roleSelectionSource?: string;
       reviewMode?: ReviewMode;
+      llmModel?: string;
     }): Promise<boolean> => {
-      const effectiveReviewMode = params.reviewMode ?? "claude";
+      const effectiveReviewMode = params.reviewMode ?? "standard";
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
 
@@ -595,6 +597,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
             roleName: params.roleName,
             industryOverride: params.industryOverride,
             roleSelectionSource: params.roleSelectionSource,
+            llmModel: params.llmModel,
           }),
         });
 

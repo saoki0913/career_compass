@@ -19,6 +19,7 @@ import { getGuestUser } from "@/lib/auth/guest";
 import { reserveCredits, confirmReservation, cancelReservation, calculateESReviewCost } from "@/lib/credits";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 import type { TemplateType } from "@/hooks/useESReview";
+import { isSelectableStandardESReviewModel, isStandardESReviewModel } from "@/lib/ai/es-review-models";
 import { resolveIndustryForReview } from "@/lib/constants/es-review-role-catalog";
 
 function deriveCharMin(charLimit?: number | null) {
@@ -85,6 +86,7 @@ interface CorporateInfoUrlEntry {
   contentType?: string;
   fetchedAt?: string;
   kind?: "url" | "upload_pdf";
+  sourceOrigin?: "manual_user" | "prestream_enrichment";
   secondaryContentTypes?: string[];
 }
 
@@ -101,6 +103,7 @@ interface PrestreamEnrichmentResult {
   attempted: boolean;
   completed: boolean;
   addedSources: number;
+  sourceUrls: string[];
 }
 
 function normalizeRoleLabel(value?: string | null): string | null {
@@ -154,6 +157,7 @@ function parseCorporateInfoUrls(raw: string | null): CorporateInfoUrlEntry[] {
         contentType: typeof entry.contentType === "string" ? entry.contentType : undefined,
         fetchedAt: typeof entry.fetchedAt === "string" ? entry.fetchedAt : undefined,
         kind: entry.kind === "upload_pdf" ? "upload_pdf" : "url",
+        sourceOrigin: entry.sourceOrigin === "prestream_enrichment" ? "prestream_enrichment" : "manual_user",
         secondaryContentTypes: Array.isArray(entry.secondaryContentTypes)
           ? entry.secondaryContentTypes.filter((value): value is string => typeof value === "string")
           : [],
@@ -184,11 +188,25 @@ function collectKnownContentTypes(entries: CorporateInfoUrlEntry[]): Set<string>
   return contentTypes;
 }
 
-function extractQuestionFocusSignals(templateType: TemplateType, question: string): {
+function extractQuestionFocusSignals(input: {
+  templateType: TemplateType;
+  question: string;
+  answer?: string;
+  roleName?: string | null;
+  internName?: string | null;
+}): {
   themes: string[];
   queryTerms: string[];
 } {
-  const text = `${templateType} ${question || ""}`;
+  const text = [
+    input.templateType,
+    input.question || "",
+    input.answer || "",
+    input.roleName || "",
+    input.internName || "",
+  ]
+    .join(" ")
+    .trim();
   const signals: Array<{ theme: string; terms: string[] }> = [];
 
   if (/事業|ビジネス|領域|商材|手掛け|手がけ|注力|投資/.test(text)) {
@@ -203,6 +221,21 @@ function extractQuestionFocusSignals(templateType: TemplateType, question: strin
   if (/入社後|将来|キャリア|実現|やりたい|挑みたい/.test(text)) {
     signals.push({ theme: "将来接続", terms: ["入社後", "将来", "キャリア", "挑戦"] });
   }
+  if (
+    /職種|コース|部門|領域|業務|仕事内容|担当|システム|デジタル|企画|エンジニア|営業|開発/.test(text) ||
+    (!!input.roleName && !isGenericRoleLabel(input.roleName))
+  ) {
+    signals.push({
+      theme: "役割理解",
+      terms: ["職種", "業務", "仕事内容", input.roleName || ""].filter(Boolean),
+    });
+  }
+  if (/インターン|プログラム|実務|ワークショップ|体験/.test(text) || !!input.internName) {
+    signals.push({
+      theme: "インターン機会",
+      terms: ["インターン", "プログラム", "実務", input.internName || ""].filter(Boolean),
+    });
+  }
 
   if (signals.length === 0) {
     const defaults: Partial<Record<TemplateType, Array<{ theme: string; terms: string[] }>>> = {
@@ -214,12 +247,24 @@ function extractQuestionFocusSignals(templateType: TemplateType, question: strin
         { theme: "事業理解", terms: ["事業", "方向性"] },
         { theme: "価値観", terms: ["価値観", "人物像"] },
       ],
+      role_course_reason: [
+        { theme: "役割理解", terms: ["職種", "業務", "仕事内容", input.roleName || ""].filter(Boolean) },
+        { theme: "事業理解", terms: ["事業", "顧客", "価値提供"] },
+      ],
+      intern_reason: [
+        { theme: "インターン機会", terms: ["インターン", "プログラム", input.internName || ""].filter(Boolean) },
+        { theme: "成長機会", terms: ["実務", "学び", "成長"] },
+      ],
+      intern_goals: [
+        { theme: "インターン機会", terms: ["インターン", "プログラム", input.internName || ""].filter(Boolean) },
+        { theme: "成長機会", terms: ["実務", "学び", "成長"] },
+      ],
       self_pr: [
         { theme: "成長機会", terms: ["経験", "スキル"] },
         { theme: "価値観", terms: ["価値観", "人物像"] },
       ],
     };
-    signals.push(...(defaults[templateType] || [{ theme: "企業理解", terms: ["事業", "価値観"] }]));
+    signals.push(...(defaults[input.templateType] || [{ theme: "企業理解", terms: ["事業", "価値観"] }]));
   }
 
   const themes: string[] = [];
@@ -234,7 +279,7 @@ function extractQuestionFocusSignals(templateType: TemplateType, question: strin
       }
     }
   }
-  return { themes: themes.slice(0, 4), queryTerms: queryTerms.slice(0, 8) };
+  return { themes: themes.slice(0, 6), queryTerms: queryTerms.slice(0, 10) };
 }
 
 function buildQuery(parts: Array<string | null | undefined>): string {
@@ -292,10 +337,17 @@ function buildPrestreamEnrichmentSpecs(input: {
   templateType: TemplateType;
   companyName: string;
   question: string;
+  answer?: string;
   roleName?: string | null;
   internName?: string | null;
 }): Array<{ contentType: string; query: string; preferredTerms: string[] }> {
-  const focusSignals = extractQuestionFocusSignals(input.templateType, input.question);
+  const focusSignals = extractQuestionFocusSignals({
+    templateType: input.templateType,
+    question: input.question,
+    answer: input.answer,
+    roleName: input.roleName,
+    internName: input.internName,
+  });
   const genericRoleMode = isGenericRoleLabel(input.roleName);
   const businessTerms = focusSignals.queryTerms.filter((term) => BUSINESS_FOCUS_TERMS.has(term)).slice(0, 4);
   const peopleTerms = focusSignals.queryTerms.filter((term) => PEOPLE_FOCUS_TERMS.has(term)).slice(0, 4);
@@ -311,6 +363,7 @@ function buildPrestreamEnrichmentSpecs(input: {
     genericRoleMode ? undefined : input.roleName,
     ...businessTerms,
     input.question,
+    input.answer,
   ]);
 
   const specs: Array<{ contentType: string; query: string; preferredTerms: string[] }> = [
@@ -343,6 +396,7 @@ function buildPrestreamEnrichmentSpecs(input: {
 function hasSufficientCompanyCoverage(input: {
   templateType: TemplateType;
   question: string;
+  answer?: string;
   roleName?: string | null;
   entries: CorporateInfoUrlEntry[];
 }): boolean {
@@ -352,7 +406,12 @@ function hasSufficientCompanyCoverage(input: {
       .filter((value): value is string => typeof value === "string" && value.length > 0),
   );
   const genericRoleMode = isGenericRoleLabel(input.roleName);
-  const focusSignals = extractQuestionFocusSignals(input.templateType, input.question);
+  const focusSignals = extractQuestionFocusSignals({
+    templateType: input.templateType,
+    question: input.question,
+    answer: input.answer,
+    roleName: input.roleName,
+  });
   const hasPeople = contentTypes.has("new_grad_recruitment") || contentTypes.has("employee_interviews");
   const hasBusiness =
     contentTypes.has("corporate_site") || contentTypes.has("midterm_plan") || contentTypes.has("ir_materials");
@@ -381,6 +440,7 @@ function hasSufficientCompanyCoverage(input: {
 function shouldRunPrestreamEnrichment(input: {
   templateType: TemplateType;
   question: string;
+  answer?: string;
   roleName?: string | null;
   corporateInfoFetchedAt?: Date | null;
   corporateInfoUrls: CorporateInfoUrlEntry[];
@@ -397,6 +457,7 @@ function shouldRunPrestreamEnrichment(input: {
   if (!hasSufficientCompanyCoverage({
     templateType: input.templateType,
     question: input.question,
+    answer: input.answer,
     roleName: input.roleName,
     entries: input.corporateInfoUrls,
   })) {
@@ -498,6 +559,22 @@ function isPrimaryCandidate(candidate: SearchCandidate, contentType: string, kno
   return true;
 }
 
+function collectUserProvidedCorporateUrls(entries: CorporateInfoUrlEntry[]): string[] {
+  const urls: string[] = [];
+  for (const entry of entries) {
+    if (!entry.url) {
+      continue;
+    }
+    if (entry.sourceOrigin === "prestream_enrichment") {
+      continue;
+    }
+    if (!urls.includes(entry.url)) {
+      urls.push(entry.url);
+    }
+  }
+  return urls;
+}
+
 function extractSecondaryHintTerms(
   candidates: SearchCandidate[],
   preferredTerms: string[],
@@ -577,6 +654,7 @@ async function performPrestreamCompanyEnrichment(input: {
   companyName: string;
   templateType: TemplateType;
   sectionTitle: string;
+  answer: string;
   roleName?: string | null;
   internName?: string | null;
   corporateInfoFetchedAt?: Date | null;
@@ -586,17 +664,19 @@ async function performPrestreamCompanyEnrichment(input: {
     !shouldRunPrestreamEnrichment({
       templateType: input.templateType,
       question: input.sectionTitle,
+      answer: input.answer,
       roleName: input.roleName,
       corporateInfoFetchedAt: input.corporateInfoFetchedAt,
       corporateInfoUrls: input.corporateInfoUrls,
     })
   ) {
-    return { attempted: false, completed: false, addedSources: 0 };
+    return { attempted: false, completed: false, addedSources: 0, sourceUrls: [] };
   }
 
   const hasCoverage = hasSufficientCompanyCoverage({
     templateType: input.templateType,
     question: input.sectionTitle,
+    answer: input.answer,
     roleName: input.roleName,
     entries: input.corporateInfoUrls,
   });
@@ -605,6 +685,7 @@ async function performPrestreamCompanyEnrichment(input: {
     templateType: input.templateType,
     companyName: input.companyName,
     question: input.sectionTitle,
+    answer: input.answer,
     roleName: input.roleName,
     internName: input.internName,
   });
@@ -617,7 +698,7 @@ async function performPrestreamCompanyEnrichment(input: {
     specs = specs.slice(0, 2);
   }
   if (specs.length === 0) {
-    return { attempted: false, completed: false, addedSources: 0 };
+    return { attempted: false, completed: false, addedSources: 0, sourceUrls: [] };
   }
 
   console.info("[ES添削/企業補強] pre-stream enrichment start", {
@@ -630,6 +711,7 @@ async function performPrestreamCompanyEnrichment(input: {
   const groupedUrls = new Map<string, string[]>();
   const deadlineMs = Date.now() + PRESTREAM_ENRICHMENT_BUDGET_MS;
   let completed = true;
+  const sourceUrls: string[] = [];
 
   for (const spec of specs) {
     const initialRemainingMs = getRemainingTimeMs(deadlineMs);
@@ -684,6 +766,9 @@ async function performPrestreamCompanyEnrichment(input: {
     bucket.push(chosen.url);
     groupedUrls.set(spec.contentType, bucket);
     knownUrls.add(chosen.url);
+    if (!sourceUrls.includes(chosen.url)) {
+      sourceUrls.push(chosen.url);
+    }
   }
 
   let addedSources = 0;
@@ -711,6 +796,7 @@ async function performPrestreamCompanyEnrichment(input: {
             contentType === "ir_materials" || contentType === "midterm_plan"
               ? "corporate_ir"
               : "corporate_general",
+          sourceOrigin: "prestream_enrichment",
         }),
       },
       Math.min(PRESTREAM_FETCH_TIMEOUT_MS, remainingMs),
@@ -744,7 +830,7 @@ async function performPrestreamCompanyEnrichment(input: {
     addedSources,
     completed,
   });
-  return { attempted: true, completed, addedSources };
+  return { attempted: true, completed, addedSources, sourceUrls };
 }
 
 export async function handleReviewStream(
@@ -804,6 +890,7 @@ export async function handleReviewStream(
       internName,
       roleName,
       industryOverride,
+      llmModel,
     } = body as {
       content: string;
       sectionId?: string;
@@ -815,7 +902,16 @@ export async function handleReviewStream(
       internName?: string;
       roleName?: string;
       industryOverride?: string;
+      llmModel?: string;
     };
+    if (typeof llmModel === "string" && isStandardESReviewModel(llmModel) && !isSelectableStandardESReviewModel(llmModel)) {
+      return new Response(
+        JSON.stringify({ error: "選択したモデルは現在調整中です" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    const resolvedLLMModel =
+      typeof llmModel === "string" && isSelectableStandardESReviewModel(llmModel) ? llmModel : null;
 
     // Verify requestCompanyId ownership to prevent IDOR
     let companyId = access.document.companyId;
@@ -951,6 +1047,8 @@ export async function handleReviewStream(
     let prestreamEnrichmentAttempted = false;
     let prestreamEnrichmentCompleted = false;
     let prestreamEnrichmentSourcesAdded = 0;
+    let prestreamSourceUrls: string[] = [];
+    const userProvidedCorporateUrls = collectUserProvidedCorporateUrls(companyInfo.corporateInfoUrls);
     if (companyId && companyInfo.name) {
       try {
         const enrichment = await performPrestreamCompanyEnrichment({
@@ -963,14 +1061,16 @@ export async function handleReviewStream(
           companyName: companyInfo.name,
           templateType: effectiveTemplateType,
           sectionTitle: sectionTitle || "",
+          answer: content,
           roleName: resolvedRoleContext.primary_role || null,
           internName: internName || null,
           corporateInfoFetchedAt: companyInfo.corporateInfoFetchedAt,
           corporateInfoUrls: companyInfo.corporateInfoUrls,
         });
         prestreamEnrichmentAttempted = enrichment.attempted;
-        prestreamEnrichmentCompleted = enrichment.completed;
+        prestreamEnrichmentCompleted = enrichment.completed || enrichment.sourceUrls.length > 0;
         prestreamEnrichmentSourcesAdded = enrichment.addedSources;
+        prestreamSourceUrls = enrichment.sourceUrls;
       } catch (enrichmentError) {
         prestreamEnrichmentAttempted = true;
         console.warn("[ES添削/企業補強] pre-stream enrichment error", {
@@ -1015,6 +1115,7 @@ export async function handleReviewStream(
         profile_context: profileContext,
         gakuchika_context: gakuchikaContext,
         document_context: otherSections.length > 0 ? { other_sections: otherSections } : null,
+        llm_model: resolvedLLMModel,
         // SSE specific: include document_id for credit consumption on completion
         document_id: documentId,
         user_id: userId,
@@ -1022,6 +1123,8 @@ export async function handleReviewStream(
         prestream_enrichment_attempted: prestreamEnrichmentAttempted,
         prestream_enrichment_completed: prestreamEnrichmentCompleted,
         prestream_enrichment_sources_added: prestreamEnrichmentSourcesAdded,
+        prestream_source_urls: prestreamSourceUrls,
+        user_provided_corporate_urls: userProvidedCorporateUrls,
       }),
     });
 
@@ -1116,7 +1219,14 @@ export async function handleReviewStream(
           controller.close();
         } catch (streamError) {
           console.error(`Error proxying ES review SSE stream (${backendPath}):`, streamError);
-          controller.error(streamError);
+          const errorEvent = {
+            type: "error",
+            message: "AIストリーム接続が途中で切れました。しばらくしてから再試行してください。",
+          };
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`)
+          );
+          controller.close();
         } finally {
           if (!creditConfirmed && capturedReservationId) {
             await cancelReservation(capturedReservationId).catch(console.error);
