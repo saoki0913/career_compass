@@ -381,6 +381,57 @@ def _format_short_answer_guidance(
 - 文を細かく切りすぎず、各文に意味を持たせる"""
 
 
+def _format_midrange_length_guidance(
+    template_type: str,
+    char_min: Optional[int],
+    char_max: Optional[int],
+    *,
+    length_control_mode: str = "default",
+    length_shortfall: Optional[int] = None,
+) -> str:
+    if not char_min or not char_max or char_max < 300 or char_max > 500:
+        return ""
+
+    if template_type not in {
+        "company_motivation",
+        "intern_reason",
+        "intern_goals",
+        "post_join_goals",
+        "role_course_reason",
+    }:
+        return ""
+
+    structure_map = {
+        "company_motivation": "1文目で志望理由、2文目で根拠経験、3文目で企業理解との接点、4文目で貢献イメージを置く",
+        "intern_reason": "1文目で参加理由、2文目で根拠経験、3文目でインターン価値との接点、4文目で得たい学びを置く",
+        "intern_goals": "1文目で学びたいこと、2文目で根拠経験、3文目でプログラム接点、4文目で成長イメージを置く",
+        "post_join_goals": "1文目で入社後の目標、2文目で根拠経験、3文目で企業との接点、4文目で価値発揮の方向性を置く",
+        "role_course_reason": "1文目で職種・コース志望、2文目で根拠経験、3文目で企業や事業との接点、4文目でその役割で出したい価値を置く",
+    }
+    target = _format_target_char_window(char_min, char_max)
+    guidance_lines = [
+        "【300〜500字設問の組み方】",
+        "- 4文前後で構成する",
+        f"- {structure_map.get(template_type, '1文目で結論、2文目で根拠、3文目で企業接点、4文目で価値発揮を置く')}",
+        f"- 目標は {target} で、{char_min}字未満で終えない",
+        "- 説明だけの文で終わらせず、各文に役割を持たせる",
+        "- 短くまとめすぎる場合は、既にある経験・職種・企業接点のつながりを1文補う",
+    ]
+    if length_control_mode == "under_min_recovery":
+        shortfall_text = f"{length_shortfall}字前後" if length_shortfall else "不足分"
+        guidance_lines.extend(
+            [
+                "【今回の不足を埋める方針】",
+                f"- 現在の不足は {shortfall_text} と見なし、一般論ではなく接続文で埋める",
+                "- 新事実を足さず、経験→職種→企業理解の順で補強する",
+                "- 3文以下で終わっている場合は文数を増やし、最後の文で役割や貢献を言い切る",
+            ]
+        )
+    elif length_control_mode == "tight_length":
+        guidance_lines.append("- 根拠経験と企業接点のどちらも省略せず、4文構成を保つ")
+    return "\n".join(guidance_lines)
+
+
 def get_template_rag_profile(template_type: str) -> dict:
     return TEMPLATE_RAG_PROFILES.get(template_type, TEMPLATE_RAG_PROFILES["basic"]).copy()
 
@@ -404,6 +455,8 @@ def build_template_rewrite_prompt(
     reference_quality_block: str = "",
     generic_role_mode: bool = False,
     evidence_coverage_level: str = "none",
+    length_control_mode: str = "default",
+    length_shortfall: Optional[int] = None,
 ) -> tuple[str, str]:
     template_def = TEMPLATE_DEFS.get(template_type)
     if not template_def:
@@ -465,6 +518,13 @@ def build_template_rewrite_prompt(
 【設問タイプの焦点】
 {template_def["description"]}
 {_format_short_answer_guidance(template_type, char_min, char_max)}
+{_format_midrange_length_guidance(
+    template_type,
+    char_min,
+    char_max,
+    length_control_mode=length_control_mode,
+    length_shortfall=length_shortfall,
+)}
 {_format_company_guidance(
     company_evidence_cards=company_evidence_cards,
     has_rag=has_rag,
@@ -510,6 +570,8 @@ def build_template_fallback_rewrite_prompt(
     reference_quality_block: str = "",
     generic_role_mode: bool = False,
     evidence_coverage_level: str = "none",
+    length_control_mode: str = "default",
+    length_shortfall: Optional[int] = None,
 ) -> tuple[str, str]:
     template_def = TEMPLATE_DEFS.get(template_type)
     if not template_def:
@@ -544,6 +606,13 @@ def build_template_fallback_rewrite_prompt(
 - 出力は本文のみ、だ・である調、{_format_char_condition(char_min, char_max)}
 - 目標は {_format_target_char_window(char_min, char_max)}
 {_format_short_answer_guidance(template_type, char_min, char_max)}
+{_format_midrange_length_guidance(
+    template_type,
+    char_min,
+    char_max,
+    length_control_mode=length_control_mode,
+    length_shortfall=length_shortfall,
+)}
 {_format_company_guidance(
     company_evidence_cards=company_evidence_cards,
     has_rag=has_rag,
@@ -664,6 +733,8 @@ def build_template_length_fix_prompt(
     char_min: Optional[int],
     char_max: Optional[int],
     fix_mode: str,
+    *,
+    length_control_mode: str = "default",
 ) -> tuple[str, str]:
     template_def = TEMPLATE_DEFS.get(template_type)
     if not template_def:
@@ -674,6 +745,11 @@ def build_template_length_fix_prompt(
         if fix_mode == "over_max"
         else "意味を変えず、短い補足句を1つだけ足して指定字数に近づける"
     )
+    if fix_mode == "under_min" and length_control_mode == "under_min_recovery":
+        mode_instruction = (
+            "意味を変えず、既にある経験・職種・企業接点のつながりを補う短い文を1文まで足し、"
+            "必要なら補足句も使って指定字数に収める"
+        )
     system_prompt = f"""あなたは日本語のES編集者である。
 目的は、既にある改善案本文の意味と事実を変えず、文字数だけを整えること。
 
@@ -686,6 +762,13 @@ def build_template_length_fix_prompt(
 - 文字数条件は {_format_char_condition(char_min, char_max)}
 - 目標は {_format_target_char_window(char_min, char_max)}
 - 説明、前置き、箇条書き、JSON、引用符は禁止
+{_format_midrange_length_guidance(
+    template_type,
+    char_min,
+    char_max,
+    length_control_mode=length_control_mode,
+    length_shortfall=(char_min - len(current_text)) if fix_mode == "under_min" and char_min else None,
+)}
 """
 
     user_prompt = f"""【現在の本文】

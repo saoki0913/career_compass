@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     # ===== API キー =====
     openai_api_key: str = ""
     anthropic_api_key: str = ""
+    google_api_key: str = ""
+    cohere_api_key: str = ""
+    deepseek_api_key: str = ""
 
     # ===== キャッシュ =====
     # 環境変数: REDIS_URL
@@ -90,17 +93,40 @@ class Settings(BaseSettings):
     # 環境変数: OPENAI_MODEL
     openai_model: str = "gpt-5-mini"
 
-    # Qwen3 ES添削 beta 推論サービス
+    # Gemini モデル（Gemini API / OpenAI compatibility ではなく公式APIを使用）
+    # 環境変数: GOOGLE_MODEL / GOOGLE_BASE_URL
+    google_model: str = "gemini-3.1-pro-preview"
+    google_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+
+    # Cohere モデル（OpenAI compatibility API）
+    # 環境変数: COHERE_MODEL / COHERE_BASE_URL
+    cohere_model: str = "command-a-03-2025"
+    cohere_base_url: str = "https://api.cohere.com/compatibility/v1"
+
+    # DeepSeek モデル（OpenAI compatibility API）
+    # 環境変数: DEEPSEEK_MODEL / DEEPSEEK_BASE_URL
+    deepseek_model: str = "deepseek-chat"
+    deepseek_base_url: str = "https://api.deepseek.com/v1"
+
+    # Qwen3 Swallow 32B ES添削 beta 推論サービス
     # 環境変数: QWEN_ES_REVIEW_BASE_URL / QWEN_ES_REVIEW_MODEL / QWEN_ES_REVIEW_API_KEY
     qwen_es_review_enabled: bool = False
     qwen_es_review_base_url: str = ""
-    qwen_es_review_model: str = "Qwen/Qwen3-14B"
+    qwen_es_review_model: str = "tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2"
     qwen_es_review_api_key: str = ""
     qwen_es_review_timeout_seconds: int = 120
+    qwen_es_review_timeout_improvement_seconds: int = 30
+    qwen_es_review_timeout_rewrite_seconds: int = 90
+    qwen_es_review_timeout_compact_rewrite_seconds: int = 45
+    qwen_es_review_timeout_length_fix_seconds: int = 20
+    qwen_es_review_total_budget_seconds: int = 150
     qwen_es_review_adapter_id: str = ""
 
     # ===== 機能別モデル設定 =====
-    # 各機能で使用するLLMモデルティア（claude-sonnet / claude-haiku / openai）
+    # 各機能で使用するモデルエイリアスまたは明示モデルID
+    # 例:
+    #   - エイリアス: claude-sonnet / claude-haiku / openai / google / cohere / deepseek
+    #   - 明示ID: gpt-5.1 / gemini-3.1-pro-preview / command-a-03-2025 / deepseek-chat
     # .env.local で個別にオーバーライド可能
     model_es_review: str = "claude-sonnet"          # MODEL_ES_REVIEW - ES添削
     model_gakuchika: str = "claude-haiku"           # MODEL_GAKUCHIKA - ガクチカ深掘り
