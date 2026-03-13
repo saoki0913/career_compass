@@ -40,8 +40,9 @@ def main() -> None:
 
     try:
         from datasets import load_dataset
+        import unsloth  # noqa: F401
+        from unsloth import FastLanguageModel, is_bfloat16_supported
         from trl import SFTConfig, SFTTrainer
-        from unsloth import FastLanguageModel
     except ImportError as error:  # pragma: no cover - environment specific
         raise SystemExit(
             "Missing training dependencies. Run `pip install -r ml/es_review_qwen/requirements-train.txt`."
@@ -79,6 +80,33 @@ def main() -> None:
     output_dir = Path(config["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    bf16_enabled = bool(config.get("bf16")) if "bf16" in config else bool(is_bfloat16_supported())
+    fp16_enabled = bool(config.get("fp16")) if "fp16" in config else not bf16_enabled
+    training_args = {
+        "output_dir": str(output_dir),
+        "num_train_epochs": float(config.get("num_train_epochs", 2)),
+        "per_device_train_batch_size": int(config.get("per_device_train_batch_size", 1)),
+        "per_device_eval_batch_size": int(config.get("per_device_eval_batch_size", 1)),
+        "gradient_accumulation_steps": int(config.get("gradient_accumulation_steps", 16)),
+        "learning_rate": float(config.get("learning_rate", 2e-4)),
+        "weight_decay": float(config.get("weight_decay", 0.01)),
+        "logging_steps": int(config.get("logging_steps", 10)),
+        "save_steps": int(config.get("save_steps", 100)),
+        "eval_steps": int(config.get("eval_steps", 100)),
+        "eval_strategy": "steps",
+        "save_strategy": "steps",
+        "lr_scheduler_type": config.get("lr_scheduler_type", "cosine"),
+        "seed": int(config.get("seed", 42)),
+        "report_to": [],
+        "optim": config.get("optim", "paged_adamw_8bit"),
+        "bf16": bf16_enabled,
+        "fp16": fp16_enabled,
+    }
+    if config.get("warmup_steps") is not None:
+        training_args["warmup_steps"] = int(config["warmup_steps"])
+    elif config.get("warmup_ratio") is not None:
+        training_args["warmup_ratio"] = float(config["warmup_ratio"])
+
     trainer = SFTTrainer(
         model=model,
         tokenizer=tokenizer,
@@ -87,24 +115,7 @@ def main() -> None:
         dataset_text_field="text",
         max_seq_length=int(config.get("max_seq_length", 4096)),
         packing=False,
-        args=SFTConfig(
-            output_dir=str(output_dir),
-            num_train_epochs=float(config.get("num_train_epochs", 2)),
-            per_device_train_batch_size=int(config.get("per_device_train_batch_size", 1)),
-            per_device_eval_batch_size=int(config.get("per_device_eval_batch_size", 1)),
-            gradient_accumulation_steps=int(config.get("gradient_accumulation_steps", 16)),
-            learning_rate=float(config.get("learning_rate", 2e-4)),
-            warmup_ratio=float(config.get("warmup_ratio", 0.03)),
-            weight_decay=float(config.get("weight_decay", 0.01)),
-            logging_steps=int(config.get("logging_steps", 10)),
-            save_steps=int(config.get("save_steps", 100)),
-            eval_steps=int(config.get("eval_steps", 100)),
-            eval_strategy="steps",
-            save_strategy="steps",
-            lr_scheduler_type="cosine",
-            seed=int(config.get("seed", 42)),
-            report_to=[],
-        ),
+        args=SFTConfig(**training_args),
     )
 
     train_result = trainer.train()
@@ -118,6 +129,8 @@ def main() -> None:
         "valid_rows": len(valid_dataset),
         "train_runtime_seconds": getattr(train_result, "metrics", {}).get("train_runtime"),
         "train_loss": getattr(train_result, "metrics", {}).get("train_loss"),
+        "bf16": bf16_enabled,
+        "fp16": fp16_enabled,
         "config": config,
     }
     (output_dir / "training_summary.json").write_text(

@@ -1,67 +1,64 @@
-# Qwen3 ES Review Beta
+# Qwen3 Swallow 32B ES Review Beta
 
-既存の Claude ES 添削を残したまま、就活向けに微調整した `Qwen3` を別経路で運用するための学習ワークスペース。
+既存の Claude ES 添削を残したまま、`Qwen3 Swallow 32B` を `Qwen β` 経路へ載せるための学習・配備ワークスペース。
 
-## ディレクトリ
+## Summary
 
-- `configs/`
-  - QLoRA / SFT の設定
-- `data/`
-  - seed cases と生成済み dataset の説明
-- `scripts/build_teacher_dataset.py`
-  - 現行 prompt と validator を使って teacher dataset を作る
-- `scripts/generate_seed_cases.py`
-  - `private/reference_es` から synthetic な弱い初稿と `teacher_top3` / `teacher_rewrite` を作る
-- `scripts/train_unsloth_sft.py`
-  - Unsloth + TRL で Qwen3 LoRA を学習する
-- `scripts/generate_holdout_predictions.py`
-  - serve 中の Qwen endpoint に holdout split を流して prediction JSONL を作る
-- `scripts/evaluate_holdout.py`
-  - holdout の JSON valid / rewrite validator / 文字数 / overlap を集計する
-- `scripts/push_artifact_to_hub.py`
-  - dataset や LoRA adapter を private Hugging Face repo に upload する
+- 学習: DLServer の `80GB` 級 GPU 上で `tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2` に QLoRA
+- 推論: Modal + vLLM の OpenAI-compatible endpoint
+- アプリ統合: 既存の `POST /api/documents/[id]/review/qwen-stream` と `POST /api/es/review/qwen/stream`
+- 標準経路: Claude のまま維持
+
+## Inference-Only Quality Tuning
+
+再学習なしで品質を上げるときは、まず app 側の Qwen 専用 policy を優先する。
+
+- short-answer は prompt context を Claude より小さくする
+- `post_join_goals` / `intern_goals` / `company_motivation` / `role_course_reason` は Qwen 専用 semantic validator を通す
+- JSON は strict schema、client は non-thinking mode を使う
+- timeout は stage ごとに分離する
+  - improvement JSON: 短く待って fallback
+  - rewrite: 長めに待つ
+  - compact rewrite / length-fix: さらに短い timeout を使う
+- holdout 評価は `ml/es_review_qwen/scripts/evaluate_holdout.py` で `qwen3-beta` validator を使って確認する
+
+## Directory
+
+- `configs/qwen3_swallow_32b_lora.json`
+  - Swallow 32B 学習設定
+- `scripts/bootstrap_dlserver_train.sh`
+  - training venv 作成と依存 install
+- `scripts/preflight_swallow_32b.py`
+  - GPU / disk / import の事前確認
+- `scripts/train_swallow_32b.sh`
+  - Swallow 32B 学習の標準 entrypoint
+- `scripts/push_swallow_adapter.sh`
+  - LoRA adapter を private Hugging Face repo に upload
+- `scripts/bootstrap_modal_deploy.sh`
+  - Modal deploy 用 venv を作成
 - `modal/serve_qwen_es_review.py`
-  - Modal 上で vLLM OpenAI-compatible server を立てる
+  - Swallow 32B + LoRA の Modal serving
 - `scripts/deploy_modal_service.py`
-  - `.env.local` を読み、HF adapter repo から LoRA を取る Modal service を deploy する
-- `notebooks/train_qwen3_es_review_colab.ipynb`
-  - Colab GPU で `train_unsloth_sft.py` を回す notebook
+  - `.env.local` を読んで Modal deploy
+- `scripts/deploy_swallow_modal.sh`
+  - Swallow 32B 用 Modal deploy の標準 entrypoint
+- `DLSERVER_SWALLOW_32B.md`
+  - DLServer 実行 runbook
 
-## 前提
+## Dataset
 
-- Python 3.11+
-- CUDA GPU
-- Hugging Face のモデル取得権限
-- `ANTHROPIC_API_KEY`
-  - `--teacher-source claude` を使う場合のみ必要
+既定では既存の生成済み dataset を再利用する。
 
-## セットアップ
+- train: `ml/es_review_qwen/data/generated/sft/train.jsonl`
+- valid: `ml/es_review_qwen/data/generated/sft/valid.jsonl`
+- teacher records: `ml/es_review_qwen/data/generated/teacher_records.jsonl`
 
-dataset 生成は backend の既存 Python 環境で回す。`build_teacher_dataset.py` は repo 内の prompt / validator / Claude client を import するため、学習用 venv とは分ける。
-
-学習用 env:
-
-```bash
-python -m venv ml/es_review_qwen/.venv
-source ml/es_review_qwen/.venv/bin/activate
-pip install -r ml/es_review_qwen/requirements-train.txt
-```
-
-## 学習フロー
-
-1. seed cases を用意する  
-   形式は [data/README.md](/Users/saoki/work/career_compass/ml/es_review_qwen/data/README.md) を参照
-
-2. seed cases を生成する
+再生成が必要なときだけ、次を使う。
 
 ```bash
 python ml/es_review_qwen/scripts/generate_seed_cases.py \
   --output ml/es_review_qwen/data/generated/seed_cases.jsonl
-```
 
-3. teacher dataset を生成する
-
-```bash
 python ml/es_review_qwen/scripts/build_teacher_dataset.py \
   --input ml/es_review_qwen/data/generated/seed_cases.jsonl \
   --teacher-source existing \
@@ -69,83 +66,62 @@ python ml/es_review_qwen/scripts/build_teacher_dataset.py \
   --output-dir ml/es_review_qwen/data/generated
 ```
 
-必要なら dataset を private Hugging Face repo に載せる。
+## Training On DLServer
+
+DLServer 向けの詳細手順は [DLSERVER_SWALLOW_32B.md](/Users/saoki/work/career_compass/ml/es_review_qwen/DLSERVER_SWALLOW_32B.md) を参照。
+
+最短フロー:
 
 ```bash
-python ml/es_review_qwen/scripts/push_artifact_to_hub.py \
-  --source-dir ml/es_review_qwen/data/generated \
-  --repo-id saoki0913/career-compass-qwen3-es-review-data \
-  --repo-type dataset \
-  --private
+bash ml/es_review_qwen/scripts/bootstrap_dlserver_train.sh
+bash ml/es_review_qwen/scripts/train_swallow_32b.sh
+bash ml/es_review_qwen/scripts/push_swallow_adapter.sh
 ```
 
-4. Qwen3 LoRA を学習する
+DLServer 実機では `A00` の `RTX 6000 Ada 48GB x6` を優先する。`train_swallow_32b.sh` は 48GB class GPU を検出すると `qwen3_swallow_32b_a6000_lora.json` を自動選択し、最も空いている GPU を自動で選ぶ。
+
+既定の adapter repo:
+
+- `saoki0913/career-compass-qwen3-swallow-32b-es-review-lora`
+
+## Modal Serving
+
+serve 用 venv:
 
 ```bash
-python ml/es_review_qwen/scripts/train_unsloth_sft.py \
-  --config ml/es_review_qwen/configs/qwen3_14b_lora.json
+bash ml/es_review_qwen/scripts/bootstrap_modal_deploy.sh
 ```
 
-Colab で回す場合は `ml/es_review_qwen/notebooks/train_qwen3_es_review_colab.ipynb` を使う。
-学習後の adapter は同じ script で model repo に push できる。
+deploy:
 
 ```bash
-python ml/es_review_qwen/scripts/push_artifact_to_hub.py \
-  --source-dir ml/es_review_qwen/outputs/qwen3-14b-es-review-lora \
-  --repo-id saoki0913/career-compass-qwen3-es-review-lora \
-  --repo-type model \
-  --private
+bash ml/es_review_qwen/scripts/deploy_swallow_modal.sh
 ```
 
-5. 配備済み endpoint で holdout prediction を作る
+local adapter を volume に直置きしたいときだけ:
 
 ```bash
-python ml/es_review_qwen/scripts/generate_holdout_predictions.py \
-  --teacher-records ml/es_review_qwen/data/generated/teacher_records.jsonl \
-  --sft-records ml/es_review_qwen/data/generated/sft/test.jsonl \
-  --base-url "$QWEN_ES_REVIEW_BASE_URL" \
-  --api-key "$QWEN_ES_REVIEW_API_KEY" \
-  --model "${QWEN_ES_REVIEW_ADAPTER_ID:-$QWEN_ES_REVIEW_MODEL}" \
-  --output ml/es_review_qwen/data/generated/holdout_predictions.jsonl
+modal run ml/es_review_qwen/modal/serve_qwen_es_review.py::upload_adapter \
+  --local-adapter-dir ml/es_review_qwen/outputs/qwen3-swallow-32b-es-review-lora
 ```
 
-6. holdout を評価する
-
-```bash
-python ml/es_review_qwen/scripts/evaluate_holdout.py \
-  --predictions ml/es_review_qwen/data/generated/holdout_predictions.jsonl \
-  --output ml/es_review_qwen/data/generated/eval_summary.json
-```
-
-## vLLM serving on Modal
-
-学習後の adapter は Modal + vLLM で配備する。adapter は `saoki0913/career-compass-qwen3-es-review-lora` から直接取得できる。
-
-```bash
-python -m venv ml/es_review_qwen/.venv-serve
-source ml/es_review_qwen/.venv-serve/bin/activate
-pip install -r ml/es_review_qwen/requirements-serve.txt
-
-python ml/es_review_qwen/scripts/deploy_modal_service.py
-```
-
-アプリ側は以下で接続する。
+## App Integration
 
 - backend:
   - `QWEN_ES_REVIEW_ENABLED=true`
   - `QWEN_ES_REVIEW_BASE_URL=https://<modal-app>.modal.run/v1`
-  - `QWEN_ES_REVIEW_MODEL=Qwen/Qwen3-14B`
+  - `QWEN_ES_REVIEW_MODEL=tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2`
   - `QWEN_ES_REVIEW_ADAPTER_ID=es_review`
   - `QWEN_ES_REVIEW_API_KEY=<same api key as Modal>`
+  - `QWEN_ES_REVIEW_TIMEOUT_IMPROVEMENT_SECONDS=30`
+  - `QWEN_ES_REVIEW_TIMEOUT_REWRITE_SECONDS=90`
+  - `QWEN_ES_REVIEW_TIMEOUT_COMPACT_REWRITE_SECONDS=45`
+  - `QWEN_ES_REVIEW_TIMEOUT_LENGTH_FIX_SECONDS=20`
+  - `QWEN_ES_REVIEW_TOTAL_BUDGET_SECONDS=150`
 - frontend:
   - `NEXT_PUBLIC_QWEN_ES_REVIEW_ENABLED=true`
 
-HF repo を使わず local adapter を直接 volume に置きたい場合だけ、次を使う。
-
-```bash
-modal run ml/es_review_qwen/modal/serve_qwen_es_review.py::upload_adapter \
-  --local-adapter-dir ml/es_review_qwen/outputs/qwen3-14b-es-review-lora
-```
+Modal deploy の既定 profile は `interactive`。ES添削のような対話 workload では `QWEN_MODAL_PROFILE=interactive` を維持し、throughput 重視のときだけ `throughput` に切り替える。
 
 疎通確認:
 
@@ -155,8 +131,38 @@ python ml/es_review_qwen/scripts/smoke_qwen_endpoint.py \
   --api-key "$QWEN_ES_REVIEW_API_KEY"
 ```
 
-## 運用方針
+holdout 評価:
 
-- 標準経路は Claude のまま維持する
-- Qwen3 は `POST /api/documents/[id]/review/qwen-stream` 経由でのみ使う
-- 返却 shape は既存の `top3 + rewrites[0] + template_review + review_meta` を維持する
+```bash
+python ml/es_review_qwen/scripts/generate_holdout_predictions.py \
+  --teacher-records ml/es_review_qwen/data/generated/teacher_records.jsonl \
+  --sft-records ml/es_review_qwen/data/generated/sft/test.jsonl \
+  --base-url "$QWEN_ES_REVIEW_BASE_URL" \
+  --api-key "$QWEN_ES_REVIEW_API_KEY" \
+  --model "${QWEN_ES_REVIEW_ADAPTER_ID:-$QWEN_ES_REVIEW_MODEL}" \
+  --improvement-timeout-seconds 30 \
+  --rewrite-timeout-seconds 90 \
+  --output ml/es_review_qwen/data/generated/holdout_predictions.jsonl
+
+python ml/es_review_qwen/scripts/evaluate_holdout.py \
+  --predictions ml/es_review_qwen/data/generated/holdout_predictions.jsonl \
+  --output ml/es_review_qwen/data/generated/eval_summary.json
+```
+
+## Cost Check
+
+簡易見積り:
+
+```bash
+python ml/es_review_qwen/scripts/estimate_qwen_serving_cost.py \
+  --avg-input-tokens 8000 \
+  --avg-output-tokens 1000 \
+  --avg-gpu-seconds 45 \
+  --gpu-type A100-80GB
+```
+
+## Notes
+
+- Colab notebook は legacy のまま残す。Swallow 32B の標準学習導線では使わない。
+- 既存の `Qwen β` route は残すが、中身は Swallow 32B を前提にする。
+- 返却 shape は既存の `top3 + rewrites[0] + template_review + review_meta` を維持する。

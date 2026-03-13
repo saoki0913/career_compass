@@ -34,8 +34,24 @@ def main() -> None:
     )
     parser.add_argument(
         "--adapter-repo-id",
-        default="saoki0913/career-compass-qwen3-es-review-lora",
+        default="saoki0913/career-compass-qwen3-swallow-32b-es-review-lora",
         help="Hugging Face model repo id that stores the LoRA adapter",
+    )
+    parser.add_argument(
+        "--model-name",
+        default="tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2",
+        help="Base model name that matches the fine-tuned adapter",
+    )
+    parser.add_argument(
+        "--profile",
+        default="interactive",
+        choices=["interactive", "throughput"],
+        help="Serving profile for Modal/vLLM",
+    )
+    parser.add_argument(
+        "--reasoning-parser",
+        default=None,
+        help="Optional vLLM reasoning parser override for Qwen3-family checkpoints",
     )
     args = parser.parse_args()
 
@@ -56,6 +72,24 @@ def main() -> None:
     env["HF_TOKEN"] = env_values["HF_TOKEN"]
     env["QWEN_MODAL_API_KEY"] = env_values["QWEN_ES_REVIEW_API_KEY"]
     env["QWEN_MODAL_ADAPTER_REPO_ID"] = args.adapter_repo_id
+    env["QWEN_MODAL_MODEL_NAME"] = args.model_name
+    env["QWEN_MODAL_SERVED_MODEL_NAME"] = args.model_name
+    env["QWEN_MODAL_PROFILE"] = args.profile
+    if args.reasoning_parser is not None:
+        env["QWEN_MODAL_REASONING_PARSER"] = args.reasoning_parser
+    elif env_values.get("QWEN_MODAL_REASONING_PARSER"):
+        env["QWEN_MODAL_REASONING_PARSER"] = env_values["QWEN_MODAL_REASONING_PARSER"]
+    for optional_key in [
+        "QWEN_MODAL_APP_NAME",
+        "QWEN_MODAL_GPU",
+        "QWEN_MODAL_MAX_MODEL_LEN",
+        "QWEN_MODAL_FAST_BOOT",
+        "QWEN_MODAL_ADAPTER_ALIAS",
+        "QWEN_MODAL_ADAPTER_DIRNAME",
+    ]:
+        value = env_values.get(optional_key)
+        if value:
+            env[optional_key] = value
 
     subprocess.run(
         [

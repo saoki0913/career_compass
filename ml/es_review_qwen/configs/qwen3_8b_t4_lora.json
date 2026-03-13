@@ -1,12 +1,12 @@
 {
-  "base_model": "Qwen/Qwen3-14B",
+  "base_model": "Qwen/Qwen3-8B",
   "train_dataset_path": "ml/es_review_qwen/data/generated/sft/train.jsonl",
   "valid_dataset_path": "ml/es_review_qwen/data/generated/sft/valid.jsonl",
-  "output_dir": "ml/es_review_qwen/outputs/qwen3-14b-es-review-lora",
-  "max_seq_length": 4096,
+  "output_dir": "ml/es_review_qwen/outputs/qwen3-8b-es-review-lora",
+  "max_seq_length": 2048,
   "load_in_4bit": true,
-  "lora_rank": 32,
-  "lora_alpha": 64,
+  "lora_rank": 16,
+  "lora_alpha": 32,
   "lora_dropout": 0.0,
   "target_modules": [
     "q_proj",

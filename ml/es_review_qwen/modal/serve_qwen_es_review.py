@@ -10,8 +10,18 @@ from pathlib import Path
 
 import modal
 
-APP_NAME = "career-compass-qwen-es-review"
-ROOT = Path(__file__).resolve().parents[3]
+APP_NAME = os.environ.get("QWEN_MODAL_APP_NAME", "career-compass-qwen-es-review-swallow-32b")
+
+
+def _resolve_project_root() -> Path:
+    current = Path(__file__).resolve()
+    for candidate in [current.parent, *current.parents]:
+        if (candidate / ".env.local").exists():
+            return candidate
+    return current.parent
+
+
+ROOT = _resolve_project_root()
 
 
 def _load_local_env() -> dict[str, str]:
@@ -36,15 +46,18 @@ def _env(name: str, default: str = "") -> str:
     return os.environ.get(name) or LOCAL_ENV.get(name, default)
 
 
-MODEL_NAME = _env("QWEN_MODAL_MODEL_NAME", "Qwen/Qwen3-14B")
-SERVED_MODEL_NAME = _env("QWEN_MODAL_SERVED_MODEL_NAME", "Qwen/Qwen3-14B")
+MODEL_NAME = _env("QWEN_MODAL_MODEL_NAME", "tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2")
+SERVED_MODEL_NAME = _env("QWEN_MODAL_SERVED_MODEL_NAME", "tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2")
 ADAPTER_ALIAS = _env("QWEN_MODAL_ADAPTER_ALIAS", "es_review")
-ADAPTER_DIRNAME = _env("QWEN_MODAL_ADAPTER_DIRNAME", "qwen3-es-review-lora")
-ADAPTER_REPO_ID = _env("QWEN_MODAL_ADAPTER_REPO_ID", "")
-GPU_TYPE = _env("QWEN_MODAL_GPU", "L40S")
+ADAPTER_DIRNAME = _env("QWEN_MODAL_ADAPTER_DIRNAME", "qwen3-swallow-32b-es-review-lora")
+ADAPTER_REPO_ID = _env("QWEN_MODAL_ADAPTER_REPO_ID", "saoki0913/career-compass-qwen3-swallow-32b-es-review-lora")
+GPU_TYPE = _env("QWEN_MODAL_GPU", "A100-80GB")
 MAX_MODEL_LEN = _env("QWEN_MODAL_MAX_MODEL_LEN", "8192")
 API_KEY = _env("QWEN_MODAL_API_KEY", "local-qwen")
-FAST_BOOT = _env("QWEN_MODAL_FAST_BOOT", "true").lower() == "true"
+FAST_BOOT = _env("QWEN_MODAL_FAST_BOOT", "false").lower() == "true"
+PROFILE = _env("QWEN_MODAL_PROFILE", "interactive").strip().lower() or "interactive"
+DEFAULT_REASONING_PARSER = "" if PROFILE == "interactive" else "qwen3"
+REASONING_PARSER = _env("QWEN_MODAL_REASONING_PARSER", DEFAULT_REASONING_PARSER)
 
 HF_CACHE_DIR = "/cache/hf"
 VLLM_CACHE_DIR = "/cache/vllm"
@@ -58,6 +71,15 @@ secret_values = {
         "HF_TOKEN": _env("HF_TOKEN", ""),
         "QWEN_MODAL_API_KEY": _env("QWEN_MODAL_API_KEY", ""),
         "QWEN_MODAL_ADAPTER_REPO_ID": _env("QWEN_MODAL_ADAPTER_REPO_ID", ""),
+        "QWEN_MODAL_MODEL_NAME": _env("QWEN_MODAL_MODEL_NAME", ""),
+        "QWEN_MODAL_SERVED_MODEL_NAME": _env("QWEN_MODAL_SERVED_MODEL_NAME", ""),
+        "QWEN_MODAL_ADAPTER_ALIAS": _env("QWEN_MODAL_ADAPTER_ALIAS", ""),
+        "QWEN_MODAL_ADAPTER_DIRNAME": _env("QWEN_MODAL_ADAPTER_DIRNAME", ""),
+        "QWEN_MODAL_GPU": _env("QWEN_MODAL_GPU", ""),
+        "QWEN_MODAL_MAX_MODEL_LEN": _env("QWEN_MODAL_MAX_MODEL_LEN", ""),
+        "QWEN_MODAL_PROFILE": _env("QWEN_MODAL_PROFILE", ""),
+        "QWEN_MODAL_FAST_BOOT": _env("QWEN_MODAL_FAST_BOOT", ""),
+        "QWEN_MODAL_REASONING_PARSER": _env("QWEN_MODAL_REASONING_PARSER", ""),
     }.items()
     if value
 }
@@ -110,7 +132,20 @@ def _build_vllm_command() -> list[str]:
         "--generation-config",
         "vllm",
     ]
-    if FAST_BOOT:
+    if REASONING_PARSER:
+        command.extend(["--reasoning-parser", REASONING_PARSER])
+    if PROFILE == "interactive":
+        command.extend(
+            [
+                "--gpu-memory-utilization",
+                "0.88",
+                "--max-num-seqs",
+                "4",
+            ]
+        )
+        if FAST_BOOT:
+            command.append("--enforce-eager")
+    elif FAST_BOOT:
         command.extend(
             [
                 "--enforce-eager",

@@ -79,6 +79,7 @@ def main() -> None:
         validated_candidate, retry_code, retry_reason, _retry_meta = _validate_rewrite_candidate(
             prediction_rewrite,
             template_type=template_type,
+            question=str(row.get("question") or ""),
             company_name=company_name,
             char_min=char_min,
             char_max=char_max,
@@ -86,6 +87,7 @@ def main() -> None:
             role_name=role_name,
             grounding_mode=grounding_mode,
             company_evidence_cards=company_cards,
+            review_variant="qwen3-beta",
         )
 
         json_valid = isinstance(prediction_top3, list) and len(parsed_issues) > 0

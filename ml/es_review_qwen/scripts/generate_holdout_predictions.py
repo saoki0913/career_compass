@@ -7,10 +7,14 @@ import argparse
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 from openai import AsyncOpenAI
+
+
+THINK_BLOCK_PATTERN = re.compile(r"(?is)<think>.*?</think>\s*")
 
 
 IMPROVEMENT_SCHEMA = {
@@ -87,7 +91,7 @@ def _build_prompt_index(
 
 def _extract_text_content(content: object) -> str:
     if isinstance(content, str):
-        return content.strip()
+        return THINK_BLOCK_PATTERN.sub("", content).strip()
     if isinstance(content, list):
         parts: list[str] = []
         for item in content:
@@ -99,8 +103,15 @@ def _extract_text_content(content: object) -> str:
                 text = getattr(item, "text", None)
                 if isinstance(text, str):
                     parts.append(text)
-        return "".join(parts).strip()
+        return THINK_BLOCK_PATTERN.sub("", "".join(parts)).strip()
     return ""
+
+
+def _ensure_no_think(system_prompt: str) -> str:
+    stripped = system_prompt.lstrip()
+    if stripped.startswith("/no_think"):
+        return system_prompt
+    return f"/no_think\n{system_prompt}"
 
 
 async def _request_json(
@@ -109,20 +120,22 @@ async def _request_json(
     model: str,
     system_prompt: str,
     user_prompt: str,
+    timeout_seconds: int,
 ) -> list[dict[str, Any]] | None:
-    response = await client.chat.completions.create(
+    response = await client.with_options(timeout=timeout_seconds).chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": _ensure_no_think(system_prompt)},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.15,
-        max_tokens=900,
+        max_tokens=320,
         response_format={
             "type": "json_schema",
             "json_schema": {
                 "name": "es_review_holdout_top3",
                 "schema": IMPROVEMENT_SCHEMA,
+                "strict": True,
             },
         },
     )
@@ -141,11 +154,12 @@ async def _request_text(
     system_prompt: str,
     user_prompt: str,
     char_max: int | None,
+    timeout_seconds: int,
 ) -> str:
-    response = await client.chat.completions.create(
+    response = await client.with_options(timeout=timeout_seconds).chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": _ensure_no_think(system_prompt)},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.2,
@@ -160,6 +174,8 @@ async def _predict_case(
     model: str,
     teacher_row: dict[str, Any],
     prompts: dict[str, tuple[str, str]],
+    improvement_timeout_seconds: int,
+    rewrite_timeout_seconds: int,
 ) -> dict[str, Any]:
     improvement_prompt = prompts.get("improvement_top3")
     rewrite_prompt = prompts.get("rewrite_text")
@@ -171,6 +187,7 @@ async def _predict_case(
         model=model,
         system_prompt=improvement_prompt[0],
         user_prompt=improvement_prompt[1],
+        timeout_seconds=improvement_timeout_seconds,
     )
     prediction_rewrite = await _request_text(
         client,
@@ -178,6 +195,7 @@ async def _predict_case(
         system_prompt=rewrite_prompt[0],
         user_prompt=rewrite_prompt[1],
         char_max=int(teacher_row["char_max"]) if teacher_row.get("char_max") is not None else None,
+        timeout_seconds=rewrite_timeout_seconds,
     )
     return {
         **teacher_row,
@@ -224,6 +242,8 @@ async def _run(args: argparse.Namespace) -> None:
                         model=args.model,
                         teacher_row=teacher_row,
                         prompts=prompts,
+                        improvement_timeout_seconds=args.improvement_timeout_seconds,
+                        rewrite_timeout_seconds=args.rewrite_timeout_seconds,
                     )
                 )
             except Exception as error:
@@ -281,12 +301,29 @@ def main() -> None:
     parser.add_argument("--api-key", default=os.environ.get("QWEN_ES_REVIEW_API_KEY", "local-qwen"))
     parser.add_argument(
         "--model",
-        default=os.environ.get("QWEN_ES_REVIEW_ADAPTER_ID") or os.environ.get("QWEN_ES_REVIEW_MODEL", "Qwen/Qwen3-14B"),
+        default=os.environ.get("QWEN_ES_REVIEW_ADAPTER_ID")
+        or os.environ.get("QWEN_ES_REVIEW_MODEL", "tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2"),
     )
-    parser.add_argument("--timeout-seconds", type=int, default=120)
+    parser.add_argument("--timeout-seconds", type=int, default=120, help="Legacy default timeout for both stages")
+    parser.add_argument(
+        "--improvement-timeout-seconds",
+        type=int,
+        default=int(os.environ.get("QWEN_ES_REVIEW_TIMEOUT_IMPROVEMENT_SECONDS", "30")),
+        help="Timeout for improvement JSON generation",
+    )
+    parser.add_argument(
+        "--rewrite-timeout-seconds",
+        type=int,
+        default=int(os.environ.get("QWEN_ES_REVIEW_TIMEOUT_REWRITE_SECONDS", "90")),
+        help="Timeout for rewrite generation",
+    )
     parser.add_argument("--concurrency", type=int, default=2)
     parser.add_argument("--max-cases", type=int, default=0)
     args = parser.parse_args()
+    if "--improvement-timeout-seconds" not in os.sys.argv:
+        args.improvement_timeout_seconds = args.timeout_seconds
+    if "--rewrite-timeout-seconds" not in os.sys.argv:
+        args.rewrite_timeout_seconds = args.timeout_seconds
     if not args.base_url:
         raise SystemExit("Missing --base-url or QWEN_ES_REVIEW_BASE_URL")
     asyncio.run(_run(args))
