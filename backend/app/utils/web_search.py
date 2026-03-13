@@ -23,9 +23,10 @@ from urllib.parse import urlparse
 
 from app.config import settings
 from app.utils.company_names import (
+    classify_company_domain_relation,
+    domain_pattern_matches,
     get_conflicting_companies_for_domain,
-    is_parent_domain,
-    is_subsidiary_domain,
+    normalize_company_result_source_type,
     resolve_domain_profile,
 )
 from app.utils.http_fetch import fetch_page_content, extract_text_from_html
@@ -73,7 +74,10 @@ except ImportError:
 
 # Try to import reranker
 try:
-    from app.utils.reranker import get_reranker, CrossEncoderReranker
+    from app.utils.reranker import (
+        get_reranker_with_variant,
+        CrossEncoderReranker,
+    )
 
     HAS_RERANKER = True
 except ImportError:
@@ -97,6 +101,9 @@ WEIGHT_RRF = 0.15  # Multi-query frequency
 
 # Short company name guard (e.g., "AGC", "TDK")
 SHORT_NAME_OFFICIAL_TLDS = (".co.jp", ".jp", ".com")
+
+# Common TLDs for site: query synthesis from non-dotted patterns
+SITE_RESCUE_TLDS = (".co.jp", ".com", ".jp")
 
 # Intent score normalization (fixed range + bias)
 INTENT_SCORE_MIN = -6.0
@@ -248,6 +255,14 @@ AGGREGATOR_DOMAINS = [
     "syukatsu-kaigi.jp",
 ]
 
+# Trusted job sites for selection-schedule retrieval fallback.
+# Official recruitment sites remain the primary source.
+TRUSTED_SCHEDULE_JOB_SITE_DOMAINS = [
+    "job.mynavi.jp",
+    "job.rikunabi.com",
+    "onecareer.jp",
+]
+
 # FAQ/Help-like paths to exclude in certain categories
 FAQ_LIKE_PATTERNS = [
     "faq",
@@ -261,6 +276,19 @@ FAQ_LIKE_PATTERNS = [
     "branch",
     "store",
 ]
+
+
+def is_trusted_schedule_job_site(url: str) -> bool:
+    """Return True when the URL belongs to an approved job site domain."""
+    try:
+        hostname = urlparse(url).hostname or ""
+    except Exception:
+        return False
+    hostname = hostname.lower().replace("www.", "")
+    return any(
+        hostname == domain or hostname.endswith(f".{domain}")
+        for domain in TRUSTED_SCHEDULE_JOB_SITE_DOMAINS
+    )
 
 # Categories where external sites should be excluded entirely
 EXTERNAL_STRICT_CATEGORIES = {
@@ -295,6 +323,7 @@ INTENT_GATE_CATEGORIES = {
 }
 
 INTENT_GATE_THRESHOLD = 0.7
+INTENT_GATE_RELAXED_THRESHOLD = 0.55
 
 # Content type to search intent mapping
 CONTENT_TYPE_SEARCH_INTENT = {
@@ -307,6 +336,22 @@ CONTENT_TYPE_SEARCH_INTENT = {
     "midterm_plan": "midterm_plan",
     "press_release": "press_release",
     "corporate_site": "corporate_about",
+}
+
+# Japanese rerank query templates for cross-encoder
+# The cross-encoder (hotchpotch/japanese-reranker-small-v2) expects natural Japanese queries.
+RERANK_QUERY_TEMPLATES: dict[str, str] = {
+    "new_grad": "{company}の新卒採用ページ",
+    "midcareer": "{company}の中途採用・キャリア採用情報",
+    "ceo_message": "{company}の社長メッセージ・トップメッセージ",
+    "employee_interviews": "{company}の社員インタビュー・先輩社員の声",
+    "corporate_ir": "{company}のIR情報・投資家向け資料",
+    "csr": "{company}のCSR・サステナビリティ活動",
+    "midterm_plan": "{company}の中期経営計画",
+    "press_release": "{company}のプレスリリース・ニュース",
+    "corporate_about": "{company}の企業情報・会社概要",
+    "recruitment": "{company}の採用情報",
+    "recruitment_intern": "{company}のインターンシップ情報",
 }
 
 
@@ -553,7 +598,9 @@ def generate_query_variations(
             add_queries(
                 [
                     f"インターン {grad_year_short}卒",
+                    f"インターン 選考スケジュール {grad_year_short}卒",
                     "インターンシップ 募集",
+                    f"インターン 募集要項 {grad_year}",
                     f"サマーインターン {grad_year}",
                     "インターン エントリー",
                 ]
@@ -562,15 +609,24 @@ def generate_query_variations(
             add_queries(
                 [
                     f"新卒採用 {grad_year_short}卒",
+                    f"選考スケジュール {grad_year_short}卒",
                     f"新卒採用 {grad_year}",
+                    f"募集要項 {grad_year}",
                     "新卒採用情報",
                     "新卒 採用HP",
+                    "エントリー 締切",
                     "Graduate Recruitment",
                     "Early Career",
                 ]
             )
         if ascii_name:
             queries.append(f"{ascii_name} graduate recruitment")
+        trusted_site_queries = [
+            f"{primary_name} 新卒採用 {grad_year} site:job.mynavi.jp",
+            f"{primary_name} 新卒採用 {grad_year} site:job.rikunabi.com",
+            f"{primary_name} {grad_year_short}卒 site:onecareer.jp",
+        ]
+        queries.extend(trusted_site_queries)
 
     elif search_intent == "midcareer":
         if alias_name:
@@ -586,7 +642,16 @@ def generate_query_variations(
         )
 
     elif search_intent == "corporate_ir":
-        add_queries(["IR", "投資家情報", "有価証券報告書", "決算説明資料"])
+        add_queries(
+            [
+                "IR",
+                "投資家情報",
+                "有価証券報告書",
+                "決算説明資料",
+                "統合報告書",
+                "決算短信",
+            ]
+        )
 
     elif search_intent == "corporate_about":
         add_queries(["会社概要", "企業情報", "事業内容", "会社案内"])
@@ -598,6 +663,8 @@ def generate_query_variations(
                 "代表挨拶",
                 "トップメッセージ",
                 "CEO Message",
+                "社長挨拶",
+                "ごあいさつ",
             ]
         )
 
@@ -609,6 +676,8 @@ def generate_query_variations(
                 "社員の声",
                 "Employee Interview",
                 "Culture",
+                "先輩社員",
+                "働く人",
             ]
         )
 
@@ -630,6 +699,8 @@ def generate_query_variations(
                 "中期計画",
                 "中期経営方針",
                 "Medium-Term Plan",
+                "経営計画",
+                "長期ビジョン",
             ]
         )
 
@@ -830,6 +901,7 @@ def rerank_web_results(
     query: str,
     results: list[WebSearchResult],
     top_k: int = 20,
+    routing_key: str | None = None,
 ) -> list[WebSearchResult]:
     """
     Rerank web search results using CrossEncoderReranker.
@@ -838,6 +910,7 @@ def rerank_web_results(
         query: Original search intent
         results: Web search results to rerank
         top_k: Number of results to rerank and return
+        routing_key: Deterministic key for base/tuned A/B routing
 
     Returns:
         Reranked results with rerank_score field set
@@ -850,7 +923,9 @@ def rerank_web_results(
         return results[:top_k]
 
     try:
-        reranker = get_reranker()
+        reranker, variant, model_name = get_reranker_with_variant(
+            routing_key=routing_key
+        )
         if not reranker.is_available():
             logger.debug("[WebSearch] Reranker model not loaded, skipping rerank")
             return results[:top_k]
@@ -858,30 +933,29 @@ def rerank_web_results(
         # Prepare documents for reranking (title + snippet)
         docs = [{"text": f"{r.title} {r.snippet}"[:512]} for r in results[:top_k]]
 
-        # Rerank
+        # Rerank with sort=False to preserve index alignment with results
         reranked = reranker.rerank(
             query=query,
             results=docs,
             top_k=top_k,
             text_key="text",
+            sort=False,
         )
 
-        # Map scores back to WebSearchResult objects
-        url_to_score = {}
+        # Map scores back to WebSearchResult objects (index-aligned)
         for i, doc in enumerate(reranked):
             if i < len(results):
-                url_to_score[results[i].url] = doc.get("rerank_score", 0.0)
-
-        # Update results with rerank scores
-        for result in results[:top_k]:
-            result.rerank_score = url_to_score.get(result.url, 0.0)
+                results[i].rerank_score = doc.get("rerank_score", 0.0)
 
         # Sort by rerank score
         results[:top_k] = sorted(
             results[:top_k], key=lambda x: x.rerank_score, reverse=True
         )
 
-        logger.debug(f"[WebSearch] Reranked {len(results[:top_k])} results")
+        logger.debug(
+            f"[WebSearch] Reranked {len(results[:top_k])} results "
+            f"(variant={variant}, model={model_name})"
+        )
 
     except Exception as e:
         logger.warning(f"[WebSearch] Reranking failed: {e}")
@@ -1002,36 +1076,56 @@ def _is_official_domain(
     if short_name_guard:
         dotted = [p for p in patterns if "." in p]
         if dotted:
-            return any(_domain_pattern_matches(domain, pattern) for pattern in dotted)
+            return any(domain_pattern_matches(domain, pattern) for pattern in dotted)
         if not _has_short_name_allowed_tld(domain):
             return False
 
-    return any(_domain_pattern_matches(domain, pattern) for pattern in patterns)
+    return any(domain_pattern_matches(domain, pattern) for pattern in patterns)
 
 
 def _resolve_site_domains(
     domain_profile: dict,
     preferred_domain: str | None,
-    max_domains: int = 2,
+    max_domains: int = 3,
 ) -> list[str]:
+    """Resolve site: query domains from domain profile.
+
+    First collects explicitly dotted patterns, then synthesizes domains
+    from non-dotted patterns using common TLDs.
+    """
     if preferred_domain:
         return [preferred_domain]
 
     patterns = domain_profile.get("official_patterns") or []
-    dotted: list[str] = []
+    domains: list[str] = []
     seen: set[str] = set()
+
+    # Pass 1: collect already-dotted patterns (existing behavior)
     for pattern in patterns:
         if "." not in pattern:
             continue
         key = pattern.lower()
-        if key in seen:
+        if key not in seen:
+            seen.add(key)
+            domains.append(pattern)
+        if len(domains) >= max_domains:
+            return domains
+
+    # Pass 2: synthesize domains from non-dotted patterns using common TLDs
+    for pattern in patterns:
+        if "." in pattern or len(pattern) < 3:
             continue
-        seen.add(key)
-        dotted.append(pattern)
-        if len(dotted) >= max_domains:
+        for tld in SITE_RESCUE_TLDS:
+            candidate = f"{pattern}{tld}"
+            key = candidate.lower()
+            if key not in seen:
+                seen.add(key)
+                domains.append(candidate)
+                break  # Use first (most common) TLD per pattern
+        if len(domains) >= max_domains:
             break
 
-    return dotted
+    return domains
 
 
 def _build_site_queries(base_queries: list[str], site_domains: list[str]) -> list[str]:
@@ -1063,96 +1157,140 @@ def _prefilter_results(
     allow_snippet_match: bool,
     short_name_guard: bool,
     content_type: str | None,
-    parent_allowed: bool,
     target_intent: str,
     preferred_domain: str | None = None,
 ) -> list[WebSearchResult]:
-    filtered: list[WebSearchResult] = []
-    debug_records: list[dict] = []
-    exclude_counts: dict[str, int] = {}
     lower_content_type = content_type or ""
     exclude_external = lower_content_type in EXTERNAL_STRICT_CATEGORIES
     exclude_faq = lower_content_type in FAQ_EXCLUDE_CATEGORIES
     enforce_intent_gate = lower_content_type in INTENT_GATE_CATEGORIES
-    for result in results:
-        domain = result.domain
-        url_lower = (result.url or "").lower()
-        exclude_reason = None
 
-        # Hard exclude known irrelevant domains
-        if any(excl in domain for excl in EXCLUDED_DOMAINS):
-            exclude_reason = "excluded_domain"
+    def _run_filter_pass(
+        *,
+        phase: str,
+        intent_gate_threshold: float,
+        relax_external_for_company_match: bool,
+    ) -> tuple[list[WebSearchResult], dict[str, int], list[dict]]:
+        filtered_local: list[WebSearchResult] = []
+        debug_records_local: list[dict] = []
+        exclude_counts_local: dict[str, int] = {}
 
-        is_aggregator = any(agg in domain for agg in AGGREGATOR_DOMAINS)
-        if not allow_aggs and is_aggregator:
-            exclude_reason = "aggregator_excluded"
+        for result in results:
+            domain = result.domain
+            url_lower = (result.url or "").lower()
+            exclude_reason = None
 
-        is_official = _is_official_domain(domain, official_patterns, short_name_guard)
-        is_parent_site = is_parent_domain(result.url, company_name)
-        result.is_parent = is_parent_site
+            if any(excl in domain for excl in EXCLUDED_DOMAINS):
+                exclude_reason = "excluded_domain"
 
-        if is_parent_site and not parent_allowed:
-            exclude_reason = "parent_disallowed"
+            is_aggregator = any(agg in domain for agg in AGGREGATOR_DOMAINS)
+            if not allow_aggs and is_aggregator:
+                exclude_reason = "aggregator_excluded"
 
-        if exclude_faq and any(pattern in url_lower for pattern in FAQ_LIKE_PATTERNS):
-            exclude_reason = "faq_excluded"
+            relation = classify_company_domain_relation(
+                result.url,
+                company_name,
+                content_type=content_type,
+            )
+            is_official = bool(relation["is_official"])
+            is_parent_site = bool(relation["is_parent"])
+            is_related_company = is_parent_site or bool(relation["is_subsidiary"])
+            result.is_parent = is_parent_site
+            result.is_subsidiary = bool(relation["is_subsidiary"])
 
-        if exclude_external and not is_official and not (
-            is_parent_site and parent_allowed
-        ):
-            exclude_reason = "external_excluded"
+            if exclude_faq and any(pattern in url_lower for pattern in FAQ_LIKE_PATTERNS):
+                exclude_reason = "faq_excluded"
 
-        company_match = _contains_company_name(
-            company_name,
-            title=result.title,
-            url=result.url,
-            snippet=result.snippet,
-            allow_snippet_match=allow_snippet_match,
-        )
-        result.company_name_matched = company_match
-        result.is_official = is_official
+            company_match = _contains_company_name(
+                company_name,
+                title=result.title,
+                url=result.url,
+                snippet=result.snippet,
+                allow_snippet_match=allow_snippet_match,
+            )
+            result.company_name_matched = company_match
+            result.is_official = is_official
+            result.source_type = normalize_company_result_source_type(
+                "aggregator" if is_aggregator else result.source_type,
+                relation,
+            )
 
-        conflicts = get_conflicting_companies_for_domain(domain, company_name)
-        if conflicts:
-            result.is_conflict = True
-            if not is_official:
-                exclude_reason = "conflict_domain"
+            if exclude_external and not is_official and not is_related_company:
+                if not (relax_external_for_company_match and company_match):
+                    exclude_reason = "external_excluded"
 
-        # Short company names: only official domains are allowed
-        if short_name_guard and not is_official:
-            exclude_reason = "short_name_guard"
+            conflicts = get_conflicting_companies_for_domain(domain, company_name)
+            if conflicts:
+                result.is_conflict = True
+                if not is_official and not is_related_company:
+                    exclude_reason = "conflict_domain"
 
-        # strict_match gate removed; handled by scoring instead
+            if short_name_guard and not is_official and not is_related_company:
+                exclude_reason = "short_name_guard"
 
-        intent_gate_score = None
-        if enforce_intent_gate:
-            intent_gate_score = _calculate_intent_match_score(result, target_intent)
-            result.score_breakdown["intent_gate"] = intent_gate_score
-            # Official domains are allowed to pass intent gate to avoid 0-result cases.
-            if not is_official and intent_gate_score < INTENT_GATE_THRESHOLD:
-                exclude_reason = "intent_gate"
+            intent_gate_score = None
+            if enforce_intent_gate:
+                intent_gate_score = _calculate_intent_match_score(result, target_intent)
+                result.score_breakdown["intent_gate"] = intent_gate_score
+                if not is_official and intent_gate_score < intent_gate_threshold:
+                    exclude_reason = "intent_gate"
 
-        if exclude_reason:
-            exclude_counts[exclude_reason] = exclude_counts.get(exclude_reason, 0) + 1
-            if len(debug_records) < LOG_MAX_ITEMS:
-                debug_records.append(
-                    {
-                        "url": result.url,
-                        "domain": domain,
-                        "official": is_official,
-                        "preferred": bool(
-                            preferred_domain
-                            and _domain_pattern_matches(domain, preferred_domain)
-                        ),
-                        "parent": is_parent_site,
-                        "company_match": company_match,
-                        "intent_gate": intent_gate_score,
-                        "exclude_reason": exclude_reason,
-                    }
+            if exclude_reason:
+                exclude_counts_local[exclude_reason] = (
+                    exclude_counts_local.get(exclude_reason, 0) + 1
                 )
-            continue
+                if len(debug_records_local) < LOG_MAX_ITEMS:
+                    debug_records_local.append(
+                        {
+                            "phase": phase,
+                            "url": result.url,
+                            "domain": domain,
+                            "official": is_official,
+                            "preferred": bool(
+                                preferred_domain
+                                and domain_pattern_matches(domain, preferred_domain)
+                            ),
+                            "parent": is_parent_site,
+                            "company_match": company_match,
+                            "intent_gate": intent_gate_score,
+                            "exclude_reason": exclude_reason,
+                        }
+                    )
+                continue
 
-        filtered.append(result)
+            filtered_local.append(result)
+
+        return filtered_local, exclude_counts_local, debug_records_local
+
+    filtered, exclude_counts, debug_records = _run_filter_pass(
+        phase="strict",
+        intent_gate_threshold=INTENT_GATE_THRESHOLD,
+        relax_external_for_company_match=False,
+    )
+
+    if not filtered:
+        filtered, exclude_counts, debug_records = _run_filter_pass(
+            phase="relax_intent_gate",
+            intent_gate_threshold=INTENT_GATE_RELAXED_THRESHOLD,
+            relax_external_for_company_match=False,
+        )
+        if filtered:
+            _debug_log(
+                "[WebSearch] Prefilter recovered with relaxed intent gate (%d results)",
+                len(filtered),
+            )
+
+    if not filtered and exclude_external:
+        filtered, exclude_counts, debug_records = _run_filter_pass(
+            phase="relax_external_company_match",
+            intent_gate_threshold=INTENT_GATE_RELAXED_THRESHOLD,
+            relax_external_for_company_match=True,
+        )
+        if filtered:
+            _debug_log(
+                "[WebSearch] Prefilter recovered with external relaxation (%d results)",
+                len(filtered),
+            )
 
     if exclude_counts:
         _debug_log(
@@ -1235,6 +1373,30 @@ def _detect_year_score(
         if detected and detected != year_short and detected != year_full[-2:]:
             return -1.5
     return 0.0
+
+
+def _extract_recruitment_year_mentions(text_lower: str) -> set[int]:
+    years: set[int] = set()
+    if not text_lower:
+        return years
+    patterns = [
+        r"(20\d{2})\s*卒",
+        r"(?<!\d)(\d{2})\s*卒",
+        r"(20\d{2})\s*年度",
+        r"(?:fy|fiscal)\s*[-/]?\s*(20\d{2})",
+        r"(?:fy|fiscal)\s*[-/]?\s*(\d{2})",
+    ]
+    for pattern in patterns:
+        for m in re.finditer(pattern, text_lower, flags=re.IGNORECASE):
+            raw = m.group(1)
+            if not raw:
+                continue
+            year = int(raw)
+            if year < 100:
+                year = 2000 + year
+            if 2020 <= year <= 2035:
+                years.add(year)
+    return years
 
 
 def _compute_intent_matches(result: WebSearchResult) -> dict[str, dict[str, bool]]:
@@ -1373,18 +1535,18 @@ def calculate_domain_score(
     official_patterns = list(domain_profile.get("official_patterns") or [])
     if preferred_domain and preferred_domain not in official_patterns:
         official_patterns.insert(0, preferred_domain)
-    parent_allowed = bool(domain_profile.get("parent_allowed"))
-
-    short_name_guard = _is_short_company_name(company_name)
-    is_official = _is_official_domain(domain, official_patterns, short_name_guard)
-
+    preferred_match = bool(
+        preferred_domain and domain_pattern_matches(domain, preferred_domain)
+    )
+    relation = classify_company_domain_relation(result.url, company_name)
+    is_official = bool(relation["is_official"])
     result.is_official = is_official
 
     if is_official:
         official_score = max(official_score, 4.5)
         breakdown["official_domain"] = 4.5
 
-    if preferred_domain and _domain_pattern_matches(domain, preferred_domain):
+    if preferred_match:
         official_score += 3.0
         breakdown["preferred_domain"] = 3.0
 
@@ -1394,13 +1556,10 @@ def calculate_domain_score(
 
     score = max(score, official_score)
 
-    is_parent_site = is_parent_domain(result.url, company_name)
-    if is_parent_site and parent_allowed:
-        score += 1.0
-        breakdown["parent_allowed"] = 1.0
+    is_parent_site = bool(relation["is_parent"])
     result.is_parent = is_parent_site
 
-    is_sub, _ = is_subsidiary_domain(result.url, company_name)
+    is_sub = bool(relation["is_subsidiary"])
     if is_sub:
         score -= 2.0
         breakdown["subsidiary_penalty"] = -2.0
@@ -1412,16 +1571,10 @@ def calculate_domain_score(
         breakdown["aggregator"] = -3.0
     result.is_aggregator = is_aggregator
 
-    if result.is_official:
-        result.source_type = "official"
-    elif result.is_aggregator:
-        result.source_type = "aggregator"
-    elif result.is_parent:
-        result.source_type = "parent"
-    elif result.is_subsidiary:
-        result.source_type = "subsidiary"
-    else:
-        result.source_type = "other"
+    result.source_type = normalize_company_result_source_type(
+        "aggregator" if result.is_aggregator else result.source_type,
+        relation,
+    )
 
     result.domain_score = score
     result.score_breakdown.update(breakdown)
@@ -1483,47 +1636,6 @@ def score_results(
         result.heuristic_score = result.intent_score_raw
 
     return results
-
-
-def _domain_pattern_matches(domain: str, pattern: str) -> bool:
-    """
-    Check if domain matches pattern using segment-based matching.
-
-    Avoids false positives from substring matching.
-    e.g., "mec" matches "mec.co.jp" but not "mecyes.co.jp"
-    """
-    if len(pattern) < 3:
-        from app.utils.company_names import get_short_domain_allowlist_patterns
-
-        if pattern.lower() not in get_short_domain_allowlist_patterns():
-            return False
-
-    pattern_lower = pattern.lower()
-    domain_lower = domain.lower()
-
-    if "." in pattern_lower:
-        if domain_lower == pattern_lower:
-            return True
-        if domain_lower.endswith("." + pattern_lower):
-            return True
-        # Allow multi-segment pattern like "bk.mufg"
-        if re.search(rf"(?:^|\.){re.escape(pattern_lower)}(?:\.|$)", domain_lower):
-            return True
-        return False
-
-    segments = domain_lower.split(".")
-    for segment in segments:
-        # Exact match
-        if segment == pattern_lower:
-            return True
-        # Prefix match (e.g., "mec-recruit")
-        if segment.startswith(pattern_lower + "-"):
-            return True
-        # Suffix match (e.g., "recruit-mec")
-        if segment.endswith("-" + pattern_lower):
-            return True
-
-    return False
 
 
 # =============================================================================
@@ -1661,7 +1773,10 @@ def _augment_site_queries(
 
 
 async def verify_candidate_light(
-    url: str, company_name: str, target_intent: str
+    url: str,
+    company_name: str,
+    target_intent: str,
+    graduation_year: int | None = None,
 ) -> dict:
     cached = _get_verify_cached(url)
     if cached is not None:
@@ -1670,7 +1785,7 @@ async def verify_candidate_light(
     try:
         html = await fetch_page_content(url, timeout=VERIFY_TIMEOUT)
     except Exception:
-        data = {"company_match": False, "intent_match": False}
+        data = {"company_match": False, "intent_match": False, "year_match": None}
         _set_verify_cache(url, data)
         return data
 
@@ -1692,7 +1807,24 @@ async def verify_candidate_light(
         weak = _match_terms(text_lower, text_compact, list(profile.weak_keywords))
         intent_match = bool(strong or weak)
 
-    data = {"company_match": company_match, "intent_match": intent_match}
+    year_match = None
+    if target_intent == "new_grad_recruitment":
+        if graduation_year:
+            mentioned_years = _extract_recruitment_year_mentions(text_lower)
+            if graduation_year in mentioned_years:
+                year_match = True
+            elif mentioned_years:
+                year_match = False
+            else:
+                year_match = None
+        else:
+            year_match = None
+
+    data = {
+        "company_match": company_match,
+        "intent_match": intent_match,
+        "year_match": year_match,
+    }
     _set_verify_cache(url, data)
     return data
 
@@ -1701,6 +1833,7 @@ async def _apply_light_verification(
     results: list[WebSearchResult],
     company_name: str,
     target_intent: str,
+    graduation_year: int | None = None,
 ) -> tuple[list[WebSearchResult], bool]:
     if not results:
         return results, False
@@ -1718,17 +1851,25 @@ async def _apply_light_verification(
     async def _verify(result: WebSearchResult) -> bool:
         async with semaphore:
             verdict = await verify_candidate_light(
-                result.url, company_name, target_intent
+                result.url,
+                company_name,
+                target_intent,
+                graduation_year=graduation_year,
             )
         updated = False
         if verdict.get("company_match"):
             result.intent_score_raw += 1.5
             result.score_breakdown["verify_company"] = 1.5
+            result.company_name_matched = True
             updated = True
         if verdict.get("intent_match"):
             result.intent_score_raw += 2.0
             result.score_breakdown["verify_intent"] = 2.0
             updated = True
+        if verdict.get("year_match") is True:
+            result.year_matched = True
+        elif verdict.get("year_match") is False and target_intent == "new_grad_recruitment":
+            result.year_matched = False
         if updated:
             result.heuristic_score = result.intent_score_raw
         return updated
@@ -1890,7 +2031,6 @@ async def hybrid_web_search(
         allow_snippet_match=allow_snippet_match,
         short_name_guard=short_name_guard,
         content_type=content_type,
-        parent_allowed=bool(domain_profile.get("parent_allowed")),
         target_intent=target_intent,
         preferred_domain=preferred_domain,
     )
@@ -1942,7 +2082,6 @@ async def hybrid_web_search(
                     allow_snippet_match=allow_snippet_match,
                     short_name_guard=short_name_guard,
                     content_type=content_type,
-                    parent_allowed=bool(domain_profile.get("parent_allowed")),
                     target_intent=target_intent,
                     preferred_domain=preferred_domain,
                 )
@@ -1960,8 +2099,11 @@ async def hybrid_web_search(
         return []
 
     # Step 4: Cross-encoder reranking
-    # Create combined query for reranking
-    rerank_query = f"{company_name} {search_intent.replace('_', ' ')}"
+    # Use Japanese template for natural language rerank query
+    rerank_template = RERANK_QUERY_TEMPLATES.get(
+        search_intent, "{company}の企業情報"
+    )
+    rerank_query = rerank_template.format(company=company_name)
     if graduation_year:
         rerank_query += f" {graduation_year}"
 
@@ -1969,6 +2111,7 @@ async def hybrid_web_search(
         query=rerank_query,
         results=results,
         top_k=WEB_SEARCH_RERANK_TOP_K,
+        routing_key=company_name,
     )
 
     if results:
@@ -2025,7 +2168,10 @@ async def hybrid_web_search(
 
     # Step 6: Light verification (top-K only)
     results, updated = await _apply_light_verification(
-        results, company_name=company_name, target_intent=target_intent
+        results,
+        company_name=company_name,
+        target_intent=target_intent,
+        graduation_year=graduation_year,
     )
     if updated:
         results = combine_scores(results=results)

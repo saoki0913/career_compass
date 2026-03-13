@@ -16,13 +16,7 @@ export const auth = betterAuth({
         "openid",
         "email",
         "profile",
-        "https://www.googleapis.com/auth/calendar",
-        "https://www.googleapis.com/auth/calendar.readonly",
-        "https://www.googleapis.com/auth/calendar.events",
-        "https://www.googleapis.com/auth/calendar.freebusy",
       ],
-      accessType: "offline", // Required to get refresh token
-      prompt: "consent",     // Force consent to get new scopes on re-login
     },
   },
 });

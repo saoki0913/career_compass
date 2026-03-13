@@ -1,0 +1,192 @@
+export interface StrengthItem {
+  title: string;
+  description: string;
+}
+
+export interface LearningItem {
+  title: string;
+  description: string;
+}
+
+export interface StructuredSummary {
+  situation_text: string;
+  task_text: string;
+  action_text: string;
+  result_text: string;
+  strengths: StrengthItem[];
+  learnings: LearningItem[];
+  numbers: string[];
+  interviewer_hooks?: string[];
+  decision_reasons?: string[];
+  before_after_comparisons?: string[];
+  credibility_notes?: string[];
+  role_scope?: string;
+  reusable_principles?: string[];
+}
+
+export interface LegacySummary {
+  summary: string;
+  key_points: string[];
+  numbers: string[];
+  strengths: StrengthItem[] | string[];
+}
+
+export type GakuchikaSummary = StructuredSummary | LegacySummary;
+export type GakuchikaSummaryKind = "structured" | "legacy" | "none";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function cleanString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function cleanStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+}
+
+function normalizeStrengthItems(value: unknown): StrengthItem[] | string[] {
+  if (!Array.isArray(value)) return [];
+  if (value.every((item) => typeof item === "string")) {
+    return value.map((item) => item.trim()).filter(Boolean);
+  }
+
+  return value
+    .map((item) => {
+      if (!isRecord(item)) return null;
+      const title = cleanString(item.title);
+      const description = cleanString(item.description);
+      if (!title) return null;
+      return { title, description };
+    })
+    .filter((item): item is StrengthItem => item !== null);
+}
+
+function normalizeLearningItems(value: unknown): LearningItem[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => {
+      if (typeof item === "string") {
+        return item.trim() ? { title: item.trim(), description: "" } : null;
+      }
+      if (!isRecord(item)) return null;
+      const title = cleanString(item.title);
+      const description = cleanString(item.description);
+      if (!title) return null;
+      return { title, description };
+    })
+    .filter((item): item is LearningItem => item !== null);
+}
+
+function normalizeStructuredStrengthItems(value: unknown): StrengthItem[] {
+  const normalized = normalizeStrengthItems(value);
+  if (normalized.every((item) => typeof item !== "string")) {
+    return normalized;
+  }
+
+  return normalized
+    .map((item) =>
+      typeof item === "string" ? { title: item, description: "" } : item
+    )
+    .filter((item): item is StrengthItem => Boolean(item.title));
+}
+
+function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+export function isStructuredSummary(summary: GakuchikaSummary): summary is StructuredSummary {
+  return "situation_text" in summary;
+}
+
+export function parseGakuchikaSummary(summary: unknown): GakuchikaSummary | null {
+  if (!summary) return null;
+
+  if (typeof summary === "string") {
+    try {
+      return parseGakuchikaSummary(JSON.parse(summary));
+    } catch {
+      const plainText = summary.trim();
+      if (!plainText) return null;
+      return {
+        summary: plainText,
+        key_points: [],
+        numbers: [],
+        strengths: [],
+      };
+    }
+  }
+
+  if (!isRecord(summary)) {
+    return null;
+  }
+
+  const structuredCandidate = {
+    situation_text: cleanString(summary.situation_text),
+    task_text: cleanString(summary.task_text),
+    action_text: cleanString(summary.action_text),
+    result_text: cleanString(summary.result_text),
+  };
+
+  const hasStructuredContent = Object.values(structuredCandidate).some(Boolean);
+  if (hasStructuredContent) {
+    return {
+      ...structuredCandidate,
+      strengths: normalizeStructuredStrengthItems(summary.strengths),
+      learnings: normalizeLearningItems(summary.learnings),
+      numbers: cleanStringList(summary.numbers),
+      interviewer_hooks: cleanStringList(summary.interviewer_hooks),
+      decision_reasons: cleanStringList(summary.decision_reasons),
+      before_after_comparisons: cleanStringList(summary.before_after_comparisons),
+      credibility_notes: cleanStringList(summary.credibility_notes),
+      role_scope: cleanString(summary.role_scope),
+      reusable_principles: cleanStringList(summary.reusable_principles),
+    };
+  }
+
+  const legacySummary = cleanString(summary.summary) || cleanString(summary.raw_answers);
+  if (legacySummary) {
+    return {
+      summary: legacySummary,
+      key_points: cleanStringList(summary.key_points),
+      numbers: cleanStringList(summary.numbers),
+      strengths: normalizeStrengthItems(summary.strengths),
+    };
+  }
+
+  return null;
+}
+
+export function getGakuchikaSummaryKind(summary: unknown): GakuchikaSummaryKind {
+  const parsed = parseGakuchikaSummary(summary);
+  if (!parsed) return "none";
+  return isStructuredSummary(parsed) ? "structured" : "legacy";
+}
+
+export function getGakuchikaSummaryPreview(
+  summary: unknown,
+  maxLength = 110
+): string | null {
+  const parsed = parseGakuchikaSummary(summary);
+  if (!parsed) return null;
+
+  const candidates = isStructuredSummary(parsed)
+    ? [
+        [parsed.action_text, parsed.result_text].filter(Boolean).join(" "),
+        [parsed.task_text, parsed.action_text].filter(Boolean).join(" "),
+        [parsed.situation_text, parsed.task_text].filter(Boolean).join(" "),
+      ]
+    : [parsed.summary];
+
+  const preview = candidates.find((candidate) => candidate.trim().length > 0)?.trim();
+  if (!preview) return null;
+
+  return truncateText(preview.replace(/\s+/g, " "), maxLength);
+}

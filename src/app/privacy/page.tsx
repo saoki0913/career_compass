@@ -3,7 +3,7 @@ import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "プライバシーポリシー | 就活Pass",
-  description: "就活支援アプリ「就活Pass（Career Compass）」のプライバシーポリシーです。",
+  description: "就活支援アプリ「就活Pass（シューパス）」のプライバシーポリシーです。",
 };
 
 export default function PrivacyPage() {
@@ -84,4 +84,3 @@ export default function PrivacyPage() {
     </main>
   );
 }
-

@@ -1,4 +1,6 @@
-import { toast } from "sonner";
+"use client";
+
+import { notifyRateLimit } from "@/lib/notifications";
 
 export function handleRateLimitError(response: Response): boolean {
   if (response.status !== 429) return false;
@@ -6,10 +8,7 @@ export function handleRateLimitError(response: Response): boolean {
   const retryAfter = response.headers.get("Retry-After");
   const seconds = retryAfter ? parseInt(retryAfter, 10) : 60;
 
-  toast.error("利用回数の上限に達しました", {
-    description: `${seconds}秒後に再試行できます`,
-    duration: Math.min(seconds * 1000, 10000),
-  });
+  notifyRateLimit(seconds);
 
   return true;
 }

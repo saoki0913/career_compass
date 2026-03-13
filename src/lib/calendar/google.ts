@@ -15,6 +15,20 @@ interface FreeBusySlot {
   end: string;
 }
 
+const APP_CALENDAR_PREFIXES = ["[就活Pass]", "[シューパス]", "[就活Compass]"] as const;
+const DEFAULT_CALENDAR_NAME = "就活Pass";
+
+function stripAppCalendarPrefix(title: string) {
+  return APP_CALENDAR_PREFIXES.reduce((current, prefix) => {
+    const prefixWithSpace = `${prefix} `;
+    return current.startsWith(prefixWithSpace) ? current.slice(prefixWithSpace.length) : current;
+  }, title);
+}
+
+function isAppCalendarEvent(summary?: string | null) {
+  return APP_CALENDAR_PREFIXES.some((prefix) => summary?.startsWith(prefix));
+}
+
 export class GoogleCalendarScopeError extends Error {
   readonly details?: string;
 
@@ -66,7 +80,7 @@ export async function getCalendarEvents(
 }
 
 /**
- * Create a calendar event with [Career Compass] prefix
+ * Create a calendar event with the app prefix
  */
 export async function createCalendarEvent(
   accessToken: string,
@@ -78,7 +92,8 @@ export async function createCalendarEvent(
     description?: string;
   }
 ) {
-  const summary = event.title.startsWith("[Career Compass]") ? event.title : `[Career Compass] ${event.title}`;
+  const normalizedTitle = stripAppCalendarPrefix(event.title).trim();
+  const summary = normalizedTitle ? `[就活Pass] ${normalizedTitle}` : "[就活Pass]";
 
   const response = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
@@ -92,7 +107,7 @@ export async function createCalendarEvent(
         summary,
         start: { dateTime: event.startAt },
         end: { dateTime: event.endAt },
-        description: event.description || "Career Compassで作成",
+        description: event.description || "就活Passで作成",
       }),
     }
   );
@@ -102,7 +117,7 @@ export async function createCalendarEvent(
 }
 
 /**
- * Delete a calendar event (only [Career Compass] events - replace mode)
+ * Delete a calendar event (only app-managed events - replace mode)
  */
 export async function deleteCalendarEvent(
   accessToken: string,
@@ -125,7 +140,7 @@ export async function deleteCalendarEvent(
  */
 export async function getFreeBusy(
   accessToken: string,
-  calendarId: string = "primary",
+  calendarIds: string[] = ["primary"],
   timeMin: string,
   timeMax: string
 ): Promise<FreeBusySlot[]> {
@@ -138,13 +153,36 @@ export async function getFreeBusy(
     body: JSON.stringify({
       timeMin,
       timeMax,
-      items: [{ id: calendarId }],
+      items: calendarIds.map((id) => ({ id })),
     }),
   });
 
   if (!response.ok) throw new Error("Failed to get free/busy");
   const data = await response.json();
-  return data.calendars?.[calendarId]?.busy || [];
+  const merged = calendarIds.flatMap((calendarId) => data.calendars?.[calendarId]?.busy || []);
+  const sorted = merged
+    .filter((slot: FreeBusySlot) => slot?.start && slot?.end)
+    .sort((a: FreeBusySlot, b: FreeBusySlot) => new Date(a.start).getTime() - new Date(b.start).getTime());
+
+  const normalized: FreeBusySlot[] = [];
+  for (const slot of sorted) {
+    const last = normalized[normalized.length - 1];
+    if (!last) {
+      normalized.push(slot);
+      continue;
+    }
+
+    if (new Date(slot.start).getTime() <= new Date(last.end).getTime()) {
+      if (new Date(slot.end).getTime() > new Date(last.end).getTime()) {
+        last.end = slot.end;
+      }
+      continue;
+    }
+
+    normalized.push(slot);
+  }
+
+  return normalized;
 }
 
 /**
@@ -204,7 +242,7 @@ export function suggestWorkBlocks(
 }
 
 /**
- * Replace mode: Delete all [Career Compass] events in a range and recreate
+ * Replace mode: Delete all app-managed events in a range and recreate
  */
 export async function replaceUkarunEvents(
   accessToken: string,
@@ -213,11 +251,11 @@ export async function replaceUkarunEvents(
   timeMax: string,
   newEvents: Array<{ title: string; startAt: string; endAt: string }>
 ) {
-  // Get existing [Career Compass] events
+  // Get existing app-managed events, including legacy prefixes
   const existing = await getCalendarEvents(accessToken, calendarId, timeMin, timeMax);
-  const ukarunEvents = existing.filter(e => e.summary?.startsWith("[Career Compass]"));
+  const ukarunEvents = existing.filter((e) => isAppCalendarEvent(e.summary));
 
-  // Delete old [Career Compass] events
+  // Delete old app-managed events
   for (const event of ukarunEvents) {
     await deleteCalendarEvent(accessToken, calendarId, event.id);
   }
@@ -268,7 +306,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
  */
 export async function createCalendar(
   accessToken: string,
-  name: string = "Career Compass"
+  name: string = DEFAULT_CALENDAR_NAME
 ): Promise<{ id: string; summary: string }> {
   const response = await fetch(
     "https://www.googleapis.com/calendar/v3/calendars",
@@ -280,7 +318,7 @@ export async function createCalendar(
       },
       body: JSON.stringify({
         summary: name,
-        description: "Career Compassで作成した就活用カレンダー",
+        description: "就活Passで作成した就活用カレンダー",
         timeZone: "Asia/Tokyo",
       }),
     }

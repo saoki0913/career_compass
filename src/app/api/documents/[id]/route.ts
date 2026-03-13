@@ -14,6 +14,8 @@ import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 
+type DocumentRow = typeof documents.$inferSelect;
+
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
   guestId: string | null;
@@ -62,6 +64,39 @@ async function verifyDocumentAccess(
   return { valid: false };
 }
 
+async function buildDocumentResponse(doc: DocumentRow) {
+  const [company, application] = await Promise.all([
+    doc.companyId
+      ? db
+          .select({
+            id: companies.id,
+            name: companies.name,
+            infoFetchedAt: companies.infoFetchedAt,
+            corporateInfoFetchedAt: companies.corporateInfoFetchedAt,
+          })
+          .from(companies)
+          .where(eq(companies.id, doc.companyId))
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      : Promise.resolve(null),
+    doc.applicationId
+      ? db
+          .select({ id: applications.id, name: applications.name })
+          .from(applications)
+          .where(eq(applications.id, doc.applicationId))
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      : Promise.resolve(null),
+  ]);
+
+  return {
+    ...doc,
+    content: doc.content ? JSON.parse(doc.content) : null,
+    company,
+    application,
+  };
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -87,37 +122,8 @@ export async function GET(
 
     const doc = access.document;
 
-    // Get company if linked (include infoFetchedAt to check RAG data availability)
-    let company = null;
-    if (doc.companyId) {
-      company = (await db
-        .select({
-          id: companies.id,
-          name: companies.name,
-          infoFetchedAt: companies.infoFetchedAt,
-        })
-        .from(companies)
-        .where(eq(companies.id, doc.companyId))
-        .limit(1))[0] ?? null;
-    }
-
-    // Get application if linked
-    let application = null;
-    if (doc.applicationId) {
-      application = (await db
-        .select({ id: applications.id, name: applications.name })
-        .from(applications)
-        .where(eq(applications.id, doc.applicationId))
-        .limit(1))[0] ?? null;
-    }
-
     return NextResponse.json({
-      document: {
-        ...doc,
-        content: doc.content ? JSON.parse(doc.content) : null,
-        company,
-        application,
-      },
+      document: await buildDocumentResponse(doc),
     });
   } catch (error) {
     console.error("Error fetching document:", error);
@@ -237,10 +243,7 @@ export async function PUT(
       .returning();
 
     return NextResponse.json({
-      document: {
-        ...updated[0],
-        content: updated[0].content ? JSON.parse(updated[0].content) : null,
-      },
+      document: await buildDocumentResponse(updated[0]),
     });
   } catch (error) {
     console.error("Error updating document:", error);

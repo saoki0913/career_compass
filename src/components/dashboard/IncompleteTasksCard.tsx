@@ -141,7 +141,7 @@ export function IncompleteTasksCard({
   variant = "default",
 }: IncompleteTasksCardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const { data, isLoading } = useIncompleteItems();
+  const { data, isLoading, error, refetch } = useIncompleteItems();
 
   const isQuickAction = variant === "quickAction";
 
@@ -162,6 +162,61 @@ export function IncompleteTasksCard({
       <Card className={cn("border-border/50 animate-pulse", className)}>
         <CardContent className="py-8">
           <div className="h-4 bg-muted rounded w-24 mx-auto" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    const cause =
+      error === "Authentication required"
+        ? "ログイン直後で認証情報の反映前、またはゲスト情報の初期化前にデータ取得が走っています。"
+        : "未完了タスクの取得 API でエラーが発生しています。";
+    const solution =
+      error === "Authentication required"
+        ? "少し待ってから再読み込みしてください。改善しない場合は再ログインしてください。"
+        : "ページを再読み込みして再試行してください。継続する場合はサーバーログと API 応答を確認してください。";
+
+    if (isQuickAction) {
+      return (
+        <div
+          className={cn(
+            "rounded-2xl p-5 bg-gradient-to-br from-rose-100 to-orange-50 border border-rose-200/60 shadow-md",
+            className
+          )}
+        >
+          <h3 className="font-semibold text-rose-700 tracking-tight">途中タスクを取得できません</h3>
+          <p className="mt-2 text-xs text-rose-700/80">原因: {cause}</p>
+          <p className="mt-1 text-xs text-rose-700/80">解決策: {solution}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={refetch}
+            className="mt-3 border-rose-200 bg-white/80 text-rose-700 hover:bg-white"
+          >
+            再試行
+          </Button>
+        </div>
+      );
+    }
+
+    return (
+      <Card
+        className={cn(
+          "border-rose-200 bg-gradient-to-br from-rose-50 to-orange-50",
+          className
+        )}
+      >
+        <CardContent className={cn("py-6", compactMode && "py-4")}>
+          <p className={cn("font-medium text-rose-700", compactMode ? "text-sm" : "text-base")}>
+            途中のタスクを取得できませんでした
+          </p>
+          <p className="mt-2 text-sm text-rose-700/85">原因: {cause}</p>
+          <p className="mt-1 text-sm text-rose-700/85">解決策: {solution}</p>
+          <Button type="button" variant="outline" size="sm" onClick={refetch} className="mt-4">
+            再試行
+          </Button>
         </CardContent>
       </Card>
     );

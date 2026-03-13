@@ -8,6 +8,7 @@
 3. [Database MCP Server](#database-mcp-server)
 4. [GitHub MCP Server](#github-mcp-server)
 5. [Web Scraping MCP Server](#web-scraping-mcp-server)
+6. [Notion参考ESの取り込み](#notion参考esの取り込み)
 
 ---
 
@@ -208,6 +209,25 @@ async def fetch_company_info(url: str):
     # LLMで構造化データに変換
     pass
 ```
+
+---
+
+## Notion参考ESの取り込み
+
+ES添削の benchmark に使う参考ESは、Notion Database を正本として管理し、必要時にローカル JSON へ一括取り込みします。
+
+詳細手順は [NOTION_REFERENCE_ES.md](./NOTION_REFERENCE_ES.md) を参照してください。
+
+要点:
+
+1. Notion Database に参考ESを保存する
+2. Notion MCP で Database query 結果 JSON を取得する
+3. 正規化が必要な場合は `backend/app/prompts/reference_es_importer.py` の処理を使って one-off で取り込む
+
+出力先:
+
+- `private/reference_es/es_references.json`
+- `private/reference_es/raw_notion_dump.json`
 
 ---
 

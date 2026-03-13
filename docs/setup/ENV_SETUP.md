@@ -1,4 +1,4 @@
-# 環境設定ガイド - 就活Pass (Career Compass)
+# 環境設定ガイド - 就活Compass (シューパス)
 
 このドキュメントでは、開発環境のセットアップ手順を説明します。
 
@@ -225,7 +225,7 @@ LOCAL_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
 各機能で使用するLLMモデルを個別に上書き可能:
 
 ```env
-MODEL_ES_REVIEW=claude-sonnet        # ES添削
+MODEL_ES_REVIEW=claude-sonnet        # ES添削（例: gpt-5.1 / gemini-3.1-pro-preview / command-a-03-2025 / deepseek-chat）
 MODEL_GAKUCHIKA=claude-haiku         # ガクチカ深掘り
 MODEL_MOTIVATION=claude-haiku        # 志望動機
 MODEL_COMPANY_INFO=openai            # 企業情報抽出
@@ -233,6 +233,14 @@ MODEL_RAG_QUERY_EXPANSION=claude-haiku # クエリ拡張
 MODEL_RAG_HYDE=claude-sonnet         # HyDE生成
 MODEL_RAG_RERANK=claude-sonnet       # リランキング
 MODEL_RAG_CLASSIFY=claude-haiku      # コンテンツ分類
+
+# Optional commercial API providers
+# GOOGLE_API_KEY=...
+# GOOGLE_MODEL=gemini-3.1-pro-preview
+# COHERE_API_KEY=...
+# COHERE_MODEL=command-a-03-2025
+# DEEPSEEK_API_KEY=...
+# DEEPSEEK_MODEL=deepseek-chat
 MODEL_SELECTION_SCHEDULE=claude-haiku # 選考スケジュール
 ```
 

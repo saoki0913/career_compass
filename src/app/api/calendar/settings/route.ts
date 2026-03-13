@@ -8,21 +8,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { calendarSettings, accounts } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { calendarSettings } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
-
-/**
- * Check if user has Google Calendar connected via Better Auth
- */
-async function checkGoogleConnection(userId: string): Promise<boolean> {
-  const [account] = await db
-    .select()
-    .from(accounts)
-    .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "google")))
-    .limit(1);
-  return !!account?.accessToken;
-}
+import {
+  buildCalendarConnectionStatus,
+  ensureCalendarSettingsRecord,
+  parseStoredJsonArray,
+} from "@/lib/calendar/connection";
 
 export async function GET() {
   try {
@@ -38,39 +31,21 @@ export async function GET() {
     }
 
     const userId = session.user.id;
-
-    const [settings] = await db
-      .select()
-      .from(calendarSettings)
-      .where(eq(calendarSettings.userId, userId))
-      .limit(1);
-
-    // Check if user has Google connected via OAuth
-    const isGoogleConnected = await checkGoogleConnection(userId);
-
-    if (!settings) {
-      // Return default settings
-      return NextResponse.json({
-        settings: {
-          provider: "app",
-          targetCalendarId: null,
-          freebusyCalendarIds: [],
-          preferredTimeSlots: null,
-          isGoogleConnected,
-        },
-      });
-    }
+    const settings = await ensureCalendarSettingsRecord(userId);
+    const connectionStatus = buildCalendarConnectionStatus(settings);
 
     return NextResponse.json({
       settings: {
         ...settings,
         freebusyCalendarIds: settings.freebusyCalendarIds
-          ? JSON.parse(settings.freebusyCalendarIds)
-          : [],
+          ? parseStoredJsonArray(settings.freebusyCalendarIds)
+          : settings.targetCalendarId
+            ? [settings.targetCalendarId]
+            : [],
         preferredTimeSlots: settings.preferredTimeSlots
           ? JSON.parse(settings.preferredTimeSlots)
           : null,
-        isGoogleConnected,
+        connectionStatus,
       },
     });
   } catch (error) {
@@ -98,47 +73,34 @@ export async function PUT(request: NextRequest) {
     const userId = session.user.id;
     const body = await request.json();
     const { provider, targetCalendarId, freebusyCalendarIds, preferredTimeSlots } = body;
+    const existing = await ensureCalendarSettingsRecord(userId);
+    const connectionStatus = buildCalendarConnectionStatus(existing);
 
-    const [existing] = await db
-      .select()
-      .from(calendarSettings)
-      .where(eq(calendarSettings.userId, userId))
-      .limit(1);
+    if (provider === "google" && !connectionStatus.connected) {
+      return NextResponse.json(
+        { error: "Googleカレンダーを先に連携してください" },
+        { status: 400 }
+      );
+    }
 
     const now = new Date();
+    const updateData: Record<string, unknown> = {
+      updatedAt: now,
+    };
 
-    if (existing) {
-      const updateData: Record<string, unknown> = {
-        updatedAt: now,
-      };
-
-      if (provider !== undefined) updateData.provider = provider;
-      if (targetCalendarId !== undefined) updateData.targetCalendarId = targetCalendarId;
-      if (freebusyCalendarIds !== undefined)
-        updateData.freebusyCalendarIds = JSON.stringify(freebusyCalendarIds);
-      if (preferredTimeSlots !== undefined)
-        updateData.preferredTimeSlots = JSON.stringify(preferredTimeSlots);
-
-      await db
-        .update(calendarSettings)
-        .set(updateData)
-        .where(eq(calendarSettings.id, existing.id));
-    } else {
-      await db.insert(calendarSettings).values({
-        id: crypto.randomUUID(),
-        userId,
-        provider: provider || "app",
-        targetCalendarId: targetCalendarId || null,
-        freebusyCalendarIds: freebusyCalendarIds
-          ? JSON.stringify(freebusyCalendarIds)
-          : null,
-        preferredTimeSlots: preferredTimeSlots
-          ? JSON.stringify(preferredTimeSlots)
-          : null,
-        createdAt: now,
-        updatedAt: now,
-      });
+    if (provider !== undefined) updateData.provider = provider;
+    if (targetCalendarId !== undefined) updateData.targetCalendarId = targetCalendarId;
+    if (freebusyCalendarIds !== undefined) {
+      updateData.freebusyCalendarIds = JSON.stringify(freebusyCalendarIds);
     }
+    if (preferredTimeSlots !== undefined) {
+      updateData.preferredTimeSlots = JSON.stringify(preferredTimeSlots);
+    }
+
+    await db
+      .update(calendarSettings)
+      .set(updateData)
+      .where(eq(calendarSettings.id, existing.id));
 
     const [settings] = await db
       .select()
@@ -146,19 +108,20 @@ export async function PUT(request: NextRequest) {
       .where(eq(calendarSettings.userId, userId))
       .limit(1);
 
-    // Check if user has Google connected via OAuth
-    const isGoogleConnected = await checkGoogleConnection(userId);
+    const updatedConnectionStatus = buildCalendarConnectionStatus(settings);
 
     return NextResponse.json({
       settings: {
         ...settings,
         freebusyCalendarIds: settings?.freebusyCalendarIds
-          ? JSON.parse(settings.freebusyCalendarIds)
-          : [],
+          ? parseStoredJsonArray(settings.freebusyCalendarIds)
+          : settings?.targetCalendarId
+            ? [settings.targetCalendarId]
+            : [],
         preferredTimeSlots: settings?.preferredTimeSlots
           ? JSON.parse(settings.preferredTimeSlots)
           : null,
-        isGoogleConnected,
+        connectionStatus: updatedConnectionStatus,
       },
     });
   } catch (error) {

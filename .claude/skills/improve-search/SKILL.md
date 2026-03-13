@@ -90,9 +90,26 @@ language: ja
     "started_at": "ISO or null",
     "caffeinate_pid_file": "/tmp/improve_search_caffeinate.pid"
   },
+  "seed_rotation": {
+    "current_seed": 6,
+    "seed_sequence": [6, 1, 42, 15, 3, 2, 4, 5, 9, 7],
+    "completed_seeds": [],
+    "auto_rotate": true
+  },
   "parameter_changelog": []
 }
 ```
+
+#### seed_rotation フィールド
+
+| フィールド | 説明 |
+|-----------|------|
+| `current_seed` | 現在のサイクルで使用中のシード |
+| `seed_sequence` | テストするシードの順番リスト |
+| `completed_seeds` | merge完了済みのシード（そのシードでのテストが成功裏に完了したもの） |
+| `auto_rotate` | サイクル完了時に自動的に次シードへ切り替えるか |
+
+**ローテーションルール**: merge承認後、`current_seed` を `completed_seeds` に追加し、`seed_sequence` の中で未完了の次のシードに切り替える。全シード完了時は `completed_seeds` をリセットして再ローテーション。
 
 ### チェックポイントプロトコル
 
@@ -142,7 +159,7 @@ grep -c "^\[live-search\]" backend/tests/output/improve_search_test.log 2>/dev/n
 | `planning` | - | - | Phase 2 を再実行 |
 | `implementing` | - | - | Phase 3 を再実行 |
 | `evaluating` | - | - | Phase 6 を再実行 |
-| `completed` | - | - | 前回結果を表示し、新サイクル開始を提案 |
+| `completed` | - | - | 前回結果を表示し、新サイクル開始を提案。`seed_rotation.auto_rotate=true` なら次シード情報も表示 |
 
 **中断テストのリスタート**:
 ```bash
@@ -316,20 +333,25 @@ cd backend && python -c "import app.utils.hybrid_search" && echo "OK"
 
 #### Step 4.1: テスト開始（バックグラウンド + caffeinate）
 
+**重要**: シード値は `improve_search_state.json` の `seed_rotation.current_seed` から取得する。
+
 ```bash
-nohup bash -c '
+# 状態ファイルからシードを取得
+SEED=$(python3 -c "import json; d=json.load(open('backend/tests/output/improve_search_state.json')); print(d.get('seed_rotation',{}).get('current_seed',6))" 2>/dev/null || echo 6)
+
+nohup bash -c "
   cd /Users/saoki/work/career_compass && \
   RUN_LIVE_SEARCH=1 \
   LIVE_SEARCH_SAMPLE_SIZE=30 \
   LIVE_SEARCH_MODES=hybrid,legacy \
   LIVE_SEARCH_CACHE_MODE=bypass \
-  LIVE_SEARCH_SAMPLE_SEED=6 \
+  LIVE_SEARCH_SAMPLE_SEED=$SEED \
   LIVE_SEARCH_TOKENS_PER_SECOND=1.0 \
   LIVE_SEARCH_MAX_TOKENS=1.0 \
-  python -m pytest backend/tests/test_live_company_info_search_report.py -v -s -m "integration" \
+  python -m pytest backend/tests/test_live_company_info_search_report.py -v -s -m 'integration' \
   2>&1 | tee backend/tests/output/improve_search_test.log; \
-  echo $? > /tmp/improve_search_exit_code
-' > /dev/null 2>&1 &
+  echo \$? > /tmp/improve_search_exit_code
+" > /dev/null 2>&1 &
 TEST_PID=$!
 echo $TEST_PID > /tmp/improve_search_test.pid
 
@@ -385,17 +407,20 @@ grep -c "^\[live-search\]" backend/tests/output/improve_search_test.log
 #### Step 5.3: キャッシュ利用リスタート
 
 ```bash
-nohup bash -c '
+# 状態ファイルからシードを取得
+SEED=$(python3 -c "import json; d=json.load(open('backend/tests/output/improve_search_state.json')); print(d.get('seed_rotation',{}).get('current_seed',6))" 2>/dev/null || echo 6)
+
+nohup bash -c "
   cd /Users/saoki/work/career_compass && \
   RUN_LIVE_SEARCH=1 \
   LIVE_SEARCH_SAMPLE_SIZE=30 \
   LIVE_SEARCH_MODES=hybrid,legacy \
   LIVE_SEARCH_CACHE_MODE=use \
-  LIVE_SEARCH_SAMPLE_SEED=6 \
-  python -m pytest backend/tests/test_live_company_info_search_report.py -v -s -m "integration" \
+  LIVE_SEARCH_SAMPLE_SEED=$SEED \
+  python -m pytest backend/tests/test_live_company_info_search_report.py -v -s -m 'integration' \
   2>&1 | tee backend/tests/output/improve_search_test.log; \
-  echo $? > /tmp/improve_search_exit_code
-' > /dev/null 2>&1 &
+  echo \$? > /tmp/improve_search_exit_code
+" > /dev/null 2>&1 &
 TEST_PID=$!
 echo $TEST_PID > /tmp/improve_search_test.pid
 caffeinate -dims -w $TEST_PID > /dev/null 2>&1 &
@@ -496,6 +521,44 @@ ls -t backend/tests/output/live_company_info_search_*.json | head -1
 2. 状態ファイルの `iterations[current].decision` を `"reverted"` に更新
 3. 別の仮説で Phase 2 からやり直し
 
+#### シードローテーション（merge後に自動実行）
+
+merge承認後、`seed_rotation.auto_rotate` が `true` の場合、以下を自動実行する:
+
+**Step 7.1**: 現在のシードを完了済みに追加
+```python
+state["seed_rotation"]["completed_seeds"].append(state["seed_rotation"]["current_seed"])
+```
+
+**Step 7.2**: 次のシードを決定
+```python
+seq = state["seed_rotation"]["seed_sequence"]
+done = state["seed_rotation"]["completed_seeds"]
+remaining = [s for s in seq if s not in done]
+
+if remaining:
+    next_seed = remaining[0]
+else:
+    # 全シード完了 → リセットして再ローテーション
+    state["seed_rotation"]["completed_seeds"] = []
+    next_seed = seq[0]
+
+state["seed_rotation"]["current_seed"] = next_seed
+```
+
+**Step 7.3**: 新シードのベースライン検索
+```bash
+# 新シードの既存テスト結果を探す
+ls backend/tests/output/live_company_info_search_*_seed{next_seed}.json 2>/dev/null
+```
+
+- **見つかった場合**: 最新のファイルをベースラインとして採用
+- **見つからない場合**: ベースラインは `null` — 次サイクルの最初のテストがベースラインとなる
+
+**Step 7.4**: 状態ファイル更新
+- `seed_rotation.current_seed` を新シードに更新
+- `baseline` を新シードのベースラインで更新（なければ `null`）
+
 #### 次サイクルの判断
 
 ユーザーに確認:
@@ -505,6 +568,11 @@ ls -t backend/tests/output/live_company_info_search_*.json | head -1
 結果:
 - Hybrid: {old}% → {new}% ({delta}pp)
 - Legacy: {old}% → {new}% ({delta}pp)
+
+シードローテーション: seed {current} → seed {next}
+  完了済みシード: [{completed_seeds}]
+  次の企業セット: 30社（seed {next} でサンプリング）
+  ベースライン: {baseline_file or "なし（初回テストがベースラインになります）"}
 
 次の改善サイクルを開始しますか？
 ```
@@ -529,6 +597,7 @@ YES の場合 → `cycle` をインクリメントし Phase 1 へ
 Improve-Search Status:
 - Cycle: 2
 - Phase: testing (フルテスト実行中)
+- Seed: 6 (completed: [], next: 1)
 - Progress: 18/30 companies completed
 - Elapsed: 20h 15m
 - Baseline: hybrid 72.0%, legacy 65.0%

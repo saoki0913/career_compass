@@ -1,0 +1,1783 @@
+{
+  "_comment": "就活テスト用300社リスト。就活人気ランキング＋業界主要企業から選定。",
+  "_generated_at": "2026-02-17",
+  "_generated_by": "generate_popular_companies.py",
+  "_version": 2,
+  "_total": 350,
+  "_sources": [
+    "キャリタス就活 就職希望企業ランキング 2026",
+    "マイナビ・日経 2026年卒大学生就職企業人気ランキング",
+    "学情 2027年卒就職人気企業ランキング",
+    "就活の教科書 人気企業TOP200"
+  ],
+  "_allocation": {
+    "商社": 18,
+    "金融・保険": 39,
+    "コンサルティング": 19,
+    "IT・通信": 46,
+    "メーカー（電機・機械）": 70,
+    "メーカー（食品・日用品）": 25,
+    "広告・マスコミ": 29,
+    "不動産・建設": 20,
+    "小売・流通": 14,
+    "サービス・インフラ": 38,
+    "医療・福祉": 12,
+    "教育": 4,
+    "印刷・包装": 3,
+    "アパレル・繊維": 4,
+    "設備工事・エンジニアリング": 4,
+    "その他人気企業": 5
+  },
+  "companies": [
+    {
+      "name": "三井物産",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "三菱商事",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "伊藤忠商事",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "住友商事",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "丸紅",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "豊田通商",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "双日",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "兼松",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "日鉄物産",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "JFE商事",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "阪和興業",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "長瀬産業",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "岩谷産業",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "伊藤忠丸紅鉄鋼",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "メタルワン",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "三菱食品",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "稲畑産業",
+      "industry": "商社",
+      "priority": "must_include"
+    },
+    {
+      "name": "三菱UFJフィナンシャル・グループ",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "三菱UFJ銀行",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "三菱UFJ信託銀行",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "三井住友フィナンシャルグループ",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "三井住友銀行",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "三井住友信託銀行",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "みずほフィナンシャルグループ",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "みずほ銀行",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "りそなホールディングス",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "野村ホールディングス",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "野村證券",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "大和証券",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "SMBC日興証券",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "三菱UFJモルガン・スタンレー証券",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "みずほ証券",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "東京海上ホールディングス",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "東京海上日動火災保険",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "三井住友海上火災保険",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "損害保険ジャパン",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "あいおいニッセイ同和損保",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本生命",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "第一生命",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "明治安田生命",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "住友生命",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "三井住友トラスト・ホールディングス",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本政策投資銀行",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "国際協力銀行",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "農林中央金庫",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本政策金融公庫",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "JCB",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "三井住友カード",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "オリックス",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "ゴールドマン・サックス",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "モルガン・スタンレー",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "JPモルガン",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "横浜銀行",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "千葉銀行",
+      "industry": "金融・保険",
+      "priority": "must_include"
+    },
+    {
+      "name": "アクセンチュア",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "マッキンゼー",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "BCG",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "ベイン・アンド・カンパニー",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "A.T.カーニー",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "ローランド・ベルガー",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "PwC",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "デロイト",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "EY",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "KPMG",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "アビームコンサルティング",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "ベイカレント",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "野村総合研究所",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "三菱総合研究所",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本総合研究所",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "大和総研",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "三菱UFJリサーチ&コンサルティング",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "みずほリサーチ&テクノロジーズ",
+      "industry": "コンサルティング",
+      "priority": "must_include"
+    },
+    {
+      "name": "NTT",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "NTTデータ",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "NTTドコモ",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "NTTコミュニケーションズ",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "NTT東日本",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "KDDI",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "ソフトバンク",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "ソフトバンクグループ",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "楽天グループ",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "SCSK",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "TIS",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "BIPROGY",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "富士ソフト",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "オービック",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "伊藤忠テクノソリューションズ",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "日鉄ソリューションズ",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "Sky",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "日立ソリューションズ",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "日立システムズ",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "大塚商会",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "NECソリューションイノベータ",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "富士通",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "NEC",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "サイバーエージェント",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "DeNA",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "メルカリ",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "LINE",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "ヤフー",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "LINEヤフー",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "PayPay",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "ZOZO",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "freee",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "マネーフォワード",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "Google",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "Amazon",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "Apple",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "Microsoft",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "Meta",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本IBM",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本オラクル",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "セールスフォース・ジャパン",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "AWS",
+      "industry": "IT・通信",
+      "priority": "must_include"
+    },
+    {
+      "name": "トヨタ自動車",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "本田技研工業",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "日産自動車",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "マツダ",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "SUBARU",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "スズキ",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ヤマハ発動機",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "日野自動車",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ダイハツ工業",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "デンソー",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "アイシン",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "豊田自動織機",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ソニーグループ",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "パナソニックホールディングス",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "パナソニック",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "日立製作所",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "三菱電機",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "東芝",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "三菱重工業",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "川崎重工業",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "IHI",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本製鉄",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "JFEスチール",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "住友金属鉱山",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "住友電気工業",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "旭化成",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "三菱ケミカル",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "住友化学",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "信越化学",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "東レ",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ブリヂストン",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "積水化学工業",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "キヤノン",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "富士フイルム",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "キーエンス",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "村田製作所",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "TDK",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "京セラ",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ローム",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "東京エレクトロン",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ディスコ",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "アドバンテスト",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "レーザーテック",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本電産",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "オムロン",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ルネサス",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "島津製作所",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "浜松ホトニクス",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ファナック",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "SMC",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ダイキン",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "コマツ",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "クボタ",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "日揮ホールディングス",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "荏原製作所",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "AGC",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "TOTO",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "LIXIL",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "シャープ",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "安川電機",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "オリンパス",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "シスメックス",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "HOYA",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "テルモ",
+      "industry": "メーカー（電機・機械）",
+      "priority": "must_include"
+    },
+    {
+      "name": "花王",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "資生堂",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ライオン",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ユニ・チャーム",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "P&G",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "味の素",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "サントリー",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "キリン",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "アサヒ",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "明治",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "日清食品",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ロッテ",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "カゴメ",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "キッコーマン",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ヤクルト",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "森永製菓",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "カルビー",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "キユーピー",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "伊藤園",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "JT",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ハウス食品",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ユニリーバ",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "ネスレ日本",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "コカ・コーラ",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "must_include"
+    },
+    {
+      "name": "電通グループ",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "博報堂",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "博報堂DYホールディングス",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "ADKホールディングス",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本テレビ",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "TBS",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "フジテレビ",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "テレビ朝日",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "テレビ東京",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "NHK",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "読売新聞",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "朝日新聞",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本経済新聞",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "集英社",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "講談社",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "小学館",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "KADOKAWA",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "東宝",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "任天堂",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "バンダイナムコ",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "オリエンタルランド",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "カプコン",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "コナミ",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "スクウェア・エニックス",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "セガサミー",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "ソニーミュージック",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "リクルート",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "リクルートホールディングス",
+      "industry": "広告・マスコミ",
+      "priority": "must_include"
+    },
+    {
+      "name": "三井不動産",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "三菱地所",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "住友不動産",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "東急不動産",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "野村不動産",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "森ビル",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "ヒューリック",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "東京建物",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "大林組",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "鹿島建設",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "清水建設",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "大成建設",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "竹中工務店",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "積水ハウス",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "大和ハウス",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "住友林業",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "長谷工コーポレーション",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "五洋建設",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "戸田建設",
+      "industry": "不動産・建設",
+      "priority": "must_include"
+    },
+    {
+      "name": "ファーストリテイリング",
+      "industry": "小売・流通",
+      "priority": "must_include"
+    },
+    {
+      "name": "ユニクロ",
+      "industry": "小売・流通",
+      "priority": "must_include"
+    },
+    {
+      "name": "イオン",
+      "industry": "小売・流通",
+      "priority": "must_include"
+    },
+    {
+      "name": "セブン&アイ",
+      "industry": "小売・流通",
+      "priority": "must_include"
+    },
+    {
+      "name": "セブン-イレブン・ジャパン",
+      "industry": "小売・流通",
+      "priority": "must_include"
+    },
+    {
+      "name": "ローソン",
+      "industry": "小売・流通",
+      "priority": "must_include"
+    },
+    {
+      "name": "ファミリーマート",
+      "industry": "小売・流通",
+      "priority": "must_include"
+    },
+    {
+      "name": "三越伊勢丹",
+      "industry": "小売・流通",
+      "priority": "must_include"
+    },
+    {
+      "name": "高島屋",
+      "industry": "小売・流通",
+      "priority": "must_include"
+    },
+    {
+      "name": "ニトリ",
+      "industry": "小売・流通",
+      "priority": "must_include"
+    },
+    {
+      "name": "良品計画",
+      "industry": "小売・流通",
+      "priority": "must_include"
+    },
+    {
+      "name": "マツモトキヨシ",
+      "industry": "小売・流通",
+      "priority": "must_include"
+    },
+    {
+      "name": "スターバックス",
+      "industry": "小売・流通",
+      "priority": "must_include"
+    },
+    {
+      "name": "JR東日本",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "JR西日本",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "JR東海",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "JR九州",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "東急電鉄",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "小田急電鉄",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "阪急阪神ホールディングス",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "京王電鉄",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "東京メトロ",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "ANA",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "JAL",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "東京電力",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "関西電力",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "中部電力",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "東京ガス",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "大阪ガス",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "ENEOS",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "出光興産",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "INPEX",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "JERA",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本郵船",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "商船三井",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "川崎汽船",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "ヤマト運輸",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "佐川急便",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本通運",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "JTB",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "星野リゾート",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "セコム",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "首都高速道路",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "エムスリー",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本銀行",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本貿易振興機構",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "国際協力機構",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "JAXA",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "日本郵政グループ",
+      "industry": "サービス・インフラ",
+      "priority": "must_include"
+    },
+    {
+      "name": "武田薬品工業",
+      "industry": "医療・福祉",
+      "priority": "must_include"
+    },
+    {
+      "name": "アステラス製薬",
+      "industry": "医療・福祉",
+      "priority": "must_include"
+    },
+    {
+      "name": "第一三共",
+      "industry": "医療・福祉",
+      "priority": "must_include"
+    },
+    {
+      "name": "エーザイ",
+      "industry": "医療・福祉",
+      "priority": "must_include"
+    },
+    {
+      "name": "中外製薬",
+      "industry": "医療・福祉",
+      "priority": "must_include"
+    },
+    {
+      "name": "大塚製薬",
+      "industry": "医療・福祉",
+      "priority": "must_include"
+    },
+    {
+      "name": "塩野義製薬",
+      "industry": "医療・福祉",
+      "priority": "must_include"
+    },
+    {
+      "name": "小野薬品工業",
+      "industry": "医療・福祉",
+      "priority": "must_include"
+    },
+    {
+      "name": "田辺三菱製薬",
+      "industry": "医療・福祉",
+      "priority": "must_include"
+    },
+    {
+      "name": "協和キリン",
+      "industry": "医療・福祉",
+      "priority": "must_include"
+    },
+    {
+      "name": "参天製薬",
+      "industry": "医療・福祉",
+      "priority": "must_include"
+    },
+    {
+      "name": "ベネッセ",
+      "industry": "教育",
+      "priority": "must_include"
+    },
+    {
+      "name": "学研",
+      "industry": "教育",
+      "priority": "must_include"
+    },
+    {
+      "name": "河合塾",
+      "industry": "教育",
+      "priority": "must_include"
+    },
+    {
+      "name": "大日本印刷",
+      "industry": "印刷・包装",
+      "priority": "must_include"
+    },
+    {
+      "name": "凸版印刷",
+      "industry": "印刷・包装",
+      "priority": "must_include"
+    },
+    {
+      "name": "ワコール",
+      "industry": "アパレル・繊維",
+      "priority": "must_include"
+    },
+    {
+      "name": "オンワード",
+      "industry": "アパレル・繊維",
+      "priority": "must_include"
+    },
+    {
+      "name": "ゴールドウイン",
+      "industry": "アパレル・繊維",
+      "priority": "must_include"
+    },
+    {
+      "name": "関電工",
+      "industry": "設備工事・エンジニアリング",
+      "priority": "must_include"
+    },
+    {
+      "name": "きんでん",
+      "industry": "設備工事・エンジニアリング",
+      "priority": "must_include"
+    },
+    {
+      "name": "九電工",
+      "industry": "設備工事・エンジニアリング",
+      "priority": "must_include"
+    },
+    {
+      "name": "ポケモン",
+      "industry": "その他人気企業",
+      "priority": "must_include"
+    },
+    {
+      "name": "コロプラ",
+      "industry": "その他人気企業",
+      "priority": "must_include"
+    },
+    {
+      "name": "Cygames",
+      "industry": "その他人気企業",
+      "priority": "must_include"
+    },
+    {
+      "name": "ミクシィ",
+      "industry": "その他人気企業",
+      "priority": "must_include"
+    },
+    {
+      "name": "グリー",
+      "industry": "IT・通信",
+      "priority": "fill"
+    },
+    {
+      "name": "Zホールディングス",
+      "industry": "IT・通信",
+      "priority": "fill"
+    },
+    {
+      "name": "NTTコムウェア",
+      "industry": "IT・通信",
+      "priority": "fill"
+    },
+    {
+      "name": "ぐるなび",
+      "industry": "その他人気企業",
+      "priority": "fill"
+    },
+    {
+      "name": "三陽商会",
+      "industry": "アパレル・繊維",
+      "priority": "fill"
+    },
+    {
+      "name": "シグマクシス",
+      "industry": "コンサルティング",
+      "priority": "fill"
+    },
+    {
+      "name": "西武鉄道",
+      "industry": "サービス・インフラ",
+      "priority": "fill"
+    },
+    {
+      "name": "京浜急行電鉄",
+      "industry": "サービス・インフラ",
+      "priority": "fill"
+    },
+    {
+      "name": "トヨタ紡織",
+      "industry": "メーカー（電機・機械）",
+      "priority": "fill"
+    },
+    {
+      "name": "豊田合成",
+      "industry": "メーカー（電機・機械）",
+      "priority": "fill"
+    },
+    {
+      "name": "ジェイテクト",
+      "industry": "メーカー（電機・機械）",
+      "priority": "fill"
+    },
+    {
+      "name": "トヨタ車体",
+      "industry": "メーカー（電機・機械）",
+      "priority": "fill"
+    },
+    {
+      "name": "いすゞ自動車",
+      "industry": "メーカー（電機・機械）",
+      "priority": "fill"
+    },
+    {
+      "name": "コーセー",
+      "industry": "メーカー（食品・日用品）",
+      "priority": "fill"
+    },
+    {
+      "name": "フジタ",
+      "industry": "不動産・建設",
+      "priority": "fill"
+    },
+    {
+      "name": "第一三共ヘルスケア",
+      "industry": "医療・福祉",
+      "priority": "fill"
+    },
+    {
+      "name": "トッパン・フォームズ",
+      "industry": "印刷・包装",
+      "priority": "fill"
+    },
+    {
+      "name": "蝶理",
+      "industry": "商社",
+      "priority": "fill"
+    },
+    {
+      "name": "大丸松坂屋",
+      "industry": "小売・流通",
+      "priority": "fill"
+    },
+    {
+      "name": "毎日新聞",
+      "industry": "広告・マスコミ",
+      "priority": "fill"
+    },
+    {
+      "name": "東進",
+      "industry": "教育",
+      "priority": "fill"
+    },
+    {
+      "name": "中電工",
+      "industry": "設備工事・エンジニアリング",
+      "priority": "fill"
+    },
+    {
+      "name": "りそな銀行",
+      "industry": "金融・保険",
+      "priority": "fill"
+    },
+    {
+      "name": "シティグループ",
+      "industry": "金融・保険",
+      "priority": "fill"
+    },
+    {
+      "name": "小糸製作所",
+      "industry": "メーカー（電機・機械）",
+      "priority": "fill"
+    },
+    {
+      "name": "NTT西日本",
+      "industry": "IT・通信",
+      "priority": "fill"
+    }
+  ]
+}

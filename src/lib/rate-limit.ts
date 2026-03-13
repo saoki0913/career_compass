@@ -36,6 +36,8 @@ export const RATE_LIMITS = {
   conversation: { maxTokens: 20, refillRate: 0.3, windowMs: 60000 },
   fetchInfo: { maxTokens: 5, refillRate: 0.08, windowMs: 60000 },
   search: { maxTokens: 30, refillRate: 0.5, windowMs: 60000 },
+  guestAuth: { maxTokens: 5, refillRate: 0.08, windowMs: 60000 },
+  contact: { maxTokens: 3, refillRate: 0.05, windowMs: 60000 },
 } as const;
 
 // ---------------------------------------------------------------------------

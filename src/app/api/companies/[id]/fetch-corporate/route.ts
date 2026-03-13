@@ -11,9 +11,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { companies, userProfiles } from "@/lib/db/schema";
+import { companies, companyPdfIngestJobs, userProfiles } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
+import {
+  detectContentTypeFromUrl,
+  parseCorporateInfoSources,
+  serializeCorporateInfoSources,
+  type CorporateInfoSource,
+} from "@/lib/company-info/sources";
 
 // FastAPI backend URL
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
@@ -26,77 +32,6 @@ const PAGE_LIMITS = {
   pro: 150,
 };
 
-interface CorporateInfoUrl {
-  url: string;
-  type?: "ir" | "business" | "about" | "general";
-  contentType?: string;
-  secondaryContentTypes?: string[];
-  fetchedAt?: string;
-}
-
-const CONTENT_TYPE_URL_PATTERNS: Array<{ type: string; patterns: string[] }> = [
-  {
-    type: "new_grad_recruitment",
-    patterns: ["recruit", "shinsotsu", "newgrad", "entry", "saiyo", "graduate", "freshers"],
-  },
-  {
-    type: "midcareer_recruitment",
-    patterns: ["career", "midcareer", "tenshoku", "experienced", "chuto", "job-change"],
-  },
-  {
-    type: "ceo_message",
-    patterns: ["message", "ceo", "president", "greeting", "topmessage", "chairman", "representative"],
-  },
-  {
-    type: "employee_interviews",
-    patterns: ["interview", "voice", "story", "people", "staff", "member", "senpai"],
-  },
-  {
-    type: "press_release",
-    patterns: ["news", "press", "release", "newsroom", "information", "topics", "oshirase"],
-  },
-  {
-    type: "ir_materials",
-    patterns: ["ir", "investor", "financial", "stock", "kabunushi", "kessan", "securities"],
-  },
-  {
-    type: "csr_sustainability",
-    patterns: ["csr", "esg", "sustainability", "sdgs", "social", "environment", "responsible"],
-  },
-  {
-    type: "midterm_plan",
-    patterns: ["plan", "strategy", "mtp", "medium-term", "chuki", "keiei", "vision"],
-  },
-  {
-    type: "corporate_site",
-    patterns: ["about", "company", "corporate", "overview", "profile", "info"],
-  },
-];
-
-function detectContentTypeFromUrl(url: string): string | null {
-  const lower = url.toLowerCase();
-  let bestType: string | null = null;
-  let bestScore = 0;
-
-  for (const entry of CONTENT_TYPE_URL_PATTERNS) {
-    let score = 0;
-    for (const pattern of entry.patterns) {
-      if (lower.includes(pattern)) {
-        score += 1;
-        if (lower.includes(`/${pattern}/`) || lower.endsWith(`/${pattern}`)) {
-          score += 1;
-        }
-      }
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      bestType = entry.type;
-    }
-  }
-
-  return bestScore > 0 ? bestType : null;
-}
-
 interface CrawlResult {
   success: boolean;
   company_id: string;
@@ -106,51 +41,7 @@ interface CrawlResult {
   url_content_types?: Record<string, string>;
 }
 
-function parseCorporateInfoUrls(raw: string | null | undefined): CorporateInfoUrl[] {
-  if (!raw) {
-    return [];
-  }
-  // Guard against data corruption where column name is stored as value
-  if (raw === "corporate_info_urls") {
-    console.warn("corporateInfoUrls contains column name instead of JSON - data corruption detected");
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed
-      .filter((entry) => {
-        if (!entry || typeof entry !== "object") {
-          return false;
-        }
-        const { url } = entry as Partial<CorporateInfoUrl>;
-        return typeof url === "string";
-      })
-      .map((entry) => {
-        const urlEntry = entry as CorporateInfoUrl;
-        if (!urlEntry.contentType && urlEntry.url) {
-          urlEntry.contentType = detectContentTypeFromUrl(urlEntry.url) || "corporate_site";
-        }
-        if (!Array.isArray(urlEntry.secondaryContentTypes)) {
-          urlEntry.secondaryContentTypes = [];
-        } else {
-          urlEntry.secondaryContentTypes = urlEntry.secondaryContentTypes.filter(
-            (item): item is string => typeof item === "string"
-          );
-        }
-        return urlEntry;
-      }) as CorporateInfoUrl[];
-  } catch (error) {
-    console.warn("Invalid corporateInfoUrls JSON, defaulting to empty.", error);
-    return [];
-  }
-}
-
-async function getAuthenticatedUser(
-  request: NextRequest
-): Promise<{ userId: string; plan: "free" | "standard" | "pro" } | null> {
+async function getAuthenticatedUser(): Promise<{ userId: string; plan: "free" | "standard" | "pro" } | null> {
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -193,10 +84,11 @@ export async function POST(
 
     // Get request body
     const body = await request.json();
-    const { urls, contentType, contentChannel } = body as {
+    const { urls, contentType, contentChannel, sourceOrigin } = body as {
       urls: string[];
       contentType?: string; // 9-category content type (e.g., new_grad_recruitment, ir_materials)
       contentChannel?: "corporate_ir" | "corporate_business" | "corporate_general";
+      sourceOrigin?: "manual_user" | "prestream_enrichment";
     };
     if (!urls || !Array.isArray(urls) || urls.length === 0) {
       return NextResponse.json(
@@ -213,7 +105,7 @@ export async function POST(
         : "corporate_general");
 
     // Authenticate user (guests not allowed)
-    const authUser = await getAuthenticatedUser(request);
+    const authUser = await getAuthenticatedUser();
     if (!authUser) {
       return NextResponse.json(
         { error: "この機能を利用するにはログインが必要です" },
@@ -233,7 +125,7 @@ export async function POST(
 
     // Check total page limit per company (not just per request)
     const pageLimit = PAGE_LIMITS[plan];
-    const existingUrls = parseCorporateInfoUrls(company.corporateInfoUrls);
+    const existingUrls = parseCorporateInfoSources(company.corporateInfoUrls);
     const existingUrlSet = new Set(existingUrls.map((u) => u.url));
 
     const uniqueRequestedUrls = urls
@@ -244,7 +136,7 @@ export async function POST(
     if (remaining <= 0) {
       return NextResponse.json(
         {
-          error: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ページまで保存できます（上限に達しています）`,
+          error: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ソースまで保存できます（上限に達しています）`,
           limit: pageLimit,
           remaining,
         },
@@ -254,7 +146,7 @@ export async function POST(
     if (uniqueRequestedUrls.length > remaining) {
       return NextResponse.json(
         {
-          error: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ページまで保存できます（残り${remaining}ページ）`,
+          error: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ソースまで保存できます（残り${remaining}ソース）`,
           limit: pageLimit,
           remaining,
         },
@@ -278,8 +170,16 @@ export async function POST(
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || "Backend request failed");
+        const errorText = await response.text().catch(() => "");
+        console.error("[企業情報取得] backend crawl failed", {
+          companyId,
+          contentType: contentTypeResolved,
+          contentChannel: contentChannelResolved,
+          urls: uniqueRequestedUrls,
+          status: response.status,
+          body: errorText,
+        });
+        throw new Error(errorText || "Backend request failed");
       }
 
       crawlResult = await response.json();
@@ -293,13 +193,24 @@ export async function POST(
 
     // Update company record with URLs
     const urlContentTypes = crawlResult.url_content_types || {};
-    const newUrls: CorporateInfoUrl[] = uniqueRequestedUrls
-      .map((url) => ({
-        url,
-        contentType: urlContentTypes[url] || contentTypeResolved || detectContentTypeFromUrl(url) || "corporate_site",
-        secondaryContentTypes: [],
-        fetchedAt: new Date().toISOString(),
-      }));
+    const newUrls: CorporateInfoSource[] = uniqueRequestedUrls
+      .map((url) => {
+        const resolvedContentType =
+          (urlContentTypes[url] as CorporateInfoSource["contentType"]) ||
+          (contentTypeResolved as CorporateInfoSource["contentType"]) ||
+          detectContentTypeFromUrl(url) ||
+          "corporate_site";
+
+        return {
+          url,
+          kind: "url",
+          sourceOrigin: sourceOrigin === "prestream_enrichment" ? "prestream_enrichment" : "manual_user",
+          contentType: resolvedContentType,
+          secondaryContentTypes: [],
+          fetchedAt: new Date().toISOString(),
+          status: "completed",
+        };
+      });
 
     const updatedUrls = [...existingUrls, ...newUrls];
     const backfilledUrls = updatedUrls.map((entry) => {
@@ -313,7 +224,9 @@ export async function POST(
       }
       return {
         ...entry,
-        contentType: detectContentTypeFromUrl(entry.url) || "corporate_site",
+        contentType: entry.kind === "upload_pdf"
+          ? entry.contentType
+          : detectContentTypeFromUrl(entry.url) || "corporate_site",
         secondaryContentTypes: Array.isArray(entry.secondaryContentTypes)
           ? entry.secondaryContentTypes
           : [],
@@ -323,7 +236,7 @@ export async function POST(
     await db
       .update(companies)
       .set({
-        corporateInfoUrls: JSON.stringify(backfilledUrls),
+        corporateInfoUrls: serializeCorporateInfoSources(backfilledUrls),
         corporateInfoFetchedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -347,14 +260,14 @@ export async function POST(
 
 // GET: Get current corporate info status
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id: companyId } = await params;
 
     // Authenticate user
-    const authUser = await getAuthenticatedUser(request);
+    const authUser = await getAuthenticatedUser();
     if (!authUser) {
       return NextResponse.json(
         { error: "Authentication required" },
@@ -398,14 +311,51 @@ export async function GET(
       // Ignore errors - return default status
     }
 
-    const corporateInfoUrls = parseCorporateInfoUrls(company.corporateInfoUrls);
-    const backfilledUrls = corporateInfoUrls.map((entry) => {
-      if (entry.contentType) {
-        return entry;
+    const corporateInfoUrls = parseCorporateInfoSources(company.corporateInfoUrls);
+    const jobs = await db
+      .select()
+      .from(companyPdfIngestJobs)
+      .where(eq(companyPdfIngestJobs.companyId, companyId));
+
+    const jobsBySourceUrl = new Map(jobs.map((job) => [job.sourceUrl, job]));
+    const backfilledUrls = corporateInfoUrls.map((entry): CorporateInfoSource => {
+      const job = jobsBySourceUrl.get(entry.url);
+      const urlBackfilledType =
+        entry.contentType ||
+        (entry.kind !== "upload_pdf" ? detectContentTypeFromUrl(entry.url) || "corporate_site" : undefined);
+
+      if (!job) {
+        return {
+          ...entry,
+          contentType: urlBackfilledType,
+        };
       }
+
+      let secondaryContentTypes = entry.secondaryContentTypes || [];
+      if (typeof job.secondaryContentTypes === "string") {
+        try {
+          const parsedSecondary = JSON.parse(job.secondaryContentTypes);
+          if (Array.isArray(parsedSecondary)) {
+            secondaryContentTypes = parsedSecondary.filter(
+              (value): value is NonNullable<CorporateInfoSource["contentType"]> => typeof value === "string"
+            );
+          }
+        } catch {
+          // Ignore invalid JSON in legacy rows.
+        }
+      }
+
       return {
         ...entry,
-        contentType: detectContentTypeFromUrl(entry.url) || "corporate_site",
+        status: job.status,
+        jobId: job.id,
+        errorMessage: job.lastError || entry.errorMessage,
+        contentType: (job.detectedContentType as CorporateInfoSource["contentType"]) || urlBackfilledType,
+        secondaryContentTypes,
+        chunksStored: job.chunksStored || entry.chunksStored,
+        extractedChars: job.extractedChars || entry.extractedChars,
+        extractionMethod: job.extractionMethod || entry.extractionMethod,
+        updatedAt: job.updatedAt?.toISOString() || entry.updatedAt,
       };
     });
 
@@ -413,7 +363,7 @@ export async function GET(
       await db
         .update(companies)
         .set({
-          corporateInfoUrls: JSON.stringify(backfilledUrls),
+          corporateInfoUrls: serializeCorporateInfoSources(backfilledUrls),
           updatedAt: new Date(),
         })
         .where(eq(companies.id, companyId));

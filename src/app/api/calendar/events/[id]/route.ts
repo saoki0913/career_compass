@@ -7,9 +7,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { calendarEvents } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { calendarEvents, calendarSettings } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import { getValidGoogleCalendarAccessToken } from "@/lib/calendar/connection";
+import { deleteCalendarEvent } from "@/lib/calendar/google";
 
 export async function DELETE(
   request: NextRequest,
@@ -49,6 +51,21 @@ export async function DELETE(
         { error: "Permission denied" },
         { status: 403 }
       );
+    }
+
+    if (event.externalEventId) {
+      const [settings] = await db
+        .select()
+        .from(calendarSettings)
+        .where(eq(calendarSettings.userId, userId))
+        .limit(1);
+
+      if (settings?.targetCalendarId) {
+        const { accessToken } = await getValidGoogleCalendarAccessToken(userId);
+        if (accessToken) {
+          await deleteCalendarEvent(accessToken, settings.targetCalendarId, event.externalEventId);
+        }
+      }
     }
 
     await db.delete(calendarEvents).where(eq(calendarEvents.id, eventId));

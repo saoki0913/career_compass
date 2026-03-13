@@ -43,6 +43,7 @@ interface Company {
   recruitmentUrl: string | null;
   corporateUrl: string | null;
   mypageUrl: string | null;
+  mypageLoginId: string | null;
   hasCredentials: boolean;
   notes: string | null;
   status: CompanyStatus;
@@ -145,18 +146,6 @@ const SparklesIcon = () => (
   </svg>
 );
 
-const AlertCircleIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
-const ClockIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
 const LoadingSpinner = () => (
   <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -168,15 +157,73 @@ const LoadingSpinner = () => (
   </svg>
 );
 
-// Credentials display with on-demand fetch
-function CredentialsDisplay({ companyId }: { companyId: string }) {
-  const [credentials, setCredentials] = useState<{ mypageLoginId: string | null; mypagePassword: string | null } | null>(null);
+type DeadlineListFilter = "all" | "active" | "week" | "completed";
+
+const DAY_IN_MS = 1000 * 60 * 60 * 24;
+
+function getDaysUntilDeadline(dueDate: string, now: Date) {
+  return Math.ceil((new Date(dueDate).getTime() - now.getTime()) / DAY_IN_MS);
+}
+
+function sortDeadlinesByDueDate(deadlines: Deadline[]) {
+  return [...deadlines].sort(
+    (a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+  );
+}
+
+function sortCompletedDeadlines(deadlines: Deadline[]) {
+  return [...deadlines].sort((a, b) => {
+    const aCompletedAt = a.completedAt ? new Date(a.completedAt).getTime() : 0;
+    const bCompletedAt = b.completedAt ? new Date(b.completedAt).getTime() : 0;
+    return bCompletedAt - aCompletedAt;
+  });
+}
+
+function groupDeadlinesByTimeline(deadlines: Deadline[], now: Date) {
+  const overdue: Deadline[] = [];
+  const thisWeek: Deadline[] = [];
+  const future: Deadline[] = [];
+  const completed: Deadline[] = [];
+
+  deadlines.forEach((deadline) => {
+    if (deadline.completedAt) {
+      completed.push(deadline);
+      return;
+    }
+
+    const dueDate = new Date(deadline.dueDate);
+    if (dueDate < now) {
+      overdue.push(deadline);
+      return;
+    }
+
+    const daysLeft = getDaysUntilDeadline(deadline.dueDate, now);
+    if (daysLeft <= 7) {
+      thisWeek.push(deadline);
+      return;
+    }
+
+    future.push(deadline);
+  });
+
+  return {
+    overdue: sortDeadlinesByDueDate(overdue),
+    thisWeek: sortDeadlinesByDueDate(thisWeek),
+    future: sortDeadlinesByDueDate(future),
+    completed: sortCompletedDeadlines(completed),
+  };
+}
+
+// Password display with on-demand fetch and show/hide toggle
+function PasswordDisplay({ companyId }: { companyId: string }) {
+  const [password, setPassword] = useState<string | null>(null);
+  const [fetched, setFetched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchCredentials = useCallback(async () => {
-    if (credentials) return;
+  const fetchPassword = useCallback(async () => {
+    if (fetched) return;
     setLoading(true);
     setError(null);
     try {
@@ -186,25 +233,26 @@ function CredentialsDisplay({ companyId }: { companyId: string }) {
       });
       if (!res.ok) throw new Error("Failed to fetch credentials");
       const data = await res.json();
-      setCredentials(data);
+      setPassword(data.mypagePassword);
+      setFetched(true);
     } catch {
-      setError("認証情報の取得に失敗しました");
+      setError("パスワードの取得に失敗しました");
     } finally {
       setLoading(false);
     }
-  }, [companyId, credentials]);
+  }, [companyId, fetched]);
 
-  if (!credentials && !loading && !error) {
+  if (!fetched && !loading && !error) {
     return (
       <button
         type="button"
-        onClick={fetchCredentials}
+        onClick={fetchPassword}
         className="flex items-center gap-1 text-xs text-primary hover:underline"
       >
         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
         </svg>
-        認証情報を表示
+        PWを表示
       </button>
     );
   }
@@ -217,59 +265,43 @@ function CredentialsDisplay({ companyId }: { companyId: string }) {
     return <span className="text-xs text-destructive">{error}</span>;
   }
 
+  if (!password) {
+    return <span className="text-xs text-muted-foreground">PW: 未設定</span>;
+  }
+
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      {credentials?.mypageLoginId && (
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-muted-foreground">ID:</span>
-          <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-xs">{credentials.mypageLoginId}</code>
-          <button
-            type="button"
-            onClick={() => navigator.clipboard.writeText(credentials.mypageLoginId || "")}
-            className="p-0.5 text-muted-foreground hover:text-foreground"
-            title="コピー"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-          </button>
-        </div>
-      )}
-      {credentials?.mypagePassword && (
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-muted-foreground">PW:</span>
-          <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-xs">
-            {showPassword ? credentials.mypagePassword : "••••••••"}
-          </code>
-          <button
-            type="button"
-            onClick={() => setShowPassword(!showPassword)}
-            className="p-0.5 text-muted-foreground hover:text-foreground"
-            title={showPassword ? "隠す" : "表示"}
-          >
-            {showPassword ? (
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-              </svg>
-            ) : (
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => navigator.clipboard.writeText(credentials.mypagePassword || "")}
-            className="p-0.5 text-muted-foreground hover:text-foreground"
-            title="コピー"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-          </button>
-        </div>
-      )}
+    <div className="flex items-center gap-1">
+      <span className="text-xs text-muted-foreground">PW:</span>
+      <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-xs">
+        {showPassword ? password : "••••••••"}
+      </code>
+      <button
+        type="button"
+        onClick={() => setShowPassword(!showPassword)}
+        className="p-0.5 text-muted-foreground hover:text-foreground"
+        title={showPassword ? "隠す" : "表示"}
+      >
+        {showPassword ? (
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+          </svg>
+        ) : (
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+          </svg>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={() => navigator.clipboard.writeText(password)}
+        className="p-0.5 text-muted-foreground hover:text-foreground"
+        title="コピー"
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -315,6 +347,7 @@ export default function CompanyDetailPage() {
 
   // Deadline approval modal state
   const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [deadlineListFilter, setDeadlineListFilter] = useState<DeadlineListFilter>("all");
 
   // ES documents state
   const [esDocuments, setEsDocuments] = useState<ESDocument[]>([]);
@@ -430,6 +463,154 @@ export default function CompanyDetailPage() {
       setError(err instanceof Error ? err.message : "削除に失敗しました");
       setIsDeleting(false);
     }
+  };
+
+  const now = new Date();
+  const deadlineGroups = groupDeadlinesByTimeline(deadlines, now);
+  const activeDeadlines = [
+    ...deadlineGroups.overdue,
+    ...deadlineGroups.thisWeek,
+    ...deadlineGroups.future,
+  ];
+  const weekDeadlines = [...deadlineGroups.overdue, ...deadlineGroups.thisWeek];
+  const unconfirmedDeadlineCount = deadlines.filter((deadline) => !deadline.isConfirmed).length;
+  const thisWeekDeadlineCount = deadlineGroups.thisWeek.length;
+  const hasOverdueDeadlines = deadlineGroups.overdue.length > 0;
+  const hasThisWeekDeadlines = deadlineGroups.thisWeek.length > 0;
+  const deadlineFilterOptions: Array<{
+    key: DeadlineListFilter;
+    label: string;
+    count: number;
+  }> = [
+    { key: "all", label: "すべて", count: deadlines.length },
+    { key: "active", label: "未完了", count: activeDeadlines.length },
+    { key: "week", label: "今週", count: weekDeadlines.length },
+    { key: "completed", label: "完了", count: deadlineGroups.completed.length },
+  ];
+  const visibleDeadlineSections =
+    deadlineListFilter === "all"
+      ? [
+          { key: "overdue", label: "期限切れ", items: deadlineGroups.overdue },
+          { key: "thisWeek", label: "今週", items: deadlineGroups.thisWeek },
+          { key: "future", label: "今後", items: deadlineGroups.future },
+          { key: "completed", label: "完了", items: deadlineGroups.completed },
+        ].filter((section) => section.items.length > 0)
+      : deadlineListFilter === "active"
+        ? [{ key: "active", label: "未完了", items: activeDeadlines }]
+        : deadlineListFilter === "week"
+          ? [{ key: "week", label: "今週", items: weekDeadlines }]
+          : [{ key: "completed", label: "完了", items: deadlineGroups.completed }];
+
+  const renderDeadlineItem = (deadline: Deadline) => {
+    const isCompleted = !!deadline.completedAt;
+    const dueDate = new Date(deadline.dueDate);
+    const isOverdue = !isCompleted && dueDate < now;
+    const daysLeft = getDaysUntilDeadline(deadline.dueDate, now);
+
+    const confidenceConfig = {
+      high: { bg: "bg-emerald-100", text: "text-emerald-700", label: "高" },
+      medium: { bg: "bg-amber-100", text: "text-amber-700", label: "中" },
+      low: { bg: "bg-red-100", text: "text-red-700", label: "低" },
+    };
+    const confidenceStyle = deadline.confidence ? confidenceConfig[deadline.confidence] : null;
+
+    return (
+      <div
+        key={deadline.id}
+        className={cn(
+          "flex items-center gap-2 rounded-lg p-2 transition-colors",
+          isCompleted
+            ? "bg-muted/30 opacity-60"
+            : isOverdue
+              ? "bg-red-50/80"
+              : !deadline.isConfirmed
+                ? "bg-amber-50/50"
+                : "bg-muted/30"
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => toggleComplete(deadline.id)}
+          className={cn(
+            "flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+            isCompleted
+              ? "border-primary bg-primary text-primary-foreground"
+              : isOverdue
+                ? "border-red-400 hover:border-red-500"
+                : "border-muted-foreground/40 hover:border-primary"
+          )}
+        >
+          {isCompleted ? (
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          ) : null}
+        </button>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+              {DEADLINE_TYPE_LABELS[deadline.type] || deadline.type}
+            </span>
+            {!deadline.isConfirmed ? (
+              <button
+                type="button"
+                onClick={() => confirmDeadline(deadline.id)}
+                className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs text-yellow-700 transition-colors hover:bg-yellow-200"
+              >
+                要確認
+              </button>
+            ) : null}
+            {confidenceStyle && !deadline.isConfirmed ? (
+              <span className={cn("rounded-full px-2 py-0.5 text-xs", confidenceStyle.bg, confidenceStyle.text)}>
+                信頼度: {confidenceStyle.label}
+              </span>
+            ) : null}
+          </div>
+          <p className={cn("mt-1 text-sm font-medium", isCompleted && "text-muted-foreground line-through")}>
+            {deadline.title}
+          </p>
+          <div className="mt-0.5 flex items-center gap-2">
+            <p className={cn("text-xs", isOverdue ? "font-medium text-red-600" : "text-muted-foreground")}>
+              {dueDate.toLocaleDateString("ja-JP", { month: "short", day: "numeric", weekday: "short" })}
+              {!isCompleted ? (
+                <span className="ml-1">
+                  {isOverdue
+                    ? "（期限切れ）"
+                    : daysLeft === 0
+                      ? "（今日）"
+                      : daysLeft === 1
+                        ? "（明日）"
+                        : `（${daysLeft}日後）`}
+                </span>
+              ) : null}
+            </p>
+            {deadline.sourceUrl && !deadline.isConfirmed ? (
+              <a
+                href={deadline.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                <ExternalLinkIcon />
+                取得元
+              </a>
+            ) : null}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setEditingDeadline(deadline);
+            setShowDeadlineModal(true);
+          }}
+          className="p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <EditIcon />
+        </button>
+      </div>
+    );
   };
 
   if (isLoading) {
@@ -588,7 +769,7 @@ export default function CompanyDetailPage() {
               </div>
             </div>
             {/* マイページ情報（コンパクト表示） */}
-            {(company.hasCredentials || company.mypageUrl) && (
+            {(company.mypageUrl || company.mypageLoginId || company.hasCredentials) && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 {company.mypageUrl && (
                   <a
@@ -601,63 +782,61 @@ export default function CompanyDetailPage() {
                     マイページ
                   </a>
                 )}
+                {company.mypageLoginId && (
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-muted-foreground">ID:</span>
+                    <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-xs">{company.mypageLoginId}</code>
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard.writeText(company.mypageLoginId || "")}
+                      className="p-0.5 text-muted-foreground hover:text-foreground"
+                      title="コピー"
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
                 {company.hasCredentials && (
-                  <CredentialsDisplay companyId={company.id} />
+                  <PasswordDisplay companyId={company.id} />
                 )}
               </div>
             )}
           </div>
         </div>
 
-        {/* 2-column grid: Deadlines + Applications */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-          {/* Left column: Deadlines */}
-          <Card className={cn(
-            "border-border/50",
-            (() => {
-              const now = new Date();
-              const hasOverdue = deadlines.some(d => {
-                const dueDate = new Date(d.dueDate);
-                return !d.completedAt && dueDate < now;
-              });
-              const hasThisWeek = deadlines.some(d => {
-                const dueDate = new Date(d.dueDate);
-                const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                return !d.completedAt && dueDate >= now && daysLeft <= 7;
-              });
-              if (hasOverdue) return "bg-red-50/30 border-red-200";
-              if (hasThisWeek) return "bg-amber-50/30 border-amber-200/50";
-              return "";
-            })()
-          )}>
-          <CardHeader className="flex flex-row items-center justify-between py-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <CalendarIcon />
-              締切・予定
-              {deadlines.filter(d => !d.isConfirmed).length > 0 && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
-                  {deadlines.filter(d => !d.isConfirmed).length}件要確認
-                </span>
-              )}
-              {(() => {
-                const now = new Date();
-                const thisWeekCount = deadlines.filter(d => {
-                  const dueDate = new Date(d.dueDate);
-                  const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                  return !d.completedAt && dueDate >= now && daysLeft <= 7;
-                }).length;
-                return thisWeekCount > 0 ? (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium">
-                    今週中に{thisWeekCount}件
-                  </span>
-                ) : null;
-              })()}
-            </CardTitle>
-            <div className="flex gap-2">
-              {deadlines.filter(d => !d.isConfirmed).length > 1 && (
-                <Button
-                  variant="outline"
-                  size="sm"
+	        {/* 2-column grid: Deadlines + Applications */}
+	        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+	          {/* Left column: Deadlines */}
+	          <Card className={cn(
+	            "border-border/50",
+	            hasOverdueDeadlines
+	              ? "bg-red-50/30 border-red-200"
+	              : hasThisWeekDeadlines
+	                ? "bg-amber-50/30 border-amber-200/50"
+	                : ""
+	          )}>
+	          <CardHeader className="flex flex-row items-center justify-between py-3">
+	            <CardTitle className="text-base flex items-center gap-2">
+	              <CalendarIcon />
+	              締切・予定
+	              {unconfirmedDeadlineCount > 0 && (
+	                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+	                  {unconfirmedDeadlineCount}件要確認
+	                </span>
+	              )}
+	              {thisWeekDeadlineCount > 0 ? (
+	                <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium">
+	                  今週中に{thisWeekDeadlineCount}件
+	                </span>
+	              ) : null}
+	            </CardTitle>
+	            <div className="flex gap-2">
+	              {unconfirmedDeadlineCount > 1 && (
+	                <Button
+	                  variant="outline"
+	                  size="sm"
                   onClick={() => setShowApprovalModal(true)}
                   className="text-amber-700 border-amber-300 hover:bg-amber-50"
                 >
@@ -694,173 +873,67 @@ export default function CompanyDetailPage() {
                     setShowDeadlineModal(true);
                   }}
                 >
-                  締切を追加する
-                </Button>
-              </div>
-            ) : (() => {
-              // Group deadlines by urgency
-              const now = new Date();
-              const overdueDeadlines = deadlines.filter(d => {
-                const dueDate = new Date(d.dueDate);
-                return !d.completedAt && dueDate < now;
-              });
-              const thisWeekDeadlines = deadlines.filter(d => {
-                const dueDate = new Date(d.dueDate);
-                const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                return !d.completedAt && dueDate >= now && daysLeft <= 7;
-              });
-              const futureDeadlines = deadlines.filter(d => {
-                const dueDate = new Date(d.dueDate);
-                const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                return !d.completedAt && daysLeft > 7;
-              });
-              const completedDeadlines = deadlines.filter(d => d.completedAt);
+	                  締切を追加する
+	                </Button>
+	              </div>
+	            ) : (
+	              <div className="space-y-3">
+	                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+	                  {deadlineFilterOptions.map((option) => {
+	                    const isActive = deadlineListFilter === option.key;
+	                    return (
+	                      <button
+	                        key={option.key}
+	                        type="button"
+	                        onClick={() => setDeadlineListFilter(option.key)}
+	                        className={cn(
+	                          "flex items-center gap-2 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+	                          isActive
+	                            ? "border border-border bg-background text-foreground shadow-sm"
+	                            : "bg-muted/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+	                        )}
+	                      >
+	                        <span>{option.label}</span>
+	                        <span
+	                          className={cn(
+	                            "rounded-full px-1.5 py-0.5 text-[11px]",
+	                            isActive
+	                              ? "bg-muted text-foreground"
+	                              : "bg-background/80 text-muted-foreground"
+	                          )}
+	                        >
+	                          {option.count}
+	                        </span>
+	                      </button>
+	                    );
+	                  })}
+	                </div>
 
-              const renderDeadlineItem = (deadline: Deadline) => {
-                const isCompleted = !!deadline.completedAt;
-                const dueDate = new Date(deadline.dueDate);
-                const isOverdue = !isCompleted && dueDate < now;
-                const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-
-                const confidenceConfig = {
-                  high: { bg: "bg-emerald-100", text: "text-emerald-700", label: "高" },
-                  medium: { bg: "bg-amber-100", text: "text-amber-700", label: "中" },
-                  low: { bg: "bg-red-100", text: "text-red-700", label: "低" },
-                };
-                const confidenceStyle = deadline.confidence ? confidenceConfig[deadline.confidence] : null;
-
-                return (
-                  <div
-                    key={deadline.id}
-                    className={cn(
-                      "flex items-center gap-2 p-2 rounded-lg transition-colors",
-                      isCompleted
-                        ? "bg-muted/30 opacity-60"
-                        : isOverdue
-                        ? "bg-red-50/80"
-                        : !deadline.isConfirmed
-                        ? "bg-amber-50/50"
-                        : "bg-muted/30"
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => toggleComplete(deadline.id)}
-                      className={cn(
-                        "w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer",
-                        isCompleted
-                          ? "bg-primary border-primary text-primary-foreground"
-                          : isOverdue
-                          ? "border-red-400 hover:border-red-500"
-                          : "border-muted-foreground/40 hover:border-primary"
-                      )}
-                    >
-                      {isCompleted && (
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </button>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                          {DEADLINE_TYPE_LABELS[deadline.type] || deadline.type}
-                        </span>
-                        {!deadline.isConfirmed && (
-                          <button
-                            type="button"
-                            onClick={() => confirmDeadline(deadline.id)}
-                            className="px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-700 hover:bg-yellow-200 transition-colors cursor-pointer"
-                          >
-                            要確認
-                          </button>
-                        )}
-                        {confidenceStyle && !deadline.isConfirmed && (
-                          <span className={cn("text-xs px-2 py-0.5 rounded-full", confidenceStyle.bg, confidenceStyle.text)}>
-                            信頼度: {confidenceStyle.label}
-                          </span>
-                        )}
-                      </div>
-                      <p className={cn("font-medium text-sm mt-1", isCompleted && "line-through text-muted-foreground")}>{deadline.title}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <p className={cn("text-xs", isOverdue ? "text-red-600 font-medium" : "text-muted-foreground")}>
-                          {dueDate.toLocaleDateString("ja-JP", { month: "short", day: "numeric", weekday: "short" })}
-                          {!isCompleted && (
-                            <span className="ml-1">
-                              {isOverdue
-                                ? "（期限切れ）"
-                                : daysLeft === 0
-                                ? "（今日）"
-                                : daysLeft === 1
-                                ? "（明日）"
-                                : `（${daysLeft}日後）`}
-                            </span>
-                          )}
-                        </p>
-                        {deadline.sourceUrl && !deadline.isConfirmed && (
-                          <a
-                            href={deadline.sourceUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                          >
-                            <ExternalLinkIcon />
-                            取得元
-                          </a>
-                        )}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingDeadline(deadline);
-                        setShowDeadlineModal(true);
-                      }}
-                      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                    >
-                      <EditIcon />
-                    </button>
-                  </div>
-                );
-              };
-
-              // Combine urgent deadlines (overdue + this week)
-              const urgentDeadlines = [...overdueDeadlines, ...thisWeekDeadlines];
-
-              return (
-                <div className="space-y-2 max-h-[220px] overflow-y-auto">
-                  {/* Urgent deadlines (overdue + this week) */}
-                  {urgentDeadlines.length > 0 ? (
-                    <div className="space-y-1.5">
-                      {urgentDeadlines.slice(0, 4).map(renderDeadlineItem)}
-                      {urgentDeadlines.length > 4 && (
-                        <p className="text-xs text-muted-foreground text-center py-1">
-                          他 {urgentDeadlines.length - 4} 件の今週締切
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground text-center py-2">今週の締切はありません</p>
-                  )}
-
-                  {/* Future + Completed (collapsed) */}
-                  {(futureDeadlines.length > 0 || completedDeadlines.length > 0) && (
-                    <div className="pt-2 border-t border-border/30 flex items-center gap-4 text-xs text-muted-foreground">
-                      {futureDeadlines.length > 0 && (
-                        <span>今後: {futureDeadlines.length}件</span>
-                      )}
-                      {completedDeadlines.length > 0 && (
-                        <span>完了: {completedDeadlines.length}件</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-          </CardContent>
-          </Card>
+	                <div className="max-h-[320px] space-y-4 overflow-y-auto pr-1">
+	                  {visibleDeadlineSections.some((section) => section.items.length > 0) ? (
+	                    visibleDeadlineSections.map((section) => (
+	                      <div key={section.key} className="space-y-1.5">
+	                        {deadlineListFilter === "all" ? (
+	                          <div className="flex items-center justify-between px-1">
+	                            <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+	                              {section.label}
+	                            </p>
+	                            <span className="text-[11px] text-muted-foreground">{section.items.length}件</span>
+	                          </div>
+	                        ) : null}
+	                        {section.items.map(renderDeadlineItem)}
+	                      </div>
+	                    ))
+	                  ) : (
+	                    <div className="rounded-lg bg-muted/20 py-6 text-center text-sm text-muted-foreground">
+	                      該当する締切・予定はありません
+	                    </div>
+	                  )}
+	                </div>
+	              </div>
+	            )}
+	          </CardContent>
+	          </Card>
 
           {/* Right column: Applications */}
           <Card className="border-border/50">

@@ -1,4 +1,4 @@
-# Technical Context - 就活Pass (Career Compass)
+# Technical Context - 就活Compass (シューパス)
 
 ## Tech Stack
 

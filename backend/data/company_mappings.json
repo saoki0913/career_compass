@@ -505,7 +505,8 @@
     ],
     "蝶理マテックス": {
       "domains": [
-        "chori-matex"
+        "chori-matex",
+        "chori"
       ],
       "parent": "蝶理"
     },
@@ -528,8 +529,10 @@
     ],
     "三井住友銀行": {
       "domains": [
+        "smbc.co.jp",
         "smbc-freshers",
-        "smbcbank"
+        "smbcbank",
+        "smbc"
       ],
       "parent": "三井住友フィナンシャルグループ",
       "allow_parent_domains_for": [
@@ -577,6 +580,7 @@
     },
     "野村證券": {
       "domains": [
+        "nomura.co.jp",
         "nomura-recruit",
         "nomurasec"
       ],
@@ -587,6 +591,7 @@
       "nomura-hd"
     ],
     "大和証券": [
+      "daiwa.jp",
       "daiwa",
       "daiwa-grp",
       "daiwa-grp-recruit"
@@ -598,7 +603,9 @@
       "parent": "三井住友フィナンシャルグループ"
     },
     "東京海上ホールディングス": [
-      "tokiomarine-hd"
+      "tokiomarine-hd",
+      "tokiomarinehd",
+      "tokiomarineam"
     ],
     "東京海上日動火災保険": {
       "domains": [
@@ -610,7 +617,9 @@
       "ms-ins"
     ],
     "損害保険ジャパン": [
-      "sompo"
+      "sompo-japan.co.jp",
+      "sompo",
+      "sompo-japan"
     ],
     "日本生命": [
       "nissay",
@@ -637,7 +646,9 @@
       "jpmorgan"
     ],
     "シティグループ": [
-      "citi"
+      "citi",
+      "citigroup",
+      "citibank"
     ],
     "バンク・オブ・アメリカ": [
       "bankofamerica",
@@ -674,16 +685,25 @@
     "_subsection_02c": "--- 信託銀行・政府系金融 ---",
     "三菱UFJ信託銀行": {
       "domains": [
+        "tr.mufg.jp",
         "tr.mufg"
       ],
       "parent": "三菱UFJフィナンシャル・グループ"
     },
     "三井住友トラスト・ホールディングス": [
-      "smth-hd"
+      "smth-hd",
+      "smtb",
+      "smtrc",
+      "smtbs",
+      "smtss",
+      "smtic"
     ],
     "三井住友信託銀行": {
       "domains": [
-        "smth"
+        "smtb.jp",
+        "smth",
+        "smtb",
+        "smtgs"
       ],
       "parent": "三井住友トラスト・ホールディングス"
     },
@@ -719,7 +739,8 @@
       "jcb"
     ],
     "三井住友カード": [
-      "smcc"
+      "smcc",
+      "smbc-card"
     ],
     "三菱UFJニコス": [
       "cr.mufg"
@@ -1031,7 +1052,8 @@
     ],
     "MS&ADシステムズ": {
       "domains": [
-        "msad-systems"
+        "msad-systems",
+        "ms-ad-systems"
       ],
       "parent": "MS&ADインシュアランスグループホールディングス"
     },
@@ -1110,7 +1132,8 @@
       "fidelity"
     ],
     "バークレイズ": [
-      "barclays"
+      "barclays",
+      "jp-barclays"
     ],
     "ドイツ銀行": [
       "db"
@@ -1194,7 +1217,8 @@
       "parent": "日本生命"
     },
     "日本マスタートラスト信託銀行": [
-      "mtbj"
+      "mtbj",
+      "mastertrust"
     ],
     "T&Dホールディングス": [
       "td-holdings"
@@ -1206,7 +1230,8 @@
       "jsf"
     ],
     "マネックスグループ": [
-      "monex"
+      "monex",
+      "monexgroup"
     ],
     "松井証券": [
       "matsui"
@@ -1396,13 +1421,18 @@
       "yahoo"
     ],
     "Zホールディングス": [
+      "lycorp.co.jp",
       "z-holdings"
     ],
     "Google": [
       "google"
     ],
     "Amazon": [
-      "amazon"
+      "amazon",
+      "aboutamazon",
+      "aboutamazon.jp",
+      "amazon.jobs",
+      "shigoto.amazon"
     ],
     "Apple": [
       "apple"
@@ -1434,7 +1464,8 @@
       "parent": "NTT"
     },
     "富士ソフト": [
-      "fsi"
+      "fsi",
+      "fujisoft"
     ],
     "オービック": [
       "obic"
@@ -1556,7 +1587,9 @@
       "hp"
     ],
     "AWS": [
-      "aws.amazon"
+      "aws.amazon.com",
+      "aws.amazon",
+      "aws"
     ],
     "_subsection_04e": "--- スタートアップ・SaaS ---",
     "LINEヤフー": [
@@ -2614,7 +2647,8 @@
     },
     "浜松パイプ": {
       "domains": [
-        "hamamatsu-pipe"
+        "hamamatsu-pipe",
+        "snic"
       ],
       "parent": "スズキ"
     },
@@ -3100,7 +3134,8 @@
     },
     "TDKマニュファクチャリングサービス": {
       "domains": [
-        "tdk-ms"
+        "tdk-ms",
+        "tdk"
       ],
       "parent": "TDK"
     },
@@ -3207,7 +3242,9 @@
       "zeon"
     ],
     "積水化学工業": [
-      "sekisui-chem"
+      "sekisui-chem",
+      "sekisui",
+      "sekisuichemical"
     ],
     "富士フイルムビジネスイノベーション": [
       "fujifilm-fb"
@@ -3512,7 +3549,8 @@
     },
     "パナソニックライフソリューションズ": {
       "domains": [
-        "panasonic-ls"
+        "panasonic-ls",
+        "panasonic"
       ],
       "parent": "パナソニック"
     },
@@ -3538,7 +3576,8 @@
     "_subsection_05u": "--- キヤノングループ子会社 ---",
     "キヤノンマーケティングジャパン": {
       "domains": [
-        "canon-mj"
+        "canon-mj",
+        "canon"
       ],
       "parent": "キヤノン"
     },
@@ -3617,7 +3656,9 @@
     },
     "東芝デバイス&ストレージ": {
       "domains": [
-        "toshiba-device"
+        "toshiba-device",
+        "semicon-storage",
+        "toshiba"
       ],
       "parent": "東芝"
     },
@@ -3985,7 +4026,8 @@
       "shiseido"
     ],
     "コーセー": [
-      "kose"
+      "kose",
+      "koseholdings"
     ],
     "ポーラ": [
       "pola"
@@ -4409,7 +4451,9 @@
     ],
     "ソニーミュージック": {
       "domains": [
-        "sonymusic"
+        "sonymusic",
+        "sme",
+        "sonymusicsolutions"
       ],
       "parent": "ソニーグループ"
     },
@@ -5115,7 +5159,8 @@
     },
     "京王不動産": {
       "domains": [
-        "keio-re"
+        "keio-re",
+        "keiofudosan"
       ],
       "parent": "京王電鉄"
     },
@@ -5214,10 +5259,14 @@
       "takashimaya"
     ],
     "大丸松坂屋": [
-      "daimaru-matsuzakaya"
+      "daimaru-matsuzakaya",
+      "daimaru",
+      "dmdepart"
     ],
     "マツモトキヨシ": [
-      "matsukiyo"
+      "matsukiyo",
+      "matsukiyococokara",
+      "matsumoto-inc"
     ],
     "スギ薬局": [
       "sugi-net",
@@ -5366,7 +5415,9 @@
       "jreast"
     ],
     "JR西日本": [
-      "westjr"
+      "westjr",
+      "jrwsc",
+      "jr-odekake"
     ],
     "JR東海": [
       "jr-central"
@@ -5588,7 +5639,8 @@
       "en-japan"
     ],
     "ビズリーチ": [
-      "bizreach"
+      "bizreach",
+      "visional"
     ],
     "マイナビ": [
       "mynavi"
@@ -5644,7 +5696,8 @@
     },
     "JR東日本ビルテック": {
       "domains": [
-        "jre-bt"
+        "jre-bt",
+        "jrefm"
       ],
       "parent": "JR東日本"
     },
@@ -6335,11 +6388,16 @@
       "dnp"
     ],
     "凸版印刷": [
-      "toppan"
+      "toppan",
+      "toppan.co.jp"
     ],
-    "トッパン・フォームズ": [
-      "toppan-f"
-    ],
+    "トッパン・フォームズ": {
+      "domains": [
+        "toppan-f",
+        "edge.toppan"
+      ],
+      "parent": "TOPPAN"
+    },
     "共同印刷": [
       "kyodoprinting"
     ],
@@ -6380,7 +6438,9 @@
       "parent": "凸版印刷"
     },
     "図書印刷": [
-      "tosho-printing"
+      "tosho-printing",
+      "tosho",
+      "toppan-colorer"
     ],
     "日経印刷": [
       "nikkei-printing"
@@ -6396,7 +6456,8 @@
     ],
     "_section_14": "=== アパレル・繊維 ===",
     "ワコール": [
-      "wacoal"
+      "wacoal",
+      "wacoalholdings"
     ],
     "オンワード": [
       "onward"
@@ -6460,7 +6521,8 @@
       "kinden"
     ],
     "九電工": [
-      "kyudenko"
+      "kyudenko",
+      "kraftia"
     ],
     "中電工": [
       "chudenko"
@@ -6948,7 +7010,9 @@
     },
     "パナソニック インダストリー": {
       "domains": [
-        "industry.panasonic"
+        "industry.panasonic",
+        "panasonic-industry",
+        "panasonic"
       ],
       "parent": "パナソニック"
     },

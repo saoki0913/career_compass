@@ -15,7 +15,6 @@ import { CompanySelectModal } from "@/components/dashboard/CompanySelectModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useCompanies } from "@/hooks/useCompanies";
 import { useDeadlines } from "@/hooks/useDeadlines";
@@ -23,21 +22,10 @@ import { useTodayTask, TASK_TYPE_LABELS } from "@/hooks/useTasks";
 import { useEsStats } from "@/hooks/useDocuments";
 import { getStatusConfig, type CompanyStatus } from "@/lib/constants/status";
 import { cn } from "@/lib/utils";
-import { FeatureTour } from "@/components/onboarding/FeatureTour";
 import { useActivation } from "@/hooks/useActivation";
+import { FirstRunGuideCard } from "@/components/onboarding/FirstRunGuideCard";
 
 // Icons
-const CreditIcon = () => (
-  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-    />
-  </svg>
-);
-
 const CompanyIcon = () => (
   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
@@ -94,26 +82,9 @@ const StarIcon = () => (
   </svg>
 );
 
-const CheckCircleIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
 const ClockIcon = () => (
   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
-const GlobeIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
-    />
   </svg>
 );
 
@@ -226,11 +197,10 @@ const deadlineTypeLabels: Record<string, string> = {
 
 export default function DashboardPage() {
   const { user, isGuest, isLoading, isAuthenticated, userPlan } = useAuth();
-  const router = useRouter();
   const [showCompanySelect, setShowCompanySelect] = useState(false);
 
   // Fetch real data
-  const { companies, count: companyCount, limit: companyLimit } = useCompanies();
+  const { companies, count: companyCount } = useCompanies();
   const { draftCount, publishedCount, total: esTotal } = useEsStats();
   const { deadlines, count: deadlineCount } = useDeadlines(7);
   const todayTask = useTodayTask();
@@ -247,15 +217,6 @@ export default function DashboardPage() {
       color: "sky" as const,
     },
   ];
-
-  // Check if plan selection or onboarding is needed
-  useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      if (userPlan?.needsOnboarding) {
-        router.push("/onboarding");
-      }
-    }
-  }, [isLoading, isAuthenticated, userPlan, router]);
 
   // Activation checklist needs guest/user identity (device token or session).
   useEffect(() => {
@@ -301,31 +262,96 @@ export default function DashboardPage() {
     return "無制限";
   };
 
+  const shouldShowFirstRunGuide = activationData?.completedSteps === 0;
+
   return (
     <div className="min-h-screen bg-background">
       <DashboardHeader />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight">
-              {greeting}、{displayName}さん
-            </h1>
-            {isGuest && (
-              <span className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary font-medium">
-                ゲストモードで利用中
-              </span>
-            )}
+        {/* Welcome + Today's Task Row */}
+        <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6 mb-6">
+          {/* Greeting */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight">
+                {greeting}、{displayName}さん
+              </h1>
+              {isGuest && (
+                <span className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary font-medium">
+                  ゲストモードで利用中
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-muted-foreground">
+              今日も就活を一歩前へ進めましょう
+            </p>
           </div>
-          <p className="mt-1 text-muted-foreground">
-            今日も就活を一歩前へ進めましょう
-          </p>
+
+          {/* Today's Most Important Task (inline) */}
+          {todayTask.task && (
+            <Card className="sm:w-[420px] w-full flex-shrink-0 border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5">
+              <CardHeader className="pb-2 pt-3 px-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-primary">
+                    <StarIcon />
+                    <span className="text-xs font-medium">
+                      今日の最重要タスク
+                      {todayTask.mode === "DEADLINE" && " - 締切優先モード"}
+                      {todayTask.mode === "DEEP_DIVE" && " - 深掘りモード"}
+                    </span>
+                  </div>
+                  <Button variant="outline" size="sm" className="h-7 text-xs px-2" asChild>
+                    <Link href="/tasks">タスク一覧</Link>
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="px-4 pb-3 pt-0">
+                <div className="flex items-start gap-3">
+                  <button
+                    type="button"
+                    onClick={() => todayTask.markComplete()}
+                    className="w-5 h-5 mt-0.5 rounded-full border-2 border-primary flex items-center justify-center flex-shrink-0 hover:bg-primary/10 transition-colors"
+                    title="完了にする"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                        {TASK_TYPE_LABELS[todayTask.task.type]}
+                      </span>
+                      {todayTask.task.company && (
+                        <Link
+                          href={`/companies/${todayTask.task.company.id}`}
+                          className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
+                        >
+                          <CompanyIcon />
+                          {todayTask.task.company.name}
+                        </Link>
+                      )}
+                    </div>
+                    <p className="font-medium mt-0.5">{todayTask.task.title}</p>
+                    {todayTask.task.deadline && (
+                      <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                        <ClockIcon />
+                        {new Date(todayTask.task.deadline.dueDate).toLocaleDateString("ja-JP", {
+                          month: "long",
+                          day: "numeric",
+                        })}
+                        まで
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
-        {/* Activation Checklist (first value path) */}
+        <FirstRunGuideCard isVisible={!!shouldShowFirstRunGuide} />
+
+        {/* Activation Checklist (compact bar) */}
         {activationData && activationData.completedSteps < activationData.totalSteps ? (
-          <ActivationChecklistCard progress={activationData} />
+          <ActivationChecklistCard progress={activationData} muted={!!shouldShowFirstRunGuide} />
         ) : null}
 
         {/* Stats Cards */}
@@ -354,64 +380,6 @@ export default function DashboardPage() {
             className="col-span-2 lg:col-span-1"
           />
         </div>
-
-        {/* Today's Most Important Task */}
-        {todayTask.task && (
-          <Card className="mb-8 border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-primary">
-                  <StarIcon />
-                  <span className="text-sm font-medium">
-                    今日の最重要タスク
-                    {todayTask.mode === "DEADLINE" && " - 締切優先モード"}
-                    {todayTask.mode === "DEEP_DIVE" && " - 深掘りモード"}
-                  </span>
-                </div>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href="/tasks">タスク一覧</Link>
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-start gap-4">
-                <button
-                  type="button"
-                  onClick={() => todayTask.markComplete()}
-                  className="w-6 h-6 mt-0.5 rounded-full border-2 border-primary flex items-center justify-center flex-shrink-0 hover:bg-primary/10 transition-colors"
-                  title="完了にする"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                      {TASK_TYPE_LABELS[todayTask.task.type]}
-                    </span>
-                    {todayTask.task.company && (
-                      <Link
-                        href={`/companies/${todayTask.task.company.id}`}
-                        className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
-                      >
-                        <CompanyIcon />
-                        {todayTask.task.company.name}
-                      </Link>
-                    )}
-                  </div>
-                  <p className="font-medium text-lg mt-1">{todayTask.task.title}</p>
-                  {todayTask.task.deadline && (
-                    <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
-                      <ClockIcon />
-                      {new Date(todayTask.task.deadline.dueDate).toLocaleDateString("ja-JP", {
-                        month: "long",
-                        day: "numeric",
-                      })}
-                      まで
-                    </p>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Action Zone - 3 Column Grid */}
         <section className="mb-8">
@@ -553,8 +521,6 @@ export default function DashboardPage() {
         )}
       </main>
 
-      {/* Feature Tour */}
-      <FeatureTour />
     </div>
   );
 }

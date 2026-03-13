@@ -180,6 +180,41 @@ export const companies = pgTable(
   ]
 );
 
+export const companyPdfIngestJobs = pgTable(
+  "company_pdf_ingest_jobs",
+  {
+    id: text("id").primaryKey(),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    sourceUrl: text("source_url").notNull(),
+    storageBucket: text("storage_bucket").notNull(),
+    storagePath: text("storage_path").notNull(),
+    fileName: text("file_name").notNull(),
+    status: text("status", {
+      enum: ["pending", "processing", "completed", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    detectedContentType: text("detected_content_type"),
+    secondaryContentTypes: text("secondary_content_types"),
+    chunksStored: integer("chunks_stored").notNull().default(0),
+    extractedChars: integer("extracted_chars").notNull().default(0),
+    extractionMethod: text("extraction_method"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    startedAt: timestamptz("started_at"),
+    completedAt: timestamptz("completed_at"),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("company_pdf_ingest_jobs_company_status_idx").on(t.companyId, t.status),
+    uniqueIndex("company_pdf_ingest_jobs_source_url_ux").on(t.sourceUrl),
+    index("company_pdf_ingest_jobs_created_at_idx").on(t.createdAt),
+  ]
+);
+
 // Applications table - track application rounds (summer intern, main selection, etc.)
 export const applications = pgTable(
   "applications",
@@ -561,6 +596,10 @@ export const calendarSettings = pgTable("calendar_settings", {
   googleAccessToken: text("google_access_token"),
   googleRefreshToken: text("google_refresh_token"),
   googleTokenExpiresAt: timestamptz("google_token_expires_at"),
+  googleGrantedScopes: text("google_granted_scopes"),
+  googleCalendarEmail: text("google_calendar_email"),
+  googleCalendarConnectedAt: timestamptz("google_calendar_connected_at"),
+  googleCalendarNeedsReconnect: boolean("google_calendar_needs_reconnect").notNull().default(false),
   createdAt: timestamptz("created_at").notNull().defaultNow(),
   updatedAt: timestamptz("updated_at").notNull().defaultNow(),
 });
@@ -711,7 +750,15 @@ export const motivationConversations = pgTable(
     motivationScores: text("motivation_scores"),
     generatedDraft: text("generated_draft"),
     charLimitType: text("char_limit_type", { enum: ["300", "400", "500"] }),
+    conversationContext: text("conversation_context"),
+    selectedRole: text("selected_role"),
+    selectedRoleSource: text("selected_role_source"),
+    desiredWork: text("desired_work"),
+    questionStage: text("question_stage"),
     lastSuggestions: text("last_suggestions"),
+    lastSuggestionOptions: text("last_suggestion_options"),
+    lastEvidenceCards: text("last_evidence_cards"),
+    stageStatus: text("stage_status"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
   },

@@ -1,0 +1,9 @@
+accelerate>=1.5.0
+bitsandbytes>=0.45.0
+datasets>=3.3.0
+peft>=0.14.0
+sentencepiece>=0.2.0
+torch>=2.5.0
+transformers>=4.52.0
+trl>=0.18.0
+unsloth>=2025.11.0

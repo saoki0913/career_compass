@@ -90,9 +90,19 @@ export async function GET(
     }
 
     // Decrypt password and return credentials
+    let decryptedPassword: string | null = null;
+    if (company.mypagePassword) {
+      try {
+        decryptedPassword = decrypt(company.mypagePassword);
+      } catch {
+        logError("decrypt-credential", new Error("Failed to decrypt password, possibly stored as plaintext"));
+        decryptedPassword = null;
+      }
+    }
+
     return NextResponse.json({
       mypageLoginId: company.mypageLoginId || null,
-      mypagePassword: company.mypagePassword ? decrypt(company.mypagePassword) : null,
+      mypagePassword: decryptedPassword,
     });
   } catch (error) {
     logError("fetch-credentials", error);

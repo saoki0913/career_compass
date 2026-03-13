@@ -15,6 +15,27 @@
       "when": 1770551264197,
       "tag": "0001_yummy_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772457600000,
+      "tag": "0002_calendar_connection_refactor",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1773187200000,
+      "tag": "0003_motivation_evidence_cards",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1773393425998,
+      "tag": "0004_stiff_whirlwind",
+      "breakpoints": true
     }
   ]
 }

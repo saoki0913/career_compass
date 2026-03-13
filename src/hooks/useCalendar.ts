@@ -34,7 +34,14 @@ export interface CalendarSettings {
     start: string;
     end: string;
   } | null;
-  isGoogleConnected: boolean;
+  connectionStatus: {
+    connected: boolean;
+    needsReconnect: boolean;
+    connectedEmail: string | null;
+    connectedAt: string | null;
+    grantedScopes: string[];
+    missingScopes: string[];
+  };
 }
 
 export interface GoogleCalendarEvent {
@@ -206,27 +213,23 @@ export function useCalendarSettings() {
 }
 
 export function useGoogleCalendar() {
-  const [isConnected, setIsConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<CalendarSettings["connectionStatus"] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const checkConnection = useCallback(async () => {
     try {
-      const response = await fetch("/api/calendar/google?action=events&start=2026-01-01T00:00:00Z&end=2026-01-02T00:00:00Z", {
+      const response = await fetch("/api/calendar/connection-status", {
         credentials: "include",
       });
 
-      if (response.status === 403) {
-        const data = await response.json();
-        if (data.code === "NOT_CONNECTED") {
-          setIsConnected(false);
-          return;
-        }
+      if (!response.ok) {
+        setConnectionStatus(null);
+        return;
       }
 
-      if (response.ok) {
-        setIsConnected(true);
-      }
+      const data = await response.json();
+      setConnectionStatus(data.connectionStatus ?? null);
     } catch (err) {
       console.error("Failed to check Google Calendar connection:", err);
     }
@@ -322,7 +325,8 @@ export function useGoogleCalendar() {
   };
 
   return {
-    isConnected,
+    isConnected: !!connectionStatus?.connected,
+    connectionStatus,
     isLoading,
     error,
     checkConnection,

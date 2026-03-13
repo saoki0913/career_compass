@@ -42,9 +42,9 @@ Google Cloud Console → **API とサービス** → **OAuth 同意画面**
 
 | 設定項目 | 値 |
 |---|---|
-| アプリのホームページ | `https://shupass.jp` |
-| アプリのプライバシー ポリシー リンク | `https://shupass.jp/privacy` |
-| アプリの利用規約リンク | `https://shupass.jp/terms` |
+| アプリのホームページ | `https://www.shupass.jp` |
+| アプリのプライバシー ポリシー リンク | `https://www.shupass.jp/privacy` |
+| アプリの利用規約リンク | `https://www.shupass.jp/terms` |
 | 承認済みドメイン | `shupass.jp` |
 
 ### デベロッパーの連絡先情報
@@ -86,13 +86,15 @@ Google Cloud Console → **API とサービス** → **認証情報** → **認�
 ### 承認済みの JavaScript 生成元
 
 ```
-https://shupass.jp
+https://www.shupass.jp
 ```
+
+> `shupass.jp` も運用に残す場合は `https://shupass.jp` も追加してください（将来のドメイン切替や手入力アクセス対策）。
 
 ### 承認済みのリダイレクト URI
 
 ```
-https://shupass.jp/api/auth/callback/google
+https://www.shupass.jp/api/auth/callback/google
 ```
 
 > プレビュー環境も使う場合は以下も追加:
@@ -117,12 +119,12 @@ Railway 側の `CORS_ORIGINS` にカスタムドメインを設定:
 Railway Dashboard → 対象 Service → **Variables**
 
 ```
-CORS_ORIGINS=["https://shupass.jp"]
+CORS_ORIGINS=["https://www.shupass.jp","https://shupass.jp"]
 ```
 
 > Vercel のデフォルトドメインも許可する場合:
 > ```
-> CORS_ORIGINS=["https://shupass.jp","https://career-compass-xxx.vercel.app"]
+> CORS_ORIGINS=["https://www.shupass.jp","https://shupass.jp","https://career-compass-xxx.vercel.app"]
 > ```
 
 ## 5-5. Upstash Redis 設定（レート制限用）

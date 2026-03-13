@@ -9,11 +9,13 @@ import asyncio
 import hashlib
 import json
 import math
+import re
 import time
 from collections import Counter
 from typing import Optional
 
 from app.config import settings
+from app.utils.secure_logger import get_logger
 from app.utils.llm import call_llm_with_error
 from app.utils.content_types import (
     content_type_label,
@@ -26,8 +28,9 @@ from app.utils.embeddings import (
     resolve_embedding_backend,
 )
 from app.utils.bm25_store import get_or_create_index
-from app.utils.reranker import rerank_with_cross_encoder
 from app.utils.japanese_tokenizer import tokenize
+
+logger = get_logger(__name__)
 
 # Retrieval tuning defaults
 DEFAULT_MAX_QUERIES = 3
@@ -98,6 +101,7 @@ CONTENT_TYPE_BOOSTS = {
 _DEADLINE_KEYWORDS = {"締切", "期限", "スケジュール", "選考日程", "応募期間", "エントリー"}
 _CULTURE_KEYWORDS = {"社風", "雰囲気", "働き方", "人物像", "カルチャー", "価値観", "チーム"}
 _BUSINESS_KEYWORDS = {"事業", "戦略", "売上", "成長", "市場", "競合", "ビジネスモデル", "中期経営"}
+_FACT_KEYWORDS = {"いつ", "何日", "何月", "募集要項", "必須", "条件", "勤務地", "年収", "初任給"}
 
 
 def select_boost_profile(query: str) -> dict[str, float]:
@@ -110,6 +114,96 @@ def select_boost_profile(query: str) -> dict[str, float]:
     if any(kw in query_lower for kw in _BUSINESS_KEYWORDS):
         return CONTENT_TYPE_BOOSTS["business"]
     return CONTENT_TYPE_BOOSTS["es_review"]
+
+
+def infer_retrieval_profile(query: str, base_fetch_k: int = DEFAULT_FETCH_K) -> dict:
+    """Infer retrieval tuning from query intent/shape."""
+    q = (query or "").strip()
+    q_lower = q.lower()
+    q_len = len(q)
+    has_deadline_intent = any(kw in q_lower for kw in _DEADLINE_KEYWORDS | _FACT_KEYWORDS)
+    has_culture_intent = any(kw in q_lower for kw in _CULTURE_KEYWORDS)
+    has_business_intent = any(kw in q_lower for kw in _BUSINESS_KEYWORDS)
+    has_date_or_number = bool(re.search(r"(\d{4}年|\d{1,2}月|\d{1,2}日|\d+[%％])", q))
+
+    # Query is likely a full draft or long answer text.
+    if q_len >= 280:
+        return {
+            "profile": "long_form",
+            "semantic_weight": 0.7,
+            "keyword_weight": 0.3,
+            "fetch_k": max(base_fetch_k, 36),
+            "max_queries": 2,
+            "max_total_queries": 3,
+            "rerank_threshold": 0.65,
+            "mmr_lambda": 0.42,
+            "use_hyde": True,
+        }
+
+    # Fact/date style queries benefit from stronger keyword bias.
+    if has_deadline_intent or has_date_or_number:
+        return {
+            "profile": "fact_lookup",
+            "semantic_weight": 0.42,
+            "keyword_weight": 0.58,
+            "fetch_k": max(18, int(base_fetch_k * 0.8)),
+            "max_queries": 1,
+            "max_total_queries": 2,
+            "rerank_threshold": 0.8,
+            "mmr_lambda": 0.64,
+            "use_hyde": False,
+        }
+
+    if has_culture_intent:
+        return {
+            "profile": "culture_fit",
+            "semantic_weight": 0.72,
+            "keyword_weight": 0.28,
+            "fetch_k": max(base_fetch_k, 34),
+            "max_queries": 4,
+            "max_total_queries": 5,
+            "rerank_threshold": 0.62,
+            "mmr_lambda": 0.45,
+            "use_hyde": True,
+        }
+
+    if has_business_intent:
+        return {
+            "profile": "business_strategy",
+            "semantic_weight": 0.62,
+            "keyword_weight": 0.38,
+            "fetch_k": max(base_fetch_k, 32),
+            "max_queries": 3,
+            "max_total_queries": 4,
+            "rerank_threshold": 0.68,
+            "mmr_lambda": 0.5,
+            "use_hyde": True,
+        }
+
+    if q_len <= 8:
+        return {
+            "profile": "short_query",
+            "semantic_weight": 0.48,
+            "keyword_weight": 0.52,
+            "fetch_k": max(20, int(base_fetch_k * 0.85)),
+            "max_queries": 2,
+            "max_total_queries": 3,
+            "rerank_threshold": 0.75,
+            "mmr_lambda": 0.58,
+            "use_hyde": False,
+        }
+
+    return {
+        "profile": "default",
+        "semantic_weight": settings.rag_semantic_weight,
+        "keyword_weight": settings.rag_keyword_weight,
+        "fetch_k": base_fetch_k,
+        "max_queries": settings.rag_max_queries,
+        "max_total_queries": settings.rag_max_total_queries,
+        "rerank_threshold": settings.rag_rerank_threshold,
+        "mmr_lambda": settings.rag_mmr_lambda,
+        "use_hyde": True,
+    }
 
 # ---- Query expansion in-memory cache ----
 # Maps query hash → (timestamp, expanded_queries)
@@ -286,6 +380,52 @@ def _extract_keywords(text: str, max_terms: int = 8) -> list[str]:
     return [term for term, _ in counts.most_common(max_terms)]
 
 
+def _result_confidence_score(item: dict) -> float:
+    for key in ("boosted_score", "hybrid_score", "rrf_score"):
+        value = item.get(key)
+        if isinstance(value, (int, float)):
+            return float(value)
+
+    distance = item.get("distance")
+    if isinstance(distance, (int, float)):
+        return 1.0 / (1.0 + max(float(distance), 0.0))
+
+    return 0.0
+
+
+def _content_type_diversity(results: list[dict], limit: int = 4) -> int:
+    types = set()
+    for item in results[:limit]:
+        meta = item.get("metadata") or {}
+        content_type = meta.get("content_type") or meta.get("chunk_type")
+        if isinstance(content_type, str) and content_type:
+            types.add(content_type)
+    return len(types)
+
+
+def _should_short_circuit_search(results: list[dict], n_results: int) -> bool:
+    if len(results) < min(3, n_results):
+        return False
+
+    top_results = results[: min(4, len(results))]
+    scores = [_result_confidence_score(item) for item in top_results]
+    if not scores:
+        return False
+
+    top1 = scores[0]
+    avg_top3 = sum(scores[: min(3, len(scores))]) / min(3, len(scores))
+    diversity = _content_type_diversity(top_results)
+
+    if top1 >= 0.88:
+        return True
+    if avg_top3 >= 0.8 and diversity >= 2:
+        return True
+    if avg_top3 >= 0.76 and diversity >= 3:
+        return True
+
+    return False
+
+
 def _should_rerank(results: list[dict], threshold: float) -> bool:
     """Decide whether LLM reranking is worthwhile.
 
@@ -335,6 +475,56 @@ def _should_rerank(results: list[dict], threshold: float) -> bool:
         variance = sum((s - mean) ** 2 for s in normalized) / len(normalized)
         return variance >= 0.02  # Empirical threshold for score spread
     return True
+
+
+async def _rerank_with_cross_encoder(
+    query: str,
+    results: list[dict],
+    top_k: int = DEFAULT_RERANK_CANDIDATES,
+) -> list[dict]:
+    """Load the reranker only when reranking is actually needed."""
+    from app.utils.reranker import rerank_with_cross_encoder
+
+    return await rerank_with_cross_encoder(query, results, top_k=top_k)
+
+
+def _clean_excerpt_text(text: str) -> str:
+    return " ".join((text or "").replace("\u3000", " ").split())
+
+
+def _truncate_on_sentence_boundary(text: str, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    head = text[:max_len].rstrip()
+    cutoff = max(
+        head.rfind("。"),
+        head.rfind("！"),
+        head.rfind("？"),
+        head.rfind("."),
+        head.rfind("!"),
+        head.rfind("?"),
+    )
+    # Use sentence boundary only if it is not too early.
+    if cutoff >= int(max_len * 0.55):
+        return head[: cutoff + 1].rstrip()
+    return head + "…"
+
+
+def _build_source_excerpt(result: dict, max_len: int = 150) -> str:
+    text = _clean_excerpt_text(result.get("text", ""))
+    metadata = result.get("metadata", {}) or {}
+    heading = _clean_excerpt_text(
+        str(metadata.get("heading_path") or metadata.get("heading") or "")
+    )
+
+    if heading and text:
+        merged = f"{heading}: {text}"
+    elif heading:
+        merged = heading
+    else:
+        merged = text
+
+    return _truncate_on_sentence_boundary(merged, max_len)
 
 
 def _normalize_scores(score_map: dict[str, float]) -> dict[str, float]:
@@ -817,6 +1007,7 @@ async def dense_hybrid_search(
     max_total_queries: Optional[int] = None,
     mmr_lambda: Optional[float] = None,
     content_type_boosts: Optional[dict[str, float]] = None,
+    short_circuit: bool = True,
 ) -> list[dict]:
     """
     Dense-only hybrid search pipeline (BM25-free).
@@ -861,6 +1052,40 @@ async def dense_hybrid_search(
     if base_backend is None:
         return []
     search_backends = [base_backend]
+    query_embedding = (
+        await generate_embedding(query, backend=base_backend)
+        if use_mmr else None
+    )
+
+    # First-pass semantic retrieval for the original query only.
+    # If this is already good enough, skip expansion / HyDE / BM25 / rerank.
+    initial_results = await semantic_search(
+        company_id=company_id,
+        query=query,
+        n_results=max(fetch_k or DEFAULT_FETCH_K, n_results * 3),
+        content_types=content_types,
+        backends=search_backends,
+        include_embeddings=use_mmr,
+        precomputed_query_embedding=query_embedding,
+    )
+
+    if not initial_results:
+        return []
+
+    if content_type_boosts:
+        initial_results = _apply_content_type_boost(initial_results, content_type_boosts)
+
+    if short_circuit and _should_short_circuit_search(initial_results, n_results):
+        if use_mmr:
+            if query_embedding:
+                initial_results = _apply_mmr(initial_results, query_embedding, n_results, mmr_lambda)
+            else:
+                initial_results = initial_results[:n_results]
+        else:
+            initial_results = initial_results[:n_results]
+        if settings.debug:
+            logger.info("[RAG] 初回検索で十分なため expansion/HyDE/BM25/rerank をスキップ")
+        return initial_results[:n_results]
 
     # クエリ拡張: 10文字以上1200文字以下の場合のみ実行
     effective_expand = (
@@ -910,14 +1135,7 @@ async def dense_hybrid_search(
     fetch_k = max(fetch_k or DEFAULT_FETCH_K, n_results * 3)
     bm25_k = max(fetch_k or DEFAULT_FETCH_K, n_results * 3)
 
-    # Pre-compute query embedding for the original query.
-    # This is reused by both semantic_search (for the first query) and MMR.
-    query_embedding = (
-        await generate_embedding(query, backend=base_backend)
-        if use_mmr else None
-    )
-
-    # Start BM25 search in parallel with semantic search (they are independent)
+    # Start BM25 search in parallel with the enhanced semantic search only when needed.
     bm25_task = None
     if use_bm25 and keyword_weight > 0:
         bm25_task = asyncio.create_task(
@@ -930,25 +1148,27 @@ async def dense_hybrid_search(
             )
         )
 
-    # Run semantic search for all queries in parallel.
-    # Pass pre-computed embedding for the original query (first in list) to avoid
-    # a duplicate embedding API call.
-    search_tasks = [
-        semantic_search(
-            company_id=company_id,
-            query=q,
-            n_results=fetch_k,
-            content_types=content_types,
-            backends=search_backends,
-            include_embeddings=use_mmr,
-            precomputed_query_embedding=query_embedding if (i == 0 and query_embedding) else None,
+    results_by_query: list[list[dict]] = []
+    if initial_results:
+        results_by_query.append(initial_results)
+
+    extra_queries = queries[1:]
+    if extra_queries:
+        search_tasks = [
+            semantic_search(
+                company_id=company_id,
+                query=q,
+                n_results=fetch_k,
+                content_types=content_types,
+                backends=search_backends,
+                include_embeddings=use_mmr,
+            )
+            for q in extra_queries
+        ]
+        search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+        results_by_query.extend(
+            r for r in search_results if isinstance(r, list) and r
         )
-        for i, q in enumerate(queries)
-    ]
-    search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
-    results_by_query: list[list[dict]] = [
-        r for r in search_results if isinstance(r, list) and r
-    ]
 
     if not results_by_query:
         # Cancel BM25 task if no semantic results
@@ -972,7 +1192,7 @@ async def dense_hybrid_search(
         try:
             keyword_results = await bm25_task
         except Exception as e:
-            print(f"[RAG/BM25] ⚠️ BM25検索エラー: {e}")
+            logger.warning(f"[RAG/BM25] BM25検索エラー: {e}")
             keyword_results = None
         if keyword_results:
             merged = _merge_semantic_and_keyword(
@@ -986,11 +1206,12 @@ async def dense_hybrid_search(
         merged = _apply_content_type_boost(merged, content_type_boosts)
 
     if rerank and _should_rerank(merged, rerank_threshold):
-        merged = await rerank_with_cross_encoder(
+        merged = await _rerank_with_cross_encoder(
             query, merged, top_k=DEFAULT_RERANK_CANDIDATES
         )
     elif rerank:
-        print("[RAG再ランキング] ℹ️ 上位スコアが高いためスキップ")
+        if settings.debug:
+            logger.info("[RAG再ランキング] 上位スコアが高いためスキップ")
 
     return merged[:n_results]
 
@@ -1165,13 +1386,27 @@ def get_context_and_sources_for_review_hybrid(
         # Track source (deduplicate by URL)
         if source_url and source_url not in seen_urls and len(sources) < 5:
             seen_urls.add(source_url)
+            title = _clean_excerpt_text(
+                str(metadata.get("heading_path") or metadata.get("heading") or "")
+            ) or content_type_label(normalized_type)
+            domain = ""
+            if source_url:
+                try:
+                    from urllib.parse import urlparse
+
+                    domain = urlparse(source_url).netloc.replace("www.", "")
+                except Exception:
+                    domain = ""
             sources.append(
                 {
                     "source_id": f"S{len(sources) + 1}",
                     "source_url": source_url,
                     "content_type": normalized_type,
+                    "content_type_label": content_type_label(normalized_type),
                     "chunk_type": chunk_type,
-                    "excerpt": text[:150] + "..." if len(text) > 150 else text,
+                    "title": title,
+                    "domain": domain,
+                    "excerpt": _build_source_excerpt(result, max_len=150),
                 }
             )
 

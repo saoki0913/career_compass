@@ -5,7 +5,7 @@
 	backend-test-comprehensive backend-test-comprehensive-quick backend-test-comprehensive-stats \
 	backend-test-content-type backend-test-content-type-unit backend-test-content-type-integration \
 	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy \
-	deploy
+	deploy deploy-check deploy-migrate
 
 # ===========================================
 # フロントエンド (Next.js)
@@ -130,27 +130,44 @@ backend-install:
 
 LIVE_SEARCH_MODES ?= hybrid,legacy
 LIVE_SEARCH_CACHE_MODE ?= bypass
-LIVE_SEARCH_SAMPLE_SEED ?= 9
-LIVE_SEARCH_SAMPLE_SIZE ?= 30
+LIVE_SEARCH_SAMPLE_SEED ?= 15
+LIVE_SEARCH_SAMPLE_SIZE ?= 350
 LIVE_SEARCH_MAX_RESULTS ?= 5
-LIVE_SEARCH_TOKENS_PER_SECOND ?= 1.0
+LIVE_SEARCH_TOKENS_PER_SECOND ?= 10
 LIVE_SEARCH_MAX_TOKENS ?= 1.0
 LIVE_SEARCH_PASS_TOP_N ?= 5
 LIVE_SEARCH_PER_INDUSTRY_MIN ?= 1
 LIVE_SEARCH_FAIL_ON_LOW_RATE ?= 0
-LIVE_SEARCH_MIN_SUCCESS_RATE ?= 0.70
+LIVE_SEARCH_MIN_SUCCESS_RATE ?= 0.95
+LIVE_SEARCH_MIN_RECRUITMENT_RATE ?= 0.95
+LIVE_SEARCH_MIN_CORPORATE_RATE ?= 0.94
+LIVE_SEARCH_MIN_CANDIDATE_MRR ?= 0.75
+LIVE_SEARCH_MIN_NDCG5 ?= 0.80
+LIVE_SEARCH_MIN_MEAN_GRADE_SCORE ?= 0.85
+LIVE_SEARCH_HARD_MAX_OFFICIAL_RANK ?= 3
+LIVE_SEARCH_HARD_MIN_METADATA_SCORE ?= 0.85
+LIVE_SEARCH_USE_CURATED ?= 1
+LIVE_SEARCH_FAIL_ON_REGRESSION ?= 0
+BASELINE_SAVE ?= 0
+BASELINE_AUTO_PROMOTE ?= 0
 
 ## 全バックエンドテストを実行
 backend-test:
 	cd backend && python -m pytest tests/ -v
 
 ## Live検索レポートテスト（Legacy + Hybrid, ネットワーク必須）
+## 350社キュレーションリスト × 2モード × 11検索種 = 7,700検索
+## 所要時間目安: ~2時間 (1 req/s)、TOKENS_PER_SECOND=10 で ~15分
 backend-test-live-search:
 	@echo "Running live search report test (Legacy + Hybrid; requires network; may take a while)..."
+	@echo "  Companies: $(LIVE_SEARCH_SAMPLE_SIZE), Curated: $(LIVE_SEARCH_USE_CURATED), Modes: $(LIVE_SEARCH_MODES)"
+	@echo "  Rate: $(LIVE_SEARCH_TOKENS_PER_SECOND) req/s, Cache: $(LIVE_SEARCH_CACHE_MODE)"
+	@echo "  Baseline: save=$(BASELINE_SAVE), auto_promote=$(BASELINE_AUTO_PROMOTE), fail_on_regression=$(LIVE_SEARCH_FAIL_ON_REGRESSION)"
 	cd backend && \
 	RUN_LIVE_SEARCH=1 \
 	LIVE_SEARCH_MODES="$(LIVE_SEARCH_MODES)" \
 	LIVE_SEARCH_CACHE_MODE="$(LIVE_SEARCH_CACHE_MODE)" \
+	LIVE_SEARCH_USE_CURATED="$(LIVE_SEARCH_USE_CURATED)" \
 	LIVE_SEARCH_SAMPLE_SEED="$(LIVE_SEARCH_SAMPLE_SEED)" \
 	LIVE_SEARCH_SAMPLE_SIZE="$(LIVE_SEARCH_SAMPLE_SIZE)" \
 	LIVE_SEARCH_MAX_RESULTS="$(LIVE_SEARCH_MAX_RESULTS)" \
@@ -160,6 +177,16 @@ backend-test-live-search:
 	LIVE_SEARCH_PER_INDUSTRY_MIN="$(LIVE_SEARCH_PER_INDUSTRY_MIN)" \
 	LIVE_SEARCH_FAIL_ON_LOW_RATE="$(LIVE_SEARCH_FAIL_ON_LOW_RATE)" \
 	LIVE_SEARCH_MIN_SUCCESS_RATE="$(LIVE_SEARCH_MIN_SUCCESS_RATE)" \
+	LIVE_SEARCH_MIN_RECRUITMENT_RATE="$(LIVE_SEARCH_MIN_RECRUITMENT_RATE)" \
+	LIVE_SEARCH_MIN_CORPORATE_RATE="$(LIVE_SEARCH_MIN_CORPORATE_RATE)" \
+	LIVE_SEARCH_MIN_CANDIDATE_MRR="$(LIVE_SEARCH_MIN_CANDIDATE_MRR)" \
+	LIVE_SEARCH_MIN_NDCG5="$(LIVE_SEARCH_MIN_NDCG5)" \
+	LIVE_SEARCH_MIN_MEAN_GRADE_SCORE="$(LIVE_SEARCH_MIN_MEAN_GRADE_SCORE)" \
+	LIVE_SEARCH_HARD_MAX_OFFICIAL_RANK="$(LIVE_SEARCH_HARD_MAX_OFFICIAL_RANK)" \
+	LIVE_SEARCH_HARD_MIN_METADATA_SCORE="$(LIVE_SEARCH_HARD_MIN_METADATA_SCORE)" \
+	LIVE_SEARCH_FAIL_ON_REGRESSION="$(LIVE_SEARCH_FAIL_ON_REGRESSION)" \
+	BASELINE_SAVE="$(BASELINE_SAVE)" \
+	BASELINE_AUTO_PROMOTE="$(BASELINE_AUTO_PROMOTE)" \
 	python -m pytest tests/test_live_company_info_search_report.py -v -s -m "integration"
 
 backend-test-live-search-hybrid:
@@ -253,15 +280,28 @@ setup: install db-push
 # デプロイ
 # ===========================================
 
-## develop → main マージ＆プッシュ（Vercel本番デプロイ）
+# デプロイ設定
+FRONTEND_URL := https://shupass.jp
+BACKEND_URL := https://career-compass-backend.up.railway.app
+HEALTH_CHECK_RETRIES := 8
+HEALTH_CHECK_INTERVAL := 15
+HEALTH_CHECK_INITIAL_WAIT := 30
+
+## develop → main 本番デプロイ（ビルド検証・DBマイグレ・ヘルスチェック付き）
 deploy:
 	@echo ""
-	@echo "=== Deploy: develop → main ==="
+	@echo "=========================================="
+	@echo " Deploy: develop -> main"
+	@echo "=========================================="
 	@echo ""
-	@# 未コミットの変更チェック（選択式）
 	@STASHED=0; \
+	DEPLOY_FAILED=0; \
+	HAS_ENV_PROD=0; \
+	\
+	echo "--- Phase 0: 事前チェック ---"; \
+	echo ""; \
 	if [ -n "$$(git status --porcelain)" ]; then \
-		echo "⚠ 未コミットの変更があります:"; \
+		echo "WARNING: 未コミットの変更があります:"; \
 		git status --short; \
 		echo ""; \
 		echo "どうしますか？"; \
@@ -271,47 +311,260 @@ deploy:
 		printf "選択 [1-3]: "; \
 		read choice; \
 		case "$$choice" in \
-			1) echo "→ 変更をstashします..."; git stash push -m "deploy-auto-stash"; STASHED=1 ;; \
-			2) echo "→ 未コミットの変更を残してデプロイを続行します..." ;; \
+			1) echo "-> 変更をstashします..."; git stash push -m "deploy-auto-stash"; STASHED=1 ;; \
+			2) echo "-> 未コミットの変更を残して続行します..." ;; \
 			3) echo "中止しました。"; exit 1 ;; \
 			*) echo "無効な選択です。中止します。"; exit 1 ;; \
 		esac; \
 		echo ""; \
 	fi; \
+	\
 	CURRENT=$$(git branch --show-current); \
 	if [ "$$CURRENT" != "develop" ]; then \
 		echo "ERROR: developブランチで実行してください（現在: $$CURRENT）"; \
+		if [ "$$STASHED" = "1" ]; then git stash pop; fi; \
 		exit 1; \
 	fi; \
-	echo "→ developを最新に更新..."; \
+	\
+	if [ -f .env.production ]; then \
+		HAS_ENV_PROD=1; \
+	else \
+		echo "INFO: .env.production が見つかりません。DBマイグレーションはスキップされます。"; \
+		echo "  作成方法: .env.production に DIRECT_URL=<本番DB URL> を記載"; \
+		echo ""; \
+	fi; \
+	\
+	echo "-> developを最新に更新..."; \
 	git pull origin develop; \
 	echo ""; \
-	echo "→ main との差分コミット:"; \
-	git log main..develop --oneline; \
+	\
+	echo "--- Phase 1: ビルド検証 ---"; \
 	echo ""; \
-	printf "上記の変更をmainにマージして本番デプロイしますか？ (y/N): "; \
-	read confirm; \
-	if [ "$$confirm" != "y" ]; then \
-		if [ "$$STASHED" = "1" ]; then echo "→ stashを復元します..."; git stash pop; fi; \
+	echo "-> ビルドチェック実行中..."; \
+	if ! npm run build; then \
+		echo ""; \
+		echo "ERROR: ビルドに失敗しました。エラーを修正してから再実行してください。"; \
+		if [ "$$STASHED" = "1" ]; then echo "-> stashを復元します..."; git stash pop; fi; \
 		exit 1; \
 	fi; \
 	echo ""; \
-	echo "→ mainにチェックアウト..."; \
+	echo "-> ビルドチェック OK"; \
+	echo ""; \
+	\
+	echo "-> main との差分コミット:"; \
+	git log main..develop --oneline; \
+	echo ""; \
+	printf "上記の変更を本番デプロイしますか？ (y/N): "; \
+	read confirm; \
+	if [ "$$confirm" != "y" ]; then \
+		echo "中止しました。"; \
+		if [ "$$STASHED" = "1" ]; then echo "-> stashを復元します..."; git stash pop; fi; \
+		exit 1; \
+	fi; \
+	echo ""; \
+	\
+	echo "--- Phase 2: DBマイグレーション ---"; \
+	echo ""; \
+	if [ "$$HAS_ENV_PROD" = "1" ]; then \
+		printf "本番DBマイグレーションを実行しますか？ (y/N/skip): "; \
+		read migrate_choice; \
+		case "$$migrate_choice" in \
+			y|Y) \
+				echo "-> 本番DBマイグレーション実行中..."; \
+				if ! npm run db:migrate:prod; then \
+					echo ""; \
+					echo "ERROR: DBマイグレーションに失敗しました。"; \
+					echo "  コードはまだプッシュされていません。本番環境は変更されていません。"; \
+					echo "  マイグレーションを修正してから再実行してください。"; \
+					if [ "$$STASHED" = "1" ]; then echo "-> stashを復元します..."; git stash pop; fi; \
+					exit 1; \
+				fi; \
+				echo "-> マイグレーション完了"; \
+				echo "" ;; \
+			skip|s|S) \
+				echo "-> DBマイグレーションをスキップしました。"; \
+				echo "" ;; \
+			*) \
+				echo "中止しました。"; \
+				if [ "$$STASHED" = "1" ]; then echo "-> stashを復元します..."; git stash pop; fi; \
+				exit 1 ;; \
+		esac; \
+	else \
+		echo "-> .env.production なし: DBマイグレーションをスキップ"; \
+		echo ""; \
+	fi; \
+	\
+	echo "--- Phase 3: Git マージ & プッシュ ---"; \
+	echo ""; \
+	echo "-> mainにチェックアウト..."; \
 	git checkout main; \
-	echo "→ mainを最新に更新..."; \
+	echo "-> mainを最新に更新..."; \
 	git pull origin main; \
-	echo "→ developをマージ..."; \
-	git merge develop; \
-	echo "→ mainをプッシュ（Vercelが自動デプロイ）..."; \
-	git push origin main; \
+	echo "-> developをマージ..."; \
+	if ! git merge develop; then \
+		echo ""; \
+		echo "ERROR: マージコンフリクトが発生しました。"; \
+		echo "  手動で解決してください:"; \
+		echo "    git merge --abort"; \
+		echo "    git checkout develop"; \
+		if [ "$$STASHED" = "1" ]; then echo "    git stash pop"; fi; \
+		exit 1; \
+	fi; \
+	echo "-> mainをプッシュ（Vercel + Railway 自動デプロイ）..."; \
+	if ! git push origin main; then \
+		echo ""; \
+		echo "ERROR: プッシュに失敗しました。"; \
+		echo "  mainはローカルでマージ済みですがリモートには未反映です。"; \
+		echo "  リトライ: git push origin main"; \
+		echo "  取消:     git reset --hard HEAD~1 && git checkout develop"; \
+		if [ "$$STASHED" = "1" ]; then echo "            git stash pop"; fi; \
+		exit 1; \
+	fi; \
 	echo ""; \
-	echo "→ developに戻ります..."; \
+	echo "-> developに戻ります..."; \
 	git checkout develop; \
-	if [ "$$STASHED" = "1" ]; then echo "→ stashを復元します..."; git stash pop; fi; \
+	if [ "$$STASHED" = "1" ]; then echo "-> stashを復元します..."; git stash pop; fi; \
 	echo ""; \
-	echo "=== デプロイ完了 ==="; \
-	echo "Vercelダッシュボードでデプロイ状況を確認してください。"; \
-	echo ""
+	\
+	echo "--- Phase 4: ヘルスチェック ---"; \
+	echo ""; \
+	echo "-> デプロイ反映を待機中（$(HEALTH_CHECK_INITIAL_WAIT)秒）..."; \
+	sleep $(HEALTH_CHECK_INITIAL_WAIT); \
+	echo ""; \
+	FRONTEND_OK=0; \
+	BACKEND_OK=0; \
+	for i in $$(seq 1 $(HEALTH_CHECK_RETRIES)); do \
+		echo "-> ヘルスチェック $$i/$(HEALTH_CHECK_RETRIES)..."; \
+		if [ "$$FRONTEND_OK" = "0" ]; then \
+			HTTP_CODE=$$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 $(FRONTEND_URL) 2>/dev/null); \
+			if [ "$$HTTP_CODE" = "200" ]; then \
+				echo "  Frontend ($(FRONTEND_URL)): OK ($$HTTP_CODE)"; \
+				FRONTEND_OK=1; \
+			else \
+				echo "  Frontend ($(FRONTEND_URL)): $$HTTP_CODE (待機中...)"; \
+			fi; \
+		else \
+			echo "  Frontend: OK"; \
+		fi; \
+		if [ "$$BACKEND_OK" = "0" ]; then \
+			HTTP_CODE=$$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 $(BACKEND_URL)/health 2>/dev/null); \
+			if [ "$$HTTP_CODE" = "200" ]; then \
+				echo "  Backend  ($(BACKEND_URL)/health): OK ($$HTTP_CODE)"; \
+				BACKEND_OK=1; \
+			else \
+				echo "  Backend  ($(BACKEND_URL)/health): $$HTTP_CODE (待機中...)"; \
+			fi; \
+		else \
+			echo "  Backend:  OK"; \
+		fi; \
+		if [ "$$FRONTEND_OK" = "1" ] && [ "$$BACKEND_OK" = "1" ]; then \
+			break; \
+		fi; \
+		if [ "$$i" -lt "$(HEALTH_CHECK_RETRIES)" ]; then \
+			echo "  $(HEALTH_CHECK_INTERVAL)秒後にリトライ..."; \
+			sleep $(HEALTH_CHECK_INTERVAL); \
+		fi; \
+		echo ""; \
+	done; \
+	echo ""; \
+	\
+	echo "=========================================="; \
+	echo " Deploy Summary"; \
+	echo "=========================================="; \
+	echo ""; \
+	if [ "$$FRONTEND_OK" = "1" ]; then \
+		echo "  [OK]   Frontend: $(FRONTEND_URL)"; \
+	else \
+		echo "  [FAIL] Frontend: $(FRONTEND_URL)"; \
+		DEPLOY_FAILED=1; \
+	fi; \
+	if [ "$$BACKEND_OK" = "1" ]; then \
+		echo "  [OK]   Backend:  $(BACKEND_URL)/health"; \
+	else \
+		echo "  [FAIL] Backend:  $(BACKEND_URL)/health"; \
+		DEPLOY_FAILED=1; \
+	fi; \
+	echo ""; \
+	if [ "$$DEPLOY_FAILED" = "1" ]; then \
+		echo "WARNING: 一部のヘルスチェックが失敗しました。"; \
+		echo ""; \
+		echo "  確認:"; \
+		echo "    Vercel:  https://vercel.com/dashboard -> Deployments"; \
+		echo "    Railway: https://railway.app/dashboard -> Deployments"; \
+		echo ""; \
+		echo "  ロールバック（必要な場合）:"; \
+		echo "    git checkout main"; \
+		echo "    git revert HEAD"; \
+		echo "    git push origin main"; \
+		echo "    git checkout develop"; \
+		echo ""; \
+	else \
+		echo "デプロイ成功。全てのヘルスチェックに合格しました。"; \
+		echo ""; \
+	fi
+
+## ヘルスチェックのみ実行（スタンドアロン）
+deploy-check:
+	@echo "=== Health Check ==="
+	@echo ""
+	@FRONTEND_OK=0; \
+	BACKEND_OK=0; \
+	for i in $$(seq 1 $(HEALTH_CHECK_RETRIES)); do \
+		echo "-> チェック $$i/$(HEALTH_CHECK_RETRIES)..."; \
+		if [ "$$FRONTEND_OK" = "0" ]; then \
+			HTTP_CODE=$$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 $(FRONTEND_URL) 2>/dev/null); \
+			if [ "$$HTTP_CODE" = "200" ]; then \
+				echo "  Frontend ($(FRONTEND_URL)): OK ($$HTTP_CODE)"; \
+				FRONTEND_OK=1; \
+			else \
+				echo "  Frontend ($(FRONTEND_URL)): $$HTTP_CODE"; \
+			fi; \
+		else \
+			echo "  Frontend: OK"; \
+		fi; \
+		if [ "$$BACKEND_OK" = "0" ]; then \
+			HTTP_CODE=$$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 $(BACKEND_URL)/health 2>/dev/null); \
+			if [ "$$HTTP_CODE" = "200" ]; then \
+				echo "  Backend  ($(BACKEND_URL)/health): OK ($$HTTP_CODE)"; \
+				BACKEND_OK=1; \
+			else \
+				echo "  Backend  ($(BACKEND_URL)/health): $$HTTP_CODE"; \
+			fi; \
+		else \
+			echo "  Backend:  OK"; \
+		fi; \
+		if [ "$$FRONTEND_OK" = "1" ] && [ "$$BACKEND_OK" = "1" ]; then \
+			break; \
+		fi; \
+		if [ "$$i" -lt "$(HEALTH_CHECK_RETRIES)" ]; then \
+			echo "  $(HEALTH_CHECK_INTERVAL)秒後にリトライ..."; \
+			sleep $(HEALTH_CHECK_INTERVAL); \
+		fi; \
+		echo ""; \
+	done; \
+	echo ""; \
+	if [ "$$FRONTEND_OK" = "1" ]; then \
+		echo "[OK]   Frontend: $(FRONTEND_URL)"; \
+	else \
+		echo "[FAIL] Frontend: $(FRONTEND_URL)"; \
+	fi; \
+	if [ "$$BACKEND_OK" = "1" ]; then \
+		echo "[OK]   Backend:  $(BACKEND_URL)/health"; \
+	else \
+		echo "[FAIL] Backend:  $(BACKEND_URL)/health"; \
+	fi
+
+## 本番DBマイグレーション（.env.production 必須）
+deploy-migrate:
+	@if [ ! -f .env.production ]; then \
+		echo "ERROR: .env.production が見つかりません。"; \
+		echo "作成方法:"; \
+		echo "  DIRECT_URL=postgresql://postgres.<ref>:<pass>@<host>:5432/postgres"; \
+		exit 1; \
+	fi
+	@echo "-> 本番DBマイグレーション実行中..."
+	npm run db:migrate:prod
+	@echo "-> マイグレーション完了"
 
 # ===========================================
 # ヘルプ
@@ -319,7 +572,8 @@ deploy:
 
 ## 使用可能なコマンド一覧を表示
 help:
-	@echo "Career Compass (就活Pass) - Makefile コマンド一覧"
+	@echo "就活Compass (シューパス) - Makefile コマンド一覧"
+	@echo "  (本番: $(FRONTEND_URL))"
 	@echo ""
 	@echo "  📦 開発サーバー:"
 	@echo "    make dev          - フロントエンド開発サーバー起動"
@@ -360,7 +614,9 @@ help:
 	@echo "    make logs         - バックエンドログ表示"
 	@echo ""
 	@echo "  🚀 デプロイ:"
-	@echo "    make deploy       - develop→mainマージ＆本番デプロイ"
+	@echo "    make deploy         - 本番デプロイ（ビルド検証→DBマイグレ→マージ→ヘルスチェック）"
+	@echo "    make deploy-check   - ヘルスチェックのみ（Frontend + Backend）"
+	@echo "    make deploy-migrate - 本番DBマイグレーションのみ"
 	@echo ""
 	@echo "  🔧 環境・セットアップ:"
 	@echo "    make check        - 開発環境の状態確認"

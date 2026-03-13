@@ -1,64 +1,70 @@
 "use client";
 
-import { Check, X, Minus } from "lucide-react";
+import { Check, Minus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type FeatureStatus = "yes" | "no" | "partial";
 
 interface ComparisonFeature {
   name: string;
-  ukarun: FeatureStatus;
+  shupass: FeatureStatus;
   freeTools: FeatureStatus;
   jukatsujuku: FeatureStatus;
 }
 
 const features: ComparisonFeature[] = [
   {
-    name: "ES添削（AI）",
-    ukarun: "yes",
+    name: "ES添削",
+    shupass: "yes",
     freeTools: "partial",
     jukatsujuku: "yes",
   },
   {
-    name: "添削スタイル 8種",
-    ukarun: "yes",
-    freeTools: "no",
-    jukatsujuku: "no",
+    name: "志望動機作成支援",
+    shupass: "yes",
+    freeTools: "partial",
+    jukatsujuku: "yes",
   },
   {
-    name: "締切自動管理",
-    ukarun: "yes",
+    name: "ガクチカ深掘り",
+    shupass: "yes",
     freeTools: "no",
     jukatsujuku: "partial",
   },
   {
-    name: "企業研究（RAG）",
-    ukarun: "yes",
+    name: "締切管理",
+    shupass: "yes",
+    freeTools: "no",
+    jukatsujuku: "partial",
+  },
+  {
+    name: "Googleカレンダー連携",
+    shupass: "yes",
     freeTools: "no",
     jukatsujuku: "no",
   },
   {
-    name: "ガクチカ深掘りAI",
-    ukarun: "yes",
+    name: "複数社の進捗管理",
+    shupass: "yes",
+    freeTools: "no",
+    jukatsujuku: "partial",
+  },
+  {
+    name: "相談相手がいなくても進められる",
+    shupass: "yes",
     freeTools: "no",
     jukatsujuku: "yes",
   },
   {
-    name: "Googleカレンダー連携",
-    ukarun: "yes",
-    freeTools: "no",
-    jukatsujuku: "no",
-  },
-  {
-    name: "月額料金",
-    ukarun: "yes",
+    name: "すぐ無料で始められる",
+    shupass: "yes",
     freeTools: "yes",
     jukatsujuku: "no",
   },
 ];
 
 const priceLabels = {
-  ukarun: "¥0〜980",
+  shupass: "¥0〜980",
   freeTools: "¥0",
   jukatsujuku: "¥30,000〜100,000",
 };
@@ -66,20 +72,20 @@ const priceLabels = {
 function StatusIcon({ status }: { status: FeatureStatus }) {
   if (status === "yes") {
     return (
-      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-success/10">
+      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-success/12">
         <Check className="h-4 w-4 text-success" />
       </div>
     );
   }
   if (status === "partial") {
     return (
-      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-warning/10">
+      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-warning/12">
         <Minus className="h-4 w-4 text-warning" />
       </div>
     );
   }
   return (
-    <div className="flex items-center justify-center w-6 h-6 rounded-full bg-muted">
+    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted">
       <X className="h-4 w-4 text-muted-foreground" />
     </div>
   );
@@ -87,58 +93,47 @@ function StatusIcon({ status }: { status: FeatureStatus }) {
 
 export function ComparisonSection() {
   return (
-    <section className="py-24 bg-secondary/30">
+    <section className="py-24">
       <div className="container mx-auto px-4">
-        {/* Section header */}
-        <div className="text-center mb-12">
-          <h2 className="text-3xl sm:text-4xl font-bold mb-4">
-            なぜ
-            <span className="text-gradient">就活Pass</span>
-            なのか？
-          </h2>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            無料ツールの手軽さ × 就活塾の本格さ。
+        <div className="mx-auto mb-12 max-w-6xl lg:grid lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:items-end lg:gap-12">
+          <div className="text-center lg:text-left">
+            <span className="landing-kicker mb-5">比較</span>
+            <h2 className="landing-serif text-3xl font-semibold tracking-tight sm:text-4xl lg:text-5xl">
+              高額な就活塾は不要。
+              <br />
+              でも無料ツールだけじゃ足りない。
+            </h2>
+          </div>
+          <p className="mt-5 text-center text-lg leading-8 text-muted-foreground lg:mt-0 lg:text-left">
+            ES添削だけで終わらず、志望動機・ガクチカ・締切管理まで。
             <br className="hidden sm:block" />
-            就活Passなら、その両方が手に入ります。
+            月980円からすべてが使えます。
           </p>
         </div>
 
-        {/* Comparison table */}
-        <div className="max-w-4xl mx-auto overflow-x-auto">
-          <table className="w-full">
+        <div className="landing-panel mx-auto max-w-5xl overflow-x-auto rounded-2xl p-3 sm:p-4">
+          <table className="w-full min-w-[720px]">
             <thead>
-              <tr className="border-b border-border/50">
-                <th className="text-left py-4 px-4 text-sm font-medium text-muted-foreground w-1/4">
-                  機能
+              <tr className="border-b border-border/60">
+                <th className="w-[30%] px-4 py-5 text-left text-sm font-medium text-muted-foreground">
+                  比較項目
                 </th>
-                <th className="py-4 px-4 text-center">
-                  <div className="inline-flex flex-col items-center gap-1">
-                    <span className="text-sm font-bold text-primary">
-                      就活Pass
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {priceLabels.ukarun}
-                    </span>
+                <th className="px-4 py-5 text-center">
+                  <div className="inline-flex flex-col items-center gap-1 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3">
+                    <span className="text-sm font-semibold text-primary">就活Pass</span>
+                    <span className="text-xs text-muted-foreground">{priceLabels.shupass}</span>
                   </div>
                 </th>
-                <th className="py-4 px-4 text-center">
-                  <div className="inline-flex flex-col items-center gap-1">
-                    <span className="text-sm font-medium text-foreground">
-                      無料ES添削ツール
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {priceLabels.freeTools}
-                    </span>
+                <th className="px-4 py-5 text-center">
+                  <div className="inline-flex flex-col items-center gap-1 rounded-xl border border-border/50 bg-background px-4 py-3">
+                    <span className="text-sm font-medium text-foreground">無料ES添削ツール</span>
+                    <span className="text-xs text-muted-foreground">{priceLabels.freeTools}</span>
                   </div>
                 </th>
-                <th className="py-4 px-4 text-center">
-                  <div className="inline-flex flex-col items-center gap-1">
-                    <span className="text-sm font-medium text-foreground">
-                      就活塾
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {priceLabels.jukatsujuku}
-                    </span>
+                <th className="px-4 py-5 text-center">
+                  <div className="inline-flex flex-col items-center gap-1 rounded-xl border border-border/50 bg-background px-4 py-3">
+                    <span className="text-sm font-medium text-foreground">就活塾</span>
+                    <span className="text-xs text-muted-foreground">{priceLabels.jukatsujuku}</span>
                   </div>
                 </th>
               </tr>
@@ -148,24 +143,22 @@ export function ComparisonSection() {
                 <tr
                   key={feature.name}
                   className={cn(
-                    "border-b border-border/30",
-                    index % 2 === 0 ? "bg-card/50" : ""
+                    "border-b border-border/40 last:border-0",
+                    index % 2 === 0 ? "bg-muted/20" : ""
                   )}
                 >
-                  <td className="py-4 px-4 text-sm font-medium">
-                    {feature.name}
-                  </td>
-                  <td className="py-4 px-4">
+                  <td className="px-4 py-4 text-sm font-medium text-foreground">{feature.name}</td>
+                  <td className="bg-primary/[0.03] px-4 py-4">
                     <div className="flex justify-center">
-                      <StatusIcon status={feature.ukarun} />
+                      <StatusIcon status={feature.shupass} />
                     </div>
                   </td>
-                  <td className="py-4 px-4">
+                  <td className="px-4 py-4">
                     <div className="flex justify-center">
                       <StatusIcon status={feature.freeTools} />
                     </div>
                   </td>
-                  <td className="py-4 px-4">
+                  <td className="px-4 py-4">
                     <div className="flex justify-center">
                       <StatusIcon status={feature.jukatsujuku} />
                     </div>
@@ -176,15 +169,9 @@ export function ComparisonSection() {
           </table>
         </div>
 
-        {/* Bottom tagline */}
-        <p className="text-center text-sm text-muted-foreground mt-8">
-          就活Passは
-          <span className="font-medium text-foreground">
-            添削 + 締切管理 + 企業研究
-          </span>
-          を月額¥980で統合。就活塾の
-          <span className="font-medium text-foreground">1/30以下</span>
-          の価格です。
+        <p className="mx-auto mt-8 max-w-3xl text-center text-sm leading-7 text-muted-foreground">
+          手軽さは欲しいが、ES添削だけでは足りない。就活塾ほど重くは始めたくない。
+          その間を埋める選択肢が就活Passです。
         </p>
       </div>
     </section>

@@ -3,15 +3,13 @@ Gakuchika (学生時代に力を入れたこと) Router
 
 AI-powered deep-dive questioning for Gakuchika refinement using LLM.
 
-Phase 1 Improvements (Deep-dive Enhancement):
+Deep-dive enhancement:
 - Merged STAR evaluation + question generation into a single LLM call
-- Conversation phase system (opening/exploration/deep_dive/synthesis)
-- Question diversity enforcement (8 question types)
+- Phase-based question focus
 - Content-aware initial question generation
-- Enhanced persona and forbidden expressions
+- Reference-guide rubric for causal depth and credibility
 """
 
-import asyncio
 import json
 import random
 import re
@@ -21,9 +19,20 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.utils.llm import call_llm_with_error, sanitize_prompt_input
+from app.utils.llm import (
+    _parse_json_response,
+    call_llm_streaming_fields,
+    call_llm_text_with_error,
+    call_llm_with_error,
+    sanitize_prompt_input,
+)
+from app.utils.secure_logger import get_logger
+
+logger = get_logger(__name__)
 from app.prompts.gakuchika_prompts import (
     PROHIBITED_EXPRESSIONS as _PROHIBITED_EXPRESSIONS,
+    QUESTION_QUALITY_PRINCIPLES,
+    REFERENCE_GUIDE_RUBRIC,
     STAR_EVALUATION_PROMPT,
     STAR_EVALUATE_AND_QUESTION_PROMPT,
     INITIAL_QUESTION_PROMPT,
@@ -36,6 +45,8 @@ router = APIRouter(prefix="/api/gakuchika", tags=["gakuchika"])
 # Configuration
 STAR_COMPLETION_THRESHOLD = 70  # 各STAR要素がこの%以上で完了とみなす
 QUESTIONS_PER_CREDIT = 5  # 5問回答ごとに1クレジット消費
+INITIAL_QUESTION_MAX_TOKENS = 120
+NEXT_QUESTION_MAX_TOKENS = 320
 
 # Conversation phases based on question count
 PHASE_OPENING = "opening"  # 0-2: 全体像の把握
@@ -43,15 +54,40 @@ PHASE_EXPLORATION = "exploration"  # 3-5: 課題と行動の深掘り
 PHASE_DEEP_DIVE = "deep_dive"  # 6-8: 具体的な場面の掘り下げ
 PHASE_SYNTHESIS = "synthesis"  # 9+: 学びと再現性の確認
 
-# Question types for diversity enforcement
-QUESTION_TYPE_NUMBERS = "numbers"
-QUESTION_TYPE_EMOTIONS = "emotions"
-QUESTION_TYPE_REASONING = "reasoning"
-QUESTION_TYPE_OTHERS_PERSPECTIVE = "others_perspective"
-QUESTION_TYPE_DIFFICULTY = "difficulty"
-QUESTION_TYPE_CONTRAST = "contrast"
-QUESTION_TYPE_SCENE = "scene"
-QUESTION_TYPE_LEARNING = "learning"
+# Question focus categories
+FOCUS_SCENE = "scene"
+FOCUS_ROOT_CAUSE = "root_cause"
+FOCUS_DECISION_REASON = "decision_reason"
+FOCUS_CONCRETE_ACTION = "concrete_action"
+FOCUS_RESULT_LEARNING = "result_learning"
+FOCUS_CREDIBILITY_SCOPE = "credibility_scope"
+
+RULE_BASED_QUESTION_TEMPLATES: dict[str, dict[str, str]] = {
+    PHASE_OPENING: {
+        "situation": "その活動が始まった時期と、関わっていた人数はどれくらいでしたか。",
+        "task": "最初にいちばん解決したいと思っていた課題は何でしたか。",
+        "action": "その場で最初に自分から動いたことは何でしたか。",
+        "result": "取り組みのあと、何がどう変わりましたか。",
+    },
+    PHASE_EXPLORATION: {
+        "situation": "その課題が起きていた場面を思い出すと、どんな状況でしたか。",
+        "task": "なぜそれを本当の課題だと見たのか、背景から聞かせてもらえますか。",
+        "action": "その課題に対して、自分はどんな順番で動きましたか。",
+        "result": "その行動によって、数字や周囲の反応はどう変わりましたか。",
+    },
+    PHASE_DEEP_DIVE: {
+        "situation": "印象に残っている場面を一つ選ぶと、どんな状況でしたか。",
+        "task": "その場面で、自分が特に向き合う必要があった課題は何でしたか。",
+        "action": "その場面での工夫や判断を、順番にたどるとどうなりますか。",
+        "result": "その場面のあと、どんな成果や学びにつながりましたか。",
+    },
+    PHASE_SYNTHESIS: {
+        "situation": "振り返ると、その経験の前提条件や特徴はどこにあったと思いますか。",
+        "task": "その経験を通じて、自分が本質的に向き合っていた課題は何だと整理できますか。",
+        "action": "その経験で得た行動の型は、どんな場面でも再現できそうですか。",
+        "result": "この経験から持ち帰れそうな学びや行動原則は何ですか。",
+    },
+}
 
 
 class Message(BaseModel):
@@ -70,7 +106,6 @@ class STAREvaluation(BaseModel):
     scores: STARScores
     weakest_element: str  # 最も低いスコアの要素
     is_complete: bool     # 全要素がthreshold以上
-    missing_aspects: dict[str, list[str]]  # 各要素で不足している観点
 
 
 class STARScoresInput(BaseModel):
@@ -79,7 +114,6 @@ class STARScoresInput(BaseModel):
     task: int = Field(default=0, ge=0, le=100)
     action: int = Field(default=0, ge=0, le=100)
     result: int = Field(default=0, ge=0, le=100)
-    question_types: Optional[list[str]] = None
 
     model_config = {"extra": "ignore"}
 
@@ -95,17 +129,10 @@ class NextQuestionRequest(BaseModel):
 
 class NextQuestionResponse(BaseModel):
     question: str
-    reasoning: Optional[str] = None
-    should_continue: bool = True
-    suggested_end: bool = False
     # STAR evaluation after processing the conversation
     star_evaluation: Optional[dict] = None
     # Which STAR element this question targets
     target_element: Optional[str] = None
-    # Question type for diversity tracking
-    question_type: Optional[str] = None
-    # Suggested answer options for the user
-    suggestions: list[str] = []
 
 
 class StructuredSummaryRequest(BaseModel):
@@ -131,6 +158,12 @@ class StructuredSummaryResponse(BaseModel):
     strengths: list[StrengthItem]
     learnings: list[LearningItem]
     numbers: list[str]
+    interviewer_hooks: list[str] = []
+    decision_reasons: list[str] = []
+    before_after_comparisons: list[str] = []
+    credibility_notes: list[str] = []
+    role_scope: str = ""
+    reusable_principles: list[str] = []
 
 
 class GakuchikaESDraftRequest(BaseModel):
@@ -194,28 +227,6 @@ def _is_star_complete(scores: STARScores, threshold: int = STAR_COMPLETION_THRES
     )
 
 
-def _compute_suggested_end_value(
-    question_count: int,
-    star_scores: Optional["STARScoresInput"],
-    min_questions: int = 5,
-) -> str:
-    """Compute suggested_end hint for the prompt template.
-
-    Returns "true" when enough questions have been asked AND
-    all STAR elements meet the completion threshold based on
-    previous scores, otherwise "false".
-    """
-    if question_count < min_questions or not star_scores:
-        return "false"
-    scores = STARScores(
-        situation=star_scores.situation,
-        task=star_scores.task,
-        action=star_scores.action,
-        result=star_scores.result,
-    )
-    return "true" if _is_star_complete(scores) else "false"
-
-
 def _get_last_user_answer(messages: list[Message]) -> Optional[str]:
     """Get the last user answer from conversation history."""
     for msg in reversed(messages):
@@ -224,88 +235,213 @@ def _get_last_user_answer(messages: list[Message]) -> Optional[str]:
     return None
 
 
+def _scores_from_request(star_scores: Optional[STARScoresInput]) -> STARScores:
+    if not star_scores:
+        return STARScores()
+    return STARScores(
+        situation=star_scores.situation,
+        task=star_scores.task,
+        action=star_scores.action,
+        result=star_scores.result,
+    )
+
+
+def _coerce_score(value: object, fallback: int) -> int:
+    try:
+        return max(0, min(100, int(value)))
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _coerce_star_scores(
+    value: object,
+    fallback_scores: Optional[STARScores] = None,
+) -> STARScores:
+    fallback = fallback_scores or STARScores()
+    if not isinstance(value, dict):
+        return STARScores(
+            situation=fallback.situation,
+            task=fallback.task,
+            action=fallback.action,
+            result=fallback.result,
+        )
+    return STARScores(
+        situation=_coerce_score(value.get("situation"), fallback.situation),
+        task=_coerce_score(value.get("task"), fallback.task),
+        action=_coerce_score(value.get("action"), fallback.action),
+        result=_coerce_score(value.get("result"), fallback.result),
+    )
+
+
 def _determine_phase(question_count: int) -> tuple[str, str, list[str], list[str]]:
     """
     Determine conversation phase based on question count.
 
     Returns:
-        (phase_name, description, preferred_question_types, preferred_target_elements)
+        (phase_name, description, preferred_focuses, preferred_target_elements)
     """
     if question_count <= 2:
         return (
             PHASE_OPENING,
             "全体像の把握。テーマの背景・時期・規模感を聞く",
-            [QUESTION_TYPE_SCENE, QUESTION_TYPE_NUMBERS, QUESTION_TYPE_CONTRAST],
+            [FOCUS_SCENE, FOCUS_CREDIBILITY_SCOPE],
             ["situation", "task"],
         )
     elif question_count <= 5:
         return (
             PHASE_EXPLORATION,
             "課題と行動の深掘り。なぜ・どうやって・何が大変だったか",
-            [QUESTION_TYPE_REASONING, QUESTION_TYPE_DIFFICULTY, QUESTION_TYPE_EMOTIONS],
+            [FOCUS_ROOT_CAUSE, FOCUS_DECISION_REASON, FOCUS_CONCRETE_ACTION],
             ["task", "action"],
         )
     elif question_count <= 8:
         return (
             PHASE_DEEP_DIVE,
             "具体的な場面の掘り下げ。感情・判断理由・数字",
-            [QUESTION_TYPE_EMOTIONS, QUESTION_TYPE_OTHERS_PERSPECTIVE, QUESTION_TYPE_NUMBERS, QUESTION_TYPE_SCENE],
+            [FOCUS_SCENE, FOCUS_DECISION_REASON, FOCUS_RESULT_LEARNING],
             ["action", "result"],
         )
     else:
         return (
             PHASE_SYNTHESIS,
-            "学びと再現性の確認。得たもの・今後どう活かすか",
-            [QUESTION_TYPE_LEARNING, QUESTION_TYPE_CONTRAST, QUESTION_TYPE_REASONING],
+            "学びと再現性の確認。経験の意味づけと今後への活かし方",
+            [FOCUS_RESULT_LEARNING, FOCUS_CREDIBILITY_SCOPE],
             ["result"],
         )
 
 
-def _build_question_type_history(star_scores: Optional["STARScoresInput"]) -> str:
-    """
-    Build question type history string from star_scores extended field.
+def _build_next_question_prompt(
+    gakuchika_title: str,
+    conversation_text: str,
+    question_count: int,
+) -> str:
+    phase_name, phase_desc, preferred_types, preferred_elements = _determine_phase(
+        question_count
+    )
+    return STAR_EVALUATE_AND_QUESTION_PROMPT.format(
+        gakuchika_title=sanitize_prompt_input(gakuchika_title, max_length=200),
+        conversation=conversation_text,
+        phase_name=phase_name,
+        phase_description=phase_desc,
+        preferred_focuses=", ".join(preferred_types),
+        preferred_target_elements=", ".join(preferred_elements),
+        threshold=STAR_COMPLETION_THRESHOLD,
+        prohibited_expressions=_PROHIBITED_EXPRESSIONS,
+        question_quality_principles=QUESTION_QUALITY_PRINCIPLES,
+        reference_guide_rubric=REFERENCE_GUIDE_RUBRIC,
+    )
 
-    Args:
-        star_scores: STARScoresInput that may contain a question_types list
+def _clean_string_list(values: object, max_items: int = 3) -> list[str]:
+    """Normalize optional string array fields from LLM output."""
+    if not isinstance(values, list):
+        return []
+    cleaned: list[str] = []
+    for value in values:
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                cleaned.append(text)
+        if len(cleaned) >= max_items:
+            break
+    return cleaned
 
-    Returns:
-        Formatted string describing question type history
-    """
-    if not star_scores or not star_scores.question_types:
-        return "まだ質問していません"
 
-    question_types = star_scores.question_types or []
-    if not question_types:
-        return "まだ質問していません"
-
-    # Get last 3 question types
-    recent_types = question_types[-3:]
-    type_names = {
-        QUESTION_TYPE_NUMBERS: "数字",
-        QUESTION_TYPE_EMOTIONS: "感情",
-        QUESTION_TYPE_REASONING: "判断理由",
-        QUESTION_TYPE_OTHERS_PERSPECTIVE: "他者視点",
-        QUESTION_TYPE_DIFFICULTY: "困難",
-        QUESTION_TYPE_CONTRAST: "対比",
-        QUESTION_TYPE_SCENE: "場面",
-        QUESTION_TYPE_LEARNING: "学び",
+def _build_star_evaluation(scores: STARScores) -> dict:
+    return {
+        "scores": scores.model_dump(),
+        "weakest_element": _get_weakest_element(scores),
+        "is_complete": _is_star_complete(scores),
     }
 
-    history_items = [type_names.get(t, t) for t in recent_types]
 
-    # Identify last type for consecutive check
-    last_type = question_types[-1] if question_types else None
-    last_type_name = type_names.get(last_type, last_type) if last_type else "なし"
+def _build_rule_based_question(target_element: str, question_count: int) -> str:
+    phase_name, _, _, _ = _determine_phase(question_count)
+    phase_templates = RULE_BASED_QUESTION_TEMPLATES.get(
+        phase_name,
+        RULE_BASED_QUESTION_TEMPLATES[PHASE_EXPLORATION],
+    )
+    return phase_templates.get(
+        target_element,
+        "その経験を一段深く理解したいので、具体的な場面を一つ選ぶと何が起きていましたか。",
+    )
 
-    return f"{', '.join(history_items)} (直前: {last_type_name} - これは連続使用禁止)"
 
-
-def _get_last_question_type(star_scores: Optional["STARScoresInput"]) -> Optional[str]:
-    """Get the last question type from star_scores extended field."""
-    if not star_scores or not star_scores.question_types:
+def _extract_question_from_text(raw_text: str) -> Optional[str]:
+    if not raw_text:
         return None
+    stripped = raw_text.strip()
+    if not stripped:
+        return None
+    if stripped.startswith("{") or stripped.startswith("```"):
+        return None
+    line = stripped.splitlines()[0].strip().strip('"')
+    if not line:
+        return None
+    return line
 
-    return star_scores.question_types[-1] if star_scores.question_types else None
+
+def _parse_next_question_payload(raw_text: str) -> dict:
+    parsed = _parse_json_response(raw_text)
+    if parsed is not None:
+        return parsed
+
+    question = _extract_question_from_text(raw_text)
+    if question:
+        return {"question": question}
+    return {}
+
+
+def _normalize_next_question_payload(
+    payload: object,
+    fallback_scores: Optional[STARScores],
+    question_count: int,
+) -> tuple[str, dict, str, str]:
+    data = payload if isinstance(payload, dict) else {}
+    scores = _coerce_star_scores(data.get("star_scores"), fallback_scores)
+    target_element = _get_weakest_element(scores)
+    question = data.get("question") if isinstance(data.get("question"), str) else None
+    source = "full_json" if question and "star_scores" in data else "partial_json"
+
+    if not question:
+        question = _build_rule_based_question(target_element, question_count)
+        source = "rule_fallback"
+
+    return question.strip(), _build_star_evaluation(scores), target_element, source
+
+
+async def _generate_initial_question(request: NextQuestionRequest) -> str:
+    template_questions = [
+        "まず、その活動が始まった時期と期間はどれくらいでしたか。",
+        "その活動に自分から力を入れようと思ったきっかけは何でしたか。",
+        "当時の自分は、どんな役割を任されていましたか。",
+        "活動の規模感は、人数や担当範囲で言うとどれくらいでしたか。",
+    ]
+
+    if not request.gakuchika_content:
+        return random.choice(template_questions)
+
+    prompt = INITIAL_QUESTION_PROMPT.format(
+        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
+        gakuchika_content=sanitize_prompt_input(request.gakuchika_content, max_length=2000),
+        prohibited_expressions=_PROHIBITED_EXPRESSIONS,
+        question_quality_principles=QUESTION_QUALITY_PRINCIPLES,
+        reference_guide_rubric=REFERENCE_GUIDE_RUBRIC,
+    )
+    llm_result = await call_llm_text_with_error(
+        system_prompt=prompt,
+        user_message="最初の深掘り質問を生成してください。",
+        max_tokens=INITIAL_QUESTION_MAX_TOKENS,
+        temperature=0.4,
+        feature="gakuchika",
+        disable_fallback=True,
+    )
+    if llm_result.success and isinstance(llm_result.raw_text, str):
+        payload = _parse_next_question_payload(llm_result.raw_text)
+        question = payload.get("question") if isinstance(payload.get("question"), str) else None
+        if question:
+            return question.strip()
+
+    return random.choice(template_questions)
 
 
 @router.post("/evaluate-star")
@@ -328,6 +464,7 @@ async def evaluate_star(request: NextQuestionRequest) -> dict:
                 "action": ["具体的な行動", "工夫した点"],
                 "result": ["数字での成果", "学び"],
             },
+            "risk_flags": [],
         }
 
     conversation_text = _format_conversation_for_evaluation(request.conversation_history)
@@ -398,7 +535,7 @@ async def get_next_question(request: NextQuestionRequest):
     1. Handle initial question (with/without content)
     2. Determine conversation phase
     3. Generate STAR evaluation + next question in single call
-    4. Track question types for diversity
+    4. Keep question variation natural through prompt guidance
     """
     if not request.gakuchika_title:
         raise HTTPException(
@@ -408,104 +545,36 @@ async def get_next_question(request: NextQuestionRequest):
     # Handle initial question (no conversation history or no user response yet)
     has_user_response = any(msg.role == "user" for msg in request.conversation_history)
     if not has_user_response:
-        # Template-based initial questions (no LLM call for cost optimization)
-        template_questions = [
-            "まず、取り組んだ時期と期間を教えてください。",
-            "この活動に参加したきっかけは何でしたか?",
-            "当時、どのような役割を担っていましたか?",
-            "活動の規模感(人数や範囲など)を教えてください。",
-        ]
-
-        initial_question = None
-        question_type = QUESTION_TYPE_SCENE
-        reasoning = "会話開始時の導入質問"
-
-        # If content is provided, use LLM to generate personalized initial question
-        if request.gakuchika_content:
-            prompt = INITIAL_QUESTION_PROMPT.format(
-                gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
-                gakuchika_content=sanitize_prompt_input(request.gakuchika_content, max_length=2000),
-                prohibited_expressions=_PROHIBITED_EXPRESSIONS,
-            )
-
-            llm_result = await call_llm_with_error(
-                system_prompt=prompt,
-                user_message="最初の深掘り質問を生成してください。",
-                max_tokens=500,  # question + suggestions + metadata
-                temperature=0.5,
-                feature="gakuchika",
-                disable_fallback=True,
-            )
-
-            if llm_result.success and llm_result.data:
-                data = llm_result.data
-                initial_question = data.get("question")
-                question_type = data.get("question_type", QUESTION_TYPE_SCENE)
-                reasoning = data.get("reasoning", "会話開始時の導入質問")
-                initial_suggestions = data.get("suggestions", [])
-
-        # Fallback to template if LLM failed or no content
-        if not initial_question:
-            initial_question = random.choice(template_questions)
-            initial_suggestions = []
+        initial_question = await _generate_initial_question(request)
 
         return NextQuestionResponse(
             question=initial_question,
-            reasoning=reasoning,
-            should_continue=True,
-            suggested_end=False,
-            star_evaluation={
-                "scores": {"situation": 0, "task": 0, "action": 0, "result": 0},
-                "weakest_element": "situation",
-                "is_complete": False,
-            },
+            star_evaluation=_build_star_evaluation(STARScores()),
             target_element="situation",
-            question_type=question_type,
-            suggestions=initial_suggestions,
         )
-
-    # Determine conversation phase
-    phase_name, phase_desc, preferred_types, preferred_elements = _determine_phase(
-        request.question_count
-    )
-
-    # Build question type history
-    question_type_history = _build_question_type_history(request.star_scores)
-    last_question_type = _get_last_question_type(request.star_scores)
 
     # Format conversation for prompt
     conversation_text = _format_conversation_for_evaluation(request.conversation_history)
 
-    # Build unified prompt
-    prompt = STAR_EVALUATE_AND_QUESTION_PROMPT.format(
-        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
-        conversation=conversation_text,
-        phase_name=phase_name,
-        phase_description=phase_desc,
-        preferred_question_types=", ".join(preferred_types),
-        preferred_target_elements=", ".join(preferred_elements),
-        question_type_history=question_type_history,
-        threshold=STAR_COMPLETION_THRESHOLD,
-        suggested_end_value=_compute_suggested_end_value(request.question_count, request.star_scores),
-        prohibited_expressions=_PROHIBITED_EXPRESSIONS,
+    prompt = _build_next_question_prompt(
+        gakuchika_title=request.gakuchika_title,
+        conversation_text=conversation_text,
+        question_count=request.question_count,
     )
 
-    # Single LLM call for both evaluation and question generation
-    # Note: conversation context is already embedded in the system prompt via {conversation} placeholder.
-    # We use messages=None so user_message is properly sent as the user turn,
-    # avoiding Claude API's requirement that messages must start with role="user".
-    llm_result = await call_llm_with_error(
+    fallback_scores = _scores_from_request(request.star_scores)
+    llm_result = await call_llm_text_with_error(
         system_prompt=prompt,
         user_message="上記の会話を分析し、STAR評価と次の質問をJSON形式で生成してください。",
-        max_tokens=800,  # 統合レスポンス (scores+question+suggestions+metadata)
-        temperature=0.5,
+        max_tokens=NEXT_QUESTION_MAX_TOKENS,
+        temperature=0.35,
         feature="gakuchika",
         disable_fallback=True,
     )
 
     if not llm_result.success:
         error = llm_result.error
-        print(f"[Gakuchika] LLM error: {error.detail if error else 'unknown'}")
+        logger.error(f"[Gakuchika] LLM error: {error.detail if error else 'unknown'}")
         raise HTTPException(
             status_code=503,
             detail={
@@ -520,70 +589,21 @@ async def get_next_question(request: NextQuestionRequest):
             },
         )
 
-    data = llm_result.data
-    if data is None:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "AIからの応答を解析できませんでした。もう一度お試しください。",
-                "error_type": "parse",
-                "provider": "unknown",
-                "detail": "Empty response from LLM",
-            },
-        )
-
-    # Extract STAR scores
-    star_scores_data = data.get("star_scores", {})
-    scores = STARScores(
-        situation=star_scores_data.get("situation", 0),
-        task=star_scores_data.get("task", 0),
-        action=star_scores_data.get("action", 0),
-        result=star_scores_data.get("result", 0),
+    payload = _parse_next_question_payload(llm_result.raw_text or "")
+    question, star_eval, target_element, source = _normalize_next_question_payload(
+        payload,
+        fallback_scores=fallback_scores,
+        question_count=request.question_count,
     )
-
-    # Build star evaluation
-    star_eval = {
-        "scores": scores.model_dump(),
-        "weakest_element": _get_weakest_element(scores),
-        "is_complete": _is_star_complete(scores),
-        "missing_aspects": data.get("missing_aspects", {}),
-    }
-
-    # Extract question
-    question = data.get("question")
-    if not question:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "AIから有効な質問を取得できませんでした。",
-                "error_type": "parse",
-                "provider": "unknown",
-                "detail": "No question in response",
-            },
-        )
-
-    # Extract metadata
-    question_type = data.get("question_type", QUESTION_TYPE_SCENE)
-    target_element = data.get("target_element", _get_weakest_element(scores))
-    reasoning = data.get("reasoning")
-    should_continue = data.get("should_continue", True)
-    suggested_end = data.get("suggested_end", False)
-    suggestions = data.get("suggestions", [])
-
-    # Validate question type diversity (consecutive same type check)
-    if last_question_type and question_type == last_question_type:
-        print(f"[Gakuchika] Warning: Consecutive same question type '{question_type}' detected")
-        # Note: We allow it but log the warning. LLM should handle this based on prompt.
+    logger.info(
+        f"[Gakuchika] next-question normalized via {source} "
+        f"(target={target_element}, scores={star_eval['scores']})"
+    )
 
     return NextQuestionResponse(
         question=question,
-        reasoning=reasoning,
-        should_continue=should_continue,
-        suggested_end=suggested_end,
         star_evaluation=star_eval,
         target_element=target_element,
-        question_type=question_type,
-        suggestions=suggestions,
     )
 
 
@@ -610,71 +630,21 @@ async def _generate_next_question_progress(
         # Handle initial question (no user response) — return immediately
         has_user_response = any(msg.role == "user" for msg in request.conversation_history)
         if not has_user_response:
-            template_questions = [
-                "まず、取り組んだ時期と期間を教えてください。",
-                "この活動に参加したきっかけは何でしたか?",
-                "当時、どのような役割を担っていましたか?",
-                "活動の規模感(人数や範囲など)を教えてください。",
-            ]
-
-            initial_question = None
-            question_type = QUESTION_TYPE_SCENE
-            reasoning = "会話開始時の導入質問"
-
-            if request.gakuchika_content:
-                prompt = INITIAL_QUESTION_PROMPT.format(
-                    gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
-                    gakuchika_content=sanitize_prompt_input(request.gakuchika_content, max_length=2000),
-                    prohibited_expressions=_PROHIBITED_EXPRESSIONS,
-                )
-                llm_result = await call_llm_with_error(
-                    system_prompt=prompt,
-                    user_message="最初の深掘り質問を生成してください。",
-                    max_tokens=500,  # question + suggestions + metadata
-                    temperature=0.5,
-                    feature="gakuchika",
-                    disable_fallback=True,
-                )
-                if llm_result.success and llm_result.data:
-                    data = llm_result.data
-                    initial_question = data.get("question")
-                    question_type = data.get("question_type", QUESTION_TYPE_SCENE)
-                    reasoning = data.get("reasoning", "会話開始時の導入質問")
-                    initial_suggestions = data.get("suggestions", [])
-
-            if not initial_question:
-                initial_question = random.choice(template_questions)
-                initial_suggestions = []
+            initial_question = await _generate_initial_question(request)
 
             yield _sse_event("complete", {
                 "data": {
                     "question": initial_question,
-                    "reasoning": reasoning,
-                    "should_continue": True,
-                    "suggested_end": False,
-                    "star_evaluation": {
-                        "scores": {"situation": 0, "task": 0, "action": 0, "result": 0},
-                        "weakest_element": "situation",
-                        "is_complete": False,
-                    },
+                    "star_evaluation": _build_star_evaluation(STARScores()),
                     "target_element": "situation",
-                    "question_type": question_type,
-                    "suggestions": initial_suggestions,
                 },
             })
             return
 
         # Step 1: Analyzing response
         yield _sse_event("progress", {
-            "step": "analysis", "progress": 30, "label": "回答を分析中...",
+            "step": "analysis", "progress": 30, "label": "質問の意図を整理中",
         })
-        await asyncio.sleep(0.05)
-
-        # Determine conversation phase
-        phase_name, phase_desc, preferred_types, preferred_elements = _determine_phase(
-            request.question_count
-        )
-        question_type_history = _build_question_type_history(request.star_scores)
 
         # Format conversation for prompt
         conversation_text = _format_conversation_for_evaluation(request.conversation_history)
@@ -683,33 +653,48 @@ async def _generate_next_question_progress(
         yield _sse_event("progress", {
             "step": "question", "progress": 60, "label": "次の質問を生成中...",
         })
-        await asyncio.sleep(0.05)
 
-        # Build unified prompt
-        prompt = STAR_EVALUATE_AND_QUESTION_PROMPT.format(
-            gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
-            conversation=conversation_text,
-            phase_name=phase_name,
-            phase_description=phase_desc,
-            preferred_question_types=", ".join(preferred_types),
-            preferred_target_elements=", ".join(preferred_elements),
-            question_type_history=question_type_history,
-            threshold=STAR_COMPLETION_THRESHOLD,
-            suggested_end_value=_compute_suggested_end_value(request.question_count, request.star_scores),
-            prohibited_expressions=_PROHIBITED_EXPRESSIONS,
+        prompt = _build_next_question_prompt(
+            gakuchika_title=request.gakuchika_title,
+            conversation_text=conversation_text,
+            question_count=request.question_count,
         )
 
-        llm_result = await call_llm_with_error(
+        fallback_scores = _scores_from_request(request.star_scores)
+
+        # Stream LLM response with field-level events
+        llm_result = None
+        async for event in call_llm_streaming_fields(
             system_prompt=prompt,
             user_message="上記の会話を分析し、STAR評価と次の質問をJSON形式で生成してください。",
-            max_tokens=800,
-            temperature=0.5,
+            max_tokens=NEXT_QUESTION_MAX_TOKENS,
+            temperature=0.35,
             feature="gakuchika",
-            disable_fallback=True,
-        )
+            schema_hints={
+                "question": "string",
+                "star_scores": "object",
+            },
+            stream_string_fields=["question"],
+            attempt_repair_on_parse_failure=False,
+            partial_required_fields=("question",),
+        ):
+            if event.type == "string_chunk":
+                yield _sse_event("string_chunk", {"path": event.path, "text": event.text})
+            elif event.type == "field_complete":
+                yield _sse_event("field_complete", {"path": event.path, "value": event.value})
+            elif event.type == "array_item_complete":
+                yield _sse_event("array_item_complete", {"path": event.path, "value": event.value})
+            elif event.type == "error":
+                error = event.result.error if event.result else None
+                yield _sse_event("error", {
+                    "message": error.message if error else "AIサービスに接続できませんでした。",
+                })
+                return
+            elif event.type == "complete":
+                llm_result = event.result
 
-        if not llm_result.success:
-            error = llm_result.error
+        if llm_result is None or not llm_result.success:
+            error = llm_result.error if llm_result else None
             yield _sse_event("error", {
                 "message": error.message if error else "AIサービスに接続できませんでした。",
             })
@@ -722,39 +707,21 @@ async def _generate_next_question_progress(
             })
             return
 
-        # Extract STAR scores
-        star_scores_data = data.get("star_scores", {})
-        scores = STARScores(
-            situation=star_scores_data.get("situation", 0),
-            task=star_scores_data.get("task", 0),
-            action=star_scores_data.get("action", 0),
-            result=star_scores_data.get("result", 0),
+        question, star_eval, target_element, source = _normalize_next_question_payload(
+            data,
+            fallback_scores=fallback_scores,
+            question_count=request.question_count,
         )
-
-        star_eval = {
-            "scores": scores.model_dump(),
-            "weakest_element": _get_weakest_element(scores),
-            "is_complete": _is_star_complete(scores),
-            "missing_aspects": data.get("missing_aspects", {}),
-        }
-
-        question = data.get("question")
-        if not question:
-            yield _sse_event("error", {
-                "message": "AIから有効な質問を取得できませんでした。",
-            })
-            return
+        logger.info(
+            f"[Gakuchika] next-question/stream normalized via {source} "
+            f"(target={target_element}, scores={star_eval['scores']})"
+        )
 
         yield _sse_event("complete", {
             "data": {
                 "question": question,
-                "reasoning": data.get("reasoning"),
-                "should_continue": data.get("should_continue", True),
-                "suggested_end": data.get("suggested_end", False),
                 "star_evaluation": star_eval,
-                "target_element": data.get("target_element", _get_weakest_element(scores)),
-                "question_type": data.get("question_type", QUESTION_TYPE_SCENE),
-                "suggestions": data.get("suggestions", []),
+                "target_element": target_element,
             },
         })
 
@@ -862,6 +829,7 @@ async def generate_structured_summary(request: StructuredSummaryRequest):
     prompt = STRUCTURED_SUMMARY_PROMPT.format(
         gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
         conversation=conversation_text,
+        question_quality_principles=QUESTION_QUALITY_PRINCIPLES,
     )
 
     llm_result = await call_llm_with_error(
@@ -892,6 +860,12 @@ async def generate_structured_summary(request: StructuredSummaryRequest):
             "strengths": strengths,
             "learnings": learnings,
             "numbers": data.get("numbers", []),
+            "interviewer_hooks": _clean_string_list(data.get("interviewer_hooks")),
+            "decision_reasons": _clean_string_list(data.get("decision_reasons")),
+            "before_after_comparisons": _clean_string_list(data.get("before_after_comparisons")),
+            "credibility_notes": _clean_string_list(data.get("credibility_notes"), max_items=2),
+            "role_scope": str(data.get("role_scope", "")).strip(),
+            "reusable_principles": _clean_string_list(data.get("reusable_principles")),
         }
 
     error = llm_result.error
@@ -975,7 +949,7 @@ async def generate_es_draft(request: GakuchikaESDraftRequest):
                     if last_period > len(draft_text) * 0.5:
                         draft_text = draft_text[: last_period + 1]
                 if len(draft_text) >= 100:
-                    print(f"[ガクチカES] ⚠️ raw_textフォールバック: {len(draft_text)}字のドラフトを抽出")
+                    logger.warning(f"[ガクチカES] raw_textフォールバック: {len(draft_text)}字のドラフトを抽出")
                     return GakuchikaESDraftResponse(
                         draft=draft_text,
                         char_count=len(draft_text),

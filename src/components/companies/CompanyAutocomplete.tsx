@@ -37,6 +37,7 @@ export function CompanyAutocomplete({
   required,
 }: CompanyAutocompleteProps) {
   const [open, setOpen] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const { suggestions, isLoading } = useCompanySuggestions(value);
 
@@ -53,20 +54,13 @@ export function CompanyAutocomplete({
     {}
   );
 
-  // Open popover when there are suggestions and input has focus
-  useEffect(() => {
-    if (suggestions.length > 0 && value.length >= 1) {
-      setOpen(true);
-    } else {
-      setOpen(false);
-    }
-  }, [suggestions, value]);
+  const shouldShowSuggestions = isFocused && suggestions.length > 0 && value.trim().length >= 1;
 
   const handleSelect = (suggestion: CompanySuggestion) => {
     onChange(suggestion.name);
     onSelect?.(suggestion.name, suggestion.industry);
+    setIsFocused(false);
     setOpen(false);
-    inputRef.current?.focus();
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,15 +68,17 @@ export function CompanyAutocomplete({
   };
 
   const handleInputFocus = () => {
-    if (suggestions.length > 0 && value.length >= 1) {
-      setOpen(true);
-    }
+    setIsFocused(true);
   };
 
   const handleInputBlur = () => {
-    // Delay closing to allow click on suggestion
-    setTimeout(() => setOpen(false), 200);
+    setIsFocused(false);
+    setOpen(false);
   };
+
+  useEffect(() => {
+    setOpen(shouldShowSuggestions);
+  }, [shouldShowSuggestions]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -144,6 +140,10 @@ export function CompanyAutocomplete({
                     <CommandItem
                       key={suggestion.name}
                       value={suggestion.name}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleSelect(suggestion);
+                      }}
                       onSelect={() => handleSelect(suggestion)}
                       className="cursor-pointer"
                     >

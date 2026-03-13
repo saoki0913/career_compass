@@ -153,12 +153,14 @@ export function EnhancedProcessingSteps({
   useEffect(() => {
     // Reset to first step when becoming inactive
     if (!isActive) {
-      setCurrentStepIndex(0);
+      const resetId = window.setTimeout(() => {
+        setCurrentStepIndex(0);
+      }, 0);
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
-      return;
+      return () => window.clearTimeout(resetId);
     }
 
     // Skip time-based animation if using SSE progress
@@ -312,28 +314,34 @@ export function EnhancedProcessingSteps({
 // Enhanced with subLabels for better UX context
 export const ES_REVIEW_STEPS: ProcessingStep[] = [
   {
-    id: "analyze",
-    label: "文章構造を分析中...",
-    subLabel: "段落構成と論理展開をチェック",
+    id: "validation",
+    label: "入力内容を確認中...",
+    subLabel: "設問と条件をチェック",
     duration: 4000,
   },
   {
-    id: "evaluate",
-    label: "5軸で評価中...",
-    subLabel: "論理性・具体性・熱意・企業接続・可読性",
+    id: "rag_fetch",
+    label: "企業情報を取得中...",
+    subLabel: "関連情報を絞り込んでいます",
     duration: 6000,
   },
   {
-    id: "identify",
-    label: "改善点を特定中...",
-    subLabel: "優先度の高い3点を抽出",
+    id: "analysis",
+    label: "設問を分析中...",
+    subLabel: "改善の優先度を整理しています",
     duration: 6000,
   },
   {
-    id: "generate",
-    label: "リライトを生成中...",
-    subLabel: "3パターン作成",
+    id: "rewrite",
+    label: "改善案を作成中...",
+    subLabel: "伝わり方を整えています",
     duration: 8000,
+  },
+  {
+    id: "finalize",
+    label: "表示を整えています...",
+    subLabel: "結果をまとめています",
+    duration: 2000,
   },
 ];
 

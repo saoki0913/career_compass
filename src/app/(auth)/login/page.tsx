@@ -54,14 +54,14 @@ function LoginFallback() {
           />
           <Image
             src="/icon.png"
-            alt="Career Compass"
+            alt="就活Pass"
             width={56}
             height={56}
             className="relative rounded-xl shadow-lg"
           />
         </div>
         <span className="text-3xl font-extrabold text-foreground tracking-tight">
-          Career Compass
+          就活Pass
         </span>
       </div>
 
@@ -75,7 +75,7 @@ function LoginFallback() {
 }
 
 function LoginPageContent() {
-  const { isAuthenticated, isLoading, userPlan } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectParam = searchParams.get("redirect") || searchParams.get("callbackUrl");
@@ -83,17 +83,13 @@ function LoginPageContent() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      // Already logged in, redirect based on requested redirect or status.
-      // Note: plan selection is no longer a blocking step (Free by default).
       if (safeRedirect) {
         router.push(safeRedirect);
-      } else if (userPlan?.needsOnboarding) {
-        router.push("/onboarding");
       } else {
         router.push("/dashboard");
       }
     }
-  }, [isAuthenticated, isLoading, userPlan, router, safeRedirect]);
+  }, [isAuthenticated, isLoading, router, safeRedirect]);
 
   if (isLoading) {
     return <LoginFallback />;
@@ -112,14 +108,14 @@ function LoginPageContent() {
           <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full scale-150" aria-hidden="true" />
           <Image
             src="/icon.png"
-            alt="Career Compass"
+            alt="就活Pass"
             width={56}
             height={56}
             className="relative rounded-xl shadow-lg"
           />
         </div>
         <span className="text-3xl font-extrabold text-foreground tracking-tight">
-          Career Compass
+          就活Pass
         </span>
       </motion.div>
 

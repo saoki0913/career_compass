@@ -1,8 +1,23 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { cn } from "@/lib/utils";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Check, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 interface ReflectModalProps {
   isOpen: boolean;
@@ -14,28 +29,142 @@ interface ReflectModalProps {
   isFullDocument?: boolean;
 }
 
-const AlertIcon = () => (
-  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-    />
-  </svg>
-);
+const MOBILE_MEDIA_QUERY = "(max-width: 767px)";
 
-const CloseIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-  </svg>
-);
+function useIsMobileViewport() {
+  const [isMobile, setIsMobile] = useState(false);
 
-const UndoIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-  </svg>
-);
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia(MOBILE_MEDIA_QUERY);
+    const handleChange = (event: MediaQueryListEvent | MediaQueryList) => {
+      setIsMobile(event.matches);
+    };
+
+    handleChange(mediaQuery);
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
+  return isMobile;
+}
+
+function DiffBadge({ originalText, newText }: { originalText: string; newText: string }) {
+  const originalLength = originalText.trim().length;
+  const newLength = newText.trim().length;
+  const diff = newLength - originalLength;
+  const label = diff === 0 ? "文字数同程度" : diff > 0 ? `+${diff}字` : `${diff}字`;
+
+  return (
+    <Badge variant="soft-info" className="px-3 py-1 text-[11px]">
+      {label}
+    </Badge>
+  );
+}
+
+function ComparisonPanel({
+  label,
+  description,
+  tone,
+  text,
+}: {
+  label: string;
+  description: string;
+  tone: "before" | "after";
+  text: string;
+}) {
+  const toneClasses =
+    tone === "before"
+      ? "border-border/60 bg-muted/25"
+      : "border-primary/20 bg-primary/6";
+
+  return (
+    <div className={`rounded-[24px] border p-4 ${toneClasses}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-foreground">{label}</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+        </div>
+        <Badge variant={tone === "before" ? "outline" : "soft-primary"} className="px-3 py-1 text-[11px]">
+          {text.trim().length}字
+        </Badge>
+      </div>
+      <div className="mt-4 max-h-[260px] overflow-y-auto rounded-[20px] border border-border/50 bg-background/90 px-4 py-3">
+        <p className="whitespace-pre-wrap text-sm leading-7 text-foreground">
+          {text.trim() || "本文がありません。"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ReflectContent({
+  originalText,
+  newText,
+  isFullDocument,
+}: {
+  originalText: string;
+  newText: string;
+  isFullDocument: boolean;
+}) {
+  return (
+    <div className="space-y-4">
+      {isFullDocument ? (
+        <div className="rounded-[20px] border border-info/20 bg-info/8 p-4">
+          <p className="text-sm leading-6 text-foreground/85">
+            全文モードではクリップボードにコピーします。設問単位の添削では、この改善案をエディタへ直接反映できます。
+          </p>
+        </div>
+      ) : null}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <ComparisonPanel
+          label="変更前"
+          description="今の回答です。"
+          tone="before"
+          text={originalText}
+        />
+        <ComparisonPanel
+          label="変更後"
+          description="反映される改善案です。"
+          tone="after"
+          text={newText}
+        />
+      </div>
+    </div>
+  );
+}
+
+function UndoToast({
+  undoTimer,
+  onUndo,
+}: {
+  undoTimer: number;
+  onUndo: () => void;
+}) {
+  return (
+    <div className="fixed bottom-4 right-4 z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
+      <div className="flex max-w-md items-center gap-3 rounded-[24px] border border-border/60 bg-background/95 px-4 py-3 shadow-[0_18px_52px_rgba(15,23,42,0.14)] backdrop-blur-md">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-success/12 text-success">
+          <Check className="size-5" />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-foreground">改善案を反映しました</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {undoTimer}秒以内なら元に戻せます。
+          </p>
+        </div>
+        <Button size="sm" variant="outline" className="rounded-full" onClick={onUndo}>
+          <RotateCcw className="size-4" />
+          元に戻す
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export function ReflectModal({
   isOpen,
@@ -48,22 +177,39 @@ export function ReflectModal({
 }: ReflectModalProps) {
   const [showUndo, setShowUndo] = useState(false);
   const [undoTimer, setUndoTimer] = useState(10);
+  const [copied, setCopied] = useState(false);
+  const isMobile = useIsMobileViewport();
 
   useEffect(() => {
-    if (showUndo) {
-      const interval = setInterval(() => {
-        setUndoTimer((prev) => {
-          if (prev <= 1) {
-            setShowUndo(false);
-            return 10;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-
-      return () => clearInterval(interval);
+    if (!showUndo) {
+      return;
     }
+
+    const interval = window.setInterval(() => {
+      setUndoTimer((prev) => {
+        if (prev <= 1) {
+          setShowUndo(false);
+          return 10;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(interval);
   }, [showUndo]);
+
+  const title = useMemo(
+    () => (isFullDocument ? "改善案をコピーしますか？" : "この改善案を反映しますか？"),
+    [isFullDocument],
+  );
+
+  const description = useMemo(
+    () =>
+      isFullDocument
+        ? "変更後の本文だけをコピーします。"
+        : "変更前と変更後を見比べてから反映できます。",
+    [isFullDocument],
+  );
 
   const handleConfirm = () => {
     onConfirm();
@@ -71,139 +217,102 @@ export function ReflectModal({
     setUndoTimer(10);
   };
 
-  const [copied, setCopied] = useState(false);
-  const handleCopyToClipboard = useCallback(() => {
-    navigator.clipboard.writeText(newText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopyToClipboard = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(newText.trim());
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch (err) {
+      console.error("Failed to copy rewrite text:", err);
+    }
   }, [newText]);
 
   const handleUndo = () => {
-    if (onUndo) {
-      onUndo();
-    }
+    onUndo?.();
     setShowUndo(false);
     setUndoTimer(10);
   };
 
-  if (!isOpen && !showUndo) return null;
-
-  const truncate = (text: string, maxLength: number = 200) => {
-    if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength) + "...";
-  };
-
-  // Show undo notification instead of modal
-  if (showUndo) {
-    return (
-      <div className="fixed bottom-4 right-4 z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
-        <div className="bg-background border border-border rounded-lg shadow-lg p-4 flex items-center gap-3 max-w-md">
-          <div className="flex-1">
-            <p className="text-sm font-medium">リライトを反映しました</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {undoTimer}秒以内に元に戻せます
-            </p>
-          </div>
-          <Button size="sm" variant="outline" onClick={handleUndo}>
-            <UndoIcon />
-            <span className="ml-1">元に戻す</span>
-          </Button>
-        </div>
-      </div>
-    );
+  if (!isOpen && !showUndo) {
+    return null;
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div className="relative w-full max-w-lg mx-4 bg-background rounded-xl shadow-2xl border border-border overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <div className="flex items-center gap-3">
-            <span className="text-amber-500">
-              <AlertIcon />
-            </span>
-            <h3 className="text-lg font-semibold">リライトを反映しますか？</h3>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
-          >
-            <CloseIcon />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
-          {isFullDocument && (
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800">
-                全文モードではクリップボードにコピーされます。設問単位で添削すると、エディターに直接反映できます。
-              </p>
-            </div>
-          )}
-
-          {/* Before */}
-          <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">
-              変更前（現在のテキスト）
-            </p>
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-900 whitespace-pre-wrap line-through decoration-red-300">
-                {truncate(originalText)}
-              </p>
-            </div>
-          </div>
-
-          {/* Arrow */}
-          <div className="flex justify-center">
-            <svg className="w-6 h-6 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-            </svg>
-          </div>
-
-          {/* After */}
-          <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">
-              変更後（リライト結果）
-            </p>
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
-              <p className="text-sm text-emerald-900 whitespace-pre-wrap">
-                {truncate(newText)}
-              </p>
-            </div>
-          </div>
-
-          {!isFullDocument && (
-            <p className="text-xs text-muted-foreground text-center">
-              反映後、「元に戻す」ボタンで変更を取り消せます
-            </p>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex gap-3 px-6 py-4 border-t border-border bg-muted/30">
-          <Button variant="outline" onClick={onClose} className="flex-1">
-            キャンセル
+  const footer = (
+    <div className="border-t border-border/60 bg-muted/20 px-4 py-4 sm:px-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+        <Button variant="outline" className="rounded-full" onClick={onClose}>
+          閉じる
+        </Button>
+        {isFullDocument ? (
+          <Button className="rounded-full" onClick={handleCopyToClipboard}>
+            {copied ? <Check className="size-4" /> : <Sparkles className="size-4" />}
+            {copied ? "コピー済み" : "改善案をコピー"}
           </Button>
-          {isFullDocument ? (
-            <Button onClick={handleCopyToClipboard} className="flex-1">
-              {copied ? "コピーしました" : "クリップボードにコピー"}
-            </Button>
-          ) : (
-            <Button onClick={handleConfirm} className="flex-1">
-              反映する
-            </Button>
-          )}
-        </div>
+        ) : (
+          <Button className="rounded-full" onClick={handleConfirm}>
+            <Sparkles className="size-4" />
+            この改善案を反映
+          </Button>
+        )}
       </div>
     </div>
+  );
+
+  return (
+    <>
+      {showUndo ? <UndoToast undoTimer={undoTimer} onUndo={handleUndo} /> : null}
+
+      {isOpen ? (
+        isMobile ? (
+          <Sheet open={isOpen} onOpenChange={(open) => (!open ? onClose() : undefined)}>
+            <SheetContent side="bottom" className="h-[90vh] rounded-t-[28px] border-0 p-0">
+              <SheetHeader className="border-b border-border/60 px-4 py-4 text-left">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <SheetTitle className="text-base">{title}</SheetTitle>
+                    <SheetDescription className="mt-1 text-sm leading-6">
+                      {description}
+                    </SheetDescription>
+                  </div>
+                  <DiffBadge originalText={originalText} newText={newText} />
+                </div>
+              </SheetHeader>
+              <div className="h-[calc(90vh-142px)] overflow-y-auto px-4 py-4">
+                <ReflectContent
+                  originalText={originalText}
+                  newText={newText}
+                  isFullDocument={isFullDocument}
+                />
+              </div>
+              {footer}
+            </SheetContent>
+          </Sheet>
+        ) : (
+          <Dialog open={isOpen} onOpenChange={(open) => (!open ? onClose() : undefined)}>
+            <DialogContent className="max-w-4xl overflow-hidden rounded-[28px] border-border/60 p-0">
+              <DialogHeader className="border-b border-border/60 px-6 py-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <DialogTitle>{title}</DialogTitle>
+                    <DialogDescription className="mt-2 text-sm leading-6">
+                      {description}
+                    </DialogDescription>
+                  </div>
+                  <DiffBadge originalText={originalText} newText={newText} />
+                </div>
+              </DialogHeader>
+              <div className="max-h-[72vh] overflow-y-auto px-6 py-5">
+                <ReflectContent
+                  originalText={originalText}
+                  newText={newText}
+                  isFullDocument={isFullDocument}
+                />
+              </div>
+              {footer}
+            </DialogContent>
+          </Dialog>
+        )
+      ) : null}
+    </>
   );
 }

@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { getDeviceToken } from "@/lib/auth/device-token";
 
 export interface DraftES {
@@ -37,12 +38,17 @@ interface UseIncompleteItemsResult {
 }
 
 export function useIncompleteItems(): UseIncompleteItemsResult {
+  const { isLoading: isAuthLoading } = useAuth();
   const [data, setData] = useState<IncompleteItemsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchIncompleteItems = useCallback(async () => {
     try {
+      if (isAuthLoading) {
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
 
@@ -56,10 +62,34 @@ export function useIncompleteItems(): UseIncompleteItemsResult {
         headers["x-device-token"] = deviceToken;
       }
 
-      const response = await fetch("/api/dashboard/incomplete", { headers });
+      const response = await fetch("/api/dashboard/incomplete", {
+        headers,
+        credentials: "include",
+      });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch incomplete items");
+        if (response.status === 401) {
+          setData({
+            draftES: [],
+            draftESCount: 0,
+            inProgressGakuchika: [],
+            inProgressGakuchikaCount: 0,
+          });
+          return;
+        }
+
+        let message = "Failed to fetch incomplete items";
+
+        try {
+          const result = await response.json();
+          if (typeof result?.error === "string" && result.error.trim()) {
+            message = result.error;
+          }
+        } catch {
+          // Ignore invalid error payloads and keep the fallback message.
+        }
+
+        throw new Error(message);
       }
 
       const result = await response.json();
@@ -70,15 +100,19 @@ export function useIncompleteItems(): UseIncompleteItemsResult {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isAuthLoading]);
 
   useEffect(() => {
+    if (isAuthLoading) {
+      return;
+    }
+
     fetchIncompleteItems();
-  }, [fetchIncompleteItems]);
+  }, [fetchIncompleteItems, isAuthLoading]);
 
   return {
     data,
-    isLoading,
+    isLoading: isAuthLoading || isLoading,
     error,
     refetch: fetchIncompleteItems,
   };

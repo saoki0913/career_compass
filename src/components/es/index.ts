@@ -1,11 +1,6 @@
 export { ReviewPanel } from "./ReviewPanel";
 export { MobileReviewPanel } from "./MobileReviewPanel";
-export { ScoreDisplay } from "./ScoreDisplay";
-export { ImprovementList } from "./ImprovementList";
-export { RewriteDisplay, RewriteCarousel, RewriteGrid } from "./RewriteDisplay";
-export { CompareView } from "./CompareView";
 export { ReflectModal } from "./ReflectModal";
 export { VersionHistory } from "./VersionHistory";
-export { AIThreadHistory } from "./AIThreadHistory";
 export { SectionReviewCTA } from "./SectionReviewCTA";
 export { ReviewEmptyState } from "./ReviewEmptyState";

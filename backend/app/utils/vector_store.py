@@ -15,6 +15,7 @@ from chromadb.config import Settings as ChromaSettings
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
+from urllib.parse import urlparse
 
 from app.config import settings
 from app.utils.embeddings import (
@@ -25,7 +26,7 @@ from app.utils.embeddings import (
     get_available_backends,
     get_configured_backends,
 )
-from app.utils.content_types import CONTENT_TYPES
+from app.utils.content_types import CONTENT_TYPES, content_type_label, normalize_content_type
 from app.utils.content_classifier import classify_chunks
 from app.utils.cache import get_rag_cache, build_cache_key
 from app.utils.text_chunker import get_chunk_settings
@@ -138,6 +139,15 @@ def _context_dedupe_key(context: dict) -> tuple:
         tuple(secondary),
         context.get("text"),
     )
+
+
+def _search_options_signature(search_options: Optional[dict]) -> str:
+    if not search_options:
+        return "default"
+    try:
+        return str(sorted(search_options.items()))
+    except Exception:
+        return "custom"
 
 
 # _fallback_local_backend removed - only OpenAI embeddings are supported
@@ -449,6 +459,7 @@ async def store_full_text_content(
         dict with keys:
             - "success" (bool): True if any chunks were stored
             - "dominant_content_type" (str | None): Majority content_type from classified chunks
+            - "secondary_content_types" (list[str]): Observed secondary types across chunks
     """
     from app.utils.text_chunker import (
         JapaneseTextChunker,
@@ -457,7 +468,7 @@ async def store_full_text_content(
         chunk_html_content,
     )
 
-    _fail = {"success": False, "dominant_content_type": None}
+    _fail = {"success": False, "dominant_content_type": None, "secondary_content_types": []}
 
     if content_type and content_type not in CONTENT_TYPES:
         print(f"[RAG保存] ⚠️ 無効なcontent_type: {content_type}")
@@ -512,14 +523,17 @@ async def store_full_text_content(
 
         # Group by classified content_type
         grouped: dict[str, list[dict]] = {}
+        secondary_content_types: set[str] = set()
         for chunk in classified:
             meta = chunk.get("metadata") or {}
             ct = (
                 meta.get("content_type")
                 or content_type
-                or content_channel
                 or "corporate_site"
             )
+            for secondary in meta.get("secondary_content_types") or []:
+                if isinstance(secondary, str):
+                    secondary_content_types.add(secondary)
             grouped.setdefault(ct, []).append(chunk)
 
         # Determine dominant content_type by chunk count (majority vote)
@@ -546,7 +560,11 @@ async def store_full_text_content(
             if cache:
                 await cache.invalidate_company(company_id)
 
-        return {"success": any_success, "dominant_content_type": dominant_content_type}
+        return {
+            "success": any_success,
+            "dominant_content_type": dominant_content_type,
+            "secondary_content_types": sorted(secondary_content_types),
+        }
 
     except Exception as e:
         print(f"[RAG保存] ❌ フルテキスト保存エラー: {e}")
@@ -1157,12 +1175,40 @@ async def hybrid_search_company_context_enhanced(
     backends: Optional[list[EmbeddingBackend]] = None,
     expand_queries: bool = True,
     rerank: bool = True,
+    use_bm25: Optional[bool] = None,
+    profile_overrides: Optional[dict] = None,
+    content_type_boosts: Optional[dict[str, float]] = None,
+    short_circuit: bool = True,
 ) -> list[dict]:
     """
     Enhanced dense search with query expansion, HyDE, MMR, and LLM reranking.
     """
-    from app.utils.hybrid_search import dense_hybrid_search
-    from app.utils.hybrid_search import select_boost_profile
+    from app.utils.hybrid_search import (
+        dense_hybrid_search,
+        infer_retrieval_profile,
+        select_boost_profile,
+    )
+
+    profile = infer_retrieval_profile(query, base_fetch_k=settings.rag_fetch_k)
+    if profile_overrides:
+        profile.update(profile_overrides)
+    semantic_weight = float(profile.get("semantic_weight", settings.rag_semantic_weight))
+    keyword_weight = float(profile.get("keyword_weight", settings.rag_keyword_weight))
+    fetch_k = int(profile.get("fetch_k", settings.rag_fetch_k))
+    max_queries = min(
+        settings.rag_max_queries,
+        int(profile.get("max_queries", settings.rag_max_queries)),
+    )
+    max_total_queries = min(
+        settings.rag_max_total_queries,
+        int(profile.get("max_total_queries", settings.rag_max_total_queries)),
+    )
+    rerank_threshold = float(
+        profile.get("rerank_threshold", settings.rag_rerank_threshold)
+    )
+    mmr_lambda = float(profile.get("mmr_lambda", settings.rag_mmr_lambda))
+    use_hyde = settings.rag_use_hyde and bool(profile.get("use_hyde", True))
+    effective_bm25 = settings.rag_keyword_weight > 0 if use_bm25 is None else use_bm25
 
     return await dense_hybrid_search(
         company_id=company_id,
@@ -1171,23 +1217,27 @@ async def hybrid_search_company_context_enhanced(
         content_types=content_types,
         backends=backends,
         expand_queries=expand_queries,
-        use_hyde=settings.rag_use_hyde,
+        use_hyde=use_hyde,
         rerank=rerank,
         use_mmr=settings.rag_use_mmr,
-        semantic_weight=settings.rag_semantic_weight,
-        keyword_weight=settings.rag_keyword_weight,
-        rerank_threshold=settings.rag_rerank_threshold,
-        fetch_k=settings.rag_fetch_k,
-        max_queries=settings.rag_max_queries,
-        max_total_queries=settings.rag_max_total_queries,
-        mmr_lambda=settings.rag_mmr_lambda,
-        content_type_boosts=select_boost_profile(query),
-        use_bm25=True,
+        semantic_weight=semantic_weight,
+        keyword_weight=keyword_weight,
+        rerank_threshold=rerank_threshold,
+        fetch_k=fetch_k,
+        max_queries=max_queries,
+        max_total_queries=max_total_queries,
+        mmr_lambda=mmr_lambda,
+        content_type_boosts=content_type_boosts or select_boost_profile(query),
+        use_bm25=effective_bm25,
+        short_circuit=short_circuit,
     )
 
 
 async def get_enhanced_context_for_review(
-    company_id: str, es_content: str, max_context_length: Optional[int] = None
+    company_id: str,
+    es_content: str,
+    max_context_length: Optional[int] = None,
+    search_options: Optional[dict] = None,
 ) -> str:
     """
     Get enhanced context for ES review using hybrid search.
@@ -1213,7 +1263,11 @@ async def get_enhanced_context_for_review(
 
     cache = get_rag_cache()
     cache_key = build_cache_key(
-        "enhanced_context", company_id, es_content, str(max_context_length)
+        "enhanced_context",
+        company_id,
+        es_content,
+        str(max_context_length),
+        _search_options_signature(search_options),
     )
     if cache:
         cached = await cache.get_context(company_id, cache_key)
@@ -1226,8 +1280,14 @@ async def get_enhanced_context_for_review(
         query=es_content,
         n_results=15,  # Get more for better coverage
         content_types=None,  # Include all types
-        expand_queries=settings.rag_use_query_expansion,
-        rerank=settings.rag_use_rerank,
+        expand_queries=(search_options or {}).get(
+            "expand_queries", settings.rag_use_query_expansion
+        ),
+        rerank=(search_options or {}).get("rerank", settings.rag_use_rerank),
+        use_bm25=(search_options or {}).get("use_bm25"),
+        profile_overrides=(search_options or {}).get("profile_overrides"),
+        content_type_boosts=(search_options or {}).get("content_type_boosts"),
+        short_circuit=(search_options or {}).get("short_circuit", True),
     )
 
     if not results:
@@ -1248,7 +1308,10 @@ async def get_enhanced_context_for_review(
 
 
 async def get_enhanced_context_for_review_with_sources(
-    company_id: str, es_content: str, max_context_length: Optional[int] = None
+    company_id: str,
+    es_content: str,
+    max_context_length: Optional[int] = None,
+    search_options: Optional[dict] = None,
 ) -> tuple[str, list[dict]]:
     """
     Get enhanced context for ES review using dense search, with source tracking.
@@ -1277,7 +1340,11 @@ async def get_enhanced_context_for_review_with_sources(
 
     cache = get_rag_cache()
     cache_key = build_cache_key(
-        "enhanced_context_sources", company_id, es_content, str(max_context_length)
+        "enhanced_context_sources",
+        company_id,
+        es_content,
+        str(max_context_length),
+        _search_options_signature(search_options),
     )
     if cache:
         cached = await cache.get_context(company_id, cache_key)
@@ -1294,8 +1361,14 @@ async def get_enhanced_context_for_review_with_sources(
         query=es_content,
         n_results=15,  # Get more for better coverage
         content_types=None,  # Include all types
-        expand_queries=settings.rag_use_query_expansion,
-        rerank=settings.rag_use_rerank,
+        expand_queries=(search_options or {}).get(
+            "expand_queries", settings.rag_use_query_expansion
+        ),
+        rerank=(search_options or {}).get("rerank", settings.rag_use_rerank),
+        use_bm25=(search_options or {}).get("use_bm25"),
+        profile_overrides=(search_options or {}).get("profile_overrides"),
+        content_type_boosts=(search_options or {}).get("content_type_boosts"),
+        short_circuit=(search_options or {}).get("short_circuit", True),
     )
 
     if not results:
@@ -1319,3 +1392,131 @@ async def get_enhanced_context_for_review_with_sources(
             company_id, cache_key, {"context": context, "sources": sources}
         )
     return context, sources
+
+
+def _clean_direct_context_text(text: str) -> str:
+    return " ".join((text or "").replace("\u3000", " ").split())
+
+
+async def get_context_for_source_urls_with_sources(
+    company_id: str,
+    source_urls: list[str],
+    max_context_length: Optional[int] = None,
+    max_chunks_per_url: int = 3,
+) -> tuple[str, list[dict]]:
+    """Fetch current-run context directly from specific source URLs without search."""
+    if not source_urls:
+        return "", []
+
+    if max_context_length is None:
+        max_context_length = 1200
+
+    ordered_urls = [url for url in source_urls if isinstance(url, str) and url.strip()]
+    if not ordered_urls:
+        return "", []
+
+    url_order = {url: index for index, url in enumerate(ordered_urls)}
+    deduped_chunks: dict[tuple, dict] = {}
+
+    for backend in get_configured_backends():
+        for url in ordered_urls:
+            for name in _collection_names_for_backend(backend):
+                collection = _get_collection(name)
+                results = collection.get(
+                    where={"$and": [{"company_id": company_id}, {"source_url": url}]},
+                    include=["documents", "metadatas"],
+                )
+                documents = results.get("documents") or []
+                metadatas = results.get("metadatas") or []
+                ids = results.get("ids") or []
+                for doc, metadata, doc_id in zip(documents, metadatas, ids):
+                    text = _clean_direct_context_text(str(doc or ""))
+                    if not text:
+                        continue
+                    meta = metadata or {}
+                    context = {
+                        "id": doc_id,
+                        "text": text,
+                        "metadata": meta,
+                    }
+                    dedupe_key = _context_dedupe_key(context)
+                    if dedupe_key not in deduped_chunks:
+                        deduped_chunks[dedupe_key] = context
+
+    if not deduped_chunks:
+        return "", []
+
+    sorted_chunks = sorted(
+        deduped_chunks.values(),
+        key=lambda item: (
+            url_order.get(str((item.get("metadata") or {}).get("source_url") or ""), len(url_order)),
+            int((item.get("metadata") or {}).get("chunk_index") or 0),
+        ),
+    )
+
+    per_url_counts: dict[str, int] = {}
+    selected_chunks: list[dict] = []
+    for chunk in sorted_chunks:
+        metadata = chunk.get("metadata") or {}
+        source_url = str(metadata.get("source_url") or "")
+        if not source_url:
+            continue
+        count = per_url_counts.get(source_url, 0)
+        if count >= max_chunks_per_url:
+            continue
+        per_url_counts[source_url] = count + 1
+        selected_chunks.append(chunk)
+
+    sources: list[dict] = []
+    seen_urls: set[str] = set()
+    for chunk in selected_chunks:
+        metadata = chunk.get("metadata") or {}
+        source_url = str(metadata.get("source_url") or "")
+        if not source_url or source_url in seen_urls:
+            continue
+        seen_urls.add(source_url)
+        normalized_type = normalize_content_type(str(metadata.get("content_type") or "corporate_site"))
+        heading = _clean_direct_context_text(str(metadata.get("heading_path") or metadata.get("heading") or ""))
+        title = heading or content_type_label(normalized_type)
+        excerpt = chunk.get("text", "")[:150].strip()
+        try:
+            domain = urlparse(source_url).netloc.replace("www.", "")
+        except Exception:
+            domain = ""
+        sources.append(
+            {
+                "source_id": f"S{len(sources) + 1}",
+                "source_url": source_url,
+                "content_type": normalized_type,
+                "content_type_label": content_type_label(normalized_type),
+                "chunk_type": str(metadata.get("chunk_type") or "full_text"),
+                "title": title,
+                "domain": domain,
+                "excerpt": excerpt,
+            }
+        )
+
+    context_parts: list[str] = []
+    total_length = 0
+    for chunk in selected_chunks:
+        metadata = chunk.get("metadata") or {}
+        source_url = str(metadata.get("source_url") or "")
+        normalized_type = normalize_content_type(str(metadata.get("content_type") or "corporate_site"))
+        heading = _clean_direct_context_text(str(metadata.get("heading_path") or metadata.get("heading") or ""))
+        text = str(chunk.get("text") or "")
+        source_id = ""
+        for source in sources:
+            if source["source_url"] == source_url:
+                source_id = str(source["source_id"])
+                break
+        heading_line = f"見出し: {heading}\n" if heading else ""
+        formatted = f"【企業情報】（{content_type_label(normalized_type)}）[{source_id}]\n{heading_line}{text}".strip()
+        if total_length + len(formatted) > max_context_length:
+            remaining = max_context_length - total_length - 10
+            if remaining > 100:
+                context_parts.append(formatted[:remaining].rstrip() + "...")
+            break
+        context_parts.append(formatted)
+        total_length += len(formatted)
+
+    return "\n\n".join(context_parts).strip(), sources

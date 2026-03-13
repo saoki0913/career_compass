@@ -11,7 +11,8 @@ interface SearchCandidate {
   title: string;
   snippet?: string;
   confidence: "high" | "medium" | "low";
-  sourceType: "official" | "job_site" | "other";
+  sourceType: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
+  relationCompanyName?: string | null;
 }
 
 interface BackendSearchCandidate {
@@ -19,11 +20,26 @@ interface BackendSearchCandidate {
   title: string;
   snippet?: string;
   confidence: "high" | "medium" | "low";
-  source_type: "official" | "job_site" | "other";
+  source_type: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
+  relation_company_name?: string | null;
 }
 
 interface SearchCorporateResponse {
   candidates: SearchCandidate[];
+}
+
+function isRootPath(url: string): boolean {
+  try {
+    return new URL(url).pathname.replace(/\/+$/, "") === "";
+  } catch {
+    return false;
+  }
+}
+
+function hasEmployeeInterviewSignal(candidate: Pick<SearchCandidate, "url" | "title" | "snippet">): boolean {
+  return /(interview|voice|people|member|staff|先輩社員|社員の声|働く人)/i.test(
+    `${candidate.url} ${candidate.title} ${candidate.snippet ?? ""}`,
+  );
 }
 
 function resolveSearchTypeFromContentType(contentType?: string): "ir" | "about" {
@@ -131,10 +147,16 @@ export async function POST(
           snippet: c.snippet,
           confidence: c.confidence,
           sourceType: c.source_type,
-        }));
+          relationCompanyName: c.relation_company_name ?? null,
+        })).filter((candidate) => {
+          if (contentType !== "employee_interviews") {
+            return true;
+          }
+          return !isRootPath(candidate.url) && hasEmployeeInterviewSignal(candidate);
+        });
         return NextResponse.json({ candidates } as SearchCorporateResponse);
       }
-    } catch (e) {
+    } catch {
       console.log("FastAPI not available for corporate search");
     }
 

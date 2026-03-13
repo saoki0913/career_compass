@@ -1,4 +1,4 @@
-# Development Guide - 就活Pass (Career Compass)
+# Development Guide - 就活Compass (シューパス)
 
 ## 🚀 開発を始める/再開する
 

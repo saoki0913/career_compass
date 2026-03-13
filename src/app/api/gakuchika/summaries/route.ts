@@ -4,99 +4,19 @@
  * GET: Returns list of completed gakuchika summaries for ES editor context
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { headers } from "next/headers";
-
-interface StrengthItem {
-  title: string;
-  description: string;
-}
-
-interface LearningItem {
-  title: string;
-  description: string;
-}
-
-interface ParsedSummary {
-  // New structured format fields
-  situation_text?: string;
-  task_text?: string;
-  action_text?: string;
-  result_text?: string;
-  learnings?: LearningItem[];
-  // Shared fields
-  numbers: string[];
-  strengths: StrengthItem[] | string[];
-  // Legacy format fields
-  summary?: string;
-  key_points?: string[];
-}
+import { parseGakuchikaSummary } from "@/lib/gakuchika/summary";
 
 interface STARScores {
   situation: number;
   task: number;
   action: number;
   result: number;
-}
-
-function parseSummary(summaryJson: string | null): ParsedSummary | null {
-  if (!summaryJson) return null;
-
-  try {
-    const parsed = JSON.parse(summaryJson);
-    if (typeof parsed !== 'object') {
-      // Plain text summary (legacy)
-      return {
-        summary: summaryJson,
-        key_points: [],
-        numbers: [],
-        strengths: [],
-      };
-    }
-
-    // New structured format (has situation_text)
-    if ('situation_text' in parsed) {
-      return {
-        situation_text: parsed.situation_text || '',
-        task_text: parsed.task_text || '',
-        action_text: parsed.action_text || '',
-        result_text: parsed.result_text || '',
-        strengths: parsed.strengths || [],
-        learnings: parsed.learnings || [],
-        numbers: parsed.numbers || [],
-      };
-    }
-
-    // Old format (has summary)
-    if ('summary' in parsed) {
-      return {
-        summary: parsed.summary || '',
-        key_points: parsed.key_points || [],
-        numbers: parsed.numbers || [],
-        strengths: parsed.strengths || [],
-      };
-    }
-
-    // Unknown format
-    return {
-      summary: summaryJson,
-      key_points: [],
-      numbers: [],
-      strengths: [],
-    };
-  } catch {
-    // Plain text summary
-    return {
-      summary: summaryJson,
-      key_points: [],
-      numbers: [],
-      strengths: [],
-    };
-  }
 }
 
 function parseStarScores(starScoresJson: string | null): STARScores | null {
@@ -115,7 +35,7 @@ function parseStarScores(starScoresJson: string | null): STARScores | null {
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -136,7 +56,6 @@ export async function GET(request: NextRequest) {
         id: gakuchikaContents.id,
         title: gakuchikaContents.title,
         summary: gakuchikaContents.summary,
-        linkedCompanyIds: gakuchikaContents.linkedCompanyIds,
         updatedAt: gakuchikaContents.updatedAt,
       })
       .from(gakuchikaContents)
@@ -158,20 +77,10 @@ export async function GET(request: NextRequest) {
           .limit(1);
 
         // Parse summary (handle both JSON and plain text)
-        const parsedSummary = parseSummary(content.summary);
+        const parsedSummary = parseGakuchikaSummary(content.summary);
 
         // Parse star scores
         const starScores = parseStarScores(latestConversation?.starScores || null);
-
-        // Parse linked company IDs
-        let linkedCompanyIds: string[] = [];
-        if (content.linkedCompanyIds) {
-          try {
-            linkedCompanyIds = JSON.parse(content.linkedCompanyIds);
-          } catch {
-            // Ignore parse errors
-          }
-        }
 
         return {
           id: content.id,
@@ -179,7 +88,6 @@ export async function GET(request: NextRequest) {
           summary: parsedSummary,
           starScores,
           isCompleted: latestConversation?.status === "completed",
-          linkedCompanyIds,
         };
       })
     );

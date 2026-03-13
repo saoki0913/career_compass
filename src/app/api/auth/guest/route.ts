@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOrCreateGuestUser, getGuestUser } from "@/lib/auth/guest";
 import { logError } from "@/lib/logger";
+import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,6 +27,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Invalid device token format" },
         { status: 400 }
+      );
+    }
+
+    // Rate limit guest session creation by device token
+    const rateLimitKey = createRateLimitKey("guestAuth", null, deviceToken);
+    const rateLimit = await checkRateLimit(rateLimitKey, RATE_LIMITS.guestAuth);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "リクエストが多すぎます。しばらく待ってから再試行してください。" },
+        { status: 429, headers: { "Retry-After": String(rateLimit.resetIn) } }
       );
     }
 

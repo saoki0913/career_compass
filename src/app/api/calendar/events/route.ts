@@ -8,9 +8,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { calendarEvents, deadlines, companies } from "@/lib/db/schema";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { calendarEvents, deadlines, companies, calendarSettings } from "@/lib/db/schema";
+import { eq, and, gte, lte } from "drizzle-orm";
 import { headers } from "next/headers";
+import { getValidGoogleCalendarAccessToken } from "@/lib/calendar/connection";
+import { createCalendarEvent } from "@/lib/calendar/google";
 
 export async function GET(request: NextRequest) {
   try {
@@ -125,12 +127,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const [settings] = await db
+      .select()
+      .from(calendarSettings)
+      .where(eq(calendarSettings.userId, userId))
+      .limit(1);
+
+    let externalEventId: string | null = null;
+    if (settings?.provider === "google" && settings.targetCalendarId) {
+      const { accessToken } = await getValidGoogleCalendarAccessToken(userId);
+      if (accessToken) {
+        const createdGoogleEvent = await createCalendarEvent(accessToken, settings.targetCalendarId, {
+          title: title.trim(),
+          startAt,
+          endAt,
+        });
+        externalEventId = createdGoogleEvent.id ?? null;
+      }
+    }
+
     const newEvent = await db
       .insert(calendarEvents)
       .values({
         id: crypto.randomUUID(),
         userId,
         deadlineId: deadlineId || null,
+        externalEventId,
         type,
         title: title.trim(),
         startAt: new Date(startAt),

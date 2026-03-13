@@ -1,0 +1,41 @@
+[
+  {
+    "id": "gakuchika_credibility_scope",
+    "title": "アルバイト権限が大きく見えるケース",
+    "conversation_seed": [
+      "塾のアルバイトで校舎改善に取り組んだ",
+      "自分が中心となって施策を進めた"
+    ],
+    "expected_checks": [
+      "役割範囲の確認に向かう",
+      "社員との分担を確認する",
+      "盛りすぎに加点しない"
+    ]
+  },
+  {
+    "id": "gakuchika_process_over_result",
+    "title": "結果よりプロセス重視のケース",
+    "conversation_seed": [
+      "数値成果は小さいが、仕組み化で改善した",
+      "担当割り当てとマニュアル整備を行った"
+    ],
+    "expected_checks": [
+      "判断理由を掘る",
+      "仕組み化を強みとして拾う",
+      "再現性に繋げる"
+    ]
+  },
+  {
+    "id": "gakuchika_scene_vividness",
+    "title": "場面描写が弱いケース",
+    "conversation_seed": [
+      "イベントを企画した",
+      "大変だったが頑張った"
+    ],
+    "expected_checks": [
+      "具体場面を聞く",
+      "感情と判断を掘る",
+      "前後比較を求める"
+    ]
+  }
+]

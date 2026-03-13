@@ -35,6 +35,29 @@ GENERIC_DOMAIN_PATTERNS = {
     "mypage",
 }
 
+# Hyphenated domain suffix/prefixes that are commonly used for first-party
+# recruitment/career microsites and should still be treated as official.
+OFFICIAL_DOMAIN_AFFIXES = {
+    "career",
+    "careers",
+    "recruit",
+    "recruitment",
+    "saiyo",
+    "saiyou",
+    "entry",
+    "newgrad",
+    "newgrads",
+    "graduate",
+    "graduates",
+    "fresh",
+    "freshers",
+    "intern",
+    "internship",
+    "job",
+    "jobs",
+    "mypage",
+}
+
 
 @lru_cache(maxsize=1)
 def _load_mapping_data() -> dict:
@@ -104,6 +127,247 @@ def get_short_domain_allowlist_patterns() -> set[str]:
     return patterns
 
 
+def domain_pattern_matches(domain: str, pattern: str) -> bool:
+    """
+    Check if domain matches pattern using segment-based matching.
+
+    Avoids false positives from substring matching.
+    e.g., "mec" matches "mec.co.jp" but not "mecyes.co.jp"
+    """
+    if len(pattern) < 3:
+        if pattern.lower() not in get_short_domain_allowlist_patterns():
+            return False
+
+    pattern_lower = pattern.lower()
+    domain_lower = domain.lower()
+
+    if "." in pattern_lower:
+        if domain_lower == pattern_lower:
+            return True
+        if domain_lower.endswith("." + pattern_lower):
+            return True
+        # Allow multi-segment pattern like "bk.mufg"
+        if re.search(rf"(?:^|\.){re.escape(pattern_lower)}(?:\.|$)", domain_lower):
+            return True
+        return False
+
+    segments = domain_lower.split(".")
+    for segment in segments:
+        # Exact match
+        if segment == pattern_lower:
+            return True
+        # Prefix match (e.g., "mec-recruit")
+        if segment.startswith(pattern_lower + "-"):
+            return True
+        # Suffix match (e.g., "recruit-mec")
+        if segment.endswith("-" + pattern_lower):
+            return True
+
+        # Hyphen-normalized matching:
+        # Handles cases like "tokiomarine-hd" matching "tokiomarinehd.com"
+        if "-" in pattern_lower:
+            pattern_no_hyphen = pattern_lower.replace("-", "")
+            if len(pattern_no_hyphen) >= 4:
+                segment_no_hyphen = segment.replace("-", "")
+                # Exact match after dehyphenation
+                if segment_no_hyphen == pattern_no_hyphen:
+                    return True
+                # Prefix match after dehyphenation (with length guard)
+                if segment_no_hyphen.startswith(pattern_no_hyphen):
+                    if len(segment_no_hyphen) <= len(pattern_no_hyphen) + 8:
+                        return True
+                # Suffix match after dehyphenation
+                if segment_no_hyphen.endswith(pattern_no_hyphen):
+                    return True
+        # Reverse: segment has hyphens, pattern doesn't
+        if "-" in segment and "-" not in pattern_lower:
+            segment_no_hyphen = segment.replace("-", "")
+            if segment_no_hyphen == pattern_lower:
+                return True
+
+    return False
+
+
+def _extract_domain(url_or_domain: str) -> str:
+    """Normalize URL/domain input to a bare lowercase hostname."""
+    if not url_or_domain:
+        return ""
+
+    candidate = url_or_domain.strip().lower()
+    if not candidate:
+        return ""
+
+    if "://" in candidate:
+        try:
+            from urllib.parse import urlparse
+
+            return urlparse(candidate).netloc.lower()
+        except Exception:
+            return ""
+
+    return candidate.split("/", 1)[0]
+
+
+def _segment_matches_registered_pattern(segment: str, pattern: str) -> bool:
+    """
+    Check whether a domain segment should count as the company's own domain.
+
+    This is intentionally stricter than domain_pattern_matches(): we keep exact
+    matches, dehyphenated exact matches, and first-party recruitment affixes,
+    while rejecting arbitrary `pattern-*` variants that are often subsidiaries.
+    """
+    segment_lower = (segment or "").lower()
+    pattern_lower = (pattern or "").lower()
+    if not segment_lower or not pattern_lower:
+        return False
+
+    if segment_lower == pattern_lower:
+        return True
+
+    if "-" in pattern_lower:
+        pattern_no_hyphen = pattern_lower.replace("-", "")
+        if len(pattern_no_hyphen) >= 4:
+            segment_no_hyphen = segment_lower.replace("-", "")
+            if segment_no_hyphen == pattern_no_hyphen:
+                return True
+    elif "-" in segment_lower and segment_lower.replace("-", "") == pattern_lower:
+        return True
+
+    if segment_lower.startswith(pattern_lower + "-"):
+        suffix = segment_lower[len(pattern_lower) + 1 :]
+        if suffix in OFFICIAL_DOMAIN_AFFIXES:
+            return True
+
+    if segment_lower.endswith("-" + pattern_lower):
+        prefix = segment_lower[: -(len(pattern_lower) + 1)]
+        if prefix in OFFICIAL_DOMAIN_AFFIXES:
+            return True
+
+    return False
+
+
+def is_registered_official_domain(url_or_domain: str, company_name: str) -> bool:
+    """
+    Determine whether the input belongs to the target company's own domain.
+
+    Unlike domain_pattern_matches(), this does not treat arbitrary
+    `pattern-*` domains as official because those are frequently subsidiaries.
+    """
+    domain = _extract_domain(url_or_domain)
+    if not domain:
+        return False
+
+    patterns = _get_registered_company_domain_patterns(company_name)
+    if not patterns:
+        return False
+
+    allowlisted_short = get_short_domain_allowlist_patterns()
+    for pattern in patterns:
+        pattern_lower = pattern.lower()
+        if len(pattern_lower) < 3 and pattern_lower not in allowlisted_short:
+            continue
+
+        if "." in pattern_lower:
+            if domain == pattern_lower or domain.endswith("." + pattern_lower):
+                return True
+            if re.search(rf"(?:^|\.){re.escape(pattern_lower)}(?:\.|$)", domain):
+                return True
+            continue
+
+        for segment in domain.split("."):
+            if _segment_matches_registered_pattern(segment, pattern_lower):
+                return True
+
+    return False
+
+
+def classify_company_domain_relation(
+    url_or_domain: str,
+    company_name: str,
+    content_type: str | None = None,
+) -> dict[str, str | bool | None]:
+    """Classify the company relation of a URL/domain for search result labeling."""
+    domain = _extract_domain(url_or_domain)
+    relation_company_name: str | None = None
+    is_official = False
+    is_parent = False
+    is_subsidiary = False
+
+    resolved = _resolve_registered_domain_relation(domain, company_name)
+    resolved_classification = resolved.get("classification")
+
+    if resolved_classification == "official":
+        is_official = True
+    elif resolved_classification == "parent":
+        is_parent = True
+        relation_company_name = (
+            resolved.get("relation_company_name")
+            if isinstance(resolved.get("relation_company_name"), str)
+            else get_parent_company(company_name)
+        )
+    elif resolved_classification == "subsidiary":
+        is_subsidiary = True
+        relation_company_name = (
+            resolved.get("relation_company_name")
+            if isinstance(resolved.get("relation_company_name"), str)
+            else None
+        )
+    elif not resolved.get("ambiguous"):
+        is_official = is_registered_official_domain(domain, company_name)
+        is_parent = is_parent_domain(url_or_domain, company_name)
+        is_subsidiary, subsidiary_name = is_subsidiary_domain(
+            url_or_domain, company_name
+        )
+        if is_parent:
+            relation_company_name = get_parent_company(company_name)
+        elif is_subsidiary:
+            relation_company_name = subsidiary_name
+
+    parent_allowed = is_parent and is_parent_domain_allowed(company_name, content_type)
+    source_type = "other"
+    if is_official:
+        source_type = "official"
+    elif is_parent:
+        source_type = "parent"
+        if not relation_company_name:
+            relation_company_name = get_parent_company(company_name)
+    elif is_subsidiary:
+        source_type = "subsidiary"
+
+    return {
+        "domain": domain,
+        "is_official": is_official,
+        "is_parent": is_parent,
+        "parent_allowed": parent_allowed,
+        "is_subsidiary": is_subsidiary,
+        "relation_company_name": relation_company_name,
+        "source_type": source_type,
+        "ambiguous": bool(resolved.get("ambiguous")),
+    }
+
+
+def normalize_company_result_source_type(
+    raw_source_type: str | None,
+    relation: dict[str, str | bool | None],
+) -> str:
+    """
+    Normalize search result source type from relation-first ownership.
+
+    Registered ownership always wins over search-engine heuristics so that
+    parent/subsidiary pages are never promoted back to "official".
+    """
+    relation_source_type = relation.get("source_type")
+    if relation_source_type in {"official", "parent", "subsidiary"}:
+        return str(relation_source_type)
+
+    normalized = (raw_source_type or "").strip().lower()
+    if normalized in {"aggregator", "job_site"}:
+        return "job_site"
+    if normalized == "blog":
+        return "blog"
+    return "other"
+
+
 @lru_cache(maxsize=1)
 def _get_domain_pattern_index() -> dict[str, set[str]]:
     """
@@ -158,6 +422,205 @@ def _get_domains_from_mapping(mapping: dict | list[str] | None) -> list[str]:
     if isinstance(mapping, dict):
         return mapping.get("domains", [])
     return []
+
+
+def _get_registered_company_domain_patterns(company_name: str) -> list[str]:
+    """
+    Get only explicitly registered domain patterns for the target company.
+
+    This excludes partial-name expansions and generated fallbacks so that
+    parent-company searches do not inherit subsidiary domains as official.
+    """
+    patterns: list[str] = []
+    mappings = _load_company_mappings()
+
+    if company_name in mappings:
+        patterns.extend(_get_domains_from_mapping(mappings[company_name]))
+
+    normalized = _normalize_for_lookup(company_name)
+    if normalized != company_name and normalized in mappings:
+        for pattern in _get_domains_from_mapping(mappings[normalized]):
+            if pattern not in patterns:
+                patterns.append(pattern)
+
+    short_allowlist = _get_short_domain_allowlist()
+    allowlist_patterns = short_allowlist.get(company_name, [])
+    if normalized != company_name and not allowlist_patterns:
+        allowlist_patterns = short_allowlist.get(normalized, [])
+    for pattern in allowlist_patterns:
+        if pattern not in patterns:
+            patterns.append(pattern)
+
+    return patterns
+
+
+def _get_registered_pattern_match_strength(domain: str, pattern: str) -> int:
+    """
+    Score how specifically a registered pattern matches a domain.
+
+    Higher scores mean the pattern is more likely to represent the primary
+    owner of the domain. This lets us prefer exact dotted mappings such as
+    `smbc.co.jp` over shared brand tokens such as `smbc`.
+    """
+    if not domain or not pattern:
+        return 0
+
+    domain_lower = domain.lower()
+    pattern_lower = pattern.lower()
+    bonus = min(len(pattern_lower.replace(".", "").replace("-", "")), 24)
+
+    if "." in pattern_lower:
+        if domain_lower == pattern_lower:
+            return 220 + bonus
+        if domain_lower.endswith("." + pattern_lower):
+            return 210 + bonus
+        if re.search(rf"(?:^|\.){re.escape(pattern_lower)}(?:\.|$)", domain_lower):
+            return 200 + bonus
+        return 0
+
+    best = 0
+    segments = domain_lower.split(".")
+    for segment in segments:
+        if segment == pattern_lower:
+            best = max(best, 160 + bonus)
+            continue
+
+        if "-" in pattern_lower:
+            pattern_no_hyphen = pattern_lower.replace("-", "")
+            if len(pattern_no_hyphen) >= 4:
+                segment_no_hyphen = segment.replace("-", "")
+                if segment_no_hyphen == pattern_no_hyphen:
+                    best = max(best, 156 + bonus)
+                    continue
+        elif "-" in segment and segment.replace("-", "") == pattern_lower:
+            best = max(best, 154 + bonus)
+            continue
+
+        if segment.startswith(pattern_lower + "-"):
+            suffix = segment[len(pattern_lower) + 1 :]
+            if suffix in OFFICIAL_DOMAIN_AFFIXES:
+                best = max(best, 140 + bonus)
+        if segment.endswith("-" + pattern_lower):
+            prefix = segment[: -(len(pattern_lower) + 1)]
+            if prefix in OFFICIAL_DOMAIN_AFFIXES:
+                best = max(best, 138 + bonus)
+
+    return best
+
+
+def _get_registered_company_domain_match_strength(
+    company_name: str, url_or_domain: str
+) -> int:
+    """Return the strongest registered-domain match score for a company."""
+    domain = _extract_domain(url_or_domain)
+    if not domain:
+        return 0
+
+    allowlisted_short = get_short_domain_allowlist_patterns()
+    best = 0
+    for pattern in _get_registered_company_domain_patterns(company_name):
+        pattern_lower = pattern.lower()
+        if len(pattern_lower) < 3 and pattern_lower not in allowlisted_short:
+            continue
+        best = max(best, _get_registered_pattern_match_strength(domain, pattern_lower))
+    return best
+
+
+def _resolve_registered_domain_relation(
+    url_or_domain: str, company_name: str
+) -> dict[str, str | bool | None]:
+    """
+    Resolve official/parent/subsidiary ownership using registered patterns only.
+
+    This protects against shared group tokens such as `smbc` or `mufg` causing
+    a parent-company search to inherit a child-company site as "official".
+    """
+    domain = _extract_domain(url_or_domain)
+    if not domain:
+        return {
+            "classification": None,
+            "relation_company_name": None,
+            "ambiguous": False,
+        }
+
+    target_strength = _get_registered_company_domain_match_strength(
+        company_name, domain
+    )
+    parent_name = get_parent_company(company_name)
+    subsidiary_names = set(get_subsidiary_companies(company_name).keys())
+    sibling_names = set(get_sibling_companies(company_name).keys())
+
+    related_strengths: list[tuple[str, str, int]] = []
+    if parent_name:
+        parent_strength = _get_registered_company_domain_match_strength(
+            parent_name, domain
+        )
+        if parent_strength > 0:
+            related_strengths.append(("parent", parent_name, parent_strength))
+
+    for sub_name in subsidiary_names:
+        sub_strength = _get_registered_company_domain_match_strength(sub_name, domain)
+        if sub_strength > 0:
+            related_strengths.append(("subsidiary", sub_name, sub_strength))
+
+    for sibling_name in sibling_names:
+        sibling_strength = _get_registered_company_domain_match_strength(
+            sibling_name, domain
+        )
+        if sibling_strength > 0:
+            related_strengths.append(("sibling", sibling_name, sibling_strength))
+
+    strongest_related = max((score for _, _, score in related_strengths), default=0)
+
+    if target_strength > 0 and target_strength > strongest_related:
+        return {
+            "classification": "official",
+            "relation_company_name": None,
+            "ambiguous": False,
+        }
+
+    if target_strength > 0 and target_strength == strongest_related:
+        # Shared-brand matches are ambiguous. Do not label them as official.
+        return {
+            "classification": None,
+            "relation_company_name": None,
+            "ambiguous": True,
+        }
+
+    if strongest_related <= 0:
+        return {
+            "classification": None,
+            "relation_company_name": None,
+            "ambiguous": False,
+        }
+
+    strongest_matches = [
+        (kind, name, score)
+        for kind, name, score in related_strengths
+        if score == strongest_related
+    ]
+    if len(strongest_matches) != 1:
+        return {
+            "classification": None,
+            "relation_company_name": None,
+            "ambiguous": True,
+        }
+
+    kind, relation_company_name, _ = strongest_matches[0]
+    if kind == "parent":
+        classification = "parent"
+    elif kind == "subsidiary":
+        classification = "subsidiary"
+    else:
+        classification = None
+
+    return {
+        "classification": classification,
+        "relation_company_name": (
+            relation_company_name if classification else None
+        ),
+        "ambiguous": classification is None,
+    }
 
 
 def get_parent_company(company_name: str) -> str | None:
@@ -592,27 +1055,7 @@ def is_parent_domain(url: str, company_name: str) -> bool:
     domain_segments = domain.split(".")
 
     def _matches_domain_pattern(domain: str, pattern: str) -> bool:
-        pattern_lower = pattern.lower()
-        domain_lower = domain.lower()
-        if "." in pattern_lower:
-            if domain_lower == pattern_lower:
-                return True
-            if domain_lower.endswith("." + pattern_lower):
-                return True
-            # Allow multi-segment patterns like "bk.mufg"
-            if re.search(rf"(?:^|\.){re.escape(pattern_lower)}(?:\.|$)", domain_lower):
-                return True
-            return False
-
-        # Segment-based match (same as _domain_pattern_matches)
-        for segment in domain_lower.split("."):
-            if segment == pattern_lower:
-                return True
-            if segment.startswith(pattern_lower + "-") or segment.endswith(
-                "-" + pattern_lower
-            ):
-                return True
-        return False
+        return domain_pattern_matches(domain, pattern)
 
     # 3. まず子会社自身のドメインかチェック（親会社と共通のパターンを除外）
     # 子会社固有のパターン = 子会社パターン - 親会社パターン

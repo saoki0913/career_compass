@@ -11,6 +11,7 @@ import { users, subscriptions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { stripe } from "@/lib/stripe";
+import { logError } from "@/lib/logger";
 
 export async function DELETE(request: NextRequest) {
   try {
@@ -27,6 +28,13 @@ export async function DELETE(request: NextRequest) {
 
     const userId = session.user.id;
 
+    // Audit log: account deletion initiated
+    console.info(JSON.stringify({
+      event: "account_deletion_initiated",
+      userId,
+      timestamp: new Date().toISOString(),
+    }));
+
     // Check if user has an active Stripe subscription
     const [sub] = await db
       .select()
@@ -37,9 +45,13 @@ export async function DELETE(request: NextRequest) {
     if (sub?.stripeSubscriptionId && sub.status !== "canceled") {
       try {
         await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
-        console.log(`Stripe subscription ${sub.stripeSubscriptionId} canceled`);
+        console.info(JSON.stringify({
+          event: "stripe_subscription_canceled",
+          userId,
+          subscriptionId: sub.stripeSubscriptionId,
+        }));
       } catch (e) {
-        console.error("Error canceling Stripe subscription:", e);
+        logError("cancel-stripe-subscription", e as Error, { userId });
         // Continue with account deletion even if Stripe cancellation fails
       }
     }
@@ -48,12 +60,19 @@ export async function DELETE(request: NextRequest) {
     // All tables with foreign keys to users have onDelete: "cascade" configured
     await db.delete(users).where(eq(users.id, userId));
 
+    // Audit log: account deletion completed
+    console.info(JSON.stringify({
+      event: "account_deletion_completed",
+      userId,
+      timestamp: new Date().toISOString(),
+    }));
+
     return NextResponse.json({
       success: true,
       message: "Account deleted successfully",
     });
   } catch (error) {
-    console.error("Error deleting account:", error);
+    logError("delete-account", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

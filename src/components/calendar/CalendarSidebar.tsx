@@ -127,6 +127,8 @@ interface CalendarSidebarProps {
   googleEvents: GoogleCalendarEvent[];
   selectedDate: Date | null;
   isGoogleConnected: boolean;
+  needsReconnect?: boolean;
+  connectedEmail?: string | null;
   onDateClick?: (date: Date) => void;
 }
 
@@ -136,6 +138,8 @@ export function CalendarSidebar({
   googleEvents,
   selectedDate,
   isGoogleConnected,
+  needsReconnect = false,
+  connectedEmail,
 }: CalendarSidebarProps) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -168,7 +172,8 @@ export function CalendarSidebar({
       const startDateTime = googleEvent.start.dateTime || googleEvent.start.date;
       if (!startDateTime) return;
       const normalizedTitle = googleEvent.summary
-        .replace("[Career Compass] ", "")
+        .replace("[シューパス] ", "")
+        .replace("[就活Compass] ", "")
         .toLowerCase()
         .trim();
       const startMinute = Math.floor(new Date(startDateTime).getTime() / 60000);
@@ -198,15 +203,27 @@ export function CalendarSidebar({
   return (
     <div className="space-y-4">
       {/* Google Connection Status */}
-      <Card className={cn(isGoogleConnected ? "border-green-200 bg-green-50/50" : "border-border")}>
+      <Card className={cn(
+        needsReconnect ? "border-amber-200 bg-amber-50/70" : isGoogleConnected ? "border-green-200 bg-green-50/50" : "border-border"
+      )}>
         <CardContent className="py-3 px-4">
-          <div className="flex items-center gap-2">
-            <GoogleIcon />
-            <span className={cn("text-sm", isGoogleConnected ? "text-green-700" : "text-muted-foreground")}>
-              {isGoogleConnected ? "Google連携済み" : "Google未連携"}
-            </span>
-            {isGoogleConnected && <CheckCircleIcon />}
-          </div>
+          <Link href="/calendar/settings" className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <GoogleIcon />
+              <div>
+                <p className={cn(
+                  "text-sm",
+                  needsReconnect ? "text-amber-700" : isGoogleConnected ? "text-green-700" : "text-muted-foreground"
+                )}>
+                  {needsReconnect ? "Google再連携が必要です" : isGoogleConnected ? "Googleカレンダー連携中" : "Googleカレンダーを連携"}
+                </p>
+                {connectedEmail && isGoogleConnected && !needsReconnect && (
+                  <p className="text-xs text-muted-foreground">{connectedEmail}</p>
+                )}
+              </div>
+            </div>
+            {isGoogleConnected && !needsReconnect ? <CheckCircleIcon /> : <span className="text-xs text-primary">設定</span>}
+          </Link>
         </CardContent>
       </Card>
 

@@ -1,12 +1,12 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, AliasChoices, model_validator
+from pydantic import Field, AliasChoices, model_validator, field_validator
 from functools import lru_cache
 from pathlib import Path
 
 
 class Settings(BaseSettings):
     """
-    Career Compass API 設定
+    就活Compass API 設定
 
     全ての設定は環境変数から読み込まれます。
     環境変数が設定されていない場合はデフォルト値が使用されます。
@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     """
 
     # ===== アプリケーション =====
-    app_name: str = "Career Compass API"
+    app_name: str = "就活Compass API"
     debug: bool = False
     company_search_debug: bool = False
     web_search_debug: bool = Field(
@@ -38,16 +38,42 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CORS_ORIGINS"),
     )
 
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """
+        Support multiple formats for CORS_ORIGINS:
+          - JSON array string: '["https://a.com","https://b.com"]' (recommended)
+          - Comma-separated: "https://a.com,https://b.com"
+        """
+        if v is None:
+            return v
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return []
+            if s.startswith("["):
+                # Let Pydantic parse JSON array strings.
+                return v
+            return [item.strip() for item in s.split(",") if item.strip()]
+        return v
+
     # ===== データベース =====
     # NOTE: メインDBは Next.js (フロントエンド) が Supabase (PostgreSQL) に接続します。
     # FastAPI バックエンドは DB に直接接続しません。
 
     # ===== フロントエンド =====
-    frontend_url: str = "http://localhost:3000"
+    frontend_url: str = Field(
+        default="http://localhost:3000",
+        validation_alias=AliasChoices("FRONTEND_URL", "NEXT_PUBLIC_APP_URL"),
+    )
 
     # ===== API キー =====
     openai_api_key: str = ""
     anthropic_api_key: str = ""
+    google_api_key: str = ""
+    cohere_api_key: str = ""
+    deepseek_api_key: str = ""
 
     # ===== キャッシュ =====
     # 環境変数: REDIS_URL
@@ -67,8 +93,40 @@ class Settings(BaseSettings):
     # 環境変数: OPENAI_MODEL
     openai_model: str = "gpt-5-mini"
 
+    # Gemini モデル（Gemini API / OpenAI compatibility ではなく公式APIを使用）
+    # 環境変数: GOOGLE_MODEL / GOOGLE_BASE_URL
+    google_model: str = "gemini-3.1-pro-preview"
+    google_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+
+    # Cohere モデル（OpenAI compatibility API）
+    # 環境変数: COHERE_MODEL / COHERE_BASE_URL
+    cohere_model: str = "command-a-03-2025"
+    cohere_base_url: str = "https://api.cohere.com/compatibility/v1"
+
+    # DeepSeek モデル（OpenAI compatibility API）
+    # 環境変数: DEEPSEEK_MODEL / DEEPSEEK_BASE_URL
+    deepseek_model: str = "deepseek-chat"
+    deepseek_base_url: str = "https://api.deepseek.com/v1"
+
+    # Qwen3 Swallow 32B ES添削 beta 推論サービス
+    # 環境変数: QWEN_ES_REVIEW_BASE_URL / QWEN_ES_REVIEW_MODEL / QWEN_ES_REVIEW_API_KEY
+    qwen_es_review_enabled: bool = False
+    qwen_es_review_base_url: str = ""
+    qwen_es_review_model: str = "tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2"
+    qwen_es_review_api_key: str = ""
+    qwen_es_review_timeout_seconds: int = 120
+    qwen_es_review_timeout_improvement_seconds: int = 30
+    qwen_es_review_timeout_rewrite_seconds: int = 90
+    qwen_es_review_timeout_compact_rewrite_seconds: int = 45
+    qwen_es_review_timeout_length_fix_seconds: int = 20
+    qwen_es_review_total_budget_seconds: int = 150
+    qwen_es_review_adapter_id: str = ""
+
     # ===== 機能別モデル設定 =====
-    # 各機能で使用するLLMモデルティア（claude-sonnet / claude-haiku / openai）
+    # 各機能で使用するモデルエイリアスまたは明示モデルID
+    # 例:
+    #   - エイリアス: claude-sonnet / claude-haiku / openai / google / cohere / deepseek
+    #   - 明示ID: gpt-5.1 / gemini-3.1-pro-preview / command-a-03-2025 / deepseek-chat
     # .env.local で個別にオーバーライド可能
     model_es_review: str = "claude-sonnet"          # MODEL_ES_REVIEW - ES添削
     model_gakuchika: str = "claude-haiku"           # MODEL_GAKUCHIKA - ガクチカ深掘り
@@ -133,21 +191,6 @@ class Settings(BaseSettings):
     # 環境変数: ES_CHAR_TOLERANCE_MIN
     # 短い制限でも最低この文字数の幅を確保
     es_char_tolerance_min: int = 20
-
-    # テンプレート添削の最大リトライ回数
-    # 環境変数: ES_TEMPLATE_MAX_RETRIES
-    # 3回で十分（タイムアウト防止のため）
-    es_template_max_retries: int = 3
-
-    # 条件付き追加リトライを有効にするか
-    # 環境変数: ES_ENABLE_CONDITIONAL_RETRY
-    # 2/3パターン成功時に追加リトライを行う
-    es_enable_conditional_retry: bool = True
-
-    # リライト案の最大出力数
-    # 環境変数: ES_REWRITE_COUNT
-    # 1=ユーザーが迷わない、最大3まで設定可能
-    es_rewrite_count: int = 1
 
     @model_validator(mode="after")
     def validate_cors_origins(self):

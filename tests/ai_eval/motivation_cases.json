@@ -1,0 +1,41 @@
+[
+  {
+    "id": "motivation_generic_reason",
+    "title": "どの会社にも言える志望理由",
+    "conversation_seed": [
+      "成長できそうだから志望している",
+      "若手から挑戦できそうだと感じた"
+    ],
+    "expected_checks": [
+      "他社でも通る理由として扱う",
+      "企業固有の特徴との接続を求める",
+      "why now を補強する"
+    ]
+  },
+  {
+    "id": "motivation_company_only",
+    "title": "企業理解はあるが本人接続が弱いケース",
+    "conversation_seed": [
+      "御社のDX推進に魅力を感じる",
+      "海外展開にも惹かれている"
+    ],
+    "expected_checks": [
+      "本人の経験との因果接続を求める",
+      "やりたい仕事に繋げる",
+      "固有語の列挙だけでは高得点にしない"
+    ]
+  },
+  {
+    "id": "motivation_fit_and_differentiation",
+    "title": "差別化を強くするケース",
+    "conversation_seed": [
+      "同業他社も見ているが、この会社が第一志望",
+      "大学時代の企画経験を活かしたい"
+    ],
+    "expected_checks": [
+      "比較軸を掘る",
+      "職種や役割への接続を求める",
+      "入社後の価値発揮まで繋げる"
+    ]
+  }
+]

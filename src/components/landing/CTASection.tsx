@@ -3,100 +3,94 @@
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/AuthProvider";
 import Link from "next/link";
-import { ArrowRight, Shield, Clock, CreditCard } from "lucide-react";
+import { ArrowRight, Clock, CreditCard, Shield } from "lucide-react";
 
 const trustBadges = [
   { icon: CreditCard, text: "クレジットカード不要" },
   { icon: Clock, text: "30秒で登録完了" },
   { icon: Shield, text: "いつでも解約可能" },
-];
+] as const;
 
 export function CTASection() {
   const { isAuthenticated, isLoading } = useAuth();
 
   return (
-    <section className="relative py-24 overflow-hidden">
-      {/* Gradient background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary/95 to-primary/85" />
+    <section className="py-24">
+      <div className="container mx-auto px-4">
+        <div className="overflow-hidden rounded-2xl border border-primary/15 bg-card px-6 py-10 sm:px-8 lg:px-10">
+          <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-2xl text-center text-foreground lg:text-left">
+              <p className="text-sm font-medium text-primary/80">
+                クレジットカード不要・30秒で登録完了
+              </p>
 
-      {/* Decorative elements */}
-      <div
-        className="absolute top-0 left-0 w-96 h-96 rounded-full bg-white/5 blur-3xl -translate-x-1/2 -translate-y-1/2"
-        aria-hidden="true"
-      />
-      <div
-        className="absolute bottom-0 right-0 w-80 h-80 rounded-full bg-accent/20 blur-3xl translate-x-1/3 translate-y-1/3"
-        aria-hidden="true"
-      />
+              <h2 className="mt-4 text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
+                今日から就活、
+                <br className="hidden sm:block" />
+                迷わなくなる
+              </h2>
 
-      <div className="relative container mx-auto px-4">
-        <div className="max-w-3xl mx-auto text-center text-primary-foreground">
-          {/* Urgency line */}
-          <p className="text-sm font-medium text-primary-foreground/70 mb-4 opacity-0 animate-fade-up">
-            就活シーズンは待ってくれない
-          </p>
+              <p className="mt-5 text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
+                ES、志望動機、ガクチカ、締切管理。
+                <br className="hidden sm:block" />
+                すべて無料で試せます。
+              </p>
 
-          {/* Headline */}
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6 opacity-0 animate-fade-up delay-100">
-            今日から、就活の準備を
-            <br className="sm:hidden" />
-            始めよう。
-          </h2>
-
-          {/* Subtext */}
-          <p className="text-lg sm:text-xl text-primary-foreground/80 mb-10 opacity-0 animate-fade-up delay-200">
-            無料プランでES添削を試してみませんか？
-            <br className="hidden sm:block" />
-            あなたの就活を、就活Passがサポートします。
-          </p>
-
-          {/* CTA Button */}
-          <div className="opacity-0 animate-fade-up delay-300">
-            {isLoading ? (
-              <Button
-                size="lg"
-                disabled
-                className="h-14 px-10 text-lg bg-white text-primary hover:bg-white/90"
-              >
-                <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2" />
-                読み込み中...
-              </Button>
-            ) : isAuthenticated ? (
-              <Button
-                size="lg"
-                asChild
-                className="h-14 px-10 text-lg bg-white text-primary hover:bg-white/90 shadow-xl hover:shadow-2xl hover:-translate-y-0.5 transition-all"
-              >
-                <Link href="/dashboard">
-                  ダッシュボードへ
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                size="lg"
-                asChild
-                className="h-14 px-10 text-lg bg-white text-primary hover:bg-white/90 shadow-xl hover:shadow-2xl hover:-translate-y-0.5 transition-all"
-              >
-                <Link href="/login">
-                  無料でES添削を試してみる
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Link>
-              </Button>
-            )}
-          </div>
-
-          {/* Trust badges */}
-          <div className="flex flex-wrap justify-center gap-6 mt-10 opacity-0 animate-fade-up delay-500">
-            {trustBadges.map((badge) => (
-              <div
-                key={badge.text}
-                className="flex items-center gap-2 text-sm text-primary-foreground/70"
-              >
-                <badge.icon className="h-4 w-4" />
-                <span>{badge.text}</span>
+              <div className="mt-8 flex flex-wrap justify-center gap-x-6 gap-y-2 lg:justify-start">
+                {trustBadges.map((badge) => (
+                  <div
+                    key={badge.text}
+                    className="flex items-center gap-2 text-sm text-muted-foreground"
+                  >
+                    <badge.icon className="h-3.5 w-3.5 text-primary" />
+                    <span>{badge.text}</span>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
+
+            <div className="flex flex-col gap-3 lg:min-w-[220px] lg:items-stretch">
+              {isLoading ? (
+                <Button
+                  size="lg"
+                  disabled
+                  className="h-14"
+                >
+                  <span className="mr-2 h-4 w-4 animate-spin rounded-full border-b-2 border-current" />
+                  読み込み中...
+                </Button>
+              ) : isAuthenticated ? (
+                <Button
+                  size="lg"
+                  asChild
+                  className="h-14 px-10 text-lg"
+                >
+                  <Link href="/dashboard">
+                    ダッシュボードへ
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </Link>
+                </Button>
+              ) : (
+                <Button
+                  size="lg"
+                  asChild
+                  className="h-14 px-10 text-lg landing-cta-btn animate-pulse-glow"
+                >
+                  <Link href="/login">
+                    今すぐ無料で試す
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </Link>
+                </Button>
+              )}
+              <Button
+                size="lg"
+                variant="outline"
+                asChild
+                className="h-14 px-10 text-base"
+              >
+                <a href="#pricing">料金を見る</a>
+              </Button>
+            </div>
           </div>
         </div>
       </div>

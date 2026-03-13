@@ -1,4 +1,4 @@
-# Career Compass (就活Pass) - ドキュメント
+# 就活Compass (シューパス) - ドキュメント
 
 就活支援アプリ「就活Pass」のドキュメント一覧
 
@@ -46,9 +46,9 @@
 |------------|------|
 | [COMPANY_INFO_FETCH.md](./features/COMPANY_INFO_FETCH.md) | 企業情報検索（採用ページ検索、スケジュール抽出） |
 | [COMPANY_RAG.md](./features/COMPANY_RAG.md) | 企業RAGシステム（ハイブリッド検索、ベクトルDB） |
-| [ES_REVIEW.md](./features/ES_REVIEW.md) | ES添削機能（スコアリング、リライト生成） |
-| [GAKUCHIKA_DEEP_DIVE.md](./features/GAKUCHIKA_DEEP_DIVE.md) | ガクチカ深掘り（対話形式、サマリー生成） |
-| [MOTIVATION.md](./features/MOTIVATION.md) | 志望動機作成（AI対話形式、ES下書き生成） |
+| [ES_REVIEW.md](./features/ES_REVIEW.md) | ES添削機能（改善ポイント先行の2段階生成、pre-stream 企業補強、company evidence cards、reference quality + outline、通常5回+簡易化1回の再試行、入力防御） |
+| [GAKUCHIKA_DEEP_DIVE.md](./features/GAKUCHIKA_DEEP_DIVE.md) | ガクチカ深掘り（対話形式、サマリー生成、面接品質基準） |
+| [MOTIVATION.md](./features/MOTIVATION.md) | 志望動機作成（AI対話形式、ES下書き生成、企業根拠の品質基準） |
 
 ---
 
@@ -60,6 +60,7 @@
 |------------|------|
 | [BACKEND_TESTS.md](./testing/BACKEND_TESTS.md) | バックエンドテスト（pytest、検索精度テスト） |
 | [RAG_EVAL.md](./testing/RAG_EVAL.md) | RAG評価（ES添削向けオフライン評価） |
+| [ES_REVIEW_QUALITY.md](./testing/ES_REVIEW_QUALITY.md) | ES添削の固定 rubric 評価（company evidence / user facts / reference outline / weak evidence 通知） |
 
 ---
 

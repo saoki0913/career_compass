@@ -2,6 +2,8 @@
 
 バックエンドの「検索」検証だけをまとめたドキュメントです。
 
+ES添削の固定品質監視については [ES_REVIEW_QUALITY.md](./ES_REVIEW_QUALITY.md) を参照してください。
+
 ### Live検索レポート（Legacy + Hybrid）
 
 `backend/data/company_mappings.json` からランダムに30社を抽出し、採用/コーポレート検索を **Legacy と Hybrid の両方**で実行して結果を `md/json` レポート出力します。

@@ -1,95 +1,69 @@
 "use client";
 
-import { Chrome, Building2, Bot } from "lucide-react";
+import { Check, Chrome, FileText } from "lucide-react";
 
 const steps = [
   {
     number: "01",
     icon: Chrome,
-    title: "Googleで登録",
-    description: "ワンクリックで簡単登録。メールアドレス認証も不要です。",
+    title: "無料で始める",
+    description: "Googleで30秒登録。クレジットカードなしですぐ試せます。",
   },
   {
     number: "02",
-    icon: Building2,
-    title: "企業を追加",
-    description: "志望企業を登録するだけ。締切は自動で管理されます。",
+    icon: FileText,
+    title: "途中の材料を入れる",
+    description:
+      "下書き中のES、考えかけの志望動機、ガクチカのメモなど、途中の状態から始められます。",
   },
   {
     number: "03",
-    icon: Bot,
-    title: "AIを活用",
-    description: "ES添削やガクチカ深掘りをAIにおまかせ。品質が上がります。",
+    icon: Check,
+    title: "AIと一緒に整える",
+    description:
+      "添削・深掘り・志望動機作成で、応募できる状態まで少しずつ仕上げます。",
   },
-];
+] as const;
 
 export function HowItWorksSection() {
   return (
-    <section id="how-it-works" className="py-24">
+    <section id="how-it-works" className="bg-secondary/10 py-24">
       <div className="container mx-auto px-4">
-        {/* Section header */}
-        <div className="text-center mb-16">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-            </span>
-            30秒で始められる
+        <div className="mx-auto mb-16 max-w-6xl lg:grid lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:items-end lg:gap-12">
+          <div className="text-center lg:text-left">
+            <span className="landing-kicker mb-5">使い方</span>
+            <h2 className="landing-serif text-3xl font-semibold tracking-tight sm:text-4xl lg:text-5xl">
+              途中からでも、始められる3ステップ
+            </h2>
           </div>
-          <h2 className="text-3xl sm:text-4xl font-bold mb-4">
-            シンプルな3ステップ
-          </h2>
-          <p className="text-lg text-muted-foreground">
-            複雑な設定は一切なし。すぐに就活対策を始められます。
+          <p className="mt-5 text-center text-lg leading-8 text-muted-foreground lg:mt-0 lg:text-left">
+            複雑な準備は不要です。今ある材料から、就活を前に進められます。
           </p>
         </div>
 
-        {/* Steps */}
-        <div className="relative max-w-5xl mx-auto">
-          {/* Connecting line (desktop) */}
+        <div className="relative mx-auto max-w-5xl">
           <div
-            className="hidden md:block absolute top-24 left-[16.67%] right-[16.67%] h-0.5 bg-gradient-to-r from-primary/20 via-primary/40 to-primary/20"
+            className="absolute left-[16.5%] right-[16.5%] top-10 hidden h-px bg-border/60 md:block"
             aria-hidden="true"
           />
-
-          <div className="grid md:grid-cols-3 gap-8 md:gap-12">
-            {steps.map((step, index) => (
+          <div className="grid gap-6 md:grid-cols-3">
+            {steps.map((step) => (
               <div
                 key={step.number}
-                className="relative opacity-0 animate-fade-up"
-                style={{ animationDelay: `${(index + 1) * 200}ms` }}
+                className="landing-panel relative h-full rounded-xl p-6 shadow-none"
               >
-                {/* Step card */}
-                <div className="flex flex-col items-center text-center">
-                  {/* Number + Icon */}
-                  <div className="relative mb-6">
-                    {/* Outer ring */}
-                    <div className="absolute inset-0 rounded-full bg-primary/5 scale-125" />
-
-                    {/* Main circle */}
-                    <div className="relative flex items-center justify-center w-20 h-20 rounded-full bg-card border-2 border-primary/20 shadow-lg">
-                      <step.icon className="h-8 w-8 text-primary" />
-                    </div>
-
-                    {/* Step number badge */}
-                    <div className="absolute -top-2 -right-2 flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground text-sm font-bold shadow-md">
-                      {step.number.replace('0', '')}
-                    </div>
+                <div className="mb-6 flex items-start justify-between gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/40 text-primary">
+                    <step.icon className="h-4 w-4" />
                   </div>
-
-                  {/* Content */}
-                  <h3 className="text-xl font-bold mb-3">{step.title}</h3>
-                  <p className="text-muted-foreground leading-relaxed max-w-xs">
-                    {step.description}
-                  </p>
+                  <span className="text-xs font-semibold tracking-[0.14em] text-primary/70">
+                    STEP {step.number}
+                  </span>
                 </div>
-
-                {/* Mobile arrow */}
-                {index < steps.length - 1 && (
-                  <div className="md:hidden flex justify-center my-6">
-                    <div className="w-0.5 h-8 bg-gradient-to-b from-primary/40 to-primary/10" />
-                  </div>
-                )}
+                <h3 className="text-xl font-semibold tracking-tight text-foreground">{step.title}</h3>
+                <p className="mt-4 text-base leading-7 text-muted-foreground">
+                  {step.description}
+                </p>
               </div>
             ))}
           </div>

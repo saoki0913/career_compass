@@ -43,7 +43,7 @@ ES添削のRAG検索品質をオフラインで評価するためのガイドで
 ## 実行方法
 
 ```bash
-python backend/scripts/rag_eval.py \
+python backend/evals/rag/evaluate_retrieval.py \
   --input data/rag_eval_samples.jsonl \
   --top-k 5
 ```

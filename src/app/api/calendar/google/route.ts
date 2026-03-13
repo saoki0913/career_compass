@@ -1,66 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
-import { db } from "@/lib/db";
-import { calendarSettings, accounts } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
-import { getCalendarEvents, getFreeBusy, suggestWorkBlocks, createCalendarEvent, replaceUkarunEvents, refreshAccessToken } from "@/lib/calendar/google";
-
-interface GoogleAccount {
-  accessToken: string | null;
-  refreshToken: string | null;
-  accessTokenExpiresAt: Date | null;
-  id: string;
-}
-
-async function getGoogleAccount(userId: string): Promise<GoogleAccount | null> {
-  // Get Google account from Better Auth accounts table
-  const [account] = await db
-    .select()
-    .from(accounts)
-    .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "google")))
-    .limit(1);
-
-  if (!account) return null;
-
-  return {
-    accessToken: account.accessToken,
-    refreshToken: account.refreshToken,
-    accessTokenExpiresAt: account.accessTokenExpiresAt,
-    id: account.id,
-  };
-}
-
-async function getValidAccessToken(userId: string): Promise<string | null> {
-  const account = await getGoogleAccount(userId);
-  if (!account?.accessToken) return null;
-
-  // Check if token is expired or about to expire (within 5 minutes)
-  const now = new Date();
-  const expiresAt = account.accessTokenExpiresAt;
-  const isExpired = expiresAt && expiresAt.getTime() - now.getTime() < 5 * 60 * 1000;
-
-  if (isExpired && account.refreshToken) {
-    try {
-      const refreshed = await refreshAccessToken(account.refreshToken);
-      // Update the token in the database
-      await db
-        .update(accounts)
-        .set({
-          accessToken: refreshed.accessToken,
-          accessTokenExpiresAt: refreshed.expiresAt,
-          updatedAt: now,
-        })
-        .where(eq(accounts.id, account.id));
-      return refreshed.accessToken;
-    } catch (error) {
-      console.error("Failed to refresh token:", error);
-      return null;
-    }
-  }
-
-  return account.accessToken;
-}
+import { getCalendarEvents, getFreeBusy, suggestWorkBlocks, createCalendarEvent, replaceUkarunEvents } from "@/lib/calendar/google";
+import { getValidGoogleCalendarAccessToken } from "@/lib/calendar/connection";
 
 export async function GET(request: NextRequest) {
   try {
@@ -74,17 +16,16 @@ export async function GET(request: NextRequest) {
     const start = searchParams.get("start");
     const end = searchParams.get("end");
 
-    const accessToken = await getValidAccessToken(session.user.id);
+    const { accessToken, settings, status } = await getValidGoogleCalendarAccessToken(session.user.id);
     if (!accessToken) {
-      return NextResponse.json({ error: "Google Calendar not connected", code: "NOT_CONNECTED" }, { status: 403 });
+      return NextResponse.json(
+        {
+          error: status.needsReconnect ? "Googleカレンダーの再連携が必要です" : "Google Calendar not connected",
+          code: status.needsReconnect ? "NEED_RECONNECT" : "NOT_CONNECTED",
+        },
+        { status: 403 }
+      );
     }
-
-    // Get user's preferred calendar
-    const [settings] = await db
-      .select()
-      .from(calendarSettings)
-      .where(eq(calendarSettings.userId, session.user.id))
-      .limit(1);
 
     const calendarId = settings?.targetCalendarId || "primary";
 
@@ -94,7 +35,17 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "freebusy" && start && end) {
-      const busy = await getFreeBusy(accessToken, calendarId, start, end);
+      const freebusyIds = settings?.freebusyCalendarIds
+        ? JSON.parse(settings.freebusyCalendarIds)
+        : settings?.targetCalendarId
+          ? [settings.targetCalendarId]
+          : [];
+
+      if (freebusyIds.length === 0) {
+        return NextResponse.json({ error: "空き時間算出対象のカレンダーを設定してください" }, { status: 400 });
+      }
+
+      const busy = await getFreeBusy(accessToken, freebusyIds, start, end);
       return NextResponse.json({ busy });
     }
 
@@ -103,7 +54,17 @@ export async function GET(request: NextRequest) {
       const dayStart = `${date}T00:00:00+09:00`;
       const dayEnd = `${date}T23:59:59+09:00`;
 
-      const busy = await getFreeBusy(accessToken, calendarId, dayStart, dayEnd);
+      const freebusyIds = settings?.freebusyCalendarIds
+        ? JSON.parse(settings.freebusyCalendarIds)
+        : settings?.targetCalendarId
+          ? [settings.targetCalendarId]
+          : [];
+
+      if (freebusyIds.length === 0) {
+        return NextResponse.json({ error: "空き時間算出対象のカレンダーを設定してください" }, { status: 400 });
+      }
+
+      const busy = await getFreeBusy(accessToken, freebusyIds, dayStart, dayEnd);
       const suggestions = suggestWorkBlocks(busy, date);
       return NextResponse.json({ suggestions });
     }
@@ -122,31 +83,63 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
-    const accessToken = await getValidAccessToken(session.user.id);
+    const { accessToken, settings, status } = await getValidGoogleCalendarAccessToken(session.user.id);
     if (!accessToken) {
-      return NextResponse.json({ error: "Google Calendar not connected", code: "NOT_CONNECTED" }, { status: 403 });
+      return NextResponse.json(
+        {
+          error: status.needsReconnect ? "Googleカレンダーの再連携が必要です" : "Google Calendar not connected",
+          code: status.needsReconnect ? "NEED_RECONNECT" : "NOT_CONNECTED",
+        },
+        { status: 403 }
+      );
     }
-
-    const [settings] = await db
-      .select()
-      .from(calendarSettings)
-      .where(eq(calendarSettings.userId, session.user.id))
-      .limit(1);
 
     const calendarId = settings?.targetCalendarId || "primary";
     const body = await request.json();
     const { action } = body;
 
     if (action === "create") {
+      if (!settings?.targetCalendarId) {
+        return NextResponse.json(
+          { error: "追加先カレンダーを設定してください", code: "TARGET_CALENDAR_REQUIRED" },
+          { status: 400 }
+        );
+      }
       const { title, startAt, endAt, description } = body;
-      const event = await createCalendarEvent(accessToken, calendarId, { title, startAt, endAt, description });
-      return NextResponse.json({ event });
+      if (!title || !startAt || !endAt) {
+        return NextResponse.json(
+          { error: "イベント情報が不足しています", code: "INVALID_EVENT_PAYLOAD" },
+          { status: 400 }
+        );
+      }
+      try {
+        const event = await createCalendarEvent(accessToken, calendarId, { title, startAt, endAt, description });
+        return NextResponse.json({ event });
+      } catch {
+        return NextResponse.json(
+          { error: "Googleカレンダーへの追加に失敗しました", code: "CALENDAR_CREATE_FAILED" },
+          { status: 502 }
+        );
+      }
     }
 
     if (action === "replace") {
+      if (!settings?.targetCalendarId) {
+        return NextResponse.json(
+          { error: "追加先カレンダーを設定してください", code: "TARGET_CALENDAR_REQUIRED" },
+          { status: 400 }
+        );
+      }
       const { timeMin, timeMax, events: newEvents } = body;
-      const created = await replaceUkarunEvents(accessToken, calendarId, timeMin, timeMax, newEvents);
-      return NextResponse.json({ created });
+      try {
+        const created = await replaceUkarunEvents(accessToken, calendarId, timeMin, timeMax, newEvents);
+        return NextResponse.json({ created });
+      } catch {
+        return NextResponse.json(
+          { error: "Googleカレンダーへの反映に失敗しました", code: "CALENDAR_REPLACE_FAILED" },
+          { status: 502 }
+        );
+      }
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

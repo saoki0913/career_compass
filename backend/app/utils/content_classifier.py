@@ -101,10 +101,7 @@ def classify_content_category(
         primary = weak_matches[0]
 
     if not primary:
-        if source_channel:
-            primary = source_channel
-        else:
-            primary = None
+        primary = None
 
     primary, secondary = _detect_secondary_content_types(primary, heading_text, body)
 
@@ -218,10 +215,8 @@ async def classify_chunks(
             )
 
         if not category:
-            if fallback_type:
+            if fallback_type and fallback_type in CONTENT_TYPES:
                 category = fallback_type
-            elif source_channel:
-                category = source_channel
             else:
                 category = "corporate_site"
             category, secondary = _detect_secondary_content_types(

@@ -16,6 +16,7 @@ import { getGuestUser } from "@/lib/auth/guest";
 import { CompanyStatus, VALID_STATUSES } from "@/lib/constants/status";
 import { stripCompanyCredentials } from "@/lib/db/sanitize";
 import { logError } from "@/lib/logger";
+import { encrypt } from "@/lib/crypto";
 
 /**
  * Get current user or guest from request
@@ -156,7 +157,7 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { name, industry, recruitmentUrl, corporateUrl, notes, status, sortOrder, isPinned } = body;
+    const { name, industry, recruitmentUrl, corporateUrl, mypageUrl, mypageLoginId, mypagePassword, notes, status, sortOrder, isPinned } = body;
 
     // Validate name if provided
     if (name !== undefined && (typeof name !== "string" || name.trim().length === 0)) {
@@ -183,6 +184,9 @@ export async function PUT(
     if (industry !== undefined) updateData.industry = industry?.trim() || null;
     if (recruitmentUrl !== undefined) updateData.recruitmentUrl = recruitmentUrl?.trim() || null;
     if (corporateUrl !== undefined) updateData.corporateUrl = corporateUrl?.trim() || null;
+    if (mypageUrl !== undefined) updateData.mypageUrl = mypageUrl?.trim() || null;
+    if (mypageLoginId !== undefined && mypageLoginId !== null && mypageLoginId.trim() !== "") updateData.mypageLoginId = mypageLoginId.trim();
+    if (mypagePassword !== undefined && mypagePassword !== null && mypagePassword.trim() !== "") updateData.mypagePassword = encrypt(mypagePassword.trim());
     if (notes !== undefined) updateData.notes = notes?.trim() || null;
     if (status !== undefined) updateData.status = status;
     if (sortOrder !== undefined) updateData.sortOrder = sortOrder;

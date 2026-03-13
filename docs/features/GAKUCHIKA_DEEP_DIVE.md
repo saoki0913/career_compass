@@ -1,341 +1,240 @@
-# ガクチカ深掘り機能（実装フロー & プロンプト仕様）
+# ガクチカ深掘り
 
-本書は現行実装に基づく **ガクチカ深掘り機能** のフローとプロンプト仕様をまとめたものです。
+最終更新: 2026-03-03
 
-参照実装:
-- `backend/app/routers/gakuchika.py` — FastAPI（質問生成・STAR評価・サマリー）
-- `src/app/api/gakuchika/[id]/conversation/route.ts` — Next.js API（会話管理）
-- `src/app/gakuchika/page.tsx` — リストページ
-- `src/app/gakuchika/[id]/page.tsx` — 会話ページ
-- `src/components/gakuchika/` — UIコンポーネント群
+## 概要
 
----
+ガクチカ深掘りは、登録済みのガクチカ素材を会話形式で深掘りし、STAR
+（Situation / Task / Action / Result）の4要素を補強して、ES作成や面接準備に使える状態まで整える機能です。
 
-## 1. 概要
+現行実装では、質問生成の主目的を次の3つに絞っています。
 
-- **目的**: 会話形式でガクチカを深掘りし、ES/面接で使える具体性を引き出す
-- **STAR法**: Situation（状況）/ Task（課題）/ Action（行動）/ Result（結果）で構造的に評価
-- **質問数目安**: 8問（内容に応じて早期終了/延長あり）
-- **会話フェーズ**: opening(1-2問) → exploration(3-5問) → deep_dive(6-8問) → synthesis(9問〜)
-- **クレジット**: 5問回答ごとに1クレジット（5問未満で終了なら消費なし）
-- **LLM**: Claude Sonnet（feature=`gakuchika`）
-- **再実行**: 同じ素材で複数セッション可能（1:Nリレーション）
+- 次の深掘り質問を自然な日本語で返す
+- STARスコアを更新する
+- 今どの要素を補強したいかを `targetElement` として返す
+- 質問品質は参考資料由来のルーブリックで制御し、真因・判断理由・役割範囲・再現可能な学びを優先する
 
----
+企業紐づけ UI は現在の深掘り画面では使っていません。DB スキーマ上の `linked_company_ids` は残っていますが、会話生成・会話画面・会話 API では利用していません。
 
-## 2. プラン別制限
+## ユーザー体験
 
-| プラン | 素材数上限 |
-|--------|-----------|
-| Guest  | 2         |
-| Free   | 3         |
-| Standard | 10      |
-| Pro    | 20        |
+### 1. 開始前
 
-上限管理: `src/app/api/gakuchika/route.ts` の POST ハンドラで検証。
+- ガクチカ詳細ページで、素材タイトルと本文を確認できる
+- 会話セッションが存在しない場合は「深掘りを始める」導線を表示する
+- STAR フレームワークの説明を折りたたみで確認できる
 
----
+### 2. 会話中
 
-## 3. エンドツーエンドの流れ
+- 開始時は assistant の初回質問を1つ生成して会話を始める
+- ユーザー回答の送信後、ユーザー吹き出しは通常の濃さで即時表示される
+- `送信中...` のような文言はユーザー吹き出し内に表示しない
+- assistant 側では次の順番で一時吹き出しを出す
+  1. `質問の意図を整理中`
+  2. `次の質問を生成中...`
+  3. 次の質問本文のストリーミング表示
+- ストリーミング開始後は、その質問表示を最後の UI ステップとし、途中で別の補助 UI を差し込まない
 
-1. **フロント → Next.js API**
-   - `GET /api/gakuchika/:id/conversation[?sessionId=xxx]`（履歴取得 + 次質問 + セッション一覧）
-   - `POST /api/gakuchika/:id/conversation`（回答送信、`sessionId` 指定可）
-   - `POST /api/gakuchika/:id/conversation/new`（新セッション作成）
+### 3. 回答ヒント
 
-2. **Next.js API → FastAPI**
-   - `POST /api/gakuchika/next-question` — STAR評価 + 質問生成を1回の呼び出しで実行
-   - `POST /api/gakuchika/evaluate-star` — STAR評価のみ（単独利用向け）
-   - `POST /api/gakuchika/summary` — 構造化サマリー生成
+- 回答欄の上には `targetElement` に応じた短いヒントを表示する
+- ヒントは「この質問は課題に関するものです」のような抽象ラベルではなく、「何を答えるとよいか」がわかる 1 文で出す
+- `targetElement` が取得できない場合はヒントを出さない
+- 会話再読込時は保存済み `starScores` の最弱要素から `targetElement` を再計算して表示する
 
-3. **会話保存**
-   - `gakuchikaConversations` にメッセージ・質問数・STARスコア・ステータスを保存
+### 4. 完了後
 
-4. **終了判定**
-   - 目安8問で `suggestedEnd` → `completed` 扱い
-   - 完了時にFastAPI `/api/gakuchika/summary` を呼び出し構造化サマリーを `gakuchikaContents.summary` に格納
-   - FastAPI失敗時は会話履歴の末尾を切り詰めフォールバック
+- STAR の4要素がしきい値を満たすと完了扱いになる
+- 完了時は会話の末尾に短い締めコメントを出し、その下に STAR 構造化テキスト、強み、学び、数字などのサマリーを表示する
+- 完了画面の主要導線は 1 つだけで、`この経験を使ってESを作成する` を表示する
+- 追加で `深掘りを続ける` を押すと、新規セッションではなく同じセッションを `completed` から `in_progress` に戻して続きから再開する
 
----
+## セッション仕様
 
-## 4. Next.js APIエンドポイント
+### セッション一覧
 
-### 4.1 会話管理
+- 1つのガクチカ素材に対して複数セッションを保持できる
+- セッション一覧には `status`, `starScores`, `questionCount`, `createdAt` を表示する
+- 一覧カードの本文は raw JSON を表示せず、構造化サマリーから生成した `summaryPreview` を表示する
+- 過去セッションを選ぶと、その時点の会話ログを再表示できる
 
-**ファイル:** `src/app/api/gakuchika/[id]/conversation/route.ts`
+### 新規開始
 
-#### GET
-- `?sessionId=xxx` で特定セッションの履歴を取得
-- 会話履歴が無い場合、FastAPIに初回質問を依頼
-- 返却: `messages`, `nextQuestion`, `questionCount`, `isCompleted`, `starScores`, `sessions[]`
+- `POST /api/gakuchika/[id]/conversation/new`
+- Next.js API が FastAPI `POST /api/gakuchika/next-question` を呼び、初回質問を1つ生成してセッションを作成する
 
-#### POST
-- `{ answer, sessionId }` を受信
-- 完了済みセッションへの投稿は409で拒否
-- 5問ごとにクレジット消費（ログインユーザーのみ）
-- 8問到達で完了 → FastAPI summary呼び出し → 構造化サマリー保存
-- 返却に `summary` フィールド含む（完了時）
+### 通常の回答送信
 
-### 4.2 新セッション作成
+- `POST /api/gakuchika/[id]/conversation/stream`
+- Next.js API が FastAPI `POST /api/gakuchika/next-question/stream` を consume-and-re-emit で中継する
+- SSE の `progress` -> `string_chunk` -> `complete` を UI に反映する
 
-**ファイル:** `src/app/api/gakuchika/[id]/conversation/new/route.ts`
+### 完了後の再開
 
-#### POST
-- 新しい `gakuchikaConversations` レコードを作成
-- 返却: `sessionId`, `sessions[]`
+- `POST /api/gakuchika/[id]/conversation/resume`
+- completed セッションに対して次の assistant 質問を1つ追加し、同じセッションを `in_progress` に戻す
+- この再開フローは現在 FastAPI の非ストリーミング `POST /api/gakuchika/next-question` を使用している
 
-### 4.3 素材CRUD
+## 処理の流れ
 
-**ファイル:** `src/app/api/gakuchika/[id]/route.ts`
+### 1. 初回開始フロー
 
-- **GET**: 素材詳細取得
-- **PUT**: `title`, `content`, `charLimitType`, `linkedCompanyIds` の更新
-- **DELETE**: カスケード削除（会話履歴含む）、所有権チェック付き
+1. ユーザーが「深掘りを始める」を押す
+2. フロントが `POST /api/gakuchika/[id]/conversation/new` を呼ぶ
+3. Next.js API が FastAPI `POST /api/gakuchika/next-question` を呼ぶ
+4. FastAPI が初回質問を1つ返す
+5. Next.js API が `gakuchikaConversations` に assistant の初回質問を保存する
+6. フロントが会話データを再取得し、チャット画面を表示する
 
-### 4.4 並び替え
+### 2. 回答送信フロー
 
-**ファイル:** `src/app/api/gakuchika/reorder/route.ts`
+1. ユーザーが回答を送信する
+2. フロントはユーザー吹き出しを optimistic に即時追加する
+3. フロントが `POST /api/gakuchika/[id]/conversation/stream` を呼ぶ
+4. Next.js API が会話履歴に user message を追加し、FastAPI `POST /api/gakuchika/next-question/stream` を呼ぶ
+5. FastAPI が以下の SSE を順に返す
+   - `progress: analysis`
+   - `progress: question`
+   - `string_chunk` 群
+   - `complete`
+6. フロントは assistant 側で次の順番に UI を切り替える
+   - `質問の意図を整理中`
+   - `次の質問を生成中...`
+   - 次質問のストリーミング表示
+7. `complete` 到着後、Next.js API が messages / starScores / targetElement / status を確定保存する
+8. フロントが確定済みの会話状態で再描画する
 
-- **PATCH**: `{ orderedIds: string[] }` を受け取り `sortOrder` を更新
+### 3. 完了フロー
 
-### 4.5 サマリー一覧（ES連携用）
+1. `complete` 内の `star_scores` から完了判定を行う
+2. 完了なら会話セッションを `completed` に更新する
+3. Next.js API が FastAPI `POST /api/gakuchika/structured-summary` を呼び、構造化サマリーを生成する
+4. サマリーを `gakuchika_contents.summary` に保存する
+5. フロントは完了画面に切り替え、STAR 構造化テキストや強み・学びを表示する
 
-**ファイル:** `src/app/api/gakuchika/summaries/route.ts`
+### 4. 完了後の再開フロー
 
-- **GET**: 完了済みガクチカの `{ id, title, summary, starScores, linkedCompanyIds }` リストを返却
-- ES エディタのガクチカコンテキスト選択で使用
+1. ユーザーが `深掘りを続ける` を押す
+2. フロントが `POST /api/gakuchika/[id]/conversation/resume` を呼ぶ
+3. Next.js API が completed セッションを取得する
+4. Next.js API が既存の会話履歴をそのまま FastAPI `POST /api/gakuchika/next-question` に渡す
+5. FastAPI が次の assistant 質問を1つ返す
+6. Next.js API がその質問を messages の末尾に追加し、セッション状態を `in_progress` に戻す
+7. フロントは同じセッションの続きとして会話画面を再表示する
 
----
+### 5. 失敗時の扱い
 
-## 5. FastAPIエンドポイント
+1. 通常送信中に FastAPI SSE から `error` が返ると、フロントは optimistic user message を巻き戻す
+2. 入力欄には直前の回答を戻す
+3. クレジットは消費しない
+4. 再開や初回開始で non-stream `next-question` が失敗すると、現状は 503 をそのまま返す
+5. このため、通常送信よりも `new` / `resume` の方が壊れやすい
 
-**ファイル:** `backend/app/routers/gakuchika.py`
+## 現行の AI 出力契約
 
-### 5.1 次質問生成（STAR評価統合）
+ガクチカ深掘りの次質問生成では、LLM の JSON 出力を最小構成にしています。
 
-**`POST /api/gakuchika/next-question`**
-
-統合プロンプトで STAR評価 + 質問生成を1回のLLM呼び出しで実行（レイテンシ50%削減）。
-
-入力:
 ```json
 {
-  "gakuchika_title": "サークル活動",
-  "gakuchika_content": "任意本文",
-  "char_limit_type": "300",
-  "conversation_history": [{"role": "assistant", "content": "..."}],
-  "question_count": 3
+  "star_scores": {
+    "situation": 45,
+    "task": 50,
+    "action": 65,
+    "result": 35
+  },
+  "question": "次の深掘り質問",
+  "target_element": "result"
 }
 ```
 
-出力:
+Next.js 側では FastAPI レスポンスを次の形で扱います。
+
 ```json
 {
   "question": "次の深掘り質問",
-  "question_type": "numbers|emotions|reasoning|others_perspective|difficulty|contrast|scene|learning",
-  "target_element": "situation|task|action|result",
-  "reasoning": "理由",
-  "should_continue": true,
-  "suggested_end": false,
-  "star_scores": { "situation": 75, "task": 50, "action": 30, "result": 10 }
+  "star_evaluation": {
+    "scores": {
+      "situation": 45,
+      "task": 50,
+      "action": 65,
+      "result": 35
+    },
+    "weakest_element": "result",
+    "is_complete": false
+  },
+  "target_element": "result"
 }
 ```
 
-### 5.2 STAR評価（単独）
 
-**`POST /api/gakuchika/evaluate-star`**
+## STAR スコアと完了判定
 
-出力:
-```json
-{
-  "situation": 75,
-  "task": 50,
-  "action": 30,
-  "result": 10,
-  "missing_aspects": { ... }
-}
-```
+- STAR スコアは `situation`, `task`, `action`, `result` の4要素
+- しきい値は各要素 70 点以上
+- 完了判定は FastAPI / Next.js の両方で `star_scores` ベースに行う
+- `targetElement` が欠けた場合は、最弱の STAR 要素から補完する
 
-### 5.3 サマリー生成
+## サマリー生成
 
-**`POST /api/gakuchika/summary`**
+完了時には、会話ログをもとに構造化サマリーを生成して `gakuchika_contents.summary` に保存します。
 
-出力:
-```json
-{
-  "summary": "200-300字の要約",
-  "key_points": ["ポイント1", "ポイント2", "ポイント3"],
-  "numbers": ["参加者100名", "成果+30%"],
-  "strengths": ["リーダーシップ", "問題解決力"]
-}
-```
+主な出力項目:
 
----
+- `situation_text`
+- `task_text`
+- `action_text`
+- `result_text`
+- `strengths`
+- `learnings`
+- `numbers`
+- `interviewer_hooks`
+- `reusable_principles`
 
-## 6. 会話フェーズシステム
+現在の完了画面はこの構造化サマリーを優先表示し、旧式の簡易サマリーは後方互換用にのみ残しています。
+一覧画面では同じ共通 parser で `summaryPreview` を生成し、`action_text + result_text` を優先した自然文に整形して表示します。
 
-| フェーズ | 質問番号 | 推奨質問タイプ | 目的 |
-|----------|---------|----------------|------|
-| opening | 1-2問 | scene, emotions | 状況把握、アイスブレイク |
-| exploration | 3-5問 | reasoning, numbers, others_perspective | 各STAR要素の探索 |
-| deep_dive | 6-8問 | difficulty, contrast, reasoning | 弱い要素の深掘り |
-| synthesis | 9問〜 | learning, scene | 学び・成長の統合 |
+## クレジット
 
-フェーズはガイダンスとして機能し、LLMは必要に応じてオーバーライド可能。
+- ログインユーザーのみ 5 問回答ごとに 1 クレジット消費
+- FastAPI 成功後にのみ消費する
+- 失敗時は消費しない
+- ゲストユーザーはガクチカ深掘りでクレジット消費しない
 
----
+## 既知の実装上の注意
 
-## 7. 質問多様性の強制
+### 1. 通常送信と再開で呼ぶ FastAPI 経路が違う
 
-8つの質問タイプを分類:
-- `numbers` — 数字・定量データ
-- `emotions` — 感情・モチベーション
-- `reasoning` — 理由・意思決定プロセス
-- `others_perspective` — 他者の視点・評価
-- `difficulty` — 困難・壁
-- `contrast` — 比較・対比
-- `scene` — 具体的場面描写
-- `learning` — 学び・気づき
+- 通常送信は `next-question/stream`
+- 新規開始と完了後再開は `next-question`
 
-直前の質問タイプを追跡し、連続使用を禁止。履歴は `starScores` JSONフィールドに拡張格納:
-```json
-{
-  "situation": 75, "task": 50, "action": 30, "result": 10,
-  "question_types": ["scene", "reasoning", "emotions"],
-  "current_phase": "exploration"
-}
-```
+この差により、通常送信は field streaming の部分復旧が効く一方で、新規開始と再開は JSON 解析失敗時に 503 になりやすいです。
 
----
+### 2. 503 Service Unavailable の主な意味
 
-## 8. プロンプト仕様
+FastAPI `POST /api/gakuchika/next-question` の 503 は、主に次のいずれかです。
 
-### ペルソナ
-「10年以上の経験を持つ就活アドバイザー」として対話。面接官ではなく「経験の価値を引き出すアドバイザー」のキャラクター設定。
+- LLM 呼び出し失敗
+- LLM 応答の JSON 解析失敗
+- 解析はできたが `question` が欠落
 
-### 禁止表現（10項目）
-- 「素晴らしいですね」等の安易な褒め言葉
-- 「面接官の立場から」等の面接を意識させる表現
-- 複数の質問を一度に投げかける
-- 回答を否定する表現
-- 他の学生と比較する表現
-- 抽象的なアドバイス
-- 「頑張りましたね」等の上から目線
-- 「〜すべきです」等の断定的な指示
-- ES/面接の直接的な書き方指導
-- 質問なしの長い講評
+### 3. 観測ログ
 
-### 初回質問
-- `gakuchika_content` がある場合: LLM呼び出しで内容に基づく質問を生成
-- `gakuchika_content` がない場合: テンプレートからランダム選択（コスト節約）
+`backend/app/utils/llm.py` では、現在次のログを残します。
 
-### フォローアップチェーン戦略
+- Claude field streaming 完了時の `stop_reason`
+- `max_tokens` 到達警告
+- partial fallback 時の必須フィールド欠落
 
-質問が独立した新しい質問にならないよう、前回回答を起点とした段階的深掘りを行う。
+これにより、切り詰め・欠落・プロバイダエラーを判別しやすくしています。
 
-- **重要**: 前回の回答の中で最も重要な部分（具体的な行動、結果、感情）を特定し、そこを起点に深掘りする
-- 独立した新しい質問ではなく、前回の回答を引用しながら「その〇〇について、もう少し詳しく教えてください」のように掘り下げる
-- 2-3個の段階的な深掘りを意識する（表面的回答→具体的行動→その結果/学び）
+## 主な関連ファイル
 
-**効果**: STAR要素の深掘り品質 +10%
-
----
-
-## 9. UIコンポーネント
-
-### リストページ (`src/app/gakuchika/page.tsx`)
-- framer-motion `Reorder.Group/Item` によるドラッグ&ドロップ並び替え
-- 三点メニュー（タイトル編集・削除）
-- インラインタイトル編集
-- プラン上限バッジ（`3/3 素材使用中`）
-- 上限到達時の非活性化 + アップグレードリンク
-- モバイルFABボタン
-
-### 会話ページ (`src/app/gakuchika/[id]/page.tsx`)
-- STARプログレスバー（Popover説明付き）
-- セッションセレクター（複数セッション時）
-- STARオンボーディング（初回のみ、localStorage管理）
-- 回答ヒントバナー（ターゲットSTAR要素表示）
-- スコア変化フィードバック（アニメーション付き）
-- リッチ完了画面（サマリー・キーポイント・強み・CTA）
-- CompanyLinker（デスクトップ: Popover+Command、モバイル: Sheet）
-- モバイル最適化（safe-area-inset、44pxタッチターゲット）
-
-### コンポーネント一覧
-| コンポーネント | ファイル | 用途 |
-|----------------|---------|------|
-| STARProgressBar | `STARProgressBar.tsx` | STAR進捗バー（Popover説明付き） |
-| STARProgressCompact | `STARProgressBar.tsx` | コンパクト版（リスト用） |
-| STARStatusBadge | `STARProgressBar.tsx` | ステータスバッジ |
-| STAROnboarding | `STAROnboarding.tsx` | 初回STAR説明オーバーレイ |
-| STARHintBanner | `STARHintBanner.tsx` | 回答ヒントバナー |
-| STARScoreChange | `STARScoreChange.tsx` | スコア変化通知 |
-| CompletionSummary | `CompletionSummary.tsx` | リッチ完了画面 |
-| DeleteConfirmDialog | `DeleteConfirmDialog.tsx` | 2ステップ削除確認 |
-| CompanyLinker | `CompanyLinker.tsx` | 企業紐づけ（レスポンシブ） |
-
----
-
-## 10. ES連携
-
-### ガクチカ → ES作成導線
-- 完了画面の「ESを作成する」CTA → `/es?gakuchikaId=xxx`
-- ES作成ページでバナー表示 + 新規作成モーダル自動表示
-
-### ES添削へのコンテキスト注入
-- `aiThreads.gakuchikaId` でガクチカと添削スレッドを紐づけ
-- ES添削リクエストに `gakuchikaContext` パラメータを渡す
-- FastAPI側: ガクチカ深掘り情報（key_points, strengths）をシステムプロンプトに注入
-- 対象: フルレビュー、セクションレビュー、SSEストリーミング
-
----
-
-## 11. データモデル
-
-### gakuchikaContents
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| id | text PK | UUID |
-| userId | text FK | ユーザーID |
-| guestId | text FK | ゲストID |
-| title | text | 素材タイトル |
-| content | text | ガクチカ本文 |
-| charLimitType | text | "300" / "400" / "500" |
-| summary | text | 構造化サマリー（JSON or プレーンテキスト） |
-| linkedCompanyIds | text | JSON配列 |
-| sortOrder | integer | 並び順 |
-
-### gakuchikaConversations
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| id | text PK | UUID |
-| gakuchikaId | text FK | 素材ID（1:N） |
-| messages | text | JSON: Q&A配列 |
-| questionCount | integer | 質問数 |
-| status | text | "in_progress" / "completed" |
-| starScores | text | JSON: STAR評価 + question_types + current_phase |
-
----
-
-## 12. 関連ファイル一覧
-
-### バックエンド
-- `backend/app/routers/gakuchika.py` — FastAPIルーター（質問生成・STAR評価・サマリー）
-
-### Next.js API
-- `src/app/api/gakuchika/route.ts` — 一覧取得・新規作成（プラン上限チェック）
-- `src/app/api/gakuchika/[id]/route.ts` — 詳細・編集・削除
-- `src/app/api/gakuchika/[id]/conversation/route.ts` — 会話管理（セッション対応）
-- `src/app/api/gakuchika/[id]/conversation/new/route.ts` — 新セッション作成
-- `src/app/api/gakuchika/reorder/route.ts` — 並び替え
-- `src/app/api/gakuchika/summaries/route.ts` — サマリー一覧（ES連携用）
-
-### フロントエンド
-- `src/app/gakuchika/page.tsx` — リストページ
-- `src/app/gakuchika/[id]/page.tsx` — 会話ページ
-- `src/components/gakuchika/` — UIコンポーネント群
-- `src/hooks/useMediaQuery.ts` — レスポンシブ判定フック
-
-### 設定
-- `src/lib/stripe/config.ts` — プラン別素材数上限（PLAN_METADATA.gakuchika）
-- `src/lib/db/schema.ts` — DBスキーマ（gakuchikaContents, gakuchikaConversations, aiThreads）
+- `src/app/gakuchika/[id]/page.tsx`
+- `src/components/gakuchika/CompletionSummary.tsx`
+- `src/app/api/gakuchika/[id]/conversation/route.ts`
+- `src/app/api/gakuchika/[id]/conversation/new/route.ts`
+- `src/app/api/gakuchika/[id]/conversation/stream/route.ts`
+- `src/app/api/gakuchika/[id]/conversation/resume/route.ts`
+- `backend/app/routers/gakuchika.py`
+- `backend/app/prompts/gakuchika_prompts.py`
+- `backend/app/utils/llm.py`

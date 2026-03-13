@@ -5,16 +5,16 @@
 
 /**
  * Strip sensitive credential fields from a company object.
- * Returns the company with `mypagePassword` and `mypageLoginId` removed,
- * and a `hasCredentials` boolean indicating if credentials exist.
+ * Returns the company with `mypagePassword` removed (mypageLoginId is kept),
+ * and a `hasCredentials` boolean indicating if an encrypted password exists.
  */
 export function stripCompanyCredentials<
   T extends { mypagePassword?: string | null; mypageLoginId?: string | null },
->(company: T): Omit<T, "mypagePassword" | "mypageLoginId"> & { hasCredentials: boolean } {
-  const { mypagePassword, mypageLoginId, ...safe } = company;
+>(company: T): Omit<T, "mypagePassword"> & { hasCredentials: boolean } {
+  const { mypagePassword, ...safe } = company;
   return {
     ...safe,
-    hasCredentials: !!(mypagePassword || mypageLoginId),
+    hasCredentials: !!mypagePassword,
   };
 }
 
@@ -23,6 +23,6 @@ export function stripCompanyCredentials<
  */
 export function stripCompanyCredentialsList<
   T extends { mypagePassword?: string | null; mypageLoginId?: string | null },
->(companies: T[]): (Omit<T, "mypagePassword" | "mypageLoginId"> & { hasCredentials: boolean })[] {
+>(companies: T[]): (Omit<T, "mypagePassword"> & { hasCredentials: boolean })[] {
   return companies.map(stripCompanyCredentials);
 }
