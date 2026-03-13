@@ -494,7 +494,10 @@ async function getQuestionFromFastAPI(
         profile_context: profileContext,
         application_job_candidates: applicationJobCandidates && applicationJobCandidates.length > 0 ? applicationJobCandidates : null,
         company_role_candidates: companyRoleCandidates && companyRoleCandidates.length > 0 ? companyRoleCandidates : null,
-        company_work_candidates: conversationContext.companyWorkCandidates.length > 0 ? conversationContext.companyWorkCandidates : null,
+        company_work_candidates:
+          conversationContext?.companyWorkCandidates && conversationContext.companyWorkCandidates.length > 0
+            ? conversationContext.companyWorkCandidates
+            : null,
         requires_industry_selection: Boolean(requiresIndustrySelection),
         industry_options: industryOptions && industryOptions.length > 0 ? industryOptions : null,
       }),

@@ -10,22 +10,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { companies, userProfiles } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { companies, companyPdfIngestJobs, userProfiles } from "@/lib/db/schema";
+import { eq, and, inArray } from "drizzle-orm";
 import { headers } from "next/headers";
+import {
+  parseCorporateInfoSources,
+  serializeCorporateInfoSources,
+  type CorporateInfoSource,
+} from "@/lib/company-info/sources";
+import { deleteSupabaseObject } from "@/lib/storage/supabase-storage";
 
 // FastAPI backend URL
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
-
-interface CorporateInfoUrl {
-  url: string;
-  kind?: "url" | "upload_pdf";
-  fileName?: string;
-  type?: "ir" | "business" | "about" | "general";
-  contentType?: string;
-  secondaryContentTypes?: string[];
-  fetchedAt?: string;
-}
 
 interface DeleteByUrlsResult {
   success: boolean;
@@ -33,53 +29,6 @@ interface DeleteByUrlsResult {
   urls_deleted: string[];
   chunks_deleted: number;
   errors: string[];
-}
-
-function parseCorporateInfoUrls(
-  raw: string | null | undefined
-): CorporateInfoUrl[] {
-  if (!raw) {
-    return [];
-  }
-  // Guard against data corruption where column name is stored as value
-  if (raw === "corporate_info_urls") {
-    console.warn(
-      "corporateInfoUrls contains column name instead of JSON - data corruption detected"
-    );
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed
-      .filter((entry) => {
-        if (!entry || typeof entry !== "object") {
-          return false;
-        }
-        const { url } = entry as Partial<CorporateInfoUrl>;
-        return typeof url === "string";
-      })
-      .map((entry) => {
-        const urlEntry = entry as CorporateInfoUrl;
-        urlEntry.kind = urlEntry.kind === "upload_pdf" || urlEntry.url?.startsWith("upload://")
-          ? "upload_pdf"
-          : "url";
-        urlEntry.fileName = typeof urlEntry.fileName === "string" ? urlEntry.fileName : undefined;
-        if (!Array.isArray(urlEntry.secondaryContentTypes)) {
-          urlEntry.secondaryContentTypes = [];
-        } else {
-          urlEntry.secondaryContentTypes = urlEntry.secondaryContentTypes.filter(
-            (item): item is string => typeof item === "string"
-          );
-        }
-        return urlEntry;
-      }) as CorporateInfoUrl[];
-  } catch (error) {
-    console.warn("Invalid corporateInfoUrls JSON, defaulting to empty.", error);
-    return [];
-  }
 }
 
 async function getAuthenticatedUser(): Promise<{
@@ -185,19 +134,58 @@ export async function POST(
     }
 
     // Update company record - remove deleted URLs
-    const existingUrls = parseCorporateInfoUrls(company.corporateInfoUrls);
+    const existingUrls = parseCorporateInfoSources(company.corporateInfoUrls);
     const urlsToDeleteSet = new Set(urls);
     const updatedUrls = existingUrls.filter(
       (urlInfo) => !urlsToDeleteSet.has(urlInfo.url)
     );
 
-    await db
-      .update(companies)
-      .set({
-        corporateInfoUrls: JSON.stringify(updatedUrls),
-        updatedAt: new Date(),
-      })
-      .where(eq(companies.id, companyId));
+    const pendingJobs = urls.length
+      ? await db
+          .select()
+          .from(companyPdfIngestJobs)
+          .where(
+            and(
+              eq(companyPdfIngestJobs.companyId, companyId),
+              inArray(companyPdfIngestJobs.sourceUrl, urls)
+            )
+          )
+      : [];
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(companies)
+        .set({
+          corporateInfoUrls: serializeCorporateInfoSources(updatedUrls as CorporateInfoSource[]),
+          updatedAt: new Date(),
+        })
+        .where(eq(companies.id, companyId));
+
+      if (pendingJobs.length > 0) {
+        await tx
+          .delete(companyPdfIngestJobs)
+          .where(
+            and(
+              eq(companyPdfIngestJobs.companyId, companyId),
+              inArray(
+                companyPdfIngestJobs.id,
+                pendingJobs.map((job) => job.id)
+              )
+            )
+          );
+      }
+    });
+
+    for (const job of pendingJobs) {
+      try {
+        await deleteSupabaseObject({
+          bucket: job.storageBucket,
+          path: job.storagePath,
+        });
+      } catch (error) {
+        console.error("Failed to delete deferred PDF object:", error);
+      }
+    }
 
     return NextResponse.json({
       success: deleteResult.success,

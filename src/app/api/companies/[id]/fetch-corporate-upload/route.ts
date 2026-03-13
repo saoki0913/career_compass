@@ -2,11 +2,23 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { companies, userProfiles } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { companies, companyPdfIngestJobs, userProfiles } from "@/lib/db/schema";
+import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import {
+  parseCorporateInfoSources,
+  serializeCorporateInfoSources,
+  type CorporateInfoSource,
+  upsertCorporateInfoSource,
+} from "@/lib/company-info/sources";
+import { deleteSupabaseObject, uploadSupabaseObject } from "@/lib/storage/supabase-storage";
+
+export const runtime = "nodejs";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+const COMPANY_PDF_INGEST_BUCKET =
+  process.env.COMPANY_PDF_INGEST_BUCKET || "company-info-pdf-ingest";
+const MAX_FILES_PER_REQUEST = 10;
 
 const PAGE_LIMITS = {
   guest: 0,
@@ -15,16 +27,6 @@ const PAGE_LIMITS = {
   pro: 150,
 };
 
-interface CorporateInfoSource {
-  url: string;
-  kind?: "url" | "upload_pdf";
-  fileName?: string;
-  type?: "ir" | "business" | "about" | "general";
-  contentType?: string;
-  secondaryContentTypes?: string[];
-  fetchedAt?: string;
-}
-
 interface UploadPdfResult {
   success: boolean;
   company_id: string;
@@ -32,35 +34,54 @@ interface UploadPdfResult {
   chunks_stored: number;
   extracted_chars: number;
   content_type?: string | null;
+  secondary_content_types?: string[];
   extraction_method: string;
+  deferred?: boolean;
+  needs_ocr?: boolean;
   errors: string[];
 }
 
-function parseCorporateInfoSources(raw: string | null | undefined): CorporateInfoSource[] {
-  if (!raw || raw === "corporate_info_urls") {
-    return [];
+interface BatchUploadItem {
+  fileName: string;
+  status: "completed" | "pending" | "failed" | "skipped_limit";
+  sourceUrl?: string;
+  chunksStored?: number;
+  extractedChars?: number;
+  extractionMethod?: string;
+  contentType?: string | null;
+  secondaryContentTypes?: string[];
+  error?: string;
+}
+
+function countLimitSources(sources: CorporateInfoSource[]): number {
+  return sources.filter((source) => source.status !== "failed").length;
+}
+
+function parseFiles(formData: FormData): File[] {
+  const files = formData.getAll("files").filter((value): value is File => value instanceof File);
+  if (files.length > 0) {
+    return files;
   }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed
-      .filter((entry) => entry && typeof entry === "object" && typeof entry.url === "string")
-      .map((entry) => ({
-        ...entry,
-        kind:
-          entry.kind === "upload_pdf" || String(entry.url).startsWith("upload://")
-            ? "upload_pdf"
-            : "url",
-        fileName: typeof entry.fileName === "string" ? entry.fileName : undefined,
-        secondaryContentTypes: Array.isArray(entry.secondaryContentTypes)
-          ? entry.secondaryContentTypes.filter((item: unknown): item is string => typeof item === "string")
-          : [],
-      }));
-  } catch {
-    return [];
+  const single = formData.get("file");
+  return single instanceof File ? [single] : [];
+}
+
+function getStoragePath(companyId: string, jobId: string, fileName: string): string {
+  const normalized = fileName.replace(/[^\w.\-()+\u3040-\u30ff\u4e00-\u9faf]/g, "_");
+  return `company/${companyId}/${jobId}/${normalized}`;
+}
+
+function validatePdfFile(file: File): string | null {
+  if (
+    file.type !== "application/pdf" &&
+    !file.name.toLowerCase().endsWith(".pdf")
+  ) {
+    return "PDFファイルのみアップロードできます";
   }
+  if (file.size === 0) {
+    return "PDFファイルが空です";
+  }
+  return null;
 }
 
 async function getAuthenticatedUser(): Promise<{
@@ -97,6 +118,18 @@ async function verifyCompanyAccess(
   return { valid: !!company, company };
 }
 
+async function bestEffortDeleteRag(companyId: string, sourceUrl: string) {
+  try {
+    await fetch(`${BACKEND_URL}/company-info/rag/${companyId}/delete-by-urls`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls: [sourceUrl] }),
+    });
+  } catch {
+    // Ignore rollback failures; the source metadata update is the primary consistency point.
+  }
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -104,17 +137,16 @@ export async function POST(
   try {
     const { id: companyId } = await params;
     const formData = await request.formData();
-    const file = formData.get("file");
-    const rawContentType = formData.get("contentType");
+    const files = parseFiles(formData);
 
-    if (!(file instanceof File)) {
+    if (files.length === 0) {
       return NextResponse.json({ error: "PDFファイルを指定してください" }, { status: 400 });
     }
-    if (
-      file.type !== "application/pdf" &&
-      !file.name.toLowerCase().endsWith(".pdf")
-    ) {
-      return NextResponse.json({ error: "PDFファイルのみアップロードできます" }, { status: 400 });
+    if (files.length > MAX_FILES_PER_REQUEST) {
+      return NextResponse.json(
+        { error: `一度にアップロードできるPDFは最大${MAX_FILES_PER_REQUEST}件です` },
+        { status: 400 }
+      );
     }
 
     const authUser = await getAuthenticatedUser();
@@ -131,94 +163,205 @@ export async function POST(
     }
 
     const company = access.company;
-    const existingSources = parseCorporateInfoSources(company.corporateInfoUrls);
     const pageLimit = PAGE_LIMITS[authUser.plan];
-    const remaining = Math.max(0, pageLimit - existingSources.length);
-    if (remaining <= 0) {
-      return NextResponse.json(
-        {
-          error: `プラン制限: ${authUser.plan}プランでは1社あたり最大${pageLimit}ソースまで保存できます（上限に達しています）`,
-          limit: pageLimit,
-          remaining,
-        },
-        { status: 402 }
-      );
-    }
+    let currentSources = parseCorporateInfoSources(company.corporateInfoUrls);
 
-    const contentType =
-      typeof rawContentType === "string" && rawContentType.trim()
-        ? rawContentType.trim()
-        : "corporate_site";
-    const contentChannel =
-      contentType === "ir_materials" || contentType === "midterm_plan"
-        ? "corporate_ir"
-        : "corporate_general";
-    const sourceUrl = `upload://corporate-pdf/${companyId}/${randomUUID()}`;
+    const items: BatchUploadItem[] = [];
 
-    const backendForm = new FormData();
-    backendForm.set("company_id", companyId);
-    backendForm.set("company_name", company.name);
-    backendForm.set("source_url", sourceUrl);
-    backendForm.set("content_type", contentType);
-    backendForm.set("content_channel", contentChannel);
-    backendForm.set("file", file, file.name);
-
-    let uploadResult: UploadPdfResult;
-    try {
-      const response = await fetch(`${BACKEND_URL}/company-info/rag/upload-pdf`, {
-        method: "POST",
-        body: backendForm,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || errorData.error || "Backend request failed");
+    for (const file of files) {
+      const validationError = validatePdfFile(file);
+      if (validationError) {
+        items.push({ fileName: file.name, status: "failed", error: validationError });
+        continue;
       }
 
-      uploadResult = await response.json();
-    } catch (error) {
-      console.error("Backend PDF upload error:", error);
-      return NextResponse.json(
-        { error: "PDFの取り込みに失敗しました。しばらく後にお試しください。" },
-        { status: 503 }
-      );
+      if (countLimitSources(currentSources) >= pageLimit) {
+        items.push({
+          fileName: file.name,
+          status: "skipped_limit",
+          error: `プラン制限に達しました（上限 ${pageLimit} ソース）`,
+        });
+        continue;
+      }
+
+      const sourceUrl = `upload://corporate-pdf/${companyId}/${randomUUID()}`;
+      const backendForm = new FormData();
+      backendForm.set("company_id", companyId);
+      backendForm.set("company_name", company.name);
+      backendForm.set("source_url", sourceUrl);
+      backendForm.set("allow_defer_ocr", "true");
+      backendForm.set("file", file, file.name);
+
+      let uploadResult: UploadPdfResult;
+      try {
+        const response = await fetch(`${BACKEND_URL}/company-info/rag/upload-pdf`, {
+          method: "POST",
+          body: backendForm,
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.detail || data.error || "Backend request failed");
+        }
+        uploadResult = data as UploadPdfResult;
+      } catch (error) {
+        console.error("Backend PDF upload error:", error);
+        items.push({
+          fileName: file.name,
+          status: "failed",
+          error: "PDFの取り込みに失敗しました。しばらく後にお試しください。",
+        });
+        continue;
+      }
+
+      if (!uploadResult.success) {
+        items.push({
+          fileName: file.name,
+          status: "failed",
+          sourceUrl,
+          error: uploadResult.errors[0] || "PDFの取り込みに失敗しました。",
+        });
+        continue;
+      }
+
+      const nowIso = new Date().toISOString();
+
+      if (uploadResult.deferred && uploadResult.needs_ocr) {
+        const jobId = randomUUID();
+        const storagePath = getStoragePath(companyId, jobId, file.name);
+        const pendingSource: CorporateInfoSource = {
+          url: sourceUrl,
+          kind: "upload_pdf",
+          fileName: file.name,
+          status: "pending",
+          jobId,
+          fetchedAt: nowIso,
+          updatedAt: nowIso,
+          extractionMethod: uploadResult.extraction_method,
+          extractedChars: uploadResult.extracted_chars,
+        };
+
+        try {
+          await uploadSupabaseObject({
+            bucket: COMPANY_PDF_INGEST_BUCKET,
+            path: storagePath,
+            body: new Uint8Array(await file.arrayBuffer()),
+            contentType: "application/pdf",
+          });
+
+          const nextSources = upsertCorporateInfoSource(currentSources, pendingSource);
+          await db.transaction(async (tx) => {
+            await tx.insert(companyPdfIngestJobs).values({
+              id: jobId,
+              companyId,
+              sourceUrl,
+              storageBucket: COMPANY_PDF_INGEST_BUCKET,
+              storagePath,
+              fileName: file.name,
+              status: "pending",
+              attempts: 0,
+              extractionMethod: uploadResult.extraction_method,
+              extractedChars: uploadResult.extracted_chars,
+            });
+
+            await tx
+              .update(companies)
+              .set({
+                corporateInfoUrls: serializeCorporateInfoSources(nextSources),
+                corporateInfoFetchedAt: new Date(),
+                updatedAt: new Date(),
+              })
+              .where(eq(companies.id, companyId));
+          });
+
+          currentSources = nextSources;
+          items.push({
+            fileName: file.name,
+            status: "pending",
+            sourceUrl,
+            extractionMethod: uploadResult.extraction_method,
+            extractedChars: uploadResult.extracted_chars,
+          });
+        } catch (error) {
+          console.error("Deferred PDF registration error:", error);
+          try {
+            await deleteSupabaseObject({
+              bucket: COMPANY_PDF_INGEST_BUCKET,
+              path: storagePath,
+            });
+          } catch {
+            // Ignore storage cleanup failure.
+          }
+          items.push({
+            fileName: file.name,
+            status: "failed",
+            sourceUrl,
+            error: "OCR待ちPDFの保留登録に失敗しました。",
+          });
+        }
+        continue;
+      }
+
+      const completedSource: CorporateInfoSource = {
+        url: sourceUrl,
+        kind: "upload_pdf",
+        fileName: file.name,
+        contentType: (uploadResult.content_type || undefined) as CorporateInfoSource["contentType"],
+        secondaryContentTypes: (uploadResult.secondary_content_types || []) as CorporateInfoSource["secondaryContentTypes"],
+        status: "completed",
+        fetchedAt: nowIso,
+        updatedAt: nowIso,
+        chunksStored: uploadResult.chunks_stored,
+        extractedChars: uploadResult.extracted_chars,
+        extractionMethod: uploadResult.extraction_method,
+      };
+
+      try {
+        const nextSources = upsertCorporateInfoSource(currentSources, completedSource);
+        await db
+          .update(companies)
+          .set({
+            corporateInfoUrls: serializeCorporateInfoSources(nextSources),
+            corporateInfoFetchedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(companies.id, companyId));
+        currentSources = nextSources;
+        items.push({
+          fileName: file.name,
+          status: "completed",
+          sourceUrl,
+          chunksStored: uploadResult.chunks_stored,
+          extractedChars: uploadResult.extracted_chars,
+          extractionMethod: uploadResult.extraction_method,
+          contentType: uploadResult.content_type || null,
+          secondaryContentTypes: uploadResult.secondary_content_types || [],
+        });
+      } catch (error) {
+        console.error("Completed PDF metadata update error:", error);
+        await bestEffortDeleteRag(companyId, sourceUrl);
+        items.push({
+          fileName: file.name,
+          status: "failed",
+          sourceUrl,
+          error: "PDFの取り込み結果を保存できませんでした。",
+        });
+      }
     }
 
-    if (!uploadResult.success) {
-      return NextResponse.json(
-        { error: uploadResult.errors[0] || "PDFの取り込みに失敗しました。" },
-        { status: 400 }
-      );
-    }
-
-    const newSource: CorporateInfoSource = {
-      url: sourceUrl,
-      kind: "upload_pdf",
-      fileName: file.name,
-      contentType: uploadResult.content_type || contentType,
-      secondaryContentTypes: [],
-      fetchedAt: new Date().toISOString(),
+    const summary = {
+      total: files.length,
+      completed: items.filter((item) => item.status === "completed").length,
+      pending: items.filter((item) => item.status === "pending").length,
+      failed: items.filter((item) => item.status === "failed").length,
+      skippedLimit: items.filter((item) => item.status === "skipped_limit").length,
     };
 
-    const updatedSources = [...existingSources, newSource];
-
-    await db
-      .update(companies)
-      .set({
-        corporateInfoUrls: JSON.stringify(updatedSources),
-        corporateInfoFetchedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(companies.id, companyId));
-
     return NextResponse.json({
-      success: true,
-      sourceUrl,
-      chunksStored: uploadResult.chunks_stored,
-      extractedChars: uploadResult.extracted_chars,
-      extractionMethod: uploadResult.extraction_method,
-      contentType: uploadResult.content_type || contentType,
-      totalSources: updatedSources.length,
+      success: summary.failed === 0 && summary.skippedLimit === 0,
+      summary,
+      items,
+      totalSources: currentSources.length,
     });
   } catch (error) {
     console.error("Error uploading corporate PDF:", error);

@@ -6,28 +6,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { useOperationLock } from "@/hooks/useOperationLock";
-
-// Extended content types for dropdown (9 categories)
-type ContentType =
-  | "new_grad_recruitment"
-  | "midcareer_recruitment"
-  | "corporate_site"
-  | "ir_materials"
-  | "ceo_message"
-  | "employee_interviews"
-  | "press_release"
-  | "csr_sustainability"
-  | "midterm_plan";
-
-interface CorporateInfoUrl {
-  url: string;
-  kind?: "url" | "upload_pdf";
-  fileName?: string;
-  type?: "ir" | "business" | "about" | "general";  // Legacy type
-  contentType?: ContentType;  // New classification
-  secondaryContentTypes?: ContentType[];
-  fetchedAt?: string;
-}
+import {
+  isUploadSource,
+  type ContentType,
+  type CorporateInfoSource as CorporateInfoUrl,
+  type CorporateInfoSourceStatus,
+} from "@/lib/company-info/sources";
 
 interface RagStatus {
   hasRag: boolean;
@@ -171,6 +155,24 @@ interface FetchResult {
   sourceLabel?: string;
   extractionMethod?: string;
   extractedChars?: number;
+  summary?: {
+    total: number;
+    completed: number;
+    pending: number;
+    failed: number;
+    skippedLimit: number;
+  };
+  items?: Array<{
+    fileName: string;
+    status: "completed" | "pending" | "failed" | "skipped_limit";
+    sourceUrl?: string;
+    chunksStored?: number;
+    extractedChars?: number;
+    extractionMethod?: string;
+    contentType?: ContentType | null;
+    secondaryContentTypes?: ContentType[];
+    error?: string;
+  }>;
 }
 
 interface WebDraft {
@@ -190,7 +192,7 @@ interface UrlDraft {
 }
 
 interface PdfDraft {
-  uploadFile: File | null;
+  uploadFiles: File[];
 }
 
 function createInitialWebDraft(): WebDraft {
@@ -215,7 +217,7 @@ function createInitialUrlDraft(): UrlDraft {
 
 function createInitialPdfDraft(): PdfDraft {
   return {
-    uploadFile: null,
+    uploadFiles: [],
   };
 }
 
@@ -446,8 +448,36 @@ function buildHeaders(): Record<string, string> {
   return headers;
 }
 
-function isUploadSource(url: string) {
-  return url.startsWith("upload://");
+function mergePdfFiles(nextFiles: FileList | File[] | null | undefined, currentFiles: File[]) {
+  if (!nextFiles) return currentFiles;
+  const merged = [...currentFiles];
+  const files = Array.from(nextFiles);
+  for (const file of files) {
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      continue;
+    }
+    const exists = merged.some(
+      (current) =>
+        current.name === file.name &&
+        current.size === file.size &&
+        current.lastModified === file.lastModified
+    );
+    if (!exists) {
+      merged.push(file);
+    }
+  }
+  return merged;
+}
+
+function removePdfFile(files: File[], target: File) {
+  return files.filter(
+    (file) =>
+      !(
+        file.name === target.name &&
+        file.size === target.size &&
+        file.lastModified === target.lastModified
+      )
+  );
 }
 
 function getExtractionMethodLabel(method?: string) {
@@ -456,8 +486,60 @@ function getExtractionMethodLabel(method?: string) {
       return "PDF内の埋め込みテキストを抽出";
     case "openai_pdf_ocr":
       return "OCRで本文を抽出";
+    case "deferred_ocr":
+      return "OCR待ちで保留";
     default:
       return method || "不明";
+  }
+}
+
+function getSourceStatusMeta(status?: CorporateInfoSourceStatus) {
+  switch (status) {
+    case "pending":
+      return {
+        label: "OCR保留",
+        className: "border-amber-200/80 bg-amber-50 text-amber-700",
+      };
+    case "processing":
+      return {
+        label: "処理中",
+        className: "border-sky-200/80 bg-sky-50 text-sky-700",
+      };
+    case "failed":
+      return {
+        label: "失敗",
+        className: "border-destructive/20 bg-destructive/5 text-destructive",
+      };
+    default:
+      return {
+        label: "完了",
+        className: "border-emerald-200/80 bg-emerald-50 text-emerald-700",
+      };
+  }
+}
+
+function getBatchItemStatusMeta(status: NonNullable<FetchResult["items"]>[number]["status"]) {
+  switch (status) {
+    case "pending":
+      return {
+        label: "OCR保留",
+        className: "border-amber-200/80 bg-amber-50 text-amber-700",
+      };
+    case "failed":
+      return {
+        label: "失敗",
+        className: "border-destructive/20 bg-destructive/5 text-destructive",
+      };
+    case "skipped_limit":
+      return {
+        label: "上限超過",
+        className: "border-zinc-200/80 bg-zinc-50 text-zinc-700",
+      };
+    default:
+      return {
+        label: "完了",
+        className: "border-emerald-200/80 bg-emerald-50 text-emerald-700",
+      };
   }
 }
 
@@ -592,7 +674,10 @@ export function CorporateInfoSection({
     };
 
     for (const url of status.corporateInfoUrls) {
-      const type = url.contentType || (url.type ? mapLegacyToNew(url.type) : "corporate_site");
+      const type = url.contentType || (url.type ? mapLegacyToNew(url.type) : null);
+      if (!type) {
+        continue;
+      }
       counts[type] = (counts[type] || 0) + 1;
       if (Array.isArray(url.secondaryContentTypes)) {
         for (const secondary of url.secondaryContentTypes) {
@@ -627,6 +712,13 @@ export function CorporateInfoSection({
   const showConfigureStep = activeModalStep === "configure";
   const isModalBusy = isSearching || isFetching || isUploading;
   const hasReviewContext = webDraft.hasSearched || webDraft.candidates.length > 0;
+  const hasPendingPdfJobs = useMemo(
+    () =>
+      status?.corporateInfoUrls?.some(
+        (entry) => entry.status === "pending" || entry.status === "processing"
+      ) ?? false,
+    [status?.corporateInfoUrls]
+  );
 
   const isStepNavigable = useCallback(
     (step: ModalStep) => {
@@ -674,9 +766,11 @@ export function CorporateInfoSection({
     [activeModalStep, fetchResult, inputMode, isStepNavigable]
   );
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async (background = false) => {
     try {
-      setIsLoading(true);
+      if (!background) {
+        setIsLoading(true);
+      }
       const response = await fetch(`/api/companies/${companyId}/fetch-corporate`, {
         headers: buildHeaders(),
         credentials: "include",
@@ -691,13 +785,27 @@ export function CorporateInfoSection({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load status");
     } finally {
-      setIsLoading(false);
+      if (!background) {
+        setIsLoading(false);
+      }
     }
   }, [companyId]);
 
   useEffect(() => {
-    fetchStatus();
+    void fetchStatus();
   }, [fetchStatus]);
+
+  useEffect(() => {
+    if (!hasPendingPdfJobs) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void fetchStatus(true);
+    }, 10_000);
+
+    return () => window.clearInterval(timer);
+  }, [fetchStatus, hasPendingPdfJobs]);
 
   const buildSearchQuery = (input: string) => {
     const trimmed = input.trim();
@@ -913,7 +1021,7 @@ export function CorporateInfoSection({
   };
 
   const handleUploadPdf = async () => {
-    if (!pdfDraft.uploadFile) {
+    if (pdfDraft.uploadFiles.length === 0) {
       setError("PDFファイルを選択してください");
       return;
     }
@@ -925,9 +1033,8 @@ export function CorporateInfoSection({
 
     try {
       const formData = new FormData();
-      formData.set("file", pdfDraft.uploadFile);
-      if (resolvedWebContentType) {
-        formData.set("contentType", resolvedWebContentType);
+      for (const file of pdfDraft.uploadFiles) {
+        formData.append("files", file);
       }
 
       const response = await fetch(`/api/companies/${companyId}/fetch-corporate-upload`, {
@@ -949,13 +1056,18 @@ export function CorporateInfoSection({
 
       const result = await response.json();
       setFetchResult({
-        success: true,
-        pagesCrawled: 1,
-        chunksStored: result.chunksStored || 0,
-        errors: [],
+        success: Boolean(result.success),
+        pagesCrawled: result.summary?.total || pdfDraft.uploadFiles.length,
+        chunksStored: (result.items || []).reduce(
+          (sum: number, item: { chunksStored?: number }) => sum + (item.chunksStored || 0),
+          0
+        ),
+        errors: (result.items || [])
+          .filter((item: { error?: string }) => typeof item.error === "string")
+          .map((item: { error?: string }) => item.error as string),
         sourceLabel: "PDF",
-        extractionMethod: result.extractionMethod,
-        extractedChars: result.extractedChars,
+        summary: result.summary,
+        items: result.items,
       });
       setModalStep("result");
       await fetchStatus();
@@ -1447,6 +1559,18 @@ export function CorporateInfoSection({
                           : null,
                         { label: "取得ページ数", value: String(fetchResult.pagesCrawled) },
                         { label: "保存チャンク数", value: fetchResult.chunksStored.toLocaleString("ja-JP") },
+                        fetchResult.summary
+                          ? {
+                              label: "同期完了",
+                              value: `${fetchResult.summary.completed.toLocaleString("ja-JP")}件`,
+                            }
+                          : null,
+                        fetchResult.summary
+                          ? {
+                              label: "OCR保留",
+                              value: `${fetchResult.summary.pending.toLocaleString("ja-JP")}件`,
+                            }
+                          : null,
                         fetchResult.extractionMethod
                           ? {
                               label: "抽出方法",
@@ -1475,6 +1599,61 @@ export function CorporateInfoSection({
                           </div>
                         ))}
                     </div>
+
+                    {fetchResult.items && fetchResult.items.length > 0 && (
+                      <div className="mt-4 rounded-xl border border-white/70 bg-white/70 px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-foreground">PDFごとの結果</p>
+                          <p className="text-xs text-muted-foreground">
+                            OCR保留の資料はバックグラウンドで自動処理されます
+                          </p>
+                        </div>
+                        <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
+                          {fetchResult.items.map((item) => {
+                            const statusMeta = getBatchItemStatusMeta(item.status);
+                            return (
+                              <div
+                                key={`${item.fileName}-${item.sourceUrl || item.status}`}
+                                className="rounded-lg border border-border/70 bg-background/80 px-3 py-3"
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium text-foreground">
+                                      {item.fileName}
+                                    </p>
+                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                      {typeof item.chunksStored === "number" && item.chunksStored > 0 && (
+                                        <span>保存チャンク {item.chunksStored.toLocaleString("ja-JP")}</span>
+                                      )}
+                                      {typeof item.extractedChars === "number" && item.extractedChars > 0 && (
+                                        <span>抽出文字数 {item.extractedChars.toLocaleString("ja-JP")}</span>
+                                      )}
+                                      {item.extractionMethod && (
+                                        <span>{getExtractionMethodLabel(item.extractionMethod)}</span>
+                                      )}
+                                      {item.contentType && (
+                                        <span>{CONTENT_TYPE_LABELS[item.contentType] || item.contentType}</span>
+                                      )}
+                                    </div>
+                                    {item.error && (
+                                      <p className="mt-2 text-xs text-destructive">{item.error}</p>
+                                    )}
+                                  </div>
+                                  <span
+                                    className={cn(
+                                      "inline-flex rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                                      statusMeta.className
+                                    )}
+                                  >
+                                    {statusMeta.label}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     {fetchResult.errors.length > 0 && (
                       <div className="mt-4 rounded-xl border border-amber-200 bg-amber-100/70 px-4 py-3">
@@ -1770,17 +1949,17 @@ export function CorporateInfoSection({
                           <div>
                             <p className="text-sm font-semibold text-foreground">資料アップロード</p>
                             <p className="mt-0.5 text-xs text-muted-foreground">
-                              PDFファイルをアップロードして企業情報として取り込みます。
+                              PDFを複数選択して企業情報として取り込みます。分類は本文から自動判定します。
                             </p>
                           </div>
                           <span className="inline-flex whitespace-nowrap rounded-full border border-border/60 bg-muted/20 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                            PDFのみ
+                            最大10件
                           </span>
                         </div>
                         <div
                           className={cn(
                             "mt-2.5 grid min-h-[200px] cursor-pointer place-items-center rounded-lg border-2 border-dashed p-5 text-center transition-colors",
-                            pdfDraft.uploadFile
+                            pdfDraft.uploadFiles.length > 0
                               ? "border-primary/40 bg-primary/5"
                               : "border-border/80 bg-muted/10 hover:border-primary/30 hover:bg-primary/5"
                           )}
@@ -1791,10 +1970,9 @@ export function CorporateInfoSection({
                           onDrop={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            const file = e.dataTransfer.files[0];
-                            if (file?.type === "application/pdf") {
-                              setPdfDraft({ uploadFile: file });
-                            }
+                            setPdfDraft((prev) => ({
+                              uploadFiles: mergePdfFiles(e.dataTransfer.files, prev.uploadFiles),
+                            }));
                           }}
                           onClick={() => document.getElementById(pdfUploadInputId)?.click()}
                         >
@@ -1802,42 +1980,88 @@ export function CorporateInfoSection({
                             id={pdfUploadInputId}
                             type="file"
                             accept="application/pdf,.pdf"
+                            multiple
                             onChange={(e) =>
-                              setPdfDraft({
-                                uploadFile: e.target.files?.[0] ?? null,
-                              })
+                              setPdfDraft((prev) => ({
+                                uploadFiles: mergePdfFiles(e.target.files, prev.uploadFiles),
+                              }))
                             }
                             disabled={isUploading || isFetching || isSearching}
                             className="hidden"
                           />
-                          {pdfDraft.uploadFile ? (
-                            <div className="space-y-2">
+                          {pdfDraft.uploadFiles.length > 0 ? (
+                            <div className="w-full space-y-3">
                               <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
                                 <FileUploadIcon />
                               </div>
-                              <div>
-                                <p className="text-sm font-medium text-foreground">{pdfDraft.uploadFile.name}</p>
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  クリックして別のファイルを選択
+                              <div className="space-y-2">
+                                <p className="text-sm font-medium text-foreground">
+                                  {pdfDraft.uploadFiles.length}件のPDFを選択中
+                                </p>
+                                <div className="max-h-44 space-y-2 overflow-y-auto text-left">
+                                  {pdfDraft.uploadFiles.map((file) => (
+                                    <div
+                                      key={`${file.name}-${file.size}-${file.lastModified}`}
+                                      className="flex items-start justify-between gap-3 rounded-lg border border-border/70 bg-background/80 px-3 py-2"
+                                    >
+                                      <div className="min-w-0">
+                                        <p className="truncate text-sm font-medium text-foreground">
+                                          {file.name}
+                                        </p>
+                                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                          {(file.size / 1024 / 1024).toFixed(2)} MB
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setPdfDraft((prev) => ({
+                                            uploadFiles: removePdfFile(prev.uploadFiles, file),
+                                          }));
+                                        }}
+                                        className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                      >
+                                        <XIcon />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  OCRが必要なPDFは保留登録し、後から自動で取り込みます。
                                 </p>
                               </div>
-                              <Button
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleUploadPdf();
-                                }}
-                                disabled={isUploading}
-                              >
-                                {isUploading ? (
-                                  <>
-                                    <LoadingSpinner />
-                                    <span className="ml-2">取り込み中...</span>
-                                  </>
-                                ) : (
-                                  "PDFを取り込む"
-                                )}
-                              </Button>
+                              <div className="flex flex-wrap justify-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    document.getElementById(pdfUploadInputId)?.click();
+                                  }}
+                                  disabled={isUploading}
+                                >
+                                  追加選択
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUploadPdf();
+                                  }}
+                                  disabled={isUploading}
+                                >
+                                  {isUploading ? (
+                                    <>
+                                      <LoadingSpinner />
+                                      <span className="ml-2">取り込み中...</span>
+                                    </>
+                                  ) : (
+                                    `${pdfDraft.uploadFiles.length}件を取り込む`
+                                  )}
+                                </Button>
+                              </div>
                             </div>
                           ) : (
                             <div className="space-y-2">
@@ -1849,7 +2073,7 @@ export function CorporateInfoSection({
                                   PDFをドロップまたはクリックして選択
                                 </p>
                                 <p className="mt-1 text-xs text-muted-foreground">
-                                  会社案内、統合報告書、採用資料などを取り込めます。
+                                  会社案内、統合報告書、採用資料などを一括で取り込めます。
                                 </p>
                               </div>
                             </div>
@@ -2004,16 +2228,21 @@ export function CorporateInfoSection({
 
                   <div className="space-y-2">
                     {status.corporateInfoUrls.map((urlInfo, i) => {
-                      const resolvedType = urlInfo.contentType || (urlInfo.type ? mapLegacyToNew(urlInfo.type) : "corporate_site");
+                      const resolvedType = urlInfo.contentType || (urlInfo.type ? mapLegacyToNew(urlInfo.type) : null);
                       const secondaryTypes = Array.isArray(urlInfo.secondaryContentTypes)
                         ? urlInfo.secondaryContentTypes
                         : [];
                       const uploadSource = urlInfo.kind === "upload_pdf" || isUploadSource(urlInfo.url);
-                      const colors = CONTENT_TYPE_COLORS[resolvedType] || {
-                        bg: "bg-gray-100",
-                        text: "text-gray-700",
-                      };
-                      const label = CONTENT_TYPE_LABELS[resolvedType] || CONTENT_TYPE_LABELS["corporate_site"];
+                      const colors = resolvedType
+                        ? CONTENT_TYPE_COLORS[resolvedType] || {
+                            bg: "bg-gray-100",
+                            text: "text-gray-700",
+                          }
+                        : null;
+                      const label = resolvedType
+                        ? CONTENT_TYPE_LABELS[resolvedType] || CONTENT_TYPE_LABELS["corporate_site"]
+                        : null;
+                      const statusMeta = getSourceStatusMeta(urlInfo.status);
                       const isSelected = selectedUrlsForDelete.has(urlInfo.url);
 
                       return (
@@ -2047,17 +2276,31 @@ export function CorporateInfoSection({
 
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span
-                                className={cn(
-                                  "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium",
-                                  colors.bg,
-                                  colors.text
-                                )}
-                              >
-                                {label}
-                              </span>
+                              {label && colors ? (
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium",
+                                    colors.bg,
+                                    colors.text
+                                  )}
+                                >
+                                  {label}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/20 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                                  自動判定中
+                                </span>
+                              )}
                               <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/20 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
                                 {uploadSource ? "PDF" : "URL"}
+                              </span>
+                              <span
+                                className={cn(
+                                  "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                                  statusMeta.className
+                                )}
+                              >
+                                {statusMeta.label}
                               </span>
                               {secondaryTypes.map((secondary, idx) => {
                                 const secColors = CONTENT_TYPE_COLORS[secondary] || {
@@ -2085,7 +2328,11 @@ export function CorporateInfoSection({
                                 <p className="break-all text-sm font-medium text-foreground">
                                   {urlInfo.fileName || "アップロードPDF"}
                                 </p>
-                                <p className="text-xs text-muted-foreground">PDFアップロード</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {urlInfo.status === "pending" || urlInfo.status === "processing"
+                                    ? "OCRが完了すると自動で分類されます"
+                                    : "PDFアップロード"}
+                                </p>
                               </div>
                             ) : (
                               <div className="mt-3 space-y-2">
@@ -2108,6 +2355,9 @@ export function CorporateInfoSection({
                               <p className="mt-3 text-xs text-muted-foreground">
                                 取得日時: {formatTimestamp(urlInfo.fetchedAt)}
                               </p>
+                            )}
+                            {urlInfo.errorMessage && (
+                              <p className="mt-2 text-xs text-destructive">{urlInfo.errorMessage}</p>
                             )}
                           </div>
                         </div>

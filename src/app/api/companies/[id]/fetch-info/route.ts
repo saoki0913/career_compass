@@ -89,6 +89,7 @@ interface ExtractedDeadline {
   title: string;
   due_date: string | null;  // Backend uses snake_case
   dueDate?: string | null;  // Frontend alias
+  source_url?: string;
   confidence: string;
 }
 
