@@ -180,6 +180,41 @@ export const companies = pgTable(
   ]
 );
 
+export const companyPdfIngestJobs = pgTable(
+  "company_pdf_ingest_jobs",
+  {
+    id: text("id").primaryKey(),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    sourceUrl: text("source_url").notNull(),
+    storageBucket: text("storage_bucket").notNull(),
+    storagePath: text("storage_path").notNull(),
+    fileName: text("file_name").notNull(),
+    status: text("status", {
+      enum: ["pending", "processing", "completed", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    detectedContentType: text("detected_content_type"),
+    secondaryContentTypes: text("secondary_content_types"),
+    chunksStored: integer("chunks_stored").notNull().default(0),
+    extractedChars: integer("extracted_chars").notNull().default(0),
+    extractionMethod: text("extraction_method"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    startedAt: timestamptz("started_at"),
+    completedAt: timestamptz("completed_at"),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("company_pdf_ingest_jobs_company_status_idx").on(t.companyId, t.status),
+    uniqueIndex("company_pdf_ingest_jobs_source_url_ux").on(t.sourceUrl),
+    index("company_pdf_ingest_jobs_created_at_idx").on(t.createdAt),
+  ]
+);
+
 // Applications table - track application rounds (summer intern, main selection, etc.)
 export const applications = pgTable(
   "applications",
