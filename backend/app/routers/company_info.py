@@ -2107,7 +2107,12 @@ def _score_corporate_candidate(
         score += 4.0  # マッピングパターン一致は高スコア
     if not domain_matched and ascii_name and ascii_name in domain:
         score += 3.0  # フォールバック
-    if not company_match and not preferred_domain_match and not is_related_company:
+    if (
+        not company_match
+        and not preferred_domain_match
+        and not is_related_company
+        and not is_official_domain
+    ):
         score -= 4.0
 
     if domain.endswith((".co.jp", ".jp", ".com", ".net")):
@@ -2244,7 +2249,12 @@ def _score_corporate_candidate_with_breakdown(
         score += 3.0
         breakdown["ASCII名一致"] = "+3.0"
 
-    if not company_match and not preferred_domain_match and not is_related_company:
+    if (
+        not company_match
+        and not preferred_domain_match
+        and not is_related_company
+        and not is_official_domain
+    ):
         score -= 4.0
         breakdown["企業不一致ペナルティ"] = "-4.0"
 
@@ -3909,7 +3919,10 @@ class UploadCorporatePdfResponse(BaseModel):
     chunks_stored: int
     extracted_chars: int
     content_type: str | None = None
+    secondary_content_types: list[str] = []
     extraction_method: str
+    deferred: bool = False
+    needs_ocr: bool = False
     errors: list[str] = []
 
 
@@ -3976,6 +3989,7 @@ async def upload_corporate_pdf(
     source_url: str = Form(...),
     content_type: Optional[str] = Form(None),
     content_channel: Optional[str] = Form(None),
+    allow_defer_ocr: bool = Form(False),
     file: UploadFile = File(...),
 ):
     """Extract text from an uploaded PDF and store it in company RAG."""
@@ -4011,6 +4025,20 @@ async def upload_corporate_pdf(
     extraction_method = "pypdf"
 
     if len(extracted_text) < 200:
+        if allow_defer_ocr:
+            return UploadCorporatePdfResponse(
+                success=True,
+                company_id=company_id,
+                source_url=source_url,
+                chunks_stored=0,
+                extracted_chars=len(extracted_text.strip()),
+                content_type=content_type,
+                secondary_content_types=[],
+                extraction_method="deferred_ocr",
+                deferred=True,
+                needs_ocr=True,
+                errors=[],
+            )
         try:
             ocr_text = await extract_text_from_pdf_with_openai(
                 pdf_bytes,
@@ -4032,6 +4060,7 @@ async def upload_corporate_pdf(
             chunks_stored=0,
             extracted_chars=len(extracted_text.strip()),
             content_type=content_type,
+            secondary_content_types=[],
             extraction_method=extraction_method,
             errors=["PDFから十分な本文テキストを抽出できませんでした。"],
         )
@@ -4061,6 +4090,7 @@ async def upload_corporate_pdf(
             chunks_stored=0,
             extracted_chars=len(extracted_text),
             content_type=content_type,
+            secondary_content_types=[],
             extraction_method=extraction_method,
             errors=["PDFのRAG保存に失敗しました。"],
         )
@@ -4079,7 +4109,10 @@ async def upload_corporate_pdf(
         chunks_stored=len(chunks),
         extracted_chars=len(extracted_text),
         content_type=result.get("dominant_content_type") or content_type,
+        secondary_content_types=result.get("secondary_content_types") or [],
         extraction_method=extraction_method,
+        deferred=False,
+        needs_ocr=False,
         errors=[],
     )
 

@@ -17,6 +17,7 @@ from app.utils.company_names import (
     is_registered_official_domain,
     normalize_company_result_source_type,
 )
+from app.routers.company_info import _score_corporate_candidate_with_breakdown
 
 
 # =========================================================================
@@ -450,3 +451,17 @@ class TestCompanyInfoConfidenceRules:
         _, _, hybrid_score_to_confidence = company_info_helpers
         assert hybrid_score_to_confidence(0.95, "parent") == "medium"
         assert hybrid_score_to_confidence(0.95, "subsidiary") == "medium"
+
+    def test_official_domain_title_spacing_does_not_trigger_company_mismatch_penalty(self):
+        score, breakdown, _ = _score_corporate_candidate_with_breakdown(
+            url="https://www.mysite.bk.mufg.jp/career/interview/07.html",
+            title="07.安井 大輔 | 行 員紹介 | 三 菱 ＵＦＪ 銀 行 | Career Recruiting",
+            snippet="システム・デジタル領域で活躍する社員のインタビュー。",
+            company_name="三菱UFJ銀行",
+            search_type="business",
+            content_type="employee_interviews",
+        )
+
+        assert score is not None
+        assert "企業不一致ペナルティ" not in breakdown
+        assert breakdown.get("ドメインパターン一致") == "+4.0 (registered)"

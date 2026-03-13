@@ -1,0 +1,82 @@
+import io
+
+import pytest
+from fastapi import UploadFile
+
+from app.routers import company_info
+
+
+@pytest.mark.asyncio
+async def test_upload_pdf_defers_ocr_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(company_info, "resolve_embedding_backend", lambda: object())
+    monkeypatch.setattr(
+        company_info,
+        "_extract_text_from_pdf_locally",
+        lambda _pdf_bytes: "short text",
+    )
+
+    async def _unexpected_ocr(*_args, **_kwargs):
+        raise AssertionError("OCR fallback should not run when defer is enabled")
+
+    monkeypatch.setattr(company_info, "extract_text_from_pdf_with_openai", _unexpected_ocr)
+
+    upload = UploadFile(filename="company.pdf", file=io.BytesIO(b"%PDF-1.4 test"))
+
+    result = await company_info.upload_corporate_pdf(
+        company_id="company-1",
+        company_name="テスト株式会社",
+        source_url="upload://corporate-pdf/company-1/test",
+        content_type=None,
+        content_channel=None,
+        allow_defer_ocr=True,
+        file=upload,
+    )
+
+    assert result.success is True
+    assert result.deferred is True
+    assert result.needs_ocr is True
+    assert result.extraction_method == "deferred_ocr"
+    assert result.chunks_stored == 0
+
+
+@pytest.mark.asyncio
+async def test_upload_pdf_uses_ocr_when_defer_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(company_info, "resolve_embedding_backend", lambda: object())
+    monkeypatch.setattr(
+        company_info,
+        "_extract_text_from_pdf_locally",
+        lambda _pdf_bytes: "short text",
+    )
+
+    async def _fake_ocr(*_args, **_kwargs):
+        return "これは十分な長さのOCR抽出テキストです。" * 20
+
+    async def _fake_store_full_text_content(**_kwargs):
+        return {
+            "success": True,
+            "dominant_content_type": "ir_materials",
+            "secondary_content_types": ["csr_sustainability"],
+        }
+
+    monkeypatch.setattr(company_info, "extract_text_from_pdf_with_openai", _fake_ocr)
+    monkeypatch.setattr(company_info, "store_full_text_content", _fake_store_full_text_content)
+
+    upload = UploadFile(filename="company.pdf", file=io.BytesIO(b"%PDF-1.4 test"))
+
+    result = await company_info.upload_corporate_pdf(
+        company_id="company-1",
+        company_name="テスト株式会社",
+        source_url="upload://corporate-pdf/company-1/test",
+        content_type=None,
+        content_channel=None,
+        allow_defer_ocr=False,
+        file=upload,
+    )
+
+    assert result.success is True
+    assert result.deferred is False
+    assert result.needs_ocr is False
+    assert result.extraction_method == "openai_pdf_ocr"
+    assert result.content_type == "ir_materials"
+    assert result.secondary_content_types == ["csr_sustainability"]
+    assert result.chunks_stored > 0
