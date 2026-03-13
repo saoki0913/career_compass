@@ -168,16 +168,35 @@ CORS_ORIGINS=["https://www.shupass.jp","https://shupass.jp"]
 CLAUDE_MODEL=claude-sonnet-4-5-20250929
 CLAUDE_HAIKU_MODEL=claude-haiku-4-5-20251001
 OPENAI_MODEL=gpt-5-mini
+GOOGLE_MODEL=gemini-3.1-pro-preview
+COHERE_MODEL=command-a-03-2025
+DEEPSEEK_MODEL=deepseek-chat
+
+# 追加 provider API キー（必要なものだけ設定）
+# GOOGLE_API_KEY=...
+# COHERE_API_KEY=...
+# DEEPSEEK_API_KEY=...
 
 # Qwen3 ES添削 beta（別の vLLM / OpenAI-compatible service を使う）
 QWEN_ES_REVIEW_ENABLED=true
-QWEN_ES_REVIEW_BASE_URL=http://qwen-es-review.internal:8000/v1
-QWEN_ES_REVIEW_MODEL=Qwen/Qwen3-14B
+QWEN_ES_REVIEW_BASE_URL=https://<modal-app>.modal.run/v1
+QWEN_ES_REVIEW_MODEL=tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2
 QWEN_ES_REVIEW_ADAPTER_ID=es_review
 # QWEN_ES_REVIEW_API_KEY=local-qwen
 # QWEN_ES_REVIEW_TIMEOUT_SECONDS=120
+# QWEN_ES_REVIEW_TIMEOUT_IMPROVEMENT_SECONDS=30
+# QWEN_ES_REVIEW_TIMEOUT_REWRITE_SECONDS=90
+# QWEN_ES_REVIEW_TIMEOUT_COMPACT_REWRITE_SECONDS=45
+# QWEN_ES_REVIEW_TIMEOUT_LENGTH_FIX_SECONDS=20
+# QWEN_ES_REVIEW_TOTAL_BUDGET_SECONDS=150
 
-# 機能別モデルティア設定（claude-sonnet / claude-haiku / openai）
+# 機能別モデル設定（エイリアス or 明示モデルID）
+# 例:
+#   MODEL_ES_REVIEW=claude-sonnet
+#   MODEL_ES_REVIEW=gpt-5.1
+#   MODEL_ES_REVIEW=gemini-3.1-pro-preview
+#   MODEL_ES_REVIEW=command-a-03-2025
+#   MODEL_ES_REVIEW=deepseek-chat
 MODEL_ES_REVIEW=claude-sonnet
 MODEL_GAKUCHIKA=claude-haiku
 MODEL_MOTIVATION=claude-haiku
@@ -207,7 +226,11 @@ FRONTEND_URL=https://www.shupass.jp
 # REDIS_URL=redis://...
 ```
 
-> `QWEN_ES_REVIEW_BASE_URL` は既存 FastAPI コンテナ自身ではなく、別サービスとして立てた vLLM endpoint を向ける。既存の Claude 経路を残したまま、Qwen3 β だけを sidecar / 別 Railway service に逃がす構成を前提にする。
+> `QWEN_ES_REVIEW_BASE_URL` は既存 FastAPI コンテナ自身ではなく、Modal など別サービスとして立てた vLLM endpoint を向ける。既存の Claude 経路を残したまま、Qwen β だけを外部推論サービスへ逃がす構成を前提にする。
+>
+> timeout は 120 秒一律ではなく、improvement / rewrite / compact rewrite / length-fix に分ける。改善ポイントは短く待って fallback し、rewrite だけ長めに待つ設定を推奨する。
+>
+> ES添削パネルの標準モデルは UI の `モデル選択` dropdown から `Claude Sonnet 4.5 / GPT-5.1 / Gemini 3.1 Pro Preview / Cohere Command A / DeepSeek V3.2` を切り替えられる。
 
 ### 設定不要な変数
 

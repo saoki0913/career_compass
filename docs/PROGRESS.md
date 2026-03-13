@@ -498,6 +498,20 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 
 ## 最近の更新履歴
 
+### 2026-03-13
+- 🧠 **ES添削の企業依存設問 quality gate を強化**
+  - `role_course_reason` と `intern_goals` を rubric / final-quality の固定回帰へ追加
+  - `selected_user_facts` は `current_answer + 補助 fact` を最低保証し、profile の過剰注入を抑えるよう更新
+  - `company_evidence_cards` は required 設問で `役割/プログラム軸 + 企業理解軸` を最低 1 枚ずつ確保し、theme diversity を優先するよう整理
+- 🔎 **ES添削の question focus と second pass を整理**
+  - broad role だけでなく required 設問全体で `事業理解 / 成長機会 / 価値観 / 将来接続 / 役割理解 / インターン機会` の 6 軸を使って evidence を選ぶよう更新
+  - role-focused second pass は `weak` だけでなく `partial` coverage でも、役割軸か企業軸が欠けるときに 1 回だけ走るよう改善
+- 🧩 **標準モデルの shared structured output 契約を補強**
+  - OpenAI Chat Completions の `json_schema.name` 欠落を修正し、`name / schema / strict` を常に付与
+  - Gemini は strict JSON 指示と parse fallback を shared layer に寄せ、Claude 専用 transport には手を入れずに標準経路の整合だけを修正
+- 📝 **ES添削ドキュメントを更新**
+  - `docs/features/ES_REVIEW.md` と `docs/testing/ES_REVIEW_QUALITY.md` に required 設問優先の品質監査、6 軸 evidence、shared provider 契約を反映
+
 ### 2026-03-11
 - 🧠 **ES添削の企業補強を current-run 品質向上向けに更新**
   - `complete` 後の次回向け補強をやめ、streaming rewrite 開始前に企業ページ検索・取得を同期実行する pre-stream 補強へ変更
@@ -642,6 +656,32 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 - AI添削に並列添削、編集ロック、英語ES対応、スパム対策を追加
 - ガクチカに再実行時の履歴保持を追加
 - 実装優先度リストを更新
+
+### 2026-03-12
+- ✅ ES添削の標準モデル経路に商用API provider routing を追加
+  - `MODEL_ES_REVIEW` で `gpt-5.1`, `gemini-3.1-pro-preview`, `command-a-03-2025`, `deepseek-chat` などの明示モデルIDを指定可能に更新
+  - Gemini は公式 API、Cohere / DeepSeek は OpenAI compatibility API で扱うよう整理
+  - `review_meta.llm_provider / llm_model` を標準経路でも正しく返すように更新
+  - フロントの標準経路ラベルを `Claude` 固定ではなく実選択モデルベースへ変更
+- ✅ ES添削パネルに `モデル選択` dropdown を追加
+  - 標準添削は `Claude Sonnet 4.5 / GPT-5.1 / Gemini 3.1 Pro Preview / Cohere Command A / DeepSeek V3.2` を UI から選択可能に更新
+  - Qwen3 Swallow 32B β は従来どおり別経路として残し、比較時だけ切り替える構成に整理
+
+### 2026-03-13
+- ✅ GPT-5.1 の 400字設問 under-min を prompt 主導で改善
+  - 非Claudeの 300〜500 字 required 設問に 4 文構成 guidance を追加し、`role_course_reason` などで短くまとまりすぎる失敗を抑制
+  - `under_min` が続く場合は 3 回目以降に length-focused retry へ切り替え、最後の length-fix も 45 字不足まで救済するよう更新
+  - Claude の prompt / transport / 挙動は変更せず、標準モデル側だけを調整
+- ✅ ES添削の企業補強を current-run で使えるように更新
+  - pre-stream enrichment で取得した corporate URL を `prestream_source_urls` として同一 review request に渡し、BM25 更新待ちに依存せずその回の evidence に直接差し込むように変更
+  - ユーザーが手動追加した URL / PDF は `user_provided_corporate_urls` として最優先 evidence 扱いに変更
+- ✅ ES添削の required 設問で role grounding 判定を厳格化
+  - `employee_interviews` 1件だけでは `role_grounded` に上げず、role/company の片軸欠けがある `partial` でも second pass が動くように更新
+- ✅ 企業検索の official score を補正
+  - official domain であれば title の表記揺れだけでは `企業不一致ペナルティ` を入れないように修正
+  - `mysite.bk.mufg.jp` のような実質公式の recruit/interview URL が不自然に `medium` へ落ちにくくなった
+- ✅ ES添削の標準モデル UI を stable allowlist 化
+  - UI では `Claude Sonnet 4.5` と `GPT-5.1` のみ selectable にし、`Gemini 3.1 Pro Preview / Cohere Command A / DeepSeek V3.2` は `現在調整中` として一時的に無効化
 
 ### 2026-01-29
 - ✅ 提出物（履歴書/ES）の削除保護を実装（API & UI両方）
