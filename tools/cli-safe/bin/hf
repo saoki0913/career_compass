@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")"/../lib && pwd)/cli-safe-common.sh"
+
+service="hf"
+subcommand="${1:-}"
+second="${2:-}"
+
+cli_safe_assert_no_dangerous_flags "$service" "$@"
+
+case "$subcommand" in
+  auth)
+    [[ "$second" == "login" || "$second" == "whoami" ]] || cli_safe_die "$service" "hf auth は login/whoami のみ許可しています。"
+    ;;
+  whoami|download)
+    ;;
+  repo)
+    [[ "$second" == "ls" ]] || cli_safe_die "$service" "hf repo は ls のみ許可しています。"
+    ;;
+  upload|delete|repo-files)
+    cli_safe_die "$service" "変更や削除につながる hf 操作は許可していません。"
+    ;;
+  "")
+    ;;
+  *)
+    cli_safe_die "$service" "'$subcommand' は許可していません。"
+    ;;
+esac
+
+cli_safe_run "$service" hf "$@"

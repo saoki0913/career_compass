@@ -5,7 +5,7 @@
 	backend-test-comprehensive backend-test-comprehensive-quick backend-test-comprehensive-stats \
 	backend-test-content-type backend-test-content-type-unit backend-test-content-type-integration \
 	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy \
-	deploy deploy-check deploy-migrate
+	deploy deploy-check deploy-migrate ops-status ops-auth-check ops-release-check
 
 # ===========================================
 # フロントエンド (Next.js)
@@ -286,6 +286,8 @@ BACKEND_URL := https://career-compass-backend.up.railway.app
 HEALTH_CHECK_RETRIES := 8
 HEALTH_CHECK_INTERVAL := 15
 HEALTH_CHECK_INITIAL_WAIT := 30
+CLI_SAFE_BIN := $(CURDIR)/tools/cli-safe/bin
+CLI_SAFE_PATH := PATH="$(CLI_SAFE_BIN):$$PATH"
 
 ## develop → main 本番デプロイ（ビルド検証・DBマイグレ・ヘルスチェック付き）
 deploy:
@@ -566,6 +568,54 @@ deploy-migrate:
 	npm run db:migrate:prod
 	@echo "-> マイグレーション完了"
 
+## 安全ラッパー経由で主要 CLI の状態を確認
+ops-status:
+	@echo "=== Safe CLI Status ==="
+	@echo ""
+	@$(CLI_SAFE_PATH) git status --short || true
+	@echo ""
+	@echo "--- GitHub / Deploy ---"
+	@$(CLI_SAFE_PATH) gh auth status || true
+	@$(CLI_SAFE_PATH) vercel whoami || true
+	@$(CLI_SAFE_PATH) railway whoami || true
+	@echo ""
+	@echo "--- Data / Billing / Model ---"
+	@$(CLI_SAFE_PATH) supabase status || true
+	@$(CLI_SAFE_PATH) stripe events list --limit 1 || true
+	@$(CLI_SAFE_PATH) hf whoami || true
+	@$(CLI_SAFE_PATH) modal app list || true
+	@$(CLI_SAFE_PATH) gcloud auth list || true
+
+## 認証状態だけを安全ラッパー経由で確認
+ops-auth-check:
+	@echo "=== Safe CLI Auth Check ==="
+	@echo ""
+	@$(CLI_SAFE_PATH) gh auth status || true
+	@$(CLI_SAFE_PATH) vercel whoami || true
+	@$(CLI_SAFE_PATH) railway whoami || true
+	@$(CLI_SAFE_PATH) supabase projects list || true
+	@$(CLI_SAFE_PATH) stripe events list --limit 1 || true
+	@$(CLI_SAFE_PATH) hf whoami || true
+	@$(CLI_SAFE_PATH) gcloud auth list || true
+
+## release 前の branch / deploy 前提だけを確認
+ops-release-check:
+	@echo "=== Release Guardrails Check ==="
+	@echo ""
+	@CURRENT=$$(git branch --show-current 2>/dev/null || true); \
+	echo "Current branch: $$CURRENT"; \
+	if [ "$$CURRENT" != "develop" ]; then \
+		echo "ERROR: release は develop ブランチで開始してください。"; \
+		exit 1; \
+	fi; \
+	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then \
+		echo "WARNING: 未コミットの変更があります。make deploy 実行前に確認してください。"; \
+	else \
+		echo "Working tree: clean"; \
+	fi; \
+	echo "Production branch: main"; \
+	echo "Deploy flow: develop -> make deploy -> main push -> Vercel/Railway auto deploy"
+
 # ===========================================
 # ヘルプ
 # ===========================================
@@ -617,6 +667,9 @@ help:
 	@echo "    make deploy         - 本番デプロイ（ビルド検証→DBマイグレ→マージ→ヘルスチェック）"
 	@echo "    make deploy-check   - ヘルスチェックのみ（Frontend + Backend）"
 	@echo "    make deploy-migrate - 本番DBマイグレーションのみ"
+	@echo "    make ops-status     - 安全ラッパー経由で主要CLIの状態確認"
+	@echo "    make ops-auth-check - 安全ラッパー経由で認証状態確認"
+	@echo "    make ops-release-check - release 前の branch/guardrail 確認"
 	@echo ""
 	@echo "  🔧 環境・セットアップ:"
 	@echo "    make check        - 開発環境の状態確認"

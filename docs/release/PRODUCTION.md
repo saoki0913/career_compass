@@ -64,18 +64,12 @@
 
 ```bash
 # Makefile コマンドで実行（安全ガード付き）
+make ops-release-check
 make deploy
 ```
 
-または手動で:
-
-```bash
-git checkout main
-git merge develop
-git push origin main
-```
-
-> `git push` により Vercel と Railway の両方で自動デプロイが開始されます。
+> `make deploy` が `develop -> main -> Vercel / Railway auto deploy` を一括で実行します。  
+> 直接 `main` に push する運用は行いません。CLI の安全ラッパー方針は [CLI_GUARDRAILS.md](../ops/CLI_GUARDRAILS.md) を参照してください。
 
 ### 6-2. デプロイ状況の確認
 

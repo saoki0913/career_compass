@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")"/../lib && pwd)/cli-safe-common.sh"
+
+service="git"
+subcommand="${1:-}"
+second="${2:-}"
+
+cli_safe_assert_no_dangerous_flags "$service" "$@"
+
+case "$subcommand" in
+  status|diff|log|fetch|pull|add|commit|stash)
+    ;;
+  checkout)
+    if [[ "$second" != "develop" && "$second" != "main" ]]; then
+      cli_safe_die "$service" "checkout は develop / main のみ許可しています。"
+    fi
+    ;;
+  push)
+    if [[ "${2:-}" == "origin" && "${3:-}" == "develop" ]]; then
+      cli_safe_assert_git_branch "develop"
+    else
+      cli_safe_die "$service" "push は 'git push origin develop' のみ許可しています。"
+    fi
+    ;;
+  branch)
+    if cli_safe_has_arg "-d" "$@" || cli_safe_has_arg "-D" "$@"; then
+      cli_safe_die "$service" "branch delete は許可していません。"
+    fi
+    ;;
+  merge|rebase|reset|clean|tag|switch|restore|cherry-pick|revert)
+    cli_safe_die "$service" "'$subcommand' は安全ラッパー経由では許可していません。"
+    ;;
+  "")
+    ;;
+  *)
+    cli_safe_die "$service" "'$subcommand' は許可していません。"
+    ;;
+esac
+
+cli_safe_run "$service" git "$@"

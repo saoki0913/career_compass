@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")"/../lib && pwd)/cli-safe-common.sh"
+
+service="gh"
+subcommand="${1:-}"
+second="${2:-}"
+
+cli_safe_assert_no_dangerous_flags "$service" "$@"
+
+case "$subcommand" in
+  auth)
+    case "$second" in
+      login|status|refresh)
+        ;;
+      *)
+        cli_safe_die "$service" "gh auth は login/status/refresh のみ許可しています。"
+        ;;
+    esac
+    ;;
+  repo)
+    [[ "$second" == "view" ]] || cli_safe_die "$service" "gh repo は view のみ許可しています。"
+    ;;
+  pr)
+    case "$second" in
+      view|checks)
+        ;;
+      *)
+        cli_safe_die "$service" "gh pr は view/checks のみ許可しています。"
+        ;;
+    esac
+    ;;
+  run)
+    case "$second" in
+      list|view)
+        ;;
+      *)
+        cli_safe_die "$service" "gh run は list/view のみ許可しています。"
+        ;;
+    esac
+    ;;
+  "")
+    ;;
+  *)
+    cli_safe_die "$service" "'$subcommand' は許可していません。"
+    ;;
+esac
+
+cli_safe_run "$service" gh "$@"

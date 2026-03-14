@@ -34,6 +34,7 @@
 |------------|------|
 | [ARCHITECTURE.md](./architecture/ARCHITECTURE.md) | システムアーキテクチャ（全体構成図） |
 | [DATABASE.md](./architecture/DATABASE.md) | データベース設計（テーブル定義、ER図） |
+| [ERROR_HANDLING.md](./architecture/ERROR_HANDLING.md) | エラー表示方針（ユーザー向け文言と開発者向け詳細の分離） |
 | [TECH_STACK.md](./architecture/TECH_STACK.md) | 使用技術一覧（バージョン、依存関係） |
 
 ---
@@ -69,6 +70,12 @@
 | ドキュメント | 説明 |
 |------------|------|
 | [PRODUCTION.md](./release/PRODUCTION.md) | 本番リリース手順書（Vercel + Railway + Supabase） |
+
+## 🛡️ 運用ガードレール (ops/)
+
+| ドキュメント | 説明 |
+|------------|------|
+| [CLI_GUARDRAILS.md](./ops/CLI_GUARDRAILS.md) | 安全ラッパー付き CLI 運用（git / gh / Vercel / Railway / Supabase / Stripe / HF / Modal / gcloud） |
 
 ---
 

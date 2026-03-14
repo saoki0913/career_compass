@@ -1,8 +1,13 @@
 # 実装進捗ドキュメント
 
-最終更新: 2026-03-11
+最終更新: 2026-03-14
 
 このドキュメントは `docs/SPEC.md` に記載されている機能の実装状況を追跡します。
+
+## 最近の更新
+
+- 2026-03-14: Codex 用の安全ラッパー CLI を追加。`git / gh / vercel / railway / supabase / stripe / modal / hf / huggingface-cli / gcloud` を同名 wrapper で包み、危険操作を拒否しつつ `develop -> main -> 本番` の運用を維持。
+- 2026-03-14: 主要 API と主要 hook で `ユーザー向けメッセージ` と `開発者向け詳細` を分離。`requestId` を導入し、開発環境では devtools / ログから debug 情報を追える構成に整理。
 
 ---
 
@@ -681,7 +686,8 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
   - official domain であれば title の表記揺れだけでは `企業不一致ペナルティ` を入れないように修正
   - `mysite.bk.mufg.jp` のような実質公式の recruit/interview URL が不自然に `medium` へ落ちにくくなった
 - ✅ ES添削の標準モデル UI を stable allowlist 化
-  - UI では `Claude Sonnet 4.5` と `GPT-5.1` のみ selectable にし、`Gemini 3.1 Pro Preview / Cohere Command A / DeepSeek V3.2` は `現在調整中` として一時的に無効化
+  - UI では `Claude Sonnet 4.5`、`GPT-5.1`、`Gemini 3.1 Pro Preview` を selectable にし、`Cohere Command A / DeepSeek V3.2` は `現在調整中` として継続無効化
+  - Gemini 3.1 は Google 互換 schema 正規化、`thinkingLevel=LOW`、追加 token budget、低温度固定を入れて ES添削の template smoke を通過
 
 ### 2026-01-29
 - ✅ 提出物（履歴書/ES）の削除保護を実装（API & UI両方）
