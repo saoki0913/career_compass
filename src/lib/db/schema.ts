@@ -793,6 +793,26 @@ export const waitlistSignups = pgTable(
   (t) => [uniqueIndex("waitlist_signups_email_lower_ux").on(sql`lower(${t.email})`)]
 );
 
+// User pins table - generic favorites for any entity
+export const userPins = pgTable(
+  "user_pins",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    guestId: text("guest_id").references(() => guestUsers.id, { onDelete: "cascade" }),
+    entityType: text("entity_type", { enum: ["document", "gakuchika"] }).notNull(),
+    entityId: text("entity_id").notNull(),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    check("user_pins_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
+    uniqueIndex("user_pins_user_entity_ux").on(t.userId, t.entityType, t.entityId),
+    uniqueIndex("user_pins_guest_entity_ux").on(t.guestId, t.entityType, t.entityId),
+    index("user_pins_user_type_idx").on(t.userId, t.entityType),
+    index("user_pins_guest_type_idx").on(t.guestId, t.entityType),
+  ]
+);
+
 // Contact messages (support/inquiries)
 export const contactMessages = pgTable(
   "contact_messages",
