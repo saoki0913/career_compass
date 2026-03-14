@@ -4,10 +4,6 @@
     {
       "path": "/api/cron/daily-notifications",
       "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/cron/company-info-pdf-ocr",
-      "schedule": "* * * * *"
     }
   ]
 }
