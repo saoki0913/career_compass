@@ -40,5 +40,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD python -c "import os, urllib.request; port=os.getenv('PORT','8000'); urllib.request.urlopen('http://localhost:%s/health' % port).read()" || exit 1
 
-# Run the application
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Railway's public domain is configured to target port 8000 for this service.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
