@@ -138,9 +138,9 @@ def _build_vllm_command() -> list[str]:
         command.extend(
             [
                 "--gpu-memory-utilization",
-                "0.88",
+                "0.85",
                 "--max-num-seqs",
-                "4",
+                "2",
             ]
         )
         if FAST_BOOT:
@@ -190,7 +190,7 @@ def _ensure_adapter_present() -> None:
 @app.function(
     image=image,
     gpu=GPU_TYPE,
-    scaledown_window=600,
+    scaledown_window=900,
     timeout=60 * 60,
     volumes={
         HF_CACHE_DIR: hf_cache_volume,

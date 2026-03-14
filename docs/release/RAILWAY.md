@@ -184,10 +184,8 @@ QWEN_ES_REVIEW_MODEL=tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2
 QWEN_ES_REVIEW_ADAPTER_ID=es_review
 # QWEN_ES_REVIEW_API_KEY=local-qwen
 # QWEN_ES_REVIEW_TIMEOUT_SECONDS=120
-# QWEN_ES_REVIEW_TIMEOUT_IMPROVEMENT_SECONDS=30
 # QWEN_ES_REVIEW_TIMEOUT_REWRITE_SECONDS=90
 # QWEN_ES_REVIEW_TIMEOUT_COMPACT_REWRITE_SECONDS=45
-# QWEN_ES_REVIEW_TIMEOUT_LENGTH_FIX_SECONDS=20
 # QWEN_ES_REVIEW_TOTAL_BUDGET_SECONDS=150
 
 # 機能別モデル設定（エイリアス or 明示モデルID）
@@ -228,7 +226,7 @@ FRONTEND_URL=https://www.shupass.jp
 
 > `QWEN_ES_REVIEW_BASE_URL` は既存 FastAPI コンテナ自身ではなく、Modal など別サービスとして立てた vLLM endpoint を向ける。既存の Claude 経路を残したまま、Qwen β だけを外部推論サービスへ逃がす構成を前提にする。
 >
-> timeout は 120 秒一律ではなく、improvement / rewrite / compact rewrite / length-fix に分ける。改善ポイントは短く待って fallback し、rewrite だけ長めに待つ設定を推奨する。
+> Qwen β は rewrite-only で動かし、improvement JSON や length-fix の追加 LLM call は使わない。timeout は rewrite / compact rewrite / total budget を中心に調整する。
 >
 > ES添削パネルの標準モデルは UI の `モデル選択` dropdown から `Claude Sonnet 4.5 / GPT-5.1 / Gemini 3.1 Pro Preview / Cohere Command A / DeepSeek V3.2` を切り替えられる。
 

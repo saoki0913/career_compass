@@ -176,10 +176,10 @@ career_compass/
            ├─> 入力防御と sanitize
            ├─> RAGコンテキスト取得（ChromaDB + BM25）
            ├─> company evidence cards / reference quality profile / selected user facts を構築
-           ├─> 改善ポイント生成（最小JSON schema）
-           ├─> 改善案生成（通常 5 回 + 簡易化 1 回）
+           ├─> 標準経路: 改善ポイント生成（最小JSON schema）
+           ├─> 改善案生成（標準: 通常 5 回 + 簡易化 1 回 / Qwen β: 通常 + compact retry）
            ├─> 決定論的検証（文字数・文体・参考ES類似、短字数では soft-min 可）
-           └─> SSEで `改善案 → 改善ポイント → 出典リンク` を返却
+           └─> SSEで 標準=`改善案 → 改善ポイント → 出典リンク` / Qwen β=`改善案 → 出典リンク` を返却
 
 3. 結果を受け取り
    └─> Next.js API
@@ -245,7 +245,7 @@ career_compass/
 
 | エンドポイント | 役割 |
 |--------------|------|
-| `/api/es/review/stream` | ES添削SSE（改善ポイント生成→改善案生成） |
+| `/api/es/review/stream` | ES添削SSE（標準は改善ポイント生成→改善案生成、Qwen β は rewrite-only） |
 | `/api/gakuchika/*` | ガクチカ深掘り質問生成 |
 | `/api/motivation/*` | 志望動機の質問生成・評価・下書き |
 | `/company-info/*` | 企業情報スクレイピング・RAG構築 |

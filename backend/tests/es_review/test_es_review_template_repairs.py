@@ -3,7 +3,6 @@ import asyncio
 import pytest
 from fastapi import HTTPException
 
-from app.config import settings
 import app.routers.es_review as es_review_module
 from app.routers.es_review import (
     DocumentContext,
@@ -18,6 +17,7 @@ from app.routers.es_review import (
     _build_allowed_user_facts,
     _build_company_evidence_cards,
     _build_role_focused_second_pass_query,
+    _build_qwen_timeout_fallback_rewrite,
     _should_run_role_focused_second_pass,
     _build_template_review_response,
     _assess_company_evidence_coverage,
@@ -34,7 +34,6 @@ from app.routers.es_review import (
     deterministic_compress_variant,
     review_section_with_template,
 )
-from app.utils import qwen_es_review
 from app.utils.llm import LLMError, detect_es_injection_risk
 
 
@@ -725,7 +724,27 @@ def test_select_rewrite_prompt_context_compacts_qwen_short_answers_more_aggressi
 
     assert len(context["prompt_user_facts"]) == 3
     assert len(context["company_evidence_cards"]) == 1
-    assert len(context["improvement_payload"]) == 2
+    assert len(context["improvement_payload"]) == 0
+    assert context["reference_quality_block"] == ""
+
+
+def test_select_rewrite_prompt_context_caps_qwen_long_answers_without_reference_outline() -> None:
+    context = _select_rewrite_prompt_context(
+        template_type="role_course_reason",
+        char_max=400,
+        attempt=0,
+        simplified_mode=False,
+        review_variant="qwen3-beta",
+        prompt_user_facts=[{"text": f"fact-{index}"} for index in range(8)],
+        company_evidence_cards=[{"claim": f"card-{index}"} for index in range(3)],
+        improvement_payload=[{"issue": f"issue-{index}"} for index in range(3)],
+        reference_quality_block="【参考ESから抽出した品質ヒント】\n- 結論先行",
+        evidence_coverage_level="strong",
+    )
+
+    assert len(context["prompt_user_facts"]) == 4
+    assert len(context["company_evidence_cards"]) == 1
+    assert context["improvement_payload"] == []
     assert context["reference_quality_block"] == ""
 
 
@@ -1277,13 +1296,14 @@ async def test_review_section_with_template_uses_fallback_improvement_points_whe
 
 
 @pytest.mark.asyncio
-async def test_review_section_with_template_marks_improvement_timeout_fallback_for_qwen(
+async def test_review_section_with_template_qwen_skips_improvement_generation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured_timeout_seconds: list[int | None] = []
+    json_calls = 0
 
     async def fake_json_caller(*args, **kwargs):
-        captured_timeout_seconds.append(kwargs.get("timeout_seconds"))
+        nonlocal json_calls
+        json_calls += 1
         return FakeJsonResult(success=False, error=_timeout_error())
 
     async def fake_text_caller(*args, **kwargs):
@@ -1324,11 +1344,12 @@ async def test_review_section_with_template_marks_improvement_timeout_fallback_f
         progress_queue=None,
     )
 
-    assert captured_timeout_seconds == [30]
+    assert json_calls == 0
+    assert result.top3 == []
     assert result.review_meta is not None
-    assert result.review_meta.improvement_timeout_fallback is True
-    assert result.review_meta.timeout_stage == "improvement"
-    assert result.review_meta.timeout_recovered is True
+    assert result.review_meta.improvement_timeout_fallback is False
+    assert result.review_meta.timeout_stage is None
+    assert result.review_meta.timeout_recovered is False
     assert result.review_meta.rewrite_generation_mode == "normal"
 
 
@@ -1338,19 +1359,12 @@ async def test_review_section_with_template_qwen_uses_compact_retry_after_timeou
 ) -> None:
     rewrite_timeout_seconds: list[int | None] = []
     rewrite_modes: list[str] = []
+    json_calls = 0
 
     async def fake_json_caller(*args, **kwargs):
-        return FakeJsonResult(
-            {
-                "top3": [
-                    {
-                        "category": "将来像",
-                        "issue": "入社後にやりたいことを冒頭で言い切る",
-                        "suggestion": "過去経験は短くし、将来像を前面に出す",
-                    }
-                ]
-            }
-        )
+        nonlocal json_calls
+        json_calls += 1
+        return FakeJsonResult()
 
     async def fake_text_caller(*args, **kwargs):
         rewrite_timeout_seconds.append(kwargs.get("timeout_seconds"))
@@ -1400,6 +1414,8 @@ async def test_review_section_with_template_qwen_uses_compact_retry_after_timeou
 
     assert rewrite_timeout_seconds[:2] == [90, 45]
     assert rewrite_modes[:2] == ["normal", "compact_timeout"]
+    assert json_calls == 0
+    assert result.top3 == []
     assert result.review_meta is not None
     assert result.review_meta.timeout_stage == "rewrite"
     assert result.review_meta.timeout_recovered is True
@@ -1411,19 +1427,12 @@ async def test_review_section_with_template_qwen_returns_timeout_fallback_rewrit
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rewrite_timeout_seconds: list[int | None] = []
+    json_calls = 0
 
     async def fake_json_caller(*args, **kwargs):
-        return FakeJsonResult(
-            {
-                "top3": [
-                    {
-                        "category": "企業接続",
-                        "issue": "企業との接点を短く示す",
-                        "suggestion": "事業理解と役割理解を端的にまとめる",
-                    }
-                ]
-            }
-        )
+        nonlocal json_calls
+        json_calls += 1
+        return FakeJsonResult()
 
     async def fake_text_caller(*args, **kwargs):
         rewrite_timeout_seconds.append(kwargs.get("timeout_seconds"))
@@ -1467,6 +1476,8 @@ async def test_review_section_with_template_qwen_returns_timeout_fallback_rewrit
     )
 
     assert rewrite_timeout_seconds == [90, 45]
+    assert json_calls == 0
+    assert result.top3 == []
     assert result.review_meta is not None
     assert result.review_meta.fallback_to_generic is True
     assert result.review_meta.timeout_stage == "compact_rewrite"
@@ -1479,18 +1490,12 @@ async def test_review_section_with_template_qwen_returns_timeout_fallback_rewrit
 async def test_review_section_with_template_propagates_qwen_provider_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    json_calls = 0
+
     async def fake_json_caller(*args, **kwargs):
-        return FakeJsonResult(
-            {
-                "top3": [
-                    {
-                        "category": "企業接続",
-                        "issue": "企業との接点が浅い",
-                        "suggestion": "企業の注力領域との接点を1点示す",
-                    }
-                ]
-            }
-        )
+        nonlocal json_calls
+        json_calls += 1
+        return FakeJsonResult()
 
     async def fake_text_caller(*args, **kwargs):
         return FakeTextResult(_make_text(394))
@@ -1524,74 +1529,79 @@ async def test_review_section_with_template_propagates_qwen_provider_metadata(
         progress_queue=None,
     )
 
+    assert json_calls == 0
+    assert result.top3 == []
     assert result.review_meta is not None
     assert result.review_meta.llm_provider == "qwen-es-review"
     assert result.review_meta.llm_model == "org/qwen3-es-review-lora"
     assert result.review_meta.review_variant == "qwen3-beta"
 
 
-@pytest.mark.asyncio
-async def test_review_section_with_template_accepts_qwen_parse_retry_instructions(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(settings, "qwen_es_review_enabled", True)
-    monkeypatch.setattr(settings, "qwen_es_review_base_url", "http://localhost:8001/v1")
-    monkeypatch.setattr(settings, "qwen_es_review_model", "tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2")
-    monkeypatch.setattr(settings, "qwen_es_review_adapter_id", "es_review")
-    monkeypatch.setattr(qwen_es_review, "_qwen_client", None)
+def test_build_qwen_timeout_fallback_rewrite_handles_required_medium_and_long_lengths() -> None:
+    company_cards = [{"theme": "役割理解", "claim": "事業部門と開発をつなぐ"}]
+    prompt_user_facts = [
+        {"source": "current_answer", "text": "未経験のチームでも開発を前に進めた"},
+        {"source": "gakuchika_summary", "text": "課題を構造化し、役割分担を見直した"},
+        {"source": "gakuchika_summary", "text": "技術資料とマニュアルを整備して知識共有を進めた"},
+        {"source": "profile", "text": "志望職種: デジタル企画"},
+    ]
 
-    seen_prompts: list[str] = []
-    responses = iter(
-        [
-            '{"top3":[{"category":"企業接続"',
-            '{"top3":[{"category":"企業接続","issue":"企業との接点が浅い","suggestion":"企業の注力領域との接点を1点示す"}]}',
-        ]
+    medium_candidate = _build_qwen_timeout_fallback_rewrite(
+        template_type="role_course_reason",
+        answer="事業と技術をつなぐ立場で価値を出したい",
+        prompt_user_facts=prompt_user_facts,
+        char_min=190,
+        char_max=200,
+        company_name="三菱商事",
+        role_name="デジタル企画",
+        intern_name=None,
+        company_grounding="required",
+        company_evidence_cards=company_cards,
     )
-
-    async def fake_qwen_completion(**kwargs):
-        seen_prompts.append(str(kwargs["system_prompt"]))
-        return next(responses)
-
-    async def fake_text_caller(*args, **kwargs):
-        return FakeTextResult(_make_text(394))
-
-    monkeypatch.setattr(qwen_es_review, "_call_qwen_chat_completion", fake_qwen_completion)
-    monkeypatch.setattr(
-        "app.routers.es_review._validate_reference_distance",
-        lambda *args, **kwargs: (True, None),
-    )
-
-    request = ReviewRequest(
-        content="私は研究と開発経験を生かし、デジタル企画として価値を出したいです。",
-        section_title="デジタル企画を選択した理由を教えてください。",
-        template_request=TemplateRequest(
-            template_type="role_course_reason",
-            question="デジタル企画を選択した理由を教えてください。",
-            answer="私は研究と開発経験を生かし、デジタル企画として価値を出したいです。",
-            role_name="デジタル企画",
-            char_min=390,
-            char_max=400,
-        ),
-    )
-
-    result = await review_section_with_template(
-        request=request,
-        rag_sources=[],
-        company_rag_available=True,
-        json_caller=qwen_es_review.call_qwen_es_review_json_with_error,
-        text_caller=fake_text_caller,
-        review_feature="es_review_qwen_beta",
-        llm_provider="qwen-es-review",
-        llm_model="es_review",
+    medium_validated, _, _, _ = _validate_rewrite_candidate(
+        medium_candidate,
+        template_type="role_course_reason",
+        question="デジタル企画を選択した理由を教えてください。",
+        company_name="三菱商事",
+        char_min=190,
+        char_max=200,
+        issues=[],
+        role_name="デジタル企画",
+        grounding_mode="role_grounded",
+        company_evidence_cards=company_cards,
         review_variant="qwen3-beta",
-        grounding_mode="company_general",
-        progress_queue=None,
     )
 
-    assert result.top3[0].category == "企業接続"
-    assert len(seen_prompts) == 2
-    assert "JSON出力の厳守" in seen_prompts[1]
-    assert "コードブロック" in seen_prompts[1]
+    long_candidate = _build_qwen_timeout_fallback_rewrite(
+        template_type="role_course_reason",
+        answer="事業と技術をつなぐ立場で価値を出したい",
+        prompt_user_facts=prompt_user_facts,
+        char_min=390,
+        char_max=400,
+        company_name="三菱商事",
+        role_name="デジタル企画",
+        intern_name=None,
+        company_grounding="required",
+        company_evidence_cards=company_cards,
+    )
+    long_validated, _, _, _ = _validate_rewrite_candidate(
+        long_candidate,
+        template_type="role_course_reason",
+        question="デジタル企画を選択した理由を教えてください。",
+        company_name="三菱商事",
+        char_min=390,
+        char_max=400,
+        issues=[],
+        role_name="デジタル企画",
+        grounding_mode="role_grounded",
+        company_evidence_cards=company_cards,
+        review_variant="qwen3-beta",
+    )
+
+    assert medium_validated is not None
+    assert 190 <= len(medium_validated) <= 200
+    assert long_validated is not None
+    assert 390 <= len(long_validated) <= 400
 
 
 @pytest.mark.asyncio

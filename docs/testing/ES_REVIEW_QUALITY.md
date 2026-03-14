@@ -78,6 +78,11 @@ ES添削の品質を、live LLM を毎回回さずに固定ケースで継続監
 - fallback improvement points
 - improvement JSON parse retry
 - retry ごとの prompt 圧縮
+- Qwen β rewrite-only path
+  - improvement JSON を呼ばないこと
+  - reference ES を使わないこと
+  - rewrite call が最大 2 回で止まること
+  - timeout fallback が 190〜200 字 / 390〜400 字の required template でも通ること
 - required template の weak/partial coverage で role-focused second pass が適切に起動すること
 - required template で `employee_interviews` 1件だけなら `role_grounded` に上げず、role/company の片軸欠けを second pass で補うこと
 - official domain の title 表記揺れだけで `企業不一致ペナルティ` が入らないこと

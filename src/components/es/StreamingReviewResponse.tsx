@@ -19,6 +19,7 @@ import { getLLMResultLabel } from "@/lib/ai/model-labels";
 import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
 import type {
   ReviewPlaybackPhase,
+  ReviewMode,
   VisibleReviewIssue,
   VisibleTemplateSource,
 } from "@/hooks/useESReview";
@@ -50,6 +51,7 @@ interface StreamingReviewResponseProps {
     evidence_coverage_level?: "not_applicable" | "none" | "weak" | "partial" | "strong";
     weak_evidence_notice?: boolean;
   };
+  reviewMode?: ReviewMode;
   onApply: (rewrite: string) => void;
   onPlaybackStateChange?: (isSettled: boolean) => void;
 }
@@ -174,6 +176,7 @@ export function StreamingReviewResponse({
   showActions = false,
   className,
   reviewMeta,
+  reviewMode = "standard",
   onApply,
   onPlaybackStateChange,
 }: StreamingReviewResponseProps) {

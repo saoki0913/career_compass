@@ -57,11 +57,11 @@
 | `QWEN_ES_REVIEW_ADAPTER_ID` | No | vLLM の static LoRA alias。設定時はこちらを優先 |
 | `QWEN_ES_REVIEW_API_KEY` | No | 推論サービス API key。ローカル閉域なら空でも可 |
 | `QWEN_ES_REVIEW_TIMEOUT_SECONDS` | No | Qwen3 β の legacy 既定 timeout 秒。デフォルト `120` |
-| `QWEN_ES_REVIEW_TIMEOUT_IMPROVEMENT_SECONDS` | No | improvement JSON の timeout 秒。デフォルト `30` |
 | `QWEN_ES_REVIEW_TIMEOUT_REWRITE_SECONDS` | No | rewrite 1回目の timeout 秒。デフォルト `90` |
 | `QWEN_ES_REVIEW_TIMEOUT_COMPACT_REWRITE_SECONDS` | No | timeout 後の compact rewrite retry の timeout 秒。デフォルト `45` |
-| `QWEN_ES_REVIEW_TIMEOUT_LENGTH_FIX_SECONDS` | No | length-fix の timeout 秒。デフォルト `20` |
 | `QWEN_ES_REVIEW_TOTAL_BUDGET_SECONDS` | No | 1リクエスト全体で Qwen に使う上限秒。デフォルト `150` |
+| `QWEN_ES_REVIEW_TIMEOUT_IMPROVEMENT_SECONDS` | No | legacy。Qwen が改善ポイント生成を行っていた旧経路向け。現行 rewrite-only path では未使用 |
+| `QWEN_ES_REVIEW_TIMEOUT_LENGTH_FIX_SECONDS` | No | legacy。Qwen の length-fix LLM call は現行 path では未使用 |
 | `MODEL_ES_REVIEW` | No | ES添削モデルエイリアスまたは明示モデルID。例: `claude-sonnet`, `gpt-5.1`, `gemini-3.1-pro-preview`, `command-a-03-2025`, `deepseek-chat` |
 | `MODEL_GAKUCHIKA` | No | ガクチカ深掘りモデルティア (デフォルト: `claude-haiku`) |
 | `MODEL_MOTIVATION` | No | 志望動機作成モデルティア (デフォルト: `claude-haiku`) |

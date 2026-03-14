@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUpRight,
   Building2,
@@ -39,6 +39,7 @@ import {
   STANDARD_ES_REVIEW_MODEL_OPTIONS,
   type StandardESReviewModel,
 } from "@/lib/ai/es-review-models";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import { calculateESReviewCost } from "@/lib/credits/cost";
 import type { Industry } from "@/lib/constants/industries";
 import { notifyReviewComplete } from "@/lib/notifications";
@@ -88,9 +89,6 @@ interface RoleOptionResponse {
     }>;
   }>;
 }
-
-const QWEN_ES_REVIEW_BETA_ENABLED =
-  process.env.NEXT_PUBLIC_QWEN_ES_REVIEW_ENABLED === "true";
 
 function getStreamingStatusCopy(step: string | null) {
   if (step === "rag_fetch") {
@@ -321,109 +319,39 @@ function SetupField({
 }
 
 function ReviewModeSelector({
-  value,
-  onChange,
   standardModel,
   onStandardModelChange,
 }: {
-  value: ReviewMode;
-  onChange: (value: ReviewMode) => void;
   standardModel: StandardESReviewModel;
   onStandardModelChange: (value: StandardESReviewModel) => void;
 }) {
   return (
     <div className="rounded-[26px] border border-border/60 bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-foreground">モデル選択</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            標準添削で使うモデルを選択できます。
-            {QWEN_ES_REVIEW_BETA_ENABLED
-              ? " Qwen3 Swallow 32B β は別経路で実行します。"
-              : ""}
-          </p>
-        </div>
-        {QWEN_ES_REVIEW_BETA_ENABLED ? (
-          <Badge variant="soft-warning" className="px-3 py-1 text-[11px]">
-            Beta
-          </Badge>
-        ) : null}
+      <div>
+        <p className="text-sm font-semibold text-foreground">モデル選択</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          ES添削で使うモデルを選択できます。
+        </p>
       </div>
 
-      <div className="mt-4 space-y-3">
-        <div className="rounded-[22px] border border-border/60 bg-background/85 px-4 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <p className="text-sm font-semibold text-foreground">標準添削</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                商用 API の本番経路です。ここで選んだモデルで標準添削を実行します。
-              </p>
-            </div>
-            {value === "standard" ? (
-              <Badge variant="soft-primary" className="px-2 py-0.5 text-[11px]">
-                選択中
-              </Badge>
-            ) : null}
-          </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-            <Select
-              value={standardModel}
-              onValueChange={(nextValue) => {
-                onStandardModelChange(nextValue as StandardESReviewModel);
-                onChange("standard");
-              }}
-            >
-              <SelectTrigger className="h-11 rounded-2xl border-border/60 bg-background">
-                <SelectValue placeholder="モデルを選択" />
-              </SelectTrigger>
-              <SelectContent>
-                {STANDARD_ES_REVIEW_MODEL_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value} disabled={!option.enabled}>
-                    {option.label}
-                    {!option.enabled && option.disabledReason ? ` (${option.disabledReason})` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              variant={value === "standard" ? "default" : "outline"}
-              className="h-11 rounded-full px-5"
-              onClick={() => onChange("standard")}
-            >
-              {value === "standard" ? "標準添削を使用中" : "標準添削を使う"}
-            </Button>
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            現在選択できるのは Claude Sonnet 4.5 と GPT-5.1 です。その他の標準モデルは調整中のため一時的に無効化しています。
-          </p>
-        </div>
-
-        {QWEN_ES_REVIEW_BETA_ENABLED ? (
-          <button
-            type="button"
-            className={cn(
-              "w-full rounded-[22px] border px-4 py-4 text-left transition-colors",
-              value === "qwen_beta"
-                ? "border-info/30 bg-info/8"
-                : "border-border/60 bg-background/85 hover:border-border",
-            )}
-            onClick={() => onChange("qwen_beta")}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-foreground">Qwen3 Swallow 32B β</p>
-              {value === "qwen_beta" ? (
-                <Badge variant="soft-info" className="px-2 py-0.5 text-[11px]">
-                  選択中
-                </Badge>
-              ) : null}
-            </div>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              就活向けに微調整する Swallow 32B の OSS LLM 経路です。失敗しても通常の標準経路には影響しません。
-            </p>
-          </button>
-        ) : null}
-      </div>
+      <Select
+        value={standardModel}
+        onValueChange={(nextValue) => {
+          onStandardModelChange(nextValue as StandardESReviewModel);
+        }}
+      >
+        <SelectTrigger className="mt-4 h-11 rounded-2xl border-border/60 bg-background">
+          <SelectValue placeholder="モデルを選択" />
+        </SelectTrigger>
+        <SelectContent>
+          {STANDARD_ES_REVIEW_MODEL_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value} disabled={!option.enabled}>
+              {option.label}
+              {!option.enabled && option.disabledReason ? ` (${option.disabledReason})` : ""}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }
@@ -494,7 +422,7 @@ export function ReviewPanel({
   const [roleOptionsData, setRoleOptionsData] = useState<RoleOptionResponse | null>(null);
   const [isRoleOptionsLoading, setIsRoleOptionsLoading] = useState(false);
   const [roleOptionsError, setRoleOptionsError] = useState<string | null>(null);
-  const [reviewMode, setReviewMode] = useState<ReviewMode>("standard");
+  const reviewMode: ReviewMode = "standard";
   const [selectedStandardModel, setSelectedStandardModel] = useState<StandardESReviewModel>(
     DEFAULT_STANDARD_ES_REVIEW_MODEL,
   );
@@ -502,6 +430,16 @@ export function ReviewPanel({
   const [pendingRewrite, setPendingRewrite] = useState<string | null>(null);
   const [responseInstanceKey, setResponseInstanceKey] = useState(0);
   const [hasShownCompletionToast, setHasShownCompletionToast] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<Set<string>>(new Set());
+
+  // Scroll refs (Phase 4 + 5)
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const userHasScrolledRef = useRef(false);
+  const lastProgrammaticScrollRef = useRef(false);
+
+  // Validation section refs (Phase 6)
+  const templateSectionRef = useRef<HTMLDivElement>(null);
+  const industrySectionRef = useRef<HTMLDivElement>(null);
 
   const {
     review,
@@ -548,10 +486,7 @@ export function ReviewPanel({
     : hasSelectedCompany
       ? "自動判定"
       : undefined;
-  const currentReviewModeLabel =
-    reviewMode === "qwen_beta"
-      ? "Qwen3 Swallow 32B β"
-      : getStandardESReviewModelLabel(selectedStandardModel);
+  const currentReviewModeLabel = getStandardESReviewModelLabel(selectedStandardModel);
   const missingTemplateField = selectedTemplateFields.find((fieldName) => {
     if (fieldName === "intern_name") {
       return !internName.trim();
@@ -618,9 +553,7 @@ export function ReviewPanel({
       ? "添削中..."
       : hasCompletedReview
         ? "条件を見直して再添削"
-        : reviewMode === "qwen_beta"
-          ? "この設問をQwen3 Swallow 32B βで添削"
-          : "この設問をAI添削";
+        : "この設問をAI添削";
   const footerHelperText = error
     ? "添削結果を表示できませんでした。もう一度お試しください。"
     : isFooterLocked
@@ -628,11 +561,9 @@ export function ReviewPanel({
       : hasCompletedReview
         ? "前回の条件を保持したまま、設定を見直して再添削できます。"
         : canStartReview
-          ? reviewMode === "qwen_beta"
-            ? "Qwen3 Swallow 32B β 経路で実行します。800文字ごとに +1、最小2クレジットです。"
-            : `${getStandardESReviewModelLabel(selectedStandardModel)} で実行します。800文字ごとに +1、最小2クレジットです。`
+          ? `${getStandardESReviewModelLabel(selectedStandardModel)} で実行します。800文字ごとに +1、最小2クレジットです。`
           : reviewActionHint;
-  const footerActionDisabled = error ? false : isFooterLocked || !canStartReview;
+  const footerActionDisabled = error ? false : isFooterLocked;
 
   useEffect(() => {
     if (!sectionReviewRequest) {
@@ -677,8 +608,16 @@ export function ReviewPanel({
     })
       .then(async (response) => {
         if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || "職種候補を取得できませんでした");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "ES_ROLE_OPTIONS_FETCH_FAILED",
+              userMessage: "業界・職種候補を読み込めませんでした。",
+              action: "時間を置いて、もう一度お試しください。",
+              retryable: true,
+            },
+            "ReviewPanel.fetchRoleOptions"
+          );
         }
         return response.json() as Promise<RoleOptionResponse>;
       })
@@ -701,9 +640,17 @@ export function ReviewPanel({
           return;
         }
         setRoleOptionsData(null);
-        setRoleOptionsError(
-          fetchError instanceof Error ? fetchError.message : "職種候補を取得できませんでした",
+        const uiError = toAppUiError(
+          fetchError,
+          {
+            code: "ES_ROLE_OPTIONS_FETCH_FAILED",
+            userMessage: "業界・職種候補を読み込めませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "ReviewPanel.fetchRoleOptions"
         );
+        setRoleOptionsError(uiError.message);
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -741,6 +688,53 @@ export function ReviewPanel({
     }
   }, [hasResponse]);
 
+  // Phase 5: Detect manual scroll to stop auto-follow
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      if (lastProgrammaticScrollRef.current) {
+        lastProgrammaticScrollRef.current = false;
+        return;
+      }
+      userHasScrolledRef.current = true;
+    };
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Phase 5: Auto-scroll following streaming content growth
+  useEffect(() => {
+    if (userHasScrolledRef.current || !hasResponse) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    lastProgrammaticScrollRef.current = true;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+  }, [visibleRewriteText, visibleIssues.length, visibleSources.length, hasResponse]);
+
+  // Phase 6: Clear validation errors when user fixes settings
+  useEffect(() => {
+    if (isTemplateSetupComplete) {
+      setValidationErrors((prev) => {
+        if (!prev.has("template")) return prev;
+        const next = new Set(prev);
+        next.delete("template");
+        return next;
+      });
+    }
+  }, [isTemplateSetupComplete]);
+
+  useEffect(() => {
+    if (isRoleSetupComplete) {
+      setValidationErrors((prev) => {
+        if (!prev.has("industry")) return prev;
+        const next = new Set(prev);
+        next.delete("industry");
+        return next;
+      });
+    }
+  }, [isRoleSetupComplete]);
+
   const handleSectionReview = useCallback(async () => {
     if (!sectionReviewRequest) {
       return;
@@ -752,6 +746,8 @@ export function ReviewPanel({
     try {
       setResponseInstanceKey((prev) => prev + 1);
       setHasShownCompletionToast(false);
+      scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      userHasScrolledRef.current = false;
       await requestSectionReview({
         sectionTitle: sectionReviewRequest.sectionTitle,
         sectionContent: sectionReviewRequest.sectionContent,
@@ -764,7 +760,7 @@ export function ReviewPanel({
         industryOverride: selectedIndustry || undefined,
         roleSelectionSource: roleSelectionSource || undefined,
         reviewMode,
-        llmModel: reviewMode === "standard" ? selectedStandardModel : undefined,
+        llmModel: selectedStandardModel,
       });
     } finally {
       releaseLock();
@@ -777,7 +773,6 @@ export function ReviewPanel({
     roleSelectionSource,
     releaseLock,
     requestSectionReview,
-    reviewMode,
     selectedStandardModel,
     selectedRoleName,
     selectedIndustry,
@@ -791,8 +786,24 @@ export function ReviewPanel({
       clearReview();
       return;
     }
+    // Phase 6: Validate settings before starting review
+    if (!canStartReview) {
+      const errors = new Set<string>();
+      if (!isTemplateSetupComplete) errors.add("template");
+      if (!isRoleSetupComplete) errors.add("industry");
+      setValidationErrors(errors);
+      // Scroll to first error section
+      const firstRef = errors.has("template")
+        ? templateSectionRef
+        : errors.has("industry")
+          ? industrySectionRef
+          : null;
+      firstRef?.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    setValidationErrors(new Set());
     await handleSectionReview();
-  }, [clearReview, handleSectionReview, hasCompletedReview]);
+  }, [canStartReview, clearReview, handleSectionReview, hasCompletedReview, isRoleSetupComplete, isTemplateSetupComplete]);
 
   const handleApplyRewrite = useCallback((rewriteText: string) => {
     setPendingRewrite(rewriteText);
@@ -814,7 +825,7 @@ export function ReviewPanel({
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
         <div className="space-y-4">
           {hasSelectedCompany ? (
             <CompanyStatusBanner
@@ -868,7 +879,15 @@ export function ReviewPanel({
                 </div>
               </div>
 
-              <div className="rounded-[26px] border border-border/60 bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+              <div
+                ref={templateSectionRef}
+                className={cn(
+                  "rounded-[26px] border bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]",
+                  validationErrors.has("template")
+                    ? "border-destructive/60 ring-2 ring-destructive/20"
+                    : "border-border/60",
+                )}
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-foreground">設問タイプ</p>
@@ -937,19 +956,25 @@ export function ReviewPanel({
               </div>
 
               <ReviewModeSelector
-                value={reviewMode}
-                onChange={setReviewMode}
                 standardModel={selectedStandardModel}
                 onStandardModelChange={setSelectedStandardModel}
               />
 
               {hasSelectedCompany ? (
-                <div className="rounded-[26px] border border-border/60 bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+                <div
+                  ref={industrySectionRef}
+                  className={cn(
+                    "rounded-[26px] border bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]",
+                    validationErrors.has("industry")
+                      ? "border-destructive/60 ring-2 ring-destructive/20"
+                      : "border-border/60",
+                  )}
+                >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-foreground">業界・職種</p>
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        企業に合わせた添削では、業界と職種を明示してから実行します。
+                        業界と職種を選択してから添削を実行してください。
                       </p>
                     </div>
                     {isRoleSetupComplete ? (
@@ -1132,6 +1157,7 @@ export function ReviewPanel({
                 elapsedTime={elapsedTime}
                 showActions={hasFinalResult}
                 reviewMeta={review?.review_meta}
+                reviewMode={reviewMode}
                 onApply={handleApplyRewrite}
               />
             </div>
