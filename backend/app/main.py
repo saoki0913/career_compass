@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -24,6 +26,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Attach a request id so frontend and backend logs can be correlated."""
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        request_id = request.headers.get("X-Request-Id") or str(uuid4())
+        request.state.request_id = request_id
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = request_id
+        return response
+
+
 app = FastAPI(
     title="就活Compass API",
     description="Backend API for 就活Compass",
@@ -36,6 +49,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Security headers middleware (applied to all responses)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestIdMiddleware)
 
 # CORS middleware - explicitly specify allowed methods and headers for security
 app.add_middleware(
@@ -43,7 +57,8 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Device-Token"],
+    allow_headers=["Content-Type", "Authorization", "X-Device-Token", "X-Request-Id"],
+    expose_headers=["X-Request-Id"],
 )
 
 

@@ -11,6 +11,7 @@ import { documents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -69,26 +70,39 @@ export async function DELETE(
 
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "DOCUMENT_PERMANENT_DELETE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "document-permanent-auth",
+      });
     }
 
     const access = await verifyDocumentAccess(documentId, identity.userId, identity.guestId);
     if (!access.valid || !access.document) {
-      return NextResponse.json(
-        { error: "Document not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DOCUMENT_PERMANENT_DELETE_NOT_FOUND",
+        userMessage: "削除対象のドキュメントが見つかりませんでした。",
+        action: "一覧に戻って、対象のドキュメントを選び直してください。",
+        developerMessage: "Document not found",
+        logContext: "document-permanent-not-found",
+      });
     }
 
     // Check if document is in trash
     if (access.document.status !== "deleted") {
-      return NextResponse.json(
-        { error: "Document must be in trash before permanent deletion" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "DOCUMENT_PERMANENT_DELETE_INVALID_STATE",
+        userMessage: "ゴミ箱に入っているドキュメントだけ完全削除できます。",
+        action: "対象の状態を確認して、もう一度お試しください。",
+        developerMessage: "Document must be in trash before permanent deletion",
+        logContext: "document-permanent-validation",
+      });
     }
 
     // Permanently delete document (hard delete)
@@ -96,10 +110,15 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error permanently deleting document:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "DOCUMENT_PERMANENT_DELETE_FAILED",
+      userMessage: "ドキュメントを完全削除できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "document-permanent-delete",
+    });
   }
 }

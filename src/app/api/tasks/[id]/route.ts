@@ -13,6 +13,7 @@ import { tasks } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -71,27 +72,41 @@ export async function GET(
 
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "TASK_DETAIL_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "task-detail-auth",
+      });
     }
 
     const access = await verifyTaskAccess(taskId, identity.userId, identity.guestId);
     if (!access.valid || !access.task) {
-      return NextResponse.json(
-        { error: "Task not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "TASK_NOT_FOUND",
+        userMessage: "タスクが見つかりませんでした。",
+        action: "一覧に戻って、対象のタスクを選び直してください。",
+        developerMessage: "Task not found",
+        logContext: "task-detail-not-found",
+      });
     }
 
     return NextResponse.json({ task: access.task });
   } catch (error) {
-    console.error("Error fetching task:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "TASK_DETAIL_FETCH_FAILED",
+      userMessage: "タスクを読み込めませんでした。",
+      action: "ページを再読み込みして、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "task-detail-fetch",
+    });
   }
 }
 
@@ -104,18 +119,27 @@ export async function PUT(
 
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "TASK_UPDATE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "task-update-auth",
+      });
     }
 
     const access = await verifyTaskAccess(taskId, identity.userId, identity.guestId);
     if (!access.valid) {
-      return NextResponse.json(
-        { error: "Task not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "TASK_UPDATE_NOT_FOUND",
+        userMessage: "更新対象のタスクが見つかりませんでした。",
+        action: "一覧に戻って、対象のタスクを選び直してください。",
+        developerMessage: "Task not found",
+        logContext: "task-update-not-found",
+      });
     }
 
     const body = await request.json();
@@ -130,19 +154,27 @@ export async function PUT(
     if (type !== undefined) {
       const validTypes = ["es", "web_test", "self_analysis", "gakuchika", "video", "other"];
       if (!validTypes.includes(type)) {
-        return NextResponse.json(
-          { error: "無効なタイプです" },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "TASK_TYPE_INVALID",
+          userMessage: "タスク種別を確認して、もう一度お試しください。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          developerMessage: "Invalid task type",
+          logContext: "task-update-validation",
+        });
       }
       updateData.type = type;
     }
     if (status !== undefined) {
       if (!["open", "done"].includes(status)) {
-        return NextResponse.json(
-          { error: "無効なステータスです" },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "TASK_STATUS_INVALID",
+          userMessage: "タスク状態を確認して、もう一度お試しください。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          developerMessage: "Invalid task status",
+          logContext: "task-update-validation",
+        });
       }
       updateData.status = status;
       // Auto-set completedAt
@@ -167,11 +199,16 @@ export async function PUT(
 
     return NextResponse.json({ task: updated[0] });
   } catch (error) {
-    console.error("Error updating task:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "TASK_UPDATE_FAILED",
+      userMessage: "タスクを更新できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "task-update",
+    });
   }
 }
 
@@ -184,28 +221,42 @@ export async function DELETE(
 
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "TASK_DELETE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "task-delete-auth",
+      });
     }
 
     const access = await verifyTaskAccess(taskId, identity.userId, identity.guestId);
     if (!access.valid) {
-      return NextResponse.json(
-        { error: "Task not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "TASK_DELETE_NOT_FOUND",
+        userMessage: "削除対象のタスクが見つかりませんでした。",
+        action: "一覧に戻って、対象のタスクを選び直してください。",
+        developerMessage: "Task not found",
+        logContext: "task-delete-not-found",
+      });
     }
 
     await db.delete(tasks).where(eq(tasks.id, taskId));
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting task:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "TASK_DELETE_FAILED",
+      userMessage: "タスクを削除できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "task-delete",
+    });
   }
 }

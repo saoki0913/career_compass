@@ -16,6 +16,7 @@ import {
   ensureCalendarSettingsRecord,
   parseStoredJsonArray,
 } from "@/lib/calendar/connection";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 export async function GET() {
   try {
@@ -24,10 +25,15 @@ export async function GET() {
     });
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "ログインが必要です" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(undefined, {
+        status: 401,
+        code: "CALENDAR_SETTINGS_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "calendar-settings-auth",
+      });
     }
 
     const userId = session.user.id;
@@ -49,11 +55,16 @@ export async function GET() {
       },
     });
   } catch (error) {
-    console.error("Error fetching calendar settings:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(undefined, {
+      status: 500,
+      code: "CALENDAR_SETTINGS_FETCH_FAILED",
+      userMessage: "カレンダー設定を読み込めませんでした。",
+      action: "ページを再読み込みして、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "calendar-settings-fetch",
+    });
   }
 }
 
@@ -64,10 +75,15 @@ export async function PUT(request: NextRequest) {
     });
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "ログインが必要です" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "CALENDAR_SETTINGS_UPDATE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "calendar-settings-update-auth",
+      });
     }
 
     const userId = session.user.id;
@@ -77,10 +93,14 @@ export async function PUT(request: NextRequest) {
     const connectionStatus = buildCalendarConnectionStatus(existing);
 
     if (provider === "google" && !connectionStatus.connected) {
-      return NextResponse.json(
-        { error: "Googleカレンダーを先に連携してください" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "CALENDAR_SETTINGS_GOOGLE_NOT_CONNECTED",
+        userMessage: "先に Google カレンダーを連携してください。",
+        action: "連携後に、もう一度お試しください。",
+        developerMessage: "Google calendar must be connected before selecting provider",
+        logContext: "calendar-settings-update-validation",
+      });
     }
 
     const now = new Date();
@@ -125,10 +145,15 @@ export async function PUT(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Error updating calendar settings:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "CALENDAR_SETTINGS_UPDATE_FAILED",
+      userMessage: "カレンダー設定を更新できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "calendar-settings-update",
+    });
   }
 }

@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { CompanyStatus } from "@/lib/constants/status";
 import { trackEvent } from "@/lib/analytics/client";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export type { CompanyStatus } from "@/lib/constants/status";
 
@@ -103,8 +104,16 @@ export function useCompanies() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to fetch companies");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "COMPANIES_FETCH_FAILED",
+            userMessage: "企業一覧を読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "useCompanies.fetch"
+        );
       }
 
       const data: CompaniesResponse = await response.json();
@@ -113,7 +122,17 @@ export function useCompanies() {
       setLimit(data.limit);
       setCanAddMore(data.canAddMore);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch companies");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "COMPANIES_FETCH_FAILED",
+          userMessage: "企業一覧を読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useCompanies.fetch"
+      );
+      setError(uiError.message);
     } finally {
       setIsLoading(false);
     }
@@ -131,8 +150,16 @@ export function useCompanies() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to create company");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "COMPANY_CREATE_FAILED",
+            userMessage: "企業を登録できませんでした。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: response.status >= 500,
+          },
+          "useCompanies.create"
+        );
       }
 
       const result = await response.json();
@@ -140,9 +167,18 @@ export function useCompanies() {
       await fetchCompanies();
       return result.company;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to create company";
-      setError(message);
-      throw new Error(message);
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "COMPANY_CREATE_FAILED",
+          userMessage: "企業を登録できませんでした。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          retryable: false,
+        },
+        "useCompanies.create"
+      );
+      setError(uiError.message);
+      throw uiError;
     }
   }, [fetchCompanies]);
 
@@ -159,8 +195,16 @@ export function useCompanies() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to update company");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "COMPANY_UPDATE_FAILED",
+            userMessage: "企業情報を更新できませんでした。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: response.status >= 500,
+          },
+          "useCompanies.update"
+        );
       }
 
       const result = await response.json();
@@ -169,9 +213,18 @@ export function useCompanies() {
       );
       return result.company;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to update company";
-      setError(message);
-      throw new Error(message);
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "COMPANY_UPDATE_FAILED",
+          userMessage: "企業情報を更新できませんでした。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          retryable: false,
+        },
+        "useCompanies.update"
+      );
+      setError(uiError.message);
+      throw uiError;
     }
   }, []);
 
@@ -186,17 +239,34 @@ export function useCompanies() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to delete company");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "COMPANY_DELETE_FAILED",
+            userMessage: "企業を削除できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: response.status >= 500,
+          },
+          "useCompanies.delete"
+        );
       }
 
       setCompanies((prev) => prev.filter((c) => c.id !== id));
       setCount((prev) => prev - 1);
       setCanAddMore(true);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to delete company";
-      setError(message);
-      throw new Error(message);
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "COMPANY_DELETE_FAILED",
+          userMessage: "企業を削除できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "useCompanies.delete"
+      );
+      setError(uiError.message);
+      throw uiError;
     }
   }, []);
 
@@ -220,14 +290,31 @@ export function useCompanies() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to update pin status");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "COMPANY_PIN_UPDATE_FAILED",
+            userMessage: "ピン留め状態を更新できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: response.status >= 500,
+          },
+          "useCompanies.togglePin"
+        );
       }
     } catch (err) {
       // 3. Rollback on error
       setCompanies(previousCompanies);
-      const message = err instanceof Error ? err.message : "Failed to update pin status";
-      setError(message);
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "COMPANY_PIN_UPDATE_FAILED",
+          userMessage: "ピン留め状態を更新できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "useCompanies.togglePin"
+      );
+      setError(uiError.message);
     }
   }, [companies]);
 

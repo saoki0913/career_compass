@@ -12,6 +12,7 @@ import {
   type CorporateInfoSource as CorporateInfoUrl,
   type CorporateInfoSourceStatus,
 } from "@/lib/company-info/sources";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 interface RagStatus {
   hasRag: boolean;
@@ -689,6 +690,22 @@ export function CorporateInfoSection({
     return counts;
   }, [status?.corporateInfoUrls]);
 
+  const sourceStatusCounts = useMemo(() => {
+    if (!status?.corporateInfoUrls) {
+      return { pending: 0, processing: 0, failed: 0 };
+    }
+
+    return status.corporateInfoUrls.reduce(
+      (acc, source) => {
+        if (source.status === "pending") acc.pending += 1;
+        if (source.status === "processing") acc.processing += 1;
+        if (source.status === "failed") acc.failed += 1;
+        return acc;
+      },
+      { pending: 0, processing: 0, failed: 0 }
+    );
+  }, [status?.corporateInfoUrls]);
+
   const parsedCustomUrls = useMemo(
     () => parseUrlListInput(urlDraft.customUrlInput),
     [urlDraft.customUrlInput]
@@ -777,13 +794,32 @@ export function CorporateInfoSection({
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch status");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "CORPORATE_STATUS_FETCH_FAILED",
+            userMessage: "企業情報の状態を読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "CorporateInfoSection.fetchStatus"
+        );
       }
 
       const data = await response.json();
       setStatus(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load status");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CORPORATE_STATUS_FETCH_FAILED",
+          userMessage: "企業情報の状態を読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "CorporateInfoSection.fetchStatus"
+      );
+      setError(uiError.message);
     } finally {
       if (!background) {
         setIsLoading(false);
@@ -874,7 +910,16 @@ export function CorporateInfoSection({
       });
 
       if (!response.ok) {
-        throw new Error("検索に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "CORPORATE_PAGE_SEARCH_FAILED",
+            userMessage: "企業情報ページを検索できませんでした。",
+            action: "条件を見直して、もう一度お試しください。",
+            retryable: true,
+          },
+          "CorporateInfoSection.handleTypeSearch"
+        );
       }
 
       const data = await response.json();
@@ -891,7 +936,17 @@ export function CorporateInfoSection({
       }));
       setModalStep("review");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "検索に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CORPORATE_PAGE_SEARCH_FAILED",
+          userMessage: "企業情報ページを検索できませんでした。",
+          action: "条件を見直して、もう一度お試しください。",
+          retryable: true,
+        },
+        "CorporateInfoSection.handleTypeSearch"
+      );
+      setError(uiError.message);
     } finally {
       setIsSearching(false);
       releaseLock();
@@ -934,7 +989,16 @@ export function CorporateInfoSection({
       });
 
       if (!response.ok) {
-        throw new Error("検索に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "CORPORATE_PAGE_SEARCH_FAILED",
+            userMessage: "企業情報ページを検索できませんでした。",
+            action: "条件を見直して、もう一度お試しください。",
+            retryable: true,
+          },
+          "CorporateInfoSection.handleCustomSearch"
+        );
       }
 
       const data = await response.json();
@@ -952,7 +1016,17 @@ export function CorporateInfoSection({
       }));
       setModalStep("review");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "検索に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CORPORATE_PAGE_SEARCH_FAILED",
+          userMessage: "企業情報ページを検索できませんでした。",
+          action: "条件を見直して、もう一度お試しください。",
+          retryable: true,
+        },
+        "CorporateInfoSection.handleCustomSearch"
+      );
+      setError(uiError.message);
     } finally {
       setIsSearching(false);
       releaseLock();
@@ -995,14 +1069,30 @@ export function CorporateInfoSection({
       });
 
       if (response.status === 402) {
-        const data = await response.json();
-        setError(data.error || "プラン制限に達しました");
+        const uiError = await parseApiErrorResponse(
+          response,
+          {
+            code: "CORPORATE_FETCH_LIMIT_REACHED",
+            userMessage: "この操作は現在利用できませんでした。",
+            action: "プランや残高を確認して、もう一度お試しください。",
+          },
+          "CorporateInfoSection.handleFetchCorporateInfo"
+        );
+        setError(uiError.message);
         return;
       }
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "取得に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "CORPORATE_FETCH_FAILED",
+            userMessage: "企業情報を取得できませんでした。",
+            action: "URLや設定を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "CorporateInfoSection.handleFetchCorporateInfo"
+        );
       }
 
       const result = await response.json();
@@ -1013,7 +1103,17 @@ export function CorporateInfoSection({
       await fetchStatus();
       onUpdate?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "取得に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CORPORATE_FETCH_FAILED",
+          userMessage: "企業情報を取得できませんでした。",
+          action: "URLや設定を確認して、もう一度お試しください。",
+          retryable: true,
+        },
+        "CorporateInfoSection.handleFetchCorporateInfo"
+      );
+      setError(uiError.message);
     } finally {
       setIsFetching(false);
       releaseLock();
@@ -1044,14 +1144,30 @@ export function CorporateInfoSection({
       });
 
       if (response.status === 402) {
-        const data = await response.json();
-        setError(data.error || "プラン制限に達しました");
+        const uiError = await parseApiErrorResponse(
+          response,
+          {
+            code: "CORPORATE_UPLOAD_LIMIT_REACHED",
+            userMessage: "この操作は現在利用できませんでした。",
+            action: "プランや残高を確認して、もう一度お試しください。",
+          },
+          "CorporateInfoSection.handleUploadPdf"
+        );
+        setError(uiError.message);
         return;
       }
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "PDFの取り込みに失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "CORPORATE_UPLOAD_FAILED",
+            userMessage: "PDFを取り込めませんでした。",
+            action: "ファイルや設定を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "CorporateInfoSection.handleUploadPdf"
+        );
       }
 
       const result = await response.json();
@@ -1073,7 +1189,17 @@ export function CorporateInfoSection({
       await fetchStatus();
       onUpdate?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "PDFの取り込みに失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CORPORATE_UPLOAD_FAILED",
+          userMessage: "PDFを取り込めませんでした。",
+          action: "ファイルや設定を確認して、もう一度お試しください。",
+          retryable: true,
+        },
+        "CorporateInfoSection.handleUploadPdf"
+      );
+      setError(uiError.message);
     } finally {
       setIsUploading(false);
       releaseLock();
@@ -1235,8 +1361,16 @@ export function CorporateInfoSection({
       );
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "削除に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "CORPORATE_URL_DELETE_FAILED",
+            userMessage: "企業情報を削除できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "CorporateInfoSection.handleDeleteUrls"
+        );
       }
 
       // Refresh status
@@ -1247,7 +1381,17 @@ export function CorporateInfoSection({
       setSelectedUrlsForDelete(new Set());
       setShowDeleteConfirm(false);
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : "削除に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CORPORATE_URL_DELETE_FAILED",
+          userMessage: "企業情報を削除できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "CorporateInfoSection.handleDeleteUrls"
+      );
+      setDeleteError(uiError.message);
     } finally {
       setIsDeleting(false);
       releaseLock();
@@ -1427,6 +1571,26 @@ export function CorporateInfoSection({
                   </div>
                 </div>
               ))}
+
+              {(sourceStatusCounts.pending > 0 || sourceStatusCounts.processing > 0) && (
+                <div className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {sourceStatusCounts.pending > 0 && (
+                      <span className="inline-flex rounded-full border border-amber-200 bg-white/80 px-2.5 py-1 text-xs font-medium text-amber-700">
+                        OCR保留 {sourceStatusCounts.pending}件
+                      </span>
+                    )}
+                    {sourceStatusCounts.processing > 0 && (
+                      <span className="inline-flex rounded-full border border-sky-200 bg-white/80 px-2.5 py-1 text-xs font-medium text-sky-700">
+                        処理中 {sourceStatusCounts.processing}件
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 text-xs text-amber-900/80">
+                    カテゴリ別の件数には、自動判定前のPDFはまだ含まれません。登録済みソース一覧には反映されています。
+                  </p>
+                </div>
+              )}
 
               <div className="flex flex-col gap-3 border-t border-border/60 pt-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-muted-foreground">
@@ -1958,10 +2122,10 @@ export function CorporateInfoSection({
                         </div>
                         <div
                           className={cn(
-                            "mt-2.5 grid min-h-[200px] cursor-pointer place-items-center rounded-lg border-2 border-dashed p-5 text-center transition-colors",
+                            "mt-2.5 flex cursor-pointer flex-col items-center overflow-hidden rounded-lg border-2 border-dashed transition-colors",
                             pdfDraft.uploadFiles.length > 0
-                              ? "border-primary/40 bg-primary/5"
-                              : "border-border/80 bg-muted/10 hover:border-primary/30 hover:bg-primary/5"
+                              ? "border-primary/40 bg-primary/5 px-3 py-3"
+                              : "min-h-[140px] justify-center border-border/80 bg-muted/10 p-5 hover:border-primary/30 hover:bg-primary/5"
                           )}
                           onDragOver={(e) => {
                             e.preventDefault();
@@ -1990,81 +2154,47 @@ export function CorporateInfoSection({
                             className="hidden"
                           />
                           {pdfDraft.uploadFiles.length > 0 ? (
-                            <div className="w-full space-y-3">
-                              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
-                                <FileUploadIcon />
-                              </div>
-                              <div className="space-y-2">
-                                <p className="text-sm font-medium text-foreground">
-                                  {pdfDraft.uploadFiles.length}件のPDFを選択中
-                                </p>
-                                <div className="max-h-44 space-y-2 overflow-y-auto text-left">
-                                  {pdfDraft.uploadFiles.map((file) => (
-                                    <div
-                                      key={`${file.name}-${file.size}-${file.lastModified}`}
-                                      className="flex items-start justify-between gap-3 rounded-lg border border-border/70 bg-background/80 px-3 py-2"
-                                    >
-                                      <div className="min-w-0">
-                                        <p className="truncate text-sm font-medium text-foreground">
-                                          {file.name}
-                                        </p>
-                                        <p className="mt-0.5 text-[11px] text-muted-foreground">
-                                          {(file.size / 1024 / 1024).toFixed(2)} MB
-                                        </p>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setPdfDraft((prev) => ({
-                                            uploadFiles: removePdfFile(prev.uploadFiles, file),
-                                          }));
-                                        }}
-                                        className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                                      >
-                                        <XIcon />
-                                      </button>
+                            <div className="w-full space-y-2">
+                              <p className="text-center text-sm font-medium text-foreground">
+                                {pdfDraft.uploadFiles.length}件のPDFを選択中
+                              </p>
+                              <div className="max-h-48 space-y-1.5 overflow-y-auto overflow-x-hidden">
+                                {pdfDraft.uploadFiles.map((file) => (
+                                  <div
+                                    key={`${file.name}-${file.size}-${file.lastModified}`}
+                                    className="flex items-center gap-2 overflow-hidden rounded-md border border-border/70 bg-background/80 px-2.5 py-1.5"
+                                  >
+                                    <div className="min-w-0 flex-1">
+                                      <p className="truncate text-xs font-medium text-foreground">
+                                        {file.name}
+                                      </p>
+                                      <p className="text-[10px] text-muted-foreground">
+                                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                                      </p>
                                     </div>
-                                  ))}
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                  OCRが必要なPDFは保留登録し、後から自動で取り込みます。
-                                </p>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setPdfDraft((prev) => ({
+                                          uploadFiles: removePdfFile(prev.uploadFiles, file),
+                                        }));
+                                      }}
+                                      className="shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                    >
+                                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                ))}
                               </div>
-                              <div className="flex flex-wrap justify-center gap-2">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    document.getElementById(pdfUploadInputId)?.click();
-                                  }}
-                                  disabled={isUploading}
-                                >
-                                  追加選択
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleUploadPdf();
-                                  }}
-                                  disabled={isUploading}
-                                >
-                                  {isUploading ? (
-                                    <>
-                                      <LoadingSpinner />
-                                      <span className="ml-2">取り込み中...</span>
-                                    </>
-                                  ) : (
-                                    `${pdfDraft.uploadFiles.length}件を取り込む`
-                                  )}
-                                </Button>
-                              </div>
+                              <p className="text-center text-[11px] text-muted-foreground">
+                                OCRが必要なPDFは保留登録し、後から自動で取り込みます。
+                              </p>
                             </div>
                           ) : (
-                            <div className="space-y-2">
+                            <div className="space-y-2 text-center">
                               <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-background text-muted-foreground">
                                 <FileUploadIcon />
                               </div>
@@ -2079,6 +2209,39 @@ export function CorporateInfoSection({
                             </div>
                           )}
                         </div>
+                        {pdfDraft.uploadFiles.length > 0 && (
+                          <div className="mt-2.5 flex items-center justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                document.getElementById(pdfUploadInputId)?.click();
+                              }}
+                              disabled={isUploading}
+                            >
+                              追加選択
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUploadPdf();
+                              }}
+                              disabled={isUploading}
+                            >
+                              {isUploading ? (
+                                <>
+                                  <LoadingSpinner />
+                                  <span className="ml-2">取り込み中...</span>
+                                </>
+                              ) : (
+                                `${pdfDraft.uploadFiles.length}件を取り込む`
+                              )}
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export interface Deadline {
   id: string;
@@ -67,14 +68,33 @@ export function useDeadlines(days: number = 7) {
           setCount(0);
           return;
         }
-        throw new Error("Failed to fetch deadlines");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "UPCOMING_DEADLINES_FETCH_FAILED",
+            userMessage: "締切一覧を読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "useDeadlines.fetch"
+        );
       }
 
       const data: DeadlinesResponse = await response.json();
       setDeadlines(data.deadlines);
       setCount(data.count);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch deadlines");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "UPCOMING_DEADLINES_FETCH_FAILED",
+          userMessage: "締切一覧を読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useDeadlines.fetch"
+      );
+      setError(uiError.message);
     } finally {
       setIsLoading(false);
     }

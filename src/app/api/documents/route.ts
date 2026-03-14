@@ -12,12 +12,7 @@ import { documents, companies, applications } from "@/lib/db/schema";
 import { eq, and, desc, isNull, ne } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
-
-const DOCUMENT_TYPE_LABELS: Record<string, string> = {
-  es: "エントリーシート",
-  tips: "就活TIPS",
-  company_analysis: "企業分析",
-};
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -46,10 +41,15 @@ export async function GET(request: NextRequest) {
   try {
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "DOCUMENTS_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "documents-auth",
+      });
     }
 
     const { userId, guestId } = identity;
@@ -110,11 +110,16 @@ export async function GET(request: NextRequest) {
       })),
     });
   } catch (error) {
-    console.error("Error fetching documents:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "DOCUMENTS_FETCH_FAILED",
+      userMessage: "ドキュメント一覧を読み込めませんでした。",
+      action: "ページを再読み込みして、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "documents-fetch",
+    });
   }
 }
 
@@ -122,10 +127,15 @@ export async function POST(request: NextRequest) {
   try {
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "DOCUMENT_CREATE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "document-create-auth",
+      });
     }
 
     const { userId, guestId } = identity;
@@ -133,18 +143,26 @@ export async function POST(request: NextRequest) {
     const { title, type, companyId, applicationId, jobTypeId, content } = body;
 
     if (!title || !title.trim()) {
-      return NextResponse.json(
-        { error: "タイトルは必須です" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "DOCUMENT_TITLE_REQUIRED",
+        userMessage: "タイトルを入力してください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        developerMessage: "Title is required",
+        logContext: "document-create-validation",
+      });
     }
 
     const validTypes = ["es", "tips", "company_analysis"];
     if (!type || !validTypes.includes(type)) {
-      return NextResponse.json(
-        { error: "有効なタイプを選択してください" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "DOCUMENT_TYPE_INVALID",
+        userMessage: "ドキュメント種別を確認して、もう一度お試しください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        developerMessage: "Invalid document type",
+        logContext: "document-create-validation",
+      });
     }
 
     // Verify company access if provided
@@ -165,10 +183,14 @@ export async function POST(request: NextRequest) {
         .limit(1);
 
       if (!company) {
-        return NextResponse.json(
-          { error: "企業が見つかりません" },
-          { status: 404 }
-        );
+        return createApiErrorResponse(request, {
+          status: 404,
+          code: "DOCUMENT_COMPANY_NOT_FOUND",
+          userMessage: "関連する企業が見つかりませんでした。",
+          action: "企業の選択内容を確認して、もう一度お試しください。",
+          developerMessage: "Company not found for document create",
+          logContext: "document-create-validation",
+        });
       }
     }
 
@@ -193,10 +215,15 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ document: newDocument[0] });
   } catch (error) {
-    console.error("Error creating document:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "DOCUMENT_CREATE_FAILED",
+      userMessage: "ドキュメントを作成できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "document-create",
+    });
   }
 }

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useCalendarSettings } from "@/hooks/useCalendar";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 interface GoogleCalendar {
   id: string;
@@ -68,15 +69,34 @@ export default function CalendarSettingsPage() {
     setCalendarsLoading(true);
     try {
       const res = await fetch("/api/calendar/calendars", { credentials: "include" });
-      const data = await res.json();
       if (!res.ok) {
-        if (data?.code === "NEED_RECONNECT") {
-          setSaveError(data.error);
-          return;
-        }
+        const uiError = await parseApiErrorResponse(
+          res,
+          {
+            code: "CALENDAR_LIST_FETCH_FAILED",
+            userMessage: "カレンダー一覧を読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "calendarSettings.fetchCalendars"
+        );
+        setSaveError(uiError.message);
         return;
       }
+      const data = await res.json();
       setCalendars(data.calendars ?? []);
+    } catch (err) {
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CALENDAR_LIST_FETCH_FAILED",
+          userMessage: "カレンダー一覧を読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "calendarSettings.fetchCalendars"
+      );
+      setSaveError(uiError.message);
     } finally {
       setCalendarsLoading(false);
     }
@@ -187,12 +207,21 @@ export default function CalendarSettingsPage() {
         credentials: "include",
         body: JSON.stringify({ name: newCalendarName.trim() }),
       });
-      const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "カレンダーの作成に失敗しました");
+        throw await parseApiErrorResponse(
+          res,
+          {
+            code: "CALENDAR_CREATE_FAILED",
+            userMessage: "カレンダーを作成できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: res.status >= 500,
+          },
+          "calendarSettings.createCalendar"
+        );
       }
 
+      const data = await res.json();
       const createdCalendar = data.calendar as GoogleCalendar;
       setCalendars((prev) => [...prev, createdCalendar]);
       setTargetCalendarId(createdCalendar.id);
@@ -200,7 +229,17 @@ export default function CalendarSettingsPage() {
       setCalendarMode("existing");
       toast.success("Googleカレンダーを作成しました");
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "カレンダーの作成に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CALENDAR_CREATE_FAILED",
+          userMessage: "カレンダーを作成できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "calendarSettings.createCalendar"
+      );
+      setSaveError(uiError.message);
     } finally {
       setIsCreating(false);
     }
@@ -215,16 +254,34 @@ export default function CalendarSettingsPage() {
         method: "POST",
         credentials: "include",
       });
-      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Google連携の解除に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "CALENDAR_DISCONNECT_FAILED",
+            userMessage: "Googleカレンダー連携を解除できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: response.status >= 500,
+          },
+          "calendarSettings.disconnect"
+        );
       }
 
       await refresh?.();
       toast.success("Googleカレンダー連携を解除しました");
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Google連携の解除に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CALENDAR_DISCONNECT_FAILED",
+          userMessage: "Googleカレンダー連携を解除できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "calendarSettings.disconnect"
+      );
+      setSaveError(uiError.message);
     } finally {
       setIsDisconnecting(false);
     }

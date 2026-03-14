@@ -8,6 +8,7 @@ import { getDeviceToken } from "@/lib/auth/device-token";
 import { ProcessingSteps, COMPANY_FETCH_STEPS } from "@/components/ui/ProcessingSteps";
 import { useOperationLock } from "@/hooks/useOperationLock";
 import { notifySuccess } from "@/lib/notifications";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 type SelectionType = "main_selection" | "internship";
 type SelectionTypeState = SelectionType | null;
@@ -299,8 +300,16 @@ export function FetchInfoButton({
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "URL候補の検索に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "SEARCH_PAGES_FAILED",
+            userMessage: "候補URLを検索できませんでした。",
+            action: "条件を見直して、もう一度お試しください。",
+            retryable: true,
+          },
+          "FetchInfoButton.handleSearchPages"
+        );
       }
 
       const data: SearchPagesResponse = await response.json();
@@ -321,7 +330,17 @@ export function FetchInfoButton({
       });
       setSelectedUrls(defaultSelections);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "URL候補の検索に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "SEARCH_PAGES_FAILED",
+          userMessage: "候補URLを検索できませんでした。",
+          action: "条件を見直して、もう一度お試しください。",
+          retryable: true,
+        },
+        "FetchInfoButton.handleSearchPages"
+      );
+      setError(uiError.message);
       setCandidates([]);
       setSelectedUrls([]);
     } finally {
@@ -566,14 +585,31 @@ export function FetchInfoButton({
         });
 
         if (response.status === 402) {
-          const data = await response.json();
-          errors.push(data.error || "クレジットが不足しています");
+          const uiError = await parseApiErrorResponse(
+            response,
+            {
+              code: "FETCH_INFO_LIMIT_REACHED",
+              userMessage: "この操作は現在利用できませんでした。",
+              action: "プランや残高を確認して、もう一度お試しください。",
+            },
+            "FetchInfoButton.handleConfirmUrl"
+          );
+          errors.push(uiError.message);
           continue;
         }
 
         if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          errors.push(data.error || `URL ${i + 1} の取得に失敗しました`);
+          const uiError = await parseApiErrorResponse(
+            response,
+            {
+              code: "FETCH_INFO_FAILED",
+              userMessage: `URL ${i + 1} の取得に失敗しました。`,
+              action: "URLや設定を確認して、もう一度お試しください。",
+              retryable: true,
+            },
+            "FetchInfoButton.handleConfirmUrl"
+          );
+          errors.push(uiError.message);
           continue;
         }
 
@@ -618,10 +654,29 @@ export function FetchInfoButton({
         freeUsed = freeUsed || data.freeUsed;
         freeRemaining = data.freeRemaining;
         if (data.error) {
-          errors.push(data.error);
+          const uiError = toAppUiError(
+            data.error,
+            {
+              code: "FETCH_INFO_PARTIAL_ERROR",
+              userMessage: `URL ${i + 1} の取得で一部処理が完了しませんでした。`,
+              action: "必要に応じて候補URLを見直し、再試行してください。",
+            },
+            "FetchInfoButton.handleConfirmUrl.result"
+          );
+          errors.push(uiError.message);
         }
       } catch (err) {
-        errors.push(err instanceof Error ? err.message : `URL ${i + 1} の取得に失敗しました`);
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "FETCH_INFO_FAILED",
+            userMessage: `URL ${i + 1} の取得に失敗しました。`,
+            action: "URLや設定を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "FetchInfoButton.handleConfirmUrl"
+        );
+        errors.push(uiError.message);
       } finally {
         setFetchProgress({ current: i + 1, total: urlsToFetch.length });
       }

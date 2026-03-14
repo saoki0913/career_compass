@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { trackEvent } from "@/lib/analytics/client";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export type DeadlineType =
   | "es_submission"
@@ -100,13 +101,32 @@ export function useCompanyDeadlines(companyId: string | null) {
           setDeadlines([]);
           return;
         }
-        throw new Error("Failed to fetch deadlines");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "COMPANY_DEADLINES_FETCH_FAILED",
+            userMessage: "締切情報を読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "useCompanyDeadlines.fetchDeadlines"
+        );
       }
 
       const data = await response.json();
       setDeadlines(data.deadlines);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch deadlines");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "COMPANY_DEADLINES_FETCH_FAILED",
+          userMessage: "締切情報を読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useCompanyDeadlines.fetchDeadlines"
+      );
+      setError(uiError.message);
     } finally {
       setIsLoading(false);
     }
@@ -129,8 +149,16 @@ export function useCompanyDeadlines(companyId: string | null) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to create deadline");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "DEADLINE_CREATE_FAILED",
+              userMessage: "締切を追加できませんでした。",
+              action: "入力内容を確認して、もう一度お試しください。",
+              retryable: true,
+            },
+            "useCompanyDeadlines.createDeadline"
+          );
         }
 
         const data = await response.json();
@@ -145,7 +173,17 @@ export function useCompanyDeadlines(companyId: string | null) {
 
         return newDeadline;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to create deadline");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "DEADLINE_CREATE_FAILED",
+            userMessage: "締切を追加できませんでした。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "useCompanyDeadlines.createDeadline"
+        );
+        setError(uiError.message);
         return null;
       }
     },
@@ -163,8 +201,16 @@ export function useCompanyDeadlines(companyId: string | null) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to update deadline");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "DEADLINE_UPDATE_FAILED",
+              userMessage: "締切を更新できませんでした。",
+              action: "入力内容を確認して、もう一度お試しください。",
+              retryable: true,
+            },
+            "useCompanyDeadlines.updateDeadline"
+          );
         }
 
         const data = await response.json();
@@ -179,7 +225,17 @@ export function useCompanyDeadlines(companyId: string | null) {
 
         return updatedDeadline;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to update deadline");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "DEADLINE_UPDATE_FAILED",
+            userMessage: "締切を更新できませんでした。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "useCompanyDeadlines.updateDeadline"
+        );
+        setError(uiError.message);
         return null;
       }
     },
@@ -195,8 +251,16 @@ export function useCompanyDeadlines(companyId: string | null) {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to delete deadline");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "DEADLINE_DELETE_FAILED",
+            userMessage: "締切を削除できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "useCompanyDeadlines.deleteDeadline"
+        );
       }
 
       // Update local state
@@ -204,7 +268,17 @@ export function useCompanyDeadlines(companyId: string | null) {
 
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete deadline");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "DEADLINE_DELETE_FAILED",
+          userMessage: "締切を削除できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "useCompanyDeadlines.deleteDeadline"
+      );
+      setError(uiError.message);
       return false;
     }
   }, []);

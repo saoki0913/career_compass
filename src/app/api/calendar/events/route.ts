@@ -13,6 +13,7 @@ import { eq, and, gte, lte } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getValidGoogleCalendarAccessToken } from "@/lib/calendar/connection";
 import { createCalendarEvent } from "@/lib/calendar/google";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,10 +22,15 @@ export async function GET(request: NextRequest) {
     });
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "ログインが必要です" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "CALENDAR_EVENTS_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "calendar-events-auth",
+      });
     }
 
     const userId = session.user.id;
@@ -80,11 +86,16 @@ export async function GET(request: NextRequest) {
       })),
     });
   } catch (error) {
-    console.error("Error fetching calendar events:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "CALENDAR_EVENTS_FETCH_FAILED",
+      userMessage: "カレンダーを読み込めませんでした。",
+      action: "ページを再読み込みして、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "calendar-events-fetch",
+    });
   }
 }
 
@@ -95,10 +106,15 @@ export async function POST(request: NextRequest) {
     });
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "ログインが必要です" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "CALENDAR_EVENT_CREATE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "calendar-event-create-auth",
+      });
     }
 
     const userId = session.user.id;
@@ -106,25 +122,37 @@ export async function POST(request: NextRequest) {
     const { type, title, startAt, endAt, deadlineId } = body;
 
     if (!title?.trim()) {
-      return NextResponse.json(
-        { error: "タイトルは必須です" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "CALENDAR_EVENT_TITLE_REQUIRED",
+        userMessage: "タイトルを入力してください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        developerMessage: "Calendar event title is required",
+        logContext: "calendar-event-create-validation",
+      });
     }
 
     if (!startAt || !endAt) {
-      return NextResponse.json(
-        { error: "開始・終了時刻は必須です" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "CALENDAR_EVENT_TIME_REQUIRED",
+        userMessage: "開始時刻と終了時刻を入力してください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        developerMessage: "Calendar event start/end required",
+        logContext: "calendar-event-create-validation",
+      });
     }
 
     const validTypes = ["deadline", "work_block"];
     if (!validTypes.includes(type)) {
-      return NextResponse.json(
-        { error: "無効なイベント種類です" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "CALENDAR_EVENT_TYPE_INVALID",
+        userMessage: "イベント種類を確認して、もう一度お試しください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        developerMessage: "Invalid calendar event type",
+        logContext: "calendar-event-create-validation",
+      });
     }
 
     const [settings] = await db
@@ -163,10 +191,15 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ event: newEvent[0] });
   } catch (error) {
-    console.error("Error creating calendar event:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "CALENDAR_EVENT_CREATE_FAILED",
+      userMessage: "イベントを作成できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "calendar-event-create",
+    });
   }
 }

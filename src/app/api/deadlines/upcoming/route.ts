@@ -7,10 +7,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { deadlines, companies, userProfiles } from "@/lib/db/schema";
+import { deadlines, companies } from "@/lib/db/schema";
 import { eq, and, gte, lte, isNull, or } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,10 +42,15 @@ export async function GET(request: NextRequest) {
     }
 
     if (!userId && !guestId) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "UPCOMING_DEADLINES_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "upcoming-deadlines-auth",
+      });
     }
 
     // Calculate date range
@@ -118,10 +124,15 @@ export async function GET(request: NextRequest) {
       periodDays: maxDays,
     });
   } catch (error) {
-    console.error("Error getting upcoming deadlines:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "UPCOMING_DEADLINES_FETCH_FAILED",
+      userMessage: "締切一覧を読み込めませんでした。",
+      action: "ページを再読み込みして、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "upcoming-deadlines-fetch",
+    });
   }
 }

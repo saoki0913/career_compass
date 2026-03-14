@@ -19,6 +19,9 @@ const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 const COMPANY_PDF_INGEST_BUCKET =
   process.env.COMPANY_PDF_INGEST_BUCKET || "company-info-pdf-ingest";
 const MAX_FILES_PER_REQUEST = 10;
+const CAN_DEFER_PDF_OCR = Boolean(
+  process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 const PAGE_LIMITS = {
   guest: 0,
@@ -189,7 +192,7 @@ export async function POST(
       backendForm.set("company_id", companyId);
       backendForm.set("company_name", company.name);
       backendForm.set("source_url", sourceUrl);
-      backendForm.set("allow_defer_ocr", "true");
+      backendForm.set("allow_defer_ocr", CAN_DEFER_PDF_OCR ? "true" : "false");
       backendForm.set("file", file, file.name);
 
       let uploadResult: UploadPdfResult;

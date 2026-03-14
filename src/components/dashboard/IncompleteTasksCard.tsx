@@ -141,7 +141,7 @@ export function IncompleteTasksCard({
   variant = "default",
 }: IncompleteTasksCardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const { data, isLoading, error, refetch } = useIncompleteItems();
+  const { data, isLoading, error, errorInfo, refetch } = useIncompleteItems();
 
   const isQuickAction = variant === "quickAction";
 
@@ -168,15 +168,6 @@ export function IncompleteTasksCard({
   }
 
   if (error) {
-    const cause =
-      error === "Authentication required"
-        ? "ログイン直後で認証情報の反映前、またはゲスト情報の初期化前にデータ取得が走っています。"
-        : "未完了タスクの取得 API でエラーが発生しています。";
-    const solution =
-      error === "Authentication required"
-        ? "少し待ってから再読み込みしてください。改善しない場合は再ログインしてください。"
-        : "ページを再読み込みして再試行してください。継続する場合はサーバーログと API 応答を確認してください。";
-
     if (isQuickAction) {
       return (
         <div
@@ -186,8 +177,10 @@ export function IncompleteTasksCard({
           )}
         >
           <h3 className="font-semibold text-rose-700 tracking-tight">途中タスクを取得できません</h3>
-          <p className="mt-2 text-xs text-rose-700/80">原因: {cause}</p>
-          <p className="mt-1 text-xs text-rose-700/80">解決策: {solution}</p>
+          <p className="mt-2 text-xs text-rose-700/80">{error}</p>
+          {errorInfo?.action && (
+            <p className="mt-1 text-xs text-rose-700/80">{errorInfo.action}</p>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -212,8 +205,10 @@ export function IncompleteTasksCard({
           <p className={cn("font-medium text-rose-700", compactMode ? "text-sm" : "text-base")}>
             途中のタスクを取得できませんでした
           </p>
-          <p className="mt-2 text-sm text-rose-700/85">原因: {cause}</p>
-          <p className="mt-1 text-sm text-rose-700/85">解決策: {solution}</p>
+          <p className="mt-2 text-sm text-rose-700/85">{error}</p>
+          {errorInfo?.action && (
+            <p className="mt-1 text-sm text-rose-700/85">{errorInfo.action}</p>
+          )}
           <Button type="button" variant="outline" size="sm" onClick={refetch} className="mt-4">
             再試行
           </Button>

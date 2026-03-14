@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export type ApplicationType =
   | "summer_intern"
@@ -101,13 +102,32 @@ export function useApplications(companyId: string) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch applications");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "APPLICATIONS_FETCH_FAILED",
+            userMessage: "応募枠を読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "useApplications.fetchApplications"
+        );
       }
 
       const data = await response.json();
       setApplications(data.applications || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "応募枠の取得に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "APPLICATIONS_FETCH_FAILED",
+          userMessage: "応募枠を読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useApplications.fetchApplications"
+      );
+      setError(uiError.message);
     } finally {
       setIsLoading(false);
     }
@@ -128,15 +148,33 @@ export function useApplications(companyId: string) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to create application");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "APPLICATION_CREATE_FAILED",
+              userMessage: "応募枠を作成できませんでした。",
+              action: "入力内容を確認して、もう一度お試しください。",
+              retryable: true,
+            },
+            "useApplications.createApplication"
+          );
         }
 
         const data = await response.json();
         await fetchApplications();
         return data.application;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "応募枠の作成に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "APPLICATION_CREATE_FAILED",
+            userMessage: "応募枠を作成できませんでした。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "useApplications.createApplication"
+        );
+        setError(uiError.message);
         return null;
       }
     },
@@ -154,14 +192,32 @@ export function useApplications(companyId: string) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to update application");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "APPLICATION_UPDATE_FAILED",
+              userMessage: "応募枠を更新できませんでした。",
+              action: "入力内容を確認して、もう一度お試しください。",
+              retryable: true,
+            },
+            "useApplications.updateApplication"
+          );
         }
 
         await fetchApplications();
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "応募枠の更新に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "APPLICATION_UPDATE_FAILED",
+            userMessage: "応募枠を更新できませんでした。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "useApplications.updateApplication"
+        );
+        setError(uiError.message);
         return false;
       }
     },
@@ -178,14 +234,32 @@ export function useApplications(companyId: string) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to delete application");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "APPLICATION_DELETE_FAILED",
+              userMessage: "応募枠を削除できませんでした。",
+              action: "時間を置いて、もう一度お試しください。",
+              retryable: true,
+            },
+            "useApplications.deleteApplication"
+          );
         }
 
         await fetchApplications();
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "応募枠の削除に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "APPLICATION_DELETE_FAILED",
+            userMessage: "応募枠を削除できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "useApplications.deleteApplication"
+        );
+        setError(uiError.message);
         return false;
       }
     },
@@ -222,14 +296,33 @@ export function useApplicationDetail(applicationId: string) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch application");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "APPLICATION_DETAIL_FETCH_FAILED",
+            userMessage: "応募枠の詳細を読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "useApplicationDetail.fetchApplication"
+        );
       }
 
       const data = await response.json();
       setApplication(data.application);
       setJobTypes(data.jobTypes || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "応募枠の取得に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "APPLICATION_DETAIL_FETCH_FAILED",
+          userMessage: "応募枠の詳細を読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useApplicationDetail.fetchApplication"
+      );
+      setError(uiError.message);
     } finally {
       setIsLoading(false);
     }
@@ -250,15 +343,33 @@ export function useApplicationDetail(applicationId: string) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to create job type");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "JOB_TYPE_CREATE_FAILED",
+              userMessage: "職種を追加できませんでした。",
+              action: "入力内容を確認して、もう一度お試しください。",
+              retryable: true,
+            },
+            "useApplicationDetail.addJobType"
+          );
         }
 
         const data = await response.json();
         await fetchApplication();
         return data.jobType;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "職種の追加に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "JOB_TYPE_CREATE_FAILED",
+            userMessage: "職種を追加できませんでした。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "useApplicationDetail.addJobType"
+        );
+        setError(uiError.message);
         return null;
       }
     },

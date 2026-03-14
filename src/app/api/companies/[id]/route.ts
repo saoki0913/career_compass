@@ -10,13 +10,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { companies, userProfiles, deadlines } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
-import { CompanyStatus, VALID_STATUSES } from "@/lib/constants/status";
+import { VALID_STATUSES } from "@/lib/constants/status";
 import { stripCompanyCredentials } from "@/lib/db/sanitize";
-import { logError } from "@/lib/logger";
 import { encrypt } from "@/lib/crypto";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 /**
  * Get current user or guest from request
@@ -98,19 +98,28 @@ export async function GET(
     const identity = await getCurrentIdentity(request);
 
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "COMPANY_DETAIL_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "get-company-auth",
+      });
     }
 
     const company = await getCompanyIfOwned(id, identity);
 
     if (!company) {
-      return NextResponse.json(
-        { error: "Company not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "COMPANY_NOT_FOUND",
+        userMessage: "企業が見つかりませんでした。",
+        action: "一覧に戻って、対象の企業を選び直してください。",
+        developerMessage: "Company not found",
+        logContext: "get-company-not-found",
+      });
     }
 
     // Get deadlines for this company
@@ -124,11 +133,16 @@ export async function GET(
       deadlines: companyDeadlines,
     });
   } catch (error) {
-    logError("get-company", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "COMPANY_DETAIL_FETCH_FAILED",
+      userMessage: "企業情報を読み込めませんでした。",
+      action: "ページを再読み込みして、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "get-company",
+    });
   }
 }
 
@@ -141,19 +155,28 @@ export async function PUT(
     const identity = await getCurrentIdentity(request);
 
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "COMPANY_UPDATE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "update-company-auth",
+      });
     }
 
     const company = await getCompanyIfOwned(id, identity);
 
     if (!company) {
-      return NextResponse.json(
-        { error: "Company not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "COMPANY_UPDATE_NOT_FOUND",
+        userMessage: "更新対象の企業が見つかりませんでした。",
+        action: "一覧に戻って、対象の企業を選び直してください。",
+        developerMessage: "Company not found",
+        logContext: "update-company-not-found",
+      });
     }
 
     const body = await request.json();
@@ -161,18 +184,26 @@ export async function PUT(
 
     // Validate name if provided
     if (name !== undefined && (typeof name !== "string" || name.trim().length === 0)) {
-      return NextResponse.json(
-        { error: "Company name cannot be empty" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "COMPANY_NAME_EMPTY",
+        userMessage: "企業名を入力してください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        developerMessage: "Company name cannot be empty",
+        logContext: "update-company-validation",
+      });
     }
 
     // Validate status if provided
     if (status !== undefined && !VALID_STATUSES.includes(status)) {
-      return NextResponse.json(
-        { error: "Invalid status" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "COMPANY_STATUS_INVALID",
+        userMessage: "企業ステータスを確認して、もう一度お試しください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        developerMessage: "Invalid status",
+        logContext: "update-company-validation",
+      });
     }
 
     // Build update object
@@ -209,11 +240,16 @@ export async function PUT(
       message: "Company updated successfully",
     });
   } catch (error) {
-    logError("update-company", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "COMPANY_UPDATE_FAILED",
+      userMessage: "企業情報を更新できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "update-company",
+    });
   }
 }
 
@@ -226,19 +262,28 @@ export async function DELETE(
     const identity = await getCurrentIdentity(request);
 
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "COMPANY_DELETE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "delete-company-auth",
+      });
     }
 
     const company = await getCompanyIfOwned(id, identity);
 
     if (!company) {
-      return NextResponse.json(
-        { error: "Company not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "COMPANY_DELETE_NOT_FOUND",
+        userMessage: "削除対象の企業が見つかりませんでした。",
+        action: "一覧に戻って、対象の企業を選び直してください。",
+        developerMessage: "Company not found",
+        logContext: "delete-company-not-found",
+      });
     }
 
     // Delete company (deadlines will cascade delete due to schema)
@@ -250,10 +295,15 @@ export async function DELETE(
       message: "Company deleted successfully",
     });
   } catch (error) {
-    logError("delete-company", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "COMPANY_DELETE_FAILED",
+      userMessage: "企業を削除できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "delete-company",
+    });
   }
 }

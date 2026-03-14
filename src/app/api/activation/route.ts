@@ -11,6 +11,7 @@ import { getGuestUser } from "@/lib/auth/guest";
 import { db } from "@/lib/db";
 import { aiThreads, companies, creditTransactions, deadlines, documents } from "@/lib/db/schema";
 import { and, eq, ne, sql } from "drizzle-orm";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 async function getIdentity(request: NextRequest): Promise<
   | { userId: string; guestId: null }
@@ -47,7 +48,15 @@ export async function GET(request: NextRequest) {
   try {
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "ACTIVATION_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "activation-auth",
+      });
     }
 
     let companyWhere: ReturnType<typeof eq>;
@@ -141,7 +150,15 @@ export async function GET(request: NextRequest) {
       nextAction: nextAction ? { href: nextAction.href, label: nextAction.label } : null,
     });
   } catch (error) {
-    console.error("Error getting activation progress:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "ACTIVATION_FETCH_FAILED",
+      userMessage: "利用状況を読み込めませんでした。",
+      action: "ページを再読み込みして、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Failed to fetch activation progress",
+      logContext: "activation-fetch",
+    });
   }
 }
