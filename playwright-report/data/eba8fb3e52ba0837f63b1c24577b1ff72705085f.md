@@ -1,0 +1,41 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e10]:
+    - generic [ref=e11]:
+      - img "就活Pass" [ref=e14]
+      - generic [ref=e15]: 就活Pass
+    - paragraph [ref=e16]: ESも締切も、AIが見逃さない。
+    - button "Googleでログイン" [ref=e21] [cursor=pointer]:
+      - img
+      - generic [ref=e22]: Googleでログイン
+    - generic [ref=e23]:
+      - generic [ref=e24]:
+        - img [ref=e25]
+        - generic [ref=e28]: AI添削
+      - generic [ref=e29]:
+        - img [ref=e30]
+        - generic [ref=e32]: 締切管理
+      - generic [ref=e33]:
+        - img [ref=e34]
+        - generic [ref=e36]: ガクチカ深掘り
+    - generic [ref=e37]:
+      - link "ゲストとして試す" [ref=e38] [cursor=pointer]:
+        - /url: /dashboard
+        - text: ゲストとして試す
+        - img [ref=e39]
+      - paragraph [ref=e41]: 一部機能が制限されます
+    - paragraph [ref=e42]:
+      - text: ログインすることで、
+      - link "利用規約" [ref=e43] [cursor=pointer]:
+        - /url: /terms
+      - text: と
+      - link "プライバシーポリシー" [ref=e44] [cursor=pointer]:
+        - /url: /privacy
+      - text: に同意したものとみなされます。
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e50] [cursor=pointer]:
+    - img [ref=e51]
+  - alert [ref=e54]
+```
