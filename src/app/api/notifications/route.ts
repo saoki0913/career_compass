@@ -19,6 +19,7 @@ const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   company_fetch: "企業情報取得",
   es_review: "ES添削完了",
   daily_summary: "デイリーサマリー",
+  calendar_sync_failed: "Google同期エラー",
 };
 
 async function getIdentity(request: NextRequest): Promise<{
@@ -122,7 +123,7 @@ export async function POST(request: NextRequest) {
     const { type, title, message, data } = body;
 
     // Validate type
-    const validTypes = ["deadline_reminder", "deadline_near", "company_fetch", "es_review", "daily_summary"];
+    const validTypes = ["deadline_reminder", "deadline_near", "company_fetch", "es_review", "daily_summary", "calendar_sync_failed"];
     if (!type || !validTypes.includes(type)) {
       return NextResponse.json(
         { error: "無効な通知タイプです" },
