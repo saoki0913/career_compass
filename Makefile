@@ -5,6 +5,7 @@
 	backend-test-comprehensive backend-test-comprehensive-quick backend-test-comprehensive-stats \
 	backend-test-content-type backend-test-content-type-unit backend-test-content-type-integration \
 	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy \
+	backend-test-live-es-review \
 	deploy deploy-check deploy-migrate ops-status ops-auth-check ops-release-check
 
 # ===========================================
@@ -150,6 +151,9 @@ LIVE_SEARCH_USE_CURATED ?= 1
 LIVE_SEARCH_FAIL_ON_REGRESSION ?= 0
 BASELINE_SAVE ?= 0
 BASELINE_AUTO_PROMOTE ?= 0
+LIVE_ES_REVIEW_PROVIDERS ?= claude-sonnet,gpt-5.1,gemini-3.1-pro-preview,command-a-03-2025
+LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS ?= 0
+LIVE_ES_REVIEW_OUTPUT_DIR ?= backend/tests/output
 
 ## 全バックエンドテストを実行
 backend-test:
@@ -194,6 +198,18 @@ backend-test-live-search-hybrid:
 
 backend-test-live-search-legacy:
 	@$(MAKE) backend-test-live-search LIVE_SEARCH_MODES=legacy
+
+## Live ES添削 provider gate（4 provider 実 API / レポート出力）
+backend-test-live-es-review:
+	@echo "Running live ES review provider gate..."
+	@echo "  Providers: $(LIVE_ES_REVIEW_PROVIDERS)"
+	@echo "  Output: $(LIVE_ES_REVIEW_OUTPUT_DIR)"
+	cd backend && \
+	RUN_LIVE_ES_REVIEW=1 \
+	LIVE_ES_REVIEW_PROVIDERS="$(LIVE_ES_REVIEW_PROVIDERS)" \
+	LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS="$(LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS)" \
+	LIVE_ES_REVIEW_OUTPUT_DIR="../$(LIVE_ES_REVIEW_OUTPUT_DIR)" \
+	python -m pytest tests/es_review/integration/test_live_es_review_provider_report.py -v -s -m "integration"
 
 ## Pythonコードをリント（ruff/flake8）
 backend-lint:
@@ -281,229 +297,68 @@ setup: install db-push
 # ===========================================
 
 # デプロイ設定
-FRONTEND_URL := https://shupass.jp
+FRONTEND_URL := https://www.shupass.jp
 BACKEND_URL := https://career-compass-backend.up.railway.app
+STAGING_FRONTEND_URL := https://stg.shupass.jp
+STAGING_BACKEND_URL := https://stg-api.shupass.jp
+RELEASE_PR_URL := https://github.com/saoki0913/career_compass/compare/main...develop?expand=1
 HEALTH_CHECK_RETRIES := 8
 HEALTH_CHECK_INTERVAL := 15
 HEALTH_CHECK_INITIAL_WAIT := 30
 CLI_SAFE_BIN := $(CURDIR)/tools/cli-safe/bin
 CLI_SAFE_PATH := PATH="$(CLI_SAFE_BIN):$$PATH"
 
-## develop → main 本番デプロイ（ビルド検証・DBマイグレ・ヘルスチェック付き）
+## develop の release 前検証（本番反映は GitHub PR merge のみ）
 deploy:
 	@echo ""
 	@echo "=========================================="
-	@echo " Deploy: develop -> main"
+	@echo " Release Check: develop -> staging -> main PR"
 	@echo "=========================================="
 	@echo ""
-	@STASHED=0; \
-	DEPLOY_FAILED=0; \
-	HAS_ENV_PROD=0; \
-	\
-	echo "--- Phase 0: 事前チェック ---"; \
-	echo ""; \
-	if [ -n "$$(git status --porcelain)" ]; then \
-		echo "WARNING: 未コミットの変更があります:"; \
-		git status --short; \
-		echo ""; \
-		echo "どうしますか？"; \
-		echo "  1) stash して続行（デプロイ後に自動復元）"; \
-		echo "  2) そのまま続行（変更はデプロイに含まれません）"; \
-		echo "  3) 中止"; \
-		printf "選択 [1-3]: "; \
-		read choice; \
-		case "$$choice" in \
-			1) echo "-> 変更をstashします..."; git stash push -m "deploy-auto-stash"; STASHED=1 ;; \
-			2) echo "-> 未コミットの変更を残して続行します..." ;; \
-			3) echo "中止しました。"; exit 1 ;; \
-			*) echo "無効な選択です。中止します。"; exit 1 ;; \
-		esac; \
-		echo ""; \
-	fi; \
-	\
 	CURRENT=$$(git branch --show-current); \
 	if [ "$$CURRENT" != "develop" ]; then \
 		echo "ERROR: developブランチで実行してください（現在: $$CURRENT）"; \
-		if [ "$$STASHED" = "1" ]; then git stash pop; fi; \
 		exit 1; \
 	fi; \
-	\
-	if [ -f .env.production ]; then \
-		HAS_ENV_PROD=1; \
-	else \
-		echo "INFO: .env.production が見つかりません。DBマイグレーションはスキップされます。"; \
-		echo "  作成方法: .env.production に DIRECT_URL=<本番DB URL> を記載"; \
-		echo ""; \
+	if [ -n "$$(git status --porcelain)" ]; then \
+		echo "ERROR: 未コミットの変更があります。commit してから再実行してください。"; \
+		git status --short; \
+		exit 1; \
 	fi; \
-	\
-	echo "-> developを最新に更新..."; \
-	git pull origin develop; \
+	echo "--- Phase 1: lint / build ---"; \
 	echo ""; \
-	\
-	echo "--- Phase 1: ビルド検証 ---"; \
+	echo "-> lint 実行中..."; \
+	if ! npm run lint; then \
+		echo ""; \
+		echo "ERROR: lint に失敗しました。develop を直してから staging に進んでください。"; \
+		exit 1; \
+	fi; \
 	echo ""; \
-	echo "-> ビルドチェック実行中..."; \
+	echo "-> build 実行中..."; \
 	if ! npm run build; then \
 		echo ""; \
-		echo "ERROR: ビルドに失敗しました。エラーを修正してから再実行してください。"; \
-		if [ "$$STASHED" = "1" ]; then echo "-> stashを復元します..."; git stash pop; fi; \
+		echo "ERROR: build に失敗しました。develop を直してから staging に進んでください。"; \
 		exit 1; \
 	fi; \
 	echo ""; \
-	echo "-> ビルドチェック OK"; \
+	echo "-> lint / build OK"; \
 	echo ""; \
-	\
-	echo "-> main との差分コミット:"; \
-	git log main..develop --oneline; \
+	echo "--- Phase 2: push / staging / PR ---"; \
 	echo ""; \
-	printf "上記の変更を本番デプロイしますか？ (y/N): "; \
-	read confirm; \
-	if [ "$$confirm" != "y" ]; then \
-		echo "中止しました。"; \
-		if [ "$$STASHED" = "1" ]; then echo "-> stashを復元します..."; git stash pop; fi; \
-		exit 1; \
-	fi; \
+	echo "1. develop を push して staging を更新:"; \
+	echo "   git push origin develop"; \
 	echo ""; \
-	\
-	echo "--- Phase 2: DBマイグレーション ---"; \
+	echo "2. staging で確認:"; \
+	echo "   Frontend: $(STAGING_FRONTEND_URL)"; \
+	echo "   Backend:  $(STAGING_BACKEND_URL)/health"; \
 	echo ""; \
-	if [ "$$HAS_ENV_PROD" = "1" ]; then \
-		printf "本番DBマイグレーションを実行しますか？ (y/N/skip): "; \
-		read migrate_choice; \
-		case "$$migrate_choice" in \
-			y|Y) \
-				echo "-> 本番DBマイグレーション実行中..."; \
-				if ! npm run db:migrate:prod; then \
-					echo ""; \
-					echo "ERROR: DBマイグレーションに失敗しました。"; \
-					echo "  コードはまだプッシュされていません。本番環境は変更されていません。"; \
-					echo "  マイグレーションを修正してから再実行してください。"; \
-					if [ "$$STASHED" = "1" ]; then echo "-> stashを復元します..."; git stash pop; fi; \
-					exit 1; \
-				fi; \
-				echo "-> マイグレーション完了"; \
-				echo "" ;; \
-			skip|s|S) \
-				echo "-> DBマイグレーションをスキップしました。"; \
-				echo "" ;; \
-			*) \
-				echo "中止しました。"; \
-				if [ "$$STASHED" = "1" ]; then echo "-> stashを復元します..."; git stash pop; fi; \
-				exit 1 ;; \
-		esac; \
-	else \
-		echo "-> .env.production なし: DBマイグレーションをスキップ"; \
-		echo ""; \
-	fi; \
-	\
-	echo "--- Phase 3: Git マージ & プッシュ ---"; \
+	echo "3. GitHub で develop -> main の PR を作成:"; \
+	echo "   $(RELEASE_PR_URL)"; \
 	echo ""; \
-	echo "-> mainにチェックアウト..."; \
-	git checkout main; \
-	echo "-> mainを最新に更新..."; \
-	git pull origin main; \
-	echo "-> developをマージ..."; \
-	if ! git merge develop; then \
-		echo ""; \
-		echo "ERROR: マージコンフリクトが発生しました。"; \
-		echo "  手動で解決してください:"; \
-		echo "    git merge --abort"; \
-		echo "    git checkout develop"; \
-		if [ "$$STASHED" = "1" ]; then echo "    git stash pop"; fi; \
-		exit 1; \
-	fi; \
-	echo "-> mainをプッシュ（Vercel + Railway 自動デプロイ）..."; \
-	if ! git push origin main; then \
-		echo ""; \
-		echo "ERROR: プッシュに失敗しました。"; \
-		echo "  mainはローカルでマージ済みですがリモートには未反映です。"; \
-		echo "  リトライ: git push origin main"; \
-		echo "  取消:     git reset --hard HEAD~1 && git checkout develop"; \
-		if [ "$$STASHED" = "1" ]; then echo "            git stash pop"; fi; \
-		exit 1; \
-	fi; \
+	echo "4. main への merge が完了したら production health check を実行:"; \
+	echo "   make deploy-check"; \
 	echo ""; \
-	echo "-> developに戻ります..."; \
-	git checkout develop; \
-	if [ "$$STASHED" = "1" ]; then echo "-> stashを復元します..."; git stash pop; fi; \
-	echo ""; \
-	\
-	echo "--- Phase 4: ヘルスチェック ---"; \
-	echo ""; \
-	echo "-> デプロイ反映を待機中（$(HEALTH_CHECK_INITIAL_WAIT)秒）..."; \
-	sleep $(HEALTH_CHECK_INITIAL_WAIT); \
-	echo ""; \
-	FRONTEND_OK=0; \
-	BACKEND_OK=0; \
-	for i in $$(seq 1 $(HEALTH_CHECK_RETRIES)); do \
-		echo "-> ヘルスチェック $$i/$(HEALTH_CHECK_RETRIES)..."; \
-		if [ "$$FRONTEND_OK" = "0" ]; then \
-			HTTP_CODE=$$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 $(FRONTEND_URL) 2>/dev/null); \
-			if [ "$$HTTP_CODE" = "200" ]; then \
-				echo "  Frontend ($(FRONTEND_URL)): OK ($$HTTP_CODE)"; \
-				FRONTEND_OK=1; \
-			else \
-				echo "  Frontend ($(FRONTEND_URL)): $$HTTP_CODE (待機中...)"; \
-			fi; \
-		else \
-			echo "  Frontend: OK"; \
-		fi; \
-		if [ "$$BACKEND_OK" = "0" ]; then \
-			HTTP_CODE=$$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 $(BACKEND_URL)/health 2>/dev/null); \
-			if [ "$$HTTP_CODE" = "200" ]; then \
-				echo "  Backend  ($(BACKEND_URL)/health): OK ($$HTTP_CODE)"; \
-				BACKEND_OK=1; \
-			else \
-				echo "  Backend  ($(BACKEND_URL)/health): $$HTTP_CODE (待機中...)"; \
-			fi; \
-		else \
-			echo "  Backend:  OK"; \
-		fi; \
-		if [ "$$FRONTEND_OK" = "1" ] && [ "$$BACKEND_OK" = "1" ]; then \
-			break; \
-		fi; \
-		if [ "$$i" -lt "$(HEALTH_CHECK_RETRIES)" ]; then \
-			echo "  $(HEALTH_CHECK_INTERVAL)秒後にリトライ..."; \
-			sleep $(HEALTH_CHECK_INTERVAL); \
-		fi; \
-		echo ""; \
-	done; \
-	echo ""; \
-	\
-	echo "=========================================="; \
-	echo " Deploy Summary"; \
-	echo "=========================================="; \
-	echo ""; \
-	if [ "$$FRONTEND_OK" = "1" ]; then \
-		echo "  [OK]   Frontend: $(FRONTEND_URL)"; \
-	else \
-		echo "  [FAIL] Frontend: $(FRONTEND_URL)"; \
-		DEPLOY_FAILED=1; \
-	fi; \
-	if [ "$$BACKEND_OK" = "1" ]; then \
-		echo "  [OK]   Backend:  $(BACKEND_URL)/health"; \
-	else \
-		echo "  [FAIL] Backend:  $(BACKEND_URL)/health"; \
-		DEPLOY_FAILED=1; \
-	fi; \
-	echo ""; \
-	if [ "$$DEPLOY_FAILED" = "1" ]; then \
-		echo "WARNING: 一部のヘルスチェックが失敗しました。"; \
-		echo ""; \
-		echo "  確認:"; \
-		echo "    Vercel:  https://vercel.com/dashboard -> Deployments"; \
-		echo "    Railway: https://railway.app/dashboard -> Deployments"; \
-		echo ""; \
-		echo "  ロールバック（必要な場合）:"; \
-		echo "    git checkout main"; \
-		echo "    git revert HEAD"; \
-		echo "    git push origin main"; \
-		echo "    git checkout develop"; \
-		echo ""; \
-	else \
-		echo "デプロイ成功。全てのヘルスチェックに合格しました。"; \
-		echo ""; \
-	fi
+	echo "NOTE: 本番 deploy は GitHub main merge と provider の自動 deploy だけを正本にします。"
 
 ## ヘルスチェックのみ実行（スタンドアロン）
 deploy-check:
@@ -609,12 +464,14 @@ ops-release-check:
 		exit 1; \
 	fi; \
 	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then \
-		echo "WARNING: 未コミットの変更があります。make deploy 実行前に確認してください。"; \
+		echo "ERROR: 未コミットの変更があります。commit してから release に進んでください。"; \
+		exit 1; \
 	else \
 		echo "Working tree: clean"; \
 	fi; \
 	echo "Production branch: main"; \
-	echo "Deploy flow: develop -> make deploy -> main push -> Vercel/Railway auto deploy"
+	echo "Staging branch: develop"; \
+	echo "Deploy flow: local verify -> push develop -> staging verify -> GitHub PR develop->main -> main merge -> Vercel/Railway auto deploy"
 
 # ===========================================
 # ヘルプ

@@ -87,6 +87,7 @@ railway whoami
 4. SSL 証明書は自動で発行・更新される（設定不要）
 
 > カスタムドメインを使う場合は **Custom Domain** から設定可能（DNS の CNAME レコード設定が必要）。
+> staging 用には別 Railway service / project を用意し、`develop` を `https://stg-api.shupass.jp` に固定してください。任意の preview domain は正式運用対象にしません。
 
 ### Private Networking
 
@@ -170,12 +171,10 @@ CLAUDE_HAIKU_MODEL=claude-haiku-4-5-20251001
 OPENAI_MODEL=gpt-5-mini
 GOOGLE_MODEL=gemini-3.1-pro-preview
 COHERE_MODEL=command-a-03-2025
-DEEPSEEK_MODEL=deepseek-chat
 
 # 追加 provider API キー（必要なものだけ設定）
 # GOOGLE_API_KEY=...
 # COHERE_API_KEY=...
-# DEEPSEEK_API_KEY=...
 
 # Qwen3 ES添削 beta（別の vLLM / OpenAI-compatible service を使う）
 QWEN_ES_REVIEW_ENABLED=true
@@ -194,7 +193,6 @@ QWEN_ES_REVIEW_ADAPTER_ID=es_review
 #   MODEL_ES_REVIEW=gpt-5.1
 #   MODEL_ES_REVIEW=gemini-3.1-pro-preview
 #   MODEL_ES_REVIEW=command-a-03-2025
-#   MODEL_ES_REVIEW=deepseek-chat
 MODEL_ES_REVIEW=claude-sonnet
 MODEL_GAKUCHIKA=claude-haiku
 MODEL_MOTIVATION=claude-haiku
@@ -228,7 +226,7 @@ FRONTEND_URL=https://www.shupass.jp
 >
 > Qwen β は rewrite-only で動かし、improvement JSON や length-fix の追加 LLM call は使わない。timeout は rewrite / compact rewrite / total budget を中心に調整する。
 >
-> ES添削パネルの標準モデルは UI の `モデル選択` dropdown から `Claude Sonnet 4.5 / GPT-5.1 / Gemini 3.1 Pro Preview / Cohere Command A / DeepSeek V3.2` を切り替えられる。
+> ES添削パネルの標準モデルは UI の `モデル選択` dropdown から `Claude Sonnet 4.6 / GPT-5.1 / Gemini 3.1 Pro Preview / Cohere Command A` を切り替えられる。
 
 ### 設定不要な変数
 
@@ -277,16 +275,20 @@ FRONTEND_URL=https://www.shupass.jp
 
 ### 自動デプロイ
 
-GitHub 連携済みの場合、`main` ブランチへの push で自動デプロイが開始されます。
+GitHub 連携済みの場合、production service は `main` の更新で自動デプロイが開始されます。
+
+staging service は `develop` を接続し、`stg-api.shupass.jp` で確認します。
 
 Project Canvas 上でサービスをクリック → 右パネルの **「Deployments」** タブでデプロイ状況を確認。
 
-### CLI でデプロイ（手動）
+### CLI でデプロイ（障害対応・手動確認用）
 
 ```bash
 cd backend
 railway up
 ```
+
+> 通常のリリース経路では `railway up` を使いません。標準運用は `develop` push -> staging 確認 -> GitHub で `develop -> main` merge -> auto deploy です。
 
 ### デプロイログの確認
 
@@ -319,7 +321,7 @@ curl https://career-compass-backend-production.up.railway.app/health
 | 起動後すぐクラッシュ | メモリ不足 | Resource Limits で Memory を 2GB 以上に |
 | ヘルスチェック失敗 | ポート不一致 | アプリが `$PORT` で待受できているか確認。Variables で `PORT` を手動上書きしている場合は削除（Railway 自動注入を優先） |
 | Volume データ消失 | Volume 未マウント | Settings → Volumes で `/app/data` にマウントされているか確認 |
-| CORS エラー | `CORS_ORIGINS` 未設定 | Variables に `CORS_ORIGINS=["https://www.shupass.jp","https://shupass.jp"]` を追加 |
+| CORS エラー | `CORS_ORIGINS` 未設定 | Variables に production は `["https://www.shupass.jp","https://shupass.jp"]`、staging は `["https://stg.shupass.jp"]` を追加 |
 | 外部からアクセス不可 | Public Domain 未生成 | Settings → Networking → Generate Domain |
 
 CLI で確認する場合は、`vercel whoami` / `vercel projects ls` / `railway status` / `railway logs --tail 200` / `curl -I` を個別に実行する。

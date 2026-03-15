@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { getAppUrl } from "@/lib/app-url";
+
+const salesUrl = getAppUrl();
 
 export const metadata: Metadata = {
   title: "特定商取引法に基づく表記",
@@ -63,7 +66,7 @@ export default function LegalPage() {
                 <th className="text-left py-4 pr-4 font-medium text-foreground align-top">
                   販売URL
                 </th>
-                <td className="py-4">https://shupass.jp</td>
+                <td className="py-4">{salesUrl}</td>
               </tr>
               <tr>
                 <th className="text-left py-4 pr-4 font-medium text-foreground align-top">

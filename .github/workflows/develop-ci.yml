@@ -1,0 +1,43 @@
+name: Develop CI
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_APP_URL: https://stg.shupass.jp
+      BETTER_AUTH_URL: https://stg.shupass.jp
+      BETTER_AUTH_TRUSTED_ORIGINS: https://stg.shupass.jp,http://localhost:3000,http://127.0.0.1:3000
+      BETTER_AUTH_SECRET: ci-secret-please-change-me-32chars
+      GOOGLE_CLIENT_ID: ci-google-client-id
+      GOOGLE_CLIENT_SECRET: ci-google-client-secret
+      FASTAPI_URL: https://stg-api.shupass.jp
+      BACKEND_URL: https://stg-api.shupass.jp
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ci-supabase-service-role-key
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      CRON_SECRET: ci-cron-secret
+      STRIPE_SECRET_KEY: sk_test_ci
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_ci
+      STRIPE_WEBHOOK_SECRET: whsec_ci
+      STRIPE_PRICE_STANDARD_MONTHLY: price_standard_ci
+      STRIPE_PRICE_PRO_MONTHLY: price_pro_ci
+      OPENAI_API_KEY: sk-ci-openai
+      ANTHROPIC_API_KEY: sk-ant-ci-anthropic
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build

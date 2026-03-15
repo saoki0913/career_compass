@@ -15,6 +15,7 @@
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase Storage 用 service role key |
 | `BETTER_AUTH_SECRET` | Yes | 認証シークレット (32文字以上) |
 | `BETTER_AUTH_URL` | Yes | `https://www.shupass.jp` |
+| `BETTER_AUTH_TRUSTED_ORIGINS` | Yes | `https://www.shupass.jp,https://shupass.jp` |
 | `GOOGLE_CLIENT_ID` | Yes | Google OAuth クライアントID |
 | `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth シークレット |
 | `ENCRYPTION_KEY` | Yes | 暗号化キー (64桁hex) |
@@ -26,7 +27,7 @@
 | `FASTAPI_URL` | Yes | `https://career-compass-backend.up.railway.app` |
 | `NEXT_PUBLIC_QWEN_ES_REVIEW_ENABLED` | No | `true` にすると Qwen3 ES添削 β の UI 導線を表示 |
 | `CRON_SECRET` | Yes | Cron 認証トークン (hex 32) |
-| `COMPANY_PDF_INGEST_BUCKET` | No | OCR保留PDFを置く Storage bucket 名。既定 `company-info-pdf-ingest` |
+| `COMPANY_PDF_INGEST_BUCKET` | No | legacy OCR ingest bucket 名。既定 `company-info-pdf-ingest`。新規の企業情報 PDF 取込は即時 OCR を使うため通常は参照されないが、既存 pending job の再処理互換のため残している |
 | `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST URL (`https://xxx.upstash.io`) |
 | `UPSTASH_REDIS_REST_TOKEN` | No | Upstash Redis REST トークン |
 
@@ -38,7 +39,6 @@
 | `ANTHROPIC_API_KEY` | Yes | Anthropic API キー (`sk-ant-...`) |
 | `GOOGLE_API_KEY` | No | Gemini API キー |
 | `COHERE_API_KEY` | No | Cohere API キー |
-| `DEEPSEEK_API_KEY` | No | DeepSeek API キー |
 | `CORS_ORIGINS` | Yes | `["https://www.shupass.jp","https://shupass.jp"]` |
 | `PORT` | No | Railway が自動注入することが多い。アプリは `${PORT:-8000}` で待受（ローカルは 8000） |
 | `FRONTEND_URL` | No | 任意（ログ出力用）。例: `https://www.shupass.jp` |
@@ -49,8 +49,6 @@
 | `GOOGLE_BASE_URL` | No | Gemini API ベースURL (デフォルト: `https://generativelanguage.googleapis.com/v1beta`) |
 | `COHERE_MODEL` | No | Cohere モデル名 (デフォルト: `command-a-03-2025`) |
 | `COHERE_BASE_URL` | No | Cohere OpenAI compatibility ベースURL (デフォルト: `https://api.cohere.com/compatibility/v1`) |
-| `DEEPSEEK_MODEL` | No | DeepSeek モデル名 (デフォルト: `deepseek-chat`) |
-| `DEEPSEEK_BASE_URL` | No | DeepSeek OpenAI compatibility ベースURL (デフォルト: `https://api.deepseek.com/v1`) |
 | `QWEN_ES_REVIEW_ENABLED` | No | `true` にすると FastAPI 側の `POST /api/es/review/qwen/stream` を有効化 |
 | `QWEN_ES_REVIEW_BASE_URL` | No | vLLM / OpenAI-compatible 推論サービス URL。例: `https://<modal-app>.modal.run/v1` |
 | `QWEN_ES_REVIEW_MODEL` | No | base model 名。例: `tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2` |
@@ -62,7 +60,7 @@
 | `QWEN_ES_REVIEW_TOTAL_BUDGET_SECONDS` | No | 1リクエスト全体で Qwen に使う上限秒。デフォルト `150` |
 | `QWEN_ES_REVIEW_TIMEOUT_IMPROVEMENT_SECONDS` | No | legacy。Qwen が改善ポイント生成を行っていた旧経路向け。現行 rewrite-only path では未使用 |
 | `QWEN_ES_REVIEW_TIMEOUT_LENGTH_FIX_SECONDS` | No | legacy。Qwen の length-fix LLM call は現行 path では未使用 |
-| `MODEL_ES_REVIEW` | No | ES添削モデルエイリアスまたは明示モデルID。例: `claude-sonnet`, `gpt-5.1`, `gemini-3.1-pro-preview`, `command-a-03-2025`, `deepseek-chat` |
+| `MODEL_ES_REVIEW` | No | ES添削モデルエイリアスまたは明示モデルID。例: `claude-sonnet`, `gpt-5.1`, `gemini-3.1-pro-preview`, `command-a-03-2025` |
 | `MODEL_GAKUCHIKA` | No | ガクチカ深掘りモデルティア (デフォルト: `claude-haiku`) |
 | `MODEL_MOTIVATION` | No | 志望動機作成モデルティア (デフォルト: `claude-haiku`) |
 | `MODEL_SELECTION_SCHEDULE` | No | 選考スケジュール抽出モデルティア (デフォルト: `claude-haiku`) |
@@ -78,6 +76,14 @@
 | `COMPANY_SEARCH_DEBUG` | No | `false` |
 | `WEB_SEARCH_DEBUG` | No | `false` |
 | `REDIS_URL` | No | Redis キャッシュURL |
+
+## Environment Profiles
+
+| 環境 | Frontend URL | Backend URL | Better Auth trusted origins |
+|---|---|---|---|
+| local | `http://localhost:3000` | `http://localhost:8000` | `http://localhost:3000,http://127.0.0.1:3000` |
+| staging | `https://stg.shupass.jp` | `https://stg-api.shupass.jp` | `https://stg.shupass.jp` |
+| production | `https://www.shupass.jp` | Railway の本番ドメイン | `https://www.shupass.jp,https://shupass.jp` |
 
 ## Local / Modal (Qwen deploy tooling)
 

@@ -371,6 +371,7 @@ function ESListPageContent() {
   // URL param handlers
   useEffect(() => {
     if (searchParams.get("new") === "1") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- query param should open the modal before the URL is cleaned up
       setShowNewModal(true);
       router.replace("/es", { scroll: false });
     }
@@ -379,7 +380,9 @@ function ESListPageContent() {
   useEffect(() => {
     const companyId = searchParams.get("companyId");
     if (companyId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- preserve selected company while handling a one-shot deep link
       setInitialCompanyId(companyId);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- query param should open the modal before the URL is cleaned up
       setShowNewModal(true);
       router.replace("/es", { scroll: false });
     }
@@ -400,6 +403,7 @@ function ESListPageContent() {
           }
         })
         .catch(() => {});
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- query param should open the modal before the URL is cleaned up
       setShowNewModal(true);
       router.replace("/es", { scroll: false });
     }

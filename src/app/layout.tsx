@@ -3,8 +3,9 @@ import { Toaster } from "sonner";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { GoogleAnalytics } from "@/components/analytics/GoogleAnalytics";
+import { getAppUrl } from "@/lib/app-url";
 
-const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+const siteUrl = getAppUrl();
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
