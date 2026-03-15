@@ -55,9 +55,11 @@ railway whoami
 |---|---|---|
 | Repository | `saoki0913/career_compass` | GitHub リポジトリ（自動設定済み） |
 | Branch | `main` | 本番デプロイ対象ブランチ |
-| Root Directory | `/backend` | **重要**: 入力欄に `/backend` と入力 |
+| Root Directory | `/backend` | production canonical backend は **`/backend`** を指定 |
 
-> **Root Directory**: プロジェクトのルートに Next.js と FastAPI が共存しているため、`/backend` を指定して FastAPI のみをビルド対象にします。
+> **Root Directory**: production canonical backend は `career_compass/backend` をそのまま build するため、`/backend` を指定します。
+>
+> staging backend は repo root build でも動かせるように、repo 直下の `railway.toml` + `Dockerfile.railway-backend` を使います。staging service の `Root Directory` は空欄のままで構いません。
 
 ### Build 設定
 
@@ -65,8 +67,8 @@ railway whoami
 
 | 設定項目 | 値 | 説明 |
 |---|---|---|
-| Builder | **Dockerfile** | `backend/railway.toml` で自動検出 |
-| Dockerfile Path | `Dockerfile` | Root Directory (`/backend`) からの相対パス |
+| Builder | **Dockerfile** | production は `backend/railway.toml`、staging は repo root `railway.toml` を利用 |
+| Dockerfile Path | `Dockerfile` | production canonical backend のみ。staging は `Dockerfile.railway-backend` |
 | Watch Paths | `/backend/**` | バックエンドの変更のみでデプロイトリガー |
 
 > Watch Paths を設定すると、フロントエンドだけの変更時にバックエンドが無駄に再デプロイされるのを防げます。
@@ -87,7 +89,18 @@ railway whoami
 4. SSL 証明書は自動で発行・更新される（設定不要）
 
 > カスタムドメインを使う場合は **Custom Domain** から設定可能（DNS の CNAME レコード設定が必要）。
-> staging 用には別 Railway service / project を用意し、`develop` を `https://stg-api.shupass.jp` に固定してください。任意の preview domain は正式運用対象にしません。
+> staging 用には別 Railway service / project を用意し、repo root build + `https://stg-api.shupass.jp` を `develop` に固定してください。任意の preview domain は正式運用対象にしません。
+
+### staging backend の推奨設定
+
+| 設定項目 | 値 |
+|---|---|
+| Repository | `saoki0913/career_compass` |
+| Branch | `develop` |
+| Root Directory | 空欄 |
+| Dockerfile Path | `Dockerfile.railway-backend` |
+| Healthcheck | `/health` |
+| Custom Domain | `stg-api.shupass.jp` |
 
 ### Private Networking
 
