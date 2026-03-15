@@ -165,31 +165,8 @@ export function CalendarSidebar({
     return getLocalDateKey(startDate) === todayKey;
   });
 
-  // Build a Set of Google event keys for duplicate detection
-  const googleEventKeys = new Set<string>();
-  if (isGoogleConnected) {
-    todayGoogleEvents.forEach((googleEvent) => {
-      const startDateTime = googleEvent.start.dateTime || googleEvent.start.date;
-      if (!startDateTime) return;
-      const normalizedTitle = googleEvent.summary
-        .replace("[シューパス] ", "")
-        .replace("[就活Compass] ", "")
-        .toLowerCase()
-        .trim();
-      const startMinute = Math.floor(new Date(startDateTime).getTime() / 60000);
-      googleEventKeys.add(`${normalizedTitle}|${startMinute}`);
-    });
-  }
-
-  // Filter out duplicates from app events when Google is connected
   const todayEvents = events
-    .filter((e) => getLocalDateKey(e.startAt) === todayKey)
-    .filter((event) => {
-      if (!isGoogleConnected || event.type !== "work_block") return true;
-      const normalizedTitle = event.title.toLowerCase().trim();
-      const startMinute = Math.floor(new Date(event.startAt).getTime() / 60000);
-      return !googleEventKeys.has(`${normalizedTitle}|${startMinute}`);
-    });
+    .filter((e) => getLocalDateKey(e.startAt) === todayKey);
 
   // Get selected date events
   const selectedDateKey = selectedDate ? getLocalDateKey(selectedDate) : null;

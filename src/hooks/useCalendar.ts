@@ -7,12 +7,17 @@ export interface CalendarEvent {
   id: string;
   userId: string;
   deadlineId: string | null;
-  externalEventId: string | null;
+  googleCalendarId: string | null;
+  googleEventId: string | null;
+  googleSyncStatus: "idle" | "pending" | "synced" | "failed" | "suppressed";
+  googleSyncError: string | null;
+  googleSyncedAt: string | null;
   type: "deadline" | "work_block";
   title: string;
   startAt: string;
   endAt: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface DeadlineEvent {
@@ -24,6 +29,8 @@ export interface DeadlineEvent {
   companyName: string | null;
   isConfirmed: boolean;
   completedAt: string | null;
+  googleSyncStatus: "idle" | "pending" | "synced" | "failed" | "suppressed";
+  googleSyncError: string | null;
   eventType: "deadline";
 }
 
@@ -42,6 +49,11 @@ export interface CalendarSettings {
     connectedAt: string | null;
     grantedScopes: string[];
     missingScopes: string[];
+  };
+  syncSummary: {
+    pendingCount: number;
+    failedCount: number;
+    lastFailureReason: string | null;
   };
 }
 
@@ -354,39 +366,6 @@ export function useGoogleCalendar() {
     }
   }, []);
 
-  const createGoogleEvent = async (event: {
-    title: string;
-    startAt: string;
-    endAt: string;
-    description?: string;
-  }) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/calendar/google", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          action: "create",
-          ...event,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to create Google Calendar event");
-      }
-
-      const data = await response.json();
-      return data.event;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "イベントの作成に失敗しました");
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return {
     isConnected: !!connectionStatus?.connected,
     connectionStatus,
@@ -395,6 +374,5 @@ export function useGoogleCalendar() {
     checkConnection,
     fetchGoogleEvents,
     suggestWorkBlocks,
-    createGoogleEvent,
   };
 }

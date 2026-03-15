@@ -43,6 +43,13 @@
       "when": 1773483537488,
       "tag": "0005_damp_master_chief",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1773530400000,
+      "tag": "0006_calendar_sync_queue",
+      "breakpoints": true
     }
   ]
 }

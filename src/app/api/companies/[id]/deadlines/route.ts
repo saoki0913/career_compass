@@ -12,6 +12,7 @@ import { deadlines, companies, tasks } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { enqueueDeadlineSync } from "@/lib/calendar/sync";
 
 type DeadlineType =
   | "es_submission"
@@ -227,6 +228,7 @@ export async function POST(
         isConfirmed: true, // Manually added deadlines are confirmed by default
         confidence: null,
         sourceUrl: body.sourceUrl?.trim() || null,
+        googleSyncStatus: userId ? "idle" : "suppressed",
         createdAt: now,
         updatedAt: now,
       })
@@ -294,22 +296,34 @@ export async function POST(
       await db.insert(tasks).values(standardTasks);
     }
 
+    if (userId) {
+      await enqueueDeadlineSync(userId, deadlineId);
+    }
+
+    const [storedDeadline] = await db
+      .select()
+      .from(deadlines)
+      .where(eq(deadlines.id, deadlineId))
+      .limit(1);
+
     return NextResponse.json({
       success: true,
       deadline: {
-        id: newDeadline[0].id,
-        companyId: newDeadline[0].companyId,
-        type: newDeadline[0].type,
-        title: newDeadline[0].title,
-        description: newDeadline[0].description,
-        memo: newDeadline[0].memo,
-        dueDate: newDeadline[0].dueDate?.toISOString(),
-        isConfirmed: newDeadline[0].isConfirmed,
-        confidence: newDeadline[0].confidence,
-        sourceUrl: newDeadline[0].sourceUrl,
-        completedAt: null,
-        createdAt: newDeadline[0].createdAt?.toISOString(),
-        updatedAt: newDeadline[0].updatedAt?.toISOString(),
+        id: storedDeadline?.id ?? newDeadline[0].id,
+        companyId: storedDeadline?.companyId ?? newDeadline[0].companyId,
+        type: storedDeadline?.type ?? newDeadline[0].type,
+        title: storedDeadline?.title ?? newDeadline[0].title,
+        description: storedDeadline?.description ?? newDeadline[0].description,
+        memo: storedDeadline?.memo ?? newDeadline[0].memo,
+        dueDate: storedDeadline?.dueDate?.toISOString() ?? newDeadline[0].dueDate?.toISOString(),
+        isConfirmed: storedDeadline?.isConfirmed ?? newDeadline[0].isConfirmed,
+        confidence: storedDeadline?.confidence ?? newDeadline[0].confidence,
+        sourceUrl: storedDeadline?.sourceUrl ?? newDeadline[0].sourceUrl,
+        googleSyncStatus: storedDeadline?.googleSyncStatus ?? "idle",
+        googleSyncError: storedDeadline?.googleSyncError ?? null,
+        completedAt: storedDeadline?.completedAt?.toISOString() ?? null,
+        createdAt: storedDeadline?.createdAt?.toISOString() ?? newDeadline[0].createdAt?.toISOString(),
+        updatedAt: storedDeadline?.updatedAt?.toISOString() ?? newDeadline[0].updatedAt?.toISOString(),
       },
     });
   } catch (error) {

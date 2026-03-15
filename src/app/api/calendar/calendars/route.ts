@@ -7,9 +7,6 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { calendarSettings } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { listCalendars, createCalendar, GoogleCalendarScopeError } from "@/lib/calendar/google";
 import { getValidGoogleCalendarAccessToken } from "@/lib/calendar/connection";
@@ -116,34 +113,6 @@ export async function POST(request: NextRequest) {
 
     // Create the calendar in Google
     const newCalendar = await createCalendar(accessToken, name);
-
-    const userId = session.user.id;
-    const [existing] = await db
-      .select()
-      .from(calendarSettings)
-      .where(eq(calendarSettings.userId, userId))
-      .limit(1);
-
-    const now = new Date();
-
-    if (existing) {
-      await db
-        .update(calendarSettings)
-        .set({
-          targetCalendarId: newCalendar.id,
-          updatedAt: now,
-        })
-        .where(eq(calendarSettings.id, existing.id));
-    } else {
-      await db.insert(calendarSettings).values({
-        id: crypto.randomUUID(),
-        userId,
-        provider: "app",
-        targetCalendarId: newCalendar.id,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
 
     return NextResponse.json({
       calendar: {

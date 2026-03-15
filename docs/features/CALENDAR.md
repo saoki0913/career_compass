@@ -1,234 +1,146 @@
 # カレンダー機能
 
-締切・ワークブロック・Google Calendar予定を統合表示するカレンダー機能。
+締切、作業ブロック、Google Calendar の外部予定を統合表示する。
 
-**参照実装**:
-- `src/app/calendar/page.tsx` — カレンダーメインページ（月ビュー）
-- `src/app/calendar/settings/page.tsx` — Google Calendar設定ページ
-- `src/hooks/useCalendar.ts` — カレンダー関連フック群
-- `src/components/calendar/` — UIコンポーネント
-
----
-
-## 1. 概要
+## 概要
 
 | 項目 | 内容 |
 |------|------|
-| **ビュー** | 月表示（カレンダーグリッド） |
-| **イベント種別** | 締切（赤）、ワークブロック（青）、Google予定（緑） |
-| **Google連携** | OAuth認証によるGoogle Calendar双方向同期 |
-| **ワークブロック提案** | Google Calendarの空き時間を分析してタスクを提案 |
+| ビュー | 月表示 |
+| アプリ内イベント | 締切、作業ブロック |
+| Google 連携開始 | `/calendar/settings` の明示操作のみ |
+| Google 同期方式 | 非同期キュー (`calendar_sync_jobs`) |
+| 空き時間提案 | Google freebusy を利用 |
 
----
+## 現在の仕様
 
-## 2. イベント種別
+### 連携の原則
+- Google ログインだけでは Google カレンダー連携は有効にならない。
+- 連携、再連携、解除、追加先カレンダー変更はすべて `/calendar/settings` から行う。
+- Google を有効化するには、接続済みであることに加えて `targetCalendarId` を明示選択する必要がある。
+- 追加先カレンダーを変更しても、既存の Google ミラー予定は移動しない。以後の同期ジョブから新しい追加先を使う。
 
-| 種別 | 色 | ソース | 説明 |
-|------|-----|--------|------|
-| `deadline` | 赤 (`bg-red-100`) | アプリ内締切 | 登録済み締切を自動表示 |
-| `work_block` | 青 (`bg-blue-100`) | ユーザー作成 | 手動追加のタスク時間枠 |
-| `google` | 緑 (`bg-green-100`) | Google Calendar | Google連携時のみ表示 |
+### 同期対象
+- 確定済み締切
+- 作業ブロック
 
----
+### Google 側の識別
+- タイトル接頭辞は `[就活Pass][締切]` または `[就活Pass][作業]`
+- `extendedProperties.private` に `managedBy`, `entityType`, `entityId` を保存する
+- 旧接頭辞 `[シューパス]`, `[就活Compass]` も同一イベントとして扱う
 
-## 3. 処理フロー
+## データ取得フロー
 
-### 3.1 月表示データ取得
+### 月表示
+1. `GET /api/calendar/events?start=X&end=Y` でアプリ内の締切と作業ブロックを取得する。
+2. Google 連携時のみ `GET /api/calendar/google?action=events&start=X&end=Y` を呼ぶ。
+3. `/api/calendar/google` は Google 側の app-managed 予定を同期しつつ、外部予定だけを返す。
+4. カレンダー画面ではアプリ内イベントを真実のデータとして表示し、Google 外部予定だけを追加表示する。
 
-```
-カレンダーページ表示
-  ↓
-useCalendarEvents({ start, end })
-  → GET /api/calendar/events?start=X&end=Y
-  → { events: CalendarEvent[], deadlines: DeadlineEvent[] }
-  ↓
-useGoogleCalendar().fetchGoogleEvents(start, end)  ※Google連携時のみ
-  → GET /api/calendar/google?action=events&start=X&end=Y
-  → { events: GoogleCalendarEvent[] }
-  ↓
-3種イベントを日付別にマージ → 重複排除 → カレンダーグリッド表示
-```
+### freebusy / 提案
+- `GET /api/calendar/google?action=freebusy`
+- `GET /api/calendar/google?action=suggest`
+- `freebusyCalendarIds` に入っているカレンダーだけを集計対象にする
 
-### 3.2 ワークブロック作成
+## 同期フロー
 
-```
-日付セルクリック → AddEventModal
-  ↓
-タイトル + 開始時刻 + 終了時刻を入力
-  ↓
-POST /api/calendar/events
-  → アプリDB + Google Calendar（連携時は二重書き込み）
-  → タイトルに "[就活Compass] " プレフィックス付与（Google側）
-```
+### 作成・更新
+1. 締切または作業ブロックを保存する。
+2. `enqueueDeadlineSync()` または `enqueueWorkBlockUpsert()` が `calendar_sync_jobs` に `upsert` ジョブを積む。
+3. `GET /api/cron/calendar-sync` が pending ジョブを処理する。
+4. Google 作成成功時に各レコードへ `googleCalendarId`, `googleEventId`, `googleSyncStatus`, `googleSyncedAt` を反映する。
 
-### 3.3 ワークブロック提案（AI）
+### 削除
+1. 既存の Google ミラー ID を使って `delete` ジョブを積む。
+2. ジョブは保存時点の `targetCalendarId` を保持する。
+3. 追加先変更後でも、古いミラー予定は保存済みの Google ID で削除する。
 
-```
-FABボタン（Google連携時のみ表示）
-  ↓
-GET /api/calendar/google?action=suggest&start=YYYY-MM-DD
-  → Google Calendarのfreebusy情報を分析
-  → 空き時間を検出し作業提案リストを返却
-  ↓
-WorkBlockSuggestionsModal で候補表示
-  → ユーザー選択 → POST /api/calendar/events で作成
-```
+### エラー処理
+- 3回まで自動再試行
+- 失敗時は `notifications.type = calendar_sync_failed` を作成
+- 設定画面の `syncSummary` に pending 件数と failed 件数を表示
 
----
+## Google 側変更の扱い
 
-## 4. 重複排除ロジック
+### 作業ブロック
+- Google 側で編集されたタイトル・時刻は、カレンダー読込時の reconcile でアプリ側へ反映する。
+- Google 側で削除された場合は、対応するアプリ側の作業ブロックも削除する。
 
-Google Calendar連携時、アプリ登録のワークブロックとGoogle側のイベントが重複して表示されることを防止する。
+### 締切
+- Google 側で削除された場合、アプリ側の締切は消さず `suppressed` にする。
+- `suppressed` になった締切は自動再作成しない。
 
-```
-1. Google eventsからキーのSetを構築
-   キー = "${dateKey}|${normalizedTitle}|${startMinute}"
-   ※ "[就活Compass] " プレフィックスを除去し小文字正規化
+## 主なテーブル
 
-2. アプリイベント（work_blockのみ）をフィルタ
-   → 同じキーがGoogle側に存在する場合はスキップ
+### `calendar_settings`
+- `provider`
+- `targetCalendarId`
+- `freebusyCalendarIds`
+- `googleAccessToken`
+- `googleRefreshToken`
+- `googleGrantedScopes`
+- `googleCalendarEmail`
+- `googleCalendarConnectedAt`
+- `googleCalendarNeedsReconnect`
 
-3. 締切イベントは常時表示（Google側に重複しない）
-```
+注記:
+- Google token は暗号化して保存する。
 
----
+### `deadlines`
+- `googleCalendarId`
+- `googleEventId`
+- `googleSyncStatus`
+- `googleSyncError`
+- `googleSyncedAt`
+- `googleSyncSuppressedAt`
 
-## 5. Google Calendar連携
+### `calendar_events`
+- `googleCalendarId`
+- `googleEventId`
+- `googleSyncStatus`
+- `googleSyncError`
+- `googleSyncedAt`
 
-### 5.1 OAuth設定
+### `calendar_sync_jobs`
+- `entityType`
+- `entityId`
+- `action`
+- `targetCalendarId`
+- `googleEventId`
+- `status`
+- `attempts`
+- `lastError`
+- `scheduledAt`
+- `startedAt`
+- `completedAt`
 
-| 項目 | 内容 |
-|------|------|
-| **ログインとの関係** | Googleログインとは分離。`/calendar/settings` の明示操作時のみ連携 |
-| **トークン保存先** | `calendarSettings` テーブル |
-| **トークン種別** | `googleAccessToken`, `googleRefreshToken`, `googleTokenExpiresAt`, `googleGrantedScopes` |
-| **有効期限管理** | API呼び出し前に自動リフレッシュ |
+## API
 
-### 5.2 設定ページ（`/calendar/settings`）
-
-- Google Calendarの接続/切断
-- Google Calendarの再連携
-- 対象カレンダーの選択（`targetCalendarId`）
-- freebusy対象カレンダーの明示選択（`freebusyCalendarIds`）
-- 作業推奨時間帯の設定（`preferredTimeSlots`）
-
-### 5.3 締切の自動追加エラー表示
-
-企業ページの AI 選考スケジュール取得後、締切は Google Calendar へ自動追加を試みる。失敗時は generic エラーにせず、原因別に通知する。
-
-| 状態 | UI文言 / 導線 |
-|------|---------------|
-| 未連携 | 「Googleカレンダー未連携のため追加されませんでした」 + `/calendar/settings` |
-| 再連携必要 | 「Googleカレンダーの再連携が必要なため追加されませんでした」 + `/calendar/settings` |
-| 追加先未設定 | 「追加先カレンダーが未設定のため追加されませんでした」 + `/calendar/settings` |
-| 一部失敗 | 追加件数と失敗件数を同時表示 |
-| dueDate不正 | 「有効な締切日時がなかったため追加されませんでした」 |
-
----
-
-## 6. UIコンポーネント
-
-### CalendarSidebar
-
-サイドバー情報パネル（デスクトップは右カラム、モバイルはSheet）:
-- 今週の締切（次7日間）
-- 今日のスケジュール
-- Google Calendar接続状態バッジ
-- 選択日の詳細表示
-
-### EventDetailModal
-
-イベント詳細表示モーダル:
-- **締切**: 企業名、残日数、信頼度バッジ
-- **Googleイベント**: サマリー、日時、Google Calendar編集リンク
-- **ワークブロック**: 時間帯、削除ボタン（確認あり）
-
-### WorkBlockFAB
-
-フローティングアクションボタン:
-- Google Calendar連携時のみ表示
-- クリックでワークブロック提案モーダルを開く
-
----
-
-## 7. レスポンシブ対応
-
-| 画面幅 | レイアウト |
-|--------|-----------|
-| デスクトップ (`lg:`) | 3:1の2カラム（カレンダー + サイドバー） |
-| モバイル | 1カラム + ボトムSheetでサイドバー表示 |
-
-- モバイルサイドバー: 「今週の締切」トリガーボタン → ボトムSheet
-- 緊急締切数バッジ表示
-
----
-
-## 8. DBテーブル
-
-### `calendarSettings`（1ユーザー1レコード）
-
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| `provider` | `"google" \| "app"` | カレンダープロバイダー |
-| `targetCalendarId` | `text` | 同期先Google Calendar ID |
-| `freebusyCalendarIds` | `text (JSON)` | freebusy参照カレンダーID群 |
-| `preferredTimeSlots` | `text (JSON)` | 作業推奨時間帯 `{ start, end }` |
-| `googleAccessToken` | `text` | OAuth アクセストークン |
-| `googleRefreshToken` | `text` | OAuth リフレッシュトークン |
-| `googleTokenExpiresAt` | `timestamptz` | トークン有効期限 |
-
-### `calendarEvents`
-
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| `type` | `"deadline" \| "work_block"` | イベント種別 |
-| `title` | `text` | イベントタイトル |
-| `startAt` | `timestamptz` | 開始日時 |
-| `endAt` | `timestamptz` | 終了日時 |
-| `deadlineId` | `text (FK)` | 締切への参照（deadline型のみ） |
-| `externalEventId` | `text` | Google CalendarイベントID |
-
----
-
-## 9. APIルート
-
-| メソッド | エンドポイント | 説明 |
+| メソッド | エンドポイント | 用途 |
 |----------|---------------|------|
-| GET | `/api/calendar/events` | アプリイベント + 締切を取得（`start`, `end` パラメータ） |
-| POST | `/api/calendar/events` | ワークブロック作成（Google同期あり） |
-| DELETE | `/api/calendar/events/[id]` | ワークブロック削除（Google側も削除） |
-| GET | `/api/calendar/settings` | カレンダー設定取得 |
-| PUT | `/api/calendar/settings` | カレンダー設定更新 |
-| GET | `/api/calendar/google?action=events` | Google Calendar イベント取得 |
-| GET | `/api/calendar/google?action=suggest` | 空き時間からワークブロック提案 |
-| POST | `/api/calendar/google` | Google Calendarイベント作成。`NOT_CONNECTED` / `NEED_RECONNECT` / `TARGET_CALENDAR_REQUIRED` / `CALENDAR_CREATE_FAILED` を返す |
-| GET | `/api/calendar/calendars` | ユーザーのGoogle Calendar一覧取得 |
-
----
-
-## 10. フック
-
-| フック | 説明 |
-|--------|------|
-| `useCalendarEvents({ start, end })` | アプリイベント+締切のCRUD |
-| `useCalendarSettings()` | カレンダー設定の取得・更新 |
-| `useGoogleCalendar()` | Google連携状態・イベント取得・ワークブロック提案 |
-
----
+| GET | `/api/calendar/events` | アプリ内イベントと締切の取得 |
+| POST | `/api/calendar/events` | 作業ブロック作成と同期ジョブ投入 |
+| DELETE | `/api/calendar/events/[id]` | 作業ブロック削除と同期ジョブ投入 |
+| GET | `/api/calendar/settings` | 設定と `syncSummary` の取得 |
+| PUT | `/api/calendar/settings` | 追加先カレンダー、freebusy、provider 更新 |
+| GET | `/api/calendar/calendars` | Google カレンダー一覧取得 |
+| POST | `/api/calendar/calendars` | Google カレンダー作成のみ。設定は変えない |
+| GET | `/api/calendar/google?action=events` | 外部 Google 予定取得 + reconcile |
+| GET | `/api/calendar/google?action=freebusy` | 空き時間計算用の busy 取得 |
+| GET | `/api/calendar/google?action=suggest` | 作業ブロック提案 |
+| GET | `/api/cron/calendar-sync` | 同期ジョブ処理 |
 
 ## 関連ファイル
 
-| ファイル | 役割 |
-|----------|------|
-| `src/app/calendar/page.tsx` | カレンダーメインページ（894行） |
-| `src/app/calendar/settings/page.tsx` | Google Calendar設定（424行） |
-| `src/hooks/useCalendar.ts` | カレンダーフック群（334行） |
-| `src/components/calendar/CalendarSidebar.tsx` | サイドバー |
-| `src/components/calendar/EventDetailModal.tsx` | イベント詳細モーダル |
-| `src/components/calendar/WorkBlockFAB.tsx` | ワークブロック提案FAB |
-| `src/app/api/calendar/events/route.ts` | イベントCRUD API |
-| `src/app/api/calendar/events/[id]/route.ts` | イベント個別操作API |
-| `src/app/api/calendar/settings/route.ts` | 設定API |
-| `src/app/api/calendar/google/route.ts` | Google Calendar連携API |
-| `src/app/api/calendar/calendars/route.ts` | Google Calendar一覧API |
-| `src/lib/db/schema.ts` | DBスキーマ（`calendarSettings`, `calendarEvents`） |
+- `src/app/calendar/page.tsx`
+- `src/app/calendar/settings/page.tsx`
+- `src/app/api/calendar/events/route.ts`
+- `src/app/api/calendar/events/[id]/route.ts`
+- `src/app/api/calendar/google/route.ts`
+- `src/app/api/calendar/settings/route.ts`
+- `src/app/api/calendar/calendars/route.ts`
+- `src/app/api/cron/calendar-sync/route.ts`
+- `src/lib/calendar/connection.ts`
+- `src/lib/calendar/google.ts`
+- `src/lib/calendar/sync.ts`
+- `src/lib/db/schema.ts`

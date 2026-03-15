@@ -7,11 +7,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { calendarEvents, calendarSettings } from "@/lib/db/schema";
+import { calendarEvents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
-import { getValidGoogleCalendarAccessToken } from "@/lib/calendar/connection";
-import { deleteCalendarEvent } from "@/lib/calendar/google";
+import { enqueueWorkBlockDelete } from "@/lib/calendar/sync";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 export async function DELETE(
@@ -67,20 +66,12 @@ export async function DELETE(
       });
     }
 
-    if (event.externalEventId) {
-      const [settings] = await db
-        .select()
-        .from(calendarSettings)
-        .where(eq(calendarSettings.userId, userId))
-        .limit(1);
-
-      if (settings?.targetCalendarId) {
-        const { accessToken } = await getValidGoogleCalendarAccessToken(userId);
-        if (accessToken) {
-          await deleteCalendarEvent(accessToken, settings.targetCalendarId, event.externalEventId);
-        }
-      }
-    }
+    await enqueueWorkBlockDelete({
+      userId,
+      eventId,
+      googleCalendarId: event.googleCalendarId,
+      googleEventId: event.googleEventId ?? event.externalEventId,
+    });
 
     await db.delete(calendarEvents).where(eq(calendarEvents.id, eventId));
 

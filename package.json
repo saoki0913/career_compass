@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "playwright test",
+    "test:unit": "vitest run",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "db:push": "dotenv -e .env.local -- drizzle-kit push",
@@ -56,6 +57,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.5",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.0"
   }
 }

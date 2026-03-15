@@ -4,17 +4,18 @@ import { auth } from "@/lib/auth";
 import { buildGoogleCalendarConsentUrl } from "@/lib/calendar/oauth";
 
 export async function GET(request: Request) {
+  const url = new URL(request.url);
   const session = await auth.api.getSession({
     headers: await headers(),
   });
 
   if (!session?.user?.id) {
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("callbackUrl", "/calendar/settings");
+    const returnTo = url.searchParams.get("returnTo")?.startsWith("/") ? url.searchParams.get("returnTo")! : "/calendar/settings";
+    loginUrl.searchParams.set("callbackUrl", `/api/calendar/connect?returnTo=${encodeURIComponent(returnTo)}`);
     return NextResponse.redirect(loginUrl);
   }
 
-  const url = new URL(request.url);
   const returnTo = url.searchParams.get("returnTo")?.startsWith("/") ? url.searchParams.get("returnTo")! : "/calendar/settings";
   const state = crypto.randomUUID();
   const response = NextResponse.redirect(buildGoogleCalendarConsentUrl({

@@ -8,11 +8,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { calendarEvents, deadlines, companies, calendarSettings } from "@/lib/db/schema";
+import { calendarEvents, deadlines, companies } from "@/lib/db/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { headers } from "next/headers";
-import { getValidGoogleCalendarAccessToken } from "@/lib/calendar/connection";
-import { createCalendarEvent } from "@/lib/calendar/google";
+import { enqueueWorkBlockUpsert } from "@/lib/calendar/sync";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 export async function GET(request: NextRequest) {
@@ -66,6 +65,8 @@ export async function GET(request: NextRequest) {
         companyName: companies.name,
         isConfirmed: deadlines.isConfirmed,
         completedAt: deadlines.completedAt,
+        googleSyncStatus: deadlines.googleSyncStatus,
+        googleSyncError: deadlines.googleSyncError,
       })
       .from(deadlines)
       .leftJoin(companies, eq(deadlines.companyId, companies.id))
@@ -155,41 +156,31 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const [settings] = await db
-      .select()
-      .from(calendarSettings)
-      .where(eq(calendarSettings.userId, userId))
-      .limit(1);
-
-    let externalEventId: string | null = null;
-    if (settings?.provider === "google" && settings.targetCalendarId) {
-      const { accessToken } = await getValidGoogleCalendarAccessToken(userId);
-      if (accessToken) {
-        const createdGoogleEvent = await createCalendarEvent(accessToken, settings.targetCalendarId, {
-          title: title.trim(),
-          startAt,
-          endAt,
-        });
-        externalEventId = createdGoogleEvent.id ?? null;
-      }
-    }
-
-    const newEvent = await db
+    const [newEvent] = await db
       .insert(calendarEvents)
       .values({
         id: crypto.randomUUID(),
         userId,
         deadlineId: deadlineId || null,
-        externalEventId,
         type,
         title: title.trim(),
         startAt: new Date(startAt),
         endAt: new Date(endAt),
+        googleSyncStatus: "idle",
         createdAt: new Date(),
+        updatedAt: new Date(),
       })
       .returning();
 
-    return NextResponse.json({ event: newEvent[0] });
+    await enqueueWorkBlockUpsert(userId, newEvent.id);
+
+    const [event] = await db
+      .select()
+      .from(calendarEvents)
+      .where(eq(calendarEvents.id, newEvent.id))
+      .limit(1);
+
+    return NextResponse.json({ event });
   } catch (error) {
     return createApiErrorResponse(request, {
       status: 500,

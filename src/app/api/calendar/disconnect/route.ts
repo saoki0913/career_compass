@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { calendarSettings } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { clearGoogleCalendarConnection } from "@/lib/calendar/connection";
+import { cancelPendingCalendarSyncJobsForUser } from "@/lib/calendar/sync";
 
 export async function POST() {
   const session = await auth.api.getSession({
@@ -14,16 +13,8 @@ export async function POST() {
     return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
   }
 
-  await db
-    .update(calendarSettings)
-    .set({
-      provider: "app",
-      targetCalendarId: null,
-      freebusyCalendarIds: null,
-      googleCalendarNeedsReconnect: false,
-      updatedAt: new Date(),
-    })
-    .where(eq(calendarSettings.userId, session.user.id));
+  await clearGoogleCalendarConnection(session.user.id);
+  await cancelPendingCalendarSyncJobsForUser(session.user.id);
 
   return NextResponse.json({ success: true });
 }

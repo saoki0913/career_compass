@@ -401,46 +401,12 @@ export default function CalendarPage() {
     return days;
   }, [currentDate]);
 
-  // Group events by date (including Google Calendar events)
-  // With duplicate prevention: if Google Calendar is connected,
-  // app-registered events that match Google events are hidden
+  // Group events by date. Google API only returns non-app-managed events,
+  // so local deadlines/work blocks remain the source of truth.
   const eventsByDate = useMemo(() => {
     const map = new Map<string, DisplayEvent[]>();
 
-    // Build a Set of Google event keys for duplicate detection
-    const googleEventKeys = new Set<string>();
-    if (googleCalendar.isConnected) {
-      googleEvents.forEach((googleEvent) => {
-        const startDateTime = googleEvent.start.dateTime || googleEvent.start.date;
-        if (!startDateTime) return;
-        const dateKey = getLocalDateKey(startDateTime);
-        // Normalize title: remove app-managed prefixes and lowercase
-        const normalizedTitle = googleEvent.summary
-          .replace("[シューパス] ", "")
-          .replace("[就活Compass] ", "")
-          .toLowerCase()
-          .trim();
-        // Round to minute for time comparison
-        const startMinute = Math.floor(new Date(startDateTime).getTime() / 60000);
-        googleEventKeys.add(`${dateKey}|${normalizedTitle}|${startMinute}`);
-      });
-    }
-
-    // Add app events, filtering duplicates when Google is connected
     events.forEach((event) => {
-      // Only check duplicates for work_block type (タスク)
-      if (event.type === "work_block" && googleCalendar.isConnected) {
-        const dateKey = getLocalDateKey(event.startAt);
-        const normalizedTitle = event.title.toLowerCase().trim();
-        const startMinute = Math.floor(new Date(event.startAt).getTime() / 60000);
-        const matchKey = `${dateKey}|${normalizedTitle}|${startMinute}`;
-
-        // Skip if duplicate found in Google Calendar
-        if (googleEventKeys.has(matchKey)) {
-          return;
-        }
-      }
-
       const dateKey = getLocalDateKey(event.startAt);
       if (!map.has(dateKey)) {
         map.set(dateKey, []);
