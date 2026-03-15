@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "playwright test",
+    "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test e2e/smoke.spec.ts",
     "test:unit": "vitest run",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
