@@ -1,0 +1,45 @@
+name: ES Review Live Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  es-review-live-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+      RUN_LIVE_ES_REVIEW: "1"
+      LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS: "1"
+      LIVE_ES_REVIEW_PROVIDERS: "claude-sonnet,gpt-5.1,gemini-3.1-pro-preview,command-a-03-2025"
+      LIVE_ES_REVIEW_OUTPUT_DIR: backend/tests/output
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+
+      - name: Run deterministic ES review suite
+        run: python -m pytest backend/tests/es_review backend/tests/shared/test_llm_provider_routing.py -q
+
+      - name: Run live provider gate
+        run: python -m pytest backend/tests/es_review/integration/test_live_es_review_provider_report.py -v -s -m "integration"
+
+      - name: Upload live ES review report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: es-review-live-report
+          path: backend/tests/output/live_es_review_*

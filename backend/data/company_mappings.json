@@ -2203,9 +2203,20 @@
     "シーイーシー": [
       "cec-ltd"
     ],
-    "Sky": [
-      "skygroup"
-    ],
+    "Sky": {
+      "domains": [
+        "skygroup.jp",
+        "sky-recruit.jp",
+        "sky-career.jp"
+      ]
+    },
+    "Ｓｋｙ": {
+      "domains": [
+        "skygroup.jp",
+        "sky-recruit.jp",
+        "sky-career.jp"
+      ]
+    },
     "SHIFT": [
       "shiftinc"
     ],

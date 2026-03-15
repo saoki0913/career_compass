@@ -1,7 +1,7 @@
 # ES添削機能
 
 ES添削は、設問ごとに `改善ポイント` と `改善案` を返すストリーミング機能である。  
-標準経路は `Claude Sonnet 4.5 / GPT-5.1 / Gemini 3.1 Pro Preview`、β経路は `Qwen3 Swallow 32B` を使う。
+標準経路は `Claude Sonnet 4.6 / GPT-5.1 / Gemini 3.1 Pro Preview / Cohere Command A`、β経路は `Qwen3 Swallow 32B` を使う。
 
 ## 入口
 
@@ -128,6 +128,13 @@ post-check で次を検証する。
 - hidden thinking を見込んで output budget を多めに取る
 - ES添削では temperature を低めに固定する
 
+### Cohere Command A
+
+- 標準経路で selectable
+- OpenAI compatibility API を使う
+- improvement JSON は shared layer の strict schema + same-model repair を通す
+- rewrite は非Claude用の strict text hint と length control を使う
+
 ### Qwen β
 
 - 別 route の rewrite-only 実装
@@ -140,6 +147,15 @@ post-check で次を検証する。
 - 業界 / 職種 / 設問タイプは dropdown
 - CTA は固定フッター
 - 企業連携状態は `ReviewPanel` 上部に常時表示
+
+### 自動スクロール
+
+添削パネルはストリーミング出力に追従して自動スクロールする。
+
+- 添削ボタン押下時にパネルを先頭にリセットする
+- DOM 変化を `MutationObserver` で監視し、`requestAnimationFrame` で末尾へスクロールする
+- ユーザーが手動スクロールしたらプログラマティック追尾を停止する
+- プログラマティックスクロールの判定にはカウンタベースの ref を使い、`scrollTo({ behavior: "smooth" })` の複数イベント発火によるレースコンディションを回避する
 
 ## 主要 `review_meta`
 
@@ -169,10 +185,12 @@ post-check で次を検証する。
 - `backend/tests/es_review/test_es_review_quality_rubric.py`
 - `backend/tests/es_review/test_es_review_final_quality_cases.py`
 - `backend/tests/shared/test_llm_provider_routing.py`
+- `backend/tests/es_review/integration/test_live_es_review_provider_report.py`
 
 実行例:
 
 ```bash
 python -m pytest backend/tests/es_review -q
 python -m pytest backend/tests/shared/test_llm_provider_routing.py -q
+make backend-test-live-es-review
 ```

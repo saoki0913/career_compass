@@ -299,7 +299,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 中断/再開 | ✅ 完了 | `motivationConversations` テーブル |
 | クレジット消費（5問ごと1） | ✅ 完了 | ガクチカと同様のロジック |
 | 企業RAG連携 | ✅ 完了 | 企業情報を質問に反映 |
-| 回答候補 / 参考企業情報 | ✅ 完了 | `suggestionOptions` を質問適合で生成し、`evidenceCards` を source card UI で表示 |
+| 回答候補 / 参考企業情報 | ✅ 完了 | `suggestionOptions` は `2〜4件` の直接回答文に絞り、`evidenceCards` は compact card UI で表示 |
 | ガクチカ連携 | ✅ 完了 | 完了済み要約を質問生成に反映 |
 | SSEストリーミング送信 | ✅ 完了 | 進捗表示と質問文の逐次表示 |
 | ES下書き生成 | ✅ 完了 | 300/400/500文字指定 |
@@ -307,7 +307,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 進捗バー（4要素） | ✅ 完了 | スコア表示UI |
 | setup-first 初期設定 | ✅ 完了 | 業界/職種をチャット前に確定 |
 | 初回開始の空履歴処理 | ✅ 完了 | 空 `messages=[]` をそのまま LLM に渡さない |
-| 質問適合4択 | ✅ 完了 | LLMは質問のみ生成、回答候補は grounded builder で `2〜4件` を基本に生成。question-fit scoring でズレた候補を落とし、raw企業文や見出しは除外 |
+| 質問適合4択 | ✅ 完了 | LLM質問は server-side validator で単一論点・stage 適合を確認し、回答候補は grounded builder で `2〜4件` の直接回答文に絞る。raw企業文や見出しは除外 |
 
 **関連ファイル:**
 - `backend/app/routers/motivation.py`
@@ -516,6 +516,23 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
   - Gemini は strict JSON 指示と parse fallback を shared layer に寄せ、Claude 専用 transport には手を入れずに標準経路の整合だけを修正
 - 📝 **ES添削ドキュメントを更新**
   - `docs/features/ES_REVIEW.md` と `docs/testing/ES_REVIEW_QUALITY.md` に required 設問優先の品質監査、6 軸 evidence、shared provider 契約を反映
+
+### 2026-03-15
+- ✅ Google カレンダー連携を設定画面の明示操作に限定
+  - `/calendar/settings` からのみ連携、再連携、解除、追加先変更を実行する構成へ整理
+  - Google ログインだけでは連携が有効にならず、追加先カレンダー選択が必須になった
+- ✅ Google 同期を非同期キューへ移行
+  - `calendar_sync_jobs` を追加し、締切と作業ブロックの Google 登録・削除を cron 経由で処理
+  - 3回自動再試行と `calendar_sync_failed` 通知を実装
+- ✅ Google 側変更の取り込みを追加
+  - 作業ブロックは Google 側の編集・削除をアプリへ反映
+  - 締切は Google 側削除時に `suppressed` 扱いへ変更し、自動再作成を止めた
+- ✅ 旧 Google 直書きコードを削除
+  - `FetchInfoButton` からの直接 Google 登録を廃止し、共通同期サービスへ統一
+  - `/api/calendar/google` は read / reconcile 用に縮小し、作成 POST を削除
+- ✅ カレンダー連携のテストとドキュメントを更新
+  - `vitest` を導入し、接頭辞正規化、接続状態、同期ジョブ、失敗通知のユニットテストを追加
+  - `docs/features/CALENDAR.md` と `docs/SPEC.md` を現行仕様へ更新
 
 ### 2026-03-11
 - 🧠 **ES添削の企業補強を current-run 品質向上向けに更新**

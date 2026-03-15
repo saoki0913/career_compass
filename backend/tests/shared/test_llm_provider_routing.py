@@ -266,3 +266,25 @@ async def test_call_llm_with_error_routes_explicit_cohere_model(
     assert result.data == {"answer": "改善案"}
     assert seen["provider"] == "cohere"
     assert seen["model"] == "command-a-03-2025"
+
+
+def test_augment_system_prompt_for_provider_text_adds_strict_hint_for_cohere_es_review() -> None:
+    augmented = llm._augment_system_prompt_for_provider_text(
+        "cohere",
+        "system",
+        feature="es_review",
+    )
+
+    assert "出力形式の厳守" in augmented
+    assert "出力は最終本文のみ" in augmented
+
+
+def test_augment_system_prompt_for_provider_text_keeps_non_es_review_prompt_unchanged() -> None:
+    assert (
+        llm._augment_system_prompt_for_provider_text(
+            "cohere",
+            "system",
+            feature="motivation",
+        )
+        == "system"
+    )

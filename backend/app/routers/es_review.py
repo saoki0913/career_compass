@@ -34,6 +34,7 @@ from app.utils.vector_store import (
     get_dynamic_context_length,
 )
 from app.utils.content_types import content_type_label
+from app.utils.company_names import classify_company_domain_relation
 
 logger = get_logger(__name__)
 from app.utils.telemetry import (
@@ -223,7 +224,11 @@ class ReviewMeta(BaseModel):
     reference_quality_profile_used: bool = False
     reference_outline_used: bool = False
     company_grounding_policy: str = "assistive"
+    effective_company_grounding_policy: str = "assistive"
     company_evidence_count: int = 0
+    company_evidence_verified_count: int = 0
+    company_evidence_rejected_count: int = 0
+    company_grounding_safety_applied: bool = False
     evidence_coverage_level: str = "none"
     weak_evidence_notice: bool = False
     injection_risk: Optional[str] = None
@@ -1437,6 +1442,7 @@ def _build_company_evidence_cards(
                 "source_url": str(source.get("source_url") or ""),
                 "content_type": content_type,
                 "title": title,
+                "same_company_verified": bool(source.get("same_company_verified", True)),
             }
         )
 
@@ -1497,7 +1503,11 @@ def _assess_company_evidence_coverage(
     company_evidence_cards: Optional[list[dict[str, str]]],
     grounding_mode: str,
 ) -> tuple[str, bool]:
-    cards = company_evidence_cards or []
+    cards = [
+        card
+        for card in (company_evidence_cards or [])
+        if bool(card.get("same_company_verified", True))
+    ]
     company_grounding = _get_company_grounding_policy(template_type)
     if not company_rag_available or not cards:
         return "none", company_grounding == "required"
@@ -1637,7 +1647,11 @@ def _build_review_meta(
     reference_quality_profile_used: bool = False,
     reference_outline_used: bool = False,
     company_grounding_policy: str = "assistive",
+    effective_company_grounding_policy: str = "assistive",
     company_evidence_count: int = 0,
+    company_evidence_verified_count: int = 0,
+    company_evidence_rejected_count: int = 0,
+    company_grounding_safety_applied: bool = False,
     evidence_coverage_level: str = "none",
     weak_evidence_notice: bool = False,
     length_policy: str = "strict",
@@ -1662,7 +1676,11 @@ def _build_review_meta(
         reference_quality_profile_used=reference_quality_profile_used,
         reference_outline_used=reference_outline_used,
         company_grounding_policy=company_grounding_policy,
+        effective_company_grounding_policy=effective_company_grounding_policy,
         company_evidence_count=company_evidence_count,
+        company_evidence_verified_count=company_evidence_verified_count,
+        company_evidence_rejected_count=company_evidence_rejected_count,
+        company_grounding_safety_applied=company_grounding_safety_applied,
         evidence_coverage_level=evidence_coverage_level,
         weak_evidence_notice=weak_evidence_notice,
         injection_risk=injection_risk,
@@ -2193,6 +2211,101 @@ def _build_keyword_sources(rag_sources: list[dict]) -> list[TemplateSource]:
     ]
 
 
+EMPLOYEE_INTERVIEW_EVIDENCE_POSITIVE_SIGNALS = {
+    "interview",
+    "voice",
+    "people",
+    "person",
+    "member",
+    "members",
+    "staff",
+    "story",
+    "talk",
+    "社員紹介",
+    "社員インタビュー",
+    "社員の声",
+    "先輩社員",
+    "働く人",
+    "人を知る",
+    "人を読む",
+}
+EMPLOYEE_INTERVIEW_EVIDENCE_NEGATIVE_SIGNALS = {
+    "investor",
+    "investors",
+    "ir",
+    "financial",
+    "earnings",
+    "results",
+    "governance",
+    "integrated",
+    "統合報告",
+    "決算",
+    "株主",
+    "投資家",
+    "有価証券",
+    "企業データ",
+    "会社概要",
+    "企業概要",
+    "company data",
+    "company overview",
+}
+
+
+def _company_source_text(source: dict[str, Any]) -> str:
+    return " ".join(
+        str(source.get(key) or "").lower()
+        for key in ("source_url", "title", "excerpt", "heading", "heading_path")
+    )
+
+
+def _filter_verified_company_rag_sources(
+    rag_sources: list[dict],
+    *,
+    company_name: str | None,
+) -> tuple[list[dict], list[dict], bool]:
+    if not company_name:
+        return list(rag_sources), [], False
+
+    verified_sources: list[dict] = []
+    rejected_sources: list[dict] = []
+    has_mismatched_company_sources = False
+
+    for source in rag_sources:
+        enriched = dict(source)
+        source_url = str(source.get("source_url") or "")
+        content_type = str(source.get("content_type") or "")
+        reason: str | None = None
+
+        if not source_url:
+            reason = "source_url_missing"
+        else:
+            relation = classify_company_domain_relation(source_url, company_name, content_type)
+            enriched["domain_relation"] = relation
+            enriched["domain"] = source.get("domain") or _extract_domain(source_url)
+            if not relation.get("is_official"):
+                has_mismatched_company_sources = True
+                reason = "same_company_unverified"
+
+        if not reason and content_type == "employee_interviews":
+            haystack = _company_source_text(enriched)
+            path = urlparse(source_url).path.rstrip("/").lower() if source_url else ""
+            if not path:
+                reason = "employee_root_page"
+            elif any(signal in haystack for signal in EMPLOYEE_INTERVIEW_EVIDENCE_NEGATIVE_SIGNALS):
+                reason = "employee_wrong_topic"
+            elif not any(signal in haystack for signal in EMPLOYEE_INTERVIEW_EVIDENCE_POSITIVE_SIGNALS):
+                reason = "employee_signal_missing"
+
+        enriched["same_company_verified"] = reason is None
+        enriched["validation_reason"] = reason or "verified"
+        if reason is None:
+            verified_sources.append(enriched)
+        else:
+            rejected_sources.append(enriched)
+
+    return verified_sources, rejected_sources, has_mismatched_company_sources
+
+
 def _build_template_review_response(
     template_type: str,
     rewrite_text: str,
@@ -2212,6 +2325,57 @@ def _build_template_review_response(
             )
         ],
         keyword_sources=keyword_sources,
+    )
+
+
+def _format_issue_log_lines(issues: list[Issue]) -> str:
+    if not issues:
+        return "  (none)"
+    return "\n".join(
+        f"  {index}. [{issue.category}] issue={issue.issue} / suggestion={issue.suggestion}"
+        for index, issue in enumerate(issues, start=1)
+    )
+
+
+def _format_evidence_card_log_lines(cards: list[dict[str, Any]]) -> str:
+    if not cards:
+        return "  (none)"
+    lines: list[str] = []
+    for index, card in enumerate(cards, start=1):
+        source_title = str(card.get("source_title") or card.get("title") or "-")
+        source_url = str(card.get("source_url") or "-")
+        lines.append(
+            "  "
+            + f"{index}. theme={card.get('theme', '-')}"
+            + f" / claim={card.get('claim', '-')}"
+            + f" / verified={card.get('same_company_verified', True)}"
+            + f" / source={source_title}"
+            + f" / url={source_url}"
+        )
+    return "\n".join(lines)
+
+
+def _format_rejected_source_log_lines(sources: list[dict[str, Any]]) -> str:
+    if not sources:
+        return "  (none)"
+    return "\n".join(
+        "  "
+        + f"{index}. reason={source.get('validation_reason', '-')}"
+        + f" / type={source.get('content_type', '-')}"
+        + f" / title={source.get('title', '-')}"
+        + f" / url={source.get('source_url', '-')}"
+        for index, source in enumerate(sources, start=1)
+    )
+
+
+def _format_source_log_lines(sources: list[TemplateSource]) -> str:
+    if not sources:
+        return "  (none)"
+    return "\n".join(
+        "  "
+        + f"{index}. [{source.content_type_label or source.content_type}] "
+        + f"title={source.title or '-'} / domain={source.domain or '-'} / url={source.source_url or '-'}"
+        for index, source in enumerate(sources, start=1)
     )
 
 
@@ -3416,23 +3580,35 @@ async def review_section_with_template(
             prompt_user_facts,
             char_max=char_max,
         )
+    verified_rag_sources, rejected_rag_sources, has_mismatched_company_sources = (
+        _filter_verified_company_rag_sources(
+            rag_sources,
+            company_name=template_request.company_name,
+        )
+    )
+    effective_company_rag_available = company_rag_available and bool(verified_rag_sources)
+    effective_grounding_mode = grounding_mode
+    effective_company_grounding = company_grounding
+    if has_mismatched_company_sources:
+        effective_company_grounding = "assistive"
+        effective_grounding_mode = "company_general" if verified_rag_sources else "none"
     company_evidence_cards = _build_company_evidence_cards(
-        rag_sources,
+        verified_rag_sources,
         template_type=template_type,
         question=template_request.question,
         answer=template_request.answer,
         role_name=effective_role_name,
         intern_name=template_request.intern_name,
-        grounding_mode=grounding_mode,
+        grounding_mode=effective_grounding_mode,
         user_priority_urls=user_priority_urls,
         current_run_priority_urls=current_run_priority_urls,
     )
     evidence_coverage_level, weak_evidence_notice = _assess_company_evidence_coverage(
         template_type=template_type,
         role_name=effective_role_name,
-        company_rag_available=company_rag_available,
+        company_rag_available=effective_company_rag_available,
         company_evidence_cards=company_evidence_cards,
-        grounding_mode=grounding_mode,
+        grounding_mode=effective_grounding_mode,
     )
     prompt_company_evidence_cards = (
         _trim_qwen_initial_company_evidence_cards(
@@ -3459,12 +3635,22 @@ async def review_section_with_template(
         )
     reference_outline_used = "【参考ESから抽出した骨子】" in reference_quality_block
     logger.info(
-        "[ES添削/テンプレート] prompt context: selected_user_facts=%s company_evidence_cards=%s reference_examples=%s evidence_coverage=%s company_grounding=%s",
+        "[ES添削/テンプレート] prompt context: selected_user_facts=%s company_evidence_cards=%s reference_examples=%s evidence_coverage=%s company_grounding=%s effective_grounding=%s safety_applied=%s",
         len(prompt_user_facts),
         len(prompt_company_evidence_cards),
         len(reference_examples),
         evidence_coverage_level,
-        company_grounding,
+        effective_company_grounding,
+        effective_grounding_mode,
+        has_mismatched_company_sources,
+    )
+    logger.info(
+        "[ES添削/テンプレート] evidence cards:\n%s",
+        _format_evidence_card_log_lines(prompt_company_evidence_cards),
+    )
+    logger.info(
+        "[ES添削/テンプレート] rejected evidence:\n%s",
+        _format_rejected_source_log_lines(rejected_rag_sources),
     )
     improvement_timeout_fallback = False
     timeout_stage: str | None = None
@@ -3483,15 +3669,16 @@ async def review_section_with_template(
             original_answer=template_request.answer,
             company_name=template_request.company_name,
             company_evidence_cards=prompt_company_evidence_cards,
-            has_rag=company_rag_available,
+            has_rag=effective_company_rag_available,
             char_min=char_min,
             char_max=char_max,
             allowed_user_facts=prompt_user_facts,
             role_name=effective_role_name,
-            grounding_mode=grounding_mode,
+            grounding_mode=effective_grounding_mode,
             reference_quality_block=reference_quality_block,
             generic_role_mode=generic_role_mode,
             evidence_coverage_level=evidence_coverage_level,
+            company_grounding_override=effective_company_grounding,
         )
         improvement_result = await json_caller(
             system_prompt=improvement_system_prompt,
@@ -3532,7 +3719,7 @@ async def review_section_with_template(
                 improvement_result.data.get("top3", []),
                 3,
                 role_name=effective_role_name,
-                company_rag_available=company_rag_available,
+                company_rag_available=effective_company_rag_available,
             )
         else:
             logger.warning(
@@ -3545,10 +3732,10 @@ async def review_section_with_template(
         fallback_issues = _fallback_improvement_points(
             question=template_request.question,
             original_answer=template_request.answer,
-            company_rag_available=company_rag_available,
+            company_rag_available=effective_company_rag_available,
             template_type=template_type,
             role_name=effective_role_name,
-            grounding_mode=grounding_mode,
+            grounding_mode=effective_grounding_mode,
         )
         top3 = _merge_with_fallback_issues(top3, fallback_issues)
         if not top3:
@@ -3559,6 +3746,10 @@ async def review_section_with_template(
                 template_type,
                 len(top3),
             )
+    logger.info(
+        "[ES添削/テンプレート] improvement points:\n%s",
+        _format_issue_log_lines(top3),
+    )
 
     improvement_payload = [
         {
@@ -3651,18 +3842,19 @@ async def review_section_with_template(
                     char_min=char_min,
                     char_max=char_max,
                     company_evidence_cards=attempt_context["company_evidence_cards"],
-                    has_rag=company_rag_available,
+                    has_rag=effective_company_rag_available,
                     improvement_points=attempt_context["improvement_payload"],
                     allowed_user_facts=attempt_context["prompt_user_facts"],
                     intern_name=template_request.intern_name,
                     role_name=effective_role_name,
-                    grounding_mode=grounding_mode,
+                    grounding_mode=effective_grounding_mode,
                     retry_hint=retry_hint,
                     reference_quality_block=attempt_context["reference_quality_block"],
                     generic_role_mode=generic_role_mode,
                     evidence_coverage_level=evidence_coverage_level,
                     length_control_mode=length_control_mode,
                     length_shortfall=length_shortfall,
+                    company_grounding_override=effective_company_grounding,
                 )
             else:  # pragma: no cover - Qwen rewrite-only path never enters simplified_mode
                 raise RuntimeError("Qwen rewrite-only mode should not enter simplified rewrite generation")
@@ -3677,12 +3869,12 @@ async def review_section_with_template(
                     char_min=char_min,
                     char_max=char_max,
                     company_evidence_cards=attempt_context["company_evidence_cards"],
-                    has_rag=company_rag_available,
+                    has_rag=effective_company_rag_available,
                     improvement_points=attempt_context["improvement_payload"],
                     allowed_user_facts=attempt_context["prompt_user_facts"],
                     intern_name=template_request.intern_name,
                     role_name=effective_role_name,
-                    grounding_mode=grounding_mode,
+                    grounding_mode=effective_grounding_mode,
                     retry_hint=retry_hint,
                     reference_quality_block=attempt_context["reference_quality_block"],
                     generic_role_mode=generic_role_mode,
@@ -3698,18 +3890,19 @@ async def review_section_with_template(
                     char_min=char_min,
                     char_max=char_max,
                     company_evidence_cards=attempt_context["company_evidence_cards"],
-                    has_rag=company_rag_available,
+                    has_rag=effective_company_rag_available,
                     improvement_points=attempt_context["improvement_payload"],
                     allowed_user_facts=attempt_context["prompt_user_facts"],
                     intern_name=template_request.intern_name,
                     role_name=effective_role_name,
-                    grounding_mode=grounding_mode,
+                    grounding_mode=effective_grounding_mode,
                     retry_hint=retry_hint,
                     reference_quality_block=attempt_context["reference_quality_block"],
                     generic_role_mode=generic_role_mode,
                     evidence_coverage_level=evidence_coverage_level,
                     length_control_mode=length_control_mode,
                     length_shortfall=length_shortfall,
+                    company_grounding_override=effective_company_grounding,
                 )
 
         logger.info(
@@ -3821,7 +4014,7 @@ async def review_section_with_template(
             char_max=char_max,
             issues=top3,
             role_name=effective_role_name,
-            grounding_mode=grounding_mode,
+            grounding_mode=effective_grounding_mode,
             company_evidence_cards=prompt_company_evidence_cards,
             review_variant=review_variant,
             use_non_claude_length_control=use_non_claude_length_control,
@@ -3927,7 +4120,7 @@ async def review_section_with_template(
                     char_max=char_max,
                     issues=top3,
                     role_name=effective_role_name,
-                    grounding_mode=grounding_mode,
+                    grounding_mode=effective_grounding_mode,
                     company_evidence_cards=prompt_company_evidence_cards,
                     review_variant=review_variant,
                     use_non_claude_length_control=use_non_claude_length_control,
@@ -3969,7 +4162,7 @@ async def review_section_with_template(
             company_name=template_request.company_name,
             role_name=effective_role_name,
             intern_name=template_request.intern_name,
-            company_grounding=company_grounding,
+            company_grounding=effective_company_grounding,
             company_evidence_cards=prompt_company_evidence_cards,
             industry=template_request.industry,
         )
@@ -3982,7 +4175,7 @@ async def review_section_with_template(
             char_max=char_max,
             issues=top3,
             role_name=effective_role_name,
-            grounding_mode=grounding_mode,
+            grounding_mode=effective_grounding_mode,
             company_evidence_cards=prompt_company_evidence_cards,
             review_variant=review_variant,
             use_non_claude_length_control=use_non_claude_length_control,
@@ -4022,6 +4215,10 @@ async def review_section_with_template(
         len(final_rewrite),
         fallback_to_generic,
     )
+    logger.info(
+        "[ES添削/テンプレート] final rewrite:\n%s",
+        final_rewrite,
+    )
     _queue_progress_event(
         progress_queue,
         step="rewrite",
@@ -4052,7 +4249,11 @@ async def review_section_with_template(
     template_review = _build_template_review_response(
         template_type=template_type,
         rewrite_text=final_rewrite,
-        rag_sources=rag_sources,
+        rag_sources=verified_rag_sources,
+    )
+    logger.info(
+        "[ES添削/テンプレート] sources:\n%s",
+        _format_source_log_lines(template_review.keyword_sources),
     )
     await _stream_source_links(progress_queue, template_review.keyword_sources)
 
@@ -4065,7 +4266,7 @@ async def review_section_with_template(
             llm_provider=llm_provider,
             llm_model=llm_model,
             review_variant=review_variant,
-            grounding_mode=grounding_mode,
+            grounding_mode=effective_grounding_mode,
             triggered_enrichment=triggered_enrichment,
             enrichment_completed=enrichment_completed,
             enrichment_sources_added=enrichment_sources_added,
@@ -4079,7 +4280,11 @@ async def review_section_with_template(
             reference_quality_profile_used=bool(reference_quality_block),
             reference_outline_used=reference_outline_used,
             company_grounding_policy=company_grounding,
+            effective_company_grounding_policy=effective_company_grounding,
             company_evidence_count=len(prompt_company_evidence_cards),
+            company_evidence_verified_count=len(verified_rag_sources),
+            company_evidence_rejected_count=len(rejected_rag_sources),
+            company_grounding_safety_applied=has_mismatched_company_sources,
             evidence_coverage_level=evidence_coverage_level,
             weak_evidence_notice=weak_evidence_notice,
             length_policy=accepted_length_policy,

@@ -1,6 +1,6 @@
 # ES添削 品質評価
 
-ES添削の品質を、live LLM を毎回回さずに固定ケースで継続監視するためのドキュメントです。
+ES添削の品質を、固定ケースと live provider gate の両方で継続監視するためのドキュメントです。
 
 ## 目的
 
@@ -85,6 +85,9 @@ ES添削の品質を、live LLM を毎回回さずに固定ケースで継続監
   - timeout fallback が 190〜200 字 / 390〜400 字の required template でも通ること
 - required template の weak/partial coverage で role-focused second pass が適切に起動すること
 - required template で `employee_interviews` 1件だけなら `role_grounded` に上げず、role/company の片軸欠けを second pass で補うこと
+- `evidence_coverage_level` は same-company 検証済み card のみで計算すること
+- `review_meta` で `company_grounding_safety_applied` と `effective_company_grounding_policy` を確認できること
+- foreign domain や `Investors` ページが sources / evidence cards / final rewrite に残らないこと
 - official domain の title 表記揺れだけで `企業不一致ペナルティ` が入らないこと
 - Qwen β の short-answer semantic validator
 
@@ -111,5 +114,5 @@ python -m pytest backend/tests/es_review -q
 
 - `quality_rubric` は最終文そのものの良し悪しを完全判定するものではない
 - 最終品質の gate は `test_es_review_final_quality_cases.py` が担う
-- Claude 専用 code を変えずに OpenAI / Gemini / Cohere / DeepSeek の structured output 契約が shared layer で崩れていないかは `test_llm_provider_routing.py` で見る
-- live な最終文品質は、実運用ログとサンプル監査で別途点検する
+- Claude 専用 code を変えずに OpenAI / Gemini / Cohere の structured output 契約と non-Claude prompt hardening が shared layer で崩れていないかは `test_llm_provider_routing.py` で見る
+- live な最終文品質は `backend/tests/es_review/integration/test_live_es_review_provider_report.py` を 4 provider gate として回し、代表3ケースのレポートを保存する

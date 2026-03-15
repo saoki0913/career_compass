@@ -104,6 +104,80 @@ async def test_final_quality_company_motivation_strong_evidence(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
+async def test_final_quality_company_motivation_strong_evidence_for_cohere(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_json_caller(*args, **kwargs):
+        return FakeJsonResult(
+            {
+                "top3": [
+                    {
+                        "category": "企業接続",
+                        "issue": "企業理解の軸を冒頭で示せていない",
+                        "suggestion": "事業理解と自分の経験の接点を冒頭で示す",
+                    }
+                ]
+            }
+        )
+
+    async def fake_text_caller(*args, **kwargs):
+        return FakeTextResult(
+            "貴社を志望する理由は、成長領域へ挑む事業の中で仮説検証力を価値へ変えたいからだ。研究で論点を整理し検証を回した経験を土台に、若手から挑戦機会を得ながら事業理解を深め、成果へつなげたい。"
+        )
+
+    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
+
+    result = await review_section_with_template(
+        request=ReviewRequest(
+            content="研究で仮説検証を重ねた。",
+            section_title="三菱商事を志望する理由を教えてください。",
+            template_request=TemplateRequest(
+                template_type="company_motivation",
+                question="三菱商事を志望する理由を教えてください。",
+                answer="研究で仮説検証を重ねた。",
+                company_name="三菱商事",
+                role_name="総合職",
+                char_min=90,
+                char_max=120,
+            ),
+        ),
+        rag_sources=[
+            {
+                "content_type": "new_grad_recruitment",
+                "title": "新卒採用",
+                "excerpt": "若手に挑戦機会を与える",
+            },
+            {
+                "content_type": "corporate_site",
+                "title": "注力事業",
+                "excerpt": "成長領域への投資を進める",
+            },
+            {
+                "content_type": "employee_interviews",
+                "title": "社員インタビュー",
+                "excerpt": "現場で学びながら価値を広げる",
+            },
+        ],
+        company_rag_available=True,
+        llm_provider="cohere",
+        llm_model="command-a-03-2025",
+        grounding_mode="company_general",
+        json_caller=fake_json_caller,
+        text_caller=fake_text_caller,
+        progress_queue=None,
+    )
+
+    rewrite = result.rewrites[0]
+    assert 90 <= len(rewrite) <= 120
+    _assert_dearu_style(rewrite)
+    assert "成長領域" in rewrite
+    assert result.review_meta is not None
+    assert result.review_meta.llm_provider == "cohere"
+    assert result.review_meta.llm_model == "command-a-03-2025"
+    assert result.review_meta.company_evidence_count >= 2
+
+
+@pytest.mark.asyncio
 async def test_final_quality_company_motivation_weak_evidence_safe_generalization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

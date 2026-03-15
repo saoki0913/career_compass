@@ -54,6 +54,7 @@ venv/
 # Backend runtime data (ChromaDB, BM25 indices)
 backend/data/chroma/
 backend/data/bm25/
+backend/tests/output/
 
 # Local-only ES reference samples
 private/reference_es/*

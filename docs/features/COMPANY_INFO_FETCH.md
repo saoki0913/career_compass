@@ -12,7 +12,7 @@
 |------|------|
 | **選考スケジュール取得** | 採用ページから締切・選考情報を抽出 |
 | **コーポレート情報取得** | IR・事業紹介ページをクロールしてRAG構築 |
-| **LLM** | GPT-5-mini（環境変数 `OPENAI_COMPANY_INFO_MODEL`） |
+| **LLM** | 選考スケジュール抽出は `MODEL_SELECTION_SCHEDULE`、企業情報抽出は `MODEL_COMPANY_INFO` |
 
 ### クレジット消費（選考スケジュール取得）
 
@@ -68,7 +68,7 @@
 ```
 1. 採用ページ検索
    POST /company-info/search-pages
-   DuckDuckGo / Hybrid検索「{企業名} {選考タイプ} {卒業年度}」→ 候補URL 5-10件
+   Hybrid検索を優先し、公式/trusted候補が得られない場合だけ Legacy 検索へフォールバック
    - プロフィールの卒業年度を初期値に使用
    - 公式候補 → trusted job site の順で優先
    - 親会社 / 子会社候補は表示するが、自動選択しない
@@ -77,10 +77,11 @@
          ↓
 3. 情報抽出（URLごと順次処理）
    POST /company-info/fetch-schedule
-   HTML取得 → テキスト抽出 → GPT構造化抽出
+   選択URLを抽出 → 日付付き締切が取れない場合だけ 1ホップ先の募集要項/締切リンクを追加探索 → 構造化抽出
    - 取得元URLの relation / trusted job site / 年度一致を metadata 化
    - parent / subsidiary は confidence を low 上限に補正
    - trusted job site は medium 上限に補正
+   - direct PDF リンクは最大1件まで追加探索し、本文抽出に失敗した場合だけ OCR fallback
          ↓
 4. DB保存 & RAG構築（非同期）
    - 締切 → deadlinesテーブル
@@ -141,6 +142,10 @@
 - `high`: 対象企業の direct official ドメイン かつ 年度一致
 - `medium`: direct official だが年度不一致、または trusted job site（マイナビ / リクナビ / ONE CAREER）
 - `low`: 親会社 / 子会社 / その他
+
+**補足**:
+- 選考スケジュール抽出の confidence はバックエンドが最終決定し、Next.js 側では再補正しない
+- 保存される `source_url` は、実際に締切を見つけたページ/PDF の URL
 
 ---
 

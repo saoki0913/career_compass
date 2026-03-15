@@ -345,9 +345,8 @@ function ReviewModeSelector({
         </SelectTrigger>
         <SelectContent>
           {STANDARD_ES_REVIEW_MODEL_OPTIONS.map((option) => (
-            <SelectItem key={option.value} value={option.value} disabled={!option.enabled}>
+            <SelectItem key={option.value} value={option.value}>
               {option.label}
-              {!option.enabled && option.disabledReason ? ` (${option.disabledReason})` : ""}
             </SelectItem>
           ))}
         </SelectContent>
@@ -435,7 +434,8 @@ export function ReviewPanel({
   // Scroll refs (Phase 4 + 5)
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const userHasScrolledRef = useRef(false);
-  const lastProgrammaticScrollRef = useRef(false);
+  const programmaticScrollCountRef = useRef(0);
+  const lastKnownScrollCountRef = useRef(0);
 
   // Validation section refs (Phase 6)
   const templateSectionRef = useRef<HTMLDivElement>(null);
@@ -688,29 +688,45 @@ export function ReviewPanel({
     }
   }, [hasResponse]);
 
-  // Phase 5: Detect manual scroll to stop auto-follow
+  // Phase 5: Detect manual scroll to stop auto-follow (counter-based)
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
     const handleScroll = () => {
-      if (lastProgrammaticScrollRef.current) {
-        lastProgrammaticScrollRef.current = false;
+      if (programmaticScrollCountRef.current > lastKnownScrollCountRef.current) {
+        lastKnownScrollCountRef.current = programmaticScrollCountRef.current;
         return;
       }
-      userHasScrolledRef.current = true;
+      const isAtBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+      if (!isAtBottom) {
+        userHasScrolledRef.current = true;
+      }
     };
     container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Phase 5: Auto-scroll following streaming content growth
+  // Phase 5: Auto-scroll following streaming content growth (MutationObserver)
   useEffect(() => {
-    if (userHasScrolledRef.current || !hasResponse) return;
     const container = scrollContainerRef.current;
-    if (!container) return;
-    lastProgrammaticScrollRef.current = true;
-    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-  }, [visibleRewriteText, visibleIssues.length, visibleSources.length, hasResponse]);
+    if (!container || !hasResponse) return;
+
+    const scrollToBottom = () => {
+      if (userHasScrolledRef.current) return;
+      requestAnimationFrame(() => {
+        if (userHasScrolledRef.current) return;
+        programmaticScrollCountRef.current += 1;
+        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+      });
+    };
+
+    const observer = new MutationObserver(() => scrollToBottom());
+    observer.observe(container, { childList: true, subtree: true, characterData: true });
+    scrollToBottom();
+
+    return () => observer.disconnect();
+  }, [hasResponse]);
 
   // Phase 6: Clear validation errors when user fixes settings
   useEffect(() => {
@@ -748,6 +764,8 @@ export function ReviewPanel({
       setHasShownCompletionToast(false);
       scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
       userHasScrolledRef.current = false;
+      programmaticScrollCountRef.current = 0;
+      lastKnownScrollCountRef.current = 0;
       await requestSectionReview({
         sectionTitle: sectionReviewRequest.sectionTitle,
         sectionContent: sectionReviewRequest.sectionContent,

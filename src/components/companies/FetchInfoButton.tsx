@@ -9,6 +9,10 @@ import { ProcessingSteps, COMPANY_FETCH_STEPS } from "@/components/ui/Processing
 import { useOperationLock } from "@/hooks/useOperationLock";
 import { notifySuccess } from "@/lib/notifications";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import {
+  CONFIDENCE_BADGE_COLORS,
+  INTEGRATED_BADGE_LABELS,
+} from "@/lib/company-info/source-badges";
 
 type SelectionType = "main_selection" | "internship";
 type SelectionTypeState = SelectionType | null;
@@ -33,21 +37,6 @@ interface SearchPagesResponse {
   usedGraduationYear: number | null;
   yearSource: "profile" | "manual" | "none";
 }
-
-// Integrated badge labels (combining source type + confidence)
-const INTEGRATED_BADGE_LABELS: Record<string, Record<string, string>> = {
-  official: { high: "公式・高", medium: "公式・中", low: "公式・低" },
-  subsidiary: { high: "子会社・高", medium: "子会社・中", low: "子会社・低" },
-  parent: { high: "親会社・高", medium: "親会社・中", low: "親会社・低" },
-  job_site: { high: "就活・高", medium: "就活・中", low: "就活・低" },
-  other: { high: "関連・高", medium: "関連・中", low: "関連・低" },
-};
-
-const CONFIDENCE_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
-  high: { bg: "bg-emerald-100", text: "text-emerald-700" },
-  medium: { bg: "bg-yellow-100", text: "text-yellow-700" },
-  low: { bg: "bg-gray-100", text: "text-gray-600" },
-};
 
 interface DeadlineSummary {
   id: string;
@@ -81,13 +70,6 @@ interface FetchResult {
   creditsConsumed: number;
   freeUsed: boolean;
   freeRemaining: number;
-}
-
-interface CalendarNotice {
-  tone: "success" | "warning" | "error";
-  message: string;
-  actionHref?: string;
-  actionLabel?: string;
 }
 
 // Icons
@@ -142,18 +124,6 @@ function buildHeaders(): Record<string, string> {
   return headers;
 }
 
-function buildEventTimes(dueDate: string) {
-  const start = new Date(dueDate);
-  if (Number.isNaN(start.getTime())) {
-    return null;
-  }
-  if (start.getUTCHours() === 0 && start.getUTCMinutes() === 0 && start.getUTCSeconds() === 0) {
-    start.setUTCHours(3, 0, 0, 0); // 12:00 JST
-  }
-  const end = new Date(start.getTime() + 60 * 60 * 1000);
-  return { startAt: start.toISOString(), endAt: end.toISOString() };
-}
-
 export function FetchInfoButton({
   companyId,
   companyName,
@@ -173,7 +143,6 @@ export function FetchInfoButton({
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [result, setResult] = useState<FetchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [calendarNotice, setCalendarNotice] = useState<CalendarNotice | null>(null);
   // Progress tracking for sequential URL processing
   const [fetchProgress, setFetchProgress] = useState<{ current: number; total: number } | null>(null);
   // Selection type filter (main_selection / internship) - required for accurate search
@@ -241,7 +210,6 @@ export function FetchInfoButton({
     setSearchQuery("");
     setResult(null);
     setError(null);
-    setCalendarNotice(null);
     setFetchProgress(null);
     setSelectionType(null);
     setGraduationYearInput(graduationYear ? String(graduationYear) : "");
@@ -280,7 +248,6 @@ export function FetchInfoButton({
     setModalStep("candidates");
     setError(null);
     setResult(null);
-    setCalendarNotice(null);
     setIsRelaxedSearch(allowSnippetMatch);
 
     const queryToUse = customQueryOverride ?? searchQuery;
@@ -349,172 +316,6 @@ export function FetchInfoButton({
     }
   };
 
-  const addDeadlinesToGoogleCalendar = async (deadlines: DeadlineSummary[]) => {
-    if (!deadlines.length) return;
-
-    try {
-      const settingsResponse = await fetch("/api/calendar/settings", {
-        credentials: "include",
-      });
-
-      if (!settingsResponse.ok) {
-        if (settingsResponse.status === 401) {
-          setCalendarNotice({
-            tone: "warning",
-            message: "Googleカレンダーへの追加はログイン後に利用できます。",
-          });
-        }
-        return;
-      }
-
-      const settingsData = await settingsResponse.json();
-      const connectionStatus = settingsData?.settings?.connectionStatus;
-      const targetCalendarId = settingsData?.settings?.targetCalendarId;
-
-      if (!connectionStatus?.connected) {
-        setCalendarNotice(
-          connectionStatus?.needsReconnect
-            ? {
-                tone: "warning",
-                message: "Googleカレンダーの再連携が必要なため追加されませんでした。",
-                actionHref: "/calendar/settings",
-                actionLabel: "再連携する",
-              }
-            : {
-                tone: "warning",
-                message: "Googleカレンダー未連携のため追加されませんでした。",
-                actionHref: "/calendar/settings",
-                actionLabel: "設定を開く",
-              }
-        );
-        return;
-      }
-
-      if (!targetCalendarId) {
-        setCalendarNotice({
-          tone: "warning",
-          message: "追加先カレンダーが未設定のため追加されませんでした。",
-          actionHref: "/calendar/settings",
-          actionLabel: "カレンダーを設定",
-        });
-        return;
-      }
-
-      const preparedEvents = deadlines.map((deadline) => ({
-        deadline,
-        eventTimes: buildEventTimes(deadline.dueDate),
-      }));
-      const invalidDateCount = preparedEvents.filter((item) => !item.eventTimes).length;
-      const validEvents = preparedEvents.filter(
-        (item): item is { deadline: DeadlineSummary; eventTimes: NonNullable<ReturnType<typeof buildEventTimes>> } =>
-          item.eventTimes !== null
-      );
-
-      if (validEvents.length === 0) {
-        setCalendarNotice({
-          tone: "warning",
-          message: "有効な締切日時がなかったため、Googleカレンダーには追加されませんでした。",
-        });
-        return;
-      }
-
-      const results = await Promise.all(
-        validEvents.map(async ({ deadline, eventTimes }) => {
-          const title = `${companyName} ${deadline.title}`.trim();
-          const description = deadline.sourceUrl ? `取得元: ${deadline.sourceUrl}` : undefined;
-
-          try {
-            const response = await fetch("/api/calendar/google", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({
-                action: "create",
-                title,
-                startAt: eventTimes.startAt,
-                endAt: eventTimes.endAt,
-                description,
-              }),
-            });
-
-            if (response.ok) {
-              return { ok: true as const };
-            }
-
-            const data = await response.json().catch(() => ({}));
-            return { ok: false as const, code: data.code as string | undefined };
-          } catch {
-            return { ok: false as const, code: "CALENDAR_CREATE_FAILED" };
-          }
-        })
-      );
-
-      const successCount = results.filter((item) => item.ok).length;
-      const failureResults = results.filter((item) => !item.ok);
-      const failureCount = failureResults.length + invalidDateCount;
-      const primaryFailureCode = failureResults[0]?.code;
-
-      if (successCount > 0) {
-        const suffixParts = [];
-        if (failureResults.length > 0) {
-          suffixParts.push(`${failureResults.length}件は追加できませんでした`);
-        }
-        if (invalidDateCount > 0) {
-          suffixParts.push(`${invalidDateCount}件は日付不正でした`);
-        }
-        setCalendarNotice({
-          tone: "success",
-          message:
-            suffixParts.length > 0
-              ? `Googleカレンダーに${successCount}件追加しました（${suffixParts.join("、")}）`
-              : `Googleカレンダーに${successCount}件追加しました`,
-        });
-      } else if (failureCount > 0) {
-        if (primaryFailureCode === "NEED_RECONNECT") {
-          setCalendarNotice({
-            tone: "warning",
-            message: "Googleカレンダーの再連携が必要なため追加できませんでした。",
-            actionHref: "/calendar/settings",
-            actionLabel: "再連携する",
-          });
-        } else if (primaryFailureCode === "NOT_CONNECTED") {
-          setCalendarNotice({
-            tone: "warning",
-            message: "Googleカレンダー未連携のため追加できませんでした。",
-            actionHref: "/calendar/settings",
-            actionLabel: "設定を開く",
-          });
-        } else if (primaryFailureCode === "TARGET_CALENDAR_REQUIRED") {
-          setCalendarNotice({
-            tone: "warning",
-            message: "追加先カレンダーが未設定のため追加できませんでした。",
-            actionHref: "/calendar/settings",
-            actionLabel: "カレンダーを設定",
-          });
-        } else if (invalidDateCount > 0 && failureResults.length === 0) {
-          setCalendarNotice({
-            tone: "warning",
-            message: "有効な締切日時がなかったため、Googleカレンダーには追加されませんでした。",
-          });
-        } else {
-          setCalendarNotice({
-            tone: "error",
-            message: "Googleカレンダーへの追加に失敗しました。",
-            actionHref: "/calendar/settings",
-            actionLabel: "設定を確認",
-          });
-        }
-      }
-    } catch {
-      setCalendarNotice({
-        tone: "error",
-        message: "Googleカレンダーへの追加に失敗しました。",
-        actionHref: "/calendar/settings",
-        actionLabel: "設定を確認",
-      });
-    }
-  };
-
   const handleConfirmUrl = async () => {
     if (!acquireLock("採用情報を取得中")) return;
     // Build list of URLs to fetch
@@ -548,7 +349,6 @@ export function FetchInfoButton({
     setModalStep("candidates");
     setIsFetching(true);
     setError(null);
-    setCalendarNotice(null);
     setFetchProgress({ current: 0, total: urlsToFetch.length });
 
     // Aggregated results
@@ -742,16 +542,12 @@ export function FetchInfoButton({
       });
     }
 
-    if (mergedStatus === "success" && allDeadlines.length > 0) {
-      await addDeadlinesToGoogleCalendar(allDeadlines);
-    }
   };
 
   const closeResult = () => {
     setModalStep("result");
     setResult(null);
     setError(null);
-    setCalendarNotice(null);
   };
 
   const toggleUrlSelection = (url: string) => {
@@ -1299,38 +1095,6 @@ export function FetchInfoButton({
                         : `${result.creditsConsumed ?? 0}クレジット`}
                     </span>
                   </div>
-
-                  {calendarNotice && (
-                    <div
-                      className={cn(
-                        "p-3 rounded-lg border",
-                        calendarNotice.tone === "success" && "bg-emerald-50 border-emerald-200",
-                        calendarNotice.tone === "warning" && "bg-amber-50 border-amber-200",
-                        calendarNotice.tone === "error" && "bg-red-50 border-red-200"
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <p
-                          className={cn(
-                            "text-sm",
-                            calendarNotice.tone === "success" && "text-emerald-800",
-                            calendarNotice.tone === "warning" && "text-amber-800",
-                            calendarNotice.tone === "error" && "text-red-800"
-                          )}
-                        >
-                          {calendarNotice.message}
-                        </p>
-                        {calendarNotice.actionHref && calendarNotice.actionLabel && (
-                          <a
-                            href={calendarNotice.actionHref}
-                            className="text-xs font-medium text-primary hover:underline whitespace-nowrap"
-                          >
-                            {calendarNotice.actionLabel}
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  )}
 
                   {(result.data?.deadlinesCount ?? 0) > 0 && result.resultStatus === "success" && (
                     <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">

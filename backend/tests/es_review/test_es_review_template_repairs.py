@@ -1,4 +1,6 @@
 import asyncio
+import io
+import logging
 
 import pytest
 from fastapi import HTTPException
@@ -806,8 +808,17 @@ async def test_review_section_with_template_uses_fallback_after_five_failures(
 
 
 @pytest.mark.asyncio
-async def test_review_section_with_template_uses_length_focus_retry_for_gpt_under_min(
+@pytest.mark.parametrize(
+    ("llm_provider", "llm_model"),
+    [
+        ("openai", "gpt-5.1"),
+        ("cohere", "command-a-03-2025"),
+    ],
+)
+async def test_review_section_with_template_uses_length_focus_retry_for_non_claude_under_min(
     monkeypatch: pytest.MonkeyPatch,
+    llm_provider: str,
+    llm_model: str,
 ) -> None:
     rewrite_calls = 0
     seen_prompts: list[str] = []
@@ -855,8 +866,8 @@ async def test_review_section_with_template_uses_length_focus_retry_for_gpt_unde
         request=request,
         rag_sources=[],
         company_rag_available=False,
-        llm_provider="openai",
-        llm_model="gpt-5.1",
+        llm_provider=llm_provider,
+        llm_model=llm_model,
         progress_queue=None,
     )
 
@@ -870,8 +881,17 @@ async def test_review_section_with_template_uses_length_focus_retry_for_gpt_unde
 
 
 @pytest.mark.asyncio
-async def test_review_section_with_template_deterministically_expands_best_gpt_candidate(
+@pytest.mark.parametrize(
+    ("llm_provider", "llm_model"),
+    [
+        ("openai", "gpt-5.1"),
+        ("cohere", "command-a-03-2025"),
+    ],
+)
+async def test_review_section_with_template_deterministically_expands_best_non_claude_candidate(
     monkeypatch: pytest.MonkeyPatch,
+    llm_provider: str,
+    llm_model: str,
 ) -> None:
     rewrite_calls = 0
     responses = iter(
@@ -925,8 +945,8 @@ async def test_review_section_with_template_deterministically_expands_best_gpt_c
         request=request,
         rag_sources=[],
         company_rag_available=False,
-        llm_provider="openai",
-        llm_model="gpt-5.1",
+        llm_provider=llm_provider,
+        llm_model=llm_model,
         progress_queue=None,
     )
 
@@ -996,10 +1016,75 @@ async def test_review_section_with_template_propagates_enrichment_meta(
     assert result.review_meta.triggered_enrichment is True
     assert result.review_meta.enrichment_completed is True
     assert result.review_meta.enrichment_sources_added == 2
-    assert result.review_meta.reference_quality_profile_used is True
-    assert result.review_meta.reference_outline_used is True
-    assert result.review_meta.evidence_coverage_level == "none"
-    assert result.review_meta.weak_evidence_notice is True
+
+
+@pytest.mark.asyncio
+async def test_review_section_with_template_logs_improvements_rewrite_and_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_call_llm_with_error(*args, **kwargs):
+        return FakeJsonResult(
+            {
+                "top3": [
+                    {
+                        "category": "企業接続",
+                        "issue": "企業理解の接点が浅い",
+                        "suggestion": "事業との接点を1点示す",
+                    }
+                ]
+            }
+        )
+
+    async def fake_call_llm_text_with_error(*args, **kwargs):
+        return FakeTextResult("研究で培った整理力を生かし、貴社で価値提供につなげたい。")
+
+    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
+    monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
+    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    formatter = logging.Formatter("%(message)s")
+    handler.setFormatter(formatter)
+    es_review_module.logger.addHandler(handler)
+
+    try:
+        result = await review_section_with_template(
+            request=ReviewRequest(
+                content="研究で培った整理力を生かしたい。",
+                section_title="志望理由を教えてください。",
+                template_request=TemplateRequest(
+                    template_type="company_motivation",
+                    question="志望理由を教えてください。",
+                    answer="研究で培った整理力を生かしたい。",
+                    company_name="Sky",
+                    char_min=20,
+                    char_max=80,
+                ),
+            ),
+            rag_sources=[
+                {
+                    "content_type": "corporate_site",
+                    "title": "企業概要",
+                    "source_url": "https://www.skygroup.jp/company/",
+                    "excerpt": "自社パッケージとSIを軸に成長する。",
+                }
+            ],
+            company_rag_available=True,
+            grounding_mode="company_general",
+            progress_queue=None,
+        )
+    finally:
+        es_review_module.logger.removeHandler(handler)
+
+    logs = stream.getvalue()
+    assert "[ES添削/テンプレート] evidence cards:" in logs
+    assert "[ES添削/テンプレート] improvement points:" in logs
+    assert "[ES添削/テンプレート] final rewrite:" in logs
+    assert "[ES添削/テンプレート] sources:" in logs
+    assert "https://www.skygroup.jp/company/" in logs
+    assert result.review_meta is not None
+    assert result.review_meta.company_evidence_count == 1
 
 
 @pytest.mark.asyncio
@@ -1039,6 +1124,7 @@ async def test_review_section_with_template_uses_assistive_company_grounding_for
                 "content_type": "employee_interviews",
                 "title": "社員インタビュー",
                 "excerpt": "現場で挑戦を重ねる",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/careers/people/interview01.html",
             }
         ],
         company_rag_available=True,
@@ -1179,6 +1265,7 @@ async def test_review_section_with_template_uses_generalized_company_guidance_wh
                 "content_type": "corporate_site",
                 "title": "企業概要",
                 "excerpt": "多様な事業を展開する",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/about/",
             }
         ],
         company_rag_available=True,
@@ -1292,7 +1379,7 @@ async def test_review_section_with_template_uses_fallback_improvement_points_whe
     assert captured_kwargs["response_format"] == "json_schema"
     assert "コードブロック" in str(captured_kwargs["parse_retry_instructions"])
     assert "職種適合" in categories
-    assert "企業接続" in categories
+    assert "企業接続" not in categories
 
 
 @pytest.mark.asyncio

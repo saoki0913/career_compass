@@ -14,11 +14,12 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, HttpUrl
 from typing import Optional
 from datetime import datetime, timedelta
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urljoin, urlparse, urlunparse
 import re
 import hashlib
 import asyncio
 import io
+from bs4 import BeautifulSoup
 
 try:
     from ddgs import DDGS
@@ -95,6 +96,79 @@ _ddgs_search_cache: dict[str, tuple[list[dict], datetime]] = {}
 DDGS_CACHE_TTL = timedelta(minutes=30)  # キャッシュ有効期間
 DDGS_CACHE_MAX_SIZE = 200  # 最大キャッシュエントリ数
 CACHE_MODES = {"use", "refresh", "bypass"}
+
+EMPLOYEE_INTERVIEW_POSITIVE_SIGNALS = {
+    "interview",
+    "voice",
+    "people",
+    "person",
+    "member",
+    "members",
+    "staff",
+    "story",
+    "talk",
+    "社員紹介",
+    "社員インタビュー",
+    "社員の声",
+    "先輩社員",
+    "働く人",
+    "人を知る",
+    "人を読む",
+}
+EMPLOYEE_INTERVIEW_NEGATIVE_SIGNALS = {
+    "investor",
+    "investors",
+    "ir",
+    "financial",
+    "earnings",
+    "results",
+    "governance",
+    "integrated",
+    "統合報告",
+    "決算",
+    "株主",
+    "投資家",
+    "有価証券",
+    "企業データ",
+    "会社概要",
+    "企業概要",
+    "company data",
+    "company overview",
+}
+
+SCHEDULE_FOLLOW_LINK_KEYWORDS = (
+    ("締切", 6),
+    ("エントリー", 5),
+    ("entry", 5),
+    ("募集要項", 5),
+    ("応募要項", 5),
+    ("application", 4),
+    ("guideline", 4),
+    ("schedule", 4),
+    ("選考", 4),
+    ("flow", 3),
+    ("マイページ", 3),
+    ("mypage", 3),
+    ("要項", 3),
+)
+SCHEDULE_FOLLOW_LINK_NEGATIVE_KEYWORDS = {
+    "privacy",
+    "policy",
+    "news",
+    "ir",
+    "investor",
+    "company",
+    "about",
+    "faq",
+    "contact",
+    "sitemap",
+    "terms",
+    "legal",
+}
+SCHEDULE_MAX_FOLLOW_LINKS = 3
+SCHEDULE_MAX_PDF_FOLLOW_LINKS = 1
+SCHEDULE_MIN_TEXT_CHARS = 40
+SCHEDULE_PDF_TEXT_MIN_CHARS = 200
 
 
 def _get_ddgs_cache_key(query: str, max_results: int) -> str:
@@ -730,6 +804,11 @@ async def extract_schedule_with_llm(
         max_tokens=2000,
         temperature=0.1,
         feature=feature,
+        response_format="json_schema",
+        json_schema=SELECTION_SCHEDULE_SCHEMA,
+        use_responses_api=True,
+        retry_on_parse=True,
+        parse_retry_instructions="必ず有効なJSONのみを出力してください。説明文やコードブロックは禁止です。",
     )
 
     if not llm_result.success:
@@ -1217,9 +1296,23 @@ def _sanitize_preferred_domain(
 
 def _should_include_corporate_candidate(
     source_type: str,
-    _content_type: str | None,
+    content_type: str | None,
     relation: dict[str, str | bool | None],
+    url: str = "",
+    title: str = "",
+    snippet: str = "",
 ) -> tuple[bool, str | None]:
+    if content_type == "employee_interviews":
+        path = urlparse(url).path.rstrip("/").lower()
+        if not path:
+            return False, "社員記事シグナル不足"
+
+        haystack = " ".join([url.lower(), (title or "").lower(), (snippet or "").lower()])
+        if any(signal in haystack for signal in EMPLOYEE_INTERVIEW_NEGATIVE_SIGNALS):
+            return False, "社員記事不適合"
+        if not any(signal in haystack for signal in EMPLOYEE_INTERVIEW_POSITIVE_SIGNALS):
+            return False, "社員記事シグナル不足"
+
     return True, None
 
 
@@ -2669,6 +2762,200 @@ def _build_recruit_queries(
     return result[:6]
 
 
+def _schedule_confidence_rank(confidence: str | None) -> int:
+    return {"high": 3, "medium": 2, "low": 1}.get((confidence or "").lower(), 0)
+
+
+def _has_dated_schedule_deadlines(extracted: ExtractedScheduleInfo | None) -> bool:
+    if not extracted:
+        return False
+    return any(deadline.due_date for deadline in extracted.deadlines)
+
+
+def _build_schedule_relation_signature(
+    url: str, company_name: str | None
+) -> tuple[str, str | None]:
+    if not company_name:
+        return "other", None
+
+    relation = _classify_company_relation(url, company_name)
+    source_type = _normalize_recruitment_source_type(url, None, relation)
+    relation_company_name = (
+        relation.get("relation_company_name")
+        if isinstance(relation.get("relation_company_name"), str)
+        else None
+    )
+    return source_type, relation_company_name
+
+
+def _score_schedule_follow_link(url: str, anchor_text: str) -> int:
+    path = urlparse(url).path.lower()
+    if not path or path == "/":
+        return 0
+
+    haystack = f"{anchor_text} {url}".lower()
+    if any(keyword in haystack for keyword in SCHEDULE_FOLLOW_LINK_NEGATIVE_KEYWORDS):
+        return 0
+
+    score = 0
+    for keyword, weight in SCHEDULE_FOLLOW_LINK_KEYWORDS:
+        if keyword in haystack:
+            score += weight
+
+    if path.endswith(".pdf"):
+        score += 2
+    if any(keyword in path for keyword in ("recruit", "saiyo", "entry", "mypage")):
+        score += 1
+
+    return score
+
+
+def _extract_schedule_follow_links(
+    html: bytes,
+    base_url: str,
+    company_name: str | None,
+) -> list[str]:
+    if not html or not company_name:
+        return []
+
+    base_source_type, base_relation_name = _build_schedule_relation_signature(
+        base_url, company_name
+    )
+    if base_source_type not in {"official", "parent", "subsidiary", "job_site"}:
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+    seen_urls = {_normalize_url(base_url)}
+    html_candidates: list[tuple[int, str]] = []
+    pdf_candidates: list[tuple[int, str]] = []
+
+    for anchor in soup.find_all("a", href=True):
+        href = (anchor.get("href") or "").strip()
+        if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+            continue
+
+        absolute_url = urljoin(base_url, href)
+        parsed = urlparse(absolute_url)
+        if parsed.scheme not in {"http", "https"}:
+            continue
+
+        normalized_url = _normalize_url(absolute_url)
+        if normalized_url in seen_urls:
+            continue
+
+        candidate_source_type, candidate_relation_name = (
+            _build_schedule_relation_signature(absolute_url, company_name)
+        )
+        if candidate_source_type != base_source_type:
+            continue
+        if candidate_source_type in {"parent", "subsidiary"} and (
+            candidate_relation_name != base_relation_name
+        ):
+            continue
+
+        anchor_text = anchor.get_text(" ", strip=True)
+        score = _score_schedule_follow_link(absolute_url, anchor_text)
+        if score <= 0:
+            continue
+
+        seen_urls.add(normalized_url)
+        target_list = (
+            pdf_candidates
+            if parsed.path.lower().endswith(".pdf")
+            else html_candidates
+        )
+        target_list.append((score, absolute_url))
+
+    html_candidates.sort(key=lambda item: (-item[0], len(item[1])))
+    pdf_candidates.sort(key=lambda item: (-item[0], len(item[1])))
+
+    combined: list[str] = []
+    for _, candidate_url in html_candidates:
+        if len(combined) >= SCHEDULE_MAX_FOLLOW_LINKS:
+            break
+        combined.append(candidate_url)
+
+    pdf_added = 0
+    for _, candidate_url in pdf_candidates:
+        if len(combined) >= SCHEDULE_MAX_FOLLOW_LINKS:
+            break
+        if pdf_added >= SCHEDULE_MAX_PDF_FOLLOW_LINKS:
+            break
+        combined.append(candidate_url)
+        pdf_added += 1
+
+    return combined
+
+
+async def _extract_schedule_text_from_bytes(url: str, payload: bytes) -> tuple[str, bool]:
+    if not payload:
+        return "", False
+
+    is_pdf = urlparse(url).path.lower().endswith(".pdf") or payload.startswith(b"%PDF")
+    if not is_pdf:
+        return extract_text_from_html(payload), False
+
+    extracted_text = _extract_text_from_pdf_locally(payload)
+    if len(extracted_text) >= SCHEDULE_PDF_TEXT_MIN_CHARS:
+        return extracted_text, True
+
+    try:
+        ocr_text = await extract_text_from_pdf_with_openai(
+            payload,
+            filename=urlparse(url).path.split("/")[-1] or "document.pdf",
+            feature="selection_schedule",
+        )
+    except Exception as exc:
+        logger.warning(f"[選考スケジュール取得] PDF OCR fallback failed for {url}: {exc}")
+        ocr_text = ""
+
+    return ocr_text or extracted_text, True
+
+
+def _merge_schedule_info_parts(
+    parts: list[ExtractedScheduleInfo],
+) -> ExtractedScheduleInfo:
+    deduped_deadlines: dict[tuple[str, str, str | None], ExtractedDeadline] = {}
+    deduped_documents: dict[str, ExtractedDocument] = {}
+    application_method: ExtractedItem | None = None
+    selection_process: ExtractedItem | None = None
+
+    for part in parts:
+        for deadline in part.deadlines:
+            normalized_title = re.sub(r"\s+", "", deadline.title or "").lower()
+            key = (deadline.type, normalized_title, deadline.due_date)
+            current = deduped_deadlines.get(key)
+            if current is None or _schedule_confidence_rank(deadline.confidence) > _schedule_confidence_rank(current.confidence):
+                deduped_deadlines[key] = deadline
+
+        for document in part.required_documents:
+            normalized_name = re.sub(r"\s+", "", document.name or "").lower()
+            current = deduped_documents.get(normalized_name)
+            if current is None or _schedule_confidence_rank(document.confidence) > _schedule_confidence_rank(current.confidence):
+                deduped_documents[normalized_name] = document
+
+        if part.application_method and (
+            application_method is None
+            or _schedule_confidence_rank(part.application_method.confidence)
+            > _schedule_confidence_rank(application_method.confidence)
+        ):
+            application_method = part.application_method
+
+        if part.selection_process and (
+            selection_process is None
+            or _schedule_confidence_rank(part.selection_process.confidence)
+            > _schedule_confidence_rank(selection_process.confidence)
+        ):
+            selection_process = part.selection_process
+
+    return ExtractedScheduleInfo(
+        deadlines=list(deduped_deadlines.values()),
+        required_documents=list(deduped_documents.values()),
+        application_method=application_method,
+        selection_process=selection_process,
+    )
+
+
 def _build_corporate_queries(
     company_name: str,
     search_type: str,
@@ -3210,29 +3497,95 @@ async def _fetch_schedule_response(
     Uses graduation_year and selection_type from request if available.
     """
     try:
+        request_url = str(request.url)
         source_metadata = {
             "source_type": "other",
             "relation_company_name": None,
             "year_matched": None,
             "used_graduation_year": request.graduation_year or _get_graduation_year(),
         }
-        html = await fetch_page_content(str(request.url))
-        raw_html = html[:200000] if html else None
-
-        text = extract_text_from_html(html)
+        primary_payload = await fetch_page_content(request_url)
+        text, primary_is_pdf = await _extract_schedule_text_from_bytes(
+            request_url, primary_payload
+        )
+        raw_html = primary_payload[:200000] if primary_payload and not primary_is_pdf else None
         source_metadata = _build_schedule_source_metadata(
-            str(request.url),
+            request_url,
             request.company_name,
             text,
             request.graduation_year,
         )
 
-        if not text or len(text) < 100:
+        extracted_parts: list[ExtractedScheduleInfo] = []
+        raw_text_parts: list[str] = []
+
+        if text and len(text) >= SCHEDULE_MIN_TEXT_CHARS:
+            extracted = await extract_schedule_with_llm(
+                text,
+                request_url,
+                feature=feature,
+                graduation_year=request.graduation_year,
+                selection_type=request.selection_type,
+            )
+            extracted = _apply_schedule_source_confidence_caps(
+                extracted,
+                str(source_metadata["source_type"]),
+                (
+                    bool(source_metadata["year_matched"])
+                    if source_metadata["year_matched"] is not None
+                    else None
+                ),
+            )
+            extracted_parts.append(extracted)
+            raw_text_parts.append(text)
+
+        if not _has_dated_schedule_deadlines(extracted_parts[0] if extracted_parts else None):
+            for follow_url in _extract_schedule_follow_links(
+                primary_payload,
+                request_url,
+                request.company_name,
+            ):
+                follow_payload = await fetch_page_content(follow_url)
+                follow_text, _ = await _extract_schedule_text_from_bytes(
+                    follow_url, follow_payload
+                )
+                if not follow_text or len(follow_text) < SCHEDULE_MIN_TEXT_CHARS:
+                    continue
+
+                follow_metadata = _build_schedule_source_metadata(
+                    follow_url,
+                    request.company_name,
+                    follow_text,
+                    request.graduation_year,
+                )
+                follow_extracted = await extract_schedule_with_llm(
+                    follow_text,
+                    follow_url,
+                    feature=feature,
+                    graduation_year=request.graduation_year,
+                    selection_type=request.selection_type,
+                )
+                follow_extracted = _apply_schedule_source_confidence_caps(
+                    follow_extracted,
+                    str(follow_metadata["source_type"]),
+                    (
+                        bool(follow_metadata["year_matched"])
+                        if follow_metadata["year_matched"] is not None
+                        else None
+                    ),
+                )
+                extracted_parts.append(follow_extracted)
+                raw_text_parts.append(follow_text)
+
+                if _has_dated_schedule_deadlines(follow_extracted):
+                    break
+
+        if not extracted_parts:
             return SelectionScheduleResponse(
                 success=False,
                 partial_success=False,
                 data=None,
-                source_url=str(request.url),
+                source_url=request_url,
                 source_type=str(source_metadata["source_type"]),
                 relation_company_name=(
                     source_metadata["relation_company_name"]
@@ -3257,23 +3610,8 @@ async def _fetch_schedule_response(
                 raw_html=None,
             )
 
-        # Pass graduation_year and selection_type to LLM extraction
-        extracted = await extract_schedule_with_llm(
-            text,
-            str(request.url),
-            feature=feature,
-            graduation_year=request.graduation_year,
-            selection_type=request.selection_type,
-        )
-        extracted = _apply_schedule_source_confidence_caps(
-            extracted,
-            str(source_metadata["source_type"]),
-            (
-                bool(source_metadata["year_matched"])
-                if source_metadata["year_matched"] is not None
-                else None
-            ),
-        )
+        extracted = _merge_schedule_info_parts(extracted_parts)
+        combined_raw_text = "\n\n".join(dict.fromkeys(raw_text_parts))[:30000]
 
         deadlines_found = len(extracted.deadlines) > 0
         other_items_found = (
@@ -3295,7 +3633,7 @@ async def _fetch_schedule_response(
             success=success,
             partial_success=partial_success,
             data=extracted if success else None,
-            source_url=str(request.url),
+            source_url=request_url,
             source_type=str(source_metadata["source_type"]),
             relation_company_name=(
                 source_metadata["relation_company_name"]
@@ -3316,8 +3654,8 @@ async def _fetch_schedule_response(
             error=error_message,
             deadlines_found=deadlines_found,
             other_items_found=other_items_found,
-            raw_text=text if success else None,
-            raw_html=raw_html if success else None,
+            raw_text=combined_raw_text if success else None,
+            raw_html=raw_html if success and len(raw_text_parts) == 1 and not primary_is_pdf else None,
         )
 
     except HTTPException:
@@ -4362,6 +4700,9 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 source_type,
                 content_type,
                 relation,
+                url=url,
+                title=title,
+                snippet=snippet,
             )
             if not keep_candidate:
                 excluded_reasons[exclude_reason or "関連会社サイト"] = (
@@ -4671,6 +5012,9 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                 source_type,
                 content_type,
                 relation,
+                url=url,
+                title=title,
+                snippet=snippet,
             )
             if not keep_candidate:
                 excluded_reasons[exclude_reason or "関連会社サイト"] = (

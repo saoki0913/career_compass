@@ -625,6 +625,26 @@ def _augment_system_prompt_for_provider_json(
     return f"{system_prompt}{strict_note}"
 
 
+def _augment_system_prompt_for_provider_text(
+    provider: LLMProvider,
+    system_prompt: str,
+    *,
+    feature: str,
+) -> str:
+    if feature != "es_review" or provider == "anthropic":
+        return system_prompt
+
+    strict_note = (
+        "\n\n# 出力形式の厳守\n"
+        "出力は最終本文のみを返してください。"
+        "\n説明、前置き、後書き、見出し、箇条書き、コードブロック、引用符は禁止です。"
+        "\n先頭から本文を書き始め、余計なラベルを付けないでください。"
+    )
+    if provider == "google":
+        strict_note += "\n思考や解説は書かず、本文だけを返してください。"
+    return f"{system_prompt}{strict_note}"
+
+
 def _build_chat_response_format(
     provider: Literal["openai", "cohere"],
     response_format: ResponseFormat,
@@ -1014,7 +1034,12 @@ async def _call_openai_compatible_raw_text(
         client = await get_openai_compatible_client(provider, for_rag=_is_rag_feature(feature))
 
     normalized_messages, _ = _normalize_chat_messages(messages, user_message)
-    api_messages = [{"role": "system", "content": system_prompt}] + normalized_messages
+    effective_system_prompt = _augment_system_prompt_for_provider_text(
+        provider,
+        system_prompt,
+        feature=feature,
+    )
+    api_messages = [{"role": "system", "content": effective_system_prompt}] + normalized_messages
 
     request_kwargs: dict[str, Any] = {
         "model": model,
@@ -1415,7 +1440,11 @@ async def call_llm_text_with_error(
             )
         elif target.provider == "google":
             raw_response, _ = await _call_google_generate_content(
-                system_prompt=system_prompt,
+                system_prompt=_augment_system_prompt_for_provider_text(
+                    target.provider,
+                    system_prompt,
+                    feature=feature,
+                ),
                 user_message=user_message,
                 messages=normalized_messages,
                 max_tokens=max_tokens,

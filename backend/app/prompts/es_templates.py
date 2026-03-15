@@ -478,6 +478,7 @@ def build_template_rewrite_prompt(
     evidence_coverage_level: str = "none",
     length_control_mode: str = "default",
     length_shortfall: Optional[int] = None,
+    company_grounding_override: Optional[str] = None,
 ) -> tuple[str, str]:
     template_def = TEMPLATE_DEFS.get(template_type)
     if not template_def:
@@ -519,6 +520,9 @@ def build_template_rewrite_prompt(
 - 改善ポイントと矛盾する内容を書かない"""
 
     retry_guidance = f"\n【前回失敗の回避】\n- {retry_hint}" if retry_hint else ""
+    effective_company_grounding = company_grounding_override or str(
+        template_def.get("company_grounding") or "assistive"
+    )
     system_prompt = f"""あなたは{template_role}である。
 目的は、提出できる改善案本文を1件だけ作ること。
 
@@ -556,7 +560,7 @@ def build_template_rewrite_prompt(
     has_rag=has_rag,
     grounding_mode=grounding_mode,
     requires_company_rag=bool(template_def.get("requires_company_rag")),
-    company_grounding=str(template_def.get("company_grounding") or "assistive"),
+    company_grounding=effective_company_grounding,
     generic_role_mode=generic_role_mode,
     evidence_coverage_level=evidence_coverage_level,
 )}
@@ -598,6 +602,7 @@ def build_template_fallback_rewrite_prompt(
     evidence_coverage_level: str = "none",
     length_control_mode: str = "default",
     length_shortfall: Optional[int] = None,
+    company_grounding_override: Optional[str] = None,
 ) -> tuple[str, str]:
     template_def = TEMPLATE_DEFS.get(template_type)
     if not template_def:
@@ -622,6 +627,9 @@ def build_template_fallback_rewrite_prompt(
             issue_lines.append(f"{index}. {issue} / {suggestion}")
 
     retry_guidance = f"\n【前回失敗の回避】\n- {retry_hint}" if retry_hint else ""
+    effective_company_grounding = company_grounding_override or str(
+        template_def.get("company_grounding") or "assistive"
+    )
     system_prompt = f"""あなたは日本語のES編集者である。
 目的は、元回答の事実を保ったまま、提出できる本文に安全に整えること。
 
@@ -649,7 +657,7 @@ def build_template_fallback_rewrite_prompt(
     has_rag=has_rag,
     grounding_mode=grounding_mode,
     requires_company_rag=bool(template_def.get("requires_company_rag")),
-    company_grounding=str(template_def.get("company_grounding") or "assistive"),
+    company_grounding=effective_company_grounding,
     generic_role_mode=generic_role_mode,
     evidence_coverage_level=evidence_coverage_level,
 )}
@@ -684,9 +692,12 @@ def build_template_improvement_prompt(
     reference_quality_block: str = "",
     generic_role_mode: bool = False,
     evidence_coverage_level: str = "none",
+    company_grounding_override: Optional[str] = None,
 ) -> tuple[str, str]:
     template_role = TEMPLATE_ROLES.get(template_type, TEMPLATE_ROLES["basic"])
-    company_grounding = str(TEMPLATE_DEFS.get(template_type, {}).get("company_grounding") or "assistive")
+    company_grounding = company_grounding_override or str(
+        TEMPLATE_DEFS.get(template_type, {}).get("company_grounding") or "assistive"
+    )
     company_eval_rule = (
         "企業根拠がある場合は、企業理解・職種理解・事業方向性とのズレを評価する"
         if company_grounding == "required"

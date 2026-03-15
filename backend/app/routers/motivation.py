@@ -469,6 +469,21 @@ DIRECT_ANSWER_REQUIRED_TERMS = {
     "closing": ("したい", "目指", "貢献", "実現", "価値を出", "なりたい"),
 }
 
+QUESTION_KEYWORDS_BY_STAGE = {
+    "company_reason": ("理由", "魅力", "惹かれ", "きっかけ", "選ぶ"),
+    "desired_work": ("入社後", "仕事", "挑戦", "担い", "関わり"),
+    "fit_connection": ("経験", "強み", "活か", "つなが", "再現"),
+    "differentiation": ("他社", "違い", "選ぶ", "理由", "だからこそ"),
+    "closing": ("一言", "まとめ", "実現", "目標", "価値"),
+}
+
+GENERIC_QUESTION_BLOCKLIST = (
+    "もう少し詳しく",
+    "具体的に説明",
+    "他にありますか",
+    "先ほど",
+)
+
 QUESTION_FIT_KEYWORDS = {
     ("company_reason", "industry_choice"): ("業界", "産業", "横断", "幅広", "選択肢", "つなぐ", "商社"),
     ("company_reason", "why_now"): ("きっかけ", "関心", "高ま", "強まり", "惹かれ", "志望度"),
@@ -735,7 +750,7 @@ def _top_source_ids(sources: list[dict] | None, max_items: int = 2) -> list[str]
 
 def _build_evidence_cards_from_sources(
     sources: list[dict] | None,
-    max_items: int = 4,
+    max_items: int = 3,
 ) -> list[EvidenceCard]:
     if not sources:
         return []
@@ -754,10 +769,10 @@ def _build_evidence_cards_from_sources(
                 sourceId=source_id,
                 title=_clean_short_phrase(
                     str(source.get("title") or content_type_label(content_type) or "参照資料"),
-                    max_len=48,
+                    max_len=40,
                 ),
                 contentType=content_type,
-                excerpt=_normalize_excerpt(str(source.get("excerpt") or "").strip(), max_len=120),
+                excerpt=_normalize_excerpt(str(source.get("excerpt") or "").strip(), max_len=84),
                 sourceUrl=source_url,
                 relevanceLabel=content_type_label(content_type) or "企業情報",
             )
@@ -932,6 +947,98 @@ def _detect_question_focus(stage: str, question: str | None) -> str:
         return "goal"
 
     return "default"
+
+
+def _looks_like_multi_part_question(question: str) -> bool:
+    normalized = " ".join((question or "").split())
+    if normalized.count("？") + normalized.count("?") >= 2:
+        return True
+    return any(token in normalized for token in ("また、", "それとも", "何ですか？なぜ", "理由と"))
+
+
+def _build_question_fallback(
+    *,
+    stage: str,
+    company_name: str,
+    selected_role: str | None,
+    desired_work: str | None,
+    grounded_company_anchor: str | None,
+    gakuchika_episode: str | None,
+    gakuchika_strength: str | None,
+) -> str:
+    if stage == "company_reason":
+        if grounded_company_anchor:
+            return f"{company_name}の{grounded_company_anchor}に惹かれた理由を1つ教えてください。"
+        if selected_role:
+            return f"{company_name}で{selected_role}を志望する理由を1つ教えてください。"
+        return f"{company_name}を志望する理由を1つ教えてください。"
+
+    if stage == "desired_work":
+        if selected_role and desired_work:
+            return f"入社後、{selected_role}として{desired_work}の中で特に挑戦したいことは何ですか？"
+        if selected_role:
+            return f"入社後、{selected_role}としてどんな仕事に挑戦したいですか？"
+        return "入社後にどんな仕事へ挑戦したいですか？"
+
+    if stage == "fit_connection":
+        if gakuchika_episode and desired_work:
+            return f"{gakuchika_episode}の経験は、{desired_work}にどう活かせますか？"
+        if gakuchika_strength and selected_role:
+            return f"{gakuchika_strength}は、{selected_role}の仕事でどう活かせますか？"
+        return "これまでの経験は、その仕事にどうつながりますか？"
+
+    if stage == "differentiation":
+        if grounded_company_anchor:
+            return f"同業他社ではなく、{company_name}の{grounded_company_anchor}を選ぶ理由は何ですか？"
+        if selected_role:
+            return f"同業他社ではなく、{company_name}で{selected_role}を目指す理由は何ですか？"
+        return f"同業他社ではなく、{company_name}を選ぶ理由は何ですか？"
+
+    if desired_work:
+        return f"最後に、{company_name}で{desired_work}を通じて実現したいことを一言でまとめると何ですか？"
+    return f"最後に、{company_name}で実現したいことを一言でまとめると何ですか？"
+
+
+def _validate_or_repair_question(
+    *,
+    question: str,
+    stage: str,
+    company_name: str,
+    selected_role: str | None,
+    desired_work: str | None,
+    grounded_company_anchor: str | None,
+    gakuchika_episode: str | None,
+    gakuchika_strength: str | None,
+) -> str:
+    normalized = " ".join((question or "").split())
+    fallback = _build_question_fallback(
+        stage=stage,
+        company_name=company_name,
+        selected_role=selected_role,
+        desired_work=desired_work,
+        grounded_company_anchor=grounded_company_anchor,
+        gakuchika_episode=gakuchika_episode,
+        gakuchika_strength=gakuchika_strength,
+    )
+    if not normalized:
+        return fallback
+    if any(token in normalized for token in GENERIC_QUESTION_BLOCKLIST):
+        return fallback
+    if _looks_like_multi_part_question(normalized):
+        return fallback
+    if len(normalized) > 80:
+        return fallback
+    if not any(keyword in normalized for keyword in QUESTION_KEYWORDS_BY_STAGE.get(stage, ())):
+        return fallback
+    if stage == "company_reason" and normalized.startswith("入社後"):
+        return fallback
+    if stage == "desired_work" and "入社後" not in normalized:
+        return fallback
+    if stage == "differentiation" and "他社" not in normalized and "違い" not in normalized:
+        return fallback
+    if stage == "closing" and not any(token in normalized for token in ("一言", "まとめ", "端的")):
+        return fallback
+    return normalized
 
 
 def _format_industry_axis(profile_industries: list[str]) -> str:
@@ -1138,6 +1245,16 @@ def _build_stage_specific_suggestion_options(
         "application_job_type"
         if application_role and application_role == selected_role
         else "profile"
+    )
+    question = _validate_or_repair_question(
+        question=question,
+        stage=stage,
+        company_name=company_name,
+        selected_role=selected_role,
+        desired_work=desired_work,
+        grounded_company_anchor=grounded_company_anchor,
+        gakuchika_episode=gakuchika_episode,
+        gakuchika_strength=gakuchika_strength,
     )
 
     if stage == "company_reason":
@@ -1628,6 +1745,54 @@ def _build_stage_specific_suggestion_options(
     )
 
 
+def _repair_generated_question_for_response(
+    *,
+    question: str,
+    stage: str,
+    company_name: str,
+    company_context: str,
+    company_sources: list[dict] | None,
+    gakuchika_context: list[dict] | None,
+    profile_context: dict[str, Any] | None,
+    application_job_candidates: list[str] | None,
+    company_role_candidates: list[str] | None,
+    company_work_candidates: list[str] | None,
+    conversation_context: dict[str, Any] | None,
+) -> str:
+    context = _normalize_conversation_context(conversation_context)
+    role_candidates = _merge_candidate_lists(
+        application_job_candidates or [],
+        company_role_candidates or [],
+        _extract_role_candidates_from_context(company_context),
+        _extract_profile_job_types(profile_context),
+        max_items=4,
+    )
+    work_candidates = _merge_candidate_lists(
+        _sanitize_existing_grounding_candidates(company_work_candidates, max_items=4, max_len=32),
+        _extract_work_candidates_from_context(
+            company_context,
+            company_sources,
+            selected_role=context["selectedRole"],
+            max_items=4,
+        ),
+        max_items=4,
+    )
+    features = _extract_company_features(company_context, company_sources, max_features=3)
+    selected_role = context["selectedRole"] or (application_job_candidates or [None])[0] or (role_candidates[0] if role_candidates else None)
+    desired_work = context["desiredWork"] or (work_candidates[0] if work_candidates else _fallback_work_for_role(selected_role))
+    grounded_company_anchor = features[0] if features else (work_candidates[0] if work_candidates else None)
+    return _validate_or_repair_question(
+        question=question,
+        stage=stage,
+        company_name=company_name,
+        selected_role=selected_role,
+        desired_work=desired_work,
+        grounded_company_anchor=grounded_company_anchor,
+        gakuchika_episode=_extract_gakuchika_episode(gakuchika_context),
+        gakuchika_strength=_extract_gakuchika_strength(gakuchika_context),
+    )
+
+
 def _get_next_stage(
     conversation_context: dict[str, Any] | None,
     *,
@@ -2056,9 +2221,23 @@ async def get_next_question(request: NextQuestionRequest):
             detail={"error": "AIから有効な質問を取得できませんでした。"},
         )
 
+    validated_question = _repair_generated_question_for_response(
+        question=str(data["question"]),
+        stage=stage,
+        company_name=request.company_name,
+        company_context=company_context,
+        company_sources=company_sources,
+        gakuchika_context=request.gakuchika_context,
+        profile_context=request.profile_context,
+        application_job_candidates=request.application_job_candidates,
+        company_role_candidates=role_candidates,
+        company_work_candidates=work_candidates,
+        conversation_context=conversation_context,
+    )
+
     suggestion_options = _build_stage_specific_suggestion_options(
         stage=stage,
-        question=str(data["question"]),
+        question=validated_question,
         company_name=request.company_name,
         company_context=company_context,
         company_sources=company_sources,
@@ -2082,7 +2261,7 @@ async def get_next_question(request: NextQuestionRequest):
     )
 
     return NextQuestionResponse(
-        question=data["question"],
+        question=validated_question,
         reasoning=data.get("reasoning"),
         should_continue=data.get("should_continue", True),
         suggested_end=data.get("suggested_end", False),
@@ -2325,9 +2504,23 @@ async def _generate_next_question_progress(
             })
             return
 
+        validated_question = _repair_generated_question_for_response(
+            question=str(data["question"]),
+            stage=stage,
+            company_name=request.company_name,
+            company_context=company_context,
+            company_sources=company_sources,
+            gakuchika_context=request.gakuchika_context,
+            profile_context=request.profile_context,
+            application_job_candidates=request.application_job_candidates,
+            company_role_candidates=role_candidates,
+            company_work_candidates=work_candidates,
+            conversation_context=conversation_context,
+        )
+
         suggestion_options = _build_stage_specific_suggestion_options(
             stage=stage,
-            question=str(data["question"]),
+            question=validated_question,
             company_name=request.company_name,
             company_context=company_context,
             company_sources=company_sources,
@@ -2351,7 +2544,7 @@ async def _generate_next_question_progress(
 
         yield _sse_event("complete", {
             "data": {
-                "question": data["question"],
+                "question": validated_question,
                 "reasoning": data.get("reasoning"),
                 "should_continue": data.get("should_continue", True),
                 "suggested_end": data.get("suggested_end", False),

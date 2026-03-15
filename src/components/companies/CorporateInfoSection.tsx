@@ -12,6 +12,10 @@ import {
   type CorporateInfoSource as CorporateInfoUrl,
   type CorporateInfoSourceStatus,
 } from "@/lib/company-info/sources";
+import {
+  CONFIDENCE_META,
+  SOURCE_TYPE_META,
+} from "@/lib/company-info/source-badges";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 interface RagStatus {
@@ -46,54 +50,6 @@ interface SearchCandidate {
   sourceType?: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
   relationCompanyName?: string | null;
 }
-
-const SOURCE_TYPE_META: Record<
-  NonNullable<SearchCandidate["sourceType"]>,
-  { label: string; className: string }
-> = {
-  official: {
-    label: "公式",
-    className: "border-emerald-200/80 bg-emerald-50 text-emerald-700",
-  },
-  parent: {
-    label: "親会社",
-    className: "border-amber-200/80 bg-amber-50 text-amber-700",
-  },
-  subsidiary: {
-    label: "子会社",
-    className: "border-sky-200/80 bg-sky-50 text-sky-700",
-  },
-  job_site: {
-    label: "就活サイト",
-    className: "border-blue-200/80 bg-blue-50 text-blue-700",
-  },
-  blog: {
-    label: "ブログ",
-    className: "border-zinc-200/80 bg-zinc-50 text-zinc-700",
-  },
-  other: {
-    label: "関連",
-    className: "border-border bg-muted/60 text-muted-foreground",
-  },
-};
-
-const CONFIDENCE_META: Record<
-  SearchCandidate["confidence"],
-  { label: string; className: string }
-> = {
-  high: {
-    label: "高",
-    className: "border-emerald-200/80 bg-emerald-500/10 text-emerald-700",
-  },
-  medium: {
-    label: "中",
-    className: "border-amber-200/80 bg-amber-500/10 text-amber-700",
-  },
-  low: {
-    label: "低",
-    className: "border-border bg-muted/70 text-muted-foreground",
-  },
-};
 
 const SURFACE_CLASS = "rounded-xl border border-border/60 bg-background";
 const FIELD_CLASS =
@@ -147,6 +103,25 @@ type InputMode = "web" | "url" | "pdf";
 type ModalStep = "configure" | "review" | "result";
 type WebModalStep = Exclude<ModalStep, "result">;
 type WebSearchKind = "type" | "custom";
+type BatchUploadItem = {
+  fileName: string;
+  status: "completed" | "pending" | "failed" | "skipped_limit";
+  sourceUrl?: string;
+  chunksStored?: number;
+  extractedChars?: number;
+  extractionMethod?: string;
+  contentType?: ContentType | null;
+  secondaryContentTypes?: ContentType[];
+  error?: string;
+};
+type PdfFileStatus = "waiting" | "uploading" | "completed" | "failed";
+
+interface PdfFileProgress {
+  file: File;
+  status: PdfFileStatus;
+  error?: string;
+  result?: BatchUploadItem;
+}
 
 interface FetchResult {
   success: boolean;
@@ -163,17 +138,7 @@ interface FetchResult {
     failed: number;
     skippedLimit: number;
   };
-  items?: Array<{
-    fileName: string;
-    status: "completed" | "pending" | "failed" | "skipped_limit";
-    sourceUrl?: string;
-    chunksStored?: number;
-    extractedChars?: number;
-    extractionMethod?: string;
-    contentType?: ContentType | null;
-    secondaryContentTypes?: ContentType[];
-    error?: string;
-  }>;
+  items?: BatchUploadItem[];
 }
 
 interface WebDraft {
@@ -234,8 +199,8 @@ const BuildingIcon = () => (
   </svg>
 );
 
-const LoadingSpinner = () => (
-  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+const LoadingSpinner = ({ className }: { className?: string }) => (
+  <svg className={cn("h-5 w-5 animate-spin", className)} fill="none" viewBox="0 0 24 24">
     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
     <path
       className="opacity-75"
@@ -544,6 +509,19 @@ function getBatchItemStatusMeta(status: NonNullable<FetchResult["items"]>[number
   }
 }
 
+function getPdfFileStatusMeta(status: PdfFileStatus) {
+  switch (status) {
+    case "uploading":
+      return { label: "取り込み中...", className: "text-sky-700" };
+    case "completed":
+      return { label: "完了", className: "text-emerald-700" };
+    case "failed":
+      return { label: "失敗", className: "text-destructive" };
+    default:
+      return { label: "待機中", className: "text-muted-foreground" };
+  }
+}
+
 function formatTimestamp(
   value?: string | null,
   options?: Intl.DateTimeFormatOptions
@@ -649,6 +627,9 @@ export function CorporateInfoSection({
   const [pdfDraft, setPdfDraft] = useState<PdfDraft>(createInitialPdfDraft);
   const [fetchResult, setFetchResult] = useState<FetchResult | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [pdfUploadProgress, setPdfUploadProgress] = useState<PdfFileProgress[] | null>(null);
+  const [displayedStep, setDisplayedStep] = useState<ModalStep>("configure");
+  const [isStepTransitioning, setIsStepTransitioning] = useState(false);
 
   // Delete modal states
   const [selectedUrlsForDelete, setSelectedUrlsForDelete] = useState<Set<string>>(new Set());
@@ -725,6 +706,7 @@ export function CorporateInfoSection({
   const resolvedWebContentType = webDraft.lastContentType || webDraft.selectedContentType;
 
   const activeModalStep: ModalStep = fetchResult ? "result" : modalStep;
+  const isResultDisplayed = displayedStep === "result";
   const showWebReviewStep = inputMode === "web" && activeModalStep === "review";
   const showConfigureStep = activeModalStep === "configure";
   const isModalBusy = isSearching || isFetching || isUploading;
@@ -842,6 +824,26 @@ export function CorporateInfoSection({
 
     return () => window.clearInterval(timer);
   }, [fetchStatus, hasPendingPdfJobs]);
+
+  useEffect(() => {
+    if (!showModal || activeModalStep === displayedStep) {
+      return;
+    }
+
+    setIsStepTransitioning(true);
+    const timer = window.setTimeout(() => {
+      setDisplayedStep(activeModalStep);
+      setIsStepTransitioning(false);
+    }, 200);
+
+    return () => window.clearTimeout(timer);
+  }, [activeModalStep, displayedStep, showModal]);
+
+  useEffect(() => {
+    if (showModal && displayedStep === "result" && pdfUploadProgress) {
+      setPdfUploadProgress(null);
+    }
+  }, [displayedStep, pdfUploadProgress, showModal]);
 
   const buildSearchQuery = (input: string) => {
     const trimmed = input.trim();
@@ -1130,60 +1132,124 @@ export function CorporateInfoSection({
     setIsUploading(true);
     setError(null);
     setFetchResult(null);
+    setModalStep("configure");
+    setDisplayedStep("configure");
+    setIsStepTransitioning(false);
+    setPdfUploadProgress(
+      pdfDraft.uploadFiles.map((file) => ({
+        file,
+        status: "waiting",
+      }))
+    );
 
     try {
-      const formData = new FormData();
-      for (const file of pdfDraft.uploadFiles) {
-        formData.append("files", file);
-      }
+      const allItems: BatchUploadItem[] = [];
+      let totalChunks = 0;
 
-      const response = await fetch(`/api/companies/${companyId}/fetch-corporate-upload`, {
-        method: "POST",
-        credentials: "include",
-        body: formData,
-      });
-
-      if (response.status === 402) {
-        const uiError = await parseApiErrorResponse(
-          response,
-          {
-            code: "CORPORATE_UPLOAD_LIMIT_REACHED",
-            userMessage: "この操作は現在利用できませんでした。",
-            action: "プランや残高を確認して、もう一度お試しください。",
-          },
-          "CorporateInfoSection.handleUploadPdf"
+      for (const [index, file] of pdfDraft.uploadFiles.entries()) {
+        setPdfUploadProgress((prev) =>
+          prev?.map((progress, progressIndex) =>
+            progressIndex === index ? { ...progress, status: "uploading", error: undefined } : progress
+          ) ?? null
         );
-        setError(uiError.message);
-        return;
+
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+
+          const response = await fetch(`/api/companies/${companyId}/fetch-corporate-upload`, {
+            method: "POST",
+            credentials: "include",
+            body: formData,
+          });
+
+          if (!response.ok) {
+            throw await parseApiErrorResponse(
+              response,
+              {
+                code: "CORPORATE_UPLOAD_FAILED",
+                userMessage: "PDFを取り込めませんでした。",
+                action: "ファイルや設定を確認して、もう一度お試しください。",
+                retryable: true,
+              },
+              "CorporateInfoSection.handleUploadPdf"
+            );
+          }
+
+          const result = await response.json();
+          const item: BatchUploadItem = result.items?.[0] || {
+            fileName: file.name,
+            status: "failed",
+            error: "取り込み結果を確認できませんでした。",
+          };
+
+          allItems.push(item);
+          totalChunks += item.chunksStored || 0;
+
+          setPdfUploadProgress((prev) =>
+            prev?.map((progress, progressIndex) =>
+              progressIndex === index
+                ? {
+                    ...progress,
+                    status: item.status === "completed" ? "completed" : "failed",
+                    error: item.error,
+                    result: item,
+                  }
+                : progress
+            ) ?? null
+          );
+        } catch (err) {
+          const uiError = toAppUiError(
+            err,
+            {
+              code: "CORPORATE_UPLOAD_FAILED",
+              userMessage: "PDFを取り込めませんでした。",
+              action: "ファイルや設定を確認して、もう一度お試しください。",
+              retryable: true,
+            },
+            "CorporateInfoSection.handleUploadPdf"
+          );
+          const failedItem: BatchUploadItem = {
+            fileName: file.name,
+            status: "failed",
+            error: uiError.message,
+          };
+
+          allItems.push(failedItem);
+          setPdfUploadProgress((prev) =>
+            prev?.map((progress, progressIndex) =>
+              progressIndex === index
+                ? {
+                    ...progress,
+                    status: "failed",
+                    error: uiError.message,
+                    result: failedItem,
+                  }
+                : progress
+            ) ?? null
+          );
+        }
       }
 
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "CORPORATE_UPLOAD_FAILED",
-            userMessage: "PDFを取り込めませんでした。",
-            action: "ファイルや設定を確認して、もう一度お試しください。",
-            retryable: true,
-          },
-          "CorporateInfoSection.handleUploadPdf"
-        );
-      }
-
-      const result = await response.json();
+      const completedCount = allItems.filter((item) => item.status === "completed").length;
+      const failedCount = allItems.filter((item) => item.status === "failed").length;
+      const skippedLimitCount = allItems.filter((item) => item.status === "skipped_limit").length;
       setFetchResult({
-        success: Boolean(result.success),
-        pagesCrawled: result.summary?.total || pdfDraft.uploadFiles.length,
-        chunksStored: (result.items || []).reduce(
-          (sum: number, item: { chunksStored?: number }) => sum + (item.chunksStored || 0),
-          0
-        ),
-        errors: (result.items || [])
-          .filter((item: { error?: string }) => typeof item.error === "string")
-          .map((item: { error?: string }) => item.error as string),
+        success: completedCount > 0,
+        pagesCrawled: pdfDraft.uploadFiles.length,
+        chunksStored: totalChunks,
+        errors: allItems
+          .filter((item) => typeof item.error === "string")
+          .map((item) => item.error as string),
         sourceLabel: "PDF",
-        summary: result.summary,
-        items: result.items,
+        summary: {
+          total: pdfDraft.uploadFiles.length,
+          completed: completedCount,
+          pending: 0,
+          failed: failedCount,
+          skippedLimit: skippedLimitCount,
+        },
+        items: allItems,
       });
       setModalStep("result");
       await fetchStatus();
@@ -1226,9 +1292,12 @@ export function CorporateInfoSection({
   const openModal = () => {
     setShowModal(true);
     setModalStep("configure");
+    setDisplayedStep("configure");
+    setIsStepTransitioning(false);
     setWebDraft(createInitialWebDraft());
     setUrlDraft(createInitialUrlDraft());
     setPdfDraft(createInitialPdfDraft());
+    setPdfUploadProgress(null);
     setFetchResult(null);
     setError(null);
     setInputMode("web");
@@ -1237,6 +1306,9 @@ export function CorporateInfoSection({
   const closeModal = () => {
     setShowModal(false);
     setModalStep("configure");
+    setDisplayedStep("configure");
+    setIsStepTransitioning(false);
+    setPdfUploadProgress(null);
     setFetchResult(null);
     setError(null);
   };
@@ -1667,8 +1739,13 @@ export function CorporateInfoSection({
               </button>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-hidden">
-              {activeModalStep === "result" && fetchResult && (
+            <div
+              className={cn(
+                "flex-1 min-h-0 overflow-hidden transition-opacity duration-200",
+                isStepTransitioning ? "opacity-0" : "opacity-100"
+              )}
+            >
+              {displayedStep === "result" && fetchResult && (
                 <div className="h-full overflow-y-auto px-4 py-3">
                   <div
                     className={cn(
@@ -1729,7 +1806,7 @@ export function CorporateInfoSection({
                               value: `${fetchResult.summary.completed.toLocaleString("ja-JP")}件`,
                             }
                           : null,
-                        fetchResult.summary
+                        fetchResult.summary && fetchResult.summary.pending > 0
                           ? {
                               label: "OCR保留",
                               value: `${fetchResult.summary.pending.toLocaleString("ja-JP")}件`,
@@ -1767,10 +1844,7 @@ export function CorporateInfoSection({
                     {fetchResult.items && fetchResult.items.length > 0 && (
                       <div className="mt-4 rounded-xl border border-white/70 bg-white/70 px-4 py-3">
                         <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm font-medium text-foreground">PDFごとの結果</p>
-                          <p className="text-xs text-muted-foreground">
-                            OCR保留の資料はバックグラウンドで自動処理されます
-                          </p>
+                          <p className="text-sm font-medium text-foreground">各ファイルの取り込み結果</p>
                         </div>
                         <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
                           {fetchResult.items.map((item) => {
@@ -1839,7 +1913,7 @@ export function CorporateInfoSection({
                 </div>
               )}
 
-              {activeModalStep !== "result" && (
+              {displayedStep !== "result" && (
                 <div className="flex h-full min-h-0 flex-col px-3 py-2.5 sm:px-4">
                   <div className="space-y-1.5">
                     <div className="rounded-lg border border-border/50 bg-muted/15 p-0.5">
@@ -2122,23 +2196,30 @@ export function CorporateInfoSection({
                         </div>
                         <div
                           className={cn(
-                            "mt-2.5 flex cursor-pointer flex-col items-center overflow-hidden rounded-lg border-2 border-dashed transition-colors",
-                            pdfDraft.uploadFiles.length > 0
-                              ? "border-primary/40 bg-primary/5 px-3 py-3"
-                              : "min-h-[140px] justify-center border-border/80 bg-muted/10 p-5 hover:border-primary/30 hover:bg-primary/5"
+                            "mt-2.5 flex flex-col items-center overflow-hidden rounded-lg border-2 border-dashed transition-colors",
+                            pdfUploadProgress
+                              ? "border-primary/30 bg-primary/5 px-3 py-3"
+                              : pdfDraft.uploadFiles.length > 0
+                                ? "cursor-pointer border-primary/40 bg-primary/5 px-3 py-3"
+                                : "min-h-[140px] cursor-pointer justify-center border-border/80 bg-muted/10 p-5 hover:border-primary/30 hover:bg-primary/5"
                           )}
                           onDragOver={(e) => {
+                            if (pdfUploadProgress || isUploading) return;
                             e.preventDefault();
                             e.stopPropagation();
                           }}
                           onDrop={(e) => {
+                            if (pdfUploadProgress || isUploading) return;
                             e.preventDefault();
                             e.stopPropagation();
                             setPdfDraft((prev) => ({
                               uploadFiles: mergePdfFiles(e.dataTransfer.files, prev.uploadFiles),
                             }));
                           }}
-                          onClick={() => document.getElementById(pdfUploadInputId)?.click()}
+                          onClick={() => {
+                            if (pdfUploadProgress || isUploading) return;
+                            document.getElementById(pdfUploadInputId)?.click();
+                          }}
                         >
                           <input
                             id={pdfUploadInputId}
@@ -2153,7 +2234,81 @@ export function CorporateInfoSection({
                             disabled={isUploading || isFetching || isSearching}
                             className="hidden"
                           />
-                          {pdfDraft.uploadFiles.length > 0 ? (
+                          {pdfUploadProgress ? (
+                            <div className="w-full space-y-3">
+                              <div>
+                                <p className="text-sm font-semibold text-foreground">PDF取り込み中</p>
+                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                  {
+                                    pdfUploadProgress.filter(
+                                      (item) =>
+                                        item.status === "completed" || item.status === "failed"
+                                    ).length
+                                  }
+                                  /{pdfUploadProgress.length} ファイル完了
+                                </p>
+                              </div>
+                              <div className="h-2 rounded-full bg-muted">
+                                <div
+                                  className="h-2 rounded-full bg-primary transition-all duration-300"
+                                  style={{
+                                    width: `${
+                                      (pdfUploadProgress.filter(
+                                        (item) =>
+                                          item.status === "completed" || item.status === "failed"
+                                      ).length /
+                                        Math.max(pdfUploadProgress.length, 1)) *
+                                      100
+                                    }%`,
+                                  }}
+                                />
+                              </div>
+                              <div className="max-h-60 space-y-1.5 overflow-y-auto overflow-x-hidden">
+                                {pdfUploadProgress.map((progress) => {
+                                  const meta = getPdfFileStatusMeta(progress.status);
+                                  return (
+                                    <div
+                                      key={`${progress.file.name}-${progress.file.size}-${progress.file.lastModified}`}
+                                      className="flex items-center gap-2 rounded-md border border-border/70 bg-background/80 px-2.5 py-2"
+                                    >
+                                      <div
+                                        className={cn(
+                                          "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border",
+                                          progress.status === "completed"
+                                            ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+                                            : progress.status === "failed"
+                                              ? "border-destructive/20 bg-destructive/5 text-destructive"
+                                              : progress.status === "uploading"
+                                                ? "border-primary/20 bg-primary/5 text-primary"
+                                                : "border-border/70 bg-muted/30 text-muted-foreground"
+                                        )}
+                                      >
+                                        {progress.status === "uploading" ? (
+                                          <LoadingSpinner className="h-3.5 w-3.5" />
+                                        ) : progress.status === "completed" ? (
+                                          <CheckIcon />
+                                        ) : progress.status === "failed" ? (
+                                          <XIcon />
+                                        ) : (
+                                          <span className="h-2 w-2 rounded-full bg-current" />
+                                        )}
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <p className="truncate text-xs font-medium text-foreground">
+                                          {progress.file.name}
+                                        </p>
+                                        <p className={cn("text-[10px]", meta.className)}>
+                                          {progress.status === "failed" && progress.error
+                                            ? progress.error
+                                            : meta.label}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : pdfDraft.uploadFiles.length > 0 ? (
                             <div className="w-full space-y-2">
                               <p className="text-center text-sm font-medium text-foreground">
                                 {pdfDraft.uploadFiles.length}件のPDFを選択中
@@ -2190,7 +2345,7 @@ export function CorporateInfoSection({
                                 ))}
                               </div>
                               <p className="text-center text-[11px] text-muted-foreground">
-                                OCRが必要なPDFは保留登録し、後から自動で取り込みます。
+                                OCRが必要なPDFがある場合、通常より時間がかかることがあります（1ファイルあたり5〜15秒）
                               </p>
                             </div>
                           ) : (
@@ -2209,7 +2364,7 @@ export function CorporateInfoSection({
                             </div>
                           )}
                         </div>
-                        {pdfDraft.uploadFiles.length > 0 && (
+                        {!pdfUploadProgress && pdfDraft.uploadFiles.length > 0 && (
                           <div className="mt-2.5 flex items-center justify-end gap-2">
                             <Button
                               type="button"
@@ -2249,7 +2404,7 @@ export function CorporateInfoSection({
               )}
             </div>
 
-            {activeModalStep !== "result" && (
+            {!isResultDisplayed && (
               <div className="border-t bg-muted/15 px-4 py-2.5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                   <div className="min-w-0 flex-1">

@@ -25,6 +25,8 @@ ES添削時に企業固有のコンテキストを提供するRAG（Retrieval-Au
 - **上限付き待機**: pre-stream 補強は time budget 内でだけ待機し、間に合わない場合は既存 source で安全に続行する
 - **インターン設問の追加補強**: `intern_reason` / `intern_goals` では `company + intern_name + question` の second pass を 1 回だけ走らせ、募集ページや社員インタビューを優先する
 - **employee_interviews の候補制御**: official root 採用トップは社員インタビュー候補に入れない
+- **same-company 検証**: ES 添削に使う根拠は official domain として検証できた source だけを採用する
+- **短社名ガード**: `Sky` のような短社名は dotted domain 明示登録を優先し、foreign domain や shared token domain を同一企業根拠として使わない
 - **二次情報の扱い**: 高信頼な二次情報は検索語補助には使うが、出典表示や本文根拠には使わない
 - **coverage-driven 補強**: 既存 coverage が薄い content type を優先し、broad role では `事業理解 / 成長機会 / 価値観 / 将来接続` の theme を増やす
 
@@ -50,8 +52,17 @@ root の採用トップや generic page しか取れていない場合は、`gro
 
 - root path ではない
 - URL / title / snippet のいずれかに `interview`, `voice`, `people`, `member`, `staff`, `先輩社員`, `社員の声`, `働く人` の強い signal がある
+- `Investors`, `IR`, `統合報告`, `会社概要`, `企業データ` などの signal があるページは採らない
 
 したがって、`career-mc.com/` のような generic root 採用トップは `employee_interviews` 候補から除外する。
+
+### same-company coverage ルール
+
+- `evidence_coverage_level` は件数ベースではなく、same-company 検証済み evidence card だけで判定する
+- `employee_interviews` から弾かれた official page でも、`ir_materials` や `midterm_plan` として検証済みなら company evidence に使える
+- company mismatch source が混ざった場合は rewrite 前に安全弁を適用する
+  - safe evidence が残る: `effective_company_grounding_policy=assistive`
+  - safe evidence が残らない: `effective_grounding_mode=none`
 
 ---
 

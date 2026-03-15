@@ -3,6 +3,7 @@ from app.routers.es_review import (
     _assess_company_evidence_coverage,
     _build_company_evidence_cards,
     _evaluate_template_rag_availability,
+    _filter_verified_company_rag_sources,
 )
 
 
@@ -96,3 +97,68 @@ def test_company_evidence_coverage_is_scored_for_assistive_templates() -> None:
 
     assert level in {"weak", "partial"}
     assert weak_notice is False
+
+
+def test_company_evidence_coverage_ignores_unverified_cards() -> None:
+    level, weak_notice = _assess_company_evidence_coverage(
+        template_type="company_motivation",
+        role_name="SE",
+        company_rag_available=True,
+        company_evidence_cards=[
+            {
+                "theme": "事業理解",
+                "claim": "投資家向け情報",
+                "excerpt": "別企業のIR情報",
+                "same_company_verified": False,
+            }
+        ],
+        grounding_mode="company_general",
+    )
+
+    assert level == "none"
+    assert weak_notice is True
+
+
+def test_filter_verified_company_rag_sources_rejects_foreign_sky_domain() -> None:
+    verified, rejected, has_mismatch = _filter_verified_company_rag_sources(
+        [
+            {
+                "content_type": "corporate_site",
+                "title": "企業データ",
+                "excerpt": "Ｓｋｙ株式会社の事業データ",
+                "source_url": "https://www.skygroup.jp/company/data/",
+            },
+            {
+                "content_type": "ir_materials",
+                "title": "Investors",
+                "excerpt": "Comcast Corporation",
+                "source_url": "https://www.skygroup.sky/about/our-governance/investors",
+            },
+        ],
+        company_name="Sky",
+    )
+
+    assert has_mismatch is True
+    assert len(verified) == 1
+    assert verified[0]["same_company_verified"] is True
+    assert len(rejected) == 1
+    assert rejected[0]["validation_reason"] == "same_company_unverified"
+
+
+def test_filter_verified_company_rag_sources_rejects_ir_page_from_employee_interviews() -> None:
+    verified, rejected, has_mismatch = _filter_verified_company_rag_sources(
+        [
+            {
+                "content_type": "employee_interviews",
+                "title": "Investors",
+                "excerpt": "投資家向け情報",
+                "source_url": "https://www.skygroup.jp/ir/investors/",
+            }
+        ],
+        company_name="Sky",
+    )
+
+    assert has_mismatch is False
+    assert verified == []
+    assert len(rejected) == 1
+    assert rejected[0]["validation_reason"] == "employee_wrong_topic"
