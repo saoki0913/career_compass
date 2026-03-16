@@ -512,6 +512,7 @@ def test_validate_rewrite_candidate_allows_soft_min_for_short_answer(monkeypatch
         char_max=200,
         issues=[],
         role_name="Business Intelligence",
+        intern_name="Business Intelligence Internship",
         grounding_mode="company_general",
         company_evidence_cards=[
             {
@@ -549,6 +550,7 @@ def test_validate_rewrite_candidate_rejects_qwen_past_heavy_post_join_goals(
         char_max=200,
         issues=[],
         role_name="総合職",
+        intern_name=None,
         grounding_mode="company_general",
         company_evidence_cards=[
             {
@@ -950,7 +952,7 @@ async def test_review_section_with_template_deterministically_expands_best_non_c
         progress_queue=None,
     )
 
-    assert rewrite_calls == 1
+    assert rewrite_calls == 3
     assert result.review_meta is not None
     assert result.review_meta.length_fix_attempted is False
     assert 390 <= len(result.rewrites[0]) <= 400
@@ -1654,6 +1656,7 @@ def test_build_qwen_timeout_fallback_rewrite_handles_required_medium_and_long_le
         char_max=200,
         issues=[],
         role_name="デジタル企画",
+        intern_name=None,
         grounding_mode="role_grounded",
         company_evidence_cards=company_cards,
         review_variant="qwen3-beta",
@@ -1680,6 +1683,7 @@ def test_build_qwen_timeout_fallback_rewrite_handles_required_medium_and_long_le
         char_max=400,
         issues=[],
         role_name="デジタル企画",
+        intern_name=None,
         grounding_mode="role_grounded",
         company_evidence_cards=company_cards,
         review_variant="qwen3-beta",
@@ -1689,6 +1693,87 @@ def test_build_qwen_timeout_fallback_rewrite_handles_required_medium_and_long_le
     assert 190 <= len(medium_validated) <= 200
     assert long_validated is not None
     assert 390 <= len(long_validated) <= 400
+
+
+def test_validate_rewrite_candidate_rejects_verbose_question_repeat_opening(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.es_review._validate_reference_distance",
+        lambda *args, **kwargs: (True, None),
+    )
+
+    candidate, code, reason, meta = _validate_rewrite_candidate(
+        (
+            "私が三菱商事を志望する理由は、貴社を志望する理由として社会に大きな価値を届けたいからである。"
+            "研究では仮説を立てて検証し、関係者と論点を整理しながら前進させてきた。"
+            "成長領域で事業を動かす貴社で、この力を価値創出につなげたい。"
+        ),
+        template_type="company_motivation",
+        question="三菱商事を志望する理由を教えてください。",
+        company_name="三菱商事",
+        char_min=120,
+        char_max=200,
+        issues=[],
+        role_name="総合職",
+        intern_name=None,
+        grounding_mode="company_general",
+        company_evidence_cards=[
+            {
+                "theme": "事業理解",
+                "claim": "成長領域への投資を進める",
+                "excerpt": "社会課題に向き合う",
+            }
+        ],
+    )
+
+    assert candidate is None
+    assert code == "verbose_opening"
+    assert "設問の冒頭表現を繰り返さず" in reason
+    assert meta == {}
+
+
+def test_validate_rewrite_candidate_requires_first_sentence_answer_focus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.es_review._validate_reference_distance",
+        lambda *args, **kwargs: (True, None),
+    )
+
+    candidate, code, reason, meta = _validate_rewrite_candidate(
+        (
+            "大学では学園祭運営で関係者調整を担い、課題を構造化して前進させてきた。"
+            "この経験から、事業部門と開発をつなぎながら価値を生むデジタル企画を志望する。"
+            "現場の論点を整理し、関係者を巻き込みながら実装まで前に進めたい。"
+        ),
+        template_type="role_course_reason",
+        question="デジタル企画コースを選択した理由を教えてください。",
+        company_name="三菱商事",
+        char_min=120,
+        char_max=220,
+        issues=[],
+        role_name="デジタル企画",
+        intern_name=None,
+        grounding_mode="role_grounded",
+        company_evidence_cards=[
+            {
+                "theme": "役割理解",
+                "claim": "事業部門と開発をつなぐ",
+                "excerpt": "現場課題を価値に変える",
+            },
+            {
+                "theme": "事業理解",
+                "claim": "成長領域への投資を進める",
+                "excerpt": "社会課題に向き合う",
+            },
+        ],
+    )
+
+    assert candidate is None
+    assert code == "answer_focus"
+    assert "1文目で" in reason
+    assert meta == {}
 
 
 @pytest.mark.asyncio

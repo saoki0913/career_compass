@@ -16,9 +16,11 @@ import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import {
   detectContentTypeFromUrl,
+  inferTrustedForEsReview,
   parseCorporateInfoSources,
   serializeCorporateInfoSources,
   type CorporateInfoSource,
+  type CorporateInfoSourceType,
 } from "@/lib/company-info/sources";
 
 // FastAPI backend URL
@@ -39,6 +41,13 @@ interface CrawlResult {
   chunks_stored: number;
   errors: string[];
   url_content_types?: Record<string, string>;
+}
+
+interface SourceMetadataInput {
+  sourceType?: CorporateInfoSourceType;
+  relationCompanyName?: string | null;
+  parentAllowed?: boolean;
+  trustedForEsReview?: boolean;
 }
 
 async function getAuthenticatedUser(): Promise<{ userId: string; plan: "free" | "standard" | "pro" } | null> {
@@ -84,11 +93,12 @@ export async function POST(
 
     // Get request body
     const body = await request.json();
-    const { urls, contentType, contentChannel, sourceOrigin } = body as {
+    const { urls, contentType, contentChannel, sourceOrigin, sourceMetadata } = body as {
       urls: string[];
       contentType?: string; // 9-category content type (e.g., new_grad_recruitment, ir_materials)
       contentChannel?: "corporate_ir" | "corporate_business" | "corporate_general";
       sourceOrigin?: "manual_user" | "prestream_enrichment";
+      sourceMetadata?: Record<string, SourceMetadataInput>;
     };
     if (!urls || !Array.isArray(urls) || urls.length === 0) {
       return NextResponse.json(
@@ -195,11 +205,14 @@ export async function POST(
     const urlContentTypes = crawlResult.url_content_types || {};
     const newUrls: CorporateInfoSource[] = uniqueRequestedUrls
       .map((url) => {
+        const metadata = sourceMetadata?.[url];
         const resolvedContentType =
           (urlContentTypes[url] as CorporateInfoSource["contentType"]) ||
           (contentTypeResolved as CorporateInfoSource["contentType"]) ||
           detectContentTypeFromUrl(url) ||
           "corporate_site";
+        const sourceType = metadata?.sourceType;
+        const parentAllowed = metadata?.parentAllowed === true;
 
         return {
           url,
@@ -209,6 +222,17 @@ export async function POST(
           secondaryContentTypes: [],
           fetchedAt: new Date().toISOString(),
           status: "completed",
+          sourceType,
+          relationCompanyName:
+            typeof metadata?.relationCompanyName === "string" ? metadata.relationCompanyName : undefined,
+          parentAllowed,
+          trustedForEsReview: inferTrustedForEsReview({
+            kind: "url",
+            url,
+            sourceType,
+            parentAllowed,
+            trustedForEsReview: metadata?.trustedForEsReview,
+          }),
         };
       });
 
@@ -220,6 +244,7 @@ export async function POST(
           secondaryContentTypes: Array.isArray(entry.secondaryContentTypes)
             ? entry.secondaryContentTypes
             : [],
+          trustedForEsReview: inferTrustedForEsReview(entry),
         };
       }
       return {
@@ -230,6 +255,7 @@ export async function POST(
         secondaryContentTypes: Array.isArray(entry.secondaryContentTypes)
           ? entry.secondaryContentTypes
           : [],
+        trustedForEsReview: inferTrustedForEsReview(entry),
       };
     });
 
@@ -328,6 +354,7 @@ export async function GET(
         return {
           ...entry,
           contentType: urlBackfilledType,
+          trustedForEsReview: inferTrustedForEsReview(entry),
         };
       }
 
@@ -356,6 +383,7 @@ export async function GET(
         extractedChars: job.extractedChars || entry.extractedChars,
         extractionMethod: job.extractionMethod || entry.extractionMethod,
         updatedAt: job.updatedAt?.toISOString() || entry.updatedAt,
+        trustedForEsReview: inferTrustedForEsReview(entry),
       };
     });
 

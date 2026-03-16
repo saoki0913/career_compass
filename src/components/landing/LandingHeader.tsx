@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 
 const navLinks = [
   { label: "機能", href: "#features" },
-  { label: "使い方", href: "#how-it-works" },
   { label: "料金", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
 ] as const;
@@ -85,7 +84,7 @@ export function LandingHeader() {
                 </Button>
                 <Button size="sm" asChild className="h-9 landing-cta-btn">
                   <Link href="/login">
-                    今すぐ無料で試す
+                    無料で始める
                     <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                   </Link>
                 </Button>
@@ -127,7 +126,7 @@ export function LandingHeader() {
                 <>
                   <Button asChild className="h-11 w-full landing-cta-btn">
                     <Link href="/login" onClick={handleNavClick}>
-                      今すぐ無料で試す
+                      無料で始める
                     </Link>
                   </Button>
                   <Button variant="outline" asChild className="h-11 w-full">

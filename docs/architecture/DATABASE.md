@@ -137,6 +137,7 @@ export const users = pgTable("users", {
 | `tasks` | タスク管理 |
 | `notifications` | 通知 |
 | `calendar_events` | カレンダーイベント |
+| `calendar_sync_jobs` | Google カレンダー同期ジョブ |
 
 ### 課金・クレジット
 
@@ -152,6 +153,17 @@ export const users = pgTable("users", {
 ## 6. ER図（主要テーブル）
 
 ```
+
+## 7. カレンダー関連の補足
+
+- `calendar_settings`
+  - Google 連携状態、追加先カレンダー、freebusy 対象、OAuth token 情報を保持
+- `deadlines`
+  - `google_calendar_id`, `google_event_id`, `google_sync_status` などを持ち、締切の Google ミラー状態を保持
+- `calendar_events`
+  - 作業ブロックの Google ミラー状態を保持
+- `calendar_sync_jobs`
+  - 締切 / 作業ブロックの `upsert` / `delete` を非同期で処理するキュー
 ┌─────────────┐       ┌─────────────┐       ┌─────────────┐
 │    users    │───┬──▶│  companies  │───┬──▶│ applications│
 └─────────────┘   │   └─────────────┘   │   └─────────────┘

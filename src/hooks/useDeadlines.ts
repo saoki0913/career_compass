@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
@@ -46,12 +47,17 @@ function buildHeaders(): Record<string, string> {
 }
 
 export function useDeadlines(days: number = 7) {
+  const { isLoading: isAuthLoading } = useAuth();
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
   const [count, setCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchDeadlines = useCallback(async () => {
+    if (isAuthLoading) {
+      return;
+    }
+
     try {
       setIsLoading(true);
       setError(null);
@@ -98,16 +104,19 @@ export function useDeadlines(days: number = 7) {
     } finally {
       setIsLoading(false);
     }
-  }, [days]);
+  }, [days, isAuthLoading]);
 
   useEffect(() => {
+    if (isAuthLoading) {
+      return;
+    }
     fetchDeadlines();
-  }, [fetchDeadlines]);
+  }, [fetchDeadlines, isAuthLoading]);
 
   return {
     deadlines,
     count,
-    isLoading,
+    isLoading: isAuthLoading || isLoading,
     error,
     refresh: fetchDeadlines,
   };

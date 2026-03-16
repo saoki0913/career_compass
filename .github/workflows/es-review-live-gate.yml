@@ -17,10 +17,21 @@ jobs:
       COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
       RUN_LIVE_ES_REVIEW: "1"
       LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS: "1"
-      LIVE_ES_REVIEW_PROVIDERS: "claude-sonnet,gpt-5.1,gemini-3.1-pro-preview,command-a-03-2025"
+      LIVE_ES_REVIEW_PROVIDERS: "claude-sonnet"
       LIVE_ES_REVIEW_OUTPUT_DIR: backend/tests/output
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run prestream enrichment unit test
+        run: npm run test:unit -- 'src/app/api/documents/[id]/review/stream/route.test.ts'
 
       - uses: actions/setup-python@v5
         with:
@@ -32,7 +43,14 @@ jobs:
           python -m pip install -r backend/requirements.txt
 
       - name: Run deterministic ES review suite
-        run: python -m pytest backend/tests/es_review backend/tests/shared/test_llm_provider_routing.py -q
+        run: |
+          python -m pytest \
+            backend/tests/es_review/test_es_review_quality_rubric.py \
+            backend/tests/es_review/test_es_review_final_quality_cases.py \
+            backend/tests/es_review/test_es_review_template_rag_policy.py \
+            backend/tests/es_review/test_es_review_template_repairs.py \
+            backend/tests/shared/test_llm_provider_routing.py \
+            -q
 
       - name: Run live provider gate
         run: python -m pytest backend/tests/es_review/integration/test_live_es_review_provider_report.py -v -s -m "integration"

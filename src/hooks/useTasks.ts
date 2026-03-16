@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
@@ -316,11 +317,16 @@ export function useTasks(options: UseTasksOptions = {}) {
 }
 
 export function useTodayTask() {
+  const { isLoading: isAuthLoading } = useAuth();
   const [data, setData] = useState<TodayTask>({ mode: null, task: null });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchTodayTask = useCallback(async () => {
+    if (isAuthLoading) {
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
@@ -331,6 +337,11 @@ export function useTodayTask() {
       });
 
       if (!response.ok) {
+        if (response.status === 401) {
+          setData({ mode: null, task: null });
+          return;
+        }
+
         throw await parseApiErrorResponse(
           response,
           {
@@ -360,11 +371,14 @@ export function useTodayTask() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isAuthLoading]);
 
   useEffect(() => {
+    if (isAuthLoading) {
+      return;
+    }
     fetchTodayTask();
-  }, [fetchTodayTask]);
+  }, [fetchTodayTask, isAuthLoading]);
 
   const markComplete = useCallback(async (): Promise<boolean> => {
     if (!data.task) return false;
@@ -410,7 +424,7 @@ export function useTodayTask() {
 
   return {
     ...data,
-    isLoading,
+    isLoading: isAuthLoading || isLoading,
     error,
     refresh: fetchTodayTask,
     markComplete,

@@ -505,15 +505,15 @@ class TestCompanyInfoConfidenceRules:
         self, company_info_helpers
     ):
         _, score_to_confidence, _ = company_info_helpers
-        assert score_to_confidence(12, "parent") == "medium"
-        assert score_to_confidence(12, "subsidiary") == "medium"
+        assert score_to_confidence(12, "parent") == "low"
+        assert score_to_confidence(12, "subsidiary") == "low"
 
     def test_related_company_confidence_is_capped_in_hybrid_scores(
         self, company_info_helpers
     ):
         _, _, hybrid_score_to_confidence = company_info_helpers
-        assert hybrid_score_to_confidence(0.95, "parent") == "medium"
-        assert hybrid_score_to_confidence(0.95, "subsidiary") == "medium"
+        assert hybrid_score_to_confidence(0.95, "parent") == "low"
+        assert hybrid_score_to_confidence(0.95, "subsidiary") == "low"
 
     def test_official_domain_title_spacing_does_not_trigger_company_mismatch_penalty(self):
         score, breakdown, _ = _score_corporate_candidate_with_breakdown(

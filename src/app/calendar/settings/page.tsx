@@ -62,7 +62,6 @@ export default function CalendarSettingsPage() {
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [targetCalendarId, setTargetCalendarId] = useState<string>("");
   const [freebusyCalendarIds, setFreebusyCalendarIds] = useState<string[]>([]);
-  const [shouldAutoActivateGoogle, setShouldAutoActivateGoogle] = useState(false);
 
   const connectionStatus = settings?.connectionStatus;
 
@@ -129,7 +128,6 @@ export default function CalendarSettingsPage() {
 
     if (connected === "1") {
       toast.success("Googleカレンダーを連携しました");
-      setShouldAutoActivateGoogle(true);
       refresh?.();
       router.replace("/calendar/settings");
       return;
@@ -140,42 +138,6 @@ export default function CalendarSettingsPage() {
       router.replace("/calendar/settings");
     }
   }, [refresh, router]);
-
-  useEffect(() => {
-    if (!shouldAutoActivateGoogle || !connectionStatus?.connected || isSaving || calendarsLoading || !targetCalendarId) {
-      return;
-    }
-
-    const nextTarget = targetCalendarId;
-    const nextFreebusy = freebusyCalendarIds.length > 0 ? freebusyCalendarIds : [nextTarget];
-
-    setShouldAutoActivateGoogle(false);
-    void (async () => {
-      setIsSaving(true);
-      setSaveError(null);
-      try {
-        await updateSettings({
-          provider: "google",
-          targetCalendarId: nextTarget,
-          freebusyCalendarIds: nextFreebusy,
-        });
-        toast.success("Googleカレンダーを有効化しました");
-      } catch (err) {
-        setSaveError(err instanceof Error ? err.message : "Googleカレンダー設定の保存に失敗しました");
-      } finally {
-        setIsSaving(false);
-      }
-    })();
-  }, [
-    calendars,
-    calendarsLoading,
-    connectionStatus?.connected,
-    freebusyCalendarIds,
-    isSaving,
-    shouldAutoActivateGoogle,
-    targetCalendarId,
-    updateSettings,
-  ]);
 
   const showSaved = () => {
     setSaveSuccess(true);

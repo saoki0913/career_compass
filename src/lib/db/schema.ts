@@ -622,8 +622,6 @@ export const calendarEvents = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     deadlineId: text("deadline_id").references(() => deadlines.id, { onDelete: "cascade" }),
     googleCalendarId: text("google_calendar_id"),
-    // Keep the legacy column during rollout so pre-sync rollback can still read old rows.
-    externalEventId: text("external_event_id"),
     googleEventId: text("google_event_id"),
     googleSyncStatus: text("google_sync_status", {
       enum: ["idle", "pending", "synced", "failed", "suppressed"],

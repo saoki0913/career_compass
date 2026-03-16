@@ -13,6 +13,7 @@ interface SearchCandidate {
   confidence: "high" | "medium" | "low";
   sourceType: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
   relationCompanyName?: string | null;
+  parentAllowed?: boolean;
 }
 
 interface BackendSearchCandidate {
@@ -22,6 +23,7 @@ interface BackendSearchCandidate {
   confidence: "high" | "medium" | "low";
   source_type: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
   relation_company_name?: string | null;
+  parent_allowed?: boolean;
 }
 
 interface SearchCorporateResponse {
@@ -148,6 +150,7 @@ export async function POST(
           confidence: c.confidence,
           sourceType: c.source_type,
           relationCompanyName: c.relation_company_name ?? null,
+          parentAllowed: c.parent_allowed === true,
         })).filter((candidate) => {
           if (contentType !== "employee_interviews") {
             return true;

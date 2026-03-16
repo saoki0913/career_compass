@@ -15,6 +15,7 @@ import {
 import {
   CONFIDENCE_META,
   SOURCE_TYPE_META,
+  normalizeSourceConfidence,
 } from "@/lib/company-info/source-badges";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
@@ -1324,7 +1325,10 @@ export function CorporateInfoSection({
 
   const renderCandidateItem = (candidate: SearchCandidate) => {
     const sourceType = candidate.sourceType || "other";
-    const confidence = candidate.confidence || "low";
+    const confidence = normalizeSourceConfidence(
+      sourceType,
+      candidate.confidence
+    );
     const sourceMeta = SOURCE_TYPE_META[sourceType];
     const confidenceMeta = CONFIDENCE_META[confidence];
     const isSelected = webDraft.selectedUrls.includes(candidate.url);

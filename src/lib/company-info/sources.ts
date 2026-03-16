@@ -16,6 +16,13 @@ export type CorporateInfoSourceStatus =
   | "processing"
   | "completed"
   | "failed";
+export type CorporateInfoSourceType =
+  | "official"
+  | "job_site"
+  | "parent"
+  | "subsidiary"
+  | "blog"
+  | "other";
 
 export interface CorporateInfoSource {
   url: string;
@@ -33,6 +40,10 @@ export interface CorporateInfoSource {
   extractedChars?: number;
   extractionMethod?: string;
   updatedAt?: string;
+  sourceType?: CorporateInfoSourceType;
+  relationCompanyName?: string | null;
+  parentAllowed?: boolean;
+  trustedForEsReview?: boolean;
 }
 
 const VALID_CONTENT_TYPES = new Set<ContentType>([
@@ -52,6 +63,15 @@ const VALID_SOURCE_STATUS = new Set<CorporateInfoSourceStatus>([
   "processing",
   "completed",
   "failed",
+]);
+
+const VALID_SOURCE_TYPES = new Set<CorporateInfoSourceType>([
+  "official",
+  "job_site",
+  "parent",
+  "subsidiary",
+  "blog",
+  "other",
 ]);
 
 const CONTENT_TYPE_URL_PATTERNS: Array<{ type: ContentType; patterns: string[] }> = [
@@ -138,6 +158,33 @@ function normalizeSourceStatus(value: unknown): CorporateInfoSourceStatus | unde
     : undefined;
 }
 
+function normalizeSourceType(value: unknown): CorporateInfoSourceType | undefined {
+  if (typeof value !== "string") return undefined;
+  return VALID_SOURCE_TYPES.has(value as CorporateInfoSourceType)
+    ? (value as CorporateInfoSourceType)
+    : undefined;
+}
+
+function normalizeBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+export function inferTrustedForEsReview(source: Pick<
+  CorporateInfoSource,
+  "kind" | "url" | "sourceType" | "parentAllowed" | "trustedForEsReview"
+>): boolean {
+  if (typeof source.trustedForEsReview === "boolean") {
+    return source.trustedForEsReview;
+  }
+  if (source.kind === "upload_pdf" || isUploadSource(source.url)) {
+    return true;
+  }
+  if (source.sourceType === "official") {
+    return true;
+  }
+  return source.sourceType === "parent" && source.parentAllowed === true;
+}
+
 export function parseCorporateInfoSources(raw: string | null | undefined): CorporateInfoSource[] {
   if (!raw || raw === "corporate_info_urls") {
     return [];
@@ -172,6 +219,17 @@ export function parseCorporateInfoSources(raw: string | null | undefined): Corpo
           extractionMethod: typeof entry.extractionMethod === "string" ? entry.extractionMethod : undefined,
           fetchedAt: typeof entry.fetchedAt === "string" ? entry.fetchedAt : undefined,
           updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : undefined,
+          sourceType: normalizeSourceType(entry.sourceType),
+          relationCompanyName:
+            typeof entry.relationCompanyName === "string" ? entry.relationCompanyName : undefined,
+          parentAllowed: normalizeBoolean(entry.parentAllowed),
+          trustedForEsReview: inferTrustedForEsReview({
+            kind: uploadSource ? "upload_pdf" : "url",
+            url: String(entry.url),
+            sourceType: normalizeSourceType(entry.sourceType),
+            parentAllowed: normalizeBoolean(entry.parentAllowed),
+            trustedForEsReview: normalizeBoolean(entry.trustedForEsReview),
+          }),
         } satisfies CorporateInfoSource;
       });
   } catch (error) {

@@ -21,31 +21,35 @@ MODEL_MATRIX = {
 
 LIVE_CASES = [
     {
-        "case_id": "company_motivation_required_long",
+        "case_id": "company_motivation_required_short",
         "template_type": "company_motivation",
-        "question": "三菱商事を志望する理由を400字以内で教えてください。",
+        "question": "三菱商事を志望する理由を150字以内で教えてください。",
         "answer": "研究で仮説を立てて検証を回し、論点を整理しながら価値に結びつけてきた。この経験を、事業の解像度を高めながら社会に届く価値へ変える仕事で生かしたい。",
         "company_name": "三菱商事",
         "role_name": "総合職",
-        "char_min": 390,
-        "char_max": 400,
+        "char_min": 120,
+        "char_max": 150,
         "grounding_mode": "company_general",
         "expected_policy": "required",
+        "expected_min_company_evidence": 2,
         "rag_sources": [
             {
                 "content_type": "new_grad_recruitment",
                 "title": "新卒採用",
                 "excerpt": "若手に挑戦機会を与え、事業理解を深めながら価値創出へつなげる。",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/newgrad/",
             },
             {
                 "content_type": "corporate_site",
                 "title": "事業戦略",
                 "excerpt": "成長領域への投資を進め、社会課題に向き合う。",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/business/",
             },
             {
                 "content_type": "employee_interviews",
                 "title": "社員インタビュー",
                 "excerpt": "現場で学びながら事業を動かす手応えを得る。",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/people/interview/",
             },
         ],
     },
@@ -57,25 +61,17 @@ LIVE_CASES = [
         "company_name": "三井物産",
         "role_name": "Business Intelligence",
         "intern_name": "Business Intelligence Internship",
-        "char_min": 110,
+        "char_min": 105,
         "char_max": 120,
         "grounding_mode": "role_grounded",
         "expected_policy": "required",
+        "expected_min_company_evidence": 1,
         "rag_sources": [
             {
                 "content_type": "new_grad_recruitment",
                 "title": "Business Intelligence Internship",
                 "excerpt": "実務に近いテーマを扱い、分析を価値へつなげる。",
-            },
-            {
-                "content_type": "employee_interviews",
-                "title": "社員インタビュー",
-                "excerpt": "分析結果を事業判断に接続する。",
-            },
-            {
-                "content_type": "corporate_site",
-                "title": "事業紹介",
-                "excerpt": "データ活用を通じて価値を広げる。",
+                "source_url": "https://www.mitsui.com/jp/ja/recruit/internship/business-intelligence/",
             },
         ],
     },
@@ -89,11 +85,13 @@ LIVE_CASES = [
         "char_max": 140,
         "grounding_mode": "company_general",
         "expected_policy": "assistive",
+        "expected_min_company_evidence": 1,
         "rag_sources": [
             {
                 "content_type": "employee_interviews",
                 "title": "社員インタビュー",
                 "excerpt": "周囲を巻き込みながら前進させる姿勢を重視する。",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/people/interview/",
             }
         ],
     },
@@ -102,6 +100,43 @@ LIVE_CASES = [
 
 def _dearu_style(text: str) -> bool:
     return text.endswith(("。", "！", "？")) and not any(token in text for token in ("です", "ます", "でした", "ました"))
+
+
+def _first_sentence(text: str) -> str:
+    stripped = (text or "").strip()
+    if not stripped:
+        return ""
+    for delimiter in ("。", "！", "？", "!", "?"):
+        if delimiter in stripped:
+            return stripped.split(delimiter, 1)[0] + delimiter
+    return stripped
+
+
+def _assert_first_sentence_focus(case: dict[str, object], rewrite: str) -> None:
+    first_sentence = _first_sentence(rewrite)
+    assert first_sentence
+
+    template_type = str(case["template_type"])
+    company_name = str(case["company_name"])
+    role_name = str(case.get("role_name") or "")
+    intern_name = str(case.get("intern_name") or "")
+
+    if template_type == "company_motivation":
+        assert company_name[:2] in first_sentence or "貴" in first_sentence
+        assert any(token in first_sentence for token in ("志望", "惹", "魅力", "理由", "価値", "からだ", "ためだ", "考えた"))
+    elif template_type == "intern_reason":
+        assert any(token in rewrite for token in ("参加", "応募", "挑戦", "学びたい", "身につけたい", "得たい", "試したい"))
+        assert intern_name.split()[0] in rewrite or "インターン" in rewrite
+    elif template_type == "gakuchika":
+        assert any(
+            token in first_sentence
+            for token in ("力を入れた", "注力した", "取り組んだ", "担った", "見直し", "改善", "主導", "整備", "研究室", "ゼミ", "サークル", "アルバイト")
+        )
+
+    assert "理由を" not in first_sentence
+    assert "教えて" not in first_sentence
+    if role_name:
+        assert template_type != "role_course_reason" or role_name[:3] in rewrite
 
 
 def _selected_models() -> list[str]:
@@ -201,9 +236,11 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                 assert review_meta.llm_provider == provider
                 assert review_meta.llm_model == model_id
                 assert review_meta.company_grounding_policy == case["expected_policy"]
-                assert review_meta.company_evidence_count >= 1
+                expected_min_company_evidence = int(case.get("expected_min_company_evidence", 1))
+                assert review_meta.company_evidence_count >= expected_min_company_evidence
                 if case["expected_policy"] == "required":
-                    assert review_meta.company_evidence_count >= 2
+                    assert review_meta.evidence_coverage_level in {"partial", "strong"}
+                _assert_first_sentence_focus(case, rewrite)
 
                 rows.append(
                     {

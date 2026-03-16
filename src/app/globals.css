@@ -56,6 +56,7 @@
   --color-accent-coral: var(--accent-coral);
   --color-accent-teal: var(--accent-teal);
   --color-accent-yellow: var(--accent-yellow);
+  --color-accent-growth: var(--accent-growth);
 
   /* Sidebar colors */
   --color-sidebar: var(--sidebar);
@@ -86,7 +87,7 @@
   --line-height-normal: 1.5;
   --line-height-relaxed: 1.65;
 
-  /* Color Palette - Pop & Energetic */
+  /* Original Color Palette - Purple & Yellow */
   --background: oklch(0.985 0.002 240);
   --foreground: oklch(0.145 0.02 265);
   --card: oklch(1 0 0);
@@ -94,8 +95,8 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0.02 265);
 
-  /* Primary - Brighter purple */
-  --primary: oklch(0.58 0.22 265);
+  /* Primary - Original purple */
+  --primary: oklch(0.55 0.2 265);
   --primary-foreground: oklch(0.99 0 0);
 
   /* Secondary */
@@ -111,9 +112,12 @@
   --accent-foreground: oklch(0.99 0 0);
 
   /* Feature accent colors */
-  --accent-coral: oklch(0.72 0.20 25);
-  --accent-teal: oklch(0.70 0.15 175);
-  --accent-yellow: oklch(0.85 0.18 85);
+  --accent-coral: oklch(0.70 0.17 25);
+  --accent-teal: oklch(0.65 0.14 170);
+  --accent-yellow: oklch(0.82 0.15 85);
+
+  /* Growth accent - for progress/journey */
+  --accent-growth: oklch(0.62 0.16 155);
 
   /* Destructive */
   --destructive: oklch(0.55 0.24 25);
@@ -122,7 +126,7 @@
   /* Borders & Inputs */
   --border: oklch(0.92 0.005 265);
   --input: oklch(0.92 0.005 265);
-  --ring: oklch(0.58 0.22 265);
+  --ring: oklch(0.55 0.2 265);
 
   /* Success state */
   --success: oklch(0.55 0.18 145);
@@ -137,7 +141,7 @@
   --info-foreground: oklch(0.99 0 0);
 
   /* Chart colors */
-  --chart-1: oklch(0.58 0.22 265);
+  --chart-1: oklch(0.55 0.2 265);
   --chart-2: oklch(0.7 0.18 45);
   --chart-3: oklch(0.55 0.18 145);
   --chart-4: oklch(0.55 0.15 230);
@@ -146,12 +150,12 @@
   /* Sidebar */
   --sidebar: oklch(0.99 0.003 265);
   --sidebar-foreground: oklch(0.145 0.02 265);
-  --sidebar-primary: oklch(0.58 0.22 265);
+  --sidebar-primary: oklch(0.55 0.2 265);
   --sidebar-primary-foreground: oklch(0.99 0 0);
   --sidebar-accent: oklch(0.96 0.01 265);
   --sidebar-accent-foreground: oklch(0.25 0.02 265);
   --sidebar-border: oklch(0.92 0.005 265);
-  --sidebar-ring: oklch(0.58 0.22 265);
+  --sidebar-ring: oklch(0.55 0.2 265);
 }
 
 .dark {
@@ -164,7 +168,7 @@
   --popover-foreground: oklch(0.96 0.005 265);
 
   /* Primary */
-  --primary: oklch(0.68 0.20 265);
+  --primary: oklch(0.65 0.18 265);
   --primary-foreground: oklch(0.145 0.02 265);
 
   /* Secondary */
@@ -180,9 +184,12 @@
   --accent-foreground: oklch(0.15 0.02 265);
 
   /* Feature accent colors */
-  --accent-coral: oklch(0.75 0.18 25);
-  --accent-teal: oklch(0.72 0.14 175);
-  --accent-yellow: oklch(0.80 0.16 85);
+  --accent-coral: oklch(0.73 0.16 25);
+  --accent-teal: oklch(0.70 0.13 170);
+  --accent-yellow: oklch(0.78 0.14 85);
+
+  /* Growth accent - for progress/journey */
+  --accent-growth: oklch(0.68 0.15 155);
 
   /* Destructive */
   --destructive: oklch(0.65 0.22 25);
@@ -278,15 +285,15 @@
   }
 
   .landing-shell .landing-kicker {
-    @apply inline-flex items-center gap-2 text-[11px] font-bold tracking-[0.16em] text-primary/70;
+    @apply text-sm font-medium tracking-normal text-muted-foreground;
   }
 
   .landing-shell .landing-panel {
-    @apply border border-border/50 bg-card shadow-sm;
+    @apply bg-muted/20 rounded-2xl;
   }
 
   .landing-shell .landing-panel-soft {
-    @apply bg-muted/20;
+    @apply bg-muted/10;
   }
 
   .landing-shell .landing-grid {
@@ -294,7 +301,7 @@
   }
 
   .landing-shell .landing-rule {
-    @apply bg-border/60;
+    @apply bg-border/40;
   }
 }
 
@@ -302,32 +309,6 @@
 @keyframes indeterminate {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(350%); }
-}
-
-/* Landing Page Animations */
-@keyframes float {
-  0%, 100% { transform: translateY(0px) rotate(0deg); }
-  50% { transform: translateY(-20px) rotate(3deg); }
-}
-
-@keyframes float-delayed {
-  0%, 100% { transform: translateY(0px) rotate(0deg); }
-  50% { transform: translateY(-15px) rotate(-2deg); }
-}
-
-@keyframes gradient-shift {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-}
-
-@keyframes pulse-soft {
-  0%, 100% { opacity: 0.4; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.05); }
-}
-
-@keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
 }
 
 @keyframes fade-up {
@@ -372,12 +353,6 @@
   100% { transform: scaleX(1); transform-origin: left; }
 }
 
-/* New Hero Section Animations */
-@keyframes float-gentle {
-  0%, 100% { transform: translateY(0) rotate(0deg); }
-  50% { transform: translateY(-10px) rotate(0.5deg); }
-}
-
 @keyframes reveal-up {
   0% {
     opacity: 0;
@@ -386,17 +361,6 @@
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes slide-in-right {
-  0% {
-    opacity: 0;
-    transform: translateX(60px) rotateY(-10deg);
-  }
-  100% {
-    opacity: 1;
-    transform: translateX(0) rotateY(-5deg);
   }
 }
 
@@ -411,46 +375,7 @@
   }
 }
 
-/* Pop & Energetic animations */
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 oklch(0.58 0.22 265 / 0.4); }
-  50% { box-shadow: 0 0 20px 4px oklch(0.58 0.22 265 / 0.15); }
-}
-
-@keyframes icon-bounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
-}
-
-@keyframes bounce-in {
-  0% { transform: scale(0.95); opacity: 0; }
-  50% { transform: scale(1.02); }
-  100% { transform: scale(1); opacity: 1; }
-}
-
 @layer utilities {
-  .animate-float {
-    animation: float 6s ease-in-out infinite;
-  }
-
-  .animate-float-delayed {
-    animation: float-delayed 8s ease-in-out infinite;
-  }
-
-  .animate-gradient {
-    background-size: 200% 200%;
-    animation: gradient-shift 8s ease infinite;
-  }
-
-  .animate-pulse-soft {
-    animation: pulse-soft 4s ease-in-out infinite;
-  }
-
-  .animate-shimmer {
-    overflow: hidden;
-    animation: shimmer 2s linear infinite;
-  }
-
   .animate-fade-up {
     animation: fade-up 0.6s ease-out forwards;
   }
@@ -463,17 +388,8 @@
     animation: draw-line 1s ease-out forwards;
   }
 
-  /* New Hero animations */
-  .animate-float-gentle {
-    animation: float-gentle 6s ease-in-out infinite;
-  }
-
   .animate-reveal-up {
     animation: reveal-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  }
-
-  .animate-slide-in-right {
-    animation: slide-in-right 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
   .animate-slide-up-fade {
@@ -537,32 +453,18 @@
     animation: message-appear 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
-  /* Pop & Energetic utilities */
-  .animate-pulse-glow {
-    animation: pulse-glow 2s ease-in-out infinite;
-  }
-
-  .animate-icon-bounce {
-    animation: icon-bounce 0.4s ease-in-out;
-  }
-
-  .animate-bounce-in {
-    animation: bounce-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-  }
-
-  /* Landing CTA button gradient */
+  /* Landing CTA button - solid foreground */
   .landing-cta-btn {
-    background: linear-gradient(135deg, oklch(0.58 0.22 265), oklch(0.52 0.24 275));
-    box-shadow: 0 2px 8px oklch(0.58 0.22 265 / 0.3), 0 1px 2px oklch(0 0 0 / 0.1);
-    transition: all 0.2s ease;
+    background: var(--foreground);
+    color: var(--background);
+    transition: opacity 0.2s ease;
   }
 
   .landing-cta-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px oklch(0.58 0.22 265 / 0.4), 0 2px 4px oklch(0 0 0 / 0.1);
+    opacity: 0.85;
   }
 
   .landing-cta-btn:active {
-    transform: translateY(0);
+    opacity: 0.75;
   }
 }

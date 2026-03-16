@@ -6,6 +6,7 @@ import { companies, userProfiles } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import {
+  inferTrustedForEsReview,
   parseCorporateInfoSources,
   serializeCorporateInfoSources,
   type CorporateInfoSource,
@@ -228,6 +229,10 @@ export async function POST(
         chunksStored: uploadResult.chunks_stored,
         extractedChars: uploadResult.extracted_chars,
         extractionMethod: uploadResult.extraction_method,
+        trustedForEsReview: inferTrustedForEsReview({
+          kind: "upload_pdf",
+          url: sourceUrl,
+        }),
       };
 
       try {
