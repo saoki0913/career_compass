@@ -17,8 +17,12 @@
                  www.shupass.jp
                         │
                     ┌────▼────┐
-                    │ お名前   │  DNS (NS → Vercel)
+                    │ お名前   │  registrar
                     │ .com    │
+                    └────┬────┘
+                         │
+                    ┌────▼────┐
+                    │Cloudflare│ authoritative DNS
                     └────┬────┘
                          │
 ┌─────────────┐     ┌───▼──────────┐     ┌─────────┐
@@ -38,8 +42,11 @@
 | コンポーネント | デプロイ先 | ドメイン / パス |
 |---|---|---|
 | フロントエンド | Vercel | `www.shupass.jp` / `/` (ルート) |
+| staging フロントエンド | Vercel | `stg.shupass.jp` |
 | バックエンド | Railway | `*.up.railway.app`（Railway で生成される公開ドメイン） |
+| staging バックエンド | Railway | `stg-api.shupass.jp` |
 | データベース | Supabase (PostgreSQL) | — |
+| staging DB | Supabase (shared production project) | staging / production で同じ project を参照 |
 | ベクトルDB / BM25 | Railway Volume | `/app/data` |
 
 ---
@@ -60,24 +67,40 @@
 
 ## Step 6: develop → main マージ & デプロイ
 
-### 6-1. main ブランチにマージ
+### 6-1. ローカルで昇格準備を完了する
 
 ```bash
-# Makefile コマンドで実行（安全ガード付き）
+# develop ブランチで実行
+make ops-release-check
 make deploy
 ```
 
-または手動で:
+> `make deploy` は `develop` 上で `lint` / `build` を通し、staging 昇格前の最終確認だけを行います。  
+> `main` へのマージや本番デプロイはこのコマンドでは実行しません。CLI の安全ラッパー方針は [CLI_GUARDRAILS.md](../ops/CLI_GUARDRAILS.md) を参照してください。
+
+### 6-2. staging に反映して確認する
 
 ```bash
-git checkout main
-git merge develop
-git push origin main
+git push origin develop
 ```
 
-> `git push` により Vercel と Railway の両方で自動デプロイが開始されます。
+- `develop` への push で staging 用 CI が走る
+- staging 環境 `https://stg.shupass.jp` と `https://stg-api.shupass.jp` が最新 `develop` を反映する
+- Google ログイン、企業作成、canonical、`robots.txt`、`sitemap.xml` を staging で確認する
 
-### 6-2. デプロイ状況の確認
+### 6-3. GitHub で `develop -> main` PR を作成する
+
+- GitHub 上で `develop` から `main` への Pull Request を作成する
+- `main` への PR は `develop` からのみ許可する
+- required checks は `main-promotion-guard` と `develop-ci` を green にする
+
+### 6-4. `main` マージで本番デプロイする
+
+- GitHub 上で PR を merge する
+- `main` への更新だけをトリガーに Vercel / Railway が本番へ自動デプロイする
+- ローカルで `main` を直接更新したり、provider CLI から本番 deploy を実行しない
+
+### 6-5. デプロイ状況の確認
 
 - **Vercel**: https://vercel.com/dashboard → Deployments タブ
 - **Railway**: https://railway.app/dashboard → 対象 Service → Deployments タブ
@@ -92,6 +115,8 @@ git push origin main
 - [ ] **フロントエンド表示**: `https://www.shupass.jp` でページが表示される
 - [ ] **ドメイン SSL**: `https://www.shupass.jp` で証明書が有効（ブラウザの鍵アイコン確認）
 - [ ] **Apex リダイレクト**: `https://shupass.jp` → `https://www.shupass.jp` にリダイレクトされる
+- [ ] **Canonical / OGP**: `https://www.shupass.jp` を返す
+- [ ] **robots / sitemap**: `https://www.shupass.jp` を基準に出力される
 - [ ] **Google ログイン**: ログイン → オンボーディング → ダッシュボード
 - [ ] **企業登録**: 企業を作成し、情報取得が正常に動作する
 - [ ] **ES 添削**: ES を作成 → 添削実行 → スコア・リライト結果表示

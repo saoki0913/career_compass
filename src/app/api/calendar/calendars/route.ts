@@ -7,32 +7,45 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { calendarSettings } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { listCalendars, createCalendar, GoogleCalendarScopeError } from "@/lib/calendar/google";
 import { getValidGoogleCalendarAccessToken } from "@/lib/calendar/connection";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
     });
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "ログインが必要です" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "CALENDAR_LIST_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "calendar-list-auth",
+      });
     }
 
     const { accessToken, status } = await getValidGoogleCalendarAccessToken(session.user.id);
     if (!accessToken) {
-      return NextResponse.json(
-        { error: status.needsReconnect ? "Googleカレンダーの再連携が必要です" : "Google Calendar not connected", code: status.needsReconnect ? "NEED_RECONNECT" : "NOT_CONNECTED" },
-        { status: 403 }
-      );
+      return createApiErrorResponse(request, {
+        status: 403,
+        code: status.needsReconnect ? "NEED_RECONNECT" : "NOT_CONNECTED",
+        userMessage: status.needsReconnect
+          ? "Googleカレンダーの再連携が必要です。"
+          : "Googleカレンダーを連携してください。",
+        action: status.needsReconnect
+          ? "再連携してから、もう一度お試しください。"
+          : "Google カレンダーを連携してから、もう一度お試しください。",
+        developerMessage: status.needsReconnect
+          ? "Google calendar reconnect required"
+          : "Google Calendar not connected",
+        logContext: "calendar-list-connection",
+      });
     }
 
     const calendars = await listCalendars(accessToken);
@@ -46,11 +59,16 @@ export async function GET() {
 
     return NextResponse.json({ calendars: calendarList });
   } catch (error) {
-    console.error("Error listing calendars:", error);
-    return NextResponse.json(
-      { error: "カレンダー一覧の取得に失敗しました" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "CALENDAR_LIST_FETCH_FAILED",
+      userMessage: "カレンダー一覧を読み込めませんでした。",
+      action: "ページを再読み込みして、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Failed to list calendars",
+      logContext: "calendar-list-fetch",
+    });
   }
 }
 
@@ -61,18 +79,33 @@ export async function POST(request: NextRequest) {
     });
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "ログインが必要です" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "CALENDAR_CREATE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "calendar-create-auth",
+      });
     }
 
     const { accessToken, status } = await getValidGoogleCalendarAccessToken(session.user.id);
     if (!accessToken) {
-      return NextResponse.json(
-        { error: status.needsReconnect ? "Googleカレンダーの再連携が必要です" : "Google Calendar not connected", code: status.needsReconnect ? "NEED_RECONNECT" : "NOT_CONNECTED" },
-        { status: 403 }
-      );
+      return createApiErrorResponse(request, {
+        status: 403,
+        code: status.needsReconnect ? "NEED_RECONNECT" : "NOT_CONNECTED",
+        userMessage: status.needsReconnect
+          ? "Googleカレンダーの再連携が必要です。"
+          : "Googleカレンダーを連携してください。",
+        action: status.needsReconnect
+          ? "再連携してから、もう一度お試しください。"
+          : "Google カレンダーを連携してから、もう一度お試しください。",
+        developerMessage: status.needsReconnect
+          ? "Google calendar reconnect required"
+          : "Google Calendar not connected",
+        logContext: "calendar-create-connection",
+      });
     }
 
     const body = await request.json();
@@ -80,34 +113,6 @@ export async function POST(request: NextRequest) {
 
     // Create the calendar in Google
     const newCalendar = await createCalendar(accessToken, name);
-
-    const userId = session.user.id;
-    const [existing] = await db
-      .select()
-      .from(calendarSettings)
-      .where(eq(calendarSettings.userId, userId))
-      .limit(1);
-
-    const now = new Date();
-
-    if (existing) {
-      await db
-        .update(calendarSettings)
-        .set({
-          targetCalendarId: newCalendar.id,
-          updatedAt: now,
-        })
-        .where(eq(calendarSettings.id, existing.id));
-    } else {
-      await db.insert(calendarSettings).values({
-        id: crypto.randomUUID(),
-        userId,
-        provider: "app",
-        targetCalendarId: newCalendar.id,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
 
     return NextResponse.json({
       calendar: {
@@ -119,17 +124,26 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error creating calendar:", error);
     if (error instanceof GoogleCalendarScopeError) {
-      return NextResponse.json(
-        {
-          error: "Googleカレンダーの再連携が必要です。権限が更新されたため、もう一度Google連携してください。",
-          code: "NEED_RECONNECT",
-        },
-        { status: 403 }
-      );
+      return createApiErrorResponse(request, {
+        status: 403,
+        code: "NEED_RECONNECT",
+        userMessage: "Googleカレンダーの再連携が必要です。",
+        action: "再連携してから、もう一度お試しください。",
+        error,
+        developerMessage:
+          "Google calendar reconnect required because granted scopes are outdated",
+        logContext: "calendar-create-reconnect",
+      });
     }
-    return NextResponse.json(
-      { error: "カレンダーの作成に失敗しました" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "CALENDAR_CREATE_FAILED",
+      userMessage: "カレンダーを作成できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Failed to create calendar",
+      logContext: "calendar-create",
+    });
   }
 }

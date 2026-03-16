@@ -13,13 +13,16 @@
 
 再学習なしで品質を上げるときは、まず app 側の Qwen 専用 policy を優先する。
 
+- Qwen β は rewrite-only で動かし、改善ポイント JSON は生成しない
+- `top3` は空配列を返し、UI でも改善ポイントを表示しない
 - short-answer は prompt context を Claude より小さくする
+- reference ES は使わない
 - `post_join_goals` / `intern_goals` / `company_motivation` / `role_course_reason` は Qwen 専用 semantic validator を通す
 - JSON は strict schema、client は non-thinking mode を使う
 - timeout は stage ごとに分離する
-  - improvement JSON: 短く待って fallback
   - rewrite: 長めに待つ
-  - compact rewrite / length-fix: さらに短い timeout を使う
+  - compact rewrite: さらに短い timeout を使う
+  - compact retry も timeout したら deterministic fallback rewrite を返す
 - holdout 評価は `ml/es_review_qwen/scripts/evaluate_holdout.py` で `qwen3-beta` validator を使って確認する
 
 ## Directory
@@ -113,10 +116,8 @@ modal run ml/es_review_qwen/modal/serve_qwen_es_review.py::upload_adapter \
   - `QWEN_ES_REVIEW_MODEL=tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2`
   - `QWEN_ES_REVIEW_ADAPTER_ID=es_review`
   - `QWEN_ES_REVIEW_API_KEY=<same api key as Modal>`
-  - `QWEN_ES_REVIEW_TIMEOUT_IMPROVEMENT_SECONDS=30`
   - `QWEN_ES_REVIEW_TIMEOUT_REWRITE_SECONDS=90`
   - `QWEN_ES_REVIEW_TIMEOUT_COMPACT_REWRITE_SECONDS=45`
-  - `QWEN_ES_REVIEW_TIMEOUT_LENGTH_FIX_SECONDS=20`
   - `QWEN_ES_REVIEW_TOTAL_BUDGET_SECONDS=150`
 - frontend:
   - `NEXT_PUBLIC_QWEN_ES_REVIEW_ENABLED=true`

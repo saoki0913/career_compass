@@ -36,6 +36,8 @@ Vercel は以下の 2 パターンを提示します:
 > - 推奨（本書の前提）: `shupass.jp` → `www.shupass.jp` にリダイレクト（メイン: `www.shupass.jp`）
 > - 逆パターン: `www.shupass.jp` → `shupass.jp` にリダイレクト（メイン: `shupass.jp`）
 
+staging を固定 URL で運用する場合は、別途 `stg.shupass.jp` を staging 用 Vercel project に割り当てる。
+
 ## 0-3. お名前.com で DNS レコードを設定
 
 お名前.com Navi → **ドメイン設定** → **DNS設定/転送設定** → `shupass.jp` → **DNSレコード設定を利用する**

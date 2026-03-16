@@ -56,6 +56,7 @@ export function ProcessingSteps({ steps, isActive, className }: ProcessingStepsP
   useEffect(() => {
     // Reset to first step when becoming inactive
     if (!isActive) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset state between processing runs
       setCurrentStepIndex(0);
       if (timerRef.current) {
         clearTimeout(timerRef.current);

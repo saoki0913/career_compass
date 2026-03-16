@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")"/../lib && pwd)/cli-safe-common.sh"
+
+service="supabase"
+subcommand="${1:-}"
+second="${2:-}"
+
+cli_safe_assert_no_dangerous_flags "$service" "$@"
+
+case "$subcommand" in
+  login|status|start|stop|link)
+    ;;
+  projects)
+    [[ "$second" == "list" ]] || cli_safe_die "$service" "supabase projects は list のみ許可しています。"
+    ;;
+  migration)
+    [[ "$second" == "list" ]] || cli_safe_die "$service" "supabase migration は list のみ許可しています。"
+    ;;
+  gen)
+    [[ "$second" == "types" ]] || cli_safe_die "$service" "supabase gen は types のみ許可しています。"
+    ;;
+  db)
+    cli_safe_die "$service" "supabase db 系の変更操作は安全ラッパーでは許可していません。"
+    ;;
+  "")
+    ;;
+  *)
+    cli_safe_die "$service" "'$subcommand' は許可していません。"
+    ;;
+esac
+
+cli_safe_run "$service" supabase "$@"

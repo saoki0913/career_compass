@@ -13,6 +13,7 @@ import { deadlines, companies, tasks } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { enqueueDeadlineDelete, enqueueDeadlineSync } from "@/lib/calendar/sync";
 
 type DeadlineType =
   | "es_submission"
@@ -344,6 +345,13 @@ export async function PUT(
       .returning();
 
     const d = updated[0];
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
+
+    if (session?.user?.id) {
+      await enqueueDeadlineSync(session.user.id, deadlineId);
+    }
 
     return NextResponse.json({
       success: true,
@@ -358,6 +366,8 @@ export async function PUT(
         isConfirmed: d.isConfirmed,
         confidence: d.confidence,
         sourceUrl: d.sourceUrl,
+        googleSyncStatus: d.googleSyncStatus,
+        googleSyncError: d.googleSyncError,
         completedAt: d.completedAt?.toISOString() || null,
         createdAt: d.createdAt?.toISOString(),
         updatedAt: d.updatedAt?.toISOString(),
@@ -385,6 +395,13 @@ export async function DELETE(
         { error: access.error },
         { status: access.error === "Authentication required" ? 401 : 404 }
       );
+    }
+
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
+    if (session?.user?.id) {
+      await enqueueDeadlineDelete(session.user.id, deadlineId);
     }
 
     await db.delete(deadlines).where(eq(deadlines.id, deadlineId));

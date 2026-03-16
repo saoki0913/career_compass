@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")"/../lib && pwd)/cli-safe-common.sh"
+
+service="railway"
+subcommand="${1:-}"
+
+cli_safe_assert_no_dangerous_flags "$service" "$@"
+
+case "$subcommand" in
+  login|whoami|status|logs|variables|service|environment|link)
+    ;;
+  up|redeploy|delete|down|remove|unlink|init)
+    cli_safe_die "$service" "本番反映や削除につながる railway 操作は許可していません。"
+    ;;
+  "")
+    ;;
+  *)
+    cli_safe_die "$service" "'$subcommand' は許可していません。"
+    ;;
+esac
+
+cli_safe_run "$service" railway "$@"

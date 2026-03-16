@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useCalendarSettings } from "@/hooks/useCalendar";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 interface GoogleCalendar {
   id: string;
@@ -59,8 +60,9 @@ export default function CalendarSettingsPage() {
   const [newCalendarName, setNewCalendarName] = useState("就活Pass");
   const [isCreating, setIsCreating] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
-  const [targetCalendarId, setTargetCalendarId] = useState<string>("primary");
+  const [targetCalendarId, setTargetCalendarId] = useState<string>("");
   const [freebusyCalendarIds, setFreebusyCalendarIds] = useState<string[]>([]);
+  const [shouldAutoActivateGoogle, setShouldAutoActivateGoogle] = useState(false);
 
   const connectionStatus = settings?.connectionStatus;
 
@@ -68,15 +70,34 @@ export default function CalendarSettingsPage() {
     setCalendarsLoading(true);
     try {
       const res = await fetch("/api/calendar/calendars", { credentials: "include" });
-      const data = await res.json();
       if (!res.ok) {
-        if (data?.code === "NEED_RECONNECT") {
-          setSaveError(data.error);
-          return;
-        }
+        const uiError = await parseApiErrorResponse(
+          res,
+          {
+            code: "CALENDAR_LIST_FETCH_FAILED",
+            userMessage: "カレンダー一覧を読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "calendarSettings.fetchCalendars"
+        );
+        setSaveError(uiError.message);
         return;
       }
+      const data = await res.json();
       setCalendars(data.calendars ?? []);
+    } catch (err) {
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CALENDAR_LIST_FETCH_FAILED",
+          userMessage: "カレンダー一覧を読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "calendarSettings.fetchCalendars"
+      );
+      setSaveError(uiError.message);
     } finally {
       setCalendarsLoading(false);
     }
@@ -84,10 +105,14 @@ export default function CalendarSettingsPage() {
 
   useEffect(() => {
     if (!settings) return;
-    const nextTarget = settings.targetCalendarId || "primary";
+    const nextTarget = settings.targetCalendarId || "";
     setTargetCalendarId(nextTarget);
     setFreebusyCalendarIds(
-      settings.freebusyCalendarIds.length > 0 ? settings.freebusyCalendarIds : [nextTarget]
+      settings.freebusyCalendarIds.length > 0
+        ? settings.freebusyCalendarIds
+        : nextTarget
+          ? [nextTarget]
+          : []
     );
   }, [settings]);
 
@@ -104,6 +129,7 @@ export default function CalendarSettingsPage() {
 
     if (connected === "1") {
       toast.success("Googleカレンダーを連携しました");
+      setShouldAutoActivateGoogle(true);
       refresh?.();
       router.replace("/calendar/settings");
       return;
@@ -114,6 +140,42 @@ export default function CalendarSettingsPage() {
       router.replace("/calendar/settings");
     }
   }, [refresh, router]);
+
+  useEffect(() => {
+    if (!shouldAutoActivateGoogle || !connectionStatus?.connected || isSaving || calendarsLoading || !targetCalendarId) {
+      return;
+    }
+
+    const nextTarget = targetCalendarId;
+    const nextFreebusy = freebusyCalendarIds.length > 0 ? freebusyCalendarIds : [nextTarget];
+
+    setShouldAutoActivateGoogle(false);
+    void (async () => {
+      setIsSaving(true);
+      setSaveError(null);
+      try {
+        await updateSettings({
+          provider: "google",
+          targetCalendarId: nextTarget,
+          freebusyCalendarIds: nextFreebusy,
+        });
+        toast.success("Googleカレンダーを有効化しました");
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : "Googleカレンダー設定の保存に失敗しました");
+      } finally {
+        setIsSaving(false);
+      }
+    })();
+  }, [
+    calendars,
+    calendarsLoading,
+    connectionStatus?.connected,
+    freebusyCalendarIds,
+    isSaving,
+    shouldAutoActivateGoogle,
+    targetCalendarId,
+    updateSettings,
+  ]);
 
   const showSaved = () => {
     setSaveSuccess(true);
@@ -137,9 +199,12 @@ export default function CalendarSettingsPage() {
       } = { provider };
 
       if (provider === "google") {
-        const fallbackTarget = targetCalendarId || calendars[0]?.id || "primary";
-        payload.targetCalendarId = fallbackTarget;
-        payload.freebusyCalendarIds = freebusyCalendarIds.length > 0 ? freebusyCalendarIds : [fallbackTarget];
+        const selectedTarget = targetCalendarId;
+        if (!selectedTarget) {
+          throw new Error("追加先のGoogleカレンダーを選択してください");
+        }
+        payload.targetCalendarId = selectedTarget;
+        payload.freebusyCalendarIds = freebusyCalendarIds.length > 0 ? freebusyCalendarIds : [selectedTarget];
       }
 
       await updateSettings(payload);
@@ -154,7 +219,11 @@ export default function CalendarSettingsPage() {
   const handleSaveGoogleSettings = async () => {
     if (!connectionStatus?.connected) return;
 
-    const nextTarget = targetCalendarId || calendars[0]?.id || "primary";
+    const nextTarget = targetCalendarId;
+    if (!nextTarget) {
+      setSaveError("追加先のGoogleカレンダーを選択してください");
+      return;
+    }
     const nextFreebusy = freebusyCalendarIds.length > 0 ? freebusyCalendarIds : [nextTarget];
 
     setIsSaving(true);
@@ -187,12 +256,21 @@ export default function CalendarSettingsPage() {
         credentials: "include",
         body: JSON.stringify({ name: newCalendarName.trim() }),
       });
-      const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "カレンダーの作成に失敗しました");
+        throw await parseApiErrorResponse(
+          res,
+          {
+            code: "CALENDAR_CREATE_FAILED",
+            userMessage: "カレンダーを作成できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: res.status >= 500,
+          },
+          "calendarSettings.createCalendar"
+        );
       }
 
+      const data = await res.json();
       const createdCalendar = data.calendar as GoogleCalendar;
       setCalendars((prev) => [...prev, createdCalendar]);
       setTargetCalendarId(createdCalendar.id);
@@ -200,7 +278,17 @@ export default function CalendarSettingsPage() {
       setCalendarMode("existing");
       toast.success("Googleカレンダーを作成しました");
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "カレンダーの作成に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CALENDAR_CREATE_FAILED",
+          userMessage: "カレンダーを作成できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "calendarSettings.createCalendar"
+      );
+      setSaveError(uiError.message);
     } finally {
       setIsCreating(false);
     }
@@ -215,16 +303,34 @@ export default function CalendarSettingsPage() {
         method: "POST",
         credentials: "include",
       });
-      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Google連携の解除に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "CALENDAR_DISCONNECT_FAILED",
+            userMessage: "Googleカレンダー連携を解除できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: response.status >= 500,
+          },
+          "calendarSettings.disconnect"
+        );
       }
 
       await refresh?.();
       toast.success("Googleカレンダー連携を解除しました");
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Google連携の解除に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CALENDAR_DISCONNECT_FAILED",
+          userMessage: "Googleカレンダー連携を解除できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "calendarSettings.disconnect"
+      );
+      setSaveError(uiError.message);
     } finally {
       setIsDisconnecting(false);
     }
@@ -327,6 +433,19 @@ export default function CalendarSettingsPage() {
                   </div>
                 </div>
 
+                {settings.syncSummary.failedCount > 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    Google同期に失敗した予定が {settings.syncSummary.failedCount} 件あります。
+                    {settings.syncSummary.lastFailureReason ? ` ${settings.syncSummary.lastFailureReason}` : ""}
+                  </div>
+                )}
+
+                {settings.syncSummary.pendingCount > 0 && (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                    Googleへ同期中の予定が {settings.syncSummary.pendingCount} 件あります。
+                  </div>
+                )}
+
                 <div className="grid gap-4">
                   <button
                     onClick={() => handleProviderChange("app")}
@@ -411,13 +530,16 @@ export default function CalendarSettingsPage() {
                           {calendarsLoading ? (
                             <option>読み込み中...</option>
                           ) : calendars.length > 0 ? (
-                            calendars.map((cal) => (
-                              <option key={cal.id} value={cal.id}>
-                                {cal.name}{cal.isPrimary ? " (メイン)" : ""}
-                              </option>
-                            ))
+                            <>
+                              <option value="">追加先カレンダーを選択</option>
+                              {calendars.map((cal) => (
+                                <option key={cal.id} value={cal.id}>
+                                  {cal.name}{cal.isPrimary ? " (メイン)" : ""}
+                                </option>
+                              ))}
+                            </>
                           ) : (
-                            <option value="primary">メインカレンダー</option>
+                            <option value="">利用可能なカレンダーがありません</option>
                           )}
                         </select>
                       )}
@@ -462,7 +584,7 @@ export default function CalendarSettingsPage() {
                       </p>
                     </div>
                     <div className="space-y-2 rounded-lg border p-4">
-                      {(calendars.length > 0 ? calendars : [{ id: "primary", name: "メインカレンダー", isPrimary: true }]).map((calendar) => (
+                      {calendars.map((calendar) => (
                         <label key={calendar.id} className="flex items-center gap-3 text-sm">
                           <Checkbox
                             checked={freebusyCalendarIds.includes(calendar.id)}
@@ -471,6 +593,11 @@ export default function CalendarSettingsPage() {
                           <span>{calendar.name}{calendar.isPrimary ? " (メイン)" : ""}</span>
                         </label>
                       ))}
+                      {calendars.length === 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          空き時間計算に使うGoogleカレンダーがありません。先にGoogle側でカレンダーを作成するか、この画面から新規作成してください。
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -490,7 +617,7 @@ export default function CalendarSettingsPage() {
 
             <div className="p-4 rounded-lg bg-muted/50">
               <p className="text-sm text-muted-foreground">
-                就活Passで作成した予定には「[就活Pass]」が付きます。Googleカレンダーから直接編集・削除した内容は、就活Pass側に即時反映されない場合があります。
+                就活Passで作成した予定には「[就活Pass]」が付きます。Googleカレンダーから直接編集・削除した内容は、カレンダー画面の読み込み時に同期されます。
               </p>
             </div>
           </div>

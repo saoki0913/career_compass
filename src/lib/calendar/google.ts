@@ -18,14 +18,27 @@ interface FreeBusySlot {
 const APP_CALENDAR_PREFIXES = ["[就活Pass]", "[シューパス]", "[就活Compass]"] as const;
 const DEFAULT_CALENDAR_NAME = "就活Pass";
 
-function stripAppCalendarPrefix(title: string) {
+export type AppCalendarEventKind = "deadline" | "work_block";
+
+const APP_EVENT_KIND_LABEL: Record<AppCalendarEventKind, string> = {
+  deadline: "締切",
+  work_block: "作業",
+};
+
+export function stripAppCalendarPrefix(title: string) {
   return APP_CALENDAR_PREFIXES.reduce((current, prefix) => {
-    const prefixWithSpace = `${prefix} `;
-    return current.startsWith(prefixWithSpace) ? current.slice(prefixWithSpace.length) : current;
-  }, title);
+    const typedPrefixPattern = new RegExp(`^\\${prefix}(?:\\[(?:締切|作業)\\])?\\s*`);
+    return current.replace(typedPrefixPattern, "");
+  }, title).trim();
 }
 
-function isAppCalendarEvent(summary?: string | null) {
+export function buildAppCalendarSummary(kind: AppCalendarEventKind, title: string) {
+  const normalizedTitle = stripAppCalendarPrefix(title).trim();
+  const label = APP_EVENT_KIND_LABEL[kind];
+  return normalizedTitle ? `[就活Pass][${label}] ${normalizedTitle}` : `[就活Pass][${label}]`;
+}
+
+export function isAppCalendarEvent(summary?: string | null) {
   return APP_CALENDAR_PREFIXES.some((prefix) => summary?.startsWith(prefix));
 }
 
@@ -86,14 +99,15 @@ export async function createCalendarEvent(
   accessToken: string,
   calendarId: string = "primary",
   event: {
+    kind: AppCalendarEventKind;
+    entityId: string;
     title: string;
     startAt: string;
     endAt: string;
     description?: string;
   }
 ) {
-  const normalizedTitle = stripAppCalendarPrefix(event.title).trim();
-  const summary = normalizedTitle ? `[就活Pass] ${normalizedTitle}` : "[就活Pass]";
+  const summary = buildAppCalendarSummary(event.kind, event.title);
 
   const response = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
@@ -108,6 +122,13 @@ export async function createCalendarEvent(
         start: { dateTime: event.startAt },
         end: { dateTime: event.endAt },
         description: event.description || "就活Passで作成",
+        extendedProperties: {
+          private: {
+            managedBy: "shukatsu-pass",
+            entityType: event.kind,
+            entityId: event.entityId,
+          },
+        },
       }),
     }
   );
@@ -239,35 +260,6 @@ export function suggestWorkBlocks(
   }
 
   return suggestions;
-}
-
-/**
- * Replace mode: Delete all app-managed events in a range and recreate
- */
-export async function replaceUkarunEvents(
-  accessToken: string,
-  calendarId: string,
-  timeMin: string,
-  timeMax: string,
-  newEvents: Array<{ title: string; startAt: string; endAt: string }>
-) {
-  // Get existing app-managed events, including legacy prefixes
-  const existing = await getCalendarEvents(accessToken, calendarId, timeMin, timeMax);
-  const ukarunEvents = existing.filter((e) => isAppCalendarEvent(e.summary));
-
-  // Delete old app-managed events
-  for (const event of ukarunEvents) {
-    await deleteCalendarEvent(accessToken, calendarId, event.id);
-  }
-
-  // Create new events
-  const created = [];
-  for (const event of newEvents) {
-    const result = await createCalendarEvent(accessToken, calendarId, event);
-    created.push(result);
-  }
-
-  return created;
 }
 
 /**

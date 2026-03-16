@@ -4,6 +4,15 @@ import { Button } from "@/components/ui/button";
 import { signIn } from "@/lib/auth/client";
 import { useState } from "react";
 
+const SIGN_IN_ERROR_MESSAGE =
+  "Googleログインを開始できませんでした。時間を置いて、もう一度お試しください。";
+
+function logClientAuthError(error: unknown) {
+  if (process.env.NODE_ENV !== "production") {
+    console.error("Sign in error:", error);
+  }
+}
+
 interface GoogleSignInButtonProps {
   callbackURL?: string;
   className?: string;
@@ -26,15 +35,14 @@ export function GoogleSignInButton({
       });
 
       if (result.error && typeof result.error === "object" && "message" in result.error) {
-        console.error("Sign in error:", result.error);
-        setError(result.error.message || "ログインに失敗しました");
+        logClientAuthError(result.error);
+        setError(SIGN_IN_ERROR_MESSAGE);
         setIsLoading(false);
       }
       // If successful, the browser will redirect to Google
     } catch (error) {
-      console.error("Sign in error:", error);
-      const message = error instanceof Error ? error.message : "ネットワークエラー";
-      setError(`${message} - 開発サーバーが起動しているか確認してください。`);
+      logClientAuthError(error);
+      setError(SIGN_IN_ERROR_MESSAGE);
       setIsLoading(false);
     }
   };

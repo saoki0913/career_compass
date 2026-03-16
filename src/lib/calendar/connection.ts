@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { calendarSettings } from "@/lib/db/schema";
 import { refreshAccessToken } from "@/lib/calendar/google";
+import { decrypt, encrypt } from "@/lib/crypto";
 
 export const GOOGLE_CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar",
@@ -17,6 +18,16 @@ export interface CalendarConnectionStatus {
   connectedAt: string | null;
   grantedScopes: string[];
   missingScopes: string[];
+}
+
+function decryptStoredToken(value: string | null): string | null {
+  if (!value) return null;
+
+  try {
+    return decrypt(value);
+  } catch {
+    return value;
+  }
 }
 
 export function parseStoredJsonArray(value: string | null): string[] {
@@ -103,25 +114,27 @@ export async function clearCalendarReconnectNeeded(userId: string) {
 export async function getValidGoogleCalendarAccessToken(userId: string) {
   const settings = await getCalendarSettingsRecord(userId);
   const status = buildCalendarConnectionStatus(settings);
+  const refreshToken = decryptStoredToken(settings?.googleRefreshToken ?? null);
+  const accessToken = decryptStoredToken(settings?.googleAccessToken ?? null);
 
-  if (!settings || !settings.googleRefreshToken || !status.connected) {
+  if (!settings || !refreshToken || !status.connected) {
     return { accessToken: null, settings, status };
   }
 
   const now = new Date();
   const expiresAt = settings.googleTokenExpiresAt;
-  const isExpired = !settings.googleAccessToken || (expiresAt && expiresAt.getTime() - now.getTime() < 5 * 60 * 1000);
+  const isExpired = !accessToken || (expiresAt && expiresAt.getTime() - now.getTime() < 5 * 60 * 1000);
 
   if (!isExpired) {
-    return { accessToken: settings.googleAccessToken, settings, status };
+    return { accessToken, settings, status };
   }
 
   try {
-    const refreshed = await refreshAccessToken(settings.googleRefreshToken);
+    const refreshed = await refreshAccessToken(refreshToken);
     await db
       .update(calendarSettings)
       .set({
-        googleAccessToken: refreshed.accessToken,
+        googleAccessToken: encrypt(refreshed.accessToken),
         googleTokenExpiresAt: refreshed.expiresAt,
         googleCalendarNeedsReconnect: false,
         updatedAt: now,
@@ -159,8 +172,8 @@ export async function storeGoogleCalendarTokens(params: {
   await db
     .update(calendarSettings)
     .set({
-      googleAccessToken: params.accessToken,
-      googleRefreshToken: params.refreshToken ?? existing.googleRefreshToken,
+      googleAccessToken: encrypt(params.accessToken),
+      googleRefreshToken: params.refreshToken ? encrypt(params.refreshToken) : existing.googleRefreshToken,
       googleTokenExpiresAt: params.expiresAt,
       googleGrantedScopes: JSON.stringify(params.grantedScopes),
       googleCalendarEmail: params.email,
@@ -169,4 +182,23 @@ export async function storeGoogleCalendarTokens(params: {
       updatedAt: now,
     })
     .where(and(eq(calendarSettings.userId, params.userId), eq(calendarSettings.id, existing.id)));
+}
+
+export async function clearGoogleCalendarConnection(userId: string) {
+  await db
+    .update(calendarSettings)
+    .set({
+      provider: "app",
+      targetCalendarId: null,
+      freebusyCalendarIds: null,
+      googleAccessToken: null,
+      googleRefreshToken: null,
+      googleTokenExpiresAt: null,
+      googleGrantedScopes: null,
+      googleCalendarEmail: null,
+      googleCalendarConnectedAt: null,
+      googleCalendarNeedsReconnect: false,
+      updatedAt: new Date(),
+    })
+    .where(eq(calendarSettings.userId, userId));
 }

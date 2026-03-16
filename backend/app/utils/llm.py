@@ -5,7 +5,7 @@ LLMユーティリティモジュール
 - Claude Sonnet（ES添削、ガクチカ深掘りのメイン）
 - OpenAI（企業情報抽出、RAGユーティリティ用）
 - Google Gemini（公式 Gemini API）
-- Cohere / DeepSeek（OpenAI compatibility API）
+- Cohere（OpenAI compatibility API）
 
 機能ごとの自動モデル選択とフォールバックロジックをサポート。
 """
@@ -235,7 +235,7 @@ _anthropic_circuit = CircuitBreaker()
 _openai_circuit = CircuitBreaker()
 
 
-LLMProvider = Literal["anthropic", "openai", "google", "cohere", "deepseek"]
+LLMProvider = Literal["anthropic", "openai", "google", "cohere"]
 LLMModel: TypeAlias = str
 ResponseFormat = Literal["json_object", "json_schema", "text"]
 
@@ -287,7 +287,7 @@ async def get_openai_client(for_rag: bool = False) -> openai.AsyncOpenAI:
 
 
 async def get_openai_compatible_client(
-    provider: Literal["cohere", "deepseek"],
+    provider: Literal["cohere"],
     *,
     for_rag: bool = False,
 ) -> openai.AsyncOpenAI:
@@ -298,10 +298,6 @@ async def get_openai_compatible_client(
         "cohere": {
             "api_key": settings.cohere_api_key,
             "base_url": settings.cohere_base_url,
-        },
-        "deepseek": {
-            "api_key": settings.deepseek_api_key,
-            "base_url": settings.deepseek_base_url,
         },
     }[provider]
 
@@ -404,10 +400,6 @@ def get_model_display_name(model: str) -> str:
         return f"Gemini ({model})"
     if model_lower.startswith("command-a"):
         return "Cohere Command A"
-    if model_lower.startswith("deepseek-chat"):
-        return "DeepSeek V3.2"
-    if model_lower.startswith("deepseek-reasoner"):
-        return "DeepSeek Reasoner"
     if "gpt-5" in model_lower:
         if model_lower.startswith("gpt-5.2"):
             return "GPT-5.2"
@@ -451,7 +443,6 @@ def _provider_display_name(provider: str) -> str:
         "openai": "OpenAI",
         "google": "Google Gemini",
         "cohere": "Cohere",
-        "deepseek": "DeepSeek",
         "qwen-es-review": "Qwen ES Review",
     }.get(provider, provider)
 
@@ -486,17 +477,12 @@ def _resolve_model_target(
         return ResolvedModelTarget("google", settings.google_model)
     if requested_model == "cohere":
         return ResolvedModelTarget("cohere", settings.cohere_model)
-    if requested_model == "deepseek":
-        return ResolvedModelTarget("deepseek", settings.deepseek_model)
-
     if model_lower.startswith("claude"):
         return ResolvedModelTarget("anthropic", str(requested_model))
     if model_lower.startswith("gemini"):
         return ResolvedModelTarget("google", str(requested_model))
     if model_lower.startswith("command-"):
         return ResolvedModelTarget("cohere", str(requested_model))
-    if model_lower.startswith("deepseek-"):
-        return ResolvedModelTarget("deepseek", str(requested_model))
 
     resolved_openai_model = _resolve_openai_model(feature, model_hint=str(requested_model))
     return ResolvedModelTarget("openai", resolved_openai_model)
@@ -517,7 +503,6 @@ def _provider_has_api_key(provider: LLMProvider) -> bool:
         "openai": bool(settings.openai_api_key),
         "google": bool(settings.google_api_key),
         "cohere": bool(settings.cohere_api_key),
-        "deepseek": bool(settings.deepseek_api_key),
     }[provider]
 
 
@@ -536,7 +521,7 @@ def _fallback_model_for_provider(provider: LLMProvider) -> Optional[LLMModel]:
 
 
 def _requires_json_prompt_hint(provider: LLMProvider) -> bool:
-    return provider in {"deepseek", "cohere", "google"}
+    return provider in {"cohere", "google"}
 
 
 def _schema_body(json_schema: dict | None) -> dict | None:
@@ -640,16 +625,33 @@ def _augment_system_prompt_for_provider_json(
     return f"{system_prompt}{strict_note}"
 
 
+def _augment_system_prompt_for_provider_text(
+    provider: LLMProvider,
+    system_prompt: str,
+    *,
+    feature: str,
+) -> str:
+    if feature != "es_review" or provider == "anthropic":
+        return system_prompt
+
+    strict_note = (
+        "\n\n# 出力形式の厳守\n"
+        "出力は最終本文のみを返してください。"
+        "\n説明、前置き、後書き、見出し、箇条書き、コードブロック、引用符は禁止です。"
+        "\n先頭から本文を書き始め、余計なラベルを付けないでください。"
+    )
+    if provider == "google":
+        strict_note += "\n思考や解説は書かず、本文だけを返してください。"
+    return f"{system_prompt}{strict_note}"
+
+
 def _build_chat_response_format(
-    provider: Literal["openai", "cohere", "deepseek"],
+    provider: Literal["openai", "cohere"],
     response_format: ResponseFormat,
     json_schema: dict | None,
 ) -> dict[str, Any] | None:
     if response_format == "text":
         return None
-
-    if provider == "deepseek":
-        return {"type": "json_object"}
 
     if response_format == "json_schema" and json_schema:
         schema_body = _schema_body(json_schema)
@@ -841,7 +843,7 @@ def _build_google_generation_config(
     model_lower = (model or "").lower()
     effective_max_tokens = max_tokens
     if model_lower.startswith("gemini-3"):
-        effective_max_tokens = min(4096, max(max_tokens * 2, max_tokens + 512))
+        effective_max_tokens = min(4096, max(max_tokens * 4, max_tokens + 1024))
 
     generation_config: dict[str, Any] = {
         "maxOutputTokens": effective_max_tokens,
@@ -869,6 +871,7 @@ async def _call_google_generate_content(
 ) -> tuple[str, dict[str, Any]]:
     client = await get_google_http_client(for_rag=_is_rag_feature(feature))
     normalized_messages, _ = _normalize_chat_messages(messages, user_message)
+    effective_temperature = min(temperature, 0.1) if feature == "es_review" else temperature
     effective_system_prompt = _augment_system_prompt_for_provider_json(
         "google",
         system_prompt,
@@ -881,7 +884,7 @@ async def _call_google_generate_content(
         "generationConfig": _build_google_generation_config(
             model=model,
             max_tokens=max_tokens,
-            temperature=temperature,
+            temperature=effective_temperature,
         ),
     }
 
@@ -951,7 +954,7 @@ async def _repair_json_with_same_model(
 
 
 async def _call_openai_compatible(
-    provider: Literal["openai", "cohere", "deepseek"],
+    provider: Literal["openai", "cohere"],
     system_prompt: str,
     user_message: str,
     messages: list[dict] | None,
@@ -1015,7 +1018,7 @@ async def _call_openai_compatible(
 
 
 async def _call_openai_compatible_raw_text(
-    provider: Literal["openai", "cohere", "deepseek"],
+    provider: Literal["openai", "cohere"],
     system_prompt: str,
     user_message: str,
     messages: list[dict] | None,
@@ -1031,7 +1034,12 @@ async def _call_openai_compatible_raw_text(
         client = await get_openai_compatible_client(provider, for_rag=_is_rag_feature(feature))
 
     normalized_messages, _ = _normalize_chat_messages(messages, user_message)
-    api_messages = [{"role": "system", "content": system_prompt}] + normalized_messages
+    effective_system_prompt = _augment_system_prompt_for_provider_text(
+        provider,
+        system_prompt,
+        feature=feature,
+    )
+    api_messages = [{"role": "system", "content": effective_system_prompt}] + normalized_messages
 
     request_kwargs: dict[str, Any] = {
         "model": model,
@@ -1432,7 +1440,11 @@ async def call_llm_text_with_error(
             )
         elif target.provider == "google":
             raw_response, _ = await _call_google_generate_content(
-                system_prompt=system_prompt,
+                system_prompt=_augment_system_prompt_for_provider_text(
+                    target.provider,
+                    system_prompt,
+                    feature=feature,
+                ),
                 user_message=user_message,
                 messages=normalized_messages,
                 max_tokens=max_tokens,

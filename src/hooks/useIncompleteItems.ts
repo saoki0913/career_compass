@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { AppUiError, parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export interface DraftES {
   id: string;
@@ -34,6 +35,7 @@ interface UseIncompleteItemsResult {
   data: IncompleteItemsData | null;
   isLoading: boolean;
   error: string | null;
+  errorInfo: AppUiError | null;
   refetch: () => void;
 }
 
@@ -42,6 +44,7 @@ export function useIncompleteItems(): UseIncompleteItemsResult {
   const [data, setData] = useState<IncompleteItemsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorInfo, setErrorInfo] = useState<AppUiError | null>(null);
 
   const fetchIncompleteItems = useCallback(async () => {
     try {
@@ -51,6 +54,7 @@ export function useIncompleteItems(): UseIncompleteItemsResult {
 
       setIsLoading(true);
       setError(null);
+      setErrorInfo(null);
 
       const headers: HeadersInit = {
         "Content-Type": "application/json",
@@ -78,25 +82,34 @@ export function useIncompleteItems(): UseIncompleteItemsResult {
           return;
         }
 
-        let message = "Failed to fetch incomplete items";
-
-        try {
-          const result = await response.json();
-          if (typeof result?.error === "string" && result.error.trim()) {
-            message = result.error;
-          }
-        } catch {
-          // Ignore invalid error payloads and keep the fallback message.
-        }
-
-        throw new Error(message);
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "INCOMPLETE_ITEMS_FETCH_FAILED",
+            userMessage: "途中のタスクを読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+            authMessage: "ログイン状態を確認して、もう一度お試しください。",
+          },
+          "useIncompleteItems.fetch"
+        );
       }
 
       const result = await response.json();
       setData(result);
     } catch (err) {
-      console.error("Error fetching incomplete items:", err);
-      setError(err instanceof Error ? err.message : "Unknown error");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "INCOMPLETE_ITEMS_FETCH_FAILED",
+          userMessage: "途中のタスクを読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useIncompleteItems.fetch"
+      );
+      setError(uiError.message);
+      setErrorInfo(uiError);
     } finally {
       setIsLoading(false);
     }
@@ -114,6 +127,7 @@ export function useIncompleteItems(): UseIncompleteItemsResult {
     data,
     isLoading: isAuthLoading || isLoading,
     error,
+    errorInfo,
     refetch: fetchIncompleteItems,
   };
 }

@@ -11,6 +11,7 @@ import { documents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -69,26 +70,39 @@ export async function POST(
 
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "DOCUMENT_RESTORE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "document-restore-auth",
+      });
     }
 
     const access = await verifyDocumentAccess(documentId, identity.userId, identity.guestId);
     if (!access.valid || !access.document) {
-      return NextResponse.json(
-        { error: "Document not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DOCUMENT_RESTORE_NOT_FOUND",
+        userMessage: "復元対象のドキュメントが見つかりませんでした。",
+        action: "一覧に戻って、対象のドキュメントを選び直してください。",
+        developerMessage: "Document not found",
+        logContext: "document-restore-not-found",
+      });
     }
 
     // Check if document is actually deleted
     if (access.document.status !== "deleted") {
-      return NextResponse.json(
-        { error: "Document is not in trash" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "DOCUMENT_RESTORE_INVALID_STATE",
+        userMessage: "ゴミ箱に入っているドキュメントだけ復元できます。",
+        action: "対象の状態を確認して、もう一度お試しください。",
+        developerMessage: "Document is not in trash",
+        logContext: "document-restore-validation",
+      });
     }
 
     // Restore document
@@ -103,10 +117,15 @@ export async function POST(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error restoring document:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "DOCUMENT_RESTORE_FAILED",
+      userMessage: "ドキュメントを復元できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "document-restore",
+    });
   }
 }

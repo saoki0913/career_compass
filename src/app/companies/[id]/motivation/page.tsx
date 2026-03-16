@@ -24,7 +24,7 @@ import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { OperationLockProvider, useOperationLock } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
 import { useStreamingTextPlayback } from "@/hooks/useStreamingTextPlayback";
-import { ReferenceSourceCard, getSourceHostnameLabel } from "@/components/shared/ReferenceSourceCard";
+import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -47,6 +47,17 @@ const LoadingSpinner = () => (
 const CheckIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+  </svg>
+);
+
+const ResetIcon = () => (
+  <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M4 4v5h5M20 20v-5h-5M20 9a8 8 0 00-14.9-3M4 15a8 8 0 0014.9 3"
+    />
   </svg>
 );
 
@@ -156,22 +167,13 @@ const STAGE_ORDER: SuggestionOption["intent"][] = [
   "closing",
 ];
 
-function sourceTypeLabel(sourceType: SuggestionOption["sourceType"]) {
-  switch (sourceType) {
-    case "company":
-      return "企業資料ベース";
-    case "gakuchika":
-      return "ガクチカベース";
-    case "profile":
-      return "プロフィールベース";
-    case "application_job_type":
-      return "応募職種ベース";
-    case "hybrid":
-      return "複合根拠";
-    default:
-      return "補助候補";
-  }
-}
+const STAGE_ANSWER_GUIDE: Record<SuggestionOption["intent"], string> = {
+  company_reason: "この企業のどこに惹かれたかを1文で答える",
+  desired_work: "入社後に挑戦したい仕事を1文で答える",
+  fit_connection: "自分の経験がどう活きるかを1文で答える",
+  differentiation: "他社ではなくこの企業を選ぶ理由を1文で答える",
+  closing: "最後に伝えたい目標を短くまとめる",
+};
 
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
@@ -213,9 +215,12 @@ function SuggestionChips({
 
   return (
     <div className="mt-3">
-      <p className="mb-2 text-xs text-muted-foreground">
-        候補を選んで回答 / 合わない場合はそのまま入力
-      </p>
+      <div className="mb-2 space-y-1">
+        <p className="text-xs font-medium text-foreground/80">
+          {stage ? STAGE_ANSWER_GUIDE[stage] : "候補を選ぶか、そのまま入力"}
+        </p>
+        <p className="text-xs text-muted-foreground">候補を選ぶか、そのまま入力してください</p>
+      </div>
       <div className={cn("gap-2", isWorkStage || isReasonStage ? "grid grid-cols-1" : "flex flex-wrap")}>
         {suggestionOptions.map((option, index) => (
           <button
@@ -226,9 +231,9 @@ function SuggestionChips({
             className={cn(
               "rounded-xl border text-left transition-all duration-200 cursor-pointer",
               isWorkStage || isReasonStage ? "w-full px-4 py-3" : "inline-flex items-center px-3 py-2 text-sm",
-              "border-amber-200 bg-amber-50 text-amber-900",
-              "hover:bg-amber-100 hover:border-amber-300",
-              "dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-900/40 dark:hover:border-amber-600",
+              "border-border/70 bg-background text-foreground shadow-sm",
+              "hover:border-primary/40 hover:bg-primary/5",
+              "dark:hover:border-primary/40 dark:hover:bg-primary/10",
               "active:scale-[0.97]",
               "opacity-0 animate-fade-up",
               index === 0 && "delay-100",
@@ -241,13 +246,6 @@ function SuggestionChips({
             <span className="block text-sm font-medium leading-6 [display:-webkit-box] [-webkit-line-clamp:3] [-webkit-box-orient:vertical] overflow-hidden">
               {option.label}
             </span>
-            {(isReasonStage || isWorkStage || option.rationale) && (
-              <span className="mt-1 block text-xs text-amber-800/80 dark:text-amber-200/80">
-                {sourceTypeLabel(option.sourceType)}
-                {option.isTentative ? " / 仮置き候補" : ""}
-                {option.rationale ? ` - ${option.rationale}` : ""}
-              </span>
-            )}
           </button>
         ))}
       </div>
@@ -266,11 +264,11 @@ function MotivationEvidenceCards({
 
   return (
     <div className={compact ? "space-y-2" : "space-y-3"}>
-      {evidenceCards.slice(0, compact ? 2 : 4).map((card) => (
+      {evidenceCards.slice(0, compact ? 2 : 3).map((card) => (
         <ReferenceSourceCard
           key={`${card.sourceId}-${card.sourceUrl}`}
           title={card.title}
-          meta={[card.sourceId, card.relevanceLabel, getSourceHostnameLabel(card.sourceUrl)].filter(Boolean).join(" / ")}
+          meta={card.relevanceLabel}
           sourceUrl={card.sourceUrl}
           compact={compact}
           excerpt={
@@ -278,8 +276,8 @@ function MotivationEvidenceCards({
               className={cn(
                 "text-muted-foreground",
                 compact
-                  ? "text-[11px] leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden"
-                  : "text-sm leading-6"
+                  ? "text-[11px] leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:1] overflow-hidden"
+                  : "text-sm leading-6 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:1] overflow-hidden"
               )}
             >
               {card.excerpt}
@@ -311,11 +309,6 @@ function MotivationEvidenceSection({
           <p className={cn("font-semibold text-foreground", compact ? "text-[11px]" : "text-sm")}>
             参考にした企業情報
           </p>
-          {evidenceCards.length > 0 ? (
-            <Badge variant="outline" className="px-3 py-1 text-[11px]">
-              {evidenceCards.length}件
-            </Badge>
-          ) : null}
         </div>
       ) : null}
 
@@ -386,7 +379,7 @@ function MotivationDraftActionBar({
         <Button
           onClick={onGenerate}
           disabled={disabled || isGenerating}
-          className={cn("rounded-full", compact ? "h-11 w-full" : "h-11 min-w-[180px]")}
+          className={cn("rounded-xl shadow-sm", compact ? "h-11 w-full" : "h-11 min-w-[180px]")}
         >
           {isGenerating ? (
             <>
@@ -1058,7 +1051,7 @@ function MotivationConversationContent() {
       return;
     }
 
-    if (!window.confirm("保存済みの志望動機会話を初期化して、最初からやり直します。よろしいですか？")) {
+    if (!window.confirm("保存済みの志望動機会話を初期化して、会話をやり直します。よろしいですか？")) {
       return;
     }
 
@@ -1218,9 +1211,10 @@ function MotivationConversationContent() {
                     size="sm"
                     onClick={handleResetConversation}
                     disabled={isLocked || isSending || isGeneratingDraft || isResetting || isStartingConversation}
-                    className="ml-auto h-9 rounded-full px-4 text-xs"
+                    className="ml-auto h-10 rounded-xl border-border/80 bg-background px-4 text-xs shadow-sm"
                   >
-                    {isResetting ? "初期化中..." : "最初からやり直す"}
+                    <ResetIcon />
+                    <span className="ml-2">{isResetting ? "初期化中..." : "会話をやり直す"}</span>
                   </Button>
                 ) : null}
               </div>
@@ -1233,7 +1227,7 @@ function MotivationConversationContent() {
                   <p className="text-sm font-semibold text-amber-900">保存済み会話を一度やり直してください</p>
                   <p className="mt-2 text-sm leading-6 text-amber-900/80">
                     この会話は初期設定 UI 追加前の状態です。新しい志望動機フローで続けるには、右上の
-                    「最初からやり直す」から会話を初期化してください。
+                    「会話をやり直す」から会話を初期化してください。
                   </p>
                 </div>
               ) : showSetupScreen ? (
@@ -1562,7 +1556,7 @@ function MotivationConversationContent() {
                 </div>
               ) : showRestartBlock ? (
                 <p className="text-sm text-muted-foreground">
-                  右上の「最初からやり直す」から初期化すると、新しいフローで最初から始められます。
+                  右上の「会話をやり直す」から初期化すると、新しいフローで最初から始められます。
                 </p>
               ) : isCompleted ? (
                 <div className="flex items-center gap-2 p-4 rounded-lg bg-emerald-500/10 text-emerald-700">
@@ -1585,6 +1579,19 @@ function MotivationConversationContent() {
           {/* Sidebar */}
           <div className="space-y-4 lg:flex lg:min-h-0 lg:flex-col lg:space-y-0">
             <div className="space-y-4 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+              <Card className="border-border/50 lg:sticky lg:top-0 lg:z-10">
+                <CardContent className="p-4">
+                  <MotivationDraftActionBar
+                    charLimit={charLimit}
+                    onCharLimitChange={setCharLimit}
+                    onGenerate={handleGenerateDraft}
+                    isGenerating={isGeneratingDraft}
+                    disabled={!canGenerateDraft || isLocked}
+                    helperText={draftHelperText}
+                  />
+                </CardContent>
+              </Card>
+
               <Card className="border-border/50">
                 <CardHeader className="py-3 flex-row items-center justify-between space-y-0">
                   <CardTitle className="text-sm font-medium">進捗</CardTitle>
@@ -1594,9 +1601,10 @@ function MotivationConversationContent() {
                       size="sm"
                       onClick={handleResetConversation}
                       disabled={isLocked || isSending || isGeneratingDraft || isResetting || isStartingConversation}
-                      className="h-9 rounded-full px-4 text-xs"
+                      className="h-10 rounded-xl border-border/80 bg-background px-4 text-xs shadow-sm"
                     >
-                      {isResetting ? "初期化中..." : "最初からやり直す"}
+                      <ResetIcon />
+                      <span className="ml-2">{isResetting ? "初期化中..." : "会話をやり直す"}</span>
                     </Button>
                   ) : null}
                 </CardHeader>
@@ -1677,22 +1685,11 @@ function MotivationConversationContent() {
                     />
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      次の質問生成時に、参考にした企業情報がここに表示されます。
+                      質問に使った企業情報の要点が、ここに簡潔に表示されます。
                     </p>
                   )}
                 </CardContent>
               </Card>
-            </div>
-
-            <div className="hidden border-t border-border/50 bg-card/95 px-4 py-4 lg:block lg:shrink-0">
-              <MotivationDraftActionBar
-                charLimit={charLimit}
-                onCharLimitChange={setCharLimit}
-                onGenerate={handleGenerateDraft}
-                isGenerating={isGeneratingDraft}
-                disabled={!canGenerateDraft || isLocked}
-                helperText={draftHelperText}
-              />
             </div>
           </div>
         </div>

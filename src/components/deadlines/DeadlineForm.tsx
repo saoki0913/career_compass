@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,19 +57,13 @@ export function DeadlineForm({
   const [memo, setMemo] = useState(deadline?.memo || "");
   const [sourceUrl, setSourceUrl] = useState(deadline?.sourceUrl || "");
   const [error, setError] = useState<string | null>(null);
-
-  // Update title when type changes (for new deadlines only)
-  useEffect(() => {
-    if (!deadline && !title) {
-      setTitle(DEADLINE_TYPE_LABELS[type]);
-    }
-  }, [type, deadline, title]);
+  const resolvedTitle = !deadline && !title ? DEADLINE_TYPE_LABELS[type] : title;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (!title.trim()) {
+    if (!resolvedTitle.trim()) {
       setError("タイトルを入力してください");
       return;
     }
@@ -81,7 +75,7 @@ export function DeadlineForm({
 
     const data: CreateDeadlineInput | UpdateDeadlineInput = {
       type,
-      title: title.trim(),
+      title: resolvedTitle.trim(),
       dueDate: new Date(dueDate).toISOString(),
       memo: memo.trim() || undefined,
       sourceUrl: sourceUrl.trim() || undefined,
@@ -117,7 +111,7 @@ export function DeadlineForm({
         <Label htmlFor="title">タイトル</Label>
         <Input
           id="title"
-          value={title}
+          value={resolvedTitle}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="例: ES提出 (一次締切)"
           disabled={isSubmitting}

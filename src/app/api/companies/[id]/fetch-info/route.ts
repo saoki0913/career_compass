@@ -128,29 +128,6 @@ interface FetchResult {
 type FetchInfoResultStatus = "success" | "duplicates_only" | "no_deadlines" | "error";
 type DeadlineType = typeof deadlines.$inferInsert.type;
 
-type ScheduleSourceType = NonNullable<FetchResult["source_type"]>;
-
-function capScheduleConfidence(
-  confidence: string | undefined,
-  sourceType: ScheduleSourceType,
-  yearMatched: boolean | null | undefined
-): "high" | "medium" | "low" {
-  const normalizedConfidence = confidence === "high" || confidence === "medium" ? confidence : "low";
-
-  if (sourceType === "official") {
-    if (yearMatched === false && normalizedConfidence === "high") {
-      return "medium";
-    }
-    return normalizedConfidence;
-  }
-
-  if (sourceType === "job_site") {
-    return normalizedConfidence === "high" ? "medium" : normalizedConfidence;
-  }
-
-  return "low";
-}
-
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
   guestId: string | null;
@@ -424,46 +401,6 @@ export async function POST(
         { status: 503 }
       );
     }
-
-    const sourceType = fetchResult.source_type || "other";
-    const yearMatched = fetchResult.year_matched ?? null;
-    const normalizedFetchResult: FetchResult = fetchResult.data
-      ? {
-          ...fetchResult,
-          data: {
-            ...fetchResult.data,
-            deadlines: (fetchResult.data.deadlines || []).map((deadline) => ({
-              ...deadline,
-              confidence: capScheduleConfidence(deadline.confidence, sourceType, yearMatched),
-            })),
-            required_documents: (fetchResult.data.required_documents || []).map((document) => ({
-              ...document,
-              confidence: capScheduleConfidence(document.confidence, sourceType, yearMatched),
-            })),
-            application_method: fetchResult.data.application_method
-              ? {
-                  ...fetchResult.data.application_method,
-                  confidence: capScheduleConfidence(
-                    fetchResult.data.application_method.confidence,
-                    sourceType,
-                    yearMatched
-                  ),
-                }
-              : null,
-            selection_process: fetchResult.data.selection_process
-              ? {
-                  ...fetchResult.data.selection_process,
-                  confidence: capScheduleConfidence(
-                    fetchResult.data.selection_process.confidence,
-                    sourceType,
-                    yearMatched
-                  ),
-                }
-              : null,
-          },
-        }
-      : fetchResult;
-    fetchResult = normalizedFetchResult;
 
     const rawContent = fetchResult.raw_html || fetchResult.raw_text || null;
     const rawContentFormat = fetchResult.raw_html ? "html" : "text";

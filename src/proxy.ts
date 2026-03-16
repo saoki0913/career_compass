@@ -8,6 +8,8 @@
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { logError } from "@/lib/logger";
+import { getTrustedOriginSet, getTrustedOrigins } from "@/lib/trusted-origins";
 
 // Routes that require authentication
 const PROTECTED_ROUTES = [
@@ -35,24 +37,51 @@ const CSRF_EXEMPT_PATHS = [
 // State-changing HTTP methods that require CSRF protection
 const CSRF_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
 
-/**
- * Get allowed origins for CSRF validation
- */
-function getAllowedOrigins(): Set<string> {
-  const origins = new Set<string>();
+function createProxyErrorResponse(
+  request: NextRequest,
+  status: number,
+  code: string,
+  userMessage: string,
+  action: string,
+  developerMessage: string,
+  details: string
+): NextResponse {
+  const requestId = request.headers.get("x-request-id")?.trim() || crypto.randomUUID();
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (appUrl) {
-    origins.add(new URL(appUrl).origin);
-  }
+  logError(`proxy:${code}`, new Error(developerMessage), {
+    code,
+    requestId,
+    status,
+    details,
+    pathname: request.nextUrl.pathname,
+  });
 
-  // Always allow localhost in development
-  if (process.env.NODE_ENV === "development") {
-    origins.add("http://localhost:3000");
-    origins.add("http://127.0.0.1:3000");
-  }
-
-  return origins;
+  return NextResponse.json(
+    {
+      error: {
+        code,
+        userMessage,
+        action,
+        retryable: false,
+      },
+      requestId,
+      ...(process.env.NODE_ENV === "development"
+        ? {
+            debug: {
+              developerMessage,
+              details,
+              status,
+            },
+          }
+        : {}),
+    },
+    {
+      status,
+      headers: {
+        "X-Request-Id": requestId,
+      },
+    }
+  );
 }
 
 /**
@@ -86,11 +115,19 @@ function validateCsrf(request: NextRequest): NextResponse | null {
     return null;
   }
 
-  const allowedOrigins = getAllowedOrigins();
+  const allowedOrigins = getTrustedOriginSet();
   if (allowedOrigins.size > 0 && !allowedOrigins.has(origin)) {
-    return NextResponse.json(
-      { error: "CSRF validation failed: origin not allowed" },
-      { status: 403 }
+    return createProxyErrorResponse(
+      request,
+      403,
+      "ORIGIN_NOT_ALLOWED",
+      "現在の環境ではこの操作を完了できませんでした。",
+      "公式サイトまたは正しい確認環境で開き直して、もう一度お試しください。",
+      "CSRF validation failed: origin not allowed",
+      JSON.stringify({
+        origin,
+        allowedOrigins: getTrustedOrigins(),
+      })
     );
   }
 

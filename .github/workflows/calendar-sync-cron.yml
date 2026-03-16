@@ -1,0 +1,21 @@
+name: Calendar Sync Cron
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  trigger-calendar-sync:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Trigger production calendar sync
+        env:
+          APP_URL: https://www.shupass.jp
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$CRON_SECRET"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/calendar-sync"

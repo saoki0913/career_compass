@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export type TaskType =
   | "es"
@@ -127,13 +128,32 @@ export function useTasks(options: UseTasksOptions = {}) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch tasks");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "TASKS_FETCH_FAILED",
+            userMessage: "タスク一覧を読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "useTasks.fetch"
+        );
       }
 
       const data = await response.json();
       setTasks(data.tasks || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "タスクの取得に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "TASKS_FETCH_FAILED",
+          userMessage: "タスク一覧を読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useTasks.fetch"
+      );
+      setError(uiError.message);
     } finally {
       setIsLoading(false);
     }
@@ -154,15 +174,33 @@ export function useTasks(options: UseTasksOptions = {}) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to create task");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "TASK_CREATE_FAILED",
+              userMessage: "タスクを作成できませんでした。",
+              action: "入力内容を確認して、もう一度お試しください。",
+              retryable: response.status >= 500,
+            },
+            "useTasks.create"
+          );
         }
 
         const data = await response.json();
         await fetchTasks();
         return data.task;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "タスクの作成に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "TASK_CREATE_FAILED",
+            userMessage: "タスクを作成できませんでした。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "useTasks.create"
+        );
+        setError(uiError.message);
         return null;
       }
     },
@@ -180,14 +218,32 @@ export function useTasks(options: UseTasksOptions = {}) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to update task");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "TASK_UPDATE_FAILED",
+              userMessage: "タスクを更新できませんでした。",
+              action: "入力内容を確認して、もう一度お試しください。",
+              retryable: response.status >= 500,
+            },
+            "useTasks.update"
+          );
         }
 
         await fetchTasks();
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "タスクの更新に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "TASK_UPDATE_FAILED",
+            userMessage: "タスクを更新できませんでした。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "useTasks.update"
+        );
+        setError(uiError.message);
         return false;
       }
     },
@@ -204,14 +260,32 @@ export function useTasks(options: UseTasksOptions = {}) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to delete task");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "TASK_DELETE_FAILED",
+              userMessage: "タスクを削除できませんでした。",
+              action: "時間を置いて、もう一度お試しください。",
+              retryable: response.status >= 500,
+            },
+            "useTasks.delete"
+          );
         }
 
         await fetchTasks();
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "タスクの削除に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "TASK_DELETE_FAILED",
+            userMessage: "タスクを削除できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "useTasks.delete"
+        );
+        setError(uiError.message);
         return false;
       }
     },
@@ -257,13 +331,32 @@ export function useTodayTask() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch today's task");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "TODAY_TASK_FETCH_FAILED",
+            userMessage: "今日のおすすめタスクを読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "useTodayTask.fetch"
+        );
       }
 
       const result = await response.json();
       setData(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "今日のタスクの取得に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "TODAY_TASK_FETCH_FAILED",
+          userMessage: "今日のおすすめタスクを読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useTodayTask.fetch"
+      );
+      setError(uiError.message);
     } finally {
       setIsLoading(false);
     }
@@ -285,13 +378,32 @@ export function useTodayTask() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to complete task");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "TASK_COMPLETE_FAILED",
+            userMessage: "タスクを完了にできませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: response.status >= 500,
+          },
+          "useTodayTask.markComplete"
+        );
       }
 
       await fetchTodayTask();
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "タスクの完了に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "TASK_COMPLETE_FAILED",
+          userMessage: "タスクを完了にできませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "useTodayTask.markComplete"
+      );
+      setError(uiError.message);
       return false;
     }
   }, [data.task, fetchTodayTask]);

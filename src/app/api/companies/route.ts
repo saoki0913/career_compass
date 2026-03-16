@@ -9,13 +9,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { companies, userProfiles, deadlines, applications, documents } from "@/lib/db/schema";
-import { eq, or, desc, and, isNull, asc, sql, count } from "drizzle-orm";
+import { eq, desc, and, isNull, asc, sql, count } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { encrypt } from "@/lib/crypto";
 import { CompanyStatus, VALID_STATUSES } from "@/lib/constants/status";
 import { stripCompanyCredentials } from "@/lib/db/sanitize";
-import { logError } from "@/lib/logger";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 // Plan limits for companies
 const COMPANY_LIMITS = {
@@ -72,10 +72,15 @@ export async function GET(request: NextRequest) {
     const identity = await getCurrentIdentity(request);
 
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "COMPANIES_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "companies-auth",
+      });
     }
 
     // Build where clause based on identity
@@ -221,11 +226,16 @@ export async function GET(request: NextRequest) {
       canAddMore: companiesWithAggregates.length < limit,
     });
   } catch (error) {
-    logError("list-companies", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "COMPANIES_FETCH_FAILED",
+      userMessage: "企業一覧を読み込めませんでした。",
+      action: "ページを再読み込みして、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "list-companies",
+    });
   }
 }
 
@@ -234,10 +244,15 @@ export async function POST(request: NextRequest) {
     const identity = await getCurrentIdentity(request);
 
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "COMPANY_CREATE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "company-create-auth",
+      });
     }
 
     const body = await request.json();
@@ -245,18 +260,26 @@ export async function POST(request: NextRequest) {
 
     // Validate required fields
     if (!name || typeof name !== "string" || name.trim().length === 0) {
-      return NextResponse.json(
-        { error: "Company name is required" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "COMPANY_NAME_REQUIRED",
+        userMessage: "企業名を入力してください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        developerMessage: "Company name is required",
+        logContext: "company-create-validation",
+      });
     }
 
     // Validate status if provided
     if (status && !VALID_STATUSES.includes(status)) {
-      return NextResponse.json(
-        { error: "Invalid status" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "COMPANY_STATUS_INVALID",
+        userMessage: "企業ステータスを確認して、もう一度お試しください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        developerMessage: "Invalid status",
+        logContext: "company-create-validation",
+      });
     }
 
     // Build where clause based on identity
@@ -339,10 +362,15 @@ export async function POST(request: NextRequest) {
       message: "Company created successfully",
     });
   } catch (error) {
-    logError("create-company", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "COMPANY_CREATE_FAILED",
+      userMessage: "企業を登録できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "create-company",
+    });
   }
 }

@@ -290,6 +290,14 @@ export const deadlines = pgTable(
     isConfirmed: boolean("is_confirmed").notNull().default(false),
     confidence: text("confidence", { enum: ["high", "medium", "low"] }),
     sourceUrl: text("source_url"),
+    googleCalendarId: text("google_calendar_id"),
+    googleEventId: text("google_event_id"),
+    googleSyncStatus: text("google_sync_status", {
+      enum: ["idle", "pending", "synced", "failed", "suppressed"],
+    }).notNull().default("idle"),
+    googleSyncError: text("google_sync_error"),
+    googleSyncedAt: timestamptz("google_synced_at"),
+    googleSyncSuppressedAt: timestamptz("google_sync_suppressed_at"),
     completedAt: timestamptz("completed_at"),
     autoCompletedTaskIds: text("auto_completed_task_ids"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
@@ -435,7 +443,7 @@ export const notifications = pgTable(
     id: text("id").primaryKey(),
     userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
     guestId: text("guest_id").references(() => guestUsers.id, { onDelete: "cascade" }),
-    type: text("type", { enum: ["deadline_reminder", "deadline_near", "company_fetch", "es_review", "daily_summary"] }).notNull(),
+    type: text("type", { enum: ["deadline_reminder", "deadline_near", "company_fetch", "es_review", "daily_summary", "calendar_sync_failed"] }).notNull(),
     title: text("title").notNull(),
     message: text("message").notNull(),
     data: text("data"),
@@ -613,16 +621,54 @@ export const calendarEvents = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     deadlineId: text("deadline_id").references(() => deadlines.id, { onDelete: "cascade" }),
+    googleCalendarId: text("google_calendar_id"),
+    // Keep the legacy column during rollout so pre-sync rollback can still read old rows.
     externalEventId: text("external_event_id"),
+    googleEventId: text("google_event_id"),
+    googleSyncStatus: text("google_sync_status", {
+      enum: ["idle", "pending", "synced", "failed", "suppressed"],
+    }).notNull().default("idle"),
+    googleSyncError: text("google_sync_error"),
+    googleSyncedAt: timestamptz("google_synced_at"),
     type: text("type", { enum: ["deadline", "work_block"] }).notNull(),
     title: text("title").notNull(),
     startAt: timestamptz("start_at").notNull(),
     endAt: timestamptz("end_at").notNull(),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
   },
   (t) => [
     index("calendar_events_user_start_at_idx").on(t.userId, t.startAt),
     index("calendar_events_deadline_id_idx").on(t.deadlineId),
+  ]
+);
+
+export const calendarSyncJobs = pgTable(
+  "calendar_sync_jobs",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    entityType: text("entity_type", { enum: ["deadline", "work_block"] }).notNull(),
+    entityId: text("entity_id").notNull(),
+    action: text("action", { enum: ["upsert", "delete"] }).notNull(),
+    targetCalendarId: text("target_calendar_id"),
+    googleEventId: text("google_event_id"),
+    status: text("status", { enum: ["pending", "processing", "completed", "failed", "cancelled"] })
+      .notNull()
+      .default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    scheduledAt: timestamptz("scheduled_at").notNull().defaultNow(),
+    startedAt: timestamptz("started_at"),
+    completedAt: timestamptz("completed_at"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("calendar_sync_jobs_status_scheduled_idx").on(t.status, t.scheduledAt),
+    index("calendar_sync_jobs_user_entity_idx").on(t.userId, t.entityType, t.entityId),
   ]
 );
 
@@ -791,6 +837,26 @@ export const waitlistSignups = pgTable(
     createdAt: timestamptz("created_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("waitlist_signups_email_lower_ux").on(sql`lower(${t.email})`)]
+);
+
+// User pins table - generic favorites for any entity
+export const userPins = pgTable(
+  "user_pins",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    guestId: text("guest_id").references(() => guestUsers.id, { onDelete: "cascade" }),
+    entityType: text("entity_type", { enum: ["document", "gakuchika"] }).notNull(),
+    entityId: text("entity_id").notNull(),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    check("user_pins_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
+    uniqueIndex("user_pins_user_entity_ux").on(t.userId, t.entityType, t.entityId),
+    uniqueIndex("user_pins_guest_entity_ux").on(t.guestId, t.entityType, t.entityId),
+    index("user_pins_user_type_idx").on(t.userId, t.entityType),
+    index("user_pins_guest_type_idx").on(t.guestId, t.entityType),
+  ]
 );
 
 // Contact messages (support/inquiries)

@@ -12,11 +12,9 @@ def _reset_provider_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "")
     monkeypatch.setattr(settings, "google_api_key", "")
     monkeypatch.setattr(settings, "cohere_api_key", "")
-    monkeypatch.setattr(settings, "deepseek_api_key", "")
     monkeypatch.setattr(settings, "openai_model", "gpt-5-mini")
     monkeypatch.setattr(settings, "google_model", "gemini-3.1-pro-preview")
     monkeypatch.setattr(settings, "cohere_model", "command-a-03-2025")
-    monkeypatch.setattr(settings, "deepseek_model", "deepseek-chat")
     monkeypatch.setattr(settings, "model_es_review", "claude-sonnet")
     monkeypatch.setattr(llm, "_model_config", None)
     monkeypatch.setattr(llm, "_openai_client", None)
@@ -30,7 +28,6 @@ def test_resolve_model_target_supports_explicit_provider_models() -> None:
     assert llm._resolve_model_target("es_review", "gpt-5.1").provider == "openai"
     assert llm._resolve_model_target("es_review", "gemini-3.1-pro-preview").provider == "google"
     assert llm._resolve_model_target("es_review", "command-a-03-2025").provider == "cohere"
-    assert llm._resolve_model_target("es_review", "deepseek-chat").provider == "deepseek"
 
 
 def test_resolve_feature_model_metadata_uses_current_feature_config(
@@ -45,13 +42,6 @@ def test_resolve_feature_model_metadata_uses_current_feature_config(
     assert model_name == "gemini-3.1-pro-preview"
 
 
-def test_resolve_feature_model_metadata_supports_request_override() -> None:
-    provider, model_name = llm.resolve_feature_model_metadata("es_review", "deepseek-chat")
-
-    assert provider == "deepseek"
-    assert model_name == "deepseek-chat"
-
-
 def test_build_chat_response_format_maps_provider_capabilities() -> None:
     schema = {
         "type": "object",
@@ -59,9 +49,6 @@ def test_build_chat_response_format_maps_provider_capabilities() -> None:
         "required": ["answer"],
     }
 
-    assert llm._build_chat_response_format("deepseek", "json_schema", schema) == {
-        "type": "json_object"
-    }
     assert llm._build_chat_response_format("cohere", "json_schema", schema) == {
         "type": "json_object",
         "schema": schema,
@@ -193,7 +180,7 @@ async def test_call_google_generate_content_uses_response_schema(
         user_message="ok が true のJSONを返してください。",
         messages=None,
         max_tokens=120,
-        temperature=0.1,
+        temperature=0.3,
         model="gemini-3.1-pro-preview",
         response_format="json_schema",
         json_schema={
@@ -210,6 +197,7 @@ async def test_call_google_generate_content_uses_response_schema(
     assert "responseSchema" in generation_config
     assert "responseJsonSchema" not in generation_config
     assert "additionalProperties" not in generation_config["responseSchema"]
+    assert generation_config["temperature"] == 0.1
     assert generation_config["thinkingConfig"] == {
         "thinkingLevel": "LOW",
         "includeThoughts": False,
@@ -252,35 +240,6 @@ async def test_call_llm_with_error_repairs_google_partial_json_with_same_model(
 
 
 @pytest.mark.asyncio
-async def test_call_llm_with_error_routes_deepseek_alias(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(settings, "deepseek_api_key", "test-deepseek-key")
-
-    seen: dict[str, object] = {}
-
-    async def fake_openai_compatible(**kwargs):
-        seen.update(kwargs)
-        return {"ok": True}
-
-    monkeypatch.setattr(llm, "_call_openai_compatible", fake_openai_compatible)
-
-    result = await llm.call_llm_with_error(
-        system_prompt="system",
-        user_message="user",
-        model="deepseek",
-        response_format="json_schema",
-        json_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}},
-        disable_fallback=True,
-    )
-
-    assert result.success is True
-    assert result.data == {"ok": True}
-    assert seen["provider"] == "deepseek"
-    assert seen["model"] == "deepseek-chat"
-
-
-@pytest.mark.asyncio
 async def test_call_llm_with_error_routes_explicit_cohere_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -307,3 +266,25 @@ async def test_call_llm_with_error_routes_explicit_cohere_model(
     assert result.data == {"answer": "改善案"}
     assert seen["provider"] == "cohere"
     assert seen["model"] == "command-a-03-2025"
+
+
+def test_augment_system_prompt_for_provider_text_adds_strict_hint_for_cohere_es_review() -> None:
+    augmented = llm._augment_system_prompt_for_provider_text(
+        "cohere",
+        "system",
+        feature="es_review",
+    )
+
+    assert "出力形式の厳守" in augmented
+    assert "出力は最終本文のみ" in augmented
+
+
+def test_augment_system_prompt_for_provider_text_keeps_non_es_review_prompt_unchanged() -> None:
+    assert (
+        llm._augment_system_prompt_for_provider_text(
+            "cohere",
+            "system",
+            feature="motivation",
+        )
+        == "system"
+    )

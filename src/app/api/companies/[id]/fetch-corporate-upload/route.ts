@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { companies, companyPdfIngestJobs, userProfiles } from "@/lib/db/schema";
+import { companies, userProfiles } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import {
@@ -11,13 +11,10 @@ import {
   type CorporateInfoSource,
   upsertCorporateInfoSource,
 } from "@/lib/company-info/sources";
-import { deleteSupabaseObject, uploadSupabaseObject } from "@/lib/storage/supabase-storage";
 
 export const runtime = "nodejs";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
-const COMPANY_PDF_INGEST_BUCKET =
-  process.env.COMPANY_PDF_INGEST_BUCKET || "company-info-pdf-ingest";
 const MAX_FILES_PER_REQUEST = 10;
 
 const PAGE_LIMITS = {
@@ -36,8 +33,6 @@ interface UploadPdfResult {
   content_type?: string | null;
   secondary_content_types?: string[];
   extraction_method: string;
-  deferred?: boolean;
-  needs_ocr?: boolean;
   errors: string[];
 }
 
@@ -64,11 +59,6 @@ function parseFiles(formData: FormData): File[] {
   }
   const single = formData.get("file");
   return single instanceof File ? [single] : [];
-}
-
-function getStoragePath(companyId: string, jobId: string, fileName: string): string {
-  const normalized = fileName.replace(/[^\w.\-()+\u3040-\u30ff\u4e00-\u9faf]/g, "_");
-  return `company/${companyId}/${jobId}/${normalized}`;
 }
 
 function validatePdfFile(file: File): string | null {
@@ -189,7 +179,7 @@ export async function POST(
       backendForm.set("company_id", companyId);
       backendForm.set("company_name", company.name);
       backendForm.set("source_url", sourceUrl);
-      backendForm.set("allow_defer_ocr", "true");
+      backendForm.set("allow_defer_ocr", "false");
       backendForm.set("file", file, file.name);
 
       let uploadResult: UploadPdfResult;
@@ -225,82 +215,6 @@ export async function POST(
       }
 
       const nowIso = new Date().toISOString();
-
-      if (uploadResult.deferred && uploadResult.needs_ocr) {
-        const jobId = randomUUID();
-        const storagePath = getStoragePath(companyId, jobId, file.name);
-        const pendingSource: CorporateInfoSource = {
-          url: sourceUrl,
-          kind: "upload_pdf",
-          fileName: file.name,
-          status: "pending",
-          jobId,
-          fetchedAt: nowIso,
-          updatedAt: nowIso,
-          extractionMethod: uploadResult.extraction_method,
-          extractedChars: uploadResult.extracted_chars,
-        };
-
-        try {
-          await uploadSupabaseObject({
-            bucket: COMPANY_PDF_INGEST_BUCKET,
-            path: storagePath,
-            body: new Uint8Array(await file.arrayBuffer()),
-            contentType: "application/pdf",
-          });
-
-          const nextSources = upsertCorporateInfoSource(currentSources, pendingSource);
-          await db.transaction(async (tx) => {
-            await tx.insert(companyPdfIngestJobs).values({
-              id: jobId,
-              companyId,
-              sourceUrl,
-              storageBucket: COMPANY_PDF_INGEST_BUCKET,
-              storagePath,
-              fileName: file.name,
-              status: "pending",
-              attempts: 0,
-              extractionMethod: uploadResult.extraction_method,
-              extractedChars: uploadResult.extracted_chars,
-            });
-
-            await tx
-              .update(companies)
-              .set({
-                corporateInfoUrls: serializeCorporateInfoSources(nextSources),
-                corporateInfoFetchedAt: new Date(),
-                updatedAt: new Date(),
-              })
-              .where(eq(companies.id, companyId));
-          });
-
-          currentSources = nextSources;
-          items.push({
-            fileName: file.name,
-            status: "pending",
-            sourceUrl,
-            extractionMethod: uploadResult.extraction_method,
-            extractedChars: uploadResult.extracted_chars,
-          });
-        } catch (error) {
-          console.error("Deferred PDF registration error:", error);
-          try {
-            await deleteSupabaseObject({
-              bucket: COMPANY_PDF_INGEST_BUCKET,
-              path: storagePath,
-            });
-          } catch {
-            // Ignore storage cleanup failure.
-          }
-          items.push({
-            fileName: file.name,
-            status: "failed",
-            sourceUrl,
-            error: "OCR待ちPDFの保留登録に失敗しました。",
-          });
-        }
-        continue;
-      }
 
       const completedSource: CorporateInfoSource = {
         url: sourceUrl,

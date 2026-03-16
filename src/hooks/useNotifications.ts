@@ -12,7 +12,8 @@ export type NotificationType =
   | "deadline_near"
   | "company_fetch"
   | "es_review"
-  | "daily_summary";
+  | "daily_summary"
+  | "calendar_sync_failed";
 
 export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   deadline_reminder: "締切リマインド",
@@ -20,6 +21,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   company_fetch: "企業情報取得",
   es_review: "ES添削完了",
   daily_summary: "デイリーサマリー",
+  calendar_sync_failed: "Google同期エラー",
 };
 
 export const NOTIFICATION_TYPE_ICONS: Record<NotificationType, string> = {
@@ -28,6 +30,7 @@ export const NOTIFICATION_TYPE_ICONS: Record<NotificationType, string> = {
   company_fetch: "🏢",
   es_review: "✨",
   daily_summary: "📋",
+  calendar_sync_failed: "📅",
 };
 
 export interface Notification {

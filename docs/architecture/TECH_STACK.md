@@ -80,9 +80,10 @@
 
 | 機能 | デフォルトモデル | 環境変数 |
 |------|----------------|----------|
-| ES添削 | Claude Sonnet / GPT-5.1 / Gemini 3.1 Pro Preview / Command A / DeepSeek | `MODEL_ES_REVIEW` |
+| ES添削 | Claude Sonnet / GPT-5.1 / Gemini 3.1 Pro Preview / Command A | `MODEL_ES_REVIEW` |
 | ガクチカ深掘り | Claude Haiku | `MODEL_GAKUCHIKA` |
 | 志望動機 | Claude Haiku | `MODEL_MOTIVATION` |
+| 選考スケジュール抽出 | Claude Haiku | `MODEL_SELECTION_SCHEDULE` |
 | 企業情報抽出 | GPT-5-mini | `MODEL_COMPANY_INFO` |
 | RAGクエリ拡張 | Claude Haiku | `MODEL_RAG_QUERY_EXPANSION` |
 | RAG HyDE | Claude Sonnet | `MODEL_RAG_HYDE` |

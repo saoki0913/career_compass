@@ -19,7 +19,7 @@ import { getGuestUser } from "@/lib/auth/guest";
 import { reserveCredits, confirmReservation, cancelReservation, calculateESReviewCost } from "@/lib/credits";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 import type { TemplateType } from "@/hooks/useESReview";
-import { isSelectableStandardESReviewModel, isStandardESReviewModel } from "@/lib/ai/es-review-models";
+import { isStandardESReviewModel } from "@/lib/ai/es-review-models";
 import { resolveIndustryForReview } from "@/lib/constants/es-review-role-catalog";
 
 function deriveCharMin(charLimit?: number | null) {
@@ -904,14 +904,7 @@ export async function handleReviewStream(
       industryOverride?: string;
       llmModel?: string;
     };
-    if (typeof llmModel === "string" && isStandardESReviewModel(llmModel) && !isSelectableStandardESReviewModel(llmModel)) {
-      return new Response(
-        JSON.stringify({ error: "選択したモデルは現在調整中です" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-    const resolvedLLMModel =
-      typeof llmModel === "string" && isSelectableStandardESReviewModel(llmModel) ? llmModel : null;
+    const resolvedLLMModel = typeof llmModel === "string" && isStandardESReviewModel(llmModel) ? llmModel : null;
 
     // Verify requestCompanyId ownership to prevent IDOR
     let companyId = access.document.companyId;

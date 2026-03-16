@@ -15,12 +15,12 @@
 - **開始フロー**: `setup(企業確認 / 業界確定 / 職種確定) → start API → chat`
 - **チャット段階**: `company_reason → desired_work → fit_connection / differentiation → closing`
 - **初回開始**: 空の会話履歴は `next-question` 内で初回ターンとして扱い、空 `messages=[]` を LLM に渡さない
-- **4択生成**: 質問は LLM が生成し、回答候補は server-side の grounded builder が決定論的に組み立てる
+- **4択生成**: 質問は LLM が生成した後に server-side validator を通し、回答候補は grounded builder が `2〜4件` の直接回答文だけを決定論的に組み立てる
 - **ハルシネーション抑制**: 企業情報・ガクチカ・プロフィール・確定職種・会話で確定済みのやりたい仕事以外の事実を使わないよう prompt と builder の両方で制限する
 - **候補数**: 回答候補は `2〜4件` を基本とし、grounding が弱いときだけ `0〜3件` に絞る
 - **raw 企業文フィルタ**: `Q4:` などの見出し、採用導線文、社員紹介コピー、URL断片は候補生成前に除外する
 - **question-fit**: 候補は `質問タイプ判定 → 直接回答文テンプレート → question-fit scoring` で絞り込み、質問に答えていない候補を上位に残さない
-- **UI導線**: `最初からやり直す` は右上のセカンダリボタン、`志望動機ESを作成` は常時 visible の固定CTA、企業RAGの出典は `参考にした企業情報` を 1 見出し + compact source card で表示する
+- **UI導線**: `会話をやり直す` は進捗 header 右上のセカンダリボタン、`志望動機ESを作成` は右カラム上部とモバイル入力欄直上で常時 visible、企業RAGの出典は `参考にした企業情報` を `要点1行 + 出典種別` の compact card で表示する
 
 ---
 
@@ -89,7 +89,7 @@ weighted = (
 - 会話履歴と setup 状態を返す
 - 会話未開始の場合でも、ここでは初回質問を自動生成しない
 - 返却: `nextQuestion`, `questionCount`, `isCompleted`, `scores`, `suggestions`, `suggestionOptions`, `evidenceSummary`, `evidenceCards`, `generatedDraft`, `questionStage`, `stageStatus`, `conversationContext`, `setup`
-- 右カラムの `志望動機ESを作成` CTA は開始前から表示し、深掘り完了までは disabled のまま理由を示す
+- 右カラム最上部の `志望動機ESを作成` CTA は開始前から表示し、深掘り完了までは disabled のまま理由を示す
 
 ### POST /start の動き
 - setup で確定した `selectedIndustry / selectedRole / roleSelectionSource` を保存する
@@ -243,7 +243,8 @@ weighted = (
 - `suggestions` は `suggestion_options[].label` の後方互換フィールド
 - `desired_work` 段階の回答候補は仮置き候補として `isTentative=true` を付け、会話で初めて `desiredWork` を確定する
 - prompt には `会話コンテキスト + 直近の会話履歴` を渡し、質問の連続性を維持する
-- builder は `質問タイプ判定 → 直接回答文テンプレート → question-fit scoring / validator` の順で候補を作り、企業説明の断片や設問見出しをそのまま候補へ流さない
+- builder は `質問 validator → 質問タイプ判定 → 直接回答文テンプレート → question-fit scoring` の順で候補を作り、企業説明の断片や設問見出しをそのまま候補へ流さない
+- UI の候補 chip は本文のみを表示し、根拠ラベルや仮置き表示は出さない
 
 ### 5.2.1 次質問ストリーミング
 **`POST /api/motivation/next-question/stream`**

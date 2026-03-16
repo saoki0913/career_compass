@@ -3,14 +3,14 @@ import { getStandardESReviewModelLabel as getKnownStandardESReviewModelLabel } f
 function humanizeModelId(modelId: string): string {
   const lower = modelId.toLowerCase();
 
-  if (lower === "claude-sonnet" || lower === "gpt-5.1" || lower === "gemini-3.1-pro-preview" || lower === "command-a-03-2025" || lower === "deepseek-chat") {
+  if (lower === "claude-sonnet" || lower === "gpt-5.1" || lower === "gemini-3.1-pro-preview" || lower === "command-a-03-2025") {
     return getKnownStandardESReviewModelLabel(lower);
   }
   if (lower.startsWith("claude-haiku")) {
     return "Claude Haiku 4.5";
   }
   if (lower.startsWith("claude-sonnet")) {
-    return "Claude Sonnet 4.5";
+    return "Claude Sonnet 4.6";
   }
   if (lower.startsWith("gemini-3.1-pro-preview")) {
     return "Gemini 3.1 Pro Preview";
@@ -20,12 +20,6 @@ function humanizeModelId(modelId: string): string {
   }
   if (lower.startsWith("command-a")) {
     return "Cohere Command A";
-  }
-  if (lower.startsWith("deepseek-chat")) {
-    return "DeepSeek V3.2";
-  }
-  if (lower.startsWith("deepseek-reasoner")) {
-    return "DeepSeek Reasoner";
   }
   if (lower.startsWith("gpt-5.2")) {
     return "GPT-5.2";
@@ -72,9 +66,6 @@ export function getLLMResultLabel(params: {
   }
   if (provider === "cohere") {
     return "Cohere Command";
-  }
-  if (provider === "deepseek") {
-    return "DeepSeek";
   }
   if (provider === "openai") {
     return "OpenAI";

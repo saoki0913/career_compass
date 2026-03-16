@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import type { SearchResponse } from "@/lib/search/utils";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 const DEBOUNCE_MS = 300;
 
@@ -119,8 +120,17 @@ export function useSearch(options: UseSearchOptions = {}): UseSearchResult {
         });
 
         if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || "検索に失敗しました");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "SEARCH_FAILED",
+              userMessage: "検索結果を読み込めませんでした。",
+              action: "キーワードを確認して、もう一度お試しください。",
+              retryable: true,
+              authMessage: "ログイン状態を確認して、もう一度お試しください。",
+            },
+            "useSearch.executeSearch"
+          );
         }
 
         const data: SearchResponse = await response.json();
@@ -130,7 +140,17 @@ export function useSearch(options: UseSearchOptions = {}): UseSearchResult {
         if (err instanceof Error && err.name === "AbortError") {
           return;
         }
-        setError(err instanceof Error ? err.message : "検索に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "SEARCH_FAILED",
+            userMessage: "検索結果を読み込めませんでした。",
+            action: "キーワードを確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "useSearch.executeSearch"
+        );
+        setError(uiError.message);
         setResults(null);
       } finally {
         // Only set loading false if this is still the current request

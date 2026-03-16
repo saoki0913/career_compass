@@ -9,9 +9,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { tasks, companies, applications, deadlines } from "@/lib/db/schema";
-import { eq, and, or, desc, asc, isNull } from "drizzle-orm";
+import { eq, and, desc, asc, isNull } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 const TASK_TYPE_LABELS: Record<string, string> = {
   es: "ES作成",
@@ -49,10 +50,15 @@ export async function GET(request: NextRequest) {
   try {
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "TASKS_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "tasks-auth",
+      });
     }
 
     const { userId, guestId } = identity;
@@ -119,11 +125,16 @@ export async function GET(request: NextRequest) {
       })),
     });
   } catch (error) {
-    console.error("Error fetching tasks:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "TASKS_FETCH_FAILED",
+      userMessage: "タスク一覧を読み込めませんでした。",
+      action: "ページを再読み込みして、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "tasks-fetch",
+    });
   }
 }
 
@@ -131,10 +142,15 @@ export async function POST(request: NextRequest) {
   try {
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "TASK_CREATE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "task-create-auth",
+      });
     }
 
     const { userId, guestId } = identity;
@@ -142,18 +158,26 @@ export async function POST(request: NextRequest) {
     const { title, description, type, companyId, applicationId, deadlineId, dueDate } = body;
 
     if (!title || !title.trim()) {
-      return NextResponse.json(
-        { error: "タイトルは必須です" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "TASK_TITLE_REQUIRED",
+        userMessage: "タスク名を入力してください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        developerMessage: "Task title is required",
+        logContext: "task-create-validation",
+      });
     }
 
     const validTypes = Object.keys(TASK_TYPE_LABELS);
     if (!type || !validTypes.includes(type)) {
-      return NextResponse.json(
-        { error: "有効なタイプを選択してください" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "TASK_TYPE_INVALID",
+        userMessage: "タスク種別を確認して、もう一度お試しください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        developerMessage: "Invalid task type",
+        logContext: "task-create-validation",
+      });
     }
 
     // Verify company access if provided
@@ -174,10 +198,14 @@ export async function POST(request: NextRequest) {
         .limit(1);
 
       if (!company) {
-        return NextResponse.json(
-          { error: "企業が見つかりません" },
-          { status: 404 }
-        );
+        return createApiErrorResponse(request, {
+          status: 404,
+          code: "TASK_COMPANY_NOT_FOUND",
+          userMessage: "関連する企業が見つかりませんでした。",
+          action: "企業の選択内容を確認して、もう一度お試しください。",
+          developerMessage: "Company not found for task create",
+          logContext: "task-create-validation",
+        });
       }
     }
 
@@ -204,10 +232,15 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ task: newTask[0] });
   } catch (error) {
-    console.error("Error creating task:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "TASK_CREATE_FAILED",
+      userMessage: "タスクを作成できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "task-create",
+    });
   }
 }

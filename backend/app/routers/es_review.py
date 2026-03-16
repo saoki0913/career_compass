@@ -34,6 +34,7 @@ from app.utils.vector_store import (
     get_dynamic_context_length,
 )
 from app.utils.content_types import content_type_label
+from app.utils.company_names import classify_company_domain_relation
 
 logger = get_logger(__name__)
 from app.utils.telemetry import (
@@ -46,13 +47,11 @@ from app.prompts.es_templates import (
     build_template_improvement_prompt,
     build_template_length_fix_prompt,
     build_template_rewrite_prompt,
+    get_company_honorific,
     get_template_company_grounding_policy,
     get_template_rag_profile,
 )
 from app.prompts.qwen_es_templates import (
-    build_qwen_template_fallback_rewrite_prompt,
-    build_qwen_template_improvement_prompt,
-    build_qwen_template_length_fix_prompt,
     build_qwen_template_rewrite_prompt,
 )
 from app.prompts.reference_es import (
@@ -225,7 +224,11 @@ class ReviewMeta(BaseModel):
     reference_quality_profile_used: bool = False
     reference_outline_used: bool = False
     company_grounding_policy: str = "assistive"
+    effective_company_grounding_policy: str = "assistive"
     company_evidence_count: int = 0
+    company_evidence_verified_count: int = 0
+    company_evidence_rejected_count: int = 0
+    company_grounding_safety_applied: bool = False
     evidence_coverage_level: str = "none"
     weak_evidence_notice: bool = False
     injection_risk: Optional[str] = None
@@ -887,7 +890,7 @@ def _trim_qwen_initial_prompt_user_facts(
     *,
     char_max: int | None,
 ) -> list[dict[str, str]]:
-    return prompt_user_facts[: (4 if _is_short_answer_mode(char_max) else 6)]
+    return prompt_user_facts[: (3 if _is_short_answer_mode(char_max) else 4)]
 
 
 def _trim_qwen_initial_company_evidence_cards(
@@ -895,14 +898,13 @@ def _trim_qwen_initial_company_evidence_cards(
     *,
     template_type: str,
 ) -> list[dict[str, str]]:
-    company_grounding = _get_company_grounding_policy(template_type)
-    if company_grounding == "assistive":
-        return company_evidence_cards[:1]
-    return company_evidence_cards[:2]
+    _ = template_type
+    return company_evidence_cards[:1]
 
 
 def _should_use_qwen_reference_outline(char_max: int | None) -> bool:
-    return bool(char_max and char_max > SHORT_ANSWER_CHAR_MAX)
+    _ = char_max
+    return False
 
 
 def _split_candidate_sentences(text: str) -> list[str]:
@@ -1440,6 +1442,7 @@ def _build_company_evidence_cards(
                 "source_url": str(source.get("source_url") or ""),
                 "content_type": content_type,
                 "title": title,
+                "same_company_verified": bool(source.get("same_company_verified", True)),
             }
         )
 
@@ -1500,7 +1503,11 @@ def _assess_company_evidence_coverage(
     company_evidence_cards: Optional[list[dict[str, str]]],
     grounding_mode: str,
 ) -> tuple[str, bool]:
-    cards = company_evidence_cards or []
+    cards = [
+        card
+        for card in (company_evidence_cards or [])
+        if bool(card.get("same_company_verified", True))
+    ]
     company_grounding = _get_company_grounding_policy(template_type)
     if not company_rag_available or not cards:
         return "none", company_grounding == "required"
@@ -1640,7 +1647,11 @@ def _build_review_meta(
     reference_quality_profile_used: bool = False,
     reference_outline_used: bool = False,
     company_grounding_policy: str = "assistive",
+    effective_company_grounding_policy: str = "assistive",
     company_evidence_count: int = 0,
+    company_evidence_verified_count: int = 0,
+    company_evidence_rejected_count: int = 0,
+    company_grounding_safety_applied: bool = False,
     evidence_coverage_level: str = "none",
     weak_evidence_notice: bool = False,
     length_policy: str = "strict",
@@ -1665,7 +1676,11 @@ def _build_review_meta(
         reference_quality_profile_used=reference_quality_profile_used,
         reference_outline_used=reference_outline_used,
         company_grounding_policy=company_grounding_policy,
+        effective_company_grounding_policy=effective_company_grounding_policy,
         company_evidence_count=company_evidence_count,
+        company_evidence_verified_count=company_evidence_verified_count,
+        company_evidence_rejected_count=company_evidence_rejected_count,
+        company_grounding_safety_applied=company_grounding_safety_applied,
         evidence_coverage_level=evidence_coverage_level,
         weak_evidence_notice=weak_evidence_notice,
         injection_risk=injection_risk,
@@ -2196,6 +2211,101 @@ def _build_keyword_sources(rag_sources: list[dict]) -> list[TemplateSource]:
     ]
 
 
+EMPLOYEE_INTERVIEW_EVIDENCE_POSITIVE_SIGNALS = {
+    "interview",
+    "voice",
+    "people",
+    "person",
+    "member",
+    "members",
+    "staff",
+    "story",
+    "talk",
+    "社員紹介",
+    "社員インタビュー",
+    "社員の声",
+    "先輩社員",
+    "働く人",
+    "人を知る",
+    "人を読む",
+}
+EMPLOYEE_INTERVIEW_EVIDENCE_NEGATIVE_SIGNALS = {
+    "investor",
+    "investors",
+    "ir",
+    "financial",
+    "earnings",
+    "results",
+    "governance",
+    "integrated",
+    "統合報告",
+    "決算",
+    "株主",
+    "投資家",
+    "有価証券",
+    "企業データ",
+    "会社概要",
+    "企業概要",
+    "company data",
+    "company overview",
+}
+
+
+def _company_source_text(source: dict[str, Any]) -> str:
+    return " ".join(
+        str(source.get(key) or "").lower()
+        for key in ("source_url", "title", "excerpt", "heading", "heading_path")
+    )
+
+
+def _filter_verified_company_rag_sources(
+    rag_sources: list[dict],
+    *,
+    company_name: str | None,
+) -> tuple[list[dict], list[dict], bool]:
+    if not company_name:
+        return list(rag_sources), [], False
+
+    verified_sources: list[dict] = []
+    rejected_sources: list[dict] = []
+    has_mismatched_company_sources = False
+
+    for source in rag_sources:
+        enriched = dict(source)
+        source_url = str(source.get("source_url") or "")
+        content_type = str(source.get("content_type") or "")
+        reason: str | None = None
+
+        if not source_url:
+            reason = "source_url_missing"
+        else:
+            relation = classify_company_domain_relation(source_url, company_name, content_type)
+            enriched["domain_relation"] = relation
+            enriched["domain"] = source.get("domain") or _extract_domain(source_url)
+            if not relation.get("is_official"):
+                has_mismatched_company_sources = True
+                reason = "same_company_unverified"
+
+        if not reason and content_type == "employee_interviews":
+            haystack = _company_source_text(enriched)
+            path = urlparse(source_url).path.rstrip("/").lower() if source_url else ""
+            if not path:
+                reason = "employee_root_page"
+            elif any(signal in haystack for signal in EMPLOYEE_INTERVIEW_EVIDENCE_NEGATIVE_SIGNALS):
+                reason = "employee_wrong_topic"
+            elif not any(signal in haystack for signal in EMPLOYEE_INTERVIEW_EVIDENCE_POSITIVE_SIGNALS):
+                reason = "employee_signal_missing"
+
+        enriched["same_company_verified"] = reason is None
+        enriched["validation_reason"] = reason or "verified"
+        if reason is None:
+            verified_sources.append(enriched)
+        else:
+            rejected_sources.append(enriched)
+
+    return verified_sources, rejected_sources, has_mismatched_company_sources
+
+
 def _build_template_review_response(
     template_type: str,
     rewrite_text: str,
@@ -2215,6 +2325,57 @@ def _build_template_review_response(
             )
         ],
         keyword_sources=keyword_sources,
+    )
+
+
+def _format_issue_log_lines(issues: list[Issue]) -> str:
+    if not issues:
+        return "  (none)"
+    return "\n".join(
+        f"  {index}. [{issue.category}] issue={issue.issue} / suggestion={issue.suggestion}"
+        for index, issue in enumerate(issues, start=1)
+    )
+
+
+def _format_evidence_card_log_lines(cards: list[dict[str, Any]]) -> str:
+    if not cards:
+        return "  (none)"
+    lines: list[str] = []
+    for index, card in enumerate(cards, start=1):
+        source_title = str(card.get("source_title") or card.get("title") or "-")
+        source_url = str(card.get("source_url") or "-")
+        lines.append(
+            "  "
+            + f"{index}. theme={card.get('theme', '-')}"
+            + f" / claim={card.get('claim', '-')}"
+            + f" / verified={card.get('same_company_verified', True)}"
+            + f" / source={source_title}"
+            + f" / url={source_url}"
+        )
+    return "\n".join(lines)
+
+
+def _format_rejected_source_log_lines(sources: list[dict[str, Any]]) -> str:
+    if not sources:
+        return "  (none)"
+    return "\n".join(
+        "  "
+        + f"{index}. reason={source.get('validation_reason', '-')}"
+        + f" / type={source.get('content_type', '-')}"
+        + f" / title={source.get('title', '-')}"
+        + f" / url={source.get('source_url', '-')}"
+        for index, source in enumerate(sources, start=1)
+    )
+
+
+def _format_source_log_lines(sources: list[TemplateSource]) -> str:
+    if not sources:
+        return "  (none)"
+    return "\n".join(
+        "  "
+        + f"{index}. [{source.content_type_label or source.content_type}] "
+        + f"title={source.title or '-'} / domain={source.domain or '-'} / url={source.source_url or '-'}"
+        for index, source in enumerate(sources, start=1)
     )
 
 
@@ -2550,48 +2711,20 @@ def _select_rewrite_prompt_context(
     if is_qwen_review:
         if timeout_compact_mode:
             fact_limit = 2 if short_answer_mode else 3
-            if company_grounding == "assistive":
-                card_limit = 0 if evidence_coverage_level == "none" else 1
-            else:
-                card_limit = 1 if company_evidence_cards else 0
+            card_limit = 0 if company_grounding == "assistive" and evidence_coverage_level == "none" else min(1, len(company_evidence_cards))
             return {
                 "prompt_user_facts": prompt_user_facts[:fact_limit],
                 "company_evidence_cards": company_evidence_cards[:card_limit],
-                "improvement_payload": improvement_payload[:1],
+                "improvement_payload": [],
                 "reference_quality_block": "",
             }
-        if short_answer_mode:
-            if simplified_mode:
-                fact_limit = 2
-            elif compact_mode:
-                fact_limit = 3
-            else:
-                fact_limit = 4
-        else:
-            if simplified_mode:
-                fact_limit = 4
-            elif compact_mode:
-                fact_limit = 5
-            else:
-                fact_limit = 6
-        issue_limit = 1 if simplified_mode else 2
-        if company_grounding == "assistive":
-            card_limit = 0 if evidence_coverage_level == "none" else 1
-        elif short_answer_mode:
-            card_limit = 1 if compact_mode else 2
-        else:
-            card_limit = 1 if simplified_mode else 2
-        include_reference_quality = (
-            bool(reference_quality_block)
-            and not short_answer_mode
-            and not simplified_mode
-            and attempt == 0
-        )
+        fact_limit = 3 if short_answer_mode else 4
+        card_limit = 0 if company_grounding == "assistive" and evidence_coverage_level == "none" else min(1, len(company_evidence_cards))
         return {
             "prompt_user_facts": prompt_user_facts[:fact_limit],
             "company_evidence_cards": company_evidence_cards[:card_limit],
-            "improvement_payload": improvement_payload[:issue_limit],
-            "reference_quality_block": reference_quality_block if include_reference_quality else "",
+            "improvement_payload": [],
+            "reference_quality_block": "",
         }
 
     if short_answer_mode:
@@ -2926,13 +3059,12 @@ def _rewrite_max_tokens(
 ) -> int:
     if _is_qwen_review_variant(review_variant):
         if timeout_compact_mode:
-            base_tokens = min(320, max(160, int((char_max or 220) * 0.95)))
-            return max(140, int(base_tokens * 0.8))
+            return min(240, max(120, int((char_max or 220) * 0.72)))
         if length_fix_mode:
-            return min(280, max(150, int((char_max or 220) * 0.8)))
+            return min(220, max(120, int((char_max or 220) * 0.6)))
         if _is_short_answer_mode(char_max):
-            return min(320, max(180, int((char_max or 200) * 1.18)))
-        return min(560, max(240, int((char_max or 500) * 1.2)))
+            return min(260, max(150, int((char_max or 200) * 1.0)))
+        return min(420, max(180, int((char_max or 400) * 0.95)))
     if length_fix_mode:
         return min(420, max(220, int((char_max or 400) * 0.95)))
     return min(720, max(260, int((char_max or 500) * 1.4)))
@@ -2952,7 +3084,7 @@ def _fallback_attempt_start(review_variant: str) -> int:
 
 def _total_rewrite_attempts(review_variant: str) -> int:
     if _is_qwen_review_variant(review_variant):
-        return 5
+        return 2
     return REWRITE_MAX_ATTEMPTS + FALLBACK_REWRITE_ATTEMPTS
 
 
@@ -3016,7 +3148,7 @@ def _build_qwen_timeout_anchor_sentence(
     *,
     template_type: str,
     answer: str,
-    company_name: str | None,
+    honorific: str,
     role_name: str | None,
     intern_name: str | None,
 ) -> str:
@@ -3027,7 +3159,7 @@ def _build_qwen_timeout_anchor_sentence(
     if not core:
         core = "自分の強みと学びを生かして価値を出したい"
     if template_type == "company_motivation":
-        return f"{company_name or '貴社'}を志望するのは、{core}からだ。"
+        return f"{honorific}を志望するのは、{core}からだ。"
     if template_type == "role_course_reason":
         return f"{role_name or 'その職種・コース'}を選ぶのは、{core}からだ。"
     if template_type == "post_join_goals":
@@ -3048,17 +3180,16 @@ def _build_qwen_timeout_anchor_sentence(
 def _build_qwen_timeout_tail_sentence(
     *,
     template_type: str,
-    company_name: str | None,
+    honorific: str,
     role_name: str | None,
     intern_name: str | None,
     company_grounding: str,
 ) -> str:
     if template_type == "company_motivation":
-        return f"{company_name or '貴社'}で事業理解を深めながら、価値創出に貢献したい。"
+        return f"{honorific}で事業理解を深めながら、価値創出に貢献したい。"
     if template_type == "role_course_reason":
         role = role_name or "その役割"
-        company = company_name or "現場"
-        return f"{company}で{role}として、事業と技術をつなぐ価値を出したい。"
+        return f"{honorific}で{role}として、事業と技術をつなぐ価値を出したい。"
     if template_type == "post_join_goals":
         return "現場で事業理解と実行力を磨きながら、価値創出に貢献したい。"
     if template_type == "intern_goals":
@@ -3066,14 +3197,140 @@ def _build_qwen_timeout_tail_sentence(
     if template_type == "intern_reason":
         return f"{intern_name or 'インターン'}で実務の手触りを得ながら、成長につなげたい。"
     if template_type == "self_pr":
-        if company_grounding == "required" and company_name:
-            return f"{company_name}でもこの強みを生かし、価値創出につなげたい。"
+        if company_grounding == "required":
+            return f"{honorific}でもこの強みを生かし、価値創出につなげたい。"
         return "この強みを仕事でも生かし、価値創出につなげたい。"
     if template_type == "work_values":
         return "現場で対話を重ねながら、長期的な価値につなげたい。"
     if template_type == "gakuchika":
         return "この経験で得た学びを、今後の挑戦でも生かしたい。"
     return "これまでに培った学びを土台に、価値創出につなげたい。"
+
+
+def _qwen_timeout_target_sentence_count(char_max: int | None) -> int:
+    if _is_short_answer_mode(char_max):
+        return 4
+    if char_max and char_max <= 320:
+        return 5
+    return 7
+
+
+def _build_qwen_timeout_bridge_sentence(
+    *,
+    template_type: str,
+    honorific: str,
+    role_name: str | None,
+    intern_name: str | None,
+) -> str:
+    if template_type == "company_motivation":
+        return f"その経験を土台に、{honorific}で事業理解を深めながら価値を形にしたい。"
+    if template_type == "role_course_reason":
+        return f"その経験で培った視点を、{role_name or 'その職種・コース'}での価値発揮につなげたい。"
+    if template_type == "post_join_goals":
+        return "その経験で培った推進力を土台に、入社後は現場で事業理解と実行力を磨きたい。"
+    if template_type == "intern_reason":
+        return f"その経験を土台に、{intern_name or 'インターン'}で実務への解像度を高めたい。"
+    if template_type == "intern_goals":
+        return f"その経験を土台に、{intern_name or 'インターン'}で学びを実務へ接続したい。"
+    if template_type == "self_pr":
+        return "その強みは、周囲と連携しながら価値を形にする場面で特に生きる。"
+    if template_type == "work_values":
+        return "その姿勢を土台に、周囲と対話しながら着実に価値を積み上げたい。"
+    if template_type == "gakuchika":
+        return "この経験を通じて、課題を整理し周囲を巻き込みながら前に進める力を磨いた。"
+    return "その経験を土台に、求められる価値を着実に形にしたい。"
+
+
+def _build_qwen_timeout_company_sentence(
+    *,
+    template_type: str,
+    honorific: str,
+    role_name: str | None,
+    company_evidence_cards: list[dict[str, Any]],
+) -> str:
+    if not company_evidence_cards:
+        return ""
+    card = company_evidence_cards[0]
+    theme = str(card.get("theme") or "").strip()
+    claim = _normalize_timeout_fallback_clause(str(card.get("claim") or ""), limit=28)
+    if template_type == "role_course_reason":
+        if claim:
+            return f"特に、{claim}という方向性は、{role_name or 'その職種・コース'}を志向する理由と重なる。"
+        return f"{honorific}で{role_name or 'その職種・コース'}として価値を出せる環境にも強く引かれている。"
+    if template_type == "company_motivation":
+        if claim:
+            return f"特に、{claim}という点に、{honorific}ならではの魅力を感じる。"
+        return f"{honorific}の事業方向と自分の志向の接点にも魅力を感じる。"
+    if template_type == "post_join_goals":
+        if claim:
+            return f"特に、{claim}という方向性の中で、自分の強みを生かした挑戦を広げたい。"
+        return f"{honorific}の事業方向の中で、自分の強みを生かした挑戦を広げたい。"
+    if template_type in {"intern_reason", "intern_goals"}:
+        if claim:
+            return f"特に、{claim}という環境で、実務に近い学びを得られる点に引かれている。"
+        return "インターンで実務に近い学びを得られる点にも強く引かれている。"
+    if theme in {"価値観", "企業理解", "採用方針", "現場期待"}:
+        if claim:
+            return f"また、{claim}という姿勢にも自分の価値観との接点を感じる。"
+        return f"{honorific}の価値観や現場の姿勢にも、自分との接点を感じる。"
+    return ""
+
+
+def _qwen_timeout_padding_sentences(
+    *,
+    template_type: str,
+    honorific: str,
+    role_name: str | None,
+    intern_name: str | None,
+    company_grounding: str,
+) -> list[str]:
+    shared = [
+        "現場で対話を重ねながら、求められる役割の解像度を高めていきたい。",
+        "自分の強みを一方的に示すだけでなく、事業や組織の課題解決に接続できる形まで高めたい。",
+        "その過程で、周囲と連携しながら成果を積み上げる姿勢もさらに磨きたい。",
+    ]
+    if template_type == "role_course_reason":
+        return [
+            f"{role_name or 'その職種・コース'}では、課題を構造化し関係者を巻き込みながら前に進める力が生きると考える。",
+            f"{honorific}でも、事業理解と技術理解を往復しながら価値を出せる人材を目指したい。",
+            *shared,
+        ]
+    if template_type == "company_motivation":
+        return [
+            f"{honorific}の事業を深く理解し、自分の経験をどの領域で最も生かせるかを見極めながら貢献したい。",
+            "幅広い論点を整理しながら本質的な課題に向き合う姿勢を、現場でもさらに磨いていきたい。",
+            *shared,
+        ]
+    if template_type == "post_join_goals":
+        return [
+            "まずは現場で実務の前提を学び、事業と技術の両面から課題を捉える力を高めたい。",
+            "その上で、関係者を巻き込みながら構想を実行へつなぐ役割を担えるようになりたい。",
+            *shared,
+        ]
+    if template_type in {"intern_reason", "intern_goals"}:
+        return [
+            f"{intern_name or 'インターン'}を通じて、実務で求められる視点と自分の強みのつながりを確かめたい。",
+            "限られた期間でも、学んだことを行動へ変えながら現場での価値発揮の仕方を掴みたい。",
+            *shared,
+        ]
+    if template_type == "self_pr":
+        tail = [f"{honorific}での業務にもつながる形で強みを発揮したい。"] if company_grounding == "required" else []
+        return [
+            "相手の状況を踏まえて行動を調整し、チーム全体で成果を出す姿勢にもつなげてきた。",
+            *tail,
+            *shared,
+        ]
+    if template_type == "work_values":
+        return [
+            "短期的な効率だけでなく、周囲と認識を揃えながら長く機能する進め方を大切にしたい。",
+            *shared,
+        ]
+    if template_type == "gakuchika":
+        return [
+            "課題の背景を捉えた上で打ち手を考え、周囲と共有しながら前進させる姿勢が強みになった。",
+            *shared,
+        ]
+    return shared
 
 
 def _build_qwen_timeout_fallback_rewrite(
@@ -3087,17 +3344,20 @@ def _build_qwen_timeout_fallback_rewrite(
     role_name: str | None,
     intern_name: str | None,
     company_grounding: str,
+    company_evidence_cards: list[dict[str, Any]],
+    industry: str | None = None,
 ) -> str:
+    honorific = get_company_honorific(industry)
     anchor = _build_qwen_timeout_anchor_sentence(
         template_type=template_type,
         answer=answer,
-        company_name=company_name,
+        honorific=honorific,
         role_name=role_name,
         intern_name=intern_name,
     )
     tail = _build_qwen_timeout_tail_sentence(
         template_type=template_type,
-        company_name=company_name,
+        honorific=honorific,
         role_name=role_name,
         intern_name=intern_name,
         company_grounding=company_grounding,
@@ -3107,27 +3367,60 @@ def _build_qwen_timeout_fallback_rewrite(
         answer=answer,
         char_max=char_max,
     )
-    padding_sentences = [
-        "一貫して自分の強みを役割に接続し、期待される価値を着実に形にしたい。",
-        "現場で対話を重ねながら、求められる役割の解像度を高めていきたい。",
+    bridge = _build_qwen_timeout_bridge_sentence(
+        template_type=template_type,
+        honorific=honorific,
+        role_name=role_name,
+        intern_name=intern_name,
+    )
+    company_sentence = _build_qwen_timeout_company_sentence(
+        template_type=template_type,
+        honorific=honorific,
+        role_name=role_name,
+        company_evidence_cards=company_evidence_cards,
+    )
+    padding_sentences = _qwen_timeout_padding_sentences(
+        template_type=template_type,
+        honorific=honorific,
+        role_name=role_name,
+        intern_name=intern_name,
+        company_grounding=company_grounding,
+    )
+    support_limit = 1 if _is_short_answer_mode(char_max) else (2 if char_max and char_max <= 320 else 4)
+    candidate_sentences = [
+        anchor,
+        *support_sentences[:support_limit],
+        bridge,
+        company_sentence,
+        tail,
+        *padding_sentences,
     ]
-
-    candidate_sentences = [anchor, *support_sentences, tail, *padding_sentences]
     assembled = ""
     target_floor = char_min or 0
     target_ceiling = char_max or 1000
+    target_sentences = _qwen_timeout_target_sentence_count(char_max)
+    used_sentences = 0
     for sentence in candidate_sentences:
         if not sentence:
             continue
         next_text = assembled + sentence
-        if assembled and len(next_text) > target_ceiling and len(assembled) >= max(0, target_floor - 12):
+        if (
+            assembled
+            and len(next_text) > target_ceiling
+            and len(assembled) >= max(0, target_floor - 24)
+        ):
             break
         assembled = next_text
-        if len(assembled) >= target_floor and len(assembled) <= target_ceiling:
+        used_sentences += 1
+        if (
+            len(assembled) >= target_floor
+            and len(assembled) <= target_ceiling
+            and used_sentences >= target_sentences
+        ):
             break
 
     if not assembled:
-        assembled = anchor + tail
+        assembled = anchor + bridge + tail
     return assembled
 
 
@@ -3244,11 +3537,11 @@ async def review_section_with_template(
             detail=f"Unknown template type: {template_type}. Available: {list(TEMPLATE_DEFS.keys())}",
         )
 
-    template_def = TEMPLATE_DEFS[template_type]
     company_grounding = _get_company_grounding_policy(template_type)
     effective_role_name = (
         request.role_context.primary_role if request.role_context else None
     ) or template_request.role_name
+    is_qwen_review = _is_qwen_review_variant(review_variant)
 
     # Character limits
     char_min = template_request.char_min
@@ -3256,10 +3549,12 @@ async def review_section_with_template(
 
     _queue_progress_event(
         progress_queue,
-        step="finalize",
+        step="analysis" if is_qwen_review else "finalize",
         progress=46,
-        label="改善ポイントを整理中...",
-        sub_label="元の回答の不足を先に特定しています",
+        label="改善案の方針を整理中..." if is_qwen_review else "改善ポイントを整理中...",
+        sub_label="必要な事実と企業情報を絞っています"
+        if is_qwen_review
+        else "元の回答の不足を先に特定しています",
     )
     allowed_user_facts = _build_allowed_user_facts(request)
     logger.info(
@@ -3267,7 +3562,6 @@ async def review_section_with_template(
         len(allowed_user_facts),
         _collect_user_context_sources(request),
     )
-    is_qwen_review = _is_qwen_review_variant(review_variant)
     qwen_timeout_deadline = _start_qwen_timeout_budget(review_variant)
     generic_role_mode = _is_generic_role_label(effective_role_name)
     user_priority_urls = {url for url in request.user_provided_corporate_urls if url}
@@ -3286,23 +3580,35 @@ async def review_section_with_template(
             prompt_user_facts,
             char_max=char_max,
         )
+    verified_rag_sources, rejected_rag_sources, has_mismatched_company_sources = (
+        _filter_verified_company_rag_sources(
+            rag_sources,
+            company_name=template_request.company_name,
+        )
+    )
+    effective_company_rag_available = company_rag_available and bool(verified_rag_sources)
+    effective_grounding_mode = grounding_mode
+    effective_company_grounding = company_grounding
+    if has_mismatched_company_sources:
+        effective_company_grounding = "assistive"
+        effective_grounding_mode = "company_general" if verified_rag_sources else "none"
     company_evidence_cards = _build_company_evidence_cards(
-        rag_sources,
+        verified_rag_sources,
         template_type=template_type,
         question=template_request.question,
         answer=template_request.answer,
         role_name=effective_role_name,
         intern_name=template_request.intern_name,
-        grounding_mode=grounding_mode,
+        grounding_mode=effective_grounding_mode,
         user_priority_urls=user_priority_urls,
         current_run_priority_urls=current_run_priority_urls,
     )
     evidence_coverage_level, weak_evidence_notice = _assess_company_evidence_coverage(
         template_type=template_type,
         role_name=effective_role_name,
-        company_rag_available=company_rag_available,
+        company_rag_available=effective_company_rag_available,
         company_evidence_cards=company_evidence_cards,
-        grounding_mode=grounding_mode,
+        grounding_mode=effective_grounding_mode,
     )
     prompt_company_evidence_cards = (
         _trim_qwen_initial_company_evidence_cards(
@@ -3329,33 +3635,32 @@ async def review_section_with_template(
         )
     reference_outline_used = "【参考ESから抽出した骨子】" in reference_quality_block
     logger.info(
-        "[ES添削/テンプレート] prompt context: selected_user_facts=%s company_evidence_cards=%s reference_examples=%s evidence_coverage=%s company_grounding=%s",
+        "[ES添削/テンプレート] prompt context: selected_user_facts=%s company_evidence_cards=%s reference_examples=%s evidence_coverage=%s company_grounding=%s effective_grounding=%s safety_applied=%s",
         len(prompt_user_facts),
         len(prompt_company_evidence_cards),
         len(reference_examples),
         evidence_coverage_level,
-        company_grounding,
+        effective_company_grounding,
+        effective_grounding_mode,
+        has_mismatched_company_sources,
+    )
+    logger.info(
+        "[ES添削/テンプレート] evidence cards:\n%s",
+        _format_evidence_card_log_lines(prompt_company_evidence_cards),
+    )
+    logger.info(
+        "[ES添削/テンプレート] rejected evidence:\n%s",
+        _format_rejected_source_log_lines(rejected_rag_sources),
     )
     improvement_timeout_fallback = False
     timeout_stage: str | None = None
     timeout_recovered = False
 
+    top3: list[Issue] = []
     if is_qwen_review:
-        improvement_system_prompt, improvement_user_prompt = build_qwen_template_improvement_prompt(
-            template_type=template_type,
-            question=template_request.question,
-            original_answer=template_request.answer,
-            company_name=template_request.company_name,
-            company_evidence_cards=prompt_company_evidence_cards,
-            has_rag=company_rag_available,
-            char_min=char_min,
-            char_max=char_max,
-            allowed_user_facts=prompt_user_facts,
-            role_name=effective_role_name,
-            grounding_mode=grounding_mode,
-            reference_quality_block=reference_quality_block,
-            generic_role_mode=generic_role_mode,
-            evidence_coverage_level=evidence_coverage_level,
+        logger.info(
+            "[ES添削/テンプレート] Qwen rewrite-only mode: improvement generation skipped template=%s",
+            template_type,
         )
     else:
         improvement_system_prompt, improvement_user_prompt = build_template_improvement_prompt(
@@ -3364,27 +3669,17 @@ async def review_section_with_template(
             original_answer=template_request.answer,
             company_name=template_request.company_name,
             company_evidence_cards=prompt_company_evidence_cards,
-            has_rag=company_rag_available,
+            has_rag=effective_company_rag_available,
             char_min=char_min,
             char_max=char_max,
             allowed_user_facts=prompt_user_facts,
             role_name=effective_role_name,
-            grounding_mode=grounding_mode,
+            grounding_mode=effective_grounding_mode,
             reference_quality_block=reference_quality_block,
             generic_role_mode=generic_role_mode,
             evidence_coverage_level=evidence_coverage_level,
+            company_grounding_override=effective_company_grounding,
         )
-    improvement_result = None
-    improvement_timeout_seconds = _qwen_stage_timeout_seconds("improvement", qwen_timeout_deadline)
-    if is_qwen_review and improvement_timeout_seconds == 0:
-        improvement_timeout_fallback = True
-        timeout_stage = "improvement"
-        timeout_recovered = True
-        logger.warning(
-            "[ES添削/テンプレート] improvement generation skipped: Qwen budget exhausted template=%s",
-            template_type,
-        )
-    else:
         improvement_result = await json_caller(
             system_prompt=improvement_system_prompt,
             user_message=improvement_user_prompt,
@@ -3418,49 +3713,43 @@ async def review_section_with_template(
             retry_on_parse=True,
             parse_retry_instructions=IMPROVEMENT_PARSE_RETRY_INSTRUCTIONS,
             disable_fallback=True,
-            **_qwen_timeout_kwargs(improvement_timeout_seconds),
         )
-    top3: list[Issue] = []
-    if improvement_result and improvement_result.success and improvement_result.data:
-        top3 = _parse_issues(
-            improvement_result.data.get("top3", []),
-            3,
-            role_name=effective_role_name,
-            company_rag_available=company_rag_available,
-        )
-    else:
-        if (
-            improvement_result
-            and improvement_result.error
-            and improvement_result.error.error_type == "timeout"
-        ):
-            improvement_timeout_fallback = True
-            timeout_stage = "improvement"
-            timeout_recovered = True
-        logger.warning(
-            "[ES添削/テンプレート] improvement generation failed: fallback issues を使用 template=%s success=%s",
-            template_type,
-            bool(improvement_result and improvement_result.success),
-        )
-        record_parse_failure("es_review_template_improvements", "fallback_used")
+        if improvement_result and improvement_result.success and improvement_result.data:
+            top3 = _parse_issues(
+                improvement_result.data.get("top3", []),
+                3,
+                role_name=effective_role_name,
+                company_rag_available=effective_company_rag_available,
+            )
+        else:
+            logger.warning(
+                "[ES添削/テンプレート] improvement generation failed: fallback issues を使用 template=%s success=%s",
+                template_type,
+                bool(improvement_result and improvement_result.success),
+            )
+            record_parse_failure("es_review_template_improvements", "fallback_used")
 
-    fallback_issues = _fallback_improvement_points(
-        question=template_request.question,
-        original_answer=template_request.answer,
-        company_rag_available=company_rag_available,
-        template_type=template_type,
-        role_name=effective_role_name,
-        grounding_mode=grounding_mode,
-    )
-    top3 = _merge_with_fallback_issues(top3, fallback_issues)
-    if not top3:
-        top3 = fallback_issues
-    if len(top3) < 3:
-        logger.warning(
-            "[ES添削/テンプレート] improvement points を fallback で補完: template=%s count=%s",
-            template_type,
-            len(top3),
+        fallback_issues = _fallback_improvement_points(
+            question=template_request.question,
+            original_answer=template_request.answer,
+            company_rag_available=effective_company_rag_available,
+            template_type=template_type,
+            role_name=effective_role_name,
+            grounding_mode=effective_grounding_mode,
         )
+        top3 = _merge_with_fallback_issues(top3, fallback_issues)
+        if not top3:
+            top3 = fallback_issues
+        if len(top3) < 3:
+            logger.warning(
+                "[ES添削/テンプレート] improvement points を fallback で補完: template=%s count=%s",
+                template_type,
+                len(top3),
+            )
+    logger.info(
+        "[ES添削/テンプレート] improvement points:\n%s",
+        _format_issue_log_lines(top3),
+    )
 
     improvement_payload = [
         {
@@ -3543,28 +3832,7 @@ async def review_section_with_template(
             evidence_coverage_level=evidence_coverage_level,
         )
         if simplified_mode:
-            if is_qwen_review:
-                system_prompt, user_prompt = build_qwen_template_fallback_rewrite_prompt(
-                    template_type=template_type,
-                    company_name=template_request.company_name,
-                    industry=template_request.industry,
-                    question=template_request.question,
-                    answer=rewrite_source_answer,
-                    char_min=char_min,
-                    char_max=char_max,
-                    company_evidence_cards=attempt_context["company_evidence_cards"],
-                    has_rag=company_rag_available,
-                    improvement_points=attempt_context["improvement_payload"],
-                    allowed_user_facts=attempt_context["prompt_user_facts"],
-                    intern_name=template_request.intern_name,
-                    role_name=effective_role_name,
-                    grounding_mode=grounding_mode,
-                    retry_hint=retry_hint,
-                    reference_quality_block=attempt_context["reference_quality_block"],
-                    generic_role_mode=generic_role_mode,
-                    evidence_coverage_level=evidence_coverage_level,
-                )
-            else:
+            if not is_qwen_review:
                 system_prompt, user_prompt = build_template_fallback_rewrite_prompt(
                     template_type=template_type,
                     company_name=template_request.company_name,
@@ -3574,19 +3842,22 @@ async def review_section_with_template(
                     char_min=char_min,
                     char_max=char_max,
                     company_evidence_cards=attempt_context["company_evidence_cards"],
-                    has_rag=company_rag_available,
+                    has_rag=effective_company_rag_available,
                     improvement_points=attempt_context["improvement_payload"],
                     allowed_user_facts=attempt_context["prompt_user_facts"],
                     intern_name=template_request.intern_name,
                     role_name=effective_role_name,
-                    grounding_mode=grounding_mode,
+                    grounding_mode=effective_grounding_mode,
                     retry_hint=retry_hint,
                     reference_quality_block=attempt_context["reference_quality_block"],
                     generic_role_mode=generic_role_mode,
                     evidence_coverage_level=evidence_coverage_level,
                     length_control_mode=length_control_mode,
                     length_shortfall=length_shortfall,
+                    company_grounding_override=effective_company_grounding,
                 )
+            else:  # pragma: no cover - Qwen rewrite-only path never enters simplified_mode
+                raise RuntimeError("Qwen rewrite-only mode should not enter simplified rewrite generation")
         else:
             if is_qwen_review:
                 system_prompt, user_prompt = build_qwen_template_rewrite_prompt(
@@ -3598,12 +3869,12 @@ async def review_section_with_template(
                     char_min=char_min,
                     char_max=char_max,
                     company_evidence_cards=attempt_context["company_evidence_cards"],
-                    has_rag=company_rag_available,
+                    has_rag=effective_company_rag_available,
                     improvement_points=attempt_context["improvement_payload"],
                     allowed_user_facts=attempt_context["prompt_user_facts"],
                     intern_name=template_request.intern_name,
                     role_name=effective_role_name,
-                    grounding_mode=grounding_mode,
+                    grounding_mode=effective_grounding_mode,
                     retry_hint=retry_hint,
                     reference_quality_block=attempt_context["reference_quality_block"],
                     generic_role_mode=generic_role_mode,
@@ -3619,18 +3890,19 @@ async def review_section_with_template(
                     char_min=char_min,
                     char_max=char_max,
                     company_evidence_cards=attempt_context["company_evidence_cards"],
-                    has_rag=company_rag_available,
+                    has_rag=effective_company_rag_available,
                     improvement_points=attempt_context["improvement_payload"],
                     allowed_user_facts=attempt_context["prompt_user_facts"],
                     intern_name=template_request.intern_name,
                     role_name=effective_role_name,
-                    grounding_mode=grounding_mode,
+                    grounding_mode=effective_grounding_mode,
                     retry_hint=retry_hint,
                     reference_quality_block=attempt_context["reference_quality_block"],
                     generic_role_mode=generic_role_mode,
                     evidence_coverage_level=evidence_coverage_level,
                     length_control_mode=length_control_mode,
                     length_shortfall=length_shortfall,
+                    company_grounding_override=effective_company_grounding,
                 )
 
         logger.info(
@@ -3742,7 +4014,7 @@ async def review_section_with_template(
             char_max=char_max,
             issues=top3,
             role_name=effective_role_name,
-            grounding_mode=grounding_mode,
+            grounding_mode=effective_grounding_mode,
             company_evidence_cards=prompt_company_evidence_cards,
             review_variant=review_variant,
             use_non_claude_length_control=use_non_claude_length_control,
@@ -3785,6 +4057,7 @@ async def review_section_with_template(
 
     if (
         not final_rewrite
+        and not is_qwen_review
         and (best_rejected_candidate or last_rejected_candidate)
         and _should_attempt_length_fix(
             best_rejected_candidate or last_rejected_candidate,
@@ -3801,29 +4074,20 @@ async def review_section_with_template(
             template_type,
             length_fix_code,
         )
-        if is_qwen_review:
-            system_prompt, user_prompt = build_qwen_template_length_fix_prompt(
-                template_type=template_type,
-                current_text=length_fix_source,
-                char_min=char_min,
-                char_max=char_max,
-                fix_mode=length_fix_code,
-            )
-        else:
-            system_prompt, user_prompt = build_template_length_fix_prompt(
-                template_type=template_type,
-                current_text=length_fix_source,
-                char_min=char_min,
-                char_max=char_max,
-                fix_mode=length_fix_code,
-                length_control_mode=(
-                    "under_min_recovery"
-                    if use_non_claude_length_control and length_fix_code in {"under_min", "over_max"}
-                    else "default"
-                ),
-            )
+        system_prompt, user_prompt = build_template_length_fix_prompt(
+            template_type=template_type,
+            current_text=length_fix_source,
+            char_min=char_min,
+            char_max=char_max,
+            fix_mode=length_fix_code,
+            length_control_mode=(
+                "under_min_recovery"
+                if use_non_claude_length_control and length_fix_code in {"under_min", "over_max"}
+                else "default"
+            ),
+        )
         length_fix_timeout_seconds = _qwen_stage_timeout_seconds("length_fix", qwen_timeout_deadline)
-        if is_qwen_review and length_fix_timeout_seconds == 0:
+        if length_fix_timeout_seconds == 0 and _is_qwen_review_variant(review_variant):
             length_fix_result = "failed"
             timeout_stage = "length_fix"
             logger.warning(
@@ -3856,7 +4120,7 @@ async def review_section_with_template(
                     char_max=char_max,
                     issues=top3,
                     role_name=effective_role_name,
-                    grounding_mode=grounding_mode,
+                    grounding_mode=effective_grounding_mode,
                     company_evidence_cards=prompt_company_evidence_cards,
                     review_variant=review_variant,
                     use_non_claude_length_control=use_non_claude_length_control,
@@ -3898,7 +4162,9 @@ async def review_section_with_template(
             company_name=template_request.company_name,
             role_name=effective_role_name,
             intern_name=template_request.intern_name,
-            company_grounding=company_grounding,
+            company_grounding=effective_company_grounding,
+            company_evidence_cards=prompt_company_evidence_cards,
+            industry=template_request.industry,
         )
         validated_candidate, _, _, retry_meta = _validate_rewrite_candidate(
             timeout_candidate,
@@ -3909,7 +4175,7 @@ async def review_section_with_template(
             char_max=char_max,
             issues=top3,
             role_name=effective_role_name,
-            grounding_mode=grounding_mode,
+            grounding_mode=effective_grounding_mode,
             company_evidence_cards=prompt_company_evidence_cards,
             review_variant=review_variant,
             use_non_claude_length_control=use_non_claude_length_control,
@@ -3949,6 +4215,10 @@ async def review_section_with_template(
         len(final_rewrite),
         fallback_to_generic,
     )
+    logger.info(
+        "[ES添削/テンプレート] final rewrite:\n%s",
+        final_rewrite,
+    )
     _queue_progress_event(
         progress_queue,
         step="rewrite",
@@ -3958,19 +4228,32 @@ async def review_section_with_template(
     )
     await _stream_final_rewrite(progress_queue, final_rewrite)
 
-    _queue_progress_event(
-        progress_queue,
-        step="finalize",
-        progress=86,
-        label="改善ポイントを表示中...",
-        sub_label="元の回答に対する指摘を順に表示しています",
-    )
-    await _stream_improvement_points(progress_queue, top3)
+    if top3:
+        _queue_progress_event(
+            progress_queue,
+            step="finalize",
+            progress=86,
+            label="改善ポイントを表示中...",
+            sub_label="元の回答に対する指摘を順に表示しています",
+        )
+        await _stream_improvement_points(progress_queue, top3)
+    else:
+        _queue_progress_event(
+            progress_queue,
+            step="sources",
+            progress=90,
+            label="出典リンクを表示中...",
+            sub_label="企業情報の参照元を整理しています",
+        )
 
     template_review = _build_template_review_response(
         template_type=template_type,
         rewrite_text=final_rewrite,
-        rag_sources=rag_sources,
+        rag_sources=verified_rag_sources,
+    )
+    logger.info(
+        "[ES添削/テンプレート] sources:\n%s",
+        _format_source_log_lines(template_review.keyword_sources),
     )
     await _stream_source_links(progress_queue, template_review.keyword_sources)
 
@@ -3983,7 +4266,7 @@ async def review_section_with_template(
             llm_provider=llm_provider,
             llm_model=llm_model,
             review_variant=review_variant,
-            grounding_mode=grounding_mode,
+            grounding_mode=effective_grounding_mode,
             triggered_enrichment=triggered_enrichment,
             enrichment_completed=enrichment_completed,
             enrichment_sources_added=enrichment_sources_added,
@@ -3997,7 +4280,11 @@ async def review_section_with_template(
             reference_quality_profile_used=bool(reference_quality_block),
             reference_outline_used=reference_outline_used,
             company_grounding_policy=company_grounding,
+            effective_company_grounding_policy=effective_company_grounding,
             company_evidence_count=len(prompt_company_evidence_cards),
+            company_evidence_verified_count=len(verified_rag_sources),
+            company_evidence_rejected_count=len(rejected_rag_sources),
+            company_grounding_safety_applied=has_mismatched_company_sources,
             evidence_coverage_level=evidence_coverage_level,
             weak_evidence_notice=weak_evidence_notice,
             length_policy=accepted_length_policy,

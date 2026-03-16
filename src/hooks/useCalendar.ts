@@ -1,17 +1,23 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export interface CalendarEvent {
   id: string;
   userId: string;
   deadlineId: string | null;
-  externalEventId: string | null;
+  googleCalendarId: string | null;
+  googleEventId: string | null;
+  googleSyncStatus: "idle" | "pending" | "synced" | "failed" | "suppressed";
+  googleSyncError: string | null;
+  googleSyncedAt: string | null;
   type: "deadline" | "work_block";
   title: string;
   startAt: string;
   endAt: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface DeadlineEvent {
@@ -23,6 +29,8 @@ export interface DeadlineEvent {
   companyName: string | null;
   isConfirmed: boolean;
   completedAt: string | null;
+  googleSyncStatus: "idle" | "pending" | "synced" | "failed" | "suppressed";
+  googleSyncError: string | null;
   eventType: "deadline";
 }
 
@@ -41,6 +49,11 @@ export interface CalendarSettings {
     connectedAt: string | null;
     grantedScopes: string[];
     missingScopes: string[];
+  };
+  syncSummary: {
+    pendingCount: number;
+    failedCount: number;
+    lastFailureReason: string | null;
   };
 }
 
@@ -84,7 +97,16 @@ export function useCalendarEvents(options: {
           setError("カレンダー機能を使用するにはログインが必要です");
           return;
         }
-        throw new Error("Failed to fetch events");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "CALENDAR_EVENTS_FETCH_FAILED",
+            userMessage: "カレンダーを読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "useCalendarEvents.fetch"
+        );
       }
 
       const data = await response.json();
@@ -92,7 +114,17 @@ export function useCalendarEvents(options: {
       setDeadlines(data.deadlines || []);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "イベントの取得に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CALENDAR_EVENTS_FETCH_FAILED",
+          userMessage: "カレンダーを読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useCalendarEvents.fetch"
+      );
+      setError(uiError.message);
     } finally {
       setIsLoading(false);
     }
@@ -117,8 +149,16 @@ export function useCalendarEvents(options: {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || "イベントの作成に失敗しました");
+      throw await parseApiErrorResponse(
+        response,
+        {
+          code: "CALENDAR_EVENT_CREATE_FAILED",
+          userMessage: "イベントを作成できませんでした。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          retryable: response.status >= 500,
+        },
+        "useCalendarEvents.create"
+      );
     }
 
     const result = await response.json();
@@ -133,8 +173,16 @@ export function useCalendarEvents(options: {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || "イベントの削除に失敗しました");
+      throw await parseApiErrorResponse(
+        response,
+        {
+          code: "CALENDAR_EVENT_DELETE_FAILED",
+          userMessage: "イベントを削除できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: response.status >= 500,
+        },
+        "useCalendarEvents.delete"
+      );
     }
 
     await fetchEvents();
@@ -168,14 +216,33 @@ export function useCalendarSettings() {
           setError("カレンダー設定にはログインが必要です");
           return;
         }
-        throw new Error("Failed to fetch settings");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "CALENDAR_SETTINGS_FETCH_FAILED",
+            userMessage: "カレンダー設定を読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "useCalendarSettings.fetch"
+        );
       }
 
       const data = await response.json();
       setSettings(data.settings);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "設定の取得に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CALENDAR_SETTINGS_FETCH_FAILED",
+          userMessage: "カレンダー設定を読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useCalendarSettings.fetch"
+      );
+      setError(uiError.message);
     } finally {
       setIsLoading(false);
     }
@@ -194,8 +261,16 @@ export function useCalendarSettings() {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || "設定の更新に失敗しました");
+      throw await parseApiErrorResponse(
+        response,
+        {
+          code: "CALENDAR_SETTINGS_UPDATE_FAILED",
+          userMessage: "カレンダー設定を更新できませんでした。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          retryable: response.status >= 500,
+        },
+        "useCalendarSettings.update"
+      );
     }
 
     const result = await response.json();
@@ -291,39 +366,6 @@ export function useGoogleCalendar() {
     }
   }, []);
 
-  const createGoogleEvent = async (event: {
-    title: string;
-    startAt: string;
-    endAt: string;
-    description?: string;
-  }) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/calendar/google", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          action: "create",
-          ...event,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to create Google Calendar event");
-      }
-
-      const data = await response.json();
-      return data.event;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "イベントの作成に失敗しました");
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return {
     isConnected: !!connectionStatus?.connected,
     connectionStatus,
@@ -332,6 +374,5 @@ export function useGoogleCalendar() {
     checkConnection,
     fetchGoogleEvents,
     suggestWorkBlocks,
-    createGoogleEvent,
   };
 }

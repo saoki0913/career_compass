@@ -19,13 +19,10 @@
     │
     ├─ /company-info/search-pages (採用ページ)
     │   │
-    │   └─ 検索モード判定
+    │   └─ Hybrid検索を優先
     │       │
-    │       ├─ Hybrid検索 ─┐
-    │       │              │
-    │       └─ Legacy検索 ─┤
-    │                      │
-    │                      └─→ 共通ソート処理 → 結果返却
+    │       ├─ 公式 / trusted候補あり → そのまま返却
+    │       └─ 候補不足 → Legacy検索を追加し共通ソート
     │
     └─ /company-info/search-corporate-pages (コーポレート)
         │
@@ -42,8 +39,8 @@
 
 | モード | 条件 |
 |--------|------|
-| **Hybrid検索** | `USE_HYBRID_SEARCH=true` かつ `custom_query` が未指定 |
-| **Legacy検索** | 上記以外 |
+| **採用ページ検索** | `custom_query` 未指定時は Hybrid優先。公式 / trusted候補が得られない場合だけ Legacy を追加実行 |
+| **コーポレート検索** | `USE_HYBRID_SEARCH=true` かつ `custom_query` が未指定なら Hybrid、それ以外は Legacy |
 
 ### キャッシュ戦略
 
@@ -76,6 +73,8 @@
 ```
 
 - `official` は対象企業の登録済みドメイン所有関係で一意に判定できる場合だけ付与する
+- 短社名企業は bare token ではなく dotted domain を優先する
+  - 例: `Sky` は `skygroup.jp` `sky-recruit.jp` `sky-career.jp` を明示登録し、`skygroup.sky` のような foreign domain は `official` にしない
 - 親会社/子会社ページは候補から除外せず、`parent` / `subsidiary` のまま保持する
 - `preferred_domain` や検索エンジン由来の raw `source_type` は順位調整には使えても、関連会社ページを `official` に昇格させない
 
@@ -86,6 +85,7 @@
 | **無関係URL** | `_is_irrelevant_url()` で判定<br>- Wikipedia, LinkedIn等 |
 | **競合ドメイン** | `_get_conflicting_companies()` で判定<br>- **厳密一致時のみ**タイトル/スニペットチェック |
 | **企業名不一致** | `_contains_company_name()` で判定<br>- **公式ドメインと親子会社ドメインは免除** |
+| **社員記事不適合** | `employee_interviews` で `Investors` `IR` `会社概要` `企業データ` 等を除外 |
 
 ### 3. スコアペナルティ
 
@@ -109,6 +109,13 @@
 ```
 
 **注意:** Hybrid検索の aggregator は `job_site` として扱われる
+
+### 5. `employee_interviews` のページ種別ゲート
+
+- `employee_interviews` は URL/title/snippet に `interview` `voice` `people` `member` `社員紹介` `社員インタビュー` `社員の声` `働く人` などの signal があるページだけ採用する
+- root page や generic 採用トップは採らない
+- `Investors` `IR` `統合報告` `企業概要` `企業データ` などは official domain でも `employee_interviews` では採らない
+- これらのページは `ir_materials` / `midterm_plan` / `corporate_site` 側で使う
 
 ---
 

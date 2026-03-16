@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")"/../lib && pwd)/cli-safe-common.sh"
+
+service="gcloud"
+subcommand="${1:-}"
+second="${2:-}"
+
+cli_safe_assert_no_dangerous_flags "$service" "$@"
+
+if cli_safe_any_arg_contains "delete" "$@" || cli_safe_any_arg_contains "destroy" "$@" || cli_safe_any_arg_contains "remove" "$@"; then
+  cli_safe_die "$service" "削除系の gcloud 操作は許可していません。"
+fi
+
+case "$subcommand" in
+  auth)
+    case "$second" in
+      login|list|application-default)
+        ;;
+      *)
+        cli_safe_die "$service" "gcloud auth は login/list/application-default のみ許可しています。"
+        ;;
+    esac
+    ;;
+  config)
+    [[ "$second" == "list" ]] || cli_safe_die "$service" "gcloud config は list のみ許可しています。"
+    ;;
+  projects|services)
+    [[ "$second" == "list" ]] || cli_safe_die "$service" "gcloud $subcommand は list のみ許可しています。"
+    ;;
+  "")
+    ;;
+  *)
+    cli_safe_die "$service" "'$subcommand' は許可していません。"
+    ;;
+esac
+
+cli_safe_run "$service" gcloud "$@"

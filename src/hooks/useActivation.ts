@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export type ActivationStepId = "company" | "deadline" | "es" | "ai_review";
 
@@ -60,13 +61,32 @@ export function useActivation() {
           setData(null);
           return;
         }
-        throw new Error("Failed to fetch activation progress");
+        throw await parseApiErrorResponse(
+          res,
+          {
+            code: "ACTIVATION_FETCH_FAILED",
+            userMessage: "利用状況を読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "useActivation.fetch"
+        );
       }
 
       const json: ActivationProgress = await res.json();
       setData(json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch activation progress");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "ACTIVATION_FETCH_FAILED",
+          userMessage: "利用状況を読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useActivation.fetch"
+      );
+      setError(uiError.message);
     } finally {
       setIsLoading(false);
     }
@@ -78,4 +98,3 @@ export function useActivation() {
 
   return { data, isLoading, error, refresh: fetchActivation };
 }
-

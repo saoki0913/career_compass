@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")"/../lib && pwd)/cli-safe-common.sh"
+
+service="modal"
+subcommand="${1:-}"
+second="${2:-}"
+
+cli_safe_assert_no_dangerous_flags "$service" "$@"
+
+case "$subcommand" in
+  deploy|logs)
+    ;;
+  token)
+    [[ "$second" == "new" || "$second" == "set" ]] || cli_safe_die "$service" "modal token は new/set のみ許可しています。"
+    ;;
+  app)
+    [[ "$second" == "list" ]] || cli_safe_die "$service" "modal app は list のみ許可しています。"
+    ;;
+  secret|volume|dict|queue|environment)
+    cli_safe_die "$service" "削除や上書きにつながる modal 管理操作は許可していません。"
+    ;;
+  "")
+    ;;
+  *)
+    cli_safe_die "$service" "'$subcommand' は許可していません。"
+    ;;
+esac
+
+cli_safe_run "$service" modal "$@"

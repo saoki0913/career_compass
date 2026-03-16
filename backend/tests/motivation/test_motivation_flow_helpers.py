@@ -4,6 +4,7 @@ from app.routers.motivation import (
     _build_stage_specific_suggestion_options,
     _build_stage_status,
     _get_next_stage,
+    _validate_or_repair_question,
 )
 
 
@@ -248,6 +249,54 @@ def test_build_evidence_cards_from_sources_includes_links_and_labels():
     assert cards[0].sourceUrl == "https://example.com/recruit"
     assert cards[0].title == "募集要項"
     assert cards[0].relevanceLabel
+
+
+def test_build_evidence_cards_from_sources_limits_count_and_excerpt_length():
+    cards = _build_evidence_cards_from_sources(
+        [
+            {
+                "source_id": f"S{i}",
+                "source_url": f"https://example.com/source-{i}",
+                "content_type": "new_grad_recruitment",
+                "title": f"募集要項 {i}",
+                "excerpt": "営業職・企画職を募集しています。" * 8,
+            }
+            for i in range(1, 6)
+        ]
+    )
+
+    assert len(cards) == 3
+    assert all(len(card.excerpt) <= 84 for card in cards)
+
+
+def test_validate_or_repair_question_replaces_multi_part_question():
+    repaired = _validate_or_repair_question(
+        question="なぜこの企業に興味を持ったのですか？また、入社後に何をしたいですか？",
+        stage="company_reason",
+        company_name="株式会社テスト",
+        selected_role="企画職",
+        desired_work="DX支援",
+        grounded_company_anchor="業務改革",
+        gakuchika_episode="学生団体の運営",
+        gakuchika_strength="巻き込み力",
+    )
+
+    assert repaired == "株式会社テストの業務改革に惹かれた理由を1つ教えてください。"
+
+
+def test_validate_or_repair_question_replaces_stage_misaligned_question():
+    repaired = _validate_or_repair_question(
+        question="この企業の魅力は何ですか？",
+        stage="desired_work",
+        company_name="株式会社テスト",
+        selected_role="企画職",
+        desired_work="DX支援",
+        grounded_company_anchor="業務改革",
+        gakuchika_episode="学生団体の運営",
+        gakuchika_strength="巻き込み力",
+    )
+
+    assert repaired == "入社後、企画職としてDX支援の中で特に挑戦したいことは何ですか？"
 
 
 def test_build_stage_status_marks_company_reason_as_completed():

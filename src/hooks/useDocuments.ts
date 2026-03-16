@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { trackEvent } from "@/lib/analytics/client";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export type DocumentType = "es" | "tips" | "company_analysis";
 export type DocumentStatus = "draft" | "published" | "deleted";
@@ -115,13 +116,32 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch documents");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "DOCUMENTS_FETCH_FAILED",
+            userMessage: "ドキュメント一覧を読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "useDocuments.fetch"
+        );
       }
 
       const data = await response.json();
       setDocuments(data.documents || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ドキュメントの取得に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "DOCUMENTS_FETCH_FAILED",
+          userMessage: "ドキュメント一覧を読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useDocuments.fetch"
+      );
+      setError(uiError.message);
     } finally {
       setIsLoading(false);
     }
@@ -142,8 +162,16 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to create document");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "DOCUMENT_CREATE_FAILED",
+              userMessage: "ドキュメントを作成できませんでした。",
+              action: "入力内容を確認して、もう一度お試しください。",
+              retryable: response.status >= 500,
+            },
+            "useDocuments.create"
+          );
         }
 
         const data = await response.json();
@@ -153,7 +181,17 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         await fetchDocuments();
         return data.document;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "ドキュメントの作成に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "DOCUMENT_CREATE_FAILED",
+            userMessage: "ドキュメントを作成できませんでした。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: false,
+          },
+          "useDocuments.create"
+        );
+        setError(uiError.message);
         return null;
       }
     },
@@ -170,14 +208,32 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to delete document");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "DOCUMENT_DELETE_FAILED",
+              userMessage: "ドキュメントを削除できませんでした。",
+              action: "時間を置いて、もう一度お試しください。",
+              retryable: response.status >= 500,
+            },
+            "useDocuments.delete"
+          );
         }
 
         await fetchDocuments();
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "ドキュメントの削除に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "DOCUMENT_DELETE_FAILED",
+            userMessage: "ドキュメントを削除できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "useDocuments.delete"
+        );
+        setError(uiError.message);
         return false;
       }
     },
@@ -195,14 +251,32 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to update document");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "DOCUMENT_UPDATE_FAILED",
+              userMessage: "ドキュメントを更新できませんでした。",
+              action: "入力内容を確認して、もう一度お試しください。",
+              retryable: response.status >= 500,
+            },
+            "useDocuments.update"
+          );
         }
 
         await fetchDocuments();
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "ドキュメントの更新に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "DOCUMENT_UPDATE_FAILED",
+            userMessage: "ドキュメントを更新できませんでした。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "useDocuments.update"
+        );
+        setError(uiError.message);
         return false;
       }
     },
@@ -219,14 +293,32 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to restore document");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "DOCUMENT_RESTORE_FAILED",
+              userMessage: "ドキュメントを復元できませんでした。",
+              action: "時間を置いて、もう一度お試しください。",
+              retryable: response.status >= 500,
+            },
+            "useDocuments.restore"
+          );
         }
 
         await fetchDocuments();
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "ドキュメントの復元に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "DOCUMENT_RESTORE_FAILED",
+            userMessage: "ドキュメントを復元できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "useDocuments.restore"
+        );
+        setError(uiError.message);
         return false;
       }
     },
@@ -243,14 +335,32 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to permanently delete document");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "DOCUMENT_PERMANENT_DELETE_FAILED",
+              userMessage: "ドキュメントを完全削除できませんでした。",
+              action: "時間を置いて、もう一度お試しください。",
+              retryable: response.status >= 500,
+            },
+            "useDocuments.permanentDelete"
+          );
         }
 
         await fetchDocuments();
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "ドキュメントの完全削除に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "DOCUMENT_PERMANENT_DELETE_FAILED",
+            userMessage: "ドキュメントを完全削除できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "useDocuments.permanentDelete"
+        );
+        setError(uiError.message);
         return false;
       }
     },
@@ -289,13 +399,32 @@ export function useDocument(documentId: string) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch document");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "DOCUMENT_DETAIL_FETCH_FAILED",
+            userMessage: "ドキュメントを読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "useDocument.fetch"
+        );
       }
 
       const data = await response.json();
       setDocument(data.document);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ドキュメントの取得に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "DOCUMENT_DETAIL_FETCH_FAILED",
+          userMessage: "ドキュメントを読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useDocument.fetch"
+      );
+      setError(uiError.message);
     } finally {
       setIsLoading(false);
     }
@@ -317,8 +446,16 @@ export function useDocument(documentId: string) {
         });
 
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to update document");
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "DOCUMENT_UPDATE_FAILED",
+              userMessage: "ドキュメントを更新できませんでした。",
+              action: "入力内容を確認して、もう一度お試しください。",
+              retryable: response.status >= 500,
+            },
+            "useDocument.update"
+          );
         }
 
         const data = await response.json();
@@ -338,7 +475,17 @@ export function useDocument(documentId: string) {
         });
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "ドキュメントの更新に失敗しました");
+        const uiError = toAppUiError(
+          err,
+          {
+            code: "DOCUMENT_UPDATE_FAILED",
+            userMessage: "ドキュメントを更新できませんでした。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "useDocument.update"
+        );
+        setError(uiError.message);
         return false;
       } finally {
         setIsSaving(false);

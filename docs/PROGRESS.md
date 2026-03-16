@@ -1,8 +1,13 @@
 # 実装進捗ドキュメント
 
-最終更新: 2026-03-11
+最終更新: 2026-03-14
 
 このドキュメントは `docs/SPEC.md` に記載されている機能の実装状況を追跡します。
+
+## 最近の更新
+
+- 2026-03-14: Codex 用の安全ラッパー CLI を追加。`git / gh / vercel / railway / supabase / stripe / modal / hf / huggingface-cli / gcloud` を同名 wrapper で包み、危険操作を拒否しつつ `develop -> main -> 本番` の運用を維持。
+- 2026-03-14: 主要 API と主要 hook で `ユーザー向けメッセージ` と `開発者向け詳細` を分離。`requestId` を導入し、開発環境では devtools / ログから debug 情報を追える構成に整理。
 
 ---
 
@@ -294,7 +299,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 中断/再開 | ✅ 完了 | `motivationConversations` テーブル |
 | クレジット消費（5問ごと1） | ✅ 完了 | ガクチカと同様のロジック |
 | 企業RAG連携 | ✅ 完了 | 企業情報を質問に反映 |
-| 回答候補 / 参考企業情報 | ✅ 完了 | `suggestionOptions` を質問適合で生成し、`evidenceCards` を source card UI で表示 |
+| 回答候補 / 参考企業情報 | ✅ 完了 | `suggestionOptions` は `2〜4件` の直接回答文に絞り、`evidenceCards` は compact card UI で表示 |
 | ガクチカ連携 | ✅ 完了 | 完了済み要約を質問生成に反映 |
 | SSEストリーミング送信 | ✅ 完了 | 進捗表示と質問文の逐次表示 |
 | ES下書き生成 | ✅ 完了 | 300/400/500文字指定 |
@@ -302,7 +307,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 進捗バー（4要素） | ✅ 完了 | スコア表示UI |
 | setup-first 初期設定 | ✅ 完了 | 業界/職種をチャット前に確定 |
 | 初回開始の空履歴処理 | ✅ 完了 | 空 `messages=[]` をそのまま LLM に渡さない |
-| 質問適合4択 | ✅ 完了 | LLMは質問のみ生成、回答候補は grounded builder で `2〜4件` を基本に生成。question-fit scoring でズレた候補を落とし、raw企業文や見出しは除外 |
+| 質問適合4択 | ✅ 完了 | LLM質問は server-side validator で単一論点・stage 適合を確認し、回答候補は grounded builder で `2〜4件` の直接回答文に絞る。raw企業文や見出しは除外 |
 
 **関連ファイル:**
 - `backend/app/routers/motivation.py`
@@ -512,6 +517,23 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 - 📝 **ES添削ドキュメントを更新**
   - `docs/features/ES_REVIEW.md` と `docs/testing/ES_REVIEW_QUALITY.md` に required 設問優先の品質監査、6 軸 evidence、shared provider 契約を反映
 
+### 2026-03-15
+- ✅ Google カレンダー連携を設定画面の明示操作に限定
+  - `/calendar/settings` からのみ連携、再連携、解除、追加先変更を実行する構成へ整理
+  - Google ログインだけでは連携が有効にならず、追加先カレンダー選択が必須になった
+- ✅ Google 同期を非同期キューへ移行
+  - `calendar_sync_jobs` を追加し、締切と作業ブロックの Google 登録・削除を cron 経由で処理
+  - 3回自動再試行と `calendar_sync_failed` 通知を実装
+- ✅ Google 側変更の取り込みを追加
+  - 作業ブロックは Google 側の編集・削除をアプリへ反映
+  - 締切は Google 側削除時に `suppressed` 扱いへ変更し、自動再作成を止めた
+- ✅ 旧 Google 直書きコードを削除
+  - `FetchInfoButton` からの直接 Google 登録を廃止し、共通同期サービスへ統一
+  - `/api/calendar/google` は read / reconcile 用に縮小し、作成 POST を削除
+- ✅ カレンダー連携のテストとドキュメントを更新
+  - `vitest` を導入し、接頭辞正規化、接続状態、同期ジョブ、失敗通知のユニットテストを追加
+  - `docs/features/CALENDAR.md` と `docs/SPEC.md` を現行仕様へ更新
+
 ### 2026-03-11
 - 🧠 **ES添削の企業補強を current-run 品質向上向けに更新**
   - `complete` 後の次回向け補強をやめ、streaming rewrite 開始前に企業ページ検索・取得を同期実行する pre-stream 補強へ変更
@@ -681,7 +703,8 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
   - official domain であれば title の表記揺れだけでは `企業不一致ペナルティ` を入れないように修正
   - `mysite.bk.mufg.jp` のような実質公式の recruit/interview URL が不自然に `medium` へ落ちにくくなった
 - ✅ ES添削の標準モデル UI を stable allowlist 化
-  - UI では `Claude Sonnet 4.5` と `GPT-5.1` のみ selectable にし、`Gemini 3.1 Pro Preview / Cohere Command A / DeepSeek V3.2` は `現在調整中` として一時的に無効化
+  - UI では `Claude Sonnet 4.5`、`GPT-5.1`、`Gemini 3.1 Pro Preview` を selectable にし、`Cohere Command A / DeepSeek V3.2` は `現在調整中` として継続無効化
+  - Gemini 3.1 は Google 互換 schema 正規化、`thinkingLevel=LOW`、追加 token budget、低温度固定を入れて ES添削の template smoke を通過
 
 ### 2026-01-29
 - ✅ 提出物（履歴書/ES）の削除保護を実装（API & UI両方）

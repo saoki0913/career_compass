@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")"/../lib && pwd)/cli-safe-common.sh"
+
+service="stripe"
+subcommand="${1:-}"
+second="${2:-}"
+
+cli_safe_assert_no_dangerous_flags "$service" "$@"
+
+case "$subcommand" in
+  login|listen|trigger)
+    ;;
+  events)
+    [[ "$second" == "list" ]] || cli_safe_die "$service" "stripe events は list のみ許可しています。"
+    ;;
+  customers|products|prices|subscriptions|webhooks)
+    cli_safe_die "$service" "データ変更や削除につながる stripe 管理操作は許可していません。"
+    ;;
+  "")
+    ;;
+  *)
+    cli_safe_die "$service" "'$subcommand' は許可していません。"
+    ;;
+esac
+
+cli_safe_run "$service" stripe "$@"

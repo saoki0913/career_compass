@@ -299,6 +299,31 @@ class TestRealCompanyPatterns:
 
 
 class TestOfficialAndRelationClassification:
+    def test_sky_registered_domains_are_official(self):
+        assert (
+            is_registered_official_domain(
+                "https://www.sky-recruit.jp/job/embed-eval/",
+                "Sky",
+            )
+            is True
+        )
+        assert (
+            is_registered_official_domain(
+                "https://www.sky-career.jp/company/software.html",
+                "Ｓｋｙ株式会社",
+            )
+            is True
+        )
+
+    def test_sky_foreign_group_domain_is_not_official(self):
+        assert (
+            is_registered_official_domain(
+                "https://www.skygroup.sky/about/our-governance/investors",
+                "Sky",
+            )
+            is False
+        )
+
     def test_subsidiary_like_domain_is_not_official_for_parent(self):
         assert (
             is_registered_official_domain(
@@ -401,6 +426,44 @@ class TestOfficialAndRelationClassification:
             "corporate_site",
         )
         assert normalize_company_result_source_type("official", relation) == "parent"
+
+    def test_employee_interview_gate_rejects_ir_title(self):
+        from app.routers.company_info import _should_include_corporate_candidate
+
+        keep, reason = _should_include_corporate_candidate(
+            "official",
+            "employee_interviews",
+            {
+                "is_official": True,
+                "is_parent": False,
+                "is_subsidiary": False,
+            },
+            url="https://www.skygroup.jp/ir/investors/",
+            title="Investors",
+            snippet="投資家向け情報を掲載しています。",
+        )
+
+        assert keep is False
+        assert reason == "社員記事不適合"
+
+    def test_employee_interview_gate_accepts_people_article(self):
+        from app.routers.company_info import _should_include_corporate_candidate
+
+        keep, reason = _should_include_corporate_candidate(
+            "official",
+            "employee_interviews",
+            {
+                "is_official": True,
+                "is_parent": False,
+                "is_subsidiary": False,
+            },
+            url="https://www.sky-recruit.jp/people/member01/",
+            title="社員インタビュー",
+            snippet="若手社員の働き方を紹介します。",
+        )
+
+        assert keep is True
+        assert reason is None
 
 
 class TestCompanyInfoConfidenceRules:

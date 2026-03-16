@@ -10,6 +10,27 @@ Each template specifies:
 
 from typing import Optional
 
+
+def get_company_honorific(industry: str | None) -> str:
+    """Return the appropriate honorific for a company based on its industry.
+
+    銀行→貴行, 信用金庫→貴庫, 事務所→貴所, 学校/大学→貴校, 病院→貴院, その他→貴社
+    """
+    if not industry:
+        return "貴社"
+    if "信用金庫" in industry:
+        return "貴庫"
+    if "銀行" in industry:
+        return "貴行"
+    if "事務所" in industry:
+        return "貴所"
+    if "学校" in industry or "大学" in industry:
+        return "貴校"
+    if "病院" in industry:
+        return "貴院"
+    return "貴社"
+
+
 # Template definitions
 TEMPLATE_DEFS = {
     "basic": {
@@ -457,11 +478,13 @@ def build_template_rewrite_prompt(
     evidence_coverage_level: str = "none",
     length_control_mode: str = "default",
     length_shortfall: Optional[int] = None,
+    company_grounding_override: Optional[str] = None,
 ) -> tuple[str, str]:
     template_def = TEMPLATE_DEFS.get(template_type)
     if not template_def:
         raise ValueError(f"Unknown template type: {template_type}")
     template_role = TEMPLATE_ROLES.get(template_type, TEMPLATE_ROLES["basic"])
+    honorific = get_company_honorific(industry)
 
     conditions = [f"設問: {question}"]
     if company_name:
@@ -497,6 +520,9 @@ def build_template_rewrite_prompt(
 - 改善ポイントと矛盾する内容を書かない"""
 
     retry_guidance = f"\n【前回失敗の回避】\n- {retry_hint}" if retry_hint else ""
+    effective_company_grounding = company_grounding_override or str(
+        template_def.get("company_grounding") or "assistive"
+    )
     system_prompt = f"""あなたは{template_role}である。
 目的は、提出できる改善案本文を1件だけ作ること。
 
@@ -511,6 +537,10 @@ def build_template_rewrite_prompt(
 - 企業情報は設問タイプに応じて使い、required でない設問では補助的にだけ使う
 - 企業根拠カードの固有名詞・施策名・組織名・英字略語を本文でそのまま増殖させない
 - 本文で企業に触れるときは、方向性・価値観・重視姿勢に抽象化する
+- 本文で企業に言及するときは企業名ではなく「{honorific}」を使う
+- 設問の冒頭表現をそのまま繰り返して始めない（例:「〇〇を志望する理由は…」「〇〇でやりたいことは…」は不可）
+- 末尾で同じ文末表現（〜したい、〜と考える 等）を2文連続で使わない
+- 最終文は具体的な行動や貢献で締め、抽象的な意気込みの羅列にしない
 - 冗長な接続詞で文字数を浪費しない
 - 文字数条件は {_format_char_condition(char_min, char_max)}
 - 目標は {_format_target_char_window(char_min, char_max)} の提出用本文
@@ -530,7 +560,7 @@ def build_template_rewrite_prompt(
     has_rag=has_rag,
     grounding_mode=grounding_mode,
     requires_company_rag=bool(template_def.get("requires_company_rag")),
-    company_grounding=str(template_def.get("company_grounding") or "assistive"),
+    company_grounding=effective_company_grounding,
     generic_role_mode=generic_role_mode,
     evidence_coverage_level=evidence_coverage_level,
 )}
@@ -572,10 +602,12 @@ def build_template_fallback_rewrite_prompt(
     evidence_coverage_level: str = "none",
     length_control_mode: str = "default",
     length_shortfall: Optional[int] = None,
+    company_grounding_override: Optional[str] = None,
 ) -> tuple[str, str]:
     template_def = TEMPLATE_DEFS.get(template_type)
     if not template_def:
         raise ValueError(f"Unknown template type: {template_type}")
+    honorific = get_company_honorific(industry)
 
     conditions = [f"設問: {question}", f"文字数: {_format_char_condition(char_min, char_max)}"]
     if company_name:
@@ -595,6 +627,9 @@ def build_template_fallback_rewrite_prompt(
             issue_lines.append(f"{index}. {issue} / {suggestion}")
 
     retry_guidance = f"\n【前回失敗の回避】\n- {retry_hint}" if retry_hint else ""
+    effective_company_grounding = company_grounding_override or str(
+        template_def.get("company_grounding") or "assistive"
+    )
     system_prompt = f"""あなたは日本語のES編集者である。
 目的は、元回答の事実を保ったまま、提出できる本文に安全に整えること。
 
@@ -603,6 +638,10 @@ def build_template_fallback_rewrite_prompt(
 - 足りない情報は創作せず、一般化してつなぐ
 - 企業情報は設問タイプに応じて使い、required でない設問では補助的にだけ使う
 - 固有施策、社内体制、数値、成果を新しく断定しない
+- 本文で企業に言及するときは企業名ではなく「{honorific}」を使う
+- 設問の冒頭表現をそのまま繰り返して始めない
+- 末尾で同じ文末表現（〜したい、〜と考える 等）を2文連続で使わない
+- 最終文は具体的な行動や貢献で締め、抽象的な意気込みの羅列にしない
 - 出力は本文のみ、だ・である調、{_format_char_condition(char_min, char_max)}
 - 目標は {_format_target_char_window(char_min, char_max)}
 {_format_short_answer_guidance(template_type, char_min, char_max)}
@@ -618,7 +657,7 @@ def build_template_fallback_rewrite_prompt(
     has_rag=has_rag,
     grounding_mode=grounding_mode,
     requires_company_rag=bool(template_def.get("requires_company_rag")),
-    company_grounding=str(template_def.get("company_grounding") or "assistive"),
+    company_grounding=effective_company_grounding,
     generic_role_mode=generic_role_mode,
     evidence_coverage_level=evidence_coverage_level,
 )}
@@ -653,9 +692,12 @@ def build_template_improvement_prompt(
     reference_quality_block: str = "",
     generic_role_mode: bool = False,
     evidence_coverage_level: str = "none",
+    company_grounding_override: Optional[str] = None,
 ) -> tuple[str, str]:
     template_role = TEMPLATE_ROLES.get(template_type, TEMPLATE_ROLES["basic"])
-    company_grounding = str(TEMPLATE_DEFS.get(template_type, {}).get("company_grounding") or "assistive")
+    company_grounding = company_grounding_override or str(
+        TEMPLATE_DEFS.get(template_type, {}).get("company_grounding") or "assistive"
+    )
     company_eval_rule = (
         "企業根拠がある場合は、企業理解・職種理解・事業方向性とのズレを評価する"
         if company_grounding == "required"

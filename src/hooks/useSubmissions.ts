@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export interface SubmissionItem {
   id: string;
@@ -71,14 +72,33 @@ export function useSubmissions(applicationId: string | null) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch submissions");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "SUBMISSIONS_FETCH_FAILED",
+            userMessage: "提出物を読み込めませんでした。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "useSubmissions.fetchSubmissions"
+        );
       }
 
       const data = await response.json();
       setSubmissions(data.submissions || []);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "提出物の取得に失敗しました");
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "SUBMISSIONS_FETCH_FAILED",
+          userMessage: "提出物を読み込めませんでした。",
+          action: "ページを再読み込みして、もう一度お試しください。",
+          retryable: true,
+        },
+        "useSubmissions.fetchSubmissions"
+      );
+      setError(uiError.message);
     } finally {
       setIsLoading(false);
     }
@@ -104,8 +124,16 @@ export function useSubmissions(applicationId: string | null) {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || "提出物の作成に失敗しました");
+      throw await parseApiErrorResponse(
+        response,
+        {
+          code: "SUBMISSION_CREATE_FAILED",
+          userMessage: "提出物を作成できませんでした。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          retryable: true,
+        },
+        "useSubmissions.createSubmission"
+      );
     }
 
     const result = await response.json();
@@ -122,8 +150,16 @@ export function useSubmissions(applicationId: string | null) {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || "提出物の更新に失敗しました");
+      throw await parseApiErrorResponse(
+        response,
+        {
+          code: "SUBMISSION_UPDATE_FAILED",
+          userMessage: "提出物を更新できませんでした。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          retryable: true,
+        },
+        "useSubmissions.updateSubmission"
+      );
     }
 
     const result = await response.json();
@@ -139,8 +175,16 @@ export function useSubmissions(applicationId: string | null) {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || "提出物の削除に失敗しました");
+      throw await parseApiErrorResponse(
+        response,
+        {
+          code: "SUBMISSION_DELETE_FAILED",
+          userMessage: "提出物を削除できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "useSubmissions.deleteSubmission"
+      );
     }
 
     await fetchSubmissions();

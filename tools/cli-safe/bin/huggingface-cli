@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")"/../lib && pwd)/cli-safe-common.sh"
+
+service="huggingface-cli"
+subcommand="${1:-}"
+
+cli_safe_assert_no_dangerous_flags "$service" "$@"
+
+case "$subcommand" in
+  login|whoami|download)
+    ;;
+  delete|repo|upload)
+    cli_safe_die "$service" "変更や削除につながる huggingface-cli 操作は許可していません。"
+    ;;
+  "")
+    ;;
+  *)
+    cli_safe_die "$service" "'$subcommand' は許可していません。"
+    ;;
+esac
+
+cli_safe_run "$service" huggingface-cli "$@"

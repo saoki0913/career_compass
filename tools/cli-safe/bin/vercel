@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")"/../lib && pwd)/cli-safe-common.sh"
+
+service="vercel"
+subcommand="${1:-}"
+second="${2:-}"
+
+cli_safe_assert_no_dangerous_flags "$service" "$@"
+
+case "$subcommand" in
+  whoami|ls|inspect|pull|logs)
+    ;;
+  projects|domains|env)
+    case "$second" in
+      ls|pull)
+        ;;
+      *)
+        cli_safe_die "$service" "vercel $subcommand は ls/pull のみ許可しています。"
+        ;;
+    esac
+    ;;
+  deploy|remove|rm|rollback|promote|alias)
+    cli_safe_die "$service" "本番や alias を直接変更する vercel 操作は許可していません。"
+    ;;
+  "")
+    ;;
+  *)
+    cli_safe_die "$service" "'$subcommand' は許可していません。"
+    ;;
+esac
+
+cli_safe_run "$service" vercel "$@"

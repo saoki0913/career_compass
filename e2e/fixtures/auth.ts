@@ -67,6 +67,27 @@ export async function getDeviceToken(page: Page): Promise<string | null> {
   }, DEVICE_TOKEN_KEY);
 }
 
+export async function ensureGuestSession(page: Page): Promise<void> {
+  const token = await getDeviceToken(page);
+  if (!token) {
+    throw new Error("Guest device token is not set");
+  }
+
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
+  const response = await page.request.post(`${baseURL}/api/auth/guest`, {
+    headers: {
+      "Content-Type": "application/json",
+    },
+    data: {
+      deviceToken: token,
+    },
+  });
+
+  if (!response.ok()) {
+    throw new Error(`Failed to bootstrap guest session: ${response.status()}`);
+  }
+}
+
 /**
  * Mock authenticated user session
  * This intercepts auth API calls and returns a mock session
@@ -197,7 +218,9 @@ export async function apiRequest(
     headers["x-device-token"] = token;
   }
 
-  return await page.request.fetch(`http://localhost:3000${endpoint}`, {
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
+
+  return await page.request.fetch(`${baseURL}${endpoint}`, {
     method,
     headers,
     data: body ? JSON.stringify(body) : undefined,

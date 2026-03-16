@@ -10,14 +10,13 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { cn } from "@/lib/utils";
-import { Plus, Building2, LayoutGrid, Layers, Search, Star } from "lucide-react";
+  ListPageFilterBar,
+  ListPageSkeleton,
+  ListPageEmptyState,
+  FavoritesSection,
+  ViewToggle,
+} from "@/components/shared";
+import { Plus, Building2, LayoutGrid, Layers } from "lucide-react";
 import {
   StatusCategory,
   getStatusCategory,
@@ -30,7 +29,7 @@ const filterTabs = [
   { key: "not_started", label: "未着手" },
   { key: "in_progress", label: "進行中" },
   { key: "completed", label: "完了" },
-] as const;
+];
 
 type FilterKey = "all" | StatusCategory;
 
@@ -40,7 +39,7 @@ const sortOptions = [
   { value: "date_asc", label: "追加日 (古い順)" },
   { value: "name_asc", label: "企業名 (あ→わ)" },
   { value: "name_desc", label: "企業名 (わ→あ)" },
-] as const;
+];
 
 type SortKey = typeof sortOptions[number]["value"];
 
@@ -50,51 +49,17 @@ const industryOptions = INDUSTRIES.map((industry) => ({
   label: industry,
 }));
 
-// Empty state component
-function EmptyState({ filter, canAddMore }: { filter: FilterKey; canAddMore: boolean }) {
-  const isFiltered = filter !== "all";
-
-  return (
-    <div className="flex flex-col items-center justify-center py-16 px-4">
-      <div className="w-20 h-20 rounded-2xl bg-muted/50 flex items-center justify-center mb-6">
-        <Building2 className="w-12 h-12 text-muted-foreground/50" />
-      </div>
-      <h3 className="text-lg font-medium mb-2">
-        {isFiltered ? "該当する企業がありません" : "まだ企業が登録されていません"}
-      </h3>
-      <p className="text-sm text-muted-foreground text-center max-w-sm mb-6">
-        {isFiltered
-          ? "フィルターを変更するか、新しい企業を追加してください"
-          : "志望企業を登録して、ES提出や面接の締切を管理しましょう"}
-      </p>
-      {canAddMore && (
-        <Button asChild>
-          <Link href="/companies/new">
-            <Plus className="w-5 h-5" />
-            <span className="ml-2">企業を追加する</span>
-          </Link>
-        </Button>
-      )}
-    </div>
-  );
-}
-
-// Loading skeleton for 4-column grid
-function LoadingSkeleton() {
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6">
-      {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-        <div key={i} className="h-40 bg-muted/50 rounded-xl animate-pulse" />
-      ))}
-    </div>
-  );
-}
+// View toggle options
+const viewOptions = [
+  { key: "grid", icon: <LayoutGrid className="w-4 h-4" />, label: "グリッド表示" },
+  { key: "industry", icon: <Layers className="w-4 h-4" />, label: "業界別表示" },
+];
 
 export default function CompaniesPage() {
   const { companies, count, limit, canAddMore, isLoading, error, togglePin } = useCompanies();
   const [filter, setFilter] = useState<FilterKey>("all");
   const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
-  const [groupByIndustry, setGroupByIndustry] = useState(false);
+  const [viewMode, setViewMode] = useState("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("date_desc");
 
@@ -141,16 +106,18 @@ export default function CompaniesPage() {
   }, [filteredCompanies]);
 
   // Count by category
-  const categoryCounts = useMemo(() => {
-    return companies.reduce(
-      (acc, c) => {
-        const category = getStatusCategory(c.status);
-        acc[category] = (acc[category] || 0) + 1;
-        return acc;
-      },
-      {} as Record<StatusCategory, number>
-    );
+  const tabCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      all: companies.length,
+    };
+    for (const c of companies) {
+      const category = getStatusCategory(c.status);
+      counts[category] = (counts[category] || 0) + 1;
+    }
+    return counts;
   }, [companies]);
+
+  const isFiltered = filter !== "all" || searchQuery !== "" || selectedIndustries.length > 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -192,125 +159,34 @@ export default function CompaniesPage() {
         )}
 
         {/* Filter row */}
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50 mb-8">
-          {/* Search bar - Mobile: full width above tabs */}
-          <div className="mb-4 sm:hidden">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="企業名で検索..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-10 pl-10 pr-4 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            {/* Search bar - Desktop: inline with tabs */}
-            <div className="hidden sm:block relative w-48">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="企業名で検索..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-9 pl-10 pr-4 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-              />
-            </div>
-
-            {/* Status filter tabs */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0 flex-1">
-              {filterTabs.map((tab) => {
-                const tabCount =
-                  tab.key === "all"
-                    ? companies.length
-                    : categoryCounts[tab.key as StatusCategory] || 0;
-                const isActive = filter === tab.key;
-
-                return (
-                  <button
-                    key={tab.key}
-                    onClick={() => setFilter(tab.key)}
-                    className={cn(
-                      "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 whitespace-nowrap cursor-pointer",
-                      isActive
-                        ? "bg-primary text-primary-foreground shadow-md"
-                        : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    )}
-                  >
-                    {tab.label}
-                    <span
-                      className={cn(
-                        "px-2 py-0.5 rounded-full text-xs font-medium transition-colors duration-200",
-                        isActive
-                          ? "bg-primary-foreground/20 text-primary-foreground"
-                          : "bg-background text-muted-foreground"
-                      )}
-                    >
-                      {tabCount}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Sort, Industry filter + View toggle */}
-            <div className="flex items-center gap-3">
-              {/* Sort dropdown */}
-              <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortKey)}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="並び順" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sortOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {/* Industry multi-select */}
-              <MultiSelect
-                options={industryOptions}
-                selected={selectedIndustries}
-                onChange={setSelectedIndustries}
-                placeholder="業界"
-                className="w-[160px]"
-              />
-
-              {/* View toggle */}
-              <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1">
-                <button
-                  onClick={() => setGroupByIndustry(false)}
-                  className={cn(
-                    "flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer",
-                    !groupByIndustry
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                  aria-label="グリッド表示"
-                >
-                  <LayoutGrid className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setGroupByIndustry(true)}
-                  className={cn(
-                    "flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer",
-                    groupByIndustry
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                  aria-label="業界別表示"
-                >
-                  <Layers className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ListPageFilterBar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="企業名で検索..."
+          filterTabs={filterTabs}
+          activeFilter={filter}
+          onFilterChange={(key) => setFilter(key as FilterKey)}
+          tabCounts={tabCounts}
+          sortOptions={sortOptions}
+          sortBy={sortBy}
+          onSortChange={(value) => setSortBy(value as SortKey)}
+          extraFilter={
+            <MultiSelect
+              options={industryOptions}
+              selected={selectedIndustries}
+              onChange={setSelectedIndustries}
+              placeholder="業界"
+              className="w-[160px]"
+            />
+          }
+          viewToggle={
+            <ViewToggle
+              options={viewOptions}
+              activeKey={viewMode}
+              onChange={setViewMode}
+            />
+          }
+        />
 
         {/* Error state */}
         {error && (
@@ -323,30 +199,34 @@ export default function CompaniesPage() {
 
         {/* Content */}
         {isLoading ? (
-          <LoadingSkeleton />
+          <ListPageSkeleton />
         ) : filteredCompanies.length === 0 ? (
-          <EmptyState filter={filter} canAddMore={canAddMore} />
-        ) : groupByIndustry ? (
+          <ListPageEmptyState
+            icon={<Building2 className="w-12 h-12 text-muted-foreground/50" />}
+            title={isFiltered ? "該当する企業がありません" : "まだ企業が登録されていません"}
+            description={
+              isFiltered
+                ? "フィルターを変更するか、新しい企業を追加してください"
+                : "志望企業を登録して、ES提出や面接の締切を管理しましょう"
+            }
+            action={
+              canAddMore
+                ? {
+                    label: "企業を追加する",
+                    icon: <Plus className="w-5 h-5" />,
+                    href: "/companies/new",
+                  }
+                : undefined
+            }
+          />
+        ) : viewMode === "industry" ? (
           <IndustryGroup companies={filteredCompanies} onTogglePin={togglePin} />
         ) : (
           <div className="space-y-8">
-            {/* Favorites Section - Visual Hierarchy: pinned companies stand out */}
-            {pinnedCompanies.length > 0 && (
-              <section>
-                <div className="flex items-center gap-2 mb-4">
-                  <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
-                  <h2 className="text-lg font-semibold text-foreground">
-                    お気に入り
-                  </h2>
-                  <span className="text-sm text-muted-foreground">
-                    ({pinnedCompanies.length})
-                  </span>
-                </div>
-                <div className="p-4 -m-4 mb-4 rounded-xl bg-gradient-to-br from-amber-50/50 to-transparent dark:from-amber-950/20 dark:to-transparent">
-                  <CompanyGrid companies={pinnedCompanies} onTogglePin={togglePin} />
-                </div>
-              </section>
-            )}
+            {/* Favorites Section */}
+            <FavoritesSection count={pinnedCompanies.length}>
+              <CompanyGrid companies={pinnedCompanies} onTogglePin={togglePin} />
+            </FavoritesSection>
 
             {/* All Companies Section */}
             {unpinnedCompanies.length > 0 && (

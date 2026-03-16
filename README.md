@@ -57,6 +57,22 @@ make test
 make db-studio
 ```
 
+## リリース運用
+
+- ローカルで `npm run lint` と `npm run build` を通す
+- `develop` にコミットして `git push origin develop`
+- staging 環境で動作確認する
+- GitHub で `develop -> main` の PR を作成してマージする
+- `main` へのマージをトリガーに Vercel / Railway が本番へ自動デプロイする
+
+正式な環境は次の 3 つです。
+
+- local: `http://localhost:3000`
+- staging: `https://stg.shupass.jp`
+- production: `https://www.shupass.jp`
+
+任意の preview URL や `*.vercel.app` は OAuth と書き込み系 API の正式運用環境として扱いません。
+
 ## プロジェクト構成
 
 ```

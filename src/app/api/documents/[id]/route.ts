@@ -13,6 +13,7 @@ import { documents, documentVersions, companies, applications } from "@/lib/db/s
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 type DocumentRow = typeof documents.$inferSelect;
 
@@ -106,18 +107,27 @@ export async function GET(
 
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "DOCUMENT_DETAIL_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "document-detail-auth",
+      });
     }
 
     const access = await verifyDocumentAccess(documentId, identity.userId, identity.guestId);
     if (!access.valid || !access.document) {
-      return NextResponse.json(
-        { error: "Document not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DOCUMENT_NOT_FOUND",
+        userMessage: "ドキュメントが見つかりませんでした。",
+        action: "一覧に戻って、対象のドキュメントを選び直してください。",
+        developerMessage: "Document not found",
+        logContext: "document-detail-not-found",
+      });
     }
 
     const doc = access.document;
@@ -126,11 +136,16 @@ export async function GET(
       document: await buildDocumentResponse(doc),
     });
   } catch (error) {
-    console.error("Error fetching document:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "DOCUMENT_DETAIL_FETCH_FAILED",
+      userMessage: "ドキュメントを読み込めませんでした。",
+      action: "ページを再読み込みして、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "document-detail-fetch",
+    });
   }
 }
 
@@ -143,18 +158,27 @@ export async function PUT(
 
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "DOCUMENT_UPDATE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "document-update-auth",
+      });
     }
 
     const access = await verifyDocumentAccess(documentId, identity.userId, identity.guestId);
     if (!access.valid || !access.document) {
-      return NextResponse.json(
-        { error: "Document not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DOCUMENT_UPDATE_NOT_FOUND",
+        userMessage: "更新対象のドキュメントが見つかりませんでした。",
+        action: "一覧に戻って、対象のドキュメントを選び直してください。",
+        developerMessage: "Document not found",
+        logContext: "document-update-not-found",
+      });
     }
 
     const body = await request.json();
@@ -167,16 +191,24 @@ export async function PUT(
     if (title !== undefined) {
       const trimmedTitle = title.trim();
       if (!trimmedTitle) {
-        return NextResponse.json(
-          { error: "タイトルは必須です" },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "DOCUMENT_TITLE_REQUIRED",
+          userMessage: "タイトルを入力してください。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          developerMessage: "Title is required",
+          logContext: "document-update-validation",
+        });
       }
       if (trimmedTitle.length > 200) {
-        return NextResponse.json(
-          { error: "タイトルは200文字以内で入力してください" },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "DOCUMENT_TITLE_TOO_LONG",
+          userMessage: "タイトルは200文字以内で入力してください。",
+          action: "入力内容を調整して、もう一度お試しください。",
+          developerMessage: "Document title too long",
+          logContext: "document-update-validation",
+        });
       }
       updateData.title = trimmedTitle;
     }
@@ -213,10 +245,14 @@ export async function PUT(
     if (status !== undefined) {
       const validStatuses = ["draft", "published", "deleted"];
       if (!validStatuses.includes(status)) {
-        return NextResponse.json(
-          { error: "無効なステータスです" },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "DOCUMENT_STATUS_INVALID",
+          userMessage: "ドキュメントの状態を確認して、もう一度お試しください。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          developerMessage: "Invalid document status",
+          logContext: "document-update-validation",
+        });
       }
       updateData.status = status;
       if (status === "deleted") {
@@ -246,11 +282,16 @@ export async function PUT(
       document: await buildDocumentResponse(updated[0]),
     });
   } catch (error) {
-    console.error("Error updating document:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "DOCUMENT_UPDATE_FAILED",
+      userMessage: "ドキュメントを更新できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "document-update",
+    });
   }
 }
 
@@ -263,18 +304,27 @@ export async function DELETE(
 
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "DOCUMENT_DELETE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "document-delete-auth",
+      });
     }
 
     const access = await verifyDocumentAccess(documentId, identity.userId, identity.guestId);
     if (!access.valid) {
-      return NextResponse.json(
-        { error: "Document not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DOCUMENT_DELETE_NOT_FOUND",
+        userMessage: "削除対象のドキュメントが見つかりませんでした。",
+        action: "一覧に戻って、対象のドキュメントを選び直してください。",
+        developerMessage: "Document not found",
+        logContext: "document-delete-not-found",
+      });
     }
 
     // Soft delete - move to trash
@@ -289,10 +339,15 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting document:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "DOCUMENT_DELETE_FAILED",
+      userMessage: "ドキュメントを削除できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "document-delete",
+    });
   }
 }

@@ -4,6 +4,7 @@ import { startTransition, useCallback, useEffect, useRef, useState } from "react
 import type { ProcessingStep } from "@/components/ui/EnhancedProcessingSteps";
 import { trackEvent } from "@/lib/analytics/client";
 import { calculateESReviewCost } from "@/lib/credits/cost";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export interface ReviewIssue {
   category: string;
@@ -23,7 +24,7 @@ export interface SectionData {
   charLimit?: number;
 }
 
-export type ReviewMode = "standard" | "qwen_beta";
+export type ReviewMode = "standard";
 
 export type TemplateType =
   | "basic"
@@ -268,6 +269,10 @@ const DEFAULT_SSE_STEPS: ProcessingStep[] = [
   { id: "sources", label: "出典リンクを整理しています...", subLabel: "関連情報を最後に添えています", duration: 2000 },
 ];
 
+function createSSESteps(): ProcessingStep[] {
+  return DEFAULT_SSE_STEPS.map((step) => ({ ...step }));
+}
+
 const EMPTY_RECEIVED_REVIEW: ReceivedReviewState = {
   top3: [],
   keywordSources: [],
@@ -448,7 +453,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
   const [sseProgress, setSSEProgress] = useState<SSEProgressState>({
     currentStep: null,
     progress: 0,
-    steps: DEFAULT_SSE_STEPS,
+    steps: createSSESteps(),
     isStreaming: false,
   });
 
@@ -489,7 +494,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
     setSSEProgress({
       currentStep: null,
       progress: 0,
-      steps: DEFAULT_SSE_STEPS,
+      steps: createSSESteps(),
       isStreaming: false,
     });
   }, []);
@@ -556,7 +561,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
       setSSEProgress({
         currentStep: null,
         progress: 0,
-        steps: DEFAULT_SSE_STEPS,
+        steps: createSSESteps(),
         isStreaming: true,
       });
 
@@ -576,10 +581,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
           reviewMode: effectiveReviewMode,
         });
 
-        const streamPath =
-          effectiveReviewMode === "qwen_beta"
-            ? `/api/documents/${documentId}/review/qwen-stream`
-            : `/api/documents/${documentId}/review/stream`;
+        const streamPath = `/api/documents/${documentId}/review/stream`;
         const response = await fetch(streamPath, {
           method: "POST",
           headers: {
@@ -606,21 +608,26 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
         }
 
         if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
           if (!isActiveRequest()) {
             return false;
           }
-
-          if (response.status === 402) {
-            setError(`クレジットが不足しています（必要: ${data.creditCost}クレジット）`);
-          } else if (response.status === 401) {
-            setError(data.error || "ログインが必要です");
-          } else {
-            setError(data.error || "添削リクエストに失敗しました");
-          }
+          const uiError = await parseApiErrorResponse(
+            response,
+            {
+              code: "ES_REVIEW_REQUEST_FAILED",
+              userMessage: "ES添削を開始できませんでした。",
+              action: "入力内容や設定を確認して、もう一度お試しください。",
+              retryable: true,
+              authMessage: "ログイン状態を確認して、もう一度お試しください。",
+              validationMessage: "入力内容や設定を確認して、もう一度お試しください。",
+            },
+            "useESReview.requestSectionReview"
+          );
+          setError(uiError.message);
           trackEvent("ai_review_error", {
             status: response.status,
             reviewMode: effectiveReviewMode,
+            errorCode: uiError.code,
           });
           return false;
         }
@@ -745,7 +752,18 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
                 return true;
 
               case "error":
-                setError(event.message || "添削処理でエラーが発生しました");
+                setError(
+                  toAppUiError(
+                    event.message,
+                    {
+                      code: "ES_REVIEW_STREAM_FAILED",
+                      userMessage: "添削処理を完了できませんでした。",
+                      action: "時間を置いて、もう一度お試しください。",
+                      retryable: true,
+                    },
+                    "useESReview.sseError"
+                  ).message
+                );
                 trackEvent("ai_review_error", { reviewMode: effectiveReviewMode });
                 return false;
 
@@ -771,9 +789,21 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
         }
 
         if (isActiveRequest()) {
-          console.error("Review request error:", err);
-          setError("ネットワークエラーが発生しました");
-          trackEvent("ai_review_error", { reviewMode: effectiveReviewMode });
+          const uiError = toAppUiError(
+            err,
+            {
+              code: "ES_REVIEW_REQUEST_FAILED",
+              userMessage: "ES添削を開始できませんでした。",
+              action: "時間を置いて、もう一度お試しください。",
+              retryable: true,
+            },
+            "useESReview.requestSectionReview"
+          );
+          setError(uiError.message);
+          trackEvent("ai_review_error", {
+            reviewMode: effectiveReviewMode,
+            errorCode: uiError.code,
+          });
         }
         return false;
       } finally {
