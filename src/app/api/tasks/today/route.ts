@@ -13,40 +13,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { tasks, deadlines, applications, companies } from "@/lib/db/schema";
 import { eq, and, lte, gte, isNull } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
-}
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 
 export async function GET(request: NextRequest) {
   try {
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return createApiErrorResponse(request, {
         status: 401,
@@ -67,9 +42,20 @@ export async function GET(request: NextRequest) {
     const openTasks = await db
       .select({
         task: tasks,
-        company: companies,
-        application: applications,
-        deadline: deadlines,
+        company: {
+          id: companies.id,
+          name: companies.name,
+          createdAt: companies.createdAt,
+        },
+        application: {
+          id: applications.id,
+          name: applications.name,
+        },
+        deadline: {
+          id: deadlines.id,
+          title: deadlines.title,
+          dueDate: deadlines.dueDate,
+        },
       })
       .from(tasks)
       .leftJoin(companies, eq(tasks.companyId, companies.id))
@@ -96,7 +82,11 @@ export async function GET(request: NextRequest) {
 
     // Check for confirmed deadlines within 72h
     const urgentDeadlines = await db
-      .select()
+      .select({
+        id: deadlines.id,
+        applicationId: deadlines.applicationId,
+        dueDate: deadlines.dueDate,
+      })
       .from(deadlines)
       .innerJoin(companies, eq(deadlines.companyId, companies.id))
       .where(
@@ -124,10 +114,10 @@ export async function GET(request: NextRequest) {
       const appScores: Map<string, { score: number; applicationId: string; nearestDue: Date }> = new Map();
 
       for (const ud of urgentDeadlines) {
-        const appId = ud.deadlines.applicationId;
+        const appId = ud.applicationId;
         if (!appId) continue;
 
-        const dueDate = new Date(ud.deadlines.dueDate);
+        const dueDate = new Date(ud.dueDate);
         const hoursTodue = Math.max(1, (dueDate.getTime() - now.getTime()) / (1000 * 60 * 60));
 
         // Count open tasks for this application
@@ -224,23 +214,23 @@ export async function GET(request: NextRequest) {
       mode,
       task: {
         ...selectedTask.task,
-        company: selectedTask.company
+        company: selectedTask.company?.id
           ? {
               id: selectedTask.company.id,
               name: selectedTask.company.name,
             }
           : null,
-        application: selectedTask.application
+        application: selectedTask.application?.id
           ? {
               id: selectedTask.application.id,
               name: selectedTask.application.name,
             }
           : null,
-        deadline: selectedTask.deadline
+        deadline: selectedTask.deadline?.id
           ? {
               id: selectedTask.deadline.id,
               title: selectedTask.deadline.title,
-              dueDate: selectedTask.deadline.dueDate,
+              dueDate: selectedTask.deadline.dueDate.toISOString(),
             }
           : null,
       },
@@ -253,7 +243,6 @@ export async function GET(request: NextRequest) {
       action: "ページを再読み込みして、もう一度お試しください。",
       retryable: true,
       error,
-      developerMessage: "Internal server error",
       logContext: "today-task-fetch",
     });
   }

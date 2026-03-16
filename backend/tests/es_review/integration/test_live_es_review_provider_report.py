@@ -104,6 +104,40 @@ def _dearu_style(text: str) -> bool:
     return text.endswith(("。", "！", "？")) and not any(token in text for token in ("です", "ます", "でした", "ました"))
 
 
+def _first_sentence(text: str) -> str:
+    stripped = (text or "").strip()
+    if not stripped:
+        return ""
+    for delimiter in ("。", "！", "？", "!", "?"):
+        if delimiter in stripped:
+            return stripped.split(delimiter, 1)[0] + delimiter
+    return stripped
+
+
+def _assert_first_sentence_focus(case: dict[str, object], rewrite: str) -> None:
+    first_sentence = _first_sentence(rewrite)
+    assert first_sentence
+
+    template_type = str(case["template_type"])
+    company_name = str(case["company_name"])
+    role_name = str(case.get("role_name") or "")
+    intern_name = str(case.get("intern_name") or "")
+
+    if template_type == "company_motivation":
+        assert any(token in first_sentence for token in ("志望する", "志望理由", "魅力を感じ"))
+        assert company_name[:2] in first_sentence or "貴" in first_sentence
+    elif template_type == "intern_reason":
+        assert any(token in first_sentence for token in ("参加", "応募", "挑戦"))
+        assert intern_name.split()[0] in first_sentence or "インターン" in first_sentence
+    elif template_type == "gakuchika":
+        assert any(token in first_sentence for token in ("力を入れた", "注力した", "取り組んだ", "担った"))
+
+    assert "理由を" not in first_sentence
+    assert "教えて" not in first_sentence
+    if role_name:
+        assert template_type != "role_course_reason" or role_name[:3] in rewrite
+
+
 def _selected_models() -> list[str]:
     raw = os.getenv("LIVE_ES_REVIEW_PROVIDERS", "").strip()
     if not raw:
@@ -204,6 +238,8 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                 assert review_meta.company_evidence_count >= 1
                 if case["expected_policy"] == "required":
                     assert review_meta.company_evidence_count >= 2
+                    assert review_meta.evidence_coverage_level in {"partial", "strong"}
+                _assert_first_sentence_focus(case, rewrite)
 
                 rows.append(
                     {

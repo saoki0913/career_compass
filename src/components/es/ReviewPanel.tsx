@@ -44,6 +44,7 @@ import { calculateESReviewCost } from "@/lib/credits/cost";
 import type { Industry } from "@/lib/constants/industries";
 import { notifyReviewComplete } from "@/lib/notifications";
 import { ReflectModal } from "./ReflectModal";
+import { shouldEnableAutoFollow } from "./review-panel-scroll";
 import { ReviewEmptyState } from "./ReviewEmptyState";
 import { StreamingReviewResponse } from "./StreamingReviewResponse";
 
@@ -431,11 +432,8 @@ export function ReviewPanel({
   const [hasShownCompletionToast, setHasShownCompletionToast] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Set<string>>(new Set());
 
-  // Scroll refs (Phase 4 + 5)
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const userHasScrolledRef = useRef(false);
-  const programmaticScrollCountRef = useRef(0);
-  const lastKnownScrollCountRef = useRef(0);
+  const autoFollowRef = useRef(true);
 
   // Validation section refs (Phase 6)
   const templateSectionRef = useRef<HTMLDivElement>(null);
@@ -564,6 +562,14 @@ export function ReviewPanel({
           ? `${getStandardESReviewModelLabel(selectedStandardModel)} で実行します。800文字ごとに +1、最小2クレジットです。`
           : reviewActionHint;
   const footerActionDisabled = error ? false : isFooterLocked;
+  const visibleIssuesTextLength = visibleIssues.reduce(
+    (total, issue) => total + issue.issue.length + issue.suggestion.length + (issue.why_now?.length ?? 0),
+    0,
+  );
+  const visibleSourcesTextLength = visibleSources.reduce(
+    (total, source) => total + (source.excerpt?.length ?? 0),
+    0,
+  );
 
   useEffect(() => {
     if (!sectionReviewRequest) {
@@ -688,45 +694,40 @@ export function ReviewPanel({
     }
   }, [hasResponse]);
 
-  // Phase 5: Detect manual scroll to stop auto-follow (counter-based)
   useEffect(() => {
     const container = scrollContainerRef.current;
-    if (!container) return;
+    if (!container) {
+      return;
+    }
+
     const handleScroll = () => {
-      if (programmaticScrollCountRef.current > lastKnownScrollCountRef.current) {
-        lastKnownScrollCountRef.current = programmaticScrollCountRef.current;
-        return;
-      }
-      const isAtBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight < 40;
-      if (!isAtBottom) {
-        userHasScrolledRef.current = true;
-      }
+      autoFollowRef.current = shouldEnableAutoFollow({
+        scrollHeight: container.scrollHeight,
+        scrollTop: container.scrollTop,
+        clientHeight: container.clientHeight,
+      });
     };
+
+    handleScroll();
     container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Phase 5: Auto-scroll following streaming content growth (MutationObserver)
   useEffect(() => {
     const container = scrollContainerRef.current;
-    if (!container || !hasResponse) return;
+    if (!container || !hasResponse || !autoFollowRef.current) {
+      return;
+    }
 
-    const scrollToBottom = () => {
-      if (userHasScrolledRef.current) return;
-      requestAnimationFrame(() => {
-        if (userHasScrolledRef.current) return;
-        programmaticScrollCountRef.current += 1;
-        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-      });
-    };
+    const frame = requestAnimationFrame(() => {
+      if (!autoFollowRef.current) {
+        return;
+      }
+      container.scrollTo({ top: container.scrollHeight, behavior: "auto" });
+    });
 
-    const observer = new MutationObserver(() => scrollToBottom());
-    observer.observe(container, { childList: true, subtree: true, characterData: true });
-    scrollToBottom();
-
-    return () => observer.disconnect();
-  }, [hasResponse]);
+    return () => cancelAnimationFrame(frame);
+  }, [hasResponse, visibleRewriteText.length, visibleIssuesTextLength, visibleSourcesTextLength]);
 
   // Phase 6: Clear validation errors when user fixes settings
   useEffect(() => {
@@ -762,10 +763,8 @@ export function ReviewPanel({
     try {
       setResponseInstanceKey((prev) => prev + 1);
       setHasShownCompletionToast(false);
+      autoFollowRef.current = true;
       scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-      userHasScrolledRef.current = false;
-      programmaticScrollCountRef.current = 0;
-      lastKnownScrollCountRef.current = 0;
       await requestSectionReview({
         sectionTitle: sectionReviewRequest.sectionTitle,
         sectionContent: sectionReviewRequest.sectionContent,

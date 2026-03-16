@@ -82,6 +82,27 @@ rewrite prompt に入れるものは絞っている。
 `selected_user_facts` は relevance と source balance で最大 8 件に絞る。  
 `current_answer` は必ず含める。
 
+required 設問の pre-stream 補強では、設問タイプに応じて使う根拠軸を固定しつつ、次の文脈を追加ヒントとして圧縮する。
+
+- `profile_context` の志望業界 / 志望職種
+- `gakuchika_context` の強み / 行動要約
+- 同一 ES 内の関連セクション見出しと要約
+
+追加ヒント語は最大 6 件までに制限し、multi-pass の探索は増やさない。
+
+### pre-stream enrichment の起動条件
+
+pre-stream enrichment は freshness ではなく、`trusted` な企業根拠の不足時だけ起動する。
+
+- `24時間経過` だけでは起動しない
+- 判定対象は保存済み `corporateInfoUrls` のうち `trustedForEsReview=true` な source
+- trusted source は原則として次
+  - `official`
+  - `parentAllowed=true` の親会社 source
+  - `upload://corporate-pdf/<company_id>/...`
+- assistive 設問 (`basic`, `gakuchika`, `self_pr`, `work_values`) は、設問に企業シグナルがない限り起動しない
+- required 設問では `人・役割軸` と `事業軸` の trusted coverage が不足しているときだけ起動する
+
 ### 6. 検証と再試行
 
 post-check で次を検証する。
@@ -89,9 +110,12 @@ post-check で次を検証する。
 - 空文字ではない
 - 文字数条件を満たす
 - `だ・である調`
+- 冒頭1文が設問に正対し、設問の復唱から始まっていない
+- 箇条書き・列挙調ではない
 - 参考ESに近すぎない
 
 通常 retry は最大 6 回。  
+全標準モデルで共通 validator を使い、`結論ファースト / answer focus / verbose opening / bulletish` を同じ基準で検証する。  
 非Claudeの 300〜500 字 required 設問では、under-min が続くと `length_focus` を使う。small miss は `length-fix` で 1 回だけ補正する。
 
 ## 参考ESの扱い
@@ -101,6 +125,12 @@ post-check で次を検証する。
 - quality hints
 - coarse skeleton
 - overlap guard
+
+quality hints では全標準モデルに共通で次を要求する。
+
+- 1文目で結論を言い切る
+- 3〜4文程度の締まった構成にする
+- 各文の役割を分け、同じ内容の言い換えで水増ししない
 
 禁止していること。
 
@@ -153,9 +183,10 @@ post-check で次を検証する。
 添削パネルはストリーミング出力に追従して自動スクロールする。
 
 - 添削ボタン押下時にパネルを先頭にリセットする
-- DOM 変化を `MutationObserver` で監視し、`requestAnimationFrame` で末尾へスクロールする
-- ユーザーが手動スクロールしたらプログラマティック追尾を停止する
-- プログラマティックスクロールの判定にはカウンタベースの ref を使い、`scrollTo({ behavior: "smooth" })` の複数イベント発火によるレースコンディションを回避する
+- ストリーミングで `rewrite / issues / sources` の表示量が増えたときだけ、状態駆動で末尾へ追従する
+- ユーザーが自分で下端から 48px 以上離れたら追尾を停止する
+- ユーザーが再び下端付近へ戻ったら追尾を自動再開する
+- 連続追尾は `scrollTo({ behavior: "auto" })` を使い、開始時のリセットだけ `smooth` にする
 
 ## 主要 `review_meta`
 
@@ -186,6 +217,7 @@ post-check で次を検証する。
 - `backend/tests/es_review/test_es_review_final_quality_cases.py`
 - `backend/tests/shared/test_llm_provider_routing.py`
 - `backend/tests/es_review/integration/test_live_es_review_provider_report.py`
+- `src/components/es/review-panel-scroll.test.ts`
 
 実行例:
 

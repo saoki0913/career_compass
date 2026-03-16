@@ -15,6 +15,16 @@ type CreateApiErrorResponseOptions = {
   extra?: Record<string, unknown>;
 };
 
+function getDebugDeveloperMessage(options: CreateApiErrorResponseOptions): string | undefined {
+  if (options.error instanceof Error) {
+    return options.error.message;
+  }
+  if (typeof options.error === "string") {
+    return options.error;
+  }
+  return options.developerMessage;
+}
+
 function getRequestId(request?: NextRequest): string {
   const requestId = request?.headers.get("x-request-id")?.trim();
   return requestId && requestId.length > 0 ? requestId : randomUUID();
@@ -52,9 +62,7 @@ export function createApiErrorResponse(
       ...(process.env.NODE_ENV === "development"
         ? {
             debug: {
-              developerMessage:
-                options.developerMessage ??
-                (options.error instanceof Error ? options.error.message : undefined),
+              developerMessage: getDebugDeveloperMessage(options),
               details: options.details,
               status: options.status,
             },

@@ -41,10 +41,6 @@ interface ClaimedCalendarSyncJob {
   attempts: number;
 }
 
-function resolveCalendarEventId(event: { googleEventId: string | null; externalEventId?: string | null }) {
-  return event.googleEventId ?? event.externalEventId ?? null;
-}
-
 function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60 * 1000);
 }
@@ -129,16 +125,10 @@ async function updateWorkBlockSyncState(
   eventId: string,
   values: Partial<typeof calendarEvents.$inferInsert>
 ) {
-  const nextValues = { ...values };
-
-  if (nextValues.googleEventId !== undefined && nextValues.externalEventId === undefined) {
-    nextValues.externalEventId = nextValues.googleEventId;
-  }
-
   await db
     .update(calendarEvents)
     .set({
-      ...nextValues,
+      ...values,
       updatedAt: new Date(),
     })
     .where(eq(calendarEvents.id, eventId));
@@ -175,7 +165,6 @@ async function getWorkBlockForSync(eventId: string) {
       startAt: calendarEvents.startAt,
       endAt: calendarEvents.endAt,
       googleCalendarId: calendarEvents.googleCalendarId,
-      externalEventId: calendarEvents.externalEventId,
       googleEventId: calendarEvents.googleEventId,
       googleSyncStatus: calendarEvents.googleSyncStatus,
     })
@@ -472,7 +461,7 @@ async function processUpsertJob(job: ClaimedCalendarSyncJob) {
     return;
   }
 
-  const existingEventId = resolveCalendarEventId(event);
+  const existingEventId = event.googleEventId;
   if (existingEventId && event.googleCalendarId) {
     await deleteCalendarEvent(accessToken, event.googleCalendarId, existingEventId);
   }
@@ -585,8 +574,7 @@ export async function reconcileGoogleCalendarEvents(userId: string, calendarId: 
   const workBlocksByGoogleId = new Map(
     workBlocks
       .map((event) => {
-        const eventId = resolveCalendarEventId(event);
-        return eventId ? [eventId, event] as const : null;
+        return event.googleEventId ? [event.googleEventId, event] as const : null;
       })
       .filter((entry): entry is readonly [string, typeof workBlocks[number]] => Boolean(entry))
   );
@@ -614,8 +602,7 @@ export async function reconcileGoogleCalendarEvents(userId: string, calendarId: 
   }
 
   const missingWorkBlocks = workBlocks.filter((event) => {
-    const eventId = resolveCalendarEventId(event);
-    return eventId ? !googleEventIds.has(eventId) : false;
+    return event.googleEventId ? !googleEventIds.has(event.googleEventId) : false;
   });
   if (missingWorkBlocks.length > 0) {
     await db.delete(calendarEvents).where(inArray(calendarEvents.id, missingWorkBlocks.map((event) => event.id)));

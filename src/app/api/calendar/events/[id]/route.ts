@@ -70,7 +70,7 @@ export async function DELETE(
       userId,
       eventId,
       googleCalendarId: event.googleCalendarId,
-      googleEventId: event.googleEventId ?? event.externalEventId,
+      googleEventId: event.googleEventId,
     });
 
     await db.delete(calendarEvents).where(eq(calendarEvents.id, eventId));

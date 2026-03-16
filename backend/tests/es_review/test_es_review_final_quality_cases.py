@@ -48,7 +48,7 @@ async def test_final_quality_company_motivation_strong_evidence(monkeypatch: pyt
     async def fake_text_caller(*args, **kwargs):
         captured_prompts.append(kwargs.get("system_prompt", "") or (args[0] if args else ""))
         return FakeTextResult(
-            "貴社を志望する理由は、事業を通じて社会課題を動かす現場に身を置きたいからだ。研究で仮説を立て検証を回した経験を土台に、若手から挑戦機会を得ながら事業理解を深め、価値創出に結びつけたい。"
+            "三菱商事を志望するのは、成長領域への投資を通じて社会課題を動かす現場で価値創出に挑みたいからだ。研究で仮説を立て検証を回した経験を土台に、若手から挑戦機会を得て事業理解を深め、具体的な成果へ着実につなげたい。"
         )
 
     monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
@@ -72,16 +72,19 @@ async def test_final_quality_company_motivation_strong_evidence(monkeypatch: pyt
                 "content_type": "new_grad_recruitment",
                 "title": "新卒採用",
                 "excerpt": "若手に挑戦機会を与える",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/newgrad/",
             },
             {
                 "content_type": "corporate_site",
                 "title": "注力事業",
                 "excerpt": "成長領域への投資を進める",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/business/",
             },
             {
                 "content_type": "employee_interviews",
                 "title": "社員インタビュー",
                 "excerpt": "現場で学びながら価値を広げる",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/people/interview/",
             },
         ],
         company_rag_available=True,
@@ -122,7 +125,7 @@ async def test_final_quality_company_motivation_strong_evidence_for_cohere(
 
     async def fake_text_caller(*args, **kwargs):
         return FakeTextResult(
-            "貴社を志望する理由は、成長領域へ挑む事業の中で仮説検証力を価値へ変えたいからだ。研究で論点を整理し検証を回した経験を土台に、若手から挑戦機会を得ながら事業理解を深め、成果へつなげたい。"
+            "三菱商事を志望するのは、成長領域へ挑む事業の中で仮説検証力を価値へ変えたいからだ。研究で論点を整理し検証を回した経験を土台に、若手から挑戦機会を得て事業理解を深め、現場での成果へ着実につなげたい。"
         )
 
     monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
@@ -146,16 +149,19 @@ async def test_final_quality_company_motivation_strong_evidence_for_cohere(
                 "content_type": "new_grad_recruitment",
                 "title": "新卒採用",
                 "excerpt": "若手に挑戦機会を与える",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/newgrad/",
             },
             {
                 "content_type": "corporate_site",
                 "title": "注力事業",
                 "excerpt": "成長領域への投資を進める",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/business/",
             },
             {
                 "content_type": "employee_interviews",
                 "title": "社員インタビュー",
                 "excerpt": "現場で学びながら価値を広げる",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/people/interview/",
             },
         ],
         company_rag_available=True,
@@ -223,6 +229,7 @@ async def test_final_quality_company_motivation_weak_evidence_safe_generalizatio
                 "content_type": "corporate_site",
                 "title": "企業概要",
                 "excerpt": "多様な事業を展開する",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/about/",
             }
         ],
         company_rag_available=True,
@@ -277,6 +284,7 @@ async def test_final_quality_gakuchika_uses_assistive_company_grounding(monkeypa
                 "content_type": "employee_interviews",
                 "title": "社員インタビュー",
                 "excerpt": "現場で挑戦を重ねる",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/people/interview/",
             }
         ],
         company_rag_available=True,
@@ -315,7 +323,7 @@ async def test_final_quality_intern_reason_short_answer(monkeypatch: pytest.Monk
 
     async def fake_text_caller(*args, **kwargs):
         return FakeTextResult(
-            "参加を志望するのは、研究で磨いた分析力を実務で試したいからだ。現場の意思決定に近い課題へ向き合い、仮説検証を価値につなげる力を高めたい。参加後は、事実を整理して示唆へ変える視点に加え、関係者に伝わる形へまとめる力も磨きたい。"
+            "Business Intelligence Internshipに参加したい。研究で磨いた分析力を実務で試し、現場の意思決定に近い課題へ向き合いたい。参加後は、事実を整理して示唆へ変え、相手に伝わる形へ磨きたい。実務の視点も吸収したい。"
         )
 
     monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
@@ -340,6 +348,7 @@ async def test_final_quality_intern_reason_short_answer(monkeypatch: pytest.Monk
                 "content_type": "new_grad_recruitment",
                 "title": "Business Intelligence Internship",
                 "excerpt": "実務に近いテーマを扱う",
+                "source_url": "https://www.mitsui.com/jp/ja/recruit/internship/business-intelligence/",
             }
         ],
         company_rag_available=True,
@@ -377,9 +386,18 @@ async def test_final_quality_over_max_retry_recovers_without_422(monkeypatch: py
     async def fake_text_caller(*args, **kwargs):
         nonlocal calls
         calls += 1
+        if calls >= 2:
+            return FakeTextResult(
+                "KPMGを志望するのは、変革現場で研究経験を価値へ変えたいからだ。"
+                + _repeat_sentence(
+                    "研究経験を価値へ変える仕事に挑み、変革現場で成果へつなげたい。",
+                    11,
+                )
+                + "研究経験を価値へ変える力を磨きたい。"
+            )
         return FakeTextResult(
             _repeat_sentence(
-                "貴社を志望する理由は、研究経験を価値へ変える仕事に挑みたいからだ。",
+                "研究経験を価値へ変える仕事に挑み、変革現場で成果へつなげたい。",
                 13,
             )
         )
@@ -404,11 +422,13 @@ async def test_final_quality_over_max_retry_recovers_without_422(monkeypatch: py
                 "content_type": "corporate_site",
                 "title": "企業概要",
                 "excerpt": "変革支援を重視する",
+                "source_url": "https://kpmg.com/jp/ja/home/about.html",
             },
             {
                 "content_type": "new_grad_recruitment",
                 "title": "新卒採用",
                 "excerpt": "若手から変革に挑む",
+                "source_url": "https://kpmg.com/jp/ja/home/careers/new-graduate.html",
             },
         ],
         company_rag_available=True,
@@ -419,7 +439,7 @@ async def test_final_quality_over_max_retry_recovers_without_422(monkeypatch: py
     )
 
     rewrite = result.rewrites[0]
-    assert calls == 1
+    assert calls >= 2
     assert 390 <= len(rewrite) <= 400
     _assert_dearu_style(rewrite)
     assert result.review_meta is not None
@@ -470,6 +490,7 @@ async def test_final_quality_self_pr_uses_assistive_company_fit(monkeypatch: pyt
                 "content_type": "employee_interviews",
                 "title": "社員インタビュー",
                 "excerpt": "顧客起点で価値を磨く",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/people/interview/",
             }
         ],
         company_rag_available=True,
@@ -536,16 +557,19 @@ async def test_final_quality_role_course_reason_uses_role_and_company_axes(
                 "content_type": "employee_interviews",
                 "title": "デジタル企画の社員インタビュー",
                 "excerpt": "事業部門と開発をつなぐ",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/digital/interview/",
             },
             {
                 "content_type": "corporate_site",
                 "title": "事業戦略",
                 "excerpt": "成長領域への投資を進める",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/business/digital/",
             },
             {
                 "content_type": "new_grad_recruitment",
                 "title": "求める人物像",
                 "excerpt": "若手の挑戦を後押しする",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/newgrad/",
             },
         ],
         company_rag_available=True,
@@ -613,16 +637,19 @@ async def test_final_quality_intern_goals_anchors_program_and_growth(
                 "content_type": "new_grad_recruitment",
                 "title": "Business Intelligence Internship",
                 "excerpt": "実務に近いテーマを扱う",
+                "source_url": "https://www.mitsui.com/jp/ja/recruit/internship/business-intelligence/",
             },
             {
                 "content_type": "employee_interviews",
                 "title": "社員インタビュー",
                 "excerpt": "分析を事業判断につなげる",
+                "source_url": "https://www.mitsui.com/jp/ja/recruit/people/interview/",
             },
             {
                 "content_type": "corporate_site",
                 "title": "事業紹介",
                 "excerpt": "データ活用を通じて価値を広げる",
+                "source_url": "https://www.mitsui.com/jp/ja/business/",
             },
         ],
         company_rag_available=True,

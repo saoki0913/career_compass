@@ -651,6 +651,10 @@ def _describe_retry_reason(reason: str) -> str:
         return "なぜこの会社かが弱かったため、志望理由を先頭で明示して再試行します。"
     if "職種・コース" in reason:
         return "なぜその職種・コースかが弱かったため、役割の理由を先頭で明示して再試行します。"
+    if "設問の冒頭表現を繰り返さず" in reason:
+        return "設問の言い換えから始まっていたため、結論だけを先頭で短く言い切って再試行します。"
+    if "1文目で" in reason and "短く言い切って" in reason:
+        return f"{reason} 先頭文だけで答えが伝わる構成にして再試行します。"
     if "断片的" in reason:
         return "断片的な本文になったため、1本の文章として再試行します。"
     if "過去経験の説明が長すぎます" in reason:
@@ -883,6 +887,15 @@ QWEN_DETAIL_MARKERS = (
     "短期間",
     "再発防止",
 )
+COMPANY_HONORIFIC_TOKENS = ("貴社", "貴行", "貴庫", "貴所", "貴校", "貴院")
+REPEATED_OPENING_PATTERNS: dict[str, str] = {
+    "company_motivation": r"(志望する理由|志望理由)は",
+    "intern_reason": r"(参加理由|志望理由)は",
+    "intern_goals": r"(学びたいこと|やりたいこと)は",
+    "gakuchika": r"(学生時代に力を入れたこと|学生時代に頑張ったこと)は",
+    "role_course_reason": r"(選んだ理由|選択した理由|志望理由)は",
+    "work_values": r"(大切にしている価値観|働くうえで大切にしていること)は",
+}
 
 
 def _trim_qwen_initial_prompt_user_facts(
@@ -989,6 +1002,67 @@ def _validate_qwen_short_answer_semantics(
         )
         if not has_role_anchor:
             return "role_focus", "職種・コースへの答えが弱いです。1文目でなぜその職種・コースかを明示してください。"
+
+    return None, None
+
+
+def _validate_standard_conclusion_focus(
+    text: str,
+    *,
+    template_type: str,
+    company_name: str | None,
+    role_name: str | None,
+    intern_name: str | None,
+) -> tuple[str | None, str | None]:
+    sentences = _split_candidate_sentences(text)
+    if not sentences:
+        return "fragment", "本文が断片的です。文を最後まで言い切ってください。"
+    if len(sentences) == 1:
+        return None, None
+
+    first_sentence = sentences[0].strip()
+    meaningful_chars = re.findall(r"[一-龥ぁ-んァ-ヶA-Za-z0-9]", first_sentence)
+    if len(set(meaningful_chars)) <= 3:
+        return None, None
+
+    repeated_pattern = REPEATED_OPENING_PATTERNS.get(template_type)
+    if repeated_pattern and re.search(repeated_pattern, first_sentence):
+        return "verbose_opening", "設問の冒頭表現を繰り返さず、1文目で答えを短く言い切ってください。"
+
+    company_anchor = bool(
+        (company_name and company_name in first_sentence)
+        or any(token in first_sentence for token in COMPANY_HONORIFIC_TOKENS)
+    )
+    role_anchor = bool(
+        (role_name and role_name in first_sentence)
+        or re.search(r"職種|コース|業務|役割", first_sentence)
+    )
+    intern_anchor = bool(
+        (intern_name and intern_name in first_sentence)
+        or re.search(r"インターン|プログラム", first_sentence)
+    )
+
+    if template_type == "company_motivation":
+        if not company_anchor or not re.search(r"志望|惹|魅力|理由|価値|からだ|ためだ", first_sentence):
+            return "answer_focus", "1文目でなぜこの会社かを短く言い切ってください。"
+    elif template_type == "role_course_reason":
+        if not role_anchor or not re.search(r"志望|選ぶ|理由|関心|担いたい|携わりたい", first_sentence):
+            return "answer_focus", "1文目でなぜその職種・コースかを短く言い切ってください。"
+    elif template_type == "intern_reason":
+        if not intern_anchor or not re.search(r"参加|志望|理由|惹|魅力", first_sentence):
+            return "answer_focus", "1文目でなぜそのインターンに参加したいかを短く言い切ってください。"
+    elif template_type == "intern_goals":
+        if not intern_anchor or not re.search(r"学びたい|身につけたい|やりたい|獲得したい|高めたい|磨きたい", first_sentence):
+            return "answer_focus", "1文目でインターンで何を学びたいかを短く言い切ってください。"
+    elif template_type == "post_join_goals":
+        if not re.search(r"入社後|将来|携わりたい|挑戦したい|担いたい|実現したい|貢献したい", first_sentence):
+            return "answer_focus", "1文目で入社後にやりたいことを短く言い切ってください。"
+    elif template_type == "self_pr":
+        if not re.search(r"強み|長所|得意", first_sentence):
+            return "answer_focus", "1文目で自分の強みを短く明示してください。"
+    elif template_type == "work_values":
+        if not re.search(r"大切|重視|価値観", first_sentence):
+            return "answer_focus", "1文目で大切にしている価値観を短く明示してください。"
 
     return None, None
 
@@ -2973,6 +3047,8 @@ def _retry_hint_from_code(
         "future_focus": "1文目で入社後・参加後にやりたいことを言い切る",
         "motivation_focus": "1文目でなぜこの会社かを言い切る",
         "role_focus": "1文目でなぜその職種・コースかを言い切る",
+        "answer_focus": "1文目で設問への答えを短く言い切る",
+        "verbose_opening": "設問の言い換えから始めず、1文目は結論だけを短く置く",
         "fragment": "本文を断片で終わらせず、最後まで言い切る",
         "bulletish_or_listlike": "箇条書きや列挙ではなく、1本の本文にする",
         "evidence_overweight": "過去経験は短くし、設問の主軸を本文の中心に置く",
@@ -3434,6 +3510,7 @@ def _validate_rewrite_candidate(
     char_max: int | None,
     issues: list[Issue],
     role_name: str | None,
+    intern_name: str | None = None,
     grounding_mode: str,
     company_evidence_cards: Optional[list[dict]] = None,
     review_variant: str = "standard",
@@ -3479,6 +3556,9 @@ def _validate_rewrite_candidate(
     if "です" in fitted or "ます" in fitted:
         return None, "style", "です・ます調が混在しています。だ・である調に統一してください。", {}
 
+    if "\n" in fitted and re.search(r"(^|\n)\s*([・\-•]|\d+[.)])", fitted):
+        return None, "bulletish_or_listlike", "箇条書きや列挙ではなく、1本の本文にしてください。", {}
+
     if _should_apply_qwen_semantic_validation(
         review_variant=review_variant,
         template_type=template_type,
@@ -3492,6 +3572,16 @@ def _validate_rewrite_candidate(
         )
         if semantic_code:
             return None, semantic_code, semantic_reason or "設問への適合が不足しています。", {}
+    else:
+        focus_code, focus_reason = _validate_standard_conclusion_focus(
+            fitted,
+            template_type=template_type,
+            company_name=company_name,
+            role_name=role_name,
+            intern_name=intern_name,
+        )
+        if focus_code:
+            return None, focus_code, focus_reason or "設問への適合が不足しています。", {}
 
     is_reference_safe, reference_error = _validate_reference_distance(
         template_type=template_type,
@@ -4014,6 +4104,7 @@ async def review_section_with_template(
             char_max=char_max,
             issues=top3,
             role_name=effective_role_name,
+            intern_name=template_request.intern_name,
             grounding_mode=effective_grounding_mode,
             company_evidence_cards=prompt_company_evidence_cards,
             review_variant=review_variant,
@@ -4120,6 +4211,7 @@ async def review_section_with_template(
                     char_max=char_max,
                     issues=top3,
                     role_name=effective_role_name,
+                    intern_name=template_request.intern_name,
                     grounding_mode=effective_grounding_mode,
                     company_evidence_cards=prompt_company_evidence_cards,
                     review_variant=review_variant,
@@ -4175,6 +4267,7 @@ async def review_section_with_template(
             char_max=char_max,
             issues=top3,
             role_name=effective_role_name,
+            intern_name=template_request.intern_name,
             grounding_mode=effective_grounding_mode,
             company_evidence_cards=prompt_company_evidence_cards,
             review_variant=review_variant,

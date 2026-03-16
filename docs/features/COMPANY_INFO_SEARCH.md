@@ -349,9 +349,9 @@ custom_query 指定あり?
 | adjusted_score | source_type | confidence |
 |---------------|-------------|------------|
 | ≥ 0.7 | official | **high** |
-| ≥ 0.6 | parent / subsidiary | **medium** |
 | ≥ 0.7 | job_site / blog | **medium** |
 | ≥ 0.5 | other | **medium** |
+| 任意 | parent / subsidiary | **low** |
 | < threshold | - | **low** |
 
 #### Legacy検索の場合
@@ -361,9 +361,9 @@ custom_query 指定あり?
 | official | ≥ 6 | **high** |
 | official | 3-5 | **medium** |
 | official | < 3 | **low** |
-| parent/subsidiary | ≥ 6 | **medium** |
 | job_site/blog | ≥ 6 | **medium** |
-| job_site/blog/parent/subsidiary | < 6 | **low** |
+| parent/subsidiary | 任意 | **low** |
+| job_site/blog | < 6 | **low** |
 | other | ≥ 4 | **medium** |
 | other | < 4 | **low** |
 

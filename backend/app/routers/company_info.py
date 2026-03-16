@@ -1508,9 +1508,7 @@ def _score_to_confidence(
             return "medium"
         return "low"
     elif source_type in {"parent", "subsidiary"}:
-        # Related-company material can be useful, but must stay below official.
-        if score >= 6:
-            return "medium"
+        # Related-company material is shown as a candidate, but never above low.
         return "low"
     else:
         # Default thresholds (other) - cap at medium
@@ -1535,8 +1533,7 @@ def _hybrid_score_to_confidence(
             return "medium"
         return "low"
     if source_type in {"parent", "subsidiary"}:
-        if score >= 0.6:
-            return "medium"
+        # Keep related-company candidates visible without overstating trust.
         return "low"
     if source_type in {"job_site", "aggregator", "blog"}:
         return "medium" if score >= 0.7 else "low"
@@ -4291,6 +4288,7 @@ class CorporatePageCandidate(BaseModel):
     confidence: str
     source_type: str = "other"  # official, job_site, other
     relation_company_name: str | None = None
+    parent_allowed: bool = False
 
 
 MAX_UPLOAD_PDF_BYTES = 20 * 1024 * 1024
@@ -4760,6 +4758,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                     if isinstance(relation_company_name, str)
                     else None
                 ),
+                parent_allowed=bool(relation.get("parent_allowed")),
             )
             score_for_rank = float(result.combined_score)
             if url_pattern_match:
@@ -5050,6 +5049,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
                         if isinstance(relation_company_name, str)
                         else None
                     ),
+                    parent_allowed=bool(relation.get("parent_allowed")),
                 )
             )
 

@@ -5,41 +5,23 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { deadlines, companies } from "@/lib/db/schema";
-import { eq, and, gte, lte, isNull, or } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
+import { eq, and, gte, lte, isNull, inArray } from "drizzle-orm";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 
 export async function GET(request: NextRequest) {
   try {
     // Get days parameter (default 7)
     const searchParams = request.nextUrl.searchParams;
-    const days = parseInt(searchParams.get("days") || "7", 10);
-    const maxDays = Math.min(days, 30); // Cap at 30 days
+    const parsedDays = Number.parseInt(searchParams.get("days") || "7", 10);
+    const periodDays = Number.isFinite(parsedDays) && parsedDays > 0 ? parsedDays : 7;
+    const maxDays = Math.min(periodDays, 30); // Cap at 30 days
 
-    // Try authenticated session first
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-
-    let userId: string | null = null;
-    let guestId: string | null = null;
-
-    if (session?.user?.id) {
-      userId = session.user.id;
-    } else {
-      // Try guest token
-      const deviceToken = request.headers.get("x-device-token");
-      if (deviceToken) {
-        const guest = await getGuestUser(deviceToken);
-        if (guest) {
-          guestId = guest.id;
-        }
-      }
-    }
+    const identity = await getRequestIdentity(request);
+    const userId = identity?.userId ?? null;
+    const guestId = identity?.guestId ?? null;
 
     if (!userId && !guestId) {
       return createApiErrorResponse(request, {
@@ -86,7 +68,7 @@ export async function GET(request: NextRequest) {
       .where(
         and(
           // Company belongs to user
-          or(...companyIds.map((id) => eq(deadlines.companyId, id))),
+          inArray(deadlines.companyId, companyIds),
           // Due date is in the future (or today)
           gte(deadlines.dueDate, now),
           // Due date is within the specified period
@@ -110,7 +92,7 @@ export async function GET(request: NextRequest) {
         type: d.type,
         title: d.title,
         description: d.description,
-        dueDate: d.dueDate,
+        dueDate: d.dueDate.toISOString(),
         daysLeft,
         isConfirmed: d.isConfirmed,
         confidence: d.confidence,
@@ -131,7 +113,6 @@ export async function GET(request: NextRequest) {
       action: "ページを再読み込みして、もう一度お試しください。",
       retryable: true,
       error,
-      developerMessage: "Internal server error",
       logContext: "upcoming-deadlines-fetch",
     });
   }

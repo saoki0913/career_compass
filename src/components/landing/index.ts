@@ -1,12 +1,7 @@
 export { LandingHeader } from "./LandingHeader";
 export { HeroSection } from "./HeroSection";
-export { SocialProofStrip } from "./SocialProofStrip";
-export { PainPointsSection } from "./PainPointsSection";
-export { FeaturesSection } from "./FeaturesSection";
-export { HowItWorksSection } from "./HowItWorksSection";
-export { TestimonialsSection } from "./TestimonialsSection";
-export { PricingSection } from "./PricingSection";
+export { ProductShowcase } from "./ProductShowcase";
 export { ComparisonSection } from "./ComparisonSection";
+export { PricingSection } from "./PricingSection";
 export { FAQSection } from "./FAQSection";
 export { CTASection } from "./CTASection";
-export { AppPreviewSection } from "./AppPreviewSection";

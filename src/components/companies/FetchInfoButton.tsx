@@ -12,6 +12,7 @@ import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import {
   CONFIDENCE_BADGE_COLORS,
   INTEGRATED_BADGE_LABELS,
+  normalizeSourceConfidence,
 } from "@/lib/company-info/source-badges";
 
 type SelectionType = "main_selection" | "internship";
@@ -858,7 +859,10 @@ export function FetchInfoButton({
 
                     {candidates.map((candidate, index) => {
                       const sourceType = candidate.sourceType || "other";
-                      const confidence = candidate.confidence || "low";
+                      const confidence = normalizeSourceConfidence(
+                        sourceType,
+                        candidate.confidence
+                      );
                       const label = INTEGRATED_BADGE_LABELS[sourceType]?.[confidence] || "関連・低";
                       const colors = CONFIDENCE_BADGE_COLORS[confidence] || { bg: "bg-gray-100", text: "text-gray-600" };
                       return (

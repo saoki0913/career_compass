@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEBSERVER === "1";
+const storageState = process.env.PLAYWRIGHT_AUTH_STATE;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -12,6 +13,7 @@ export default defineConfig({
   reporter: "html",
   use: {
     baseURL,
+    ...(storageState ? { storageState } : {}),
     trace: "on-first-retry",
   },
   projects: [

@@ -13,6 +13,11 @@ import {
   fetchGakuchikaContext,
   fetchProfileContext,
 } from "@/lib/ai/user-context";
+import type {
+  DocumentSectionContext,
+  GakuchikaContextItem,
+  ProfileContext,
+} from "@/lib/ai/user-context";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
@@ -21,6 +26,12 @@ import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limi
 import type { TemplateType } from "@/hooks/useESReview";
 import { isStandardESReviewModel } from "@/lib/ai/es-review-models";
 import { resolveIndustryForReview } from "@/lib/constants/es-review-role-catalog";
+import {
+  inferTrustedForEsReview,
+  parseCorporateInfoSources,
+  type CorporateInfoSource,
+  type CorporateInfoSourceType,
+} from "@/lib/company-info/sources";
 
 function deriveCharMin(charLimit?: number | null) {
   if (!charLimit) {
@@ -72,6 +83,23 @@ const SECONDARY_HINT_VOCAB = [
   "キャリア",
   "インターン",
 ];
+const PRESTREAM_QUERY_STOP_TERMS = new Set([
+  "について",
+  "ください",
+  "理由",
+  "回答",
+  "内容",
+  "自分",
+  "企業",
+  "会社",
+  "貴社",
+  "設問",
+  "経験",
+  "成長",
+  "学び",
+  "仕事",
+  "インターン",
+]);
 
 type RoleSource = "user_input" | "none";
 
@@ -88,6 +116,10 @@ interface CorporateInfoUrlEntry {
   kind?: "url" | "upload_pdf";
   sourceOrigin?: "manual_user" | "prestream_enrichment";
   secondaryContentTypes?: string[];
+  sourceType?: CorporateInfoSourceType;
+  relationCompanyName?: string | null;
+  parentAllowed?: boolean;
+  trustedForEsReview?: boolean;
 }
 
 interface SearchCandidate {
@@ -97,6 +129,7 @@ interface SearchCandidate {
   confidence: "high" | "medium" | "low";
   sourceType: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
   relationCompanyName?: string | null;
+  parentAllowed?: boolean;
 }
 
 interface PrestreamEnrichmentResult {
@@ -138,35 +171,7 @@ function buildRetrievalQuery(input: {
 }
 
 function parseCorporateInfoUrls(raw: string | null): CorporateInfoUrlEntry[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    const entries: CorporateInfoUrlEntry[] = [];
-    for (const item of parsed) {
-      if (!item || typeof item !== "object" || !("url" in item)) {
-        continue;
-      }
-      const url = String((item as { url?: string }).url || "").trim();
-      if (!url) {
-        continue;
-      }
-      const entry = item as Partial<CorporateInfoUrlEntry>;
-      entries.push({
-        url,
-        contentType: typeof entry.contentType === "string" ? entry.contentType : undefined,
-        fetchedAt: typeof entry.fetchedAt === "string" ? entry.fetchedAt : undefined,
-        kind: entry.kind === "upload_pdf" ? "upload_pdf" : "url",
-        sourceOrigin: entry.sourceOrigin === "prestream_enrichment" ? "prestream_enrichment" : "manual_user",
-        secondaryContentTypes: Array.isArray(entry.secondaryContentTypes)
-          ? entry.secondaryContentTypes.filter((value): value is string => typeof value === "string")
-          : [],
-      });
-    }
-    return entries;
-  } catch {
-    return [];
-  }
+  return parseCorporateInfoSources(raw) as CorporateInfoUrlEntry[];
 }
 
 function isGenericRoleLabel(roleName?: string | null): boolean {
@@ -186,6 +191,33 @@ function collectKnownContentTypes(entries: CorporateInfoUrlEntry[]): Set<string>
     }
   }
   return contentTypes;
+}
+
+function filterTrustedCorporateInfoUrls(entries: CorporateInfoUrlEntry[]): CorporateInfoUrlEntry[] {
+  return entries.filter((entry) => inferTrustedForEsReview(entry));
+}
+
+function summarizeTrustedCoverage(entries: CorporateInfoUrlEntry[]): {
+  trustedEntries: CorporateInfoUrlEntry[];
+  trustedContentTypes: Set<string>;
+  hasPeople: boolean;
+  hasBusiness: boolean;
+  hasStrategy: boolean;
+} {
+  const trustedEntries = filterTrustedCorporateInfoUrls(entries);
+  const trustedContentTypes = collectKnownContentTypes(trustedEntries);
+  return {
+    trustedEntries,
+    trustedContentTypes,
+    hasPeople:
+      trustedContentTypes.has("new_grad_recruitment") || trustedContentTypes.has("employee_interviews"),
+    hasBusiness:
+      trustedContentTypes.has("corporate_site") ||
+      trustedContentTypes.has("midterm_plan") ||
+      trustedContentTypes.has("ir_materials"),
+    hasStrategy:
+      trustedContentTypes.has("midterm_plan") || trustedContentTypes.has("ir_materials"),
+  };
 }
 
 function extractQuestionFocusSignals(input: {
@@ -282,6 +314,119 @@ function extractQuestionFocusSignals(input: {
   return { themes: themes.slice(0, 6), queryTerms: queryTerms.slice(0, 10) };
 }
 
+function extractKeywordTerms(text: string, maxTerms = 4): string[] {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const terms: string[] = [];
+  const matches = normalized.match(/[A-Za-z0-9][A-Za-z0-9.+/-]{1,}|[一-龠々ぁ-んァ-ヴー]{2,14}/g) ?? [];
+  for (const match of matches) {
+    const term = match.trim();
+    if (
+      term.length < 2 ||
+      PRESTREAM_QUERY_STOP_TERMS.has(term) ||
+      PRESTREAM_QUERY_STOP_TERMS.has(term.toLowerCase()) ||
+      terms.includes(term)
+    ) {
+      continue;
+    }
+    terms.push(term);
+    if (terms.length >= maxTerms) {
+      break;
+    }
+  }
+
+  return terms;
+}
+
+function collectProfileHintTerms(profileContext: ProfileContext | null): string[] {
+  if (!profileContext) {
+    return [];
+  }
+
+  return [
+    ...profileContext.target_job_types.slice(0, 2),
+    ...profileContext.target_industries.slice(0, 2),
+  ].filter((term, index, array) => term && array.indexOf(term) === index);
+}
+
+function collectGakuchikaHintTerms(gakuchikaContext: GakuchikaContextItem[]): string[] {
+  const hints: string[] = [];
+  for (const item of gakuchikaContext) {
+    const candidates = [
+      item.title,
+      item.action_text,
+      item.result_text,
+      item.content_excerpt,
+      ...(item.fact_spans ?? []),
+    ];
+
+    for (const strength of item.strengths ?? []) {
+      if (typeof strength === "string") {
+        candidates.push(strength);
+      } else {
+        candidates.push(strength.title ?? "", strength.description ?? "");
+      }
+    }
+
+    for (const candidate of candidates) {
+      for (const term of extractKeywordTerms(candidate ?? "", 2)) {
+        if (!hints.includes(term)) {
+          hints.push(term);
+        }
+        if (hints.length >= 2) {
+          return hints;
+        }
+      }
+    }
+  }
+
+  return hints;
+}
+
+function collectDocumentHintTerms(otherSections: DocumentSectionContext[]): string[] {
+  const hints: string[] = [];
+  for (const section of otherSections) {
+    for (const candidate of [section.title, section.content]) {
+      for (const term of extractKeywordTerms(candidate, 2)) {
+        if (!hints.includes(term)) {
+          hints.push(term);
+        }
+        if (hints.length >= 2) {
+          return hints;
+        }
+      }
+    }
+  }
+  return hints;
+}
+
+function buildPrestreamUserHintTerms(input: {
+  profileContext: ProfileContext | null;
+  gakuchikaContext: GakuchikaContextItem[];
+  otherSections: DocumentSectionContext[];
+}): string[] {
+  const terms: string[] = [];
+
+  for (const term of [
+    ...collectProfileHintTerms(input.profileContext),
+    ...collectGakuchikaHintTerms(input.gakuchikaContext),
+    ...collectDocumentHintTerms(input.otherSections),
+  ]) {
+    if (!term || terms.includes(term)) {
+      continue;
+    }
+    terms.push(term);
+    if (terms.length >= 6) {
+      break;
+    }
+  }
+
+  return terms;
+}
+
 function buildQuery(parts: Array<string | null | undefined>): string {
   const deduped: string[] = [];
   for (const part of parts) {
@@ -336,10 +481,12 @@ async function fetchWithTimeout(
 function buildPrestreamEnrichmentSpecs(input: {
   templateType: TemplateType;
   companyName: string;
+  industry?: string | null;
   question: string;
   answer?: string;
   roleName?: string | null;
   internName?: string | null;
+  userHintTerms?: string[];
 }): Array<{ contentType: string; query: string; preferredTerms: string[] }> {
   const focusSignals = extractQuestionFocusSignals({
     templateType: input.templateType,
@@ -353,14 +500,18 @@ function buildPrestreamEnrichmentSpecs(input: {
   const peopleTerms = focusSignals.queryTerms.filter((term) => PEOPLE_FOCUS_TERMS.has(term)).slice(0, 4);
   const peopleQuery = buildQuery([
     input.companyName,
+    input.industry,
     input.templateType === "intern_reason" || input.templateType === "intern_goals" ? input.internName : undefined,
     genericRoleMode ? undefined : input.roleName,
+    ...(input.userHintTerms ?? []).slice(0, 3),
     ...peopleTerms,
     input.question,
   ]);
   const businessQuery = buildQuery([
     input.companyName,
+    input.industry,
     genericRoleMode ? undefined : input.roleName,
+    ...(input.userHintTerms ?? []).slice(0, 4),
     ...businessTerms,
     input.question,
     input.answer,
@@ -393,18 +544,15 @@ function buildPrestreamEnrichmentSpecs(input: {
   });
 }
 
-function hasSufficientCompanyCoverage(input: {
+function selectPrestreamSpecsForCoverage(input: {
   templateType: TemplateType;
   question: string;
   answer?: string;
   roleName?: string | null;
   entries: CorporateInfoUrlEntry[];
-}): boolean {
-  const contentTypes = new Set(
-    input.entries
-      .map((entry) => entry.contentType)
-      .filter((value): value is string => typeof value === "string" && value.length > 0),
-  );
+  specs: Array<{ contentType: string; query: string; preferredTerms: string[] }>;
+}): Array<{ contentType: string; query: string; preferredTerms: string[] }> {
+  const coverage = summarizeTrustedCoverage(input.entries);
   const genericRoleMode = isGenericRoleLabel(input.roleName);
   const focusSignals = extractQuestionFocusSignals({
     templateType: input.templateType,
@@ -412,10 +560,55 @@ function hasSufficientCompanyCoverage(input: {
     answer: input.answer,
     roleName: input.roleName,
   });
-  const hasPeople = contentTypes.has("new_grad_recruitment") || contentTypes.has("employee_interviews");
-  const hasBusiness =
-    contentTypes.has("corporate_site") || contentTypes.has("midterm_plan") || contentTypes.has("ir_materials");
-  const hasStrategy = contentTypes.has("midterm_plan") || contentTypes.has("ir_materials");
+  const desiredContentTypes: string[] = [];
+
+  if (!coverage.hasPeople) {
+    desiredContentTypes.push("new_grad_recruitment");
+    if (
+      input.templateType === "role_course_reason" ||
+      input.templateType === "intern_reason" ||
+      input.templateType === "intern_goals"
+    ) {
+      desiredContentTypes.push("employee_interviews");
+    }
+  }
+
+  if (!coverage.hasBusiness) {
+    desiredContentTypes.push("corporate_site");
+  }
+
+  if (
+    !coverage.hasStrategy &&
+    genericRoleMode &&
+    (focusSignals.themes.includes("事業理解") || focusSignals.themes.includes("将来接続"))
+  ) {
+    desiredContentTypes.push("midterm_plan", "ir_materials");
+  }
+
+  if (desiredContentTypes.length === 0) {
+    return [];
+  }
+
+  const desired = new Set(desiredContentTypes);
+  const selected = input.specs.filter((spec) => desired.has(spec.contentType));
+  return selected.length > 0 ? selected : input.specs.slice(0, 2);
+}
+
+export function hasSufficientCompanyCoverage(input: {
+  templateType: TemplateType;
+  question: string;
+  answer?: string;
+  roleName?: string | null;
+  entries: CorporateInfoUrlEntry[];
+}): boolean {
+  const { hasPeople, hasBusiness, hasStrategy } = summarizeTrustedCoverage(input.entries);
+  const genericRoleMode = isGenericRoleLabel(input.roleName);
+  const focusSignals = extractQuestionFocusSignals({
+    templateType: input.templateType,
+    question: input.question,
+    answer: input.answer,
+    roleName: input.roleName,
+  });
   const assistiveMode = ASSISTIVE_TEMPLATE_TYPES.has(input.templateType);
 
   if (assistiveMode) {
@@ -428,6 +621,9 @@ function hasSufficientCompanyCoverage(input: {
   if (input.templateType === "intern_reason" || input.templateType === "intern_goals" || input.templateType === "role_course_reason") {
     return hasPeople && hasBusiness;
   }
+  if (input.templateType === "company_motivation" || input.templateType === "post_join_goals") {
+    return hasPeople && hasBusiness;
+  }
   if (genericRoleMode) {
     if (focusSignals.themes.includes("事業理解") || focusSignals.themes.includes("将来接続")) {
       return hasPeople && hasBusiness && hasStrategy;
@@ -437,12 +633,11 @@ function hasSufficientCompanyCoverage(input: {
   return hasBusiness;
 }
 
-function shouldRunPrestreamEnrichment(input: {
+export function shouldRunPrestreamEnrichment(input: {
   templateType: TemplateType;
   question: string;
   answer?: string;
   roleName?: string | null;
-  corporateInfoFetchedAt?: Date | null;
   corporateInfoUrls: CorporateInfoUrlEntry[];
 }): boolean {
   if (!PRESTREAM_ENRICHMENT_TEMPLATE_TYPES.has(input.templateType)) {
@@ -463,11 +658,7 @@ function shouldRunPrestreamEnrichment(input: {
   })) {
     return true;
   }
-  const lastFetchedAt = input.corporateInfoFetchedAt?.getTime() ?? 0;
-  if (!lastFetchedAt) {
-    return true;
-  }
-  return Date.now() - lastFetchedAt >= 24 * 60 * 60 * 1000;
+  return false;
 }
 
 async function getIdentity(request: NextRequest): Promise<{
@@ -546,11 +737,21 @@ function isRootCorporatePage(url: string): boolean {
 
 function hasInterviewSignal(candidate: { url: string; title?: string; snippet?: string }): boolean {
   const text = `${candidate.url} ${candidate.title ?? ""} ${candidate.snippet ?? ""}`.toLowerCase();
-  return /(interview|voice|people|member|staff|先輩社員|社員の声|働く人)/.test(text);
+  return /(interview|voice|people|member|staff|先輩社員|社員の声|働く人|社員紹介|人を知る|座談会|project story|プロジェクトストーリー|career story|職種紹介)/.test(text);
+}
+
+function isTrustedSearchCandidate(candidate: SearchCandidate): boolean {
+  if (candidate.confidence === "low") {
+    return false;
+  }
+  if (candidate.sourceType === "official") {
+    return true;
+  }
+  return candidate.sourceType === "parent" && candidate.parentAllowed === true;
 }
 
 function isPrimaryCandidate(candidate: SearchCandidate, contentType: string, knownUrls: Set<string>): boolean {
-  if (!candidate.url || knownUrls.has(candidate.url) || candidate.sourceType !== "official" || candidate.confidence === "low") {
+  if (!candidate.url || knownUrls.has(candidate.url) || !isTrustedSearchCandidate(candidate)) {
     return false;
   }
   if (contentType === "employee_interviews") {
@@ -655,8 +856,12 @@ async function performPrestreamCompanyEnrichment(input: {
   templateType: TemplateType;
   sectionTitle: string;
   answer: string;
+  industry?: string | null;
   roleName?: string | null;
   internName?: string | null;
+  profileContext: ProfileContext | null;
+  gakuchikaContext: GakuchikaContextItem[];
+  otherSections: DocumentSectionContext[];
   corporateInfoFetchedAt?: Date | null;
   corporateInfoUrls: CorporateInfoUrlEntry[];
 }): Promise<PrestreamEnrichmentResult> {
@@ -666,37 +871,35 @@ async function performPrestreamCompanyEnrichment(input: {
       question: input.sectionTitle,
       answer: input.answer,
       roleName: input.roleName,
-      corporateInfoFetchedAt: input.corporateInfoFetchedAt,
       corporateInfoUrls: input.corporateInfoUrls,
     })
   ) {
     return { attempted: false, completed: false, addedSources: 0, sourceUrls: [] };
   }
 
-  const hasCoverage = hasSufficientCompanyCoverage({
+  const userHintTerms = buildPrestreamUserHintTerms({
+    profileContext: input.profileContext,
+    gakuchikaContext: input.gakuchikaContext,
+    otherSections: input.otherSections,
+  });
+  let specs = buildPrestreamEnrichmentSpecs({
+    templateType: input.templateType,
+    companyName: input.companyName,
+    industry: input.industry,
+    question: input.sectionTitle,
+    answer: input.answer,
+    roleName: input.roleName,
+    internName: input.internName,
+    userHintTerms,
+  });
+  specs = selectPrestreamSpecsForCoverage({
     templateType: input.templateType,
     question: input.sectionTitle,
     answer: input.answer,
     roleName: input.roleName,
     entries: input.corporateInfoUrls,
+    specs,
   });
-  const knownContentTypes = collectKnownContentTypes(input.corporateInfoUrls);
-  let specs = buildPrestreamEnrichmentSpecs({
-    templateType: input.templateType,
-    companyName: input.companyName,
-    question: input.sectionTitle,
-    answer: input.answer,
-    roleName: input.roleName,
-    internName: input.internName,
-  });
-  if (!hasCoverage) {
-    const missingCoverageSpecs = specs.filter((spec) => !knownContentTypes.has(spec.contentType));
-    if (missingCoverageSpecs.length > 0) {
-      specs = missingCoverageSpecs;
-    }
-  } else {
-    specs = specs.slice(0, 2);
-  }
   if (specs.length === 0) {
     return { attempted: false, completed: false, addedSources: 0, sourceUrls: [] };
   }
@@ -705,10 +908,12 @@ async function performPrestreamCompanyEnrichment(input: {
     companyId: input.companyId,
     templateType: input.templateType,
     specCount: specs.length,
+    userHintTerms,
   });
 
   const knownUrls = new Set(input.corporateInfoUrls.map((entry) => entry.url));
   const groupedUrls = new Map<string, string[]>();
+  const groupedSourceMetadata = new Map<string, Record<string, Partial<CorporateInfoSource>>>();
   const deadlineMs = Date.now() + PRESTREAM_ENRICHMENT_BUDGET_MS;
   let completed = true;
   const sourceUrls: string[] = [];
@@ -765,6 +970,14 @@ async function performPrestreamCompanyEnrichment(input: {
     const bucket = groupedUrls.get(spec.contentType) ?? [];
     bucket.push(chosen.url);
     groupedUrls.set(spec.contentType, bucket);
+    const metadataBucket = groupedSourceMetadata.get(spec.contentType) ?? {};
+    metadataBucket[chosen.url] = {
+      sourceType: chosen.sourceType,
+      relationCompanyName: chosen.relationCompanyName ?? undefined,
+      parentAllowed: chosen.parentAllowed === true,
+      trustedForEsReview: isTrustedSearchCandidate(chosen),
+    };
+    groupedSourceMetadata.set(spec.contentType, metadataBucket);
     knownUrls.add(chosen.url);
     if (!sourceUrls.includes(chosen.url)) {
       sourceUrls.push(chosen.url);
@@ -797,6 +1010,7 @@ async function performPrestreamCompanyEnrichment(input: {
               ? "corporate_ir"
               : "corporate_general",
           sourceOrigin: "prestream_enrichment",
+          sourceMetadata: groupedSourceMetadata.get(contentType) ?? {},
         }),
       },
       Math.min(PRESTREAM_FETCH_TIMEOUT_MS, remainingMs),
@@ -1055,8 +1269,12 @@ export async function handleReviewStream(
           templateType: effectiveTemplateType,
           sectionTitle: sectionTitle || "",
           answer: content,
+          industry: resolvedIndustry,
           roleName: resolvedRoleContext.primary_role || null,
           internName: internName || null,
+          profileContext,
+          gakuchikaContext,
+          otherSections,
           corporateInfoFetchedAt: companyInfo.corporateInfoFetchedAt,
           corporateInfoUrls: companyInfo.corporateInfoUrls,
         });

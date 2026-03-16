@@ -8,6 +8,30 @@ export type CompanySourceType =
 
 export type CompanySourceConfidence = "high" | "medium" | "low";
 
+export function normalizeSourceConfidence(
+  sourceType: CompanySourceType,
+  confidence: string | null | undefined
+): CompanySourceConfidence {
+  const normalizedConfidence =
+    confidence === "high" || confidence === "medium" || confidence === "low"
+      ? confidence
+      : "low";
+
+  if (sourceType === "official") {
+    return normalizedConfidence;
+  }
+
+  if (sourceType === "job_site") {
+    return normalizedConfidence === "high" ? "medium" : normalizedConfidence;
+  }
+
+  if (sourceType === "parent" || sourceType === "subsidiary") {
+    return "low";
+  }
+
+  return normalizedConfidence === "high" ? "medium" : normalizedConfidence;
+}
+
 export const SOURCE_TYPE_META: Record<
   CompanySourceType,
   { label: string; className: string }
@@ -61,8 +85,8 @@ export const INTEGRATED_BADGE_LABELS: Record<
   Record<CompanySourceConfidence, string>
 > = {
   official: { high: "公式・高", medium: "公式・中", low: "公式・低" },
-  subsidiary: { high: "子会社・高", medium: "子会社・中", low: "子会社・低" },
-  parent: { high: "親会社・高", medium: "親会社・中", low: "親会社・低" },
+  subsidiary: { high: "子会社・低", medium: "子会社・低", low: "子会社・低" },
+  parent: { high: "親会社・低", medium: "親会社・低", low: "親会社・低" },
   job_site: { high: "就活・高", medium: "就活・中", low: "就活・低" },
   blog: { high: "ブログ・高", medium: "ブログ・中", low: "ブログ・低" },
   other: { high: "関連・高", medium: "関連・中", low: "関連・低" },

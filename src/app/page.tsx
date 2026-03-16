@@ -1,15 +1,15 @@
 import Link from "next/link";
 import { LandingHeader } from "@/components/landing/LandingHeader";
 import { HeroSection } from "@/components/landing/HeroSection";
-import { SocialProofStrip } from "@/components/landing/SocialProofStrip";
-import { PainPointsSection } from "@/components/landing/PainPointsSection";
-import { FeaturesSection } from "@/components/landing/FeaturesSection";
-import { HowItWorksSection } from "@/components/landing/HowItWorksSection";
+import { ProductShowcase } from "@/components/landing/ProductShowcase";
 import { ComparisonSection } from "@/components/landing/ComparisonSection";
-import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
 import { PricingSection } from "@/components/landing/PricingSection";
 import { FAQSection } from "@/components/landing/FAQSection";
 import { CTASection } from "@/components/landing/CTASection";
+
+function SectionDivider() {
+  return <div className="mx-auto max-w-5xl border-b border-border/20" />;
+}
 
 export default function Home() {
   return (
@@ -18,41 +18,39 @@ export default function Home() {
       <LandingHeader />
 
       <main className="flex-1 pt-16">
-        {/* Hero - Product as Hero with floating mockups */}
+        {/* Hero - centered, short copy, crossfade screenshots */}
         <HeroSection />
 
-        {/* Social Proof - Trust badges */}
-        <SocialProofStrip />
+        <SectionDivider />
 
-        {/* Pain Points - Persona empathy */}
-        <PainPointsSection />
+        {/* Product Showcase - 3 features, alternating layout */}
+        <ProductShowcase />
 
-        {/* Features - Solutions to pain points */}
-        <FeaturesSection />
+        <SectionDivider />
 
-        {/* How it works - 3-step process */}
-        <HowItWorksSection />
-
-        {/* Situations - Even in your state, you can start */}
-        <TestimonialsSection />
-
-        {/* Comparison - Why 就活Pass */}
+        {/* Comparison - 3 cards */}
         <ComparisonSection />
 
-        {/* Pricing - 3-tier with decoy effect */}
+        <SectionDivider />
+
+        {/* Pricing - 3-tier */}
         <PricingSection />
 
-        {/* FAQ - Common questions with JSON-LD */}
+        <SectionDivider />
+
+        {/* FAQ */}
         <FAQSection />
 
-        {/* Final CTA - Peak-end rule */}
+        <SectionDivider />
+
+        {/* Final CTA */}
         <CTASection />
       </main>
 
       {/* Footer */}
       <footer className="border-t border-border/50 bg-background py-12">
         <div className="container mx-auto px-4">
-          <div className="landing-panel grid grid-cols-1 gap-8 rounded-xl px-6 py-8 shadow-none sm:grid-cols-2 lg:grid-cols-4 lg:px-8">
+          <div className="grid grid-cols-1 gap-8 rounded-xl px-6 py-8 sm:grid-cols-2 lg:grid-cols-4 lg:px-8">
             {/* Brand */}
             <div>
               <p className="mb-3 text-lg font-bold tracking-tight">就活Pass</p>
