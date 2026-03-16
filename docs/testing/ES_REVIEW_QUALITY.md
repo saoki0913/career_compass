@@ -128,14 +128,14 @@ python -m pytest backend/tests/es_review -q
 - `quality_rubric` は最終文そのものの良し悪しを完全判定するものではない
 - 最終品質の gate は `test_es_review_final_quality_cases.py` が担う
 - Claude 専用 code を変えずに OpenAI / Gemini / Cohere の structured output 契約と non-Claude prompt hardening が shared layer で崩れていないかは `test_llm_provider_routing.py` で見る
-- live な最終文品質は `backend/tests/es_review/integration/test_live_es_review_provider_report.py` を 4 provider gate として回し、代表3ケースで `文字数 / だ・である調 / 冒頭1文の適合 / grounding` を確認する
+- live な最終文品質は `backend/tests/es_review/integration/test_live_es_review_provider_report.py` を production canonical provider gate として回し、安定した代表3ケースで `文字数 / だ・である調 / 冒頭1文の適合 / grounding` を確認する。390〜400字帯の厳しい長文制約は deterministic suite で担保する
 
 ## CI
 
 - `es-review-live-gate.yml`
   - pre-stream unit test
   - deterministic ES quality suite
-  - live provider gate
+  - live provider gate (`claude-sonnet` を default。multi-provider sweep は `LIVE_ES_REVIEW_PROVIDERS` 上書きで手動実行)
 - `develop-ci.yml` / `main-promotion-guard.yml`
   - frontend build に加えて pre-stream unit test
   - backend の最小 deterministic smoke (`quality_rubric`, `final_quality_cases`, `test_llm_provider_routing`)

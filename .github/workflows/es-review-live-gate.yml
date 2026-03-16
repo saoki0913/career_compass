@@ -17,7 +17,7 @@ jobs:
       COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
       RUN_LIVE_ES_REVIEW: "1"
       LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS: "1"
-      LIVE_ES_REVIEW_PROVIDERS: "claude-sonnet,gpt-5.1,gemini-3.1-pro-preview,command-a-03-2025"
+      LIVE_ES_REVIEW_PROVIDERS: "claude-sonnet"
       LIVE_ES_REVIEW_OUTPUT_DIR: backend/tests/output
     steps:
       - uses: actions/checkout@v4

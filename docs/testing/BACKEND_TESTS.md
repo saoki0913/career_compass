@@ -6,7 +6,7 @@ ES添削の固定品質監視については [ES_REVIEW_QUALITY.md](./ES_REVIEW_
 
 ### Live ES添削 provider gate
 
-4 provider (`Claude / GPT-5.1 / Gemini / Cohere Command A`) に対して、代表3ケースの ES添削を実 API で実行し、`md/json` レポートを保存します。
+default では production canonical provider (`claude-sonnet`) に対して、代表3ケースの ES添削を実 API で実行し、`md/json` レポートを保存します。multi-provider sweep は `LIVE_ES_REVIEW_PROVIDERS` を上書きして手動で回します。
 
 ```bash
 make backend-test-live-es-review
@@ -14,7 +14,7 @@ make backend-test-live-es-review
 
 主な環境変数:
 
-- `LIVE_ES_REVIEW_PROVIDERS=claude-sonnet,gpt-5.1,gemini-3.1-pro-preview,command-a-03-2025`
+- `LIVE_ES_REVIEW_PROVIDERS=claude-sonnet`
 - `LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS=0|1`
 - `LIVE_ES_REVIEW_OUTPUT_DIR=backend/tests/output`
 
@@ -26,7 +26,7 @@ make backend-test-live-es-review
 
 - ネットワーク必須
 - `RUN_LIVE_ES_REVIEW=1` が無い場合は skip
-- CI では 4 provider 全部を毎回 gate として回す想定
+- CI では `claude-sonnet` を required gate に使い、他 provider は必要時の手動 regression として回す
 
 ### Live検索レポート（Legacy + Hybrid）
 

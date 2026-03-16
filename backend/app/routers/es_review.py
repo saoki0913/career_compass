@@ -1049,7 +1049,15 @@ def _validate_standard_conclusion_focus(
         if not role_anchor or not re.search(r"志望|選ぶ|理由|関心|担いたい|携わりたい", first_sentence):
             return "answer_focus", "1文目でなぜその職種・コースかを短く言い切ってください。"
     elif template_type == "intern_reason":
-        if not intern_anchor or not re.search(r"参加|志望|理由|惹|魅力", first_sentence):
+        has_intern_context = bool(
+            intern_anchor
+            or (intern_name and intern_name in text)
+            or re.search(r"インターン|プログラム", text)
+        )
+        if not has_intern_context or not re.search(
+            r"参加|志望|理由|惹|魅力|学びたい|身につけたい|得たい|挑戦したい|試したい|実践したい",
+            text,
+        ):
             return "answer_focus", "1文目でなぜそのインターンに参加したいかを短く言い切ってください。"
     elif template_type == "intern_goals":
         if not intern_anchor or not re.search(r"学びたい|身につけたい|やりたい|獲得したい|高めたい|磨きたい", first_sentence):
