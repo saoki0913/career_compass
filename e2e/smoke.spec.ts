@@ -31,6 +31,20 @@ type GakuchikaResponse = {
   };
 };
 
+type RoleOptionsResponse = {
+  roleGroups: Array<{
+    options: Array<{
+      value: string;
+    }>;
+  }>;
+};
+
+type MotivationStartResponse = {
+  question?: string;
+  nextQuestion?: string;
+  error?: string;
+};
+
 type DashboardIncompleteResponse = {
   draftESCount: number;
   inProgressGakuchikaCount: number;
@@ -66,6 +80,7 @@ test.describe("Release Smoke", () => {
     page,
   }) => {
     test.skip(!allowWrites, "Write smoke must be explicitly enabled.");
+    test.setTimeout(60_000);
 
     await loginAsGuest(page);
     await ensureGuestSession(page);
@@ -101,6 +116,35 @@ test.describe("Release Smoke", () => {
       const deadlinesPayload = (await deadlinesList.json()) as DeadlineResponse;
       deadlineId = deadlinesPayload.deadlines[0]?.id ?? null;
       expect(deadlinesPayload.deadlines.some((deadline) => deadline.title === `${unique}-deadline`)).toBeTruthy();
+
+      const roleOptions = await apiRequest(
+        page,
+        "GET",
+        `/api/companies/${companyId}/es-role-options?industry=${encodeURIComponent("IT・通信")}`
+      );
+      expect(roleOptions.ok()).toBeTruthy();
+      const roleOptionsPayload = (await roleOptions.json()) as RoleOptionsResponse;
+      const selectedRole = roleOptionsPayload.roleGroups.flatMap((group) => group.options)[0]?.value;
+      expect(selectedRole).toBeTruthy();
+
+      const motivationStart = await apiRequest(
+        page,
+        "POST",
+        `/api/motivation/${companyId}/conversation/start`,
+        {
+          selectedIndustry: "IT・通信",
+          selectedRole,
+          roleSelectionSource: "industry_default",
+        }
+      );
+      expect(motivationStart.ok()).toBeTruthy();
+      const motivationPayload = (await motivationStart.json()) as MotivationStartResponse;
+      expect(
+        Math.max(
+          motivationPayload.question?.length ?? 0,
+          motivationPayload.nextQuestion?.length ?? 0
+        )
+      ).toBeGreaterThan(0);
 
       const todayTask = await apiRequest(page, "GET", "/api/tasks/today");
       expect(todayTask.ok()).toBeTruthy();
