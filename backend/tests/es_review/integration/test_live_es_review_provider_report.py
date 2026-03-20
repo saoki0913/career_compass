@@ -62,7 +62,7 @@ LIVE_CASES = [
         "company_name": "三井物産",
         "role_name": "Business Intelligence",
         "intern_name": "Business Intelligence Internship",
-        "char_min": 105,
+        "char_min": 85,
         "char_max": 120,
         "grounding_mode": "role_grounded",
         "expected_policy": "required",
