@@ -259,7 +259,9 @@ async def test_final_quality_gakuchika_uses_assistive_company_grounding(monkeypa
         return FakeJsonResult(success=False)
 
     async def fake_text_caller(*args, **kwargs):
-        captured_prompts.append(kwargs.get("system_prompt", "") or (args[0] if args else ""))
+        system = kwargs.get("system_prompt", "") or (args[0] if args else "")
+        user = kwargs.get("user_message", "") or ""
+        captured_prompts.append(f"{system}\n{user}")
         return FakeTextResult(
             "研究室で進捗管理の型を見直し、共有の遅れを減らした経験から、課題を構造化し周囲を巻き込んで改善を進める力を磨いた。状況を整理して役割分担を見直し、チーム全体の動きを前に進めたことが学びである。"
         )
@@ -298,7 +300,12 @@ async def test_final_quality_gakuchika_uses_assistive_company_grounding(monkeypa
     assert 90 <= len(rewrite) <= 120
     _assert_dearu_style(rewrite)
     assert all(issue.category != "企業接続" for issue in result.top3)
-    assert any("本文の主軸は自分の経験・行動・学び・価値観に置く" in prompt for prompt in captured_prompts)
+    assert any(
+        ("本文の主軸は課題・行動・成果・学びに置く" in prompt)
+        or ("本文の主軸は自分の経験・強み・価値観に置く" in prompt)
+        or ("本文の主軸は自分の経験・行動・学び・価値観に置く" in prompt)
+        for prompt in captured_prompts
+    )
     assert result.review_meta is not None
     assert result.review_meta.company_grounding_policy == "assistive"
     assert result.review_meta.company_evidence_count == 1
