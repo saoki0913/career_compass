@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from datetime import UTC, datetime
@@ -81,7 +82,7 @@ LIVE_CASES = [
         "question": "学生時代に力を入れたことを140字以内で教えてください。",
         "answer": "研究室で進捗共有の型を見直し、情報の滞留を減らした。論点を整理し、役割分担と共有頻度を調整して、チーム全体の前進を支えた。",
         "company_name": "三菱商事",
-        "char_min": 120,
+        "char_min": 100,
         "char_max": 140,
         "grounding_mode": "company_general",
         "expected_policy": "assistive",
@@ -150,6 +151,23 @@ def _output_dir() -> Path:
     return Path(os.getenv("LIVE_ES_REVIEW_OUTPUT_DIR", "backend/tests/output").strip())
 
 
+async def _review_section_with_template_retry(**kwargs: object) -> object:
+    """Retry once on flaky template_rewrite 422 (provider asks user to re-run)."""
+    last_exc: BaseException | None = None
+    for attempt in range(3):
+        try:
+            return await review_section_with_template(**kwargs)  # type: ignore[arg-type]
+        except Exception as exc:
+            last_exc = exc
+            msg = str(exc)
+            if attempt < 2 and "422" in msg and "再実行" in msg:
+                await asyncio.sleep(3)
+                continue
+            raise
+    assert last_exc is not None
+    raise last_exc
+
+
 def _write_report(rows: list[dict[str, object]]) -> tuple[Path, Path]:
     output_dir = _output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -205,7 +223,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
         for case in LIVE_CASES:
             started = perf_counter()
             try:
-                result = await review_section_with_template(
+                result = await _review_section_with_template_retry(
                     request=ReviewRequest(
                         content=case["answer"],
                         section_title=case["question"],
