@@ -73,18 +73,18 @@
 
 | 技術 | バージョン | 用途 |
 |-----|----------|------|
-| **OpenAI** | 1.x | GPT-4o-mini, GPT-5 API |
+| **OpenAI** | 1.x | GPT-5.4 / GPT-5.4-mini / Embeddings |
 | **Anthropic** | 0.40.x | Claude Sonnet API |
 
 **モデル用途（feature別ルーティング）:**
 
 | 機能 | デフォルトモデル | 環境変数 |
 |------|----------------|----------|
-| ES添削 | Claude Sonnet / GPT-5.1 / Gemini 3.1 Pro Preview / Command A | `MODEL_ES_REVIEW` |
+| ES添削 | Claude Sonnet 4.6 / GPT-5.4 / Gemini 3.1 Pro Preview | `MODEL_ES_REVIEW` |
 | ガクチカ深掘り | Claude Haiku | `MODEL_GAKUCHIKA` |
 | 志望動機 | Claude Haiku | `MODEL_MOTIVATION` |
 | 選考スケジュール抽出 | Claude Haiku | `MODEL_SELECTION_SCHEDULE` |
-| 企業情報抽出 | GPT-5-mini | `MODEL_COMPANY_INFO` |
+| 企業情報抽出 | GPT-5.4-mini | `MODEL_COMPANY_INFO` |
 | RAGクエリ拡張 | Claude Haiku | `MODEL_RAG_QUERY_EXPANSION` |
 | RAG HyDE | Claude Sonnet | `MODEL_RAG_HYDE` |
 | RAGリランク | Claude Sonnet | `MODEL_RAG_RERANK` |

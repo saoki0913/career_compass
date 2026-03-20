@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { createMarketingMetadata } from "@/lib/marketing-metadata";
 
-export const metadata: Metadata = {
-  title: "無料ツール | 就活Pass",
+export const metadata: Metadata = createMarketingMetadata({
+  title: "就活の無料ツール集 | 就活Pass",
   description:
-    "就活のES作成や締切管理に役立つ無料ツール集。まずはES文字数カウントから。",
-};
+    "就活のES作成、ES文字数調整、締切管理に役立つ無料ツール集。就活AIを使う前の下準備にも使えます。",
+  path: "/tools",
+  keywords: ["ES 文字数 カウント", "就活 無料ツール", "就活AI 無料", "就活Pass ツール"],
+});
 
 export default function ToolsPage() {
   return (
@@ -76,6 +79,21 @@ export default function ToolsPage() {
               className="inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted/30"
             >
               料金を見る
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-10 rounded-2xl border bg-card p-6">
+          <p className="font-medium">関連ガイド</p>
+          <div className="mt-4 flex flex-col gap-2 text-sm text-muted-foreground">
+            <Link href="/es-tensaku-ai" className="hover:text-foreground">
+              ES添削AIの選び方を見る
+            </Link>
+            <Link href="/shukatsu-ai" className="hover:text-foreground">
+              就活AIでできることを見る
+            </Link>
+            <Link href="/shukatsu-kanri" className="hover:text-foreground">
+              就活の締切管理アプリの使い方を見る
             </Link>
           </div>
         </div>

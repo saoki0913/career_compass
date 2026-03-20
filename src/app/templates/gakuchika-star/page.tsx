@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { createMarketingMetadata } from "@/lib/marketing-metadata";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createMarketingMetadata({
   title: "ガクチカSTARテンプレ | 就活Pass",
   description:
     "ガクチカをSTAR（Situation/Task/Action/Result）で整理するテンプレ。面接で深掘りされても崩れない骨格を作ります。",
-};
+  path: "/templates/gakuchika-star",
+  keywords: ["ガクチカ STAR", "ガクチカ テンプレ", "学生時代に力を入れたこと 書き方"],
+});
 
 export default function GakuchikaStarTemplatePage() {
   return (

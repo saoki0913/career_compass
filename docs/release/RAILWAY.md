@@ -181,7 +181,7 @@ CORS_ORIGINS=["https://www.shupass.jp","https://shupass.jp"]
 # LLM ベースモデルID
 CLAUDE_MODEL=claude-sonnet-4-5-20250929
 CLAUDE_HAIKU_MODEL=claude-haiku-4-5-20251001
-OPENAI_MODEL=gpt-5-mini
+OPENAI_MODEL=gpt-5.4-mini
 GOOGLE_MODEL=gemini-3.1-pro-preview
 COHERE_MODEL=command-a-03-2025
 
@@ -203,9 +203,9 @@ QWEN_ES_REVIEW_ADAPTER_ID=es_review
 # 機能別モデル設定（エイリアス or 明示モデルID）
 # 例:
 #   MODEL_ES_REVIEW=claude-sonnet
-#   MODEL_ES_REVIEW=gpt-5.1
+#   MODEL_ES_REVIEW=gpt-5.4
 #   MODEL_ES_REVIEW=gemini-3.1-pro-preview
-#   MODEL_ES_REVIEW=command-a-03-2025
+#   MODEL_ES_REVIEW=low-cost
 MODEL_ES_REVIEW=claude-sonnet
 MODEL_GAKUCHIKA=claude-haiku
 MODEL_MOTIVATION=claude-haiku

@@ -108,6 +108,8 @@ describe("api/deadlines/upcoming", () => {
     expect(response.status).toBe(200);
     expect(data.periodDays).toBe(7);
     expect(data.count).toBe(1);
+    expect(response.headers.get("server-timing")).toContain("identity;");
+    expect(response.headers.get("server-timing")).toContain("db;");
     expect(data.deadlines[0]).toMatchObject({
       id: "deadline-1",
       company: "Alpha",

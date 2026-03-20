@@ -39,10 +39,14 @@ interface UseIncompleteItemsResult {
   refetch: () => void;
 }
 
-export function useIncompleteItems(): UseIncompleteItemsResult {
+interface UseIncompleteItemsOptions {
+  initialData?: IncompleteItemsData | null;
+}
+
+export function useIncompleteItems(options: UseIncompleteItemsOptions = {}): UseIncompleteItemsResult {
   const { isLoading: isAuthLoading } = useAuth();
-  const [data, setData] = useState<IncompleteItemsData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [data, setData] = useState<IncompleteItemsData | null>(() => options.initialData ?? null);
+  const [isLoading, setIsLoading] = useState(() => !options.initialData);
   const [error, setError] = useState<string | null>(null);
   const [errorInfo, setErrorInfo] = useState<AppUiError | null>(null);
 
@@ -116,12 +120,15 @@ export function useIncompleteItems(): UseIncompleteItemsResult {
   }, [isAuthLoading]);
 
   useEffect(() => {
+    if (options.initialData) {
+      return;
+    }
     if (isAuthLoading) {
       return;
     }
 
     fetchIncompleteItems();
-  }, [fetchIncompleteItems, isAuthLoading]);
+  }, [fetchIncompleteItems, isAuthLoading, options.initialData]);
 
   return {
     data,

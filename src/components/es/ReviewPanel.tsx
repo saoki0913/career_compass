@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUpRight,
   Building2,
@@ -25,7 +25,6 @@ import {
 } from "@/components/ui/select";
 import { useOperationLock } from "@/hooks/useOperationLock";
 import {
-  COMPANYLESS_TEMPLATE_TYPES,
   EXTRA_FIELD_LABELS,
   TEMPLATE_EXTRA_FIELDS,
   TEMPLATE_LABELS,
@@ -35,13 +34,17 @@ import {
 import type { ReviewMode, TemplateType } from "@/hooks/useESReview";
 import {
   DEFAULT_STANDARD_ES_REVIEW_MODEL,
+  getStandardESReviewModelHelper,
   getStandardESReviewModelLabel,
+  isLowCostESReviewModel,
   STANDARD_ES_REVIEW_MODEL_OPTIONS,
   type StandardESReviewModel,
 } from "@/lib/ai/es-review-models";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import { calculateESReviewCost } from "@/lib/credits/cost";
 import type { Industry } from "@/lib/constants/industries";
+import { COMPANYLESS_EXPLICIT_TEMPLATE_TYPES } from "@/lib/es-review/companyless-templates";
+import { inferTemplateTypeFromQuestion } from "@/lib/es-review/infer-template-type";
 import { notifyReviewComplete } from "@/lib/notifications";
 import { ReflectModal } from "./ReflectModal";
 import { shouldEnableAutoFollow } from "./review-panel-scroll";
@@ -145,7 +148,39 @@ function CompanyStatusBanner({
   density?: "full" | "compact";
 }) {
   if (status === "no_company_selected") {
-    return null;
+    return density === "compact" ? (
+      <div className="rounded-[18px] border border-border/60 bg-background/85 px-4 py-3">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <FileText className="size-4" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              企業未選択でも、プロフィールやガクチカを使って添削できます。
+            </p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              企業連携が必要な設問は非表示にし、使える設問だけを自動判定と一緒に案内します。
+            </p>
+          </div>
+        </div>
+      </div>
+    ) : (
+      <div className="rounded-[22px] border border-border/60 bg-background/90 p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <FileText className="size-4" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">
+              企業未選択でも、プロフィールやガクチカを使ってAI添削できます。
+            </p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              企業との連携が必要な設問は選べませんが、汎用ES・ガクチカ・自己PR・価値観は同じ画面でそのまま添削できます。
+            </p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const sharedLink = companyId ? (
@@ -326,12 +361,13 @@ function ReviewModeSelector({
   standardModel: StandardESReviewModel;
   onStandardModelChange: (value: StandardESReviewModel) => void;
 }) {
+  const helperText = getStandardESReviewModelHelper(standardModel);
   return (
     <div className="rounded-[26px] border border-border/60 bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
       <div>
         <p className="text-sm font-semibold text-foreground">モデル選択</p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          ES添削で使うモデルを選択できます。
+          Claude / GPT / Gemini / クレジット消費を抑えて添削 から選べます。
         </p>
       </div>
 
@@ -352,6 +388,11 @@ function ReviewModeSelector({
           ))}
         </SelectContent>
       </Select>
+      {helperText ? (
+        <p className="mt-3 text-xs leading-5 text-amber-700 dark:text-amber-300">
+          {helperText}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -434,6 +475,7 @@ export function ReviewPanel({
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const autoFollowRef = useRef(true);
+  const programmaticScrollRef = useRef(false);
 
   // Validation section refs (Phase 6)
   const templateSectionRef = useRef<HTMLDivElement>(null);
@@ -457,33 +499,35 @@ export function ReviewPanel({
   } = useESReview({ documentId });
 
   const hasSelectedCompany = companyReviewStatus !== "no_company_selected";
-  const templateOptions = hasSelectedCompany
-    ? [
-        { value: "auto", label: "自動" },
-        ...TEMPLATE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
-      ]
-    : TEMPLATE_OPTIONS.filter((option) => COMPANYLESS_TEMPLATE_TYPES.includes(option.value)).map(
-        (option) => ({
-          value: option.value,
-          label: option.label,
-        }),
-      );
+  const templateOptions = useMemo(() => {
+    const auto = { value: "auto" as const, label: "自動" };
+    if (hasSelectedCompany) {
+      return [auto, ...TEMPLATE_OPTIONS.map((option) => ({ value: option.value, label: option.label }))];
+    }
+    return [
+      auto,
+      ...TEMPLATE_OPTIONS.filter((option) =>
+        (COMPANYLESS_EXPLICIT_TEMPLATE_TYPES as readonly string[]).includes(option.value),
+      ).map((option) => ({ value: option.value, label: option.label })),
+    ];
+  }, [hasSelectedCompany]);
 
-  const selectedTemplateFields = selectedTemplate ? TEMPLATE_EXTRA_FIELDS[selectedTemplate] : [];
-  const requiresInternName = Boolean(
-    selectedTemplate && TEMPLATE_EXTRA_FIELDS[selectedTemplate].includes("intern_name"),
-  );
-  const requiresIndustrySelection = hasSelectedCompany && Boolean(roleOptionsData?.requiresIndustrySelection);
-  const needsExplicitTemplate = !hasSelectedCompany;
-  const needsRoleSelection = hasSelectedCompany;
+  const inferredTemplate = useMemo((): TemplateType => {
+    if (!sectionReviewRequest?.sectionTitle) {
+      return "basic";
+    }
+    return inferTemplateTypeFromQuestion(sectionReviewRequest.sectionTitle) as TemplateType;
+  }, [sectionReviewRequest?.sectionTitle]);
+
+  const effectiveTemplate: TemplateType = selectedTemplate ?? inferredTemplate;
+  const selectedTemplateFields = TEMPLATE_EXTRA_FIELDS[effectiveTemplate] ?? [];
+  const requiresInternName = selectedTemplateFields.includes("intern_name");
+  const requiresIndustrySelection =
+    hasSelectedCompany && Boolean(roleOptionsData?.requiresIndustrySelection);
   const currentCharLimit = currentSection?.charLimit ?? sectionReviewRequest?.sectionCharLimit;
   const selectedRoleName = roleName.trim();
-  const selectedTemplateValue = selectedTemplate ?? (hasSelectedCompany ? "auto" : "");
-  const currentTemplateLabel = selectedTemplate
-    ? TEMPLATE_LABELS[selectedTemplate]
-    : hasSelectedCompany
-      ? "自動判定"
-      : undefined;
+  const selectedTemplateValue = selectedTemplate ?? "auto";
+  const currentTemplateLabel = selectedTemplate ? TEMPLATE_LABELS[selectedTemplate] : "自動判定";
   const currentReviewModeLabel = getStandardESReviewModelLabel(selectedStandardModel);
   const missingTemplateField = selectedTemplateFields.find((fieldName) => {
     if (fieldName === "intern_name") {
@@ -514,19 +558,16 @@ export function ReviewPanel({
   const companyStatusDensity = hasResponse || Boolean(error) ? "compact" : "full";
   const showFooter = Boolean(sectionReviewRequest);
   const isCustomRoleActive = roleSelectionSource === "custom" && Boolean(customRoleInput.trim());
-  const isTemplateSetupComplete =
-    (!needsExplicitTemplate || Boolean(selectedTemplate)) && !missingTemplateField;
+  const isTemplateSetupComplete = !missingTemplateField;
   const isRoleSetupComplete =
-    !needsRoleSelection ||
+    !hasSelectedCompany ||
     ((!requiresIndustrySelection || Boolean(selectedIndustry)) && Boolean(selectedRoleName));
-  const creditCost = calculateESReviewCost(sectionReviewRequest?.sectionContent.length ?? 0);
+  const creditCost = calculateESReviewCost(sectionReviewRequest?.sectionContent.length ?? 0, selectedStandardModel);
   const isFooterLocked = isLoading || (hasResponse && !isPlaybackComplete);
   const reviewActionHint =
     !sectionReviewRequest?.sectionContent || sectionReviewRequest.sectionContent.length < 10
       ? "本文を10文字以上入力してください。"
-      : !isTemplateSetupComplete && needsExplicitTemplate && !selectedTemplate
-        ? "先に設問タイプを選択してください。"
-        : !isTemplateSetupComplete && missingTemplateFieldLabel
+      : !isTemplateSetupComplete && missingTemplateFieldLabel
           ? `${missingTemplateFieldLabel}を入力してください。`
           : isRoleOptionsLoading
             ? "職種候補を読み込んでいます。"
@@ -534,7 +575,7 @@ export function ReviewPanel({
               ? "職種候補を取得できていません。再読み込みしてからお試しください。"
               : requiresIndustrySelection && !selectedIndustry
                 ? "先に業界を選択してください。"
-                : needsRoleSelection && !selectedRoleName
+                : hasSelectedCompany && !selectedRoleName
                   ? "先に職種を選択してください。"
                   : "準備できました。この設問をAI添削できます。";
   const canStartReview =
@@ -544,7 +585,7 @@ export function ReviewPanel({
     !isRoleOptionsLoading &&
     !roleOptionsError &&
     (!requiresIndustrySelection || Boolean(selectedIndustry)) &&
-    (!needsRoleSelection || Boolean(selectedRoleName));
+    (!hasSelectedCompany || Boolean(selectedRoleName));
   const footerButtonLabel = error
     ? "この設問を再試行"
     : isFooterLocked
@@ -559,7 +600,9 @@ export function ReviewPanel({
       : hasCompletedReview
         ? "前回の条件を保持したまま、設定を見直して再添削できます。"
         : canStartReview
-          ? `${getStandardESReviewModelLabel(selectedStandardModel)} で実行します。800文字ごとに +1、最小2クレジットです。`
+          ? isLowCostESReviewModel(selectedStandardModel)
+            ? `${getStandardESReviewModelLabel(selectedStandardModel)}で実行します。今回の見積りは${creditCost}クレジットです。品質はやや下がる可能性があります。`
+            : `${getStandardESReviewModelLabel(selectedStandardModel)}で実行します。今回の見積りは${creditCost}クレジットです。`
           : reviewActionHint;
   const footerActionDisabled = error ? false : isFooterLocked;
   const visibleIssuesTextLength = visibleIssues.reduce(
@@ -576,13 +619,17 @@ export function ReviewPanel({
       return;
     }
 
-    setSelectedTemplate(hasSelectedCompany ? null : COMPANYLESS_TEMPLATE_TYPES[0]);
+    setSelectedTemplate(null);
     setInternName("");
-  }, [hasSelectedCompany, sectionReviewRequest]);
+  }, [sectionReviewRequest]);
 
   useEffect(() => {
-    if (!hasSelectedCompany && selectedTemplate && !COMPANYLESS_TEMPLATE_TYPES.includes(selectedTemplate)) {
-      setSelectedTemplate(COMPANYLESS_TEMPLATE_TYPES[0]);
+    if (
+      !hasSelectedCompany &&
+      selectedTemplate &&
+      !(COMPANYLESS_EXPLICIT_TEMPLATE_TYPES as readonly string[]).includes(selectedTemplate)
+    ) {
+      setSelectedTemplate(null);
     }
   }, [hasSelectedCompany, selectedTemplate]);
 
@@ -701,6 +748,9 @@ export function ReviewPanel({
     }
 
     const handleScroll = () => {
+      if (programmaticScrollRef.current) {
+        return;
+      }
       autoFollowRef.current = shouldEnableAutoFollow({
         scrollHeight: container.scrollHeight,
         scrollTop: container.scrollTop,
@@ -723,7 +773,11 @@ export function ReviewPanel({
       if (!autoFollowRef.current) {
         return;
       }
+      programmaticScrollRef.current = true;
       container.scrollTo({ top: container.scrollHeight, behavior: "auto" });
+      requestAnimationFrame(() => {
+        programmaticScrollRef.current = false;
+      });
     });
 
     return () => cancelAnimationFrame(frame);
@@ -764,7 +818,13 @@ export function ReviewPanel({
       setResponseInstanceKey((prev) => prev + 1);
       setHasShownCompletionToast(false);
       autoFollowRef.current = true;
-      scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      if (scrollContainerRef.current) {
+        programmaticScrollRef.current = true;
+        scrollContainerRef.current.scrollTo({ top: 0, behavior: "auto" });
+        requestAnimationFrame(() => {
+          programmaticScrollRef.current = false;
+        });
+      }
       await requestSectionReview({
         sectionTitle: sectionReviewRequest.sectionTitle,
         sectionContent: sectionReviewRequest.sectionContent,
@@ -911,7 +971,7 @@ export function ReviewPanel({
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
                       {hasSelectedCompany
                         ? "分かる場合は指定し、迷うときは自動判定のまま添削できます。"
-                        : "企業未選択では、企業に依存しない設問タイプだけ選択できます。"}
+                        : "企業未選択では、自動・ガクチカ・自己PR・価値観のいずれかに合わせて添削します。企業に紐づく設問は企業を選んでからお試しください。"}
                     </p>
                   </div>
                   {isTemplateSetupComplete ? (
@@ -926,9 +986,7 @@ export function ReviewPanel({
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
                     {selectedTemplate
                       ? "選択した型に合わせて添削の観点を調整します。"
-                      : hasSelectedCompany
-                        ? "自動判定では設問文から最適な型を推定します。"
-                        : "この設問に近い型をひとつ選んでください。"}
+                      : "自動判定では設問文から最適な型を推定します。"}
                   </p>
                   <Select
                     value={selectedTemplateValue}
@@ -1052,7 +1110,9 @@ export function ReviewPanel({
                         <p className="text-xs leading-5 text-muted-foreground">
                           {selectedIndustry
                             ? "候補から選び、見つからない場合だけ自由入力を使ってください。"
-                            : "先に業界を選ぶと、この企業向けの職種候補を表示します。"}
+                            : hasSelectedCompany
+                              ? "先に業界を選ぶと、この企業向けの職種候補を表示します。"
+                              : "先に業界を選ぶと、職種候補を表示します。"}
                         </p>
                         <Select
                           disabled={!selectedIndustry || roleOptionsData.roleGroups.length === 0}

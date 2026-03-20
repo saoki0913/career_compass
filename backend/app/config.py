@@ -78,27 +78,43 @@ class Settings(BaseSettings):
     # 環境変数: REDIS_URL
     redis_url: str = ""
 
-    # ===== LLM モデル設定 =====
-    # Claude モデル（ES添削・ガクチカ深掘りに使用）
-    # 環境変数: CLAUDE_MODEL
-    # 推奨: claude-sonnet-4-5-20250929 (本番), claude-haiku-4-5-20251001 (開発)
-    claude_model: str = "claude-sonnet-4-5-20250929"
+    # ===== LLM 実モデル設定 =====
+    # 機能別設定では stable alias を使い、ここで実際の版付き model ID を管理する。
+    # 旧 env 名も fallback として受ける。
+    claude_sonnet_model: str = Field(
+        default="claude-sonnet-4-6",
+        validation_alias=AliasChoices("CLAUDE_SONNET_MODEL", "CLAUDE_MODEL"),
+    )
 
-    # Claude Haiku モデル（選考スケジュール抽出に使用）
-    # 環境変数: CLAUDE_HAIKU_MODEL
-    claude_haiku_model: str = "claude-haiku-4-5-20251001"
+    claude_haiku_model: str = Field(
+        default="claude-haiku-4-5-20251001",
+        validation_alias=AliasChoices("CLAUDE_HAIKU_MODEL"),
+    )
 
-    # OpenAI モデル（汎用デフォルト）
-    # 環境変数: OPENAI_MODEL
-    openai_model: str = "gpt-5-mini"
+    gpt_model: str = Field(
+        default="gpt-5.4",
+        validation_alias=AliasChoices("GPT_MODEL"),
+    )
 
-    # Gemini モデル（Gemini API / OpenAI compatibility ではなく公式APIを使用）
-    # 環境変数: GOOGLE_MODEL / GOOGLE_BASE_URL
-    google_model: str = "gemini-3.1-pro-preview"
+    gpt_fast_model: str = Field(
+        default="gpt-5.4-mini",
+        validation_alias=AliasChoices("GPT_FAST_MODEL", "OPENAI_MODEL"),
+    )
+
+    # Gemini モデル（Gemini API / OpenAI compatibility ではなく公式 API を使用）
+    gemini_model: str = Field(
+        default="gemini-3.1-pro-preview",
+        validation_alias=AliasChoices("GEMINI_MODEL", "GOOGLE_MODEL"),
+    )
     google_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
-    # Cohere モデル（OpenAI compatibility API）
-    # 環境変数: COHERE_MODEL / COHERE_BASE_URL
+    # 低コスト添削モード。ユーザー向けにはモデル名を出さず、コスト重視モードとして扱う。
+    low_cost_review_model: str = Field(
+        default="gpt-5.4-mini",
+        validation_alias=AliasChoices("LOW_COST_REVIEW_MODEL"),
+    )
+
+    # Cohere モデル（OpenAI compatibility API、互換用途）
     cohere_model: str = "command-a-03-2025"
     cohere_base_url: str = "https://api.cohere.com/compatibility/v1"
 
@@ -117,20 +133,22 @@ class Settings(BaseSettings):
     qwen_es_review_adapter_id: str = ""
 
     # ===== 機能別モデル設定 =====
-    # 各機能で使用するモデルエイリアスまたは明示モデルID
-    # 例:
-    #   - エイリアス: claude-sonnet / claude-haiku / openai / google / cohere
-    #   - 明示ID: gpt-5.1 / gemini-3.1-pro-preview / command-a-03-2025
-    # .env.local で個別にオーバーライド可能
-    model_es_review: str = "claude-sonnet"          # MODEL_ES_REVIEW - ES添削
-    model_gakuchika: str = "claude-haiku"           # MODEL_GAKUCHIKA - ガクチカ深掘り
-    model_motivation: str = "claude-haiku"          # MODEL_MOTIVATION - 志望動機作成
-    model_selection_schedule: str = "claude-haiku"  # MODEL_SELECTION_SCHEDULE - 選考スケジュール抽出
-    model_company_info: str = "openai"              # MODEL_COMPANY_INFO - 企業情報抽出
-    model_rag_query_expansion: str = "claude-haiku"  # MODEL_RAG_QUERY_EXPANSION - RAGクエリ拡張
-    model_rag_hyde: str = "claude-sonnet"           # MODEL_RAG_HYDE - RAG仮想文書生成
-    model_rag_rerank: str = "claude-sonnet"         # MODEL_RAG_RERANK - RAG再ランキング
-    model_rag_classify: str = "claude-haiku"        # MODEL_RAG_CLASSIFY - RAGコンテンツ分類
+    # ここには基本的に stable alias だけを保存する。
+    # 推奨 alias:
+    #   - claude-sonnet / claude-haiku
+    #   - gpt / gpt-fast
+    #   - gemini
+    #   - low-cost
+    # 直指定 model ID や旧 alias（openai / google / cohere）も後方互換で解決する。
+    model_es_review: str = "claude-sonnet"           # MODEL_ES_REVIEW
+    model_gakuchika: str = "claude-haiku"            # MODEL_GAKUCHIKA
+    model_motivation: str = "claude-haiku"           # MODEL_MOTIVATION
+    model_selection_schedule: str = "claude-haiku"   # MODEL_SELECTION_SCHEDULE
+    model_company_info: str = "gpt-fast"             # MODEL_COMPANY_INFO
+    model_rag_query_expansion: str = "claude-haiku"  # MODEL_RAG_QUERY_EXPANSION
+    model_rag_hyde: str = "claude-sonnet"            # MODEL_RAG_HYDE
+    model_rag_rerank: str = "claude-sonnet"          # MODEL_RAG_RERANK
+    model_rag_classify: str = "claude-haiku"         # MODEL_RAG_CLASSIFY
 
     # LLM タイムアウト（秒）
     # 環境変数: LLM_TIMEOUT_SECONDS

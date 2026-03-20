@@ -3,6 +3,7 @@ import { Toaster } from "sonner";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { GoogleAnalytics } from "@/components/analytics/GoogleAnalytics";
+import { CsrfFetchBootstrap } from "@/components/security/CsrfFetchBootstrap";
 import { getAppUrl } from "@/lib/app-url";
 
 const siteUrl = getAppUrl();
@@ -14,7 +15,7 @@ export const metadata: Metadata = {
     template: "%s | 就活Pass",
   },
   description:
-    "就活Pass（シューパス）は、ES添削・志望動機作成・ガクチカ深掘り・締切管理をまとめて使える就活アプリです。",
+    "就活Pass（シューパス）は、設問タイプに合わせたAI添削、志望動機・ガクチカの対話支援、企業・締切・Googleカレンダー連携をまとめて使える就活アプリです。",
   alternates: {
     canonical: "/",
   },
@@ -24,14 +25,14 @@ export const metadata: Metadata = {
     siteName: "就活Pass",
     title: "就活Pass | ES添削・志望動機作成・締切管理",
     description:
-      "就活Pass（シューパス）は、ES添削・志望動機作成・ガクチカ深掘り・締切管理をまとめて使える就活アプリです。",
+      "就活Pass（シューパス）は、設問タイプに合わせたAI添削、志望動機・ガクチカの対話支援、企業・締切・Googleカレンダー連携をまとめて使える就活アプリです。",
     locale: "ja_JP",
   },
   twitter: {
     card: "summary_large_image",
     title: "就活Pass | ES添削・志望動機作成・締切管理",
     description:
-      "就活Pass（シューパス）は、ES添削・志望動機作成・ガクチカ深掘り・締切管理をまとめて使える就活アプリです。",
+      "就活Pass（シューパス）は、設問タイプに合わせたAI添削、志望動機・ガクチカの対話支援、企業・締切・Googleカレンダー連携をまとめて使える就活アプリです。",
   },
   verification: {
     google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || undefined,
@@ -97,6 +98,7 @@ export default function RootLayout({
       </head>
       <body className="antialiased">
         {gaId ? <GoogleAnalytics measurementId={gaId} /> : null}
+        <CsrfFetchBootstrap />
         <AuthProvider>{children}</AuthProvider>
         <Toaster
           position="top-center"

@@ -8,11 +8,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { documents, companies, applications } from "@/lib/db/schema";
-import { eq, and, desc, isNull, ne } from "drizzle-orm";
+import { documents, companies } from "@/lib/db/schema";
+import { eq, and, isNull } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getDocumentsPageData } from "@/lib/server/app-loaders";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -38,8 +41,9 @@ async function getIdentity(request: NextRequest): Promise<{
 }
 
 export async function GET(request: NextRequest) {
+  const timing = createServerTimingRecorder();
   try {
-    const identity = await getIdentity(request);
+    const identity = await timing.measure("identity", () => getRequestIdentity(request));
     if (!identity) {
       return createApiErrorResponse(request, {
         status: 401,
@@ -52,63 +56,20 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const { userId, guestId } = identity;
     const { searchParams } = new URL(request.url);
     const type = searchParams.get("type");
     const companyId = searchParams.get("companyId");
     const applicationId = searchParams.get("applicationId");
     const includeDeleted = searchParams.get("includeDeleted") === "true";
-
-    // Build where clause
-    const conditions = [];
-
-    if (userId) {
-      conditions.push(eq(documents.userId, userId));
-    } else if (guestId) {
-      conditions.push(eq(documents.guestId, guestId));
-    }
-
-    if (type) {
-      conditions.push(eq(documents.type, type as "es" | "tips" | "company_analysis"));
-    }
-
-    if (companyId) {
-      conditions.push(eq(documents.companyId, companyId));
-    }
-
-    if (applicationId) {
-      conditions.push(eq(documents.applicationId, applicationId));
-    }
-
-    if (!includeDeleted) {
-      conditions.push(ne(documents.status, "deleted"));
-    }
-
-    const documentList = await db
-      .select({
-        document: documents,
-        company: {
-          id: companies.id,
-          name: companies.name,
-        },
-        application: {
-          id: applications.id,
-          name: applications.name,
-        },
+    const data = await timing.measure("db", () =>
+      getDocumentsPageData(identity, {
+        type: type as "es" | "tips" | "company_analysis" | undefined,
+        companyId,
+        applicationId,
+        includeDeleted,
       })
-      .from(documents)
-      .leftJoin(companies, eq(documents.companyId, companies.id))
-      .leftJoin(applications, eq(documents.applicationId, applications.id))
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(documents.updatedAt));
-
-    return NextResponse.json({
-      documents: documentList.map((d) => ({
-        ...d.document,
-        company: d.company?.id ? d.company : null,
-        application: d.application?.id ? d.application : null,
-      })),
-    });
+    );
+    return timing.apply(NextResponse.json(data));
   } catch (error) {
     return createApiErrorResponse(request, {
       status: 500,

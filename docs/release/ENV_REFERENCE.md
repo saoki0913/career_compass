@@ -44,7 +44,7 @@
 | `FRONTEND_URL` | No | 任意（ログ出力用）。例: `https://www.shupass.jp` |
 | `CLAUDE_MODEL` | No | Claude Sonnet モデル名 (デフォルト: `claude-sonnet-4-5-20250929`) |
 | `CLAUDE_HAIKU_MODEL` | No | Claude Haiku モデル名 (デフォルト: `claude-haiku-4-5-20251001`) |
-| `OPENAI_MODEL` | No | OpenAI モデル名 (デフォルト: `gpt-5-mini`) |
+| `OPENAI_MODEL` | No | OpenAI モデル名 (デフォルト: `gpt-5.4-mini`) |
 | `GOOGLE_MODEL` | No | Gemini モデル名 (デフォルト: `gemini-3.1-pro-preview`) |
 | `GOOGLE_BASE_URL` | No | Gemini API ベースURL (デフォルト: `https://generativelanguage.googleapis.com/v1beta`) |
 | `COHERE_MODEL` | No | Cohere モデル名 (デフォルト: `command-a-03-2025`) |
@@ -60,7 +60,7 @@
 | `QWEN_ES_REVIEW_TOTAL_BUDGET_SECONDS` | No | 1リクエスト全体で Qwen に使う上限秒。デフォルト `150` |
 | `QWEN_ES_REVIEW_TIMEOUT_IMPROVEMENT_SECONDS` | No | legacy。Qwen が改善ポイント生成を行っていた旧経路向け。現行 rewrite-only path では未使用 |
 | `QWEN_ES_REVIEW_TIMEOUT_LENGTH_FIX_SECONDS` | No | legacy。Qwen の length-fix LLM call は現行 path では未使用 |
-| `MODEL_ES_REVIEW` | No | ES添削モデルエイリアスまたは明示モデルID。例: `claude-sonnet`, `gpt-5.1`, `gemini-3.1-pro-preview`, `command-a-03-2025` |
+| `MODEL_ES_REVIEW` | No | ES添削モデルエイリアスまたは明示モデルID。例: `claude-sonnet`, `gpt-5.4`, `gemini-3.1-pro-preview`, `low-cost` |
 | `MODEL_GAKUCHIKA` | No | ガクチカ深掘りモデルティア (デフォルト: `claude-haiku`) |
 | `MODEL_MOTIVATION` | No | 志望動機作成モデルティア (デフォルト: `claude-haiku`) |
 | `MODEL_SELECTION_SCHEDULE` | No | 選考スケジュール抽出モデルティア (デフォルト: `claude-haiku`) |

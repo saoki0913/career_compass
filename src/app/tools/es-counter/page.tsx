@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { EsCounterClient } from "@/components/tools/EsCounterClient";
+import { createMarketingMetadata } from "@/lib/marketing-metadata";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createMarketingMetadata({
   title: "ES文字数カウント | 就活Pass",
   description:
     "ESの文字数を300/400/500字で簡単にチェックできる無料ツール。空白・改行を除いたカウントにも対応。",
-};
+  path: "/tools/es-counter",
+  keywords: ["ES 文字数 カウント", "ES 文字数チェッカー", "就活 無料ツール"],
+});
 
 export default function EsCounterPage() {
   return (

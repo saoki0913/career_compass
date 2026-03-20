@@ -15,6 +15,18 @@ ES添削時に企業固有のコンテキストを提供するRAG（Retrieval-Au
 | **キーワード検索** | BM25（bm25sライブラリ） |
 | **検索方式** | ハイブリッド検索（Dense 60% + Sparse 40% ※デフォルト）+ 強化パイプライン |
 
+### 料金と上限
+
+| 項目 | Free | Standard | Pro |
+|------|------|----------|-----|
+| 月次無料枠 | 160 unit | 640 unit | 2400 unit |
+| 1社あたり保存上限 | 10 source | 100 source | 500 source |
+
+- URL 取込は `1ページ = 1 unit`
+- PDF 取込は `10pまで 2 / 30pまで 4 / 60pまで 6 / 61p以上 10 unit`
+- 無料枠超過後は `40 unit = 1クレジット`
+- `40 unit` 未満の overflow は `company_info_monthly_usage.ragOverflowUnits` に繰り越し、次回取込時に合算して課金判定する
+
 ### ES添削での活用
 
 - **「企業接続」軸のスコアリング**: 企業の求める人材像とESの内容の一致度を評価

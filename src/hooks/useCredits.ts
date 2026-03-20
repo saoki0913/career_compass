@@ -19,6 +19,12 @@ interface CreditsInfo {
       limit: number;
     };
   };
+  monthlyFree: {
+    companyRagUnits: {
+      remaining: number;
+      limit: number;
+    };
+  };
 }
 
 function buildHeaders(): Record<string, string> {
@@ -59,13 +65,19 @@ export function useCredits() {
           setCredits({
             type: "guest",
             plan: "guest",
-            balance: 15,
-            monthlyAllocation: 15,
+            balance: 12,
+            monthlyAllocation: 12,
             nextResetAt: null,
             dailyFree: {
               companyFetch: {
-                remaining: 2,
-                limit: 2,
+                remaining: 5,
+                limit: 5,
+              },
+            },
+            monthlyFree: {
+              companyRagUnits: {
+                remaining: 0,
+                limit: 0,
               },
             },
           });
@@ -94,6 +106,8 @@ export function useCredits() {
     nextResetAt: credits?.nextResetAt ? new Date(credits.nextResetAt) : null,
     dailyFreeRemaining: credits?.dailyFree.companyFetch.remaining ?? 0,
     dailyFreeLimit: credits?.dailyFree.companyFetch.limit ?? 0,
+    companyRagUnitsRemaining: credits?.monthlyFree.companyRagUnits.remaining ?? 0,
+    companyRagUnitsLimit: credits?.monthlyFree.companyRagUnits.limit ?? 0,
     plan: credits?.plan ?? "guest",
     isLoading,
     error,

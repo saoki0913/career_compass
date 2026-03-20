@@ -13,9 +13,11 @@ import { db } from "@/lib/db";
 import { subscriptions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getPriceId, type PlanType, type BillingPeriod } from "@/lib/stripe/config";
+import { getAppUrl } from "@/lib/app-url";
 
 export async function POST(req: NextRequest) {
   try {
+    const appUrl = getAppUrl();
     const session = await auth.api.getSession({
       headers: await headers(),
     });
@@ -78,8 +80,8 @@ export async function POST(req: NextRequest) {
           quantity: 1,
         },
       ],
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?success=true&plan=${plan}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/pricing?canceled=true`,
+      success_url: `${appUrl}/dashboard?success=true&plan=${plan}`,
+      cancel_url: `${appUrl}/pricing?canceled=true`,
       metadata: {
         userId: session.user.id,
         plan: plan,

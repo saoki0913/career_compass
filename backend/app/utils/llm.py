@@ -390,23 +390,21 @@ def get_model_display_name(model: str) -> str:
         if "haiku" in model_lower:
             return "Claude Haiku 4.5"
         elif "sonnet" in model_lower:
-            return "Claude Sonnet 4"
+            return "Claude Sonnet 4.6"
         elif "opus" in model_lower:
             return "Claude Opus 4"
         return f"Claude ({model})"
     if model_lower.startswith("gemini-3.1-pro-preview"):
-        return "Gemini 3.1 Pro Preview"
+        return "Gemini 3 Pro Preview"
     if model_lower.startswith("gemini"):
         return f"Gemini ({model})"
     if model_lower.startswith("command-a"):
         return "Cohere Command A"
     if "gpt-5" in model_lower:
-        if model_lower.startswith("gpt-5.2"):
-            return "GPT-5.2"
-        if model_lower.startswith("gpt-5.1"):
-            return "GPT-5.1"
+        if model_lower.startswith("gpt-5.4"):
+            return "GPT-5.4-mini" if "mini" in model_lower else "GPT-5.4"
         if "mini" in model_lower:
-            return "GPT-5 Mini"
+            return "GPT-5.4-mini"
         if "nano" in model_lower:
             return "GPT-5 Nano"
         return "GPT-5"
@@ -451,12 +449,19 @@ def _resolve_openai_model(feature: str, model_hint: Optional[str] = None) -> str
     """機能とオプションのヒントに基づいてOpenAIモデル名を解決。"""
     if model_hint and model_hint not in (
         "openai",
+        "gpt",
+        "gpt-fast",
+        "low-cost",
         "gpt-4o-mini",
-        "gpt-5-mini",
+        "gpt-5.4-mini",
         "gpt-5-nano",
     ):
         return model_hint
-    return settings.openai_model
+    if model_hint == "gpt":
+        return settings.gpt_model
+    if model_hint == "low-cost":
+        return settings.low_cost_review_model
+    return settings.gpt_fast_model
 
 
 def _resolve_model_target(
@@ -468,13 +473,21 @@ def _resolve_model_target(
     model_lower = str(requested_model or "").strip().lower()
 
     if requested_model == "claude-sonnet":
-        return ResolvedModelTarget("anthropic", settings.claude_model)
+        return ResolvedModelTarget("anthropic", settings.claude_sonnet_model)
     if requested_model == "claude-haiku":
         return ResolvedModelTarget("anthropic", settings.claude_haiku_model)
+    if requested_model == "gpt":
+        return ResolvedModelTarget("openai", settings.gpt_model)
+    if requested_model == "gpt-fast":
+        return ResolvedModelTarget("openai", settings.gpt_fast_model)
+    if requested_model == "low-cost":
+        return ResolvedModelTarget("openai", settings.low_cost_review_model)
+    if requested_model == "gemini":
+        return ResolvedModelTarget("google", settings.gemini_model)
     if requested_model == "openai":
-        return ResolvedModelTarget("openai", settings.openai_model)
+        return ResolvedModelTarget("openai", settings.gpt_fast_model)
     if requested_model == "google":
-        return ResolvedModelTarget("google", settings.google_model)
+        return ResolvedModelTarget("google", settings.gemini_model)
     if requested_model == "cohere":
         return ResolvedModelTarget("cohere", settings.cohere_model)
     if model_lower.startswith("claude"):
@@ -1258,7 +1271,7 @@ async def call_llm_with_error(
                         "JSON以外は出力しないでください。\n\n"
                         f"{repair_source}"
                     )
-                    repair_model = settings.claude_model
+                    repair_model = settings.claude_sonnet_model
                     if "haiku" in repair_model.lower():
                         repair_model = "claude-sonnet-4-5-20250929"
                     raw_repair = await _call_claude_raw(
@@ -1547,7 +1560,7 @@ async def _call_claude_raw(
     normalized_messages, _ = _normalize_chat_messages(messages, user_message)
 
     # 指定されたモデルを使用、なければclaude_model（Sonnet）をデフォルトに
-    actual_model = model or settings.claude_model
+    actual_model = model or settings.claude_sonnet_model
 
     response = await client.messages.create(
         model=actual_model,
@@ -1577,7 +1590,7 @@ async def _call_claude_raw_stream(
     client = await get_anthropic_client(for_rag=_is_rag_feature(feature))
     normalized_messages, _ = _normalize_chat_messages(messages, user_message)
 
-    actual_model = model or settings.claude_model
+    actual_model = model or settings.claude_sonnet_model
 
     async with client.messages.stream(
         model=actual_model,

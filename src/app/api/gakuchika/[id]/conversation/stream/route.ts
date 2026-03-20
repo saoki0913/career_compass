@@ -295,7 +295,7 @@ export async function POST(
                 const fastApiData = event.data;
 
                 if (shouldConsumeCredit) {
-                  await consumeCredits(userId!, 1, "gakuchika", gakuchikaId);
+                  await consumeCredits(userId!, 2, "gakuchika", gakuchikaId);
                 }
 
                 let newStarScores = currentStarScores || { situation: 0, task: 0, action: 0, result: 0 };

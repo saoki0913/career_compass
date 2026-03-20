@@ -1,9 +1,12 @@
-import { getStandardESReviewModelLabel as getKnownStandardESReviewModelLabel } from "@/lib/ai/es-review-models";
+import {
+  getStandardESReviewModelLabel as getKnownStandardESReviewModelLabel,
+  isStandardESReviewModel,
+} from "@/lib/ai/es-review-models";
 
 function humanizeModelId(modelId: string): string {
   const lower = modelId.toLowerCase();
 
-  if (lower === "claude-sonnet" || lower === "gpt-5.1" || lower === "gemini-3.1-pro-preview" || lower === "command-a-03-2025") {
+  if (isStandardESReviewModel(lower)) {
     return getKnownStandardESReviewModelLabel(lower);
   }
   if (lower.startsWith("claude-haiku")) {
@@ -13,7 +16,10 @@ function humanizeModelId(modelId: string): string {
     return "Claude Sonnet 4.6";
   }
   if (lower.startsWith("gemini-3.1-pro-preview")) {
-    return "Gemini 3.1 Pro Preview";
+    return "Gemini 3 Pro Preview";
+  }
+  if (lower === "gpt-fast") {
+    return "GPT-5.4-mini";
   }
   if (lower.startsWith("gemini")) {
     return "Gemini";
@@ -21,14 +27,11 @@ function humanizeModelId(modelId: string): string {
   if (lower.startsWith("command-a")) {
     return "Cohere Command A";
   }
-  if (lower.startsWith("gpt-5.2")) {
-    return "GPT-5.2";
+  if (lower.startsWith("gpt-5.4-mini")) {
+    return "クレジット消費を抑えて添削";
   }
-  if (lower.startsWith("gpt-5.1")) {
-    return "GPT-5.1";
-  }
-  if (lower.startsWith("gpt-5-mini")) {
-    return "GPT-5 Mini";
+  if (lower.startsWith("gpt-5.4")) {
+    return "GPT-5.4";
   }
   if (lower.startsWith("gpt-5-nano")) {
     return "GPT-5 Nano";
@@ -46,12 +49,17 @@ function humanizeModelId(modelId: string): string {
 export function getLLMResultLabel(params: {
   provider?: string | null;
   modelId?: string | null;
+  modelAlias?: string | null;
   reviewVariant?: string | null;
 }): string | null {
-  const { provider, modelId, reviewVariant } = params;
+  const { provider, modelId, modelAlias, reviewVariant } = params;
 
   if (reviewVariant === "qwen3-beta" || provider === "qwen-es-review") {
     return "Qwen3 Swallow 32B β";
+  }
+
+  if (modelAlias?.trim()) {
+    return humanizeModelId(modelAlias.trim());
   }
 
   if (modelId?.trim()) {

@@ -24,6 +24,10 @@ export interface ActivationProgress {
   nextAction: { href: string; label: string } | null;
 }
 
+interface UseActivationOptions {
+  initialData?: ActivationProgress | null;
+}
+
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -41,9 +45,9 @@ function buildHeaders(): Record<string, string> {
   return headers;
 }
 
-export function useActivation() {
-  const [data, setData] = useState<ActivationProgress | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+export function useActivation(options: UseActivationOptions = {}) {
+  const [data, setData] = useState<ActivationProgress | null>(() => options.initialData ?? null);
+  const [isLoading, setIsLoading] = useState(() => !options.initialData);
   const [error, setError] = useState<string | null>(null);
 
   const fetchActivation = useCallback(async () => {
@@ -93,8 +97,11 @@ export function useActivation() {
   }, []);
 
   useEffect(() => {
+    if (options.initialData) {
+      return;
+    }
     fetchActivation();
-  }, [fetchActivation]);
+  }, [fetchActivation, options.initialData]);
 
   return { data, isLoading, error, refresh: fetchActivation };
 }

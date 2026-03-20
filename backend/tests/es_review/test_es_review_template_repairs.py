@@ -1135,7 +1135,7 @@ async def test_review_section_with_template_uses_assistive_company_grounding_for
     )
 
     assert captured_prompts
-    assert any("本文の主軸は自分の経験・行動・学び・価値観に置く" in prompt for prompt in captured_prompts)
+    assert any("本文の主軸は課題・行動・成果・学びに置く" in prompt for prompt in captured_prompts)
     assert all(issue.category != "企業接続" for issue in result.top3)
     assert result.review_meta is not None
     assert result.review_meta.company_grounding_policy == "assistive"

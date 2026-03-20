@@ -6,35 +6,13 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { submissionItems } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
-
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
-}
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { logError } from "@/lib/logger";
+import { parseBody, submissionUpdateSchema } from "@/lib/validation";
 
 export async function PUT(
   request: NextRequest,
@@ -43,12 +21,14 @@ export async function PUT(
   try {
     const { id: submissionId } = await params;
 
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTH_REQUIRED",
+        userMessage: "ログインまたはゲストセッションが必要です。",
+        action: "ログインし直して、もう一度お試しください。",
+      });
     }
 
     const { userId, guestId } = identity;
@@ -60,10 +40,12 @@ export async function PUT(
       .limit(1);
 
     if (!item) {
-      return NextResponse.json(
-        { error: "Submission not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "SUBMISSION_NOT_FOUND",
+        userMessage: "対象の提出物が見つかりませんでした。",
+        action: "一覧を更新して、もう一度お試しください。",
+      });
     }
 
     // Verify ownership
@@ -72,40 +54,34 @@ export async function PUT(
       (guestId && item.guestId === guestId);
 
     if (!isOwner) {
-      return NextResponse.json(
-        { error: "Permission denied" },
-        { status: 403 }
-      );
+      return createApiErrorResponse(request, {
+        status: 403,
+        code: "SUBMISSION_ACCESS_DENIED",
+        userMessage: "この提出物を更新する権限がありません。",
+        action: "対象データを見直して、もう一度お試しください。",
+      });
     }
 
-    const body = await request.json();
-    const { type, name, isRequired, status, notes, fileUrl } = body;
+    const parsed = await parseBody(request, submissionUpdateSchema, {
+      request,
+      code: "INVALID_SUBMISSION_UPDATE",
+      logContext: "update-submission:validation",
+    });
+    if (parsed.error) return parsed.error;
+
+    const { type, name, isRequired, status, notes, fileUrl } = parsed.data;
 
     const updateData: Record<string, unknown> = {
       updatedAt: new Date(),
     };
 
     if (type !== undefined) {
-      const validTypes = ["resume", "es", "photo", "transcript", "certificate", "portfolio", "other"];
-      if (!validTypes.includes(type)) {
-        return NextResponse.json(
-          { error: "無効な種類です" },
-          { status: 400 }
-        );
-      }
       updateData.type = type;
     }
 
     if (name !== undefined) updateData.name = name.trim();
     if (isRequired !== undefined) updateData.isRequired = isRequired;
     if (status !== undefined) {
-      const validStatuses = ["not_started", "in_progress", "completed"];
-      if (!validStatuses.includes(status)) {
-        return NextResponse.json(
-          { error: "無効なステータスです" },
-          { status: 400 }
-        );
-      }
       updateData.status = status;
     }
     if (notes !== undefined) updateData.notes = notes?.trim() || null;
@@ -119,11 +95,14 @@ export async function PUT(
 
     return NextResponse.json({ submission: updated[0] });
   } catch (error) {
-    console.error("Error updating submission:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logError("update-submission", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "UPDATE_SUBMISSION_FAILED",
+      userMessage: "提出物の更新に失敗しました。",
+      action: "少し時間をおいて、もう一度お試しください。",
+      error,
+    });
   }
 }
 
@@ -134,12 +113,14 @@ export async function DELETE(
   try {
     const { id: submissionId } = await params;
 
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTH_REQUIRED",
+        userMessage: "ログインまたはゲストセッションが必要です。",
+        action: "ログインし直して、もう一度お試しください。",
+      });
     }
 
     const { userId, guestId } = identity;
@@ -151,10 +132,12 @@ export async function DELETE(
       .limit(1);
 
     if (!item) {
-      return NextResponse.json(
-        { error: "Submission not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "SUBMISSION_NOT_FOUND",
+        userMessage: "対象の提出物が見つかりませんでした。",
+        action: "一覧を更新して、もう一度お試しください。",
+      });
     }
 
     // Verify ownership
@@ -163,29 +146,36 @@ export async function DELETE(
       (guestId && item.guestId === guestId);
 
     if (!isOwner) {
-      return NextResponse.json(
-        { error: "Permission denied" },
-        { status: 403 }
-      );
+      return createApiErrorResponse(request, {
+        status: 403,
+        code: "SUBMISSION_ACCESS_DENIED",
+        userMessage: "この提出物を削除する権限がありません。",
+        action: "対象データを見直して、もう一度お試しください。",
+      });
     }
 
     // 履歴書・ESは削除不可（SPEC.md 18.2）
     const protectedTypes = ["resume", "es"];
     if (protectedTypes.includes(item.type)) {
-      return NextResponse.json(
-        { error: "履歴書・ESは削除できません" },
-        { status: 403 }
-      );
+      return createApiErrorResponse(request, {
+        status: 403,
+        code: "SUBMISSION_PROTECTED",
+        userMessage: "履歴書・ESは削除できません。",
+        action: "内容を残したまま管理してください。",
+      });
     }
 
     await db.delete(submissionItems).where(eq(submissionItems.id, submissionId));
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting submission:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logError("delete-submission", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "DELETE_SUBMISSION_FAILED",
+      userMessage: "提出物の削除に失敗しました。",
+      action: "少し時間をおいて、もう一度お試しください。",
+      error,
+    });
   }
 }

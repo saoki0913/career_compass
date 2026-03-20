@@ -225,7 +225,7 @@ LOCAL_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
 各機能で使用するLLMモデルを個別に上書き可能:
 
 ```env
-MODEL_ES_REVIEW=claude-sonnet        # ES添削（例: gpt-5.1 / gemini-3.1-pro-preview / command-a-03-2025）
+MODEL_ES_REVIEW=claude-sonnet        # ES添削（例: gpt-5.4 / gemini-3.1-pro-preview / low-cost）
 MODEL_GAKUCHIKA=claude-haiku         # ガクチカ深掘り
 MODEL_MOTIVATION=claude-haiku        # 志望動機
 MODEL_COMPANY_INFO=openai            # 企業情報抽出

@@ -26,11 +26,11 @@ Free/Standard/Proプランに基づくクレジット管理と、Stripe連携に
 
 | 機能 | Free | Standard | Pro |
 |------|------|----------|-----|
-| 月次クレジット | 30 | 300 | 800 |
+| 月次クレジット | 30 | 300 | 1300 |
 | ES添削 | 月3回（無料枠） | クレジット消費 | クレジット消費 |
 | リライトスタイル | 3種（バランス/堅め/個性強め） | 8種（全スタイル） | 8種（全スタイル） |
 | セクション添削 | 不可 | 可 | 可 |
-| 企業RAG連携 | 不可 | 可 | 可 |
+| 企業RAG連携 | 可 | 可 | 可 |
 | ガクチカ素材数 | 3 | 10 | 20 |
 | ゲスト | 2素材、制限機能 | — | — |
 
@@ -40,29 +40,36 @@ Free/Standard/Proプランに基づくクレジット管理と、Stripe連携に
 
 ### ES添削
 
-```
-コスト = min(5, max(2, ceil(charCount / 800)))
-```
+| モード | 〜800字 | 〜1600字 | 1601字〜 |
+|--------|--------|-----------|-----------|
+| 標準（Claude / GPT / Gemini） | 10 | 12 | 16 |
+| 低コストモード | 4 | 6 | 8 |
 
-| 文字数 | クレジット |
-|--------|-----------|
-| 〜800 | 2 |
-| 〜1600 | 2 |
-| 〜2400 | 3 |
-| 〜3200 | 4 |
-| 3201〜 | 5（上限） |
-
-> 最低2クレジットで短文ESの収益性を確保。最大5クレジットで過大課金を防止。
+> UI では毎回の見積りクレジットを表示する。低コストモードは `クレジット消費を抑えて添削` として案内し、品質低下の可能性を明示する。
 
 ### その他の機能
 
 | 機能 | トランザクションタイプ | コスト |
 |------|----------------------|--------|
-| 企業情報フェッチ | `company_fetch` | 固定コスト |
-| ガクチカ深掘り | `gakuchika` | 5問回答ごとに1クレジット |
-| ガクチカES下書き | `gakuchika_draft` | 固定コスト |
-| 志望動機Q&A | `motivation` | 固定コスト |
-| 志望動機下書き | `motivation_draft` | 固定コスト |
+| 選考スケジュール取得（完全成功） | `company_fetch` | 1 |
+| ガクチカ深掘り | `gakuchika` | 2 |
+| ガクチカES下書き | `gakuchika_draft` | 2 |
+| 志望動機Q&A | `motivation` | 2 |
+| 志望動機下書き | `motivation_draft` | 2 |
+| 企業RAG取込（無料枠超過後） | `company_fetch` | 40unit ごとに 1 |
+
+### 企業RAG取込
+
+| 項目 | Free | Standard | Pro |
+|------|------|----------|-----|
+| 月次無料枠 | 160 unit | 640 unit | 2400 unit |
+| 1社あたり保存上限 | 10 source | 100 source | 500 source |
+| URL取込 unit | 1ページ = 1 unit | 同左 | 同左 |
+| PDF取込 unit | 10pまで 2 / 30pまで 4 / 60pまで 6 / 61p以上 10 | 同左 | 同左 |
+
+- 無料枠を先に消費し、超過分だけ `ragOverflowUnits` に積む。
+- overflow は `40 unit = 1クレジット` で整数課金する。
+- 今回の取込で 40 unit 未満の overflow しか発生しない場合は、**その回のクレジット消費は 0** のまま翌回に繰り越す。
 
 ---
 
@@ -149,8 +156,7 @@ POST /api/stripe/portal
 | カラム | 型 | 説明 |
 |--------|-----|------|
 | `balance` | `integer` | 現在の残高 |
-| `monthlyAllocation` | `integer` | 月次付与量（Free: 30, Standard: 300, Pro: 800） |
-| `partialCreditAccumulator` | `integer` | 端数蓄積用 |
+| `monthlyAllocation` | `integer` | 月次付与量（Free: 30, Standard: 300, Pro: 1300） |
 | `lastResetAt` | `timestamptz` | 最終リセット日時 |
 
 ### `creditTransactions`（監査ログ）
@@ -187,6 +193,15 @@ POST /api/stripe/portal
 | `userId` / `guestId` | `text (FK)` | オーナー（XOR制約） |
 | `date` | `text` | 日付（JST `YYYY-MM-DD`） |
 | `companyFetchCount` | `integer` | 企業フェッチ回数 |
+
+### `companyInfoMonthlyUsage`
+
+| カラム | 型 | 説明 |
+|--------|-----|------|
+| `userId` | `text (FK)` | 対象ユーザー |
+| `monthKey` | `text` | JST基準の `YYYY-MM` |
+| `ragIngestUnits` | `integer` | 今月無料枠として消化した unit |
+| `ragOverflowUnits` | `integer` | 次回課金計算に持ち越す overflow unit |
 
 ---
 

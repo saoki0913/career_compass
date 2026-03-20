@@ -11,12 +11,16 @@ import {
   getCreditsInfo,
   getRemainingFreeFetches,
   PLAN_CREDITS,
-  DAILY_FREE_COMPANY_FETCH,
 } from "@/lib/credits";
 import { getGuestUser } from "@/lib/auth/guest";
 import { db } from "@/lib/db";
 import { userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import {
+  getDailyScheduleFetchLimit,
+  getMonthlyRagFreeUnits,
+} from "@/lib/company-info/pricing";
+import { getRemainingCompanyRagFreeUnits } from "@/lib/company-info/usage";
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,7 +45,8 @@ export async function GET(request: NextRequest) {
       const creditsInfo = await getCreditsInfo(userId);
 
       // Get remaining free fetches
-      const remainingFreeFetches = await getRemainingFreeFetches(userId, null);
+      const remainingFreeFetches = await getRemainingFreeFetches(userId, null, plan);
+      const remainingRagFreeUnits = await getRemainingCompanyRagFreeUnits(userId, plan);
 
       return NextResponse.json({
         type: "user",
@@ -52,7 +57,13 @@ export async function GET(request: NextRequest) {
         dailyFree: {
           companyFetch: {
             remaining: remainingFreeFetches,
-            limit: DAILY_FREE_COMPANY_FETCH.user,
+            limit: getDailyScheduleFetchLimit(plan),
+          },
+        },
+        monthlyFree: {
+          companyRagUnits: {
+            remaining: remainingRagFreeUnits,
+            limit: getMonthlyRagFreeUnits(plan),
           },
         },
       });
@@ -64,7 +75,7 @@ export async function GET(request: NextRequest) {
       const guest = await getGuestUser(deviceToken);
       if (guest) {
         // Get remaining free fetches for guest
-        const remainingFreeFetches = await getRemainingFreeFetches(null, guest.id);
+        const remainingFreeFetches = await getRemainingFreeFetches(null, guest.id, "guest");
 
         return NextResponse.json({
           type: "guest",
@@ -75,7 +86,13 @@ export async function GET(request: NextRequest) {
           dailyFree: {
             companyFetch: {
               remaining: remainingFreeFetches,
-              limit: DAILY_FREE_COMPANY_FETCH.guest,
+              limit: getDailyScheduleFetchLimit("guest"),
+            },
+          },
+          monthlyFree: {
+            companyRagUnits: {
+              remaining: 0,
+              limit: 0,
             },
           },
         });

@@ -19,10 +19,10 @@ import { getGuestUser } from "@/lib/auth/guest";
 import {
   getRemainingFreeFetches,
   incrementDailyFreeUsage,
-  consumeCredits,
   hasEnoughCredits,
-  consumePartialCredits,
+  consumeCredits,
 } from "@/lib/credits";
+import { getDailyScheduleFetchLimit } from "@/lib/company-info/pricing";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 import { logError } from "@/lib/logger";
 
@@ -275,7 +275,7 @@ export async function POST(
       );
     }
 
-    const { userId, guestId } = identity;
+    const { userId, guestId, plan } = identity;
 
     // Rate limiting check
     const rateLimitKey = createRateLimitKey("fetchInfo", userId, guestId);
@@ -325,7 +325,7 @@ export async function POST(
     // Check credits/quota (for registered users only)
     let useDailyFree = false;
     if (userId) {
-      const freeRemaining = await getRemainingFreeFetches(userId, null);
+      const freeRemaining = await getRemainingFreeFetches(userId, null, plan);
       if (freeRemaining > 0) {
         useDailyFree = true;
       } else {
@@ -338,10 +338,12 @@ export async function POST(
         }
       }
     } else if (guestId) {
-      const freeRemaining = await getRemainingFreeFetches(null, guestId);
+      const freeRemaining = await getRemainingFreeFetches(null, guestId, plan);
       if (freeRemaining <= 0) {
         return NextResponse.json(
-          { error: "本日の無料取得回数を使い切りました。ログインするとより多くの回数が利用できます。" },
+          {
+            error: `本日の無料取得回数を使い切りました。ログインすると1日${getDailyScheduleFetchLimit("free")}回まで利用できます。`,
+          },
           { status: 402 }
         );
       }
@@ -424,26 +426,12 @@ export async function POST(
         deadlinesSavedCount: 0,
         creditsConsumed: 0,
         freeUsed: false,
-        freeRemaining: await getRemainingFreeFetches(userId, guestId),
+        freeRemaining: await getRemainingFreeFetches(userId, guestId, plan),
       });
     }
 
     // 締切なし & 他データあり = no_deadlines
     if (!hasDeadlines && hasOtherData) {
-      let creditsConsumed = 0;
-      let actualCreditsDeducted: number | undefined;
-
-      if (userId && !useDailyFree) {
-        const partialResult = await consumePartialCredits(
-          userId,
-          "company_fetch",
-          companyId,
-          `選考スケジュール取得（部分成功）: ${company.name}`
-        );
-        creditsConsumed = 0.5;
-        actualCreditsDeducted = partialResult.actualConsumed;
-      }
-
       // Update company's recruitmentUrl and infoFetchedAt
       await db
         .update(companies)
@@ -481,7 +469,7 @@ export async function POST(
         logError("rag-build-partial", ragError);
       }
 
-      const freeRemaining = await getRemainingFreeFetches(userId, guestId);
+      const freeRemaining = await getRemainingFreeFetches(userId, guestId, plan);
 
       return NextResponse.json({
         success: false,
@@ -497,14 +485,10 @@ export async function POST(
         deadlines: [],
         deadlinesExtractedCount,
         deadlinesSavedCount: 0,
-        creditsConsumed,
-        actualCreditsDeducted,
+        creditsConsumed: 0,
         freeUsed: false,
         freeRemaining,
-        message:
-          creditsConsumed > 0
-            ? "締切情報は見つかりませんでしたが、他の情報を取得しました（0.5クレジット消費）"
-            : "締切情報は見つかりませんでしたが、他の情報を取得しました",
+        message: "締切情報は見つかりませんでしたが、他の情報を取得しました",
       });
     }
 
@@ -518,7 +502,7 @@ export async function POST(
         deadlinesSavedCount: 0,
         creditsConsumed: 0,
         freeUsed: false,
-        freeRemaining: await getRemainingFreeFetches(userId, guestId),
+        freeRemaining: await getRemainingFreeFetches(userId, guestId, plan),
       });
     }
 
@@ -671,15 +655,26 @@ export async function POST(
 
     // Success: Consume credits/quota
     let creditsConsumed = 0;
+    let actualCreditsDeducted: number | undefined;
     if (useDailyFree) {
       await incrementDailyFreeUsage(userId, guestId, "companyFetchCount");
     } else if (userId) {
-      await consumeCredits(userId, 1, "company_fetch", companyId, `選考スケジュール取得: ${company.name}`);
+      const consumption = await consumeCredits(
+        userId,
+        1,
+        "company_fetch",
+        companyId,
+        `選考スケジュール取得: ${company.name}`,
+      );
+      if (!consumption.success) {
+        throw new Error("Insufficient credits for company info usage");
+      }
       creditsConsumed = 1;
+      actualCreditsDeducted = 1;
     }
 
     // Get updated free remaining
-    const freeRemaining = await getRemainingFreeFetches(userId, guestId);
+    const freeRemaining = await getRemainingFreeFetches(userId, guestId, plan);
 
     if (duplicatesOnly) {
       return NextResponse.json({
@@ -698,6 +693,7 @@ export async function POST(
         deadlinesExtractedCount,
         deadlinesSavedCount,
         creditsConsumed,
+        actualCreditsDeducted,
         freeUsed: useDailyFree,
         freeRemaining,
         message: "取得した締切はすべて既存データと重複していたため、新規追加はありませんでした。",
@@ -720,6 +716,7 @@ export async function POST(
       deadlinesExtractedCount,
       deadlinesSavedCount,
       creditsConsumed,
+      actualCreditsDeducted,
       freeUsed: useDailyFree,
       freeRemaining,
     });

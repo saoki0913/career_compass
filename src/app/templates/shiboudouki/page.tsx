@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { createMarketingMetadata } from "@/lib/marketing-metadata";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createMarketingMetadata({
   title: "志望動機テンプレ | 就活Pass",
   description:
     "就活の志望動機を迷わず書くためのテンプレ。構成、書き出し例、よくあるNG例をまとめました。",
-};
+  path: "/templates/shiboudouki",
+  keywords: ["志望動機 テンプレ", "志望動機 書き方", "ES 志望動機 例文"],
+});
 
 export default function ShiboudoukiTemplatePage() {
   return (

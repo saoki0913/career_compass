@@ -38,6 +38,8 @@ export interface CorporateInfoSource {
   errorMessage?: string;
   chunksStored?: number;
   extractedChars?: number;
+  pageCount?: number;
+  ingestUnits?: number;
   extractionMethod?: string;
   updatedAt?: string;
   sourceType?: CorporateInfoSourceType;
@@ -169,6 +171,10 @@ function normalizeBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
+function normalizeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 export function inferTrustedForEsReview(source: Pick<
   CorporateInfoSource,
   "kind" | "url" | "sourceType" | "parentAllowed" | "trustedForEsReview"
@@ -216,6 +222,8 @@ export function parseCorporateInfoSources(raw: string | null | undefined): Corpo
           errorMessage: typeof entry.errorMessage === "string" ? entry.errorMessage : undefined,
           chunksStored: typeof entry.chunksStored === "number" ? entry.chunksStored : undefined,
           extractedChars: typeof entry.extractedChars === "number" ? entry.extractedChars : undefined,
+          pageCount: normalizeNumber(entry.pageCount),
+          ingestUnits: normalizeNumber(entry.ingestUnits),
           extractionMethod: typeof entry.extractionMethod === "string" ? entry.extractionMethod : undefined,
           fetchedAt: typeof entry.fetchedAt === "string" ? entry.fetchedAt : undefined,
           updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : undefined,

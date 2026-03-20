@@ -41,6 +41,7 @@ vi.mock("@/lib/rate-limit", () => ({
 
 vi.mock("@/lib/ai/es-review-models", () => ({
   isStandardESReviewModel: vi.fn(),
+  isLowCostESReviewModel: vi.fn((value: string | null | undefined) => value === "low-cost"),
 }));
 
 vi.mock("@/lib/constants/es-review-role-catalog", () => ({
@@ -175,6 +176,85 @@ describe("api/documents/[id]/review/stream prestream enrichment policy", () => {
         answer: "研究室で進捗管理を改善した。",
         roleName: null,
         corporateInfoUrls: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("does not run prestream when corporate URLs are empty but fetch was recent", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2025-01-15T12:00:00.000Z");
+    vi.setSystemTime(now);
+    const { shouldRunPrestreamEnrichment } = await import(
+      "@/app/api/documents/[id]/review/stream/route"
+    );
+
+    expect(
+      shouldRunPrestreamEnrichment({
+        templateType: "company_motivation",
+        question: "志望理由を教えてください。",
+        answer: "事業の幅に魅力を感じる。",
+        roleName: "総合職",
+        corporateInfoUrls: [],
+        corporateInfoFetchedAt: new Date(now.getTime() - 60_000),
+      }),
+    ).toBe(false);
+
+    vi.useRealTimers();
+  });
+
+  it("runs prestream when corporate URLs are empty and corporate info was never fetched", async () => {
+    const { shouldRunPrestreamEnrichment } = await import(
+      "@/app/api/documents/[id]/review/stream/route"
+    );
+
+    expect(
+      shouldRunPrestreamEnrichment({
+        templateType: "company_motivation",
+        question: "志望理由を教えてください。",
+        answer: "事業の幅に魅力を感じる。",
+        roleName: "総合職",
+        corporateInfoUrls: [],
+        corporateInfoFetchedAt: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("runs prestream again when corporate URLs are empty and last fetch is older than TTL", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2025-01-15T12:00:00.000Z");
+    vi.setSystemTime(now);
+    const { shouldRunPrestreamEnrichment } = await import(
+      "@/app/api/documents/[id]/review/stream/route"
+    );
+
+    expect(
+      shouldRunPrestreamEnrichment({
+        templateType: "company_motivation",
+        question: "志望理由を教えてください。",
+        answer: "事業の幅に魅力を感じる。",
+        roleName: "総合職",
+        corporateInfoUrls: [],
+        corporateInfoFetchedAt: new Date(now.getTime() - 25 * 60 * 60 * 1000),
+      }),
+    ).toBe(true);
+
+    vi.useRealTimers();
+  });
+
+  it("does not run prestream in low-cost review mode", async () => {
+    const { shouldRunPrestreamEnrichment } = await import(
+      "@/app/api/documents/[id]/review/stream/route"
+    );
+
+    expect(
+      shouldRunPrestreamEnrichment({
+        templateType: "company_motivation",
+        question: "志望理由を教えてください。",
+        answer: "事業の幅に魅力を感じる。",
+        roleName: "総合職",
+        llmModel: "low-cost",
+        corporateInfoUrls: [],
+        corporateInfoFetchedAt: null,
       }),
     ).toBe(false);
   });

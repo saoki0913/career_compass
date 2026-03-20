@@ -12,8 +12,10 @@ def _reset_provider_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "")
     monkeypatch.setattr(settings, "google_api_key", "")
     monkeypatch.setattr(settings, "cohere_api_key", "")
-    monkeypatch.setattr(settings, "openai_model", "gpt-5-mini")
-    monkeypatch.setattr(settings, "google_model", "gemini-3.1-pro-preview")
+    monkeypatch.setattr(settings, "gpt_model", "gpt-5.4")
+    monkeypatch.setattr(settings, "gpt_fast_model", "gpt-5.4-mini")
+    monkeypatch.setattr(settings, "low_cost_review_model", "gpt-5.4-mini")
+    monkeypatch.setattr(settings, "gemini_model", "gemini-3.1-pro-preview")
     monkeypatch.setattr(settings, "cohere_model", "command-a-03-2025")
     monkeypatch.setattr(settings, "model_es_review", "claude-sonnet")
     monkeypatch.setattr(llm, "_model_config", None)
@@ -25,7 +27,7 @@ def _reset_provider_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_resolve_model_target_supports_explicit_provider_models() -> None:
-    assert llm._resolve_model_target("es_review", "gpt-5.1").provider == "openai"
+    assert llm._resolve_model_target("es_review", "gpt-5.4").provider == "openai"
     assert llm._resolve_model_target("es_review", "gemini-3.1-pro-preview").provider == "google"
     assert llm._resolve_model_target("es_review", "command-a-03-2025").provider == "cohere"
 

@@ -14,7 +14,7 @@ from app.routers.es_review import ReviewRequest, TemplateRequest, review_section
 
 MODEL_MATRIX = {
     "claude-sonnet": {"provider": "claude", "api_key_attr": "anthropic_api_key"},
-    "gpt-5.1": {"provider": "openai", "api_key_attr": "openai_api_key"},
+    "gpt-5.4": {"provider": "openai", "api_key_attr": "openai_api_key"},
     "gemini-3.1-pro-preview": {"provider": "google", "api_key_attr": "google_api_key"},
     "command-a-03-2025": {"provider": "cohere", "api_key_attr": "cohere_api_key"},
 }

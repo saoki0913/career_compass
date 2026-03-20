@@ -303,6 +303,75 @@
   .landing-shell .landing-rule {
     @apply bg-border/40;
   }
+
+  /* LP: Bento-style surfaces (ui-ux-pro-max: section rhythm, subtle depth) */
+  .landing-shell .landing-section-muted {
+    @apply bg-muted/15;
+  }
+
+  .landing-shell .landing-bento-card {
+    @apply rounded-3xl border border-border/40 bg-background/80 p-8 shadow-sm ring-1 ring-primary/[0.06] backdrop-blur-sm transition-[box-shadow] duration-200 ease-out md:p-10 motion-reduce:transition-none;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .landing-shell .landing-bento-card:hover {
+      @apply shadow-md ring-primary/10;
+    }
+  }
+
+  .landing-shell .landing-bento-card-static {
+    @apply rounded-3xl border border-border/40 bg-background/80 p-6 shadow-sm ring-1 ring-primary/[0.06] backdrop-blur-sm sm:p-8 lg:p-10;
+  }
+
+  .landing-shell .landing-bento-highlight {
+    @apply rounded-3xl border border-primary/25 bg-gradient-to-b from-primary/[0.06] to-background/90 p-8 shadow-md ring-2 ring-primary/15 backdrop-blur-sm md:p-10;
+  }
+
+  .landing-shell .landing-bento-media {
+    @apply relative overflow-hidden rounded-3xl border border-border/50 bg-muted/20 p-2 shadow-lg ring-1 ring-primary/[0.08] backdrop-blur-sm;
+  }
+
+  .landing-shell .landing-hero-backdrop {
+    background:
+      radial-gradient(
+        120% 80% at 50% -20%,
+        color-mix(in oklab, var(--primary) 8%, transparent) 0%,
+        transparent 55%
+      ),
+      var(--background);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .landing-shell .landing-highlight-tile:hover {
+      @apply shadow-md ring-primary/12;
+    }
+  }
+
+  .landing-shell .landing-highlight-tile {
+    @apply border border-border/35 bg-background/90 shadow-sm ring-1 ring-primary/[0.05] backdrop-blur-sm;
+  }
+
+  .landing-shell .landing-highlight-tile:focus-visible {
+    @apply ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* LP: Dark section — locally overrides CSS custom properties so child
+     utilities (bg-background, text-foreground, border-border, etc.) invert
+     without extra class names on every element. */
+  .landing-shell .landing-section-dark {
+    --background: oklch(0.13 0.015 265);
+    --foreground: oklch(0.96 0.005 265);
+    --muted-foreground: oklch(0.62 0.01 265);
+    --border: oklch(0.26 0.015 265);
+    --muted: oklch(0.22 0.015 265);
+    --card: oklch(0.17 0.015 265);
+    --card-foreground: oklch(0.96 0.005 265);
+    --ring: oklch(0.65 0.18 265);
+    --primary: oklch(0.65 0.18 265);
+    --primary-foreground: oklch(0.13 0.015 265);
+    background: var(--background);
+    color: var(--foreground);
+  }
 }
 
 /* Indeterminate progress bar animation */

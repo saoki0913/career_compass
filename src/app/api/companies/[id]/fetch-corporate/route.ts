@@ -22,17 +22,16 @@ import {
   type CorporateInfoSource,
   type CorporateInfoSourceType,
 } from "@/lib/company-info/sources";
+import {
+  applyCompanyRagUsage,
+} from "@/lib/company-info/usage";
+import {
+  calculateCorporateCrawlUnits,
+  getCompanyRagSourceLimit,
+} from "@/lib/company-info/pricing";
 
 // FastAPI backend URL
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
-
-// Page limits by plan
-const PAGE_LIMITS = {
-  guest: 0,  // Guests cannot use this feature
-  free: 10,
-  standard: 50,
-  pro: 150,
-};
 
 interface CrawlResult {
   success: boolean;
@@ -134,7 +133,7 @@ export async function POST(
     const company = access.company;
 
     // Check total page limit per company (not just per request)
-    const pageLimit = PAGE_LIMITS[plan];
+    const pageLimit = getCompanyRagSourceLimit(plan);
     const existingUrls = parseCorporateInfoSources(company.corporateInfoUrls);
     const existingUrlSet = new Set(existingUrls.map((u) => u.url));
 
@@ -222,6 +221,7 @@ export async function POST(
           secondaryContentTypes: [],
           fetchedAt: new Date().toISOString(),
           status: "completed",
+          ingestUnits: 0,
           sourceType,
           relationCompanyName:
             typeof metadata?.relationCompanyName === "string" ? metadata.relationCompanyName : undefined,
@@ -259,6 +259,15 @@ export async function POST(
       };
     });
 
+    const actualUnits = calculateCorporateCrawlUnits(crawlResult.pages_crawled);
+    const usage = await applyCompanyRagUsage({
+      userId,
+      plan,
+      units: actualUnits,
+      referenceId: companyId,
+      description: `企業RAG取込(URL): ${company.name}`,
+    });
+
     await db
       .update(companies)
       .set({
@@ -271,6 +280,19 @@ export async function POST(
     return NextResponse.json({
       success: crawlResult.success,
       pagesCrawled: crawlResult.pages_crawled,
+      actualUnits,
+      freeUnitsApplied: usage.freeUnitsApplied,
+      remainingFreeUnits: usage.remainingFreeUnits,
+      creditsConsumed: usage.creditsDisplayed,
+      actualCreditsDeducted: usage.creditsActuallyDeducted,
+      estimatedCostBand:
+        usage.creditsDisplayed > 0
+          ? usage.creditsDisplayed === 1
+            ? "1クレジット"
+            : "2クレジット以上"
+          : usage.overflowUnits > 0
+            ? "今回はクレジット消費なし"
+            : "無料枠内",
       chunksStored: crawlResult.chunks_stored,
       errors: crawlResult.errors,
       totalUrls: updatedUrls.length,
@@ -416,7 +438,7 @@ export async function GET(
         midtermPlanChunks: ragStatus.midterm_plan_chunks || 0,
         lastUpdated: ragStatus.last_updated,
       },
-      pageLimit: PAGE_LIMITS[authUser.plan],
+      pageLimit: getCompanyRagSourceLimit(authUser.plan),
     });
   } catch (error) {
     console.error("Error getting corporate info status:", error);

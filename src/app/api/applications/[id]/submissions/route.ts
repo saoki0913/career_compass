@@ -6,35 +6,13 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { submissionItems, applications } from "@/lib/db/schema";
-import { eq, and, desc } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
-
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
-}
+import { eq, desc } from "drizzle-orm";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { logError } from "@/lib/logger";
+import { parseBody, submissionCreateSchema } from "@/lib/validation";
 
 async function verifyApplicationAccess(
   applicationId: string,
@@ -60,12 +38,14 @@ export async function GET(
   try {
     const { id: applicationId } = await params;
 
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTH_REQUIRED",
+        userMessage: "ログインまたはゲストセッションが必要です。",
+        action: "ログインし直して、もう一度お試しください。",
+      });
     }
 
     const hasAccess = await verifyApplicationAccess(
@@ -75,10 +55,12 @@ export async function GET(
     );
 
     if (!hasAccess) {
-      return NextResponse.json(
-        { error: "Application not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "APPLICATION_NOT_FOUND",
+        userMessage: "対象の応募情報が見つかりませんでした。",
+        action: "一覧へ戻って、対象データを選び直してください。",
+      });
     }
 
     const items = await db
@@ -89,11 +71,14 @@ export async function GET(
 
     return NextResponse.json({ submissions: items });
   } catch (error) {
-    console.error("Error fetching submissions:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logError("fetch-submissions", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "FETCH_SUBMISSIONS_FAILED",
+      userMessage: "提出物の取得に失敗しました。",
+      action: "少し時間をおいて、もう一度お試しください。",
+      error,
+    });
   }
 }
 
@@ -104,41 +89,35 @@ export async function POST(
   try {
     const { id: applicationId } = await params;
 
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTH_REQUIRED",
+        userMessage: "ログインまたはゲストセッションが必要です。",
+        action: "ログインし直して、もう一度お試しください。",
+      });
     }
 
     const { userId, guestId } = identity;
     const hasAccess = await verifyApplicationAccess(applicationId, userId, guestId);
 
     if (!hasAccess) {
-      return NextResponse.json(
-        { error: "Application not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "APPLICATION_NOT_FOUND",
+        userMessage: "対象の応募情報が見つかりませんでした。",
+        action: "一覧へ戻って、対象データを選び直してください。",
+      });
     }
 
-    const body = await request.json();
-    const { type, name, isRequired, notes } = body;
-
-    if (!type || !name?.trim()) {
-      return NextResponse.json(
-        { error: "種類と名前は必須です" },
-        { status: 400 }
-      );
-    }
-
-    const validTypes = ["resume", "es", "photo", "transcript", "certificate", "portfolio", "other"];
-    if (!validTypes.includes(type)) {
-      return NextResponse.json(
-        { error: "無効な種類です" },
-        { status: 400 }
-      );
-    }
+    const parsed = await parseBody(request, submissionCreateSchema, {
+      request,
+      code: "INVALID_SUBMISSION_CREATE",
+      logContext: "create-submission:validation",
+    });
+    if (parsed.error) return parsed.error;
+    const { type, name, isRequired, notes } = parsed.data;
 
     const now = new Date();
     const newItem = await db
@@ -160,10 +139,13 @@ export async function POST(
 
     return NextResponse.json({ submission: newItem[0] });
   } catch (error) {
-    console.error("Error creating submission:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logError("create-submission", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "CREATE_SUBMISSION_FAILED",
+      userMessage: "提出物の作成に失敗しました。",
+      action: "少し時間をおいて、もう一度お試しください。",
+      error,
+    });
   }
 }

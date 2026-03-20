@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { ScrollReveal } from "./ScrollReveal";
 
 const faqs = [
   {
@@ -14,7 +15,7 @@ const faqs = [
   {
     question: "他の就活サービスとの違いは何ですか？",
     answer:
-      "就活Passは、ES添削だけでなく、志望動機作成、ガクチカ深掘り、締切管理までを1つのアプリでつなげて使える点が違いです。無料ツールの手軽さと、継続的に進めやすい管理体験を両立することを重視しています。",
+      "就活Passは、設問タイプに合わせたAI添削に加え、志望動機・ガクチカの対話支援、企業・締切の整理とGoogleカレンダー連携までを1つのアプリでつなげて使える点が違いです。無料ツールの手軽さと、継続的に進めやすい管理体験を両立することを重視しています。",
   },
   {
     question: "入力したデータは安全ですか？",
@@ -83,35 +84,42 @@ export function FAQSection() {
   };
 
   return (
-    <section id="faq" className="py-32 lg:py-40">
+    <section id="faq" className="scroll-mt-24 py-28 lg:scroll-mt-28 lg:py-36">
       <div className="mx-auto max-w-3xl px-4">
-        <div className="mb-12 text-center">
-          <h2 className="text-3xl font-bold tracking-[-0.035em] sm:text-4xl lg:text-[3.25rem]">
-            よくある質問
-          </h2>
-          <p className="mt-5 text-lg leading-relaxed text-muted-foreground">
-            ご不明な点は
-            <Link
-              href="/contact"
-              className="ml-1 text-primary hover:underline"
-            >
-              お問い合わせ
-            </Link>
-            からご連絡ください。
-          </p>
-        </div>
+        <ScrollReveal>
+          <div className="landing-bento-card-static mb-10 px-6 py-10 sm:px-8">
+            <div className="mb-8 text-center">
+              <p className="text-sm font-semibold tracking-widest text-primary uppercase">
+                サポート
+              </p>
+              <h2 className="mt-4 text-balance text-3xl font-bold tracking-[-0.035em] sm:text-4xl lg:text-[3.25rem]">
+                よくある質問
+              </h2>
+              <p className="mt-5 text-balance text-lg leading-relaxed text-muted-foreground">
+                ご不明な点は
+                <Link
+                  href="/contact"
+                  className="ml-1 text-primary hover:underline"
+                >
+                  お問い合わせ
+                </Link>
+                からご連絡ください。
+              </p>
+            </div>
 
-        <div>
-          {faqs.map((faq, index) => (
-            <FAQItem
-              key={faq.question}
-              question={faq.question}
-              answer={faq.answer}
-              isOpen={openIndex === index}
-              onToggle={() => handleToggle(index)}
-            />
-          ))}
-        </div>
+            <div>
+              {faqs.map((faq, index) => (
+                <FAQItem
+                  key={faq.question}
+                  question={faq.question}
+                  answer={faq.answer}
+                  isOpen={openIndex === index}
+                  onToggle={() => handleToggle(index)}
+                />
+              ))}
+            </div>
+          </div>
+        </ScrollReveal>
       </div>
 
       <script

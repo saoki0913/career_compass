@@ -29,6 +29,10 @@ interface DeadlinesResponse {
   periodDays: number;
 }
 
+interface UseDeadlinesOptions {
+  initialData?: DeadlinesResponse;
+}
+
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -46,11 +50,11 @@ function buildHeaders(): Record<string, string> {
   return headers;
 }
 
-export function useDeadlines(days: number = 7) {
+export function useDeadlines(days: number = 7, options: UseDeadlinesOptions = {}) {
   const { isLoading: isAuthLoading } = useAuth();
-  const [deadlines, setDeadlines] = useState<Deadline[]>([]);
-  const [count, setCount] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
+  const [deadlines, setDeadlines] = useState<Deadline[]>(() => options.initialData?.deadlines ?? []);
+  const [count, setCount] = useState(() => options.initialData?.count ?? 0);
+  const [isLoading, setIsLoading] = useState(() => !options.initialData);
   const [error, setError] = useState<string | null>(null);
 
   const fetchDeadlines = useCallback(async () => {
@@ -107,11 +111,14 @@ export function useDeadlines(days: number = 7) {
   }, [days, isAuthLoading]);
 
   useEffect(() => {
+    if (options.initialData) {
+      return;
+    }
     if (isAuthLoading) {
       return;
     }
     fetchDeadlines();
-  }, [fetchDeadlines, isAuthLoading]);
+  }, [fetchDeadlines, isAuthLoading, options.initialData]);
 
   return {
     deadlines,

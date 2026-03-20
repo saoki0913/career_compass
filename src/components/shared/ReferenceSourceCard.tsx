@@ -1,7 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ExternalLink } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -33,13 +34,17 @@ export function ReferenceSourceCard({
   compact = false,
 }: ReferenceSourceCardProps) {
   const isLinkVisible = Boolean(sourceUrl);
+  const isExternalHttp = Boolean(sourceUrl && /^https?:\/\//i.test(sourceUrl));
+  const isInternalPath = Boolean(sourceUrl && sourceUrl.startsWith("/"));
+  const resolvedLinkLabel =
+    linkLabel === "元ページを開く" && isInternalPath ? "アプリ内で開く" : linkLabel;
   const content = (
     <div
       className={cn(
         "group border border-border/70 bg-background shadow-sm transition-all duration-200",
         compact ? "rounded-[18px] p-3" : "rounded-[22px] p-4",
         isLinkVisible
-          ? "hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md"
+          ? "cursor-pointer hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md"
           : undefined,
         className,
       )}
@@ -60,8 +65,12 @@ export function ReferenceSourceCard({
             variant="outline"
             className={cn("gap-1", compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-[11px]")}
           >
-            <ExternalLink className="size-3.5" />
-            {linkLabel}
+            {isExternalHttp ? (
+              <ExternalLink className="size-3.5" />
+            ) : (
+              <ArrowRight className="size-3.5" />
+            )}
+            {resolvedLinkLabel}
           </Badge>
         ) : null}
       </div>
@@ -73,8 +82,16 @@ export function ReferenceSourceCard({
     return content;
   }
 
+  if (isInternalPath) {
+    return (
+      <Link href={sourceUrl} className="block" title={resolvedLinkLabel}>
+        {content}
+      </Link>
+    );
+  }
+
   return (
-    <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="block">
+    <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="block" title={resolvedLinkLabel}>
       {content}
     </a>
   );

@@ -335,6 +335,7 @@ def build_reference_quality_block(
 - 数字を含む割合: {profile["digit_rate"]}%
 - 結論先行率: {profile["conclusion_first_rate"]}%
 - 参考ESの本文・語句・特徴的な言い回し・細かな構成順を再利用しない
+- 骨子は論点の順序の参考にだけ使い、「貴社のように〜で活かす」等の型文や言い回しをコピーしない
 
 【この設問で意識する品質】
 {hint_lines}

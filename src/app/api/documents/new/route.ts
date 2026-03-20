@@ -6,10 +6,10 @@
  */
 
 import { NextResponse } from "next/server";
+import { getAppUrl } from "@/lib/app-url";
 
 export async function GET() {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  return NextResponse.redirect(new URL("/es", baseUrl));
+  return NextResponse.redirect(new URL("/es", getAppUrl()));
 }
 
 export async function POST() {

@@ -50,6 +50,13 @@
       "when": 1773530400000,
       "tag": "0006_calendar_sync_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1774017160312,
+      "tag": "0007_credit_integerization",
+      "breakpoints": true
     }
   ]
 }

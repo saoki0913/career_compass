@@ -120,10 +120,10 @@ export async function POST(
     return NextResponse.json({ error: "会話が十分にありません" }, { status: 400 });
   }
 
-  // Reserve credits upfront (1 credit for draft generation for logged-in users)
+  // Reserve credits upfront (2 credits for draft generation for logged-in users)
   let reservationId: string | null = null;
   if (userId) {
-    const reservation = await reserveCredits(userId, 1, "motivation_draft", companyId, `志望動機ES生成: ${company.name}`);
+    const reservation = await reserveCredits(userId, 2, "motivation_draft", companyId, `志望動機ES生成: ${company.name}`);
     if (!reservation.success) {
       return NextResponse.json({ error: "クレジットが不足しています" }, { status: 402 });
     }

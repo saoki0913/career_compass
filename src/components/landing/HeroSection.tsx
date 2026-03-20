@@ -1,19 +1,8 @@
-"use client";
-
-import { useState, useEffect } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/components/auth/AuthProvider";
-import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight } from "lucide-react";
-
-const screenshots = [
-  { src: "/screenshots/dashboard.png", alt: "ダッシュボード" },
-  { src: "/screenshots/es-review.png", alt: "AI添削" },
-  { src: "/screenshots/gakuchika-chat.png", alt: "ガクチカ深掘り" },
-  { src: "/screenshots/companies.png", alt: "企業管理" },
-];
+import { landingMedia } from "./landing-media";
+import { LandingPrimaryAction } from "./LandingPrimaryAction";
+import { ScrollReveal } from "./ScrollReveal";
 
 const trustPoints = [
   "クレジットカード不要",
@@ -22,116 +11,43 @@ const trustPoints = [
 ] as const;
 
 export function HeroSection() {
-  const { isAuthenticated, isGuest, isLoading } = useAuth();
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setActiveIndex((prev) => (prev + 1) % screenshots.length);
-    }, 6000);
-    return () => clearInterval(interval);
-  }, []);
+  const heroMedia = landingMedia.heroDashboard;
 
   return (
-    <section className="relative overflow-hidden bg-background">
-      <div className="mx-auto max-w-5xl px-4">
-        {/* Text content - centered */}
-        <div className="pt-20 pb-16 text-center lg:pt-28">
-          {/* Kicker */}
-          <motion.p
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="text-sm font-medium text-muted-foreground"
-          >
-            ES添削 / ガクチカ / 締切管理
-          </motion.p>
+    <section className="landing-hero-backdrop relative overflow-hidden">
+      <div className="mx-auto max-w-5xl px-4 pb-16 pt-28 text-center lg:pb-20 lg:pt-36">
+        <ScrollReveal>
+          <p className="text-sm font-medium tracking-tight text-muted-foreground sm:text-base">
+            就活の準備を、ひと続きで。
+          </p>
 
-          {/* H1 */}
-          <motion.h1
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.08 }}
-            className="mt-6 text-6xl font-bold leading-[0.9] tracking-[-0.045em] text-foreground sm:text-7xl lg:text-[5.5rem]"
-          >
+          <h1 className="mx-auto mt-5 max-w-3xl text-balance text-[2.75rem] font-bold leading-[0.92] tracking-[-0.05em] text-foreground sm:text-6xl lg:text-7xl xl:text-8xl">
             就活を、ひとつに。
-          </motion.h1>
+          </h1>
 
-          {/* Sub copy */}
-          <motion.p
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.16 }}
-            className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground sm:text-xl"
-          >
-            途中のESも、まとまらないガクチカも、忘れそうな締切も。
-            <br className="hidden sm:block" />
-            入れるだけで、次にやることが見えてくる。
-          </motion.p>
+          <p className="mt-5 text-lg font-semibold leading-snug tracking-tight text-foreground sm:text-xl lg:text-2xl">
+            書くことも、進行管理も、同じ流れで。
+          </p>
 
-          {/* CTA Buttons */}
-          <motion.div
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.24 }}
-            className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center"
-          >
-            {isLoading ? (
-              <Button size="lg" disabled className="h-12 min-w-[190px]">
-                <span className="mr-2 h-4 w-4 animate-spin rounded-full border-b-2 border-current" />
-                読み込み中...
-              </Button>
-            ) : isAuthenticated ? (
-              <Button
-                size="lg"
-                asChild
-                className="h-12 min-w-[190px] landing-cta-btn"
-              >
-                <Link href="/dashboard">
-                  ダッシュボードへ
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-            ) : isGuest ? (
-              <Button
-                size="lg"
-                asChild
-                className="h-12 min-w-[190px] landing-cta-btn"
-              >
-                <Link href="/dashboard">
-                  続ける
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                size="lg"
-                asChild
-                className="h-12 min-w-[190px] landing-cta-btn"
-              >
-                <Link href="/login">
-                  今すぐ無料で試す
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-            )}
+          <p className="mx-auto mt-4 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-[17px]">
+            AI添削・志望動機・ガクチカの整理から、企業・締切・カレンダー連携まで。
+          </p>
+        </ScrollReveal>
+
+        <ScrollReveal delay={0.15}>
+          <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+            <LandingPrimaryAction size="lg" className="landing-cta-btn" />
             <Button
               size="lg"
               variant="outline"
               asChild
-              className="h-12 min-w-[160px]"
+              className="h-12 min-w-[160px] border-border/60 bg-background/60 backdrop-blur-sm"
             >
-              <a href="#features">機能を見る</a>
+              <a href="#highlights">要点を見る</a>
             </Button>
-          </motion.div>
+          </div>
 
-          {/* Trust points */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.36 }}
-            className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2"
-          >
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
             {trustPoints.map((point) => (
               <span
                 key={point}
@@ -144,37 +60,25 @@ export function HeroSection() {
                 {point}
               </span>
             ))}
-          </motion.div>
-        </div>
-
-        {/* Screenshot crossfade */}
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.3 }}
-          className="relative mx-auto max-w-5xl pb-16"
-        >
-          <div className="relative aspect-[16/10] overflow-hidden rounded-2xl shadow-2xl/5">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeIndex}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.8 }}
-                className="absolute inset-0"
-              >
-                <Image
-                  src={screenshots[activeIndex].src}
-                  alt={screenshots[activeIndex].alt}
-                  fill
-                  className="object-cover object-top"
-                  priority={activeIndex === 0}
-                />
-              </motion.div>
-            </AnimatePresence>
           </div>
-        </motion.div>
+        </ScrollReveal>
+
+        <ScrollReveal delay={0.3} offset={48}>
+          <div className="mx-auto mt-14 max-w-4xl lg:mt-16">
+            <div className="landing-bento-media aspect-[16/10]">
+              <div className="relative h-full min-h-[220px] overflow-hidden rounded-2xl sm:min-h-[320px]">
+                <Image
+                  src={heroMedia.src}
+                  alt={heroMedia.alt}
+                  fill
+                  priority
+                  sizes="(min-width: 1024px) 896px, 100vw"
+                  className="object-cover object-top"
+                />
+              </div>
+            </div>
+          </div>
+        </ScrollReveal>
       </div>
     </section>
   );

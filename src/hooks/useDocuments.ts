@@ -4,7 +4,7 @@
  * Manages documents (ES, TIPS, etc.)
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { trackEvent } from "@/lib/analytics/client";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
@@ -91,12 +91,14 @@ export interface UseDocumentsOptions {
   companyId?: string;
   applicationId?: string;
   includeDeleted?: boolean;
+  initialData?: Document[];
 }
 
 export function useDocuments(options: UseDocumentsOptions = {}) {
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [documents, setDocuments] = useState<Document[]>(() => options.initialData ?? []);
+  const [isLoading, setIsLoading] = useState(() => !options.initialData);
   const [error, setError] = useState<string | null>(null);
+  const skipInitialFetchRef = useRef(Boolean(options.initialData));
 
   const fetchDocuments = useCallback(async () => {
     setIsLoading(true);
@@ -148,6 +150,10 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
   }, [options.type, options.companyId, options.applicationId, options.includeDeleted]);
 
   useEffect(() => {
+    if (skipInitialFetchRef.current) {
+      skipInitialFetchRef.current = false;
+      return;
+    }
     fetchDocuments();
   }, [fetchDocuments]);
 
@@ -505,15 +511,26 @@ export function useDocument(documentId: string) {
 }
 
 // Hook for ES statistics (for dashboard)
-export function useEsStats() {
+interface UseEsStatsOptions {
+  initialData?: {
+    draftCount: number;
+    publishedCount: number;
+    total: number;
+  };
+}
+
+export function useEsStats(options: UseEsStatsOptions = {}) {
   const [stats, setStats] = useState<{
     draftCount: number;
     publishedCount: number;
     total: number;
-  }>({ draftCount: 0, publishedCount: 0, total: 0 });
-  const [isLoading, setIsLoading] = useState(true);
+  }>(() => options.initialData ?? { draftCount: 0, publishedCount: 0, total: 0 });
+  const [isLoading, setIsLoading] = useState(() => !options.initialData);
 
   useEffect(() => {
+    if (options.initialData) {
+      return;
+    }
     const fetchStats = async () => {
       try {
         const response = await fetch("/api/documents?type=es", {
@@ -544,7 +561,7 @@ export function useEsStats() {
     };
 
     fetchStats();
-  }, []);
+  }, [options.initialData]);
 
   return { ...stats, isLoading };
 }

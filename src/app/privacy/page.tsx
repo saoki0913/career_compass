@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { createMarketingMetadata } from "@/lib/marketing-metadata";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createMarketingMetadata({
   title: "プライバシーポリシー | 就活Pass",
-  description: "就活支援アプリ「就活Pass（シューパス）」のプライバシーポリシーです。",
-};
+  description:
+    "就活Passのプライバシーポリシーです。取得する情報、利用目的、外部サービス、保管期間、お問い合わせ先を掲載しています。",
+  path: "/privacy",
+  keywords: ["就活Pass プライバシー", "就活AI 個人情報", "ES添削 AI データ利用"],
+});
 
 export default function PrivacyPage() {
   return (
@@ -14,16 +18,10 @@ export default function PrivacyPage() {
           プライバシーポリシー
         </h1>
         <p className="text-sm text-muted-foreground mb-8">
-          最終更新日: 2026-02-08
+          最終更新日: 2026-03-20
         </p>
 
         <div className="space-y-8 text-sm leading-7">
-          <section className="p-4 rounded-lg border bg-muted/20">
-            <p className="text-muted-foreground">
-              これは公開に向けた雛形です。実際の公開前に、提供内容・法令・運用に合わせて修正し、必要に応じて専門家レビューを推奨します。
-            </p>
-          </section>
-
           <section>
             <h2 className="text-base font-semibold mb-2">1. 取得する情報</h2>
             <p>本サービスでは、以下の情報を取得する場合があります。</p>
@@ -52,6 +50,9 @@ export default function PrivacyPage() {
             <h2 className="text-base font-semibold mb-2">3. 第三者提供・委託</h2>
             <p>
               本サービスは、機能提供のために外部サービス（例: 認証、決済、AI、ホスティング等）を利用する場合があります。これらのサービス提供者に対し、必要な範囲で情報を取り扱わせることがあります。
+            </p>
+            <p className="mt-2">
+              決済は Stripe、認証は Google OAuth、アプリ提供・分析・AI処理には当社が選定した外部サービスを利用する場合があります。
             </p>
           </section>
 

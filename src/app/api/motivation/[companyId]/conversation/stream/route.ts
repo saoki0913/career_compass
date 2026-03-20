@@ -532,7 +532,7 @@ export async function POST(
 
                 // Consume credit only after FastAPI success
                 if (shouldConsumeCredit) {
-                  await consumeCredits(userId!, 1, "motivation", companyId);
+                  await consumeCredits(userId!, 2, "motivation", companyId);
                 }
 
                 // Add AI question to messages

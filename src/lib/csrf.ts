@@ -12,8 +12,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual, randomBytes } from "crypto";
 
-const CSRF_COOKIE_NAME = "csrf_token";
-const CSRF_HEADER_NAME = "x-csrf-token";
+export const CSRF_COOKIE_NAME = "csrf_token";
+export const CSRF_HEADER_NAME = "x-csrf-token";
+
+export type CsrfFailureReason = "missing" | "invalid";
 
 /**
  * Generate a new CSRF token and set it as a cookie on the response.
@@ -32,34 +34,27 @@ export function setCsrfCookie(response: NextResponse): string {
 
 /**
  * Verify CSRF token from header matches cookie.
- * Returns null if valid, or a 403 NextResponse if invalid.
+ * Returns null if valid, or the failure reason if invalid.
  */
-export function verifyCsrfToken(request: NextRequest): NextResponse | null {
+export function getCsrfFailureReason(
+  request: Pick<NextRequest, "cookies" | "headers">
+): CsrfFailureReason | null {
   const cookieToken = request.cookies.get(CSRF_COOKIE_NAME)?.value;
   const headerToken = request.headers.get(CSRF_HEADER_NAME);
 
   if (!cookieToken || !headerToken) {
-    return NextResponse.json(
-      { error: "CSRF token missing" },
-      { status: 403 }
-    );
+    return "missing";
   }
 
   const cookieBuf = Buffer.from(cookieToken);
   const headerBuf = Buffer.from(headerToken);
 
   if (cookieBuf.length !== headerBuf.length) {
-    return NextResponse.json(
-      { error: "CSRF token invalid" },
-      { status: 403 }
-    );
+    return "invalid";
   }
 
   if (!timingSafeEqual(cookieBuf, headerBuf)) {
-    return NextResponse.json(
-      { error: "CSRF token invalid" },
-      { status: 403 }
-    );
+    return "invalid";
   }
 
   return null;
