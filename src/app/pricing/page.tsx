@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { PlanSelectionCard } from "@/components/auth/PlanSelectionCard";
+import { useRouter, useSearchParams } from "next/navigation";
+
 import { useAuth } from "@/components/auth/AuthProvider";
+import { PlanSelectionCard } from "@/components/auth/PlanSelectionCard";
 import { Button } from "@/components/ui/button";
 import { trackEvent } from "@/lib/analytics/client";
+import { ANNUAL_PLAN_PRICES, type BillingPeriod } from "@/lib/stripe/config";
 
 type PlanType = "free" | "standard" | "pro";
 
-const PLANS: {
+type PricingPlan = {
   id: PlanType;
   name: string;
   price: string;
@@ -21,65 +23,98 @@ const PLANS: {
   dailyPrice?: string;
   ctaLabel?: string;
   features: { text: string; included: boolean; highlight?: boolean }[];
-}[] = [
-  {
-    id: "free",
-    name: "Free",
-    price: "¥0",
-    description: "まずは無料で試してみたい方に",
-    variant: "default",
-    ctaLabel: "無料で始める",
-    features: [
-      { text: "月30クレジット", included: true, highlight: true },
-      { text: "企業登録 5社まで", included: true },
-      { text: "ESエディタ", included: true },
-      { text: "AI添削（2〜5クレジット/回）", included: true },
-      { text: "添削スタイル 3種", included: true },
-      { text: "カレンダー連携（Google/アプリ内）", included: true },
-    ],
-  },
-  {
-    id: "standard",
-    name: "Standard",
-    price: "¥980",
-    period: "月",
-    description: "本格的に就活を進めたい方に",
-    isPopular: true,
-    variant: "recommended",
-    dailyPrice: "¥33",
-    ctaLabel: "Standardで始める",
-    features: [
-      { text: "月300クレジット", included: true, highlight: true },
-      { text: "企業登録 無制限", included: true, highlight: true },
-      { text: "ESエディタ", included: true },
-      { text: "添削スタイル 8種", included: true, highlight: true },
-      { text: "ガクチカ素材 10件まで", included: true },
-      { text: "企業RAG 50ページ/社まで", included: true },
-    ],
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    price: "¥2,980",
-    period: "月",
-    description: "最大限のサポートで内定を勝ち取る",
-    variant: "premium",
-    dailyPrice: "¥99",
-    ctaLabel: "Proで始める",
-    features: [
-      { text: "月800クレジット", included: true, highlight: true },
-      { text: "企業登録 無制限", included: true },
-      { text: "ESエディタ", included: true },
-      { text: "添削スタイル 8種", included: true },
-      { text: "ガクチカ素材 20件まで", included: true },
-      { text: "企業RAG 150ページ/社まで", included: true },
-    ],
-  },
-];
+};
 
-// Icons
+function getPlans(period: BillingPeriod): PricingPlan[] {
+  const standardPrice = period === "annual" ? `¥${ANNUAL_PLAN_PRICES.standard.toLocaleString("ja-JP")}` : "¥980";
+  const proPrice = period === "annual" ? `¥${ANNUAL_PLAN_PRICES.pro.toLocaleString("ja-JP")}` : "¥2,980";
+
+  return [
+    {
+      id: "free",
+      name: "Free",
+      price: "¥0",
+      description: "まずは無料で試したい方に",
+      variant: "default",
+      ctaLabel: "無料で始める",
+      features: [
+        { text: "月30クレジット", included: true, highlight: true },
+        { text: "企業登録 5社まで", included: true },
+        { text: "ESエディタ", included: true },
+        { text: "AI添削（4〜16クレジット/回）", included: true },
+        { text: "企業情報取得 1日10回まで無料", included: true },
+        { text: "企業RAG取込 月160unitまで無料", included: true },
+      ],
+    },
+    {
+      id: "standard",
+      name: "Standard",
+      price: standardPrice,
+      period: period === "annual" ? "年" : "月",
+      description: "就活を継続的に進めたい方に",
+      isPopular: true,
+      variant: "recommended",
+      dailyPrice: period === "annual" ? "月あたり約¥832" : "1日約¥33",
+      ctaLabel: "Standardで始める",
+      features: [
+        { text: "月300クレジット", included: true, highlight: true },
+        { text: "企業登録 無制限", included: true, highlight: true },
+        { text: "ES添削モデルを選択可能", included: true },
+        { text: "企業情報取得 1日20回まで無料", included: true },
+        { text: "企業RAG取込 月640unitまで無料", included: true, highlight: true },
+        { text: "年額は月額合計より約15%お得", included: period === "annual", highlight: period === "annual" },
+      ],
+    },
+    {
+      id: "pro",
+      name: "Pro",
+      price: proPrice,
+      period: period === "annual" ? "年" : "月",
+      description: "添削や企業研究を重く使いたい方に",
+      variant: "premium",
+      dailyPrice: period === "annual" ? "月あたり約¥2,483" : "1日約¥99",
+      ctaLabel: "Proで始める",
+      features: [
+        { text: "月1300クレジット", included: true, highlight: true },
+        { text: "企業登録 無制限", included: true },
+        { text: "ES添削モデルを選択可能", included: true },
+        { text: "企業情報取得 1日40回まで無料", included: true },
+        { text: "企業RAG取込 月2400unitまで無料", included: true, highlight: true },
+        { text: "年額は月額合計より約15%お得", included: period === "annual", highlight: period === "annual" },
+      ],
+    },
+  ];
+}
+
+const pricingFaqSchema = [
+  {
+    "@type": "Question",
+    name: "クレジットとは何ですか？",
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: "AI実行や企業情報取得に使うポイントです。成功時のみ消費され、毎月リセットされます。",
+    },
+  },
+  {
+    "@type": "Question",
+    name: "企業情報取得はどのくらい無料ですか？",
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: "選考スケジュール取得は各プランに日次無料枠があります。企業RAG取込も月ごとの無料unitがあり、通常の利用では無料枠内で使える設計です。",
+    },
+  },
+  {
+    "@type": "Question",
+    name: "解約はいつでもできますか？",
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: "はい。Stripeのサブスクリプションを通じていつでも解約できます。解約後の扱いは決済画面とアプリ内表示に従います。",
+    },
+  },
+] as const;
+
 const ShieldCheckIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -90,7 +125,7 @@ const ShieldCheckIcon = () => (
 );
 
 const CreditCardIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -101,7 +136,7 @@ const CreditCardIcon = () => (
 );
 
 const RefreshIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -122,24 +157,36 @@ export default function PricingPage() {
 function PricingPageContent() {
   const searchParams = useSearchParams();
   const canceled = searchParams.get("canceled");
-
-  const [selectedPlan, setSelectedPlan] = useState<PlanType | null>("standard");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const { isAuthenticated, isLoading, userPlan } = useAuth();
 
-  // State for canceled message
-  const showCanceledMessage = canceled === "true";
+  const [selectedPlan, setSelectedPlan] = useState<PlanType | null>("standard");
+  const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>("monthly");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const plans = useMemo(() => getPlans(billingPeriod), [billingPeriod]);
 
   useEffect(() => {
     trackEvent("pricing_view");
   }, []);
 
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) return;
+
+    const savedPlan = localStorage.getItem("selectedPlan") as PlanType | null;
+    const savedPeriod = (localStorage.getItem("selectedPlanPeriod") || "monthly") as BillingPeriod;
+    if (!savedPlan || savedPlan === "free") return;
+
+    localStorage.removeItem("selectedPlan");
+    localStorage.removeItem("selectedPlanPeriod");
+    setBillingPeriod(savedPeriod);
+    void handleCheckout(savedPlan, savedPeriod);
+  }, [isAuthenticated, isLoading]);
+
   const handlePlanSelect = async (planId: PlanType) => {
     setSelectedPlan(planId);
 
-    // For free plan, just redirect to signup/login
     if (planId === "free") {
       if (!isAuthenticated) {
         router.push("/login?redirect=/dashboard");
@@ -149,20 +196,18 @@ function PricingPageContent() {
       return;
     }
 
-    // For paid plans, redirect to checkout
     if (!isAuthenticated) {
-      // Save selected plan to localStorage and redirect to login
       localStorage.setItem("selectedPlan", planId);
-      trackEvent("checkout_intent_login", { plan: planId });
+      localStorage.setItem("selectedPlanPeriod", billingPeriod);
+      trackEvent("checkout_intent_login", { plan: planId, period: billingPeriod });
       router.push("/login?redirect=/pricing");
       return;
     }
 
-    // User is authenticated, proceed to checkout
-    await handleCheckout(planId);
+    await handleCheckout(planId, billingPeriod);
   };
 
-  const handleCheckout = async (plan: PlanType) => {
+  const handleCheckout = async (plan: PlanType, period: BillingPeriod) => {
     if (plan === "free") return;
 
     setIsSubmitting(true);
@@ -171,52 +216,38 @@ function PricingPageContent() {
       const response = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, period }),
       });
 
       const data = await response.json();
-
       if (!response.ok) {
         throw new Error(data.error || "チェックアウトの作成に失敗しました");
       }
 
-      // Redirect to Stripe Checkout
       if (data.url) {
-        trackEvent("checkout_start", { plan });
+        trackEvent("checkout_start", { plan, period });
         window.location.href = data.url;
       }
     } catch (err) {
       console.error("Checkout error:", err);
       setError(err instanceof Error ? err.message : "エラーが発生しました");
-      trackEvent("checkout_error");
+      trackEvent("checkout_error", { plan, period });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Check for saved plan after login
-  if (isAuthenticated && !isLoading) {
-    const savedPlan = localStorage.getItem("selectedPlan") as PlanType | null;
-    if (savedPlan && savedPlan !== "free") {
-      localStorage.removeItem("selectedPlan");
-      // Auto-trigger checkout for saved plan
-      handleCheckout(savedPlan);
-    }
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted">
-      {/* Background decorations */}
-      <div className="absolute inset-0 -z-10 pointer-events-none overflow-hidden">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-accent/10 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-3xl" />
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <div className="absolute left-1/4 top-0 h-96 w-96 rounded-full bg-primary/10 blur-3xl" />
+        <div className="absolute bottom-0 right-1/4 h-96 w-96 rounded-full bg-accent/10 blur-3xl" />
+        <div className="absolute left-1/2 top-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/5 blur-3xl" />
       </div>
 
-      {/* Header */}
-      <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/" className="font-bold text-xl">
+      <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-sm">
+        <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4">
+          <Link href="/" className="text-xl font-bold">
             就活Pass
           </Link>
           <div className="flex items-center gap-4">
@@ -238,52 +269,76 @@ function PricingPageContent() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-6">
-        {/* Canceled message */}
-        {showCanceledMessage && (
-          <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-center text-sm animate-in fade-in">
+      <main className="mx-auto max-w-5xl px-4 py-6">
+        {canceled === "true" && (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-center text-sm text-amber-800">
             チェックアウトがキャンセルされました。いつでも再度お試しいただけます。
           </div>
         )}
 
-        {/* Error message */}
         {error && (
-          <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-center text-sm animate-in fade-in">
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-center text-sm text-red-800">
             {error}
           </div>
         )}
 
-        {/* Header section - compact single line */}
-        <div className="text-center mb-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h1 className="text-2xl md:text-3xl font-black tracking-tight mb-2 bg-gradient-to-r from-foreground via-foreground to-foreground/70 bg-clip-text">
-            あなたに最適なプランを選ぼう
+        <div className="mb-6 text-center">
+          <h1 className="mb-2 bg-gradient-to-r from-foreground via-foreground to-foreground/70 bg-clip-text text-2xl font-black tracking-tight md:text-3xl">
+            就活AI・ES添削AIの料金プラン
           </h1>
           <p className="text-sm text-muted-foreground">
-            <span className="text-primary font-medium">いつでも変更・キャンセル可能</span>
+            <span className="font-medium text-primary">いつでも変更・キャンセル可能</span>
             <span className="mx-2 text-border">|</span>
-            <span className="inline-flex items-center gap-1">
-              <svg className="w-3.5 h-3.5 text-primary" fill="currentColor" viewBox="0 0 20 20"><path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" /></svg>
-              おすすめ: Standard
-            </span>
+            <span className="inline-flex items-center gap-1">おすすめ: Standard</span>
+          </p>
+          <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
+            就活Pass は、就活AI、ES添削AI、志望動機AI、締切管理をまとめて使いたい方向けの就活アプリです。
+            企業情報取得は無料枠を厚くしつつ、添削や対話は利用量に応じて Standard / Pro に切り替えられます。
           </p>
         </div>
 
-        {/* Current plan indicator for authenticated users */}
+        <div className="mb-6 flex justify-center">
+          <div className="inline-flex rounded-full border bg-background p-1">
+            <button
+              type="button"
+              onClick={() => setBillingPeriod("monthly")}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                billingPeriod === "monthly"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground"
+              }`}
+            >
+              月額
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingPeriod("annual")}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                billingPeriod === "annual"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground"
+              }`}
+            >
+              年額
+            </button>
+          </div>
+        </div>
+
+        <p className="mb-6 text-center text-sm text-muted-foreground">
+          年額は月額合計より約15%お得です。クレジットは月ごとに付与されます。
+        </p>
+
         {isAuthenticated && userPlan?.plan && (
-          <div className="text-center mb-4 animate-in fade-in">
+          <div className="mb-4 text-center">
             <p className="text-sm text-muted-foreground">
-              現在のプラン:{" "}
-              <span className="font-semibold text-foreground">
-                {userPlan.plan.toUpperCase()}
-              </span>
+              現在のプラン: <span className="font-semibold text-foreground">{userPlan.plan.toUpperCase()}</span>
             </p>
           </div>
         )}
 
-        {/* Plan cards - center stage effect with Standard scaled up */}
-        <div className="grid gap-6 md:gap-6 md:grid-cols-3 md:items-end mb-4">
-          {PLANS.map((plan, index) => (
-            <div key={plan.id} className={plan.variant === "recommended" ? "md:scale-105 md:z-10" : ""}>
+        <div className="mb-4 grid gap-6 md:grid-cols-3 md:items-end">
+          {plans.map((plan, index) => (
+            <div key={`${plan.id}-${billingPeriod}`} className={plan.variant === "recommended" ? "md:z-10 md:scale-105" : ""}>
               <PlanSelectionCard
                 name={plan.name}
                 price={plan.price}
@@ -294,7 +349,7 @@ function PricingPageContent() {
                 variant={plan.variant}
                 dailyPrice={plan.dailyPrice}
                 isSelected={selectedPlan === plan.id}
-                onSelect={() => handlePlanSelect(plan.id)}
+                onSelect={() => void handlePlanSelect(plan.id)}
                 disabled={isSubmitting}
                 animationDelay={index * 100}
                 ctaLabel={plan.ctaLabel}
@@ -304,8 +359,7 @@ function PricingPageContent() {
           ))}
         </div>
 
-        {/* Trust badges - compact single row */}
-        <div className="mt-4 flex items-center justify-center gap-4 text-xs text-muted-foreground animate-in fade-in duration-700" style={{ animationDelay: "400ms" }}>
+        <div className="mt-4 flex items-center justify-center gap-4 text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5">
             <ShieldCheckIcon />
             <span>安心のセキュリティ</span>
@@ -322,69 +376,70 @@ function PricingPageContent() {
           </div>
         </div>
 
-        {/* FAQ */}
-        <section id="faq" className="mt-10 max-w-3xl mx-auto">
-          <h2 className="text-lg font-bold mb-4">よくある質問</h2>
+        <section className="mt-10 rounded-2xl border bg-background/70 p-6">
+          <h2 className="text-lg font-bold text-foreground">比較ポイント</h2>
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <div>
+              <p className="font-medium text-foreground">Free</p>
+              <p className="mt-2 text-sm leading-7 text-muted-foreground">
+                まずは ES添削AI や企業情報取得の使い勝手を試したい方向け。無料枠だけでもかなり触れます。
+              </p>
+            </div>
+            <div>
+              <p className="font-medium text-foreground">Standard</p>
+              <p className="mt-2 text-sm leading-7 text-muted-foreground">
+                ES添削と企業管理を継続利用したい方向け。企業情報取得の無料枠が厚く、日常利用の中心プランです。
+              </p>
+            </div>
+            <div>
+              <p className="font-medium text-foreground">Pro</p>
+              <p className="mt-2 text-sm leading-7 text-muted-foreground">
+                添削回数や企業研究量が多く、就活AIを重く使いたい方向け。企業RAGの無料取込量も大きく広げています。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="faq" className="mx-auto mt-10 max-w-3xl">
+          <h2 className="mb-4 text-lg font-bold">よくある質問</h2>
           <div className="space-y-3">
             <details className="rounded-lg border bg-background/70 p-4">
-              <summary className="cursor-pointer font-medium">
-                クレジットとは何ですか？
-              </summary>
-              <p className="mt-2 text-sm text-muted-foreground leading-6">
-                AI実行や企業情報取得などの機能に使うポイントです。クレジットは
+              <summary className="cursor-pointer font-medium">クレジットとは何ですか？</summary>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                AI実行や企業情報取得に使うポイントです。クレジットは
                 <span className="font-medium text-foreground">成功時のみ消費</span>
-                され、毎月リセットされます（繰り越しなし）。
+                され、毎月リセットされます。
               </p>
             </details>
             <details className="rounded-lg border bg-background/70 p-4">
-              <summary className="cursor-pointer font-medium">
-                AI添削は何回できますか？
-              </summary>
-              <p className="mt-2 text-sm text-muted-foreground leading-6">
-                文章の長さにより消費クレジットが変わります（目安: 2〜5クレジット/回）。
-                実行前に見積が表示されます。
+              <summary className="cursor-pointer font-medium">AI添削は何回できますか？</summary>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                文章の長さと選ぶモデルによって消費クレジットが変わります。目安は 1 回あたり 2〜8 クレジットです。
               </p>
-              <div className="mt-3 text-sm text-muted-foreground leading-6">
-                <p className="font-medium text-foreground">例（ES添削）</p>
-                <ul className="mt-1 list-disc pl-5 space-y-1">
-                  <li>〜800字: 2クレジット</li>
-                  <li>801〜1600字: 3クレジット</li>
-                  <li>1601〜2400字: 4クレジット</li>
+              <div className="mt-3 text-sm leading-6 text-muted-foreground">
+                <p className="font-medium text-foreground">ES添削の目安</p>
+                <ul className="mt-1 list-disc space-y-1 pl-5">
+                  <li>節約モード: 2〜4クレジット</li>
+                  <li>高品質モード: 5〜8クレジット</li>
                 </ul>
               </div>
             </details>
             <details className="rounded-lg border bg-background/70 p-4">
-              <summary className="cursor-pointer font-medium">
-                ゲストでも利用できますか？
-              </summary>
-              <p className="mt-2 text-sm text-muted-foreground leading-6">
-                はい。まずはゲストで試せます（企業登録などに上限があります）。Googleカレンダー連携や一部の機能はログインが必要です。
+              <summary className="cursor-pointer font-medium">企業情報取得は高くないですか？</summary>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                選考スケジュール取得は日次無料枠を大きく確保しています。企業RAG取込も URL 数や PDF ページ数に応じた軽い unit 制で、
+                月次無料枠を超えた分だけ低単価で消費されます。
               </p>
             </details>
             <details className="rounded-lg border bg-background/70 p-4">
-              <summary className="cursor-pointer font-medium">
-                解約はいつでもできますか？
-              </summary>
-              <p className="mt-2 text-sm text-muted-foreground leading-6">
-                はい。Stripeのサブスクリプションをいつでも解約できます。解約後の扱いは決済画面およびアプリ内表示に従います。
-              </p>
-            </details>
-            <details className="rounded-lg border bg-background/70 p-4">
-              <summary className="cursor-pointer font-medium">
-                入力した文章はどのように扱われますか？
-              </summary>
-              <p className="mt-2 text-sm text-muted-foreground leading-6">
-                添削や生成のために外部AIサービスへ送信して処理する場合があります。詳細は
-                <Link href="/privacy" className="underline hover:text-foreground">
-                  プライバシーポリシー
-                </Link>
-                をご確認ください。
+              <summary className="cursor-pointer font-medium">解約はいつでもできますか？</summary>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                はい。Stripe のサブスクリプションをいつでも解約できます。解約後の扱いは決済画面とアプリ内表示に従います。
               </p>
             </details>
           </div>
         </section>
 
-        {/* Footer text + FAQ link */}
         <p className="mt-4 text-center text-xs text-muted-foreground">
           <Link href="#faq" className="text-primary hover:underline">
             よくある質問
@@ -394,6 +449,17 @@ function PricingPageContent() {
             お問い合わせ
           </Link>
         </p>
+
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "FAQPage",
+              mainEntity: pricingFaqSchema,
+            }),
+          }}
+        />
       </main>
     </div>
   );

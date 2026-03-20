@@ -3,6 +3,7 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import type { ProcessingStep } from "@/components/ui/EnhancedProcessingSteps";
 import { trackEvent } from "@/lib/analytics/client";
+import type { StandardESReviewModel } from "@/lib/ai/es-review-models";
 import { calculateESReviewCost } from "@/lib/credits/cost";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
@@ -60,8 +61,6 @@ export const TEMPLATE_OPTIONS: { value: TemplateType; label: string }[] = [
   { value: "work_values", label: "働くうえで大切にしている価値観" },
 ];
 
-export const COMPANYLESS_TEMPLATE_TYPES: TemplateType[] = ["gakuchika", "self_pr", "work_values"];
-
 export const TEMPLATE_EXTRA_FIELDS: Record<TemplateType, string[]> = {
   basic: [],
   company_motivation: [],
@@ -111,6 +110,7 @@ export interface ReviewResult {
   review_meta?: {
     llm_provider?: string;
     llm_model?: string | null;
+    llm_model_alias?: string | null;
     review_variant?: string;
     grounding_mode?: "role_grounded" | "company_general" | "none";
     primary_role?: string;
@@ -255,7 +255,7 @@ export interface UseESReviewReturn {
     industryOverride?: string;
     roleSelectionSource?: string;
     reviewMode?: ReviewMode;
-    llmModel?: string;
+    llmModel?: StandardESReviewModel;
   }) => Promise<boolean>;
   clearReview: () => void;
 }
@@ -530,7 +530,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
       industryOverride?: string;
       roleSelectionSource?: string;
       reviewMode?: ReviewMode;
-      llmModel?: string;
+      llmModel?: StandardESReviewModel;
     }): Promise<boolean> => {
       const effectiveReviewMode = params.reviewMode ?? "standard";
       const requestId = requestIdRef.current + 1;
@@ -544,7 +544,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
       abortControllerRef.current = controller;
 
       const isActiveRequest = () => requestIdRef.current === requestId;
-      const expectedCreditCost = calculateESReviewCost(params.sectionContent.length);
+      const expectedCreditCost = calculateESReviewCost(params.sectionContent.length, params.llmModel);
 
       setReview(null);
       setIsLoading(true);

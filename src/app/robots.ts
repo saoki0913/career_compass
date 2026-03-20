@@ -10,6 +10,9 @@ export default function robots(): MetadataRoute.Robots {
         userAgent: "*",
         allow: [
           "/",
+          "/es-tensaku-ai",
+          "/shukatsu-ai",
+          "/shukatsu-kanri",
           "/pricing",
           "/tools",
           "/tools/",

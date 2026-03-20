@@ -24,7 +24,9 @@ import { getGuestUser } from "@/lib/auth/guest";
 import { reserveCredits, confirmReservation, cancelReservation, calculateESReviewCost } from "@/lib/credits";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 import type { TemplateType } from "@/hooks/useESReview";
-import { isStandardESReviewModel } from "@/lib/ai/es-review-models";
+import { isLowCostESReviewModel, isStandardESReviewModel } from "@/lib/ai/es-review-models";
+import { resolveEffectiveTemplateTypeWithoutCompany } from "@/lib/es-review/companyless-templates";
+import { inferTemplateTypeFromQuestion } from "@/lib/es-review/infer-template-type";
 import { resolveIndustryForReview } from "@/lib/constants/es-review-role-catalog";
 import {
   inferTrustedForEsReview,
@@ -40,7 +42,6 @@ function deriveCharMin(charLimit?: number | null) {
   return Math.max(0, charLimit - 10);
 }
 
-const COMPANYLESS_TEMPLATE_TYPES: TemplateType[] = ["gakuchika", "self_pr", "work_values"];
 const PRESTREAM_ENRICHMENT_TEMPLATE_TYPES = new Set<TemplateType>([
   "basic",
   "gakuchika",
@@ -54,6 +55,8 @@ const PRESTREAM_ENRICHMENT_TEMPLATE_TYPES = new Set<TemplateType>([
 ]);
 const ASSISTIVE_TEMPLATE_TYPES = new Set<TemplateType>(["basic", "gakuchika", "self_pr", "work_values"]);
 const PRESTREAM_ENRICHMENT_BUDGET_MS = 4500;
+/** Skip repeated pre-stream search when corporate URLs are still empty but we recently tried a fetch. */
+const PRESTREAM_EMPTY_URL_RECENT_FETCH_TTL_MS = 24 * 60 * 60 * 1000;
 const PRESTREAM_SEARCH_TIMEOUT_MS = 1800;
 const PRESTREAM_FETCH_TIMEOUT_MS = 2400;
 const PRESTREAM_MIN_REMAINING_MS = 250;
@@ -145,29 +148,84 @@ function normalizeRoleLabel(value?: string | null): string | null {
 }
 
 function inferTemplateType(question: string): TemplateType {
-  const text = question.trim();
-  if (/学生時代|力を入れた|頑張ったこと|学業以外/.test(text)) return "gakuchika";
-  if (/(自己pr|自己ＰＲ|自分の強み|あなたの強み|セールスポイント)/i.test(text)) return "self_pr";
-  if (/インターン.*(理由|参加)/.test(text)) return "intern_reason";
-  if (/インターン.*(学び|やりたい|目標|達成)/.test(text)) return "intern_goals";
-  if (/(入社後|将来|実現したい|挑戦したい|やりたいこと)/.test(text)) return "post_join_goals";
-  if (/(価値観|大切にしている|働くうえで)/.test(text)) return "work_values";
-  if (/(職種|コース|部門|領域|デジタル企画|エンジニア|総合職).*理由/.test(text) || (/選択した理由/.test(text) && !/(当社|企業|貴社)/.test(text))) {
-    return "role_course_reason";
-  }
-  if (/(志望理由|なぜ当社|当社を志望|選んだ理由)/.test(text)) return "company_motivation";
-  return "basic";
+  return inferTemplateTypeFromQuestion(question) as TemplateType;
 }
 
+const RETRIEVAL_QUERY_MAX_LENGTH = 850;
+
 function buildRetrievalQuery(input: {
+  templateType: TemplateType;
+  industry?: string | null;
   sectionTitle: string;
   sectionContent: string;
   companyName?: string | null;
   roleName?: string | null;
   internName?: string | null;
+  profileContext: ProfileContext | null;
+  gakuchikaContext: GakuchikaContextItem[];
+  otherSections: DocumentSectionContext[];
 }) {
+  const parts: string[] = [];
+  const push = (value: string) => {
+    const next = value.replace(/\s+/g, " ").trim();
+    if (next) {
+      parts.push(next);
+    }
+  };
+
+  push(`設問タイプ:${input.templateType}`);
+  if (input.industry) {
+    push(`業界:${input.industry}`);
+  }
+  push(input.companyName ?? "");
+  push(input.roleName ?? "");
+  push(input.internName ?? "");
+  push(input.sectionTitle);
   const summary = input.sectionContent.replace(/\s+/g, " ").trim().slice(0, 140);
-  return [input.companyName, input.roleName, input.internName, input.sectionTitle, summary].filter(Boolean).join(" / ");
+  push(summary);
+
+  if (input.profileContext) {
+    const p = input.profileContext;
+    const bits = [
+      p.university,
+      p.faculty,
+      p.graduation_year != null ? `${p.graduation_year}年卒` : null,
+      p.target_industries?.length ? `志望業界:${p.target_industries.slice(0, 4).join("・")}` : null,
+      p.target_job_types?.length ? `志望職種:${p.target_job_types.slice(0, 4).join("・")}` : null,
+    ].filter(Boolean);
+    if (bits.length) {
+      push(`プロフィール:${bits.join(" ")}`);
+    }
+  }
+
+  for (const g of input.gakuchikaContext.slice(0, 4)) {
+    const title = g.title?.trim();
+    if (!title) {
+      continue;
+    }
+    let excerpt = "";
+    if (g.source_status === "structured_summary") {
+      excerpt = [g.action_text, g.result_text].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 100);
+    } else if (g.content_excerpt) {
+      excerpt = g.content_excerpt.replace(/\s+/g, " ").trim().slice(0, 100);
+    }
+    push(`ガクチカ:「${title}」${excerpt}`);
+  }
+
+  for (const sec of input.otherSections.slice(0, 4)) {
+    const t = sec.title?.trim();
+    if (!t) {
+      continue;
+    }
+    const c = sec.content.replace(/\s+/g, " ").trim().slice(0, 80);
+    push(`他設問:「${t}」${c}`);
+  }
+
+  let joined = parts.join(" / ");
+  if (joined.length > RETRIEVAL_QUERY_MAX_LENGTH) {
+    joined = joined.slice(0, RETRIEVAL_QUERY_MAX_LENGTH);
+  }
+  return joined;
 }
 
 function parseCorporateInfoUrls(raw: string | null): CorporateInfoUrlEntry[] {
@@ -591,7 +649,8 @@ function selectPrestreamSpecsForCoverage(input: {
 
   const desired = new Set(desiredContentTypes);
   const selected = input.specs.filter((spec) => desired.has(spec.contentType));
-  return selected.length > 0 ? selected : input.specs.slice(0, 2);
+  const maxSpecs = ASSISTIVE_TEMPLATE_TYPES.has(input.templateType) ? 1 : 2;
+  return (selected.length > 0 ? selected : input.specs.slice(0, maxSpecs)).slice(0, maxSpecs);
 }
 
 export function hasSufficientCompanyCoverage(input: {
@@ -638,16 +697,28 @@ export function shouldRunPrestreamEnrichment(input: {
   question: string;
   answer?: string;
   roleName?: string | null;
+  llmModel?: string | null;
   corporateInfoUrls: CorporateInfoUrlEntry[];
+  corporateInfoFetchedAt?: Date | null;
 }): boolean {
   if (!PRESTREAM_ENRICHMENT_TEMPLATE_TYPES.has(input.templateType)) {
+    return false;
+  }
+  if (isLowCostESReviewModel(input.llmModel)) {
     return false;
   }
   if (ASSISTIVE_TEMPLATE_TYPES.has(input.templateType) && !hasAssistiveCompanySignal(input.templateType, input.question)) {
     return false;
   }
-  if (input.corporateInfoUrls.length === 0) {
-    return true;
+  const emptyUrls = input.corporateInfoUrls.length === 0;
+  if (emptyUrls) {
+    const fetchedAt = input.corporateInfoFetchedAt;
+    if (fetchedAt instanceof Date && !Number.isNaN(fetchedAt.getTime())) {
+      const ageMs = Date.now() - fetchedAt.getTime();
+      if (ageMs >= 0 && ageMs < PRESTREAM_EMPTY_URL_RECENT_FETCH_TTL_MS) {
+        return false;
+      }
+    }
   }
   if (!hasSufficientCompanyCoverage({
     templateType: input.templateType,
@@ -864,6 +935,7 @@ async function performPrestreamCompanyEnrichment(input: {
   otherSections: DocumentSectionContext[];
   corporateInfoFetchedAt?: Date | null;
   corporateInfoUrls: CorporateInfoUrlEntry[];
+  llmModel?: string | null;
 }): Promise<PrestreamEnrichmentResult> {
   if (
     !shouldRunPrestreamEnrichment({
@@ -871,7 +943,9 @@ async function performPrestreamCompanyEnrichment(input: {
       question: input.sectionTitle,
       answer: input.answer,
       roleName: input.roleName,
+      llmModel: input.llmModel,
       corporateInfoUrls: input.corporateInfoUrls,
+      corporateInfoFetchedAt: input.corporateInfoFetchedAt,
     })
   ) {
     return { attempted: false, completed: false, addedSources: 0, sourceUrls: [] };
@@ -1173,7 +1247,22 @@ export async function handleReviewStream(
       }
     }
 
-    const effectiveTemplateType = templateType ?? inferTemplateType(sectionTitle || "");
+    let effectiveTemplateType: TemplateType;
+    if (!companyId) {
+      const resolved = resolveEffectiveTemplateTypeWithoutCompany(templateType, sectionTitle || "");
+      if (!resolved.ok) {
+        return new Response(
+          JSON.stringify({
+            error:
+              "企業未選択の添削では、設問タイプは自動・ガクチカ・自己PR・価値観のいずれかにしてください",
+          }),
+          { status: 400, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      effectiveTemplateType = resolved.effective;
+    } else {
+      effectiveTemplateType = templateType ?? inferTemplateType(sectionTitle || "");
+    }
     const resolvedIndustry = resolveIndustryForReview({
       companyName: companyInfo.name,
       companyIndustry: companyInfo.industry,
@@ -1191,24 +1280,9 @@ export async function handleReviewStream(
       sectionTitle || null,
       { maxSections: 4, maxCharsPerSection: 260 },
     );
-    const retrievalQuery = buildRetrievalQuery({
-      sectionTitle: sectionTitle || "",
-      sectionContent: content,
-      companyName: companyInfo.name,
-      roleName: resolvedRoleContext.primary_role,
-      internName: internName || null,
-    });
-
     if (!content || content.trim().length === 0) {
       return new Response(
         JSON.stringify({ error: "内容が空です" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    if (!companyId && !COMPANYLESS_TEMPLATE_TYPES.includes(effectiveTemplateType)) {
-      return new Response(
-        JSON.stringify({ error: "企業未選択では、ガクチカ・自己PR・価値観のみ添削できます" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -1227,9 +1301,22 @@ export async function handleReviewStream(
       );
     }
 
+    const retrievalQuery = buildRetrievalQuery({
+      templateType: effectiveTemplateType,
+      industry: resolvedIndustry,
+      sectionTitle: sectionTitle || "",
+      sectionContent: content,
+      companyName: companyInfo.name,
+      roleName: resolvedRoleContext.primary_role,
+      internName: internName || null,
+      profileContext,
+      gakuchikaContext,
+      otherSections,
+    });
+
     // Calculate credit cost: max(2, ceil(chars/800)), max 5
     const charCount = content.length;
-    const creditCost = calculateESReviewCost(charCount);
+    const creditCost = calculateESReviewCost(charCount, resolvedLLMModel);
 
     // Reserve credits upfront (only for logged-in users)
     // Credits are deducted now and refunded if the stream fails.
@@ -1277,6 +1364,7 @@ export async function handleReviewStream(
           otherSections,
           corporateInfoFetchedAt: companyInfo.corporateInfoFetchedAt,
           corporateInfoUrls: companyInfo.corporateInfoUrls,
+          llmModel: resolvedLLMModel,
         });
         prestreamEnrichmentAttempted = enrichment.attempted;
         prestreamEnrichmentCompleted = enrichment.completed || enrichment.sourceUrls.length > 0;

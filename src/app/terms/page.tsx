@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { createMarketingMetadata } from "@/lib/marketing-metadata";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createMarketingMetadata({
   title: "利用規約 | 就活Pass",
-  description: "就活支援アプリ「就活Pass（シューパス）」の利用規約です。",
-};
+  description:
+    "就活Passの利用規約です。アカウント、禁止事項、AI機能、料金・決済、免責、お問い合わせ先を掲載しています。",
+  path: "/terms",
+  keywords: ["就活Pass 利用規約", "就活AI 利用規約", "ES添削 AI 利用規約"],
+});
 
 export default function TermsPage() {
   return (
@@ -14,16 +18,10 @@ export default function TermsPage() {
           利用規約
         </h1>
         <p className="text-sm text-muted-foreground mb-8">
-          最終更新日: 2026-02-08
+          最終更新日: 2026-03-20
         </p>
 
         <div className="space-y-8 text-sm leading-7">
-          <section className="p-4 rounded-lg border bg-muted/20">
-            <p className="text-muted-foreground">
-              これは公開に向けた雛形です。実際の公開前に、提供内容・法令・運用に合わせて修正し、必要に応じて専門家レビューを推奨します。
-            </p>
-          </section>
-
           <section>
             <h2 className="text-base font-semibold mb-2">1. 適用</h2>
             <p>

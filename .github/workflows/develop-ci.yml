@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - develop
+  # PRs targeting main need this workflow on the merge commit so branch protection
+  # can satisfy required check "Develop CI / verify" (push-only runs may not attach).
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -39,6 +44,9 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: npm audit (high+)
+        run: npm audit --audit-level=high
+        continue-on-error: true
       - run: npm run lint
       - run: npm run build
       - run: npm run test:unit -- 'src/app/api/documents/[id]/review/stream/route.test.ts'

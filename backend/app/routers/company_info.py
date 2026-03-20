@@ -4253,6 +4253,7 @@ class UploadCorporatePdfResponse(BaseModel):
     source_url: str
     chunks_stored: int
     extracted_chars: int
+    page_count: int | None = None
     content_type: str | None = None
     secondary_content_types: list[str] = []
     extraction_method: str
@@ -4318,6 +4319,19 @@ def _extract_text_from_pdf_locally(pdf_bytes: bytes) -> str:
     return "\n\n".join(pages).strip()
 
 
+def _get_pdf_page_count(pdf_bytes: bytes) -> int | None:
+    try:
+        from pypdf import PdfReader
+    except Exception:
+        return None
+
+    try:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        return len(reader.pages)
+    except Exception:
+        return None
+
+
 @router.post("/rag/upload-pdf", response_model=UploadCorporatePdfResponse)
 async def upload_corporate_pdf(
     company_id: str = Form(...),
@@ -4351,12 +4365,14 @@ async def upload_corporate_pdf(
             source_url=source_url,
             chunks_stored=0,
             extracted_chars=0,
+            page_count=None,
             extraction_method="unavailable",
             errors=[
                 "No embedding backend available. Set OPENAI_API_KEY or install sentence-transformers."
             ],
         )
 
+    page_count = _get_pdf_page_count(pdf_bytes)
     extracted_text = _extract_text_from_pdf_locally(pdf_bytes)
     extraction_method = "pypdf"
 
@@ -4368,6 +4384,7 @@ async def upload_corporate_pdf(
                 source_url=source_url,
                 chunks_stored=0,
                 extracted_chars=len(extracted_text.strip()),
+                page_count=page_count,
                 content_type=content_type,
                 secondary_content_types=[],
                 extraction_method="deferred_ocr",
@@ -4395,6 +4412,7 @@ async def upload_corporate_pdf(
             source_url=source_url,
             chunks_stored=0,
             extracted_chars=len(extracted_text.strip()),
+            page_count=page_count,
             content_type=content_type,
             secondary_content_types=[],
             extraction_method=extraction_method,
@@ -4425,6 +4443,7 @@ async def upload_corporate_pdf(
             source_url=source_url,
             chunks_stored=0,
             extracted_chars=len(extracted_text),
+            page_count=page_count,
             content_type=content_type,
             secondary_content_types=[],
             extraction_method=extraction_method,
@@ -4444,6 +4463,7 @@ async def upload_corporate_pdf(
         source_url=source_url,
         chunks_stored=len(chunks),
         extracted_chars=len(extracted_text),
+        page_count=page_count,
         content_type=result.get("dominant_content_type") or content_type,
         secondary_content_types=result.get("secondary_content_types") or [],
         extraction_method=extraction_method,

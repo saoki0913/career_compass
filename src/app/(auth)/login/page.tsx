@@ -45,7 +45,7 @@ function FeaturePill({
 
 function LoginFallback() {
   return (
-    <div className="flex flex-col items-center justify-center">
+    <main className="flex flex-col items-center justify-center">
       <div className="flex items-center gap-4 mb-8">
         <div className="relative">
           <div
@@ -70,7 +70,7 @@ function LoginFallback() {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
         </CardContent>
       </Card>
-    </div>
+    </main>
   );
 }
 
@@ -96,7 +96,7 @@ function LoginPageContent() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center">
+    <main className="flex flex-col items-center justify-center">
       {/* Logo + Brand */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -210,7 +210,7 @@ function LoginPageContent() {
         </Link>
         に同意したものとみなされます。
       </motion.p>
-    </div>
+    </main>
   );
 }
 

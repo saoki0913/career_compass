@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ContactForm } from "@/components/marketing/ContactForm";
+import { createMarketingMetadata } from "@/lib/marketing-metadata";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createMarketingMetadata({
   title: "お問い合わせ | 就活Pass",
   description: "就活Pass（シューパス）へのお問い合わせ窓口です。",
-};
+  path: "/contact",
+  keywords: ["就活Pass お問い合わせ", "就活アプリ 問い合わせ", "ES添削 サポート"],
+});
 
 export default function ContactPage() {
   return (

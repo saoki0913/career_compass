@@ -44,6 +44,7 @@ interface StreamingReviewResponseProps {
   reviewMeta?: {
     llm_provider?: string;
     llm_model?: string | null;
+    llm_model_alias?: string | null;
     review_variant?: string;
     grounding_mode?: "role_grounded" | "company_general" | "none";
     primary_role?: string;
@@ -125,6 +126,7 @@ function getReviewProviderLabel(reviewMeta?: StreamingReviewResponseProps["revie
   return getLLMResultLabel({
     provider: reviewMeta?.llm_provider,
     modelId: reviewMeta?.llm_model,
+    modelAlias: reviewMeta?.llm_model_alias,
     reviewVariant: reviewMeta?.review_variant,
   });
 }
@@ -419,7 +421,7 @@ export function StreamingReviewResponse({
                 <div>
                   <h4 className="text-sm font-semibold text-foreground">出典リンク</h4>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    企業情報と関連資料の参照元です。
+                    就活Passに保存したユーザー情報と、企業情報・関連資料の参照元です。プロフィールなど一部はアプリ内ページへ遷移します。
                   </p>
                 </div>
                 <Badge variant="outline" className="px-3 py-1 text-[11px]">

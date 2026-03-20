@@ -8,6 +8,9 @@ const SENSITIVE_PATTERNS = [
   /sk-ant-[a-zA-Z0-9-]{20,}/g, // Anthropic API keys
   /whsec_[a-zA-Z0-9]{20,}/g, // Stripe webhook secrets
   /Bearer\s+[a-zA-Z0-9._-]{20,}/g, // Bearer tokens
+  /(?:better-auth\.session_token|csrf_token|x-device-token|stripe-signature)=?["\s:]*[a-zA-Z0-9._:-]{12,}/gi,
+  /(?:access|refresh|session|device|api|secret|token)["'\s:=]+[a-zA-Z0-9._-]{12,}/gi,
+  /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,
 ];
 
 function redactSensitive(text: string): string {

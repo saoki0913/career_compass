@@ -10,6 +10,11 @@ Each template specifies:
 
 from typing import Optional
 
+_GLOBAL_CONCLUSION_FIRST_RULES = """【結論ファースト（全設問・全文字数）】
+- 1文目は設問への答えを結論として短く言い切る（設問文の言い換えや背景説明から入らない）
+- 各文は役割を1つに絞り、同趣旨を言い換えて引き延ばさない
+- 企業接点・貢献・活かし方は必要なら1文に圧縮してよく、段階を無理に増やさない"""
+
 
 def get_company_honorific(industry: str | None) -> str:
     """Return the appropriate honorific for a company based on its industry.
@@ -316,6 +321,7 @@ def _format_company_guidance(
     company_grounding: str = "required",
     generic_role_mode: bool = False,
     evidence_coverage_level: str = "none",
+    template_type: str = "basic",
 ) -> str:
     if has_rag and company_evidence_cards:
         card_lines = []
@@ -337,13 +343,21 @@ def _format_company_guidance(
             "- cards の固有名詞や言い回しをそのまま増殖させない",
         ]
         if company_grounding == "assistive":
-            usage_lines.extend(
-                [
-                    "- 本文の主軸は自分の経験・行動・学び・価値観に置く",
-                    "- 企業理解は 0〜1 文だけ補助的に使い、本文の中心にしない",
-                    "- 学びや強みが会社でどう活きるかを短くつなぐ程度にとどめる",
-                ]
-            )
+            if template_type == "gakuchika":
+                usage_lines.extend(
+                    [
+                        "- 本文の主軸は課題・行動・成果・学びに置く",
+                        "- 企業理解や「貴社で活かす」系の接続を義務づけない（自然に書けるときだけ最大1文、なければ省略）",
+                    ]
+                )
+            else:
+                usage_lines.extend(
+                    [
+                        "- 本文の主軸は自分の経験・行動・学び・価値観に置く",
+                        "- 企業理解は 0〜1 文だけ補助的に使い、本文の中心にしない",
+                        "- 学びや強みが会社でどう活きるかを短くつなぐ程度にとどめる",
+                    ]
+                )
         if grounding_mode == "company_general":
             usage_lines.append("- 職種別の断定や配属前提の表現は避ける")
         else:
@@ -366,6 +380,12 @@ def _format_company_guidance(
 - 推測で企業固有情報を書かない
 - 自分の経験・関心・職種理解を軸にまとめる"""
     if company_grounding == "assistive":
+        if template_type == "gakuchika":
+            return """
+【企業情報は補助扱い（ガクチカ）】
+- 企業固有の断定を無理に広げない
+- 課題・行動・成果・学びを主軸にまとめる
+- 「貴社のように〜で貢献」などの企業接続を無理に入れない（自然な場合のみ短く）"""
         return """
 【企業情報は補助扱い】
 - 企業固有の断定を無理に広げない
@@ -437,6 +457,7 @@ def _format_midrange_length_guidance(
         f"- 目標は {target} で、{char_min}字未満で終えない",
         "- 説明だけの文で終わらせず、各文に役割を持たせる",
         "- 短くまとめすぎる場合は、既にある経験・職種・企業接点のつながりを1文補う",
+        "- 企業接点と貢献は1文に圧縮してよく、4文固定や冗長な段階増しを避ける",
     ]
     if length_control_mode == "under_min_recovery":
         shortfall_text = f"{length_shortfall}字前後" if length_shortfall else "不足分"
@@ -545,6 +566,8 @@ def build_template_rewrite_prompt(
 - 文字数条件は {_format_char_condition(char_min, char_max)}
 - 目標は {_format_target_char_window(char_min, char_max)} の提出用本文
 
+{_GLOBAL_CONCLUSION_FIRST_RULES}
+
 【設問タイプの焦点】
 {template_def["description"]}
 {_format_short_answer_guidance(template_type, char_min, char_max)}
@@ -563,6 +586,7 @@ def build_template_rewrite_prompt(
     company_grounding=effective_company_grounding,
     generic_role_mode=generic_role_mode,
     evidence_coverage_level=evidence_coverage_level,
+    template_type=template_type,
 )}
 {_format_reference_quality_guidance(reference_quality_block)}
 {_format_user_fact_guidance(allowed_user_facts)}
@@ -644,6 +668,8 @@ def build_template_fallback_rewrite_prompt(
 - 最終文は具体的な行動や貢献で締め、抽象的な意気込みの羅列にしない
 - 出力は本文のみ、だ・である調、{_format_char_condition(char_min, char_max)}
 - 目標は {_format_target_char_window(char_min, char_max)}
+
+{_GLOBAL_CONCLUSION_FIRST_RULES}
 {_format_short_answer_guidance(template_type, char_min, char_max)}
 {_format_midrange_length_guidance(
     template_type,
@@ -660,6 +686,7 @@ def build_template_fallback_rewrite_prompt(
     company_grounding=effective_company_grounding,
     generic_role_mode=generic_role_mode,
     evidence_coverage_level=evidence_coverage_level,
+    template_type=template_type,
 )}
 {_format_reference_quality_guidance(reference_quality_block)}
 {_format_user_fact_guidance(allowed_user_facts)}
@@ -721,6 +748,7 @@ def build_template_improvement_prompt(
 - category は 12 文字以内
 - issue と suggestion は各 60 文字以内
 - issue と suggestion に改行や箇条書きを入れない
+- 構成面では結論ファースト（1文目で設問への答えの要約）が弱い場合は指摘する
 {_format_short_answer_guidance(template_type, char_min, char_max)}
 {_format_company_guidance(
     company_evidence_cards=company_evidence_cards,
@@ -730,6 +758,7 @@ def build_template_improvement_prompt(
     company_grounding=company_grounding,
     generic_role_mode=generic_role_mode,
     evidence_coverage_level=evidence_coverage_level,
+    template_type=template_type,
 )}
 {_format_reference_quality_guidance(reference_quality_block)}
 {_format_user_fact_guidance(allowed_user_facts)}

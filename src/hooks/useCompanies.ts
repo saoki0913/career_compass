@@ -52,6 +52,10 @@ interface CompaniesResponse {
   canAddMore: boolean;
 }
 
+interface UseCompaniesOptions {
+  initialData?: CompaniesResponse;
+}
+
 interface CreateCompanyData {
   name: string;
   industry?: string;
@@ -85,12 +89,12 @@ function buildHeaders(): Record<string, string> {
   return headers;
 }
 
-export function useCompanies() {
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [count, setCount] = useState(0);
-  const [limit, setLimit] = useState<number | null>(null);
-  const [canAddMore, setCanAddMore] = useState(true);
-  const [isLoading, setIsLoading] = useState(true);
+export function useCompanies(options: UseCompaniesOptions = {}) {
+  const [companies, setCompanies] = useState<Company[]>(() => options.initialData?.companies ?? []);
+  const [count, setCount] = useState(() => options.initialData?.count ?? 0);
+  const [limit, setLimit] = useState<number | null>(() => options.initialData?.limit ?? null);
+  const [canAddMore, setCanAddMore] = useState(() => options.initialData?.canAddMore ?? true);
+  const [isLoading, setIsLoading] = useState(() => !options.initialData);
   const [error, setError] = useState<string | null>(null);
 
   const fetchCompanies = useCallback(async () => {
@@ -319,8 +323,11 @@ export function useCompanies() {
   }, [companies]);
 
   useEffect(() => {
+    if (options.initialData) {
+      return;
+    }
     fetchCompanies();
-  }, [fetchCompanies]);
+  }, [fetchCompanies, options.initialData]);
 
   return {
     companies,

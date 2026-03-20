@@ -339,7 +339,7 @@ export async function POST(
 
     // Consume credit only after FastAPI success (business rule: charge on success only)
     if (shouldConsumeCredit && nextQuestion) {
-      await consumeCredits(userId!, 1, "gakuchika", gakuchikaId);
+      await consumeCredits(userId!, 2, "gakuchika", gakuchikaId);
     }
 
     // Update STAR scores from evaluation

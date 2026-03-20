@@ -7,9 +7,9 @@ export type RequestIdentity = {
   guestId: string | null;
 };
 
-export async function getRequestIdentity(request: NextRequest): Promise<RequestIdentity | null> {
+export async function getHeadersIdentity(requestHeaders: Headers): Promise<RequestIdentity | null> {
   const session = await auth.api.getSession({
-    headers: request.headers,
+    headers: requestHeaders,
   });
 
   if (session?.user?.id) {
@@ -19,7 +19,7 @@ export async function getRequestIdentity(request: NextRequest): Promise<RequestI
     };
   }
 
-  const deviceToken = request.headers.get("x-device-token");
+  const deviceToken = requestHeaders.get("x-device-token");
   if (!deviceToken) {
     return null;
   }
@@ -33,4 +33,8 @@ export async function getRequestIdentity(request: NextRequest): Promise<RequestI
     userId: null,
     guestId: guest.id,
   };
+}
+
+export async function getRequestIdentity(request: NextRequest): Promise<RequestIdentity | null> {
+  return getHeadersIdentity(request.headers);
 }

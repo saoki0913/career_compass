@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { useCredits } from "@/hooks/useCredits";
 import { useOperationLock } from "@/hooks/useOperationLock";
 import {
   isUploadSource,
@@ -110,6 +111,10 @@ type BatchUploadItem = {
   sourceUrl?: string;
   chunksStored?: number;
   extractedChars?: number;
+  pageCount?: number | null;
+  ingestUnits?: number;
+  creditsConsumed?: number;
+  actualCreditsDeducted?: number;
   extractionMethod?: string;
   contentType?: ContentType | null;
   secondaryContentTypes?: ContentType[];
@@ -129,6 +134,13 @@ interface FetchResult {
   pagesCrawled: number;
   chunksStored: number;
   errors: string[];
+  actualUnits?: number;
+  freeUnitsApplied?: number;
+  remainingFreeUnits?: number;
+  creditsConsumed?: number;
+  actualCreditsDeducted?: number;
+  estimatedCostBand?: string;
+  totalUnits?: number;
   sourceLabel?: string;
   extractionMethod?: string;
   extractedChars?: number;
@@ -612,6 +624,7 @@ export function CorporateInfoSection({
   companyName,
   onUpdate,
 }: CorporateInfoSectionProps) {
+  const { companyRagUnitsLimit, companyRagUnitsRemaining, plan } = useCredits();
   const { isLocked, acquireLock, releaseLock } = useOperationLock();
   const [status, setStatus] = useState<CorporateInfoStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -1146,6 +1159,11 @@ export function CorporateInfoSection({
     try {
       const allItems: BatchUploadItem[] = [];
       let totalChunks = 0;
+      let totalUnits = 0;
+      let totalCreditsConsumed = 0;
+      let totalCreditsDeducted = 0;
+      let latestRemainingFreeUnits: number | undefined;
+      let latestEstimatedCostBand: string | undefined;
 
       for (const [index, file] of pdfDraft.uploadFiles.entries()) {
         setPdfUploadProgress((prev) =>
@@ -1186,6 +1204,13 @@ export function CorporateInfoSection({
 
           allItems.push(item);
           totalChunks += item.chunksStored || 0;
+          totalUnits += item.ingestUnits || 0;
+          totalCreditsConsumed += item.creditsConsumed || 0;
+          totalCreditsDeducted += item.actualCreditsDeducted || 0;
+          latestRemainingFreeUnits =
+            typeof result.remainingFreeUnits === "number" ? result.remainingFreeUnits : latestRemainingFreeUnits;
+          latestEstimatedCostBand =
+            typeof result.estimatedCostBand === "string" ? result.estimatedCostBand : latestEstimatedCostBand;
 
           setPdfUploadProgress((prev) =>
             prev?.map((progress, progressIndex) =>
@@ -1239,6 +1264,11 @@ export function CorporateInfoSection({
         success: completedCount > 0,
         pagesCrawled: pdfDraft.uploadFiles.length,
         chunksStored: totalChunks,
+        totalUnits,
+        remainingFreeUnits: latestRemainingFreeUnits,
+        creditsConsumed: totalCreditsConsumed,
+        actualCreditsDeducted: totalCreditsDeducted,
+        estimatedCostBand: latestEstimatedCostBand,
         errors: allItems
           .filter((item) => typeof item.error === "string")
           .map((item) => item.error as string),
@@ -1516,6 +1546,13 @@ export function CorporateInfoSection({
   const totalSources = status?.corporateInfoUrls?.length || 0;
   const pageLimit = status?.pageLimit || 0;
   const sourceUsagePercent = Math.min((totalSources / Math.max(pageLimit, 1)) * 100, 100);
+  const ragUnitUsagePercent =
+    companyRagUnitsLimit > 0
+      ? Math.min(
+          ((companyRagUnitsLimit - Math.max(companyRagUnitsRemaining, 0)) / Math.max(companyRagUnitsLimit, 1)) * 100,
+          100,
+        )
+      : 0;
   const lastUpdatedLabel = formatTimestamp(ragStatus?.lastUpdated, {
     month: "short",
     day: "numeric",
@@ -1546,6 +1583,31 @@ export function CorporateInfoSection({
           <p className="text-sm text-muted-foreground">
             ES添削や志望動機づくりに使う企業ソースを整理します。
           </p>
+          <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+            <div className="flex flex-col gap-2 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-medium">今月の企業RAG無料枠</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {plan === "guest"
+                    ? "企業RAG取込はログインユーザー向け機能です。"
+                    : `残り ${companyRagUnitsRemaining.toLocaleString("ja-JP")} / ${companyRagUnitsLimit.toLocaleString("ja-JP")} unit ・ 1クレジット = 40 unit`}
+                </p>
+              </div>
+              {plan !== "guest" ? (
+                <span className="rounded-full border border-border/60 bg-background px-2.5 py-1 text-xs text-muted-foreground">
+                  1社あたり上限 {pageLimit} ソース
+                </span>
+              ) : null}
+            </div>
+            {plan !== "guest" ? (
+              <div className="mt-3 h-2 rounded-full bg-muted">
+                <div
+                  className="h-2 rounded-full bg-primary transition-all"
+                  style={{ width: `${ragUnitUsagePercent}%` }}
+                />
+              </div>
+            ) : null}
+          </div>
           {!hasAnyData ? (
             <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-5 py-10 text-center">
               <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-muted/50 text-muted-foreground">
@@ -1814,6 +1876,48 @@ export function CorporateInfoSection({
                           ? {
                               label: "OCR保留",
                               value: `${fetchResult.summary.pending.toLocaleString("ja-JP")}件`,
+                            }
+                          : null,
+                        typeof fetchResult.actualUnits === "number"
+                          ? {
+                              label: "今回の取込unit",
+                              value: fetchResult.actualUnits.toLocaleString("ja-JP"),
+                            }
+                          : null,
+                        typeof fetchResult.totalUnits === "number" && fetchResult.totalUnits > 0
+                          ? {
+                              label: "合計取込unit",
+                              value: fetchResult.totalUnits.toLocaleString("ja-JP"),
+                            }
+                          : null,
+                        typeof fetchResult.freeUnitsApplied === "number"
+                          ? {
+                              label: "無料枠に充当",
+                              value: `${fetchResult.freeUnitsApplied.toLocaleString("ja-JP")} unit`,
+                            }
+                          : null,
+                        typeof fetchResult.remainingFreeUnits === "number"
+                          ? {
+                              label: "無料枠の残り",
+                              value: `${fetchResult.remainingFreeUnits.toLocaleString("ja-JP")} unit`,
+                            }
+                          : null,
+                        typeof fetchResult.creditsConsumed === "number"
+                          ? {
+                              label: "表示上の消費",
+                              value: `${fetchResult.creditsConsumed.toLocaleString("ja-JP")} クレジット`,
+                            }
+                          : null,
+                        typeof fetchResult.actualCreditsDeducted === "number"
+                          ? {
+                              label: "実際の消費",
+                              value: `${fetchResult.actualCreditsDeducted.toLocaleString("ja-JP")} クレジット`,
+                            }
+                          : null,
+                        fetchResult.estimatedCostBand
+                          ? {
+                              label: "今回の課金帯",
+                              value: fetchResult.estimatedCostBand,
                             }
                           : null,
                         fetchResult.extractionMethod

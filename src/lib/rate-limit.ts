@@ -65,9 +65,9 @@ function getUpstashLimiter(operation: string, config: RateLimitConfig): Ratelimi
   const limiter = new Ratelimit({
     redis,
     limiter: Ratelimit.tokenBucket(
-      config.maxTokens,    // maxTokens (burst)
+      config.refillRate,   // refillRate per interval
       `${config.windowMs}ms` as `${number} ms`,  // interval
-      config.maxTokens     // refill amount per interval
+      config.maxTokens     // maxTokens (burst)
     ),
     prefix: `rl:${operation}`,
     analytics: false,

@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
+import { getAppUrl } from "@/lib/app-url";
 
 export async function POST(req: Request) {
+  const appUrl = getAppUrl();
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -23,8 +25,8 @@ export async function POST(req: Request) {
         quantity: 1,
       },
     ],
-    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?success=true`,
-    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/pricing?canceled=true`,
+    success_url: `${appUrl}/dashboard?success=true`,
+    cancel_url: `${appUrl}/pricing?canceled=true`,
     metadata: {
       userId: session.user.id,
     },

@@ -9,6 +9,7 @@ import { ArrowRight, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navLinks = [
+  { label: "要点", href: "#highlights" },
   { label: "機能", href: "#features" },
   { label: "料金", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
@@ -36,7 +37,7 @@ export function LandingHeader() {
     <header
       className={cn(
         "fixed left-0 right-0 top-0 z-50 transition-all duration-300",
-        "border-b border-border/40 bg-background/80 backdrop-blur-xl",
+        "border-b border-border/40 bg-background/85 backdrop-blur-xl ring-1 ring-primary/[0.04]",
         isScrolled && "shadow-sm"
       )}
     >

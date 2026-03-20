@@ -17,6 +17,9 @@ from app.prompts.es_templates import (
 )
 from app.prompts.reference_es import QUESTION_TYPE_QUALITY_HINTS, QUESTION_TYPE_SKELETONS
 
+QWEN_GLOBAL_CONCLUSION_FIRST = """【結論ファースト（全文字数）】
+- 1文目は設問への答えを結論として短く言い切る（設問の言い換えから入らない）
+- 企業接点・貢献は1文に圧縮してよく、同趣旨の繰り返しを増やさない"""
 
 QWEN_SHORT_ANSWER_STRUCTURE = {
     "intern_reason": "1文目で参加理由、2文目で根拠経験、必要なら3文目でこのインターンで得たいことを置く",
@@ -71,16 +74,19 @@ def _format_qwen_company_guidance(
     company_name: Optional[str],
     grounding_mode: str,
 ) -> str:
+    gakuchika_note = ""
+    if template_type == "gakuchika":
+        gakuchika_note = "\n- ガクチカでは企業への貢献や「貴社で活かす」を義務づけない（自然な場合のみ短く）"
     cards = company_evidence_cards or []
     company_grounding = get_template_company_grounding_policy(template_type)
     if not cards:
         if company_grounding == "required":
-            return """【企業情報】
+            return f"""【企業情報】
 - 推測で固有施策を書かない
-- 企業理解は方向性・価値観・事業理解レベルに一般化する"""
-        return """【企業情報】
+- 企業理解は方向性・価値観・事業理解レベルに一般化する{gakuchika_note}"""
+        return f"""【企業情報】
 - 企業情報は補助扱い
-- 無理に企業接続を増やさず、自分の経験と強みを主軸にする"""
+- 無理に企業接続を増やさず、自分の経験と強みを主軸にする{gakuchika_note}"""
 
     lines = []
     for card in cards[:2]:
@@ -96,13 +102,13 @@ def _format_qwen_company_guidance(
 - {company_name or '企業'}との接点は1〜2軸に絞る
 - 根拠カードの固有名詞や文面をそのまま増殖させない
 - 抽象化して自分の将来像や貢献につなぐ
-- grounding mode は {grounding_mode}"""
+- grounding mode は {grounding_mode}{gakuchika_note}"""
 
     return f"""【企業根拠は補助のみ】
 {card_block}
 - 本文の主軸は自分の経験・強み・価値観に置く
 - 企業情報は fit や活かし方を短く補助する程度にとどめる
-- 固有施策や断定的な社内事情は書かない"""
+- 固有施策や断定的な社内事情は書かない{gakuchika_note}"""
 
 
 def _format_qwen_short_answer_guidance(
@@ -187,6 +193,8 @@ def build_qwen_template_improvement_prompt(
 - 元回答やユーザー事実にない経験・役割・成果・数字を前提にしない
 - 企業情報は必要なときだけ補助的に見る
 - 文字数条件を無視した長い提案を書かない
+
+{QWEN_GLOBAL_CONCLUSION_FIRST}
 
 【設問タイプ】
 {template_def["description"]}
@@ -298,6 +306,8 @@ def build_qwen_template_rewrite_prompt(
 - 文字数条件は {_format_char_condition(char_min, char_max)}
 - 目標は {_format_target_char_window(char_min, char_max)}
 
+{QWEN_GLOBAL_CONCLUSION_FIRST}
+
 【設問タイプ】
 {template_def["description"]}
 
@@ -387,6 +397,8 @@ def build_qwen_template_fallback_rewrite_prompt(
 - 企業情報は必要最小限だけ使う
 - 文字数条件は {_format_char_condition(char_min, char_max)}
 - 目標は {_format_target_char_window(char_min, char_max)}
+
+{QWEN_GLOBAL_CONCLUSION_FIRST}
 
 【設問タイプ】
 {template_def["description"]}

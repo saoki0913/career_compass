@@ -12,18 +12,19 @@ import {
   type CorporateInfoSource,
   upsertCorporateInfoSource,
 } from "@/lib/company-info/sources";
+import {
+  applyCompanyRagUsage,
+  getRemainingCompanyRagFreeUnits,
+} from "@/lib/company-info/usage";
+import {
+  calculatePdfIngestUnits,
+  getCompanyRagSourceLimit,
+} from "@/lib/company-info/pricing";
 
 export const runtime = "nodejs";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 const MAX_FILES_PER_REQUEST = 10;
-
-const PAGE_LIMITS = {
-  guest: 0,
-  free: 10,
-  standard: 50,
-  pro: 150,
-};
 
 interface UploadPdfResult {
   success: boolean;
@@ -31,6 +32,7 @@ interface UploadPdfResult {
   source_url: string;
   chunks_stored: number;
   extracted_chars: number;
+  page_count?: number | null;
   content_type?: string | null;
   secondary_content_types?: string[];
   extraction_method: string;
@@ -43,6 +45,10 @@ interface BatchUploadItem {
   sourceUrl?: string;
   chunksStored?: number;
   extractedChars?: number;
+  pageCount?: number | null;
+  ingestUnits?: number;
+  creditsConsumed?: number;
+  actualCreditsDeducted?: number;
   extractionMethod?: string;
   contentType?: string | null;
   secondaryContentTypes?: string[];
@@ -154,7 +160,7 @@ export async function POST(
     }
 
     const company = access.company;
-    const pageLimit = PAGE_LIMITS[authUser.plan];
+    const pageLimit = getCompanyRagSourceLimit(authUser.plan);
     let currentSources = parseCorporateInfoSources(company.corporateInfoUrls);
 
     const items: BatchUploadItem[] = [];
@@ -216,6 +222,7 @@ export async function POST(
       }
 
       const nowIso = new Date().toISOString();
+      const ingestUnits = calculatePdfIngestUnits(uploadResult.page_count ?? 0);
 
       const completedSource: CorporateInfoSource = {
         url: sourceUrl,
@@ -228,6 +235,8 @@ export async function POST(
         updatedAt: nowIso,
         chunksStored: uploadResult.chunks_stored,
         extractedChars: uploadResult.extracted_chars,
+        pageCount: uploadResult.page_count ?? undefined,
+        ingestUnits,
         extractionMethod: uploadResult.extraction_method,
         trustedForEsReview: inferTrustedForEsReview({
           kind: "upload_pdf",
@@ -236,6 +245,13 @@ export async function POST(
       };
 
       try {
+        const usage = await applyCompanyRagUsage({
+          userId: authUser.userId,
+          plan: authUser.plan,
+          units: ingestUnits,
+          referenceId: companyId,
+          description: `企業RAG取込(PDF): ${company.name}`,
+        });
         const nextSources = upsertCorporateInfoSource(currentSources, completedSource);
         await db
           .update(companies)
@@ -252,6 +268,10 @@ export async function POST(
           sourceUrl,
           chunksStored: uploadResult.chunks_stored,
           extractedChars: uploadResult.extracted_chars,
+          pageCount: uploadResult.page_count ?? null,
+          ingestUnits,
+          creditsConsumed: usage.creditsDisplayed,
+          actualCreditsDeducted: usage.creditsActuallyDeducted,
           extractionMethod: uploadResult.extraction_method,
           contentType: uploadResult.content_type || null,
           secondaryContentTypes: uploadResult.secondary_content_types || [],
@@ -275,12 +295,32 @@ export async function POST(
       failed: items.filter((item) => item.status === "failed").length,
       skippedLimit: items.filter((item) => item.status === "skipped_limit").length,
     };
+    const totalUnits = items.reduce((total, item) => total + (item.ingestUnits || 0), 0);
+    const remainingFreeUnits = await getRemainingCompanyRagFreeUnits(
+      authUser.userId,
+      authUser.plan,
+    );
+    const actualCreditsDeducted = items.reduce(
+      (total, item) => total + (item.actualCreditsDeducted || 0),
+      0,
+    );
 
     return NextResponse.json({
       success: summary.failed === 0 && summary.skippedLimit === 0,
       summary,
       items,
       totalSources: currentSources.length,
+      totalUnits,
+      remainingFreeUnits,
+      actualCreditsDeducted,
+      estimatedCostBand:
+        actualCreditsDeducted > 0
+          ? actualCreditsDeducted === 1
+            ? "1クレジット"
+            : "2クレジット以上"
+          : totalUnits > 0
+            ? "今回はクレジット消費なし"
+            : "無料枠内",
     });
   } catch (error) {
     console.error("Error uploading corporate PDF:", error);

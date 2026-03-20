@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { createMarketingMetadata } from "@/lib/marketing-metadata";
 import { getAppUrl } from "@/lib/app-url";
 
 const salesUrl = getAppUrl();
 
-export const metadata: Metadata = {
-  title: "特定商取引法に基づく表記",
-  description: "就活Passの特定商取引法に基づく表記です。",
-};
+export const metadata: Metadata = createMarketingMetadata({
+  title: "特定商取引法に基づく表記 | 就活Pass",
+  description:
+    "就活Passの特定商取引法に基づく表記です。料金、支払方法、解約、返金方針、問い合わせ先などを掲載しています。",
+  path: "/legal",
+  keywords: ["特定商取引法 就活Pass", "就活Pass 返金", "就活Pass 解約", "就活Pass 料金"],
+});
 
 export default function LegalPage() {
   return (
@@ -22,6 +26,17 @@ export default function LegalPage() {
 
       <main className="max-w-3xl mx-auto px-4 py-12">
         <h1 className="text-2xl font-bold mb-8">特定商取引法に基づく表記</h1>
+        <p className="mb-8 text-sm leading-7 text-muted-foreground">
+          就活Pass の料金、決済、解約、返金方針に関する公開情報です。プラン比較は
+          <Link href="/pricing" className="text-primary hover:underline">
+            料金プランページ
+          </Link>
+          、データの取り扱いは
+          <Link href="/privacy" className="text-primary hover:underline ml-1">
+            プライバシーポリシー
+          </Link>
+          をご確認ください。
+        </p>
 
         <div className="space-y-6 text-sm leading-relaxed text-muted-foreground">
           <table className="w-full border-collapse">
@@ -108,6 +123,17 @@ export default function LegalPage() {
                 </th>
                 <td className="py-4">
                   サブスクリプションはいつでも解約可能です。解約後は次回更新日まで引き続きご利用いただけます。デジタルサービスの性質上、返金は原則として行っておりません。
+                </td>
+              </tr>
+              <tr>
+                <th className="text-left py-4 pr-4 font-medium text-foreground align-top">
+                  問い合わせ窓口
+                </th>
+                <td className="py-4">
+                  <Link href="/contact" className="text-primary hover:underline">
+                    お問い合わせページ
+                  </Link>
+                  または support@shupass.jp
                 </td>
               </tr>
               <tr>

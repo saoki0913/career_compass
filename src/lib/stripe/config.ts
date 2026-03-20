@@ -21,11 +21,11 @@ export const STRIPE_PRICES: Record<
 > = {
   standard: {
     monthly: process.env.STRIPE_PRICE_STANDARD_MONTHLY || "",
-    // annual: process.env.STRIPE_PRICE_STANDARD_ANNUAL || "", // Future support
+    annual: process.env.STRIPE_PRICE_STANDARD_ANNUAL || "",
   },
   pro: {
     monthly: process.env.STRIPE_PRICE_PRO_MONTHLY || "",
-    // annual: process.env.STRIPE_PRICE_PRO_ANNUAL || "", // Future support
+    annual: process.env.STRIPE_PRICE_PRO_ANNUAL || "",
   },
 };
 
@@ -36,7 +36,7 @@ export const PLAN_METADATA = {
   guest: {
     name: "Guest",
     price: 0,
-    credits: 15,
+    credits: 12,
     companies: 3,
     // Credit-based. Values below are display-only hints (not hard limits).
     esReviews: 1,
@@ -61,12 +61,17 @@ export const PLAN_METADATA = {
   pro: {
     name: "Pro",
     price: 2980,
-    credits: 800,
+    credits: 1300,
     companies: -1, // unlimited
     esReviews: -1, // display-only hint
     gakuchika: 20,
   },
 } as const;
+
+export const ANNUAL_PLAN_PRICES: Record<Exclude<PlanType, "free">, number> = {
+  standard: 9980,
+  pro: 29800,
+};
 
 /**
  * Get Stripe price ID for a plan and billing period.

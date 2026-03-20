@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { createMarketingMetadata } from "@/lib/marketing-metadata";
 
-export const metadata: Metadata = {
-  title: "チェックリスト | 就活Pass",
+export const metadata: Metadata = createMarketingMetadata({
+  title: "就活チェックリスト集 | 就活Pass",
   description:
-    "就活の締切管理やES作成を迷わず進めるためのチェックリスト集。",
-};
+    "就活の締切管理やES作成を迷わず進めるためのチェックリスト集。就活AIやES添削AIと併用しやすい管理用コンテンツです。",
+  path: "/checklists",
+  keywords: ["就活 チェックリスト", "ES 提出 締切 管理", "就活 管理 アプリ", "就活Pass チェックリスト"],
+});
 
 export default function ChecklistsPage() {
   return (
@@ -46,6 +49,18 @@ export default function ChecklistsPage() {
               抜けやすい締切の種類と、週次の見直しルール。
             </p>
           </Link>
+        </div>
+
+        <div className="mt-10 rounded-2xl border bg-card p-6">
+          <p className="font-medium">関連ページ</p>
+          <div className="mt-4 flex flex-col gap-2 text-sm text-muted-foreground">
+            <Link href="/shukatsu-kanri" className="hover:text-foreground">
+              就活の締切管理アプリを探している方へ
+            </Link>
+            <Link href="/pricing" className="hover:text-foreground">
+              料金プランを見る
+            </Link>
+          </div>
         </div>
       </main>
     </div>

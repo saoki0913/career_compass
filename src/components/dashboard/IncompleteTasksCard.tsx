@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { useIncompleteItems, hasIncompleteItems } from "@/hooks/useIncompleteItems";
+import { useIncompleteItems, hasIncompleteItems, type IncompleteItemsData } from "@/hooks/useIncompleteItems";
 
 /**
  * IncompleteTasksCard Component
@@ -56,6 +56,7 @@ interface IncompleteTasksCardProps {
   compactMode?: boolean;
   maxItems?: number;
   variant?: "default" | "quickAction";
+  initialData?: IncompleteItemsData | null;
 }
 
 // Task item component for reuse in card and modal
@@ -139,9 +140,10 @@ export function IncompleteTasksCard({
   compactMode = false,
   maxItems = 3,
   variant = "default",
+  initialData = null,
 }: IncompleteTasksCardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const { data, isLoading, error, errorInfo, refetch } = useIncompleteItems();
+  const { data, isLoading, error, errorInfo, refetch } = useIncompleteItems({ initialData });
 
   const isQuickAction = variant === "quickAction";
 

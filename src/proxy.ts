@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { logError } from "@/lib/logger";
 import { getTrustedOriginSet, getTrustedOrigins } from "@/lib/trusted-origins";
+import { getCsrfFailureReason, setCsrfCookie, type CsrfFailureReason } from "@/lib/csrf";
 
 // Routes that require authentication
 const PROTECTED_ROUTES = [
@@ -36,6 +37,32 @@ const CSRF_EXEMPT_PATHS = [
 
 // State-changing HTTP methods that require CSRF protection
 const CSRF_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
+
+function createCsrfErrorResponse(
+  request: NextRequest,
+  reason: CsrfFailureReason
+): NextResponse {
+  const developerMessage =
+    reason === "missing"
+      ? "CSRF validation failed: token missing"
+      : "CSRF validation failed: token invalid";
+
+  return createProxyErrorResponse(
+    request,
+    403,
+    reason === "missing" ? "CSRF_TOKEN_MISSING" : "CSRF_TOKEN_INVALID",
+    "現在の環境ではこの操作を完了できませんでした。",
+    "ページを再読み込みして、もう一度お試しください。",
+    developerMessage,
+    JSON.stringify({
+      pathname: request.nextUrl.pathname,
+      method: request.method,
+      origin: request.headers.get("origin"),
+      hasCookie: Boolean(request.cookies.get("csrf_token")?.value),
+      hasHeader: Boolean(request.headers.get("x-csrf-token")),
+    })
+  );
+}
 
 function createProxyErrorResponse(
   request: NextRequest,
@@ -131,7 +158,37 @@ function validateCsrf(request: NextRequest): NextResponse | null {
     );
   }
 
+  const csrfFailure = getCsrfFailureReason(request);
+  if (csrfFailure) {
+    return createCsrfErrorResponse(request, csrfFailure);
+  }
+
   return null;
+}
+
+function shouldAttachCsrfCookie(request: NextRequest): boolean {
+  const { pathname } = request.nextUrl;
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return false;
+  }
+
+  if (
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/_next") ||
+    pathname.includes(".")
+  ) {
+    return false;
+  }
+
+  const accept = request.headers.get("accept") || "";
+  return accept.includes("text/html");
+}
+
+function withCsrfCookie(request: NextRequest, response: NextResponse): NextResponse {
+  if (!request.cookies.get("csrf_token")?.value && shouldAttachCsrfCookie(request)) {
+    setCsrfCookie(response);
+  }
+  return response;
 }
 
 export async function proxy(request: NextRequest) {
@@ -149,7 +206,7 @@ export async function proxy(request: NextRequest) {
       const csrfResult = validateCsrf(request);
       if (csrfResult) return csrfResult;
     }
-    return NextResponse.next();
+    return withCsrfCookie(request, NextResponse.next());
   }
 
   // CSRF protection for API routes
@@ -163,9 +220,9 @@ export async function proxy(request: NextRequest) {
   // Auth routes - redirect to dashboard if already authenticated
   if (AUTH_ROUTES.some((route) => pathname.startsWith(route))) {
     if (isAuthenticated) {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
+      return withCsrfCookie(request, NextResponse.redirect(new URL("/dashboard", request.url)));
     }
-    return NextResponse.next();
+    return withCsrfCookie(request, NextResponse.next());
   }
 
   // Protected routes - require authentication
@@ -173,16 +230,16 @@ export async function proxy(request: NextRequest) {
     if (!isAuthenticated) {
       const loginUrl = new URL("/login", request.url);
       loginUrl.searchParams.set("callbackUrl", pathname);
-      return NextResponse.redirect(loginUrl);
+      return withCsrfCookie(request, NextResponse.redirect(loginUrl));
     }
   }
 
   // Plan required routes - client-side AuthProvider handles plan check
   if (PLAN_REQUIRED_ROUTES.some((route) => pathname.startsWith(route))) {
-    return NextResponse.next();
+    return withCsrfCookie(request, NextResponse.next());
   }
 
-  return NextResponse.next();
+  return withCsrfCookie(request, NextResponse.next());
 }
 
 export const config = {

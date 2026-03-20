@@ -11,9 +11,11 @@ import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { subscriptions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { getAppUrl } from "@/lib/app-url";
 
 export async function POST() {
   try {
+    const appUrl = getAppUrl();
     const session = await auth.api.getSession({
       headers: await headers(),
     });
@@ -39,7 +41,7 @@ export async function POST() {
     // Create billing portal session
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: subscription.stripeCustomerId,
-      return_url: `${process.env.NEXT_PUBLIC_APP_URL}/settings`,
+      return_url: `${appUrl}/settings`,
     });
 
     return NextResponse.json({ url: portalSession.url });

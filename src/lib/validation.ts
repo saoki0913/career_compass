@@ -9,7 +9,8 @@
  */
 
 import { z } from "zod";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 // ---------------------------------------------------------------------------
 // Shared schemas
@@ -54,6 +55,59 @@ export const taskCreateSchema = z.object({
   dueDate: z.string().datetime().optional().nullable(),
 });
 
+export const submissionItemTypeSchema = z.enum([
+  "resume",
+  "es",
+  "photo",
+  "transcript",
+  "certificate",
+  "portfolio",
+  "other",
+]);
+
+export const submissionItemStatusSchema = z.enum([
+  "not_started",
+  "in_progress",
+  "completed",
+]);
+
+function optionalTrimmedString(maxLength: number, emptyMessage?: string) {
+  const base = z.string().trim();
+  const withMin = emptyMessage ? base.min(1, emptyMessage) : base;
+  return withMin.max(maxLength).optional().nullable();
+}
+
+const optionalHttpUrlSchema = z
+  .string()
+  .trim()
+  .max(2048, "URLが長すぎます")
+  .refine((value) => {
+    try {
+      const parsed = new URL(value);
+      return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }, "URLは http または https で指定してください")
+  .optional()
+  .nullable();
+
+export const submissionCreateSchema = z.object({
+  type: submissionItemTypeSchema,
+  name: z.string().trim().min(1, "種類と名前は必須です").max(200, "名前が長すぎます"),
+  isRequired: z.boolean().optional(),
+  notes: optionalTrimmedString(5000),
+});
+
+export const submissionUpdateSchema = z.object({
+  type: submissionItemTypeSchema.optional(),
+  name: z.string().trim().min(1, "名前を入力してください").max(200, "名前が長すぎます").optional(),
+  isRequired: z.boolean().optional(),
+  status: submissionItemStatusSchema.optional(),
+  notes: optionalTrimmedString(5000),
+  fileUrl: z.union([optionalHttpUrlSchema, z.literal("")]).optional(),
+});
+
 // ---------------------------------------------------------------------------
 // Body parser helper
 // ---------------------------------------------------------------------------
@@ -70,9 +124,17 @@ interface ParseFailure {
 
 type ParseResult<T> = ParseSuccess<T> | ParseFailure;
 
+type ParseBodyOptions = {
+  request?: NextRequest;
+  code?: string;
+  action?: string;
+  logContext?: string;
+};
+
 export async function parseBody<T>(
   request: Request,
-  schema: z.ZodSchema<T>
+  schema: z.ZodSchema<T>,
+  options?: ParseBodyOptions
 ): Promise<ParseResult<T>> {
   try {
     const raw = await request.json();
@@ -81,20 +143,28 @@ export async function parseBody<T>(
       const firstError = result.error.issues[0];
       return {
         data: null,
-        error: NextResponse.json(
-          { error: firstError?.message || "Invalid input" },
-          { status: 400 }
-        ),
+        error: createApiErrorResponse(options?.request, {
+          status: 400,
+          code: options?.code ?? "INVALID_REQUEST_BODY",
+          userMessage: firstError?.message || "入力内容を確認してください。",
+          action: options?.action ?? "入力内容を見直して、もう一度お試しください。",
+          developerMessage: firstError?.message || "Invalid input",
+          logContext: options?.logContext,
+        }),
       };
     }
     return { data: result.data, error: null };
   } catch {
     return {
       data: null,
-      error: NextResponse.json(
-        { error: "Invalid JSON body" },
-        { status: 400 }
-      ),
+      error: createApiErrorResponse(options?.request, {
+        status: 400,
+        code: options?.code ?? "INVALID_JSON_BODY",
+        userMessage: "リクエスト形式が正しくありません。",
+        action: options?.action ?? "ページを更新して、もう一度お試しください。",
+        developerMessage: "Invalid JSON body",
+        logContext: options?.logContext,
+      }),
     };
   }
 }

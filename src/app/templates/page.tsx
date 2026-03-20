@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { createMarketingMetadata } from "@/lib/marketing-metadata";
 
-export const metadata: Metadata = {
-  title: "テンプレ集 | 就活Pass",
+export const metadata: Metadata = createMarketingMetadata({
+  title: "ESテンプレ・志望動機テンプレ集 | 就活Pass",
   description:
-    "志望動機・ガクチカなど、就活ESでよく使う構成テンプレと書き出し例をまとめました。",
-};
+    "志望動機テンプレ、ガクチカSTARテンプレなど、就活ESで使える構成テンプレをまとめました。ES添削AIと合わせて使いやすい公開ページです。",
+  path: "/templates",
+  keywords: ["ES テンプレ", "志望動機 テンプレ", "ガクチカ 書き方", "ES添削 AI", "就活Pass テンプレ"],
+});
 
 export default function TemplatesPage() {
   return (
@@ -70,6 +73,18 @@ export default function TemplatesPage() {
               className="inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted/30"
             >
               ES文字数カウントへ
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-10 rounded-2xl border bg-card p-6">
+          <p className="font-medium">関連ページ</p>
+          <div className="mt-4 flex flex-col gap-2 text-sm text-muted-foreground">
+            <Link href="/es-tensaku-ai" className="hover:text-foreground">
+              ES添削AIを探している方へ
+            </Link>
+            <Link href="/shukatsu-ai" className="hover:text-foreground">
+              就活AIの使い方ガイド
             </Link>
           </div>
         </div>

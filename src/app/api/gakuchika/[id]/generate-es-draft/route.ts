@@ -171,12 +171,12 @@ export async function POST(
     }
   }
 
-  // Reserve credits (1 credit for draft generation for logged-in users)
+  // Reserve credits (2 credits for draft generation for logged-in users)
   let reservationId: string | null = null;
   if (userId) {
     const reservation = await reserveCredits(
       userId,
-      1,
+      2,
       "gakuchika_draft",
       gakuchikaId,
       `ガクチカES生成: ${gakuchika.title}`

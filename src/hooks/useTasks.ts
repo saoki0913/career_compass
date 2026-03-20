@@ -66,6 +66,10 @@ export interface TodayTask {
   message?: string;
 }
 
+interface UseTodayTaskOptions {
+  initialData?: TodayTask;
+}
+
 export interface CreateTaskInput {
   title: string;
   description?: string;
@@ -316,10 +320,10 @@ export function useTasks(options: UseTasksOptions = {}) {
   };
 }
 
-export function useTodayTask() {
+export function useTodayTask(options: UseTodayTaskOptions = {}) {
   const { isLoading: isAuthLoading } = useAuth();
-  const [data, setData] = useState<TodayTask>({ mode: null, task: null });
-  const [isLoading, setIsLoading] = useState(true);
+  const [data, setData] = useState<TodayTask>(() => options.initialData ?? { mode: null, task: null });
+  const [isLoading, setIsLoading] = useState(() => !options.initialData);
   const [error, setError] = useState<string | null>(null);
 
   const fetchTodayTask = useCallback(async () => {
@@ -374,11 +378,14 @@ export function useTodayTask() {
   }, [isAuthLoading]);
 
   useEffect(() => {
+    if (options.initialData) {
+      return;
+    }
     if (isAuthLoading) {
       return;
     }
     fetchTodayTask();
-  }, [fetchTodayTask, isAuthLoading]);
+  }, [fetchTodayTask, isAuthLoading, options.initialData]);
 
   const markComplete = useCallback(async (): Promise<boolean> => {
     if (!data.task) return false;

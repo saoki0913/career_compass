@@ -344,7 +344,6 @@ export const credits = pgTable("credits", {
     .references(() => users.id, { onDelete: "cascade" }),
   balance: integer("balance").notNull().default(0),
   monthlyAllocation: integer("monthly_allocation").notNull().default(30),
-  partialCreditAccumulator: integer("partial_credit_accumulator").notNull().default(0),
   lastResetAt: timestamptz("last_reset_at").notNull().defaultNow(),
   createdAt: timestamptz("created_at").notNull().defaultNow(),
   updatedAt: timestamptz("updated_at").notNull().defaultNow(),
@@ -399,6 +398,25 @@ export const dailyFreeUsage = pgTable(
     check("daily_free_usage_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     uniqueIndex("daily_free_usage_user_date_ux").on(t.userId, t.date),
     uniqueIndex("daily_free_usage_guest_date_ux").on(t.guestId, t.date),
+  ]
+);
+
+export const companyInfoMonthlyUsage = pgTable(
+  "company_info_monthly_usage",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    monthKey: text("month_key").notNull(), // YYYY-MM in JST
+    ragIngestUnits: integer("rag_ingest_units").notNull().default(0),
+    ragOverflowUnits: integer("rag_overflow_units").notNull().default(0),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("company_info_monthly_usage_user_month_ux").on(t.userId, t.monthKey),
+    index("company_info_monthly_usage_user_idx").on(t.userId),
   ]
 );
 

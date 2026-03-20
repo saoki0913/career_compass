@@ -9,19 +9,14 @@ import { db } from "@/lib/db";
 import { credits, creditTransactions, dailyFreeUsage, userProfiles } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { calculateESReviewCost } from "./cost";
+import { getDailyScheduleFetchLimit } from "@/lib/company-info/pricing";
 
 // Plan-based credit allocations
 export const PLAN_CREDITS = {
-  guest: 15,
+  guest: 12,
   free: 30,
   standard: 300,
-  pro: 800,
-} as const;
-
-// Daily free company fetch limits
-export const DAILY_FREE_COMPANY_FETCH = {
-  guest: 2,
-  user: 3, // Free/Standard/Pro all get 3 free fetches per day
+  pro: 1300,
 } as const;
 
 export type PlanType = "guest" | "free" | "standard" | "pro";
@@ -326,9 +321,13 @@ export async function getDailyFreeUsage(userId: string | null, guestId: string |
 /**
  * Get remaining daily free company fetches
  */
-export async function getRemainingFreeFetches(userId: string | null, guestId: string | null) {
+export async function getRemainingFreeFetches(
+  userId: string | null,
+  guestId: string | null,
+  plan: PlanType,
+) {
   const usage = await getDailyFreeUsage(userId, guestId);
-  const limit = userId ? DAILY_FREE_COMPANY_FETCH.user : DAILY_FREE_COMPANY_FETCH.guest;
+  const limit = getDailyScheduleFetchLimit(plan);
   return Math.max(0, limit - usage.companyFetchCount);
 }
 
@@ -404,82 +403,6 @@ export { calculateESReviewCost };
 export async function hasEnoughCredits(userId: string, amount: number): Promise<boolean> {
   const info = await getCreditsInfo(userId);
   return info.balance >= amount;
-}
-
-/**
- * Consume partial credits (0.5 credit support)
- * Each call adds 0.5 (1 accumulator unit). When accumulator reaches 2, deduct 1 full credit.
- * Uses atomic UPDATE to prevent race conditions on the accumulator.
- * Use case: When deadline extraction fails but other items are extracted
- */
-export async function consumePartialCredits(
-  userId: string,
-  type: TransactionType,
-  referenceId?: string,
-  description?: string
-): Promise<{ success: boolean; newBalance: number; actualConsumed: number }> {
-  const now = new Date();
-
-  // Try atomic increment of accumulator (only if accumulator < 1, i.e. will stay below threshold)
-  const incremented = await db
-    .update(credits)
-    .set({
-      partialCreditAccumulator: sql`${credits.partialCreditAccumulator} + 1`,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(credits.userId, userId),
-        sql`${credits.partialCreditAccumulator} < 1`
-      )
-    )
-    .returning({ newBalance: credits.balance, accumulator: credits.partialCreditAccumulator });
-
-  if (incremented.length > 0) {
-    // Accumulator was 0, now 1 — no credit deduction needed yet
-    return { success: true, newBalance: incremented[0].newBalance, actualConsumed: 0 };
-  }
-
-  // Accumulator is >= 1, so this increment would reach >= 2 — deduct 1 credit and reset
-  const deducted = await db
-    .update(credits)
-    .set({
-      balance: sql`${credits.balance} - 1`,
-      partialCreditAccumulator: 0,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(credits.userId, userId),
-        sql`${credits.balance} >= 1`
-      )
-    )
-    .returning({ newBalance: credits.balance });
-
-  if (deducted.length === 0) {
-    // Insufficient balance for deduction
-    const [userCredits] = await db
-      .select({ balance: credits.balance })
-      .from(credits)
-      .where(eq(credits.userId, userId))
-      .limit(1);
-    return { success: false, newBalance: userCredits?.balance ?? 0, actualConsumed: 0 };
-  }
-
-  const newBalance = deducted[0].newBalance;
-
-  await db.insert(creditTransactions).values({
-    id: crypto.randomUUID(),
-    userId,
-    amount: -1,
-    type,
-    referenceId: referenceId || null,
-    description: description || "Partial credit (0.5 x 2)",
-    balanceAfter: newBalance,
-    createdAt: now,
-  });
-
-  return { success: true, newBalance, actualConsumed: 1 };
 }
 
 /**

@@ -212,6 +212,7 @@ class DocumentContext(BaseModel):
 class ReviewMeta(BaseModel):
     llm_provider: str = "claude"
     llm_model: Optional[str] = None
+    llm_model_alias: Optional[str] = None
     review_variant: str = "standard"
     grounding_mode: str = "none"
     primary_role: Optional[str] = None
@@ -256,6 +257,7 @@ class TemplateReview(BaseModel):
 class ReviewRequest(BaseModel):
     content: str
     section_id: Optional[str] = None
+    document_id: Optional[str] = None  # Current ES document (for in-app citation links)
     has_company_rag: bool = False  # Whether company RAG data is available
     company_id: Optional[str] = None  # Company ID for RAG context lookup
     section_title: Optional[str] = None  # Question title for section review
@@ -1746,6 +1748,7 @@ def _build_review_meta(
     return ReviewMeta(
         llm_provider=llm_provider,
         llm_model=llm_model,
+        llm_model_alias=request.llm_model,
         review_variant=review_variant,
         grounding_mode=grounding_mode,
         primary_role=role_context.primary_role or (template_request.role_name if template_request else None),
@@ -2293,6 +2296,81 @@ def _build_keyword_sources(rag_sources: list[dict]) -> list[TemplateSource]:
     ]
 
 
+def _build_user_context_template_sources(request: ReviewRequest) -> list[TemplateSource]:
+    """Non-URL citation cards for user-provided context included in this review request."""
+    sources: list[TemplateSource] = []
+
+    if request.profile_context:
+        p = request.profile_context
+        bits: list[str] = []
+        if p.university:
+            bits.append(p.university)
+        if p.faculty:
+            bits.append(p.faculty)
+        if p.graduation_year is not None:
+            bits.append(f"{p.graduation_year}年卒")
+        if p.target_industries:
+            bits.append("志望業界: " + "・".join(p.target_industries[:4]))
+        if p.target_job_types:
+            bits.append("志望職種: " + "・".join(p.target_job_types[:4]))
+        excerpt = " ".join(bits).strip()[:220] or "プロフィール項目を添削コンテキストに含めています。"
+        sources.append(
+            TemplateSource(
+                source_id="user:profile",
+                source_url="/profile",
+                content_type="user_profile",
+                content_type_label="ユーザー情報",
+                title="プロフィール（就活Pass）",
+                domain=None,
+                excerpt=excerpt,
+            )
+        )
+
+    if request.gakuchika_context:
+        titles = [item.title.strip() for item in request.gakuchika_context if item.title.strip()]
+        preview = "、".join(titles[:4])
+        if len(titles) > 4:
+            preview += " ほか"
+        excerpt = (
+            f"{len(request.gakuchika_context)}件のガクチカ要約・素材を参照しました。"
+            + (f" タイトル例: {preview}" if preview else "")
+        )[:260]
+        sources.append(
+            TemplateSource(
+                source_id="user:gakuchika",
+                source_url="/gakuchika",
+                content_type="user_gakuchika",
+                content_type_label="ユーザー情報",
+                title="ガクチカ（就活Pass）",
+                domain=None,
+                excerpt=excerpt,
+            )
+        )
+
+    if request.document_context and request.document_context.other_sections:
+        other = request.document_context.other_sections
+        titles = [s.title.strip() for s in other if s.title.strip()]
+        head = "、".join(titles[:5])
+        if len(titles) > 5:
+            head += " ほか"
+        excerpt = f"同一ESの他設問 {len(other)} 件を参照しました。" + (f" {head}" if head else "")
+        excerpt = excerpt.strip()[:260]
+        doc_path = f"/es/{request.document_id}" if request.document_id else ""
+        sources.append(
+            TemplateSource(
+                source_id="user:document_sections",
+                source_url=doc_path,
+                content_type="user_document",
+                content_type_label="ユーザー情報",
+                title="同一ESの他設問（就活Pass）",
+                domain=None,
+                excerpt=excerpt,
+            )
+        )
+
+    return sources
+
+
 EMPLOYEE_INTERVIEW_EVIDENCE_POSITIVE_SIGNALS = {
     "interview",
     "voice",
@@ -2392,8 +2470,12 @@ def _build_template_review_response(
     template_type: str,
     rewrite_text: str,
     rag_sources: list[dict],
+    *,
+    request: ReviewRequest | None = None,
 ) -> TemplateReview:
-    keyword_sources = _build_keyword_sources(rag_sources)
+    company_sources = _build_keyword_sources(rag_sources)
+    user_sources = _build_user_context_template_sources(request) if request else []
+    keyword_sources = [*user_sources, *company_sources]
     return TemplateReview(
         template_type=template_type,
         variants=[
@@ -3785,6 +3867,7 @@ async def review_section_with_template(
             temperature=0.15,
             model=llm_model,
             feature=review_feature,
+            use_responses_api=llm_provider == "openai",
             response_format="json_schema",
             json_schema={
                 "type": "object",
@@ -4061,6 +4144,7 @@ async def review_section_with_template(
             ),
             model=llm_model,
             feature=review_feature,
+            use_responses_api=llm_provider == "openai",
             disable_fallback=True,
             **_qwen_timeout_kwargs(rewrite_timeout_seconds),
         )
@@ -4201,6 +4285,7 @@ async def review_section_with_template(
                 temperature=0.1,
                 model=llm_model,
                 feature=review_feature,
+                use_responses_api=llm_provider == "openai",
                 disable_fallback=True,
                 **_qwen_timeout_kwargs(length_fix_timeout_seconds),
             )
@@ -4351,6 +4436,7 @@ async def review_section_with_template(
         template_type=template_type,
         rewrite_text=final_rewrite,
         rag_sources=verified_rag_sources,
+        request=request,
     )
     logger.info(
         "[ES添削/テンプレート] sources:\n%s",
