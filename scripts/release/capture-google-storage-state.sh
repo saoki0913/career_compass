@@ -49,7 +49,14 @@ profile_dir="${chrome_user_data_dir}/${profile_name}"
 
 test_dir="${repo_root}/e2e"
 temp_user_data="$(mktemp -d /tmp/career-compass-chrome.XXXXXX)"
-temp_state="${output_file:-$(mktemp /tmp/career-compass-${environment}-auth.XXXXXX.json)}"
+# mktemp on macOS only randomizes trailing X's; ".json" after XXXXXX leaves a literal XXXXXX path.
+if [[ -n "${output_file}" ]]; then
+  temp_state="${output_file}"
+else
+  __auth_base="$(mktemp "/tmp/career-compass-${environment}-auth-XXXXXX")"
+  temp_state="${__auth_base}.json"
+  mv "${__auth_base}" "${temp_state}"
+fi
 temp_spec_base="$(mktemp "${test_dir}/codex-capture-google.XXXXXX")"
 temp_spec="${temp_spec_base}.spec.ts"
 mv "${temp_spec_base}" "${temp_spec}"
@@ -106,6 +113,6 @@ EOF
     PLAYWRIGHT_CAPTURE_PROFILE_DIR="${profile_name}" \
     PLAYWRIGHT_SKIP_WEBSERVER=1 \
     npm run test:e2e -- "${temp_spec}"
-)
+) >&2
 
 printf '%s\n' "${temp_state}"
