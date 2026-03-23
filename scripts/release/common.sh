@@ -62,12 +62,12 @@ wait_for_http_ok() {
   local url="$1"
   local attempts="${2:-30}"
   local delay="${3:-10}"
-  local status=""
+  local http_code=""
   local idx
 
   for idx in $(seq 1 "$attempts"); do
-    status="$(run_real curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$url" || true)"
-    if [[ "$status" == 2* || "$status" == 3* ]]; then
+    http_code="$(run_real curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$url" || true)"
+    if [[ "$http_code" == 2* || "$http_code" == 3* ]]; then
       return 0
     fi
     if [[ "$idx" -lt "$attempts" ]]; then
@@ -75,7 +75,7 @@ wait_for_http_ok() {
     fi
   done
 
-  release_die "HTTP check failed for ${url}. Last status: ${status:-unknown}"
+  release_die "HTTP check failed for ${url}. Last status: ${http_code:-unknown}"
 }
 
 assert_url_contains() {
