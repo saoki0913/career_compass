@@ -74,17 +74,25 @@ export async function ensureGuestSession(page: Page): Promise<void> {
   }
 
   const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
-  const response = await page.request.post(`${baseURL}/api/auth/guest`, {
-    headers: {
-      "Content-Type": "application/json",
-    },
-    data: {
-      deviceToken: token,
-    },
-  });
-
-  if (!response.ok()) {
-    throw new Error(`Failed to bootstrap guest session: ${response.status()}`);
+  const url = `${baseURL}/api/auth/guest`;
+  const body = { deviceToken: token };
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const response = await page.request.post(url, {
+      headers: {
+        "Content-Type": "application/json",
+      },
+      data: body,
+    });
+    lastStatus = response.status();
+    if (response.ok()) {
+      return;
+    }
+    if (lastStatus >= 500 && attempt < 3) {
+      await page.waitForTimeout(800 * (attempt + 1));
+      continue;
+    }
+    throw new Error(`Failed to bootstrap guest session: ${lastStatus}`);
   }
 }
 

@@ -22,6 +22,17 @@ async function prepareAuthForRoute(page: Parameters<typeof test>[0]["page"]) {
   await ensureGuestSession(page);
 }
 
+/** Product routes may redirect (e.g. /calendar → /calendar/connect). */
+function pathnameMatchesRoute(actual: string, expected: string) {
+  if (actual === expected) {
+    return true;
+  }
+  if (expected !== "/" && actual.startsWith(`${expected}/`)) {
+    return true;
+  }
+  return false;
+}
+
 for (const routePath of reviewPaths) {
   for (const viewport of viewports) {
     test(`ui review ${viewport.name} ${routePath}`, async ({ page }) => {
@@ -35,7 +46,7 @@ for (const routePath of reviewPaths) {
       await page.waitForLoadState("networkidle");
       await page.waitForTimeout(500);
 
-      expect(new URL(page.url()).pathname).toBe(routePath);
+      expect(pathnameMatchesRoute(new URL(page.url()).pathname, routePath)).toBe(true);
 
       const main = page.locator("main");
       if ((await main.count()) > 0) {
