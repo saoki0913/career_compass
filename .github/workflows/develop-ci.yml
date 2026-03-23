@@ -51,6 +51,10 @@ jobs:
     if: needs.ui-scope.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Hit staging (guest session needs a real API + DB; local webServer has no CI DB env).
+      PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
+      PLAYWRIGHT_SKIP_WEBSERVER: "1"
     steps:
       - uses: actions/checkout@v4
         with:

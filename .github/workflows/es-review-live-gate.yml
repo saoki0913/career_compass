@@ -53,7 +53,7 @@ jobs:
         run: npm ci
 
       - name: Run prestream enrichment unit test
-        run: npm run test:unit -- 'src/app/api/documents/[id]/review/stream/route.test.ts'
+        run: npm run test:unit -- 'src/app/api/documents/[id]/route.test.ts'
 
       - uses: actions/setup-python@v5
         with:
