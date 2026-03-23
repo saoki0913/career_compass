@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { Document } from "@/hooks/useDocuments";
 import { DOCUMENT_TYPE_LABELS } from "@/hooks/useDocuments";
+import { ES_DOCUMENT_CATEGORY_LABELS } from "@/lib/es-document-category";
 import { Star, Building2, FileText } from "lucide-react";
 
 const STATUS_CONFIG = {
@@ -40,6 +41,10 @@ function ESCardComponent({
   statusUpdatingId,
 }: ESCardProps) {
   const statusConfig = STATUS_CONFIG[doc.status] || STATUS_CONFIG.draft;
+  const categoryLabel =
+    doc.type === "es"
+      ? ES_DOCUMENT_CATEGORY_LABELS[doc.esCategory ?? "entry_sheet"]
+      : DOCUMENT_TYPE_LABELS[doc.type];
 
   return (
     <Link href={`/es/${doc.id}`}>
@@ -100,7 +105,7 @@ function ESCardComponent({
           {/* Document type badge */}
           <div className="mb-3">
             <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-              {DOCUMENT_TYPE_LABELS[doc.type]}
+              {categoryLabel}
             </span>
           </div>
 

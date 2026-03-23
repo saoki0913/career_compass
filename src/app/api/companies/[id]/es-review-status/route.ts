@@ -5,6 +5,7 @@ import { companies } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { STATUS_POLL_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -37,6 +38,17 @@ export async function GET(
     const identity = await getIdentity(request);
     if (!identity) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+
+    const rateLimited = await enforceRateLimitLayers(
+      request,
+      [...STATUS_POLL_RATE_LAYERS],
+      identity.userId,
+      identity.guestId,
+      "companies_es_review_status"
+    );
+    if (rateLimited) {
+      return rateLimited;
     }
 
     const { id } = await params;

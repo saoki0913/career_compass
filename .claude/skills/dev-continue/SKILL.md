@@ -260,7 +260,7 @@ Fix: npm install
 Fix:
 1. cp .env.example .env.local
 2. Fill in required values
-3. See docs/DEVELOPMENT.md for details
+3. See docs/setup/DEVELOPMENT_AND_ENV.md for details
 ```
 
 ### Database Not Synced

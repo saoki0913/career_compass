@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
@@ -30,6 +31,35 @@ import {
   getMotivationConversationByCondition,
 } from "@/lib/db/motivationConversationCompat";
 import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
+import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import {
+  getRequestId,
+  logAiCreditCostSummary,
+  splitInternalTelemetry,
+  type InternalCostTelemetry,
+} from "@/lib/ai/cost-summary-log";
+
+function resolveSafeMotivationError(raw: string | null | undefined): {
+  userMessage: string;
+  action: string;
+  status: number;
+  code: string;
+} {
+  if (raw?.includes("内部設定や秘匿情報に関する指示")) {
+    return {
+      userMessage: raw,
+      action: "入力内容を見直して、もう一度お試しください。",
+      status: 400,
+      code: "MOTIVATION_UNSAFE_INPUT",
+    };
+  }
+  return {
+    userMessage: "次の質問を生成できませんでした。",
+    action: "時間を置いて、もう一度お試しください。",
+    status: 503,
+    code: "MOTIVATION_NEXT_QUESTION_FAILED",
+  };
+}
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -81,8 +111,10 @@ interface SuggestionOption {
   label: string;
   sourceType: "company" | "gakuchika" | "profile" | "application_job_type" | "hybrid";
   intent:
+    | "industry_reason"
     | "company_reason"
     | "desired_work"
+    | "origin_experience"
     | "fit_connection"
     | "differentiation"
     | "closing";
@@ -114,6 +146,7 @@ interface MotivationConversationContext {
   selectedRole?: string;
   selectedRoleSource?: "profile" | "company_doc" | "application_job_type" | "user_free_text";
   desiredWork?: string;
+  originExperience?: string;
   userAnchorStrengths: string[];
   userAnchorEpisodes: string[];
   profileAnchorIndustries: string[];
@@ -122,8 +155,10 @@ interface MotivationConversationContext {
   companyRoleCandidates: string[];
   companyWorkCandidates: string[];
   questionStage:
+    | "industry_reason"
     | "company_reason"
     | "desired_work"
+    | "origin_experience"
     | "fit_connection"
     | "differentiation"
     | "closing";
@@ -199,8 +234,10 @@ function safeParseEvidenceCards(json: string | null): EvidenceCard[] {
 }
 
 const STAGE_ORDER: MotivationConversationContext["questionStage"][] = [
+  "industry_reason",
   "company_reason",
   "desired_work",
+  "origin_experience",
   "fit_connection",
   "differentiation",
   "closing",
@@ -226,10 +263,22 @@ function safeParseStageStatus(
   }
 
   const context = conversationContext || safeParseConversationContext(null);
-  const current = context.questionStage || (context.companyReason ? "desired_work" : "company_reason");
+  const current =
+    context.questionStage ||
+    (context.originExperience
+      ? "fit_connection"
+      : context.desiredWork
+      ? "origin_experience"
+      : context.companyReason
+        ? "desired_work"
+        : context.industryReason
+          ? "company_reason"
+          : "industry_reason");
   const completed: StageStatus["completed"] = [];
+  if (context.industryReason) completed.push("industry_reason");
   if (context.companyReason) completed.push("company_reason");
   if (context.desiredWork) completed.push("desired_work");
+  if (context.originExperience) completed.push("origin_experience");
   const pending = STAGE_ORDER.filter((stage) => stage !== current && !completed.includes(stage));
   return { current, completed, pending };
 }
@@ -252,7 +301,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: [],
       companyRoleCandidates: [],
       companyWorkCandidates: [],
-      questionStage: "company_reason",
+      questionStage: "industry_reason",
     };
   }
 
@@ -266,6 +315,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       selectedRole: typeof parsed.selectedRole === "string" ? parsed.selectedRole : undefined,
       selectedRoleSource: typeof parsed.selectedRoleSource === "string" ? parsed.selectedRoleSource : undefined,
       desiredWork: typeof parsed.desiredWork === "string" ? parsed.desiredWork : undefined,
+      originExperience: typeof parsed.originExperience === "string" ? parsed.originExperience : undefined,
       userAnchorStrengths: Array.isArray(parsed.userAnchorStrengths) ? parsed.userAnchorStrengths.filter((v: unknown): v is string => typeof v === "string") : [],
       userAnchorEpisodes: Array.isArray(parsed.userAnchorEpisodes) ? parsed.userAnchorEpisodes.filter((v: unknown): v is string => typeof v === "string") : [],
       profileAnchorIndustries: Array.isArray(parsed.profileAnchorIndustries) ? parsed.profileAnchorIndustries.filter((v: unknown): v is string => typeof v === "string") : [],
@@ -273,7 +323,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: Array.isArray(parsed.companyAnchorKeywords) ? parsed.companyAnchorKeywords.filter((v: unknown): v is string => typeof v === "string") : [],
       companyRoleCandidates: Array.isArray(parsed.companyRoleCandidates) ? parsed.companyRoleCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
       companyWorkCandidates: Array.isArray(parsed.companyWorkCandidates) ? parsed.companyWorkCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
-      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "company_reason",
+      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "industry_reason",
     };
   } catch {
     return {
@@ -284,7 +334,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: [],
       companyRoleCandidates: [],
       companyWorkCandidates: [],
-      questionStage: "company_reason",
+      questionStage: "industry_reason",
     };
   }
 }
@@ -307,6 +357,7 @@ function safeParseScores(json: string | null): MotivationScores | null {
 // Configuration
 const ELEMENT_COMPLETION_THRESHOLD = 70;
 const QUESTIONS_PER_CREDIT = 5;
+const CREDITS_PER_QUESTION_BATCH = 3;
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
 interface FastAPIQuestionResponse {
@@ -324,8 +375,10 @@ interface FastAPIQuestionResponse {
   coaching_focus?: string;
   risk_flags?: string[];
   question_stage?: MotivationConversationContext["questionStage"];
+  question_focus?: string;
   stage_status?: StageStatus;
   captured_context?: Partial<MotivationConversationContext>;
+  internal_telemetry?: unknown;
 }
 
 interface CompanyData {
@@ -434,11 +487,17 @@ function applyAnswerToConversationContext(
   const next = { ...context };
   const trimmed = answer.trim();
   switch (context.questionStage) {
+    case "industry_reason":
+      next.industryReason = trimmed;
+      break;
     case "company_reason":
       next.companyReason = trimmed;
       break;
     case "desired_work":
       next.desiredWork = trimmed;
+      break;
+    case "origin_experience":
+      next.originExperience = trimmed;
       break;
     default:
       break;
@@ -450,6 +509,7 @@ async function getQuestionFromFastAPI(
   company: CompanyData,
   conversationHistory: Message[],
   questionCount: number,
+  requestId: string,
   scores?: MotivationScores | null,
   gakuchikaContext?: GakuchikaContextItem[],
   conversationContext?: MotivationConversationContext,
@@ -471,6 +531,7 @@ async function getQuestionFromFastAPI(
   questionStage: MotivationConversationContext["questionStage"] | null;
   stageStatus: StageStatus | null;
   capturedContext: Partial<MotivationConversationContext> | null;
+  telemetry: InternalCostTelemetry | null;
 }> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60_000);
@@ -478,7 +539,10 @@ async function getQuestionFromFastAPI(
   try {
     const response = await fetch(`${FASTAPI_URL}/api/motivation/next-question`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-Id": requestId,
+      },
       body: JSON.stringify({
         company_id: company.id,
         company_name: company.name,
@@ -519,10 +583,13 @@ async function getQuestionFromFastAPI(
         questionStage: null,
         stageStatus: null,
         capturedContext: null,
+        telemetry: null,
       };
     }
 
-    const data: FastAPIQuestionResponse = await response.json();
+    const rawData = await response.json();
+    const { payload, telemetry } = splitInternalTelemetry(rawData);
+    const data = payload as FastAPIQuestionResponse;
     return {
       question: data.question,
       error: null,
@@ -536,6 +603,7 @@ async function getQuestionFromFastAPI(
       questionStage: data.question_stage || null,
       stageStatus: data.stage_status || null,
       capturedContext: data.captured_context || null,
+      telemetry,
     };
   } catch (error) {
     console.error("[Motivation] FastAPI error:", error);
@@ -553,6 +621,7 @@ async function getQuestionFromFastAPI(
         questionStage: null,
         stageStatus: null,
         capturedContext: null,
+        telemetry: null,
       };
     }
     return {
@@ -568,6 +637,7 @@ async function getQuestionFromFastAPI(
       questionStage: null,
       stageStatus: null,
       capturedContext: null,
+      telemetry: null,
     };
   } finally {
     clearTimeout(timeoutId);
@@ -584,6 +654,13 @@ export async function GET(
     const identity = await getIdentity(request);
     if (!identity) {
       return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
+    }
+
+    if (!identity.userId) {
+      return NextResponse.json(
+        { error: "志望動機のAI支援はログインが必要です" },
+        { status: 401 },
+      );
     }
 
     const { userId, guestId } = identity;
@@ -763,12 +840,31 @@ export async function POST(
   { params }: { params: Promise<{ companyId: string }> }
 ) {
   const { companyId } = await params;
+  const requestId = getRequestId(request);
   const identity = await getIdentity(request);
   if (!identity) {
     return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
   }
 
   const { userId, guestId } = identity;
+
+  if (!userId) {
+    return NextResponse.json(
+      { error: "志望動機のAI支援はログインが必要です" },
+      { status: 401 },
+    );
+  }
+
+  const rateLimited = await enforceRateLimitLayers(
+    request,
+    [...CONVERSATION_RATE_LAYERS],
+    userId,
+    guestId,
+    "motivation_conversation"
+  );
+  if (rateLimited) {
+    return rateLimited;
+  }
 
   const body = await request.json();
   const { answer } = body;
@@ -836,7 +932,7 @@ export async function POST(
   // Only check availability here; consume after FastAPI success
   const shouldConsumeCredit = newQuestionCount > 0 && newQuestionCount % QUESTIONS_PER_CREDIT === 0 && !!userId;
   if (shouldConsumeCredit) {
-    const canPay = await hasEnoughCredits(userId!, 1);
+    const canPay = await hasEnoughCredits(userId!, CREDITS_PER_QUESTION_BATCH);
     if (!canPay) {
       return NextResponse.json({ error: "クレジットが不足しています" }, { status: 402 });
     }
@@ -859,6 +955,7 @@ export async function POST(
     resolvedAfterAnswer.company,
     messages,
     newQuestionCount,
+    requestId,
     scores,
     gakuchikaContext,
     resolvedAfterAnswer.conversationContext,
@@ -870,12 +967,22 @@ export async function POST(
   );
 
   if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 503 });
-  }
-
-  // Consume credit only after FastAPI success (business rule: charge on success only)
-  if (shouldConsumeCredit) {
-    await consumeCredits(userId!, 2, "motivation", companyId);
+    logAiCreditCostSummary({
+      feature: "motivation",
+      requestId,
+      status: "failed",
+      creditsUsed: 0,
+      telemetry: result.telemetry,
+    });
+    const safe = resolveSafeMotivationError(result.error);
+    return createApiErrorResponse(request, {
+      status: safe.status,
+      code: safe.code,
+      userMessage: safe.userMessage,
+      action: safe.action,
+      retryable: safe.status >= 500,
+      developerMessage: result.error,
+    });
   }
 
   // Add AI question to messages for DB storage
@@ -909,7 +1016,7 @@ export async function POST(
   }
 
   // Update database
-  await db
+  const updatedRows = await db
     .update(motivationConversations)
     .set(await filterMotivationConversationUpdate({
       messages: JSON.stringify(messages),
@@ -939,7 +1046,27 @@ export async function POST(
       stageStatus: JSON.stringify(result.stageStatus || safeParseStageStatus(null, resolvedAfterAnswer.conversationContext)),
       updatedAt: new Date(),
     }))
-    .where(eq(motivationConversations.id, conversation.id));
+    .where(and(eq(motivationConversations.id, conversation.id), eq(motivationConversations.updatedAt, conversation.updatedAt)))
+    .returning({ id: motivationConversations.id });
+
+  if (updatedRows.length === 0) {
+    return NextResponse.json(
+      { error: "別のタブまたは直前の操作で会話が更新されました。画面を再読み込みしてからやり直してください。" },
+      { status: 409 },
+    );
+  }
+
+  // Consume credit only after DB update succeeds (business rule: charge on success only)
+  if (shouldConsumeCredit) {
+    await consumeCredits(userId!, CREDITS_PER_QUESTION_BATCH, "motivation", companyId);
+  }
+  logAiCreditCostSummary({
+    feature: "motivation",
+    requestId,
+    status: "success",
+    creditsUsed: shouldConsumeCredit ? CREDITS_PER_QUESTION_BATCH : 0,
+    telemetry: result.telemetry,
+  });
 
   return NextResponse.json({
     messages,

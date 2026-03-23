@@ -9,6 +9,7 @@ from app.config import settings
 from app.limiter import limiter
 from app.routers import health, company_info, es_review, gakuchika, motivation
 from app.utils.secure_logger import get_logger
+from app.utils.llm import reset_request_llm_cost_summary
 
 logger = get_logger(__name__)
 
@@ -32,14 +33,18 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         request_id = request.headers.get("X-Request-Id") or str(uuid4())
         request.state.request_id = request_id
-        response = await call_next(request)
+        reset_request_llm_cost_summary()
+        try:
+            response = await call_next(request)
+        finally:
+            reset_request_llm_cost_summary()
         response.headers["X-Request-Id"] = request_id
         return response
 
 
 app = FastAPI(
-    title="就活Compass API",
-    description="Backend API for 就活Compass",
+    title="就活Pass API",
+    description="Backend API for 就活Pass",
     version="0.1.0",
 )
 
@@ -81,4 +86,4 @@ app.include_router(motivation.router)
 
 @app.get("/")
 async def root():
-    return {"message": "就活Compass API", "version": "0.1.0"}
+    return {"message": "就活Pass API", "version": "0.1.0"}

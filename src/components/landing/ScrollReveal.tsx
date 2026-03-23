@@ -1,7 +1,12 @@
 "use client";
 
 import { useRef } from "react";
-import { motion, useInView, type HTMLMotionProps } from "framer-motion";
+import {
+  motion,
+  useInView,
+  useReducedMotion,
+  type HTMLMotionProps,
+} from "framer-motion";
 
 type ScrollRevealProps = HTMLMotionProps<"div"> & {
   /** Distance in px the element slides up from. Default 32. */
@@ -22,12 +27,17 @@ export function ScrollReveal({
 }: ScrollRevealProps) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, amount: 0.15 });
+  const prefersReducedMotion = useReducedMotion();
+  const isUiReview = typeof navigator !== "undefined" && navigator.webdriver;
+  const shouldShowImmediately = prefersReducedMotion || isUiReview;
+  const animateState =
+    shouldShowImmediately || inView ? { opacity: 1, y: 0 } : { opacity: 0, y: offset };
 
   return (
     <motion.div
       ref={ref}
-      initial={{ opacity: 0, y: offset }}
-      animate={inView ? { opacity: 1, y: 0 } : { opacity: 0, y: offset }}
+      initial={shouldShowImmediately ? false : { opacity: 0, y: offset }}
+      animate={animateState}
       transition={{ duration, delay, ease: [0.25, 0.1, 0.25, 1] }}
       style={{ willChange: "opacity, transform", ...style }}
       {...rest}

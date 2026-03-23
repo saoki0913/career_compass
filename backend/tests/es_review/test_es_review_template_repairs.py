@@ -19,11 +19,11 @@ from app.routers.es_review import (
     _build_allowed_user_facts,
     _build_company_evidence_cards,
     _build_role_focused_second_pass_query,
-    _build_qwen_timeout_fallback_rewrite,
     _should_run_role_focused_second_pass,
     _build_template_review_response,
     _assess_company_evidence_coverage,
     _derive_char_min,
+    _es_review_temperature,
     _evaluate_grounding_mode,
     _fallback_improvement_points,
     _fit_rewrite_text_deterministically,
@@ -32,6 +32,8 @@ from app.routers.es_review import (
     _parse_issues,
     _select_rewrite_prompt_context,
     _select_prompt_user_facts,
+    _soft_min_shortfall,
+    _uses_tight_length_control,
     _validate_rewrite_candidate,
     deterministic_compress_variant,
     review_section_with_template,
@@ -45,28 +47,20 @@ def _make_text(length: int) -> str:
     return "あ" * max(0, length - 1) + "。"
 
 
-def _timeout_error(detail: str = "Request timed out.") -> LLMError:
-    return LLMError(
-        error_type="timeout",
-        message="Qwen3 ES添削 beta の応答がタイムアウトしました。短い構成で再試行します。",
-        detail=detail,
-        provider="qwen-es-review",
-        feature="es_review_qwen_beta",
-    )
-
-
 class FakeJsonResult:
-    def __init__(self, data=None, *, success: bool = True, error: LLMError | None = None):
+    def __init__(self, data=None, *, success: bool = True, error: LLMError | None = None, usage: dict | None = None):
         self.success = success
         self.data = data
         self.error = error
+        self.usage = usage
 
 
 class FakeTextResult:
-    def __init__(self, text: str = "", *, success: bool = True, error: LLMError | None = None):
+    def __init__(self, text: str = "", *, success: bool = True, error: LLMError | None = None, usage: dict | None = None):
         self.success = success
         self.data = {"text": text} if success else None
         self.error = error
+        self.usage = usage
 
 
 def test_normalize_repaired_text_strips_wrappers() -> None:
@@ -102,7 +96,7 @@ def test_deterministic_compress_variant_shortens_semantically() -> None:
     assert compressed["text"].endswith("。")
 
 
-def test_fit_rewrite_text_deterministically_expands_small_underflow() -> None:
+def test_fit_rewrite_text_deterministically_does_not_expand_underflow() -> None:
     fitted = _fit_rewrite_text_deterministically(
         _make_text(378),
         template_type="role_course_reason",
@@ -111,11 +105,137 @@ def test_fit_rewrite_text_deterministically_expands_small_underflow() -> None:
         issues=[],
         role_name="デジタル企画",
         grounding_mode="none",
-        use_non_claude_length_control=True,
     )
 
-    assert fitted is not None
-    assert 390 <= len(fitted) <= 400
+    assert fitted is None
+
+
+def test_uses_tight_length_control_for_short_and_mid_under_min_prone_bands() -> None:
+    assert _uses_tight_length_control(
+        template_type="company_motivation",
+        char_min=120,
+        char_max=150,
+        review_variant="standard",
+    )
+    assert _uses_tight_length_control(
+        template_type="self_pr",
+        char_min=160,
+        char_max=180,
+        review_variant="standard",
+    )
+
+
+def test_soft_min_shortfall_allows_90_percent_floor_only_for_final_short_answer_rescue() -> None:
+    rewrite = _make_text(180)
+
+    assert _soft_min_shortfall(
+        rewrite,
+        char_min=200,
+        char_max=200,
+        final_attempt=False,
+    ) == 0
+    assert _soft_min_shortfall(
+        rewrite,
+        char_min=200,
+        char_max=200,
+        final_attempt=True,
+    ) == 20
+
+
+def test_soft_min_shortfall_allows_final_rescue_for_long_band_at_90_percent_floor() -> None:
+    rewrite = _make_text(198)
+
+    assert _soft_min_shortfall(
+        rewrite,
+        char_min=200,
+        char_max=220,
+        final_attempt=True,
+    ) == 2
+
+
+def test_validate_rewrite_candidate_does_not_accept_soft_min_before_final_attempt() -> None:
+    candidate = _make_text(180)
+
+    validated, retry_code, _, retry_meta = _validate_rewrite_candidate(
+        candidate,
+        template_type="basic",
+        question="学生時代に力を入れたことを200字以内で教えてください。",
+        company_name=None,
+        char_min=200,
+        char_max=200,
+        issues=[],
+        role_name=None,
+        grounding_mode="none",
+        review_variant="standard",
+        allow_soft_min=False,
+    )
+
+    assert validated is None
+    assert retry_code == "under_min"
+    assert retry_meta == {}
+
+
+def test_validate_rewrite_candidate_accepts_soft_min_on_final_short_answer_attempt() -> None:
+    candidate = _make_text(180)
+
+    validated, retry_code, _, retry_meta = _validate_rewrite_candidate(
+        candidate,
+        template_type="basic",
+        question="学生時代に力を入れたことを200字以内で教えてください。",
+        company_name=None,
+        char_min=200,
+        char_max=200,
+        issues=[],
+        role_name=None,
+        grounding_mode="none",
+        review_variant="standard",
+        allow_soft_min=True,
+    )
+
+    assert validated == candidate
+    assert retry_code == "soft_min_applied"
+    assert retry_meta == {
+        "length_policy": "soft_min_applied",
+        "length_shortfall": 20,
+        "soft_min_floor_ratio": 0.9,
+    }
+
+
+def test_validate_rewrite_candidate_accepts_soft_min_on_final_long_answer_attempt() -> None:
+    candidate = _make_text(360)
+
+    validated, retry_code, _, retry_meta = _validate_rewrite_candidate(
+        candidate,
+        template_type="basic",
+        question="学生時代に力を入れたことを400字以内で教えてください。",
+        company_name=None,
+        char_min=390,
+        char_max=400,
+        issues=[],
+        role_name=None,
+        grounding_mode="none",
+        review_variant="standard",
+        allow_soft_min=True,
+    )
+
+    assert validated == candidate
+    assert retry_code == "soft_min_applied"
+    assert retry_meta == {
+        "length_policy": "soft_min_applied",
+        "length_shortfall": 30,
+        "soft_min_floor_ratio": 0.9,
+    }
+
+
+def test_es_review_temperature_uses_provider_defaultish_setting_for_gemini() -> None:
+    assert _es_review_temperature("gemini-3.1-pro-preview", stage="improvement") == 1.0
+    assert _es_review_temperature(
+        "gemini-3.1-pro-preview",
+        stage="rewrite",
+        use_tight_length_control=True,
+        length_control_mode="under_min_recovery",
+        simplified_mode=True,
+    ) == 1.0
 
 
 def test_fit_rewrite_text_deterministically_trims_small_overflow_to_safe_boundary() -> None:
@@ -498,14 +618,51 @@ def test_select_prompt_user_facts_guarantees_current_and_supporting_fact_for_req
     assert selected_sources.count("profile") <= 1
 
 
-def test_validate_rewrite_candidate_allows_soft_min_for_short_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_validate_rewrite_candidate_intern_reason_allows_praxis_without_intern_keyword(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """英語プログラム名の設問でも、実務文脈＋試しながら／学びたいなら冒頭で受理する。"""
+    monkeypatch.setattr(
+        "app.routers.es_review._validate_reference_distance",
+        lambda *args, **kwargs: (True, None),
+    )
+    text = "研究で磨いた分析力を、実務に近い課題で試しながら意思決定へつなげる視点を学びたい。"
+    assert len(text) == 41
+    candidate, code, reason, meta = _validate_rewrite_candidate(
+        text,
+        template_type="intern_reason",
+        company_name="三井物産",
+        char_min=41,
+        char_max=120,
+        issues=[],
+        role_name="Business Intelligence",
+        intern_name="Business Intelligence Internship",
+        grounding_mode="role_grounded",
+        company_evidence_cards=[
+            {
+                "theme": "インターン機会",
+                "claim": "Business Intelligence Internship",
+                "excerpt": "実務に近いテーマを扱う",
+            }
+        ],
+    )
+
+    assert candidate is not None
+    assert code == "ok"
+    assert reason == "ok"
+    assert meta.get("length_policy") == "strict"
+
+
+def test_validate_rewrite_candidate_allows_soft_min_for_short_answer_on_final_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         "app.routers.es_review._validate_reference_distance",
         lambda *args, **kwargs: (True, None),
     )
 
     candidate, code, reason, meta = _validate_rewrite_candidate(
-        _make_text(177),
+        _make_text(183),
         template_type="intern_reason",
         company_name="三井物産",
         char_min=190,
@@ -521,51 +678,15 @@ def test_validate_rewrite_candidate_allows_soft_min_for_short_answer(monkeypatch
                 "excerpt": "実務に近いテーマを扱う",
             }
         ],
+        allow_soft_min=True,
     )
 
     assert candidate is not None
     assert code == "soft_min_applied"
     assert reason == "ok"
     assert meta["length_policy"] == "soft_min_applied"
-    assert meta["length_shortfall"] == 13
-
-
-def test_validate_rewrite_candidate_rejects_qwen_past_heavy_post_join_goals(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "app.routers.es_review._validate_reference_distance",
-        lambda *args, **kwargs: (True, None),
-    )
-
-    candidate, code, reason, meta = _validate_rewrite_candidate(
-        (
-            "入社後はAIやデジタル技術を活用して既存産業の構造転換に携わりたい。"
-            "大学ではチーム4人で未経験からWeb開発に挑み、2ヶ月で完遂するためにエラー対応マニュアルと技術資料を作成し、知識共有を進めた。"
-        ),
-        template_type="post_join_goals",
-        question="入社後やりたいことを教えてください。",
-        company_name="三菱商事",
-        char_min=90,
-        char_max=200,
-        issues=[],
-        role_name="総合職",
-        intern_name=None,
-        grounding_mode="company_general",
-        company_evidence_cards=[
-            {
-                "theme": "事業理解",
-                "claim": "成長領域への投資を進める",
-                "excerpt": "新たな事業機会を広げる",
-            }
-        ],
-        review_variant="qwen3-beta",
-    )
-
-    assert candidate is None
-    assert code == "evidence_overweight"
-    assert "過去経験の説明が長すぎます" in reason
-    assert meta == {}
+    assert meta["length_shortfall"] == 7
+    assert meta["soft_min_floor_ratio"] == 0.9
 
 
 def test_detect_es_injection_risk_blocks_reference_es_exfiltration() -> None:
@@ -712,46 +833,6 @@ def test_select_rewrite_prompt_context_compacts_context_on_late_attempts() -> No
     assert context["reference_quality_block"] == ""
 
 
-def test_select_rewrite_prompt_context_compacts_qwen_short_answers_more_aggressively() -> None:
-    context = _select_rewrite_prompt_context(
-        template_type="post_join_goals",
-        char_max=200,
-        attempt=1,
-        simplified_mode=False,
-        review_variant="qwen3-beta",
-        prompt_user_facts=[{"text": f"fact-{index}"} for index in range(8)],
-        company_evidence_cards=[{"claim": f"card-{index}"} for index in range(3)],
-        improvement_payload=[{"issue": f"issue-{index}"} for index in range(3)],
-        reference_quality_block="【参考ESから抽出した品質ヒント】\n- 結論先行",
-        evidence_coverage_level="strong",
-    )
-
-    assert len(context["prompt_user_facts"]) == 3
-    assert len(context["company_evidence_cards"]) == 1
-    assert len(context["improvement_payload"]) == 0
-    assert context["reference_quality_block"] == ""
-
-
-def test_select_rewrite_prompt_context_caps_qwen_long_answers_without_reference_outline() -> None:
-    context = _select_rewrite_prompt_context(
-        template_type="role_course_reason",
-        char_max=400,
-        attempt=0,
-        simplified_mode=False,
-        review_variant="qwen3-beta",
-        prompt_user_facts=[{"text": f"fact-{index}"} for index in range(8)],
-        company_evidence_cards=[{"claim": f"card-{index}"} for index in range(3)],
-        improvement_payload=[{"issue": f"issue-{index}"} for index in range(3)],
-        reference_quality_block="【参考ESから抽出した品質ヒント】\n- 結論先行",
-        evidence_coverage_level="strong",
-    )
-
-    assert len(context["prompt_user_facts"]) == 4
-    assert len(context["company_evidence_cards"]) == 1
-    assert context["improvement_payload"] == []
-    assert context["reference_quality_block"] == ""
-
-
 @pytest.mark.asyncio
 async def test_review_section_with_template_uses_fallback_after_five_failures(
     monkeypatch: pytest.MonkeyPatch,
@@ -803,9 +884,10 @@ async def test_review_section_with_template_uses_fallback_after_five_failures(
         progress_queue=None,
     )
 
-    assert rewrite_calls == 6
+    assert rewrite_calls == 3
     assert result.review_meta is not None
     assert result.review_meta.fallback_to_generic is True
+    assert result.review_meta.rewrite_attempt_count == 3
     assert 390 <= len(result.rewrites[0]) <= 400
 
 
@@ -873,7 +955,7 @@ async def test_review_section_with_template_uses_length_focus_retry_for_non_clau
         progress_queue=None,
     )
 
-    assert rewrite_calls == 3
+    assert rewrite_calls == 2
     assert any("【300〜500字設問の組み方】" in prompt for prompt in seen_prompts[:2])
     assert any("【今回の不足を埋める方針】" in prompt for prompt in seen_prompts)
     assert result.review_meta is not None
@@ -896,17 +978,11 @@ async def test_review_section_with_template_deterministically_expands_best_non_c
     llm_model: str,
 ) -> None:
     rewrite_calls = 0
-    responses = iter(
-        [
-            _make_text(351),
-            _make_text(351),
-            _make_text(374),
-            _make_text(324),
-            _make_text(321),
-            _make_text(432),
-            _make_text(374),
-        ]
-    )
+    responses = iter([
+        _make_text(351),
+        _make_text(351),
+        _make_text(394),
+    ])
 
     async def fake_call_llm_with_error(*args, **kwargs):
         return FakeJsonResult(
@@ -990,9 +1066,6 @@ async def test_review_section_with_template_propagates_enrichment_meta(
     request = ReviewRequest(
         content="私は研究と開発経験を生かし、デジタル企画として価値を出したいです。",
         section_title="デジタル企画を選択した理由を教えてください。",
-        prestream_enrichment_attempted=True,
-        prestream_enrichment_completed=True,
-        prestream_enrichment_sources_added=2,
         template_request=TemplateRequest(
             template_type="role_course_reason",
             question="デジタル企画を選択した理由を教えてください。",
@@ -1090,6 +1163,88 @@ async def test_review_section_with_template_logs_improvements_rewrite_and_source
 
 
 @pytest.mark.asyncio
+async def test_review_section_with_template_keeps_token_usage_internal_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_call_llm_with_error(*args, **kwargs):
+        return FakeJsonResult(
+            {
+                "top3": [
+                    {
+                        "category": "企業接続",
+                        "issue": "企業理解の接点が浅い",
+                        "suggestion": "事業との接点を1点示す",
+                    }
+                ]
+            },
+            usage={
+                "input_tokens": 110,
+                "output_tokens": 40,
+                "reasoning_tokens": 5,
+                "cached_input_tokens": 20,
+            },
+        )
+
+    calls = 0
+
+    async def fake_call_llm_text_with_error(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return FakeTextResult(
+                _make_text(350),
+                usage={
+                    "input_tokens": 90,
+                    "output_tokens": 30,
+                    "reasoning_tokens": 4,
+                    "cached_input_tokens": 10,
+                },
+            )
+        return FakeTextResult(
+            _make_text(394),
+            usage={
+                "input_tokens": 100,
+                "output_tokens": 35,
+                "reasoning_tokens": 3,
+                "cached_input_tokens": 15,
+            },
+        )
+
+    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
+    monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
+    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
+
+    result = await review_section_with_template(
+        request=ReviewRequest(
+            content="私は研究と開発経験を生かし、デジタル企画として価値を出したいです。",
+            section_title="デジタル企画を選択した理由を教えてください。",
+            template_request=TemplateRequest(
+                template_type="role_course_reason",
+                question="デジタル企画を選択した理由を教えてください。",
+                answer="私は研究と開発経験を生かし、デジタル企画として価値を出したいです。",
+                role_name="デジタル企画",
+                char_min=390,
+                char_max=400,
+            ),
+        ),
+        rag_sources=[],
+        company_rag_available=False,
+        progress_queue=None,
+    )
+
+    assert result.review_meta is not None
+    assert result.review_meta.token_usage is not None
+    assert result.review_meta.token_usage.input_tokens == 300
+    assert result.review_meta.token_usage.output_tokens == 105
+    assert result.review_meta.token_usage.reasoning_tokens == 12
+    assert result.review_meta.token_usage.cached_input_tokens == 45
+    assert result.review_meta.token_usage.llm_call_count == 3
+    assert result.review_meta.token_usage.structured_call_count == 1
+    assert result.review_meta.token_usage.text_call_count == 2
+    assert "token_usage" not in result.model_dump()["review_meta"]
+
+
+@pytest.mark.asyncio
 async def test_review_section_with_template_uses_assistive_company_grounding_for_gakuchika(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1171,12 +1326,14 @@ async def test_review_section_with_template_uses_length_fix_for_small_overflow(
         "現場で学びながら事業理解と顧客への貢献の解像度を高め将来につなげたいと考える。"
     )
     calls = 0
+    seen_models: list[str | None] = []
 
     async def fake_call_llm_text_with_error(*args, **kwargs):
         nonlocal calls
         calls += 1
+        seen_models.append(kwargs.get("model"))
         system_prompt = kwargs.get("system_prompt", "") or (args[0] if args else "")
-        if "文字数だけを整えること" in system_prompt:
+        if "文字数だけを整える" in system_prompt:
             return FakeTextResult(fixed_text)
         return FakeTextResult(overflow_text)
 
@@ -1207,15 +1364,18 @@ async def test_review_section_with_template_uses_length_fix_for_small_overflow(
             }
         ],
         company_rag_available=True,
+        llm_model="gpt-5.4-mini",
         grounding_mode="company_general",
         progress_queue=None,
     )
 
-    assert calls == 7
+    assert calls == 4
     assert result.review_meta is not None
     assert result.review_meta.length_fix_attempted is True
     assert result.review_meta.length_fix_result == "strict_recovered"
     assert result.review_meta.fallback_to_generic is False
+    assert result.review_meta.rewrite_attempt_count == 4
+    assert seen_models[-1] == "gpt-5.4-mini"
     assert 70 <= len(result.rewrites[0]) <= 80
 
 
@@ -1305,11 +1465,68 @@ async def test_review_section_with_template_returns_generic_error_after_fallback
     async def fake_call_llm_text_with_error(*args, **kwargs):
         nonlocal rewrite_calls
         rewrite_calls += 1
-        return FakeTextResult(_make_text(370))
+        return FakeTextResult(_make_text(350))
 
     monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
     monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
     monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
+
+    request = ReviewRequest(
+        content="私は研究と開発経験を生かし、デジタル企画として価値を出したいです。",
+        section_title="デジタル企画を選択した理由を教えてください。",
+        template_request=TemplateRequest(
+            template_type="role_course_reason",
+            question="デジタル企画を選択した理由を教えてください。",
+            answer="私は研究と開発経験を生かし、デジタル企画として価値を出したいです。",
+            role_name="デジタル企画",
+            char_min=390,
+            char_max=400,
+        ),
+    )
+
+    result = await review_section_with_template(
+        request=request,
+        rag_sources=[],
+        company_rag_available=False,
+        progress_queue=None,
+    )
+
+    assert rewrite_calls == 4
+    assert result.rewrites and result.rewrites[0].strip()
+    assert result.review_meta is not None
+    assert result.review_meta.rewrite_validation_status == "degraded"
+    assert result.review_meta.rewrite_validation_codes
+    hint = result.review_meta.rewrite_validation_user_hint or ""
+    assert "品質チェック" in hint
+    assert "最小字数" in hint
+
+
+@pytest.mark.asyncio
+async def test_review_section_with_template_422_when_best_candidate_is_reference_overlap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_call_llm_with_error(*args, **kwargs):
+        return FakeJsonResult(
+            {
+                "top3": [
+                    {
+                        "category": "結論の明確さ",
+                        "issue": "冒頭が弱い",
+                        "suggestion": "冒頭で結論を言い切る",
+                    }
+                ]
+            }
+        )
+
+    async def fake_call_llm_text_with_error(*args, **kwargs):
+        return FakeTextResult(_make_text(350))
+
+    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
+    monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
+    monkeypatch.setattr(
+        "app.routers.es_review._validate_reference_distance",
+        lambda *args, **kwargs: (False, "overlap_stub"),
+    )
 
     request = ReviewRequest(
         content="私は研究と開発経験を生かし、デジタル企画として価値を出したいです。",
@@ -1332,7 +1549,6 @@ async def test_review_section_with_template_returns_generic_error_after_fallback
             progress_queue=None,
         )
 
-    assert rewrite_calls == 7
     assert exc_info.value.status_code == 422
     assert exc_info.value.detail["error"] == GENERIC_REWRITE_VALIDATION_ERROR
 
@@ -1384,317 +1600,6 @@ async def test_review_section_with_template_uses_fallback_improvement_points_whe
     assert "企業接続" not in categories
 
 
-@pytest.mark.asyncio
-async def test_review_section_with_template_qwen_skips_improvement_generation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    json_calls = 0
-
-    async def fake_json_caller(*args, **kwargs):
-        nonlocal json_calls
-        json_calls += 1
-        return FakeJsonResult(success=False, error=_timeout_error())
-
-    async def fake_text_caller(*args, **kwargs):
-        return FakeTextResult(
-            "入社後は事業と技術をつなぐ価値創出に携わりたい。これまでに培った学びを土台に、現場で事業理解と実行力を磨きながら価値創出に貢献したい。"
-        )
-
-    monkeypatch.setattr(
-        "app.routers.es_review._validate_reference_distance",
-        lambda *args, **kwargs: (True, None),
-    )
-
-    request = ReviewRequest(
-        content="入社後は事業と技術をつなぐ価値創出に携わりたい。",
-        section_title="入社後やりたいことを教えてください。",
-        template_request=TemplateRequest(
-            template_type="post_join_goals",
-            question="入社後やりたいことを教えてください。",
-            answer="入社後は事業と技術をつなぐ価値創出に携わりたい。",
-            company_name="三菱商事",
-            role_name="総合職",
-            char_min=70,
-            char_max=90,
-        ),
-    )
-
-    result = await review_section_with_template(
-        request=request,
-        rag_sources=[],
-        company_rag_available=True,
-        json_caller=fake_json_caller,
-        text_caller=fake_text_caller,
-        review_feature="es_review_qwen_beta",
-        llm_provider="qwen-es-review",
-        llm_model="es_review",
-        review_variant="qwen3-beta",
-        grounding_mode="company_general",
-        progress_queue=None,
-    )
-
-    assert json_calls == 0
-    assert result.top3 == []
-    assert result.review_meta is not None
-    assert result.review_meta.improvement_timeout_fallback is False
-    assert result.review_meta.timeout_stage is None
-    assert result.review_meta.timeout_recovered is False
-    assert result.review_meta.rewrite_generation_mode == "normal"
-
-
-@pytest.mark.asyncio
-async def test_review_section_with_template_qwen_uses_compact_retry_after_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    rewrite_timeout_seconds: list[int | None] = []
-    rewrite_modes: list[str] = []
-    json_calls = 0
-
-    async def fake_json_caller(*args, **kwargs):
-        nonlocal json_calls
-        json_calls += 1
-        return FakeJsonResult()
-
-    async def fake_text_caller(*args, **kwargs):
-        rewrite_timeout_seconds.append(kwargs.get("timeout_seconds"))
-        rewrite_modes.append("compact_timeout" if kwargs.get("timeout_seconds") == 45 else "normal")
-        if len(rewrite_timeout_seconds) == 1:
-            return FakeTextResult(success=False, error=_timeout_error())
-        return FakeTextResult(
-            "入社後はAIやデジタル技術を生かし、既存産業の構造転換に携わりたい。未経験チームの開発を前進させた経験を土台に、現場で事業理解と実行力を磨きながら価値創出に貢献したい。"
-        )
-
-    monkeypatch.setattr(
-        "app.routers.es_review._validate_reference_distance",
-        lambda *args, **kwargs: (True, None),
-    )
-
-    result = await review_section_with_template(
-        request=ReviewRequest(
-            content="AIやデジタル技術を生かし、既存産業の構造転換に携わりたい。",
-            section_title="入社後やりたいことを教えてください。",
-            template_request=TemplateRequest(
-                template_type="post_join_goals",
-                question="入社後やりたいことを教えてください。",
-                answer="AIやデジタル技術を生かし、既存産業の構造転換に携わりたい。",
-                company_name="三菱商事",
-                role_name="総合職",
-                char_min=80,
-                char_max=90,
-            ),
-        ),
-        rag_sources=[
-            {
-                "content_type": "corporate_site",
-                "title": "成長領域",
-                "excerpt": "事業投資を拡大する",
-            }
-        ],
-        company_rag_available=True,
-        json_caller=fake_json_caller,
-        text_caller=fake_text_caller,
-        review_feature="es_review_qwen_beta",
-        llm_provider="qwen-es-review",
-        llm_model="es_review",
-        review_variant="qwen3-beta",
-        grounding_mode="company_general",
-        progress_queue=None,
-    )
-
-    assert rewrite_timeout_seconds[:2] == [90, 45]
-    assert rewrite_modes[:2] == ["normal", "compact_timeout"]
-    assert json_calls == 0
-    assert result.top3 == []
-    assert result.review_meta is not None
-    assert result.review_meta.timeout_stage == "rewrite"
-    assert result.review_meta.timeout_recovered is True
-    assert result.review_meta.rewrite_generation_mode in {"compact_timeout", "timeout_fallback"}
-
-
-@pytest.mark.asyncio
-async def test_review_section_with_template_qwen_returns_timeout_fallback_rewrite(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    rewrite_timeout_seconds: list[int | None] = []
-    json_calls = 0
-
-    async def fake_json_caller(*args, **kwargs):
-        nonlocal json_calls
-        json_calls += 1
-        return FakeJsonResult()
-
-    async def fake_text_caller(*args, **kwargs):
-        rewrite_timeout_seconds.append(kwargs.get("timeout_seconds"))
-        return FakeTextResult(success=False, error=_timeout_error())
-
-    monkeypatch.setattr(
-        "app.routers.es_review._validate_reference_distance",
-        lambda *args, **kwargs: (True, None),
-    )
-
-    result = await review_section_with_template(
-        request=ReviewRequest(
-            content="事業と技術をつなぐ役割で価値を出したい。",
-            section_title="デジタル企画を選択した理由を教えてください。",
-            template_request=TemplateRequest(
-                template_type="role_course_reason",
-                question="デジタル企画を選択した理由を教えてください。",
-                answer="事業と技術をつなぐ役割で価値を出したい。",
-                company_name="三菱商事",
-                role_name="デジタル企画",
-                char_min=90,
-                char_max=120,
-            ),
-        ),
-        rag_sources=[
-            {
-                "content_type": "employee_interviews",
-                "title": "社員インタビュー",
-                "excerpt": "事業部門と開発をつなぐ",
-            }
-        ],
-        company_rag_available=True,
-        json_caller=fake_json_caller,
-        text_caller=fake_text_caller,
-        review_feature="es_review_qwen_beta",
-        llm_provider="qwen-es-review",
-        llm_model="es_review",
-        review_variant="qwen3-beta",
-        grounding_mode="role_grounded",
-        progress_queue=None,
-    )
-
-    assert rewrite_timeout_seconds == [90, 45]
-    assert json_calls == 0
-    assert result.top3 == []
-    assert result.review_meta is not None
-    assert result.review_meta.fallback_to_generic is True
-    assert result.review_meta.timeout_stage == "compact_rewrite"
-    assert result.review_meta.timeout_recovered is True
-    assert result.review_meta.rewrite_generation_mode == "timeout_fallback"
-    assert 90 <= len(result.rewrites[0]) <= 120
-
-
-@pytest.mark.asyncio
-async def test_review_section_with_template_propagates_qwen_provider_metadata(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    json_calls = 0
-
-    async def fake_json_caller(*args, **kwargs):
-        nonlocal json_calls
-        json_calls += 1
-        return FakeJsonResult()
-
-    async def fake_text_caller(*args, **kwargs):
-        return FakeTextResult(_make_text(394))
-
-    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
-
-    request = ReviewRequest(
-        content="私は研究と開発経験を生かし、デジタル企画として価値を出したいです。",
-        section_title="デジタル企画を選択した理由を教えてください。",
-        template_request=TemplateRequest(
-            template_type="role_course_reason",
-            question="デジタル企画を選択した理由を教えてください。",
-            answer="私は研究と開発経験を生かし、デジタル企画として価値を出したいです。",
-            role_name="デジタル企画",
-            char_min=390,
-            char_max=400,
-        ),
-    )
-
-    result = await review_section_with_template(
-        request=request,
-        rag_sources=[],
-        company_rag_available=True,
-        json_caller=fake_json_caller,
-        text_caller=fake_text_caller,
-        review_feature="es_review_qwen_beta",
-        llm_provider="qwen-es-review",
-        llm_model="org/qwen3-es-review-lora",
-        review_variant="qwen3-beta",
-        grounding_mode="company_general",
-        progress_queue=None,
-    )
-
-    assert json_calls == 0
-    assert result.top3 == []
-    assert result.review_meta is not None
-    assert result.review_meta.llm_provider == "qwen-es-review"
-    assert result.review_meta.llm_model == "org/qwen3-es-review-lora"
-    assert result.review_meta.review_variant == "qwen3-beta"
-
-
-def test_build_qwen_timeout_fallback_rewrite_handles_required_medium_and_long_lengths() -> None:
-    company_cards = [{"theme": "役割理解", "claim": "事業部門と開発をつなぐ"}]
-    prompt_user_facts = [
-        {"source": "current_answer", "text": "未経験のチームでも開発を前に進めた"},
-        {"source": "gakuchika_summary", "text": "課題を構造化し、役割分担を見直した"},
-        {"source": "gakuchika_summary", "text": "技術資料とマニュアルを整備して知識共有を進めた"},
-        {"source": "profile", "text": "志望職種: デジタル企画"},
-    ]
-
-    medium_candidate = _build_qwen_timeout_fallback_rewrite(
-        template_type="role_course_reason",
-        answer="事業と技術をつなぐ立場で価値を出したい",
-        prompt_user_facts=prompt_user_facts,
-        char_min=190,
-        char_max=200,
-        company_name="三菱商事",
-        role_name="デジタル企画",
-        intern_name=None,
-        company_grounding="required",
-        company_evidence_cards=company_cards,
-    )
-    medium_validated, _, _, _ = _validate_rewrite_candidate(
-        medium_candidate,
-        template_type="role_course_reason",
-        question="デジタル企画を選択した理由を教えてください。",
-        company_name="三菱商事",
-        char_min=190,
-        char_max=200,
-        issues=[],
-        role_name="デジタル企画",
-        intern_name=None,
-        grounding_mode="role_grounded",
-        company_evidence_cards=company_cards,
-        review_variant="qwen3-beta",
-    )
-
-    long_candidate = _build_qwen_timeout_fallback_rewrite(
-        template_type="role_course_reason",
-        answer="事業と技術をつなぐ立場で価値を出したい",
-        prompt_user_facts=prompt_user_facts,
-        char_min=390,
-        char_max=400,
-        company_name="三菱商事",
-        role_name="デジタル企画",
-        intern_name=None,
-        company_grounding="required",
-        company_evidence_cards=company_cards,
-    )
-    long_validated, _, _, _ = _validate_rewrite_candidate(
-        long_candidate,
-        template_type="role_course_reason",
-        question="デジタル企画を選択した理由を教えてください。",
-        company_name="三菱商事",
-        char_min=390,
-        char_max=400,
-        issues=[],
-        role_name="デジタル企画",
-        intern_name=None,
-        grounding_mode="role_grounded",
-        company_evidence_cards=company_cards,
-        review_variant="qwen3-beta",
-    )
-
-    assert medium_validated is not None
-    assert 190 <= len(medium_validated) <= 200
-    assert long_validated is not None
-    assert 390 <= len(long_validated) <= 400
-
-
 def test_validate_rewrite_candidate_rejects_verbose_question_repeat_opening(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1744,6 +1649,7 @@ def test_validate_rewrite_candidate_requires_first_sentence_answer_focus(
     candidate, code, reason, meta = _validate_rewrite_candidate(
         (
             "大学では学園祭運営で関係者調整を担い、課題を構造化して前進させてきた。"
+            "チーム全体の前進を支え、期日までに成果を出す姿勢を積み重ねた。"
             "この経験から、事業部門と開発をつなぎながら価値を生むデジタル企画を志望する。"
             "現場の論点を整理し、関係者を巻き込みながら実装まで前に進めたい。"
         ),
@@ -1772,90 +1678,159 @@ def test_validate_rewrite_candidate_requires_first_sentence_answer_focus(
 
     assert candidate is None
     assert code == "answer_focus"
-    assert "1文目で" in reason
+    assert "冒頭" in reason
     assert meta == {}
 
 
-@pytest.mark.asyncio
-async def test_review_section_with_template_qwen_retries_short_answer_semantic_failure(
+def test_validate_rewrite_candidate_company_motivation_allows_lead_sentence_then_motivation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    rewrite_prompts: list[str] = []
-    rewrite_calls = 0
-
-    async def fake_json_caller(*args, **kwargs):
-        return FakeJsonResult(
-            {
-                "top3": [
-                    {
-                        "category": "将来像",
-                        "issue": "入社後にやりたいことより過去経験の説明が長い",
-                        "suggestion": "過去経験は短くし、入社後に挑戦したいことを中心にする",
-                    }
-                ]
-            }
-        )
-
-    async def fake_text_caller(*args, **kwargs):
-        nonlocal rewrite_calls
-        rewrite_calls += 1
-        rewrite_prompts.append(kwargs.get("system_prompt", "") or (args[0] if args else ""))
-        if rewrite_calls == 1:
-            return FakeTextResult(
-                (
-                    "入社後はAIやデジタル技術を活用して既存産業の構造転換に携わりたい。"
-                    "大学ではチーム4人で未経験からWeb開発に挑み、2ヶ月で完遂するためにエラー対応マニュアルと技術資料を作成し、知識共有を進めた。"
-                )
-            )
-        return FakeTextResult(
-            "入社後はAIやデジタル技術を活用し、既存産業の構造転換に携わりたい。大学で未経験チームの開発を前進させた経験を土台に、現場で事業理解と実装力を磨きながら価値創出に貢献したい。"
-        )
-
+    """先頭が経験でも、続く文に貴社＋志望の核があれば受理する。"""
     monkeypatch.setattr(
         "app.routers.es_review._validate_reference_distance",
         lambda *args, **kwargs: (True, None),
     )
-
-    result = await review_section_with_template(
-        request=ReviewRequest(
-            content="AIやデジタル技術を活用した既存産業の構造転換に携わりたい。",
-            section_title="入社後やりたいことを教えてください。",
-            template_request=TemplateRequest(
-                template_type="post_join_goals",
-                question="入社後やりたいことを教えてください。",
-                answer="AIやデジタル技術を活用した既存産業の構造転換に携わりたい。",
-                company_name="三菱商事",
-                role_name="総合職",
-                char_min=90,
-                char_max=120,
-            ),
-        ),
-        rag_sources=[
-            {
-                "content_type": "corporate_site",
-                "title": "注力事業",
-                "excerpt": "成長領域への投資を進める",
-            },
-            {
-                "content_type": "employee_interviews",
-                "title": "社員インタビュー",
-                "excerpt": "若手が現場で学びながら価値を広げる",
-            },
-        ],
-        company_rag_available=True,
-        json_caller=fake_json_caller,
-        text_caller=fake_text_caller,
-        review_feature="es_review_qwen_beta",
-        llm_provider="qwen-es-review",
-        llm_model="es_review",
-        review_variant="qwen3-beta",
+    text = (
+        "研究で仮説を立てて検証を回し、論点を整理してきた。"
+        "貴社を志望するのは、成長領域で価値を形にし社会課題に向き合う事業に関わりたいからだ。"
+        "分析と対話を通じて現場の意思決定を支えたい。"
+    )
+    candidate, code, reason, meta = _validate_rewrite_candidate(
+        text,
+        template_type="company_motivation",
+        question="三菱商事を志望する理由を150字以内で教えてください。",
+        company_name="三菱商事",
+        char_min=80,
+        char_max=200,
+        issues=[],
+        role_name="総合職",
+        intern_name=None,
         grounding_mode="company_general",
-        progress_queue=None,
+        company_evidence_cards=[
+            {
+                "theme": "事業理解",
+                "claim": "成長領域への投資を進める",
+                "excerpt": "社会課題に向き合う",
+            }
+        ],
     )
 
-    assert rewrite_calls == 2
-    assert rewrite_prompts
-    assert "過去経験は根拠として短く1節だけ使う" in rewrite_prompts[0]
-    assert "入社後は" in result.rewrites[0]
-    assert "価値創出に貢献したい" in result.rewrites[0]
-    assert 90 <= len(result.rewrites[0]) <= 120
+    assert candidate is not None
+    assert code == "ok"
+    assert reason == "ok"
+    assert meta.get("length_policy") == "strict"
+
+
+def test_validate_rewrite_candidate_self_pr_allows_experience_lead_when_second_sentence_has_core(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.es_review._validate_reference_distance",
+        lambda *args, **kwargs: (True, None),
+    )
+    text = (
+        "サークル運営で関係者調整と合意形成を担い、最後までやり切った。"
+        "この経験から強みは、論点を整理して前に進める実行力である。"
+        "現場の意思決定を支える仕事で活かしたい。"
+    )
+    candidate, code, _, meta = _validate_rewrite_candidate(
+        text,
+        template_type="self_pr",
+        question="自己PRを書いてください。",
+        company_name=None,
+        char_min=80,
+        char_max=400,
+        issues=[],
+        role_name=None,
+        intern_name=None,
+        grounding_mode="none",
+        company_evidence_cards=[],
+    )
+    assert candidate is not None
+    assert code == "ok"
+    assert meta.get("length_policy") == "strict"
+
+
+def test_validate_rewrite_candidate_gakuchika_allows_verbose_opening_guard_and_head_focus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.es_review._validate_reference_distance",
+        lambda *args, **kwargs: (True, None),
+    )
+    text = (
+        "ゼミの研究では、仮説と検証のサイクルを回し、データの限界まで踏み込んだ。"
+        "チームでは役割を分担しつつ、最終成果に責任を持って取り組んだ。"
+        "この経験で培った粘り強さを、入社後の課題解決に活かしたい。"
+    )
+    candidate, code, _, _ = _validate_rewrite_candidate(
+        text,
+        template_type="gakuchika",
+        question="学生時代に力を入れたことを教えてください。",
+        company_name="サンプル商事",
+        char_min=80,
+        char_max=400,
+        issues=[],
+        role_name=None,
+        intern_name=None,
+        grounding_mode="company_general",
+        company_evidence_cards=[],
+    )
+    assert candidate is not None
+    assert code == "ok"
+
+
+def test_validate_rewrite_candidate_role_course_reason_matches_role_name_segment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.es_review._validate_reference_distance",
+        lambda *args, **kwargs: (True, None),
+    )
+    text = (
+        "デジタル企画を選ぶのは、事業と実装をつなぐ役割に関心があるからだ。"
+        "研究で培った分析力を、その接点で価値に変えたい。"
+    )
+    candidate, code, _, _ = _validate_rewrite_candidate(
+        text,
+        template_type="role_course_reason",
+        question="理由を教えてください。",
+        company_name="三菱商事",
+        char_min=40,
+        char_max=220,
+        issues=[],
+        role_name="デジタル企画 / マーケティング",
+        intern_name=None,
+        grounding_mode="role_grounded",
+        company_evidence_cards=[],
+    )
+    assert candidate is not None
+    assert code == "ok"
+
+
+def test_validate_rewrite_candidate_company_motivation_accepts_tosha_in_head(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.es_review._validate_reference_distance",
+        lambda *args, **kwargs: (True, None),
+    )
+    text = (
+        "研究で課題を分解し、検証しながら前に進めてきた。"
+        "御社を志望するのは、社会課題に向き合う事業で価値を出したいからだ。"
+    )
+    candidate, code, _, _ = _validate_rewrite_candidate(
+        text,
+        template_type="company_motivation",
+        question="志望理由を教えてください。",
+        company_name="サンプル株式会社",
+        char_min=40,
+        char_max=300,
+        issues=[],
+        role_name=None,
+        intern_name=None,
+        grounding_mode="company_general",
+        company_evidence_cards=[],
+    )
+    assert candidate is not None
+    assert code == "ok"

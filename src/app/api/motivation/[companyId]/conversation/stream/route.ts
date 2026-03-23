@@ -30,6 +30,13 @@ import {
   getMotivationConversationByCondition,
 } from "@/lib/db/motivationConversationCompat";
 import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
+import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import {
+  getRequestId,
+  logAiCreditCostSummary,
+  splitInternalTelemetry,
+  type InternalCostTelemetry,
+} from "@/lib/ai/cost-summary-log";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -85,6 +92,7 @@ interface MotivationConversationContext {
   selectedRole?: string;
   selectedRoleSource?: "profile" | "company_doc" | "application_job_type" | "user_free_text";
   desiredWork?: string;
+  originExperience?: string;
   userAnchorStrengths: string[];
   userAnchorEpisodes: string[];
   profileAnchorIndustries: string[];
@@ -162,7 +170,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: [],
       companyRoleCandidates: [],
       companyWorkCandidates: [],
-      questionStage: "company_reason",
+      questionStage: "industry_reason",
     };
   }
   try {
@@ -175,6 +183,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       selectedRole: typeof parsed.selectedRole === "string" ? parsed.selectedRole : undefined,
       selectedRoleSource: typeof parsed.selectedRoleSource === "string" ? parsed.selectedRoleSource : undefined,
       desiredWork: typeof parsed.desiredWork === "string" ? parsed.desiredWork : undefined,
+      originExperience: typeof parsed.originExperience === "string" ? parsed.originExperience : undefined,
       userAnchorStrengths: Array.isArray(parsed.userAnchorStrengths) ? parsed.userAnchorStrengths.filter((v: unknown): v is string => typeof v === "string") : [],
       userAnchorEpisodes: Array.isArray(parsed.userAnchorEpisodes) ? parsed.userAnchorEpisodes.filter((v: unknown): v is string => typeof v === "string") : [],
       profileAnchorIndustries: Array.isArray(parsed.profileAnchorIndustries) ? parsed.profileAnchorIndustries.filter((v: unknown): v is string => typeof v === "string") : [],
@@ -182,7 +191,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: Array.isArray(parsed.companyAnchorKeywords) ? parsed.companyAnchorKeywords.filter((v: unknown): v is string => typeof v === "string") : [],
       companyRoleCandidates: Array.isArray(parsed.companyRoleCandidates) ? parsed.companyRoleCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
       companyWorkCandidates: Array.isArray(parsed.companyWorkCandidates) ? parsed.companyWorkCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
-      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "company_reason",
+      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "industry_reason",
     };
   } catch {
     return {
@@ -193,7 +202,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: [],
       companyRoleCandidates: [],
       companyWorkCandidates: [],
-      questionStage: "company_reason",
+      questionStage: "industry_reason",
     };
   }
 }
@@ -282,11 +291,17 @@ function applyAnswerToConversationContext(
   const next = { ...context };
   const trimmed = answer.trim();
   switch (context.questionStage) {
+    case "industry_reason":
+      next.industryReason = trimmed;
+      break;
     case "company_reason":
       next.companyReason = trimmed;
       break;
     case "desired_work":
       next.desiredWork = trimmed;
+      break;
+    case "origin_experience":
+      next.originExperience = trimmed;
       break;
     default:
       break;
@@ -297,6 +312,7 @@ function applyAnswerToConversationContext(
 // Configuration (must match non-stream route)
 const ELEMENT_COMPLETION_THRESHOLD = 70;
 const QUESTIONS_PER_CREDIT = 5;
+const CREDITS_PER_QUESTION_BATCH = 3;
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
 export async function POST(
@@ -305,6 +321,7 @@ export async function POST(
 ) {
   try {
     const { companyId } = await params;
+    const requestId = getRequestId(request);
     const identity = await getIdentity(request);
     if (!identity) {
       return new Response(
@@ -314,6 +331,24 @@ export async function POST(
     }
 
     const { userId, guestId } = identity;
+
+    if (!userId) {
+      return new Response(
+        JSON.stringify({ error: "志望動機のAI支援はログインが必要です" }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    const rateLimited = await enforceRateLimitLayers(
+      request,
+      [...CONVERSATION_RATE_LAYERS],
+      userId,
+      guestId,
+      "motivation_conversation_stream"
+    );
+    if (rateLimited) {
+      return rateLimited;
+    }
 
     const body = await request.json();
     const { answer } = body;
@@ -398,7 +433,7 @@ export async function POST(
     // Credit check (every QUESTIONS_PER_CREDIT questions for logged-in users)
     const shouldConsumeCredit = newQuestionCount > 0 && newQuestionCount % QUESTIONS_PER_CREDIT === 0 && !!userId;
     if (shouldConsumeCredit) {
-      const canPay = await hasEnoughCredits(userId!, 1);
+      const canPay = await hasEnoughCredits(userId!, CREDITS_PER_QUESTION_BATCH);
       if (!canPay) {
         return new Response(
           JSON.stringify({ error: "クレジットが不足しています" }),
@@ -428,7 +463,7 @@ export async function POST(
     try {
       aiResponse = await fetch(`${FASTAPI_URL}/api/motivation/next-question/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
         body: JSON.stringify({
           company_id: company.id,
           company_name: company.name,
@@ -455,11 +490,25 @@ export async function POST(
     } catch (fetchError) {
       clearTimeout(fetchTimeoutId);
       if (fetchError instanceof Error && fetchError.name === "AbortError") {
+        logAiCreditCostSummary({
+          feature: "motivation",
+          requestId,
+          status: "failed",
+          creditsUsed: 0,
+          telemetry: null,
+        });
         return new Response(
           JSON.stringify({ error: "AIの応答がタイムアウトしました。再度お試しください。" }),
           { status: 504, headers: { "Content-Type": "application/json" } }
         );
       }
+      logAiCreditCostSummary({
+        feature: "motivation",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry: null,
+      });
       return new Response(
         JSON.stringify({ error: "AIサービスに接続できませんでした" }),
         { status: 502, headers: { "Content-Type": "application/json" } }
@@ -469,10 +518,23 @@ export async function POST(
     }
 
     if (!aiResponse.ok) {
-      const errorBody = await aiResponse.json().catch(() => ({}));
+      const rawErrorBody = await aiResponse.json().catch(() => ({}));
+      const { payload, telemetry } =
+        rawErrorBody && typeof rawErrorBody === "object"
+          ? splitInternalTelemetry(rawErrorBody as Record<string, unknown>)
+          : { payload: rawErrorBody, telemetry: null as InternalCostTelemetry | null };
+      logAiCreditCostSummary({
+        feature: "motivation",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry,
+      });
       return new Response(
         JSON.stringify({
-          error: errorBody?.detail?.error || "AIサービスに接続できませんでした",
+          error:
+            (payload as { detail?: { error?: string } } | null)?.detail?.error ||
+            "AIサービスに接続できませんでした",
         }),
         { status: aiResponse.status, headers: { "Content-Type": "application/json" } }
       );
@@ -481,6 +543,13 @@ export async function POST(
     // Consume-and-re-emit: intercept SSE events, process complete event
     const fastApiBody = aiResponse.body;
     if (!fastApiBody) {
+      logAiCreditCostSummary({
+        feature: "motivation",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry: null,
+      });
       return new Response(
         JSON.stringify({ error: "AIレスポンスが空です" }),
         { status: 502, headers: { "Content-Type": "application/json" } }
@@ -489,6 +558,26 @@ export async function POST(
 
     const reader = fastApiBody.getReader();
     const decoder = new TextDecoder();
+    let summaryLogged = false;
+    let latestTelemetry: InternalCostTelemetry | null = null;
+
+    const logSummaryOnce = (args: {
+      status: "success" | "failed" | "cancelled";
+      creditsUsed: number;
+      telemetry?: InternalCostTelemetry | null;
+    }) => {
+      if (summaryLogged) {
+        return;
+      }
+      summaryLogged = true;
+      logAiCreditCostSummary({
+        feature: "motivation",
+        requestId,
+        status: args.status,
+        creditsUsed: args.creditsUsed,
+        telemetry: args.telemetry ?? latestTelemetry,
+      });
+    };
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -514,7 +603,10 @@ export async function POST(
 
               let event;
               try {
-                event = JSON.parse(jsonStr);
+                const rawEvent = JSON.parse(jsonStr) as Record<string, unknown>;
+                const { payload, telemetry } = splitInternalTelemetry(rawEvent);
+                latestTelemetry = telemetry ?? latestTelemetry;
+                event = payload;
               } catch {
                 // Forward unparseable lines as-is
                 controller.enqueue(encoder.encode(line + "\n\n"));
@@ -523,17 +615,26 @@ export async function POST(
 
               if (event.type === "progress") {
                 // Forward progress events immediately
-                controller.enqueue(encoder.encode(line + "\n\n"));
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
               } else if (event.type === "string_chunk") {
-                controller.enqueue(encoder.encode(line + "\n\n"));
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
               } else if (event.type === "complete") {
                 // Process complete event: DB save + credit consumption
-                const fastApiData = event.data;
-
-                // Consume credit only after FastAPI success
-                if (shouldConsumeCredit) {
-                  await consumeCredits(userId!, 2, "motivation", companyId);
-                }
+                const fastApiData = (event as {
+                  data: {
+                    question?: string;
+                    evaluation?: { scores: MotivationScores; is_complete: boolean };
+                    captured_context?: Partial<MotivationConversationContext>;
+                    question_stage?: string;
+                    suggestions?: string[];
+                    suggestion_options?: SuggestionOption[];
+                    evidence_summary?: string | null;
+                    evidence_cards?: unknown[];
+                    coaching_focus?: string | null;
+                    risk_flags?: string[];
+                    stage_status?: unknown;
+                  };
+                }).data;
 
                 // Add AI question to messages
                 let isCompleted = false;
@@ -566,7 +667,7 @@ export async function POST(
                 }
 
                 // Update database
-                await db
+                const updatedRows = await db
                   .update(motivationConversations)
                   .set(await filterMotivationConversationUpdate({
                     messages: JSON.stringify(messages),
@@ -604,7 +705,27 @@ export async function POST(
                     ),
                     updatedAt: new Date(),
                   }))
-                  .where(eq(motivationConversations.id, conversation.id));
+                  .where(and(eq(motivationConversations.id, conversation.id), eq(motivationConversations.updatedAt, conversation.updatedAt)))
+                  .returning({ id: motivationConversations.id });
+
+                if (updatedRows.length === 0) {
+                  const conflictEvent = {
+                    type: "error",
+                    message: "別のタブまたは直前の操作で会話が更新されました。画面を再読み込みしてからやり直してください。",
+                  };
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify(conflictEvent)}\n\n`)
+                  );
+                  return;
+                }
+
+                if (shouldConsumeCredit) {
+                  await consumeCredits(userId!, CREDITS_PER_QUESTION_BATCH, "motivation", companyId);
+                }
+                logSummaryOnce({
+                  status: "success",
+                  creditsUsed: shouldConsumeCredit ? CREDITS_PER_QUESTION_BATCH : 0,
+                });
 
                 // Re-emit complete event with enriched data for frontend
                 const enrichedEvent = {
@@ -630,10 +751,14 @@ export async function POST(
                 );
               } else if (event.type === "error") {
                 // Forward error events (no credit consumed)
-                controller.enqueue(encoder.encode(line + "\n\n"));
+                logSummaryOnce({
+                  status: "failed",
+                  creditsUsed: 0,
+                });
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
               } else {
                 // Forward unknown events
-                controller.enqueue(encoder.encode(line + "\n\n"));
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
               }
             }
           }
@@ -646,7 +771,17 @@ export async function POST(
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`)
           );
+          logSummaryOnce({
+            status: "failed",
+            creditsUsed: 0,
+          });
         } finally {
+          if (!summaryLogged) {
+            logSummaryOnce({
+              status: "cancelled",
+              creditsUsed: 0,
+            });
+          }
           controller.close();
         }
       },

@@ -4,7 +4,7 @@
  * Hook for managing deadlines for a specific company (CRUD operations)
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { trackEvent } from "@/lib/analytics/client";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
@@ -75,10 +75,15 @@ function buildHeaders(): Record<string, string> {
   return headers;
 }
 
-export function useCompanyDeadlines(companyId: string | null) {
-  const [deadlines, setDeadlines] = useState<Deadline[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+interface UseCompanyDeadlinesOptions {
+  initialData?: Deadline[];
+}
+
+export function useCompanyDeadlines(companyId: string | null, options: UseCompanyDeadlinesOptions = {}) {
+  const [deadlines, setDeadlines] = useState<Deadline[]>(() => options.initialData ?? []);
+  const [isLoading, setIsLoading] = useState(() => !options.initialData);
   const [error, setError] = useState<string | null>(null);
+  const skipInitialFetchRef = useRef(Boolean(options.initialData));
 
   const fetchDeadlines = useCallback(async () => {
     if (!companyId) {
@@ -133,6 +138,10 @@ export function useCompanyDeadlines(companyId: string | null) {
   }, [companyId]);
 
   useEffect(() => {
+    if (skipInitialFetchRef.current) {
+      skipInitialFetchRef.current = false;
+      return;
+    }
     fetchDeadlines();
   }, [fetchDeadlines]);
 

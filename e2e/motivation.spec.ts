@@ -1,5 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
-import { loginAsGuest } from "./fixtures/auth";
+import {
+  loginAsGuest,
+  ensureGuestSession,
+  mockAuthenticatedUser,
+  mockCredits,
+} from "./fixtures/auth";
 
 const COMPANY_ID = "motivation-test-company";
 
@@ -122,17 +127,58 @@ async function mockMotivationPage(page: Page) {
   });
 }
 
-test.describe("Motivation Page", () => {
+async function mockMotivationShellApis(page: Page) {
+  await page.route("**/api/notifications**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ notifications: [], unreadCount: 0 }),
+    });
+  });
+}
+
+test.describe("Motivation page (guest)", () => {
   test.beforeEach(async ({ page }) => {
-    await mockMotivationPage(page);
     await loginAsGuest(page);
+    await ensureGuestSession(page);
   });
 
-  test("desktop shows top CTA, visible restart button, and direct-answer options", async ({ page }) => {
+  test("shows login required for AI features", async ({ page }) => {
+    await page.goto(`/companies/${COMPANY_ID}/motivation`);
+    await expect(
+      page.getByText("志望動機のAI支援はログイン後にご利用いただけます")
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "ログイン / 新規登録" })).toBeVisible();
+  });
+});
+
+test.describe("Motivation page (mock authenticated)", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockMotivationPage(page);
+    await mockAuthenticatedUser(page, {
+      id: "motivation-e2e-user",
+      name: "E2E User",
+      email: "e2e-motivation@example.com",
+      plan: "free",
+    });
+    await mockCredits(page, { type: "user", plan: "free", balance: 100 });
+    await mockMotivationShellApis(page);
+  });
+
+  test("desktop shows a single header CTA, visible restart button, and direct-answer options", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 960 });
     await page.goto(`/companies/${COMPANY_ID}/motivation`);
 
+    const contentMain = page.getByRole("main").filter({ hasText: "志望動機を作成" });
+    const mainBox = await contentMain.boundingBox();
+    expect(mainBox).not.toBeNull();
+    expect(mainBox?.width ?? 0).toBeGreaterThan(1200);
+
     await expect(page.getByRole("heading", { name: "志望動機を作成" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "志望動機ESを作成" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "志望動機ESを作成" })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "志望動機ESを作成" })).toBeVisible();
     await expect(page.getByRole("button", { name: "会話をやり直す" }).first()).toBeVisible();
     await expect(page.getByText("この企業のどこに惹かれたかを1文で答える")).toBeVisible();
     await expect(page.getByText("企業固有の特徴に直接触れる候補")).toHaveCount(0);
@@ -140,12 +186,12 @@ test.describe("Motivation Page", () => {
     await expect(page.getByRole("link", { name: /新卒採用ページ/ }).first()).toBeVisible();
   });
 
-  test("mobile keeps ES CTA visible above the input area", async ({ page }) => {
+  test("mobile keeps the header CTA visible near the top", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/companies/${COMPANY_ID}/motivation`);
 
     await expect(page.getByRole("button", { name: "志望動機ESを作成" }).first()).toBeVisible();
     await expect(page.getByPlaceholder("回答を入力...")).toBeVisible();
-    await expect(page.getByText("質問に使った企業情報の要点が、ここに簡潔に表示されます。")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "会話をやり直す" }).first()).toBeVisible();
   });
 });

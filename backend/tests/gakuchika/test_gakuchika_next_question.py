@@ -1,6 +1,7 @@
 import pytest
 
 from app.routers.gakuchika import (
+    RULE_BASED_QUESTION_TEMPLATES,
     STARScores,
     _build_next_question_prompt,
     _normalize_next_question_payload,
@@ -18,9 +19,32 @@ def test_build_next_question_prompt_includes_quality_guardrails() -> None:
     assert "派手な結果より" in prompt
     assert "1問で広く浅く聞かず" in prompt
     assert "役割・裁量・他者との分担" in prompt
-    assert "学びが次に再現できる形" in prompt
+    assert "再現できる形" in prompt
     assert "面接官の懐疑心を生まないよう" in prompt
+    assert "エピソードのすり替え禁止" in prompt
+    assert "課題選定の筋の良さ" in prompt
     assert "scene / root_cause / decision_reason" in prompt
+    assert "複数の打ち手" in prompt
+    assert "列挙を広げる聞き方" in prompt
+
+
+def test_rule_based_question_templates_avoid_prohibited_phrases() -> None:
+    """定型フォールバックが PROHIBITED_EXPRESSIONS と整合するスモーク。"""
+    banned = (
+        "教えてください",
+        "聞かせてください",
+        "説明してください",
+        "詳しく",
+        "もう少し",
+        "他にありますか",
+        "何かありますか",
+        "いかがでしたか",
+        "どうでしたか",
+    )
+    for templates in RULE_BASED_QUESTION_TEMPLATES.values():
+        for text in templates.values():
+            for fragment in banned:
+                assert fragment not in text, (fragment, text)
 
 
 def test_normalize_next_question_payload_uses_fallback_scores() -> None:

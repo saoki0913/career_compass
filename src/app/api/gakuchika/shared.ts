@@ -5,6 +5,10 @@ import { auth } from "@/lib/auth";
 import { getGuestUser } from "@/lib/auth/guest";
 import { db } from "@/lib/db";
 import { gakuchikaContents } from "@/lib/db/schema";
+import {
+  splitInternalTelemetry,
+  type InternalCostTelemetry,
+} from "@/lib/ai/cost-summary-log";
 
 export interface Identity {
   userId: string | null;
@@ -40,11 +44,14 @@ interface FastAPIQuestionResponse {
   question: string;
   star_evaluation?: STAREvaluation;
   target_element?: string;
+  internal_telemetry?: unknown;
 }
 
 export const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 export const STAR_COMPLETION_THRESHOLD = 70;
 export const QUESTIONS_PER_CREDIT = 5;
+/** 上記 N 問ごとに一度まとめて消費するクレジット数 */
+export const CREDITS_PER_QUESTION_BATCH = 3;
 
 const STAR_HINT_TEXTS: Record<string, string> = {
   situation: "この質問では、当時の状況や背景が伝わると答えやすくなります",
@@ -171,17 +178,22 @@ export async function getQuestionFromFastAPI(
   gakuchika: GakuchikaData,
   conversationHistory: Array<Omit<Message, "id"> | Message>,
   questionCount: number,
-  starScores?: STARScores | null
+  starScores?: STARScores | null,
+  requestId?: string,
 ): Promise<{
   question: string | null;
   error: string | null;
   starEvaluation: STAREvaluation | null;
   targetElement: string | null;
+  telemetry: InternalCostTelemetry | null;
 }> {
   try {
     const response = await fetch(`${FASTAPI_URL}/api/gakuchika/next-question`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(requestId ? { "X-Request-Id": requestId } : {}),
+      },
       body: JSON.stringify({
         gakuchika_title: gakuchika.title,
         gakuchika_content: gakuchika.content || null,
@@ -201,15 +213,19 @@ export async function getQuestionFromFastAPI(
         error: FASTAPI_ERROR_MESSAGE,
         starEvaluation: null,
         targetElement: null,
+        telemetry: null,
       };
     }
 
-    const result: FastAPIQuestionResponse = await response.json();
+    const rawResult = await response.json();
+    const { payload, telemetry } = splitInternalTelemetry(rawResult);
+    const result = payload as FastAPIQuestionResponse;
     return {
       question: result.question || null,
       error: null,
       starEvaluation: result.star_evaluation || null,
       targetElement: result.target_element || result.star_evaluation?.weakest_element || null,
+      telemetry,
     };
   } catch {
     return {
@@ -217,6 +233,7 @@ export async function getQuestionFromFastAPI(
       error: FASTAPI_ERROR_MESSAGE,
       starEvaluation: null,
       targetElement: null,
+      telemetry: null,
     };
   }
 }

@@ -28,8 +28,8 @@ career_compass/
 │   │   ├── GAKUCHIKA_DEEP_DIVE.md # Gakuchika deep-dive
 │   │   └── MOTIVATION.md        # Motivation generation
 │   ├── setup/
-│   │   ├── DEVELOPMENT.md  # Development guide
-│   │   └── ENV_SETUP.md    # Environment setup
+│   │   ├── DEVELOPMENT_AND_ENV.md  # Development + env
+│   │   └── DB_SUPABASE.md          # DB / Supabase ops
 │   ├── release/
 │   │   └── PRODUCTION.md   # Production deployment
 │   └── testing/

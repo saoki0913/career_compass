@@ -95,13 +95,13 @@ loginPrompts テーブルをチェック
 
 ## 5. オンボーディング
 
-### プラン選択（PlanSelectionCard）
+### プラン選択
 
 | プラン | 説明 |
 |--------|------|
-| Free | 基本機能、月3回のES添削 |
-| Standard | 全機能、月次クレジット付与 |
-| Pro | 全機能＋上限緩和、優先サポート |
+| Free | 月30クレジット、企業登録5社までの無料入口 |
+| Standard | 月100クレジット、企業登録無制限の標準プラン |
+| Pro | 月300クレジット、無料枠が大きい上位プラン |
 
 ### プロフィール入力
 
@@ -169,7 +169,7 @@ loginPrompts テーブルをチェック
 CHECK ((user_id IS NULL) <> (guest_id IS NULL))
 ```
 
-**対象テーブル**: `companies`, `documents`, `tasks`, `notifications`, `gakuchikaContents`, `dailyFreeUsage`, `esTemplates`
+**対象テーブル**: `companies`, `documents`, `tasks`, `notifications`, `gakuchikaContents`, `esTemplates`
 
 ---
 
@@ -211,5 +211,5 @@ CHECK ((user_id IS NULL) <> (guest_id IS NULL))
 | `src/app/api/guest/migrate/route.ts` | ゲストデータ移行API |
 | `src/components/auth/AuthProvider.tsx` | 認証コンテキストプロバイダー |
 | `src/components/auth/GoogleSignInButton.tsx` | Googleログインボタン |
-| `src/components/auth/PlanSelectionCard.tsx` | プラン選択UI |
+| `src/app/pricing/page.tsx` | pricing UI / checkout 導線 |
 | `src/lib/db/schema.ts` | DBスキーマ（`users`, `sessions`, `accounts`, `guestUsers`, `userProfiles`, `loginPrompts`） |

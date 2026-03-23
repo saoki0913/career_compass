@@ -1181,7 +1181,7 @@ async def hybrid_search_company_context_enhanced(
     short_circuit: bool = True,
 ) -> list[dict]:
     """
-    Enhanced dense search with query expansion, HyDE, MMR, and LLM reranking.
+    Enhanced dense search with query expansion, HyDE, MMR, and cross-encoder reranking.
     """
     from app.utils.hybrid_search import (
         dense_hybrid_search,
@@ -1244,7 +1244,7 @@ async def get_enhanced_context_for_review(
 
     This provides richer context by:
     1. Using dense-only search with query expansion and HyDE
-    2. Applying MMR for diversity and LLM reranking
+    2. Applying MMR for diversity and cross-encoder reranking
     3. Including both structured data and full text content
     4. Organizing context by content type
 
@@ -1318,7 +1318,7 @@ async def get_enhanced_context_for_review_with_sources(
 
     This provides richer context by:
     1. Using dense-only search with query expansion and HyDE
-    2. Applying MMR for diversity and LLM reranking
+    2. Applying MMR for diversity and cross-encoder reranking
     3. Including both structured data and full text content
     4. Organizing context by content type
     5. Returning source URLs for attribution

@@ -21,6 +21,12 @@ import {
   cancelReservation,
 } from "@/lib/credits";
 import { randomUUID } from "crypto";
+import { DRAFT_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import {
+  getRequestId,
+  logAiCreditCostSummary,
+  splitInternalTelemetry,
+} from "@/lib/ai/cost-summary-log";
 
 async function getIdentity(
   request: NextRequest
@@ -78,6 +84,7 @@ const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 interface FastAPIDraftResponse {
   draft: string;
   char_count: number;
+  internal_telemetry?: unknown;
 }
 
 export async function POST(
@@ -85,12 +92,31 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: gakuchikaId } = await params;
+  const requestId = getRequestId(request);
   const identity = await getIdentity(request);
   if (!identity) {
     return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
   }
 
   const { userId, guestId } = identity;
+
+  if (!userId) {
+    return NextResponse.json(
+      { error: "ガクチカのAI下書き生成はログインが必要です" },
+      { status: 401 },
+    );
+  }
+
+  const rateLimited = await enforceRateLimitLayers(
+    request,
+    [...DRAFT_RATE_LAYERS],
+    userId,
+    guestId,
+    "gakuchika_generate_es_draft"
+  );
+  if (rateLimited) {
+    return rateLimited;
+  }
 
   const body = await request.json();
   const { charLimit = 400 } = body;
@@ -171,12 +197,12 @@ export async function POST(
     }
   }
 
-  // Reserve credits (2 credits for draft generation for logged-in users)
+  // Reserve credits (6 credits for draft generation for logged-in users)
   let reservationId: string | null = null;
   if (userId) {
     const reservation = await reserveCredits(
       userId,
-      2,
+      6,
       "gakuchika_draft",
       gakuchikaId,
       `ガクチカES生成: ${gakuchika.title}`
@@ -196,7 +222,7 @@ export async function POST(
       `${FASTAPI_URL}/api/gakuchika/generate-es-draft`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
         body: JSON.stringify({
           gakuchika_title: gakuchika.title,
           conversation_history: messages,
@@ -209,18 +235,34 @@ export async function POST(
     if (!response.ok) {
       if (reservationId) await cancelReservation(reservationId);
       const errorData = await response.json().catch(() => ({}));
+      logAiCreditCostSummary({
+        feature: "gakuchika_draft",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry: null,
+      });
       return NextResponse.json(
         { error: errorData.detail?.error || "ES生成に失敗しました" },
         { status: 503 }
       );
     }
 
-    const data: FastAPIDraftResponse = await response.json();
+    const rawData = await response.json();
+    const { payload, telemetry } = splitInternalTelemetry(rawData);
+    const data = payload as FastAPIDraftResponse;
 
     // Confirm credit reservation on success
     if (reservationId) {
       await confirmReservation(reservationId);
     }
+    logAiCreditCostSummary({
+      feature: "gakuchika_draft",
+      requestId,
+      status: "success",
+      creditsUsed: reservationId ? 2 : 0,
+      telemetry,
+    });
 
     // Create ES document with the generated draft
     const documentId = randomUUID();
@@ -258,6 +300,13 @@ export async function POST(
   } catch (error) {
     if (reservationId) await cancelReservation(reservationId);
     console.error("[Gakuchika Draft] Error:", error);
+    logAiCreditCostSummary({
+      feature: "gakuchika_draft",
+      requestId,
+      status: "failed",
+      creditsUsed: 0,
+      telemetry: null,
+    });
     return NextResponse.json(
       { error: "ES生成中にエラーが発生しました" },
       { status: 503 }

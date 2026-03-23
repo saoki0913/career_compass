@@ -1,14 +1,15 @@
 /**
  * Notification Batch Processing API
  *
- * POST: Trigger batch notifications (deadline reminders, cleanup)
+ * POST: Trigger batch notifications (deadline reminders, cleanup, daily_summary)
  * Called by cron job only - requires CRON_SECRET authorization
  */
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { db } from "@/lib/db";
-import { notifications, deadlines, tasks, companies, applications, userProfiles, notificationSettings } from "@/lib/db/schema";
-import { eq, and, lte, gte, gt, lt, isNull, or } from "drizzle-orm";
+import { notifications, deadlines, companies, userProfiles, notificationSettings } from "@/lib/db/schema";
+import { eq, and, lte, gte, gt, isNull } from "drizzle-orm";
+import { getJstHour, startOfJstDayAsUtc } from "@/lib/datetime/jst";
 
 /**
  * Constant-time token comparison to prevent timing attacks
@@ -24,13 +25,6 @@ function verifyToken(provided: string | null, expected: string): boolean {
   }
 
   return timingSafeEqual(providedBuffer, expectedBuffer);
-}
-
-function getJSTNow(): Date {
-  const now = new Date();
-  const jstOffset = 9 * 60;
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  return new Date(utc + (jstOffset * 60000));
 }
 
 export async function POST(request: NextRequest) {
@@ -49,6 +43,7 @@ export async function POST(request: NextRequest) {
       const now = new Date();
       const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
       const in3d = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+      const jstDayStart = startOfJstDayAsUtc(now);
 
       const upcomingDeadlines = await db
         .select({
@@ -66,27 +61,27 @@ export async function POST(request: NextRequest) {
           )
         );
 
-	      let created = 0;
-	      for (const { deadline, company } of upcomingDeadlines) {
-	        const hoursUntilDue = (deadline.dueDate.getTime() - now.getTime()) / (1000 * 60 * 60);
-	        const notifType = hoursUntilDue <= 24 ? "deadline_near" : "deadline_reminder";
-	        const urgency = hoursUntilDue <= 24 ? "24時間以内" : "3日以内";
-	
-	        // Determine userId from company
-	        const [companyData] = await db
-	          .select()
-	          .from(companies)
-	          .where(eq(companies.id, deadline.companyId))
-	          .limit(1);
-	        if (!companyData) continue;
-	
-	        // Check user's notification settings
-	        if (companyData.userId) {
-	          const [settings] = await db
-	            .select()
-	            .from(notificationSettings)
-	            .where(eq(notificationSettings.userId, companyData.userId))
-	            .limit(1);
+      let created = 0;
+      for (const { deadline, company } of upcomingDeadlines) {
+        const hoursUntilDue = (deadline.dueDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+        const notifType = hoursUntilDue <= 24 ? "deadline_near" : "deadline_reminder";
+        const urgency = hoursUntilDue <= 24 ? "24時間以内" : "3日以内";
+
+        // Determine userId from company
+        const [companyData] = await db
+          .select()
+          .from(companies)
+          .where(eq(companies.id, deadline.companyId))
+          .limit(1);
+        if (!companyData) continue;
+
+        // Check user's notification settings
+        if (companyData.userId) {
+          const [settings] = await db
+            .select()
+            .from(notificationSettings)
+            .where(eq(notificationSettings.userId, companyData.userId))
+            .limit(1);
 
           // Skip if user has disabled this notification type
           if (settings) {
@@ -95,8 +90,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Check if notification already exists for this deadline today
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        // Dedupe: same type already created since start of JST calendar day
         const userCondition = companyData.userId
           ? eq(notifications.userId, companyData.userId)
           : companyData.guestId
@@ -105,19 +99,19 @@ export async function POST(request: NextRequest) {
 
         if (!userCondition) continue;
 
-	        const [existingNotif] = await db
-	          .select()
-	          .from(notifications)
-	          .where(
-	            and(
-	              userCondition,
-	              eq(notifications.type, notifType),
-	              gte(notifications.createdAt, todayStart)
-	            )
-	          )
-	          .limit(1);
-	
-	        if (existingNotif) continue;
+        const [existingNotif] = await db
+          .select()
+          .from(notifications)
+          .where(
+            and(
+              userCondition,
+              eq(notifications.type, notifType),
+              gte(notifications.createdAt, jstDayStart)
+            )
+          )
+          .limit(1);
+
+        if (existingNotif) continue;
 
         // Create notification
         await db.insert(notifications).values({
@@ -150,31 +144,48 @@ export async function POST(request: NextRequest) {
     }
 
     if (type === "daily_summary") {
-      // Generate daily summary for each user (JST 9:00)
-      // Get all users with profiles
+      const now = new Date();
+      const currentJstHour = getJstHour(now);
+      const jstDayStart = startOfJstDayAsUtc(now);
+
       const profiles = await db.select().from(userProfiles);
       let created = 0;
 
-	      for (const profile of profiles) {
-	        // Check user's notification settings
-	        const [settings] = await db
-	          .select()
-	          .from(notificationSettings)
-	          .where(eq(notificationSettings.userId, profile.userId))
-	          .limit(1);
+      for (const profile of profiles) {
+        const [settings] = await db
+          .select()
+          .from(notificationSettings)
+          .where(eq(notificationSettings.userId, profile.userId))
+          .limit(1);
 
         if (settings && !settings.dailySummary) continue;
 
-        // Get today's most important task
-        const now = new Date();
+        const preferredHour = settings?.dailySummaryHourJst ?? 9;
+        if (currentJstHour !== preferredHour) continue;
+
+        const [dupToday] = await db
+          .select({ id: notifications.id })
+          .from(notifications)
+          .where(
+            and(
+              eq(notifications.userId, profile.userId),
+              eq(notifications.type, "daily_summary"),
+              gte(notifications.createdAt, jstDayStart)
+            )
+          )
+          .limit(1);
+
+        if (dupToday) continue;
+
         const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
 
         const urgentDeadlines = await db
-          .select()
+          .select({ id: deadlines.id })
           .from(deadlines)
-          .leftJoin(companies, eq(deadlines.companyId, companies.id))
+          .innerJoin(companies, eq(deadlines.companyId, companies.id))
           .where(
             and(
+              eq(companies.userId, profile.userId),
               eq(deadlines.isConfirmed, true),
               isNull(deadlines.completedAt),
               lte(deadlines.dueDate, in72h),
@@ -182,9 +193,10 @@ export async function POST(request: NextRequest) {
             )
           );
 
-        const message = urgentDeadlines.length > 0
-          ? `今日は${urgentDeadlines.length}件の締切が近づいています。優先的に取り組みましょう。`
-          : "今日の締切はありません。ES添削やガクチカ深掘りを進めましょう。";
+        const message =
+          urgentDeadlines.length > 0
+            ? `今日は${urgentDeadlines.length}件の締切が近づいています。優先的に取り組みましょう。`
+            : "今日の締切はありません。ES添削やガクチカ深掘りを進めましょう。";
 
         await db.insert(notifications).values({
           id: crypto.randomUUID(),
@@ -203,7 +215,7 @@ export async function POST(request: NextRequest) {
         created++;
       }
 
-      return NextResponse.json({ success: true, created });
+      return NextResponse.json({ success: true, created, jstHour: currentJstHour });
     }
 
     return NextResponse.json({ error: "Invalid batch type" }, { status: 400 });

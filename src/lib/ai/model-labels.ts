@@ -53,10 +53,7 @@ export function getLLMResultLabel(params: {
   reviewVariant?: string | null;
 }): string | null {
   const { provider, modelId, modelAlias, reviewVariant } = params;
-
-  if (reviewVariant === "qwen3-beta" || provider === "qwen-es-review") {
-    return "Qwen3 Swallow 32B β";
-  }
+  void reviewVariant;
 
   if (modelAlias?.trim()) {
     return humanizeModelId(modelAlias.trim());

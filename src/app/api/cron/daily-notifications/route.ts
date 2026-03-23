@@ -2,7 +2,7 @@
  * Daily Notifications Cron Job API
  *
  * GET: Triggered by Vercel Cron at JST 9:00 (UTC 0:00) daily
- * Executes deadline reminders, daily summaries, and cleanup
+ * Executes deadline reminders and cleanup (daily_summary runs hourly — see hourly-daily-summary)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
 
     // Execute batch processes in sequence
     const results: Record<string, unknown> = {};
-    const batchTypes = ["deadline_reminders", "daily_summary", "cleanup"];
+    const batchTypes = ["deadline_reminders", "cleanup"];
 
     for (const type of batchTypes) {
       try {

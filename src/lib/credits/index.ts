@@ -1,22 +1,24 @@
 /**
  * Credits Management Library
  *
- * Handles credit balance, transactions, and daily free usage tracking.
+ * Handles credit balance, transactions, and monthly schedule free quota (company_info_monthly_usage).
  * Important: Credits are only consumed on successful operations.
  */
 
 import { db } from "@/lib/db";
-import { credits, creditTransactions, dailyFreeUsage, userProfiles } from "@/lib/db/schema";
+import { credits, creditTransactions, userProfiles } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { calculateESReviewCost } from "./cost";
-import { getDailyScheduleFetchLimit } from "@/lib/company-info/pricing";
+import type { PaidPlan } from "@/lib/company-info/pricing";
+import { getRemainingMonthlyScheduleFreeFetchesSafe } from "@/lib/company-info/usage";
 
 // Plan-based credit allocations
 export const PLAN_CREDITS = {
-  guest: 12,
+  // Guest は AI 機能を利用しない（クレジット表示用に 0）
+  guest: 0,
   free: 30,
-  standard: 300,
-  pro: 1300,
+  standard: 100,
+  pro: 300,
 } as const;
 
 export type PlanType = "guest" | "free" | "standard" | "pro";
@@ -292,107 +294,17 @@ export async function consumeCredits(
 }
 
 /**
- * Get daily free usage for a user or guest
- */
-export async function getDailyFreeUsage(userId: string | null, guestId: string | null) {
-  const today = getJSTDateString();
-
-  const whereClause = userId
-    ? and(eq(dailyFreeUsage.userId, userId), eq(dailyFreeUsage.date, today))
-    : guestId
-    ? and(eq(dailyFreeUsage.guestId, guestId), eq(dailyFreeUsage.date, today))
-    : null;
-
-  if (!whereClause) {
-    return { companyFetchCount: 0 };
-  }
-
-  const [usage] = await db
-    .select()
-    .from(dailyFreeUsage)
-    .where(whereClause)
-    .limit(1);
-
-  return {
-    companyFetchCount: usage?.companyFetchCount || 0,
-  };
-}
-
-/**
- * Get remaining daily free company fetches
+ * 選考スケジュール取得の月次無料残り（ログインユーザーのみ。Guest は 0）。
  */
 export async function getRemainingFreeFetches(
   userId: string | null,
-  guestId: string | null,
+  _guestId: string | null,
   plan: PlanType,
 ) {
-  const usage = await getDailyFreeUsage(userId, guestId);
-  const limit = getDailyScheduleFetchLimit(plan);
-  return Math.max(0, limit - usage.companyFetchCount);
-}
-
-/**
- * Increment daily free usage (only call on successful operations)
- * Uses atomic UPDATE to prevent race conditions. Falls back to INSERT if no row exists.
- */
-export async function incrementDailyFreeUsage(
-  userId: string | null,
-  guestId: string | null,
-  field: "companyFetchCount"
-) {
-  const today = getJSTDateString();
-
-  const whereClause = userId
-    ? and(eq(dailyFreeUsage.userId, userId), eq(dailyFreeUsage.date, today))
-    : guestId
-    ? and(eq(dailyFreeUsage.guestId, guestId), eq(dailyFreeUsage.date, today))
-    : null;
-
-  if (!whereClause) {
-    return;
+  if (!userId || plan === "guest") {
+    return 0;
   }
-
-  // Atomic increment: UPDATE ... SET field = field + 1
-  const updated = await db
-    .update(dailyFreeUsage)
-    .set({
-      [field]: sql`${dailyFreeUsage[field]} + 1`,
-    })
-    .where(whereClause)
-    .returning({ id: dailyFreeUsage.id });
-
-  if (updated.length === 0) {
-    // No existing row for today — insert new record
-    try {
-      await db.insert(dailyFreeUsage).values({
-        id: crypto.randomUUID(),
-        userId: userId || null,
-        guestId: guestId || null,
-        date: today,
-        [field]: 1,
-        createdAt: new Date(),
-      });
-    } catch (err: unknown) {
-      // If a concurrent request already inserted, retry the atomic update
-      // - Postgres: code 23505
-      // - SQLite/libSQL: message includes "UNIQUE constraint failed"
-      const pgCode = (err as { code?: unknown } | null)?.code;
-      const message = err instanceof Error ? err.message : "";
-      const isUniqueViolation =
-        pgCode === "23505" || message.toLowerCase().includes("unique");
-
-      if (isUniqueViolation) {
-        await db
-          .update(dailyFreeUsage)
-          .set({
-            [field]: sql`${dailyFreeUsage[field]} + 1`,
-          })
-          .where(whereClause);
-      } else {
-        throw err;
-      }
-    }
-  }
+  return getRemainingMonthlyScheduleFreeFetchesSafe(userId, plan as PaidPlan);
 }
 
 export { calculateESReviewCost };

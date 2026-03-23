@@ -135,18 +135,28 @@ MOTIVATION_QUESTION_PROMPT = """あなたは就活生の「志望動機」を深
 - 企業固有の断定は、RAG情報または会話内に根拠があるものだけに限定すること
 - ユーザーの経験・役割・成果・数字は、ガクチカ情報・プロフィール・会話履歴にあるものだけを使うこと
 - `確定業界` と `志望職種` は会話開始前に確定済みの前提で扱うこと
-- 現在の質問段階は `company_reason / desired_work / fit_connection / differentiation / closing` のいずれかである
-- 会話履歴が空の場合は、`company_reason` の1問目として自然に始めること
+- 現在の質問段階は `industry_reason / company_reason / desired_work / origin_experience / fit_connection / differentiation / closing` のいずれかである
+- 会話履歴が空の場合は、`industry_reason` の1問目として自然に始めること
 - 1問で聞く論点は1つだけにすること
 - 学生が1〜2文で直接答えやすい質問にすること
 - 「Aは何ですか？なぜBですか？」のように複数の問いを同時に重ねないこと
 
 ### 段階ごとの役割
+### 段階ごとの focus
+- `industry_reason`: `industry_axis` または `why_industry_now`
 - `company_reason`: この企業を志望する理由を、企業固有の情報と本人の軸を使って掘り下げる
 - `desired_work`: 入社後にどんな仕事をしたいかを、確定済みの職種に結びつけて聞く
+- `origin_experience`: その仕事や志望軸に関心を持つようになった原体験・きっかけを聞く
 - `fit_connection`: ガクチカ・プロフィール・経験と、企業/職種/やりたい仕事の接点を掘り下げる
 - `differentiation`: 同業他社ではなくこの企業である理由を、役割や仕事の観点まで含めて具体化する
 - `closing`: 志望動機の核を一言で締める
+
+- `company_reason`: `industry_axis` / `why_industry_now` / `feature_appeal` / `axis_match` / `role_value`
+- `desired_work`: `work_image` / `customer_problem` / `value_creation`
+- `origin_experience`: `origin_trigger` または `experience_detail`
+- `fit_connection`: `experience_connection` または `strength_application`
+- `differentiation`: `company_over_others` または `role_specific_reason`
+- `closing`: `one_line_summary`
 
 ### 必須: RAG情報を活用する
 企業の具体的な情報（事業内容、強み、取り組み等）を質問に織り込んでください。
@@ -178,6 +188,7 @@ MOTIVATION_QUESTION_PROMPT = """あなたは就活生の「志望動機」を深
 必ず以下のJSON形式で回答してください。JSON以外の文字列は禁止です。
 {{
   "question": "質問文",
+  "question_focus": "現在段階で許可された focus のいずれか",
   "reasoning": "この質問をする理由（1文）",
   "coaching_focus": "今回の質問の狙いを15字以内で",
   "risk_flags": ["面接官が懸念しうる点を最大2つ"],

@@ -11,6 +11,26 @@
 
 ---
 
+## リリース関連ドキュメント一覧
+
+本番・ステージングの作業は、次のファイルに分割してあります。迷ったらこの表から辿ってください。
+
+| 文書 | 内容 |
+|------|------|
+| [PRODUCTION.md](./PRODUCTION.md)（この文書） | 全体フロー、develop→main、デプロイ後チェック |
+| [DOMAIN.md](./DOMAIN.md) | ドメイン（お名前.com → Cloudflare → Vercel） |
+| [SUPABASE.md](./SUPABASE.md) | 本番 Supabase / Postgres の扱い |
+| [STRIPE.md](./STRIPE.md) | Stripe 本番（Checkout / Webhook / Portal） |
+| [RAILWAY.md](./RAILWAY.md) | FastAPI バックエンドの Railway デプロイ |
+| [VERCEL.md](./VERCEL.md) | Next.js の Vercel デプロイ |
+| [EXTERNAL_SERVICES.md](./EXTERNAL_SERVICES.md) | Google OAuth、CORS、Upstash 等 |
+| [ENV_REFERENCE.md](./ENV_REFERENCE.md) | 環境変数のクイックリファレンス |
+| [INDIVIDUAL_BUSINESS_COMPLIANCE.md](./INDIVIDUAL_BUSINESS_COMPLIANCE.md) | 個人事業・特商法・Stripe 表記 |
+
+開発環境のセットアップは [開発ガイドと環境変数](../setup/DEVELOPMENT_AND_ENV.md) を参照してください。
+
+---
+
 ## 構成
 
 ```
@@ -67,40 +87,31 @@
 
 ## Step 6: develop → main マージ & デプロイ
 
-### 6-1. ローカルで昇格準備を完了する
+### 6-1. ローカルで release automation を開始する
 
 ```bash
-# develop ブランチで実行
 make ops-release-check
 make deploy
 ```
 
-> `make deploy` は `develop` 上で `lint` / `build` を通し、staging 昇格前の最終確認だけを行います。  
-> `main` へのマージや本番デプロイはこのコマンドでは実行しません。CLI の安全ラッパー方針は [CLI_GUARDRAILS.md](../ops/CLI_GUARDRAILS.md) を参照してください。
+> `make deploy` は `scripts/release/release-career-compass.sh` を正本として、local gate、`develop` push、staging 確認、`develop -> main` PR 自動作成 / 自動 merge、本番の read-only smoke まで進めます。  
+> direct な provider deploy は使わず、GitHub-connected deploy を標準運用にします。
 
-### 6-2. staging に反映して確認する
+### 6-2. 実行される内容
 
-```bash
-git push origin develop
-```
+- `develop` ブランチと staged-only release scope の確認
+- provider auth / secrets inventory / infra bootstrap の preflight
+- `lint`, `build`, `test:unit`
+- staged changes があれば release commit を作成
+- `git push origin develop`
+- `Develop CI` 成功待ち
+- staging `https://stg.shupass.jp` / `https://stg-api.shupass.jp/health` の反映確認
+- staging Playwright major verification
+- `develop -> main` PR 自動作成 / 自動 merge
+- production `https://www.shupass.jp` / backend health の反映確認
+- production read-only Playwright smoke
 
-- `develop` への push で staging 用 CI が走る
-- staging 環境 `https://stg.shupass.jp` と `https://stg-api.shupass.jp` が最新 `develop` を反映する
-- Google ログイン、企業作成、canonical、`robots.txt`、`sitemap.xml` を staging で確認する
-
-### 6-3. GitHub で `develop -> main` PR を作成する
-
-- GitHub 上で `develop` から `main` への Pull Request を作成する
-- `main` への PR は `develop` からのみ許可する
-- required checks は `main-promotion-guard` と `develop-ci` を green にする
-
-### 6-4. `main` マージで本番デプロイする
-
-- GitHub 上で PR を merge する
-- `main` への更新だけをトリガーに Vercel / Railway が本番へ自動デプロイする
-- ローカルで `main` を直接更新したり、provider CLI から本番 deploy を実行しない
-
-### 6-5. デプロイ状況の確認
+### 6-3. デプロイ状況の確認
 
 - **Vercel**: https://vercel.com/dashboard → Deployments タブ
 - **Railway**: https://railway.app/dashboard → 対象 Service → Deployments タブ
@@ -116,7 +127,8 @@ git push origin develop
 - [ ] **ドメイン SSL**: `https://www.shupass.jp` で証明書が有効（ブラウザの鍵アイコン確認）
 - [ ] **Apex リダイレクト**: `https://shupass.jp` → `https://www.shupass.jp` にリダイレクトされる
 - [ ] **Canonical / OGP**: `https://www.shupass.jp` を返す
-- [ ] **robots / sitemap**: `https://www.shupass.jp` を基準に出力される
+- [ ] **robots / sitemap**: `https://www.shupass.jp` を基準に出力される（`NEXT_PUBLIC_APP_URL` が本番 origin と一致すること）
+- [ ] **構造化データ**: トップ・主要クラスターで `FAQPage` JSON-LD が出力されること（リッチリザルトテストは任意）
 - [ ] **Google ログイン**: ログイン → オンボーディング → ダッシュボード
 - [ ] **企業登録**: 企業を作成し、情報取得が正常に動作する
 - [ ] **ES 添削**: ES を作成 → 添削実行 → スコア・リライト結果表示
@@ -130,6 +142,28 @@ git push origin develop
 - [ ] Vercel Cron (`/api/cron/daily-notifications`) の実行ログ確認
 - [ ] Sentry にイベントが届くことを確認（設定した場合）
 - [ ] Railway の Volume 使用量確認
+
+### Playwright 自動確認
+
+- staging: `scripts/release/post-deploy-playwright.sh staging`
+  - guest major
+  - `PLAYWRIGHT_AUTH_STATE` がある場合は logged-in major も実行
+- production: `scripts/release/post-deploy-playwright.sh production`
+  - public / canonical / robots / sitemap
+  - `PLAYWRIGHT_AUTH_STATE` がある場合は logged-in read-only surfaces
+
+`PLAYWRIGHT_AUTH_STATE` がない場合、production の authenticated smoke は skip されます。ローカル Chrome の既存 Google セッションから取得する場合は `scripts/release/capture-google-storage-state.sh production` を使います。
+
+### Secret Inventory
+
+- `codex-company/.secrets/career_compass/vercel-staging.env`
+- `codex-company/.secrets/career_compass/vercel-production.env`
+- `codex-company/.secrets/career_compass/railway-staging.env`
+- `codex-company/.secrets/career_compass/railway-production.env`
+- `codex-company/.secrets/career_compass/supabase.env`
+- `codex-company/.secrets/google-oauth/career_compass.env`
+
+テンプレートは repo 内 `scripts/templates/` を使います。
 
 ### デプロイ不具合の切り分け（CLI）
 

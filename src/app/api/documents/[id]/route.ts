@@ -14,6 +14,10 @@ import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getDocumentDetailPageData } from "@/lib/server/app-loaders";
+import { esDocumentCategorySchema } from "@/lib/es-document-category";
 
 type DocumentRow = typeof documents.$inferSelect;
 
@@ -102,10 +106,11 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const timing = createServerTimingRecorder();
   try {
     const { id: documentId } = await params;
 
-    const identity = await getIdentity(request);
+    const identity = await timing.measure("identity", () => getRequestIdentity(request));
     if (!identity) {
       return createApiErrorResponse(request, {
         status: 401,
@@ -118,8 +123,10 @@ export async function GET(
       });
     }
 
-    const access = await verifyDocumentAccess(documentId, identity.userId, identity.guestId);
-    if (!access.valid || !access.document) {
+    const detail = await timing.measure("db", () =>
+      getDocumentDetailPageData(identity, documentId)
+    );
+    if (!detail) {
       return createApiErrorResponse(request, {
         status: 404,
         code: "DOCUMENT_NOT_FOUND",
@@ -130,11 +137,11 @@ export async function GET(
       });
     }
 
-    const doc = access.document;
-
-    return NextResponse.json({
-      document: await buildDocumentResponse(doc),
-    });
+    return timing.apply(
+      NextResponse.json({
+        document: detail.document,
+      })
+    );
   } catch (error) {
     return createApiErrorResponse(request, {
       status: 500,
@@ -182,7 +189,7 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { title, content, status, companyId, applicationId, jobTypeId } = body;
+    const { title, content, status, companyId, applicationId, jobTypeId, esCategory: rawEsCategory } = body;
 
     const updateData: Record<string, unknown> = {
       updatedAt: new Date(),
@@ -270,6 +277,31 @@ export async function PUT(
 
     if (jobTypeId !== undefined) {
       updateData.jobTypeId = jobTypeId || null;
+    }
+
+    if (rawEsCategory !== undefined) {
+      if (access.document.type !== "es") {
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "DOCUMENT_ES_CATEGORY_NOT_APPLICABLE",
+          userMessage: "このドキュメントでは分類を変更できません。",
+          action: "別のドキュメントを選び直してください。",
+          developerMessage: "esCategory only for type es",
+          logContext: "document-update-validation",
+        });
+      }
+      const parsed = esDocumentCategorySchema.safeParse(rawEsCategory);
+      if (!parsed.success) {
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "DOCUMENT_ES_CATEGORY_INVALID",
+          userMessage: "文書の分類を確認して、もう一度お試しください。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          developerMessage: "Invalid esCategory",
+          logContext: "document-update-validation",
+        });
+      }
+      updateData.esCategory = parsed.data;
     }
 
     const updated = await db

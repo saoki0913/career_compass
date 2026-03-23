@@ -11,6 +11,9 @@ export const STANDARD_ES_REVIEW_MODEL_OPTIONS = [
 
 export type StandardESReviewModel = (typeof STANDARD_ES_REVIEW_MODEL_OPTIONS)[number]["value"];
 
+/** Free プランで ES 添削に使うモデル（バックエンドでは gpt-fast / GPT-5.4 mini に解決）。 */
+export const FREE_PLAN_ES_REVIEW_MODEL: StandardESReviewModel = "low-cost";
+
 export const DEFAULT_STANDARD_ES_REVIEW_MODEL: StandardESReviewModel = "claude-sonnet";
 
 const STANDARD_ES_REVIEW_MODEL_LABELS = new Map(

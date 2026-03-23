@@ -1,1 +1,1 @@
-# 就活Compass FastAPI Backend
+# 就活Pass FastAPI Backend

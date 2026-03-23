@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
   Check,
@@ -51,17 +50,13 @@ interface StreamingReviewResponseProps {
     reference_es_count?: number;
     evidence_coverage_level?: "not_applicable" | "none" | "weak" | "partial" | "strong";
     weak_evidence_notice?: boolean;
+    rewrite_validation_status?: "strict_ok" | "degraded";
+    rewrite_validation_user_hint?: string | null;
   };
   reviewMode?: ReviewMode;
   onApply: (rewrite: string) => void;
   onPlaybackStateChange?: (isSettled: boolean) => void;
 }
-
-const sectionMotion = {
-  initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.22, ease: "easeOut" as const },
-};
 
 function CharacterStats({
   charCount,
@@ -261,6 +256,15 @@ export function StreamingReviewResponse({
                   企業固有の断定を広げず安全寄りに添削しています。
                 </p>
               ) : null}
+              {reviewMeta?.rewrite_validation_status === "degraded" ? (
+                <p className="mt-2 flex items-start gap-2 rounded-2xl border border-amber-500/25 bg-amber-500/8 px-3 py-2 text-xs leading-5 text-amber-950 dark:text-amber-100">
+                  <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span>
+                    {reviewMeta.rewrite_validation_user_hint?.trim() ||
+                      "厳密な品質チェックをすべて満たせませんでしたが、最も近い改善案を表示しています。提出前に、文体（だ・である調）・指定字数・冒頭の結論の置き方を確認し、不足している点を直してください。"}
+                  </span>
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -281,19 +285,15 @@ export function StreamingReviewResponse({
               </p>
             </div>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted">
-              <motion.div
+              <div
                 className="h-full rounded-full bg-primary"
-                animate={{ width: `${Math.max(10, visualProgressPercent)}%` }}
-                transition={{ duration: 0.28, ease: "easeOut" }}
+                style={{ width: `${Math.max(10, visualProgressPercent)}%` }}
               />
             </div>
           </div>
         ) : null}
 
-        <motion.div
-          {...sectionMotion}
-          className="rounded-[26px] border border-border/70 bg-muted/20 p-4 sm:p-5"
-        >
+        <div className="rounded-[26px] border border-border/70 bg-muted/20 p-4 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -316,15 +316,10 @@ export function StreamingReviewResponse({
               <RewriteSkeleton />
             )}
           </div>
-        </motion.div>
+        </div>
 
-        <AnimatePresence initial={false}>
-          {issues.length > 0 ? (
-            <motion.div
-              key="issues"
-              {...sectionMotion}
-              className="rounded-[26px] border border-border/60 bg-background/88 p-4 sm:p-5"
-            >
+        {issues.length > 0 ? (
+          <div className="rounded-[26px] border border-border/60 bg-background/88 p-4 sm:p-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h4 className="text-sm font-semibold text-foreground">改善ポイント</h4>
@@ -338,19 +333,14 @@ export function StreamingReviewResponse({
               </div>
 
               <div className="mt-4 space-y-3">
-                <AnimatePresence initial={false}>
-                  {issues.map((issue, index) => {
-                    const issueRank = issue.priority_rank ?? index + 1;
+                {issues.map((issue, index) => {
+                  const issueRank = issue.priority_rank ?? index + 1;
 
-                    return (
-                      <motion.article
-                        key={`${issue.category}-${index}`}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -6 }}
-                        transition={{ duration: 0.18, ease: "easeOut" }}
-                        className="rounded-[22px] border border-border/70 bg-background p-4 shadow-sm"
-                      >
+                  return (
+                    <article
+                      key={`${issue.category}-${index}`}
+                      className="rounded-[22px] border border-border/70 bg-background p-4 shadow-sm"
+                    >
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex items-center gap-2">
                             <Badge variant="outline" className="px-2.5 py-1 text-[11px]">
@@ -401,22 +391,15 @@ export function StreamingReviewResponse({
                             </div>
                           </div>
                         </div>
-                      </motion.article>
-                    );
-                  })}
-                </AnimatePresence>
+                    </article>
+                  );
+                })}
               </div>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
+          </div>
+        ) : null}
 
-        <AnimatePresence initial={false}>
-          {sources.length > 0 ? (
-            <motion.div
-              key="sources"
-              {...sectionMotion}
-              className="rounded-[26px] border border-border/60 bg-background/88 p-4 sm:p-5"
-            >
+        {sources.length > 0 ? (
+          <div className="rounded-[26px] border border-border/60 bg-background/88 p-4 sm:p-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h4 className="text-sm font-semibold text-foreground">出典リンク</h4>
@@ -430,34 +413,22 @@ export function StreamingReviewResponse({
               </div>
 
               <div className="mt-4 grid gap-3">
-                <AnimatePresence initial={false}>
-                  {sources.map((source, index) => (
-                    <motion.div
-                      key={`${source.source_id}-${index}`}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -6 }}
-                      transition={{ duration: 0.18, ease: "easeOut" }}
-                    >
+                {sources.map((source, index) => (
+                  <div key={`${source.source_id}-${index}`}>
                       <ReferenceSourceCard
                         title={source.title || source.content_type_label || "参考情報"}
                         meta={[source.content_type_label, source.domain].filter(Boolean).join(" / ")}
                         sourceUrl={source.source_url}
                         excerpt={renderTypedText(source.excerpt ?? "", isSourcesTyping && !source.isSettled, "muted")}
                       />
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
+                  </div>
+                ))}
               </div>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
+          </div>
+        ) : null}
 
         {showActions ? (
-          <motion.div
-            {...sectionMotion}
-            className="rounded-[24px] border border-border/70 bg-muted/20 p-4"
-          >
+          <div className="rounded-[24px] border border-border/70 bg-muted/20 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-foreground">反映準備</p>
@@ -495,7 +466,7 @@ export function StreamingReviewResponse({
                 この改善案を反映
               </Button>
             </div>
-          </motion.div>
+          </div>
         ) : null}
       </div>
     </section>

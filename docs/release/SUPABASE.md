@@ -4,6 +4,8 @@
 
 ---
 
+> いまの標準運用では、Supabase の release 前確認は `scripts/bootstrap/career-compass/bootstrap-career-compass-supabase.sh` を正本にし、shared production project 前提を維持します。
+
 ## 1-0. Supabase プロジェクト作成
 
 1. https://supabase.com/dashboard にログイン（GitHub 連携でサインアップ可能）

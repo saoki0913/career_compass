@@ -17,6 +17,24 @@ export function escapeLikePattern(query: string): string {
 }
 
 /**
+ * Normalize and sanitize search input before building DB patterns.
+ * Removes control characters and trims excessive whitespace so the
+ * underlying parameterized query builder only receives plain text.
+ */
+export function sanitizeSearchInput(query: string, maxLength: number = 100): string {
+  return query
+    .normalize("NFKC")
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+export function buildSafeLikePattern(query: string): string {
+  return escapeLikePattern(sanitizeSearchInput(query));
+}
+
+/**
  * Normalize Japanese text for search
  * Converts full-width characters to half-width where appropriate
  */

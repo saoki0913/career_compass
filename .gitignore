@@ -38,6 +38,7 @@ yarn-error.log*
 # vercel
 .vercel
 .railway
+.secrets/
 
 # typescript
 *.tsbuildinfo
@@ -45,6 +46,9 @@ next-env.d.ts
 
 
 MEMO.md
+
+# Local agent / brainstorm artifacts
+.superpowers/
 
 # Python
 __pycache__/

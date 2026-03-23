@@ -24,7 +24,7 @@ export function LandingPrimaryAction({
   authenticatedHref = "/dashboard",
   authenticatedLabel = "ダッシュボードへ",
   unauthenticatedHref = "/login",
-  unauthenticatedLabel = "今すぐ無料で試す",
+  unauthenticatedLabel = "無料で始める",
 }: LandingPrimaryActionProps) {
   const { isAuthenticated, isGuest, isLoading } = useAuth();
   const sizeClasses = size === "sm" ? "h-9" : "h-12 min-w-[190px]";
@@ -41,7 +41,11 @@ export function LandingPrimaryAction({
 
   if (isAuthenticated) {
     return (
-      <Button size={size} asChild className={`${sizeClasses} ${className ?? ""}`.trim()}>
+      <Button
+        size={size}
+        asChild
+        className={`landing-cta-primary ${sizeClasses} rounded-full ${className ?? ""}`.trim()}
+      >
         <Link href={authenticatedHref}>
           {authenticatedLabel}
           <ArrowRight className={`ml-1.5 ${iconSize}`} />
@@ -52,7 +56,11 @@ export function LandingPrimaryAction({
 
   if (isGuest) {
     return (
-      <Button size={size} asChild className={`${sizeClasses} ${className ?? ""}`.trim()}>
+      <Button
+        size={size}
+        asChild
+        className={`landing-cta-primary ${sizeClasses} rounded-full ${className ?? ""}`.trim()}
+      >
         <Link href={guestHref}>
           {guestLabel}
           <ArrowRight className={`ml-1.5 ${iconSize}`} />
@@ -62,7 +70,11 @@ export function LandingPrimaryAction({
   }
 
   return (
-    <Button size={size} asChild className={`${sizeClasses} ${className ?? ""}`.trim()}>
+    <Button
+      size={size}
+      asChild
+      className={`landing-cta-primary ${sizeClasses} rounded-full ${className ?? ""}`.trim()}
+    >
       <Link href={unauthenticatedHref}>
         {unauthenticatedLabel}
         <ArrowRight className={`ml-1.5 ${iconSize}`} />

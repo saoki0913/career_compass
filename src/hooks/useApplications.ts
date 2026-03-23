@@ -4,7 +4,7 @@
  * Manages applications (応募枠) for a company
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
@@ -67,6 +67,10 @@ export interface UpdateApplicationInput {
   phase?: string[];
 }
 
+interface UseApplicationsOptions {
+  initialData?: Application[];
+}
+
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -84,10 +88,11 @@ function buildHeaders(): Record<string, string> {
   return headers;
 }
 
-export function useApplications(companyId: string) {
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+export function useApplications(companyId: string, options: UseApplicationsOptions = {}) {
+  const [applications, setApplications] = useState<Application[]>(() => options.initialData ?? []);
+  const [isLoading, setIsLoading] = useState(() => !options.initialData);
   const [error, setError] = useState<string | null>(null);
+  const skipInitialFetchRef = useRef(Boolean(options.initialData));
 
   const fetchApplications = useCallback(async () => {
     if (!companyId) return;
@@ -134,6 +139,10 @@ export function useApplications(companyId: string) {
   }, [companyId]);
 
   useEffect(() => {
+    if (skipInitialFetchRef.current) {
+      skipInitialFetchRef.current = false;
+      return;
+    }
     fetchApplications();
   }, [fetchApplications]);
 
@@ -161,8 +170,16 @@ export function useApplications(companyId: string) {
         }
 
         const data = await response.json();
-        await fetchApplications();
-        return data.application;
+        const nextApplication = data.application as Application;
+        setApplications((prev) =>
+          [...prev, nextApplication].toSorted((a, b) => {
+            if (a.sortOrder !== b.sortOrder) {
+              return a.sortOrder - b.sortOrder;
+            }
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          })
+        );
+        return nextApplication;
       } catch (err) {
         const uiError = toAppUiError(
           err,
@@ -178,7 +195,7 @@ export function useApplications(companyId: string) {
         return null;
       }
     },
-    [companyId, fetchApplications]
+    [companyId]
   );
 
   const updateApplication = useCallback(
@@ -204,7 +221,13 @@ export function useApplications(companyId: string) {
           );
         }
 
-        await fetchApplications();
+        const data = await response.json();
+        const nextApplication = data.application as Application;
+        setApplications((prev) =>
+          prev.map((application) =>
+            application.id === applicationId ? nextApplication : application
+          )
+        );
         return true;
       } catch (err) {
         const uiError = toAppUiError(
@@ -221,7 +244,7 @@ export function useApplications(companyId: string) {
         return false;
       }
     },
-    [fetchApplications]
+    []
   );
 
   const deleteApplication = useCallback(
@@ -246,7 +269,7 @@ export function useApplications(companyId: string) {
           );
         }
 
-        await fetchApplications();
+        setApplications((prev) => prev.filter((application) => application.id !== applicationId));
         return true;
       } catch (err) {
         const uiError = toAppUiError(
@@ -263,7 +286,7 @@ export function useApplications(companyId: string) {
         return false;
       }
     },
-    [fetchApplications]
+    []
   );
 
   return {

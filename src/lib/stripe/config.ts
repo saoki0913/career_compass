@@ -36,11 +36,11 @@ export const PLAN_METADATA = {
   guest: {
     name: "Guest",
     price: 0,
-    credits: 12,
+    credits: 0,
     companies: 3,
-    // Credit-based. Values below are display-only hints (not hard limits).
-    esReviews: 1,
-    gakuchika: 2,
+    // AI 機能はログイン後。以下は表示用ヒント。
+    esReviews: 0,
+    gakuchika: 0,
   },
   free: {
     name: "Free",
@@ -52,8 +52,8 @@ export const PLAN_METADATA = {
   },
   standard: {
     name: "Standard",
-    price: 980,
-    credits: 300,
+    price: 1480,
+    credits: 100,
     companies: -1, // unlimited
     esReviews: 10, // display-only hint
     gakuchika: 10,
@@ -61,7 +61,7 @@ export const PLAN_METADATA = {
   pro: {
     name: "Pro",
     price: 2980,
-    credits: 1300,
+    credits: 300,
     companies: -1, // unlimited
     esReviews: -1, // display-only hint
     gakuchika: 20,
@@ -69,7 +69,8 @@ export const PLAN_METADATA = {
 } as const;
 
 export const ANNUAL_PLAN_PRICES: Record<Exclude<PlanType, "free">, number> = {
-  standard: 9980,
+  /** 月額 1,480 円 × 12 に近い年額（従来 Standard 年額と同程度の割引感） */
+  standard: 15080,
   pro: 29800,
 };
 

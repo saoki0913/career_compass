@@ -19,6 +19,7 @@ import {
   type CorporateInfoSource,
 } from "@/lib/company-info/sources";
 import { deleteSupabaseObject } from "@/lib/storage/supabase-storage";
+import { CORPORATE_DELETE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 
 // FastAPI backend URL
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
@@ -93,6 +94,17 @@ export async function POST(
         { error: "この機能を利用するにはログインが必要です" },
         { status: 401 }
       );
+    }
+
+    const rateLimited = await enforceRateLimitLayers(
+      request,
+      [...CORPORATE_DELETE_RATE_LAYERS],
+      authUser.userId,
+      null,
+      "companies_delete_corporate_urls"
+    );
+    if (rateLimited) {
+      return rateLimited;
     }
 
     const { userId } = authUser;

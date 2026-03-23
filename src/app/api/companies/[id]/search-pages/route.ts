@@ -5,6 +5,8 @@ import { companies, userProfiles } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { filterAllowedPublicSourceUrls } from "@/lib/company-info/source-compliance";
+import { COMPANY_SEARCH_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 
 interface SearchCandidate {
   url: string;
@@ -12,6 +14,8 @@ interface SearchCandidate {
   confidence: "high" | "medium" | "low";
   sourceType: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
   relationCompanyName?: string | null;
+  complianceStatus?: "allowed" | "warning" | "blocked";
+  complianceReasons?: string[];
 }
 
 interface BackendSearchCandidate {
@@ -26,6 +30,24 @@ interface SearchPagesResponse {
   candidates: SearchCandidate[];
   usedGraduationYear: number | null;
   yearSource: "profile" | "manual" | "none";
+}
+
+async function filterCompliantCandidates(candidates: SearchCandidate[]): Promise<SearchCandidate[]> {
+  const compliance = await filterAllowedPublicSourceUrls(candidates.map((candidate) => candidate.url));
+  const complianceMap = new Map(compliance.results.map((result) => [result.url, result]));
+  return candidates
+    .map((candidate) => {
+      const result = complianceMap.get(candidate.url);
+      if (!result) {
+        return candidate;
+      }
+      return {
+        ...candidate,
+        complianceStatus: result.status,
+        complianceReasons: result.reasons,
+      } satisfies SearchCandidate;
+    })
+    .filter((candidate) => candidate.complianceStatus !== "blocked");
 }
 
 const TRUSTED_JOB_SITE_MOCKS = ["job.mynavi.jp", "job.rikunabi.com", "onecareer.jp"] as const;
@@ -75,6 +97,17 @@ export async function POST(
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
+    const rateLimited = await enforceRateLimitLayers(
+      request,
+      [...COMPANY_SEARCH_RATE_LAYERS],
+      session?.user?.id ?? null,
+      session?.user?.id ? null : request.headers.get("x-device-token"),
+      "companies_search_pages"
+    );
+    if (rateLimited) {
+      return rateLimited;
+    }
+
     // Get custom query, selection type, and allowSnippetMatch from request body
     const body = await request.json().catch(() => ({}));
     const customQuery = body.customQuery as string | undefined;
@@ -108,13 +141,13 @@ export async function POST(
       if (response.ok) {
         const data: { candidates: BackendSearchCandidate[] } = await response.json();
         // Convert snake_case to camelCase
-        const candidates: SearchCandidate[] = data.candidates.map((c) => ({
+        const candidates = await filterCompliantCandidates(data.candidates.map((c) => ({
           url: c.url,
           title: c.title,
           confidence: c.confidence,
           sourceType: c.source_type,
           relationCompanyName: c.relation_company_name ?? null,
-        }));
+        })));
         return NextResponse.json({
           candidates,
           usedGraduationYear: graduationYear,
@@ -175,7 +208,7 @@ export async function POST(
     ];
 
     return NextResponse.json({
-      candidates,
+      candidates: await filterCompliantCandidates(candidates),
       usedGraduationYear: graduationYear,
       yearSource,
     } satisfies SearchPagesResponse);

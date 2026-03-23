@@ -15,7 +15,7 @@ interface FreeBusySlot {
   end: string;
 }
 
-const APP_CALENDAR_PREFIXES = ["[就活Pass]", "[シューパス]", "[就活Compass]"] as const;
+const APP_CALENDAR_PREFIXES = ["[就活Pass]", "[シューパス]"] as const;
 const DEFAULT_CALENDAR_NAME = "就活Pass";
 
 export type AppCalendarEventKind = "deadline" | "work_block";

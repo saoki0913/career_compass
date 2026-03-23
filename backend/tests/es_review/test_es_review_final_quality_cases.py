@@ -540,7 +540,7 @@ async def test_final_quality_role_course_reason_uses_role_and_company_axes(
     async def fake_text_caller(*args, **kwargs):
         captured_prompts.append(kwargs.get("system_prompt", "") or (args[0] if args else ""))
         return FakeTextResult(
-            "デジタル企画コースを志望するのは、事業理解と技術理解をつなぎながら価値を形にしたいからだ。研究で関係者の意図を整理し前進させた経験を土台に、成長領域へ挑む貴社で事業と開発をつなぐ役割を担いたい。"
+            "デジタル企画コースを志望するのは、事業理解と技術理解をつなぎながら価値を形にしたいからだ。研究で関係者の意図を整理し前進させた経験を土台に、現場の論点を明確化してきた点を活かし、成長領域へ挑む貴社で事業と開発をつなぐ役割を担いたい。"
         )
 
     monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))

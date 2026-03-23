@@ -3,45 +3,62 @@ import type { PlanTypeWithGuest } from "@/lib/stripe/config";
 export type CompanyInfoEligiblePlan = PlanTypeWithGuest;
 export type PaidPlan = Exclude<PlanTypeWithGuest, "guest">;
 
-export const DAILY_SCHEDULE_FETCH_LIMITS: Record<CompanyInfoEligiblePlan, number> = {
-  guest: 5,
-  free: 10,
-  standard: 20,
-  pro: 40,
+/** 選考スケジュール取得の月次無料枠（JST 暦月）。Guest は API で拒否のため表示用 0。 */
+export const MONTHLY_SCHEDULE_FETCH_FREE_LIMITS: Record<CompanyInfoEligiblePlan, number> = {
+  guest: 0,
+  free: 5,
+  standard: 50,
+  pro: 150,
 };
 
-export const MONTHLY_RAG_FREE_UNITS: Record<PaidPlan, number> = {
-  free: 160,
-  standard: 640,
-  pro: 2400,
+/** 企業RAGの月次無料枠（URL クロール + PDF の合算ページ数）。`rag_ingest_units` の意味と一致。 */
+const MONTHLY_RAG_FREE_PAGES: Record<PaidPlan, number> = {
+  free: 10,
+  standard: 100,
+  pro: 300,
 };
 
 export const COMPANY_RAG_SOURCE_LIMITS: Record<PaidPlan, number> = {
-  free: 10,
+  free: 3,
   standard: 100,
   pro: 500,
 };
 
-export const COMPANY_RAG_UNITS_PER_CREDIT = 40;
-
-export function getDailyScheduleFetchLimit(plan: CompanyInfoEligiblePlan): number {
-  return DAILY_SCHEDULE_FETCH_LIMITS[plan];
+export function getMonthlyScheduleFetchFreeLimit(plan: CompanyInfoEligiblePlan): number {
+  return MONTHLY_SCHEDULE_FETCH_FREE_LIMITS[plan];
 }
 
 export function getMonthlyRagFreeUnits(plan: PaidPlan): number {
-  return MONTHLY_RAG_FREE_UNITS[plan];
+  return MONTHLY_RAG_FREE_PAGES[plan];
 }
 
 export function getCompanyRagSourceLimit(plan: PaidPlan): number {
   return COMPANY_RAG_SOURCE_LIMITS[plan];
 }
 
-export function calculatePdfIngestUnits(pageCount: number): number {
-  if (!Number.isFinite(pageCount) || pageCount <= 0) return 2;
-  if (pageCount <= 10) return 2;
-  if (pageCount <= 30) return 4;
-  if (pageCount <= 60) return 6;
-  return 10;
+/** PDF の page_count を月次カウント・表示用に正規化（0 や欠損は 1 ページ扱い） */
+export function normalizePdfPageCount(pageCount: number | null | undefined): number {
+  const n = Math.floor(Number(pageCount));
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  return n;
+}
+
+/**
+ * PDF 1 取込あたりの固定クレジット（文書ページ数の上限帯で決定）。
+ * 月次無料枠でページを充当しても、このティア額は減らない（`applyCompanyRagUsage` の PDF 経路）。
+ */
+export function calculatePdfIngestCredits(pageCount: number | null | undefined): number {
+  const n = normalizePdfPageCount(pageCount);
+  if (n <= 1) return 1;
+  if (n <= 2) return 2;
+  if (n <= 5) return 3;
+  if (n <= 10) return 6;
+  if (n <= 20) return 12;
+  if (n <= 40) return 24;
+  if (n <= 60) return 36;
+  if (n <= 80) return 48;
+  if (n <= 100) return 60;
+  return 72;
 }
 
 export function calculateCorporateCrawlUnits(pagesCrawled: number): number {
@@ -55,7 +72,7 @@ export function estimateCorporateSourceUnits(params: {
   pagesCrawled?: number | null;
 }): number {
   if (params.kind === "upload_pdf") {
-    return calculatePdfIngestUnits(params.pageCount ?? 0);
+    return normalizePdfPageCount(params.pageCount ?? 0);
   }
   return calculateCorporateCrawlUnits(params.pagesCrawled ?? 1);
 }

@@ -27,6 +27,7 @@ export PATH="/Users/saoki/work/career_compass/tools/cli-safe/bin:$PATH"
 - `main` への反映は `make deploy` のみ
 - `main` push で Vercel / Railway が本番デプロイされる
 - 危険操作は CLI レベルで拒否する
+- release automation は `scripts/release/` が正本で、必要な provider 操作は script 内で実バイナリを解決して行う
 
 ## 許可される代表操作
 
@@ -48,6 +49,7 @@ export PATH="/Users/saoki/work/career_compass/tools/cli-safe/bin:$PATH"
 - `git push --force`
 - `git reset --hard`
 - `gh repo delete`
+- `gh pr create`
 - `gh pr merge`
 - `vercel deploy --prod`
 - `railway up`
@@ -63,3 +65,8 @@ export PATH="/Users/saoki/work/career_compass/tools/cli-safe/bin:$PATH"
 - 認証確認: `make ops-auth-check`
 - リリース前確認: `make ops-release-check`
 - 本番リリース: `make deploy`
+- provider auth baseline: `scripts/release/provider-auth-status.sh --strict`
+- bootstrap check: `scripts/bootstrap-career-compass-infra.sh --check`
+- secrets inventory sync: `scripts/release/sync-career-compass-secrets.sh --check|--apply`
+
+`gh pr create` / `gh pr merge` / `vercel env add` / `railway variable set` のような操作は、手打ちではなく release scripts 経由の controlled path のみを正本にする。

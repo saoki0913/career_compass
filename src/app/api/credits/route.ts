@@ -1,7 +1,7 @@
 /**
  * Credits API
  *
- * GET: Get current credit balance, next reset date, and daily free usage
+ * GET: Get current credit balance, next reset date, and free quotas (monthly schedule + RAG pages)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -17,10 +17,15 @@ import { db } from "@/lib/db";
 import { userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import {
-  getDailyScheduleFetchLimit,
+  getMonthlyScheduleFetchFreeLimit,
   getMonthlyRagFreeUnits,
 } from "@/lib/company-info/pricing";
-import { getRemainingCompanyRagFreeUnits } from "@/lib/company-info/usage";
+import {
+  getRagPdfIngestPolicySummaryJa,
+  getRagPdfMaxIngestPages,
+  getRagPdfMaxOcrPages,
+} from "@/lib/company-info/pdf-ingest-limits";
+import { getRemainingCompanyRagFreeUnitsSafe } from "@/lib/company-info/usage";
 
 export async function GET(request: NextRequest) {
   try {
@@ -46,7 +51,7 @@ export async function GET(request: NextRequest) {
 
       // Get remaining free fetches
       const remainingFreeFetches = await getRemainingFreeFetches(userId, null, plan);
-      const remainingRagFreeUnits = await getRemainingCompanyRagFreeUnits(userId, plan);
+      const remainingRagFreeUnits = await getRemainingCompanyRagFreeUnitsSafe(userId, plan);
 
       return NextResponse.json({
         type: "user",
@@ -54,17 +59,20 @@ export async function GET(request: NextRequest) {
         balance: creditsInfo.balance,
         monthlyAllocation: creditsInfo.monthlyAllocation,
         nextResetAt: creditsInfo.nextResetAt.toISOString(),
-        dailyFree: {
-          companyFetch: {
-            remaining: remainingFreeFetches,
-            limit: getDailyScheduleFetchLimit(plan),
-          },
-        },
         monthlyFree: {
-          companyRagUnits: {
+          companyRagPages: {
             remaining: remainingRagFreeUnits,
             limit: getMonthlyRagFreeUnits(plan),
           },
+          selectionSchedule: {
+            remaining: remainingFreeFetches,
+            limit: getMonthlyScheduleFetchFreeLimit(plan),
+          },
+        },
+        ragPdfLimits: {
+          maxPagesIngest: getRagPdfMaxIngestPages(plan),
+          maxPagesOcr: getRagPdfMaxOcrPages(plan),
+          summaryJa: getRagPdfIngestPolicySummaryJa(plan),
         },
       });
     }
@@ -83,16 +91,14 @@ export async function GET(request: NextRequest) {
           balance: PLAN_CREDITS.guest, // Guests have a fixed allocation
           monthlyAllocation: PLAN_CREDITS.guest,
           nextResetAt: null, // Guests don't have monthly reset
-          dailyFree: {
-            companyFetch: {
-              remaining: remainingFreeFetches,
-              limit: getDailyScheduleFetchLimit("guest"),
-            },
-          },
           monthlyFree: {
-            companyRagUnits: {
+            companyRagPages: {
               remaining: 0,
               limit: 0,
+            },
+            selectionSchedule: {
+              remaining: remainingFreeFetches,
+              limit: getMonthlyScheduleFetchFreeLimit("guest"),
             },
           },
         });

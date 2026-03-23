@@ -8,6 +8,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { trackEvent } from "@/lib/analytics/client";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import type { EsDocumentCategory } from "@/lib/es-document-category";
+
+export type { EsDocumentCategory };
 
 export type DocumentType = "es" | "tips" | "company_analysis";
 export type DocumentStatus = "draft" | "published" | "deleted";
@@ -33,6 +36,7 @@ export interface Document {
   applicationId: string | null;
   jobTypeId: string | null;
   type: DocumentType;
+  esCategory?: EsDocumentCategory;
   title: string;
   content: DocumentBlock[] | null;
   status: DocumentStatus;
@@ -42,8 +46,8 @@ export interface Document {
   company?: {
     id: string;
     name: string;
-    infoFetchedAt?: Date | null;  // Indicates if company has RAG data
-    corporateInfoFetchedAt?: Date | null;
+    infoFetchedAt?: string | null;  // Indicates if company has RAG data
+    corporateInfoFetchedAt?: string | null;
   } | null;
   application?: {
     id: string;
@@ -54,6 +58,7 @@ export interface Document {
 export interface CreateDocumentInput {
   title: string;
   type: DocumentType;
+  esCategory?: EsDocumentCategory;
   companyId?: string;
   applicationId?: string;
   jobTypeId?: string;
@@ -67,6 +72,7 @@ export interface UpdateDocumentInput {
   companyId?: string;
   applicationId?: string;
   jobTypeId?: string;
+  esCategory?: EsDocumentCategory;
 }
 
 function buildHeaders(): Record<string, string> {
@@ -92,6 +98,10 @@ export interface UseDocumentsOptions {
   applicationId?: string;
   includeDeleted?: boolean;
   initialData?: Document[];
+}
+
+interface UseDocumentOptions {
+  initialData?: Document | null;
 }
 
 export function useDocuments(options: UseDocumentsOptions = {}) {
@@ -386,11 +396,12 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
   };
 }
 
-export function useDocument(documentId: string) {
-  const [document, setDocument] = useState<Document | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+export function useDocument(documentId: string, options: UseDocumentOptions = {}) {
+  const [document, setDocument] = useState<Document | null>(() => options.initialData ?? null);
+  const [isLoading, setIsLoading] = useState(() => !options.initialData);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const skipInitialFetchRef = useRef(Boolean(options.initialData));
 
   const fetchDocument = useCallback(async () => {
     if (!documentId) return;
@@ -437,6 +448,10 @@ export function useDocument(documentId: string) {
   }, [documentId]);
 
   useEffect(() => {
+    if (skipInitialFetchRef.current) {
+      skipInitialFetchRef.current = false;
+      return;
+    }
     fetchDocument();
   }, [fetchDocument]);
 

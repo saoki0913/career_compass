@@ -19,6 +19,8 @@ import re
 import hashlib
 import asyncio
 import io
+import json
+import time
 from bs4 import BeautifulSoup
 
 try:
@@ -29,7 +31,14 @@ except ImportError:
     HAS_DDGS = False
     # Logger will be initialized later, so we'll handle this in the function
 
-from app.utils.llm import call_llm_with_error, extract_text_from_pdf_with_openai
+from app.utils.llm import (
+    call_llm_with_error,
+    consume_request_llm_cost_summary,
+    estimate_llm_usage_cost_usd,
+    extract_text_from_pdf_with_openai,
+    log_selection_schedule_request_llm_cost,
+    merge_llm_usage_tokens,
+)
 from app.config import settings
 from app.utils.secure_logger import get_logger
 from app.utils.company_names import (
@@ -164,11 +173,74 @@ SCHEDULE_FOLLOW_LINK_NEGATIVE_KEYWORDS = {
     "sitemap",
     "terms",
     "legal",
+    "mypage",
+    "login",
+    "signin",
+    "account",
 }
-SCHEDULE_MAX_FOLLOW_LINKS = 3
+SCHEDULE_MAX_FOLLOW_LINKS = 1
 SCHEDULE_MAX_PDF_FOLLOW_LINKS = 1
 SCHEDULE_MIN_TEXT_CHARS = 40
 SCHEDULE_PDF_TEXT_MIN_CHARS = 200
+
+# スケジュール取得: HTML 本文の上限（他用途の extract は既定 15000 のまま）
+SCHEDULE_HTML_EXTRACT_MAX_CHARS = 8192
+
+# LLM 入力短縮: キーワード行の前後だけ送りトークンを抑える（全文は raw_text 側に保持）
+SCHEDULE_LLM_TEXT_MAX_CHARS = 6000
+SCHEDULE_LLM_FALLBACK_MAX_CHARS = 4500
+SCHEDULE_LLM_TEXT_CONTEXT_LINES = 2
+# 極端に長いページ: 先頭フォールバックを避け、日付行・末尾付近を優先して LLM 入力を抑える
+SCHEDULE_EXTREME_PAGE_CHARS = 80_000
+SCHEDULE_LLM_TEXT_MAX_CHARS_EXTREME = 4000
+SCHEDULE_LLM_FALLBACK_MAX_CHARS_EXTREME = 3200
+SCHEDULE_LLM_TEXT_CONTEXT_LINES_EXTREME = 3
+SCHEDULE_EXTREME_TAIL_LINES = 400
+# 初回 LLM 出力上限（パース失敗時は llm.py 側で GPT fast による JSON 修復）
+SCHEDULE_LLM_MAX_OUTPUT_TOKENS = 1500
+
+_SCHEDULE_FOLLOW_KW = tuple(k for k, _ in SCHEDULE_FOLLOW_LINK_KEYWORDS)
+SCHEDULE_CONTENT_KEYWORDS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        _SCHEDULE_FOLLOW_KW
+        + (
+            "書類",
+            "提出",
+            "提出物",
+            "エントリーシート",
+            "webテスト",
+            "適性検査",
+            "適性",
+            "面接",
+            "説明会",
+            "内定",
+            "内定承諾",
+            "スケジュール",
+            "日程",
+            "新卒",
+            "採用",
+            "本選考",
+            "一次",
+            "二次",
+            "三次",
+            "試験",
+            "応募方法",
+            "選考フロー",
+            "通過",
+            "合格",
+            "deadline",
+            "application",
+            "recruitment",
+            "intern",
+            "選考概要",
+            "選考日程",
+            "エントリー開始",
+            "エントリー受付",
+            "マイナビ",
+            "リクナビ",
+        )
+    )
+)
 
 
 def _get_ddgs_cache_key(query: str, max_results: int) -> str:
@@ -297,24 +369,6 @@ class ExtractedScheduleInfo(BaseModel):
     selection_process: Optional[ExtractedItem]  # 選考プロセス (optional)
 
 
-class FetchResponse(BaseModel):
-    success: bool
-    partial_success: bool = (
-        False  # True if deadlines not found but other items extracted
-    )
-    data: Optional[ExtractedInfo]
-    source_url: str
-    extracted_at: str
-    error: Optional[str]
-    # Credit consumption info for caller
-    deadlines_found: bool = False
-    other_items_found: bool = False
-    # NEW: Raw text content for full-text RAG storage
-    raw_text: Optional[str] = None
-    # NEW: Raw HTML (optional, for better section chunking)
-    raw_html: Optional[str] = None
-
-
 class SelectionScheduleResponse(BaseModel):
     success: bool
     partial_success: bool = False
@@ -441,6 +495,57 @@ COMPANY_INFO_SCHEMA = {
     },
 }
 
+_SELECTION_SCHEDULE_DEADLINE_ITEM = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["type", "title", "due_date", "source_url", "confidence"],
+    "properties": {
+        "type": {
+            "type": "string",
+            "enum": [
+                "es_submission",
+                "web_test",
+                "aptitude_test",
+                "interview_1",
+                "interview_2",
+                "interview_3",
+                "interview_final",
+                "briefing",
+                "internship",
+                "offer_response",
+                "other",
+            ],
+        },
+        "title": {"type": "string", "maxLength": 80},
+        "due_date": {"type": ["string", "null"]},
+        "source_url": {"type": "string"},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+    },
+}
+
+_SELECTION_SCHEDULE_DOC_ITEM = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["name", "required", "source_url", "confidence"],
+    "properties": {
+        "name": {"type": "string", "maxLength": 120},
+        "required": {"type": "boolean"},
+        "source_url": {"type": "string"},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+    },
+}
+
+_SELECTION_SCHEDULE_ITEM_WITH_VALUE = {
+    "type": ["object", "null"],
+    "additionalProperties": False,
+    "required": ["value", "source_url", "confidence"],
+    "properties": {
+        "value": {"type": "string", "maxLength": 400},
+        "source_url": {"type": "string"},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+    },
+}
+
 SELECTION_SCHEDULE_SCHEMA = {
     "name": "selection_schedule_extract",
     "schema": {
@@ -453,16 +558,18 @@ SELECTION_SCHEDULE_SCHEMA = {
             "selection_process",
         ],
         "properties": {
-            "deadlines": COMPANY_INFO_SCHEMA["schema"]["properties"]["deadlines"],
-            "required_documents": COMPANY_INFO_SCHEMA["schema"]["properties"][
-                "required_documents"
-            ],
-            "application_method": COMPANY_INFO_SCHEMA["schema"]["properties"][
-                "application_method"
-            ],
-            "selection_process": COMPANY_INFO_SCHEMA["schema"]["properties"][
-                "selection_process"
-            ],
+            "deadlines": {
+                "type": "array",
+                "maxItems": 15,
+                "items": _SELECTION_SCHEDULE_DEADLINE_ITEM,
+            },
+            "required_documents": {
+                "type": "array",
+                "maxItems": 10,
+                "items": _SELECTION_SCHEDULE_DOC_ITEM,
+            },
+            "application_method": _SELECTION_SCHEDULE_ITEM_WITH_VALUE,
+            "selection_process": _SELECTION_SCHEDULE_ITEM_WITH_VALUE,
         },
     },
 }
@@ -547,7 +654,7 @@ async def extract_info_with_llm(text: str, url: str) -> ExtractedInfo:
     llm_result = await call_llm_with_error(
         system_prompt=system_prompt,
         user_message=user_message,
-        max_tokens=2000,
+        max_tokens=1500,
         temperature=0.1,
         feature="company_info",
         response_format="json_schema",
@@ -664,17 +771,118 @@ async def extract_info_with_llm(text: str, url: str) -> ExtractedInfo:
         )
 
 
+def _schedule_text_chunk_matches_keyword(chunk: str) -> bool:
+    stripped = chunk.strip()
+    if not stripped:
+        return False
+    lower = stripped.lower()
+    for kw in SCHEDULE_CONTENT_KEYWORDS:
+        if kw.isascii():
+            if kw in lower:
+                return True
+        else:
+            if kw in stripped:
+                return True
+    return False
+
+
+# 極長ページ向け: 日付らしい表記の行も候補に含める（キーワードだけだと取りこぼす採用ページがあるため）
+# ※「行番号2014-」のような誤検知を避け、4桁西暦単独マッチは入れない
+_SCHEDULE_DATE_LINE_HINT_RE = re.compile(
+    r"(?:\d{4}\s*年\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*日)?"
+    r"|\d{1,2}\s*月\s*\d{1,2}\s*日"
+    r"|\d{4}\s*[-/／]\s*\d{1,2}\s*[-/／]\s*\d{1,2})"
+)
+
+
+def _schedule_line_signals_schedule_content(line: str, *, extreme_page: bool) -> bool:
+    if _schedule_text_chunk_matches_keyword(line):
+        return True
+    if extreme_page and _SCHEDULE_DATE_LINE_HINT_RE.search(line):
+        return True
+    return False
+
+
+def _compress_schedule_page_text_for_llm(text: str) -> str:
+    """
+    採用・選考に関係しそうな行（キーワード一致）とその前後だけを残す。
+    ヒットが無い場合は先頭へ短くフォールバック（通常ページは表記ゆれで取りこぼさないため）。
+    極端に長い本文では先頭フォールバックを避け、日付行・末尾付近のみ送る。
+    """
+    if not text:
+        return text
+    text = text.strip()
+    if not text:
+        return text
+    extreme = len(text) > SCHEDULE_EXTREME_PAGE_CHARS
+    max_chars = (
+        SCHEDULE_LLM_TEXT_MAX_CHARS_EXTREME
+        if extreme
+        else SCHEDULE_LLM_TEXT_MAX_CHARS
+    )
+    fallback_chars = (
+        SCHEDULE_LLM_FALLBACK_MAX_CHARS_EXTREME
+        if extreme
+        else SCHEDULE_LLM_FALLBACK_MAX_CHARS
+    )
+    ctx = (
+        SCHEDULE_LLM_TEXT_CONTEXT_LINES_EXTREME
+        if extreme
+        else SCHEDULE_LLM_TEXT_CONTEXT_LINES
+    )
+
+    lines = text.split("\n")
+    n = len(lines)
+    hit = [False] * n
+    for i, line in enumerate(lines):
+        if _schedule_line_signals_schedule_content(line, extreme_page=extreme):
+            hit[i] = True
+
+    merged: str
+    if any(hit):
+        take = [False] * n
+        for i in range(n):
+            if not hit[i]:
+                continue
+            lo = max(0, i - ctx)
+            hi = min(n, i + ctx + 1)
+            for j in range(lo, hi):
+                take[j] = True
+        merged = "\n".join(lines[i] for i in range(n) if take[i])
+    else:
+        paras = [p.strip() for p in re.split(r"\n\s*\n+", text) if p.strip()]
+        selected = [
+            p for p in paras if _schedule_line_signals_schedule_content(p, extreme_page=extreme)
+        ]
+        if not selected:
+            if extreme:
+                tail = "\n".join(lines[-min(SCHEDULE_EXTREME_TAIL_LINES, n) :]).strip()
+                return (tail[:fallback_chars] if tail else "")[:fallback_chars]
+            return text[:fallback_chars]
+        merged = "\n\n".join(selected)
+
+    if not merged.strip():
+        if extreme:
+            tail = "\n".join(lines[-min(SCHEDULE_EXTREME_TAIL_LINES, n) :]).strip()
+            return (tail[:fallback_chars] if tail else "")[:fallback_chars]
+        return text[:fallback_chars]
+    if len(merged) > max_chars:
+        return merged[:max_chars]
+    return merged
+
+
 async def extract_schedule_with_llm(
     text: str,
     url: str,
     feature: str = "selection_schedule",
     graduation_year: int | None = None,
     selection_type: str | None = None,
-) -> ExtractedScheduleInfo:
+) -> tuple[ExtractedScheduleInfo, dict[str, int] | None, str | None]:
     """
     Extract selection schedule information using LLM.
 
     Focused scope (no recruitment_types) for schedule-specific endpoint.
+    Returns (parsed info, usage dict or None, resolved model id or None).
 
     Args:
         text: Page text content to extract from
@@ -730,78 +938,38 @@ async def extract_schedule_with_llm(
         else "インターン" if selection_type == "internship" else "選考"
     )
 
-    system_prompt = f"""あなたは日本の就活情報を抽出する専門アシスタントです。
-対象: **{grad_year_short}卒** の就活生向けの **{selection_type_label}** 情報
-有効な締切範囲: **{start_year}年4月 〜 {end_year}年6月**
+    system_prompt = f"""Webページテキストから{selection_type_label}向け就活情報をJSONのみで抽出する。
+対象: {grad_year_short}卒。締切の日付は原則 {start_year}-04〜{end_year}-06 の範囲のみ（範囲外は締切にしない）。
 
-以下のWebページテキストから、選考スケジュールに関する情報を抽出してJSONで返してください。
-
-## 重要な指示
-
-### 1. 日付の推測
-日付が曖昧でも推測して抽出してください:
-- 「6月上旬」→ 適切な年-06-01
-- 「7月中旬」→ 適切な年-07-15
-- 「8月下旬」→ 適切な年-08-25
-- 「随時」「未定」→ null
-
+## 日付
+曖昧表現は推定して YYYY-MM-DD。6月上旬→-06-01、7月中旬→-07-15、8月下旬→-08-25、随時/未定→null。
 {year_rules}
+## 締切に含めないもの
+{grad_year_short}卒以外の年が明示のもの、体験談・口コミ・選考レポート・過去実績・OB/OG記事。募集要項・選考スケジュール・エントリー締切など一次案内のみ。
 
-### 2. 対象外情報を締切として採らない
-- **{grad_year_short}卒以外** の年次が明記されている情報は原則除外してください
-- 体験談、口コミ、選考レポート、過去実績、OB/OG訪問記事は締切として扱わないでください
-- 就活サイトでも、募集要項・選考スケジュール・エントリー締切のような一次的な案内だけを採用してください
-- 有効範囲 **{start_year}年4月〜{end_year}年6月** 外の日付は締切として返さないでください
+## 信頼度 high/medium/low
+明記/推測含む/不確実。
 
-### 3. 部分的な情報も抽出
-締切情報がなくても、他の情報（応募方法、提出物、選考プロセス）があれば抽出してください。
+## フィールド
+- deadlines[]: type(es_submission|web_test|aptitude_test|interview_1|interview_2|interview_3|interview_final|briefing|internship|offer_response|other), title, due_date, source_url="{url}", confidence
+- required_documents[]: name, required, source_url, confidence
+- application_method: null または {{value, source_url, confidence}}
+- selection_process: null または {{value, source_url, confidence}}
 
-### 4. 信頼度の判定
-- **high**: 明確に記載されている（日付、具体的な手順など）
-- **medium**: 推測を含む（曖昧な日付、一般的な記述など）
-- **low**: 不確実（断片的な情報、古い可能性がある情報など）
+## 出力を短く
+同一工程の細かい中間日は1件にまとめる。締切はページに明示された主要なものに限定。application_method / selection_process の value は各1〜2文。required_documents は主要なもののみ（最大10件想定）。
 
-## 抽出項目
+締切がなくても応募方法・書類・選考フローがあれば埋める。"""
 
-1. **deadlines**: 締切情報のリスト
-   - type: es_submission, web_test, aptitude_test, interview_1, interview_2, interview_3, interview_final, briefing, internship, offer_response, other
-   - title: 締切のタイトル（例: "ES提出 (一次締切)"）
-   - due_date: ISO形式の日付（YYYY-MM-DD）または null
-   - source_url: "{url}"
-   - confidence: high, medium, low
-
-2. **required_documents**: 必要書類のリスト
-   - name: 書類名（例: "履歴書", "ES", "成績証明書"）
-   - required: 必須かどうか（true/false）
-   - source_url: "{url}"
-   - confidence: high, medium, low
-
-3. **application_method**: 応募方法（見つからない場合はnull）
-   - value: 応募方法の説明（例: "マイページから応募"、"WEBエントリー"）
-   - source_url: "{url}"
-   - confidence: high, medium, low
-
-4. **selection_process**: 選考プロセス（見つからない場合はnull）
-   - value: 選考プロセスの説明（例: "ES→Webテスト→面接3回→最終面接"）
-   - source_url: "{url}"
-   - confidence: high, medium, low
-
-## 出力形式
-
-必ず以下の形式の有効なJSONを返してください:
-{{
-  "deadlines": [...],
-  "required_documents": [...],
-  "application_method": {{...}} または null,
-  "selection_process": {{...}} または null
-}}"""
-
-    user_message = f"以下のWebページテキストから{selection_type_label}情報を抽出してください:\n\n{text}"
+    text_for_llm = _compress_schedule_page_text_for_llm(text)
+    user_message = (
+        f"以下のWebページテキストから{selection_type_label}情報を抽出してください:\n\n{text_for_llm}"
+    )
 
     llm_result = await call_llm_with_error(
         system_prompt=system_prompt,
         user_message=user_message,
-        max_tokens=2000,
+        max_tokens=SCHEDULE_LLM_MAX_OUTPUT_TOKENS,
         temperature=0.1,
         feature=feature,
         response_format="json_schema",
@@ -887,11 +1055,15 @@ async def extract_schedule_with_llm(
                 confidence=sp_data.get("confidence", "low"),
             )
 
-        return ExtractedScheduleInfo(
-            deadlines=deadlines,
-            required_documents=required_documents,
-            application_method=application_method,
-            selection_process=selection_process,
+        return (
+            ExtractedScheduleInfo(
+                deadlines=deadlines,
+                required_documents=required_documents,
+                application_method=application_method,
+                selection_process=selection_process,
+            ),
+            llm_result.usage,
+            llm_result.resolved_model,
         )
     except Exception as e:
         logger.error(f"[選考スケジュール抽出] ❌ LLM応答解析失敗: {e}")
@@ -2794,6 +2966,9 @@ def _score_schedule_follow_link(url: str, anchor_text: str) -> int:
     if any(keyword in haystack for keyword in SCHEDULE_FOLLOW_LINK_NEGATIVE_KEYWORDS):
         return 0
 
+    if any(keyword in path for keyword in ("mypage", "login", "signin", "account")):
+        return 0
+
     score = 0
     for keyword, weight in SCHEDULE_FOLLOW_LINK_KEYWORDS:
         if keyword in haystack:
@@ -2890,14 +3065,16 @@ async def _extract_schedule_text_from_bytes(url: str, payload: bytes) -> tuple[s
 
     is_pdf = urlparse(url).path.lower().endswith(".pdf") or payload.startswith(b"%PDF")
     if not is_pdf:
-        return extract_text_from_html(payload), False
+        return extract_text_from_html(
+            payload, max_text_chars=SCHEDULE_HTML_EXTRACT_MAX_CHARS
+        ), False
 
     extracted_text = _extract_text_from_pdf_locally(payload)
     if len(extracted_text) >= SCHEDULE_PDF_TEXT_MIN_CHARS:
         return extracted_text, True
 
     try:
-        ocr_text = await extract_text_from_pdf_with_openai(
+        ocr_text, _, _ = await extract_text_from_pdf_with_openai(
             payload,
             filename=urlparse(url).path.split("/")[-1] or "document.pdf",
             feature="selection_schedule",
@@ -3495,6 +3672,8 @@ async def _fetch_schedule_response(
     """
     try:
         request_url = str(request.url)
+        aggregated_usage: dict[str, int] = {}
+        resolved_models: list[str] = []
         source_metadata = {
             "source_type": "other",
             "relation_company_name": None,
@@ -3517,13 +3696,16 @@ async def _fetch_schedule_response(
         raw_text_parts: list[str] = []
 
         if text and len(text) >= SCHEDULE_MIN_TEXT_CHARS:
-            extracted = await extract_schedule_with_llm(
+            extracted, usage, model = await extract_schedule_with_llm(
                 text,
                 request_url,
                 feature=feature,
                 graduation_year=request.graduation_year,
                 selection_type=request.selection_type,
             )
+            merge_llm_usage_tokens(aggregated_usage, usage)
+            if model:
+                resolved_models.append(model)
             extracted = _apply_schedule_source_confidence_caps(
                 extracted,
                 str(source_metadata["source_type"]),
@@ -3536,46 +3718,7 @@ async def _fetch_schedule_response(
             extracted_parts.append(extracted)
             raw_text_parts.append(text)
 
-        if not _has_dated_schedule_deadlines(extracted_parts[0] if extracted_parts else None):
-            for follow_url in _extract_schedule_follow_links(
-                primary_payload,
-                request_url,
-                request.company_name,
-            ):
-                follow_payload = await fetch_page_content(follow_url)
-                follow_text, _ = await _extract_schedule_text_from_bytes(
-                    follow_url, follow_payload
-                )
-                if not follow_text or len(follow_text) < SCHEDULE_MIN_TEXT_CHARS:
-                    continue
-
-                follow_metadata = _build_schedule_source_metadata(
-                    follow_url,
-                    request.company_name,
-                    follow_text,
-                    request.graduation_year,
-                )
-                follow_extracted = await extract_schedule_with_llm(
-                    follow_text,
-                    follow_url,
-                    feature=feature,
-                    graduation_year=request.graduation_year,
-                    selection_type=request.selection_type,
-                )
-                follow_extracted = _apply_schedule_source_confidence_caps(
-                    follow_extracted,
-                    str(follow_metadata["source_type"]),
-                    (
-                        bool(follow_metadata["year_matched"])
-                        if follow_metadata["year_matched"] is not None
-                        else None
-                    ),
-                )
-                extracted_parts.append(follow_extracted)
-                raw_text_parts.append(follow_text)
-
-                if _has_dated_schedule_deadlines(follow_extracted):
-                    break
+        # 選考スケジュールはユーザーが選んだ 1 URL（1 ページ相当）のみ。1 ホップ先の追加取得は行わない（コスト・一貫性のため）。
 
         if not extracted_parts:
             return SelectionScheduleResponse(
@@ -3626,6 +3769,13 @@ async def _fetch_schedule_response(
         elif partial_success:
             error_message = "締切情報は取得できませんでしたが、他の情報を抽出しました"
 
+        log_selection_schedule_request_llm_cost(
+            feature=feature,
+            source_url=request_url,
+            aggregated_usage=aggregated_usage,
+            resolved_models=resolved_models,
+        )
+
         return SelectionScheduleResponse(
             success=success,
             partial_success=partial_success,
@@ -3653,6 +3803,7 @@ async def _fetch_schedule_response(
             other_items_found=other_items_found,
             raw_text=combined_raw_text if success else None,
             raw_html=raw_html if success and len(raw_text_parts) == 1 and not primary_is_pdf else None,
+            internal_telemetry=consume_request_llm_cost_summary("company_info"),
         )
 
     except HTTPException:
@@ -3694,38 +3845,6 @@ async def fetch_selection_schedule(request: FetchRequest):
     Fetch and extract selection schedule information from a URL.
     """
     return await _fetch_schedule_response(request, feature="selection_schedule")
-
-
-@router.post("/fetch", response_model=FetchResponse)
-async def fetch_company_info(request: FetchRequest):
-    """
-    Legacy endpoint. Delegates to /fetch-schedule for compatibility.
-    """
-    schedule_response = await _fetch_schedule_response(
-        request, feature="selection_schedule_legacy"
-    )
-    legacy_data = None
-    if schedule_response.data:
-        legacy_data = ExtractedInfo(
-            deadlines=schedule_response.data.deadlines,
-            recruitment_types=[],
-            required_documents=schedule_response.data.required_documents,
-            application_method=schedule_response.data.application_method,
-            selection_process=schedule_response.data.selection_process,
-        )
-
-    return FetchResponse(
-        success=schedule_response.success,
-        partial_success=schedule_response.partial_success,
-        data=legacy_data if schedule_response.success else None,
-        source_url=schedule_response.source_url,
-        extracted_at=schedule_response.extracted_at,
-        error=schedule_response.error,
-        deadlines_found=schedule_response.deadlines_found,
-        other_items_found=schedule_response.other_items_found,
-        raw_text=schedule_response.raw_text,
-        raw_html=schedule_response.raw_html,
-    )
 
 
 # ============================================================================
@@ -4257,9 +4376,13 @@ class UploadCorporatePdfResponse(BaseModel):
     content_type: str | None = None
     secondary_content_types: list[str] = []
     extraction_method: str
-    deferred: bool = False
-    needs_ocr: bool = False
     errors: list[str] = []
+    # 元の PDF 総ページ数（取得できた場合）。取込・課金は page_count（処理したページ数）基準。
+    source_total_pages: int | None = None
+    ingest_truncated: bool = False
+    ocr_truncated: bool = False
+    # UI 向け短文（取込前説明と整合）
+    processing_notice_ja: str | None = None
 
 
 class SearchCorporatePagesRequest(BaseModel):
@@ -4332,6 +4455,76 @@ def _get_pdf_page_count(pdf_bytes: bytes) -> int | None:
         return None
 
 
+def _normalize_rag_pdf_billing_plan(raw: str | None) -> str:
+    v = (raw or "free").strip().lower()
+    if v in ("standard", "pro"):
+        return v
+    return "free"
+
+
+def _rag_pdf_max_ingest_pages(plan: str) -> int:
+    if plan == "pro":
+        return int(settings.rag_pdf_max_pages_pro)
+    if plan == "standard":
+        return int(settings.rag_pdf_max_pages_standard)
+    return int(settings.rag_pdf_max_pages_free)
+
+
+def _rag_pdf_max_ocr_pages(plan: str) -> int:
+    if plan == "pro":
+        return int(settings.rag_pdf_ocr_max_pages_pro)
+    if plan == "standard":
+        return int(settings.rag_pdf_ocr_max_pages_standard)
+    return int(settings.rag_pdf_ocr_max_pages_free)
+
+
+def _slice_pdf_bytes_to_first_n_pages(pdf_bytes: bytes, max_pages: int) -> tuple[bytes, bool]:
+    if max_pages <= 0 or not pdf_bytes:
+        return pdf_bytes, False
+    try:
+        from pypdf import PdfReader, PdfWriter
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        total = len(reader.pages)
+        if total <= max_pages:
+            return pdf_bytes, False
+        writer = PdfWriter()
+        for i in range(max_pages):
+            writer.add_page(reader.pages[i])
+        out = io.BytesIO()
+        writer.write(out)
+        return out.getvalue(), True
+    except Exception:
+        return pdf_bytes, False
+
+
+def _pdf_ingest_telemetry_line(
+    *,
+    ocr_ran: bool,
+    source_total_pages: int | None,
+    processed_pages: int | None,
+    ingest_truncated: bool,
+    ocr_truncated: bool,
+    est_cost_usd: float | None,
+    elapsed_sec: float,
+    success: bool,
+) -> None:
+    if not settings.company_pdf_ingest_telemetry_log:
+        return
+    payload = {
+        "event": "pdf_ingest_telemetry",
+        "ocr_ran": ocr_ran,
+        "source_total_pages": source_total_pages,
+        "processed_pages": processed_pages,
+        "ingest_truncated": ingest_truncated,
+        "ocr_truncated": ocr_truncated,
+        "est_ocr_cost_usd": est_cost_usd,
+        "elapsed_sec": round(elapsed_sec, 3),
+        "success": success,
+    }
+    logger.info("[pdf_ingest_telemetry] " + json.dumps(payload, ensure_ascii=False))
+
+
 @router.post("/rag/upload-pdf", response_model=UploadCorporatePdfResponse)
 async def upload_corporate_pdf(
     company_id: str = Form(...),
@@ -4339,10 +4532,18 @@ async def upload_corporate_pdf(
     source_url: str = Form(...),
     content_type: Optional[str] = Form(None),
     content_channel: Optional[str] = Form(None),
-    allow_defer_ocr: bool = Form(False),
+    billing_plan: str = Form("free"),
     file: UploadFile = File(...),
 ):
     """Extract text from an uploaded PDF and store it in company RAG."""
+    t0 = time.monotonic()
+    ocr_ran = False
+    ocr_est_usd: float | None = None
+    source_total_pages: int | None = None
+    processed_pages: int | None = None
+    ingest_truncated = False
+    ocr_truncated = False
+
     filename = file.filename or "document.pdf"
     mime_type = (file.content_type or "").lower()
     if not filename.lower().endswith(".pdf") and mime_type != "application/pdf":
@@ -4357,8 +4558,22 @@ async def upload_corporate_pdf(
             detail="PDFファイルが大きすぎます。20MB以下にしてください。",
         )
 
+    plan = _normalize_rag_pdf_billing_plan(billing_plan)
+    max_ingest = _rag_pdf_max_ingest_pages(plan)
+    max_ocr = min(_rag_pdf_max_ocr_pages(plan), max_ingest)
+
     backend = resolve_embedding_backend()
     if backend is None:
+        _pdf_ingest_telemetry_line(
+            ocr_ran=False,
+            source_total_pages=None,
+            processed_pages=None,
+            ingest_truncated=False,
+            ocr_truncated=False,
+            est_cost_usd=None,
+            elapsed_sec=time.monotonic() - t0,
+            success=False,
+        )
         return UploadCorporatePdfResponse(
             success=False,
             company_id=company_id,
@@ -4372,51 +4587,79 @@ async def upload_corporate_pdf(
             ],
         )
 
-    page_count = _get_pdf_page_count(pdf_bytes)
-    extracted_text = _extract_text_from_pdf_locally(pdf_bytes)
+    source_total_pages = _get_pdf_page_count(pdf_bytes)
+    working_pdf, ingest_truncated = _slice_pdf_bytes_to_first_n_pages(pdf_bytes, max_ingest)
+    processed_pages = _get_pdf_page_count(working_pdf)
+    if processed_pages is None:
+        processed_pages = source_total_pages
+    if processed_pages is None:
+        processed_pages = 1
+
+    max_ingest_i = max_ingest
+    max_ocr_i = max_ocr
+
+    extracted_text = _extract_text_from_pdf_locally(working_pdf)
     extraction_method = "pypdf"
 
     if len(extracted_text) < 200:
-        if allow_defer_ocr:
-            return UploadCorporatePdfResponse(
-                success=True,
-                company_id=company_id,
-                source_url=source_url,
-                chunks_stored=0,
-                extracted_chars=len(extracted_text.strip()),
-                page_count=page_count,
-                content_type=content_type,
-                secondary_content_types=[],
-                extraction_method="deferred_ocr",
-                deferred=True,
-                needs_ocr=True,
-                errors=[],
-            )
+        ocr_pdf = working_pdf
+        ocr_pages = _get_pdf_page_count(working_pdf) or processed_pages
+        if ocr_pages > max_ocr:
+            ocr_pdf, ocr_truncated = _slice_pdf_bytes_to_first_n_pages(working_pdf, max_ocr)
         try:
-            ocr_text = await extract_text_from_pdf_with_openai(
-                pdf_bytes,
+            ocr_text, pdf_usage, ocr_model = await extract_text_from_pdf_with_openai(
+                ocr_pdf,
                 filename,
                 feature="company_info",
             )
+            ocr_ran = True
+            ocr_est_usd = estimate_llm_usage_cost_usd(ocr_model, pdf_usage)
         except Exception as e:
             logger.warning(f"[PDF取込] OCR fallback failed: {e}")
             ocr_text = ""
-        if len(ocr_text.strip()) > len(extracted_text.strip()):
+            pdf_usage = {}
+            ocr_model = ""
+        if ocr_text.strip() and len(ocr_text.strip()) > len(extracted_text.strip()):
             extracted_text = ocr_text.strip()
             extraction_method = "openai_pdf_ocr"
 
+    processing_notice_parts: list[str] = []
+    if ingest_truncated and source_total_pages is not None:
+        processing_notice_parts.append(
+            f"全{source_total_pages}ページのうち先頭{processed_pages}ページのみを取り込みました。"
+        )
+    elif ingest_truncated:
+        processing_notice_parts.append("ページ上限により先頭のみを取り込みました。")
+    if ocr_truncated:
+        processing_notice_parts.append(f"OCRは先頭{max_ocr_i}ページのみ実行しました。")
+    processing_notice_ja = " ".join(processing_notice_parts).strip() or None
+
     if len(extracted_text.strip()) < 100:
+        _pdf_ingest_telemetry_line(
+            ocr_ran=ocr_ran,
+            source_total_pages=source_total_pages,
+            processed_pages=processed_pages,
+            ingest_truncated=ingest_truncated,
+            ocr_truncated=ocr_truncated,
+            est_cost_usd=ocr_est_usd,
+            elapsed_sec=time.monotonic() - t0,
+            success=False,
+        )
         return UploadCorporatePdfResponse(
             success=False,
             company_id=company_id,
             source_url=source_url,
             chunks_stored=0,
             extracted_chars=len(extracted_text.strip()),
-            page_count=page_count,
+            page_count=processed_pages,
             content_type=content_type,
             secondary_content_types=[],
             extraction_method=extraction_method,
             errors=["PDFから十分な本文テキストを抽出できませんでした。"],
+            source_total_pages=source_total_pages,
+            ingest_truncated=ingest_truncated,
+            ocr_truncated=ocr_truncated,
+            processing_notice_ja=processing_notice_ja,
         )
 
     channel = content_channel or (
@@ -4437,17 +4680,31 @@ async def upload_corporate_pdf(
     )
 
     if not result["success"]:
+        _pdf_ingest_telemetry_line(
+            ocr_ran=ocr_ran,
+            source_total_pages=source_total_pages,
+            processed_pages=processed_pages,
+            ingest_truncated=ingest_truncated,
+            ocr_truncated=ocr_truncated,
+            est_cost_usd=ocr_est_usd,
+            elapsed_sec=time.monotonic() - t0,
+            success=False,
+        )
         return UploadCorporatePdfResponse(
             success=False,
             company_id=company_id,
             source_url=source_url,
             chunks_stored=0,
             extracted_chars=len(extracted_text),
-            page_count=page_count,
+            page_count=processed_pages,
             content_type=content_type,
             secondary_content_types=[],
             extraction_method=extraction_method,
             errors=["PDFのRAG保存に失敗しました。"],
+            source_total_pages=source_total_pages,
+            ingest_truncated=ingest_truncated,
+            ocr_truncated=ocr_truncated,
+            processing_notice_ja=processing_notice_ja,
         )
 
     from app.utils.text_chunker import JapaneseTextChunker, get_chunk_settings
@@ -4457,19 +4714,32 @@ async def upload_corporate_pdf(
     chunker = JapaneseTextChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     chunks = chunker.chunk(extracted_text)
 
+    _pdf_ingest_telemetry_line(
+        ocr_ran=ocr_ran,
+        source_total_pages=source_total_pages,
+        processed_pages=processed_pages,
+        ingest_truncated=ingest_truncated,
+        ocr_truncated=ocr_truncated,
+        est_cost_usd=ocr_est_usd,
+        elapsed_sec=time.monotonic() - t0,
+        success=True,
+    )
+
     return UploadCorporatePdfResponse(
         success=True,
         company_id=company_id,
         source_url=source_url,
         chunks_stored=len(chunks),
         extracted_chars=len(extracted_text),
-        page_count=page_count,
+        page_count=processed_pages,
         content_type=result.get("dominant_content_type") or content_type,
         secondary_content_types=result.get("secondary_content_types") or [],
         extraction_method=extraction_method,
-        deferred=False,
-        needs_ocr=False,
         errors=[],
+        source_total_pages=source_total_pages,
+        ingest_truncated=ingest_truncated,
+        ocr_truncated=ocr_truncated,
+        processing_notice_ja=processing_notice_ja,
     )
 
 

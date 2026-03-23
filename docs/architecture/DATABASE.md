@@ -1,6 +1,6 @@
 # データベース設計
 
-就活Compass（シューパス）のデータベース構造とマイグレーション管理について説明します。
+就活Pass（シューパス）のデータベース構造とマイグレーション管理について説明します。
 
 ---
 
@@ -55,6 +55,8 @@ npm run db:studio
 
 **注意:** 環境変数は `.env.local` から `dotenv-cli` 経由で読み込まれます。
 
+`drizzle_pg/0008_notification_daily_summary_hour.sql` は `notification_settings.daily_summary_hour_jst` を追加する。`meta/_journal.json` にエントリがあるため `npm run db:migrate` で適用される。Supabase CLI で `supabase/migrations` を流す場合は `20260321120000_notification_daily_summary_hour_jst.sql` が同等の変更を行う（どちらか一方で二重適用しても `IF NOT EXISTS` で安全）。
+
 ---
 
 ## 4. スキーマ定義の場所
@@ -93,7 +95,7 @@ export const users = pgTable("users", {
 | テーブル | 用途 |
 |---------|------|
 | `user_profiles` | プラン、オンボーディング情報 |
-| `notification_settings` | 通知設定 |
+| `notification_settings` | 通知設定（`daily_summary_hour_jst`: 日次サマリーを送る JST の「時」、既定 9。API で 7/9/12/18 のみ） |
 | `calendar_settings` | Google カレンダー連携設定 |
 
 ### 企業・選考管理
@@ -112,9 +114,6 @@ export const users = pgTable("users", {
 |---------|------|
 | `documents` | ES、Tips、企業分析 |
 | `document_versions` | バージョン履歴 |
-| `es_templates` | ESテンプレート |
-| `template_likes` | テンプレートいいね |
-| `template_favorites` | テンプレートお気に入り |
 
 ### ガクチカ
 
@@ -146,7 +145,7 @@ export const users = pgTable("users", {
 | `subscriptions` | Stripe サブスクリプション |
 | `credits` | クレジット残高 |
 | `credit_transactions` | クレジット履歴 |
-| `daily_free_usage` | 日次無料利用回数 |
+| `company_info_monthly_usage` | 企業情報まわりの月次カウンタ（RAG 取込ページ `rag_ingest_units`、選考スケジュール無料回数 `schedule_fetch_free_uses` 等） |
 
 ---
 
@@ -396,7 +395,7 @@ await db.update(companies)
 
 ## 関連ドキュメント
 
-- [DB_OPERATIONS.md](../setup/DB_OPERATIONS.md) - DB 運用ガイド（ローカル/本番の切り替え・トラブルシューティング）
+- [DB_SUPABASE.md](../setup/DB_SUPABASE.md) — DB 運用ガイド（ローカル/本番の切り替え・トラブルシューティング）
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - システムアーキテクチャ
 - [TECH_STACK.md](./TECH_STACK.md) - 使用技術一覧
-- [ENV_SETUP.md](../setup/ENV_SETUP.md) - 環境変数設定
+- [DEVELOPMENT_AND_ENV.md](../setup/DEVELOPMENT_AND_ENV.md) — 開発ガイドと環境変数

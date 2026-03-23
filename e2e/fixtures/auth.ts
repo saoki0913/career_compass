@@ -4,7 +4,7 @@
  * Provides utilities for testing authenticated flows
  */
 
-import { Page, BrowserContext, expect } from "@playwright/test";
+import { APIResponse, Page, expect } from "@playwright/test";
 
 // Device token key used by the app
 const DEVICE_TOKEN_KEY = "ukarun_device_token";
@@ -126,6 +126,52 @@ export async function mockAuthenticatedUser(
   });
 }
 
+export async function mockCredits(
+  page: Page,
+  payload: {
+    type?: "user" | "guest";
+    plan?: "guest" | "free" | "standard" | "pro";
+    balance: number;
+    monthlyAllocation?: number;
+    nextResetAt?: string | null;
+    dailyFreeCompanyFetchRemaining?: number;
+    dailyFreeCompanyFetchLimit?: number;
+    /** 選考スケジュール月次無料（`monthlyFree.selectionSchedule`） */
+    monthlySelectionScheduleRemaining?: number;
+    monthlySelectionScheduleLimit?: number;
+    monthlyFreeCompanyRagRemaining?: number;
+    monthlyFreeCompanyRagLimit?: number;
+  },
+): Promise<void> {
+  const selectionRemaining =
+    payload.monthlySelectionScheduleRemaining ?? payload.dailyFreeCompanyFetchRemaining ?? 5;
+  const selectionLimit =
+    payload.monthlySelectionScheduleLimit ?? payload.dailyFreeCompanyFetchLimit ?? 5;
+  await page.route("**/api/credits", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        type: payload.type ?? "user",
+        plan: payload.plan ?? "free",
+        balance: payload.balance,
+        monthlyAllocation: payload.monthlyAllocation ?? payload.balance,
+        nextResetAt: payload.nextResetAt ?? null,
+        monthlyFree: {
+          companyRagPages: {
+            remaining: payload.monthlyFreeCompanyRagRemaining ?? 10,
+            limit: payload.monthlyFreeCompanyRagLimit ?? 10,
+          },
+          selectionSchedule: {
+            remaining: selectionRemaining,
+            limit: selectionLimit,
+          },
+        },
+      }),
+    });
+  });
+}
+
 /**
  * Mock unauthenticated state
  */
@@ -225,4 +271,199 @@ export async function apiRequest(
     headers,
     data: body ? JSON.stringify(body) : undefined,
   });
+}
+
+export async function expectOkResponse(
+  response: APIResponse,
+  label: string,
+): Promise<string> {
+  const body = await response.text().catch(() => "");
+  expect(
+    response.ok(),
+    `${label} failed with ${response.status()} ${response.statusText()}\n${body.slice(0, 1200)}`,
+  ).toBeTruthy();
+  return body;
+}
+
+export async function createGuestCompany(
+  page: Page,
+  input: {
+    name: string;
+    industry?: string;
+    recruitmentUrl?: string;
+    corporateUrl?: string;
+    notes?: string;
+    status?: string;
+  },
+): Promise<{ id: string; name: string }> {
+  const response = await apiRequest(page, "POST", "/api/companies", input);
+  if (!response.ok()) {
+    throw new Error(`Failed to create company: ${response.status()}`);
+  }
+  const payload = (await response.json()) as { company: { id: string; name: string } };
+  return payload.company;
+}
+
+export const createOwnedCompany = createGuestCompany;
+
+export async function deleteGuestCompany(page: Page, companyId: string): Promise<void> {
+  await apiRequest(page, "DELETE", `/api/companies/${companyId}`);
+}
+
+export async function createGuestDocument(
+  page: Page,
+  input: {
+    title: string;
+    type: "es" | "tips" | "company_analysis";
+    companyId?: string;
+    content?: Array<Record<string, unknown>>;
+  },
+): Promise<{ id: string; title: string }> {
+  const response = await apiRequest(page, "POST", "/api/documents", input);
+  if (!response.ok()) {
+    throw new Error(`Failed to create document: ${response.status()}`);
+  }
+  const payload = (await response.json()) as { document: { id: string; title: string } };
+  return payload.document;
+}
+
+export async function deleteGuestDocument(page: Page, documentId: string): Promise<void> {
+  await apiRequest(page, "DELETE", `/api/documents/${documentId}`);
+}
+
+export async function createOwnedDeadline(
+  page: Page,
+  companyId: string,
+  input: {
+    type: string;
+    title: string;
+    dueDate: string;
+    description?: string;
+    memo?: string;
+    sourceUrl?: string;
+  },
+): Promise<{ id: string; title: string }> {
+  const response = await apiRequest(page, "POST", `/api/companies/${companyId}/deadlines`, input);
+  if (!response.ok()) {
+    throw new Error(`Failed to create deadline: ${response.status()}`);
+  }
+  const payload = (await response.json()) as { deadline: { id: string; title: string } };
+  return payload.deadline;
+}
+
+export async function createOwnedApplication(
+  page: Page,
+  companyId: string,
+  input: {
+    name: string;
+    type: "summer_intern" | "fall_intern" | "winter_intern" | "early" | "main" | "other";
+  },
+): Promise<{ id: string; name: string }> {
+  const response = await apiRequest(page, "POST", `/api/companies/${companyId}/applications`, input);
+  if (!response.ok()) {
+    throw new Error(`Failed to create application: ${response.status()}`);
+  }
+  const payload = (await response.json()) as { application: { id: string; name: string } };
+  return payload.application;
+}
+
+export async function deleteOwnedApplication(page: Page, applicationId: string): Promise<void> {
+  await apiRequest(page, "DELETE", `/api/applications/${applicationId}`);
+}
+
+export async function createOwnedSubmission(
+  page: Page,
+  applicationId: string,
+  input: {
+    type: string;
+    name: string;
+    isRequired?: boolean;
+    notes?: string;
+  },
+): Promise<{ id: string; name: string }> {
+  const response = await apiRequest(page, "POST", `/api/applications/${applicationId}/submissions`, input);
+  if (!response.ok()) {
+    throw new Error(`Failed to create submission: ${response.status()}`);
+  }
+  const payload = (await response.json()) as { submission: { id: string; name: string } };
+  return payload.submission;
+}
+
+export async function deleteOwnedSubmission(page: Page, submissionId: string): Promise<void> {
+  await apiRequest(page, "DELETE", `/api/submissions/${submissionId}`);
+}
+
+export async function createOwnedTask(
+  page: Page,
+  input: {
+    title: string;
+    type: "es" | "web_test" | "self_analysis" | "gakuchika" | "video" | "other";
+    description?: string;
+    companyId?: string;
+    applicationId?: string;
+    deadlineId?: string;
+    dueDate?: string;
+  },
+): Promise<{ id: string; title: string }> {
+  const response = await apiRequest(page, "POST", "/api/tasks", input);
+  if (!response.ok()) {
+    throw new Error(`Failed to create task: ${response.status()}`);
+  }
+  const payload = (await response.json()) as { task: { id: string; title: string } };
+  return payload.task;
+}
+
+export async function deleteOwnedTask(page: Page, taskId: string): Promise<void> {
+  await apiRequest(page, "DELETE", `/api/tasks/${taskId}`);
+}
+
+export async function createOwnedGakuchika(
+  page: Page,
+  input: {
+    title: string;
+    content: string;
+    charLimitType: "300" | "400" | "500";
+  },
+): Promise<{ id: string; title: string }> {
+  const response = await apiRequest(page, "POST", "/api/gakuchika", input);
+  if (!response.ok()) {
+    throw new Error(`Failed to create gakuchika: ${response.status()}`);
+  }
+  const payload = (await response.json()) as { gakuchika: { id: string; title: string } };
+  return payload.gakuchika;
+}
+
+export async function deleteOwnedGakuchika(page: Page, gakuchikaId: string): Promise<void> {
+  await apiRequest(page, "DELETE", `/api/gakuchika/${gakuchikaId}`);
+}
+
+export async function createOwnedNotification(
+  page: Page,
+  input: {
+    type:
+      | "deadline_reminder"
+      | "deadline_near"
+      | "company_fetch"
+      | "es_review"
+      | "daily_summary"
+      | "calendar_sync_failed";
+    title: string;
+    message: string;
+    data?: Record<string, unknown>;
+  },
+): Promise<{ id: string; title: string }> {
+  const response = await apiRequest(page, "POST", "/api/notifications", input);
+  if (!response.ok()) {
+    throw new Error(`Failed to create notification: ${response.status()}`);
+  }
+  const payload = (await response.json()) as { notification: { id: string; title: string } };
+  return payload.notification;
+}
+
+export async function deleteOwnedNotification(page: Page, notificationId: string): Promise<void> {
+  await apiRequest(page, "DELETE", `/api/notifications/${notificationId}`);
+}
+
+export async function waitForRouteProgress(page: Page): Promise<void> {
+  await expect(page.locator('div[aria-hidden="false"] .route-progress-bar').first()).toBeVisible();
 }

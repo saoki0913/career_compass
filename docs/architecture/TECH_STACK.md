@@ -1,6 +1,6 @@
 # 使用技術一覧
 
-就活Compass（シューパス）で使用している技術スタックの詳細です。
+就活Pass（シューパス）で使用している技術スタックの詳細です。
 
 ---
 
@@ -81,14 +81,14 @@
 | 機能 | デフォルトモデル | 環境変数 |
 |------|----------------|----------|
 | ES添削 | Claude Sonnet 4.6 / GPT-5.4 / Gemini 3.1 Pro Preview | `MODEL_ES_REVIEW` |
-| ガクチカ深掘り | Claude Haiku | `MODEL_GAKUCHIKA` |
-| 志望動機 | Claude Haiku | `MODEL_MOTIVATION` |
-| 選考スケジュール抽出 | Claude Haiku | `MODEL_SELECTION_SCHEDULE` |
+| ガクチカ深掘り | GPT-5.4 mini（`gpt-fast`） | `MODEL_GAKUCHIKA` |
+| 志望動機 | GPT-5.4 mini（`gpt-fast`） | `MODEL_MOTIVATION` |
+| 選考スケジュール抽出 | GPT-5.4 nano（`gpt-nano`） | `MODEL_SELECTION_SCHEDULE` |
 | 企業情報抽出 | GPT-5.4-mini | `MODEL_COMPANY_INFO` |
-| RAGクエリ拡張 | Claude Haiku | `MODEL_RAG_QUERY_EXPANSION` |
-| RAG HyDE | Claude Sonnet | `MODEL_RAG_HYDE` |
-| RAGリランク | Claude Sonnet | `MODEL_RAG_RERANK` |
-| RAG分類 | Claude Haiku | `MODEL_RAG_CLASSIFY` |
+| RAGクエリ拡張 | GPT-5.4 mini（`gpt-fast`） | `MODEL_RAG_QUERY_EXPANSION` |
+| RAG HyDE | GPT-5.4 mini（`gpt-fast`） | `MODEL_RAG_HYDE` |
+| RAG再ランキング | ローカル CrossEncoder（LLM 不使用） | — |
+| RAG分類 | GPT-5.4 nano（`gpt-nano`） | `MODEL_RAG_CLASSIFY` |
 
 ### ベクトル検索 / RAG
 
@@ -209,7 +209,7 @@ RAG（Retrieval-Augmented Generation）のための検索システム。
 | **Stripe** | サブスクリプション管理 |
 
 **プラン:**
-- Standard: ¥980/月
+- Standard: ¥1,480/月
 - Pro: ¥2,980/月
 
 ### AI
@@ -295,4 +295,4 @@ unidic-lite>=1.0.8
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - システムアーキテクチャ
 - [DATABASE.md](./DATABASE.md) - データベース設計
-- [ENV_SETUP.md](../setup/ENV_SETUP.md) - 環境変数設定
+- [DEVELOPMENT_AND_ENV.md](../setup/DEVELOPMENT_AND_ENV.md) — 開発ガイドと環境変数

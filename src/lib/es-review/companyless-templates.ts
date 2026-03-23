@@ -1,5 +1,5 @@
 import type { TemplateType } from "@/hooks/useESReview";
-import { inferTemplateTypeFromQuestion } from "@/lib/es-review/infer-template-type";
+import { inferTemplateTypeDetailsFromQuestion } from "@/lib/es-review/infer-template-type";
 
 /** 企業未選択時に UI で選べる明示テンプレ（自動以外） */
 export const COMPANYLESS_EXPLICIT_TEMPLATE_TYPES = ["gakuchika", "self_pr", "work_values"] as const;
@@ -29,9 +29,13 @@ export function resolveEffectiveTemplateTypeWithoutCompany(
     }
     return { ok: true, effective: requestedTemplate };
   }
-  const inferred = inferTemplateTypeFromQuestion(sectionTitle) as TemplateType;
-  if (COMPANYLESS_INFERRED_ALLOWED.has(inferred)) {
-    return { ok: true, effective: inferred };
+  const inferred = inferTemplateTypeDetailsFromQuestion(sectionTitle);
+  if (inferred.confidence !== "high") {
+    return { ok: true, effective: "basic" };
+  }
+  const inferredTemplate = inferred.templateType as TemplateType;
+  if (COMPANYLESS_INFERRED_ALLOWED.has(inferredTemplate)) {
+    return { ok: true, effective: inferredTemplate };
   }
   return { ok: true, effective: "basic" };
 }

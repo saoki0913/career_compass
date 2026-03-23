@@ -9,18 +9,22 @@
 
 - **目的**: 会話形式で企業特化の志望動機を深掘りし、ES用の下書きを生成する
 - **質問数目安**: 8問
-- **クレジット**: 5問回答ごとに1クレジット + 下書き生成で1クレジット
-- **LLM**: `feature="motivation"` を使用（デフォルト: Claude Haiku, `MODEL_MOTIVATION` で切替可能）
+- **クレジット**: 新規質問が5回に達するたびに3クレジット + 下書き生成で6クレジット
+- **LLM**: `feature="motivation"` を使用（デフォルト: `gpt-fast` → GPT-5.4 mini, `MODEL_MOTIVATION` で切替可能）
 - **特徴**: 企業RAG・ガクチカ・プロフィール・応募職種を束ねて質問する
 - **開始フロー**: `setup(企業確認 / 業界確定 / 職種確定) → start API → chat`
-- **チャット段階**: `company_reason → desired_work → fit_connection / differentiation → closing`
+- **チャット段階**: `industry_reason → company_reason → desired_work → origin_experience → fit_connection → differentiation → closing`
 - **初回開始**: 空の会話履歴は `next-question` 内で初回ターンとして扱い、空 `messages=[]` を LLM に渡さない
 - **4択生成**: 質問は LLM が生成した後に server-side validator を通し、回答候補は grounded builder が `2〜4件` の直接回答文だけを決定論的に組み立てる
 - **ハルシネーション抑制**: 企業情報・ガクチカ・プロフィール・確定職種・会話で確定済みのやりたい仕事以外の事実を使わないよう prompt と builder の両方で制限する
 - **候補数**: 回答候補は `2〜4件` を基本とし、grounding が弱いときだけ `0〜3件` に絞る
 - **raw 企業文フィルタ**: `Q4:` などの見出し、採用導線文、社員紹介コピー、URL断片は候補生成前に除外する
-- **question-fit**: 候補は `質問タイプ判定 → 直接回答文テンプレート → question-fit scoring` で絞り込み、質問に答えていない候補を上位に残さない
-- **UI導線**: `会話をやり直す` は進捗 header 右上のセカンダリボタン、`志望動機ESを作成` は右カラム上部とモバイル入力欄直上で常時 visible、企業RAGの出典は `参考にした企業情報` を `要点1行 + 出典種別` の compact card で表示する
+- **question-fit**: 候補は `question_focus → 直接回答文テンプレート → question-fit scoring` で絞り込み、質問に答えていない候補を上位に残さない
+- **canonical question**: stream 中に見せる質問文と DB 保存・候補生成に使う質問文を一致させるため、server-side validator 後の canonical question だけを `string_chunk` / `complete` に流す
+- **重複防止**: 直前の assistant 質問と同一シグネチャの質問は reject し、同 stage の fallback question に置換する
+- **企業名/職種ガード**: `company_reason / differentiation / closing` では対象企業以外の社名を reject し、setup や応募情報で確定していない職種は候補に混ぜない
+- **競合更新ガード**: `conversation/start` / `conversation` / `conversation/stream` は `updatedAt` ベースの compare-and-set で後勝ち更新を防ぎ、競合時は 409 を返す
+- **UI導線**: `会話をやり直す` は進捗 header 右上、`志望動機ESを作成` は desktop ではページ見出し右横、mobile では上部で見える位置に配置し、企業RAGの出典は `参考にした企業情報` の compact card で表示する
 
 ---
 
@@ -95,13 +99,14 @@ weighted = (
 - setup で確定した `selectedIndustry / selectedRole / roleSelectionSource` を保存する
 - ログインユーザーは完了済みガクチカ要約、プロフィール、応募職種を読み込む
 - FastAPI へ空の会話履歴で `next-question` を投げ、初回ターン用の最初の assistant 質問を生成して DB に保存する
-- 初回質問は `company_reason` から開始する
+- 初回質問は `industry_reason` から開始し、業界志望理由を1問だけ確認してから `company_reason` へ進む
+- `updatedAt` compare-and-set で同時開始 race を防ぎ、別タブ更新が先行した場合は 409 を返す
 
 ### POST の動き
 - ユーザー回答を会話履歴に追加
-- setup 完了済み前提で、`company_reason` と `desired_work` の回答を `conversationContext` へ保存する
+- setup 完了済み前提で、`industry_reason` / `company_reason` / `desired_work` / `origin_experience` の回答を `conversationContext` へ保存する
 - FastAPIで4要素を評価
-- 5問ごとにクレジット消費（ログインユーザーのみ、FastAPI成功後に消費）
+- 5問ごとにクレジット消費（ログインユーザーのみ、FastAPI成功 + DB 更新成功後に消費）
 - 完了判定は FastAPI の重み付きスコアを優先
 - 後方互換として、`questionCount >= 8` かつ全要素70%以上でも完了扱い
 
@@ -111,8 +116,8 @@ weighted = (
 - フロントの通常送信経路はこちらを利用
 - FastAPI の `next-question/stream` を consume-and-re-emit で中継
 - `progress` / `string_chunk` / `complete` / `error` を処理
-- `complete` 時にDB更新とクレジット消費を行い、フロント向け整形済みデータを返却
-- フロントは `question` の `string_chunk` を優先表示し、chunk が来ない場合でも `complete.nextQuestion` を疑似ストリーム再生して表示体験を揃える
+- `complete` 時に compare-and-set で DB 更新し、成功時のみクレジット消費を行い、フロント向け整形済みデータを返却
+- `string_chunk(question)` は raw LLM 文面をそのまま中継せず、validator / repair 後の canonical question を疑似ストリーム再生する
 
 **ファイル:** `src/app/api/motivation/[companyId]/generate-draft/route.ts`
 
@@ -238,7 +243,7 @@ weighted = (
 
 補足:
 - setup で `selectedIndustry / selectedRole` を先に確定する
-- `company_reason / desired_work / fit_connection / differentiation` の全段階で LLM は質問本文のみを生成する
+- `industry_reason / company_reason / desired_work / fit_connection / differentiation` の全段階で LLM は質問本文を生成し、同時に `question_focus` を返す
 - 回答候補は `selectedRole / companyWorkCandidates / company_features / gakuchika / profile / captured desiredWork` を使う grounded builder が生成する
 - `suggestions` は `suggestion_options[].label` の後方互換フィールド
 - `desired_work` 段階の回答候補は仮置き候補として `isTentative=true` を付け、会話で初めて `desiredWork` を確定する
@@ -252,7 +257,7 @@ weighted = (
 - SSEで進捗と質問本文を段階返却
 - 主なイベント:
   - `progress`: `企業情報を取得中...` / `回答を分析中...` / `質問を考え中...`
-  - `string_chunk`: 質問本文のトークン単位ストリーミング
+  - `string_chunk`: canonical question の疑似ストリーミング
   - `complete`: `question` / `evaluation` / `suggestions` / `suggestion_options` / `evidence_summary` / `evidence_cards` / `stage_status` / `captured_context`
   - `error`: エラーメッセージ
 
@@ -357,8 +362,8 @@ weighted = (
 
 | アクション | 消費量 | 条件 |
 |-----------|--------|------|
-| 5問回答 | 1クレジット | ログインユーザーのみ |
-| 下書き生成 | 1クレジット | 成功時のみ |
+| 5問回答 | 3クレジット | ログインユーザーのみ |
+| 下書き生成 | 6クレジット | 成功時のみ（LLM は既定 Claude Sonnet 4.6） |
 
 **ゲストユーザー**: クレジット消費なし（制限なく利用可能）
 
@@ -460,7 +465,7 @@ CREATE TABLE motivation_conversations (
 
 ## 13. 代表ログ
 
-- `[LLM] Calling claude-haiku (...) for feature: motivation`
+- `[LLM] Calling gpt-fast (...) for feature: motivation`（解決先は環境により `gpt-5.4-mini` 等）
 - `[Motivation] Evaluation scores: {...}`
 - `[Motivation] Generated question for stage: desired_work`
 - `[Motivation] Draft generated: 398 chars`

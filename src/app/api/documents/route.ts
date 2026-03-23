@@ -16,6 +16,8 @@ import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import { getDocumentsPageData } from "@/lib/server/app-loaders";
+import { DEFAULT_ES_DOCUMENT_CATEGORY, esDocumentCategorySchema } from "@/lib/es-document-category";
+import { getDefaultBlocksForEsCategory } from "@/lib/es-document-templates";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -67,6 +69,7 @@ export async function GET(request: NextRequest) {
         companyId,
         applicationId,
         includeDeleted,
+        includeContent: false,
       })
     );
     return timing.apply(NextResponse.json(data));
@@ -101,7 +104,7 @@ export async function POST(request: NextRequest) {
 
     const { userId, guestId } = identity;
     const body = await request.json();
-    const { title, type, companyId, applicationId, jobTypeId, content } = body;
+    const { title, type, companyId, applicationId, jobTypeId, content, esCategory: rawEsCategory } = body;
 
     if (!title || !title.trim()) {
       return createApiErrorResponse(request, {
@@ -124,6 +127,31 @@ export async function POST(request: NextRequest) {
         developerMessage: "Invalid document type",
         logContext: "document-create-validation",
       });
+    }
+
+    let resolvedEsCategory = DEFAULT_ES_DOCUMENT_CATEGORY;
+    if (type === "es") {
+      if (rawEsCategory !== undefined && rawEsCategory !== null) {
+        const parsed = esDocumentCategorySchema.safeParse(rawEsCategory);
+        if (!parsed.success) {
+          return createApiErrorResponse(request, {
+            status: 400,
+            code: "DOCUMENT_ES_CATEGORY_INVALID",
+            userMessage: "文書の分類を確認して、もう一度お試しください。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            developerMessage: "Invalid esCategory",
+            logContext: "document-create-validation",
+          });
+        }
+        resolvedEsCategory = parsed.data;
+      }
+    }
+
+    let contentJson: string | null = null;
+    if (content !== undefined && content !== null) {
+      contentJson = JSON.stringify(content);
+    } else if (type === "es") {
+      contentJson = JSON.stringify(getDefaultBlocksForEsCategory(resolvedEsCategory));
     }
 
     // Verify company access if provided
@@ -166,8 +194,9 @@ export async function POST(request: NextRequest) {
         applicationId: applicationId || null,
         jobTypeId: jobTypeId || null,
         type,
+        esCategory: type === "es" ? resolvedEsCategory : DEFAULT_ES_DOCUMENT_CATEGORY,
         title: title.trim(),
-        content: content ? JSON.stringify(content) : null,
+        content: contentJson,
         status: "draft",
         createdAt: now,
         updatedAt: now,

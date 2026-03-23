@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { companies, userProfiles, deadlines } from "@/lib/db/schema";
+import { companies, userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
@@ -17,6 +17,9 @@ import { VALID_STATUSES } from "@/lib/constants/status";
 import { stripCompanyCredentials } from "@/lib/db/sanitize";
 import { encrypt } from "@/lib/crypto";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getCompanyDetailPageData } from "@/lib/server/app-loaders";
 
 /**
  * Get current user or guest from request
@@ -93,9 +96,10 @@ export async function GET(
   request: NextRequest,
   context: RouteContext
 ) {
+  const timing = createServerTimingRecorder();
   try {
     const { id } = await context.params;
-    const identity = await getCurrentIdentity(request);
+    const identity = await timing.measure("identity", () => getRequestIdentity(request));
 
     if (!identity) {
       return createApiErrorResponse(request, {
@@ -109,9 +113,8 @@ export async function GET(
       });
     }
 
-    const company = await getCompanyIfOwned(id, identity);
-
-    if (!company) {
+    const detail = await timing.measure("db", () => getCompanyDetailPageData(identity, id));
+    if (!detail) {
       return createApiErrorResponse(request, {
         status: 404,
         code: "COMPANY_NOT_FOUND",
@@ -122,16 +125,12 @@ export async function GET(
       });
     }
 
-    // Get deadlines for this company
-    const companyDeadlines = await db
-      .select()
-      .from(deadlines)
-      .where(eq(deadlines.companyId, id));
-
-    return NextResponse.json({
-      company: stripCompanyCredentials(company),
-      deadlines: companyDeadlines,
-    });
+    return timing.apply(
+      NextResponse.json({
+        company: detail.company,
+        deadlines: detail.deadlines,
+      })
+    );
   } catch (error) {
     return createApiErrorResponse(request, {
       status: 500,

@@ -12,6 +12,57 @@ on:
   workflow_dispatch:
 
 jobs:
+  ui-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      should_run: ${{ steps.resolve.outputs.ui_review_should_run }}
+      routes_json: ${{ steps.resolve.outputs.ui_review_routes_json }}
+      auth_mode: ${{ steps.resolve.outputs.ui_review_auth_mode }}
+      reason: ${{ steps.resolve.outputs.ui_review_reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - id: resolve
+        run: node tools/resolve-ui-review-routes.mjs --github-output >> "$GITHUB_OUTPUT"
+
+  ui-guardrails:
+    needs: ui-scope
+    if: needs.ui-scope.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint:ui:guardrails
+
+  ui-review:
+    needs: [ui-scope, ui-guardrails]
+    if: needs.ui-scope.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run UI review
+        run: npm run test:ui:review -- ${{ join(fromJson(needs.ui-scope.outputs.routes_json), ' ') }} --auth=${{ needs.ui-scope.outputs.auth_mode }}
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20

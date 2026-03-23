@@ -1,13 +1,19 @@
-import Image from "next/image";
 import { Button } from "@/components/ui/button";
+import { ArrowRight } from "lucide-react";
 import { landingMedia } from "./landing-media";
 import { LandingPrimaryAction } from "./LandingPrimaryAction";
+import { ScreenPreview } from "./ScreenPreview";
 import { ScrollReveal } from "./ScrollReveal";
 
 const trustPoints = [
+  "成功時のみ消費",
   "クレジットカード不要",
-  "30秒で登録",
-  "いつでも解約OK",
+  "Googleカレンダー連携",
+] as const;
+
+const supportingLines = [
+  "ES添削も、志望動機の整理も、企業・締切管理も一つの流れで進められます。",
+  "今やることが見える状態を、AIと一緒に作る就活アプリです。",
 ] as const;
 
 export function HeroSection() {
@@ -15,66 +21,88 @@ export function HeroSection() {
 
   return (
     <section className="landing-hero-backdrop relative overflow-hidden">
-      <div className="mx-auto max-w-5xl px-4 pb-16 pt-28 text-center lg:pb-20 lg:pt-36">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(63,114,255,0.16),transparent_34%),radial-gradient(circle_at_85%_20%,rgba(148,163,184,0.16),transparent_26%)]" />
+      <div className="mx-auto max-w-6xl px-4 pb-20 pt-28 sm:pb-24 lg:pt-36">
         <ScrollReveal>
-          <p className="text-sm font-medium tracking-tight text-muted-foreground sm:text-base">
-            就活の準備を、ひと続きで。
-          </p>
+          <div className="grid items-center gap-12 lg:grid-cols-[0.7fr_1.3fr] lg:gap-7">
+            <div className="text-left">
+              <div className="max-w-lg">
+                <h1 className="text-balance text-[3.1rem] font-semibold leading-[0.92] tracking-[-0.08em] text-slate-950 sm:text-[4.2rem] lg:text-[5.25rem]">
+                  就活を、
+                  <br />
+                  AIと一緒に
+                  <br />
+                  迷わず進める。
+                </h1>
+              </div>
 
-          <h1 className="mx-auto mt-5 max-w-3xl text-balance text-[2.75rem] font-bold leading-[0.92] tracking-[-0.05em] text-foreground sm:text-6xl lg:text-7xl xl:text-8xl">
-            就活を、ひとつに。
-          </h1>
+              <div className="mt-7 max-w-xl space-y-3 text-[17px] leading-8 text-slate-600 sm:text-[18px]">
+                {supportingLines.map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
 
-          <p className="mt-5 text-lg font-semibold leading-snug tracking-tight text-foreground sm:text-xl lg:text-2xl">
-            書くことも、進行管理も、同じ流れで。
-          </p>
+              <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+                <LandingPrimaryAction size="lg" className="h-[52px] px-7 text-base" />
+                <Button
+                  size="lg"
+                  variant="outline"
+                  asChild
+                  className="landing-cta-secondary h-[52px] min-w-[190px] rounded-full px-6"
+                >
+                  <a href="#pricing">
+                    料金を見る
+                    <ArrowRight className="size-4" />
+                  </a>
+                </Button>
+              </div>
 
-          <p className="mx-auto mt-4 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-[17px]">
-            AI添削・志望動機・ガクチカの整理から、企業・締切・カレンダー連携まで。
-          </p>
-        </ScrollReveal>
+              <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-500">
+                {trustPoints.map((point) => (
+                  <span key={point} className="inline-flex items-center gap-2">
+                    <span className="h-1 w-1 rounded-full bg-slate-400/70" aria-hidden="true" />
+                    {point}
+                  </span>
+                ))}
+              </div>
+            </div>
 
-        <ScrollReveal delay={0.15}>
-          <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-            <LandingPrimaryAction size="lg" className="landing-cta-btn" />
-            <Button
-              size="lg"
-              variant="outline"
-              asChild
-              className="h-12 min-w-[160px] border-border/60 bg-background/60 backdrop-blur-sm"
-            >
-              <a href="#highlights">要点を見る</a>
-            </Button>
-          </div>
-
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
-            {trustPoints.map((point) => (
-              <span
-                key={point}
-                className="inline-flex items-center gap-2 text-sm text-muted-foreground"
-              >
-                <span
-                  className="h-1 w-1 rounded-full bg-muted-foreground/40"
-                  aria-hidden="true"
-                />
-                {point}
-              </span>
-            ))}
-          </div>
-        </ScrollReveal>
-
-        <ScrollReveal delay={0.3} offset={48}>
-          <div className="mx-auto mt-14 max-w-4xl lg:mt-16">
-            <div className="landing-bento-media aspect-[16/10]">
-              <div className="relative h-full min-h-[220px] overflow-hidden rounded-2xl sm:min-h-[320px]">
-                <Image
+            <div className="relative lg:-mr-12 lg:pl-2">
+              <div className="absolute inset-x-2 top-10 h-[79%] rounded-[42px] bg-[linear-gradient(180deg,rgba(37,99,235,0.18),rgba(148,163,184,0.06))] blur-3xl" />
+              <div className="relative">
+                <ScreenPreview
                   src={heroMedia.src}
                   alt={heroMedia.alt}
-                  fill
                   priority
-                  sizes="(min-width: 1024px) 896px, 100vw"
-                  className="object-cover object-top"
+                  className="rounded-[34px] border border-white/70 bg-white/95"
+                  imageClassName="scale-[1.11] object-top translate-y-[-58px] sm:translate-y-[-88px] lg:translate-y-[-114px]"
                 />
+                <div className="mt-5 grid gap-4 border-t border-slate-200/70 pt-5 sm:grid-cols-3">
+                  <div>
+                    <p className="text-[11px] font-semibold tracking-[0.2em] text-slate-500 uppercase">
+                      Review
+                    </p>
+                    <p className="mt-2 text-sm font-semibold tracking-[-0.02em] text-slate-950">
+                      設問別の添削
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold tracking-[0.2em] text-slate-500 uppercase">
+                      Organize
+                    </p>
+                    <p className="mt-2 text-sm font-semibold tracking-[-0.02em] text-slate-950">
+                      会話で素材整理
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold tracking-[0.2em] text-slate-500 uppercase">
+                      Track
+                    </p>
+                    <p className="mt-2 text-sm font-semibold tracking-[-0.02em] text-slate-950">
+                      締切を一覧管理
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

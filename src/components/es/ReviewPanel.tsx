@@ -1,7 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ArrowUpRight,
   Building2,
@@ -24,6 +32,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useOperationLock } from "@/hooks/useOperationLock";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { useCredits } from "@/hooks/useCredits";
 import {
   EXTRA_FIELD_LABELS,
   TEMPLATE_EXTRA_FIELDS,
@@ -34,6 +44,7 @@ import {
 import type { ReviewMode, TemplateType } from "@/hooks/useESReview";
 import {
   DEFAULT_STANDARD_ES_REVIEW_MODEL,
+  FREE_PLAN_ES_REVIEW_MODEL,
   getStandardESReviewModelHelper,
   getStandardESReviewModelLabel,
   isLowCostESReviewModel,
@@ -45,9 +56,18 @@ import { calculateESReviewCost } from "@/lib/credits/cost";
 import type { Industry } from "@/lib/constants/industries";
 import { COMPANYLESS_EXPLICIT_TEMPLATE_TYPES } from "@/lib/es-review/companyless-templates";
 import { inferTemplateTypeFromQuestion } from "@/lib/es-review/infer-template-type";
-import { notifyReviewComplete } from "@/lib/notifications";
+import {
+  notifyOperationLocked,
+  notifyReviewError,
+  notifyReviewSuccess,
+} from "@/lib/notifications";
 import { ReflectModal } from "./ReflectModal";
-import { shouldEnableAutoFollow } from "./review-panel-scroll";
+import {
+  getVisibleReviewContentSize,
+  shouldAutoScrollToLatest,
+} from "./review-panel-scroll";
+import type { ReviewValidationField } from "./review-panel-validation";
+import { getReviewValidationIssues } from "./review-panel-validation";
 import { ReviewEmptyState } from "./ReviewEmptyState";
 import { StreamingReviewResponse } from "./StreamingReviewResponse";
 
@@ -340,16 +360,55 @@ function SetupField({
   placeholder,
   value,
   onChange,
+  invalid = false,
+  errorMessage,
+  inputId,
+  descriptionId,
 }: {
   label: string;
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
+  invalid?: boolean;
+  errorMessage?: string | null;
+  inputId?: string;
+  descriptionId?: string;
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-xs font-medium text-muted-foreground">{label}</label>
-      <Input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+      <label htmlFor={inputId} className="text-xs font-medium text-muted-foreground">
+        {label}
+      </label>
+      <Input
+        id={inputId}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        aria-invalid={invalid}
+        aria-describedby={errorMessage ? descriptionId : undefined}
+      />
+      {errorMessage ? (
+        <p id={descriptionId} className="text-xs leading-5 text-destructive">
+          {errorMessage}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function FreePlanEsReviewModelNotice() {
+  return (
+    <div className="rounded-[26px] border border-border/60 bg-muted/30 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+      <p className="text-sm font-semibold text-foreground">添削モデル（Free）</p>
+      <p className="mt-2 text-xs leading-5 text-muted-foreground">
+        Free プランでは <strong className="font-medium text-foreground">GPT-5.4 mini</strong>{" "}
+        相当の経路で添削します。消費クレジットは Standard / Pro で選べる
+        Claude / GPT / Gemini（プレミアム帯）と<strong className="font-medium text-foreground">同じ目安</strong>
+        です。課金プランにアップグレードすると、高性能モデルから選べます。
+      </p>
+      <Button className="mt-4 h-9 rounded-full px-4 text-xs" variant="outline" asChild>
+        <Link href="/pricing">プランを見る</Link>
+      </Button>
     </div>
   );
 }
@@ -400,18 +459,38 @@ function ReviewModeSelector({
 function ReviewActionFooter({
   charCount,
   creditCost,
-  helperText,
+  helperLines,
   buttonLabel,
   disabled,
   onClick,
+  loginHref,
 }: {
   charCount: number;
   creditCost: number;
-  helperText: string;
+  helperLines: string[];
   buttonLabel: string;
   disabled: boolean;
   onClick: () => void;
+  loginHref?: string | null;
 }) {
+  const primary = loginHref ? (
+    <Button className="h-11 self-stretch rounded-full px-5 sm:min-w-[220px] sm:self-auto sm:px-6" asChild>
+      <Link href={loginHref}>
+        <Sparkles className="size-4" />
+        {buttonLabel}
+      </Link>
+    </Button>
+  ) : (
+    <Button
+      className="h-11 self-stretch rounded-full px-5 sm:min-w-[220px] sm:self-auto sm:px-6"
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <Sparkles className="size-4" />
+      {buttonLabel}
+    </Button>
+  );
+
   return (
     <div className="border-t border-border/60 bg-muted/20 px-4 py-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -423,17 +502,22 @@ function ReviewActionFooter({
             </Badge>
             <span className="text-xs text-muted-foreground sm:text-sm">{charCount}文字</span>
           </div>
-          <p className="truncate text-xs leading-5 text-muted-foreground">{helperText}</p>
+          <div className="space-y-1">
+            {helperLines.map((line, index) => (
+              <p
+                key={`${line}-${index}`}
+                className={cn(
+                  "text-xs leading-5",
+                  index === 0 ? "text-muted-foreground" : "text-destructive",
+                )}
+              >
+                {line}
+              </p>
+            ))}
+          </div>
         </div>
 
-        <Button
-          className="h-11 self-stretch rounded-full px-5 sm:min-w-[220px] sm:self-auto sm:px-6"
-          disabled={disabled}
-          onClick={onClick}
-        >
-          <Sparkles className="size-4" />
-          {buttonLabel}
-        </Button>
+        {primary}
       </div>
     </div>
   );
@@ -452,6 +536,14 @@ export function ReviewPanel({
   supplementalContent,
 }: ReviewPanelProps) {
   const { acquireLock, releaseLock } = useOperationLock();
+  const { isAuthenticated, isGuest, isLoading: isAuthLoading, isReady: isAuthReady } = useAuth();
+  const {
+    credits,
+    balance,
+    isLoading: creditsLoading,
+    error: creditsError,
+    refresh: refreshCredits,
+  } = useCredits({ isAuthenticated, isAuthReady });
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateType | null>(null);
   const [internName, setInternName] = useState("");
   const [selectedIndustry, setSelectedIndustry] = useState<Industry | null>(null);
@@ -467,19 +559,24 @@ export function ReviewPanel({
   const [selectedStandardModel, setSelectedStandardModel] = useState<StandardESReviewModel>(
     DEFAULT_STANDARD_ES_REVIEW_MODEL,
   );
+  const isFreeEsPlan = Boolean(isAuthenticated && !isGuest && credits?.plan === "free");
   const [showReflectModal, setShowReflectModal] = useState(false);
   const [pendingRewrite, setPendingRewrite] = useState<string | null>(null);
   const [responseInstanceKey, setResponseInstanceKey] = useState(0);
   const [hasShownCompletionToast, setHasShownCompletionToast] = useState(false);
-  const [validationErrors, setValidationErrors] = useState<Set<string>>(new Set());
+  /** True only after user taps「この設問をAI添削」while setup is incomplete (red frames + footer hint). */
+  const [setupErrorHighlight, setSetupErrorHighlight] = useState(false);
 
+  const panelRootRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const autoFollowRef = useRef(true);
-  const programmaticScrollRef = useRef(false);
+  const lastShownErrorRef = useRef<string | null>(null);
+  const previousVisibleContentSizeRef = useRef(0);
 
-  // Validation section refs (Phase 6)
   const templateSectionRef = useRef<HTMLDivElement>(null);
   const industrySectionRef = useRef<HTMLDivElement>(null);
+  const internNameFieldRef = useRef<HTMLDivElement>(null);
+  const industryFieldRef = useRef<HTMLDivElement>(null);
+  const roleFieldRef = useRef<HTMLDivElement>(null);
 
   const {
     review,
@@ -496,7 +593,16 @@ export function ReviewPanel({
     sseProgress,
     requestSectionReview,
     clearReview,
-  } = useESReview({ documentId });
+  } = useESReview({
+    documentId,
+    esReviewBillingPlan: credits?.plan === "free" ? "free" : undefined,
+  });
+
+  useEffect(() => {
+    if (credits?.plan === "free") {
+      setSelectedStandardModel(FREE_PLAN_ES_REVIEW_MODEL);
+    }
+  }, [credits?.plan]);
 
   const hasSelectedCompany = companyReviewStatus !== "no_company_selected";
   const templateOptions = useMemo(() => {
@@ -528,7 +634,9 @@ export function ReviewPanel({
   const selectedRoleName = roleName.trim();
   const selectedTemplateValue = selectedTemplate ?? "auto";
   const currentTemplateLabel = selectedTemplate ? TEMPLATE_LABELS[selectedTemplate] : "自動判定";
-  const currentReviewModeLabel = getStandardESReviewModelLabel(selectedStandardModel);
+  const currentReviewModeLabel = isFreeEsPlan
+    ? "GPT-5.4 mini（Free 固定）"
+    : getStandardESReviewModelLabel(selectedStandardModel);
   const missingTemplateField = selectedTemplateFields.find((fieldName) => {
     if (fieldName === "intern_name") {
       return !internName.trim();
@@ -555,6 +663,15 @@ export function ReviewPanel({
   const hasResponse = isLoading || hasVisibleResults;
   const hasFinalResult = Boolean(review);
   const hasCompletedReview = hasFinalResult && isPlaybackComplete;
+  const visibleContentSize = useMemo(
+    () =>
+      getVisibleReviewContentSize({
+        rewriteText: visibleRewriteText,
+        issues: visibleIssues,
+        sources: visibleSources,
+      }),
+    [visibleIssues, visibleRewriteText, visibleSources],
+  );
   const companyStatusDensity = hasResponse || Boolean(error) ? "compact" : "full";
   const showFooter = Boolean(sectionReviewRequest);
   const isCustomRoleActive = roleSelectionSource === "custom" && Boolean(customRoleInput.trim());
@@ -562,11 +679,44 @@ export function ReviewPanel({
   const isRoleSetupComplete =
     !hasSelectedCompany ||
     ((!requiresIndustrySelection || Boolean(selectedIndustry)) && Boolean(selectedRoleName));
-  const creditCost = calculateESReviewCost(sectionReviewRequest?.sectionContent.length ?? 0, selectedStandardModel);
+  const validationIssues = getReviewValidationIssues({
+    requiresInternName,
+    internName,
+    hasSelectedCompany,
+    requiresIndustrySelection,
+    selectedIndustry,
+    selectedRoleName,
+  });
+  const invalidFieldSet = useMemo(
+    () => new Set(validationIssues.map((issue) => issue.field)),
+    [validationIssues],
+  );
+  const fieldInvalid = (field: ReviewValidationField) =>
+    setupErrorHighlight && invalidFieldSet.has(field);
+  const industrySectionInvalid =
+    setupErrorHighlight && (fieldInvalid("industry") || fieldInvalid("role_name"));
+  const creditCost = calculateESReviewCost(
+    sectionReviewRequest?.sectionContent.length ?? 0,
+    isFreeEsPlan ? FREE_PLAN_ES_REVIEW_MODEL : selectedStandardModel,
+    isFreeEsPlan ? { userPlan: "free" } : undefined,
+  );
+  const authPending = isAuthLoading || !isAuthReady;
+  const requiresLoginForReview = !authPending && (!isAuthenticated || isGuest);
+  const creditsUnavailable = authPending || (isAuthenticated && (creditsLoading || Boolean(creditsError)));
+  const insufficientCredits =
+    !authPending && isAuthenticated && !creditsUnavailable && balance < creditCost;
   const isFooterLocked = isLoading || (hasResponse && !isPlaybackComplete);
   const reviewActionHint =
     !sectionReviewRequest?.sectionContent || sectionReviewRequest.sectionContent.length < 10
       ? "本文を10文字以上入力してください。"
+      : authPending
+        ? "AI添削の利用条件を確認しています。"
+        : requiresLoginForReview
+          ? "AI添削はログインユーザー向け機能です。"
+        : creditsLoading
+          ? "クレジット残高を確認しています。"
+          : creditsError
+            ? "クレジット情報を取得できませんでした。少し待ってから再度お試しください。"
       : !isTemplateSetupComplete && missingTemplateFieldLabel
           ? `${missingTemplateFieldLabel}を入力してください。`
           : isRoleOptionsLoading
@@ -577,22 +727,21 @@ export function ReviewPanel({
                 ? "先に業界を選択してください。"
                 : hasSelectedCompany && !selectedRoleName
                   ? "先に職種を選択してください。"
-                  : "準備できました。この設問をAI添削できます。";
+                  : insufficientCredits
+                    ? `クレジットが不足しています（残高 ${balance} / 必要 ${creditCost}）`
+                    : "準備できました。この設問をAI添削できます。";
   const canStartReview =
     Boolean(sectionReviewRequest?.sectionContent) &&
     (sectionReviewRequest?.sectionContent.length ?? 0) >= 10 &&
+    !authPending &&
+    !requiresLoginForReview &&
     isTemplateSetupComplete &&
+    !creditsUnavailable &&
     !isRoleOptionsLoading &&
     !roleOptionsError &&
     (!requiresIndustrySelection || Boolean(selectedIndustry)) &&
-    (!hasSelectedCompany || Boolean(selectedRoleName));
-  const footerButtonLabel = error
-    ? "この設問を再試行"
-    : isFooterLocked
-      ? "添削中..."
-      : hasCompletedReview
-        ? "条件を見直して再添削"
-        : "この設問をAI添削";
+    (!hasSelectedCompany || Boolean(selectedRoleName)) &&
+    !insufficientCredits;
   const footerHelperText = error
     ? "添削結果を表示できませんでした。もう一度お試しください。"
     : isFooterLocked
@@ -600,28 +749,59 @@ export function ReviewPanel({
       : hasCompletedReview
         ? "前回の条件を保持したまま、設定を見直して再添削できます。"
         : canStartReview
-          ? isLowCostESReviewModel(selectedStandardModel)
-            ? `${getStandardESReviewModelLabel(selectedStandardModel)}で実行します。今回の見積りは${creditCost}クレジットです。品質はやや下がる可能性があります。`
-            : `${getStandardESReviewModelLabel(selectedStandardModel)}で実行します。今回の見積りは${creditCost}クレジットです。`
+          ? isFreeEsPlan
+            ? `GPT-5.4 mini 相当で実行します。クレジットはプレミアム帯と同じ目安で、今回 ${creditCost} クレジットです。`
+            : isLowCostESReviewModel(selectedStandardModel)
+              ? `${getStandardESReviewModelLabel(selectedStandardModel)}で実行します。今回の見積りは${creditCost}クレジットです。品質はやや下がる可能性があります。`
+              : `${getStandardESReviewModelLabel(selectedStandardModel)}で実行します。今回の見積りは${creditCost}クレジットです。`
           : reviewActionHint;
-  const footerActionDisabled = error ? false : isFooterLocked;
-  const visibleIssuesTextLength = visibleIssues.reduce(
-    (total, issue) => total + issue.issue.length + issue.suggestion.length + (issue.why_now?.length ?? 0),
-    0,
-  );
-  const visibleSourcesTextLength = visibleSources.reduce(
-    (total, source) => total + (source.excerpt?.length ?? 0),
-    0,
-  );
+  const footerHelperLines =
+    setupErrorHighlight && !canStartReview
+      ? [
+          "赤字の枠内を入力・選択してください。",
+          ...(validationIssues[0]?.message ? [validationIssues[0].message] : [reviewActionHint]),
+        ]
+      : [footerHelperText];
+  const footerLoginHref = requiresLoginForReview ? "/login" : null;
 
+  const footerButtonLabel = error
+    ? "この設問を再試行"
+    : isFooterLocked
+      ? "添削中..."
+      : authPending
+        ? "確認中"
+      : requiresLoginForReview
+        ? "ログインして添削する"
+        : creditsLoading
+          ? "クレジット確認中"
+          : creditsError
+            ? "残高確認エラー"
+      : insufficientCredits
+        ? "クレジット不足"
+        : hasCompletedReview
+          ? "条件を見直して再添削"
+          : "この設問をAI添削";
+  const footerActionDisabled =
+    isFooterLocked ||
+    authPending ||
+    (!footerLoginHref && requiresLoginForReview) ||
+    creditsUnavailable ||
+    insufficientCredits;
   useEffect(() => {
     if (!sectionReviewRequest) {
       return;
     }
 
+    setSetupErrorHighlight(false);
     setSelectedTemplate(null);
     setInternName("");
   }, [sectionReviewRequest]);
+
+  useEffect(() => {
+    if (canStartReview) {
+      setSetupErrorHighlight(false);
+    }
+  }, [canStartReview]);
 
   useEffect(() => {
     if (
@@ -730,7 +910,7 @@ export function ReviewPanel({
 
   useEffect(() => {
     if (review && isPlaybackComplete && !hasShownCompletionToast) {
-      notifyReviewComplete(companyReviewStatus === "ready_for_es_review");
+      notifyReviewSuccess(companyReviewStatus === "ready_for_es_review");
       setHasShownCompletionToast(true);
     }
   }, [companyReviewStatus, hasShownCompletionToast, isPlaybackComplete, review]);
@@ -738,94 +918,79 @@ export function ReviewPanel({
   useEffect(() => {
     if (!hasResponse) {
       setHasShownCompletionToast(false);
+      previousVisibleContentSizeRef.current = 0;
     }
   }, [hasResponse]);
 
   useEffect(() => {
+    if (!error) {
+      lastShownErrorRef.current = null;
+      return;
+    }
+
+    if (lastShownErrorRef.current === error) {
+      return;
+    }
+
+    notifyReviewError({ message: error });
+    lastShownErrorRef.current = error;
+  }, [error]);
+
+  const scrollPanelToTopForStreaming = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.scrollTop = 0;
+    }
+    panelRootRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+  }, []);
+
+  /**
+   * 添削開始時の scrollTo(top) は、hasResponse になる前の DOM（セットアップ画面）に対して
+   * 走ってしまい、ストリーミング UI に差し替わったあと無効になる。
+   * コミット直後に先頭へ寄せる（useLayoutEffect でペイント前に実行）。
+   */
+  useLayoutEffect(() => {
+    if (!isLoading) {
+      return;
+    }
+    scrollPanelToTopForStreaming();
+  }, [isLoading, scrollPanelToTopForStreaming]);
+
+  useEffect(() => {
+    const previousSize = previousVisibleContentSizeRef.current;
+    previousVisibleContentSizeRef.current = visibleContentSize;
+
+    if (
+      !shouldAutoScrollToLatest({
+        hasVisibleResults,
+        previousSize,
+        nextSize: visibleContentSize,
+      })
+    ) {
+      return;
+    }
+
     const container = scrollContainerRef.current;
     if (!container) {
       return;
     }
-
-    const handleScroll = () => {
-      if (programmaticScrollRef.current) {
-        return;
-      }
-      autoFollowRef.current = shouldEnableAutoFollow({
-        scrollHeight: container.scrollHeight,
-        scrollTop: container.scrollTop,
-        clientHeight: container.clientHeight,
-      });
-    };
-
-    handleScroll();
-    container.addEventListener("scroll", handleScroll, { passive: true });
-    return () => container.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container || !hasResponse || !autoFollowRef.current) {
-      return;
-    }
-
-    const frame = requestAnimationFrame(() => {
-      if (!autoFollowRef.current) {
-        return;
-      }
-      programmaticScrollRef.current = true;
-      container.scrollTo({ top: container.scrollHeight, behavior: "auto" });
-      requestAnimationFrame(() => {
-        programmaticScrollRef.current = false;
-      });
-    });
-
-    return () => cancelAnimationFrame(frame);
-  }, [hasResponse, visibleRewriteText.length, visibleIssuesTextLength, visibleSourcesTextLength]);
-
-  // Phase 6: Clear validation errors when user fixes settings
-  useEffect(() => {
-    if (isTemplateSetupComplete) {
-      setValidationErrors((prev) => {
-        if (!prev.has("template")) return prev;
-        const next = new Set(prev);
-        next.delete("template");
-        return next;
-      });
-    }
-  }, [isTemplateSetupComplete]);
-
-  useEffect(() => {
-    if (isRoleSetupComplete) {
-      setValidationErrors((prev) => {
-        if (!prev.has("industry")) return prev;
-        const next = new Set(prev);
-        next.delete("industry");
-        return next;
-      });
-    }
-  }, [isRoleSetupComplete]);
+    container.scrollTop = container.scrollHeight;
+  }, [hasVisibleResults, visibleContentSize]);
 
   const handleSectionReview = useCallback(async () => {
     if (!sectionReviewRequest) {
-      return;
+      return false;
     }
     if (!acquireLock("ES添削を実行中")) {
-      return;
+      notifyOperationLocked();
+      return false;
     }
 
     try {
       setResponseInstanceKey((prev) => prev + 1);
       setHasShownCompletionToast(false);
-      autoFollowRef.current = true;
-      if (scrollContainerRef.current) {
-        programmaticScrollRef.current = true;
-        scrollContainerRef.current.scrollTo({ top: 0, behavior: "auto" });
-        requestAnimationFrame(() => {
-          programmaticScrollRef.current = false;
-        });
-      }
-      await requestSectionReview({
+      previousVisibleContentSizeRef.current = 0;
+      return await requestSectionReview({
         sectionTitle: sectionReviewRequest.sectionTitle,
         sectionContent: sectionReviewRequest.sectionContent,
         sectionCharLimit: sectionReviewRequest.sectionCharLimit,
@@ -837,7 +1002,7 @@ export function ReviewPanel({
         industryOverride: selectedIndustry || undefined,
         roleSelectionSource: roleSelectionSource || undefined,
         reviewMode,
-        llmModel: selectedStandardModel,
+        llmModel: isFreeEsPlan ? FREE_PLAN_ES_REVIEW_MODEL : selectedStandardModel,
       });
     } finally {
       releaseLock();
@@ -847,6 +1012,7 @@ export function ReviewPanel({
     companyId,
     companyReviewStatus,
     internName,
+    isFreeEsPlan,
     roleSelectionSource,
     releaseLock,
     requestSectionReview,
@@ -863,24 +1029,29 @@ export function ReviewPanel({
       clearReview();
       return;
     }
-    // Phase 6: Validate settings before starting review
     if (!canStartReview) {
-      const errors = new Set<string>();
-      if (!isTemplateSetupComplete) errors.add("template");
-      if (!isRoleSetupComplete) errors.add("industry");
-      setValidationErrors(errors);
-      // Scroll to first error section
-      const firstRef = errors.has("template")
-        ? templateSectionRef
-        : errors.has("industry")
-          ? industrySectionRef
-          : null;
-      firstRef?.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setSetupErrorHighlight(true);
+      const firstIssue = validationIssues[0];
+      const firstRef =
+        firstIssue?.field === "intern_name"
+          ? internNameFieldRef
+          : firstIssue?.field === "industry"
+            ? industryFieldRef
+            : firstIssue?.field === "role_name"
+              ? roleFieldRef
+              : firstIssue?.section === "template"
+                ? templateSectionRef
+                : firstIssue?.section === "industry"
+                  ? industrySectionRef
+                  : null;
+      (firstRef ?? templateSectionRef).current?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
-    setValidationErrors(new Set());
-    await handleSectionReview();
-  }, [canStartReview, clearReview, handleSectionReview, hasCompletedReview, isRoleSetupComplete, isTemplateSetupComplete]);
+    const completed = await handleSectionReview();
+    if (completed) {
+      await refreshCredits();
+    }
+  }, [canStartReview, clearReview, handleSectionReview, hasCompletedReview, refreshCredits, validationIssues]);
 
   const handleApplyRewrite = useCallback((rewriteText: string) => {
     setPendingRewrite(rewriteText);
@@ -896,13 +1067,17 @@ export function ReviewPanel({
   }, [currentSection, onApplyRewrite, pendingRewrite]);
 
   const handleReset = useCallback(() => {
+    setSetupErrorHighlight(false);
     clearReview();
     onClearSectionReview?.();
   }, [clearReview, onClearSectionReview]);
 
   return (
-    <div className={cn("flex min-h-0 flex-col", className)}>
-      <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
+    <div ref={panelRootRef} className={cn("flex min-h-0 flex-col", className)}>
+      <div
+        ref={scrollContainerRef}
+        className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
+      >
         <div className="space-y-4">
           {hasSelectedCompany ? (
             <CompanyStatusBanner
@@ -960,7 +1135,7 @@ export function ReviewPanel({
                 ref={templateSectionRef}
                 className={cn(
                   "rounded-[26px] border bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]",
-                  validationErrors.has("template")
+                  fieldInvalid("intern_name")
                     ? "border-destructive/60 ring-2 ring-destructive/20"
                     : "border-border/60",
                 )}
@@ -1013,34 +1188,54 @@ export function ReviewPanel({
                   {selectedTemplateFields.length > 0 ? (
                     <div className="mt-4 space-y-3">
                       {selectedTemplateFields.map((fieldName) => (
-                        <SetupField
+                        <div
                           key={fieldName}
-                          label={EXTRA_FIELD_LABELS[fieldName] ?? fieldName}
-                          placeholder={
-                            fieldName === "intern_name"
-                              ? "例: 夏季インターン"
-                              : "例: エンジニアコース"
-                          }
-                          value={fieldName === "intern_name" ? internName : roleName}
-                          onChange={fieldName === "intern_name" ? setInternName : setRoleName}
-                        />
+                          ref={fieldName === "intern_name" ? internNameFieldRef : undefined}
+                          className={cn(
+                            "rounded-2xl border p-3 transition-colors",
+                            fieldInvalid("intern_name") ? "border-destructive/60" : "border-transparent",
+                          )}
+                        >
+                          <SetupField
+                            label={EXTRA_FIELD_LABELS[fieldName] ?? fieldName}
+                            placeholder={
+                              fieldName === "intern_name"
+                                ? "例: 夏季インターン"
+                                : "例: エンジニアコース"
+                            }
+                            value={fieldName === "intern_name" ? internName : roleName}
+                            onChange={fieldName === "intern_name" ? setInternName : setRoleName}
+                            invalid={fieldName === "intern_name" && fieldInvalid("intern_name")}
+                            errorMessage={
+                              fieldName === "intern_name" && fieldInvalid("intern_name")
+                                ? validationIssues.find((issue) => issue.field === "intern_name")?.message ?? null
+                                : null
+                            }
+                            inputId={fieldName === "intern_name" ? "review-intern-name" : undefined}
+                            descriptionId={fieldName === "intern_name" ? "review-intern-name-error" : undefined}
+                          />
+                        </div>
                       ))}
                     </div>
                   ) : null}
                 </div>
               </div>
 
-              <ReviewModeSelector
-                standardModel={selectedStandardModel}
-                onStandardModelChange={setSelectedStandardModel}
-              />
+              {isFreeEsPlan ? (
+                <FreePlanEsReviewModelNotice />
+              ) : (
+                <ReviewModeSelector
+                  standardModel={selectedStandardModel}
+                  onStandardModelChange={setSelectedStandardModel}
+                />
+              )}
 
               {hasSelectedCompany ? (
                 <div
-                  ref={industrySectionRef}
-                  className={cn(
-                    "rounded-[26px] border bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]",
-                    validationErrors.has("industry")
+                ref={industrySectionRef}
+                className={cn(
+                  "rounded-[26px] border bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]",
+                    industrySectionInvalid
                       ? "border-destructive/60 ring-2 ring-destructive/20"
                       : "border-border/60",
                   )}
@@ -1075,6 +1270,10 @@ export function ReviewPanel({
                   {roleOptionsData ? (
                     <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                       <div className="space-y-2 rounded-[22px] border border-border/60 bg-background/85 p-4">
+                        <div
+                          ref={industryFieldRef}
+                          className="rounded-2xl transition-colors"
+                        >
                         <p className="text-sm font-semibold text-foreground">業界を選択してください</p>
                         <p className="text-xs leading-5 text-muted-foreground">
                           {requiresIndustrySelection
@@ -1092,7 +1291,16 @@ export function ReviewPanel({
                             setCustomRoleInput("");
                           }}
                         >
-                          <SelectTrigger className="mt-3 h-11 rounded-2xl">
+                          <SelectTrigger
+                            className={cn(
+                              "mt-3 h-11 rounded-2xl",
+                              fieldInvalid("industry")
+                                ? "border-destructive ring-3 ring-destructive/20"
+                                : "",
+                            )}
+                            aria-invalid={fieldInvalid("industry")}
+                            aria-describedby={fieldInvalid("industry") ? "review-industry-error" : undefined}
+                          >
                             <SelectValue placeholder="業界を選択してください" />
                           </SelectTrigger>
                           <SelectContent>
@@ -1103,9 +1311,19 @@ export function ReviewPanel({
                             ))}
                           </SelectContent>
                         </Select>
+                        {fieldInvalid("industry") ? (
+                          <p id="review-industry-error" className="mt-2 text-xs leading-5 text-destructive">
+                            {validationIssues.find((issue) => issue.field === "industry")?.message}
+                          </p>
+                        ) : null}
+                        </div>
                       </div>
 
                       <div className="space-y-2 rounded-[22px] border border-border/60 bg-background/85 p-4">
+                        <div
+                          ref={roleFieldRef}
+                          className="rounded-2xl transition-colors"
+                        >
                         <p className="text-sm font-semibold text-foreground">職種を選択してください</p>
                         <p className="text-xs leading-5 text-muted-foreground">
                           {selectedIndustry
@@ -1126,7 +1344,16 @@ export function ReviewPanel({
                             setCustomRoleInput("");
                           }}
                         >
-                          <SelectTrigger className="mt-3 h-11 rounded-2xl">
+                          <SelectTrigger
+                            className={cn(
+                              "mt-3 h-11 rounded-2xl",
+                              fieldInvalid("role_name")
+                                ? "border-destructive ring-3 ring-destructive/20"
+                                : "",
+                            )}
+                            aria-invalid={fieldInvalid("role_name")}
+                            aria-describedby={fieldInvalid("role_name") ? "review-role-error" : undefined}
+                          >
                             <SelectValue
                               placeholder={
                                 selectedIndustry
@@ -1160,6 +1387,8 @@ export function ReviewPanel({
                             disabled={!selectedIndustry}
                             placeholder="例: デジタル企画、プロダクトマネージャー"
                             value={customRoleInput}
+                            aria-invalid={fieldInvalid("role_name")}
+                            aria-describedby={fieldInvalid("role_name") ? "review-role-error" : undefined}
                             onChange={(event) => {
                               const nextValue = event.target.value;
                               setCustomRoleInput(nextValue);
@@ -1173,12 +1402,18 @@ export function ReviewPanel({
                             </p>
                           ) : null}
                         </div>
+                        {fieldInvalid("role_name") ? (
+                          <p id="review-role-error" className="mt-2 text-xs leading-5 text-destructive">
+                            {validationIssues.find((issue) => issue.field === "role_name")?.message}
+                          </p>
+                        ) : null}
 
                         {selectedIndustry && roleOptionsData.roleGroups.length === 0 ? (
                           <p className="text-xs text-muted-foreground">
                             候補がないため、下の自由入力欄から職種を指定してください。
                           </p>
                         ) : null}
+                        </div>
                       </div>
                     </div>
                   ) : null}
@@ -1258,10 +1493,11 @@ export function ReviewPanel({
         <ReviewActionFooter
           charCount={sectionReviewRequest.sectionContent.length}
           creditCost={creditCost}
-          helperText={footerHelperText}
+          helperLines={footerHelperLines}
           buttonLabel={footerButtonLabel}
           disabled={footerActionDisabled}
           onClick={handleReviewFooterAction}
+          loginHref={footerLoginHref}
         />
       ) : null}
 

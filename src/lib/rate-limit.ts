@@ -35,7 +35,12 @@ export const RATE_LIMITS = {
   review: { maxTokens: 10, refillRate: 0.1, windowMs: 60000 },
   conversation: { maxTokens: 20, refillRate: 0.3, windowMs: 60000 },
   fetchInfo: { maxTokens: 5, refillRate: 0.08, windowMs: 60000 },
-  search: { maxTokens: 30, refillRate: 0.5, windowMs: 60000 },
+  companySearch: { maxTokens: 6, refillRate: 0.067, windowMs: 60000 },
+  companyCompliance: { maxTokens: 6, refillRate: 0.067, windowMs: 60000 },
+  draft: { maxTokens: 2, refillRate: 0.0167, windowMs: 60000 },
+  corporateMutate: { maxTokens: 2, refillRate: 0.0112, windowMs: 60000 },
+  corporateDelete: { maxTokens: 4, refillRate: 0.1, windowMs: 60000 },
+  statusPoll: { maxTokens: 15, refillRate: 0.333, windowMs: 60000 },
   guestAuth: { maxTokens: 5, refillRate: 0.08, windowMs: 60000 },
   contact: { maxTokens: 3, refillRate: 0.05, windowMs: 60000 },
 } as const;
@@ -59,14 +64,12 @@ function getUpstashLimiter(operation: string, config: RateLimitConfig): Ratelimi
     token: process.env.UPSTASH_REDIS_REST_TOKEN!,
   });
 
-  // Use token bucket algorithm matching the existing behavior.
-  // maxTokens = burst capacity, refillRate tokens per interval.
-  // Upstash tokenBucket: refillRate tokens every interval ms.
+  // Match the in-memory semantics: refillRate is tokens per second.
   const limiter = new Ratelimit({
     redis,
     limiter: Ratelimit.tokenBucket(
-      config.refillRate,   // refillRate per interval
-      `${config.windowMs}ms` as `${number} ms`,  // interval
+      config.refillRate,
+      "1000 ms",
       config.maxTokens     // maxTokens (burst)
     ),
     prefix: `rl:${operation}`,

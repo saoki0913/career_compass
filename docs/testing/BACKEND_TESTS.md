@@ -6,7 +6,7 @@ ES添削の固定品質監視については [ES_REVIEW_QUALITY.md](./ES_REVIEW_
 
 ### Live ES添削 provider gate
 
-default では production canonical provider (`claude-sonnet`) に対して、代表3ケースの ES添削を実 API で実行し、`md/json` レポートを保存します。multi-provider sweep は `LIVE_ES_REVIEW_PROVIDERS` を上書きして手動で回します。
+default では `gpt-5.4-mini` に対して、`smoke` case set の ES添削を実 API で実行し、`md/json` レポートを保存します。ローカル秘密情報は repo root の `.env.local` から読み込みます。`extended` は手動・夜間で全標準モデル sweep に使い、`canary` は非 blocker の sanity 用です。
 
 ```bash
 make backend-test-live-es-review
@@ -14,9 +14,43 @@ make backend-test-live-es-review
 
 主な環境変数:
 
-- `LIVE_ES_REVIEW_PROVIDERS=claude-sonnet`
+- `LIVE_ES_REVIEW_CASE_SET=smoke|extended|canary`
+- `LIVE_ES_REVIEW_PROVIDERS=gpt-5.4-mini|all_standard|claude-sonnet,...`
 - `LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS=0|1`
 - `LIVE_ES_REVIEW_OUTPUT_DIR=backend/tests/output`
+- `LIVE_ES_REVIEW_ENABLE_JUDGE=0|1`
+- `LIVE_ES_REVIEW_JUDGE_MODEL=gpt-5.4-mini`
+- `LIVE_ES_REVIEW_CASE_FILTER=case_id_a,case_id_b`
+
+直接実行する場合:
+
+```bash
+RUN_LIVE_ES_REVIEW=1 \
+LIVE_ES_REVIEW_CASE_SET=smoke \
+LIVE_ES_REVIEW_PROVIDERS=gpt-5.4-mini \
+npx dotenv -e .env.local -- \
+python -m pytest backend/tests/es_review/integration/test_live_es_review_provider_report.py -v -s -m "integration"
+```
+
+拡張 sweep:
+
+```bash
+LIVE_ES_REVIEW_CASE_SET=extended \
+LIVE_ES_REVIEW_PROVIDERS=all_standard \
+LIVE_ES_REVIEW_ENABLE_JUDGE=1 \
+make backend-test-live-es-review
+```
+
+Claude canary:
+
+```bash
+LIVE_ES_REVIEW_CASE_SET=canary \
+LIVE_ES_REVIEW_PROVIDERS=claude-sonnet,gemini-3.1-pro-preview \
+LIVE_ES_REVIEW_ENABLE_JUDGE=1 \
+make backend-test-live-es-review
+```
+
+`canary` は non-blocking です。レポートには `failure_kind=quality|infra|config` と `preflight_status` が入り、Claude / Gemini の DNS・接続・鍵不足を品質 fail と分離して確認できます。
 
 出力先:
 
@@ -26,7 +60,10 @@ make backend-test-live-es-review
 
 - ネットワーク必須
 - `RUN_LIVE_ES_REVIEW=1` が無い場合は skip
-- CI では `claude-sonnet` を required gate に使い、他 provider は必要時の手動 regression として回す
+- PR / `main` では `gpt-5.4-mini` の `smoke` を required gate に使う
+- `extended` の全標準モデル sweep は `LIVE_ES_REVIEW_PROVIDERS=all_standard` で回せる
+- `extended` と `claude-sonnet / gemini-3.1-pro-preview` canary は nightly / manual regression として回す
+- `canary` は provider preflight を先に行い、API key 不足や DNS 失敗は `infra/config` としてレポートする
 
 ### Live検索レポート（Legacy + Hybrid）
 

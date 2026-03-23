@@ -63,6 +63,15 @@
   - `src/components/` 配下を触る
   - `src/app/**/page.tsx` を触る
   - レイアウト、操作導線、ローディング、レスポンシブ対応を改善する
+- UI タスクでは `docs/architecture/FRONTEND_UI_GUIDELINES.md` を参照する。
+- `src/components/**`, `src/app/**/page.tsx`, `src/app/**/layout.tsx`, `src/app/**/loading.tsx`, `src/components/skeletons/**` を変更する前に、必ず `npm run ui:preflight -- <route> --surface=marketing|product [--auth=none|guest]` を実行する。
+- `ui:preflight` の Markdown 出力を会話、PR 本文、作業ログのいずれかに残してから UI 実装を始める。
+- UI 変更前後で `npm run lint:ui:guardrails` を通し、marketing の accent color 逸脱や `loading.tsx` の spinner-only 化を止める。
+- UI 変更後は `npm run test:ui:review -- <route>` で対象ページを Playwright 確認する。
+- PR では `.github/PULL_REQUEST_TEMPLATE.md` の `UI Review Routes` を埋め、shared UI 変更時は reviewer が route を追える状態にする。
+- 認証不要なら public route、プロダクト UI なら最も近い route を選び、guest 導線は `--auth=guest` を使う。
+- 新規 UI / 大きな UI 改修では同ガイドの hard rules を優先する。
+- 既存画面では既存のデザインシステム、構造、visual language を優先する。
 
 ### 6. Security / Auth / Payments
 - Skill: `security-review`
@@ -77,6 +86,17 @@
 - Trigger keywords: SEO, audit, lighthouse, meta tags, indexing, structured data
 - Auto-invoke when:
   - LP、公開ページ、テンプレ、無料ツールの改善や監査を行う
+
+### 8. Deployment / Release Ops
+- Skills: `release-automation`, `railway-ops`, `supabase-ops`, `deployment-automation`
+- Trigger keywords: deploy, release, staging, production, Railway, Supabase, Vercel, 本番デプロイ, staging反映, リリース
+- Auto-invoke when:
+  - `scripts/release/` を触る
+  - `scripts/bootstrap/career-compass/` を触る
+  - `docs/release/` や `docs/ops/CLI_GUARDRAILS.md` を release 運用目的で更新する
+- 本番リリースの正本は `make deploy` と `scripts/release/release-career-compass.sh`
+- secrets 正本は `/Users/saoki/work/codex-company/.secrets/career_compass`
+- provider CLI の直接操作ではなく、repo 内 scripts を優先する
 
 ---
 
@@ -140,7 +160,7 @@
 ### Calendar / Notifications / Tasks
 - Calendar sync is handled by Next API plus Google Calendar helpers in `src/lib/calendar/`.
 - Notifications and task recommendations are first-class product flows, not secondary utilities.
-- Cron routes exist under `src/app/api/cron/` for daily notifications, calendar sync, and PDF OCR processing.
+- Cron routes exist under `src/app/api/cron/` for daily notifications, calendar sync など。
 
 ---
 
@@ -249,11 +269,14 @@ uvicorn app.main:app --reload --port 8000
 - Eval scripts: `backend/evals/`
 
 ### Documentation
+- Human-readable doc map: `docs/OVERVIEW.md`, `docs/INDEX.md`
 - Product spec: `docs/SPEC.md`
 - Progress tracker: `docs/PROGRESS.md`
-- Setup docs: `docs/setup/`
+- Setup docs: `docs/setup/`（開発・環境は `DEVELOPMENT_AND_ENV.md`、DB は `DB_SUPABASE.md`）
 - Feature docs: `docs/features/`
 - Architecture docs: `docs/architecture/`
+- Frontend UI guide: `docs/architecture/FRONTEND_UI_GUIDELINES.md`
+- UI Playwright verification: `docs/testing/UI_PLAYWRIGHT_VERIFICATION.md`
 - Release docs: `docs/release/`
 - Operational guardrails: `docs/ops/CLI_GUARDRAILS.md`
 

@@ -2,15 +2,23 @@
  * AI Thread Detail API
  *
  * GET: Get a specific AI thread with all messages
+ * PATCH: Update thread title or status (archive)
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { documents, aiThreads, aiMessages } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+
+const patchBodySchema = z.object({
+  status: z.enum(["active", "archived"]).optional(),
+  title: z.string().min(1).max(220).optional(),
+});
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -124,5 +132,136 @@ export async function GET(
       { error: "Internal server error" },
       { status: 500 }
     );
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string; threadId: string }> }
+) {
+  try {
+    const { id: documentId, threadId } = await params;
+
+    const identity = await getIdentity(request);
+    if (!identity) {
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AI_THREAD_PATCH_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "ai-thread-patch-auth",
+      });
+    }
+
+    const access = await verifyDocumentAccess(documentId, identity.userId, identity.guestId);
+    if (!access.valid) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "AI_THREAD_PATCH_DOCUMENT_NOT_FOUND",
+        userMessage: "ドキュメントが見つかりません。",
+        action: "一覧から開き直してください。",
+        retryable: false,
+        developerMessage: "Document not found or access denied",
+        logContext: "ai-thread-patch-access",
+      });
+    }
+
+    const [thread] = await db
+      .select()
+      .from(aiThreads)
+      .where(eq(aiThreads.id, threadId))
+      .limit(1);
+
+    if (!thread || thread.documentId !== documentId) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "AI_THREAD_NOT_FOUND",
+        userMessage: "スレッドが見つかりません。",
+        action: "一覧を更新してからお試しください。",
+        retryable: false,
+        developerMessage: "Thread not found",
+        logContext: "ai-thread-patch-thread",
+      });
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "AI_THREAD_PATCH_INVALID_JSON",
+        userMessage: "リクエストの形式が正しくありません。",
+        action: "もう一度お試しください。",
+        retryable: false,
+        developerMessage: "Invalid JSON body",
+        logContext: "ai-thread-patch-json",
+      });
+    }
+
+    const parsed = patchBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "AI_THREAD_PATCH_VALIDATION",
+        userMessage: "入力内容を確認して、もう一度お試しください。",
+        action: "画面を更新してから続行してください。",
+        retryable: false,
+        developerMessage: parsed.error.message,
+        logContext: "ai-thread-patch-validation",
+      });
+    }
+
+    if (parsed.data.status === undefined && parsed.data.title === undefined) {
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "AI_THREAD_PATCH_EMPTY",
+        userMessage: "更新する項目がありません。",
+        action: "タイトルまたはステータスを指定してください。",
+        retryable: false,
+        developerMessage: "No fields to update",
+        logContext: "ai-thread-patch-empty",
+      });
+    }
+
+    const now = new Date();
+    await db
+      .update(aiThreads)
+      .set({
+        ...(parsed.data.title !== undefined ? { title: parsed.data.title } : {}),
+        ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
+        updatedAt: now,
+      })
+      .where(eq(aiThreads.id, threadId));
+
+    const [updated] = await db
+      .select()
+      .from(aiThreads)
+      .where(eq(aiThreads.id, threadId))
+      .limit(1);
+
+    return NextResponse.json({
+      thread: updated
+        ? {
+            ...updated,
+            createdAt: updated.createdAt.toISOString(),
+            updatedAt: updated.updatedAt.toISOString(),
+          }
+        : null,
+    });
+  } catch (error) {
+    console.error("Error patching AI thread:", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "AI_THREAD_PATCH_FAILED",
+      userMessage: "スレッドを更新できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "ai-thread-patch",
+    });
   }
 }

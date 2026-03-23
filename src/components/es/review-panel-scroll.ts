@@ -1,22 +1,39 @@
-export const AUTO_FOLLOW_BOTTOM_THRESHOLD_PX = 48;
-
-export interface ScrollMetrics {
-  scrollHeight: number;
-  scrollTop: number;
-  clientHeight: number;
+export interface ReviewPanelIssueLike {
+  issue: string;
+  suggestion: string;
+  why_now?: string;
 }
 
-export function getDistanceFromBottom({
-  scrollHeight,
-  scrollTop,
-  clientHeight,
-}: ScrollMetrics): number {
-  return Math.max(0, scrollHeight - scrollTop - clientHeight);
+export interface ReviewPanelSourceLike {
+  excerpt?: string;
 }
 
-export function shouldEnableAutoFollow(
-  metrics: ScrollMetrics,
-  thresholdPx: number = AUTO_FOLLOW_BOTTOM_THRESHOLD_PX,
-): boolean {
-  return getDistanceFromBottom(metrics) <= thresholdPx;
+export function getVisibleReviewContentSize({
+  rewriteText,
+  issues,
+  sources,
+}: {
+  rewriteText: string;
+  issues: ReviewPanelIssueLike[];
+  sources: ReviewPanelSourceLike[];
+}): number {
+  const issuesSize = issues.reduce(
+    (total, issue) => total + issue.issue.length + issue.suggestion.length + (issue.why_now?.length ?? 0),
+    0,
+  );
+  const sourcesSize = sources.reduce((total, source) => total + (source.excerpt?.length ?? 0), 0);
+
+  return rewriteText.length + issuesSize + sourcesSize;
+}
+
+export function shouldAutoScrollToLatest({
+  hasVisibleResults,
+  previousSize,
+  nextSize,
+}: {
+  hasVisibleResults: boolean;
+  previousSize: number;
+  nextSize: number;
+}): boolean {
+  return hasVisibleResults && nextSize > previousSize;
 }

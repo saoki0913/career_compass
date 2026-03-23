@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { headers } from "next/headers";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
@@ -21,6 +22,35 @@ import {
   getMotivationConversationByCondition,
 } from "@/lib/db/motivationConversationCompat";
 import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
+import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import {
+  getRequestId,
+  logAiCreditCostSummary,
+  splitInternalTelemetry,
+  type InternalCostTelemetry,
+} from "@/lib/ai/cost-summary-log";
+
+function resolveSafeMotivationStartError(raw: string | null | undefined): {
+  userMessage: string;
+  action: string;
+  status: number;
+  code: string;
+} {
+  if (raw?.includes("内部設定や秘匿情報に関する指示")) {
+    return {
+      userMessage: raw,
+      action: "入力内容を見直して、もう一度お試しください。",
+      status: 400,
+      code: "MOTIVATION_UNSAFE_INPUT",
+    };
+  }
+  return {
+    userMessage: "初回質問を生成できませんでした。",
+    action: "時間を置いて、もう一度お試しください。",
+    status: 503,
+    code: "MOTIVATION_START_FAILED",
+  };
+}
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -105,6 +135,7 @@ interface MotivationConversationContext {
   selectedRole?: string;
   selectedRoleSource?: "profile" | "company_doc" | "application_job_type" | "user_free_text";
   desiredWork?: string;
+  originExperience?: string;
   userAnchorStrengths: string[];
   userAnchorEpisodes: string[];
   profileAnchorIndustries: string[];
@@ -113,8 +144,10 @@ interface MotivationConversationContext {
   companyRoleCandidates: string[];
   companyWorkCandidates: string[];
   questionStage:
+    | "industry_reason"
     | "company_reason"
     | "desired_work"
+    | "origin_experience"
     | "fit_connection"
     | "differentiation"
     | "closing";
@@ -149,8 +182,10 @@ interface FastAPIQuestionResponse {
   coaching_focus?: string;
   risk_flags?: string[];
   question_stage?: MotivationConversationContext["questionStage"];
+  question_focus?: string;
   stage_status?: StageStatus;
   captured_context?: Partial<MotivationConversationContext>;
+  internal_telemetry?: unknown;
 }
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
@@ -165,7 +200,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: [],
       companyRoleCandidates: [],
       companyWorkCandidates: [],
-      questionStage: "company_reason",
+      questionStage: "industry_reason",
     };
   }
 
@@ -179,6 +214,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       selectedRole: typeof parsed.selectedRole === "string" ? parsed.selectedRole : undefined,
       selectedRoleSource: typeof parsed.selectedRoleSource === "string" ? parsed.selectedRoleSource : undefined,
       desiredWork: typeof parsed.desiredWork === "string" ? parsed.desiredWork : undefined,
+      originExperience: typeof parsed.originExperience === "string" ? parsed.originExperience : undefined,
       userAnchorStrengths: Array.isArray(parsed.userAnchorStrengths) ? parsed.userAnchorStrengths.filter((v: unknown): v is string => typeof v === "string") : [],
       userAnchorEpisodes: Array.isArray(parsed.userAnchorEpisodes) ? parsed.userAnchorEpisodes.filter((v: unknown): v is string => typeof v === "string") : [],
       profileAnchorIndustries: Array.isArray(parsed.profileAnchorIndustries) ? parsed.profileAnchorIndustries.filter((v: unknown): v is string => typeof v === "string") : [],
@@ -186,7 +222,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: Array.isArray(parsed.companyAnchorKeywords) ? parsed.companyAnchorKeywords.filter((v: unknown): v is string => typeof v === "string") : [],
       companyRoleCandidates: Array.isArray(parsed.companyRoleCandidates) ? parsed.companyRoleCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
       companyWorkCandidates: Array.isArray(parsed.companyWorkCandidates) ? parsed.companyWorkCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
-      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "company_reason",
+      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "industry_reason",
     };
   } catch {
     return {
@@ -197,7 +233,7 @@ function safeParseConversationContext(json: string | null): MotivationConversati
       companyAnchorKeywords: [],
       companyRoleCandidates: [],
       companyWorkCandidates: [],
-      questionStage: "company_reason",
+      questionStage: "industry_reason",
     };
   }
 }
@@ -319,6 +355,7 @@ function resolveRoleSelectionSource(
 
 async function getQuestionFromFastAPI(
   company: CompanyData,
+  requestId: string,
   conversationHistory: Message[],
   gakuchikaContext: GakuchikaContextItem[],
   conversationContext: MotivationConversationContext,
@@ -340,6 +377,7 @@ async function getQuestionFromFastAPI(
   questionStage: MotivationConversationContext["questionStage"] | null;
   stageStatus: StageStatus | null;
   capturedContext: Partial<MotivationConversationContext> | null;
+  telemetry: InternalCostTelemetry | null;
 }> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60_000);
@@ -347,7 +385,10 @@ async function getQuestionFromFastAPI(
   try {
     const response = await fetch(`${FASTAPI_URL}/api/motivation/next-question`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-Id": requestId,
+      },
       body: JSON.stringify({
         company_id: company.id,
         company_name: company.name,
@@ -385,10 +426,13 @@ async function getQuestionFromFastAPI(
         questionStage: null,
         stageStatus: null,
         capturedContext: null,
+        telemetry: null,
       };
     }
 
-    const data: FastAPIQuestionResponse = await response.json();
+    const rawData = await response.json();
+    const { payload, telemetry } = splitInternalTelemetry(rawData);
+    const data = payload as FastAPIQuestionResponse;
     return {
       question: data.question,
       error: null,
@@ -402,6 +446,7 @@ async function getQuestionFromFastAPI(
       questionStage: data.question_stage || null,
       stageStatus: data.stage_status || null,
       capturedContext: data.captured_context || null,
+      telemetry,
     };
   } catch (error) {
     console.error("[MotivationStart] FastAPI error:", error);
@@ -420,6 +465,7 @@ async function getQuestionFromFastAPI(
       questionStage: null,
       stageStatus: null,
       capturedContext: null,
+      telemetry: null,
     };
   } finally {
     clearTimeout(timeoutId);
@@ -432,12 +478,32 @@ export async function POST(
 ) {
   try {
     const { companyId } = await params;
+    const requestId = getRequestId(request);
     const identity = await getIdentity(request);
     if (!identity) {
       return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
     }
 
     const { userId, guestId } = identity;
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: "志望動機のAI支援はログインが必要です" },
+        { status: 401 },
+      );
+    }
+
+    const rateLimited = await enforceRateLimitLayers(
+      request,
+      [...CONVERSATION_RATE_LAYERS],
+      userId,
+      guestId,
+      "motivation_conversation_start"
+    );
+    if (rateLimited) {
+      return rateLimited;
+    }
+
     const body = await request.json().catch(() => null);
     const selectedIndustry = typeof body?.selectedIndustry === "string" ? body.selectedIndustry.trim() : "";
     const selectedRole = typeof body?.selectedRole === "string" ? body.selectedRole.trim() : "";
@@ -515,7 +581,7 @@ export async function POST(
           : existingContext.selectedIndustrySource,
       selectedRole,
       selectedRoleSource: existingContext.selectedRoleSource,
-      questionStage: "company_reason",
+      questionStage: "industry_reason",
     };
 
     const resolvedInputs = resolveMotivationInputs(
@@ -537,6 +603,7 @@ export async function POST(
 
     const result = await getQuestionFromFastAPI(
       resolvedInputs.company,
+      requestId,
       [],
       gakuchikaContext,
       resolvedInputs.conversationContext,
@@ -548,7 +615,22 @@ export async function POST(
     );
 
     if (result.error || !result.question) {
-      return NextResponse.json({ error: result.error || "初回質問の生成に失敗しました" }, { status: 503 });
+      logAiCreditCostSummary({
+        feature: "motivation_start",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry: result.telemetry,
+      });
+      const safe = resolveSafeMotivationStartError(result.error);
+      return createApiErrorResponse(request, {
+        status: safe.status,
+        code: safe.code,
+        userMessage: safe.userMessage,
+        action: safe.action,
+        retryable: safe.status >= 500,
+        developerMessage: result.error || "初回質問の生成に失敗しました",
+      });
     }
 
     const assistantMessage: Message = {
@@ -563,7 +645,7 @@ export async function POST(
       ...(result.capturedContext || {}),
     };
 
-    await db
+    const updatedRows = await db
       .update(motivationConversations)
       .set(await filterMotivationConversationUpdate({
         messages: JSON.stringify(messages),
@@ -581,7 +663,22 @@ export async function POST(
         stageStatus: JSON.stringify(result.stageStatus || null),
         updatedAt: new Date(),
       }))
-      .where(eq(motivationConversations.id, conversation.id));
+      .where(and(eq(motivationConversations.id, conversation.id), eq(motivationConversations.updatedAt, conversation.updatedAt)))
+      .returning({ id: motivationConversations.id });
+
+    if (updatedRows.length === 0) {
+      return NextResponse.json(
+        { error: "別のタブまたは直前の操作で会話が更新されました。画面を再読み込みしてからやり直してください。" },
+        { status: 409 },
+      );
+    }
+    logAiCreditCostSummary({
+      feature: "motivation_start",
+      requestId,
+      status: "success",
+      creditsUsed: 0,
+      telemetry: result.telemetry,
+    });
 
     return NextResponse.json({
       conversation: {

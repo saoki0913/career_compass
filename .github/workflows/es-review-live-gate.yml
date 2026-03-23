@@ -5,9 +5,29 @@ on:
   push:
     branches:
       - main
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      case_set:
+        description: "Run additional live ES review case set"
+        required: false
+        default: "extended"
+        type: choice
+        options:
+          - smoke
+          - extended
+          - canary
+          - all
+      include_canary:
+        description: "Run claude-sonnet / gemini canary when dispatching extended/all"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
-  es-review-live-gate:
+  es-review-live-smoke:
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' || github.event.inputs.case_set == 'smoke' || github.event.inputs.case_set == 'all' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -17,7 +37,9 @@ jobs:
       COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
       RUN_LIVE_ES_REVIEW: "1"
       LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS: "1"
-      LIVE_ES_REVIEW_PROVIDERS: "claude-sonnet"
+      LIVE_ES_REVIEW_CASE_SET: "smoke"
+      LIVE_ES_REVIEW_PROVIDERS: "gpt-5.4-mini"
+      LIVE_ES_REVIEW_ENABLE_JUDGE: "0"
       LIVE_ES_REVIEW_OUTPUT_DIR: backend/tests/output
     steps:
       - uses: actions/checkout@v4
@@ -59,5 +81,97 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: es-review-live-report
-          path: backend/tests/output/live_es_review_*
+          name: es-review-live-smoke-report
+          path: backend/tests/output/live_es_review_smoke_*
+
+  es-review-live-extended:
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.case_set == 'extended' || github.event.inputs.case_set == 'all' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+      RUN_LIVE_ES_REVIEW: "1"
+      LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS: "1"
+      LIVE_ES_REVIEW_CASE_SET: "extended"
+      LIVE_ES_REVIEW_PROVIDERS: "gpt-5.4-mini"
+      LIVE_ES_REVIEW_ENABLE_JUDGE: "1"
+      LIVE_ES_REVIEW_JUDGE_MODEL: "gpt-5.4-mini"
+      LIVE_ES_REVIEW_OUTPUT_DIR: backend/tests/output
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+
+      - name: Run extended live provider gate
+        run: python -m pytest backend/tests/es_review/integration/test_live_es_review_provider_report.py -v -s -m "integration"
+
+      - name: Upload extended live ES review report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: es-review-live-extended-report
+          path: backend/tests/output/live_es_review_extended_*
+
+  es-review-live-canary:
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.case_set == 'canary' || github.event.inputs.case_set == 'all' || github.event.inputs.include_canary == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+      RUN_LIVE_ES_REVIEW: "1"
+      LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS: "1"
+      LIVE_ES_REVIEW_CASE_SET: "canary"
+      LIVE_ES_REVIEW_PROVIDERS: "claude-sonnet,gemini-3.1-pro-preview"
+      LIVE_ES_REVIEW_ENABLE_JUDGE: "1"
+      LIVE_ES_REVIEW_JUDGE_MODEL: "gpt-5.4-mini"
+      LIVE_ES_REVIEW_OUTPUT_DIR: backend/tests/output
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+
+      - name: Run canary live provider gate
+        run: python -m pytest backend/tests/es_review/integration/test_live_es_review_provider_report.py -v -s -m "integration"
+
+      - name: Upload canary live ES review report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: es-review-live-canary-report
+          path: backend/tests/output/live_es_review_canary_*

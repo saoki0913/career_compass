@@ -1,6 +1,8 @@
 import { ReactNode } from "react";
+import { headers } from "next/headers";
 
-export default function AuthLayout({ children }: { children: ReactNode }) {
+export default async function AuthLayout({ children }: { children: ReactNode }) {
+  await headers();
   return (
     <div className="relative min-h-screen flex items-center justify-center overflow-hidden">
       {/* Background */}

@@ -130,15 +130,22 @@ export interface ReviewResult {
     user_context_sources?: string[];
     hallucination_guard_mode?: "strict";
     fallback_to_generic?: boolean;
+    rewrite_attempt_count?: number;
     length_policy?: "strict" | "soft_min_applied";
     length_shortfall?: number;
+    soft_min_floor_ratio?: number | null;
     length_fix_attempted?: boolean;
     length_fix_result?: "not_needed" | "strict_recovered" | "soft_min_applied" | "failed";
+    rewrite_validation_status?: "strict_ok" | "degraded";
+    rewrite_validation_codes?: string[];
+    rewrite_validation_user_hint?: string | null;
   };
 }
 
 export interface UseESReviewOptions {
   documentId: string;
+  /** Free のとき ES 添削の見積クレジットをプレミアム帯に合わせる（サーバと一致させる） */
+  esReviewBillingPlan?: "free" | "standard" | "pro";
 }
 
 export interface CurrentSectionInfo {
@@ -440,7 +447,7 @@ function getSourcePlaybackStage(visible: VisibleTemplateSource, target: Template
   return null;
 }
 
-export function useESReview({ documentId }: UseESReviewOptions): UseESReviewReturn {
+export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOptions): UseESReviewReturn {
   const [review, setReview] = useState<ReviewResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -544,7 +551,10 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
       abortControllerRef.current = controller;
 
       const isActiveRequest = () => requestIdRef.current === requestId;
-      const expectedCreditCost = calculateESReviewCost(params.sectionContent.length, params.llmModel);
+      const expectedCreditCost =
+        esReviewBillingPlan === "free"
+          ? calculateESReviewCost(params.sectionContent.length, "low-cost", { userPlan: "free" })
+          : calculateESReviewCost(params.sectionContent.length, params.llmModel);
 
       setReview(null);
       setIsLoading(true);
@@ -611,6 +621,17 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
           if (!isActiveRequest()) {
             return false;
           }
+
+          if (response.status === 402) {
+            setError("クレジットが不足しています。プランのアップグレードまたはクレジットの追加購入をご検討ください。");
+            trackEvent("ai_review_error", {
+              status: 402,
+              reviewMode: effectiveReviewMode,
+              errorCode: "INSUFFICIENT_CREDITS",
+            });
+            return false;
+          }
+
           const uiError = await parseApiErrorResponse(
             response,
             {
@@ -754,7 +775,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
               case "error":
                 setError(
                   toAppUiError(
-                    event.message,
+                    new Error(event.message),
                     {
                       code: "ES_REVIEW_STREAM_FAILED",
                       userMessage: "添削処理を完了できませんでした。",
@@ -818,7 +839,7 @@ export function useESReview({ documentId }: UseESReviewOptions): UseESReviewRetu
         abortControllerRef.current = null;
       }
     },
-    [clearTimer, documentId, parseSSEEvent],
+    [clearTimer, documentId, esReviewBillingPlan, parseSSEEvent],
   );
 
   useEffect(() => {

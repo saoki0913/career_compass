@@ -3,85 +3,69 @@
  *
  * POST: Fetch selection schedule information from recruitment URL
  * - Validates user/guest authentication
- * - Checks credits/daily free quota
+ * - Checks credits / monthly schedule free quota
  * - Calls FastAPI backend
  * - Saves extracted deadlines on success
  * - Consumes credits only on success
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { companies, deadlines, userProfiles } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
-import {
-  getRemainingFreeFetches,
-  incrementDailyFreeUsage,
-  hasEnoughCredits,
-  consumeCredits,
-} from "@/lib/credits";
-import { getDailyScheduleFetchLimit } from "@/lib/company-info/pricing";
-import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
+import { getRemainingFreeFetches, hasEnoughCredits, consumeCredits } from "@/lib/credits";
+import { getMonthlyScheduleFetchFreeLimit } from "@/lib/company-info/pricing";
+import { incrementMonthlyScheduleFreeUse } from "@/lib/company-info/usage";
+import { enforceRateLimitLayers, FETCH_INFO_RATE_LAYERS } from "@/lib/rate-limit-spike";
 import { logError } from "@/lib/logger";
+import { checkPublicSourceCompliance } from "@/lib/company-info/source-compliance";
+import { validatePublicUrl } from "@/lib/security/public-url";
+import {
+  getRequestId,
+  logAiCreditCostSummary,
+  splitInternalTelemetry,
+} from "@/lib/ai/cost-summary-log";
 
 // FastAPI backend URL
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
-/**
- * Validate URL to prevent SSRF attacks
- * - Only allows HTTPS
- * - Blocks localhost, private IPs, and link-local addresses
- */
-function validateUrl(url: string): { valid: boolean; error?: string } {
-  try {
-    const parsed = new URL(url);
-
-    // Only allow HTTPS
-    if (parsed.protocol !== "https:") {
-      return { valid: false, error: "HTTPSのみ許可されています" };
-    }
-
-    // Block private/internal addresses
-    const hostname = parsed.hostname.toLowerCase();
-
-    // Block localhost
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
-      return { valid: false, error: "内部アドレスは許可されていません" };
-    }
-
-    // Block IPv6 addresses entirely (corporate sites use domain names)
-    if (hostname.includes(":") || hostname.startsWith("[")) {
-      return { valid: false, error: "IPv6アドレスは許可されていません" };
-    }
-
-    // Block private IP ranges
-    const ipv4Match = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-    if (ipv4Match) {
-      const [, a, b] = ipv4Match.map(Number);
-      // 10.0.0.0/8
-      if (a === 10) {
-        return { valid: false, error: "内部アドレスは許可されていません" };
-      }
-      // 172.16.0.0/12
-      if (a === 172 && b >= 16 && b <= 31) {
-        return { valid: false, error: "内部アドレスは許可されていません" };
-      }
-      // 192.168.0.0/16
-      if (a === 192 && b === 168) {
-        return { valid: false, error: "内部アドレスは許可されていません" };
-      }
-      // 169.254.0.0/16 (link-local, AWS metadata)
-      if (a === 169 && b === 254) {
-        return { valid: false, error: "内部アドレスは許可されていません" };
-      }
-    }
-
-    return { valid: true };
-  } catch {
-    return { valid: false, error: "無効なURLです" };
+/** FastAPI HTTPException(detail={ error, error_type, ... }) from company-info LLM routes */
+function userFacingScheduleFetchError(detail: unknown): {
+  userMessage: string;
+  action: string;
+  retryable: boolean;
+  llmErrorType: string;
+} | null {
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) {
+    return null;
   }
+  const d = detail as { error?: string; error_type?: string };
+  const t = d.error_type;
+  if (!t || typeof t !== "string") {
+    return null;
+  }
+  const msg =
+    typeof d.error === "string" && d.error.trim()
+      ? d.error
+      : "情報の取得に失敗しました。時間を置いて、もう一度お試しください。";
+  if (t === "no_api_key") {
+    return {
+      userMessage: "AI機能の設定に問題があります。",
+      action: "管理者にお問い合わせください。",
+      retryable: false,
+      llmErrorType: t,
+    };
+  }
+  return {
+    userMessage: msg,
+    action: "時間を置いて、もう一度お試しください。",
+    retryable: true,
+    llmErrorType: t,
+  };
 }
 
 interface ExtractedDeadline {
@@ -119,9 +103,7 @@ interface FetchResult {
   error?: string;
   deadlines_found?: boolean;
   other_items_found?: boolean;
-  // NEW: Raw text for full-text RAG storage
   raw_text?: string | null;
-  // NEW: Raw HTML for section-aware chunking
   raw_html?: string | null;
 }
 
@@ -259,6 +241,7 @@ export async function POST(
 ) {
   try {
     const { id: companyId } = await params;
+    const requestId = getRequestId(request);
 
     // Get URL and optional parameters from request body
     const body = await request.json().catch(() => ({}));
@@ -269,37 +252,45 @@ export async function POST(
     // Get identity
     const identity = await getIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTHENTICATION_REQUIRED",
+        userMessage: "ログインが必要です。",
+        action: "ログインしてから、もう一度お試しください。",
+      });
     }
 
     const { userId, guestId, plan } = identity;
 
-    // Rate limiting check
-    const rateLimitKey = createRateLimitKey("fetchInfo", userId, guestId);
-    const rateLimit = await checkRateLimit(rateLimitKey, RATE_LIMITS.fetchInfo);
-    if (!rateLimit.allowed) {
-      return NextResponse.json(
-        { error: "リクエストが多すぎます。しばらく待ってから再試行してください。" },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(rateLimit.resetIn),
-            "X-RateLimit-Remaining": String(rateLimit.remaining),
-          },
-        }
-      );
+    if (guestId && !userId) {
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "LOGIN_REQUIRED_FOR_SCHEDULE_FETCH",
+        userMessage: "選考スケジュール取得はログインが必要です。",
+        action: "ログイン後に、もう一度お試しください。",
+      });
+    }
+
+    const rateLimited = await enforceRateLimitLayers(
+      request,
+      [...FETCH_INFO_RATE_LAYERS],
+      userId,
+      guestId,
+      "companies_fetch_info"
+    );
+    if (rateLimited) {
+      return rateLimited;
     }
 
     // Verify company access
     const access = await verifyCompanyAccess(companyId, userId, guestId);
     if (!access.valid || !access.company) {
-      return NextResponse.json(
-        { error: "Company not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "COMPANY_NOT_FOUND",
+        userMessage: "企業が見つかりません。",
+        action: "一覧から企業を選び直してください。",
+      });
     }
 
     const company = access.company;
@@ -307,47 +298,67 @@ export async function POST(
     // Use provided URL or fall back to company's recruitment URL
     const urlToFetch = requestUrl || company.recruitmentUrl;
     if (!urlToFetch) {
-      return NextResponse.json(
-        { error: "採用ページURLが登録されていません。URLを選択してください。" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "RECRUITMENT_URL_REQUIRED",
+        userMessage: "採用ページURLが登録されていません。",
+        action: "取得する公開ページURLを選択してください。",
+      });
     }
 
     // SSRF protection: Validate URL before fetching
-    const urlValidation = validateUrl(urlToFetch);
-    if (!urlValidation.valid) {
-      return NextResponse.json(
-        { error: urlValidation.error || "無効なURLです" },
-        { status: 400 }
-      );
+    const urlValidation = await validatePublicUrl(urlToFetch);
+    if (!urlValidation.allowed) {
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "INVALID_RECRUITMENT_URL",
+        userMessage: urlValidation.userMessage || "無効なURLです。",
+        action: "公開された HTTPS のURLを指定してください。",
+      });
     }
 
-    // Check credits/quota (for registered users only)
-    let useDailyFree = false;
+    const compliance = await checkPublicSourceCompliance(urlToFetch);
+    if (compliance.status === "blocked") {
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "PUBLIC_SOURCE_BLOCKED",
+        userMessage: compliance.reasons[0] || "公開ページのみ取得できます。",
+        action: "ログイン不要の公開ページURLを選び直してください。",
+        extra: {
+          blockedUrl: compliance.url,
+          reasons: compliance.reasons,
+        },
+      });
+    }
+
+    // Check credits/quota（ログインユーザー: 月次無料枠 → 超過は 1 クレジット）
+    let useMonthlyScheduleFree = false;
     if (userId) {
       const freeRemaining = await getRemainingFreeFetches(userId, null, plan);
       if (freeRemaining > 0) {
-        useDailyFree = true;
+        useMonthlyScheduleFree = true;
       } else {
         const hasCredits = await hasEnoughCredits(userId, 1);
         if (!hasCredits) {
-          return NextResponse.json(
-            { error: "クレジットが不足しています" },
-            { status: 402 }
-          );
+          return createApiErrorResponse(request, {
+            status: 402,
+            code: "INSUFFICIENT_CREDITS",
+            userMessage: "クレジットが不足しています。",
+            action: "プランまたは残高を確認してください。",
+          });
         }
       }
     } else if (guestId) {
       const freeRemaining = await getRemainingFreeFetches(null, guestId, plan);
       if (freeRemaining <= 0) {
-        return NextResponse.json(
-          {
-            error: `本日の無料取得回数を使い切りました。ログインすると1日${getDailyScheduleFetchLimit("free")}回まで利用できます。`,
-          },
-          { status: 402 }
-        );
+        return createApiErrorResponse(request, {
+          status: 402,
+          code: "MONTHLY_SCHEDULE_FREE_LIMIT_REACHED",
+          userMessage: `今月の無料取得回数を使い切りました。ログインすると月${getMonthlyScheduleFetchFreeLimit("free")}回まで利用できます。`,
+          action: "来月以降に再試行するか、ログインして利用してください。",
+        });
       }
-      useDailyFree = true;
+      useMonthlyScheduleFree = true;
     }
 
     // Get user's graduation year from profile if not provided in request
@@ -363,11 +374,13 @@ export async function POST(
 
     // Call FastAPI backend with graduation year and selection type
     let fetchResult: FetchResult;
+    let telemetry = null;
     try {
       const response = await fetch(`${BACKEND_URL}/company-info/fetch-schedule`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "X-Request-Id": requestId,
         },
         body: JSON.stringify({
           url: urlToFetch,
@@ -379,15 +392,37 @@ export async function POST(
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        const llmMapped = userFacingScheduleFetchError(errorData.detail);
+        if (llmMapped) {
+          return createApiErrorResponse(request, {
+            status: 503,
+            code: "SCHEDULE_FETCH_FAILED",
+            userMessage: llmMapped.userMessage,
+            action: llmMapped.action,
+            retryable: llmMapped.retryable,
+            llmErrorType: llmMapped.llmErrorType,
+            extra: { source: "fastapi_fetch_schedule" },
+          });
+        }
         // Handle error detail that might be an object
         let errorMessage = "Backend request failed";
         if (errorData.detail) {
           if (typeof errorData.detail === "string") {
             errorMessage = errorData.detail;
-          } else if (errorData.detail.message) {
-            errorMessage = errorData.detail.message;
-          } else if (errorData.detail.error) {
-            errorMessage = errorData.detail.error;
+          } else if (
+            typeof errorData.detail === "object" &&
+            errorData.detail !== null &&
+            "message" in errorData.detail &&
+            typeof (errorData.detail as { message?: string }).message === "string"
+          ) {
+            errorMessage = (errorData.detail as { message: string }).message;
+          } else if (
+            typeof errorData.detail === "object" &&
+            errorData.detail !== null &&
+            "error" in errorData.detail &&
+            typeof (errorData.detail as { error?: string }).error === "string"
+          ) {
+            errorMessage = (errorData.detail as { error: string }).error;
           } else {
             errorMessage = JSON.stringify(errorData.detail);
           }
@@ -395,17 +430,22 @@ export async function POST(
         throw new Error(errorMessage);
       }
 
-      fetchResult = await response.json();
+      const rawFetchResult = await response.json();
+      const split = splitInternalTelemetry(rawFetchResult);
+      telemetry = split.telemetry;
+      fetchResult = split.payload as FetchResult;
     } catch (error) {
       logError("backend-fetch", error);
-      return NextResponse.json(
-        { error: "情報の取得に失敗しました。しばらく後にお試しください。" },
-        { status: 503 }
-      );
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "SCHEDULE_FETCH_FAILED",
+        userMessage: "情報の取得に失敗しました。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+        error,
+      });
     }
 
-    const rawContent = fetchResult.raw_html || fetchResult.raw_text || null;
-    const rawContentFormat = fetchResult.raw_html ? "html" : "text";
     const deadlinesExtractedCount = fetchResult.data?.deadlines?.length ?? 0;
 
     // 成功判定の細分化（SPEC.md 4.2）
@@ -418,10 +458,24 @@ export async function POST(
     if (!fetchResult.success) {
       const resultStatus: FetchInfoResultStatus =
         hasDeadlines || hasOtherData ? "no_deadlines" : "error";
+      logError("fetch-info-backend-reported-failure", new Error(fetchResult.error || "fetch_info_failed"), {
+        companyId,
+        sourceUrl: fetchResult.source_url,
+        resultStatus,
+      });
+      logAiCreditCostSummary({
+        feature: "selection_schedule",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry,
+      });
       return NextResponse.json({
         success: false,
         resultStatus,
-        error: fetchResult.error || "情報を抽出できませんでした",
+        error: hasDeadlines || hasOtherData
+          ? "締切は見つかりませんでしたが、取得できた情報があります。"
+          : "情報を抽出できませんでした。時間を置いて、もう一度お試しください。",
         deadlinesExtractedCount,
         deadlinesSavedCount: 0,
         creditsConsumed: 0,
@@ -442,34 +496,14 @@ export async function POST(
         })
         .where(eq(companies.id, companyId));
 
-      // Build RAG for partial success (still has valuable data)
-      try {
-        await fetch(`${BACKEND_URL}/company-info/rag/build`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            company_id: companyId,
-            company_name: company.name,
-            source_url: urlToFetch,
-            raw_content: rawContent,
-            raw_content_format: rawContentFormat,
-            store_full_text: true,
-            content_channel: "recruitment",
-            extracted_data: {
-              deadlines: [],
-              recruitment_types: fetchResult.data?.recruitment_types || [],
-              required_documents: fetchResult.data?.required_documents || [],
-              application_method: fetchResult.data?.application_method || null,
-              selection_process: fetchResult.data?.selection_process || null,
-            },
-          }),
-        });
-        console.log(`RAG build initiated for company ${companyId} (partial success)`);
-      } catch (ragError) {
-        logError("rag-build-partial", ragError);
-      }
-
       const freeRemaining = await getRemainingFreeFetches(userId, guestId, plan);
+      logAiCreditCostSummary({
+        feature: "selection_schedule",
+        requestId,
+        status: "success",
+        creditsUsed: 0,
+        telemetry,
+      });
 
       return NextResponse.json({
         success: false,
@@ -494,6 +528,13 @@ export async function POST(
 
     // 締切なし & 他データもなし = 完全失敗（クレジット消費なし）
     if (!hasDeadlines && !hasOtherData) {
+      logAiCreditCostSummary({
+        feature: "selection_schedule",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry,
+      });
       return NextResponse.json({
         success: false,
         resultStatus: "no_deadlines" satisfies FetchInfoResultStatus,
@@ -615,49 +656,13 @@ export async function POST(
       })
       .where(eq(companies.id, companyId));
 
-    // Build RAG (vector embeddings) for this company
-    // This is async and non-blocking - we don't wait for it or fail if it errors
-    // Now includes full text storage for enhanced RAG
-    try {
-      await fetch(`${BACKEND_URL}/company-info/rag/build`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          company_id: companyId,
-          company_name: company.name,
-          source_url: urlToFetch,
-          // Include raw text for full-text indexing
-          raw_content: rawContent,
-          raw_content_format: rawContentFormat,
-          store_full_text: true,
-          content_channel: "recruitment",
-          extracted_data: {
-            deadlines: fetchResult.data?.deadlines?.map((d: ExtractedDeadline) => ({
-              type: d.type,
-              title: d.title,
-              due_date: d.due_date || d.dueDate,
-              confidence: d.confidence,
-            })) || [],
-            recruitment_types: fetchResult.data?.recruitment_types || [],
-            required_documents: fetchResult.data?.required_documents || [],
-            application_method: fetchResult.data?.application_method || null,
-            selection_process: fetchResult.data?.selection_process || null,
-          },
-        }),
-      });
-      console.log(`RAG build initiated for company ${companyId} (full text + structured)`);
-    } catch (ragError) {
-      // RAG build failure should not fail the overall operation
-      logError("rag-build-full", ragError);
-    }
-
     // Success: Consume credits/quota
     let creditsConsumed = 0;
     let actualCreditsDeducted: number | undefined;
-    if (useDailyFree) {
-      await incrementDailyFreeUsage(userId, guestId, "companyFetchCount");
+    if (useMonthlyScheduleFree) {
+      if (userId) {
+        await incrementMonthlyScheduleFreeUse(userId);
+      }
     } else if (userId) {
       const consumption = await consumeCredits(
         userId,
@@ -677,6 +682,13 @@ export async function POST(
     const freeRemaining = await getRemainingFreeFetches(userId, guestId, plan);
 
     if (duplicatesOnly) {
+      logAiCreditCostSummary({
+        feature: "selection_schedule",
+        requestId,
+        status: "success",
+        creditsUsed: actualCreditsDeducted ?? 0,
+        telemetry,
+      });
       return NextResponse.json({
         success: false,
         resultStatus: "duplicates_only" satisfies FetchInfoResultStatus,
@@ -694,12 +706,19 @@ export async function POST(
         deadlinesSavedCount,
         creditsConsumed,
         actualCreditsDeducted,
-        freeUsed: useDailyFree,
+        freeUsed: useMonthlyScheduleFree,
         freeRemaining,
         message: "取得した締切はすべて既存データと重複していたため、新規追加はありませんでした。",
       });
     }
 
+    logAiCreditCostSummary({
+      feature: "selection_schedule",
+      requestId,
+      status: "success",
+      creditsUsed: actualCreditsDeducted ?? 0,
+      telemetry,
+    });
     return NextResponse.json({
       success: true,
       resultStatus: "success" satisfies FetchInfoResultStatus,
@@ -717,7 +736,7 @@ export async function POST(
       deadlinesSavedCount,
       creditsConsumed,
       actualCreditsDeducted,
-      freeUsed: useDailyFree,
+      freeUsed: useMonthlyScheduleFree,
       freeRemaining,
     });
   } catch (error) {

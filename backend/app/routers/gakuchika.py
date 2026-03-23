@@ -21,10 +21,13 @@ from pydantic import BaseModel, Field
 
 from app.utils.llm import (
     _parse_json_response,
+    PromptSafetyError,
     call_llm_streaming_fields,
     call_llm_text_with_error,
     call_llm_with_error,
+    consume_request_llm_cost_summary,
     sanitize_prompt_input,
+    sanitize_user_prompt_text,
 )
 from app.utils.secure_logger import get_logger
 
@@ -33,7 +36,6 @@ from app.prompts.gakuchika_prompts import (
     PROHIBITED_EXPRESSIONS as _PROHIBITED_EXPRESSIONS,
     QUESTION_QUALITY_PRINCIPLES,
     REFERENCE_GUIDE_RUBRIC,
-    STAR_EVALUATION_PROMPT,
     STAR_EVALUATE_AND_QUESTION_PROMPT,
     INITIAL_QUESTION_PROMPT,
     STRUCTURED_SUMMARY_PROMPT,
@@ -46,7 +48,7 @@ router = APIRouter(prefix="/api/gakuchika", tags=["gakuchika"])
 STAR_COMPLETION_THRESHOLD = 70  # 各STAR要素がこの%以上で完了とみなす
 QUESTIONS_PER_CREDIT = 5  # 5問回答ごとに1クレジット消費
 INITIAL_QUESTION_MAX_TOKENS = 120
-NEXT_QUESTION_MAX_TOKENS = 320
+NEXT_QUESTION_MAX_TOKENS = 360
 
 # Conversation phases based on question count
 PHASE_OPENING = "opening"  # 0-2: 全体像の把握
@@ -133,6 +135,7 @@ class NextQuestionResponse(BaseModel):
     star_evaluation: Optional[dict] = None
     # Which STAR element this question targets
     target_element: Optional[str] = None
+    internal_telemetry: Optional[dict[str, object]] = None
 
 
 class StructuredSummaryRequest(BaseModel):
@@ -176,13 +179,12 @@ class GakuchikaESDraftRequest(BaseModel):
 class GakuchikaESDraftResponse(BaseModel):
     draft: str
     char_count: int
+    internal_telemetry: Optional[dict[str, object]] = None
 
 
 
 
-# Prompt constants moved to app.prompts.gakuchika_prompts:
-# _PROHIBITED_EXPRESSIONS, STAR_EVALUATION_PROMPT, STAR_EVALUATE_AND_QUESTION_PROMPT,
-# INITIAL_QUESTION_PROMPT (imported at top of file)
+# Prompt constants moved to app.prompts.gakuchika_prompts (imported at top of file)
 
 
 def _format_conversation_for_evaluation(messages: list[Message]) -> str:
@@ -190,9 +192,47 @@ def _format_conversation_for_evaluation(messages: list[Message]) -> str:
     formatted = []
     for msg in messages:
         role_label = "質問" if msg.role == "assistant" else "回答"
-        content = sanitize_prompt_input(msg.content, max_length=3000) if msg.role == "user" else msg.content
+        content = sanitize_user_prompt_text(msg.content, max_length=3000) if msg.role == "user" else msg.content
         formatted.append(f"{role_label}: {content}")
     return "\n\n".join(formatted)
+
+
+def _prompt_safety_http_error() -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail="内部設定や秘匿情報に関する指示は受け付けられません。",
+    )
+
+
+def _sanitize_messages(messages: list[Message]) -> None:
+    for msg in messages:
+        if msg.role == "user":
+            msg.content = sanitize_user_prompt_text(msg.content, max_length=3000)
+
+
+def _sanitize_gakuchika_title(value: str) -> str:
+    return sanitize_user_prompt_text(value, max_length=200).strip()
+
+
+def _sanitize_next_question_request(request: NextQuestionRequest) -> None:
+    request.gakuchika_title = _sanitize_gakuchika_title(request.gakuchika_title)
+    if request.gakuchika_content is not None:
+        request.gakuchika_content = sanitize_user_prompt_text(
+            request.gakuchika_content,
+            max_length=5000,
+            rich_text=True,
+        )
+    _sanitize_messages(request.conversation_history)
+
+
+def _sanitize_summary_request(request: StructuredSummaryRequest) -> None:
+    request.gakuchika_title = _sanitize_gakuchika_title(request.gakuchika_title)
+    _sanitize_messages(request.conversation_history)
+
+
+def _sanitize_es_draft_request(request: GakuchikaESDraftRequest) -> None:
+    request.gakuchika_title = _sanitize_gakuchika_title(request.gakuchika_title)
+    _sanitize_messages(request.conversation_history)
 
 
 def _get_weakest_element(scores: STARScores) -> str:
@@ -308,6 +348,20 @@ def _determine_phase(question_count: int) -> tuple[str, str, list[str], list[str
             [FOCUS_RESULT_LEARNING, FOCUS_CREDIBILITY_SCOPE],
             ["result"],
         )
+
+
+def _next_question_llm_inputs(
+    request: NextQuestionRequest,
+) -> tuple[str, STARScores]:
+    """Shared: format history, build system prompt, resolve STAR fallbacks for next-question."""
+    conversation_text = _format_conversation_for_evaluation(request.conversation_history)
+    prompt = _build_next_question_prompt(
+        gakuchika_title=request.gakuchika_title,
+        conversation_text=conversation_text,
+        question_count=request.question_count,
+    )
+    fallback_scores = _scores_from_request(request.star_scores)
+    return prompt, fallback_scores
 
 
 def _build_next_question_prompt(
@@ -444,82 +498,6 @@ async def _generate_initial_question(request: NextQuestionRequest) -> str:
     return random.choice(template_questions)
 
 
-@router.post("/evaluate-star")
-async def evaluate_star(request: NextQuestionRequest) -> dict:
-    """
-    Evaluate the current conversation for STAR element coverage.
-    Returns scores for each element and identifies missing aspects.
-
-    This endpoint is kept for standalone use (e.g., progress visualization).
-    """
-    if not request.conversation_history:
-        # Return initial scores for empty conversation
-        return {
-            "scores": {"situation": 0, "task": 0, "action": 0, "result": 0},
-            "weakest_element": "situation",
-            "is_complete": False,
-            "missing_aspects": {
-                "situation": ["時期", "場所", "規模"],
-                "task": ["課題の内容", "なぜ課題だったか"],
-                "action": ["具体的な行動", "工夫した点"],
-                "result": ["数字での成果", "学び"],
-            },
-            "risk_flags": [],
-        }
-
-    conversation_text = _format_conversation_for_evaluation(request.conversation_history)
-    prompt = STAR_EVALUATION_PROMPT.format(conversation=conversation_text)
-
-    llm_result = await call_llm_with_error(
-        system_prompt=prompt,
-        user_message="上記の会話を評価してください。",
-        max_tokens=500,
-        temperature=0.3,  # Lower temperature for consistent evaluation
-        feature="gakuchika",
-        disable_fallback=True,
-    )
-
-    if not llm_result.success or llm_result.data is None:
-        # Return previous scores or defaults on error
-        if request.star_scores:
-            scores = STARScores(
-                situation=request.star_scores.situation,
-                task=request.star_scores.task,
-                action=request.star_scores.action,
-                result=request.star_scores.result,
-            )
-        else:
-            scores = STARScores()
-
-        return {
-            "scores": scores.model_dump(),
-            "weakest_element": _get_weakest_element(scores),
-            "is_complete": _is_star_complete(scores),
-            "missing_aspects": {
-                "situation": [],
-                "task": [],
-                "action": [],
-                "result": [],
-            },
-        }
-
-    data = llm_result.data
-    scores_data = data.get("scores", {})
-    scores = STARScores(
-        situation=scores_data.get("situation", 0),
-        task=scores_data.get("task", 0),
-        action=scores_data.get("action", 0),
-        result=scores_data.get("result", 0),
-    )
-
-    return {
-        "scores": scores.model_dump(),
-        "weakest_element": _get_weakest_element(scores),
-        "is_complete": _is_star_complete(scores),
-        "missing_aspects": data.get("missing_aspects", {}),
-    }
-
-
 @router.post("/next-question", response_model=NextQuestionResponse)
 async def get_next_question(request: NextQuestionRequest):
     """
@@ -541,6 +519,10 @@ async def get_next_question(request: NextQuestionRequest):
         raise HTTPException(
             status_code=400, detail="ガクチカのテーマが指定されていません"
         )
+    try:
+        _sanitize_next_question_request(request)
+    except PromptSafetyError:
+        raise _prompt_safety_http_error()
 
     # Handle initial question (no conversation history or no user response yet)
     has_user_response = any(msg.role == "user" for msg in request.conversation_history)
@@ -551,18 +533,11 @@ async def get_next_question(request: NextQuestionRequest):
             question=initial_question,
             star_evaluation=_build_star_evaluation(STARScores()),
             target_element="situation",
+            internal_telemetry=consume_request_llm_cost_summary("gakuchika"),
         )
 
-    # Format conversation for prompt
-    conversation_text = _format_conversation_for_evaluation(request.conversation_history)
+    prompt, fallback_scores = _next_question_llm_inputs(request)
 
-    prompt = _build_next_question_prompt(
-        gakuchika_title=request.gakuchika_title,
-        conversation_text=conversation_text,
-        question_count=request.question_count,
-    )
-
-    fallback_scores = _scores_from_request(request.star_scores)
     llm_result = await call_llm_text_with_error(
         system_prompt=prompt,
         user_message="上記の会話を分析し、STAR評価と次の質問をJSON形式で生成してください。",
@@ -604,6 +579,7 @@ async def get_next_question(request: NextQuestionRequest):
         question=question,
         star_evaluation=star_eval,
         target_element=target_element,
+        internal_telemetry=consume_request_llm_cost_summary("gakuchika"),
     )
 
 
@@ -624,7 +600,10 @@ async def _generate_next_question_progress(
     """
     try:
         if not request.gakuchika_title:
-            yield _sse_event("error", {"message": "ガクチカのテーマが指定されていません"})
+            yield _sse_event("error", {
+                "message": "ガクチカのテーマが指定されていません",
+                "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
+            })
             return
 
         # Handle initial question (no user response) — return immediately
@@ -638,6 +617,7 @@ async def _generate_next_question_progress(
                     "star_evaluation": _build_star_evaluation(STARScores()),
                     "target_element": "situation",
                 },
+                "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
             })
             return
 
@@ -646,21 +626,12 @@ async def _generate_next_question_progress(
             "step": "analysis", "progress": 30, "label": "質問の意図を整理中",
         })
 
-        # Format conversation for prompt
-        conversation_text = _format_conversation_for_evaluation(request.conversation_history)
+        prompt, fallback_scores = _next_question_llm_inputs(request)
 
         # Step 2: Generating question
         yield _sse_event("progress", {
             "step": "question", "progress": 60, "label": "次の質問を生成中...",
         })
-
-        prompt = _build_next_question_prompt(
-            gakuchika_title=request.gakuchika_title,
-            conversation_text=conversation_text,
-            question_count=request.question_count,
-        )
-
-        fallback_scores = _scores_from_request(request.star_scores)
 
         # Stream LLM response with field-level events
         llm_result = None
@@ -688,6 +659,7 @@ async def _generate_next_question_progress(
                 error = event.result.error if event.result else None
                 yield _sse_event("error", {
                     "message": error.message if error else "AIサービスに接続できませんでした。",
+                    "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
                 })
                 return
             elif event.type == "complete":
@@ -697,6 +669,7 @@ async def _generate_next_question_progress(
             error = llm_result.error if llm_result else None
             yield _sse_event("error", {
                 "message": error.message if error else "AIサービスに接続できませんでした。",
+                "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
             })
             return
 
@@ -704,6 +677,7 @@ async def _generate_next_question_progress(
         if data is None:
             yield _sse_event("error", {
                 "message": "AIからの応答を解析できませんでした。",
+                "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
             })
             return
 
@@ -723,10 +697,14 @@ async def _generate_next_question_progress(
                 "star_evaluation": star_eval,
                 "target_element": target_element,
             },
+            "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
         })
 
     except Exception as e:
-        yield _sse_event("error", {"message": f"予期しないエラーが発生しました: {str(e)}"})
+        yield _sse_event("error", {
+            "message": f"予期しないエラーが発生しました: {str(e)}",
+            "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
+        })
 
 
 @router.post("/next-question/stream")
@@ -735,6 +713,10 @@ async def get_next_question_stream(request: NextQuestionRequest):
     SSE streaming version of next-question.
     Yields progress events then complete/error event.
     """
+    try:
+        _sanitize_next_question_request(request)
+    except PromptSafetyError:
+        raise _prompt_safety_http_error()
     return StreamingResponse(
         _generate_next_question_progress(request),
         media_type="text/event-stream",
@@ -746,74 +728,13 @@ async def get_next_question_stream(request: NextQuestionRequest):
     )
 
 
-@router.post("/summary")
-async def generate_summary(request: NextQuestionRequest):
-    """
-    Generate a summary of the Gakuchika conversation for use in ES writing.
-    """
-    if not request.conversation_history:
-        raise HTTPException(status_code=400, detail="会話履歴がありません")
-
-    user_answers = [
-        msg.content for msg in request.conversation_history if msg.role == "user"
-    ]
-
-    if not user_answers:
-        raise HTTPException(status_code=400, detail="ユーザーの回答がありません")
-
-    system_prompt = """あなたは就活アドバイザーです。
-以下のガクチカ深掘り会話の内容を、ES(エントリーシート)で使いやすい形にまとめてください。
-
-以下の情報を抽出してJSON形式で返してください:
-1. summary: 経験の要約(200-300字程度)
-2. key_points: キーとなるポイントのリスト(3-5個)
-3. numbers: 言及された具体的な数字や成果のリスト
-4. strengths: この経験から読み取れる強み(2-3個)
-
-必ず有効なJSON形式で回答:
-{
-  "summary": "...",
-  "key_points": ["...", "..."],
-  "numbers": ["...", "..."],
-  "strengths": ["...", "..."]
-}"""
-
-    conversation_text = _format_conversation_for_evaluation(request.conversation_history)
-
-    llm_result = await call_llm_with_error(
-        system_prompt=system_prompt,
-        user_message=f"テーマ: {sanitize_prompt_input(request.gakuchika_title, max_length=200)}\n\n会話履歴:\n{conversation_text}",
-        max_tokens=800,  # summary(200-300字)+key_points+numbers+strengths で600-700トークン
-        temperature=0.3,
-        feature="gakuchika",
-        disable_fallback=True,
-    )
-
-    if llm_result.success and llm_result.data is not None:
-        return llm_result.data
-
-    error = llm_result.error
-    raise HTTPException(
-        status_code=503,
-        detail={
-            "error": (
-                error.message if error else "サマリー生成中にエラーが発生しました。"
-            ),
-            "error_type": error.error_type if error else "unknown",
-            "provider": error.provider if error else "unknown",
-            "detail": error.detail if error else "",
-        },
-    )
-
-
-# ── Structured Summary (replaces /summary for new completions) ────────
-
 @router.post("/structured-summary")
 async def generate_structured_summary(request: StructuredSummaryRequest):
-    """
-    Generate a STAR-structured summary of the Gakuchika conversation.
-    Replaces the old /summary format with richer structured output.
-    """
+    """Generate a STAR-structured summary of the Gakuchika conversation."""
+    try:
+        _sanitize_summary_request(request)
+    except PromptSafetyError:
+        raise _prompt_safety_http_error()
     if not request.conversation_history:
         raise HTTPException(status_code=400, detail="会話履歴がありません")
 
@@ -897,6 +818,10 @@ async def generate_es_draft(request: GakuchikaESDraftRequest):
             status_code=400,
             detail="文字数は300, 400, 500のいずれかを指定してください",
         )
+    try:
+        _sanitize_es_draft_request(request)
+    except PromptSafetyError:
+        raise _prompt_safety_http_error()
 
     conversation_text = _format_conversation_for_evaluation(request.conversation_history)
     char_min = int(request.char_limit * 0.9)
@@ -930,7 +855,7 @@ async def generate_es_draft(request: GakuchikaESDraftRequest):
         user_message="ガクチカのESを作成してください。",
         max_tokens=1200,  # Draft: ~300-500 chars + char_count + JSON
         temperature=0.3,
-        feature="gakuchika",
+        feature="gakuchika_draft",
         retry_on_parse=True,
         disable_fallback=True,
     )
@@ -953,6 +878,7 @@ async def generate_es_draft(request: GakuchikaESDraftRequest):
                     return GakuchikaESDraftResponse(
                         draft=draft_text,
                         char_count=len(draft_text),
+                        internal_telemetry=consume_request_llm_cost_summary("gakuchika_draft"),
                     )
         error = llm_result.error
         raise HTTPException(
@@ -968,4 +894,5 @@ async def generate_es_draft(request: GakuchikaESDraftRequest):
     return GakuchikaESDraftResponse(
         draft=draft,
         char_count=len(draft),
+        internal_telemetry=consume_request_llm_cost_summary("gakuchika_draft"),
     )

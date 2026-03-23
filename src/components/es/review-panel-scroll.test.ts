@@ -1,42 +1,34 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  AUTO_FOLLOW_BOTTOM_THRESHOLD_PX,
-  getDistanceFromBottom,
-  shouldEnableAutoFollow,
+  getVisibleReviewContentSize,
+  shouldAutoScrollToLatest,
 } from "./review-panel-scroll";
 
 describe("review panel auto follow helpers", () => {
-  it("computes the distance from the bottom", () => {
+  it("computes a stable size from the visible streaming content", () => {
     expect(
-      getDistanceFromBottom({
-        scrollHeight: 1200,
-        scrollTop: 900,
-        clientHeight: 250,
+      getVisibleReviewContentSize({
+        rewriteText: "改善案",
+        issues: [
+          {
+            issue: "課題",
+            suggestion: "改善案",
+            why_now: "理由",
+          },
+        ],
+        sources: [{ excerpt: "出典" }],
       }),
-    ).toBe(50);
+    ).toBe("改善案".length + "課題".length + "改善案".length + "理由".length + "出典".length);
   });
 
-  it("enables auto follow when the user is near the bottom", () => {
-    expect(
-      shouldEnableAutoFollow({
-        scrollHeight: 1200,
-        scrollTop: 905,
-        clientHeight: 250,
-      }),
-    ).toBe(true);
+  it("does not auto-scroll when there is no visible result yet", () => {
+    expect(shouldAutoScrollToLatest({ hasVisibleResults: false, previousSize: 0, nextSize: 8 })).toBe(false);
   });
 
-  it("disables auto follow when the user scrolls away from the bottom", () => {
-    expect(
-      shouldEnableAutoFollow(
-        {
-          scrollHeight: 1200,
-          scrollTop: 700,
-          clientHeight: 250,
-        },
-        AUTO_FOLLOW_BOTTOM_THRESHOLD_PX,
-      ),
-    ).toBe(false);
+  it("auto-scrolls only when the visible streaming content grows", () => {
+    expect(shouldAutoScrollToLatest({ hasVisibleResults: true, previousSize: 10, nextSize: 11 })).toBe(true);
+    expect(shouldAutoScrollToLatest({ hasVisibleResults: true, previousSize: 11, nextSize: 11 })).toBe(false);
+    expect(shouldAutoScrollToLatest({ hasVisibleResults: true, previousSize: 12, nextSize: 11 })).toBe(false);
   });
 });

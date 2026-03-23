@@ -6,7 +6,9 @@
 - `src/hooks/useNotifications.ts` — 通知管理フック
 - `src/app/notifications/page.tsx` — 通知一覧ページ
 - `src/app/api/notifications/` — 通知API
-- `src/app/api/cron/daily-notifications/route.ts` — 日次通知Cronジョブ
+- `src/app/api/cron/daily-notifications/route.ts` — 日次Cron（締切リマインド・90日クリーンアップ）
+- `src/app/api/cron/hourly-daily-summary/route.ts` — 毎時Cron（デイリーサマリー。ユーザー設定の JST 時刻と一致したときのみ生成）
+- `src/lib/datetime/jst.ts` — JST 日付・時刻ヘルパー
 
 ---
 
@@ -52,18 +54,17 @@ notifications テーブルに通知レコード作成
 ### 3.2 Cronベース通知
 
 ```
-/api/cron/daily-notifications (日次実行)
+/api/cron/daily-notifications (UTC 0:00 = JST 9:00 付近・日次)
   ↓
-1. 全ユーザーの今後の締切を検索
-2. 締切リマインド通知を生成
-   → 24時間以内: deadline_near
-   → 設定日数以内: deadline_reminder
-3. デイリーサマリー通知を生成
-   → 今日のタスク数、今後の締切数
+1. 締切リマインド（deadline_reminders バッチ）
+2. 90日超の通知削除（cleanup）
+
+/api/cron/hourly-daily-summary (毎時 UTC)
   ↓
-ユーザーごとにバッチ通知作成
-  → notificationSettings でフィルタ（ON/OFFチェック）
-  → JST基準で日付計算
+POST /api/notifications/batch { type: "daily_summary" }
+  → 現在の JST「時」がユーザーの dailySummaryHourJst（7/9/12/18）と一致するユーザーのみ
+  → 同一 JST 日に daily_summary 未送信なら1件作成
+  → 締切件数は当該ユーザーの企業に紐づく締切のみ集計
 ```
 
 ---
@@ -81,6 +82,7 @@ notifications テーブルに通知レコード作成
 | `company_fetch` | ON | 企業情報取得完了通知 |
 | `es_review` | ON | ES添削完了通知 |
 | `daily_summary` | ON | デイリーサマリー通知 |
+| `daily_summary_hour_jst` | `9` | デイリーサマリーの送信時刻（JST の時。許可: 7, 9, 12, 18） |
 
 ---
 

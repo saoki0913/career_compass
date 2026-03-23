@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { gakuchikaContents } from "@/lib/db/schema";
 import {
-  parseGakuchikaSummary,
   type GakuchikaSummary,
   type LegacySummary,
   type StructuredSummary,
@@ -75,14 +74,6 @@ function normalizeStructuredSummaryPayload(data: unknown): StructuredSummary | n
   };
 }
 
-function normalizeLegacySummaryPayload(data: unknown): LegacySummary | null {
-  const parsed = parseGakuchikaSummary(data);
-  if (!parsed || "situation_text" in parsed) {
-    return null;
-  }
-  return parsed;
-}
-
 function buildFallbackSummary(messages: Message[]): LegacySummary {
   const summary = messages
     .filter((message) => message.role === "user")
@@ -121,29 +112,6 @@ async function requestStructuredSummary(
   return normalizeStructuredSummaryPayload(await response.json());
 }
 
-async function requestLegacySummary(
-  gakuchikaTitle: string,
-  messages: Message[]
-): Promise<LegacySummary | null> {
-  const response = await fetch(`${FASTAPI_URL}/api/gakuchika/summary`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      conversation_history: messages.map((message) => ({
-        role: message.role,
-        content: message.content,
-      })),
-      gakuchika_title: gakuchikaTitle,
-    }),
-  });
-
-  if (!response.ok) {
-    return null;
-  }
-
-  return normalizeLegacySummaryPayload(await response.json());
-}
-
 export async function generateGakuchikaSummary(
   gakuchikaTitle: string,
   messages: Message[]
@@ -155,15 +123,6 @@ export async function generateGakuchikaSummary(
     }
   } catch (error) {
     console.error("[Gakuchika Summary] Structured summary generation failed:", error);
-  }
-
-  try {
-    const legacy = await requestLegacySummary(gakuchikaTitle, messages);
-    if (legacy) {
-      return legacy;
-    }
-  } catch (error) {
-    console.error("[Gakuchika Summary] Legacy summary generation failed:", error);
   }
 
   return buildFallbackSummary(messages);

@@ -11,6 +11,7 @@ from typing import Optional
 import certifi
 import httpx
 from bs4 import BeautifulSoup
+from app.utils.public_url_guard import MAX_REDIRECTS, resolve_redirect_url, validate_public_url
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +64,28 @@ async def fetch_page_content(url: str, timeout: float = 30.0) -> bytes:
         try:
             async with httpx.AsyncClient(
                 timeout=timeout,
-                follow_redirects=True,
+                follow_redirects=False,
                 verify=strategy["verify"],
                 headers=headers,
             ) as client:
-                response = await client.get(str(url))
-                response.raise_for_status()
+                current_url = str(url)
+                for _ in range(MAX_REDIRECTS + 1):
+                    validation = validate_public_url(current_url)
+                    if not validation.allowed:
+                        raise httpx.ConnectError(validation.reason or "URL validation failed")
 
-                return response.content
+                    response = await client.get(current_url)
+                    if response.status_code in {301, 302, 303, 307, 308}:
+                        location = response.headers.get("location")
+                        if not location:
+                            raise httpx.ConnectError("Redirect location is missing")
+                        current_url = resolve_redirect_url(current_url, location)
+                        continue
+
+                    response.raise_for_status()
+                    return response.content
+
+                raise httpx.ConnectError("Too many redirects")
 
         except httpx.NetworkError as e:
             if _is_ssl_related_error(e):
@@ -92,7 +107,7 @@ async def fetch_page_content(url: str, timeout: float = 30.0) -> bytes:
     )
 
 
-def extract_text_from_html(html: bytes) -> str:
+def extract_text_from_html(html: bytes, max_text_chars: int | None = None) -> str:
     """Extract readable text from HTML."""
     soup = BeautifulSoup(html, "html.parser")
 
@@ -105,4 +120,5 @@ def extract_text_from_html(html: bytes) -> str:
     chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
     text = "\n".join(chunk for chunk in chunks if chunk)
 
-    return text[:15000]
+    limit = 15000 if max_text_chars is None else max(1, int(max_text_chars))
+    return text[:limit]

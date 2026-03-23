@@ -1,11 +1,25 @@
 # 実装進捗ドキュメント
 
-最終更新: 2026-03-20
+**最終更新**: 2026-03-22
 
-このドキュメントは `docs/SPEC.md` に記載されている機能の実装状況を追跡します。
+## 人向け要約（読み始めに）
+
+`docs/SPEC.md` の機能ごとに、**実装済みかどうか**を表形式で追うメモです。プラン別の上限・クレジット付与・料金は **`src/lib/stripe/config.ts`、`src/lib/credits/`、各 `src/app/api/`** を正とし、本表と食い違う場合はコード側の更新が先です。
+
+**凡例**: ✅ 完了 / 🟡 部分実装 / 🔴 未実装 / ⏸️ MVP 除外
+
+---
 
 ## 最近の更新
 
+- 2026-03-21: LP・UI/UX 改善。カラーシステムを oklch hue 265（パープル）→ 235（ブルー）に移行。LP 全セクションのコピーを共感+安心型に書き換え、色を `text-primary` / `bg-primary/*` に統一。ローディング UI をスケルトン UI に統一し、`RouteProgressBar` と `PageLoadingState` を廃止。ページ別スケルトン 7 種を `src/components/skeletons/` に追加し、9 個の `loading.tsx` を更新。`/pricing` ページに損失回避（Free 制限コールアウト）、1クレジットあたりコスト表示、FAQ 2 項目追加。
+- 2026-03-21: 主要導線のパフォーマンス改善。`/companies/[id]` と `/es/[id]` を server wrapper + client island 構成へ移行し、初回表示の company/document/applications/deadlines/ES 一覧を shared loader (`src/lib/server/app-loaders.ts`) から直接取得する形に変更。`useApplications` / `useCompanyDeadlines` / `useDocument` に `initialData` 対応を追加し、mount 時の不要 fetch を削減。`/api/companies/[id]` と `/api/documents/[id]` は `getRequestIdentity()` + `Server-Timing` 付きの shared loader 経由に統一。旧 page 実装は `src/components/companies/CompanyDetailPageClient.tsx` と `src/components/es/ESEditorPageClient.tsx` へ移し、App Router page は薄い server wrapper に整理。
+- 2026-03-21: `/pricing` ページを UX 心理学テクニック適用＋プレミアムリデザイン。アンカリング効果（年額時に月額取り消し線＋具体的な節約額表示）、メンタルアカウンティング（日割り表現改善）、コントラスト効果（年額トグルに 15%お得バッジ＋最大節約額アニメーション表示）を適用。テキスト比較セクションを視覚的な比較テーブルに置換。FAQ を統一カード＋回転シェブロンの洗練されたアコーディオンに改善。pricing 専用カードと比較レイアウトを再設計し、LP `PricingSection` のプラン仕様を `/pricing` と統一。
+- 2026-03-22: ES添削 ReviewPanel のスクロール UX を再整理。開始直後は `priming` でパネル上端と内側コンテナ先頭を見せ、最初の実結果が見えた時点で `following` に移って下端追尾、ユーザーが上へ戻ったら `paused` で追尾停止する phase 制御に統一。scroll helper / unit test を更新し、重複していた scroll effect と古い ref を削除。`docs/features/ES_REVIEW.md` を実装に合わせて更新。
+- 2026-03-21: ES添削・クレジット不具合修正。ReviewPanel 二重マウント解消（`useSyncExternalStore` で viewport 判定し単一マウント）、`acquireLock` 失敗時のトースト表示、`useCredits` の 401 フォールバック修正（認証済みユーザーにゲスト値を返さない）、DashboardHeader のクレジット読み込み/エラー表示、`useESReview` の HTTP 402 明示処理、ReviewPanel のクレジット不足ソフトガード、`review/stream` のクレジット確定ロジック強化（ストリーム終了時のバッファ再スキャン）。
+- 2026-03-21: ES添削の retry / pricing / provider 契約を簡素化。rewrite は最大3回 + 専用 length-fix 1回に統一し、Standard 300 / Pro 1000 credits と新しい ES credit band（<=500 / <=1000 / <=1500 / >1500）に更新。
+- 2026-03-22: ES添削の OpenAI rewrite を stability-first の plain text 経路へ切り替え、`prompt_cache_key` と `verbosity=medium` を追加。strict 文字数帯は常に `X-10〜X` に戻し、通常 target を `max(X-10, X-5)〜X`、under-min recovery を `max(X-10, X-3)〜X` に統一。最終段のみ全帯域で `0.9X〜X` の soft rescue を許可し、`answer_focus / grounding / 参考ES距離 / だ・である調` は strict 維持。Gemini は低温固定を外し、live gate は `all_standard` sweep を手動・夜間で回せるよう更新した。
+- 2026-03-21: セキュリティベースライン文書（`docs/ops/SECURITY.md`）、法令用 `LEGAL_*` の `.env.example` 追記、LP プレースホルダ SVG の刷新とマーケドキュメント（`docs/marketing/README.md`）、設定画面の個人名っぽいプレースホルダ除去、内部 STRATEGY のペルソナ見出しから固有名を除去。
 - 2026-03-20: ES添削のモデル選択を `Claude / GPT / Gemini / クレジット消費を抑えて添削` に整理。企業未選択時バナー、内部出典リンク、自動スクロール追従の改善、OpenAI 経路の `Responses API` 採用を反映。
 - 2026-03-20: 企業RAG課金を整数クレジットに統一。`40 unit = 1クレジット`、月次無料枠 `160 / 640 / 2400 unit`、1社あたり上限 `10 / 100 / 500 source`、`company_info_monthly_usage` 追加と既存 credits 2倍 migration を適用。
 - 2026-03-14: Codex 用の安全ラッパー CLI を追加。`git / gh / vercel / railway / supabase / stripe / modal / hf / huggingface-cli / gcloud` を同名 wrapper で包み、危険操作を拒否しつつ `develop -> main -> 本番` の運用を維持。
@@ -29,7 +43,7 @@
 | JST タイムゾーン対応 | ✅ 完了 | 日付表示、リセット処理 |
 | 成功時のみ消費 | ✅ 完了 | クレジット、無料回数とも実装済み |
 | 非同期UX | ✅ 完了 | トースト・通知機能、処理中表示実装済み |
-| パフォーマンス要件（1.4） | ✅ 完了 | プログレス表示実装済み |
+| パフォーマンス要件（1.4） | ✅ 完了 | スケルトン UI でローディング表示 |
 | セッション管理（1.5） | 🟡 部分実装 | 7日タイムアウト要検証 |
 | オフライン対応（1.6） | 🟡 部分実装 | ES編集ローカル保存は部分的 |
 | A11y（1.7） | 🟡 部分実装 | キーボード操作基本対応、WCAG AA未対応 |
@@ -70,9 +84,9 @@
 
 | 機能 | 状態 | 備考 |
 |------|------|------|
-| 月次付与 | ✅ 完了 | Free: 30, Standard: 300, Pro: 1300 |
+| 月次付与 | ✅ 完了 | Free: 30, Standard: 300, Pro: 1000 |
 | 企業情報取得/更新の無料回数 | ✅ 完了 | Guest: 5、Free: 10、Standard: 20、Pro: 40 / 日 |
-| ES添削クレジット消費 | ✅ 完了 | 標準 10/12/16、低コスト 4/6/8 |
+| ES添削クレジット消費 | ✅ 完了 | Claude 4/6/8/10、GPT 4/6/8/10、Gemini 4/6/8/10、low-cost 1/2/4/6 |
 | 部分成功（0クレジット） | ✅ 完了 | 締切抽出失敗でも他データ保存時は無料 |
 | 部分成功UX | ✅ 完了 | 部分成功メッセージと課金ルールを最新化 |
 | 0.5累積バー表示 | ⏸️ MVP除外 | 0.5クレジット仕様を廃止 |
@@ -147,7 +161,7 @@
 
 | 機能 | 状態 | 備考 |
 |------|------|------|
-| 採用ページ候補3件提示 | 🔴 未実装 | 現在は手動URL入力のみ |
+| 採用ページ候補の検索・選択 | ✅ 完了 | `/api/companies/[id]/search-pages` + UI（FastAPI `/company-info/search-pages`、未接続時はモック） |
 | 手動URL入力 | ✅ 完了 | `FetchInfoButton` |
 | 情報抽出（締切/募集区分等） | 🟡 部分実装 | FastAPI `company_info.py` 基本実装済み |
 | 根拠URL・信頼度表示 | 🟡 部分実装 | スキーマにフィールドあり、UI表示は部分的 |
@@ -260,12 +274,12 @@
 | 企業接続評価（RAG時のみ） | ✅ 完了 | |
 | 全文添削（コピーのみ） | ✅ 完了 | |
 | 並列添削対応（16.1） | 🟡 部分実装 | 複数セクション同時添削 |
-| 添削中の編集ロック（16.1） | 🔴 未実装 | 添削対象セクションのロック |
+| 添削中の編集ロック（16.1） | 🟡 部分実装 | 本文全体をロック。上部の進行帯は非表示 |
 | セクション/ブロック反映 | 🟡 部分実装 | クリップボードコピーのみ、直接反映は未実装 |
 | 反映確認モーダル + Undo | 🔴 未実装 | |
-| AIスレッド管理 | 🟡 部分実装 | スキーマあり、UI未実装 |
+| AIスレッド管理 | 🟡 部分実装 | スキーマとAPIは残存、ES editor のUI利用は停止 |
 | ES添削スレッド中断・再開（16.10） | 🟡 部分実装 | ガクチカと同様の中断機能 |
-| 添削履歴保存（Free: 20件等） | 🟡 部分実装 | 保存済み、上限管理未実装 |
+| 添削履歴保存（Free: 20件等） | ⚪️ 未使用 | ES editor からの新規保存を停止 |
 | 英語ES対応（16.1） | ✅ 完了 | 言語自動判定なし（入力テキストから判断） |
 
 ### ESテンプレ (SPEC Section 16.9)
@@ -286,7 +300,7 @@
 | Q&A保存 | ✅ 完了 | `gakuchikaConversations` |
 | 再実行時の履歴保持（17.2） | ✅ 完了 | 別セッション開始と同一セッション再開の両方に対応 |
 | 素材の企業紐づけ | ⚪︎ スキーマ残存 | 現行の深掘り UI / API では未使用 |
-| サマリー生成 | ✅ 完了 | 完了時は `/structured-summary` を使用 |
+| サマリー生成 | ✅ 完了 | 完了時は `/structured-summary` のみ（失敗時は回答連結フォールバック） |
 
 ---
 
@@ -303,13 +317,13 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 企業RAG連携 | ✅ 完了 | 企業情報を質問に反映 |
 | 回答候補 / 参考企業情報 | ✅ 完了 | `suggestionOptions` は `2〜4件` の直接回答文に絞り、`evidenceCards` は compact card UI で表示 |
 | ガクチカ連携 | ✅ 完了 | 完了済み要約を質問生成に反映 |
-| SSEストリーミング送信 | ✅ 完了 | 進捗表示と質問文の逐次表示 |
+| SSEストリーミング送信 | ✅ 完了 | 進捗表示と canonical question の逐次表示 |
 | ES下書き生成 | ✅ 完了 | 300/400/500文字指定 |
 | 企業ページからの導線 | ✅ 完了 | 「志望動機を作成」ボタン |
 | 進捗バー（4要素） | ✅ 完了 | スコア表示UI |
 | setup-first 初期設定 | ✅ 完了 | 業界/職種をチャット前に確定 |
 | 初回開始の空履歴処理 | ✅ 完了 | 空 `messages=[]` をそのまま LLM に渡さない |
-| 質問適合4択 | ✅ 完了 | LLM質問は server-side validator で単一論点・stage 適合を確認し、回答候補は grounded builder で `2〜4件` の直接回答文に絞る。raw企業文や見出しは除外 |
+| 質問適合4択 | ✅ 完了 | LLM質問は server-side validator で単一論点・stage 適合を確認し、`question_focus` と grounded builder で `2〜4件` の直接回答文に絞る。raw企業文や見出しは除外 |
 
 **関連ファイル:**
 - `backend/app/routers/motivation.py`
@@ -382,6 +396,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | ES添削レートリミット | 🟡 部分実装 | CRON認証強化、基本レート制限実装 |
 | 企業情報取得レートリミット | 🟡 部分実装 | SSRF対策、基本レート制限実装 |
 | 異常パターン検知・ブロック | 🔴 未実装 | |
+| 運用ドキュメント（ヘッダー・CSP・ログ・法令 env） | ✅ 完了 | `docs/ops/SECURITY.md` |
 
 ---
 
@@ -423,10 +438,11 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 
 | テスト | 状態 | ファイル |
 |------|------|------|
-| 認証 | ✅ 作成済み | `e2e/auth.spec.ts` |
-| 企業管理 | ✅ 作成済み | `e2e/companies.spec.ts` |
-| ESエディタ | ✅ 作成済み | `e2e/es-editor.spec.ts` |
-| タスク管理 | ✅ 作成済み | `e2e/tasks.spec.ts` |
+| guest major | ✅ 再編済み | `e2e/guest-major.spec.ts` |
+| user major | ✅ 再編済み | `e2e/user-major.spec.ts` |
+| auth / access | ✅ 再編済み | `e2e/auth-access.spec.ts` |
+| focused regressions | ✅ 維持 | `e2e/regression-bugs.spec.ts`, `e2e/motivation.spec.ts` |
+| UI review | ✅ 追加済み | `e2e/ui-review.spec.ts` |
 
 ---
 
@@ -538,13 +554,13 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 
 ### 2026-03-11
 - 🧠 **ES添削の企業補強を current-run 品質向上向けに更新**
-  - `complete` 後の次回向け補強をやめ、streaming rewrite 開始前に企業ページ検索・取得を同期実行する pre-stream 補強へ変更
+  - `complete` 後の次回向け補強をやめ、ユーザーが選択した企業ソースをその回の添削で使う流れへ整理
   - broad role では `事業理解 / 成長機会 / 価値観 / 将来接続` の設問軸で query を組み立て、公式 source の不足を補う
   - 高信頼二次情報は query hint にだけ使い、本文根拠と UI 出典は一次情報に限定
-  - pre-stream 補強は bounded wait にし、coverage 不足の content type を優先して time budget 内でだけ補う
+  - 追加ソースは bounded wait にし、coverage 不足の content type を優先して time budget 内でだけ補う
 - ✍️ **ES添削の参考ES活用を quality + outline へ拡張**
   - `reference quality block` に coarse な骨子を追加し、品質ヒントに加えて論点配置も prompt へ渡すよう更新
-  - `review_meta` に `enrichment_completed` / `enrichment_sources_added` / `reference_outline_used` を追加
+  - `review_meta` に `reference_outline_used` を追加
 - 📏 **ES添削の根拠カバレッジ通知を追加**
   - `review_meta` に `evidence_coverage_level` / `weak_evidence_notice` を追加
   - 企業根拠が薄いときは安全寄りに返しつつ UI で通知できるよう更新
@@ -689,7 +705,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
   - フロントの標準経路ラベルを `Claude` 固定ではなく実選択モデルベースへ変更
 - ✅ ES添削パネルに `モデル選択` dropdown を追加
   - 標準添削は `Claude Sonnet 4.5 / GPT-5.1 / Gemini 3.1 Pro Preview / Cohere Command A / DeepSeek V3.2` を UI から選択可能に更新
-  - Qwen3 Swallow 32B β は従来どおり別経路として残し、比較時だけ切り替える構成に整理
+  - 低コスト導線を `GPT-5.4-mini` ベースに統一
 
 ### 2026-03-13
 - ✅ GPT-5.1 の 400字設問 under-min を prompt 主導で改善
@@ -697,8 +713,8 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
   - `under_min` が続く場合は 3 回目以降に length-focused retry へ切り替え、最後の length-fix も 45 字不足まで救済するよう更新
   - Claude の prompt / transport / 挙動は変更せず、標準モデル側だけを調整
 - ✅ ES添削の企業補強を current-run で使えるように更新
-  - pre-stream enrichment で取得した corporate URL を `prestream_source_urls` として同一 review request に渡し、BM25 更新待ちに依存せずその回の evidence に直接差し込むように変更
   - ユーザーが手動追加した URL / PDF は `user_provided_corporate_urls` として最優先 evidence 扱いに変更
+  - 企業RAG はユーザーが選択して保存した公開ソースのみを使うように変更
 - ✅ ES添削の required 設問で role grounding 判定を厳格化
   - `employee_interviews` 1件だけでは `role_grounded` に上げず、role/company の片軸欠けがある `partial` でも second pass が動くように更新
 - ✅ 企業検索の official score を補正

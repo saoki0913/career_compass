@@ -2,7 +2,7 @@
 Hybrid Search Module
 
 Hybrid retrieval pipeline (dense + optional BM25).
-Uses multi-query + HyDE + RRF + MMR + optional LLM rerank.
+Uses multi-query + HyDE + RRF + MMR + optional cross-encoder rerank.
 """
 
 import asyncio
@@ -299,29 +299,6 @@ HYDE_SCHEMA = {
     },
 }
 
-RERANK_SCHEMA = {
-    "name": "rag_rerank_scores",
-    "schema": {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["ranked"],
-        "properties": {
-            "ranked": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["id", "score"],
-                    "properties": {
-                        "id": {"type": "string"},
-                        "score": {"type": "number", "minimum": 0, "maximum": 100},
-                    },
-                },
-            }
-        },
-    },
-}
-
 
 def adaptive_rrf_k(num_queries: int, base_k: int = 30) -> int:
     """Compute adaptive RRF k based on the number of query lists being merged.
@@ -427,7 +404,7 @@ def _should_short_circuit_search(results: list[dict], n_results: int) -> bool:
 
 
 def _should_rerank(results: list[dict], threshold: float) -> bool:
-    """Decide whether LLM reranking is worthwhile.
+    """Decide whether cross-encoder reranking is worthwhile.
 
     Uses score variance among the top results to detect ambiguous rankings
     where reranking can most help.  Very high or very low confidence results
@@ -894,77 +871,6 @@ async def generate_hypothetical_document(query: str) -> str:
     return ""
 
 
-async def rerank_results_with_llm(
-    query: str,
-    results: list[dict],
-    max_items: int = DEFAULT_RERANK_CANDIDATES,
-) -> list[dict]:
-    """Rerank results using an LLM scorer. Returns original order on failure."""
-    if not results:
-        return results
-
-    candidates = []
-    for item in results[:max_items]:
-        candidates.append(
-            {
-                "id": item.get("id", ""),
-                "text": (item.get("text") or "")[:400],
-                "content_type": (item.get("metadata") or {}).get("content_type", ""),
-                "chunk_type": (item.get("metadata") or {}).get("chunk_type", ""),
-                "source_url": (item.get("metadata") or {}).get("source_url", ""),
-            }
-        )
-
-    system_prompt = """あなたはRAG検索の再ランキング用スコアラーです。
-就活生が企業研究やES作成に使うことを前提に、以下の基準で各候補を0〜100で採点してください。
-
-## スコアリング基準
-- 90-100: クエリに直接回答する情報（採用要件、締切日、具体的な事業内容）
-- 70-89: クエリに関連する有用な情報（企業文化、社員の声、関連事業）
-- 40-69: 間接的に関連（業界一般の情報、親会社の情報）
-- 0-39: 無関連またはノイズ（ニュース、広告、無関係ページ）
-
-## 重要な判断軸
-- 就活生にとっての実用性を最優先
-- 公式情報（採用ページ、IR）は非公式（ブログ、口コミ）より高評価
-- 具体的な数字・日程を含む文書は高評価
-JSONのみで返してください。"""
-
-    user_message = f"""クエリ:
-{query}
-
-候補:
-{json.dumps(candidates, ensure_ascii=False, indent=2)}
-
-出力形式:
-{{"ranked": [{{"id":"...", "score": 0}}, ...]}}"""
-
-    llm_result = await call_llm_with_error(
-        system_prompt=system_prompt,
-        user_message=user_message,
-        max_tokens=1500,
-        temperature=0.2,
-        feature="rag_rerank",
-        response_format="json_schema",
-        json_schema=RERANK_SCHEMA,
-        use_responses_api=True,
-    )
-
-    if not llm_result.success or not llm_result.data:
-        return results
-
-    ranked = llm_result.data.get("ranked", [])
-    score_map = {
-        item.get("id"): item.get("score", 0) for item in ranked if item.get("id")
-    }
-
-    def score(item: dict) -> float:
-        return score_map.get(item.get("id"), 0)
-
-    reranked = sorted(results, key=score, reverse=True)
-    return reranked
-
-
 async def semantic_search(
     company_id: str,
     query: str,
@@ -1018,7 +924,7 @@ async def dense_hybrid_search(
     3) Semantic search per query
     4) RRF merge
     5) MMR (optional)
-    6) LLM rerank (optional)
+    6) Cross-encoder rerank (optional)
     """
     query = (query or "").strip()
     if not query:

@@ -13,11 +13,12 @@ import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
-import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
+import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { persistGakuchikaSummary } from "@/app/api/gakuchika/summary-server";
 import {
   FASTAPI_URL,
   QUESTIONS_PER_CREDIT,
+  CREDITS_PER_QUESTION_BATCH,
   buildHintPayload,
   getIdentity,
   getWeakestElement,
@@ -27,6 +28,12 @@ import {
   type Message,
   type STAREvaluation,
 } from "@/app/api/gakuchika/shared";
+import {
+  getRequestId,
+  logAiCreditCostSummary,
+  splitInternalTelemetry,
+  type InternalCostTelemetry,
+} from "@/lib/ai/cost-summary-log";
 
 export async function POST(
   request: NextRequest,
@@ -34,6 +41,7 @@ export async function POST(
 ) {
   try {
     const { id: gakuchikaId } = await params;
+    const requestId = getRequestId(request);
     const identity = await getIdentity(request);
     if (!identity) {
       return new Response(
@@ -44,21 +52,22 @@ export async function POST(
 
     const { userId, guestId } = identity;
 
-    // Rate limiting check
-    const rateLimitKey = createRateLimitKey("conversation", userId, guestId);
-    const rateLimit = await checkRateLimit(rateLimitKey, RATE_LIMITS.conversation);
-    if (!rateLimit.allowed) {
+    if (!userId) {
       return new Response(
-        JSON.stringify({ error: "リクエストが多すぎます。しばらく待ってから再試行してください。" }),
-        {
-          status: 429,
-          headers: {
-            "Content-Type": "application/json",
-            "Retry-After": String(rateLimit.resetIn),
-            "X-RateLimit-Remaining": String(rateLimit.remaining),
-          },
-        }
+        JSON.stringify({ error: "ガクチカのAI深掘りはログインが必要です" }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
       );
+    }
+
+    const rateLimited = await enforceRateLimitLayers(
+      request,
+      [...CONVERSATION_RATE_LAYERS],
+      userId,
+      guestId,
+      "gakuchika_conversation_stream"
+    );
+    if (rateLimited) {
+      return rateLimited;
     }
 
     // Verify gakuchika access
@@ -161,7 +170,7 @@ export async function POST(
     // Credit check (every QUESTIONS_PER_CREDIT questions for logged-in users)
     const shouldConsumeCredit = newQuestionCount > 0 && newQuestionCount % QUESTIONS_PER_CREDIT === 0 && !!userId;
     if (shouldConsumeCredit) {
-      const canPay = await hasEnoughCredits(userId!, 1);
+      const canPay = await hasEnoughCredits(userId!, CREDITS_PER_QUESTION_BATCH);
       if (!canPay) {
         return new Response(
           JSON.stringify({ error: "クレジットが不足しています" }),
@@ -178,7 +187,7 @@ export async function POST(
     try {
       aiResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/next-question/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
         body: JSON.stringify({
           gakuchika_title: gakuchika.title,
           gakuchika_content: gakuchika.content || null,
@@ -195,11 +204,25 @@ export async function POST(
     } catch (fetchError) {
       clearTimeout(fetchTimeoutId);
       if (fetchError instanceof Error && fetchError.name === "AbortError") {
+        logAiCreditCostSummary({
+          feature: "gakuchika",
+          requestId,
+          status: "failed",
+          creditsUsed: 0,
+          telemetry: null,
+        });
         return new Response(
           JSON.stringify({ error: "AIの応答がタイムアウトしました。再度お試しください。" }),
           { status: 504, headers: { "Content-Type": "application/json" } }
         );
       }
+      logAiCreditCostSummary({
+        feature: "gakuchika",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry: null,
+      });
       return new Response(
         JSON.stringify({ error: "AIサービスに接続できませんでした" }),
         { status: 502, headers: { "Content-Type": "application/json" } }
@@ -209,10 +232,23 @@ export async function POST(
     }
 
     if (!aiResponse.ok) {
-      const errorBody = await aiResponse.json().catch(() => ({}));
+      const rawErrorBody = await aiResponse.json().catch(() => ({}));
+      const { payload, telemetry } =
+        rawErrorBody && typeof rawErrorBody === "object"
+          ? splitInternalTelemetry(rawErrorBody as Record<string, unknown>)
+          : { payload: rawErrorBody, telemetry: null as InternalCostTelemetry | null };
+      logAiCreditCostSummary({
+        feature: "gakuchika",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry,
+      });
       return new Response(
         JSON.stringify({
-          error: errorBody?.detail?.error || "AIサービスに接続できませんでした",
+          error:
+            (payload as { detail?: { error?: string } } | null)?.detail?.error ||
+            "AIサービスに接続できませんでした",
         }),
         { status: aiResponse.status, headers: { "Content-Type": "application/json" } }
       );
@@ -221,6 +257,13 @@ export async function POST(
     // Consume-and-re-emit: intercept SSE events, process complete event
     const fastApiBody = aiResponse.body;
     if (!fastApiBody) {
+      logAiCreditCostSummary({
+        feature: "gakuchika",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry: null,
+      });
       return new Response(
         JSON.stringify({ error: "AIレスポンスが空です" }),
         { status: 502, headers: { "Content-Type": "application/json" } }
@@ -229,6 +272,26 @@ export async function POST(
 
     const reader = fastApiBody.getReader();
     const decoder = new TextDecoder();
+    let summaryLogged = false;
+    let latestTelemetry: InternalCostTelemetry | null = null;
+
+    const logSummaryOnce = (args: {
+      status: "success" | "failed" | "cancelled";
+      creditsUsed: number;
+      telemetry?: InternalCostTelemetry | null;
+    }) => {
+      if (summaryLogged) {
+        return;
+      }
+      summaryLogged = true;
+      logAiCreditCostSummary({
+        feature: "gakuchika",
+        requestId,
+        status: args.status,
+        creditsUsed: args.creditsUsed,
+        telemetry: args.telemetry ?? latestTelemetry,
+      });
+    };
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -257,13 +320,16 @@ export async function POST(
 
               let event;
               try {
-                event = JSON.parse(jsonStr);
+                const rawEvent = JSON.parse(jsonStr) as Record<string, unknown>;
+                const { payload, telemetry } = splitInternalTelemetry(rawEvent);
+                latestTelemetry = telemetry ?? latestTelemetry;
+                event = payload;
               } catch {
                 continue;
               }
 
               if (event.type === "progress" && !hasStartedQuestionStream) {
-                controller.enqueue(encoder.encode(line + "\n\n"));
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
               } else if (
                 event.type === "string_chunk" &&
                 event.path === "question" &&
@@ -271,7 +337,7 @@ export async function POST(
               ) {
                 hasStartedQuestionStream = true;
                 streamedQuestionText += event.text;
-                controller.enqueue(encoder.encode(line + "\n\n"));
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
               } else if (
                 event.type === "field_complete" &&
                 event.path === "star_scores" &&
@@ -292,10 +358,16 @@ export async function POST(
                   );
                 }
               } else if (event.type === "complete") {
-                const fastApiData = event.data;
+                const fastApiData = (event as {
+                  data: {
+                    question?: string;
+                    target_element?: string;
+                    star_evaluation?: STAREvaluation;
+                  };
+                }).data;
 
                 if (shouldConsumeCredit) {
-                  await consumeCredits(userId!, 2, "gakuchika", gakuchikaId);
+                  await consumeCredits(userId!, CREDITS_PER_QUESTION_BATCH, "gakuchika", gakuchikaId);
                 }
 
                 let newStarScores = currentStarScores || { situation: 0, task: 0, action: 0, result: 0 };
@@ -370,11 +442,19 @@ export async function POST(
                     summaryPending: isCompleted,
                   },
                 };
+                logSummaryOnce({
+                  status: "success",
+                  creditsUsed: shouldConsumeCredit ? CREDITS_PER_QUESTION_BATCH : 0,
+                });
                 controller.enqueue(
                   encoder.encode(`data: ${JSON.stringify(enrichedEvent)}\n\n`)
                 );
               } else if (event.type === "error") {
-                controller.enqueue(encoder.encode(line + "\n\n"));
+                logSummaryOnce({
+                  status: "failed",
+                  creditsUsed: 0,
+                });
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
               }
             }
           }
@@ -387,7 +467,17 @@ export async function POST(
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`)
           );
+          logSummaryOnce({
+            status: "failed",
+            creditsUsed: 0,
+          });
         } finally {
+          if (!summaryLogged) {
+            logSummaryOnce({
+              status: "cancelled",
+              creditsUsed: 0,
+            });
+          }
           controller.close();
         }
       },

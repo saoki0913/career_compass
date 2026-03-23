@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DEADLINE_TYPE_LABELS } from "@/hooks/useCompanyDeadlines";
 import type { Deadline, DeadlineType } from "@/hooks/useCompanyDeadlines";
+import { notifySuccess } from "@/lib/notifications";
 
 interface DeadlineApprovalModalProps {
   isOpen: boolean;
@@ -116,6 +117,10 @@ export function DeadlineApprovalModal({
 
     try {
       await onConfirm(Array.from(selectedIds));
+      notifySuccess({
+        title: "締切を保存しました",
+        description: `${selectedIds.size}件の締切を承認しました`,
+      });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "承認に失敗しました");

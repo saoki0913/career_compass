@@ -68,10 +68,10 @@ Feature-based model routing via `config.py`:
 | Gakuchika | Claude Haiku | MODEL_GAKUCHIKA |
 | Motivation | Claude Haiku | MODEL_MOTIVATION |
 | Company Info | OpenAI (GPT-5-mini) | MODEL_COMPANY_INFO |
-| RAG Query Expansion | Claude Haiku | MODEL_RAG_QUERY_EXPANSION |
-| RAG HyDE | Claude Sonnet | MODEL_RAG_HYDE |
-| RAG Rerank | Claude Sonnet | MODEL_RAG_RERANK |
-| RAG Classify | Claude Haiku | MODEL_RAG_CLASSIFY |
+| RAG Query Expansion | GPT-5.4 mini (`gpt-fast`) | MODEL_RAG_QUERY_EXPANSION |
+| RAG HyDE | GPT-5.4 mini (`gpt-fast`) | MODEL_RAG_HYDE |
+| RAG Rerank | CrossEncoder (local, no LLM) | — |
+| RAG Classify | GPT-5.4 nano (`gpt-nano`) | MODEL_RAG_CLASSIFY |
 | Selection Schedule | Claude Haiku | MODEL_SELECTION_SCHEDULE |
 
 ## Database Schema (24 tables)
@@ -83,7 +83,7 @@ Feature-based model routing via `config.py`:
 ### Gakuchika: gakuchikaContents, gakuchikaConversations
 ### Motivation: motivationConversations
 ### AI: aiThreads, aiMessages
-### Credits: credits, creditTransactions, subscriptions, dailyFreeUsage
+### Credits: credits, creditTransactions, subscriptions, companyInfoMonthlyUsage
 ### Calendar: calendarSettings, calendarEvents
 ### Notifications: notifications, notificationSettings
 ### Templates: esTemplates, templateLikes, templateFavorites

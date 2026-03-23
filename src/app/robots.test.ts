@@ -9,6 +9,8 @@ describe("robots", () => {
       expect.arrayContaining([
         "/es-tensaku-ai",
         "/shukatsu-ai",
+        "/entry-sheet-ai",
+        "/es-ai-guide",
         "/shukatsu-kanri",
       ])
     );

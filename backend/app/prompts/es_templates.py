@@ -277,14 +277,106 @@ def _format_char_condition(char_min: Optional[int], char_max: Optional[int]) -> 
     return "未指定"
 
 
-def _format_target_char_window(char_min: Optional[int], char_max: Optional[int]) -> str:
+# 文字数パイプライン: メイン rewrite → _validate_rewrite_candidate →（必要時）length_fix。
+# 内部目標帯は compute_internal_target_gap / _format_target_char_window で
+# メイン・フォールバック・length_fix プロンプトに一貫して埋め込む。
+
+
+def compute_internal_target_gap(
+    char_min: Optional[int],
+    char_max: Optional[int],
+    *,
+    original_len: int = 0,
+    llm_model: Optional[str] = None,
+    stage: str = "default",
+) -> int:
+    """LLM向けの内部目標帯の幅（char_max からの差分）。短文回答ほど広めに取る。"""
+    if stage == "under_min_recovery":
+        return 3
+    if not char_max:
+        return 5
+    span = char_max - (char_min or 0)
+    if span < 1:
+        return max(1, min(5, char_max))
+    ratio = min(1.0, max(0.0, float(original_len) / float(max(char_max, 1))))
+    raw = round(span * (0.08 + 0.12 * (1.0 - ratio)))
+    hi = min(40, span)
+    lo = min(8, hi)
+    gap = max(lo, min(hi, raw))
+    model_l = (llm_model or "").lower()
+    if "mini" in model_l or "nano" in model_l:
+        gap = min(hi, gap + 6)
+    return max(1, gap)
+
+
+def _target_window_bounds(
+    char_min: Optional[int],
+    char_max: Optional[int],
+    *,
+    stage: str = "default",
+    original_len: int = 0,
+    llm_model: Optional[str] = None,
+) -> tuple[Optional[int], Optional[int]]:
+    if not char_max:
+        return char_min, char_max
+
+    gap = compute_internal_target_gap(
+        char_min,
+        char_max,
+        original_len=original_len,
+        llm_model=llm_model,
+        stage=stage,
+    )
+    target_low = max(char_min or 0, char_max - gap)
+    target_high = char_max
+    return target_low, target_high
+
+
+def _format_target_char_window(
+    char_min: Optional[int],
+    char_max: Optional[int],
+    *,
+    stage: str = "default",
+    original_len: int = 0,
+    llm_model: Optional[str] = None,
+) -> str:
     if not char_max:
         return _format_char_condition(char_min, char_max)
 
-    gap = 6 if char_max <= 220 else 8
-    target_low = max(char_min or 0, char_max - gap)
-    target_high = max(target_low, char_max - 2)
+    target_low, target_high = _target_window_bounds(
+        char_min,
+        char_max,
+        stage=stage,
+        original_len=original_len,
+        llm_model=llm_model,
+    )
+    if target_low is None or target_high is None:
+        return _format_char_condition(char_min, char_max)
     return f"{target_low}字〜{target_high}字"
+
+
+def _format_length_policy_block(
+    char_min: Optional[int],
+    char_max: Optional[int],
+    *,
+    stage: str = "default",
+    original_len: int = 0,
+    llm_model: Optional[str] = None,
+) -> str:
+    target_window = _format_target_char_window(
+        char_min,
+        char_max,
+        stage=stage,
+        original_len=original_len,
+        llm_model=llm_model,
+    )
+    final_floor = f"{int(char_max * 0.9 + 0.999999999)}字" if char_max else "未指定"
+    return f"""<length_policy>
+- strict受理帯: {_format_char_condition(char_min, char_max)}
+- 今回の内部目標帯: {target_window}
+- strictに届かない場合でも、最終段だけ {final_floor} 以上なら受理余地がある
+- ただし soft救済は最後だけで、通常段では strict を守る
+</length_policy>"""
 
 
 def _format_user_fact_guidance(allowed_user_facts: Optional[list[dict]]) -> str:
@@ -398,28 +490,56 @@ def _format_short_answer_guidance(
     template_type: str,
     char_min: Optional[int],
     char_max: Optional[int],
+    *,
+    stage: str = "default",
+    original_len: int = 0,
+    llm_model: Optional[str] = None,
 ) -> str:
     if not char_max or char_max > 220:
         return ""
 
-    target = max(0, char_max - 2)
+    target = _format_target_char_window(
+        char_min,
+        char_max,
+        stage=stage,
+        original_len=original_len,
+        llm_model=llm_model,
+    )
     structure_map = {
         "intern_reason": "1文目で参加理由、2文目で根拠経験、必要なら3文目でこのインターンで得たいことを置く",
         "intern_goals": "1文目で学びたいこと、2文目で根拠経験、必要なら3文目でインターン接点を置く",
         "role_course_reason": "1文目で職種志望、2文目で根拠経験、必要なら3文目で企業接点を置く",
         "company_motivation": "1文目で志望理由、2文目で根拠経験、必要なら3文目で企業接点を置く",
         "post_join_goals": "1文目でやりたいこと、2文目で根拠経験、必要なら3文目で企業接点を置く",
+        "self_pr": "1文目で強みの核、2文目で根拠経験、必要なら3文目で仕事や企業との接点を置く",
+        "gakuchika": "1文目で最も力を入れた行動、2文目で工夫や成果、必要なら3文目で仕事との接点を置く",
+        "work_values": "1文目で価値観の核、2文目で根拠経験、必要なら3文目で仕事との接点を置く",
     }
     structure = structure_map.get(
         template_type,
         "1文目で結論、2文目で根拠、必要なら3文目で企業や仕事との接点を置く",
     )
+    min_guard = f"- {char_min}字未満で終えない" if char_min else ""
+    extra_lines: list[str] = []
+    if 160 <= char_max <= 220 and template_type in {"self_pr", "gakuchika", "work_values"}:
+        extra_lines.extend(
+            [
+                "- 3文で締め、3文目で仕事や再現性につながる価値を言い切る",
+                "- 2文目の具体経験を削りすぎず、根拠の一手だけは残す",
+            ]
+        )
+    if stage == "under_min_recovery":
+        extra_lines.append("- 今回は不足分を埋めるため、最後の1文まで使って target を取りにいく")
+    extra_guidance = "\n" + "\n".join(extra_lines) if extra_lines else ""
     return f"""
 【短字数設問の書き方】
 - 2〜3文で構成する
 - {structure}
-- 目標は {target}字前後で、短く終わらせない
-- 文を細かく切りすぎず、各文に意味を持たせる"""
+- 目標は {target} で、短く終わらせない
+- 文字数が足りないときは、既にある経験・役割・企業接点のつながりを1文だけ補う
+- 一般論の言い換えだけで埋めず、元回答にある材料をつないで伸ばす
+{min_guard}
+- 文を細かく切りすぎず、各文に意味を持たせる{extra_guidance}"""
 
 
 def _format_midrange_length_guidance(
@@ -429,6 +549,8 @@ def _format_midrange_length_guidance(
     *,
     length_control_mode: str = "default",
     length_shortfall: Optional[int] = None,
+    original_len: int = 0,
+    llm_model: Optional[str] = None,
 ) -> str:
     if not char_min or not char_max or char_max < 300 or char_max > 500:
         return ""
@@ -449,7 +571,14 @@ def _format_midrange_length_guidance(
         "post_join_goals": "1文目で入社後の目標、2文目で根拠経験、3文目で企業との接点、4文目で価値発揮の方向性を置く",
         "role_course_reason": "1文目で職種・コース志望、2文目で根拠経験、3文目で企業や事業との接点、4文目でその役割で出したい価値を置く",
     }
-    target = _format_target_char_window(char_min, char_max)
+    stage = "under_min_recovery" if length_control_mode == "under_min_recovery" else "default"
+    target = _format_target_char_window(
+        char_min,
+        char_max,
+        stage=stage,
+        original_len=original_len,
+        llm_model=llm_model,
+    )
     guidance_lines = [
         "【300〜500字設問の組み方】",
         "- 4文前後で構成する",
@@ -472,6 +601,144 @@ def _format_midrange_length_guidance(
     elif length_control_mode == "tight_length":
         guidance_lines.append("- 根拠経験と企業接点のどちらも省略せず、4文構成を保つ")
     return "\n".join(guidance_lines)
+
+
+def _format_required_template_playbook(
+    template_type: str,
+    char_min: Optional[int],
+    char_max: Optional[int],
+    *,
+    honorific: str,
+    role_name: Optional[str] = None,
+    intern_name: Optional[str] = None,
+    original_len: int = 0,
+    llm_model: Optional[str] = None,
+) -> str:
+    if template_type not in {
+        "company_motivation",
+        "intern_reason",
+        "intern_goals",
+        "post_join_goals",
+        "role_course_reason",
+    }:
+        return ""
+    if not char_max or char_max < 120:
+        return ""
+
+    target = _format_target_char_window(
+        char_min,
+        char_max,
+        original_len=original_len,
+        llm_model=llm_model,
+    )
+    subject = {
+        "company_motivation": f"{honorific}を志望する理由",
+        "intern_reason": f"{intern_name or 'そのインターン'}への参加理由",
+        "intern_goals": f"{intern_name or 'そのインターン'}で学びたいこと",
+        "post_join_goals": "入社後に挑戦したいこと",
+        "role_course_reason": f"{role_name or 'その職種・コース'}を選ぶ理由",
+    }[template_type]
+    opening = {
+        "company_motivation": f"1文目で{honorific}を志望する理由の核を言い切る",
+        "intern_reason": "1文目で参加理由の核を言い切る",
+        "intern_goals": "1文目で学びたいことの核を言い切る",
+        "post_join_goals": "1文目で入社後の挑戦の核を言い切る",
+        "role_course_reason": "1文目でその職種・コースを選ぶ理由の核を言い切る",
+    }[template_type]
+    second = {
+        "company_motivation": "2文目で元回答の経験を1点だけ出す",
+        "intern_reason": "2文目で元回答の経験や課題感を1点だけ出す",
+        "intern_goals": "2文目で元回答の経験や問題意識を1点だけ出す",
+        "post_join_goals": "2文目で元回答の経験や原体験を1点だけ出す",
+        "role_course_reason": "2文目で元回答の経験や適性を1点だけ出す",
+    }[template_type]
+    third = {
+        "company_motivation": "3文目で企業理解との接点を1点だけつなぐ",
+        "intern_reason": "3文目でそのインターンの価値との接点を1点だけつなぐ",
+        "intern_goals": "3文目でそのインターンで得たい学びとの接点を1点だけつなぐ",
+        "post_join_goals": "3文目で企業や事業との接点を1点だけつなぐ",
+        "role_course_reason": "3文目でその役割や事業との接点を1点だけつなぐ",
+    }[template_type]
+    fourth = {
+        "company_motivation": "4文目で入社後の貢献で締める",
+        "intern_reason": "4文目でインターン後の成長イメージで締める",
+        "intern_goals": "4文目で将来の成長イメージで締める",
+        "post_join_goals": "4文目で中長期の価値発揮で締める",
+        "role_course_reason": "4文目でその役割で出したい価値で締める",
+    }[template_type]
+    example_good_1 = {
+        "company_motivation": f"私が{honorific}を志望するのは、事業を通じて社会課題に向き合う姿勢に魅力を感じたからだ。",
+        "intern_reason": f"私が{intern_name or 'そのインターン'}に参加したいのは、実務に近い課題で分析力を試し、学びを得たいからだ。",
+        "intern_goals": f"{intern_name or 'そのインターン'}では、実務に近い課題の中で分析の精度と判断の速さを学びたい。",
+        "post_join_goals": "入社後は、現場で事業理解を深めながら論点整理を担い、価値創出につなげたい。",
+        "role_course_reason": f"私が{role_name or 'その職種・コース'}を選ぶのは、事業と技術をつなぐ役割に関心があるからだ。",
+    }[template_type]
+    example_good_2 = {
+        "company_motivation": "研究で仮説検証を重ねた経験を土台に、現場で事業理解を深め、価値創出につなげたい。",
+        "intern_reason": "研究で磨いた仮説検証力を土台に、実務の制約下で優先順位を考える力を伸ばしたい。",
+        "intern_goals": "研究で培った整理力を土台に、チームで課題を前に進める視点を身につけたい。",
+        "post_join_goals": "研究で論点を整理した経験を土台に、関係者を巻き込みながら事業を前進させたい。",
+        "role_course_reason": "研究で論点を整理しながら前に進めた経験を土台に、その役割で価値を出したい。",
+    }[template_type]
+    example_bad = {
+        "company_motivation": f"私は{honorific}を志望する理由は、{honorific}の魅力に惹かれたからだ。",
+        "intern_reason": f"私は{intern_name or 'そのインターン'}に参加したい理由は、参加してみたいからだ。",
+        "intern_goals": f"{intern_name or 'そのインターン'}で学びたいことは、いろいろなことを学ぶことだ。",
+        "post_join_goals": "入社後に挑戦したいことは、入社後に頑張っていきたいということである。",
+        "role_course_reason": f"私は{role_name or 'その職種・コース'}を選んだ理由は、{role_name or 'その職種・コース'}に興味があるからだ。",
+    }[template_type]
+
+    return f"""
+【requiredテンプレの型】
+- {subject}を4文前後で組み立てる
+- {opening}
+- {second}
+- {third}
+- {fourth}
+- 目標は {target} で、短く終えすぎない
+- 企業接点と貢献は1文に圧縮してよく、段階を増やしすぎない
+
+【書き出し例】
+- 良い: {example_good_1}
+- 良い: {example_good_2}
+
+【避ける例】
+- 悪い: {example_bad}
+""".strip()
+
+
+def _format_required_template_length_fix_guidance(
+    template_type: str,
+    char_min: Optional[int],
+    char_max: Optional[int],
+    *,
+    original_len: int = 0,
+    llm_model: Optional[str] = None,
+) -> str:
+    if template_type not in {
+        "company_motivation",
+        "intern_reason",
+        "intern_goals",
+        "post_join_goals",
+        "role_course_reason",
+    }:
+        return ""
+    if not char_max or char_max < 120:
+        return ""
+
+    target = _format_target_char_window(
+        char_min,
+        char_max,
+        original_len=original_len,
+        llm_model=llm_model,
+    )
+    return f"""
+【requiredテンプレの補修方針】
+- 1文目の結論は動かさず、既存の経験・職種・企業接点のつながりで補う
+- 文字数補修は1文追加か短い接続句の調整に限る
+- 新しい経験・役割・成果・数字・企業施策は足さない
+- 目標は {target} で、意味を増やしすぎずに指定字数へ寄せる
+""".strip()
 
 
 def get_template_rag_profile(template_type: str) -> dict:
@@ -500,12 +767,14 @@ def build_template_rewrite_prompt(
     length_control_mode: str = "default",
     length_shortfall: Optional[int] = None,
     company_grounding_override: Optional[str] = None,
+    llm_model: Optional[str] = None,
 ) -> tuple[str, str]:
     template_def = TEMPLATE_DEFS.get(template_type)
     if not template_def:
         raise ValueError(f"Unknown template type: {template_type}")
     template_role = TEMPLATE_ROLES.get(template_type, TEMPLATE_ROLES["basic"])
     honorific = get_company_honorific(industry)
+    original_len = len(answer or "")
 
     conditions = [f"設問: {question}"]
     if company_name:
@@ -544,13 +813,20 @@ def build_template_rewrite_prompt(
     effective_company_grounding = company_grounding_override or str(
         template_def.get("company_grounding") or "assistive"
     )
+    target_stage = "under_min_recovery" if length_control_mode == "under_min_recovery" else "default"
     system_prompt = f"""あなたは{template_role}である。
-目的は、提出できる改善案本文を1件だけ作ること。
 
-【必須ルール】
+<task>
+提出できる改善案本文を1件だけ作る。
+</task>
+
+<output_contract>
 - 出力は改善案本文のみ
 - 説明、前置き、箇条書き、引用符、JSON、コードブロックは禁止
 - だ・である調で統一
+</output_contract>
+
+<constraints>
 - 設問に正面から答える
 - 元回答の具体的事実は保ち、構成と伝わり方を改善する
 - ユーザー事実にない経験・役割・成果・数字を足さない
@@ -563,20 +839,26 @@ def build_template_rewrite_prompt(
 - 末尾で同じ文末表現（〜したい、〜と考える 等）を2文連続で使わない
 - 最終文は具体的な行動や貢献で締め、抽象的な意気込みの羅列にしない
 - 冗長な接続詞で文字数を浪費しない
-- 文字数条件は {_format_char_condition(char_min, char_max)}
-- 目標は {_format_target_char_window(char_min, char_max)} の提出用本文
+</constraints>
 
+{_format_length_policy_block(char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
+
+<core_style>
 {_GLOBAL_CONCLUSION_FIRST_RULES}
+</core_style>
 
-【設問タイプの焦点】
+<template_focus>
 {template_def["description"]}
-{_format_short_answer_guidance(template_type, char_min, char_max)}
+</template_focus>
+{_format_short_answer_guidance(template_type, char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
 {_format_midrange_length_guidance(
     template_type,
     char_min,
     char_max,
     length_control_mode=length_control_mode,
     length_shortfall=length_shortfall,
+    original_len=original_len,
+    llm_model=llm_model,
 )}
 {_format_company_guidance(
     company_evidence_cards=company_evidence_cards,
@@ -590,6 +872,16 @@ def build_template_rewrite_prompt(
 )}
 {_format_reference_quality_guidance(reference_quality_block)}
 {_format_user_fact_guidance(allowed_user_facts)}
+{_format_required_template_playbook(
+    template_type,
+    char_min,
+    char_max,
+    honorific=honorific,
+    role_name=role_name,
+    intern_name=intern_name,
+    original_len=original_len,
+    llm_model=llm_model,
+)}
 {improvement_guidance}
 {retry_guidance}
 """
@@ -627,11 +919,13 @@ def build_template_fallback_rewrite_prompt(
     length_control_mode: str = "default",
     length_shortfall: Optional[int] = None,
     company_grounding_override: Optional[str] = None,
+    llm_model: Optional[str] = None,
 ) -> tuple[str, str]:
     template_def = TEMPLATE_DEFS.get(template_type)
     if not template_def:
         raise ValueError(f"Unknown template type: {template_type}")
     honorific = get_company_honorific(industry)
+    original_len = len(answer or "")
 
     conditions = [f"設問: {question}", f"文字数: {_format_char_condition(char_min, char_max)}"]
     if company_name:
@@ -654,29 +948,44 @@ def build_template_fallback_rewrite_prompt(
     effective_company_grounding = company_grounding_override or str(
         template_def.get("company_grounding") or "assistive"
     )
+    target_stage = "under_min_recovery" if length_control_mode == "under_min_recovery" else "default"
     system_prompt = f"""あなたは日本語のES編集者である。
-目的は、元回答の事実を保ったまま、提出できる本文に安全に整えること。
 
-【必須ルール】
-- 具体的事実は元回答とユーザー事実の範囲から出さない
+<task>
+元回答の事実を保ったまま、提出できる本文に安全に整える。
+</task>
+
+<output_contract>
+- 出力は本文のみ
+- だ・である調
+- {_format_char_condition(char_min, char_max)}
+</output_contract>
+
+<constraints>
+- 具体的事実は元回答とユーザー事実の範囲から出す
 - 足りない情報は創作せず、一般化してつなぐ
 - 企業情報は設問タイプに応じて使い、required でない設問では補助的にだけ使う
 - 固有施策、社内体制、数値、成果を新しく断定しない
 - 本文で企業に言及するときは企業名ではなく「{honorific}」を使う
 - 設問の冒頭表現をそのまま繰り返して始めない
 - 末尾で同じ文末表現（〜したい、〜と考える 等）を2文連続で使わない
-- 最終文は具体的な行動や貢献で締め、抽象的な意気込みの羅列にしない
-- 出力は本文のみ、だ・である調、{_format_char_condition(char_min, char_max)}
-- 目標は {_format_target_char_window(char_min, char_max)}
+- 最終文は具体的な行動や貢献で締める
+</constraints>
 
+{_format_length_policy_block(char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
+
+<core_style>
 {_GLOBAL_CONCLUSION_FIRST_RULES}
-{_format_short_answer_guidance(template_type, char_min, char_max)}
+</core_style>
+{_format_short_answer_guidance(template_type, char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
 {_format_midrange_length_guidance(
     template_type,
     char_min,
     char_max,
     length_control_mode=length_control_mode,
     length_shortfall=length_shortfall,
+    original_len=original_len,
+    llm_model=llm_model,
 )}
 {_format_company_guidance(
     company_evidence_cards=company_evidence_cards,
@@ -690,6 +999,16 @@ def build_template_fallback_rewrite_prompt(
 )}
 {_format_reference_quality_guidance(reference_quality_block)}
 {_format_user_fact_guidance(allowed_user_facts)}
+{_format_required_template_playbook(
+    template_type,
+    char_min,
+    char_max,
+    honorific=honorific,
+    role_name=role_name,
+    intern_name=intern_name,
+    original_len=original_len,
+    llm_model=llm_model,
+)}
 {retry_guidance}
 """
 
@@ -731,9 +1050,22 @@ def build_template_improvement_prompt(
         else "企業根拠がある場合でも、自分の強み・価値観・学びの活かし方を補助的に見る"
     )
     system_prompt = f"""あなたは{template_role}である。
-目的は、元回答の不足を改善ポイントとして3件以内で返すこと。
 
-【必須ルール】
+<task>
+元回答の不足を改善ポイントとして3件以内で返す。
+</task>
+
+<output_contract>
+- JSONのみを返す
+- コードブロック、前置き、後書きは禁止
+- 各要素は category / issue / suggestion のみ
+- top3 は 3 件以内
+- category は 12 文字以内
+- issue と suggestion は各 60 文字以内
+- issue と suggestion に改行や箇条書きを入れない
+</output_contract>
+
+<constraints>
 - 改善案は書かない
 - 指摘は必ず元回答に対して行う
 - 改善後の理想像ではなく、今足りない点を述べる
@@ -741,15 +1073,14 @@ def build_template_improvement_prompt(
 - {company_eval_rule}
 - 企業根拠にない固有施策や社内体制を新しく前提にしない
 - 元回答やユーザー事実にない経験・役割・成果・数字を前提にしない
-- JSONのみを返す
-- コードブロック、前置き、後書きは書かない
-- 各要素は category / issue / suggestion のみ
-- top3 は 3 件以内
-- category は 12 文字以内
-- issue と suggestion は各 60 文字以内
-- issue と suggestion に改行や箇条書きを入れない
-- 構成面では結論ファースト（1文目で設問への答えの要約）が弱い場合は指摘する
-{_format_short_answer_guidance(template_type, char_min, char_max)}
+- 構成面では結論ファーストが弱い場合は指摘する
+</constraints>
+{_format_short_answer_guidance(
+    template_type,
+    char_min,
+    char_max,
+    original_len=len(original_answer or ""),
+)}
 {_format_company_guidance(
     company_evidence_cards=company_evidence_cards,
     has_rag=has_rag,
@@ -806,10 +1137,16 @@ def build_template_length_fix_prompt(
     fix_mode: str,
     *,
     length_control_mode: str = "default",
+    llm_model: Optional[str] = None,
 ) -> tuple[str, str]:
     template_def = TEMPLATE_DEFS.get(template_type)
     if not template_def:
         raise ValueError(f"Unknown template type: {template_type}")
+
+    original_len = len(current_text or "")
+    under_shortfall = (
+        max(0, char_min - original_len) if fix_mode == "under_min" and char_min else 0
+    )
 
     mode_instruction = (
         "意味を変えず、冗長な句・重複・一般論だけを削って収める"
@@ -821,24 +1158,45 @@ def build_template_length_fix_prompt(
             "意味を変えず、既にある経験・職種・企業接点のつながりを補う短い文を1文まで足し、"
             "必要なら補足句も使って指定字数に収める"
         )
+    elif fix_mode == "under_min" and under_shortfall > 40:
+        mode_instruction = (
+            "意味を変えず、既存の文脈のつながりを保ちながら短い接続句を1〜2か所足し、"
+            "新事実は足さずに指定字数に近づける"
+        )
+    stage = "under_min_recovery" if length_control_mode == "under_min_recovery" else "default"
     system_prompt = f"""あなたは日本語のES編集者である。
-目的は、既にある改善案本文の意味と事実を変えず、文字数だけを整えること。
 
-【必須ルール】
+<task>
+既にある改善案本文の意味と事実を変えず、文字数だけを整える。
+</task>
+
+<output_contract>
 - 出力は修正後の本文のみ
+- 説明、前置き、箇条書き、JSON、引用符は禁止
 - だ・である調を維持する
+</output_contract>
+
+<constraints>
 - 新しい経験・役割・成果・数字・企業施策を足さない
 - 本文の主張順と意味は極力維持する
 - {mode_instruction}
-- 文字数条件は {_format_char_condition(char_min, char_max)}
-- 目標は {_format_target_char_window(char_min, char_max)}
-- 説明、前置き、箇条書き、JSON、引用符は禁止
+</constraints>
+{_format_length_policy_block(char_min, char_max, stage=stage, original_len=original_len, llm_model=llm_model)}
 {_format_midrange_length_guidance(
     template_type,
     char_min,
     char_max,
     length_control_mode=length_control_mode,
-    length_shortfall=(char_min - len(current_text)) if fix_mode == "under_min" and char_min else None,
+    length_shortfall=under_shortfall if fix_mode == "under_min" and char_min else None,
+    original_len=original_len,
+    llm_model=llm_model,
+)}
+{_format_required_template_length_fix_guidance(
+    template_type,
+    char_min,
+    char_max,
+    original_len=original_len,
+    llm_model=llm_model,
 )}
 """
 
