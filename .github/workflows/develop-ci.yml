@@ -100,7 +100,7 @@ jobs:
         continue-on-error: true
       - run: npm run lint
       - run: npm run build
-      - run: npm run test:unit -- 'src/app/api/documents/[id]/review/stream/route.test.ts'
+      - run: npm run test:unit -- 'src/app/api/documents/[id]/route.test.ts'
 
   es-review-smoke:
     runs-on: ubuntu-latest

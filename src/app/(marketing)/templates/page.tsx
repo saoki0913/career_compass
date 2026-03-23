@@ -61,9 +61,9 @@ export default function TemplatesPage() {
                 </div>
 
                 <div className="space-y-3 p-4">
-                  <div className="rounded-2xl border border-sky-200 bg-sky-50/60 p-4">
+                  <div className="rounded-2xl border border-primary/20 bg-primary/[0.06] p-4">
                     <div className="flex items-center gap-2">
-                      <BookText className="size-4 shrink-0 text-sky-700" aria-hidden />
+                      <BookText className="size-4 shrink-0 text-primary" aria-hidden />
                       <p className="text-sm font-semibold text-slate-900">志望動機</p>
                     </div>
                     <p className="mt-3 text-sm leading-7 text-slate-600">
@@ -73,7 +73,7 @@ export default function TemplatesPage() {
 
                   <div className="rounded-2xl border border-slate-200 bg-white p-4">
                     <div className="flex items-center gap-2">
-                      <ListChecks className="size-4 shrink-0 text-sky-700" aria-hidden />
+                      <ListChecks className="size-4 shrink-0 text-primary" aria-hidden />
                       <p className="text-sm font-semibold text-slate-900">ガクチカ STAR</p>
                     </div>
                     <p className="mt-3 text-sm leading-7 text-slate-600">
@@ -83,7 +83,7 @@ export default function TemplatesPage() {
 
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <div className="flex items-center gap-2">
-                      <FileText className="size-4 shrink-0 text-sky-700" aria-hidden />
+                      <FileText className="size-4 shrink-0 text-primary" aria-hidden />
                       <p className="text-sm font-semibold text-slate-900">文字数</p>
                     </div>
                     <p className="mt-3 text-sm leading-7 text-slate-600">
@@ -139,7 +139,7 @@ export default function TemplatesPage() {
                     { label: "R", text: "結果と学びで締める" },
                   ].map((item) => (
                     <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-xs font-semibold tracking-[0.18em] text-sky-700">{item.label}</p>
+                      <p className="text-xs font-semibold tracking-[0.18em] text-primary">{item.label}</p>
                       <p className="mt-3 text-sm leading-7 text-slate-700">{item.text}</p>
                     </div>
                   ))}
@@ -165,7 +165,7 @@ export default function TemplatesPage() {
               <div className="space-y-4">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
                   <div className="flex items-start gap-3">
-                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-sky-700" aria-hidden />
+                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
                     <p className="text-sm leading-7 text-slate-600">
                       企業登録、締切、ESの保存、AI添削はログイン後に利用できます。
                     </p>

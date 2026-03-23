@@ -59,7 +59,7 @@ export default function ShiboudoukiTemplatePage() {
                     { label: "3", title: "企業接続", text: "事業・強み・取り組みにつなぐ。" },
                   ].map((item) => (
                     <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-xs font-semibold tracking-[0.18em] text-sky-700">{item.label}</p>
+                      <p className="text-xs font-semibold tracking-[0.18em] text-primary">{item.label}</p>
                       <p className="mt-2 text-sm font-semibold text-slate-900">{item.title}</p>
                       <p className="mt-2 text-sm leading-7 text-slate-600">{item.text}</p>
                     </div>
@@ -85,7 +85,7 @@ export default function ShiboudoukiTemplatePage() {
                   {["結論", "根拠", "企業接続"].map((label) => (
                     <span
                       key={label}
-                      className="rounded-full border border-slate-200 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700"
+                      className="rounded-full border border-slate-200 bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
                     >
                       {label}
                     </span>
@@ -132,7 +132,7 @@ export default function ShiboudoukiTemplatePage() {
                     key={item}
                     className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4"
                   >
-                    <Sparkles className="mt-0.5 size-4 shrink-0 text-sky-700" aria-hidden />
+                    <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
                     <p className="text-sm leading-7 text-slate-700">{item}</p>
                   </div>
                 ))}
@@ -157,7 +157,7 @@ export default function ShiboudoukiTemplatePage() {
             <PublicSurfacePanel title="アプリで続ける" tone="accent">
               <div className="space-y-4">
                 <div className="flex items-start gap-3">
-                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-sky-700" aria-hidden />
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
                   <p className="text-sm leading-7 text-slate-600">
                     ESの保存・AI添削・締切管理はログイン後に利用できます。
                   </p>

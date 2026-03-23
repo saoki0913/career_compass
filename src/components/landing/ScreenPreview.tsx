@@ -29,9 +29,9 @@ export function ScreenPreview({
     >
       <div className="flex items-center gap-3 border-b border-slate-200/80 bg-slate-950 px-5 py-1.5 text-[11px] font-medium uppercase tracking-[0.22em] text-slate-300">
         <div className="flex items-center gap-2">
-          <span className="size-2 rounded-full bg-rose-400/90" />
-          <span className="size-2 rounded-full bg-amber-300/90" />
-          <span className="size-2 rounded-full bg-emerald-300/90" />
+          <span className="size-2 rounded-full bg-slate-500/90" />
+          <span className="size-2 rounded-full bg-slate-400/90" />
+          <span className="size-2 rounded-full bg-slate-300/90" />
           {label ? <span className="ml-3 truncate">{label}</span> : null}
         </div>
       </div>

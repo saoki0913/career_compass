@@ -211,7 +211,7 @@ export function PublicSurfaceSection({
     <section className={cn(containerClassName, "py-10 sm:py-12 lg:py-16", className)}>
       <div className="grid gap-6 lg:grid-cols-[0.82fr_1.18fr] lg:gap-8">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">
             {eyebrow}
           </p>
           <h2 className="mt-3 text-balance text-2xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-3xl">
@@ -243,7 +243,7 @@ export function PublicSurfacePanel({
 }) {
   const toneClassName =
     tone === "accent"
-      ? "border-sky-200/80 bg-[linear-gradient(180deg,rgba(239,246,255,0.96),rgba(255,255,255,0.96))]"
+      ? "border-primary/20 bg-[linear-gradient(180deg,rgba(37,99,235,0.06),rgba(255,255,255,0.96))]"
       : tone === "soft"
         ? "border-slate-200/80 bg-slate-50/80"
         : "border-slate-200/80 bg-white/90";

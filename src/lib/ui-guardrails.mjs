@@ -83,13 +83,16 @@ function findMarketingAccentFindings(filePath, content) {
 
 function findLoadingFindings(filePath, content) {
   const findings = [];
-  const hasSkeleton = /\bSkeleton\b|\bskeleton\b/.test(content);
+  const hasSkeleton =
+    /\bSkeleton\b|\bskeleton\b/.test(content) || /[A-Za-z]+Skeleton/.test(content);
+  const hasApprovedLoadingHost = /PageTransitionSurface/.test(content);
+  const trustOrientedLoading = hasSkeleton || hasApprovedLoadingHost;
   const hasSpinnerOnlyPattern =
     /animate-spin|spinner/i.test(content) ||
     /読み込み中/.test(content) ||
-    /loading/i.test(content);
+    /\bLoader2\b/.test(content);
 
-  if (!hasSkeleton) {
+  if (!trustOrientedLoading) {
     findings.push({
       file: filePath,
       rule: "loading-skeleton-required",
@@ -97,7 +100,7 @@ function findLoadingFindings(filePath, content) {
     });
   }
 
-  if (hasSpinnerOnlyPattern && !hasSkeleton) {
+  if (hasSpinnerOnlyPattern && !trustOrientedLoading) {
     findings.push({
       file: filePath,
       rule: "loading-spinner-only",

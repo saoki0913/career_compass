@@ -60,7 +60,7 @@ export default function GakuchikaStarTemplatePage() {
                     { label: "R", title: "Result", text: "成果と学び、再現性" },
                   ].map((item) => (
                     <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-xs font-semibold tracking-[0.18em] text-sky-700">{item.label}</p>
+                      <p className="text-xs font-semibold tracking-[0.18em] text-primary">{item.label}</p>
                       <p className="mt-2 text-sm font-semibold text-slate-900">{item.title}</p>
                       <p className="mt-3 text-sm leading-7 text-slate-600">{item.text}</p>
                     </div>
@@ -82,7 +82,7 @@ export default function GakuchikaStarTemplatePage() {
                   { label: "R", text: "結果と学びで締める。再現性まで見せる。" },
                 ].map((item) => (
                   <div key={item.label} className="rounded-2xl border border-slate-200 bg-white/90 p-4">
-                    <p className="text-xs font-semibold tracking-[0.18em] text-sky-700">{item.label}</p>
+                    <p className="text-xs font-semibold tracking-[0.18em] text-primary">{item.label}</p>
                     <p className="mt-2 text-sm leading-7 text-slate-700">{item.text}</p>
                   </div>
                 ))}
@@ -106,7 +106,7 @@ export default function GakuchikaStarTemplatePage() {
                     "話し言葉になりすぎない",
                   ].map((item) => (
                     <div key={item} className="rounded-2xl border border-slate-200 bg-white/90 p-4">
-                      <Sparkles className="size-4 text-sky-700" aria-hidden />
+                      <Sparkles className="size-4 text-primary" aria-hidden />
                       <p className="mt-3 text-sm leading-7 text-slate-700">{item}</p>
                     </div>
                   ))}
@@ -135,7 +135,7 @@ export default function GakuchikaStarTemplatePage() {
                     key={item}
                     className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4"
                   >
-                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-sky-700" aria-hidden />
+                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
                     <p className="text-sm leading-7 text-slate-700">{item}</p>
                   </div>
                 ))}
@@ -160,7 +160,7 @@ export default function GakuchikaStarTemplatePage() {
             <PublicSurfacePanel title="アプリで続ける" tone="accent">
               <div className="space-y-4">
                 <div className="flex items-start gap-3">
-                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-sky-700" aria-hidden />
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
                   <p className="text-sm leading-7 text-slate-600">
                     ガクチカの保存・添削・締切管理はログイン後に利用できます。
                   </p>

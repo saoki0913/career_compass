@@ -79,7 +79,7 @@ export default function ToolsPage() {
 
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <div className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-sky-100 bg-sky-50 text-sky-700">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
                     <FileText className="size-[18px]" aria-hidden />
                   </span>
                   <div className="min-w-0">
@@ -90,7 +90,7 @@ export default function ToolsPage() {
                   </div>
                 </div>
                 <div className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-sky-100 bg-sky-50 text-sky-700">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
                     <BookText className="size-[18px]" aria-hidden />
                   </span>
                   <div className="min-w-0">
@@ -101,7 +101,7 @@ export default function ToolsPage() {
                   </div>
                 </div>
                 <div className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-sky-100 bg-sky-50 text-sky-700">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
                     <ListChecks className="size-[18px]" aria-hidden />
                   </span>
                   <div className="min-w-0">
@@ -128,7 +128,7 @@ export default function ToolsPage() {
                     空白・改行を除いた文字数でも数えられます。
                   </p>
                 </div>
-                <span className="hidden rounded-full bg-white px-3 py-1 text-xs font-semibold text-sky-700 shadow-sm sm:inline-flex">
+                <span className="hidden rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-sm sm:inline-flex">
                   無料
                 </span>
               </div>
@@ -183,7 +183,7 @@ export default function ToolsPage() {
               <div className="space-y-4">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
                   <div className="flex items-start gap-3">
-                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-sky-700" aria-hidden />
+                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
                     <p className="text-sm leading-7 text-slate-600">
                       企業登録、締切、ESの保存、AI添削をまとめて使えます。
                     </p>

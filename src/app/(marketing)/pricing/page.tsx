@@ -98,7 +98,7 @@ function ComparisonValue({
           "inline-flex h-7 w-7 items-center justify-center rounded-full border",
           emphasis
             ? "border-primary/20 bg-primary/10 text-primary"
-            : "border-emerald-200 bg-emerald-50 text-emerald-600"
+            : "border-primary/20 bg-primary/10 text-primary"
         )}
       >
         <Check className="h-4 w-4" strokeWidth={2.5} aria-hidden />
@@ -171,13 +171,13 @@ function PricingPlanCard({
               {plan.name}
             </span>
             {isRecommended ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-medium text-sky-700">
+              <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[11px] font-medium text-primary">
                 <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden />
                 最も選ばれています
               </span>
             ) : null}
             {isCurrent ? (
-              <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-700">
+              <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[11px] font-medium text-primary">
                 現在利用中
               </span>
             ) : null}
@@ -202,7 +202,7 @@ function PricingPlanCard({
           <p className="text-slate-500">
             <span className="line-through">{plan.originalPrice}/月</span>
             {plan.savingsNote ? (
-              <span className="ml-2 font-semibold text-sky-700">{plan.savingsNote}</span>
+              <span className="ml-2 font-semibold text-primary">{plan.savingsNote}</span>
             ) : null}
           </p>
         ) : null}
@@ -360,7 +360,7 @@ function PricingPageContent() {
     <div className="min-h-screen bg-[linear-gradient(180deg,oklch(0.995_0.002_245),oklch(0.986_0.005_245))]">
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <div className="absolute left-0 top-0 h-[520px] w-[520px] rounded-full bg-primary/[0.07] blur-[120px]" />
-        <div className="absolute bottom-0 right-0 h-[420px] w-[420px] rounded-full bg-sky-200/40 blur-[110px]" />
+        <div className="absolute bottom-0 right-0 h-[420px] w-[420px] rounded-full bg-primary/20 blur-[110px]" />
       </div>
 
       <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/84 backdrop-blur-xl">
@@ -406,12 +406,12 @@ function PricingPageContent() {
 
       <main className="mx-auto max-w-6xl px-4 pb-8 pt-4 sm:px-6 md:pb-12 md:pt-6">
         {canceled === "true" ? (
-          <div className="mb-6 rounded-[22px] border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-800">
+          <div className="mb-6 rounded-[22px] border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm text-slate-800">
             チェックアウトがキャンセルされました。プラン内容を見直してから、いつでも再開できます。
           </div>
         ) : null}
         {error ? (
-          <div className="mb-6 rounded-[22px] border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-800">
+          <div className="mb-6 rounded-[22px] border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm text-slate-800">
             {error}
           </div>
         ) : null}
@@ -479,7 +479,7 @@ function PricingPageContent() {
           </p>
           <div className="mt-4 flex flex-wrap gap-3 border border-slate-200/80 bg-slate-50/50 px-3 py-3 sm:px-4">
             <div className="flex min-w-[140px] flex-1 items-start gap-2">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-sky-700" aria-hidden />
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
               <div className="min-w-0">
                 <p className="text-xs font-semibold text-slate-900">成功時のみ消費</p>
                 <p className="text-[11px] leading-snug text-slate-600">失敗時は減りません。</p>

@@ -80,7 +80,7 @@ export default function EsCounterPage() {
 
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <div className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-sky-100 bg-sky-50 text-sky-700">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
                     <FileText className="size-[18px]" aria-hidden />
                   </span>
                   <div className="min-w-0">
@@ -89,7 +89,7 @@ export default function EsCounterPage() {
                   </div>
                 </div>
                 <div className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-sky-100 bg-sky-50 text-sky-700">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
                     <ClipboardList className="size-[18px]" aria-hidden />
                   </span>
                   <div className="min-w-0">
@@ -98,7 +98,7 @@ export default function EsCounterPage() {
                   </div>
                 </div>
                 <div className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-sky-100 bg-sky-50 text-sky-700">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
                     <CheckCircle2 className="size-[18px]" aria-hidden />
                   </span>
                   <div className="min-w-0">
@@ -126,7 +126,7 @@ export default function EsCounterPage() {
                     key={label}
                     className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4"
                   >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-700">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                       <Icon className="size-4" aria-hidden />
                     </span>
                     <div className="min-w-0">
