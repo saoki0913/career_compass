@@ -1,6 +1,6 @@
 # 実装進捗ドキュメント
 
-**最終更新**: 2026-03-22
+**最終更新**: 2026-03-24
 
 ## 人向け要約（読み始めに）
 
@@ -12,13 +12,15 @@
 
 ## 最近の更新
 
+- 2026-03-25: ES添削の live extended で多発した **字数不足・インターン/コース志望のフォーカストークン** に対し、プロンプト（結論ファースト・長文・required テンプレの型）と **`under_min` リトライヒント**（現状字数と不足分の明示）、`gpt-5.4-mini` の温度・`max_tokens`、Gemini 長文の出力余裕を調整。`evaluate_live_case` 用ライブケースの期待トークンを表記ゆれに合わせて拡張。`docs/features/ES_REVIEW.md` / `docs/testing/ES_REVIEW_QUALITY.md` を同期。
+- 2026-03-24: ES添削の出力契約を rewrite-only に整理し、SSE の順序を `rewrite → sources → complete` に統一。retry は `strict → focused retry 1 → focused retry 2 → length-fix → degraded/422` に固定し、focus modes を `length_focus_min/max`, `style_focus`, `grounding_focus`, `answer_focus`, `opening_focus`, `structure_focus` に整理。`length-fix` の final soft は `length` / `style` / `grounding` のみ、`length_fix_result=soft_recovered` と `rewrite_validation_status=soft_ok` を使うよう更新。`user_provided_corporate_urls` は family-aligned retrieval boost 扱いに変更。参考ESは `quality hints + skeleton + conditional hints` のみを使い、overlap guard は削除。
 - 2026-03-21: LP・UI/UX 改善。カラーシステムを oklch hue 265（パープル）→ 235（ブルー）に移行。LP 全セクションのコピーを共感+安心型に書き換え、色を `text-primary` / `bg-primary/*` に統一。ローディング UI をスケルトン UI に統一し、`RouteProgressBar` と `PageLoadingState` を廃止。ページ別スケルトン 7 種を `src/components/skeletons/` に追加し、9 個の `loading.tsx` を更新。`/pricing` ページに損失回避（Free 制限コールアウト）、1クレジットあたりコスト表示、FAQ 2 項目追加。
 - 2026-03-21: 主要導線のパフォーマンス改善。`/companies/[id]` と `/es/[id]` を server wrapper + client island 構成へ移行し、初回表示の company/document/applications/deadlines/ES 一覧を shared loader (`src/lib/server/app-loaders.ts`) から直接取得する形に変更。`useApplications` / `useCompanyDeadlines` / `useDocument` に `initialData` 対応を追加し、mount 時の不要 fetch を削減。`/api/companies/[id]` と `/api/documents/[id]` は `getRequestIdentity()` + `Server-Timing` 付きの shared loader 経由に統一。旧 page 実装は `src/components/companies/CompanyDetailPageClient.tsx` と `src/components/es/ESEditorPageClient.tsx` へ移し、App Router page は薄い server wrapper に整理。
 - 2026-03-21: `/pricing` ページを UX 心理学テクニック適用＋プレミアムリデザイン。アンカリング効果（年額時に月額取り消し線＋具体的な節約額表示）、メンタルアカウンティング（日割り表現改善）、コントラスト効果（年額トグルに 15%お得バッジ＋最大節約額アニメーション表示）を適用。テキスト比較セクションを視覚的な比較テーブルに置換。FAQ を統一カード＋回転シェブロンの洗練されたアコーディオンに改善。pricing 専用カードと比較レイアウトを再設計し、LP `PricingSection` のプラン仕様を `/pricing` と統一。
 - 2026-03-22: ES添削 ReviewPanel のスクロール UX を再整理。開始直後は `priming` でパネル上端と内側コンテナ先頭を見せ、最初の実結果が見えた時点で `following` に移って下端追尾、ユーザーが上へ戻ったら `paused` で追尾停止する phase 制御に統一。scroll helper / unit test を更新し、重複していた scroll effect と古い ref を削除。`docs/features/ES_REVIEW.md` を実装に合わせて更新。
 - 2026-03-21: ES添削・クレジット不具合修正。ReviewPanel 二重マウント解消（`useSyncExternalStore` で viewport 判定し単一マウント）、`acquireLock` 失敗時のトースト表示、`useCredits` の 401 フォールバック修正（認証済みユーザーにゲスト値を返さない）、DashboardHeader のクレジット読み込み/エラー表示、`useESReview` の HTTP 402 明示処理、ReviewPanel のクレジット不足ソフトガード、`review/stream` のクレジット確定ロジック強化（ストリーム終了時のバッファ再スキャン）。
 - 2026-03-21: ES添削の retry / pricing / provider 契約を簡素化。rewrite は最大3回 + 専用 length-fix 1回に統一し、Standard 300 / Pro 1000 credits と新しい ES credit band（<=500 / <=1000 / <=1500 / >1500）に更新。
-- 2026-03-22: ES添削の OpenAI rewrite を stability-first の plain text 経路へ切り替え、`prompt_cache_key` と `verbosity=medium` を追加。strict 文字数帯は常に `X-10〜X` に戻し、通常 target を `max(X-10, X-5)〜X`、under-min recovery を `max(X-10, X-3)〜X` に統一。最終段のみ全帯域で `0.9X〜X` の soft rescue を許可し、`answer_focus / grounding / 参考ES距離 / だ・である調` は strict 維持。Gemini は低温固定を外し、live gate は `all_standard` sweep を手動・夜間で回せるよう更新した。
+- 2026-03-22: ES添削の OpenAI rewrite を stability-first の plain text 経路へ切り替え、`prompt_cache_key` と `verbosity=medium` を追加。strict 文字数帯は常に `X-10〜X` に統一し、retry は `strict → focused retry 1 → focused retry 2 → length-fix → degraded / 422` に整理。final soft は `length` / `style` / `grounding` のみに限定し、`answer_focus / grounding / 参考ES距離 / だ・である調` は strict 維持。Gemini は低温固定を外し、live gate は `all_standard` sweep を手動・夜間で回せるよう更新した。
 - 2026-03-21: セキュリティベースライン文書（`docs/ops/SECURITY.md`）、法令用 `LEGAL_*` の `.env.example` 追記、LP プレースホルダ SVG の刷新とマーケドキュメント（`docs/marketing/README.md`）、設定画面の個人名っぽいプレースホルダ除去、内部 STRATEGY のペルソナ見出しから固有名を除去。
 - 2026-03-20: ES添削のモデル選択を `Claude / GPT / Gemini / クレジット消費を抑えて添削` に整理。企業未選択時バナー、内部出典リンク、自動スクロール追従の改善、OpenAI 経路の `Responses API` 採用を反映。
 - 2026-03-20: 企業RAG課金を整数クレジットに統一。`40 unit = 1クレジット`、月次無料枠 `160 / 640 / 2400 unit`、1社あたり上限 `10 / 100 / 500 source`、`company_info_monthly_usage` 追加と既存 credits 2倍 migration を適用。
@@ -267,7 +269,7 @@
 | 機能 | 状態 | 備考 |
 |------|------|------|
 | スコア（5軸）表示 | ✅ 完了 | 論理/具体性/熱意/企業接続/読みやすさ |
-| 改善優先順位Top3 | ✅ 完了 | |
+| 改善ヒント（内部） | ✅ 完了 | rewrite-only 契約に整理 |
 | リライト（Free: 1本、有料: 3本） | ✅ 完了 | |
 | スタイル選択 | ✅ 完了 | 8種（有料は全種） |
 | 設問別指摘（有料） | ✅ 完了 | 文字数制限も考慮 |
@@ -323,11 +325,11 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 進捗バー（4要素） | ✅ 完了 | スコア表示UI |
 | setup-first 初期設定 | ✅ 完了 | 業界/職種をチャット前に確定 |
 | 初回開始の空履歴処理 | ✅ 完了 | 空 `messages=[]` をそのまま LLM に渡さない |
-| 質問適合4択 | ✅ 完了 | LLM質問は server-side validator で単一論点・stage 適合を確認し、`question_focus` と grounded builder で `2〜4件` の直接回答文に絞る。raw企業文や見出しは除外 |
+| 質問適合候補 | ✅ 完了 | LLM質問は server-side validator で単一論点・stage 適合を確認し、`question_focus` と grounded builder で `1〜2件` の直接回答文に絞り、続けて軽量 LLM で文体リライトする。protected token 検証に失敗した場合は原文へ戻す。raw企業文や見出しは除外。回答送信は `conversation/stream` のみ（JSON `POST /conversation` は廃止） |
 
 **関連ファイル:**
 - `backend/app/routers/motivation.py`
-- `src/app/companies/[id]/motivation/page.tsx`
+- `src/app/(product)/companies/[id]/motivation/page.tsx`
 - `src/app/api/motivation/[companyId]/conversation/route.ts`
 - `src/app/api/motivation/[companyId]/conversation/start/route.ts`
 - `src/app/api/motivation/[companyId]/conversation/stream/route.ts`
@@ -429,7 +431,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 機能 | 状態 | ファイル |
 |------|------|------|
 | ES添削ストリーミング | ✅ 完了 | `src/app/api/documents/[id]/review/stream/route.ts` |
-| 志望動機会話API | ✅ 完了 | `src/app/api/motivation/[companyId]/conversation/route.ts` |
+| 志望動機会話API | ✅ 完了 | `conversation/route.ts`（GET/DELETE）、`conversation/stream/route.ts`（回答送信SSE） |
 | 志望動機下書き生成 | ✅ 完了 | `src/app/api/motivation/[companyId]/generate-draft/route.ts` |
 
 ---
@@ -438,9 +440,9 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 
 | テスト | 状態 | ファイル |
 |------|------|------|
-| guest major | ✅ 再編済み | `e2e/guest-major.spec.ts` |
+| guest major | ✅ 再編済み | `e2e/guest-major.spec.ts`（ゲストは `gakuchika` 作成上限 0 のため素材 POST は含めず、志望動機はログイン案内を確認） |
 | user major | ✅ 再編済み | `e2e/user-major.spec.ts` |
-| auth / access | ✅ 再編済み | `e2e/auth-access.spec.ts` |
+| auth boundary | ✅ 再編済み | `e2e/auth-boundary.spec.ts` |
 | focused regressions | ✅ 維持 | `e2e/regression-bugs.spec.ts`, `e2e/motivation.spec.ts` |
 | UI review | ✅ 追加済み | `e2e/ui-review.spec.ts` |
 
@@ -528,7 +530,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
   - `company_evidence_cards` は required 設問で `役割/プログラム軸 + 企業理解軸` を最低 1 枚ずつ確保し、theme diversity を優先するよう整理
 - 🔎 **ES添削の question focus と second pass を整理**
   - broad role だけでなく required 設問全体で `事業理解 / 成長機会 / 価値観 / 将来接続 / 役割理解 / インターン機会` の 6 軸を使って evidence を選ぶよう更新
-  - role-focused second pass は `weak` だけでなく `partial` coverage でも、役割軸か企業軸が欠けるときに 1 回だけ走るよう改善
+  - `grounding_focus` second pass は `weak` だけでなく `partial` coverage でも、役割軸か企業軸が欠けるときに 1 回だけ走るよう改善
 - 🧩 **標準モデルの shared structured output 契約を補強**
   - OpenAI Chat Completions の `json_schema.name` 欠落を修正し、`name / schema / strict` を常に付与
   - Gemini は strict JSON 指示と parse fallback を shared layer に寄せ、Claude 専用 transport には手を入れずに標準経路の整合だけを修正
@@ -584,9 +586,9 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 
 ### 2026-03-10
 - 🧠 **ES添削の生成パイプラインを簡素化**
-  - 改善ポイント生成を最小 JSON schema に縮小し、backend 側で `issue_id / required_action / difficulty` などを補完
+  - rewrite-only の流れに整理し、backend 側で必要な内部ヒントだけを補完する形へ変更
   - rewrite plan、LLM validator、targeted repair、LLM 文字数補修を削除
-  - rewrite は `通常 5 回 + 簡易化 1 回` に固定し、簡易化採用時は `fallback_to_generic=true` を返す
+  - rewrite は `strict → focused retry 1 → focused retry 2 → length-fix → degraded / 422` に固定し、final soft は `length` / `style` / `grounding` に限定
 - 🎯 **ES添削の文脈活用を強化**
   - `allowed_user_facts` から relevance と source balance で `selected_user_facts` を作り、prompt に入れる情報量を整理
   - `rag_sources` を `company evidence cards` に圧縮し、企業理解を深めつつ固有施策の幻覚を抑える構成へ更新
@@ -594,7 +596,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
   - `総合職` など broad role label のときは、role 軸ではなく設問軸で 2nd pass retrieval と evidence selection を行うよう更新
 - ✍️ **短字数設問の失敗耐性を改善**
   - `char_max <= 220` では short-answer mode を有効化
-  - 上限厳守のまま、下限未達が小さい場合は `soft_min_applied` として安全返却できるように更新
+  - 上限厳守のまま、下限未達が小さい場合は `soft_ok` / `soft_recovered` として安全返却できるように更新
 - ✨ **ES添削の業界・職種 UI を簡素化**
   - 業界・職種の選択を chip 群から dropdown に変更
   - broad / 未設定業界では `業界 → 職種` を段階表示し、同一 ES 内で選択を保持
@@ -612,8 +614,8 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 
 ### 2026-03-09
 - ✨ **ES添削ストリーミング UX を更新**
-  - `改善案 → 改善ポイント → 出典リンク` を単一カード内で順に表示
-  - 改善ポイントと出典リンクも文字単位 playback に変更
+  - 当時は `改善案 → 改善ポイント → 出典リンク` の順で単一カード表示
+  - 現在は rewrite-only へ移行済み
   - 表示完了時はカーソルを自動で消すように調整
 - 🧹 **ES添削の未使用 UI コードを削除**
   - 旧 UI の残骸だった未使用コンポーネントを整理
@@ -697,14 +699,19 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 - ガクチカに再実行時の履歴保持を追加
 - 実装優先度リストを更新
 
+### 2026-03-24
+- ✅ ES添削から Cohere provider を削除
+  - shared LLM layer から Cohere routing / env / live gate / provider-specific test を削除
+  - ES添削の標準経路と docs は `Claude / GPT / Gemini / low-cost` のみを current-state として更新
+
 ### 2026-03-12
 - ✅ ES添削の標準モデル経路に商用API provider routing を追加
-  - `MODEL_ES_REVIEW` で `gpt-5.1`, `gemini-3.1-pro-preview`, `command-a-03-2025`, `deepseek-chat` などの明示モデルIDを指定可能に更新
-  - Gemini は公式 API、Cohere / DeepSeek は OpenAI compatibility API で扱うよう整理
+  - `MODEL_ES_REVIEW` で `gpt-5.1`, `gemini-3.1-pro-preview`, `deepseek-chat` などの明示モデルIDを指定可能に更新
+  - Gemini は公式 API、DeepSeek は OpenAI compatibility API で扱うよう整理
   - `review_meta.llm_provider / llm_model` を標準経路でも正しく返すように更新
   - フロントの標準経路ラベルを `Claude` 固定ではなく実選択モデルベースへ変更
 - ✅ ES添削パネルに `モデル選択` dropdown を追加
-  - 標準添削は `Claude Sonnet 4.5 / GPT-5.1 / Gemini 3.1 Pro Preview / Cohere Command A / DeepSeek V3.2` を UI から選択可能に更新
+  - 標準添削は `Claude Sonnet 4.5 / GPT-5.1 / Gemini 3.1 Pro Preview / DeepSeek V3.2` を UI から選択可能に更新
   - 低コスト導線を `GPT-5.4-mini` ベースに統一
 
 ### 2026-03-13
@@ -721,7 +728,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
   - official domain であれば title の表記揺れだけでは `企業不一致ペナルティ` を入れないように修正
   - `mysite.bk.mufg.jp` のような実質公式の recruit/interview URL が不自然に `medium` へ落ちにくくなった
 - ✅ ES添削の標準モデル UI を stable allowlist 化
-  - UI では `Claude Sonnet 4.5`、`GPT-5.1`、`Gemini 3.1 Pro Preview` を selectable にし、`Cohere Command A / DeepSeek V3.2` は `現在調整中` として継続無効化
+  - UI では `Claude Sonnet 4.5`、`GPT-5.1`、`Gemini 3.1 Pro Preview` を selectable にし、`DeepSeek V3.2` は `現在調整中` として継続無効化
   - Gemini 3.1 は Google 互換 schema 正規化、`thinkingLevel=LOW`、追加 token budget、低温度固定を入れて ES添削の template smoke を通過
 
 ### 2026-01-29

@@ -1,4 +1,5 @@
 const DEV_SCRIPT_EXTRAS = process.env.NODE_ENV === "development" ? ["'unsafe-eval'"] : [];
+const STATIC_SCRIPT_BASE = ["'self'", "'unsafe-inline'", "https://js.stripe.com", "https://www.googletagmanager.com"];
 
 const CONNECT_SRC = [
   "'self'",
@@ -56,24 +57,24 @@ export function createCspNonce() {
   return encode(crypto.randomUUID());
 }
 
+function buildScriptSrc(values: string[]) {
+  return ["script-src", ...values, ...DEV_SCRIPT_EXTRAS].join(" ").trim();
+}
+
 export function buildStaticCsp() {
   return [
-    "script-src 'self' 'unsafe-inline' https://js.stripe.com https://www.googletagmanager.com",
+    buildScriptSrc(STATIC_SCRIPT_BASE),
     ...BASE_DIRECTIVES,
   ].join("; ");
 }
 
 export function buildNonceCsp(nonce: string) {
-  const scriptSrc = [
-    "script-src",
+  const scriptSrc = buildScriptSrc([
     "'self'",
     `'nonce-${nonce}'`,
     "'strict-dynamic'",
     "https://js.stripe.com",
-    ...DEV_SCRIPT_EXTRAS,
-  ]
-    .join(" ")
-    .trim();
+  ]);
 
   return [scriptSrc, ...BASE_DIRECTIVES].join("; ");
 }

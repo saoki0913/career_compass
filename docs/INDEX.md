@@ -102,6 +102,7 @@
 |------|------|
 | [ops/CLI_GUARDRAILS.md](./ops/CLI_GUARDRAILS.md) | CLI の安全な使い方 |
 | [ops/SECURITY.md](./ops/SECURITY.md) | セキュリティの注意事項 |
+| [ops/DOMAIN_AND_HOSTING_AUDIT.md](./ops/DOMAIN_AND_HOSTING_AUDIT.md) | お名前.com / Cloudflare / 解約判断の棚卸し手順 |
 
 ---
 

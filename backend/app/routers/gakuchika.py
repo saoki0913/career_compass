@@ -7,7 +7,7 @@ Deep-dive enhancement:
 - Merged STAR evaluation + question generation into a single LLM call
 - Phase-based question focus
 - Content-aware initial question generation
-- Reference-guide rubric for causal depth and credibility
+- Reference-guide rubric for causal depth, credibility, goals, and rule scope
 """
 
 import json
@@ -15,7 +15,7 @@ import random
 import re
 from typing import AsyncGenerator, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -41,6 +41,7 @@ from app.prompts.gakuchika_prompts import (
     STRUCTURED_SUMMARY_PROMPT,
     GAKUCHIKA_DRAFT_PROMPT,
 )
+from app.limiter import limiter
 
 router = APIRouter(prefix="/api/gakuchika", tags=["gakuchika"])
 
@@ -246,17 +247,6 @@ def _get_weakest_element(scores: STARScores) -> str:
     return min(elements, key=elements.get)
 
 
-def _get_element_japanese_name(element: str) -> str:
-    """Convert STAR element to Japanese name."""
-    names = {
-        "situation": "状況",
-        "task": "課題",
-        "action": "行動",
-        "result": "結果",
-    }
-    return names.get(element, element)
-
-
 def _is_star_complete(scores: STARScores, threshold: int = STAR_COMPLETION_THRESHOLD) -> bool:
     """Check if all STAR elements meet the completion threshold."""
     return (
@@ -265,14 +255,6 @@ def _is_star_complete(scores: STARScores, threshold: int = STAR_COMPLETION_THRES
         and scores.action >= threshold
         and scores.result >= threshold
     )
-
-
-def _get_last_user_answer(messages: list[Message]) -> Optional[str]:
-    """Get the last user answer from conversation history."""
-    for msg in reversed(messages):
-        if msg.role == "user":
-            return msg.content
-    return None
 
 
 def _scores_from_request(star_scores: Optional[STARScoresInput]) -> STARScores:
@@ -499,22 +481,19 @@ async def _generate_initial_question(request: NextQuestionRequest) -> str:
 
 
 @router.post("/next-question", response_model=NextQuestionResponse)
-async def get_next_question(request: NextQuestionRequest):
+@limiter.limit("60/minute")
+async def get_next_question(payload: NextQuestionRequest, request: Request):
     """
-    Generate the next deep-dive question for Gakuchika.
+    Generate the next deep-dive question for Gakuchika (non-streaming JSON).
 
-    Phase 1 Improvements:
-    - Merged STAR evaluation + question generation into single LLM call
-    - Conversation phase system for adaptive questioning
-    - Question diversity enforcement (no consecutive same types)
-    - Content-aware initial question generation
+    Product の主経路は ``POST /next-question/stream``。本エンドポイントは
+    デバッグ・外部クライアント向けに同一ロジックを JSON で返す。
 
-    Flow:
-    1. Handle initial question (with/without content)
-    2. Determine conversation phase
-    3. Generate STAR evaluation + next question in single call
-    4. Keep question variation natural through prompt guidance
+    - 初回（ユーザー回答なし）は初回質問のみ返す
+    - それ以降は会話フェーズに応じたプロンプトで STAR 評価と次の質問を1回の LLM 呼び出しで生成
+    - パース失敗時はルールベースのフォールバック質問を使用
     """
+    request = payload
     if not request.gakuchika_title:
         raise HTTPException(
             status_code=400, detail="ガクチカのテーマが指定されていません"
@@ -708,11 +687,13 @@ async def _generate_next_question_progress(
 
 
 @router.post("/next-question/stream")
-async def get_next_question_stream(request: NextQuestionRequest):
+@limiter.limit("60/minute")
+async def get_next_question_stream(payload: NextQuestionRequest, request: Request):
     """
     SSE streaming version of next-question.
     Yields progress events then complete/error event.
     """
+    request = payload
     try:
         _sanitize_next_question_request(request)
     except PromptSafetyError:
@@ -729,8 +710,10 @@ async def get_next_question_stream(request: NextQuestionRequest):
 
 
 @router.post("/structured-summary")
-async def generate_structured_summary(request: StructuredSummaryRequest):
+@limiter.limit("60/minute")
+async def generate_structured_summary(payload: StructuredSummaryRequest, request: Request):
     """Generate a STAR-structured summary of the Gakuchika conversation."""
+    request = payload
     try:
         _sanitize_summary_request(request)
     except PromptSafetyError:
@@ -806,10 +789,12 @@ async def generate_structured_summary(request: StructuredSummaryRequest):
 # ── ES Draft Generation ───────────────────────────────────────────────
 
 @router.post("/generate-es-draft", response_model=GakuchikaESDraftResponse)
-async def generate_es_draft(request: GakuchikaESDraftRequest):
+@limiter.limit("60/minute")
+async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
     """
     Generate an ES draft from Gakuchika conversation history.
     """
+    request = payload
     if not request.conversation_history:
         raise HTTPException(status_code=400, detail="会話履歴がありません")
 

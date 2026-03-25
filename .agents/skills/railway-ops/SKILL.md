@@ -1,6 +1,6 @@
 ---
 name: railway-ops
-description: 就活Pass の Railway staging/production 運用。release automation から使う env sync, auth check, backend health check, staging custom domain 前提の操作に特化。Trigger: Railway, staging backend, production backend, stg-api.shupass.jp, railway env sync.
+description: "就活Pass の Railway staging/production 運用。release automation から使う env sync, auth check, backend health check, staging custom domain 前提の操作に特化。Trigger: Railway, staging backend, production backend, stg-api.shupass.jp, railway env sync."
 ---
 
 # Railway Ops

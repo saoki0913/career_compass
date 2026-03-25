@@ -37,7 +37,6 @@
 | `OPENAI_API_KEY` | Yes | OpenAI API キー (`sk-...`) |
 | `ANTHROPIC_API_KEY` | Yes | Anthropic API キー (`sk-ant-...`) |
 | `GOOGLE_API_KEY` | No | Gemini API キー |
-| `COHERE_API_KEY` | No | Cohere API キー |
 | `CORS_ORIGINS` | Yes | `["https://www.shupass.jp","https://shupass.jp"]` |
 | `PORT` | No | Railway が自動注入することが多い。アプリは `${PORT:-8000}` で待受（ローカルは 8000） |
 | `FRONTEND_URL` | No | 任意（ログ出力用）。例: `https://www.shupass.jp` |
@@ -49,8 +48,6 @@
 | `LOW_COST_REVIEW_MODEL` | No | ES添削の専用 low-cost repair model (デフォルト: `gpt-5.4-mini`) |
 | `GOOGLE_MODEL` | No | Gemini モデル名 (デフォルト: `gemini-3.1-pro-preview`) |
 | `GOOGLE_BASE_URL` | No | Gemini API ベースURL (デフォルト: `https://generativelanguage.googleapis.com/v1beta`) |
-| `COHERE_MODEL` | No | Cohere モデル名 (デフォルト: `command-a-03-2025`) |
-| `COHERE_BASE_URL` | No | Cohere OpenAI compatibility ベースURL (デフォルト: `https://api.cohere.com/compatibility/v1`) |
 | `MODEL_ES_REVIEW` | No | ES添削モデルエイリアスまたは明示モデルID。例: `claude-sonnet`, `gpt`, `gemini`, `low-cost`, `gpt-5.4` |
 | `MODEL_GAKUCHIKA` | No | ガクチカ深掘りモデルティア (デフォルト: `gpt-fast` → GPT-5.4 mini) |
 | `MODEL_GAKUCHIKA_DRAFT` | No | ガクチカ ES 下書き生成 (デフォルト: `claude-sonnet` → Sonnet 4.6) |
@@ -99,7 +96,7 @@ release automation の secrets 正本は `/Users/saoki/work/codex-company/.secre
 | `vercel-production.env` | production frontend env sync |
 | `railway-staging.env` | staging backend env sync |
 | `railway-production.env` | production backend env sync |
-| `github-actions.env` | GitHub Actions live gate secrets |
+| `github-actions.env` | GitHub Actions の `Dependency Review` / `CodeQL` / `Main Release Gate` 用 secrets（`CI_E2E_AUTH_SECRET`, LLM keys など） |
 | `supabase.env` | Supabase bootstrap inputs |
 | `cloudflare.env` | `stg-api.shupass.jp` を含む zone bootstrap inputs |
 | `../google-oauth/career_compass.env` | Google OAuth inventory |

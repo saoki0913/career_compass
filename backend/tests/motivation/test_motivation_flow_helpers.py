@@ -3,6 +3,7 @@ from app.routers.motivation import (
     _build_question_messages,
     _build_stage_specific_suggestion_options,
     _build_stage_status,
+    _capture_answer_into_context,
     _ensure_distinct_question,
     _get_next_stage,
     _repair_generated_question_for_response,
@@ -44,7 +45,7 @@ def test_stage_specific_options_for_company_reason_anchor_to_company_and_role():
         conversation_context={"selectedRole": "企画職", "questionStage": "company_reason"},
     )
 
-    assert 2 <= len(options) <= 4
+    assert 1 <= len(options) <= 2
     assert any("企画職" in option.label for option in options)
     assert any("DX支援" in option.label or "業務改革" in option.label for option in options)
     assert all("Q4" not in option.label for option in options)
@@ -417,6 +418,28 @@ def test_ensure_distinct_question_replaces_duplicate_with_fallback():
     assert distinct == "株式会社テストの業務改革に惹かれた理由を1つ教えてください。"
 
 
+def test_ensure_distinct_question_replaces_duplicate_seen_earlier_in_history():
+    distinct = _ensure_distinct_question(
+        question="株式会社テストのDX支援に惹かれた理由を1つ教えてください。",
+        stage="company_reason",
+        conversation_history=[
+            {"role": "assistant", "content": "株式会社テストのDX支援に惹かれた理由を1つ教えてください。"},
+            {"role": "user", "content": "顧客課題を解決できる点に惹かれます。"},
+            {"role": "assistant", "content": "入社後にどんな仕事へ挑戦したいですか？"},
+            {"role": "user", "content": "企画職として業務改善に関わりたいです。"},
+        ],
+        company_name="株式会社テスト",
+        selected_industry="IT・通信",
+        selected_role="企画職",
+        desired_work="DX支援",
+        grounded_company_anchor="業務改革",
+        gakuchika_episode="学生団体の運営",
+        gakuchika_strength="巻き込み力",
+    )
+
+    assert distinct == "株式会社テストの業務改革に惹かれた理由を1つ教えてください。"
+
+
 def test_build_stage_status_marks_company_reason_as_completed():
     status = _build_stage_status(
         {
@@ -434,3 +457,31 @@ def test_build_stage_status_marks_company_reason_as_completed():
     assert "industry_reason" in status.completed
     assert "company_reason" in status.completed
     assert "desired_work" not in status.completed
+
+
+def test_capture_answer_into_context_updates_company_reason_for_current_stage():
+    captured = _capture_answer_into_context(
+        {
+            "selectedIndustry": "IT・通信",
+            "selectedRole": "企画職",
+            "questionStage": "company_reason",
+        },
+        "業務改革を通じて顧客課題を解決できる点に惹かれます。",
+    )
+
+    assert captured["companyReason"] == "業務改革を通じて顧客課題を解決できる点に惹かれます。"
+    assert captured["questionStage"] == "company_reason"
+
+
+def test_capture_answer_into_context_updates_desired_work_for_current_stage():
+    captured = _capture_answer_into_context(
+        {
+            "selectedIndustry": "IT・通信",
+            "selectedRole": "企画職",
+            "companyReason": "業務改革に惹かれます。",
+            "questionStage": "desired_work",
+        },
+        "入社後は企画職として顧客の業務改善に挑戦したいです。",
+    )
+
+    assert captured["desiredWork"] == "入社後は企画職として顧客の業務改善に挑戦したいです。"

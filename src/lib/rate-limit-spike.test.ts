@@ -42,7 +42,7 @@ describe("rate-limit-spike", () => {
 
     const data = await response?.json();
     expect(data.error.code).toBe("RATE_LIMITED");
-    expect(data.error.userMessage).toContain("リクエストが多すぎます");
+    expect(data.error.userMessage).toBe("しばらく待ってから再試行してください。");
     expect(data.error.action).toContain("42");
   });
 });

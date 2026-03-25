@@ -1,9 +1,9 @@
-"""Local-only reference ES loader for quality profiling and overlap guard."""
+"""Local-only reference ES loader for quality profiling."""
 
 from __future__ import annotations
 
-from difflib import SequenceMatcher
 from pathlib import Path
+from statistics import pstdev
 from typing import Optional
 import json
 import re
@@ -17,82 +17,106 @@ QUESTION_TYPE_QUALITY_HINTS: dict[str, list[str]] = {
         "冒頭1文で設問への答えを明確に置く",
         "1文目では新情報として結論だけを言い切り、設問文の言い換えから入らない",
         "全体は3〜4文を目安にし、各文に役割を持たせて冗長な導入を置かない",
+        "1文の中で結論と根拠を抱え込みすぎず、役割を分ける",
         "根拠は経験・行動・結果の順で具体化する",
         "抽象語だけで終わらず、読み手がイメージできる材料を入れる",
+        "価値観と行動例を同じ文で混線させず、抽象→具体の順で置く",
         "NG: 設問の冒頭表現をそのまま繰り返す出だし",
         "NG: 「〜したい」「〜と考える」で連続して終わる文末パターン",
+        "NG: 抽象的な自己評価だけで終え、行動や結果の裏付けを置かない",
     ],
     "company_motivation": [
         "なぜその企業なのかを事業・価値観・職種理解まで落とし込む",
         "1文目で志望理由の核を言い切り、設問の復唱や前置きから始めない",
         "全体は4文前後で、結論→企業理解→自分との接点→貢献の順に畳む",
+        "企業理解と自分の経験は別の文で整理し、1文に詰め込みすぎない",
         "自分の経験と企業の接点を一本の論理でつなぐ",
         "入社後にどう貢献したいかまで自然に接続する",
+        "企業固有表現は1軸に絞り、事業・価値観・制度を列挙しない",
         "NG: 設問の冒頭表現をそのまま繰り返す出だし",
         "NG: 「〜したい」「〜と考える」で連続して終わる文末パターン",
+        "NG: 企業理解・自己経験・将来像を同一文で抱え込み、焦点を失う",
     ],
     "intern_reason": [
         "そのインターンで得たい経験を具体的に述べる",
         "1文目で参加理由を言い切り、説明の前置きを入れない",
         "全体は3文前後に収め、課題感と参加目的を重複させない",
+        "現状課題と学びたいことを同じ文で反復せず、役割を分ける",
         "現状の課題感と参加目的を接続する",
         "受け身ではなく主体的に学びに行く姿勢を示す",
+        "企業固有表現はプログラム理解か現場理解のどちらか1軸に絞る",
         "NG: 設問の冒頭表現をそのまま繰り返す出だし",
         "NG: 「〜したい」「〜と考える」で連続して終わる文末パターン",
+        "NG: 学びたいことを増やしすぎて、参加理由の核がぼやける",
     ],
     "intern_goals": [
         "やりたいこと・学びたいことを1〜2点に絞る",
         "1文目で達成したいことを明示し、抽象的な導入を置かない",
         "全体は3文前後で、学びたいことを増やしすぎず焦点を保つ",
+        "学びたいことと活かしたい強みを1文に詰め込みすぎない",
         "業務理解と自己の強みを接続する",
         "インターン後にどう成長したいかまで示す",
+        "企業固有表現は1テーマに絞り、事業と制度を同列列挙しない",
         "NG: 設問の冒頭表現をそのまま繰り返す出だし",
         "NG: 「〜したい」「〜と考える」で連続して終わる文末パターン",
+        "NG: 学びと貢献を同じ文で曖昧にし、何を得たいかがぼやける",
     ],
     "gakuchika": [
         "役割・課題・行動・成果を省略せず入れる",
         "1文目で何に取り組み、どんな役割を担ったかを置く",
         "全体は4文前後で、課題説明を長くしすぎず行動と成果に字数を使う",
+        "課題説明と行動説明を同じ文で混線させず、読み手が追える順に並べる",
         "数字や比較表現で成果の大きさを示す",
         "経験から得た強みを企業での再現性につなぐ",
         "NG: 設問の冒頭表現をそのまま繰り返す出だし",
         "NG: 「〜したい」「〜と考える」で連続して終わる文末パターン",
+        "NG: 課題だけで文量を使い切り、行動や成果が薄くなる構成",
     ],
     "self_pr": [
         "冒頭で強みを一言で明示する",
         "1文目で強みを言い切り、自己紹介的な前置きを置かない",
         "全体は3〜4文を目安にし、強みの説明と活かし方を重複させない",
+        "強みの定義と裏付け経験を別の文で整理し、同一文に詰め込みすぎない",
         "強みを裏付ける経験・工夫・成果を具体的に置く",
         "その強みを仕事や志望企業・職種でどう活かすかまでつなぐ",
         "NG: 設問の冒頭表現をそのまま繰り返す出だし",
         "NG: 「〜したい」「〜と考える」で連続して終わる文末パターン",
+        "NG: 強みのラベルだけを繰り返し、行動・成果の裏付けが増えない",
     ],
     "post_join_goals": [
         "短期の挑戦と中長期のビジョンを混同しない",
         "1文目で入社後に実現したいことを言い切る",
         "全体は4文前後で、将来像の説明を広げすぎず事業理解と接続する",
+        "実現したいこととその背景理由を別の文で整理する",
         "事業理解に基づいた実現イメージを置く",
         "原体験や強みから将来像へ論理をつなぐ",
+        "企業固有表現は1テーマに絞り、事業・制度・カルチャーを一度に並べない",
         "NG: 設問の冒頭表現をそのまま繰り返す出だし",
         "NG: 「〜したい」「〜と考える」で連続して終わる文末パターン",
+        "NG: 短期目標と中長期ビジョンを同一文で語り、時間軸がぼやける",
     ],
     "role_course_reason": [
         "その職種を選ぶ理由を経験ベースで示す",
         "1文目でその職種を選ぶ理由を言い切り、一般論から入らない",
         "全体は4文前後で、職種理解と自分の適性を別々の文で整理する",
+        "職種理解と企業理解を同じ文に押し込まず、役割の理由を先に立てる",
         "業務理解と自分の適性を結びつける",
         "その職種でどう成長し価値を出すかまで書く",
+        "企業固有表現は職種理解を補強する範囲に留め、軸を増やしすぎない",
         "NG: 設問の冒頭表現をそのまま繰り返す出だし",
         "NG: 「〜したい」「〜と考える」で連続して終わる文末パターン",
+        "NG: 適性・業務理解・将来像を同一文で抱え込み、読み手に負荷をかける",
     ],
     "work_values": [
         "価値観を抽象語で終わらせず行動例で裏付ける",
         "1文目で大切にしている価値観を言い切る",
         "全体は3文前後で、価値観の説明と行動例を混線させない",
+        "価値観とその背景体験を1文に詰め込まず、抽象→具体の順で並べる",
         "複数場面で一貫して表れる姿勢として示す",
         "仕事でどう生きるかまで接続する",
         "NG: 設問の冒頭表現をそのまま繰り返す出だし",
         "NG: 「〜したい」「〜と考える」で連続して終わる文末パターン",
+        "NG: 抽象語だけで完結し、行動例が読み手の頭に残らない",
     ],
 }
 
@@ -199,35 +223,6 @@ def load_reference_examples(
     return matched[:max_items]
 
 
-def _normalize_for_overlap(text: str) -> str:
-    return re.sub(r"[\s\u3000、。,.!！?？「」『』（）()［］\[\]・/／\-:：;；]", "", text or "").lower()
-
-
-OVERLAP_BOILERPLATE_PATTERNS = [
-    "志望する理由",
-    "選択した理由",
-    "活かしたい",
-    "価値を出したい",
-    "貢献したい",
-    "成長したい",
-    "挑戦したい",
-    "実現したい",
-    "経験を活かして",
-    "なぜなら",
-    "考えている",
-]
-
-
-def _strip_overlap_boilerplate(text: str, *, company_name: Optional[str], question_type: str) -> str:
-    normalized = _normalize_for_overlap(text)
-    for pattern in OVERLAP_BOILERPLATE_PATTERNS:
-        normalized = normalized.replace(_normalize_for_overlap(pattern), "")
-    if company_name:
-        normalized = normalized.replace(_normalize_for_overlap(company_name), "")
-    normalized = normalized.replace(_normalize_for_overlap(question_type), "")
-    return normalized
-
-
 def _split_sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[。！？!?])", (text or "").strip())
     return [part.strip() for part in parts if part.strip()]
@@ -261,11 +256,78 @@ def _looks_conclusion_first(text: str) -> bool:
     )
 
 
+def _safe_pstdev(values: list[float]) -> float:
+    if len(values) <= 1:
+        return 0.0
+    return float(pstdev(values))
+
+
+def _variance_band(*, average: float, stddev: float, medium_ratio: float, high_ratio: float) -> str:
+    baseline = max(1.0, average)
+    ratio = stddev / baseline
+    if ratio >= high_ratio:
+        return "high"
+    if ratio >= medium_ratio:
+        return "medium"
+    return "low"
+
+
+def _merge_variance_bands(*bands: str) -> str:
+    if "high" in bands:
+        return "high"
+    if "medium" in bands:
+        return "medium"
+    return "low"
+
+
+def _build_conditional_quality_hints(
+    *,
+    average_chars: int,
+    average_sentences: float,
+    concrete_marker_average: float,
+    variance_band: str,
+    current_answer: str | None,
+) -> list[str]:
+    if not current_answer:
+        return []
+
+    hints: list[str] = []
+    current_text = (current_answer or "").strip()
+    if not current_text:
+        return hints
+
+    current_chars = len(current_text)
+    current_sentences = len(_split_sentences(current_text))
+    current_concrete_markers = _count_concrete_markers(current_text)
+
+    char_gap = current_chars - average_chars
+    if abs(char_gap) >= max(45, int(max(average_chars, 1) * 0.18)):
+        if char_gap < 0:
+            hints.append("今回の回答は参考群よりかなり短い。一般論を足すのではなく、行動・成果・企業接点のどれか1点を補って厚みを出す。")
+        else:
+            hints.append("今回の回答は参考群よりかなり長い。結論と根拠を残したまま、重複説明や同趣旨の言い換えを削って圧縮する。")
+
+    if abs(current_sentences - average_sentences) >= 1.6:
+        if current_sentences < average_sentences:
+            hints.append("文数が少なめで役割が詰まりやすい。結論・根拠・接続の役割を分け、1文に情報を抱え込まない。")
+        else:
+            hints.append("文数が多めで論点が散りやすい。近い役割の文を統合し、主張の芯を3〜4文に寄せる。")
+
+    if concrete_marker_average >= 1.5 and current_concrete_markers + 1 < concrete_marker_average:
+        hints.append("具体性が参考群より弱い。数字、比較、役割、成果のうち1つだけでも明示して、抽象語だけで終えない。")
+
+    if variance_band == "high":
+        hints.append("参考群のばらつきが大きい。型にはめすぎず、論点順だけを参考にして自分の事実に合う長さと構成を選ぶ。")
+
+    return hints
+
+
 def build_reference_quality_profile(
     question_type: str,
     *,
     char_max: Optional[int] = None,
     company_name: Optional[str] = None,
+    current_answer: Optional[str] = None,
 ) -> Optional[dict]:
     references = load_reference_examples(
         question_type,
@@ -281,27 +343,66 @@ def build_reference_quality_profile(
     if not texts:
         return None
 
+    char_lengths = [len(text) for text in texts]
+    sentence_counts = [len(_split_sentences(text)) for text in texts]
+    concrete_counts = [_count_concrete_markers(text) for text in texts]
+    average_chars = round(sum(char_lengths) / len(char_lengths))
+    average_sentences = round(sum(sentence_counts) / len(sentence_counts), 1)
+    concrete_marker_average = round(sum(concrete_counts) / len(concrete_counts), 1)
+    char_stddev = round(_safe_pstdev([float(value) for value in char_lengths]), 1)
+    sentence_stddev = round(_safe_pstdev([float(value) for value in sentence_counts]), 1)
+    concrete_marker_stddev = round(_safe_pstdev([float(value) for value in concrete_counts]), 1)
+    variance_band = _merge_variance_bands(
+        _variance_band(
+            average=float(average_chars),
+            stddev=float(char_stddev),
+            medium_ratio=0.08,
+            high_ratio=0.18,
+        ),
+        _variance_band(
+            average=max(float(average_sentences), 1.0),
+            stddev=float(sentence_stddev),
+            medium_ratio=0.15,
+            high_ratio=0.3,
+        ),
+        _variance_band(
+            average=max(float(concrete_marker_average), 1.0),
+            stddev=float(concrete_marker_stddev),
+            medium_ratio=0.3,
+            high_ratio=0.55,
+        ),
+    )
+    conditional_hints = _build_conditional_quality_hints(
+        average_chars=average_chars,
+        average_sentences=average_sentences,
+        concrete_marker_average=concrete_marker_average,
+        variance_band=variance_band,
+        current_answer=current_answer,
+    )
+
     return {
         "reference_count": len(texts),
-        "average_chars": round(sum(len(text) for text in texts) / len(texts)),
-        "average_sentences": round(
-            sum(len(_split_sentences(text)) for text in texts) / len(texts), 1
-        ),
+        "average_chars": average_chars,
+        "average_sentences": average_sentences,
+        "char_stddev": char_stddev,
+        "sentence_stddev": sentence_stddev,
         "digit_rate": round(
             100 * sum(1 for text in texts if _contains_digit(text)) / len(texts)
         ),
-        "concrete_marker_average": round(
-            sum(_count_concrete_markers(text) for text in texts) / len(texts), 1
-        ),
+        "concrete_marker_average": concrete_marker_average,
+        "concrete_marker_stddev": concrete_marker_stddev,
         "conclusion_first_rate": round(
             100 * sum(1 for text in texts if _looks_conclusion_first(text)) / len(texts)
         ),
+        "variance_band": variance_band,
         "quality_hints": QUESTION_TYPE_QUALITY_HINTS.get(
             question_type, QUESTION_TYPE_QUALITY_HINTS["basic"]
         ),
         "skeleton": QUESTION_TYPE_SKELETONS.get(
             question_type, QUESTION_TYPE_SKELETONS["basic"]
         ),
+        "conditional_hints": conditional_hints,
+        "conditional_hints_applied": bool(conditional_hints),
     }
 
 
@@ -310,11 +411,13 @@ def build_reference_quality_block(
     *,
     char_max: Optional[int] = None,
     company_name: Optional[str] = None,
+    current_answer: Optional[str] = None,
 ) -> str:
     profile = build_reference_quality_profile(
         question_type,
         char_max=char_max,
         company_name=company_name,
+        current_answer=current_answer,
     )
     if not profile:
         return ""
@@ -323,84 +426,35 @@ def build_reference_quality_block(
 
     conclusion_first_guidance = ""
     if profile["conclusion_first_rate"] > 60:
-        conclusion_first_guidance = (
-            "\n- 冒頭1文で結論を置く"
-            "（例: 「私がOOを志望するのは、XXの経験からYYに強い関心を持ったからだ。」）"
-        )
+        conclusion_first_guidance = "\n- 冒頭1文で結論を置き、背景説明は2文目以降へ送る"
+    conditional_hint_lines = "\n".join(
+        f"- {hint}" for hint in profile.get("conditional_hints", [])
+    )
+    conditional_hint_block = (
+        f"\n【今回の回答に対する追加ヒント】\n{conditional_hint_lines}"
+        if conditional_hint_lines
+        else ""
+    )
 
     return f"""【参考ESから抽出した品質ヒント】
 - 参考件数: {profile["reference_count"]}件
 - 目安文字数: 約{profile["average_chars"]}字
 - 目安文数: 約{profile["average_sentences"]}文
+- 文字数ばらつき: {profile["char_stddev"]}
+- 文数ばらつき: {profile["sentence_stddev"]}
 - 数字を含む割合: {profile["digit_rate"]}%
+- 具体性マーカー平均: {profile["concrete_marker_average"]}
 - 結論先行率: {profile["conclusion_first_rate"]}%
+- 参考群のばらつき: {profile["variance_band"]}
 - 参考ESの本文・語句・特徴的な言い回し・細かな構成順を再利用しない
-- 骨子は論点の順序の参考にだけ使い、「貴社のように〜で活かす」等の型文や言い回しをコピーしない
+- 骨子は論点の順序の参考にだけ使い、型文や言い回しをコピーしない
 
 【この設問で意識する品質】
 {hint_lines}
 - 1文目は結論だけに集中し、2文目以降で根拠や企業接続を補う
 - 1文ごとの役割を明確にし、同じ内容を言い換えて引き延ばさない
-- 文末表現（〜したい/〜と考える/〜である）を3回以上連続させず、動詞や体言止めで変化をつける{conclusion_first_guidance}
+- 文末表現（〜したい/〜と考える/〜である）を3回以上連続させず、語尾に変化をつける{conclusion_first_guidance}{conditional_hint_block}
 
 【参考ESから抽出した骨子】
 {skeleton_lines}
 - 骨子は論点配置の参考に留め、文章や流れをそのままなぞらない"""
-
-
-def detect_reference_text_overlap(
-    candidate_text: str,
-    question_type: str,
-    *,
-    char_max: Optional[int] = None,
-    company_name: Optional[str] = None,
-) -> tuple[bool, Optional[str]]:
-    candidate_norm = _normalize_for_overlap(candidate_text)
-    candidate_core = _strip_overlap_boilerplate(
-        candidate_text,
-        company_name=company_name,
-        question_type=question_type,
-    )
-    if len(candidate_norm) < 20:
-        return False, None
-
-    references = load_reference_examples(
-        question_type,
-        char_max=char_max,
-        company_name=company_name,
-        max_items=5,
-    )
-    if not references:
-        return False, None
-
-    for reference in references:
-        reference_text = (reference.get("text") or "").strip()
-        reference_norm = _normalize_for_overlap(reference_text)
-        reference_core = _strip_overlap_boilerplate(
-            reference_text,
-            company_name=company_name,
-            question_type=question_type,
-        )
-        if len(reference_norm) < 20 or len(reference_core) < 18 or len(candidate_core) < 18:
-            continue
-
-        matcher = SequenceMatcher(None, candidate_core, reference_core)
-        longest = max((block.size for block in matcher.get_matching_blocks()), default=0)
-        shorter_len = min(len(candidate_core), len(reference_core))
-        threshold = min(52, max(28, int(shorter_len * 0.32)))
-        if longest >= threshold:
-            return True, f"rare_long_match:{reference.get('id', 'unknown')}:{longest}"
-
-        moderate_matches = 0
-        for sentence in _split_sentences(candidate_text):
-            sentence_norm = _strip_overlap_boilerplate(
-                sentence,
-                company_name=company_name,
-                question_type=question_type,
-            )
-            if len(sentence_norm) >= 22 and sentence_norm in reference_core:
-                moderate_matches += 1
-        if moderate_matches >= 2:
-            return True, f"multi_sentence_match:{reference.get('id', 'unknown')}:{moderate_matches}"
-
-    return False, None

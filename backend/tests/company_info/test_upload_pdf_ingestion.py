@@ -2,8 +2,24 @@ import io
 
 import pytest
 from fastapi import UploadFile
+from starlette.requests import Request
 
 from app.routers import company_info
+
+
+def _minimal_request() -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/rag/upload-pdf",
+            "headers": [],
+            "query_string": b"",
+            "client": ("testclient", 0),
+            "server": ("test", 80),
+            "scheme": "http",
+        }
+    )
 
 
 @pytest.mark.asyncio
@@ -38,6 +54,7 @@ async def test_upload_pdf_uses_ocr_when_text_too_short(monkeypatch: pytest.Monke
     upload = UploadFile(filename="company.pdf", file=io.BytesIO(b"%PDF-1.4 test"))
 
     result = await company_info.upload_corporate_pdf(
+        _minimal_request(),
         company_id="company-1",
         company_name="テスト株式会社",
         source_url="upload://corporate-pdf/company-1/test",

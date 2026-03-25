@@ -13,6 +13,7 @@ import { eq, and, gte, lte } from "drizzle-orm";
 import { headers } from "next/headers";
 import { enqueueWorkBlockUpsert } from "@/lib/calendar/sync";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { hasOwnedDeadline } from "@/app/api/_shared/owner-access";
 
 export async function GET(request: NextRequest) {
   try {
@@ -154,6 +155,20 @@ export async function POST(request: NextRequest) {
         developerMessage: "Invalid calendar event type",
         logContext: "calendar-event-create-validation",
       });
+    }
+
+    if (deadlineId) {
+      const hasDeadline = await hasOwnedDeadline(deadlineId, { userId, guestId: null });
+      if (!hasDeadline) {
+        return createApiErrorResponse(request, {
+          status: 404,
+          code: "CALENDAR_EVENT_DEADLINE_NOT_FOUND",
+          userMessage: "関連する締切が見つかりませんでした。",
+          action: "締切の選択内容を確認して、もう一度お試しください。",
+          developerMessage: "Deadline not found for calendar event create",
+          logContext: "calendar-event-create-validation",
+        });
+      }
     }
 
     const [newEvent] = await db

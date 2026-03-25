@@ -13,12 +13,12 @@ import {
 
 /** Tighter burst buckets (same identity keys as primary limiters). */
 export const BURST_RATE_LIMITS = {
-  reviewBurst: { maxTokens: 5, refillRate: 0.083, windowMs: 60_000 },
-  fetchInfoBurst: { maxTokens: 4, refillRate: 0.05, windowMs: 60_000 },
-  conversationBurst: { maxTokens: 12, refillRate: 0.2, windowMs: 60_000 },
-  companySearchBurst: { maxTokens: 3, refillRate: 0.05, windowMs: 60_000 },
-  draftBurst: { maxTokens: 1, refillRate: 0.0167, windowMs: 60_000 },
-  corporateMutateBurst: { maxTokens: 1, refillRate: 0.0112, windowMs: 60_000 },
+  reviewBurst: { maxTokens: 6, refillRate: 0.1, windowMs: 60_000 },
+  fetchInfoBurst: { maxTokens: 5, refillRate: 0.08, windowMs: 60_000 },
+  conversationBurst: { maxTokens: 16, refillRate: 0.25, windowMs: 60_000 },
+  companySearchBurst: { maxTokens: 5, refillRate: 0.08, windowMs: 60_000 },
+  draftBurst: { maxTokens: 2, refillRate: 0.025, windowMs: 60_000 },
+  corporateMutateBurst: { maxTokens: 2, refillRate: 0.0167, windowMs: 60_000 },
 } as const;
 
 export function logRateLimitBlock(
@@ -61,7 +61,7 @@ export async function enforceRateLimitLayers(
       const response = createApiErrorResponse(request, {
         status: 429,
         code: "RATE_LIMITED",
-        userMessage: "リクエストが多すぎます。しばらく待ってから再試行してください。",
+        userMessage: "しばらく待ってから再試行してください。",
         action: `${result.resetIn}秒ほど待ってから、もう一度お試しください。`,
       });
       response.headers.set("Retry-After", String(result.resetIn));

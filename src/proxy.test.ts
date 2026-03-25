@@ -7,7 +7,7 @@ describe("proxy CSP", () => {
     const request = new NextRequest("http://localhost:3000/dashboard", {
       headers: {
         accept: "text/html",
-        cookie: "better-auth.session_token=session-token",
+        cookie: "__Secure-better-auth.session_token=session-token",
       },
     });
 
@@ -17,6 +17,19 @@ describe("proxy CSP", () => {
     expect(response.status).toBe(200);
     expect(csp).toContain("script-src 'self' 'nonce-");
     expect(csp).toContain("'strict-dynamic'");
+  });
+
+  it("recognizes the legacy non-secure Better Auth cookie name too", async () => {
+    const { proxy } = await import("@/proxy");
+    const request = new NextRequest("http://localhost:3000/dashboard", {
+      headers: {
+        accept: "text/html",
+        cookie: "better-auth.session_token=session-token",
+      },
+    });
+
+    const response = await proxy(request);
+    expect(response.status).toBe(200);
   });
 
   it("keeps public marketing routes on a static CSP without a nonce", async () => {

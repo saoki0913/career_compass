@@ -10,7 +10,7 @@ SPEC Section 9.5 Requirements:
 - Partial success: if deadline not found but other items extracted = 0.5 credit
 """
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, HttpUrl
 from typing import Optional
 from datetime import datetime, timedelta
@@ -86,6 +86,7 @@ from app.utils.web_search import (
     is_trusted_schedule_job_site,
 )
 from app.utils.http_fetch import fetch_page_content, extract_text_from_html
+from app.limiter import limiter
 
 # ===== Hybrid Search Configuration =====
 # Set to True to use the new hybrid search with RRF + cross-encoder reranking
@@ -3249,7 +3250,8 @@ def _build_corporate_queries(
 
 
 @router.post("/search-pages")
-async def search_company_pages(request: SearchPagesRequest):
+@limiter.limit("60/minute")
+async def search_company_pages(payload: SearchPagesRequest, request: Request):
     """
     Search for company recruitment page candidates.
 
@@ -3260,6 +3262,7 @@ async def search_company_pages(request: SearchPagesRequest):
 
     Returns a list of up to max_results candidate URLs with confidence scores.
     """
+    request = payload
     company_name = request.company_name
     industry = request.industry
     custom_query = request.custom_query
@@ -3840,10 +3843,12 @@ async def _fetch_schedule_response(
 
 
 @router.post("/fetch-schedule", response_model=SelectionScheduleResponse)
-async def fetch_selection_schedule(request: FetchRequest):
+@limiter.limit("60/minute")
+async def fetch_selection_schedule(payload: FetchRequest, request: Request):
     """
     Fetch and extract selection schedule information from a URL.
     """
+    request = payload
     return await _fetch_schedule_response(request, feature="selection_schedule")
 
 
@@ -4006,7 +4011,8 @@ def _extracted_data_to_chunks(extracted_data: dict, source_url: str) -> list[dic
 
 
 @router.post("/rag/build", response_model=BuildRagResponse)
-async def build_company_rag(request: BuildRagRequest):
+@limiter.limit("60/minute")
+async def build_company_rag(payload: BuildRagRequest, request: Request):
     """
     Build RAG (vector embeddings) for a company.
 
@@ -4024,6 +4030,7 @@ async def build_company_rag(request: BuildRagRequest):
     - store_full_text: When True, also stores full text content (chunked)
     - content_type: New classification (optional). Use content_channel for legacy.
     """
+    request = payload
     try:
         structured_chunks = []
         full_text_stored = 0
@@ -4161,7 +4168,8 @@ async def build_company_rag(request: BuildRagRequest):
 
 
 @router.post("/rag/context", response_model=RagContextResponse)
-async def get_rag_context(request: RagContextRequest):
+@limiter.limit("60/minute")
+async def get_rag_context(payload: RagContextRequest, request: Request):
     """
     Get RAG context for ES review.
 
@@ -4174,6 +4182,7 @@ async def get_rag_context(request: RagContextRequest):
     - Enrich ES review with company-specific context
     - Enable company_connection scoring axis
     """
+    request = payload
     try:
         # Check if RAG exists
         rag_exists = has_company_rag(request.company_id)
@@ -4202,7 +4211,8 @@ async def get_rag_context(request: RagContextRequest):
 
 
 @router.get("/rag/status/{company_id}", response_model=RagStatusResponse)
-async def get_rag_status(company_id: str):
+@limiter.limit("120/minute")
+async def get_rag_status(company_id: str, request: Request):
     """
     Check if a company has RAG data (simple check).
 
@@ -4214,7 +4224,8 @@ async def get_rag_status(company_id: str):
 @router.get(
     "/rag/status-detailed/{company_id}", response_model=DetailedRagStatusResponse
 )
-async def get_detailed_rag_status(company_id: str):
+@limiter.limit("120/minute")
+async def get_detailed_rag_status(company_id: str, request: Request):
     """
     Get detailed RAG status for a company.
 
@@ -4240,7 +4251,8 @@ async def get_detailed_rag_status(company_id: str):
 
 
 @router.delete("/rag/{company_id}")
-async def delete_rag(company_id: str):
+@limiter.limit("60/minute")
+async def delete_rag(company_id: str, request: Request):
     """
     Delete all RAG data for a company.
 
@@ -4254,7 +4266,8 @@ async def delete_rag(company_id: str):
 
 
 @router.delete("/rag/{company_id}/{content_type}")
-async def delete_rag_by_type(company_id: str, content_type: str):
+@limiter.limit("60/minute")
+async def delete_rag_by_type(company_id: str, content_type: str, request: Request):
     """
     Delete RAG data for a company by content type.
 
@@ -4290,7 +4303,8 @@ class DeleteByUrlsResponse(BaseModel):
 
 
 @router.post("/rag/{company_id}/delete-by-urls", response_model=DeleteByUrlsResponse)
-async def delete_rag_by_urls(company_id: str, request: DeleteByUrlsRequest):
+@limiter.limit("60/minute")
+async def delete_rag_by_urls(company_id: str, payload: DeleteByUrlsRequest, request: Request):
     """
     Delete RAG data for a company by source URLs.
 
@@ -4300,6 +4314,7 @@ async def delete_rag_by_urls(company_id: str, request: DeleteByUrlsRequest):
     Note: Using POST instead of DELETE because DELETE with request body
     is not well supported across all HTTP clients.
     """
+    request = payload
     if not request.urls:
         return DeleteByUrlsResponse(
             success=True,
@@ -4526,7 +4541,9 @@ def _pdf_ingest_telemetry_line(
 
 
 @router.post("/rag/upload-pdf", response_model=UploadCorporatePdfResponse)
+@limiter.limit("60/minute")
 async def upload_corporate_pdf(
+    request: Request,
     company_id: str = Form(...),
     company_name: str = Form(...),
     source_url: str = Form(...),
@@ -4744,7 +4761,8 @@ async def upload_corporate_pdf(
 
 
 @router.post("/rag/crawl-corporate", response_model=CrawlCorporateResponse)
-async def crawl_corporate_pages(request: CrawlCorporateRequest):
+@limiter.limit("60/minute")
+async def crawl_corporate_pages(payload: CrawlCorporateRequest, request: Request):
     """
     Crawl and index corporate site pages for RAG.
 
@@ -4759,6 +4777,7 @@ async def crawl_corporate_pages(request: CrawlCorporateRequest):
     - Plan limit checking (page count limits)
     - Storing URLs in company record
     """
+    request = payload
     valid_channels = ["corporate_ir", "corporate_business", "corporate_general"]
     channel = request.content_channel or "corporate_general"
     if channel not in valid_channels:
@@ -4843,7 +4862,8 @@ async def crawl_corporate_pages(request: CrawlCorporateRequest):
 
 
 @router.post("/search-corporate-pages")
-async def search_corporate_pages(request: SearchCorporatePagesRequest):
+@limiter.limit("60/minute")
+async def search_corporate_pages(payload: SearchCorporatePagesRequest, request: Request):
     """
     Search for corporate page candidates (IR, business info, etc.).
 
@@ -4860,6 +4880,7 @@ async def search_corporate_pages(request: SearchCorporatePagesRequest):
         max_results: Maximum number of results to return
         allow_snippet_match: If True, also match company name in snippet
     """
+    request = payload
     company_name = request.company_name
     search_type = request.search_type
     content_type = request.content_type

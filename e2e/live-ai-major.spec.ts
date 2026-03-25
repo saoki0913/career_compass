@@ -5,49 +5,16 @@ import {
   apiRequest,
   createGuestDocument,
   createOwnedCompany,
-  createOwnedGakuchika,
   deleteGuestCompany,
   deleteGuestDocument,
-  deleteOwnedGakuchika,
-  ensureGuestSession,
   expectOkResponse,
-  loginAsGuest,
 } from "./fixtures/auth";
 import { hasGoogleAuthState, signInWithGoogle } from "./google-auth";
-
-type RoleOptionsResponse = {
-  roleGroups: Array<{
-    options: Array<{
-      value: string;
-    }>;
-  }>;
-};
-
-type MotivationStartResponse = {
-  conversation: { id: string };
-  nextQuestion?: string | null;
-};
-
-type MotivationConversationResponse = {
-  nextQuestion?: string | null;
-  questionCount: number;
-};
-
-type MotivationDraftResponse = {
-  draft: string;
-  documentId: string;
-};
-
-type GakuchikaConversationStartResponse = {
-  conversation: { id: string };
-  messages: Array<{ role: "assistant" | "user"; content: string }>;
-};
 
 const LIVE_AI_ENV_NAMES = [
   "OPENAI_API_KEY",
   "ANTHROPIC_API_KEY",
   "GOOGLE_API_KEY",
-  "COHERE_API_KEY",
 ] as const;
 
 function hasAnyLiveAiCredential() {
@@ -66,10 +33,6 @@ function hasAnyLiveAiCredential() {
   );
 }
 
-async function parseOkJson<T>(response: Awaited<ReturnType<typeof apiRequest>>, label: string): Promise<T> {
-  return JSON.parse(await expectOkResponse(response, label)) as T;
-}
-
 test.describe("Live AI major flow", () => {
   test.beforeAll(() => {
     expect(
@@ -78,111 +41,10 @@ test.describe("Live AI major flow", () => {
     ).toBeTruthy();
   });
 
-  test("guest motivation and gakuchika AI flows work end-to-end", async ({ page }) => {
-    test.setTimeout(240_000);
-
-    const runId = `live-ai-${Date.now()}`;
-    const companyName = `AI主要導線会社_${runId}`;
-    const gakuchikaTitle = `AIガクチカ_${runId}`;
-
-    let companyId: string | null = null;
-    let motivationDocumentId: string | null = null;
-    let gakuchikaId: string | null = null;
-
-    await loginAsGuest(page);
-    await ensureGuestSession(page);
-
-    try {
-      const company = await createOwnedCompany(page, {
-        name: companyName,
-        industry: "IT・ソフトウェア",
-      });
-      companyId = company.id;
-
-      const roleOptionsPayload = await parseOkJson<RoleOptionsResponse>(
-        await apiRequest(
-          page,
-          "GET",
-          `/api/companies/${companyId}/es-role-options?industry=${encodeURIComponent("IT・通信")}`,
-        ),
-        "live motivation role options",
-      );
-      const selectedRole = roleOptionsPayload.roleGroups.flatMap((group) => group.options)[0]?.value;
-      expect(selectedRole).toBeTruthy();
-
-      const motivationStartPayload = await parseOkJson<MotivationStartResponse>(
-        await apiRequest(page, "POST", `/api/motivation/${companyId}/conversation/start`, {
-          selectedIndustry: "IT・通信",
-          selectedRole,
-          roleSelectionSource: "industry_default",
-        }),
-        "live motivation conversation start",
-      );
-      expect(motivationStartPayload.conversation.id).toBeTruthy();
-      expect((motivationStartPayload.nextQuestion ?? "").length).toBeGreaterThan(0);
-
-      const motivationConversationPayload = await parseOkJson<MotivationConversationResponse>(
-        await apiRequest(page, "POST", `/api/motivation/${companyId}/conversation`, {
-          answer: "顧客の業務改善を支援できる点に魅力を感じています。",
-        }),
-        "live motivation conversation answer",
-      );
-      expect(motivationConversationPayload.questionCount).toBeGreaterThan(0);
-      expect((motivationConversationPayload.nextQuestion ?? "").length).toBeGreaterThan(0);
-
-      const motivationDraftPayload = await parseOkJson<MotivationDraftResponse>(
-        await apiRequest(page, "POST", `/api/motivation/${companyId}/generate-draft`, {
-          charLimit: 400,
-        }),
-        "live motivation draft generation",
-      );
-      motivationDocumentId = motivationDraftPayload.documentId;
-      expect(motivationDraftPayload.draft.length).toBeGreaterThan(50);
-
-      await page.goto(`/companies/${companyId}/motivation`);
-      await expect(page.getByRole("heading", { name: "志望動機を作成" })).toBeVisible();
-      await expect(page.locator("body")).toContainText(companyName);
-
-      await page.goto(`/es/${motivationDocumentId}`);
-      await expect(page.locator("main")).toBeVisible();
-
-      const gakuchika = await createOwnedGakuchika(page, {
-        title: gakuchikaTitle,
-        content: "大学のゼミでイベント運営を改善し、参加率を向上させました。",
-        charLimitType: "400",
-      });
-      gakuchikaId = gakuchika.id;
-
-      const gakuchikaStartPayload = await parseOkJson<GakuchikaConversationStartResponse>(
-        await apiRequest(page, "POST", `/api/gakuchika/${gakuchikaId}/conversation/new`),
-        "live gakuchika conversation start",
-      );
-      expect(gakuchikaStartPayload.conversation.id).toBeTruthy();
-      expect(gakuchikaStartPayload.messages.some((message) => message.role === "assistant")).toBeTruthy();
-
-      const gakuchikaStreamBody = await expectOkResponse(
-        await apiRequest(page, "POST", `/api/gakuchika/${gakuchikaId}/conversation/stream`, {
-          answer: "参加者ごとの離脱理由を整理し、告知文と当日の導線を改善しました。",
-          sessionId: gakuchikaStartPayload.conversation.id,
-        }),
-        "live gakuchika conversation stream",
-      );
-      expect(gakuchikaStreamBody).toContain('"type":"complete"');
-
-      await page.goto(`/gakuchika/${gakuchikaId}`);
-      await expect(page.locator("main")).toBeVisible();
-      await expect(page.locator("body")).toContainText(/深掘り進捗状況|保存して後で続ける/);
-    } finally {
-      if (motivationDocumentId) {
-        await deleteGuestDocument(page, motivationDocumentId);
-      }
-      if (gakuchikaId) {
-        await deleteOwnedGakuchika(page, gakuchikaId);
-      }
-      if (companyId) {
-        await deleteGuestCompany(page, companyId);
-      }
-    }
+  test.skip("guest motivation and gakuchika AI flows work end-to-end", async () => {
+    // ゲスト: PLAN_METADATA.guest.gakuchika=0 で POST /api/gakuchika は 403。
+    // 志望動機の conversation/start・stream・generate-draft はログイン必須（401）。
+    // 復帰する場合はプロダクト制限と API を揃えたうえでシナリオを再構成する。
   });
 
   test("logged-in user can complete live ES review stream", async ({ page }) => {

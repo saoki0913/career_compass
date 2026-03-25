@@ -2,7 +2,7 @@
  * Daily Notifications Cron Job API
  *
  * GET: Triggered by Vercel Cron at JST 9:00 (UTC 0:00) daily
- * Executes deadline reminders and cleanup (daily_summary runs hourly — see hourly-daily-summary)
+ * Executes deadline reminders, cleanup, and daily_summary (1/day; Vercel Hobby は毎時 Cron 不可のためここでまとめる)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -42,9 +42,17 @@ export async function GET(request: NextRequest) {
 
     // Execute batch processes in sequence
     const results: Record<string, unknown> = {};
-    const batchTypes = ["deadline_reminders", "cleanup"];
+    const batchJobs: { type: string; body?: Record<string, unknown> }[] = [
+      { type: "deadline_reminders" },
+      { type: "cleanup" },
+      {
+        type: "daily_summary",
+        body: { type: "daily_summary", matchPreferredJstHour: false },
+      },
+    ];
 
-    for (const type of batchTypes) {
+    for (const job of batchJobs) {
+      const type = job.type;
       try {
         const res = await fetch(`${baseUrl}/api/notifications/batch`, {
           method: "POST",
@@ -52,7 +60,7 @@ export async function GET(request: NextRequest) {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${process.env.CRON_SECRET}`,
           },
-          body: JSON.stringify({ type }),
+          body: JSON.stringify(job.body ?? { type }),
         });
         results[type] = await res.json();
       } catch (error) {

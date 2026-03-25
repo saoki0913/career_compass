@@ -55,12 +55,6 @@ def test_required_medium_long_rewrite_prompt_includes_structure_and_examples(
             }
         ],
         has_rag=True,
-        improvement_points=[
-            {
-                "issue": "企業接続が浅い",
-                "suggestion": "事業理解と自分の経験を一本でつなぐ",
-            }
-        ],
         allowed_user_facts=[
             {"source": "current_answer", "text": answer},
             {"source": "gakuchika_summary", "text": "研究室で論点整理を担った。"},
@@ -78,6 +72,7 @@ def test_required_medium_long_rewrite_prompt_includes_structure_and_examples(
     assert "【書き出し例】" in system_prompt
     assert "【避ける例】" in system_prompt
     assert "設問文の言い換え" in system_prompt
+    assert "【改善ポイント】" not in system_prompt
     assert "研究" in user_prompt
 
 
@@ -123,12 +118,6 @@ def test_required_medium_long_fallback_prompt_includes_same_structure(
             }
         ],
         has_rag=True,
-        improvement_points=[
-            {
-                "issue": "企業接続が浅い",
-                "suggestion": "事業理解と自分の経験を一本でつなぐ",
-            }
-        ],
         allowed_user_facts=[
             {"source": "current_answer", "text": answer},
             {"source": "gakuchika_summary", "text": "研究室で論点整理を担った。"},
@@ -143,6 +132,7 @@ def test_required_medium_long_fallback_prompt_includes_same_structure(
     assert "【requiredテンプレの型】" in system_prompt
     assert "【書き出し例】" in system_prompt
     assert "【避ける例】" in system_prompt
+    assert "【最低限反映する改善点】" not in user_prompt
     assert "研究" in user_prompt
 
 
@@ -188,7 +178,6 @@ def test_required_short_prompt_includes_required_playbook_and_min_guard() -> Non
             {"theme": "事業理解", "claim": "成長領域への投資を進める", "excerpt": "新たな事業機会を広げる"}
         ],
         has_rag=True,
-        improvement_points=[{"issue": "企業接続が浅い", "suggestion": "事業理解と自分の経験を一本でつなぐ"}],
         allowed_user_facts=[{"source": "current_answer", "text": "研究で仮説検証を重ねた。"}],
         role_name="総合職",
         grounding_mode="company_general",
@@ -213,7 +202,6 @@ def test_rewrite_prompt_uses_400_char_target_window() -> None:
             {"theme": "役割理解", "claim": "事業と実装をつなぐ", "excerpt": "構想を前に進める"}
         ],
         has_rag=True,
-        improvement_points=[{"issue": "職種接続が浅い", "suggestion": "役割理解を最後までつなぐ"}],
         allowed_user_facts=[{"source": "current_answer", "text": "研究で培った分析力を生かしたい。"}],
         role_name="デジタル企画",
         grounding_mode="role_grounded",
@@ -229,19 +217,19 @@ def test_rewrite_prompt_uses_400_char_target_window() -> None:
 
 
 def test_rewrite_prompt_uses_tighter_target_window_on_under_min_recovery() -> None:
+    answer = "研究で培った分析力を、事業と技術をつなぐ役割で生かしたい。"
     system_prompt, _ = build_template_rewrite_prompt(
         template_type="role_course_reason",
         company_name="三菱商事",
         industry="総合商社",
         question="デジタル企画コースを選んだ理由を400字以内で教えてください。",
-        answer="研究で培った分析力を、事業と技術をつなぐ役割で生かしたい。",
+        answer=answer,
         char_min=390,
         char_max=400,
         company_evidence_cards=[
             {"theme": "役割理解", "claim": "事業と実装をつなぐ", "excerpt": "構想を前に進める"}
         ],
         has_rag=True,
-        improvement_points=[{"issue": "職種接続が浅い", "suggestion": "役割理解を最後までつなぐ"}],
         allowed_user_facts=[{"source": "current_answer", "text": "研究で培った分析力を生かしたい。"}],
         role_name="デジタル企画",
         grounding_mode="role_grounded",
@@ -249,7 +237,64 @@ def test_rewrite_prompt_uses_tighter_target_window_on_under_min_recovery() -> No
         length_shortfall=22,
     )
 
-    assert "今回の内部目標帯: 397字〜400字" in system_prompt
+    expected_window = _format_target_char_window(
+        390,
+        400,
+        stage="under_min_recovery",
+        original_len=len(answer),
+        llm_model=None,
+    )
+    assert f"今回の内部目標帯: {expected_window}" in system_prompt
+
+
+def test_target_window_biases_openai_mini_higher_for_short_answers() -> None:
+    answer = "幅広い事業に関わり、自分の視野を広げたい。"
+
+    mini_window = _format_target_char_window(
+        72,
+        140,
+        original_len=len(answer),
+        llm_model="gpt-5.4-mini",
+    )
+    full_window = _format_target_char_window(
+        72,
+        140,
+        original_len=len(answer),
+        llm_model="gpt-5.4",
+    )
+    claude_window = _format_target_char_window(
+        72,
+        140,
+        original_len=len(answer),
+        llm_model="claude-sonnet-4-6",
+    )
+
+    assert mini_window == "137字〜140字"
+    assert full_window == "134字〜140字"
+    assert claude_window == "132字〜140字"
+
+
+def test_rewrite_prompt_includes_length_focus_max_guidance() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="company_motivation",
+        company_name="KPMG",
+        industry="コンサル",
+        question="志望理由を400字以内で教えてください。",
+        answer="研究経験を価値へつなげたい。",
+        char_min=390,
+        char_max=400,
+        company_evidence_cards=[
+            {"theme": "事業理解", "claim": "変革支援を重視する", "excerpt": "価値変革を支援する"}
+        ],
+        has_rag=True,
+        allowed_user_facts=[{"source": "current_answer", "text": "研究経験を価値へつなげたい。"}],
+        grounding_mode="company_general",
+        focus_mode="length_focus_max",
+    )
+
+    assert "【今回の修正フォーカス】" in system_prompt
+    assert "削る" in system_prompt
+    assert "最大字数" in system_prompt
 
 
 def test_short_answer_guidance_covers_self_pr_structure() -> None:
@@ -265,7 +310,6 @@ def test_short_answer_guidance_covers_self_pr_structure() -> None:
             {"theme": "働き方", "claim": "周囲を巻き込みながら前進させる", "excerpt": "現場で価値を生む"}
         ],
         has_rag=True,
-        improvement_points=[{"issue": "強みの活かし方が浅い", "suggestion": "仕事での活かし方を最後に置く"}],
         allowed_user_facts=[{"source": "current_answer", "text": "論点整理と巻き込みが強み。"}],
         grounding_mode="company_general",
     )

@@ -89,12 +89,15 @@
 
 ### 8. Deployment / Release Ops
 - Skills: `release-automation`, `railway-ops`, `supabase-ops`, `deployment-automation`
-- Trigger keywords: deploy, release, staging, production, Railway, Supabase, Vercel, 本番デプロイ, staging反映, リリース
+- Trigger keywords: deploy, release, staging, production, Railway, Supabase, Vercel, 本番デプロイ, staging反映, リリース, 本番にデプロイ, 本番反映, 公開して, リリースして, 本番に出して, push this live, ship it, deploy to production
 - Auto-invoke when:
   - `scripts/release/` を触る
   - `scripts/bootstrap/career-compass/` を触る
   - `docs/release/` や `docs/ops/CLI_GUARDRAILS.md` を release 運用目的で更新する
 - 本番リリースの正本は `make deploy` と `scripts/release/release-career-compass.sh`
+- ユーザーが「本番にデプロイして」「本番反映して」「公開して」など同義の自然文で依頼した場合も、本番リリース依頼として扱う
+- 明示がなければ、ローカル変更を全部含める標準入口は `make ops-release-check` → `make deploy-stage-all`
+- ユーザーが staged-only を明示したときだけ `make deploy` を使う
 - secrets 正本は `/Users/saoki/work/codex-company/.secrets/career_compass`
 - provider CLI の直接操作ではなく、repo 内 scripts を優先する
 

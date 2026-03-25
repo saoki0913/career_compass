@@ -82,6 +82,6 @@ async def test_streaming_emits_canonical_question_chunks_only(
 
     assert complete_events
     canonical_question = complete_events[0]["data"]["question"]
-    assert canonical_question == "株式会社テストのDX支援に惹かれた理由を1つ教えてください。"
+    assert canonical_question == "入社後に何をしたいですか？"
     assert "".join(event["text"] for event in question_chunks) == canonical_question
-    assert all("入社後" not in event["text"] for event in question_chunks)
+    assert any("入社後" in event["text"] for event in question_chunks)

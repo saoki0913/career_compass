@@ -14,7 +14,9 @@ import {
 import { stripCompanyCredentials } from "@/lib/db/sanitize";
 import { normalizeEsDocumentCategory } from "@/lib/es-document-category";
 import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import { isOwnedByIdentity } from "@/app/api/_shared/owner-access";
 import { and, asc, count, desc, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 const COMPANY_LIMITS = {
   guest: 3,
@@ -243,10 +245,16 @@ const documentListJoin = {
   company: {
     id: companies.id,
     name: companies.name,
+    infoFetchedAt: companies.infoFetchedAt,
+    corporateInfoFetchedAt: companies.corporateInfoFetchedAt,
+    userId: companies.userId,
+    guestId: companies.guestId,
   },
   application: {
     id: applications.id,
     name: applications.name,
+    userId: applications.userId,
+    guestId: applications.guestId,
   },
 } as const;
 
@@ -305,8 +313,19 @@ export async function getDocumentsPageData(identity: RequestIdentity, options: D
         deletedAt: item.document.deletedAt ? item.document.deletedAt.toISOString() : null,
         createdAt: item.document.createdAt.toISOString(),
         updatedAt: item.document.updatedAt.toISOString(),
-        company: item.company?.id ? item.company : null,
-        application: item.application?.id ? item.application : null,
+        company:
+          item.company?.id && isOwnedByIdentity(item.company, identity)
+            ? {
+                id: item.company.id,
+                name: item.company.name,
+                infoFetchedAt: serializeDate(item.company.infoFetchedAt),
+                corporateInfoFetchedAt: serializeDate(item.company.corporateInfoFetchedAt),
+              }
+            : null,
+        application:
+          item.application?.id && isOwnedByIdentity(item.application, identity)
+            ? { id: item.application.id, name: item.application.name }
+            : null,
       })),
     };
   }
@@ -330,8 +349,19 @@ export async function getDocumentsPageData(identity: RequestIdentity, options: D
       deletedAt: item.document.deletedAt ? item.document.deletedAt.toISOString() : null,
       createdAt: item.document.createdAt.toISOString(),
       updatedAt: item.document.updatedAt.toISOString(),
-      company: item.company?.id ? item.company : null,
-      application: item.application?.id ? item.application : null,
+      company:
+        item.company?.id && isOwnedByIdentity(item.company, identity)
+          ? {
+              id: item.company.id,
+              name: item.company.name,
+              infoFetchedAt: serializeDate(item.company.infoFetchedAt),
+              corporateInfoFetchedAt: serializeDate(item.company.corporateInfoFetchedAt),
+            }
+          : null,
+      application:
+        item.application?.id && isOwnedByIdentity(item.application, identity)
+          ? { id: item.application.id, name: item.application.name }
+          : null,
     })),
   };
 }
@@ -417,6 +447,7 @@ export async function getUpcomingDeadlinesData(identity: RequestIdentity, days =
 export async function getTodayTaskData(identity: RequestIdentity) {
   const now = new Date();
   const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
+  const deadlineCompany = alias(companies, "today_deadline_company");
 
   const openTasks = await db
     .select({
@@ -425,21 +456,28 @@ export async function getTodayTaskData(identity: RequestIdentity) {
         id: companies.id,
         name: companies.name,
         createdAt: companies.createdAt,
+        userId: companies.userId,
+        guestId: companies.guestId,
       },
       application: {
         id: applications.id,
         name: applications.name,
+        userId: applications.userId,
+        guestId: applications.guestId,
       },
       deadline: {
         id: deadlines.id,
         title: deadlines.title,
         dueDate: deadlines.dueDate,
+        userId: deadlineCompany.userId,
+        guestId: deadlineCompany.guestId,
       },
     })
     .from(tasks)
     .leftJoin(companies, eq(tasks.companyId, companies.id))
     .leftJoin(applications, eq(tasks.applicationId, applications.id))
     .leftJoin(deadlines, eq(tasks.deadlineId, deadlines.id))
+    .leftJoin(deadlineCompany, eq(deadlines.companyId, deadlineCompany.id))
     .where(and(eq(tasks.status, "open"), buildTaskWhere(identity)));
 
   if (openTasks.length === 0) {
@@ -563,25 +601,28 @@ export async function getTodayTaskData(identity: RequestIdentity) {
       createdAt: serializeDate(selectedTask.task.createdAt) ?? new Date().toISOString(),
       updatedAt: serializeDate(selectedTask.task.updatedAt) ?? serializeDate(selectedTask.task.createdAt) ?? new Date().toISOString(),
       sortOrder: selectedTask.task.sortOrder ?? 0,
-      company: selectedTask.company?.id
+      company: selectedTask.company?.id && isOwnedByIdentity(selectedTask.company, identity)
         ? {
             id: selectedTask.company.id,
             name: selectedTask.company.name,
           }
         : null,
-      application: selectedTask.application?.id
+      application: selectedTask.application?.id && isOwnedByIdentity(selectedTask.application, identity)
         ? {
             id: selectedTask.application.id,
             name: selectedTask.application.name,
           }
         : null,
-      deadline: selectedTask.deadline?.id
-        ? {
-            id: selectedTask.deadline.id,
-            title: selectedTask.deadline.title,
-            dueDate: selectedTask.deadline.dueDate.toISOString(),
-          }
-        : null,
+      deadline:
+        selectedTask.deadline?.id &&
+        selectedTask.deadline.dueDate &&
+        isOwnedByIdentity(selectedTask.deadline, identity)
+          ? {
+              id: selectedTask.deadline.id,
+              title: selectedTask.deadline.title ?? "",
+              dueDate: selectedTask.deadline.dueDate.toISOString(),
+            }
+          : null,
     },
   };
 }
@@ -831,10 +872,14 @@ async function loadDocumentDetailPageData(
         name: companies.name,
         infoFetchedAt: companies.infoFetchedAt,
         corporateInfoFetchedAt: companies.corporateInfoFetchedAt,
+        userId: companies.userId,
+        guestId: companies.guestId,
       },
       application: {
         id: applications.id,
         name: applications.name,
+        userId: applications.userId,
+        guestId: applications.guestId,
       },
     })
     .from(documents)
@@ -856,14 +901,18 @@ async function loadDocumentDetailPageData(
       deletedAt: serializeDate(item.document.deletedAt),
       createdAt: serializeDate(item.document.createdAt) ?? new Date().toISOString(),
       updatedAt: serializeDate(item.document.updatedAt) ?? new Date().toISOString(),
-      company: item.company?.id
+      company: item.company?.id && isOwnedByIdentity(item.company, identity)
         ? {
-            ...item.company,
+            id: item.company.id,
+            name: item.company.name,
             infoFetchedAt: serializeDate(item.company.infoFetchedAt),
             corporateInfoFetchedAt: serializeDate(item.company.corporateInfoFetchedAt),
           }
         : null,
-      application: item.application?.id ? item.application : null,
+      application:
+        item.application?.id && isOwnedByIdentity(item.application, identity)
+          ? { id: item.application.id, name: item.application.name }
+          : null,
     },
   };
 }

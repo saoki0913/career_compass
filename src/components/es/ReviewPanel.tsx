@@ -62,12 +62,11 @@ import {
   notifyReviewSuccess,
 } from "@/lib/notifications";
 import { ReflectModal } from "./ReflectModal";
-import {
-  getVisibleReviewContentSize,
-  shouldAutoScrollToLatest,
-} from "./review-panel-scroll";
 import type { ReviewValidationField } from "./review-panel-validation";
-import { getReviewValidationIssues } from "./review-panel-validation";
+import {
+  getReviewValidationIssues,
+  MIN_REVIEW_SECTION_BODY_CHARS,
+} from "./review-panel-validation";
 import { ReviewEmptyState } from "./ReviewEmptyState";
 import { StreamingReviewResponse } from "./StreamingReviewResponse";
 
@@ -125,7 +124,7 @@ function getStreamingStatusCopy(step: string | null) {
   if (step === "analysis") {
     return {
       title: "設問を整理しています",
-      description: "改善案の方向性を固めています。",
+      description: "回答の土台を整えています。",
     };
   }
 
@@ -133,13 +132,6 @@ function getStreamingStatusCopy(step: string | null) {
     return {
       title: "改善した回答を提案しています",
       description: "回答の伝わり方を整えています。",
-    };
-  }
-
-  if (step === "finalize") {
-    return {
-      title: "改善ポイントを整理しています",
-      description: "修正すべき点を順にまとめています。",
     };
   }
 
@@ -300,7 +292,7 @@ function CompanyStatusBanner({
               {companyName ? `${companyName}の企業情報と連携してAI添削できます。` : "企業情報連携済みです。"}
             </p>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              改善案、改善ポイント、出典リンクを順に返します。
+              改善案と出典リンクを順に返します。
             </p>
           </div>
         </div>
@@ -401,10 +393,8 @@ function FreePlanEsReviewModelNotice() {
     <div className="rounded-[26px] border border-border/60 bg-muted/30 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
       <p className="text-sm font-semibold text-foreground">添削モデル（Free）</p>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">
-        Free プランでは <strong className="font-medium text-foreground">GPT-5.4 mini</strong>{" "}
-        相当の経路で添削します。消費クレジットは Standard / Pro で選べる
-        Claude / GPT / Gemini（プレミアム帯）と<strong className="font-medium text-foreground">同じ目安</strong>
-        です。課金プランにアップグレードすると、高性能モデルから選べます。
+        Free プランでは <strong className="font-medium text-foreground">GPT-5.4 mini</strong>
+        で添削を行います。プランをアップグレードすると、高性能モデルを選択できるようになります。
       </p>
       <Button className="mt-4 h-9 rounded-full px-4 text-xs" variant="outline" asChild>
         <Link href="/pricing">プランを見る</Link>
@@ -570,18 +560,17 @@ export function ReviewPanel({
   const panelRootRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastShownErrorRef = useRef<string | null>(null);
-  const previousVisibleContentSizeRef = useRef(0);
 
   const templateSectionRef = useRef<HTMLDivElement>(null);
   const industrySectionRef = useRef<HTMLDivElement>(null);
   const internNameFieldRef = useRef<HTMLDivElement>(null);
   const industryFieldRef = useRef<HTMLDivElement>(null);
   const roleFieldRef = useRef<HTMLDivElement>(null);
+  const sectionBodyRef = useRef<HTMLDivElement>(null);
 
   const {
     review,
     visibleRewriteText,
-    visibleIssues,
     visibleSources,
     finalRewriteText,
     playbackPhase,
@@ -658,20 +647,11 @@ export function ReviewPanel({
       : undefined;
   const streamingStatus = getStreamingStatusCopy(sseProgress.currentStep);
   const hasVisibleResults = Boolean(
-    visibleRewriteText.trim() || visibleIssues.length > 0 || visibleSources.length > 0,
+    visibleRewriteText.trim() || visibleSources.length > 0,
   );
   const hasResponse = isLoading || hasVisibleResults;
   const hasFinalResult = Boolean(review);
   const hasCompletedReview = hasFinalResult && isPlaybackComplete;
-  const visibleContentSize = useMemo(
-    () =>
-      getVisibleReviewContentSize({
-        rewriteText: visibleRewriteText,
-        issues: visibleIssues,
-        sources: visibleSources,
-      }),
-    [visibleIssues, visibleRewriteText, visibleSources],
-  );
   const companyStatusDensity = hasResponse || Boolean(error) ? "compact" : "full";
   const showFooter = Boolean(sectionReviewRequest);
   const isCustomRoleActive = roleSelectionSource === "custom" && Boolean(customRoleInput.trim());
@@ -679,7 +659,9 @@ export function ReviewPanel({
   const isRoleSetupComplete =
     !hasSelectedCompany ||
     ((!requiresIndustrySelection || Boolean(selectedIndustry)) && Boolean(selectedRoleName));
+  const sectionBodyTrimLen = sectionReviewRequest?.sectionContent.trim().length ?? 0;
   const validationIssues = getReviewValidationIssues({
+    sectionContent: sectionReviewRequest?.sectionContent ?? "",
     requiresInternName,
     internName,
     hasSelectedCompany,
@@ -707,8 +689,8 @@ export function ReviewPanel({
     !authPending && isAuthenticated && !creditsUnavailable && balance < creditCost;
   const isFooterLocked = isLoading || (hasResponse && !isPlaybackComplete);
   const reviewActionHint =
-    !sectionReviewRequest?.sectionContent || sectionReviewRequest.sectionContent.length < 10
-      ? "本文を10文字以上入力してください。"
+    sectionBodyTrimLen < MIN_REVIEW_SECTION_BODY_CHARS
+      ? "本文を5文字以上入力してください。"
       : authPending
         ? "AI添削の利用条件を確認しています。"
         : requiresLoginForReview
@@ -731,8 +713,7 @@ export function ReviewPanel({
                     ? `クレジットが不足しています（残高 ${balance} / 必要 ${creditCost}）`
                     : "準備できました。この設問をAI添削できます。";
   const canStartReview =
-    Boolean(sectionReviewRequest?.sectionContent) &&
-    (sectionReviewRequest?.sectionContent.length ?? 0) >= 10 &&
+    sectionBodyTrimLen >= MIN_REVIEW_SECTION_BODY_CHARS &&
     !authPending &&
     !requiresLoginForReview &&
     isTemplateSetupComplete &&
@@ -918,7 +899,6 @@ export function ReviewPanel({
   useEffect(() => {
     if (!hasResponse) {
       setHasShownCompletionToast(false);
-      previousVisibleContentSizeRef.current = 0;
     }
   }, [hasResponse]);
 
@@ -956,27 +936,6 @@ export function ReviewPanel({
     scrollPanelToTopForStreaming();
   }, [isLoading, scrollPanelToTopForStreaming]);
 
-  useEffect(() => {
-    const previousSize = previousVisibleContentSizeRef.current;
-    previousVisibleContentSizeRef.current = visibleContentSize;
-
-    if (
-      !shouldAutoScrollToLatest({
-        hasVisibleResults,
-        previousSize,
-        nextSize: visibleContentSize,
-      })
-    ) {
-      return;
-    }
-
-    const container = scrollContainerRef.current;
-    if (!container) {
-      return;
-    }
-    container.scrollTop = container.scrollHeight;
-  }, [hasVisibleResults, visibleContentSize]);
-
   const handleSectionReview = useCallback(async () => {
     if (!sectionReviewRequest) {
       return false;
@@ -989,7 +948,6 @@ export function ReviewPanel({
     try {
       setResponseInstanceKey((prev) => prev + 1);
       setHasShownCompletionToast(false);
-      previousVisibleContentSizeRef.current = 0;
       return await requestSectionReview({
         sectionTitle: sectionReviewRequest.sectionTitle,
         sectionContent: sectionReviewRequest.sectionContent,
@@ -1033,17 +991,19 @@ export function ReviewPanel({
       setSetupErrorHighlight(true);
       const firstIssue = validationIssues[0];
       const firstRef =
-        firstIssue?.field === "intern_name"
-          ? internNameFieldRef
-          : firstIssue?.field === "industry"
-            ? industryFieldRef
-            : firstIssue?.field === "role_name"
-              ? roleFieldRef
-              : firstIssue?.section === "template"
-                ? templateSectionRef
-                : firstIssue?.section === "industry"
-                  ? industrySectionRef
-                  : null;
+        firstIssue?.field === "section_content"
+          ? sectionBodyRef
+          : firstIssue?.field === "intern_name"
+            ? internNameFieldRef
+            : firstIssue?.field === "industry"
+              ? industryFieldRef
+              : firstIssue?.field === "role_name"
+                ? roleFieldRef
+                : firstIssue?.section === "template"
+                  ? templateSectionRef
+                  : firstIssue?.section === "industry"
+                    ? industrySectionRef
+                    : null;
       (firstRef ?? templateSectionRef).current?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
@@ -1098,7 +1058,15 @@ export function ReviewPanel({
 
           {sectionReviewRequest && !hasResponse && !error ? (
             <div className="space-y-4">
-              <div className="rounded-[26px] border border-border/70 bg-background p-4 shadow-sm">
+              <div
+                ref={sectionBodyRef}
+                className={cn(
+                  "rounded-[26px] border bg-background p-4 shadow-sm",
+                  fieldInvalid("section_content")
+                    ? "border-destructive/60 ring-2 ring-destructive/20"
+                    : "border-border/70",
+                )}
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
                     <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -1112,7 +1080,7 @@ export function ReviewPanel({
                         {sectionReviewRequest.sectionTitle}
                       </h3>
                       <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        改善案、改善ポイント、出典リンクをこの順で表示します。
+                        改善案と出典リンクをこの順で表示します。
                       </p>
                     </div>
                   </div>
@@ -1124,10 +1092,28 @@ export function ReviewPanel({
                   ) : null}
                 </div>
 
-                <div className="mt-4 rounded-[22px] border border-border/60 bg-background/85 px-4 py-3">
+                <div
+                  className={cn(
+                    "mt-4 rounded-[22px] border px-4 py-3 bg-background/85",
+                    fieldInvalid("section_content")
+                      ? "border-destructive/60"
+                      : "border-border/60",
+                  )}
+                  aria-invalid={fieldInvalid("section_content")}
+                >
                   <p className="line-clamp-5 whitespace-pre-wrap text-sm leading-7 text-foreground/88">
-                    {sectionReviewRequest.sectionContent}
+                    {sectionReviewRequest.sectionContent || "（本文がまだありません）"}
                   </p>
+                  {fieldInvalid("section_content") ? (
+                    <p
+                      id="review-section-body-error"
+                      className="mt-2 text-sm font-medium text-destructive"
+                      role="alert"
+                    >
+                      {validationIssues.find((i) => i.field === "section_content")?.message ??
+                        "本文を5文字以上入力してください。"}
+                    </p>
+                  ) : null}
                 </div>
               </div>
 
@@ -1456,7 +1442,6 @@ export function ReviewPanel({
                 key={responseInstanceKey}
                 visibleRewriteText={visibleRewriteText}
                 finalRewriteText={finalRewriteText}
-                issues={visibleIssues}
                 sources={visibleSources}
                 charLimit={currentCharLimit}
                 templateLabel={templateLabel}
@@ -1469,7 +1454,6 @@ export function ReviewPanel({
                 elapsedTime={elapsedTime}
                 showActions={hasFinalResult}
                 reviewMeta={review?.review_meta}
-                reviewMode={reviewMode}
                 onApply={handleApplyRewrite}
               />
             </div>

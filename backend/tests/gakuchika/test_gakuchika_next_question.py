@@ -26,6 +26,10 @@ def test_build_next_question_prompt_includes_quality_guardrails() -> None:
     assert "scene / root_cause / decision_reason" in prompt
     assert "複数の打ち手" in prompt
     assert "列挙を広げる聞き方" in prompt
+    assert "当時の目標" in prompt
+    assert "会社・本部など共通" in prompt
+    assert "評価の軸" in prompt
+    assert "共通ルールの上での補完" in prompt
 
 
 def test_rule_based_question_templates_avoid_prohibited_phrases() -> None:

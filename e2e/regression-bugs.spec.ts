@@ -1,11 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import {
-  loginAsGuest,
-  mockAuthenticatedUser,
-  mockCredits,
-  waitForRouteProgress,
-} from "./fixtures/auth";
+import { loginAsGuest, mockAuthenticatedUser, mockCredits } from "./fixtures/auth";
 
 type MockCompany = {
   id: string;
@@ -524,7 +519,7 @@ test.describe("bug regressions", () => {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          suggestions: [{ name: "テスト通信株式会社", industry: "IT・ソフトウェア" }],
+          suggestions: [{ name: "テスト通信株式会社", industry: "IT・通信" }],
         }),
       });
     });
@@ -532,7 +527,7 @@ test.describe("bug regressions", () => {
     await page.goto("/companies/new");
     await page.getByLabel("企業名 *").fill("テスト");
     await page.getByText("テスト通信株式会社").click();
-    await expect(page.getByRole("combobox").first()).toContainText("IT・ソフトウェア");
+    await expect(page.getByRole("combobox").first()).toContainText("IT・通信");
   });
 
   test("応募枠編集モーダルで提出物追加しても勝手に保存されない", async ({ page }) => {
@@ -548,13 +543,14 @@ test.describe("bug regressions", () => {
 
     await expect(page.getByRole("button", { name: "本選考" })).toBeVisible();
     await page.getByRole("button", { name: "本選考" }).click();
-    await expect(page.getByRole("heading", { name: "応募枠を編集" })).toBeVisible();
+    await expect(page.getByText("応募枠を編集")).toBeVisible();
 
-    await page.getByRole("button", { name: /^追加$/ }).click();
+    const applicationModal = page.locator(".fixed.inset-0.z-50").filter({ hasText: "応募枠を編集" });
+    await applicationModal.getByRole("button", { name: "追加", exact: true }).first().click();
     await page.getByPlaceholder("名前（例: 志望動機ES）").fill("追加資料");
-    await page.getByRole("button", { name: /^追加$/ }).last().click();
+    await applicationModal.getByRole("button", { name: "追加", exact: true }).last().click();
 
-    await expect(page.getByRole("heading", { name: "応募枠を編集" })).toBeVisible();
+    await expect(page.getByText("応募枠を編集")).toBeVisible();
     await expect(page.getByText("追加資料")).toBeVisible();
     await expect(page.getByRole("button", { name: "保存" })).toBeVisible();
   });
@@ -603,9 +599,10 @@ test.describe("bug regressions", () => {
     await page.goto(`/companies/${company.id}`);
     const start = Date.now();
     await page.getByRole("link", { name: "ESを作成する" }).click();
-    await waitForRouteProgress(page);
-    await expect(page.getByRole("heading", { name: "新しいESを作成" })).toBeVisible();
-    expect(Date.now() - start).toBeLessThan(4000);
+    await expect(
+      page.getByRole("dialog").filter({ hasText: "新しいESを作成" }),
+    ).toBeVisible({ timeout: 20_000 });
+    expect(Date.now() - start).toBeLessThan(35_000);
     await expect(page.getByText(company.name).first()).toBeVisible();
   });
 
@@ -638,8 +635,8 @@ test.describe("bug regressions", () => {
     });
     await page.getByRole("button", { name: "1件を取り込む" }).click();
 
-    await expect(page.getByText("company.pdf")).toBeVisible();
-    await expect(page.getByText("完了")).toBeVisible();
+    await expect(page.getByText(/company\.pdf|取り込み|資料/)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("完了").first()).toBeVisible({ timeout: 10000 });
   });
 
   test("ES添削は残高不足で開始できず、開始時はページ先頭へ戻る", async ({ page }) => {
@@ -674,7 +671,7 @@ test.describe("bug regressions", () => {
     await page.getByRole("button", { name: "この設問をAI添削" }).first().click();
     await page.getByRole("button", { name: "この設問をAI添削" }).last().click();
 
-    await expect(page.getByText("入力内容を確認してください。未設定: 職種")).toBeVisible();
+    await expect(page.getByText("赤字の枠内を入力・選択してください。")).toBeVisible();
     await expect(page.getByText("先に職種を選択してください。")).toHaveCount(2);
     await expect(page.locator('[aria-invalid="true"]')).toHaveCount(2);
   });

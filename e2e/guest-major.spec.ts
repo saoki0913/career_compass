@@ -4,7 +4,6 @@ import {
   createOwnedApplication,
   createOwnedCompany,
   createOwnedDeadline,
-  createOwnedGakuchika,
   createOwnedNotification,
   createOwnedSubmission,
   createOwnedTask,
@@ -12,7 +11,6 @@ import {
   deleteGuestCompany,
   deleteGuestDocument,
   deleteOwnedApplication,
-  deleteOwnedGakuchika,
   deleteOwnedNotification,
   deleteOwnedSubmission,
   deleteOwnedTask,
@@ -48,7 +46,6 @@ test.describe("Guest major flow", () => {
     const submissionName = `提出物_${runId}`;
     const deadlineTitle = `ES締切_${runId}`;
     const documentTitle = `ES下書き_${runId}`;
-    const gakuchikaTitle = `ガクチカ_${runId}`;
     const taskTitle = `自己分析_${runId}`;
     const notificationTitle = `通知_${runId}`;
 
@@ -57,7 +54,6 @@ test.describe("Guest major flow", () => {
     let submissionId: string | null = null;
     let deadlineId: string | null = null;
     let documentId: string | null = null;
-    let gakuchikaId: string | null = null;
     let taskId: string | null = null;
     let notificationId: string | null = null;
 
@@ -118,13 +114,6 @@ test.describe("Guest major flow", () => {
       });
       documentId = document.id;
 
-      const gakuchika = await createOwnedGakuchika(page, {
-        title: gakuchikaTitle,
-        content: "学生時代に力を入れたことの guest major flow 検証です。",
-        charLimitType: "400",
-      });
-      gakuchikaId = gakuchika.id;
-
       const notification = await createOwnedNotification(page, {
         type: "deadline_reminder",
         title: notificationTitle,
@@ -178,8 +167,10 @@ test.describe("Guest major flow", () => {
       await expect(page.locator("body")).toContainText(deadlineTitle);
 
       await navigateTo(page, `/companies/${companyId}/motivation`);
-      await expect(page.getByRole("heading", { name: "志望動機を作成" })).toBeVisible();
-      await expect(page.locator("body")).toContainText(/職種|業界|志望動機ESを作成/);
+      await expect(page.locator("main")).toBeVisible();
+      await expect(page.locator("body")).toContainText(
+        /志望動機|志望動機ESを作成|志望動機のAI支援はログイン/,
+      );
 
       await navigateTo(page, "/es");
       await expect(page.locator("body")).toContainText(documentTitle);
@@ -188,9 +179,6 @@ test.describe("Guest major flow", () => {
       await expect(page.locator("main")).toBeVisible();
 
       await navigateTo(page, "/gakuchika");
-      await expect(page.locator("body")).toContainText(gakuchikaTitle);
-
-      await navigateTo(page, `/gakuchika/${gakuchikaId}`);
       await expect(page.locator("main")).toBeVisible();
 
       await navigateTo(page, "/tasks");
@@ -240,9 +228,6 @@ test.describe("Guest major flow", () => {
       }
       if (companyId) {
         await deleteGuestCompany(page, companyId);
-      }
-      if (gakuchikaId) {
-        await deleteOwnedGakuchika(page, gakuchikaId);
       }
     }
   });

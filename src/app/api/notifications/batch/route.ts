@@ -36,7 +36,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { type } = await request.json();
+    const body = (await request.json()) as {
+      type?: string;
+      /** false = 希望 JST 時刻に関係なく配信（1日1回の Cron 向け）。省略時は true。 */
+      matchPreferredJstHour?: boolean;
+    };
+    const { type } = body;
+    const matchPreferredJstHour = body.matchPreferredJstHour !== false;
 
     if (type === "deadline_reminders") {
       // Find deadlines due within 24h and 3 days
@@ -160,8 +166,10 @@ export async function POST(request: NextRequest) {
 
         if (settings && !settings.dailySummary) continue;
 
-        const preferredHour = settings?.dailySummaryHourJst ?? 9;
-        if (currentJstHour !== preferredHour) continue;
+        if (matchPreferredJstHour) {
+          const preferredHour = settings?.dailySummaryHourJst ?? 9;
+          if (currentJstHour !== preferredHour) continue;
+        }
 
         const [dupToday] = await db
           .select({ id: notifications.id })

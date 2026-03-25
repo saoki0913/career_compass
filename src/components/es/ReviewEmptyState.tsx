@@ -49,7 +49,7 @@ export function ReviewEmptyState({
       ? "設問を選択すると、ここで企業情報に合わせたAI添削ができます"
       : "設問を選択すると、ここでAI添削ができます";
 
-  const description = "この設問に対する改善案、改善ポイント、出典リンクをこの順で見やすく表示します。";
+  const description = "この設問に対する改善案と出典リンクを見やすく表示します。";
 
   return (
     <div
@@ -74,16 +74,11 @@ export function ReviewEmptyState({
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2">
           <CapabilityCard
             icon={<Target className="size-4" />}
             title="改善した回答を提案"
             description="改善した回答を表示します。"
-          />
-          <CapabilityCard
-            icon={<Sparkles className="size-4" />}
-            title="改善ポイントを整理"
-            description="修正すべき点を順に整理して表示します。"
           />
           <CapabilityCard
             icon={<Link2 className="size-4" />}

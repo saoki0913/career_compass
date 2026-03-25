@@ -1,6 +1,6 @@
 ---
 name: supabase-ops
-description: 就活Pass の Supabase 運用。shared production project 前提の bootstrap check と secret sync を扱う。Trigger: Supabase, shared project, db release, supabase secret sync.
+description: "就活Pass の Supabase 運用。shared production project 前提の bootstrap check と secret sync を扱う。Trigger: Supabase, shared project, db release, supabase secret sync."
 ---
 
 # Supabase Ops

@@ -11,13 +11,29 @@ description: 就活Pass の本番リリース運用。`scripts/release/release-c
 
 - preflight: `scripts/release/release-career-compass.sh --check`
 - full release: `make deploy`
+- stage all + full release: `make deploy-stage-all`
 - secrets sync: `scripts/bootstrap/career-compass/sync-career-compass-env.sh`
+
+## 自然文の解釈
+
+次のような依頼は、すべて本番リリース依頼として扱う。
+
+- `本番にデプロイして`
+- `本番反映して`
+- `公開して`
+- `リリースして`
+- `本番に出して`
+- `push this live`
+- `ship it`
+- `deploy to production`
+
+デフォルトは `make ops-release-check` の後に `make deploy-stage-all`。ユーザーが staged-only を明示したときだけ `make deploy` を使う。
 
 ## 標準フロー
 
 1. `develop` で `--check`
-2. staged-only の release scope を確認
-3. `make deploy`
+2. staged-only の release scope を確認。明示がなければ `make deploy-stage-all`
+3. `make deploy` または `make deploy-stage-all`
 4. `develop` push
 5. `Develop CI` 成功待ち
 6. staging health / Playwright

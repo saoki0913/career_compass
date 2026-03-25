@@ -6,12 +6,14 @@ const {
   getDocumentDetailPageDataMock,
   authGetSessionMock,
   dbSelectMock,
+  dbUpdateMock,
   getGuestUserMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   getDocumentDetailPageDataMock: vi.fn(),
   authGetSessionMock: vi.fn(),
   dbSelectMock: vi.fn(),
+  dbUpdateMock: vi.fn(),
   getGuestUserMock: vi.fn(),
 }));
 
@@ -42,6 +44,7 @@ vi.mock("next/headers", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     select: dbSelectMock,
+    update: dbUpdateMock,
   },
 }));
 
@@ -61,6 +64,7 @@ describe("api/documents/[id]", () => {
     getDocumentDetailPageDataMock.mockReset();
     authGetSessionMock.mockReset();
     dbSelectMock.mockReset();
+    dbUpdateMock.mockReset();
     getGuestUserMock.mockReset();
   });
 
@@ -108,5 +112,58 @@ describe("api/documents/[id]", () => {
     expect(data.document.id).toBe("doc-1");
     expect(response.headers.get("server-timing")).toContain("identity;");
     expect(response.headers.get("server-timing")).toContain("db;");
+  });
+
+  it("rejects updating a document with an application the caller does not own", async () => {
+    const { PUT } = await import("@/app/api/documents/[id]/route");
+    const document = {
+      id: "doc-1",
+      userId: "user-1",
+      guestId: null,
+      companyId: null,
+      applicationId: null,
+      title: "Alpha ES",
+      content: JSON.stringify([]),
+      status: "draft",
+      type: "es",
+      esCategory: "entry_sheet",
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+      deletedAt: null,
+      jobTypeId: null,
+    };
+
+    authGetSessionMock.mockResolvedValue({ user: { id: "user-1" } });
+    dbSelectMock
+      .mockReturnValueOnce(makeDocumentQuery([document]))
+      .mockReturnValueOnce(makeDocumentQuery([]));
+    dbUpdateMock.mockReturnValue({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn().mockResolvedValue([
+            {
+              ...document,
+              applicationId: "application-foreign",
+            },
+          ]),
+        })),
+      })),
+    });
+
+    const response = await PUT(new NextRequest("http://localhost:3000/api/documents/doc-1", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        applicationId: "application-foreign",
+      }),
+    }), {
+      params: Promise.resolve({ id: "doc-1" }),
+    });
+    const data = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(data.error.code).toBe("DOCUMENT_APPLICATION_NOT_FOUND");
   });
 });

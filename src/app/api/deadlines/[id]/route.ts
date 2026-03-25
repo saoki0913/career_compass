@@ -304,6 +304,23 @@ export async function PUT(
 
     // Auto-create standard tasks when deadline is approved (isConfirmed: false → true)
     if (body.isConfirmed === true && !currentDeadline.isConfirmed) {
+      const sessionForTasks = await auth.api.getSession({
+        headers: await headers(),
+      });
+      let taskUserId: string | null = null;
+      let taskGuestId: string | null = null;
+      if (sessionForTasks?.user?.id) {
+        taskUserId = sessionForTasks.user.id;
+      } else {
+        const deviceToken = request.headers.get("x-device-token");
+        if (deviceToken) {
+          const guest = await getGuestUser(deviceToken);
+          if (guest) {
+            taskGuestId = guest.id;
+          }
+        }
+      }
+
       const standardTasks = [
         { title: "ES作成", type: "es" as const, sortOrder: 0 },
         { title: "提出物準備", type: "other" as const, sortOrder: 1 },
@@ -313,6 +330,8 @@ export async function PUT(
       for (const task of standardTasks) {
         await db.insert(tasks).values({
           id: crypto.randomUUID(),
+          userId: taskUserId,
+          guestId: taskGuestId,
           companyId: currentDeadline.companyId,
           applicationId: currentDeadline.applicationId,
           deadlineId: deadlineId,

@@ -97,17 +97,26 @@ make deploy
 > `make deploy` は `scripts/release/release-career-compass.sh` を正本として、local gate、`develop` push、staging 確認、`develop -> main` PR 自動作成 / 自動 merge、本番の read-only smoke まで進めます。  
 > direct な provider deploy は使わず、GitHub-connected deploy を標準運用にします。
 
+ローカルの変更をまとめて release 対象へ含めたいときは、次を使います。
+
+```bash
+make deploy-stage-all
+```
+
+> `make deploy-stage-all` は `git add -A` 相当でローカル変更を全部 stage したうえで、通常の release automation を続行します。不要な差分まで含めないよう注意してください。
+
 ### 6-2. 実行される内容
 
-- `develop` ブランチと staged-only release scope の確認
+- `develop` ブランチと release scope の確認（`make deploy-stage-all` ではローカル変更を自動 stage）
 - provider auth / secrets inventory / infra bootstrap の preflight
-- `lint`, `build`, `test:unit`
-- staged changes があれば release commit を作成
+- `scripts/ci/run-frontend-verify.sh`（`lint`, `build`, `test:unit`, `npm audit --audit-level=high`）
+- `scripts/ci/run-backend-deterministic.sh`
+- staged changes があれば release commit を作成（`make deploy-stage-all` では commit 前に `git add -A`）
 - `git push origin develop`
 - `Develop CI` 成功待ち
 - staging `https://stg.shupass.jp` / `https://stg-api.shupass.jp/health` の反映確認
 - staging Playwright major verification
-- `develop -> main` PR 自動作成 / 自動 merge
+- `develop -> main` PR 自動作成 / `Main Release Gate` / `Dependency Review` / `CodeQL` 成功後に自動 merge
 - production `https://www.shupass.jp` / backend health の反映確認
 - production read-only Playwright smoke
 
@@ -148,11 +157,14 @@ make deploy
 - staging: `scripts/release/post-deploy-playwright.sh staging`
   - guest major
   - `PLAYWRIGHT_AUTH_STATE` がある場合は logged-in major も実行
+- GitHub の `Main Release Gate` では staging に対して `guest-major`, `auth-boundary`, `user-major`, `regression` を必須実行する
 - production: `scripts/release/post-deploy-playwright.sh production`
   - public / canonical / robots / sitemap
   - `PLAYWRIGHT_AUTH_STATE` がある場合は logged-in read-only surfaces
 
 `PLAYWRIGHT_AUTH_STATE` がない場合、production の authenticated smoke は skip されます。ローカル Chrome の既存 Google セッションから取得する場合は `scripts/release/capture-google-storage-state.sh production` を使います。
+
+staging の GitHub Actions 認証 E2E は Google storage state を使わず、`/api/internal/test-auth/login` に `CI_E2E_AUTH_SECRET` を渡して Better Auth session を発行します。この route は `CI_E2E_AUTH_ENABLED=1` の non-production 環境でのみ有効です。
 
 ### Secret Inventory
 

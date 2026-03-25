@@ -48,6 +48,17 @@ npm run test:ui:review -- / /pricing /companies --auth=guest
 - `main` があれば `main`、なければ `body` の表示を確認する
 - `test-results/ui-review/` に screenshot を保存する
 - CI では `UI Review Routes` を PR 本文に書けるようにしておき、共有コンポーネント変更時は reviewer が明示的な route を足せるようにする
+- これは **見た目確認用**。`main` 向けの GitHub required check は `guest-major` / `auth-boundary` / `user-major` / `regression` の Playwright 機能 E2E が正本
+
+### モックログイン E2E（`regression-bugs` など）
+
+- `e2e/fixtures/auth.ts` の `mockAuthenticatedUser` は `/api/auth/get-session` をスタブするだけでなく、プロキシが `/calendar` 等で要求する **Better Auth セッション Cookie**（`better-auth.session_token` / 本番相当なら `__Secure-` 付き）を付与する。Cookie が無いと `/calendar/connect` がログインへリダイレクトされ、カード文言のアサーションが失敗する。
+- 企業追加フォームの業界は `src/lib/constants/industries.ts` の正規ラベル（例: `IT・通信`）と一致させる。サジェストだけが非正規名だと Select の値が空のままになる。
+
+### ゲスト major / live AI
+
+- `PLAN_METADATA.guest.gakuchika` が `0` のため、ゲストでガクチカ素材の POST は上限エラー（403）になる。`guest-major` は一覧ページ到達までとし、素材作成は含めない。
+- 志望動機の AI 系 API はログイン必須のため、`live-ai-major` のゲスト E2E は現状 `test.skip` としている（復帰時はプロダクト仕様と揃えて再構成する）。
 
 ## 3. 出力先
 
@@ -92,3 +103,5 @@ npm run test:ui:review -- / /pricing /companies --auth=guest
    `e2e/fixtures/auth.ts` の `mockAuthenticatedUser` で `**/api/auth/get-session` を差し替え、会話 API を `page.route` でモックする（`e2e/motivation.spec.ts` のパターン）。
 
 3. **手動**でブラウザ幅を 390px 前後にし、ログイン後に該当 route を開いて確認する。
+
+CI では `PLAYWRIGHT_AUTH_STATE` の代わりに non-production の test auth route を使うため、`main` 向け必須チェックで Google storage state は不要です。

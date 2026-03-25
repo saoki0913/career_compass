@@ -1943,9 +1943,9 @@ export function CorporateInfoSection({
 
       {/* Corporate Info Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-2.5 sm:p-3">
-          <Card className="flex h-[min(700px,calc(100vh-1rem))] min-h-[520px] w-full max-w-4xl flex-col overflow-hidden border-border/50">
-            <div className="relative border-b px-4 py-2.5">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] pt-[max(0.625rem,env(safe-area-inset-top))] sm:p-3">
+          <Card className="flex h-[min(700px,calc(100dvh-1.5rem))] min-h-0 w-full max-w-4xl flex-col overflow-hidden border-border/50">
+            <div className="relative shrink-0 border-b px-4 py-2.5">
               <div className="pr-10">
                 <h2 className="text-base font-semibold text-foreground">企業情報を取得</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
@@ -2222,7 +2222,7 @@ export function CorporateInfoSection({
 
               {displayedStep !== "result" && (
                 <div className="flex h-full min-h-0 flex-col px-3 py-2.5 sm:px-4">
-                  <div className="space-y-1.5">
+                  <div className="shrink-0 space-y-1.5">
                     <div className="rounded-lg border border-border/50 bg-muted/15 p-0.5">
                       <div className="grid grid-cols-3 gap-0.5">
                         {(
@@ -2257,7 +2257,12 @@ export function CorporateInfoSection({
                     )}
                   </div>
 
-                  <div className={cn("mt-2 min-h-0", showWebReviewStep && "flex flex-1 flex-col")}>
+                  <div
+                    className={cn(
+                      "mt-2 flex min-h-0 flex-1 flex-col",
+                      !showWebReviewStep && "overflow-y-auto overscroll-contain pb-1"
+                    )}
+                  >
                     {showConfigureStep && inputMode === "web" && (
                       <div className="space-y-2">
                         <div className="rounded-lg border border-border/60 bg-background/80 p-3">
@@ -2659,42 +2664,93 @@ export function CorporateInfoSection({
                                 OCRが必要なPDFがある場合、通常より時間がかかることがあります（1ファイルあたり5〜15秒）
                               </p>
                               {pdfCreditPreview ? (
-                                <div className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2 text-left text-[11px] leading-relaxed text-muted-foreground">
+                                <div className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5 text-left text-[11px] leading-relaxed text-muted-foreground">
                                   {pdfCreditPreview.kind === "loading" ? (
                                     <p>PDF のページ数を確認しています…</p>
                                   ) : pdfCreditPreview.kind === "partial" ? (
-                                    <p>
-                                      一部の PDF のページ数を取得できませんでした。取り込み完了時に実際の消費が確定します。月次無料枠の残りは{" "}
-                                      {(companyRagUnitsRemaining ?? 0).toLocaleString("ja-JP")} ページ（URL と PDF
-                                      のページ合算）です。
-                                    </p>
-                                  ) : (
-                                    <p>
-                                      PDF 合計{" "}
-                                      <span className="font-medium text-foreground">
-                                        {pdfCreditPreview.totalPages.toLocaleString("ja-JP")} ページ
-                                      </span>
-                                      （{pdfDraft.uploadFiles.length} ファイル）→ 取り込み対象の見込み{" "}
-                                      <span className="font-medium text-foreground">
-                                        {pdfCreditPreview.effectiveTotalPages.toLocaleString("ja-JP")} ページ
-                                      </span>
-                                      （各ファイル最大 {pdfCreditPreview.maxPdfIngestPages} ページまで。超過は先頭から切り詰め）。
-                                      {pdfCreditPreview.willTruncateIngest ? (
-                                        <span className="text-amber-800">
-                                          {" "}
-                                          選択中のファイルに上限超過の可能性があります。
+                                    <div className="space-y-2">
+                                      <p className="font-medium text-foreground">ページ数が一部だけ分かりません</p>
+                                      <p>
+                                        取り込みが完了した時点で、実際に使ったページ数とクレジットが確定します。
+                                      </p>
+                                      <p>
+                                        月次の無料枠の残り:{" "}
+                                        <span className="font-medium text-foreground">
+                                          {(companyRagUnitsRemaining ?? 0).toLocaleString("ja-JP")} ページ
                                         </span>
-                                      ) : null}{" "}
-                                      月次無料枠からの充当見込み{" "}
-                                      <span className="font-medium text-foreground">
-                                        {pdfCreditPreview.totalFreeFromQuota.toLocaleString("ja-JP")} ページ
-                                      </span>
-                                      。クレジット（ページ帯・切り詰め後ページ基準）合計{" "}
-                                      <span className="font-medium text-foreground">
-                                        {pdfCreditPreview.totalCredits.toLocaleString("ja-JP")}
-                                      </span>
-                                      。端末上のページ数は目安です。
-                                    </p>
+                                        （URL と PDF を合算）
+                                      </p>
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-2">
+                                      <p className="font-medium text-foreground">取り込みと消費の目安</p>
+                                      <dl className="space-y-1.5">
+                                        <div>
+                                          <dt className="text-[10px] font-medium text-muted-foreground">
+                                            PDFのページ数（端末での目安）
+                                          </dt>
+                                          <dd className="mt-0.5 text-foreground">
+                                            合計{" "}
+                                            <span className="font-semibold">
+                                              {pdfCreditPreview.totalPages.toLocaleString("ja-JP")}
+                                            </span>{" "}
+                                            ページ（{pdfDraft.uploadFiles.length} ファイル）
+                                          </dd>
+                                        </div>
+                                        <div>
+                                          <dt className="text-[10px] font-medium text-muted-foreground">
+                                            処理するページの見込み
+                                          </dt>
+                                          <dd className="mt-0.5 text-foreground">
+                                            最大{" "}
+                                            <span className="font-semibold">
+                                              {pdfCreditPreview.effectiveTotalPages.toLocaleString("ja-JP")}
+                                            </span>{" "}
+                                            ページ
+                                            <span className="text-muted-foreground">
+                                              （1ファイルあたり先頭から最大{" "}
+                                              {pdfCreditPreview.maxPdfIngestPages.toLocaleString("ja-JP")}{" "}
+                                              ページまで）
+                                            </span>
+                                          </dd>
+                                        </div>
+                                        {pdfCreditPreview.willTruncateIngest ? (
+                                          <div className="rounded-md border border-amber-200/80 bg-amber-50/90 px-2 py-1.5 text-amber-950">
+                                            元のページ数が上限を超えているため、先頭から切り詰めて取り込みます。
+                                          </div>
+                                        ) : null}
+                                        <div>
+                                          <dt className="text-[10px] font-medium text-muted-foreground">
+                                            無料枠の充当見込み
+                                          </dt>
+                                          <dd className="mt-0.5 text-foreground">
+                                            約{" "}
+                                            <span className="font-semibold">
+                                              {pdfCreditPreview.totalFreeFromQuota.toLocaleString("ja-JP")}
+                                            </span>{" "}
+                                            ページ
+                                            <span className="text-muted-foreground">
+                                              （URL と PDF の月次枠を合算して先に充当）
+                                            </span>
+                                          </dd>
+                                        </div>
+                                        <div>
+                                          <dt className="text-[10px] font-medium text-muted-foreground">
+                                            クレジットの見込み
+                                          </dt>
+                                          <dd className="mt-0.5 text-foreground">
+                                            約{" "}
+                                            <span className="font-semibold">
+                                              {pdfCreditPreview.totalCredits.toLocaleString("ja-JP")}
+                                            </span>
+                                            <span className="text-muted-foreground">
+                                              {" "}
+                                              （上記の処理ページ数から換算。確定は取り込み完了時）
+                                            </span>
+                                          </dd>
+                                        </div>
+                                      </dl>
+                                    </div>
                                   )}
                                 </div>
                               ) : null}
@@ -2756,7 +2812,7 @@ export function CorporateInfoSection({
             </div>
 
             {!isResultDisplayed && (
-              <div className="border-t bg-muted/15 px-4 py-2.5">
+              <div className="shrink-0 border-t bg-muted/15 px-4 py-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">

@@ -175,7 +175,6 @@ interface FastAPIQuestionResponse {
   evaluation?: MotivationEvaluation;
   target_element?: string;
   company_insight?: string;
-  suggestions?: string[];
   suggestion_options?: SuggestionOption[];
   evidence_summary?: string;
   evidence_cards?: EvidenceCard[];
@@ -368,7 +367,6 @@ async function getQuestionFromFastAPI(
   question: string | null;
   error: string | null;
   evaluation: MotivationEvaluation | null;
-  suggestions: string[];
   suggestionOptions: SuggestionOption[];
   evidenceSummary: string | null;
   evidenceCards: EvidenceCard[];
@@ -417,7 +415,6 @@ async function getQuestionFromFastAPI(
         question: null,
         error: errorData.detail?.error || "AIサービスに接続できませんでした",
         evaluation: null,
-        suggestions: [],
         suggestionOptions: [],
         evidenceSummary: null,
         evidenceCards: [],
@@ -437,7 +434,6 @@ async function getQuestionFromFastAPI(
       question: data.question,
       error: null,
       evaluation: data.evaluation || null,
-      suggestions: data.suggestions || [],
       suggestionOptions: data.suggestion_options || [],
       evidenceSummary: data.evidence_summary || null,
       evidenceCards: data.evidence_cards || [],
@@ -456,7 +452,6 @@ async function getQuestionFromFastAPI(
         ? "AIの応答がタイムアウトしました"
         : "AIサービスに接続できませんでした",
       evaluation: null,
-      suggestions: [],
       suggestionOptions: [],
       evidenceSummary: null,
       evidenceCards: [],
@@ -657,7 +652,6 @@ export async function POST(
         selectedRoleSource: persistedContext.selectedRoleSource ?? null,
         desiredWork: persistedContext.desiredWork ?? null,
         questionStage: result.questionStage ?? persistedContext.questionStage,
-        lastSuggestions: JSON.stringify(result.suggestions || []),
         lastSuggestionOptions: JSON.stringify(result.suggestionOptions || []),
         lastEvidenceCards: JSON.stringify(result.evidenceCards || []),
         stageStatus: JSON.stringify(result.stageStatus || null),
@@ -688,7 +682,6 @@ export async function POST(
       },
       messages,
       nextQuestion: result.question,
-      suggestions: result.suggestions,
       suggestionOptions: result.suggestionOptions,
       questionCount: 0,
       isCompleted: false,

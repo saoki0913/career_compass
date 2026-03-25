@@ -350,11 +350,13 @@ psql "$DIRECT_URL"
 
 ### 7.1 概要
 
-全テーブルに RLS（行レベルセキュリティ）が有効化されています。
+`public` schema は server-side DB access 前提で hardening しています。
 
-- **方式**: Defense-in-Depth（全テーブル ENABLE RLS、ポリシーなし = DENY-ALL）
+- **方式**: Defense-in-Depth（全 `public` table で ENABLE RLS、ポリシーなし = DENY-ALL）
 - **アプリへの影響**: なし（`postgres` superuser は RLS をバイパス）
 - **保護対象**: Supabase REST API（`anon`/`authenticated` キー）からの直接アクセス
+- **追加防御**: `anon` / `authenticated` の `public` schema grants を revoke
+- **運用前提**: Supabase Dashboard の Data API は無効化する。`public` を exposed schema として使わない
 
 ### 7.2 RLS の確認方法
 
@@ -364,11 +366,25 @@ SELECT tablename, rowsecurity
 FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename;
 ```
 
+```sql
+-- anon / authenticated に public grants が残っていないことを確認
+SELECT grantee, table_name, privilege_type
+FROM information_schema.role_table_grants
+WHERE table_schema = 'public'
+  AND grantee IN ('anon', 'authenticated')
+ORDER BY grantee, table_name, privilege_type;
+```
+
 Supabase Dashboard → Table Editor で各テーブルに「RLS enabled」バッジが表示されていれば正常。
 
 ### 7.3 新しいテーブルを追加する場合
 
-`schema.ts` にテーブルを追加した際は、Supabase マイグレーションで RLS も有効化すること:
+新しい `public` table は migration で自動 hardening されるが、`supabase/migrations/` での管理は引き続き必須。
+
+- Drizzle で schema を追加したら、対応する Supabase migration も追加する
+- Data API を再度使う場合は、deny-all を崩さず専用 schema と明示 policy を設計する
+
+手動で個別 migration を切る場合の最小例:
 
 ```bash
 supabase migration new enable_rls_<table_name>
@@ -388,25 +404,32 @@ supabase db reset
 supabase db push
 ```
 
-### 7.4 マイグレーション管理
+### 7.4 Data API hardening の運用
 
-RLS マイグレーションは Drizzle（`drizzle_pg/`）ではなく **Supabase CLI（`supabase/migrations/`）** で管理。
+- Data API を使わないプロジェクトでは、Supabase Dashboard の API Settings で Data API を無効化する
+- `public` は exposed schema にしない
+- GraphQL を使っていないなら `pg_graphql` も無効化する
+- 現行 repo では `supabase/migrations/20260325110000_harden_public_data_api.sql` が hardening の正本
+
+### 7.5 マイグレーション管理
+
+RLS / grants / Data API hardening 系 migration は Drizzle（`drizzle_pg/`）ではなく **Supabase CLI（`supabase/migrations/`）** で管理。
 
 | ディレクトリ | 管理対象 |
 |-------------|---------|
 | `drizzle_pg/` | スキーマ定義（テーブル、カラム、インデックス） |
-| `supabase/migrations/` | RLS ポリシー、PostgreSQL 固有の設定 |
+| `supabase/migrations/` | RLS、grants、event trigger、PostgreSQL 固有の設定 |
 
-### 7.5 トラブルシューティング
+### 7.6 トラブルシューティング
 
 **Q: Dashboard でテーブルデータが見えなくなった**
 A: Dashboard は `postgres` ロールで接続するため RLS をバイパスします。見えなくなった場合は他の原因を調査してください。
 
 **Q: 新しいテーブルに RLS が適用されていない**
-A: `supabase/migrations/` に `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` を追加し、`supabase db push` で適用。
+A: まず hardening migration が適用済みか確認してください。必要なら `supabase db push` を再実行し、`SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public';` で再確認します。
 
 **Q: 将来 Supabase JS クライアントを使う場合**
-A: テーブルごとに適切な USING ポリシーを作成する必要があります。現在の DENY-ALL 方式ではクライアントからのアクセスは全てブロックされます。
+A: `public` を再公開しないでください。専用 schema を切り、必要最小限の grant と table 単位の policy を設計してください。現在の DENY-ALL 方式ではクライアントからの直接アクセスは全てブロックされます。
 
 ---
 
@@ -459,6 +482,39 @@ cd /Users/saoki/work/tabi_note && supabase stop
 
 # 方法 2: supabase/config.toml でポートを変更（セクション 2.3 参照）
 ```
+
+### PostgreSQL 設定エラー（`/etc/postgresql-custom/conf.d`）
+
+```
+LOG:  could not open configuration directory "/etc/postgresql-custom/conf.d": No such file or directory
+FATAL:  configuration file "/etc/postgresql/postgresql.conf" contains errors
+```
+
+**原因**: Supabase Local の Postgres コンテナが、壊れた local volume / config state を再利用して再起動ループしている。`Database directory appears to contain a database; Skipping initialization` が併発している場合は、既存データディレクトリを掴んだまま初期化に失敗している可能性が高い。
+
+**副作用**:
+- Next.js からは `ECONNREFUSED 127.0.0.1:54322`
+- Better Auth / guest API は DB 接続失敗で 500
+- Supabase Studio は `getaddrinfo ENOTFOUND supabase_db_<project>` や schema/table 読み込み失敗
+
+**対処（推奨: local DB を再作成）**:
+```bash
+cd /Users/saoki/work/career_compass
+
+# Supabase Local を完全停止（local DB データは削除される）
+supabase stop --no-backup
+
+# まだ残っている local volume を削除
+docker volume rm supabase_db_career_compass supabase_config_career_compass
+
+# クリーン起動
+supabase start
+```
+
+その後、以下を確認する:
+- `127.0.0.1:54322` に接続できる
+- Studio (`127.0.0.1:54323`) の Table Editor が schema/table を読める
+- `npm run dev` 後に `/api/auth/get-session` と `/api/auth/guest` が 500 にならない
 
 ### DATABASE_URL is not set
 

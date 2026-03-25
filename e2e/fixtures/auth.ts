@@ -100,6 +100,15 @@ export async function ensureGuestSession(page: Page): Promise<void> {
  * Mock authenticated user session
  * This intercepts auth API calls and returns a mock session
  */
+function getE2eMockSessionCookieSpec() {
+  const baseURL = new URL(process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000");
+  const secure = baseURL.protocol === "https:";
+  const names = secure
+    ? ["__Secure-better-auth.session_token", "better-auth.session_token"]
+    : ["better-auth.session_token"];
+  return { baseURL, names };
+}
+
 export async function mockAuthenticatedUser(
   page: Page,
   user: {
@@ -132,6 +141,21 @@ export async function mockAuthenticatedUser(
       }),
     });
   });
+
+  const { baseURL, names } = getE2eMockSessionCookieSpec();
+  const secure = baseURL.protocol === "https:";
+  const hostname = baseURL.hostname;
+  await page.context().addCookies(
+    names.map((name) => ({
+      name,
+      value: "e2e-mock-session",
+      domain: hostname,
+      path: "/",
+      httpOnly: true,
+      sameSite: "Lax" as const,
+      ...(secure ? { secure: true } : {}),
+    })),
+  );
 }
 
 export async function mockCredits(
@@ -194,17 +218,19 @@ export async function mockUnauthenticated(page: Page): Promise<void> {
 }
 
 /**
- * Wait for the page to be fully loaded after navigation
+ * Wait after navigation. `networkidle` は dev サーバの HMR・並列ワーカー・長寿命接続で
+ * タイムアウトしやすいため使わない。
  */
 export async function waitForPageLoad(page: Page): Promise<void> {
-  await page.waitForLoadState("networkidle");
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForLoadState("load").catch(() => {});
 }
 
 /**
  * Navigate and wait for load
  */
 export async function navigateTo(page: Page, path: string): Promise<void> {
-  await page.goto(path);
+  await page.goto(path, { waitUntil: "domcontentloaded", timeout: 60_000 });
   await waitForPageLoad(page);
 }
 
@@ -472,6 +498,3 @@ export async function deleteOwnedNotification(page: Page, notificationId: string
   await apiRequest(page, "DELETE", `/api/notifications/${notificationId}`);
 }
 
-export async function waitForRouteProgress(page: Page): Promise<void> {
-  await expect(page.locator('div[aria-hidden="false"] .route-progress-bar').first()).toBeVisible();
-}

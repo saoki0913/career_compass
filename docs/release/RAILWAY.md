@@ -185,11 +185,9 @@ CLAUDE_MODEL=claude-sonnet-4-5-20250929
 CLAUDE_HAIKU_MODEL=claude-haiku-4-5-20251001
 OPENAI_MODEL=gpt-5.4-mini
 GOOGLE_MODEL=gemini-3.1-pro-preview
-COHERE_MODEL=command-a-03-2025
 
 # 追加 provider API キー（必要なものだけ設定）
 # GOOGLE_API_KEY=...
-# COHERE_API_KEY=...
 
 # 機能別モデル設定（エイリアス or 明示モデルID）
 # 例:
@@ -225,7 +223,7 @@ FRONTEND_URL=https://www.shupass.jp
 # REDIS_URL=redis://...
 ```
 
-> ES添削パネルの標準モデルは UI の `モデル選択` dropdown から `Claude Sonnet 4.6 / GPT-5.1 / Gemini 3.1 Pro Preview / Cohere Command A` を切り替えられる。
+> ES添削パネルの標準モデルは UI の `モデル選択` dropdown から `Claude Sonnet 4.6 / GPT-5.4 / Gemini 3.1 Pro Preview / クレジット消費を抑えて添削` を切り替えられる。
 
 ### 設定不要な変数
 

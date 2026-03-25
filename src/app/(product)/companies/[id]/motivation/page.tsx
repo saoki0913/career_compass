@@ -918,8 +918,6 @@ function MotivationConversationContent() {
     }
 
     const optimisticId = `optimistic-${Date.now()}`;
-    const previousSuggestionOptions = suggestionOptions;
-
     const optimisticMessage: Message = {
       id: optimisticId,
       role: "user",
@@ -1050,10 +1048,8 @@ function MotivationConversationContent() {
         throw new Error("ストリームが途中で切断されました");
       }
     } catch (err) {
-      // Remove optimistic message on error and restore previous state
+      // Remove optimistic message, then refresh from the server to avoid restoring stale chips.
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
-      setAnswer(textToSend);
-      setSuggestionOptions(previousSuggestionOptions);
       setPendingCompleteData(null);
       setStreamingTargetText("");
       setIsTextStreaming(false);
@@ -1062,6 +1058,7 @@ function MotivationConversationContent() {
       } else {
         setError(err instanceof Error ? err.message : "送信に失敗しました");
       }
+      await fetchData();
     } finally {
       clearTimeout(timeoutId);
       setIsSending(false);

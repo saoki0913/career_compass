@@ -309,7 +309,7 @@ function applyAnswerToConversationContext(
   return next;
 }
 
-// Configuration (must match non-stream route)
+// Configuration
 const ELEMENT_COMPLETION_THRESHOLD = 70;
 const QUESTIONS_PER_CREDIT = 5;
 const CREDITS_PER_QUESTION_BATCH = 3;
@@ -626,7 +626,6 @@ export async function POST(
                     evaluation?: { scores: MotivationScores; is_complete: boolean };
                     captured_context?: Partial<MotivationConversationContext>;
                     question_stage?: string;
-                    suggestions?: string[];
                     suggestion_options?: SuggestionOption[];
                     evidence_summary?: string | null;
                     evidence_cards?: unknown[];
@@ -693,7 +692,6 @@ export async function POST(
                     questionStage:
                       fastApiData.question_stage ??
                       resolvedAfterAnswer.conversationContext.questionStage,
-                    lastSuggestions: JSON.stringify(fastApiData.suggestions || []),
                     lastSuggestionOptions: JSON.stringify(fastApiData.suggestion_options || []),
                     lastEvidenceCards: JSON.stringify(fastApiData.evidence_cards || []),
                     stageStatus: JSON.stringify(
@@ -733,7 +731,6 @@ export async function POST(
                   data: {
                     messages,
                     nextQuestion: isCompleted ? null : fastApiData.question,
-                    suggestions: isCompleted ? [] : (fastApiData.suggestions || []),
                     suggestionOptions: isCompleted ? [] : ((fastApiData.suggestion_options || []) as SuggestionOption[]),
                     questionCount: newQuestionCount,
                     isCompleted,

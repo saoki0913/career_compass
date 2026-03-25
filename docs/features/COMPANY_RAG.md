@@ -35,8 +35,9 @@ ES添削時に、ユーザーが選択して保存した企業ソースだけを
 - **職種依存クエリの補強**: `設問 + 企業名 + primary role + 元回答要点` を検索語に使い、role-sensitive な設問で職種向けページを優先する
 - **grounding mode 判定**: 職種向け根拠が弱い場合は `company_general` に降格し、企業固有の職種断定を抑える
 - **user-selected source only**: 企業RAG はユーザーが選択して保存した公開ソースだけで構成する
+- **family-aligned retrieval boost**: `user_provided_corporate_urls` は同一家族の retrieval を強める補助入力として扱い、本文へ直前 prepend しない
 - **NotebookLM-like grounding**: 添削では保存済みソースを軸に grounding し、企業根拠の追加は明示的なソース選択に限定する
-- **インターン設問の追加補強**: `intern_reason` / `intern_goals` では `company + intern_name + question` の second pass を 1 回だけ走らせ、募集ページや社員インタビューを優先する
+- **インターン設問の優先 family**: `intern_reason` / `intern_goals` では intern 文脈を retrieval query に含めつつ、family 優先で募集ページや社員インタビューを取りに行く
 - **employee_interviews の候補制御**: official root 採用トップは社員インタビュー候補に入れない
 - **same-company 検証**: ES 添削に使う根拠は official domain として検証できた source だけを採用する
 - **短社名ガード**: `Sky` のような短社名は dotted domain 明示登録を優先し、foreign domain や shared token domain を同一企業根拠として使わない
@@ -384,7 +385,7 @@ ES添削プロンプトに注入される形式：
 
 ## ES添削向けの role-aware 補強
 
-ES添削では、`role_course_reason` など職種依存が強い設問で first pass retrieval 後も `grounding_mode=company_general` の場合、backend で role-focused second pass を 1 回だけ追加する。
+ES添削では、`role_course_reason` など required-centered な設問で first pass retrieval 後も `grounding_mode=company_general` の場合、retrieval 結果を増やすよりも validator の `grounding` 判定と focused retry の `grounding_focus` で本文を修正する。
 
 - query: `company_name + role_name + section_title`
 - 優先 content type:

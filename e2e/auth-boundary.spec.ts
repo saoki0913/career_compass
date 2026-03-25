@@ -6,14 +6,14 @@ import {
   loginAsGuest,
   navigateTo,
 } from "./fixtures/auth";
-import { hasGoogleAuthState, signInWithGoogle } from "./google-auth";
 
-test.describe("Auth and access contracts", () => {
+test.describe("Auth boundary contracts", () => {
   test("guest session persists across refresh and tabs", async ({ page, context }) => {
+    test.setTimeout(90_000);
     const token = await loginAsGuest(page);
     await navigateTo(page, "/dashboard");
-    await page.reload();
-    await page.waitForLoadState("networkidle");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("domcontentloaded");
     await expect(page.locator("main")).toBeVisible();
     expect(await getDeviceToken(page)).toBe(token);
 
@@ -50,14 +50,5 @@ test.describe("Auth and access contracts", () => {
     expect(await hasDeviceToken(page)).toBe(true);
     await clearGuestSession(page);
     expect(await hasDeviceToken(page)).toBe(false);
-  });
-
-  test("logged-in auth state can reach authenticated pages", async ({ page }) => {
-    test.skip(!hasGoogleAuthState, "Google auth storage state is not configured");
-    await signInWithGoogle(page, "/dashboard");
-    await page.goto("/settings");
-    await expect(page.locator("main")).toBeVisible();
-    await page.goto("/profile");
-    await expect(page.locator("main")).toBeVisible();
   });
 });

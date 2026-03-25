@@ -72,7 +72,6 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     google_api_key: str = ""
-    cohere_api_key: str = ""
 
     # ===== キャッシュ =====
     # 環境変数: REDIS_URL
@@ -119,10 +118,6 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("LOW_COST_REVIEW_MODEL"),
     )
 
-    # Cohere モデル（OpenAI compatibility API、互換用途）
-    cohere_model: str = "command-a-03-2025"
-    cohere_base_url: str = "https://api.cohere.com/compatibility/v1"
-
     # ===== 機能別モデル設定 =====
     # ここには基本的に stable alias だけを保存する。
     # 推奨 alias:
@@ -130,7 +125,7 @@ class Settings(BaseSettings):
     #   - gpt / gpt-fast / gpt-nano
     #   - gemini
     #   - low-cost
-    # 直指定 model ID や旧 alias（openai / google / cohere）も後方互換で解決する。
+    # 直指定 model ID や旧 alias（openai / google）も後方互換で解決する。
     model_es_review: str = "claude-sonnet"           # MODEL_ES_REVIEW
     model_gakuchika: str = "gpt-fast"                # MODEL_GAKUCHIKA
     model_motivation: str = "gpt-fast"               # MODEL_MOTIVATION

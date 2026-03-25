@@ -32,7 +32,7 @@ function QuickActionSkeletonCell({ delay }: { delay: number }) {
 /** 今日の最重要タスク（コンパクト版）に合わせたスケルトン — `initialTodayTask.task` があるときのみ表示 */
 function TodayTaskCardSkeleton() {
   return (
-    <div className="w-full max-h-24 shrink-0 overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5 sm:w-[420px]">
+    <div className="w-full max-h-24 shrink-0 overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5 sm:w-[36rem] sm:max-w-[min(36rem,calc(100vw-2rem))] sm:flex-none">
       <div className="flex items-start gap-2.5 px-3 py-2">
         <Skeleton className="mt-0.5 h-5 w-5 shrink-0 rounded-full" shimmerDelayMs={50} />
         <div className="min-w-0 flex-1 space-y-1.5">

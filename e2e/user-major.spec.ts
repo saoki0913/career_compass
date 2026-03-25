@@ -7,10 +7,10 @@ import {
   deleteOwnedNotification,
   deleteOwnedTask,
 } from "./fixtures/auth";
-import { hasGoogleAuthState, signInWithGoogle } from "./google-auth";
+import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
 
 test.describe("User major flow", () => {
-  test.skip(!hasGoogleAuthState, "Google auth storage state is not configured");
+  test.skip(!hasAuthenticatedUserAccess, "Authenticated E2E access is not configured");
 
   test("logged-in user can access authenticated core surfaces", async ({ page }) => {
     test.setTimeout(90_000);
@@ -25,7 +25,7 @@ test.describe("User major flow", () => {
     let notificationId: string | null = null;
 
     try {
-      await signInWithGoogle(page, "/dashboard");
+      await signInAsAuthenticatedUser(page, "/dashboard");
       await expect(page.locator("main")).toBeVisible();
 
       const company = await createOwnedCompany(page, {

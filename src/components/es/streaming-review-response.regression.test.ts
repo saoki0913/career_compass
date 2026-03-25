@@ -15,5 +15,7 @@ describe("streaming review response regressions", () => {
     expect(source).not.toContain("AnimatePresence");
     expect(source).not.toContain("motion.article");
     expect(source).not.toContain("motion.div");
+    expect(source).not.toContain("改善ポイント");
+    expect(source).not.toContain("top3");
   });
 });

@@ -15,13 +15,11 @@ def _reset_provider_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "anthropic_api_key", "")
     monkeypatch.setattr(settings, "openai_api_key", "")
     monkeypatch.setattr(settings, "google_api_key", "")
-    monkeypatch.setattr(settings, "cohere_api_key", "")
     monkeypatch.setattr(settings, "gpt_model", "gpt-5.4")
     monkeypatch.setattr(settings, "gpt_fast_model", "gpt-5.4-mini")
     monkeypatch.setattr(settings, "gpt_nano_model", "gpt-5.4-nano")
     monkeypatch.setattr(settings, "low_cost_review_model", "gpt-5.4-mini")
     monkeypatch.setattr(settings, "gemini_model", "gemini-3.1-pro-preview")
-    monkeypatch.setattr(settings, "cohere_model", "command-a-03-2025")
     monkeypatch.setattr(settings, "openai_price_gpt_5_4_mini_input_per_mtok_usd", None)
     monkeypatch.setattr(settings, "openai_price_gpt_5_4_mini_cached_input_per_mtok_usd", None)
     monkeypatch.setattr(settings, "openai_price_gpt_5_4_mini_output_per_mtok_usd", None)
@@ -32,7 +30,6 @@ def _reset_provider_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(llm, "_model_config", None)
     monkeypatch.setattr(llm, "_openai_client", None)
     monkeypatch.setattr(llm, "_openai_client_rag", None)
-    monkeypatch.setattr(llm, "_compat_clients", {})
     monkeypatch.setattr(llm, "_google_http_client", None)
     monkeypatch.setattr(llm, "_google_http_client_rag", None)
 
@@ -40,7 +37,11 @@ def _reset_provider_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_resolve_model_target_supports_explicit_provider_models() -> None:
     assert llm._resolve_model_target("es_review", "gpt-5.4").provider == "openai"
     assert llm._resolve_model_target("es_review", "gemini-3.1-pro-preview").provider == "google"
-    assert llm._resolve_model_target("es_review", "command-a-03-2025").provider == "cohere"
+
+
+def test_resolve_model_target_rejects_removed_cohere_model() -> None:
+    with pytest.raises(ValueError, match="Unsupported model"):
+        llm._resolve_model_target("es_review", "command-a-03-2025")
 
 
 def test_resolve_model_target_gpt_nano_alias() -> None:
@@ -80,10 +81,6 @@ def test_build_chat_response_format_maps_provider_capabilities() -> None:
         "required": ["answer"],
     }
 
-    assert llm._build_chat_response_format("cohere", "json_schema", schema) == {
-        "type": "json_object",
-        "schema": schema,
-    }
     assert llm._build_chat_response_format("openai", "json_schema", schema) == {
         "type": "json_schema",
         "json_schema": {
@@ -349,7 +346,7 @@ async def test_call_llm_with_error_uses_openai_responses_api_for_es_review(
 
 
 @pytest.mark.asyncio
-async def test_call_openai_responses_sets_reasoning_effort_for_es_review(
+async def test_call_openai_responses_omits_reasoning_for_es_review_json_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "test-openai-key")
@@ -400,11 +397,11 @@ async def test_call_openai_responses_sets_reasoning_effort_for_es_review(
         "reasoning_tokens": 5,
         "cached_input_tokens": 20,
     }
-    assert seen["reasoning"] == {"effort": "minimal"}
+    assert "reasoning" not in seen
 
 
 @pytest.mark.asyncio
-async def test_call_openai_responses_uses_low_reasoning_for_gpt_5_4_mini(
+async def test_call_openai_responses_omits_reasoning_for_es_review_gpt_5_4_mini_json_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "test-openai-key")
@@ -449,7 +446,7 @@ async def test_call_openai_responses_uses_low_reasoning_for_gpt_5_4_mini(
     )
 
     assert result == {"ok": True}
-    assert seen["reasoning"] == {"effort": "minimal"}
+    assert "reasoning" not in seen
 
 
 def test_openai_reasoning_effort_plain_text_rewrite_is_none() -> None:
@@ -461,6 +458,18 @@ def test_openai_reasoning_effort_plain_text_rewrite_is_none() -> None:
             plain_text_rewrite=True,
         )
         == "none"
+    )
+
+
+def test_openai_reasoning_effort_json_schema_is_none_for_es_review() -> None:
+    assert (
+        llm._openai_reasoning_effort(
+            feature="es_review",
+            response_format="json_schema",
+            model="gpt-5.4-mini",
+            plain_text_rewrite=False,
+        )
+        is None
     )
 
 
@@ -828,50 +837,10 @@ async def test_call_llm_with_error_repairs_google_partial_json_with_same_model(
     assert result.data == {"ok": True}
 
 
-@pytest.mark.asyncio
-async def test_call_llm_with_error_routes_explicit_cohere_model(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(settings, "cohere_api_key", "test-cohere-key")
-
-    seen: dict[str, object] = {}
-
-    async def fake_openai_compatible(**kwargs):
-        seen.update(kwargs)
-        return {"answer": "改善案"}
-
-    monkeypatch.setattr(llm, "_call_openai_compatible", fake_openai_compatible)
-
-    result = await llm.call_llm_with_error(
-        system_prompt="system",
-        user_message="user",
-        model="command-a-03-2025",
-        response_format="json_schema",
-        json_schema={"type": "object", "properties": {"answer": {"type": "string"}}},
-        disable_fallback=True,
-    )
-
-    assert result.success is True
-    assert result.data == {"answer": "改善案"}
-    assert seen["provider"] == "cohere"
-    assert seen["model"] == "command-a-03-2025"
-
-
-def test_augment_system_prompt_for_provider_text_adds_strict_hint_for_cohere_es_review() -> None:
-    augmented = llm._augment_system_prompt_for_provider_text(
-        "cohere",
-        "system",
-        feature="es_review",
-    )
-
-    assert "出力形式の厳守" in augmented
-    assert "出力は最終本文のみ" in augmented
-
-
 def test_augment_system_prompt_for_provider_text_keeps_non_es_review_prompt_unchanged() -> None:
     assert (
         llm._augment_system_prompt_for_provider_text(
-            "cohere",
+            "openai",
             "system",
             feature="motivation",
         )
@@ -900,13 +869,12 @@ def test_feature_cross_fallback_model_openai_never_switches_provider(
     assert llm._feature_cross_fallback_model("selection_schedule", "openai") is None
 
 
-def test_feature_cross_fallback_model_google_and_cohere_never_switch(
+def test_feature_cross_fallback_model_google_never_switch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "o")
     monkeypatch.setattr(settings, "anthropic_api_key", "a")
     assert llm._feature_cross_fallback_model("company_info", "google") is None
-    assert llm._feature_cross_fallback_model("company_info", "cohere") is None
 
 
 @pytest.mark.asyncio

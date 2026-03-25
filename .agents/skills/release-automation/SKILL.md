@@ -1,6 +1,6 @@
 ---
 name: release-automation
-description: 就活Pass の標準 release automation。develop で preflight、staged release scope の commit、develop push、staging 検証、develop->main 自動昇格、production の Playwright 検証までを repo 内 scripts で実行する。Trigger: deploy, release, 本番へデプロイ, staging, main promotion, production rollout.
+description: "就活Pass の標準 release automation。develop で preflight、staged release scope の commit、develop push、staging 検証、develop->main 自動昇格、production の Playwright 検証までを repo 内 scripts で実行する。Trigger: deploy, release, 本番へデプロイ, staging, main promotion, production rollout."
 ---
 
 # Release Automation

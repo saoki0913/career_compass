@@ -36,15 +36,16 @@
 
 ## レート制限
 
-- 分散 rate limit は [`src/lib/rate-limit.ts`](../../src/lib/rate-limit.ts) を使い、本番は Upstash Redis、ローカルは in-memory fallback です。
+- 分散 rate limit は [`src/lib/rate-limit.ts`](../../src/lib/rate-limit.ts) を使い、本番は Upstash Redis、本番で Upstash 障害時は in-memory fallback に切り替える fail-soft です。
 - layered limiter と構造化 429 は [`src/lib/rate-limit-spike.ts`](../../src/lib/rate-limit-spike.ts) が担当します。
+- FastAPI 側は [`backend/app/limiter.py`](../../backend/app/limiter.py) と各 router の explicit `@limiter.limit(...)` で coarse-grained に保護します。
 - 主な対象は次です。
   - `review` / `conversation` / `draft` などの AI 呼び出し
   - `fetch-info` / `search-pages` / `search-corporate-pages` / `source-compliance/check`
   - `fetch-corporate` / `fetch-corporate-upload` / `delete-corporate-urls`
   - backend status poll (`fetch-corporate` GET, `es-review-status`)
 - `source-compliance/check` は 1 request あたり最大 10 URL に制限しています。
-- 429 は `RATE_LIMITED` の構造化 API error と `Retry-After` ヘッダを返します。
+- 429 は `RATE_LIMITED` の構造化 API error と `Retry-After` ヘッダを返し、`userMessage` は `しばらく待ってから再試行してください。` に統一します。
 
 ## 法令・問い合わせ先（環境変数）
 

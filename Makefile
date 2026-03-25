@@ -6,7 +6,7 @@
 	backend-test-content-type backend-test-content-type-unit backend-test-content-type-integration \
 	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy \
 	backend-test-live-es-review \
-	deploy deploy-check deploy-migrate ops-status ops-auth-check ops-release-check
+	deploy deploy-stage-all deploy-check deploy-migrate ops-status ops-auth-check ops-release-check
 
 # ===========================================
 # フロントエンド (Next.js)
@@ -186,11 +186,14 @@ LIVE_SEARCH_USE_CURATED ?= 1
 LIVE_SEARCH_FAIL_ON_REGRESSION ?= 0
 BASELINE_SAVE ?= 0
 BASELINE_AUTO_PROMOTE ?= 0
-LIVE_ES_REVIEW_CASE_SET ?= smoke
-LIVE_ES_REVIEW_PROVIDERS ?= gpt-5.4-mini
+LIVE_ES_REVIEW_CASE_SET ?= extended
+# 空 = Python 既定（smoke は mini、extended は 4 モデル）
+LIVE_ES_REVIEW_PROVIDERS ?=gpt-5.4-mini,gemini-3.1-pro-preview,gpt-5.4,claude-sonnet
 LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS ?= 0
 LIVE_ES_REVIEW_OUTPUT_DIR ?= backend/tests/output
-LIVE_ES_REVIEW_ENABLE_JUDGE ?= 0
+LIVE_ES_REVIEW_ENABLE_JUDGE ?= 1
+LIVE_ES_REVIEW_REQUIRE_JUDGE_PASS ?= 0
+LIVE_ES_REVIEW_COLLECT_ONLY ?= 0
 LIVE_ES_REVIEW_JUDGE_MODEL ?= gpt-5.4-mini
 LIVE_ES_REVIEW_CASE_FILTER ?=
 
@@ -238,11 +241,11 @@ backend-test-live-search-hybrid:
 backend-test-live-search-legacy:
 	@$(MAKE) backend-test-live-search LIVE_SEARCH_MODES=legacy
 
-## Live ES添削 provider gate（4 provider 実 API / レポート出力）
+## Live ES添削 provider gate（実 API / レポート出力。PROVIDERS 空で case_set 別既定）
 backend-test-live-es-review:
 	@echo "Running live ES review provider gate..."
 	@echo "  Case set: $(LIVE_ES_REVIEW_CASE_SET)"
-	@echo "  Providers: $(LIVE_ES_REVIEW_PROVIDERS)"
+	@echo "  Providers: (empty=defaults) $(LIVE_ES_REVIEW_PROVIDERS)"
 	@echo "  Output: $(LIVE_ES_REVIEW_OUTPUT_DIR)"
 	RUN_LIVE_ES_REVIEW=1 \
 	LIVE_ES_REVIEW_CASE_SET="$(LIVE_ES_REVIEW_CASE_SET)" \
@@ -250,6 +253,8 @@ backend-test-live-es-review:
 	LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS="$(LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS)" \
 	LIVE_ES_REVIEW_OUTPUT_DIR="$(LIVE_ES_REVIEW_OUTPUT_DIR)" \
 	LIVE_ES_REVIEW_ENABLE_JUDGE="$(LIVE_ES_REVIEW_ENABLE_JUDGE)" \
+	LIVE_ES_REVIEW_REQUIRE_JUDGE_PASS="$(LIVE_ES_REVIEW_REQUIRE_JUDGE_PASS)" \
+	LIVE_ES_REVIEW_COLLECT_ONLY="$(LIVE_ES_REVIEW_COLLECT_ONLY)" \
 	LIVE_ES_REVIEW_JUDGE_MODEL="$(LIVE_ES_REVIEW_JUDGE_MODEL)" \
 	LIVE_ES_REVIEW_CASE_FILTER="$(LIVE_ES_REVIEW_CASE_FILTER)" \
 	npx dotenv -e .env.local -- \
@@ -355,6 +360,10 @@ CLI_SAFE_PATH := PATH="$(CLI_SAFE_BIN):$$PATH"
 ## develop の release 前検証（本番反映は GitHub PR merge のみ）
 deploy:
 	zsh scripts/release/release-career-compass.sh
+
+## ローカル変更をすべて stage してから release を実行
+deploy-stage-all:
+	zsh scripts/release/release-career-compass.sh --stage-all
 
 ## ヘルスチェックのみ実行（スタンドアロン）
 deploy-check:
@@ -485,7 +494,8 @@ help:
 	@echo "    make logs         - バックエンドログ表示"
 	@echo ""
 	@echo "  🚀 デプロイ:"
-	@echo "    make deploy         - local gate→develop push→staging確認→develop->main自動昇格→本番確認"
+	@echo "    make deploy         - staged 済み release scope で本番反映"
+	@echo "    make deploy-stage-all - ローカル変更を全部 stage して本番反映"
 	@echo "    make deploy-check   - ヘルスチェックのみ（Frontend + Backend）"
 	@echo "    make deploy-migrate - 本番DBマイグレーションのみ"
 	@echo "    make ops-status     - provider auth の現状確認"

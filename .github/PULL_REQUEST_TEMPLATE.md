@@ -19,6 +19,10 @@
 
 - 
 
+## Codex Review
+
+- [ ] `Codex cloud` review を実行した / 確認した
+
 ## Docs Updated
 
 - [ ] 実装に合わせて docs を更新した
@@ -26,4 +30,3 @@
 ## Unused Code Removed
 
 - [ ] 使わなくなったコードを削除した
-

@@ -1,13 +1,17 @@
-export type ReviewValidationField = "intern_name" | "industry" | "role_name";
+/** 本文がこれ未満なら添削開始不可（UI で赤字枠・フッター案内）。FastAPI 側の旧 10 文字下限とは別。 */
+export const MIN_REVIEW_SECTION_BODY_CHARS = 5;
+
+export type ReviewValidationField = "section_content" | "intern_name" | "industry" | "role_name";
 
 export interface ReviewValidationIssue {
   field: ReviewValidationField;
-  section: "template" | "industry";
+  section: "section_preview" | "template" | "industry";
   label: string;
   message: string;
 }
 
 interface ReviewValidationInput {
+  sectionContent: string;
   requiresInternName: boolean;
   internName: string;
   hasSelectedCompany: boolean;
@@ -18,6 +22,15 @@ interface ReviewValidationInput {
 
 export function getReviewValidationIssues(input: ReviewValidationInput): ReviewValidationIssue[] {
   const issues: ReviewValidationIssue[] = [];
+
+  if (input.sectionContent.trim().length < MIN_REVIEW_SECTION_BODY_CHARS) {
+    issues.push({
+      field: "section_content",
+      section: "section_preview",
+      label: "本文",
+      message: "本文を5文字以上入力してください。",
+    });
+  }
 
   if (input.requiresInternName && !input.internName.trim()) {
     issues.push({

@@ -1,9 +1,13 @@
-name: Main Promotion Guard
+name: Main Release Gate
 
 on:
   pull_request:
     branches:
       - main
+
+concurrency:
+  group: main-release-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   source-branch:
@@ -17,19 +21,19 @@ jobs:
             exit 1
           fi
 
-  verify:
+  frontend:
     needs: source-branch
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
-      NEXT_PUBLIC_APP_URL: https://www.shupass.jp
-      BETTER_AUTH_URL: https://www.shupass.jp
-      BETTER_AUTH_TRUSTED_ORIGINS: https://www.shupass.jp,https://shupass.jp,http://localhost:3000,http://127.0.0.1:3000
+      NEXT_PUBLIC_APP_URL: https://stg.shupass.jp
+      BETTER_AUTH_URL: https://stg.shupass.jp
+      BETTER_AUTH_TRUSTED_ORIGINS: https://stg.shupass.jp,http://localhost:3000,http://127.0.0.1:3000
       BETTER_AUTH_SECRET: ci-secret-please-change-me-32chars
       GOOGLE_CLIENT_ID: ci-google-client-id
       GOOGLE_CLIENT_SECRET: ci-google-client-secret
-      FASTAPI_URL: https://career-compass-backend.up.railway.app
-      BACKEND_URL: https://career-compass-backend.up.railway.app
+      FASTAPI_URL: https://stg-api.shupass.jp
+      BACKEND_URL: https://stg-api.shupass.jp
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
       DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
       SUPABASE_URL: https://example.supabase.co
@@ -50,14 +54,12 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run lint
-      - run: npm run build
-      - run: npm run test:unit -- 'src/app/api/documents/[id]/route.test.ts'
+      - run: zsh scripts/ci/run-frontend-verify.sh
 
-  es-review-smoke:
+  backend:
     needs: source-branch
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -67,10 +69,159 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r backend/requirements.txt
-      - name: Run deterministic ES review smoke
+      - run: zsh scripts/ci/run-backend-deterministic.sh
+
+  staging-ready:
+    needs: source-branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Wait for staging frontend and backend
         run: |
-          python -m pytest \
-            backend/tests/es_review/test_es_review_quality_rubric.py \
-            backend/tests/es_review/test_es_review_final_quality_cases.py \
-            backend/tests/shared/test_llm_provider_routing.py \
-            -q
+          for url in \
+            "https://stg-api.shupass.jp/health" \
+            "https://stg.shupass.jp" \
+            "https://stg.shupass.jp/robots.txt" \
+            "https://stg.shupass.jp/sitemap.xml"; do
+            ok=0
+            for _ in $(seq 1 40); do
+              if curl --fail --silent --show-error "$url" >/tmp/staging-check.out; then
+                ok=1
+                break
+              fi
+              sleep 10
+            done
+            if [ "$ok" -ne 1 ]; then
+              echo "Timed out waiting for $url" >&2
+              exit 1
+            fi
+          done
+      - name: Assert staging URLs are wired correctly
+        run: |
+          curl --fail --silent https://stg.shupass.jp/robots.txt | grep -F "https://stg.shupass.jp"
+          curl --fail --silent https://stg.shupass.jp/sitemap.xml | grep -F "https://stg.shupass.jp"
+
+  e2e-guest:
+    needs: [source-branch, staging-ready]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
+      PLAYWRIGHT_SKIP_WEBSERVER: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: zsh scripts/ci/run-main-e2e.sh guest
+
+  e2e-auth:
+    needs: [source-branch, staging-ready]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
+      PLAYWRIGHT_SKIP_WEBSERVER: "1"
+      CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: zsh scripts/ci/run-main-e2e.sh auth
+
+  e2e-regression:
+    needs: [source-branch, staging-ready]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_APP_URL: https://stg.shupass.jp
+      BETTER_AUTH_URL: https://stg.shupass.jp
+      BETTER_AUTH_TRUSTED_ORIGINS: https://stg.shupass.jp,http://localhost:3000,http://127.0.0.1:3000
+      BETTER_AUTH_SECRET: ci-secret-please-change-me-32chars
+      GOOGLE_CLIENT_ID: ci-google-client-id
+      GOOGLE_CLIENT_SECRET: ci-google-client-secret
+      FASTAPI_URL: https://stg-api.shupass.jp
+      BACKEND_URL: https://stg-api.shupass.jp
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ci-supabase-service-role-key
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      CRON_SECRET: ci-cron-secret
+      STRIPE_SECRET_KEY: sk_test_ci
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_ci
+      STRIPE_WEBHOOK_SECRET: whsec_ci
+      STRIPE_PRICE_STANDARD_MONTHLY: price_standard_ci
+      STRIPE_PRICE_PRO_MONTHLY: price_pro_ci
+      OPENAI_API_KEY: sk-ci-openai
+      ANTHROPIC_API_KEY: sk-ant-ci-anthropic
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: zsh scripts/ci/run-main-e2e.sh regression
+
+  ai-live-smoke:
+    needs: source-branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      RUN_LIVE_ES_REVIEW: "1"
+      LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS: "1"
+      LIVE_ES_REVIEW_CASE_SET: "smoke"
+      LIVE_ES_REVIEW_PROVIDERS: "gpt-5.4-mini"
+      LIVE_ES_REVIEW_ENABLE_JUDGE: "0"
+      LIVE_ES_REVIEW_OUTPUT_DIR: backend/tests/output
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: scope
+        run: |
+          changed_files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")"
+          echo "$changed_files" | grep -E '^(backend/app/prompts/|backend/app/routers/es_review\.py|backend/app/testing/es_review_live_gate\.py|backend/app/utils/llm\.py|backend/tests/es_review/|e2e/live-ai-major\.spec\.ts|scripts/ci/run-ai-live-smoke\.sh)' >/dev/null \
+            && echo "run=true" >> "$GITHUB_OUTPUT" \
+            || echo "run=false" >> "$GITHUB_OUTPUT"
+      - name: Skip when AI-sensitive files did not change
+        if: steps.scope.outputs.run != 'true'
+        run: echo "No AI-sensitive files changed."
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-python@v5
+        if: steps.scope.outputs.run == 'true'
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+      - name: Run AI live smoke
+        if: steps.scope.outputs.run == 'true'
+        env:
+          RUN_AI_LIVE_SMOKE: "1"
+        run: zsh scripts/ci/run-ai-live-smoke.sh
+      - name: Upload live smoke report
+        if: always() && steps.scope.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-live-smoke-report
+          path: backend/tests/output/live_es_review_smoke_*

@@ -32,17 +32,18 @@ export interface RateLimitResult {
 // ---------------------------------------------------------------------------
 
 export const RATE_LIMITS = {
-  review: { maxTokens: 10, refillRate: 0.1, windowMs: 60000 },
-  conversation: { maxTokens: 20, refillRate: 0.3, windowMs: 60000 },
-  fetchInfo: { maxTokens: 5, refillRate: 0.08, windowMs: 60000 },
-  companySearch: { maxTokens: 6, refillRate: 0.067, windowMs: 60000 },
-  companyCompliance: { maxTokens: 6, refillRate: 0.067, windowMs: 60000 },
-  draft: { maxTokens: 2, refillRate: 0.0167, windowMs: 60000 },
-  corporateMutate: { maxTokens: 2, refillRate: 0.0112, windowMs: 60000 },
+  review: { maxTokens: 12, refillRate: 0.15, windowMs: 60000 },
+  conversation: { maxTokens: 24, refillRate: 0.4, windowMs: 60000 },
+  fetchInfo: { maxTokens: 8, refillRate: 0.12, windowMs: 60000 },
+  companySearch: { maxTokens: 10, refillRate: 0.12, windowMs: 60000 },
+  companyCompliance: { maxTokens: 8, refillRate: 0.12, windowMs: 60000 },
+  draft: { maxTokens: 4, refillRate: 0.0333, windowMs: 60000 },
+  corporateMutate: { maxTokens: 3, refillRate: 0.02, windowMs: 60000 },
   corporateDelete: { maxTokens: 4, refillRate: 0.1, windowMs: 60000 },
-  statusPoll: { maxTokens: 15, refillRate: 0.333, windowMs: 60000 },
+  statusPoll: { maxTokens: 30, refillRate: 0.5, windowMs: 60000 },
   guestAuth: { maxTokens: 5, refillRate: 0.08, windowMs: 60000 },
   contact: { maxTokens: 3, refillRate: 0.05, windowMs: 60000 },
+  guestMigrate: { maxTokens: 3, refillRate: 0.033, windowMs: 60000 },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -91,6 +92,23 @@ interface InMemoryState {
 
 const memoryStore = new Map<string, InMemoryState>();
 
+function logRateLimitFallback(
+  operation: string,
+  key: string,
+  mode: "upstash_unavailable" | "upstash_error",
+  error?: unknown
+) {
+  console.warn(
+    JSON.stringify({
+      event: "rate_limit_fallback",
+      operation,
+      key,
+      mode,
+      error: error instanceof Error ? error.message : String(error ?? ""),
+    })
+  );
+}
+
 function checkRateLimitInMemory(
   key: string,
   config: RateLimitConfig
@@ -124,20 +142,20 @@ function checkRateLimitInMemory(
 
 /**
  * Check rate limit (async — uses Upstash Redis in production, in-memory in dev).
- * Fail-open: if Upstash errors, the request is allowed.
+ * Fail-soft: if Upstash errors, fall back to in-memory limiting.
  */
 export async function checkRateLimit(
   key: string,
   config: RateLimitConfig,
   operation?: string
 ): Promise<RateLimitResult> {
+  const op = operation || key.split(":")[0];
+
   // Fallback to in-memory when Upstash is not configured
   if (!isUpstashConfigured()) {
+    logRateLimitFallback(op, key, "upstash_unavailable");
     return checkRateLimitInMemory(key, config);
   }
-
-  // Determine operation name from key (format: "operation:identifier")
-  const op = operation || key.split(":")[0];
 
   try {
     const limiter = getUpstashLimiter(op, config);
@@ -149,9 +167,8 @@ export async function checkRateLimit(
       resetIn: result.success ? 0 : Math.ceil((result.reset - Date.now()) / 1000),
     };
   } catch (error) {
-    // Fail-open: allow request on Redis errors
-    console.error("[RateLimit] Upstash error, failing open:", error);
-    return { allowed: true, remaining: config.maxTokens, resetIn: 0 };
+    logRateLimitFallback(op, key, "upstash_error", error);
+    return checkRateLimitInMemory(key, config);
   }
 }
 

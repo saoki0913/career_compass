@@ -295,7 +295,10 @@ export function DashboardPageClient({
           </div>
 
           {todayTask.task ? (
-            <Card className="w-full max-h-24 shrink-0 overflow-hidden border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5 sm:w-[420px]">
+            <Card
+              data-testid="dashboard-today-task-card"
+              className="w-full max-h-24 shrink-0 gap-0 overflow-hidden border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5 py-0 sm:w-[36rem] sm:max-w-[min(36rem,calc(100vw-2rem))] sm:flex-none"
+            >
               <CardContent className="p-0 px-3 py-1.5">
                 <div className="flex items-start gap-2.5">
                   <button
@@ -320,14 +323,14 @@ export function DashboardPageClient({
                         <Link href="/tasks">一覧</Link>
                       </Button>
                     </div>
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0 text-[10px] sm:text-xs">
+                    <div className="flex min-w-0 flex-nowrap items-center gap-x-2 overflow-hidden text-[10px] sm:text-xs">
                       <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-primary">
                         {TASK_TYPE_LABELS[todayTask.task.type]}
                       </span>
                       {todayTask.task.company && (
                         <Link
                           href={`/companies/${todayTask.task.company.id}`}
-                          className="flex min-w-0 max-w-[10rem] items-center gap-0.5 truncate text-muted-foreground hover:text-primary sm:max-w-[12rem] [&_svg]:h-3 [&_svg]:w-3"
+                          className="flex min-w-0 flex-1 items-center gap-0.5 truncate text-muted-foreground hover:text-primary [&_svg]:h-3 [&_svg]:w-3"
                         >
                           <CompanyIcon />
                           <span className="truncate">{todayTask.task.company.name}</span>

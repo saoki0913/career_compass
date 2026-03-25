@@ -40,13 +40,6 @@ export interface GakuchikaData {
   charLimitType?: string | null;
 }
 
-interface FastAPIQuestionResponse {
-  question: string;
-  star_evaluation?: STAREvaluation;
-  target_element?: string;
-  internal_telemetry?: unknown;
-}
-
 export const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 export const STAR_COMPLETION_THRESHOLD = 70;
 export const QUESTIONS_PER_CREDIT = 5;
@@ -63,6 +56,187 @@ const STAR_HINT_TEXTS: Record<string, string> = {
 const STAR_ELEMENT_KEYS = ["situation", "task", "action", "result"] as const;
 
 const FASTAPI_ERROR_MESSAGE = "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。";
+/** FastAPI ガクチカ stream 呼び出しのタイムアウト（new / resume / 会話ストリームで共通） */
+export const FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS = 60_000;
+
+/** FastAPI `next-question/stream` の SSE を行単位でパースする（Next の中継と new/resume の完読で共用） */
+export async function* iterateGakuchikaFastApiSseEvents(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<{ event: Record<string, unknown>; telemetry: InternalCostTelemetry | null }> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const jsonStr = line.slice(6).trim();
+        if (!jsonStr) continue;
+        try {
+          const rawEvent = JSON.parse(jsonStr) as Record<string, unknown>;
+          const { payload, telemetry } = splitInternalTelemetry(rawEvent);
+          yield { event: payload as Record<string, unknown>, telemetry };
+        } catch {
+          continue;
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+export type ConsumeGakuchikaNextQuestionSseResult =
+  | {
+      ok: true;
+      question: string;
+      starEvaluation: STAREvaluation | null;
+      targetElement: string | null;
+      telemetry: InternalCostTelemetry | null;
+    }
+  | {
+      ok: false;
+      question: null;
+      starEvaluation: null;
+      targetElement: null;
+      telemetry: InternalCostTelemetry | null;
+      error: string;
+    };
+
+/** SSE を最後まで読み、`complete` または `error` で終了する（new / resume 用） */
+export async function consumeGakuchikaNextQuestionSse(
+  response: Response,
+): Promise<ConsumeGakuchikaNextQuestionSseResult> {
+  if (!response.ok) {
+    const rawErrorBody = await response.json().catch(() => ({}));
+    const { payload, telemetry } =
+      rawErrorBody && typeof rawErrorBody === "object"
+        ? splitInternalTelemetry(rawErrorBody as Record<string, unknown>)
+        : { payload: rawErrorBody, telemetry: null as InternalCostTelemetry | null };
+    const msg =
+      (payload as { detail?: { error?: string } } | null)?.detail?.error || FASTAPI_ERROR_MESSAGE;
+    return {
+      ok: false,
+      question: null,
+      starEvaluation: null,
+      targetElement: null,
+      telemetry,
+      error: msg,
+    };
+  }
+
+  const body = response.body;
+  if (!body) {
+    return {
+      ok: false,
+      question: null,
+      starEvaluation: null,
+      targetElement: null,
+      telemetry: null,
+      error: FASTAPI_ERROR_MESSAGE,
+    };
+  }
+
+  let streamedQuestionText = "";
+  let latestTelemetry: InternalCostTelemetry | null = null;
+  let hintedTargetElement: string | null = null;
+
+  for await (const { event, telemetry } of iterateGakuchikaFastApiSseEvents(body)) {
+    latestTelemetry = telemetry ?? latestTelemetry;
+    const type = event.type;
+
+    if (
+      type === "string_chunk" &&
+      event.path === "question" &&
+      typeof event.text === "string"
+    ) {
+      streamedQuestionText += event.text;
+    } else if (
+      type === "field_complete" &&
+      event.path === "star_scores" &&
+      event.value &&
+      typeof event.value === "object"
+    ) {
+      const v = event.value as Record<string, unknown>;
+      const partialScores: STARScores = {
+        situation: Number(v.situation ?? 0),
+        task: Number(v.task ?? 0),
+        action: Number(v.action ?? 0),
+        result: Number(v.result ?? 0),
+      };
+      hintedTargetElement = getWeakestElement(partialScores);
+    } else if (type === "complete") {
+      const data = event.data as {
+        question?: string;
+        target_element?: string;
+        star_evaluation?: STAREvaluation;
+      };
+      const questionText =
+        typeof data.question === "string" && data.question.trim()
+          ? data.question.trim()
+          : streamedQuestionText.trim() || "";
+      if (!questionText) {
+        return {
+          ok: false,
+          question: null,
+          starEvaluation: null,
+          targetElement: null,
+          telemetry: latestTelemetry,
+          error: FASTAPI_ERROR_MESSAGE,
+        };
+      }
+
+      const starEvaluation = data.star_evaluation ?? null;
+      let targetElement: string | null =
+        typeof data.target_element === "string" ? data.target_element : hintedTargetElement;
+
+      if (starEvaluation) {
+        targetElement =
+          (typeof data.target_element === "string" && data.target_element) ||
+          starEvaluation.weakest_element ||
+          getWeakestElement(starEvaluation.scores);
+      }
+      if (!targetElement && starEvaluation?.scores) {
+        targetElement = getWeakestElement(starEvaluation.scores);
+      }
+
+      return {
+        ok: true,
+        question: questionText,
+        starEvaluation,
+        targetElement,
+        telemetry: latestTelemetry,
+      };
+    } else if (type === "error") {
+      const msg =
+        typeof event.message === "string" && event.message.trim()
+          ? event.message.trim()
+          : FASTAPI_ERROR_MESSAGE;
+      return {
+        ok: false,
+        question: null,
+        starEvaluation: null,
+        targetElement: null,
+        telemetry: latestTelemetry,
+        error: msg,
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    question: null,
+    starEvaluation: null,
+    targetElement: null,
+    telemetry: latestTelemetry,
+    error: FASTAPI_ERROR_MESSAGE,
+  };
+}
 
 export async function getIdentity(request: NextRequest): Promise<Identity | null> {
   const session = await auth.api.getSession({
@@ -187,8 +361,10 @@ export async function getQuestionFromFastAPI(
   targetElement: string | null;
   telemetry: InternalCostTelemetry | null;
 }> {
+  const abortController = new AbortController();
+  const fetchTimeoutId = setTimeout(() => abortController.abort(), FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS);
   try {
-    const response = await fetch(`${FASTAPI_URL}/api/gakuchika/next-question`, {
+    const response = await fetch(`${FASTAPI_URL}/api/gakuchika/next-question/stream`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -205,35 +381,47 @@ export async function getQuestionFromFastAPI(
         question_count: questionCount,
         star_scores: starScores || null,
       }),
+      signal: abortController.signal,
     });
 
-    if (!response.ok) {
+    const consumed = await consumeGakuchikaNextQuestionSse(response);
+    if (!consumed.ok) {
       return {
         question: null,
-        error: FASTAPI_ERROR_MESSAGE,
+        error: consumed.error,
+        starEvaluation: consumed.starEvaluation,
+        targetElement: consumed.targetElement,
+        telemetry: consumed.telemetry,
+      };
+    }
+    return {
+      question: consumed.question,
+      error: null,
+      starEvaluation: consumed.starEvaluation,
+      targetElement:
+        consumed.targetElement ||
+        consumed.starEvaluation?.weakest_element ||
+        null,
+      telemetry: consumed.telemetry,
+    };
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      return {
+        question: null,
+        error: "AIの応答がタイムアウトしました。再度お試しください。",
         starEvaluation: null,
         targetElement: null,
         telemetry: null,
       };
     }
-
-    const rawResult = await response.json();
-    const { payload, telemetry } = splitInternalTelemetry(rawResult);
-    const result = payload as FastAPIQuestionResponse;
-    return {
-      question: result.question || null,
-      error: null,
-      starEvaluation: result.star_evaluation || null,
-      targetElement: result.target_element || result.star_evaluation?.weakest_element || null,
-      telemetry,
-    };
-  } catch {
     return {
       question: null,
-      error: FASTAPI_ERROR_MESSAGE,
+      error: "AIサービスに接続できませんでした",
       starEvaluation: null,
       targetElement: null,
       telemetry: null,
     };
+  } finally {
+    clearTimeout(fetchTimeoutId);
   }
 }

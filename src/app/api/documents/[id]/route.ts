@@ -9,13 +9,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { documents, documentVersions, companies, applications } from "@/lib/db/schema";
+import { documents, documentVersions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import {
+  getOwnedApplication,
+  getOwnedCompany,
+  hasOwnedApplication,
+  hasOwnedCompany,
+  hasOwnedJobType,
+} from "@/app/api/_shared/owner-access";
 import { getDocumentDetailPageData } from "@/lib/server/app-loaders";
 import { esDocumentCategorySchema } from "@/lib/es-document-category";
 
@@ -69,28 +76,16 @@ async function verifyDocumentAccess(
   return { valid: false };
 }
 
-async function buildDocumentResponse(doc: DocumentRow) {
+async function buildDocumentResponse(
+  doc: DocumentRow,
+  identity: { userId: string | null; guestId: string | null }
+) {
   const [company, application] = await Promise.all([
     doc.companyId
-      ? db
-          .select({
-            id: companies.id,
-            name: companies.name,
-            infoFetchedAt: companies.infoFetchedAt,
-            corporateInfoFetchedAt: companies.corporateInfoFetchedAt,
-          })
-          .from(companies)
-          .where(eq(companies.id, doc.companyId))
-          .limit(1)
-          .then((rows) => rows[0] ?? null)
+      ? getOwnedCompany(doc.companyId, identity)
       : Promise.resolve(null),
     doc.applicationId
-      ? db
-          .select({ id: applications.id, name: applications.name })
-          .from(applications)
-          .where(eq(applications.id, doc.applicationId))
-          .limit(1)
-          .then((rows) => rows[0] ?? null)
+      ? getOwnedApplication(doc.applicationId, identity)
       : Promise.resolve(null),
   ]);
 
@@ -268,14 +263,53 @@ export async function PUT(
     }
 
     if (companyId !== undefined) {
+      if (companyId) {
+        const hasCompany = await hasOwnedCompany(companyId, identity);
+        if (!hasCompany) {
+          return createApiErrorResponse(request, {
+            status: 404,
+            code: "DOCUMENT_COMPANY_NOT_FOUND",
+            userMessage: "関連する企業が見つかりませんでした。",
+            action: "企業の選択内容を確認して、もう一度お試しください。",
+            developerMessage: "Company not found for document update",
+            logContext: "document-update-validation",
+          });
+        }
+      }
       updateData.companyId = companyId || null;
     }
 
     if (applicationId !== undefined) {
+      if (applicationId) {
+        const hasApplication = await hasOwnedApplication(applicationId, identity);
+        if (!hasApplication) {
+          return createApiErrorResponse(request, {
+            status: 404,
+            code: "DOCUMENT_APPLICATION_NOT_FOUND",
+            userMessage: "関連する応募情報が見つかりませんでした。",
+            action: "応募情報の選択内容を確認して、もう一度お試しください。",
+            developerMessage: "Application not found for document update",
+            logContext: "document-update-validation",
+          });
+        }
+      }
       updateData.applicationId = applicationId || null;
     }
 
     if (jobTypeId !== undefined) {
+      if (jobTypeId) {
+        const hasJobType = await hasOwnedJobType(jobTypeId, identity);
+        if (!hasJobType) {
+          return createApiErrorResponse(request, {
+            status: 404,
+            code: "DOCUMENT_JOB_TYPE_NOT_FOUND",
+            userMessage: "関連する職種情報が見つかりませんでした。",
+            action: "職種の選択内容を確認して、もう一度お試しください。",
+            developerMessage: "Job type not found for document update",
+            logContext: "document-update-validation",
+          });
+        }
+      }
       updateData.jobTypeId = jobTypeId || null;
     }
 
@@ -311,7 +345,7 @@ export async function PUT(
       .returning();
 
     return NextResponse.json({
-      document: await buildDocumentResponse(updated[0]),
+      document: await buildDocumentResponse(updated[0], identity),
     });
   } catch (error) {
     return createApiErrorResponse(request, {

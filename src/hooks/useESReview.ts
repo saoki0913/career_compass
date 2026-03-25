@@ -7,18 +7,6 @@ import type { StandardESReviewModel } from "@/lib/ai/es-review-models";
 import { calculateESReviewCost } from "@/lib/credits/cost";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
-export interface ReviewIssue {
-  category: string;
-  issue: string;
-  suggestion: string;
-  issue_id?: string;
-  required_action?: string;
-  must_appear?: string;
-  priority_rank?: number;
-  why_now?: string;
-  difficulty?: "easy" | "medium" | "hard";
-}
-
 export interface SectionData {
   title: string;
   content: string;
@@ -104,7 +92,6 @@ export interface TemplateReview {
 }
 
 export interface ReviewResult {
-  top3: ReviewIssue[];
   rewrites: string[];
   template_review?: TemplateReview;
   review_meta?: {
@@ -122,6 +109,9 @@ export interface ReviewResult {
     reference_es_mode?: string;
     reference_quality_profile_used?: boolean;
     reference_outline_used?: boolean;
+    reference_hint_count?: number;
+    reference_conditional_hints_applied?: boolean;
+    reference_profile_variance?: "low" | "medium" | "high" | null;
     company_grounding_policy?: "required" | "assistive";
     company_evidence_count?: number;
     evidence_coverage_level?: "none" | "weak" | "partial" | "strong";
@@ -129,14 +119,13 @@ export interface ReviewResult {
     injection_risk?: string | null;
     user_context_sources?: string[];
     hallucination_guard_mode?: "strict";
-    fallback_to_generic?: boolean;
     rewrite_attempt_count?: number;
-    length_policy?: "strict" | "soft_min_applied";
+    length_policy?: "strict" | "soft_ok";
     length_shortfall?: number;
     soft_min_floor_ratio?: number | null;
     length_fix_attempted?: boolean;
-    length_fix_result?: "not_needed" | "strict_recovered" | "soft_min_applied" | "failed";
-    rewrite_validation_status?: "strict_ok" | "degraded";
+    length_fix_result?: "not_needed" | "strict_recovered" | "soft_recovered" | "failed";
+    rewrite_validation_status?: "strict_ok" | "soft_ok" | "degraded";
     rewrite_validation_codes?: string[];
     rewrite_validation_user_hint?: string | null;
   };
@@ -213,13 +202,8 @@ export type SSEEvent =
   | SSEStringChunkEvent;
 
 interface ReceivedReviewState {
-  top3: ReviewIssue[];
   keywordSources: TemplateSource[];
   rewriteText: string;
-}
-
-export interface VisibleReviewIssue extends ReviewIssue {
-  isSettled: boolean;
 }
 
 export interface VisibleTemplateSource extends TemplateSource {
@@ -228,16 +212,14 @@ export interface VisibleTemplateSource extends TemplateSource {
 
 interface PlaybackReviewState {
   visibleRewriteText: string;
-  visibleIssues: VisibleReviewIssue[];
   visibleSources: VisibleTemplateSource[];
 }
 
-export type ReviewPlaybackPhase = "idle" | "rewrite" | "issues" | "sources" | "complete";
+export type ReviewPlaybackPhase = "idle" | "rewrite" | "sources" | "complete";
 
 export interface UseESReviewReturn {
   review: ReviewResult | null;
   visibleRewriteText: string;
-  visibleIssues: VisibleReviewIssue[];
   visibleSources: VisibleTemplateSource[];
   finalRewriteText: string;
   playbackPhase: ReviewPlaybackPhase;
@@ -270,9 +252,8 @@ export interface UseESReviewReturn {
 const DEFAULT_SSE_STEPS: ProcessingStep[] = [
   { id: "validation", label: "入力内容を確認中...", subLabel: "設問と条件をチェック", duration: 1000 },
   { id: "rag_fetch", label: "企業情報を取得中...", subLabel: "関連情報を絞り込んでいます", duration: 8000 },
-  { id: "analysis", label: "設問を分析中...", subLabel: "改善の優先度を整理しています", duration: 10000 },
+  { id: "analysis", label: "設問を分析中...", subLabel: "回答の土台を整えています", duration: 10000 },
   { id: "rewrite", label: "改善案を作成中...", subLabel: "伝わり方を整えています", duration: 8000 },
-  { id: "finalize", label: "改善ポイントを整理しています...", subLabel: "優先順でまとめています", duration: 4000 },
   { id: "sources", label: "出典リンクを整理しています...", subLabel: "関連情報を最後に添えています", duration: 2000 },
 ];
 
@@ -281,14 +262,12 @@ function createSSESteps(): ProcessingStep[] {
 }
 
 const EMPTY_RECEIVED_REVIEW: ReceivedReviewState = {
-  top3: [],
   keywordSources: [],
   rewriteText: "",
 };
 
 const EMPTY_PLAYBACK_REVIEW: PlaybackReviewState = {
   visibleRewriteText: "",
-  visibleIssues: [],
   visibleSources: [],
 };
 
@@ -345,9 +324,7 @@ function derivePlaybackPhase(
   isLoading: boolean,
 ): ReviewPlaybackPhase {
   const hasVisibleContent =
-    playback.visibleRewriteText.length > 0 ||
-    playback.visibleIssues.length > 0 ||
-    playback.visibleSources.length > 0;
+    playback.visibleRewriteText.length > 0 || playback.visibleSources.length > 0;
 
   if (!isLoading && !review && !hasVisibleContent) {
     return "idle";
@@ -359,17 +336,6 @@ function derivePlaybackPhase(
     (received.rewriteText.length === 0 && !review)
   ) {
     return "rewrite";
-  }
-
-  const issuesSettled =
-    playback.visibleIssues.length >= received.top3.length &&
-    playback.visibleIssues.every((issue, index) => {
-      const targetIssue = received.top3[index];
-      return targetIssue ? isVisibleIssueSettled(issue, targetIssue) : true;
-    });
-
-  if (!issuesSettled) {
-    return "issues";
   }
 
   const sourcesSettled =
@@ -386,16 +352,6 @@ function derivePlaybackPhase(
   return review ? "complete" : "sources";
 }
 
-function createVisibleIssue(issue: ReviewIssue): VisibleReviewIssue {
-  return {
-    ...issue,
-    issue: "",
-    suggestion: "",
-    why_now: "",
-    isSettled: false,
-  };
-}
-
 function createVisibleSource(source: TemplateSource): VisibleTemplateSource {
   return {
     ...source,
@@ -404,32 +360,8 @@ function createVisibleSource(source: TemplateSource): VisibleTemplateSource {
   };
 }
 
-function isVisibleIssueSettled(visible: VisibleReviewIssue, target: ReviewIssue): boolean {
-  return visible.issue === target.issue && visible.suggestion === target.suggestion;
-}
-
 function isVisibleSourceSettled(visible: VisibleTemplateSource, target: TemplateSource): boolean {
   return (visible.excerpt ?? "") === (target.excerpt ?? "");
-}
-
-function getIssuePlaybackStage(visible: VisibleReviewIssue, target: ReviewIssue) {
-  const fields = [
-    { key: "issue", value: target.issue },
-    { key: "suggestion", value: target.suggestion },
-  ] as const;
-
-  for (const field of fields) {
-    const currentValue = visible[field.key] ?? "";
-    if (currentValue.length < field.value.length) {
-      return {
-        key: field.key,
-        currentValue,
-        targetValue: field.value,
-      };
-    }
-  }
-
-  return null;
 }
 
 function getSourcePlaybackStage(visible: VisibleTemplateSource, target: TemplateSource) {
@@ -718,12 +650,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
                 break;
 
               case "array_item_complete":
-                if (event.path.startsWith("top3.")) {
-                  setReceivedReview((prev) => ({
-                    ...prev,
-                    top3: upsertStreamItem(prev.top3, event.path, event.value as ReviewIssue),
-                  }));
-                } else if (event.path.startsWith("keyword_sources.")) {
+                if (event.path.startsWith("keyword_sources.")) {
                   setReceivedReview((prev) => ({
                     ...prev,
                     keywordSources: upsertStreamItem(
@@ -752,7 +679,6 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
                   const finalRewrite = event.result.rewrites[0] ?? prev.rewriteText;
                   const finalSources = event.result.template_review?.keyword_sources ?? [];
                   return {
-                    top3: mergeStreamedItems(prev.top3, event.result.top3),
                     keywordSources: mergeStreamedItems(prev.keywordSources, finalSources),
                     rewriteText:
                       finalRewrite.length > prev.rewriteText.length
@@ -880,131 +806,40 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
     const rewriteSettled =
       playbackReview.visibleRewriteText.length >= receivedReview.rewriteText.length;
 
-    if (!rewriteSettled || playbackReview.visibleIssues.length >= receivedReview.top3.length) {
+    if (!rewriteSettled || playbackReview.visibleSources.length > 0) {
       return;
     }
 
     const timer = window.setTimeout(() => {
       startTransition(() => {
         setPlaybackReview((prev) => {
-          const nextIssue = receivedReview.top3[prev.visibleIssues.length];
-          if (!nextIssue) {
+          const nextSource = receivedReview.keywordSources[0];
+          if (!nextSource) {
             return prev;
           }
 
           return {
             ...prev,
-            visibleIssues: [...prev.visibleIssues, createVisibleIssue(nextIssue)],
+            visibleSources: [createVisibleSource(nextSource)],
           };
         });
       });
-    }, getReduceMotionPreference() ? 0 : 160);
+    }, getReduceMotionPreference() ? 0 : 140);
 
     return () => window.clearTimeout(timer);
   }, [
-    playbackReview.visibleIssues,
     playbackReview.visibleRewriteText.length,
+    playbackReview.visibleSources.length,
+    receivedReview.keywordSources,
     receivedReview.rewriteText.length,
-    receivedReview.top3,
-  ]);
-
-  useEffect(() => {
-    const nextIssueIndex = playbackReview.visibleIssues.findIndex((issue, index) => {
-      const targetIssue = receivedReview.top3[index];
-      return targetIssue ? !isVisibleIssueSettled(issue, targetIssue) : false;
-    });
-
-    if (nextIssueIndex < 0) {
-      return;
-    }
-
-    const targetIssue = receivedReview.top3[nextIssueIndex];
-    const visibleIssue = playbackReview.visibleIssues[nextIssueIndex];
-    const nextStage = getIssuePlaybackStage(visibleIssue, targetIssue);
-
-    if (getReduceMotionPreference()) {
-      startTransition(() => {
-        setPlaybackReview((prev) => {
-          const nextIssues = [...prev.visibleIssues];
-          nextIssues[nextIssueIndex] = {
-            ...targetIssue,
-            isSettled: true,
-          };
-          return {
-            ...prev,
-            visibleIssues: nextIssues,
-          };
-        });
-      });
-      return;
-    }
-
-    if (!nextStage) {
-      const timer = window.setTimeout(() => {
-        startTransition(() => {
-          setPlaybackReview((prev) => {
-            const nextIssues = [...prev.visibleIssues];
-            nextIssues[nextIssueIndex] = {
-              ...prev.visibleIssues[nextIssueIndex],
-              isSettled: true,
-            };
-            return {
-              ...prev,
-              visibleIssues: nextIssues,
-            };
-          });
-        });
-      }, 90);
-
-      return () => window.clearTimeout(timer);
-    }
-
-    const { step, delay } = getRewriteCadence(nextStage.targetValue, nextStage.currentValue.length);
-    const timer = window.setTimeout(() => {
-      startTransition(() => {
-        setPlaybackReview((prev) => ({
-          ...prev,
-          visibleIssues: prev.visibleIssues.map((issue, index) => {
-            if (index !== nextIssueIndex) {
-              return issue;
-            }
-
-            const nextLength = Math.min(
-              nextStage.targetValue.length,
-              (issue[nextStage.key] ?? "").length + step,
-            );
-
-            return {
-              ...issue,
-              [nextStage.key]: nextStage.targetValue.slice(0, nextLength),
-              isSettled: false,
-            };
-          }),
-        }));
-      });
-    }, delay);
-
-    return () => window.clearTimeout(timer);
-  }, [
-    playbackReview.visibleIssues,
-    playbackReview.visibleRewriteText.length,
-    receivedReview.rewriteText.length,
-    receivedReview.top3,
   ]);
 
   useEffect(() => {
     const rewriteSettled =
       playbackReview.visibleRewriteText.length >= receivedReview.rewriteText.length;
-    const issuesSettled =
-      playbackReview.visibleIssues.length >= receivedReview.top3.length &&
-      playbackReview.visibleIssues.every((issue, index) => {
-        const targetIssue = receivedReview.top3[index];
-        return targetIssue ? isVisibleIssueSettled(issue, targetIssue) : true;
-      });
 
     if (
       !rewriteSettled ||
-      !issuesSettled ||
       playbackReview.visibleSources.length >= receivedReview.keywordSources.length
     ) {
       return;
@@ -1028,12 +863,10 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
 
     return () => window.clearTimeout(timer);
   }, [
-    playbackReview.visibleIssues,
     playbackReview.visibleRewriteText.length,
     playbackReview.visibleSources.length,
     receivedReview.keywordSources,
     receivedReview.rewriteText.length,
-    receivedReview.top3,
   ]);
 
   useEffect(() => {
@@ -1120,12 +953,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
   const isPlaybackComplete =
     Boolean(review) &&
     playbackReview.visibleRewriteText.length >= receivedReview.rewriteText.length &&
-    playbackReview.visibleIssues.length >= receivedReview.top3.length &&
     playbackReview.visibleSources.length >= receivedReview.keywordSources.length &&
-    playbackReview.visibleIssues.every((issue, index) => {
-      const targetIssue = receivedReview.top3[index];
-      return targetIssue ? isVisibleIssueSettled(issue, targetIssue) : true;
-    }) &&
     playbackReview.visibleSources.every((source, index) => {
       const targetSource = receivedReview.keywordSources[index];
       return targetSource ? isVisibleSourceSettled(source, targetSource) : true;
@@ -1134,7 +962,6 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
   return {
     review,
     visibleRewriteText: playbackReview.visibleRewriteText,
-    visibleIssues: playbackReview.visibleIssues,
     visibleSources: playbackReview.visibleSources,
     finalRewriteText,
     playbackPhase,

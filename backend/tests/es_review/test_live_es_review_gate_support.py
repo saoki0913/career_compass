@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from app.testing.es_review_live_gate import (
     ALL_STANDARD_MODELS,
+    DEFAULT_LIVE_PROVIDERS_EXTENDED,
     _live_gate_allows_soft_min_shortfall,
     _matches_anchor_groups,
     evaluate_live_case,
@@ -38,7 +39,7 @@ def test_get_live_cases_smoke_covers_multiple_dimensions() -> None:
 
 def test_get_selected_models_defaults_follow_case_set() -> None:
     assert get_selected_models("smoke", raw="") == ["gpt-5.4-mini"]
-    assert get_selected_models("extended", raw="") == ["gpt-5.4-mini"]
+    assert get_selected_models("extended", raw="") == list(DEFAULT_LIVE_PROVIDERS_EXTENDED)
     assert get_selected_models("canary", raw="") == ["claude-sonnet", "gemini-3.1-pro-preview"]
     assert get_selected_models("extended", raw="all_standard") == ALL_STANDARD_MODELS
 
@@ -49,13 +50,11 @@ def test_evaluate_live_case_returns_fail_reasons_for_length_and_policy() -> None
         case,
         rewrite="短い。",
         review_meta=_review_meta(company_grounding_policy="assistive"),
-        top3_count=0,
         provider="openai",
         model_id="gpt-5.4-mini",
     )
 
     assert any(reason.startswith("char_count:") for reason in failures)
-    assert "top3_count:0" in failures
     assert "company_grounding_policy:assistive!=required" in failures
 
 
@@ -69,11 +68,11 @@ def test_live_gate_soft_min_shortfall_matches_router_floor_ratio() -> None:
 def test_live_gate_soft_min_allows_when_only_length_fix_result_flags_soft() -> None:
     """length_policy が strict のまま length_fix_result だけ soft のときも短答帯は許容する。"""
     rewrite = "あ" * 125 + "。"
-    meta = SimpleNamespace(length_policy="strict", length_fix_result="soft_min_applied")
+    meta = SimpleNamespace(length_policy="strict", length_fix_result="soft_recovered")
     assert _live_gate_allows_soft_min_shortfall(
         rewrite=rewrite, char_min=100, char_max=140, review_meta=meta
     )
-    meta_both = SimpleNamespace(length_policy="soft_min_applied", length_fix_result="soft_min_applied")
+    meta_both = SimpleNamespace(length_policy="soft_ok", length_fix_result="soft_recovered")
     assert _live_gate_allows_soft_min_shortfall(
         rewrite=rewrite, char_min=100, char_max=140, review_meta=meta_both
     )
@@ -81,7 +80,7 @@ def test_live_gate_soft_min_allows_when_only_length_fix_result_flags_soft() -> N
 
 def test_live_gate_soft_min_allows_long_band_only_at_final_floor() -> None:
     rewrite = "あ" * 359 + "。"
-    meta = SimpleNamespace(length_policy="soft_min_applied", length_fix_result="soft_min_applied")
+    meta = SimpleNamespace(length_policy="soft_ok", length_fix_result="soft_recovered")
     assert _live_gate_allows_soft_min_shortfall(
         rewrite=rewrite,
         char_min=390,
@@ -106,7 +105,6 @@ def test_evaluate_live_case_accepts_companyless_assistive_case() -> None:
             company_evidence_count=0,
             evidence_coverage_level="none",
         ),
-        top3_count=2,
         provider="openai",
         model_id="gpt-5.4-mini",
     )
@@ -119,3 +117,42 @@ def test_matches_anchor_groups_accepts_synonym_hit() -> None:
         "Business Intelligence Internshipでは、分析を意思決定へつなぐ視点を実務で磨きたい。",
         (("学びたい", "得たい", "磨きたい"), ("実務", "課題")),
     )
+
+
+def test_evaluate_live_case_accepts_role_course_iruka_without_shibou_token() -> None:
+    """ルータと同様、志望の言い換え（惹か）でライブゲートを通す。"""
+    case = next(c for c in get_live_cases("smoke") if c.case_id == "role_course_reason_required_medium")
+    rewrite = (
+        "事業課題と技術を接続し、構想を実装まで前に進める役割に強く惹かれているからだ。"
+        "研究では課題を構造化し、仮説検証を通じて関係者と認識をそろえながら前に進めてきた。"
+    )
+    failures = evaluate_live_case(
+        case,
+        rewrite=rewrite,
+        review_meta=_review_meta(),
+        provider="openai",
+        model_id="gpt-5.4",
+    )
+    assert "focus_tokens:missing" not in failures
+
+
+def test_evaluate_live_case_accepts_intern_reason_with_taikan_tokens() -> None:
+    case = next(c for c in get_live_cases("extended") if c.case_id == "intern_reason_required_medium")
+    rewrite = (
+        "研究で仮説検証を繰り返してきたが、実務の制約下で優先順位をつけ、分析を意思決定へつなげる経験はまだ足りない。"
+        "貴社のインターンは実務に近い課題を扱う場であり、問いの立て方から意思決定への橋渡しまでを体感できると考えた。"
+        "この機会で分析力を実践的に鍛え、事業判断に直結する思考を自分のものにする。"
+    )
+    failures = evaluate_live_case(
+        case,
+        rewrite=rewrite,
+        review_meta=_review_meta(
+            company_grounding_policy="required",
+            grounding_mode="role_grounded",
+            company_evidence_count=1,
+            evidence_coverage_level="partial",
+        ),
+        provider="anthropic",
+        model_id="claude-sonnet",
+    )
+    assert "focus_tokens:missing" not in failures

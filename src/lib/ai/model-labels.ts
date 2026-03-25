@@ -24,9 +24,6 @@ function humanizeModelId(modelId: string): string {
   if (lower.startsWith("gemini")) {
     return "Gemini";
   }
-  if (lower.startsWith("command-a")) {
-    return "Cohere Command A";
-  }
   if (lower.startsWith("gpt-5.4-mini")) {
     return "クレジット消費を抑えて添削";
   }
@@ -68,9 +65,6 @@ export function getLLMResultLabel(params: {
   }
   if (provider === "google") {
     return "Gemini";
-  }
-  if (provider === "cohere") {
-    return "Cohere Command";
   }
   if (provider === "openai") {
     return "OpenAI";

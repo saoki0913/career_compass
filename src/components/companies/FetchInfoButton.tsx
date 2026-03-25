@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -92,17 +93,6 @@ const SparklesIcon = () => (
   </svg>
 );
 
-const LoadingSpinner = () => (
-  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-    <path
-      className="opacity-75"
-      fill="currentColor"
-      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-    />
-  </svg>
-);
-
 const CheckIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -144,6 +134,8 @@ export function FetchInfoButton({
   const [showModal, setShowModal] = useState(false);
   const [modalStep, setModalStep] = useState<ModalStep>("selection");
   const [isFetching, setIsFetching] = useState(false);
+  /** true while POST /fetch-info is in flight (show step progress); false during pre-check */
+  const [isExtractingDeadlines, setIsExtractingDeadlines] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [candidates, setCandidates] = useState<SearchCandidate[]>([]);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
@@ -221,6 +213,9 @@ export function FetchInfoButton({
     setActiveGraduationYear(graduationYear);
     setActiveYearSource(graduationYear ? "profile" : "none");
     setIsRelaxedSearch(false);
+    setIsFetching(false);
+    setIsSearching(false);
+    setIsExtractingDeadlines(false);
   };
 
   const openModal = () => {
@@ -338,6 +333,10 @@ export function FetchInfoButton({
       return;
     }
 
+    setError(null);
+    setIsFetching(true);
+    setIsExtractingDeadlines(false);
+
     if (urlToFetch) {
       try {
         const complianceResponse = await fetch(`/api/companies/${companyId}/source-compliance/check`, {
@@ -350,6 +349,7 @@ export function FetchInfoButton({
           const complianceData: ComplianceCheckResponse = await complianceResponse.json();
           if (complianceData.blockedResults.length > 0) {
             setError(complianceData.blockedResults[0]?.reasons[0] || "公開ページURLのみ取得できます");
+            setIsFetching(false);
             releaseLock();
             return;
           }
@@ -364,8 +364,8 @@ export function FetchInfoButton({
         // Fall through to route-level validation.
       }
     }
-    setIsFetching(true);
-    setError(null);
+
+    setIsExtractingDeadlines(true);
     try {
       const response = await fetch(`/api/companies/${companyId}/fetch-info`, {
         method: "POST",
@@ -449,6 +449,7 @@ export function FetchInfoButton({
       });
     } finally {
       setIsFetching(false);
+      setIsExtractingDeadlines(false);
       releaseLock();
     }
   };
@@ -496,7 +497,7 @@ export function FetchInfoButton({
       >
         {isSearching || isFetching ? (
           <>
-            <LoadingSpinner />
+            <Loader2 className="size-5 shrink-0 animate-spin" aria-hidden />
             <span>{isSearching ? "検索中..." : "取得中..."}</span>
           </>
         ) : (
@@ -600,11 +601,12 @@ export function FetchInfoButton({
                     <Button
                       onClick={() => handleSearchPages()}
                       disabled={!selectionType || !resolveGraduationYear() || isSearching}
+                      className={cn(isSearching && "cursor-wait disabled:opacity-100")}
                     >
                       {isSearching ? (
                         <>
-                          <LoadingSpinner />
-                          <span className="ml-2">検索中...</span>
+                          <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                          <span>検索中...</span>
                         </>
                       ) : (
                         "検索"
@@ -658,11 +660,13 @@ export function FetchInfoButton({
                       <Button
                         onClick={handleConfirmUrl}
                         disabled={!selectedSource || isFetching || isSearching}
+                        aria-busy={isFetching}
+                        className={cn(isFetching && "cursor-wait disabled:opacity-100")}
                       >
                         {isFetching ? (
                           <>
-                            <LoadingSpinner />
-                            <span className="ml-2">取得中...</span>
+                            <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                            <span>取得中...</span>
                           </>
                         ) : (
                           "選考スケジュールを取得"
@@ -672,12 +676,17 @@ export function FetchInfoButton({
 
                     {(isSearching || isFetching) && (
                       <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                        {isFetching ? (
-                          <ProcessingSteps steps={COMPANY_FETCH_STEPS} isActive={isFetching} />
+                        {isSearching ? (
+                          <div className="flex items-center gap-2 text-sm text-blue-800">
+                            <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                            <span>候補URLを検索中です。</span>
+                          </div>
+                        ) : isExtractingDeadlines ? (
+                          <ProcessingSteps steps={COMPANY_FETCH_STEPS} isActive={isExtractingDeadlines} />
                         ) : (
                           <div className="flex items-center gap-2 text-sm text-blue-800">
-                            <LoadingSpinner />
-                            <span>候補URLを検索中です。</span>
+                            <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                            <span>取得の準備をしています…</span>
                           </div>
                         )}
                       </div>
@@ -703,8 +712,13 @@ export function FetchInfoButton({
                       size="sm"
                       onClick={handleReSearch}
                       disabled={isSearching || isFetching || !searchQuery.trim()}
+                      className={cn(isSearching && "cursor-wait disabled:opacity-100")}
                     >
-                      {isSearching ? <LoadingSpinner /> : "再検索"}
+                      {isSearching ? (
+                        <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                      ) : (
+                        "再検索"
+                      )}
                     </Button>
                   </div>
 

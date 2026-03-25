@@ -9,6 +9,7 @@ source "${script_dir}/common.sh"
 mode="release"
 skip_playwright=0
 skip_user_e2e=0
+stage_all=0
 commit_message="chore: release career_compass via develop"
 repo_slug="saoki0913/career_compass"
 staging_frontend_url="https://stg.shupass.jp"
@@ -35,12 +36,15 @@ while [[ $# -gt 0 ]]; do
     --skip-user-e2e)
       skip_user_e2e=1
       ;;
+    --stage-all)
+      stage_all=1
+      ;;
     --commit-message)
       commit_message="${2:-}"
       shift
       ;;
     -h|--help)
-      echo "Usage: $0 [--check|--preflight-only|--staging-only] [--skip-playwright] [--skip-user-e2e] [--commit-message MSG]" >&2
+      echo "Usage: $0 [--check|--preflight-only|--staging-only] [--skip-playwright] [--skip-user-e2e] [--stage-all] [--commit-message MSG]" >&2
       exit 0
       ;;
     *)
@@ -55,6 +59,7 @@ require_release_dependencies() {
   require_real_binary gh
   require_real_binary curl
   require_real_binary npm
+  require_real_binary python
   require_real_binary vercel
   require_real_binary railway
   require_real_binary supabase
@@ -88,9 +93,8 @@ run_local_gate() {
   release_log "Running local gate"
   (
     cd "$repo_root"
-    npm run lint
-    npm run build
-    npm run test:unit
+    zsh scripts/ci/run-frontend-verify.sh
+    zsh scripts/ci/run-backend-deterministic.sh
   )
 }
 
@@ -102,6 +106,14 @@ commit_staged_changes_if_needed() {
   staged_changes="$(run_real git diff --cached --name-only)"
   unstaged_changes="$(run_real git diff --name-only)"
   untracked_changes="$(run_real git ls-files --others --exclude-standard)"
+
+  if [[ "$stage_all" == "1" && (-n "$unstaged_changes" || -n "$untracked_changes") ]]; then
+    release_log "Staging all local changes for release"
+    run_real git add -A
+    staged_changes="$(run_real git diff --cached --name-only)"
+    unstaged_changes="$(run_real git diff --name-only)"
+    untracked_changes="$(run_real git ls-files --others --exclude-standard)"
+  fi
 
   if [[ -n "$staged_changes" ]]; then
     [[ -z "$unstaged_changes" && -z "$untracked_changes" ]] || release_die "Stage the exact release scope only. Unstaged or untracked files remain."

@@ -569,6 +569,56 @@ def _apply_content_type_boost(
     return boosted
 
 
+def _apply_priority_source_boost(
+    results: list[dict],
+    priority_source_urls: list[str],
+    *,
+    content_type_boosts: Optional[dict[str, float]] = None,
+    boost_multiplier: float = 1.25,
+) -> list[dict]:
+    if not results or not priority_source_urls:
+        return results
+
+    priority_set = {url for url in priority_source_urls if isinstance(url, str) and url.strip()}
+    if not priority_set:
+        return results
+
+    boosted: list[dict] = []
+    for item in results:
+        metadata = item.get("metadata") or {}
+        source_url = str(metadata.get("source_url") or "")
+        content_type = normalize_content_type(
+            metadata.get("content_type") or metadata.get("chunk_type") or "corporate_site"
+        )
+        allow_priority = True
+        if content_type_boosts:
+            primary_weight = float(content_type_boosts.get(content_type, 0.0))
+            secondary_weights = [
+                float(content_type_boosts.get(sec, 0.0))
+                for sec in _extract_secondary_types(metadata)
+            ]
+            allow_priority = max([primary_weight, *secondary_weights, 0.0]) > 0
+
+        base_score = item.get("boosted_score")
+        if base_score is None:
+            base_score = item.get("hybrid_score")
+        if base_score is None:
+            base_score = item.get("rrf_score")
+        if base_score is None:
+            distance = item.get("distance")
+            base_score = 1 / (distance + 1e-6) if isinstance(distance, (int, float)) else 0.0
+
+        enriched = dict(item)
+        matched_priority = source_url in priority_set and allow_priority
+        enriched["priority_source_match"] = matched_priority
+        enriched["priority_source_boost"] = boost_multiplier if matched_priority else 1.0
+        enriched["boosted_score"] = float(base_score) * float(enriched["priority_source_boost"])
+        boosted.append(enriched)
+
+    boosted.sort(key=lambda x: x.get("boosted_score", 0), reverse=True)
+    return boosted
+
+
 def _keyword_search(
     company_id: str, query: str, k: int = 10, content_types: Optional[list[str]] = None
 ) -> list[dict]:
@@ -913,6 +963,7 @@ async def dense_hybrid_search(
     max_total_queries: Optional[int] = None,
     mmr_lambda: Optional[float] = None,
     content_type_boosts: Optional[dict[str, float]] = None,
+    priority_source_urls: Optional[list[str]] = None,
     short_circuit: bool = True,
 ) -> list[dict]:
     """
@@ -980,6 +1031,12 @@ async def dense_hybrid_search(
 
     if content_type_boosts:
         initial_results = _apply_content_type_boost(initial_results, content_type_boosts)
+    if priority_source_urls:
+        initial_results = _apply_priority_source_boost(
+            initial_results,
+            priority_source_urls,
+            content_type_boosts=content_type_boosts,
+        )
 
     if short_circuit and _should_short_circuit_search(initial_results, n_results):
         if use_mmr:
@@ -1110,6 +1167,12 @@ async def dense_hybrid_search(
 
     if content_type_boosts:
         merged = _apply_content_type_boost(merged, content_type_boosts)
+    if priority_source_urls:
+        merged = _apply_priority_source_boost(
+            merged,
+            priority_source_urls,
+            content_type_boosts=content_type_boosts,
+        )
 
     if rerank and _should_rerank(merged, rerank_threshold):
         merged = await _rerank_with_cross_encoder(

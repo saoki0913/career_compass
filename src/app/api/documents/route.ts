@@ -8,13 +8,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { documents, companies } from "@/lib/db/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { documents } from "@/lib/db/schema";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { hasOwnedApplication, hasOwnedCompany, hasOwnedJobType } from "@/app/api/_shared/owner-access";
 import { getDocumentsPageData } from "@/lib/server/app-loaders";
 import { DEFAULT_ES_DOCUMENT_CATEGORY, esDocumentCategorySchema } from "@/lib/es-document-category";
 import { getDefaultBlocksForEsCategory } from "@/lib/es-document-templates";
@@ -154,30 +154,44 @@ export async function POST(request: NextRequest) {
       contentJson = JSON.stringify(getDefaultBlocksForEsCategory(resolvedEsCategory));
     }
 
-    // Verify company access if provided
+    // Verify related resource access if provided
     if (companyId) {
-      const [company] = await db
-        .select()
-        .from(companies)
-        .where(
-          and(
-            eq(companies.id, companyId),
-            userId
-              ? eq(companies.userId, userId)
-              : guestId
-              ? eq(companies.guestId, guestId)
-              : isNull(companies.id)
-          )
-        )
-        .limit(1);
-
-      if (!company) {
+      const hasCompany = await hasOwnedCompany(companyId, { userId, guestId });
+      if (!hasCompany) {
         return createApiErrorResponse(request, {
           status: 404,
           code: "DOCUMENT_COMPANY_NOT_FOUND",
           userMessage: "関連する企業が見つかりませんでした。",
           action: "企業の選択内容を確認して、もう一度お試しください。",
           developerMessage: "Company not found for document create",
+          logContext: "document-create-validation",
+        });
+      }
+    }
+
+    if (applicationId) {
+      const hasApplication = await hasOwnedApplication(applicationId, { userId, guestId });
+      if (!hasApplication) {
+        return createApiErrorResponse(request, {
+          status: 404,
+          code: "DOCUMENT_APPLICATION_NOT_FOUND",
+          userMessage: "関連する応募情報が見つかりませんでした。",
+          action: "応募情報の選択内容を確認して、もう一度お試しください。",
+          developerMessage: "Application not found for document create",
+          logContext: "document-create-validation",
+        });
+      }
+    }
+
+    if (jobTypeId) {
+      const hasJobType = await hasOwnedJobType(jobTypeId, { userId, guestId });
+      if (!hasJobType) {
+        return createApiErrorResponse(request, {
+          status: 404,
+          code: "DOCUMENT_JOB_TYPE_NOT_FOUND",
+          userMessage: "関連する職種情報が見つかりませんでした。",
+          action: "職種の選択内容を確認して、もう一度お試しください。",
+          developerMessage: "Job type not found for document create",
           logContext: "document-create-validation",
         });
       }

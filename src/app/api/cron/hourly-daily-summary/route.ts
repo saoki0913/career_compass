@@ -1,6 +1,7 @@
 /**
- * Hourly cron: dispatch daily_summary notifications for users whose JST hour matches preference.
- * GET: Vercel Cron — schedule `0 * * * *` (every hour UTC).
+ * Optional hourly trigger: dispatch daily_summary only when current JST hour matches each user's preference.
+ * vercel.json からは削除済み（Hobby は毎時 Cron 不可）。Pro 等で毎時 Cron を戻す場合に利用する。
+ * GET: 手動または `0 * * * *` の Cron から呼ぶ。
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.CRON_SECRET}`,
       },
-      body: JSON.stringify({ type: "daily_summary" }),
+      body: JSON.stringify({ type: "daily_summary", matchPreferredJstHour: true }),
     });
     const body = await res.json();
 

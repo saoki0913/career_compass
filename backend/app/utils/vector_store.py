@@ -1178,6 +1178,7 @@ async def hybrid_search_company_context_enhanced(
     use_bm25: Optional[bool] = None,
     profile_overrides: Optional[dict] = None,
     content_type_boosts: Optional[dict[str, float]] = None,
+    priority_source_urls: Optional[list[str]] = None,
     short_circuit: bool = True,
 ) -> list[dict]:
     """
@@ -1228,6 +1229,7 @@ async def hybrid_search_company_context_enhanced(
         max_total_queries=max_total_queries,
         mmr_lambda=mmr_lambda,
         content_type_boosts=content_type_boosts or select_boost_profile(query),
+        priority_source_urls=priority_source_urls,
         use_bm25=effective_bm25,
         short_circuit=short_circuit,
     )
@@ -1287,6 +1289,7 @@ async def get_enhanced_context_for_review(
         use_bm25=(search_options or {}).get("use_bm25"),
         profile_overrides=(search_options or {}).get("profile_overrides"),
         content_type_boosts=(search_options or {}).get("content_type_boosts"),
+        priority_source_urls=(search_options or {}).get("priority_source_urls"),
         short_circuit=(search_options or {}).get("short_circuit", True),
     )
 

@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { logError } from "@/lib/logger";
+import { getBetterAuthSessionCookieCandidates } from "@/lib/auth/ci-e2e";
 import { getTrustedOriginSet, getTrustedOrigins } from "@/lib/trusted-origins";
 import { getCsrfFailureReason, setCsrfCookie, type CsrfFailureReason } from "@/lib/csrf";
 import {
@@ -40,6 +41,7 @@ const AUTH_ROUTES = ["/login"];
 const CSRF_EXEMPT_PATHS = [
   "/api/auth/",       // Better Auth handles its own CSRF
   "/api/webhooks/",   // Webhooks use signature verification
+  "/api/internal/test-auth/", // CI-only test auth is guarded by a separate secret
 ];
 
 // State-changing HTTP methods that require CSRF protection
@@ -265,8 +267,9 @@ export async function proxy(request: NextRequest) {
   if (csrfResult) return csrfResult;
 
   // Check for session cookie (Better Auth)
-  const sessionCookie = request.cookies.get("better-auth.session_token");
-  const isAuthenticated = !!sessionCookie?.value;
+  const isAuthenticated = getBetterAuthSessionCookieCandidates().some((cookieName) =>
+    Boolean(request.cookies.get(cookieName)?.value)
+  );
 
   // Auth routes - redirect to dashboard if already authenticated
   if (AUTH_ROUTES.some((route) => pathname.startsWith(route))) {

@@ -5,7 +5,6 @@ LLMユーティリティモジュール
 - Claude Sonnet（ES添削、ガクチカ深掘りのメイン）
 - OpenAI（企業情報抽出、RAGユーティリティ用）
 - Google Gemini（公式 Gemini API）
-- Cohere（OpenAI compatibility API）
 
 機能ごとの自動モデル選択とフォールバックロジックをサポート。
 """
@@ -222,7 +221,6 @@ _anthropic_client: Optional[AsyncAnthropic] = None
 _anthropic_client_rag: Optional[AsyncAnthropic] = None
 _openai_client: Optional[openai.AsyncOpenAI] = None
 _openai_client_rag: Optional[openai.AsyncOpenAI] = None
-_compat_clients: dict[tuple[str, bool], openai.AsyncOpenAI] = {}
 _google_http_client: Optional[httpx.AsyncClient] = None
 _google_http_client_rag: Optional[httpx.AsyncClient] = None
 
@@ -271,7 +269,7 @@ _anthropic_circuit = CircuitBreaker()
 _openai_circuit = CircuitBreaker()
 
 
-LLMProvider = Literal["anthropic", "openai", "google", "cohere"]
+LLMProvider = Literal["anthropic", "openai", "google"]
 LLMModel: TypeAlias = str
 ResponseFormat = Literal["json_object", "json_schema", "text"]
 
@@ -319,35 +317,6 @@ async def get_openai_client(for_rag: bool = False) -> openai.AsyncOpenAI:
                     timeout=settings.llm_timeout_seconds,
                 )
             return _openai_client
-
-
-async def get_openai_compatible_client(
-    provider: Literal["cohere"],
-    *,
-    for_rag: bool = False,
-) -> openai.AsyncOpenAI:
-    """OpenAI互換APIクライアントを取得する。"""
-    global _compat_clients
-
-    config = {
-        "cohere": {
-            "api_key": settings.cohere_api_key,
-            "base_url": settings.cohere_base_url,
-        },
-    }[provider]
-
-    timeout = settings.rag_timeout_seconds if for_rag else settings.llm_timeout_seconds
-    cache_key = (provider, for_rag)
-
-    async with _client_lock:
-        client = _compat_clients.get(cache_key)
-        if client is None:
-            _compat_clients[cache_key] = openai.AsyncOpenAI(
-                api_key=config["api_key"],
-                base_url=config["base_url"],
-                timeout=timeout,
-            )
-        return _compat_clients[cache_key]
 
 
 async def get_google_http_client(for_rag: bool = False) -> httpx.AsyncClient:
@@ -434,8 +403,6 @@ def get_model_display_name(model: str) -> str:
         return "Gemini 3 Pro Preview"
     if model_lower.startswith("gemini"):
         return f"Gemini ({model})"
-    if model_lower.startswith("command-a"):
-        return "Cohere Command A"
     if "gpt-5" in model_lower:
         if model_lower.startswith("gpt-5.4"):
             if "nano" in model_lower:
@@ -480,7 +447,6 @@ def _provider_display_name(provider: str) -> str:
         "anthropic": "Claude (Anthropic)",
         "openai": "OpenAI",
         "google": "Google Gemini",
-        "cohere": "Cohere",
     }.get(provider, provider)
 
 
@@ -530,14 +496,12 @@ def _resolve_model_target(
         return ResolvedModelTarget("openai", settings.gpt_fast_model)
     if requested_model == "google":
         return ResolvedModelTarget("google", settings.gemini_model)
-    if requested_model == "cohere":
-        return ResolvedModelTarget("cohere", settings.cohere_model)
     if model_lower.startswith("claude"):
         return ResolvedModelTarget("anthropic", str(requested_model))
     if model_lower.startswith("gemini"):
         return ResolvedModelTarget("google", str(requested_model))
-    if model_lower.startswith("command-"):
-        return ResolvedModelTarget("cohere", str(requested_model))
+    if requested_model == "cohere" or model_lower.startswith("command-"):
+        raise ValueError(f"Unsupported model for this app: {requested_model}")
 
     resolved_openai_model = _resolve_openai_model(feature, model_hint=str(requested_model))
     return ResolvedModelTarget("openai", resolved_openai_model)
@@ -557,7 +521,6 @@ def _provider_has_api_key(provider: LLMProvider) -> bool:
         "anthropic": bool(settings.anthropic_api_key),
         "openai": bool(settings.openai_api_key),
         "google": bool(settings.google_api_key),
-        "cohere": bool(settings.cohere_api_key),
     }[provider]
 
 
@@ -572,7 +535,7 @@ def _feature_cross_fallback_model(feature: str, provider: LLMProvider) -> Option
 
 
 def _requires_json_prompt_hint(provider: LLMProvider) -> bool:
-    return provider in {"cohere", "google"}
+    return provider == "google"
 
 
 def _schema_body(json_schema: dict | None) -> dict | None:
@@ -697,7 +660,7 @@ def _augment_system_prompt_for_provider_text(
 
 
 def _build_chat_response_format(
-    provider: Literal["openai", "cohere"],
+    provider: Literal["openai"],
     response_format: ResponseFormat,
     json_schema: dict | None,
 ) -> dict[str, Any] | None:
@@ -706,11 +669,6 @@ def _build_chat_response_format(
 
     if response_format == "json_schema" and json_schema:
         schema_body = _schema_body(json_schema)
-        if provider == "cohere":
-            return {
-                "type": "json_object",
-                "schema": schema_body,
-            }
         schema_name = str(json_schema.get("name") or "response")
         return {
             "type": "json_schema",
@@ -801,11 +759,6 @@ _DEFAULT_LLM_PRICE_CATALOG: dict[str, dict[str, float]] = {
         "cached_input_per_mtok_usd": 0.2,
         "output_per_mtok_usd": 12.0,
     },
-    "command-a-03-2025": {
-        "input_per_mtok_usd": 2.5,
-        "cached_input_per_mtok_usd": 2.5,
-        "output_per_mtok_usd": 10.0,
-    },
 }
 
 
@@ -845,8 +798,6 @@ def _canonical_price_model(model_id: str | None) -> str:
         return "claude-haiku-4-5"
     if "gemini-3.1-pro-preview" in mid or "gemini-3-pro-preview" in mid:
         return "gemini-3.1-pro-preview"
-    if "command-a-03-2025" in mid:
-        return "command-a-03-2025"
     return mid
 
 
@@ -1509,7 +1460,7 @@ async def _repair_json_with_openai_model(
 
 
 async def _call_openai_compatible(
-    provider: Literal["openai", "cohere"],
+    provider: Literal["openai"],
     system_prompt: str,
     user_message: str,
     messages: list[dict] | None,
@@ -1520,11 +1471,8 @@ async def _call_openai_compatible(
     json_schema: dict | None = None,
     feature: str = "unknown",
 ) -> tuple[dict | None, dict[str, int] | None]:
-    """OpenAI / OpenAI互換 Chat Completions API を呼び出す。"""
-    if provider == "openai":
-        client = await get_openai_client(for_rag=_is_rag_feature(feature))
-    else:
-        client = await get_openai_compatible_client(provider, for_rag=_is_rag_feature(feature))
+    """OpenAI Chat Completions API を呼び出す。"""
+    client = await get_openai_client(for_rag=_is_rag_feature(feature))
 
     normalized_messages, _ = _normalize_chat_messages(messages, user_message)
     effective_system_prompt = _augment_system_prompt_for_provider_json(
@@ -1539,11 +1487,11 @@ async def _call_openai_compatible(
         "model": model,
         "messages": api_messages,
     }
-    if provider == "openai" and _openai_uses_max_completion_tokens(model):
+    if _openai_uses_max_completion_tokens(model):
         request_kwargs["max_completion_tokens"] = max_tokens
     else:
         request_kwargs["max_tokens"] = max_tokens
-    if provider != "openai" or _openai_supports_temperature(model):
+    if _openai_supports_temperature(model):
         request_kwargs["temperature"] = temperature
 
     response_format_payload = _build_chat_response_format(provider, response_format, json_schema)
@@ -1574,7 +1522,7 @@ async def _call_openai_compatible(
 
 
 async def _call_openai_compatible_raw_text(
-    provider: Literal["openai", "cohere"],
+    provider: Literal["openai"],
     system_prompt: str,
     user_message: str,
     messages: list[dict] | None,
@@ -1583,11 +1531,8 @@ async def _call_openai_compatible_raw_text(
     model: str,
     feature: str = "unknown",
 ) -> tuple[str, dict[str, int] | None]:
-    """OpenAI / OpenAI互換 Chat Completions API を呼び出し、生テキストを返す。"""
-    if provider == "openai":
-        client = await get_openai_client(for_rag=_is_rag_feature(feature))
-    else:
-        client = await get_openai_compatible_client(provider, for_rag=_is_rag_feature(feature))
+    """OpenAI Chat Completions API を呼び出し、生テキストを返す。"""
+    client = await get_openai_client(for_rag=_is_rag_feature(feature))
 
     normalized_messages, _ = _normalize_chat_messages(messages, user_message)
     effective_system_prompt = _augment_system_prompt_for_provider_text(
@@ -1601,13 +1546,13 @@ async def _call_openai_compatible_raw_text(
         "model": model,
         "messages": api_messages,
     }
-    if provider == "openai" and _openai_uses_max_completion_tokens(model):
+    if _openai_uses_max_completion_tokens(model):
         request_kwargs["max_completion_tokens"] = max_tokens
     else:
         request_kwargs["max_tokens"] = max_tokens
-    if provider != "openai" or _openai_supports_temperature(model):
+    if _openai_supports_temperature(model):
         request_kwargs["temperature"] = temperature
-    if provider == "openai" and feature == "es_review":
+    if feature == "es_review":
         request_kwargs["verbosity"] = "medium"
         request_kwargs["prompt_cache_key"] = f"es_review:text:{model}"
 
@@ -1655,7 +1600,12 @@ async def call_llm_with_error(
     """
     feature = feature or "unknown"
     requested_model = model or get_model_config().get(feature, "claude-sonnet")
-    target = _resolve_model_target(feature, requested_model)
+    try:
+        target = _resolve_model_target(feature, requested_model)
+    except ValueError as exc:
+        error = _create_error("unknown", "openai", feature, str(exc))
+        _log(feature, str(exc), ERROR)
+        return LLMResult(success=False, error=error)
 
     if not _provider_has_api_key(target.provider):
         error = _create_error(
@@ -1845,8 +1795,8 @@ async def call_llm_with_error(
                             raw_text=raw_repair,
                             resolved_model=repair_model,
                         )
-                elif target.provider != "anthropic":
-                    # Google / Cohere 等（OpenAI キーが無い、または mini 失敗後の再試行）
+                elif target.provider == "google":
+                    # Google（OpenAI キーが無い、または mini 失敗後の再試行）
                     _log(feature, "JSON修復を実行（同一プロバイダー）", WARNING)
                     same_model_repair = await _repair_json_with_same_model(
                         provider=target.provider,
@@ -1922,7 +1872,12 @@ async def call_llm_text_with_error(
     """Plain text response path with provider fallback and no JSON parsing."""
     feature = feature or "unknown"
     requested_model = model or get_model_config().get(feature, "claude-sonnet")
-    target = _resolve_model_target(feature, requested_model)
+    try:
+        target = _resolve_model_target(feature, requested_model)
+    except ValueError as exc:
+        error = _create_error("unknown", "openai", feature, str(exc))
+        _log(feature, str(exc), ERROR)
+        return LLMResult(success=False, error=error)
 
     if not _provider_has_api_key(target.provider):
         error = _create_error(
@@ -2688,12 +2643,16 @@ def _openai_reasoning_effort(
 
     Plain-text rewrites use ``none`` to avoid burning the output budget on
     hidden reasoning tokens before any visible text (see OpenAI reasoning guide).
-    Structured JSON steps keep low ``minimal`` / ``low`` for quality.
+
+    ``json_schema`` (Structured Outputs) では ``reasoning`` が unsupported になりやすいため付与しない。
+    従来は API エラー後に同パラメータなしで再試行していたが、無駄な往復を避ける。
     """
     if feature != "es_review":
         return None
     if plain_text_rewrite:
         return "none"
+    if response_format == "json_schema":
+        return None
     model_name = (model or "").strip().lower()
     if "gpt-5.4-mini" in model_name:
         return "minimal"

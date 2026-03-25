@@ -117,7 +117,7 @@
 - `delete-corporate-urls` は delete 専用 limiter を使う。
 - `fetch-corporate` GET と `es-review-status` GET は polling limiter を使う。
 - `source-compliance/check` は一度に 10 URL まで。超える場合は 400 を返す。
-- 429 は `RATE_LIMITED` の構造化エラーで返し、`Retry-After` を付ける。
+- 429 は `RATE_LIMITED` の構造化エラーで返し、`Retry-After` を付け、`userMessage` は `しばらく待ってから再試行してください。` に統一する。
 
 ### 開発者向け: LLM トークン・概算コストログ
 

@@ -16,6 +16,13 @@ ALL_STANDARD_MODELS = [
     "gemini-3.1-pro-preview",
     "low-cost",
 ]
+# extended / ローカル 5+5 スイープの既定（本番で使う主要 4 モデル）
+DEFAULT_LIVE_PROVIDERS_EXTENDED: tuple[str, ...] = (
+    "gpt-5.4-mini",
+    "gpt-5.4",
+    "claude-sonnet",
+    "gemini-3.1-pro-preview",
+)
 LIVE_GATE_SOFT_MIN_FLOOR_RATIO = FINAL_SOFT_MIN_FLOOR_RATIO
 
 
@@ -35,9 +42,9 @@ def _live_gate_allows_soft_min_shortfall(
         return False
     policy = getattr(review_meta, "length_policy", "") or ""
     fix_res = getattr(review_meta, "length_fix_result", "") or ""
-    if policy == "soft_min_applied":
+    if policy == "soft_ok":
         return True
-    if fix_res == "soft_min_applied":
+    if fix_res == "soft_recovered":
         return True
     return False
 
@@ -216,7 +223,18 @@ SMOKE_CASES: tuple[LiveESReviewCase, ...] = (
         expected_effective_policy="role_grounded",
         expected_min_company_evidence=1,
         # ライブ改善案は「参加」「学びたい」を省略して実務・分析に寄せることがある
-        expected_focus_tokens=("参加", "応募", "学びたい", "試したい", "分析", "実務", "課題", "意思決定"),
+        expected_focus_tokens=(
+            "参加",
+            "応募",
+            "学びたい",
+            "学びたく",
+            "志望",
+            "試したい",
+            "分析",
+            "実務",
+            "課題",
+            "意思決定",
+        ),
         expected_user_fact_tokens=("分析", "研究", "意思決定"),
         expected_company_tokens=("Business Intelligence", "インターン", "実務"),
         rag_sources=[
@@ -317,7 +335,19 @@ SMOKE_CASES: tuple[LiveESReviewCase, ...] = (
         expected_policy="required",
         expected_effective_policy="role_grounded",
         expected_min_company_evidence=2,
-        expected_focus_tokens=("志望", "魅力", "担いたい", "理由"),
+        # ルータの role_course_reason 焦点検証（惹か/関心/期待 等）と同義で揃える
+        expected_focus_tokens=(
+            "志望",
+            "魅力",
+            "担いたい",
+            "理由",
+            "惹か",
+            "関心",
+            "期待",
+            "共感",
+            "選ぶ",
+            "携わり",
+        ),
         expected_user_fact_tokens=("研究", "仮説", "構造化", "関係者"),
         expected_company_tokens=("デジタル", "事業", "実装", "価値"),
         rag_sources=[
@@ -399,7 +429,11 @@ EXTENDED_ONLY_CASES: tuple[LiveESReviewCase, ...] = (
         expected_effective_policy="role_grounded",
         expected_min_company_evidence=1,
         expected_focus_tokens=("学びたい", "確かめたい", "得たい", "磨きたい"),
-        expected_focus_groups=(("学びたい", "確かめたい", "得たい", "磨きたい"),),
+        # 自然な言い回しで学びの核が出る場合の代替（いずれかのグループで1語一致即可）
+        expected_focus_groups=(
+            ("学びたい", "確かめたい", "得たい", "磨きたい"),
+            ("鍛え", "深め", "精度", "判断", "実務"),
+        ),
         expected_user_fact_tokens=("研究", "仮説", "分析", "優先順位"),
         expected_company_tokens=("Business Intelligence", "意思決定", "実務"),
         rag_sources=[
@@ -448,7 +482,7 @@ EXTENDED_ONLY_CASES: tuple[LiveESReviewCase, ...] = (
         expected_min_company_evidence=1,
         # ライブでは evidence が strong/partial に寄ると notice が立たないことがある（モデル・取得結果依存）
         expected_weak_evidence_notice=None,
-        expected_focus_tokens=("志望", "魅力", "担いたい"),
+        expected_focus_tokens=("志望", "魅力", "担いたい", "惹か", "関心", "期待", "理由"),
         expected_user_fact_tokens=("研究室", "関係者", "論点"),
         expected_company_tokens=("現場", "価値", "営業"),
         rag_sources=[
@@ -571,7 +605,25 @@ EXTENDED_ONLY_CASES: tuple[LiveESReviewCase, ...] = (
         expected_policy="required",
         expected_effective_policy="role_grounded",
         expected_min_company_evidence=1,
-        expected_focus_tokens=("参加", "学びたい", "試したい"),
+        # ルータの _INTERN_REASON_HEAD_FOCUS と同趣旨（体感・機会・実践 等を許容）
+        expected_focus_tokens=(
+            "参加",
+            "学びたい",
+            "学びたく",
+            "志望",
+            "試したい",
+            "惹",
+            "魅力",
+            "関心",
+            "期待",
+            "実践",
+            "体感",
+            "機会",
+            "鍛え",
+            "得たい",
+            "挑戦",
+            "身につけ",
+        ),
         expected_user_fact_tokens=("分析", "研究", "仮説", "優先順位"),
         expected_company_tokens=("実務", "意思決定", "インターン"),
         rag_sources=[
@@ -641,7 +693,7 @@ EXTENDED_ONLY_CASES: tuple[LiveESReviewCase, ...] = (
         expected_policy="required",
         expected_effective_policy="role_grounded",
         expected_min_company_evidence=2,
-        expected_focus_tokens=("志望", "担いたい", "魅力"),
+        expected_focus_tokens=("志望", "担いたい", "魅力", "選ぶ", "関心", "共感"),
         expected_user_fact_tokens=("研究", "仮説", "関係者", "方針"),
         expected_company_tokens=("デジタル", "価値創出", "事業変革", "現場"),
         rag_sources=[
@@ -656,6 +708,93 @@ EXTENDED_ONLY_CASES: tuple[LiveESReviewCase, ...] = (
                 "title": "事業戦略",
                 "excerpt": "データと事業知見を生かし価値創出を加速する。",
                 "source_url": "https://www.mitsubishicorp.com/jp/ja/business/",
+            },
+        ],
+    ),
+    # --- 5 次元拡張: work_values / basic（final_quality の companyless_gakuchika 系と別テンプレ）---
+    _case(
+        case_id="work_values_companyless_short",
+        case_set=EXTENDED_CASE_SET,
+        template_type="work_values",
+        question="働くうえで大切にしていることを120字以内で教えてください。",
+        answer="自律的に学び続け、チームの目標に沿って前に進めること。研究室では進捗が見えにくい課題でも、仮説を切って検証を回し、関係者と認識をそろえながら前に進めてきた。",
+        char_min=72,
+        char_max=120,
+        char_band="short",
+        company_context="companyless",
+        grounding_mode="none",
+        expected_policy="assistive",
+        expected_effective_policy="none",
+        expected_focus_tokens=("大切", "価値", "学び", "チーム", "前に"),
+        expected_user_fact_tokens=("研究室", "仮説", "検証", "関係者"),
+    ),
+    _case(
+        case_id="work_values_assistive_medium",
+        case_set=EXTENDED_CASE_SET,
+        template_type="work_values",
+        question="働くうえで大切にしていることを200字以内で教えてください。",
+        answer="自律的に学び続け、現場で価値を形にすることを大切にしている。研究室では論点を整理し、役割を明確にしてチームの意思決定を前に進めてきた。この姿勢を、多様な関係者と協働する仕事でも貫きたい。",
+        company_name="三菱商事",
+        char_min=130,
+        char_max=200,
+        char_band="medium",
+        company_context="assistive_selected",
+        grounding_mode="company_general",
+        expected_policy="assistive",
+        expected_effective_policy="company_general",
+        expected_min_company_evidence=1,
+        expected_focus_tokens=("大切", "価値", "学び", "協働", "現場"),
+        expected_user_fact_tokens=("研究室", "論点", "役割", "チーム"),
+        expected_company_tokens=("関係者", "価値", "挑戦", "成長"),
+        rag_sources=[
+            {
+                "content_type": "employee_interviews",
+                "title": "社員インタビュー",
+                "excerpt": "多様な関係者と協働しながら、現場で価値創出に挑戦する。",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/people/interview/",
+            },
+        ],
+    ),
+    _case(
+        case_id="basic_companyless_short",
+        case_set=EXTENDED_CASE_SET,
+        template_type="basic",
+        question="あなたの研究内容と、それが志望業界でどう活かせるかを150字以内で述べてください。",
+        answer="機械学習で時系列の異常検知を扱い、再現性のある評価設計を重ねてきた。事業ではデータの信頼性と意思決定スピードが重要になるため、この経験を分析基盤づくりに生かしたい。",
+        char_min=85,
+        char_max=150,
+        char_band="short",
+        company_context="companyless",
+        grounding_mode="none",
+        expected_policy="assistive",
+        expected_effective_policy="none",
+        expected_focus_tokens=("研究", "活か", "経験", "事業", "データ"),
+        expected_user_fact_tokens=("機械学習", "評価", "異常", "再現"),
+    ),
+    _case(
+        case_id="basic_assistive_rag_short",
+        case_set=EXTENDED_CASE_SET,
+        template_type="basic",
+        question="自己PRと志望動機を180字以内にまとめてください。",
+        answer="論点を整理し合意形成を進める力が強み。研究室で議論が散らばる場面でも、仮説を切って検証を回し、役割を明確にして前に進めてきた。貴社では事業理解を深めながら、現場の意思決定を支えたい。",
+        company_name="三菱商事",
+        char_min=95,
+        char_max=180,
+        char_band="short",
+        company_context="assistive_selected",
+        grounding_mode="company_general",
+        expected_policy="assistive",
+        expected_effective_policy="company_general",
+        expected_min_company_evidence=1,
+        expected_focus_tokens=("強み", "志望", "貴社", "事業", "意思決定"),
+        expected_user_fact_tokens=("研究室", "仮説", "検証", "役割"),
+        expected_company_tokens=("事業", "現場", "価値", "挑戦"),
+        rag_sources=[
+            {
+                "content_type": "corporate_site",
+                "title": "企業理念",
+                "excerpt": "信頼と挑戦で社会に価値を届ける。",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/about/",
             },
         ],
     ),
@@ -692,6 +831,8 @@ def get_selected_models(case_set: str, raw: str) -> list[str]:
         return [model.strip() for model in raw.split(",") if model.strip()]
     if case_set == CANARY_CASE_SET:
         return ["claude-sonnet", "gemini-3.1-pro-preview"]
+    if case_set == EXTENDED_CASE_SET:
+        return list(DEFAULT_LIVE_PROVIDERS_EXTENDED)
     return ["gpt-5.4-mini"]
 
 
@@ -719,7 +860,6 @@ def evaluate_live_case(
     *,
     rewrite: str,
     review_meta: Any,
-    top3_count: int,
     provider: str,
     model_id: str,
 ) -> list[str]:
@@ -741,8 +881,6 @@ def evaluate_live_case(
             failures.append(f"char_count:{char_count} not in [{case.char_min},{case.char_max}]")
     if not dearu_style(rewrite):
         failures.append("style:not_dearu")
-    if not 1 <= top3_count <= 3:
-        failures.append(f"top3_count:{top3_count}")
     if not review_meta:
         return failures + ["review_meta:missing"]
 

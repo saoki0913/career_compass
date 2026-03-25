@@ -8,12 +8,134 @@ Each template specifies:
 - extra_fields: Additional fields required for this template (intern_name, role_name)
 """
 
+from dataclasses import dataclass
 from typing import Optional
 
 _GLOBAL_CONCLUSION_FIRST_RULES = """【結論ファースト（全設問・全文字数）】
 - 1文目は設問への答えを結論として短く言い切る（設問文の言い換えや背景説明から入らない）
 - 各文は役割を1つに絞り、同趣旨を言い換えて引き延ばさない
-- 企業接点・貢献・活かし方は必要なら1文に圧縮してよく、段階を無理に増やさない"""
+- 企業接点・貢献・活かし方は必要なら1文に圧縮してよく、段階を無理に増やさない
+- 指定の字数下限を下回る改善案は再検証で弾かれる。要約しすぎず、下限まで本文を伸ばす
+- 下限が200字を超える設問では、具体を削りすぎず下限付近まで本文を伸ばす"""
+
+
+@dataclass(frozen=True)
+class LengthControlProfile:
+    profile_id: str
+    provider_family: str
+    band: str
+    stage: str
+    target_lower: int | None
+    target_upper: int | None
+    gap: int
+    source_fill_ratio: float
+    required_growth: int
+    latest_failed_length: int
+    early_length_fix_after_attempt: int
+
+
+_DEFAULT_STAGE_KEY = "default"
+_RECOVERY_STAGE_KEY = "under_min_recovery"
+_TIGHT_STAGE_KEY = "tight_length"
+_MODEL_FAMILY_DEFAULTS = {
+    "openai_gpt5_mini": {
+        # medium/long の gap は +1（下限未達の回収を少し緩める）
+        _DEFAULT_STAGE_KEY: {"short": 2, "medium": 5, "long": 7},
+        _RECOVERY_STAGE_KEY: {"short": 1, "medium": 3, "long": 4},
+        _TIGHT_STAGE_KEY: {"short": 6, "medium": 9, "long": 11},
+        "early_length_fix_after_attempt": 2,
+    },
+    "openai_gpt5": {
+        _DEFAULT_STAGE_KEY: {"short": 4, "medium": 7, "long": 9},
+        _RECOVERY_STAGE_KEY: {"short": 2, "medium": 4, "long": 5},
+        _TIGHT_STAGE_KEY: {"short": 6, "medium": 9, "long": 11},
+        "early_length_fix_after_attempt": 3,
+    },
+    "anthropic_claude": {
+        _DEFAULT_STAGE_KEY: {"short": 6, "medium": 9, "long": 11},
+        _RECOVERY_STAGE_KEY: {"short": 3, "medium": 5, "long": 6},
+        _TIGHT_STAGE_KEY: {"short": 8, "medium": 11, "long": 13},
+        "early_length_fix_after_attempt": 99,
+    },
+    "google_gemini": {
+        _DEFAULT_STAGE_KEY: {"short": 5, "medium": 8, "long": 10},
+        _RECOVERY_STAGE_KEY: {"short": 3, "medium": 5, "long": 6},
+        _TIGHT_STAGE_KEY: {"short": 7, "medium": 10, "long": 12},
+        "early_length_fix_after_attempt": 99,
+    },
+    "generic": {
+        _DEFAULT_STAGE_KEY: {"short": 5, "medium": 8, "long": 10},
+        _RECOVERY_STAGE_KEY: {"short": 3, "medium": 4, "long": 4},
+        _TIGHT_STAGE_KEY: {"short": 7, "medium": 10, "long": 12},
+        "early_length_fix_after_attempt": 99,
+    },
+}
+
+
+def _length_band(char_max: int | None) -> str:
+    if not char_max or char_max <= 220:
+        return "short"
+    if char_max <= 320:
+        return "medium"
+    return "long"
+
+
+def _model_provider_family(llm_model: str | None) -> str:
+    model_l = (llm_model or "").strip().lower()
+    if "claude" in model_l:
+        return "anthropic_claude"
+    if "gemini" in model_l:
+        return "google_gemini"
+    if "gpt-5.4-mini" in model_l or "mini" in model_l:
+        return "openai_gpt5_mini"
+    if "gpt-5" in model_l or model_l.startswith("o"):
+        return "openai_gpt5"
+    return "generic"
+
+
+def resolve_length_control_profile(
+    char_min: Optional[int],
+    char_max: Optional[int],
+    *,
+    stage: str = "default",
+    original_len: int = 0,
+    llm_model: Optional[str] = None,
+    latest_failed_len: int = 0,
+) -> LengthControlProfile:
+    band = _length_band(char_max)
+    provider_family = _model_provider_family(llm_model)
+    profile = _MODEL_FAMILY_DEFAULTS.get(provider_family, _MODEL_FAMILY_DEFAULTS["generic"])
+    stage_key = stage if stage in {_DEFAULT_STAGE_KEY, _RECOVERY_STAGE_KEY, _TIGHT_STAGE_KEY} else _DEFAULT_STAGE_KEY
+    ratio = min(1.25, max(0.0, float(original_len) / float(max(char_max or 1, 1))))
+    gap = int(profile[stage_key][band])
+
+    if stage_key == _DEFAULT_STAGE_KEY:
+        if ratio < 0.45:
+            gap += 1 if provider_family == "openai_gpt5_mini" else 2
+        elif 0.80 < ratio < 0.95:
+            gap -= 1
+        elif ratio >= 0.95:
+            gap += 1
+
+    span = max(1, char_max - (char_min or 0)) if char_max else 1
+    gap = max(1, min(span, gap))
+    target_upper = char_max
+    target_lower = max(char_min or 0, (char_max or 0) - gap) if char_max else char_min
+    profile_id = f"{provider_family}:{band}:{stage_key}"
+    required_growth = max(0, (char_min or 0) - latest_failed_len) if char_min else 0
+    return LengthControlProfile(
+        profile_id=profile_id,
+        provider_family=provider_family,
+        band=band,
+        stage=stage_key,
+        target_lower=target_lower,
+        target_upper=target_upper,
+        gap=gap,
+        source_fill_ratio=round(ratio, 4),
+        required_growth=required_growth,
+        latest_failed_length=int(latest_failed_len or 0),
+        early_length_fix_after_attempt=int(profile["early_length_fix_after_attempt"]),
+    )
 
 
 def get_company_honorific(industry: str | None) -> str:
@@ -290,23 +412,16 @@ def compute_internal_target_gap(
     llm_model: Optional[str] = None,
     stage: str = "default",
 ) -> int:
-    """LLM向けの内部目標帯の幅（char_max からの差分）。短文回答ほど広めに取る。"""
-    if stage == "under_min_recovery":
-        return 3
-    if not char_max:
-        return 5
-    span = char_max - (char_min or 0)
-    if span < 1:
-        return max(1, min(5, char_max))
-    ratio = min(1.0, max(0.0, float(original_len) / float(max(char_max, 1))))
-    raw = round(span * (0.08 + 0.12 * (1.0 - ratio)))
-    hi = min(40, span)
-    lo = min(8, hi)
-    gap = max(lo, min(hi, raw))
-    model_l = (llm_model or "").lower()
-    if "mini" in model_l or "nano" in model_l:
-        gap = min(hi, gap + 6)
-    return max(1, gap)
+    """LLM向けの内部目標帯の幅（char_max からの差分）。"""
+    profile = resolve_length_control_profile(
+        char_min,
+        char_max,
+        original_len=original_len,
+        llm_model=llm_model,
+        stage=stage,
+        latest_failed_len=original_len,
+    )
+    return profile.gap
 
 
 def _target_window_bounds(
@@ -371,11 +486,17 @@ def _format_length_policy_block(
         llm_model=llm_model,
     )
     final_floor = f"{int(char_max * 0.9 + 0.999999999)}字" if char_max else "未指定"
+    long_line = ""
+    if char_min and char_max and char_max >= 350:
+        long_line = (
+            f"\n- 長文設問: 設問が求める複数の軸を削らず、{char_min}字未満で終えない。"
+            "最終文まで strict 帯内に収める"
+        )
     return f"""<length_policy>
 - strict受理帯: {_format_char_condition(char_min, char_max)}
 - 今回の内部目標帯: {target_window}
 - strictに届かない場合でも、最終段だけ {final_floor} 以上なら受理余地がある
-- ただし soft救済は最後だけで、通常段では strict を守る
+- ただし soft救済は最後だけで、通常段では strict を守る{long_line}
 </length_policy>"""
 
 
@@ -552,7 +673,7 @@ def _format_midrange_length_guidance(
     original_len: int = 0,
     llm_model: Optional[str] = None,
 ) -> str:
-    if not char_min or not char_max or char_max < 300 or char_max > 500:
+    if not char_min or not char_max or char_max < 280 or char_max > 520:
         return ""
 
     if template_type not in {
@@ -603,6 +724,84 @@ def _format_midrange_length_guidance(
     return "\n".join(guidance_lines)
 
 
+def _dedupe_text_items(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        value = str(item or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def _format_focus_mode_guidance(focus_mode: str | list[str]) -> str:
+    guidance_map = {
+        "normal": "",
+        "length_focus_min": "\n".join(
+            [
+                "【今回の修正フォーカス】",
+                "- 不足字数を埋めることを最優先にする",
+                "- 一般論の水増しではなく、既存の経験・役割・企業接点のつながりを補う",
+                "- 最小字数に届くまで、最後の1文も使って意味を保ったまま伸ばす",
+            ]
+        ),
+        "length_focus_max": "\n".join(
+            [
+                "【今回の修正フォーカス】",
+                "- 最大字数を超えないことを最優先にする",
+                "- 意味の重複、冗長な接続、同趣旨の言い換えから先に削る",
+                "- 核心の経験・企業接点・結論は残したまま、圧縮して収める",
+            ]
+        ),
+        "style_focus": "\n".join(
+            [
+                "【今回の修正フォーカス】",
+                "- 全文をだ・である調に統一する",
+                "- 文末だけを機械的に変えず、1本の本文として自然に整える",
+            ]
+        ),
+        "grounding_focus": "\n".join(
+            [
+                "【今回の修正フォーカス】",
+                "- 企業や役割との接点を1点だけ明確にする",
+                "- 固有名詞を増やしすぎず、方向性・価値観・役割期待の抽象度で接続する",
+            ]
+        ),
+        "answer_focus": "\n".join(
+            [
+                "【今回の修正フォーカス】",
+                "- 1文目で設問への答えの核を短く言い切る",
+                "- 背景説明より先に結論を置く",
+            ]
+        ),
+        "opening_focus": "\n".join(
+            [
+                "【今回の修正フォーカス】",
+                "- 設問文の言い換えで始めず、結論から書き出す",
+                "- 冒頭2文の役割を整理し、前置きを削る",
+            ]
+        ),
+        "structure_focus": "\n".join(
+            [
+                "【今回の修正フォーカス】",
+                "- 箇条書きや断片ではなく、つながった本文として書き切る",
+                "- 1文ごとの役割を整理し、途中で切れないようにする",
+            ]
+        ),
+    }
+    if isinstance(focus_mode, str):
+        focus_modes = [focus_mode]
+    else:
+        focus_modes = list(focus_mode or [])
+    blocks = [
+        guidance_map.get(mode or "normal", "").strip()
+        for mode in _dedupe_text_items(focus_modes)
+    ]
+    return "\n\n".join(block for block in blocks if block)
+
+
 def _format_required_template_playbook(
     template_type: str,
     char_min: Optional[int],
@@ -636,14 +835,16 @@ def _format_required_template_playbook(
         "intern_reason": f"{intern_name or 'そのインターン'}への参加理由",
         "intern_goals": f"{intern_name or 'そのインターン'}で学びたいこと",
         "post_join_goals": "入社後に挑戦したいこと",
-        "role_course_reason": f"{role_name or 'その職種・コース'}を選ぶ理由",
+        "role_course_reason": f"{role_name or 'その職種・コース'}を志望する理由",
     }[template_type]
     opening = {
         "company_motivation": f"1文目で{honorific}を志望する理由の核を言い切る",
         "intern_reason": "1文目で参加理由の核を言い切る",
-        "intern_goals": "1文目で学びたいことの核を言い切る",
+        "intern_goals": (
+            "1文目で学びたいことの核を言い切る（学びたい・確かめたい・得たい・磨きたいのいずれかを含める）"
+        ),
         "post_join_goals": "1文目で入社後の挑戦の核を言い切る",
-        "role_course_reason": "1文目でその職種・コースを選ぶ理由の核を言い切る",
+        "role_course_reason": "1文目でその職種・コースを志望する理由の核を言い切る（志望・魅力・担いたいのいずれかを含める）",
     }[template_type]
     second = {
         "company_motivation": "2文目で元回答の経験を1点だけ出す",
@@ -671,7 +872,7 @@ def _format_required_template_playbook(
         "intern_reason": f"私が{intern_name or 'そのインターン'}に参加したいのは、実務に近い課題で分析力を試し、学びを得たいからだ。",
         "intern_goals": f"{intern_name or 'そのインターン'}では、実務に近い課題の中で分析の精度と判断の速さを学びたい。",
         "post_join_goals": "入社後は、現場で事業理解を深めながら論点整理を担い、価値創出につなげたい。",
-        "role_course_reason": f"私が{role_name or 'その職種・コース'}を選ぶのは、事業と技術をつなぐ役割に関心があるからだ。",
+        "role_course_reason": f"私が{role_name or 'その職種・コース'}を志望するのは、事業と技術をつなぐ役割に魅力を感じるからだ。",
     }[template_type]
     example_good_2 = {
         "company_motivation": "研究で仮説検証を重ねた経験を土台に、現場で事業理解を深め、価値創出につなげたい。",
@@ -755,17 +956,19 @@ def build_template_rewrite_prompt(
     char_max: Optional[int],
     company_evidence_cards: Optional[list[dict]],
     has_rag: bool,
-    improvement_points: Optional[list[dict]] = None,
     allowed_user_facts: Optional[list[dict]] = None,
     intern_name: Optional[str] = None,
     role_name: Optional[str] = None,
     grounding_mode: str = "none",
     retry_hint: Optional[str] = None,
+    retry_hints: Optional[list[str]] = None,
     reference_quality_block: str = "",
     generic_role_mode: bool = False,
     evidence_coverage_level: str = "none",
     length_control_mode: str = "default",
     length_shortfall: Optional[int] = None,
+    focus_mode: str = "normal",
+    focus_modes: Optional[list[str]] = None,
     company_grounding_override: Optional[str] = None,
     llm_model: Optional[str] = None,
 ) -> tuple[str, str]:
@@ -787,29 +990,12 @@ def build_template_rewrite_prompt(
         conditions.append(f"職種・コース名: {role_name}")
     conditions.append(f"文字数: {_format_char_condition(char_min, char_max)}")
 
-    improvement_guidance = ""
-    if improvement_points:
-        improvement_lines = []
-        for index, item in enumerate(improvement_points, 1):
-            issue = str(item.get("issue", "")).strip()
-            suggestion = str(item.get("suggestion", "")).strip()
-            required_action = str(item.get("required_action", "")).strip()
-            if issue or suggestion:
-                improvement_lines.append(
-                    (
-                        f"{index}. 問題点: {issue or '未設定'} / 改善指示: {suggestion or '未設定'}"
-                        + (f" / 必須動作: {required_action}" if required_action else "")
-                    )
-                )
-        if improvement_lines:
-            improvement_guidance = f"""
-【改善ポイント】
-{chr(10).join(improvement_lines)}
-
-- 上記を本文で解消する
-- 改善ポイントと矛盾する内容を書かない"""
-
-    retry_guidance = f"\n【前回失敗の回避】\n- {retry_hint}" if retry_hint else ""
+    retry_items = _dedupe_text_items(list(retry_hints or ([] if not retry_hint else [retry_hint])))
+    retry_guidance = (
+        "\n【前回失敗の回避】\n" + "\n".join(f"- {item}" for item in retry_items)
+        if retry_items
+        else ""
+    )
     effective_company_grounding = company_grounding_override or str(
         template_def.get("company_grounding") or "assistive"
     )
@@ -850,6 +1036,7 @@ def build_template_rewrite_prompt(
 <template_focus>
 {template_def["description"]}
 </template_focus>
+{_format_focus_mode_guidance(focus_modes or focus_mode)}
 {_format_short_answer_guidance(template_type, char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
 {_format_midrange_length_guidance(
     template_type,
@@ -882,7 +1069,6 @@ def build_template_rewrite_prompt(
     original_len=original_len,
     llm_model=llm_model,
 )}
-{improvement_guidance}
 {retry_guidance}
 """
 
@@ -907,17 +1093,19 @@ def build_template_fallback_rewrite_prompt(
     char_max: Optional[int],
     company_evidence_cards: Optional[list[dict]],
     has_rag: bool,
-    improvement_points: Optional[list[dict]] = None,
     allowed_user_facts: Optional[list[dict]] = None,
     intern_name: Optional[str] = None,
     role_name: Optional[str] = None,
     grounding_mode: str = "none",
     retry_hint: Optional[str] = None,
+    retry_hints: Optional[list[str]] = None,
     reference_quality_block: str = "",
     generic_role_mode: bool = False,
     evidence_coverage_level: str = "none",
     length_control_mode: str = "default",
     length_shortfall: Optional[int] = None,
+    focus_mode: str = "normal",
+    focus_modes: Optional[list[str]] = None,
     company_grounding_override: Optional[str] = None,
     llm_model: Optional[str] = None,
 ) -> tuple[str, str]:
@@ -937,14 +1125,12 @@ def build_template_fallback_rewrite_prompt(
     if role_name:
         conditions.append(f"職種・コース名: {role_name}")
 
-    issue_lines = []
-    for index, item in enumerate(improvement_points or [], 1):
-        issue = str(item.get("issue", "")).strip()
-        suggestion = str(item.get("suggestion", "")).strip()
-        if issue or suggestion:
-            issue_lines.append(f"{index}. {issue} / {suggestion}")
-
-    retry_guidance = f"\n【前回失敗の回避】\n- {retry_hint}" if retry_hint else ""
+    retry_items = _dedupe_text_items(list(retry_hints or ([] if not retry_hint else [retry_hint])))
+    retry_guidance = (
+        "\n【前回失敗の回避】\n" + "\n".join(f"- {item}" for item in retry_items)
+        if retry_items
+        else ""
+    )
     effective_company_grounding = company_grounding_override or str(
         template_def.get("company_grounding") or "assistive"
     )
@@ -977,6 +1163,7 @@ def build_template_fallback_rewrite_prompt(
 <core_style>
 {_GLOBAL_CONCLUSION_FIRST_RULES}
 </core_style>
+{_format_focus_mode_guidance(focus_modes or focus_mode)}
 {_format_short_answer_guidance(template_type, char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
 {_format_midrange_length_guidance(
     template_type,
@@ -1011,121 +1198,13 @@ def build_template_fallback_rewrite_prompt(
 )}
 {retry_guidance}
 """
-
-    issue_block = f"\n【最低限反映する改善点】\n{chr(10).join(issue_lines)}" if issue_lines else ""
     user_prompt = f"""【条件】
 {chr(10).join(conditions)}
 
 【元の回答】
-{answer}{issue_block}
+{answer}
 
 元の具体的事実を極力保ちつつ、構成だけを整えた安全な改善案本文を1件だけ返してください。"""
-    return system_prompt, user_prompt
-
-
-def build_template_improvement_prompt(
-    template_type: str,
-    question: str,
-    original_answer: str,
-    company_name: Optional[str],
-    company_evidence_cards: Optional[list[dict]],
-    has_rag: bool,
-    char_min: Optional[int],
-    char_max: Optional[int],
-    allowed_user_facts: Optional[list[dict]] = None,
-    role_name: Optional[str] = None,
-    grounding_mode: str = "none",
-    reference_quality_block: str = "",
-    generic_role_mode: bool = False,
-    evidence_coverage_level: str = "none",
-    company_grounding_override: Optional[str] = None,
-) -> tuple[str, str]:
-    template_role = TEMPLATE_ROLES.get(template_type, TEMPLATE_ROLES["basic"])
-    company_grounding = company_grounding_override or str(
-        TEMPLATE_DEFS.get(template_type, {}).get("company_grounding") or "assistive"
-    )
-    company_eval_rule = (
-        "企業根拠がある場合は、企業理解・職種理解・事業方向性とのズレを評価する"
-        if company_grounding == "required"
-        else "企業根拠がある場合でも、自分の強み・価値観・学びの活かし方を補助的に見る"
-    )
-    system_prompt = f"""あなたは{template_role}である。
-
-<task>
-元回答の不足を改善ポイントとして3件以内で返す。
-</task>
-
-<output_contract>
-- JSONのみを返す
-- コードブロック、前置き、後書きは禁止
-- 各要素は category / issue / suggestion のみ
-- top3 は 3 件以内
-- category は 12 文字以内
-- issue と suggestion は各 60 文字以内
-- issue と suggestion に改行や箇条書きを入れない
-</output_contract>
-
-<constraints>
-- 改善案は書かない
-- 指摘は必ず元回答に対して行う
-- 改善後の理想像ではなく、今足りない点を述べる
-- role_name がある場合は職種・コース適合も評価する
-- {company_eval_rule}
-- 企業根拠にない固有施策や社内体制を新しく前提にしない
-- 元回答やユーザー事実にない経験・役割・成果・数字を前提にしない
-- 構成面では結論ファーストが弱い場合は指摘する
-</constraints>
-{_format_short_answer_guidance(
-    template_type,
-    char_min,
-    char_max,
-    original_len=len(original_answer or ""),
-)}
-{_format_company_guidance(
-    company_evidence_cards=company_evidence_cards,
-    has_rag=has_rag,
-    grounding_mode=grounding_mode,
-    requires_company_rag=bool(TEMPLATE_DEFS.get(template_type, {}).get("requires_company_rag")),
-    company_grounding=company_grounding,
-    generic_role_mode=generic_role_mode,
-    evidence_coverage_level=evidence_coverage_level,
-    template_type=template_type,
-)}
-{_format_reference_quality_guidance(reference_quality_block)}
-{_format_user_fact_guidance(allowed_user_facts)}
-"""
-
-    user_prompt = f"""以下の設問と回答を確認し、改善ポイントをJSONで返してください。
-
-【設問】
-{question}
-
-【元の回答】
-{original_answer}
-
-【企業】
-{company_name or "未指定"}
-
-【職種・コース】
-{role_name or "未指定"}
-
-【改善案の文字数条件】
-{_format_char_condition(char_min, char_max)}
-
-【grounding mode】
-{grounding_mode}
-
-出力形式:
-{{
-  "top3": [
-    {{
-      "category": "評価軸名",
-      "issue": "問題点",
-      "suggestion": "改善提案"
-    }}
-  ]
-}}"""
-
     return system_prompt, user_prompt
 
 
@@ -1136,6 +1215,7 @@ def build_template_length_fix_prompt(
     char_max: Optional[int],
     fix_mode: str,
     *,
+    focus_modes: Optional[list[str]] = None,
     length_control_mode: str = "default",
     llm_model: Optional[str] = None,
 ) -> tuple[str, str]:
@@ -1148,21 +1228,45 @@ def build_template_length_fix_prompt(
         max(0, char_min - original_len) if fix_mode == "under_min" and char_min else 0
     )
 
-    mode_instruction = (
-        "意味を変えず、冗長な句・重複・一般論だけを削って収める"
-        if fix_mode == "over_max"
-        else "意味を変えず、短い補足句を1つだけ足して指定字数に近づける"
-    )
-    if fix_mode == "under_min" and length_control_mode == "under_min_recovery":
-        mode_instruction = (
-            "意味を変えず、既にある経験・職種・企業接点のつながりを補う短い文を1文まで足し、"
-            "必要なら補足句も使って指定字数に収める"
-        )
-    elif fix_mode == "under_min" and under_shortfall > 40:
-        mode_instruction = (
-            "意味を変えず、既存の文脈のつながりを保ちながら短い接続句を1〜2か所足し、"
-            "新事実は足さずに指定字数に近づける"
-        )
+    resolved_focus_modes = _dedupe_text_items(list(focus_modes or []))
+    if not resolved_focus_modes:
+        focus_mode_mapping = {
+            "under_min": ["length_focus_min"],
+            "over_max": ["length_focus_max"],
+            "style": ["style_focus"],
+            "grounding": ["grounding_focus"],
+        }
+        resolved_focus_modes = focus_mode_mapping.get(fix_mode, [])
+
+    mode_instructions: list[str] = []
+    for mode in resolved_focus_modes:
+        if mode == "length_focus_min":
+            if length_control_mode == "under_min_recovery":
+                mode_instructions.append(
+                    "意味を変えず、既にある経験・職種・企業接点のつながりを補う短い文を1文まで足し、必要なら補足句も使って指定字数に収める"
+                )
+            elif under_shortfall > 40:
+                mode_instructions.append(
+                    "意味を変えず、既存の文脈のつながりを保ちながら短い接続句を1〜2か所足し、新事実は足さずに指定字数に近づける"
+                )
+            else:
+                mode_instructions.append(
+                    "意味を変えず、短い補足句を1つだけ足して指定字数に近づける"
+                )
+        elif mode == "length_focus_max":
+            mode_instructions.append("意味を変えず、冗長な句・重複・一般論だけを削って収める")
+        elif mode == "style_focus":
+            mode_instructions.append("意味を変えず、だ・である調への統一だけを最小限で整える")
+        elif mode == "grounding_focus":
+            mode_instructions.append("意味を変えず、企業や役割との接点を1句だけ補って伝わり方を整える")
+        elif mode == "opening_focus":
+            mode_instructions.append("冒頭は設問の言い換えで始めず、結論の一文から書き出す形へ最小限で整える")
+        elif mode == "answer_focus":
+            mode_instructions.append("1文目で設問への答えの核がすぐ伝わるよう、冒頭の一文だけを優先して整える")
+        elif mode == "structure_focus":
+            mode_instructions.append("箇条書きや断片を避け、つながった本文として読める形へ最小限で整える")
+    if not mode_instructions:
+        mode_instructions.append("意味を変えず、本文の崩れだけを最小限で整える")
     stage = "under_min_recovery" if length_control_mode == "under_min_recovery" else "default"
     system_prompt = f"""あなたは日本語のES編集者である。
 
@@ -1179,7 +1283,7 @@ def build_template_length_fix_prompt(
 <constraints>
 - 新しい経験・役割・成果・数字・企業施策を足さない
 - 本文の主張順と意味は極力維持する
-- {mode_instruction}
+{chr(10).join(f"- {instruction}" for instruction in _dedupe_text_items(mode_instructions))}
 </constraints>
 {_format_length_policy_block(char_min, char_max, stage=stage, original_len=original_len, llm_model=llm_model)}
 {_format_midrange_length_guidance(

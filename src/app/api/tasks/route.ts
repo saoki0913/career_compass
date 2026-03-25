@@ -9,10 +9,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { tasks, companies, applications, deadlines } from "@/lib/db/schema";
-import { eq, and, desc, asc, isNull } from "drizzle-orm";
+import { eq, and, desc, asc } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import {
+  hasOwnedApplication,
+  hasOwnedCompany,
+  hasOwnedDeadline,
+  isOwnedByIdentity,
+} from "@/app/api/_shared/owner-access";
+import { alias } from "drizzle-orm/pg-core";
 
 const TASK_TYPE_LABELS: Record<string, string> = {
   es: "ES作成",
@@ -88,27 +95,35 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(tasks.applicationId, applicationId));
     }
 
+    const deadlineCompany = alias(companies, "tasks_deadline_company");
     const taskList = await db
       .select({
         task: tasks,
         company: {
           id: companies.id,
           name: companies.name,
+          userId: companies.userId,
+          guestId: companies.guestId,
         },
         application: {
           id: applications.id,
           name: applications.name,
+          userId: applications.userId,
+          guestId: applications.guestId,
         },
         deadline: {
           id: deadlines.id,
           title: deadlines.title,
           dueDate: deadlines.dueDate,
+          userId: deadlineCompany.userId,
+          guestId: deadlineCompany.guestId,
         },
       })
       .from(tasks)
       .leftJoin(companies, eq(tasks.companyId, companies.id))
       .leftJoin(applications, eq(tasks.applicationId, applications.id))
       .leftJoin(deadlines, eq(tasks.deadlineId, deadlines.id))
+      .leftJoin(deadlineCompany, eq(deadlines.companyId, deadlineCompany.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(
         asc(tasks.status), // open first
@@ -119,9 +134,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       tasks: taskList.map((t) => ({
         ...t.task,
-        company: t.company?.id ? t.company : null,
-        application: t.application?.id ? t.application : null,
-        deadline: t.deadline?.id ? t.deadline : null,
+        company:
+          t.company?.id && isOwnedByIdentity(t.company, identity)
+            ? { id: t.company.id, name: t.company.name }
+            : null,
+        application:
+          t.application?.id && isOwnedByIdentity(t.application, identity)
+            ? { id: t.application.id, name: t.application.name }
+            : null,
+        deadline:
+          t.deadline?.id && isOwnedByIdentity(t.deadline, identity)
+            ? { id: t.deadline.id, title: t.deadline.title, dueDate: t.deadline.dueDate }
+            : null,
       })),
     });
   } catch (error) {
@@ -180,30 +204,44 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Verify company access if provided
+    // Verify related resource access if provided
     if (companyId) {
-      const [company] = await db
-        .select()
-        .from(companies)
-        .where(
-          and(
-            eq(companies.id, companyId),
-            userId
-              ? eq(companies.userId, userId)
-              : guestId
-              ? eq(companies.guestId, guestId)
-              : isNull(companies.id)
-          )
-        )
-        .limit(1);
-
-      if (!company) {
+      const hasCompany = await hasOwnedCompany(companyId, { userId, guestId });
+      if (!hasCompany) {
         return createApiErrorResponse(request, {
           status: 404,
           code: "TASK_COMPANY_NOT_FOUND",
           userMessage: "関連する企業が見つかりませんでした。",
           action: "企業の選択内容を確認して、もう一度お試しください。",
           developerMessage: "Company not found for task create",
+          logContext: "task-create-validation",
+        });
+      }
+    }
+
+    if (applicationId) {
+      const hasApplication = await hasOwnedApplication(applicationId, { userId, guestId });
+      if (!hasApplication) {
+        return createApiErrorResponse(request, {
+          status: 404,
+          code: "TASK_APPLICATION_NOT_FOUND",
+          userMessage: "関連する応募情報が見つかりませんでした。",
+          action: "応募情報の選択内容を確認して、もう一度お試しください。",
+          developerMessage: "Application not found for task create",
+          logContext: "task-create-validation",
+        });
+      }
+    }
+
+    if (deadlineId) {
+      const hasDeadline = await hasOwnedDeadline(deadlineId, { userId, guestId });
+      if (!hasDeadline) {
+        return createApiErrorResponse(request, {
+          status: 404,
+          code: "TASK_DEADLINE_NOT_FOUND",
+          userMessage: "関連する締切が見つかりませんでした。",
+          action: "締切の選択内容を確認して、もう一度お試しください。",
+          developerMessage: "Deadline not found for task create",
           logContext: "task-create-validation",
         });
       }
