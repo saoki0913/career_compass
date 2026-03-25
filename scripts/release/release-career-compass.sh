@@ -93,8 +93,8 @@ run_local_gate() {
   release_log "Running local gate"
   (
     cd "$repo_root"
-    zsh scripts/ci/run-frontend-verify.sh
-    zsh scripts/ci/run-backend-deterministic.sh
+    bash scripts/ci/run-frontend-verify.sh
+    bash scripts/ci/run-backend-deterministic.sh
   )
 }
 
