@@ -97,7 +97,8 @@ export function MobileReviewPanel({
       <SheetTrigger asChild>
         <Button
           className={cn(
-            "fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full border border-primary/20 bg-primary p-0 shadow-lg lg:hidden",
+            "fixed right-4 z-40 flex h-14 min-h-11 w-14 items-center justify-center rounded-full border border-primary/20 bg-primary p-0 shadow-lg lg:hidden",
+            "bottom-[calc(5rem+env(safe-area-inset-bottom,0px))]",
             className,
           )}
           size="icon"
@@ -108,7 +109,7 @@ export function MobileReviewPanel({
       </SheetTrigger>
       <SheetContent
         side="bottom"
-        className="flex h-[94vh] min-h-[70vh] flex-col overflow-hidden rounded-t-[30px] border-0 bg-background p-0 lg:hidden"
+        className="flex h-[94vh] min-h-[70vh] flex-col overflow-hidden rounded-t-[30px] border-0 bg-background p-0 pb-[env(safe-area-inset-bottom)] lg:hidden"
       >
         <SheetHeader className="border-b border-border/60 px-4 py-4 text-left">
           <SheetTitle className="flex items-center gap-2 text-base">

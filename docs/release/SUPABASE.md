@@ -4,6 +4,8 @@
 
 ---
 
+> いまの標準運用では、Supabase の release 前確認は `scripts/bootstrap/career-compass/bootstrap-career-compass-supabase.sh` を正本にし、shared production project 前提を維持します。
+
 ## 1-0. Supabase プロジェクト作成
 
 1. https://supabase.com/dashboard にログイン（GitHub 連携でサインアップ可能）
@@ -80,6 +82,24 @@ npm run db:migrate
 
 1. Supabase Dashboard 左サイドバー → **「Table Editor」** をクリック
 2. 全テーブル（`user`, `session`, `account`, `company`, `es` 等）が作成されていることを確認
+
+### 1-5. API hardening
+
+本番では DB 作成直後に以下を実施する。
+
+1. `supabase/migrations/` を適用して `public` table の deny-all RLS と grant revoke を反映する
+2. Supabase Dashboard の API Settings で Data API を無効化する
+3. `public` を exposed schema に使わない
+4. GraphQL を使っていないなら `pg_graphql` も無効化する
+
+確認 SQL:
+
+```sql
+SELECT tablename, rowsecurity
+FROM pg_tables
+WHERE schemaname = 'public'
+ORDER BY tablename;
+```
 
 Drizzle Studio で確認する場合:
 

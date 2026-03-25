@@ -15,6 +15,10 @@ import {
   verifyGakuchikaAccess,
   type Message,
 } from "@/app/api/gakuchika/shared";
+import {
+  getRequestId,
+  logAiCreditCostSummary,
+} from "@/lib/ai/cost-summary-log";
 
 export async function POST(
   request: NextRequest,
@@ -22,12 +26,20 @@ export async function POST(
 ) {
   try {
     const { id: gakuchikaId } = await params;
+    const requestId = getRequestId(request);
 
     const identity = await getIdentity(request);
     if (!identity) {
       return NextResponse.json(
         { error: "Authentication required" },
         { status: 401 }
+      );
+    }
+
+    if (!identity.userId) {
+      return NextResponse.json(
+        { error: "ガクチカのAI深掘りはログインが必要です" },
+        { status: 401 },
       );
     }
 
@@ -59,6 +71,7 @@ export async function POST(
       error,
       starEvaluation,
       targetElement,
+      telemetry,
     } = await getQuestionFromFastAPI(
       {
         title: gakuchika.title,
@@ -67,10 +80,18 @@ export async function POST(
       },
       [],
       0,
-      null
+      null,
+      requestId,
     );
 
     if (error) {
+      logAiCreditCostSummary({
+        feature: "gakuchika_start",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry,
+      });
       return NextResponse.json(
         { error },
         { status: 503 }
@@ -119,6 +140,13 @@ export async function POST(
       questionCount: c.questionCount || 0,
       createdAt: c.createdAt,
     }));
+    logAiCreditCostSummary({
+      feature: "gakuchika_start",
+      requestId,
+      status: "success",
+      creditsUsed: 0,
+      telemetry,
+    });
 
     return NextResponse.json({
       conversation: { id: conversationId, questionCount: 0, status: "in_progress" },

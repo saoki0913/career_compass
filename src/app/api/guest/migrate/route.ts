@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { migrateGuestToUser } from "@/lib/auth/guest";
 import { headers } from "next/headers";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
@@ -24,14 +25,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Rate limit: 5 migration attempts per user per window
-    const rateLimitKey = createRateLimitKey("fetchInfo", session.user.id, null);
-    const rateLimit = await checkRateLimit(rateLimitKey, RATE_LIMITS.fetchInfo);
+    const rateLimitKey = createRateLimitKey("guestMigrate", session.user.id, null);
+    const rateLimit = await checkRateLimit(rateLimitKey, RATE_LIMITS.guestMigrate);
     if (!rateLimit.allowed) {
-      return NextResponse.json(
-        { error: "Too many migration attempts. Please try again later." },
-        { status: 429 }
-      );
+      const response = createApiErrorResponse(request, {
+        status: 429,
+        code: "RATE_LIMITED",
+        userMessage: "しばらく待ってから再試行してください。",
+        action: `${rateLimit.resetIn}秒ほど待ってから、もう一度お試しください。`,
+      });
+      response.headers.set("Retry-After", String(rateLimit.resetIn));
+      return response;
     }
 
     const { deviceToken } = await request.json();

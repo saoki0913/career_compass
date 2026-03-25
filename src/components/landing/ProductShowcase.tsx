@@ -1,72 +1,118 @@
-import Image from "next/image";
-import { cn } from "@/lib/utils";
-import { landingFeatures } from "./landing-features";
+import { Building2, CalendarClock, FileText, MessageSquareQuote } from "lucide-react";
+import { landingMedia } from "./landing-media";
+import { ScreenPreview } from "./ScreenPreview";
 import { ScrollReveal } from "./ScrollReveal";
+
+const valueStrip = [
+  {
+    title: "AI添削",
+    description: "設問の切り口に合わせて、直しどころと書き換え案が分かる。",
+    Icon: FileText,
+  },
+  {
+    title: "対話で整理",
+    description: "志望動機やガクチカを、会話しながら前に進められる。",
+    Icon: MessageSquareQuote,
+  },
+  {
+    title: "企業・締切管理",
+    description: "応募先、締切、次にやることを見失わずに続けられる。",
+    Icon: CalendarClock,
+  },
+] as const;
+
+const detailSections = [
+  {
+    id: "ai-writing",
+    title: "書くことを、AIと同じ画面で前に進める。",
+    description:
+      "就活Pass は、添削だけ返して終わるツールではありません。ES を直す、志望動機の材料を整理する、途中までの状態から続きを書く。その流れを、一つの workspace で続けられます。",
+    points: ["設問別の添削", "書き換え案を見ながら更新", "途中のメモからでも始められる"],
+    image: landingMedia.esReview,
+    imageClassName: "scale-[1.05] object-top translate-y-[-34px] sm:translate-y-[-52px]",
+  },
+  {
+    id: "management",
+    title: "就活全体を、これ一つで見渡せる状態にする。",
+    description:
+      "企業一覧、締切、応募状況、Google カレンダー連携までを同じ流れにまとめます。ES 添削だけで終わらず、応募までの進行を止めないことを前提にした product です。",
+    points: ["企業ごとの状況整理", "締切の見落とし防止", "次にやることが見える dashboard"],
+    image: landingMedia.companies,
+    imageClassName: "scale-[1.04] object-top translate-y-[-20px] sm:translate-y-[-34px]",
+  },
+] as const;
 
 export function ProductShowcase() {
   return (
-    <section id="features" className="landing-section-muted scroll-mt-24 py-28 lg:scroll-mt-28 lg:py-36">
+    <section id="features" className="scroll-mt-24 py-32 lg:scroll-mt-28 lg:py-40">
       <div className="mx-auto max-w-6xl px-4">
         <ScrollReveal>
-          <div className="mx-auto mb-16 max-w-2xl text-center lg:mb-24">
-            <p className="text-sm font-semibold tracking-widest text-primary uppercase">
-              機能
-            </p>
-            <h2 className="mt-4 text-balance text-3xl font-bold tracking-[-0.035em] text-foreground sm:text-4xl lg:text-[2.75rem]">
-              書く・整える・進める。
-            </h2>
-            <p className="mt-5 text-balance text-lg leading-relaxed text-muted-foreground">
-              添削と対話で文章を磨き、企業と締切をまとめて管理。
+          <div className="mb-14 grid gap-8 border-y border-slate-200/80 py-6 lg:grid-cols-[0.84fr_1.16fr] lg:items-end lg:gap-12">
+            <div>
+              <h2 className="max-w-2xl text-balance text-3xl font-semibold tracking-[-0.05em] text-slate-950 sm:text-4xl lg:text-5xl">
+                書くことも、管理することも、
+                同じ流れで進める。
+              </h2>
+            </div>
+            <p className="max-w-3xl text-pretty text-lg leading-8 text-slate-600">
+              AI の出力だけを見るのではなく、そのまま就活の進行に戻れることを重視しています。
+              書き直し、素材整理、企業管理、締切確認を、ばらばらのツールに分けずに扱えます。
             </p>
           </div>
         </ScrollReveal>
 
-        <div className="flex flex-col gap-10 lg:gap-14">
-          {landingFeatures.map((feature, index) => {
+        <ScrollReveal delay={0.08}>
+          <ul className="mb-20 grid gap-8 border-b border-slate-200/80 pb-10 md:grid-cols-3 lg:mb-24">
+            {valueStrip.map(({ title, description, Icon }) => (
+              <li key={title} className="grid gap-3">
+                <div className="flex items-center gap-3 text-slate-950">
+                  <span className="flex size-10 items-center justify-center rounded-full border border-slate-200 bg-white shadow-[0_10px_24px_-18px_rgba(15,23,42,0.28)]">
+                    <Icon className="size-[18px]" />
+                  </span>
+                  <p className="text-base font-semibold tracking-[-0.03em]">{title}</p>
+                </div>
+                <p className="max-w-sm text-sm leading-7 text-slate-600">{description}</p>
+              </li>
+            ))}
+          </ul>
+        </ScrollReveal>
+
+        <div className="flex flex-col gap-16 lg:gap-20">
+          {detailSections.map((feature, index) => {
             const isReversed = index % 2 === 1;
 
             return (
               <ScrollReveal key={feature.id} delay={index * 0.05}>
                 <article
                   id={feature.id}
-                  className="landing-bento-card-static scroll-mt-28"
+                  className="scroll-mt-28 border-t border-slate-200/80 pt-8 sm:pt-10"
                 >
                   <div
-                    className={cn(
+                    className={[
                       "grid items-center gap-8 lg:grid-cols-2 lg:gap-12",
-                      isReversed && "lg:[&>div:first-child]:order-2 lg:[&>div:last-child]:order-1",
-                    )}
+                      isReversed
+                        ? "lg:[&>div:first-child]:order-2 lg:[&>div:last-child]:order-1"
+                        : "",
+                    ].join(" ")}
                   >
-                    <div className="relative aspect-[16/10] overflow-hidden rounded-2xl border border-border/30 bg-muted/30 shadow-inner">
-                      <Image
-                        src={feature.image.src}
-                        alt={feature.image.alt}
-                        fill
-                        sizes="(min-width: 1024px) 520px, 100vw"
-                        className="object-cover object-top"
-                      />
-                    </div>
+                    <ScreenPreview
+                      src={feature.image.src}
+                      alt={feature.image.alt}
+                      imageClassName={feature.imageClassName}
+                      className="rounded-[32px] border border-white/70 bg-white/95"
+                    />
 
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">
-                        {feature.kicker}
-                      </p>
-                      <h3 className="mt-3 text-balance text-2xl font-bold tracking-[-0.03em] text-foreground sm:text-3xl lg:text-[1.85rem]">
+                    <div className="max-w-xl">
+                      <h3 className="text-balance text-2xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-3xl">
                         {feature.title}
                       </h3>
-                      <p className="mt-4 text-[17px] leading-[1.75] text-muted-foreground">
+                      <p className="mt-4 text-[17px] leading-8 text-slate-600">
                         {feature.description}
                       </p>
-                      <ul className="mt-6 space-y-2.5">
+                      <ul className="mt-7 space-y-3">
                         {feature.points.map((point) => (
-                          <li
-                            key={point}
-                            className="flex items-center gap-3 text-sm text-foreground"
-                          >
-                            <span
-                              className="h-1 w-1 shrink-0 rounded-full bg-primary/50"
-                              aria-hidden="true"
-                            />
+                          <li key={point} className="flex items-center gap-3 text-sm text-slate-700">
+                            <Building2 className="size-4 shrink-0 text-primary" />
                             {point}
                           </li>
                         ))}

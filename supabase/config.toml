@@ -98,7 +98,9 @@ port = 54324
 # sender_name = "Admin"
 
 [storage]
-enabled = true
+# Local dev does not rely on Supabase Storage at startup, and recent storage
+# image migrations can block `supabase start` before Postgres is reachable.
+enabled = false
 # The maximum file size allowed (e.g. "5MB", "500KB").
 file_size_limit = "50MiB"
 

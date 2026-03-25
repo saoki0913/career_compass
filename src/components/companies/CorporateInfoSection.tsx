@@ -5,8 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { useCredits } from "@/hooks/useCredits";
 import { useOperationLock } from "@/hooks/useOperationLock";
+import { notifyMessage, notifySuccess } from "@/lib/notifications";
 import {
   isUploadSource,
   type ContentType,
@@ -18,6 +20,12 @@ import {
   SOURCE_TYPE_META,
   normalizeSourceConfidence,
 } from "@/lib/company-info/source-badges";
+import { calculatePdfIngestCredits } from "@/lib/company-info/pricing";
+import { getPdfPageCountFromFile } from "@/lib/company-info/pdf-page-count";
+import {
+  getRagPdfIngestPolicySummaryJa,
+  getRagPdfMaxIngestPages,
+} from "@/lib/company-info/pdf-ingest-limits";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 interface RagStatus {
@@ -51,11 +59,21 @@ interface SearchCandidate {
   confidence: "high" | "medium" | "low";
   sourceType?: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
   relationCompanyName?: string | null;
+  complianceStatus?: "allowed" | "warning" | "blocked";
+  complianceReasons?: string[];
+}
+
+interface ComplianceCheckResponse {
+  blockedResults: Array<{ url: string; reasons: string[] }>;
+  warningResults: Array<{ url: string; reasons: string[] }>;
 }
 
 const SURFACE_CLASS = "rounded-xl border border-border/60 bg-background";
 const FIELD_CLASS =
   "h-10 w-full rounded-lg border border-border bg-background px-3 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20";
+
+/** モーダル段階切り替えアニメ（200ms）の直後にスナックバーを出して、画面の急な切り替わりを和らげる */
+const RAG_SUCCESS_SNACKBAR_DELAY_MS = 230;
 
 const CONTENT_TYPE_TO_CHANNEL: Record<ContentType, "corporate_ir" | "corporate_general"> = {
   new_grad_recruitment: "corporate_general",
@@ -113,12 +131,17 @@ type BatchUploadItem = {
   extractedChars?: number;
   pageCount?: number | null;
   ingestUnits?: number;
+  freeUnitsApplied?: number;
   creditsConsumed?: number;
   actualCreditsDeducted?: number;
   extractionMethod?: string;
   contentType?: ContentType | null;
   secondaryContentTypes?: ContentType[];
   error?: string;
+  sourceTotalPages?: number | null;
+  ingestTruncated?: boolean;
+  ocrTruncated?: boolean;
+  processingNoticeJa?: string | null;
 };
 type PdfFileStatus = "waiting" | "uploading" | "completed" | "failed";
 
@@ -459,6 +482,10 @@ function removePdfFile(files: File[], target: File) {
   );
 }
 
+function pdfFileKey(file: File) {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
 function getExtractionMethodLabel(method?: string) {
   switch (method) {
     case "pypdf":
@@ -466,7 +493,7 @@ function getExtractionMethodLabel(method?: string) {
     case "openai_pdf_ocr":
       return "OCRで本文を抽出";
     case "deferred_ocr":
-      return "OCR待ちで保留";
+      return "遅延OCR（廃止・旧データ）";
     default:
       return method || "不明";
   }
@@ -624,7 +651,16 @@ export function CorporateInfoSection({
   companyName,
   onUpdate,
 }: CorporateInfoSectionProps) {
-  const { companyRagUnitsLimit, companyRagUnitsRemaining, plan } = useCredits();
+  const { isAuthenticated, isReady: isAuthReady } = useAuth();
+  const { companyRagUnitsLimit, companyRagUnitsRemaining, plan, ragPdfLimits } = useCredits({
+    isAuthenticated,
+    isAuthReady,
+  });
+  const paidPdfPlan = plan === "standard" || plan === "pro" ? plan : "free";
+  const maxPdfIngestPages =
+    ragPdfLimits?.maxPagesIngest ?? getRagPdfMaxIngestPages(paidPdfPlan);
+  const ragPdfPolicySummaryJa =
+    ragPdfLimits?.summaryJa ?? getRagPdfIngestPolicySummaryJa(paidPdfPlan);
   const { isLocked, acquireLock, releaseLock } = useOperationLock();
   const [status, setStatus] = useState<CorporateInfoStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -642,6 +678,8 @@ export function CorporateInfoSection({
   const [fetchResult, setFetchResult] = useState<FetchResult | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [pdfUploadProgress, setPdfUploadProgress] = useState<PdfFileProgress[] | null>(null);
+  const [pdfPageEstimates, setPdfPageEstimates] = useState<Record<string, number | null>>({});
+  const [pdfPageEstimatesPending, setPdfPageEstimatesPending] = useState(false);
   const [displayedStep, setDisplayedStep] = useState<ModalStep>("configure");
   const [isStepTransitioning, setIsStepTransitioning] = useState(false);
 
@@ -705,6 +743,83 @@ export function CorporateInfoSection({
     () => parseUrlListInput(urlDraft.customUrlInput),
     [urlDraft.customUrlInput]
   );
+
+  const pdfUploadFileSignature = useMemo(
+    () => pdfDraft.uploadFiles.map(pdfFileKey).join("|"),
+    [pdfDraft.uploadFiles],
+  );
+
+  useEffect(() => {
+    const files = pdfDraft.uploadFiles;
+    if (files.length === 0) {
+      setPdfPageEstimates({});
+      setPdfPageEstimatesPending(false);
+      return;
+    }
+    let cancelled = false;
+    setPdfPageEstimatesPending(true);
+    void (async () => {
+      const results = await Promise.all(
+        files.map(async (file) => {
+          const key = pdfFileKey(file);
+          const count = await getPdfPageCountFromFile(file);
+          return [key, count] as const;
+        }),
+      );
+      if (cancelled) return;
+      setPdfPageEstimates(Object.fromEntries(results));
+      setPdfPageEstimatesPending(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // 再取得は「選択ファイル集合」のシグネチャが変わったときのみ（配列参照の変化で二重取得しない）
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pdfUploadFileSignature が uploadFiles の内容を表す
+  }, [pdfUploadFileSignature]);
+
+  const pdfCreditPreview = useMemo(() => {
+    const files = pdfDraft.uploadFiles;
+    if (files.length === 0) return null;
+    const keys = files.map(pdfFileKey);
+    if (pdfPageEstimatesPending || keys.some((k) => pdfPageEstimates[k] === undefined)) {
+      return { kind: "loading" as const };
+    }
+    const counts = keys.map((k) => pdfPageEstimates[k] as number | null);
+    if (counts.some((c) => c === null)) {
+      return { kind: "partial" as const };
+    }
+    const nums = counts as number[];
+    const totalPages = nums.reduce((a, b) => a + b, 0);
+    const effectivePages = nums.map((p) => Math.min(p, maxPdfIngestPages));
+    let remainingFree = Math.max(0, companyRagUnitsRemaining ?? 0);
+    let totalFreeFromQuota = 0;
+    for (const p of effectivePages) {
+      const applied = Math.min(p, remainingFree);
+      totalFreeFromQuota += applied;
+      remainingFree -= applied;
+    }
+    const effectiveTotal = effectivePages.reduce((a, b) => a + b, 0);
+    const totalCredits = effectivePages.reduce(
+      (sum, p) => sum + calculatePdfIngestCredits(p),
+      0,
+    );
+    const willTruncateIngest = nums.some((p) => p > maxPdfIngestPages);
+    return {
+      kind: "ready" as const,
+      totalPages,
+      effectiveTotalPages: effectiveTotal,
+      totalFreeFromQuota,
+      totalCredits,
+      willTruncateIngest,
+      maxPdfIngestPages,
+    };
+  }, [
+    pdfDraft.uploadFiles,
+    pdfPageEstimates,
+    pdfPageEstimatesPending,
+    companyRagUnitsRemaining,
+    maxPdfIngestPages,
+  ]);
 
   const orderedCandidates = useMemo(
     () => [
@@ -1064,6 +1179,32 @@ export function CorporateInfoSection({
       setError(inputMode === "url" ? "URLを入力してください" : "URLを選択してください");
       return;
     }
+
+    if (inputMode === "url") {
+      try {
+        const complianceResponse = await fetch(`/api/companies/${companyId}/source-compliance/check`, {
+          method: "POST",
+          headers: buildHeaders(),
+          credentials: "include",
+          body: JSON.stringify({ urls: urlsToFetch }),
+        });
+        if (complianceResponse.ok) {
+          const complianceData: ComplianceCheckResponse = await complianceResponse.json();
+          if (complianceData.blockedResults.length > 0) {
+            setError(complianceData.blockedResults[0]?.reasons[0] || "公開ページURLのみ取得できます");
+            return;
+          }
+          if (complianceData.warningResults.length > 0) {
+            notifyMessage(
+              complianceData.warningResults[0]?.reasons[0] ||
+                "要確認: 利用規約を確認してください。",
+            );
+          }
+        }
+      } catch {
+        // Fall through to server-side validation.
+      }
+    }
     if (!acquireLock("企業情報ページを取得中")) return;
 
     setIsFetching(true);
@@ -1112,12 +1253,35 @@ export function CorporateInfoSection({
       }
 
       const result = await response.json();
+
+      // 先に一覧・RAG統計を同期してから結果画面へ（背景の数値が急に変わるのを抑える）
+      await fetchStatus();
+      onUpdate?.();
+
       setFetchResult(result);
       setModalStep("result");
 
-      // Refresh status
-      await fetchStatus();
-      onUpdate?.();
+      const chunks = result.chunksStored ?? 0;
+      if (result.success && chunks > 0) {
+        const costNote =
+          typeof result.estimatedCostBand === "string" && result.estimatedCostBand.trim()
+            ? ` ${result.estimatedCostBand}。`
+            : "";
+        window.setTimeout(() => {
+          notifySuccess({
+            title: "企業RAGへの取り込みが完了しました",
+            description: `${chunks.toLocaleString()} チャンクを保存しました。ES添削・志望動機・企業内検索で参照できます。${costNote}`.trim(),
+            duration: 4800,
+          });
+        }, RAG_SUCCESS_SNACKBAR_DELAY_MS);
+      } else if (result.success && chunks === 0 && (result.pagesCrawled ?? 0) > 0) {
+        window.setTimeout(() => {
+          notifyMessage(
+            "ページの取得は完了しましたが、保存されたチャンクがありません。別のURLを試してください。",
+            5200
+          );
+        }, RAG_SUCCESS_SNACKBAR_DELAY_MS);
+      }
     } catch (err) {
       const uiError = toAppUiError(
         err,
@@ -1260,11 +1424,18 @@ export function CorporateInfoSection({
       const completedCount = allItems.filter((item) => item.status === "completed").length;
       const failedCount = allItems.filter((item) => item.status === "failed").length;
       const skippedLimitCount = allItems.filter((item) => item.status === "skipped_limit").length;
+      const totalFreeUnitsApplied = allItems
+        .filter((item) => item.status === "completed")
+        .reduce((sum, item) => sum + (item.freeUnitsApplied ?? 0), 0);
+      await fetchStatus();
+      onUpdate?.();
+
       setFetchResult({
         success: completedCount > 0,
         pagesCrawled: pdfDraft.uploadFiles.length,
         chunksStored: totalChunks,
         totalUnits,
+        freeUnitsApplied: totalFreeUnitsApplied,
         remainingFreeUnits: latestRemainingFreeUnits,
         creditsConsumed: totalCreditsConsumed,
         actualCreditsDeducted: totalCreditsDeducted,
@@ -1283,8 +1454,28 @@ export function CorporateInfoSection({
         items: allItems,
       });
       setModalStep("result");
-      await fetchStatus();
-      onUpdate?.();
+
+      if (completedCount > 0 && totalChunks > 0) {
+        const costNote =
+          typeof latestEstimatedCostBand === "string" && latestEstimatedCostBand.trim()
+            ? ` ${latestEstimatedCostBand}。`
+            : "";
+        const failNote =
+          failedCount > 0 || skippedLimitCount > 0
+            ? ` 一部ファイルは取り込めませんでした（失敗 ${failedCount} / 上限スキップ ${skippedLimitCount}）。`
+            : "";
+        window.setTimeout(() => {
+          notifySuccess({
+            title: "企業RAGへの取り込みが完了しました",
+            description: `PDF ${completedCount} 件、計 ${totalChunks.toLocaleString()} チャンクを保存しました。ES添削・志望動機・企業内検索で参照できます。${costNote}${failNote}`.trim(),
+            duration: 5200,
+          });
+        }, RAG_SUCCESS_SNACKBAR_DELAY_MS);
+      } else if (completedCount > 0 && totalChunks === 0) {
+        window.setTimeout(() => {
+          notifyMessage("PDFの取り込みは完了しましたが、保存されたチャンクがありません。", 4800);
+        }, RAG_SUCCESS_SNACKBAR_DELAY_MS);
+      }
     } catch (err) {
       const uiError = toAppUiError(
         err,
@@ -1418,6 +1609,12 @@ export function CorporateInfoSection({
               信頼度 {confidenceMeta.label}
             </span>
           </div>
+          {candidate.complianceStatus === "blocked" && candidate.complianceReasons?.[0] && (
+            <p className="mt-1.5 text-[11px] text-destructive">{candidate.complianceReasons[0]}</p>
+          )}
+          {candidate.complianceStatus === "warning" && candidate.complianceReasons?.[0] && (
+            <p className="mt-1.5 text-[11px] text-amber-700">{candidate.complianceReasons[0]}</p>
+          )}
         </div>
       </div>
     );
@@ -1546,8 +1743,9 @@ export function CorporateInfoSection({
   const totalSources = status?.corporateInfoUrls?.length || 0;
   const pageLimit = status?.pageLimit || 0;
   const sourceUsagePercent = Math.min((totalSources / Math.max(pageLimit, 1)) * 100, 100);
+  const shouldShowRagAllowance = isAuthenticated && plan !== "guest";
   const ragUnitUsagePercent =
-    companyRagUnitsLimit > 0
+    shouldShowRagAllowance && companyRagUnitsLimit > 0
       ? Math.min(
           ((companyRagUnitsLimit - Math.max(companyRagUnitsRemaining, 0)) / Math.max(companyRagUnitsLimit, 1)) * 100,
           100,
@@ -1583,31 +1781,27 @@ export function CorporateInfoSection({
           <p className="text-sm text-muted-foreground">
             ES添削や志望動機づくりに使う企業ソースを整理します。
           </p>
-          <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
-            <div className="flex flex-col gap-2 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-medium">今月の企業RAG無料枠</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {plan === "guest"
-                    ? "企業RAG取込はログインユーザー向け機能です。"
-                    : `残り ${companyRagUnitsRemaining.toLocaleString("ja-JP")} / ${companyRagUnitsLimit.toLocaleString("ja-JP")} unit ・ 1クレジット = 40 unit`}
-                </p>
-              </div>
-              {plan !== "guest" ? (
+          {shouldShowRagAllowance ? (
+            <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+              <div className="flex flex-col gap-2 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-medium">今月の企業RAG無料枠</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {`残り ${companyRagUnitsRemaining.toLocaleString("ja-JP")} / ${companyRagUnitsLimit.toLocaleString("ja-JP")} ページ（月次・URL＋PDF合算）`}
+                  </p>
+                </div>
                 <span className="rounded-full border border-border/60 bg-background px-2.5 py-1 text-xs text-muted-foreground">
                   1社あたり上限 {pageLimit} ソース
                 </span>
-              ) : null}
-            </div>
-            {plan !== "guest" ? (
+              </div>
               <div className="mt-3 h-2 rounded-full bg-muted">
                 <div
                   className="h-2 rounded-full bg-primary transition-all"
                   style={{ width: `${ragUnitUsagePercent}%` }}
                 />
               </div>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
           {!hasAnyData ? (
             <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-5 py-10 text-center">
               <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-muted/50 text-muted-foreground">
@@ -1749,9 +1943,9 @@ export function CorporateInfoSection({
 
       {/* Corporate Info Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-2.5 sm:p-3">
-          <Card className="flex h-[min(700px,calc(100vh-1rem))] min-h-[520px] w-full max-w-4xl flex-col overflow-hidden border-border/50">
-            <div className="relative border-b px-4 py-2.5">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] pt-[max(0.625rem,env(safe-area-inset-top))] sm:p-3">
+          <Card className="flex h-[min(700px,calc(100dvh-1.5rem))] min-h-0 w-full max-w-4xl flex-col overflow-hidden border-border/50">
+            <div className="relative shrink-0 border-b px-4 py-2.5">
               <div className="pr-10">
                 <h2 className="text-base font-semibold text-foreground">企業情報を取得</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1880,26 +2074,26 @@ export function CorporateInfoSection({
                           : null,
                         typeof fetchResult.actualUnits === "number"
                           ? {
-                              label: "今回の取込unit",
+                              label: "今回の取込ページ",
                               value: fetchResult.actualUnits.toLocaleString("ja-JP"),
                             }
                           : null,
                         typeof fetchResult.totalUnits === "number" && fetchResult.totalUnits > 0
                           ? {
-                              label: "合計取込unit",
+                              label: "合計取込ページ",
                               value: fetchResult.totalUnits.toLocaleString("ja-JP"),
                             }
                           : null,
                         typeof fetchResult.freeUnitsApplied === "number"
                           ? {
                               label: "無料枠に充当",
-                              value: `${fetchResult.freeUnitsApplied.toLocaleString("ja-JP")} unit`,
+                              value: `${fetchResult.freeUnitsApplied.toLocaleString("ja-JP")} ページ`,
                             }
                           : null,
                         typeof fetchResult.remainingFreeUnits === "number"
                           ? {
                               label: "無料枠の残り",
-                              value: `${fetchResult.remainingFreeUnits.toLocaleString("ja-JP")} unit`,
+                              value: `${fetchResult.remainingFreeUnits.toLocaleString("ja-JP")} ページ`,
                             }
                           : null,
                         typeof fetchResult.creditsConsumed === "number"
@@ -1984,6 +2178,11 @@ export function CorporateInfoSection({
                                     {item.error && (
                                       <p className="mt-2 text-xs text-destructive">{item.error}</p>
                                     )}
+                                    {item.status === "completed" && item.processingNoticeJa ? (
+                                      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                                        {item.processingNoticeJa}
+                                      </p>
+                                    ) : null}
                                   </div>
                                   <span
                                     className={cn(
@@ -2023,7 +2222,7 @@ export function CorporateInfoSection({
 
               {displayedStep !== "result" && (
                 <div className="flex h-full min-h-0 flex-col px-3 py-2.5 sm:px-4">
-                  <div className="space-y-1.5">
+                  <div className="shrink-0 space-y-1.5">
                     <div className="rounded-lg border border-border/50 bg-muted/15 p-0.5">
                       <div className="grid grid-cols-3 gap-0.5">
                         {(
@@ -2058,7 +2257,12 @@ export function CorporateInfoSection({
                     )}
                   </div>
 
-                  <div className={cn("mt-2 min-h-0", showWebReviewStep && "flex flex-1 flex-col")}>
+                  <div
+                    className={cn(
+                      "mt-2 flex min-h-0 flex-1 flex-col",
+                      !showWebReviewStep && "overflow-y-auto overscroll-contain pb-1"
+                    )}
+                  >
                     {showConfigureStep && inputMode === "web" && (
                       <div className="space-y-2">
                         <div className="rounded-lg border border-border/60 bg-background/80 p-3">
@@ -2302,6 +2506,10 @@ export function CorporateInfoSection({
                             最大10件
                           </span>
                         </div>
+                        <div className="mt-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                          <p className="font-medium text-foreground">取り込み前の上限</p>
+                          <p className="mt-1">{ragPdfPolicySummaryJa}</p>
+                        </div>
                         <div
                           className={cn(
                             "mt-2.5 flex flex-col items-center overflow-hidden rounded-lg border-2 border-dashed transition-colors",
@@ -2455,6 +2663,97 @@ export function CorporateInfoSection({
                               <p className="text-center text-[11px] text-muted-foreground">
                                 OCRが必要なPDFがある場合、通常より時間がかかることがあります（1ファイルあたり5〜15秒）
                               </p>
+                              {pdfCreditPreview ? (
+                                <div className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5 text-left text-[11px] leading-relaxed text-muted-foreground">
+                                  {pdfCreditPreview.kind === "loading" ? (
+                                    <p>PDF のページ数を確認しています…</p>
+                                  ) : pdfCreditPreview.kind === "partial" ? (
+                                    <div className="space-y-2">
+                                      <p className="font-medium text-foreground">ページ数が一部だけ分かりません</p>
+                                      <p>
+                                        取り込みが完了した時点で、実際に使ったページ数とクレジットが確定します。
+                                      </p>
+                                      <p>
+                                        月次の無料枠の残り:{" "}
+                                        <span className="font-medium text-foreground">
+                                          {(companyRagUnitsRemaining ?? 0).toLocaleString("ja-JP")} ページ
+                                        </span>
+                                        （URL と PDF を合算）
+                                      </p>
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-2">
+                                      <p className="font-medium text-foreground">取り込みと消費の目安</p>
+                                      <dl className="space-y-1.5">
+                                        <div>
+                                          <dt className="text-[10px] font-medium text-muted-foreground">
+                                            PDFのページ数（端末での目安）
+                                          </dt>
+                                          <dd className="mt-0.5 text-foreground">
+                                            合計{" "}
+                                            <span className="font-semibold">
+                                              {pdfCreditPreview.totalPages.toLocaleString("ja-JP")}
+                                            </span>{" "}
+                                            ページ（{pdfDraft.uploadFiles.length} ファイル）
+                                          </dd>
+                                        </div>
+                                        <div>
+                                          <dt className="text-[10px] font-medium text-muted-foreground">
+                                            処理するページの見込み
+                                          </dt>
+                                          <dd className="mt-0.5 text-foreground">
+                                            最大{" "}
+                                            <span className="font-semibold">
+                                              {pdfCreditPreview.effectiveTotalPages.toLocaleString("ja-JP")}
+                                            </span>{" "}
+                                            ページ
+                                            <span className="text-muted-foreground">
+                                              （1ファイルあたり先頭から最大{" "}
+                                              {pdfCreditPreview.maxPdfIngestPages.toLocaleString("ja-JP")}{" "}
+                                              ページまで）
+                                            </span>
+                                          </dd>
+                                        </div>
+                                        {pdfCreditPreview.willTruncateIngest ? (
+                                          <div className="rounded-md border border-amber-200/80 bg-amber-50/90 px-2 py-1.5 text-amber-950">
+                                            元のページ数が上限を超えているため、先頭から切り詰めて取り込みます。
+                                          </div>
+                                        ) : null}
+                                        <div>
+                                          <dt className="text-[10px] font-medium text-muted-foreground">
+                                            無料枠の充当見込み
+                                          </dt>
+                                          <dd className="mt-0.5 text-foreground">
+                                            約{" "}
+                                            <span className="font-semibold">
+                                              {pdfCreditPreview.totalFreeFromQuota.toLocaleString("ja-JP")}
+                                            </span>{" "}
+                                            ページ
+                                            <span className="text-muted-foreground">
+                                              （URL と PDF の月次枠を合算して先に充当）
+                                            </span>
+                                          </dd>
+                                        </div>
+                                        <div>
+                                          <dt className="text-[10px] font-medium text-muted-foreground">
+                                            クレジットの見込み
+                                          </dt>
+                                          <dd className="mt-0.5 text-foreground">
+                                            約{" "}
+                                            <span className="font-semibold">
+                                              {pdfCreditPreview.totalCredits.toLocaleString("ja-JP")}
+                                            </span>
+                                            <span className="text-muted-foreground">
+                                              {" "}
+                                              （上記の処理ページ数から換算。確定は取り込み完了時）
+                                            </span>
+                                          </dd>
+                                        </div>
+                                      </dl>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : null}
                             </div>
                           ) : (
                             <div className="space-y-2 text-center">
@@ -2513,7 +2812,7 @@ export function CorporateInfoSection({
             </div>
 
             {!isResultDisplayed && (
-              <div className="border-t bg-muted/15 px-4 py-2.5">
+              <div className="shrink-0 border-t bg-muted/15 px-4 py-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -2670,6 +2969,8 @@ export function CorporateInfoSection({
                         : null;
                       const statusMeta = getSourceStatusMeta(urlInfo.status);
                       const isSelected = selectedUrlsForDelete.has(urlInfo.url);
+                      const isBlocked = urlInfo.complianceStatus === "blocked";
+                      const isWarning = urlInfo.complianceStatus === "warning";
 
                       return (
                         <div
@@ -2728,6 +3029,16 @@ export function CorporateInfoSection({
                               >
                                 {statusMeta.label}
                               </span>
+                              {isBlocked && (
+                                <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800">
+                                  取得対象外
+                                </span>
+                              )}
+                              {isWarning && (
+                                <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800">
+                                  要確認
+                                </span>
+                              )}
                               {secondaryTypes.map((secondary, idx) => {
                                 const secColors = CONTENT_TYPE_COLORS[secondary] || {
                                   bg: "bg-gray-100",
@@ -2774,6 +3085,12 @@ export function CorporateInfoSection({
                                 <div className="inline-flex items-center rounded-full border border-border/60 bg-muted/20 px-2.5 py-1 text-[11px] text-muted-foreground">
                                   {getHostLabel(urlInfo.url)}
                                 </div>
+                                {isBlocked && urlInfo.complianceReasons?.[0] && (
+                                  <p className="text-xs text-amber-700">{urlInfo.complianceReasons[0]}</p>
+                                )}
+                                {isWarning && urlInfo.complianceReasons?.[0] && (
+                                  <p className="text-xs text-amber-700">{urlInfo.complianceReasons[0]}</p>
+                                )}
                               </div>
                             )}
 

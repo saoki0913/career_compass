@@ -29,7 +29,8 @@ interface ReflectModalProps {
   isFullDocument?: boolean;
 }
 
-const MOBILE_MEDIA_QUERY = "(max-width: 767px)";
+/** ES エディタ・MobileReviewPanel と同じ 1024px 未満をモバイル扱いに揃える */
+const MOBILE_MEDIA_QUERY = "(max-width: 1023px)";
 
 function useIsMobileViewport() {
   const [isMobile, setIsMobile] = useState(false);

@@ -39,7 +39,7 @@ npm run db:push
 npm run dev
 ```
 
-詳細なセットアップ手順は [環境設定ガイド](docs/setup/ENV_SETUP.md) を参照してください。
+詳細なセットアップ手順は [開発ガイドと環境変数](docs/setup/DEVELOPMENT_AND_ENV.md) を参照してください。
 
 ## 開発コマンド
 
@@ -49,6 +49,9 @@ make dev
 
 # FastAPI バックエンド起動
 make backend
+
+# UI 実装前の preflight
+npm run ui:preflight -- /pricing --surface=marketing
 
 # テスト実行
 make test
@@ -112,7 +115,8 @@ career_compass/
 ## ドキュメント
 
 - [仕様書](docs/SPEC.md) - 詳細な機能仕様
-- [開発ガイド](docs/setup/DEVELOPMENT.md) - 開発ルールとパターン
+- [開発ガイドと環境変数](docs/setup/DEVELOPMENT_AND_ENV.md) — 開発ルールと環境設定
+- [ドキュメント一覧](docs/INDEX.md) — 全体の地図
 - [進捗状況](docs/PROGRESS.md) - 実装状況の追跡
 
 ## ライセンス

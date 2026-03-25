@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Fragment, Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plus,
@@ -34,6 +34,19 @@ import { ListPageSkeleton } from "@/components/shared/ListPageSkeleton";
 import { ListPageEmptyState } from "@/components/shared/ListPageEmptyState";
 import { FavoritesSection } from "@/components/shared/FavoritesSection";
 import { ViewToggle } from "@/components/shared/ViewToggle";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DEFAULT_ES_DOCUMENT_CATEGORY,
+  ES_DOCUMENT_CATEGORIES,
+  ES_DOCUMENT_CATEGORY_LABELS,
+  type EsDocumentCategory,
+} from "@/lib/es-document-category";
 
 const filterTabs = [
   { key: "all", label: "すべて" },
@@ -68,6 +81,7 @@ function NewDocumentModal({
   initialCompanyId,
 }: NewDocumentModalProps) {
   const [title, setTitle] = useState("");
+  const [esCategory, setEsCategory] = useState<EsDocumentCategory>(DEFAULT_ES_DOCUMENT_CATEGORY);
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [companyOpen, setCompanyOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -76,6 +90,7 @@ function NewDocumentModal({
   useEffect(() => {
     if (!isOpen) {
       setTitle("");
+      setEsCategory(DEFAULT_ES_DOCUMENT_CATEGORY);
       setSelectedCompanyId("");
       setCompanyOpen(false);
       setError(null);
@@ -104,6 +119,7 @@ function NewDocumentModal({
       await onCreate({
         title: title.trim(),
         type: "es",
+        esCategory,
         companyId: selectedCompanyId || undefined,
       });
       onClose();
@@ -123,7 +139,9 @@ function NewDocumentModal({
               <FileText className="w-6 h-6 text-primary" />
             </div>
             <DialogTitle>新しいESを作成</DialogTitle>
-            <DialogDescription>タイトルを入力してESの編集を始めましょう</DialogDescription>
+            <DialogDescription>
+              文書の分類を選び、タイトルを入力して編集を始めましょう（分類に応じた初期テンプレが入ります）。
+            </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-5 py-4">
@@ -149,6 +167,22 @@ function NewDocumentModal({
                 className={cn(error && !title.trim() && "border-red-300 focus-visible:ring-red-500")}
               />
               {error && !title.trim() && <p className="text-xs text-red-500">タイトルを入力してください</p>}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="es-category">文書の分類</Label>
+              <Select value={esCategory} onValueChange={(v) => setEsCategory(v as EsDocumentCategory)}>
+                <SelectTrigger id="es-category" className="h-10 w-full font-normal">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ES_DOCUMENT_CATEGORIES.map((key) => (
+                    <SelectItem key={key} value={key}>
+                      {ES_DOCUMENT_CATEGORY_LABELS[key]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">
@@ -273,6 +307,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("date_desc");
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
+  const [selectedEsCategory, setSelectedEsCategory] = useState<"all" | EsDocumentCategory>("all");
   const [groupByCompany, setGroupByCompany] = useState(false);
 
   const {
@@ -382,6 +417,11 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
       )
       .filter(
         (document) =>
+          selectedEsCategory === "all" ||
+          (document.type === "es" && (document.esCategory ?? DEFAULT_ES_DOCUMENT_CATEGORY) === selectedEsCategory)
+      )
+      .filter(
+        (document) =>
           normalizedQuery === "" ||
           document.title.toLowerCase().includes(normalizedQuery) ||
           (document.company?.name || "").toLowerCase().includes(normalizedQuery)
@@ -401,7 +441,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
           return 0;
       }
     });
-  }, [activeDocuments, filter, searchQuery, selectedCompanies, sortBy]);
+  }, [activeDocuments, filter, searchQuery, selectedCompanies, selectedEsCategory, sortBy]);
 
   const { pinnedDocs, unpinnedDocs } = useMemo(() => {
     const pinned = filteredDocuments.filter((document) => pinnedIds.has(document.id));
@@ -433,7 +473,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">ES作成</h1>
-            <p className="mt-1 text-muted-foreground">{activeDocuments.length}件のエントリーシート</p>
+            <p className="mt-1 text-muted-foreground">{activeDocuments.length}件の文書</p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setShowTrash((current) => !current)}>
@@ -487,7 +527,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
           </div>
         )}
 
-        {!showTrash && !isLoading && activeDocuments.length > 0 && (
+        {!showTrash && (isLoading || activeDocuments.length > 0) && (
           <ListPageFilterBar
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
@@ -500,15 +540,33 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
             sortBy={sortBy}
             onSortChange={(value) => setSortBy(value as SortKey)}
             extraFilter={
-              companyOptions.length > 0 ? (
-                <MultiSelect
-                  options={companyOptions}
-                  selected={selectedCompanies}
-                  onChange={setSelectedCompanies}
-                  placeholder="企業"
-                  className="w-[160px]"
-                />
-              ) : undefined
+              <Fragment>
+                <Select
+                  value={selectedEsCategory}
+                  onValueChange={(v) => setSelectedEsCategory(v as "all" | EsDocumentCategory)}
+                >
+                  <SelectTrigger className="h-9 w-[150px] sm:w-[170px] font-normal text-sm">
+                    <SelectValue placeholder="分類" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">すべての分類</SelectItem>
+                    {ES_DOCUMENT_CATEGORIES.map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {ES_DOCUMENT_CATEGORY_LABELS[key]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {companyOptions.length > 0 ? (
+                  <MultiSelect
+                    options={companyOptions}
+                    selected={selectedCompanies}
+                    onChange={setSelectedCompanies}
+                    placeholder="企業"
+                    className="w-[160px]"
+                  />
+                ) : null}
+              </Fragment>
             }
             viewToggle={
               <ViewToggle
@@ -568,11 +626,15 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
         ) : filteredDocuments.length === 0 ? (
           <ListPageEmptyState
             icon={<FileText className="w-12 h-12 text-muted-foreground/50" />}
-            title={filter !== "all" || searchQuery || selectedCompanies.length > 0 ? "該当するESがありません" : "ESがありません"}
+            title={
+              filter !== "all" || searchQuery || selectedCompanies.length > 0 || selectedEsCategory !== "all"
+                ? "該当する文書がありません"
+                : "文書がありません"
+            }
             description={
-              filter !== "all" || searchQuery || selectedCompanies.length > 0
-                ? "フィルターを変更するか、新しいESを追加してください"
-                : "「新規作成」ボタンからESを作成しましょう"
+              filter !== "all" || searchQuery || selectedCompanies.length > 0 || selectedEsCategory !== "all"
+                ? "フィルターや分類を変更するか、新しい文書を追加してください"
+                : "「新規作成」から文書を作成しましょう"
             }
             action={{
               label: "新規作成",

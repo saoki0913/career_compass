@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { db } from "@/lib/db";
 import {
   aiThreads,
@@ -11,8 +12,11 @@ import {
   userProfiles,
 } from "@/lib/db/schema";
 import { stripCompanyCredentials } from "@/lib/db/sanitize";
+import { normalizeEsDocumentCategory } from "@/lib/es-document-category";
 import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import { isOwnedByIdentity } from "@/app/api/_shared/owner-access";
 import { and, asc, count, desc, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 const COMPANY_LIMITS = {
   guest: 3,
@@ -70,18 +74,32 @@ function serializeDate(value: unknown): string | null {
   return null;
 }
 
+function serializeCompanyRecord(company: typeof companies.$inferSelect) {
+  return {
+    ...stripCompanyCredentials(company),
+    status: company.status ?? "inbox",
+    infoFetchedAt: serializeDate(company.infoFetchedAt),
+    corporateInfoFetchedAt: serializeDate(company.corporateInfoFetchedAt),
+    createdAt: serializeDate(company.createdAt) ?? new Date().toISOString(),
+    updatedAt: serializeDate(company.updatedAt) ?? new Date().toISOString(),
+  };
+}
+
+const loadViewerPlanForUserId = cache(async (userId: string): Promise<CompanyPlan> => {
+  const [profile] = await db
+    .select({ plan: userProfiles.plan })
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, userId))
+    .limit(1);
+
+  return (profile?.plan as CompanyPlan | undefined) ?? "free";
+});
+
 export async function getViewerPlan(identity: RequestIdentity): Promise<CompanyPlan> {
   if (!identity.userId) {
     return "guest";
   }
-
-  const [profile] = await db
-    .select({ plan: userProfiles.plan })
-    .from(userProfiles)
-    .where(eq(userProfiles.userId, identity.userId))
-    .limit(1);
-
-  return (profile?.plan as CompanyPlan | undefined) ?? "free";
+  return loadViewerPlanForUserId(identity.userId);
 }
 
 export async function getCompaniesPageData(identity: RequestIdentity) {
@@ -219,9 +237,45 @@ type DocumentsOptions = {
   companyId?: string | null;
   applicationId?: string | null;
   includeDeleted?: boolean;
+  /** When false, omit `content` from SQL and return `content: null` (list/cards/API list). Default true. */
+  includeContent?: boolean;
 };
 
+const documentListJoin = {
+  company: {
+    id: companies.id,
+    name: companies.name,
+    infoFetchedAt: companies.infoFetchedAt,
+    corporateInfoFetchedAt: companies.corporateInfoFetchedAt,
+    userId: companies.userId,
+    guestId: companies.guestId,
+  },
+  application: {
+    id: applications.id,
+    name: applications.name,
+    userId: applications.userId,
+    guestId: applications.guestId,
+  },
+} as const;
+
+const documentRowWithoutContent = {
+  id: documents.id,
+  userId: documents.userId,
+  guestId: documents.guestId,
+  companyId: documents.companyId,
+  applicationId: documents.applicationId,
+  jobTypeId: documents.jobTypeId,
+  type: documents.type,
+  esCategory: documents.esCategory,
+  title: documents.title,
+  status: documents.status,
+  deletedAt: documents.deletedAt,
+  createdAt: documents.createdAt,
+  updatedAt: documents.updatedAt,
+} as const;
+
 export async function getDocumentsPageData(identity: RequestIdentity, options: DocumentsOptions = {}) {
+  const includeContent = options.includeContent ?? true;
   const conditions = [buildDocumentWhere(identity)];
 
   if (options.type) {
@@ -237,34 +291,77 @@ export async function getDocumentsPageData(identity: RequestIdentity, options: D
     conditions.push(ne(documents.status, "deleted"));
   }
 
-  const documentList = await db
+  const whereClause = and(...conditions);
+
+  if (includeContent) {
+    const rows = await db
+      .select({
+        document: documents,
+        ...documentListJoin,
+      })
+      .from(documents)
+      .leftJoin(companies, eq(documents.companyId, companies.id))
+      .leftJoin(applications, eq(documents.applicationId, applications.id))
+      .where(whereClause)
+      .orderBy(desc(documents.updatedAt));
+    return {
+      documents: rows.map((item) => ({
+        ...item.document,
+        status: item.document.status ?? "draft",
+        esCategory: normalizeEsDocumentCategory(item.document.esCategory),
+        content: parseDocumentContent(item.document.content),
+        deletedAt: item.document.deletedAt ? item.document.deletedAt.toISOString() : null,
+        createdAt: item.document.createdAt.toISOString(),
+        updatedAt: item.document.updatedAt.toISOString(),
+        company:
+          item.company?.id && isOwnedByIdentity(item.company, identity)
+            ? {
+                id: item.company.id,
+                name: item.company.name,
+                infoFetchedAt: serializeDate(item.company.infoFetchedAt),
+                corporateInfoFetchedAt: serializeDate(item.company.corporateInfoFetchedAt),
+              }
+            : null,
+        application:
+          item.application?.id && isOwnedByIdentity(item.application, identity)
+            ? { id: item.application.id, name: item.application.name }
+            : null,
+      })),
+    };
+  }
+
+  const rows = await db
     .select({
-      document: documents,
-      company: {
-        id: companies.id,
-        name: companies.name,
-      },
-      application: {
-        id: applications.id,
-        name: applications.name,
-      },
+      document: documentRowWithoutContent,
+      ...documentListJoin,
     })
     .from(documents)
     .leftJoin(companies, eq(documents.companyId, companies.id))
     .leftJoin(applications, eq(documents.applicationId, applications.id))
-    .where(and(...conditions))
+    .where(whereClause)
     .orderBy(desc(documents.updatedAt));
-
   return {
-    documents: documentList.map((item) => ({
+    documents: rows.map((item) => ({
       ...item.document,
       status: item.document.status ?? "draft",
-      content: parseDocumentContent(item.document.content),
+      esCategory: normalizeEsDocumentCategory(item.document.esCategory),
+      content: null,
       deletedAt: item.document.deletedAt ? item.document.deletedAt.toISOString() : null,
       createdAt: item.document.createdAt.toISOString(),
       updatedAt: item.document.updatedAt.toISOString(),
-      company: item.company?.id ? item.company : null,
-      application: item.application?.id ? item.application : null,
+      company:
+        item.company?.id && isOwnedByIdentity(item.company, identity)
+          ? {
+              id: item.company.id,
+              name: item.company.name,
+              infoFetchedAt: serializeDate(item.company.infoFetchedAt),
+              corporateInfoFetchedAt: serializeDate(item.company.corporateInfoFetchedAt),
+            }
+          : null,
+      application:
+        item.application?.id && isOwnedByIdentity(item.application, identity)
+          ? { id: item.application.id, name: item.application.name }
+          : null,
     })),
   };
 }
@@ -350,6 +447,7 @@ export async function getUpcomingDeadlinesData(identity: RequestIdentity, days =
 export async function getTodayTaskData(identity: RequestIdentity) {
   const now = new Date();
   const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
+  const deadlineCompany = alias(companies, "today_deadline_company");
 
   const openTasks = await db
     .select({
@@ -358,21 +456,28 @@ export async function getTodayTaskData(identity: RequestIdentity) {
         id: companies.id,
         name: companies.name,
         createdAt: companies.createdAt,
+        userId: companies.userId,
+        guestId: companies.guestId,
       },
       application: {
         id: applications.id,
         name: applications.name,
+        userId: applications.userId,
+        guestId: applications.guestId,
       },
       deadline: {
         id: deadlines.id,
         title: deadlines.title,
         dueDate: deadlines.dueDate,
+        userId: deadlineCompany.userId,
+        guestId: deadlineCompany.guestId,
       },
     })
     .from(tasks)
     .leftJoin(companies, eq(tasks.companyId, companies.id))
     .leftJoin(applications, eq(tasks.applicationId, applications.id))
     .leftJoin(deadlines, eq(tasks.deadlineId, deadlines.id))
+    .leftJoin(deadlineCompany, eq(deadlines.companyId, deadlineCompany.id))
     .where(and(eq(tasks.status, "open"), buildTaskWhere(identity)));
 
   if (openTasks.length === 0) {
@@ -496,25 +601,28 @@ export async function getTodayTaskData(identity: RequestIdentity) {
       createdAt: serializeDate(selectedTask.task.createdAt) ?? new Date().toISOString(),
       updatedAt: serializeDate(selectedTask.task.updatedAt) ?? serializeDate(selectedTask.task.createdAt) ?? new Date().toISOString(),
       sortOrder: selectedTask.task.sortOrder ?? 0,
-      company: selectedTask.company?.id
+      company: selectedTask.company?.id && isOwnedByIdentity(selectedTask.company, identity)
         ? {
             id: selectedTask.company.id,
             name: selectedTask.company.name,
           }
         : null,
-      application: selectedTask.application?.id
+      application: selectedTask.application?.id && isOwnedByIdentity(selectedTask.application, identity)
         ? {
             id: selectedTask.application.id,
             name: selectedTask.application.name,
           }
         : null,
-      deadline: selectedTask.deadline?.id
-        ? {
-            id: selectedTask.deadline.id,
-            title: selectedTask.deadline.title,
-            dueDate: selectedTask.deadline.dueDate.toISOString(),
-          }
-        : null,
+      deadline:
+        selectedTask.deadline?.id &&
+        selectedTask.deadline.dueDate &&
+        isOwnedByIdentity(selectedTask.deadline, identity)
+          ? {
+              id: selectedTask.deadline.id,
+              title: selectedTask.deadline.title ?? "",
+              dueDate: selectedTask.deadline.dueDate.toISOString(),
+            }
+          : null,
     },
   };
 }
@@ -639,4 +747,182 @@ export async function getDashboardIncompleteData(identity: RequestIdentity) {
     })),
     inProgressGakuchikaCount: inProgressGakuchika.length,
   };
+}
+
+export async function getCompanyApplicationsData(identity: RequestIdentity, companyId: string) {
+  const appList = await db
+    .select({
+      application: applications,
+    })
+    .from(applications)
+    .innerJoin(companies, eq(applications.companyId, companies.id))
+    .where(and(eq(applications.companyId, companyId), buildCompanyWhere(identity)))
+    .orderBy(applications.sortOrder, desc(applications.createdAt));
+
+  if (appList.length === 0) {
+    return [];
+  }
+
+  const applicationIds = appList.map((item) => item.application.id);
+  const deadlineList = await db
+    .select({
+      applicationId: deadlines.applicationId,
+      id: deadlines.id,
+      title: deadlines.title,
+      dueDate: deadlines.dueDate,
+      type: deadlines.type,
+      completedAt: deadlines.completedAt,
+    })
+    .from(deadlines)
+    .where(and(eq(deadlines.companyId, companyId), inArray(deadlines.applicationId, applicationIds)));
+
+  const now = new Date();
+
+  return appList.map(({ application }) => {
+    const appDeadlines = deadlineList.filter((deadline) => deadline.applicationId === application.id);
+    const upcomingDeadlines = appDeadlines.filter(
+      (deadline) => deadline.dueDate > now && !deadline.completedAt
+    );
+    const nearestDeadline = upcomingDeadlines
+      .toSorted((a, b) => a.dueDate.getTime() - b.dueDate.getTime())[0] ?? null;
+
+    return {
+      ...application,
+      phase: application.phase ? JSON.parse(application.phase) : [],
+      deadlineCount: appDeadlines.length,
+      nearestDeadline: nearestDeadline ? nearestDeadline.dueDate.toISOString() : null,
+      sortOrder: application.sortOrder ?? 0,
+      createdAt: serializeDate(application.createdAt) ?? new Date().toISOString(),
+      updatedAt: serializeDate(application.updatedAt) ?? new Date().toISOString(),
+    };
+  });
+}
+
+export async function getCompanyDeadlinesData(identity: RequestIdentity, companyId: string) {
+  const companyDeadlines = await db
+    .select({
+      deadline: deadlines,
+    })
+    .from(deadlines)
+    .innerJoin(companies, eq(deadlines.companyId, companies.id))
+    .where(and(eq(deadlines.companyId, companyId), buildCompanyWhere(identity)))
+    .orderBy(deadlines.dueDate);
+
+  return companyDeadlines.map(({ deadline }) => ({
+    id: deadline.id,
+    companyId: deadline.companyId,
+    type: deadline.type,
+    title: deadline.title,
+    description: deadline.description,
+    memo: deadline.memo,
+    dueDate: serializeDate(deadline.dueDate) ?? new Date().toISOString(),
+    isConfirmed: deadline.isConfirmed,
+    confidence: deadline.confidence,
+    sourceUrl: deadline.sourceUrl,
+    completedAt: serializeDate(deadline.completedAt),
+    createdAt: serializeDate(deadline.createdAt) ?? new Date().toISOString(),
+    updatedAt: serializeDate(deadline.updatedAt) ?? new Date().toISOString(),
+  }));
+}
+
+export async function getCompanyDetailPageData(identity: RequestIdentity, companyId: string) {
+  const [company] = await db
+    .select()
+    .from(companies)
+    .where(and(eq(companies.id, companyId), buildCompanyWhere(identity)))
+    .limit(1);
+
+  if (!company) {
+    return null;
+  }
+
+  const [applicationsData, deadlinesData, documentsData] = await Promise.all([
+    getCompanyApplicationsData(identity, companyId),
+    getCompanyDeadlinesData(identity, companyId),
+    getDocumentsPageData(identity, {
+      companyId,
+      type: "es",
+      includeDeleted: false,
+      includeContent: false,
+    }),
+  ]);
+
+  return {
+    company: serializeCompanyRecord(company),
+    applications: applicationsData,
+    deadlines: deadlinesData,
+    esDocuments: documentsData.documents,
+  };
+}
+
+async function loadDocumentDetailPageData(
+  documentId: string,
+  userId: string | null,
+  guestId: string | null
+) {
+  const identity: RequestIdentity = userId
+    ? { userId, guestId: null }
+    : { userId: null, guestId: guestId! };
+
+  const [item] = await db
+    .select({
+      document: documents,
+      company: {
+        id: companies.id,
+        name: companies.name,
+        infoFetchedAt: companies.infoFetchedAt,
+        corporateInfoFetchedAt: companies.corporateInfoFetchedAt,
+        userId: companies.userId,
+        guestId: companies.guestId,
+      },
+      application: {
+        id: applications.id,
+        name: applications.name,
+        userId: applications.userId,
+        guestId: applications.guestId,
+      },
+    })
+    .from(documents)
+    .leftJoin(companies, eq(documents.companyId, companies.id))
+    .leftJoin(applications, eq(documents.applicationId, applications.id))
+    .where(and(eq(documents.id, documentId), buildDocumentWhere(identity)))
+    .limit(1);
+
+  if (!item) {
+    return null;
+  }
+
+  return {
+    document: {
+      ...item.document,
+      status: item.document.status ?? "draft",
+      esCategory: normalizeEsDocumentCategory(item.document.esCategory),
+      content: parseDocumentContent(item.document.content),
+      deletedAt: serializeDate(item.document.deletedAt),
+      createdAt: serializeDate(item.document.createdAt) ?? new Date().toISOString(),
+      updatedAt: serializeDate(item.document.updatedAt) ?? new Date().toISOString(),
+      company: item.company?.id && isOwnedByIdentity(item.company, identity)
+        ? {
+            id: item.company.id,
+            name: item.company.name,
+            infoFetchedAt: serializeDate(item.company.infoFetchedAt),
+            corporateInfoFetchedAt: serializeDate(item.company.corporateInfoFetchedAt),
+          }
+        : null,
+      application:
+        item.application?.id && isOwnedByIdentity(item.application, identity)
+          ? { id: item.application.id, name: item.application.name }
+          : null,
+    },
+  };
+}
+
+const loadDocumentDetailPageDataCached = cache(loadDocumentDetailPageData);
+
+export async function getDocumentDetailPageData(identity: RequestIdentity, documentId: string) {
+  const { userId, guestId } = identity;
+  if (!userId && !guestId) {
+    return null;
+  }
+  return loadDocumentDetailPageDataCached(documentId, userId, guestId);
 }

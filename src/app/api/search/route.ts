@@ -11,9 +11,10 @@ import { companies, documents, deadlines } from "@/lib/db/schema";
 import { eq, or, like, and, desc } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
+import { z } from "zod";
 import {
-  escapeLikePattern,
-  normalizeForSearch,
+  buildSafeLikePattern,
+  sanitizeSearchInput,
   extractTextFromContent,
   createSnippet,
   findMatchedField,
@@ -22,6 +23,12 @@ import {
   type SearchResultDeadline,
   type SearchResponse,
 } from "@/lib/search/utils";
+
+const searchParamsSchema = z.object({
+  q: z.string().trim().min(1).max(100),
+  types: z.string().trim().optional(),
+  limit: z.coerce.number().int().min(1).max(20).optional(),
+});
 
 /**
  * Get current user or guest from request
@@ -69,29 +76,26 @@ export async function GET(request: NextRequest) {
 
     // Parse query parameters
     const searchParams = request.nextUrl.searchParams;
-    const query = searchParams.get("q")?.trim() || "";
-    const typesParam = searchParams.get("types") || "all";
-    const limitParam = searchParams.get("limit");
-    const limit = Math.min(Math.max(parseInt(limitParam || "5", 10), 1), 20);
+    const parsedParams = searchParamsSchema.safeParse({
+      q: searchParams.get("q") || "",
+      types: searchParams.get("types") || undefined,
+      limit: searchParams.get("limit") || 5,
+    });
 
-    // Validate query
-    if (!query || query.length < 1) {
+    if (!parsedParams.success) {
       return NextResponse.json(
-        { error: "Search query is required" },
+        { error: "検索条件を確認してください" },
         { status: 400 }
       );
     }
 
-    if (query.length > 100) {
-      return NextResponse.json(
-        { error: "Search query too long (max 100 characters)" },
-        { status: 400 }
-      );
-    }
+    const query = sanitizeSearchInput(parsedParams.data.q);
+    const typesParam = parsedParams.data.types || "all";
+    const limit = parsedParams.data.limit ?? 5;
 
     // Normalize and escape query for SQL LIKE
-    const normalizedQuery = normalizeForSearch(query);
-    const escapedPattern = escapeLikePattern(normalizedQuery);
+    const normalizedQuery = query;
+    const escapedPattern = buildSafeLikePattern(query);
 
     // Parse which types to search
     const searchTypes = typesParam === "all"

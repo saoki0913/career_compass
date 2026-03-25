@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { notificationSettings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import { DAILY_SUMMARY_HOURS_JST, isDailySummaryHourJst } from "@/lib/datetime/jst";
 
 export async function GET(request: NextRequest) {
   try {
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
             { type: "day_before" },
             { type: "hour_before", hours: 3 },
           ]),
+          dailySummaryHourJst: 9,
           createdAt: new Date(),
           updatedAt: new Date(),
         })
@@ -68,6 +70,7 @@ export async function GET(request: NextRequest) {
         reminderTiming: settings.reminderTiming
           ? JSON.parse(settings.reminderTiming)
           : [{ type: "day_before" }, { type: "hour_before", hours: 3 }],
+        dailySummaryHourJst: settings.dailySummaryHourJst ?? 9,
       },
     });
   } catch (error) {
@@ -100,6 +103,7 @@ export async function PUT(request: NextRequest) {
       companyFetch,
       esReview,
       dailySummary,
+      dailySummaryHourJst,
       reminderTiming,
     } = body;
 
@@ -128,6 +132,18 @@ export async function PUT(request: NextRequest) {
     }
     if (dailySummary !== undefined) {
       settingsData.dailySummary = Boolean(dailySummary);
+    }
+    if (dailySummaryHourJst !== undefined) {
+      const h = Number(dailySummaryHourJst);
+      if (!isDailySummaryHourJst(h)) {
+        return NextResponse.json(
+          {
+            error: `デイリーサマリーの時刻は ${DAILY_SUMMARY_HOURS_JST.join(" / ")} 時（JST）から選んでください`,
+          },
+          { status: 400 }
+        );
+      }
+      settingsData.dailySummaryHourJst = h;
     }
     if (reminderTiming !== undefined) {
       if (!Array.isArray(reminderTiming)) {
@@ -159,6 +175,10 @@ export async function PUT(request: NextRequest) {
               { type: "day_before" },
               { type: "hour_before", hours: 3 },
             ]),
+        dailySummaryHourJst:
+          dailySummaryHourJst !== undefined && isDailySummaryHourJst(Number(dailySummaryHourJst))
+            ? Number(dailySummaryHourJst)
+            : 9,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -181,6 +201,7 @@ export async function PUT(request: NextRequest) {
         reminderTiming: updated?.reminderTiming
           ? JSON.parse(updated.reminderTiming)
           : [{ type: "day_before" }, { type: "hour_before", hours: 3 }],
+        dailySummaryHourJst: updated?.dailySummaryHourJst ?? 9,
       },
     });
   } catch (error) {

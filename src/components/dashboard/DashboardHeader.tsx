@@ -74,9 +74,12 @@ const ChevronDownIcon = () => (
 );
 
 export function DashboardHeader() {
-  const { user, isGuest } = useAuth();
+  const { user, isGuest, isAuthenticated, isReady: isAuthReady } = useAuth();
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications({ limit: 5 });
-  const { balance, nextResetAt, plan } = useCredits();
+  const { balance, nextResetAt, plan, isLoading: creditsLoading, error: creditsError, refresh: refreshCredits } = useCredits({
+    isAuthenticated,
+    isAuthReady,
+  });
   const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -112,7 +115,7 @@ export function DashboardHeader() {
     <header className="sticky top-0 z-50 backdrop-blur-xl bg-background/80 border-b border-border/40">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          <div className="flex items-center gap-8">
+          <div className="flex items-center gap-4 max-lg:gap-3 lg:gap-8">
             <Link href="/dashboard" className="flex items-center gap-2 group">
               <img
                 src="/icon.png"
@@ -255,12 +258,13 @@ export function DashboardHeader() {
             {/* Credit Balance - hidden on small mobile, shown in user dropdown */}
             <Link
               href="/pricing"
-              title={creditTitle}
+              title={creditsError ? "クレジット情報を取得できませんでした" : creditTitle}
               className="hidden sm:flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition-all duration-200"
+              onClick={creditsError ? (e) => { e.preventDefault(); refreshCredits(); } : undefined}
             >
               <CreditIcon />
               <span className="text-sm font-semibold text-primary">
-                {balance?.toLocaleString() ?? "---"}
+                {creditsLoading ? "…" : creditsError ? "---" : balance.toLocaleString()}
               </span>
             </Link>
 
@@ -341,7 +345,7 @@ export function DashboardHeader() {
                         <span className="flex items-center gap-2">
                           プラン・クレジット
                           <span className="text-xs font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-                            {balance?.toLocaleString() ?? "---"}
+                            {creditsLoading ? "…" : creditsError ? "---" : balance.toLocaleString()}
                           </span>
                         </span>
                       </Link>

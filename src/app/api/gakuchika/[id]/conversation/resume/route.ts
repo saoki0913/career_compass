@@ -10,6 +10,10 @@ import {
   safeParseStarScores,
   verifyGakuchikaAccess,
 } from "@/app/api/gakuchika/shared";
+import {
+  getRequestId,
+  logAiCreditCostSummary,
+} from "@/lib/ai/cost-summary-log";
 
 export async function POST(
   request: NextRequest,
@@ -17,10 +21,18 @@ export async function POST(
 ) {
   try {
     const { id: gakuchikaId } = await params;
+    const requestId = getRequestId(request);
     const identity = await getIdentity(request);
 
     if (!identity) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+
+    if (!identity.userId) {
+      return NextResponse.json(
+        { error: "ガクチカのAI深掘りはログインが必要です" },
+        { status: 401 },
+      );
     }
 
     const hasAccess = await verifyGakuchikaAccess(gakuchikaId, identity.userId, identity.guestId);
@@ -72,10 +84,18 @@ export async function POST(
         },
         messages,
         questionCount,
-        starScores
+        starScores,
+        requestId,
       );
 
       if (result.error || !result.question) {
+        logAiCreditCostSummary({
+          feature: "gakuchika_resume",
+          requestId,
+          status: "failed",
+          creditsUsed: 0,
+          telemetry: result.telemetry,
+        });
         return NextResponse.json(
           { error: result.error || "次の質問の生成に失敗しました" },
           { status: 503 }
@@ -101,6 +121,13 @@ export async function POST(
           updatedAt: new Date(),
         })
         .where(eq(gakuchikaConversations.id, sessionId));
+      logAiCreditCostSummary({
+        feature: "gakuchika_resume",
+        requestId,
+        status: "success",
+        creditsUsed: 0,
+        telemetry: result.telemetry,
+      });
     }
 
     const allConversations = await db

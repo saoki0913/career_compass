@@ -1,9 +1,11 @@
 from app.prompts.es_templates import get_template_company_grounding_policy
 from app.routers.es_review import (
     _assess_company_evidence_coverage,
+    _build_template_content_type_boosts,
     _build_company_evidence_cards,
     _evaluate_template_rag_availability,
     _filter_verified_company_rag_sources,
+    _should_fetch_company_rag_for_template,
 )
 
 
@@ -162,3 +164,34 @@ def test_filter_verified_company_rag_sources_rejects_ir_page_from_employee_inter
     assert verified == []
     assert len(rejected) == 1
     assert rejected[0]["validation_reason"] == "employee_wrong_topic"
+
+
+def test_template_content_type_boosts_follow_company_motivation_priority() -> None:
+    boosts = _build_template_content_type_boosts(
+        "company_motivation",
+        assistive_company_signal=False,
+    )
+
+    assert boosts["midterm_plan"] == 1.35
+    assert boosts["employee_interviews"] == 1.18
+    assert boosts["new_grad_recruitment"] == 0.92
+
+
+def test_template_content_type_boosts_disable_assistive_templates_without_signal() -> None:
+    boosts = _build_template_content_type_boosts(
+        "gakuchika",
+        assistive_company_signal=False,
+    )
+
+    assert boosts == {}
+
+
+def test_assistive_templates_skip_company_rag_without_signal() -> None:
+    assert _should_fetch_company_rag_for_template(
+        "gakuchika",
+        assistive_company_signal=False,
+    ) is False
+    assert _should_fetch_company_rag_for_template(
+        "gakuchika",
+        assistive_company_signal=True,
+    ) is True

@@ -4,6 +4,8 @@
 
 ---
 
+> いまの標準運用では、Railway の env は `scripts/bootstrap/career-compass/sync-career-compass-env.sh` で同期し、release は `make deploy` から開始します。Dashboard の手動更新は初期セットアップやトラブルシュート時だけに寄せます。
+
 ## 3-0. Railway アカウント作成 & CLI インストール
 
 ### アカウント作成
@@ -183,22 +185,9 @@ CLAUDE_MODEL=claude-sonnet-4-5-20250929
 CLAUDE_HAIKU_MODEL=claude-haiku-4-5-20251001
 OPENAI_MODEL=gpt-5.4-mini
 GOOGLE_MODEL=gemini-3.1-pro-preview
-COHERE_MODEL=command-a-03-2025
 
 # 追加 provider API キー（必要なものだけ設定）
 # GOOGLE_API_KEY=...
-# COHERE_API_KEY=...
-
-# Qwen3 ES添削 beta（別の vLLM / OpenAI-compatible service を使う）
-QWEN_ES_REVIEW_ENABLED=true
-QWEN_ES_REVIEW_BASE_URL=https://<modal-app>.modal.run/v1
-QWEN_ES_REVIEW_MODEL=tokyotech-llm/Qwen3-Swallow-32B-SFT-v0.2
-QWEN_ES_REVIEW_ADAPTER_ID=es_review
-# QWEN_ES_REVIEW_API_KEY=local-qwen
-# QWEN_ES_REVIEW_TIMEOUT_SECONDS=120
-# QWEN_ES_REVIEW_TIMEOUT_REWRITE_SECONDS=90
-# QWEN_ES_REVIEW_TIMEOUT_COMPACT_REWRITE_SECONDS=45
-# QWEN_ES_REVIEW_TOTAL_BUDGET_SECONDS=150
 
 # 機能別モデル設定（エイリアス or 明示モデルID）
 # 例:
@@ -207,14 +196,13 @@ QWEN_ES_REVIEW_ADAPTER_ID=es_review
 #   MODEL_ES_REVIEW=gemini-3.1-pro-preview
 #   MODEL_ES_REVIEW=low-cost
 MODEL_ES_REVIEW=claude-sonnet
-MODEL_GAKUCHIKA=claude-haiku
-MODEL_MOTIVATION=claude-haiku
-MODEL_SELECTION_SCHEDULE=claude-haiku
+MODEL_GAKUCHIKA=gpt-fast
+MODEL_MOTIVATION=gpt-fast
+MODEL_SELECTION_SCHEDULE=gpt-nano
 MODEL_COMPANY_INFO=openai
-MODEL_RAG_QUERY_EXPANSION=claude-haiku
-MODEL_RAG_HYDE=claude-sonnet
-MODEL_RAG_RERANK=claude-sonnet
-MODEL_RAG_CLASSIFY=claude-haiku
+MODEL_RAG_QUERY_EXPANSION=gpt-fast
+MODEL_RAG_HYDE=gpt-fast
+MODEL_RAG_CLASSIFY=gpt-nano
 
 # RAG 埋め込み設定
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
@@ -235,11 +223,7 @@ FRONTEND_URL=https://www.shupass.jp
 # REDIS_URL=redis://...
 ```
 
-> `QWEN_ES_REVIEW_BASE_URL` は既存 FastAPI コンテナ自身ではなく、Modal など別サービスとして立てた vLLM endpoint を向ける。既存の Claude 経路を残したまま、Qwen β だけを外部推論サービスへ逃がす構成を前提にする。
->
-> Qwen β は rewrite-only で動かし、improvement JSON や length-fix の追加 LLM call は使わない。timeout は rewrite / compact rewrite / total budget を中心に調整する。
->
-> ES添削パネルの標準モデルは UI の `モデル選択` dropdown から `Claude Sonnet 4.6 / GPT-5.1 / Gemini 3.1 Pro Preview / Cohere Command A` を切り替えられる。
+> ES添削パネルの標準モデルは UI の `モデル選択` dropdown から `Claude Sonnet 4.6 / GPT-5.4 / Gemini 3.1 Pro Preview / クレジット消費を抑えて添削` を切り替えられる。
 
 ### 設定不要な変数
 

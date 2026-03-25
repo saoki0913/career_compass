@@ -1,12 +1,12 @@
-from types import SimpleNamespace
-
 import pytest
 
 from app.routers import company_info
 from app.routers.company_info import (
     FetchRequest,
+    SCHEDULE_LLM_FALLBACK_MAX_CHARS,
     _build_recruit_queries,
     _build_schedule_source_metadata,
+    _compress_schedule_page_text_for_llm,
     _extract_schedule_follow_links,
     _fetch_schedule_response,
     _normalize_recruitment_source_type,
@@ -112,10 +112,84 @@ def test_schedule_follow_links_keep_same_relation_only():
     assert follow_links == ["https://www.mitsui-steel.com/recruit/guideline.html"]
 
 
+def test_compress_schedule_page_text_keeps_windows_around_keyword_lines():
+    filler = "\n".join([f"ナビゲーション項目{i}" for i in range(30)])
+    core = "27卒 本選考のエントリー締切は2026年4月30日です。提出書類はエントリーシートのみ。"
+    text = f"{filler}\n{core}\n{filler}"
+    out = _compress_schedule_page_text_for_llm(text)
+    assert "2026年4月30日" in out
+    assert len(out) < len(text)
+
+
+def test_compress_schedule_page_text_falls_back_to_prefix_when_no_keywords():
+    text = "無関係な本文 " * 800
+    out = _compress_schedule_page_text_for_llm(text)
+    assert out == text.strip()[:SCHEDULE_LLM_FALLBACK_MAX_CHARS]
+
+
+def test_compress_schedule_extreme_page_uses_tail_not_prefix_when_no_keyword_hits():
+    from app.routers.company_info import (
+        SCHEDULE_EXTREME_PAGE_CHARS,
+        SCHEDULE_LLM_TEXT_MAX_CHARS_EXTREME,
+    )
+
+    # 極端に長いがキーワードも日付も含まない本文 → 末尾スライスへ（先頭フォールバックしない）
+    body = "\n".join([f"NOISE-{i}-xxxxxxxxxxxxxxxx" for i in range(5000)])
+    assert len(body) > SCHEDULE_EXTREME_PAGE_CHARS
+    out = _compress_schedule_page_text_for_llm(body)
+    assert len(out) <= SCHEDULE_LLM_TEXT_MAX_CHARS_EXTREME
+    assert "NOISE-0-" not in out
+    # 末尾 400 行から切り出すが、max_chars で途中で切れるため最終行 ID より高番号帯を確認
+    assert "NOISE-4700" in out or "NOISE-4800" in out
+
+
+def test_compress_schedule_extreme_page_keeps_date_line_without_schedule_keyword():
+    from app.routers.company_info import SCHEDULE_EXTREME_PAGE_CHARS
+
+    filler = "\n".join([f"ナビゲーション行{i}-" + "x" * 20 for i in range(6000)])
+    assert len(filler) > SCHEDULE_EXTREME_PAGE_CHARS
+    core = "2026年4月30日までにマイページからエントリーしてください。"
+    text = f"{filler}\n{core}"
+    out = _compress_schedule_page_text_for_llm(text)
+    assert "2026年4月30日" in out
+    assert len(out) < len(text)
+
+
+def test_compress_schedule_page_text_does_not_pull_distant_lines_into_window():
+    filler = "\n".join([f"ナビ行{i}" for i in range(20)])
+    text = (
+        "会社の歴史と沿革を長く説明しています。\n"
+        f"{filler}\n"
+        "選考スケジュールは書類選考の後に一次面接があります。"
+    )
+    out = _compress_schedule_page_text_for_llm(text)
+    assert "一次面接" in out
+    assert "歴史と沿革" not in out
+
+
+def test_schedule_follow_links_exclude_mypage_even_if_anchor_looks_relevant():
+    html = """
+    <html><body>
+      <a href="/mypage/login">マイページはこちら</a>
+      <a href="/recruit/guideline.html">募集要項</a>
+    </body></html>
+    """.encode("utf-8")
+
+    follow_links = _extract_schedule_follow_links(
+        html,
+        "https://www.mitsui-steel.com/recruit/",
+        "三井物産スチール",
+    )
+
+    assert "https://www.mitsui-steel.com/mypage/login" not in follow_links
+    assert follow_links == ["https://www.mitsui-steel.com/recruit/guideline.html"]
+
+
 @pytest.mark.asyncio
-async def test_fetch_schedule_response_uses_follow_up_page_when_primary_has_no_deadlines(
+async def test_fetch_schedule_response_does_not_fetch_follow_up_html(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """選考スケジュールはユーザー指定の 1 URL のみ。一次ページが短くてもリンク先は取得しない。"""
     primary_url = "https://www.mitsui-steel.com/recruit/"
     follow_url = "https://www.mitsui-steel.com/recruit/guideline.html"
 
@@ -126,45 +200,10 @@ async def test_fetch_schedule_response_uses_follow_up_page_when_primary_has_no_d
                 "<a href=\"/recruit/guideline.html\">募集要項</a></body></html>"
             ).encode("utf-8")
         if url == follow_url:
-            return (
-                "<html><body><p>27卒 本選考 エントリー締切 2026年4月30日。"
-                "応募方法はマイページからエントリーし、詳細な提出物や選考フローもこのページに記載します。"
-                "応募前に必ず募集要項を確認してください。</p></body></html>"
-            ).encode("utf-8")
+            raise AssertionError("follow-up URL must not be fetched for schedule")
         raise AssertionError(f"unexpected url: {url}")
 
-    async def _fake_llm(**kwargs):
-        user_message = kwargs.get("user_message", "")
-        if "2026年4月30日" in user_message:
-            return SimpleNamespace(
-                success=True,
-                data={
-                    "deadlines": [
-                        {
-                            "type": "es_submission",
-                            "title": "本エントリー締切",
-                            "due_date": "2026-04-30",
-                            "source_url": follow_url,
-                            "confidence": "high",
-                        }
-                    ],
-                    "required_documents": [],
-                    "application_method": None,
-                    "selection_process": None,
-                },
-            )
-        return SimpleNamespace(
-            success=True,
-            data={
-                "deadlines": [],
-                "required_documents": [],
-                "application_method": None,
-                "selection_process": None,
-            },
-        )
-
     monkeypatch.setattr(company_info, "fetch_page_content", _fake_fetch_page_content)
-    monkeypatch.setattr(company_info, "call_llm_with_error", _fake_llm)
 
     response = await _fetch_schedule_response(
         FetchRequest(
@@ -176,64 +215,28 @@ async def test_fetch_schedule_response_uses_follow_up_page_when_primary_has_no_d
         feature="selection_schedule",
     )
 
-    assert response.success is True
-    assert response.data is not None
-    assert response.data.deadlines[0].source_url == follow_url
-    assert response.data.deadlines[0].confidence == "high"
+    assert response.success is False
+    assert response.error and "JavaScript" in response.error
 
 
 @pytest.mark.asyncio
-async def test_fetch_schedule_response_uses_pdf_follow_up_when_needed(
+async def test_fetch_schedule_response_does_not_fetch_linked_pdf(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """選考は 1 URL のみ。HTML 内の PDF リンク先は取得しない。"""
     primary_url = "https://www.mitsui-steel.com/recruit/"
     pdf_url = "https://www.mitsui-steel.com/recruit/guideline.pdf"
-    pdf_text = (
-        "27卒 本選考 エントリー締切 2026年5月10日。"
-        "応募方法はマイページからエントリーし、提出物はエントリーシートです。"
-        "この募集要項PDFには選考フローと注意事項がまとまっています。"
-    )
 
     async def _fake_fetch_page_content(url: str, timeout: float = 30.0) -> bytes:
         if url == primary_url:
-            return "<html><body><a href=\"/recruit/guideline.pdf\">募集要項PDF</a></body></html>".encode("utf-8")
+            return "<html><body><a href=\"/recruit/guideline.pdf\">募集要項PDF</a></body></html>".encode(
+                "utf-8"
+            )
         if url == pdf_url:
-            return b"%PDF-1.4 fake pdf"
+            raise AssertionError("PDF URL must not be fetched for schedule")
         raise AssertionError(f"unexpected url: {url}")
 
-    async def _fake_llm(**kwargs):
-        user_message = kwargs.get("user_message", "")
-        if "2026年5月10日" in user_message:
-            return SimpleNamespace(
-                success=True,
-                data={
-                    "deadlines": [
-                        {
-                            "type": "es_submission",
-                            "title": "PDF掲載締切",
-                            "due_date": "2026-05-10",
-                            "source_url": pdf_url,
-                            "confidence": "high",
-                        }
-                    ],
-                    "required_documents": [],
-                    "application_method": None,
-                    "selection_process": None,
-                },
-            )
-        return SimpleNamespace(
-            success=True,
-            data={
-                "deadlines": [],
-                "required_documents": [],
-                "application_method": None,
-                "selection_process": None,
-            },
-        )
-
     monkeypatch.setattr(company_info, "fetch_page_content", _fake_fetch_page_content)
-    monkeypatch.setattr(company_info, "_extract_text_from_pdf_locally", lambda _pdf: pdf_text)
-    monkeypatch.setattr(company_info, "call_llm_with_error", _fake_llm)
 
     response = await _fetch_schedule_response(
         FetchRequest(
@@ -245,7 +248,5 @@ async def test_fetch_schedule_response_uses_pdf_follow_up_when_needed(
         feature="selection_schedule",
     )
 
-    assert response.success is True
-    assert response.data is not None
-    assert response.data.deadlines[0].source_url == pdf_url
-    assert response.data.deadlines[0].due_date == "2026-05-10"
+    assert response.success is False
+    assert response.error and "JavaScript" in response.error

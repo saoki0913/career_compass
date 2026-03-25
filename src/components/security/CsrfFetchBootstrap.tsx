@@ -35,6 +35,34 @@ function resolveUrl(input: RequestInfo | URL): URL | null {
 export function CsrfFetchBootstrap() {
   useEffect(() => {
     const originalFetch = window.fetch.bind(window);
+    let csrfInitPromise: Promise<string | null> | null = null;
+
+    const ensureCsrfToken = async () => {
+      const existingToken = readCookie(CSRF_COOKIE_NAME);
+      if (existingToken) {
+        return existingToken;
+      }
+
+      if (!csrfInitPromise) {
+        csrfInitPromise = originalFetch("/api/csrf", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+          },
+        })
+          .catch(() => null)
+          .then(() => readCookie(CSRF_COOKIE_NAME))
+          .finally(() => {
+            csrfInitPromise = null;
+          });
+      }
+
+      return csrfInitPromise;
+    };
+
+    void ensureCsrfToken();
 
     window.fetch = async (input, init) => {
       const method = (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
@@ -47,7 +75,7 @@ export function CsrfFetchBootstrap() {
         return originalFetch(input, init);
       }
 
-      const token = readCookie(CSRF_COOKIE_NAME);
+      const token = readCookie(CSRF_COOKIE_NAME) ?? (await ensureCsrfToken());
       if (!token) {
         return originalFetch(input, init);
       }

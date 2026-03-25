@@ -21,6 +21,7 @@ import { type IncompleteItemsData } from "@/hooks/useIncompleteItems";
 import { useTodayTask, TASK_TYPE_LABELS, type TodayTask } from "@/hooks/useTasks";
 import { getStatusConfig, type CompanyStatus } from "@/lib/constants/status";
 import { cn } from "@/lib/utils";
+import { DashboardSkeleton } from "@/components/skeletons/DashboardSkeleton";
 
 const CompanySelectModal = dynamic(() =>
   import("@/components/dashboard/CompanySelectModal").then((mod) => mod.CompanySelectModal)
@@ -248,19 +249,7 @@ export function DashboardPageClient({
 
   if (!initialCompanies && companiesLoading && esStatsLoading && deadlinesLoading && todayTask.isLoading && activationLoading) {
     return (
-      <div className="min-h-screen bg-background">
-        <DashboardHeader />
-        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-          <div className="animate-pulse space-y-8">
-            <div className="h-8 w-64 rounded-lg bg-muted" />
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-              {[1, 2, 3].map((item) => (
-                <div key={item} className="h-32 rounded-2xl bg-muted" />
-              ))}
-            </div>
-          </div>
-        </main>
-      </div>
+      <DashboardSkeleton showTodayTaskSkeleton={Boolean(initialTodayTask?.task)} />
     );
   }
 
@@ -290,7 +279,7 @@ export function DashboardPageClient({
       <DashboardHeader />
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
+        <div className="mb-6 flex min-h-[4.5rem] flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold tracking-tight">
@@ -305,62 +294,65 @@ export function DashboardPageClient({
             <p className="mt-1 text-muted-foreground">今日も就活を一歩前へ進めましょう</p>
           </div>
 
-          {todayTask.task && (
-            <Card className="w-full flex-shrink-0 border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5 sm:w-[420px]">
-              <CardHeader className="px-4 pb-2 pt-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-primary">
-                    <StarIcon />
-                    <span className="text-xs font-medium">
-                      今日の最重要タスク
-                      {todayTask.mode === "DEADLINE" && " - 締切優先モード"}
-                      {todayTask.mode === "DEEP_DIVE" && " - 深掘りモード"}
-                    </span>
-                  </div>
-                  <Button variant="outline" size="sm" className="h-7 px-2 text-xs" asChild>
-                    <Link href="/tasks">タスク一覧</Link>
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="px-4 pb-3 pt-0">
-                <div className="flex items-start gap-3">
+          {todayTask.task ? (
+            <Card
+              data-testid="dashboard-today-task-card"
+              className="w-full max-h-24 shrink-0 gap-0 overflow-hidden border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5 py-0 sm:w-[36rem] sm:max-w-[min(36rem,calc(100vw-2rem))] sm:flex-none"
+            >
+              <CardContent className="p-0 px-3 py-1.5">
+                <div className="flex items-start gap-2.5">
                   <button
                     type="button"
                     onClick={() => void todayTask.markComplete()}
-                    className="mt-0.5 h-5 w-5 flex-shrink-0 rounded-full border-2 border-primary transition-colors hover:bg-primary/10"
+                    className="mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 border-primary transition-colors hover:bg-primary/10"
                     title="完了にする"
                   />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-1 text-primary">
+                        <span className="inline-flex shrink-0 scale-90">
+                          <StarIcon />
+                        </span>
+                        <span className="truncate text-[10px] font-medium leading-tight sm:text-xs">
+                          今日の最重要タスク
+                          {todayTask.mode === "DEADLINE" && " · 締切優先"}
+                          {todayTask.mode === "DEEP_DIVE" && " · 深掘り"}
+                        </span>
+                      </div>
+                      <Button variant="outline" size="sm" className="h-6 shrink-0 px-2 text-[10px]" asChild>
+                        <Link href="/tasks">一覧</Link>
+                      </Button>
+                    </div>
+                    <div className="flex min-w-0 flex-nowrap items-center gap-x-2 overflow-hidden text-[10px] sm:text-xs">
+                      <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-primary">
                         {TASK_TYPE_LABELS[todayTask.task.type]}
                       </span>
                       {todayTask.task.company && (
                         <Link
                           href={`/companies/${todayTask.task.company.id}`}
-                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+                          className="flex min-w-0 flex-1 items-center gap-0.5 truncate text-muted-foreground hover:text-primary [&_svg]:h-3 [&_svg]:w-3"
                         >
                           <CompanyIcon />
-                          {todayTask.task.company.name}
+                          <span className="truncate">{todayTask.task.company.name}</span>
                         </Link>
                       )}
+                      {todayTask.task.deadline && (
+                        <span className="flex shrink-0 items-center gap-0.5 text-muted-foreground [&_svg]:h-3 [&_svg]:w-3">
+                          <ClockIcon />
+                          {new Date(todayTask.task.deadline.dueDate).toLocaleDateString("ja-JP", {
+                            month: "long",
+                            day: "numeric",
+                          })}
+                          まで
+                        </span>
+                      )}
                     </div>
-                    <p className="mt-0.5 font-medium">{todayTask.task.title}</p>
-                    {todayTask.task.deadline && (
-                      <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                        <ClockIcon />
-                        {new Date(todayTask.task.deadline.dueDate).toLocaleDateString("ja-JP", {
-                          month: "long",
-                          day: "numeric",
-                        })}
-                        まで
-                      </p>
-                    )}
+                    <p className="truncate text-sm font-medium leading-snug">{todayTask.task.title}</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
-          )}
+          ) : null}
         </div>
 
         <FirstRunGuideCard isVisible={!!shouldShowFirstRunGuide} />

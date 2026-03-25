@@ -8,6 +8,8 @@ type CreateApiErrorResponseOptions = {
   userMessage: string;
   action?: string;
   retryable?: boolean;
+  /** LLM 層の error_type（billing / rate_limit / network / parse / no_api_key 等） */
+  llmErrorType?: string;
   developerMessage?: string;
   details?: string;
   error?: unknown;
@@ -57,6 +59,7 @@ export function createApiErrorResponse(
         userMessage: options.userMessage,
         action: options.action,
         retryable: options.retryable ?? false,
+        ...(options.llmErrorType ? { llmErrorType: options.llmErrorType } : {}),
       },
       requestId,
       ...(process.env.NODE_ENV === "development"

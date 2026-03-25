@@ -40,6 +40,7 @@ type StructuredApiErrorPayload = {
     userMessage?: string;
     action?: string;
     retryable?: boolean;
+    llmErrorType?: string;
   } | string;
   requestId?: string;
   debug?: {
@@ -134,6 +135,13 @@ function safeJsonParse(text: string): StructuredApiErrorPayload | null {
 
 function logDebugInfo(context: string, error: AppUiError, rawMessage: string | null) {
   if (process.env.NODE_ENV !== "development") {
+    return;
+  }
+
+  // SSE 等で返る「想定内の再試行可能」失敗は console.error にしない（スタック付き JSON がノイズになる）
+  if (error.code === "ES_REVIEW_STREAM_FAILED" && error.retryable) {
+    const detail = error.developerMessage || rawMessage || error.message;
+    console.warn(`[${context}] ${error.code}:`, detail);
     return;
   }
 

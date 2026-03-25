@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { getDeviceToken } from "@/lib/auth/device-token";
 import { ProcessingSteps, COMPANY_FETCH_STEPS } from "@/components/ui/ProcessingSteps";
 import { useOperationLock } from "@/hooks/useOperationLock";
-import { notifySuccess } from "@/lib/notifications";
+import { notifyError, notifyMessage, notifySuccess } from "@/lib/notifications";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import {
   CONFIDENCE_BADGE_COLORS,
@@ -31,12 +32,19 @@ interface SearchCandidate {
   confidence: "high" | "medium" | "low";
   sourceType: "official" | "job_site" | "subsidiary" | "parent" | "blog" | "other";
   relationCompanyName?: string | null;
+  complianceStatus?: "allowed" | "warning" | "blocked";
+  complianceReasons?: string[];
 }
 
 interface SearchPagesResponse {
   candidates: SearchCandidate[];
   usedGraduationYear: number | null;
   yearSource: "profile" | "manual" | "none";
+}
+
+interface ComplianceCheckResponse {
+  blockedResults: Array<{ url: string; reasons: string[] }>;
+  warningResults: Array<{ url: string; reasons: string[] }>;
 }
 
 interface DeadlineSummary {
@@ -85,17 +93,6 @@ const SparklesIcon = () => (
   </svg>
 );
 
-const LoadingSpinner = () => (
-  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-    <path
-      className="opacity-75"
-      fill="currentColor"
-      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-    />
-  </svg>
-);
-
 const CheckIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -137,15 +134,15 @@ export function FetchInfoButton({
   const [showModal, setShowModal] = useState(false);
   const [modalStep, setModalStep] = useState<ModalStep>("selection");
   const [isFetching, setIsFetching] = useState(false);
+  /** true while POST /fetch-info is in flight (show step progress); false during pre-check */
+  const [isExtractingDeadlines, setIsExtractingDeadlines] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [candidates, setCandidates] = useState<SearchCandidate[]>([]);
-  const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
+  const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [customUrl, setCustomUrl] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [result, setResult] = useState<FetchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Progress tracking for sequential URL processing
-  const [fetchProgress, setFetchProgress] = useState<{ current: number; total: number } | null>(null);
   // Selection type filter (main_selection / internship) - required for accurate search
   const [selectionType, setSelectionType] = useState<SelectionTypeState>(null);
   // User's graduation year from profile
@@ -206,17 +203,19 @@ export function FetchInfoButton({
   const resetTransientState = () => {
     setModalStep("selection");
     setCandidates([]);
-    setSelectedUrls([]);
+    setSelectedSource(null);
     setCustomUrl("");
     setSearchQuery("");
     setResult(null);
     setError(null);
-    setFetchProgress(null);
     setSelectionType(null);
     setGraduationYearInput(graduationYear ? String(graduationYear) : "");
     setActiveGraduationYear(graduationYear);
     setActiveYearSource(graduationYear ? "profile" : "none");
     setIsRelaxedSearch(false);
+    setIsFetching(false);
+    setIsSearching(false);
+    setIsExtractingDeadlines(false);
   };
 
   const openModal = () => {
@@ -286,17 +285,11 @@ export function FetchInfoButton({
       setActiveYearSource(data.yearSource);
 
       // Default: select existing URL and high-confidence candidates
-      const defaultSelections: string[] = [];
-      if (hasRecruitmentUrl) {
-        defaultSelections.push("existing");
-      }
-      // Auto-select only (official, high) candidates
-      data.candidates.forEach((c) => {
-        if (c.sourceType === "official" && c.confidence === "high") {
-          defaultSelections.push(c.url);
-        }
-      });
-      setSelectedUrls(defaultSelections);
+      const defaultSelection =
+        hasRecruitmentUrl
+          ? "existing"
+          : data.candidates.find((candidate) => candidate.complianceStatus !== "blocked")?.url ?? null;
+      setSelectedSource(defaultSelection);
     } catch (err) {
       const uiError = toAppUiError(
         err,
@@ -310,7 +303,7 @@ export function FetchInfoButton({
       );
       setError(uiError.message);
       setCandidates([]);
-      setSelectedUrls([]);
+      setSelectedSource(null);
     } finally {
       setIsSearching(false);
       releaseLock();
@@ -319,242 +312,152 @@ export function FetchInfoButton({
 
   const handleConfirmUrl = async () => {
     if (!acquireLock("採用情報を取得中")) return;
-    // Build list of URLs to fetch
-    const urlsToFetch: string[] = [];
+    let urlToFetch = "";
 
-    for (const selected of selectedUrls) {
-      if (selected === "existing" && hasRecruitmentUrl) {
-        urlsToFetch.push(""); // Empty string means use existing URL
-      } else if (selected !== "custom") {
-        urlsToFetch.push(selected);
-      }
-    }
-
-    // Add custom URL if selected
-    if (selectedUrls.includes("custom")) {
+    if (selectedSource === "existing" && hasRecruitmentUrl) {
+      urlToFetch = "";
+    } else if (selectedSource === "custom") {
       if (!customUrl.trim()) {
         setError("カスタムURLを入力してください");
         releaseLock();
         return;
       }
-      urlsToFetch.push(customUrl.trim());
+      urlToFetch = customUrl.trim();
+    } else if (selectedSource) {
+      urlToFetch = selectedSource;
     }
 
-    if (urlsToFetch.length === 0) {
+    if (!selectedSource) {
       setError("URLを選択してください");
       releaseLock();
       return;
     }
 
-    // Sequential processing with progress tracking
-    setModalStep("candidates");
-    setIsFetching(true);
     setError(null);
-    setFetchProgress({ current: 0, total: urlsToFetch.length });
+    setIsFetching(true);
+    setIsExtractingDeadlines(false);
 
-    // Aggregated results
-    let totalDeadlinesCount = 0;
-    let totalDuplicatesSkipped = 0;
-    const allDeadlineIds: string[] = [];
-    const allDuplicateIds: string[] = [];
-    const allDeadlines: DeadlineSummary[] = [];
-    let applicationMethod: string | null = null;
-    const requiredDocuments: string[] = [];
-    let selectionProcess: string | null = null;
-    let totalCreditsConsumed = 0;
-    let freeUsed = false;
-    let freeRemaining = 0;
-    let totalDeadlinesExtractedCount = 0;
-    let totalDeadlinesSavedCount = 0;
-    const errors: string[] = [];
-    let anySuccess = false;
-    let sawNoDeadlines = false;
-    let sawDuplicatesOnly = false;
-
-    for (let i = 0; i < urlsToFetch.length; i++) {
-      const url = urlsToFetch[i];
+    if (urlToFetch) {
       try {
-        const response = await fetch(`/api/companies/${companyId}/fetch-info`, {
+        const complianceResponse = await fetch(`/api/companies/${companyId}/source-compliance/check`, {
           method: "POST",
           headers: buildHeaders(),
           credentials: "include",
-          body: JSON.stringify({
-            url,
-            selectionType: selectionType || undefined,
-            graduationYear: activeGraduationYear || resolveGraduationYear() || undefined,
-          }),
+          body: JSON.stringify({ urls: [urlToFetch] }),
         });
-
-        if (response.status === 402) {
-          const uiError = await parseApiErrorResponse(
-            response,
-            {
-              code: "FETCH_INFO_LIMIT_REACHED",
-              userMessage: "この操作は現在利用できませんでした。",
-              action: "プランや残高を確認して、もう一度お試しください。",
-            },
-            "FetchInfoButton.handleConfirmUrl"
-          );
-          errors.push(uiError.message);
-          continue;
-        }
-
-        if (!response.ok) {
-          const uiError = await parseApiErrorResponse(
-            response,
-            {
-              code: "FETCH_INFO_FAILED",
-              userMessage: `URL ${i + 1} の取得に失敗しました。`,
-              action: "URLや設定を確認して、もう一度お試しください。",
-              retryable: true,
-            },
-            "FetchInfoButton.handleConfirmUrl"
-          );
-          errors.push(uiError.message);
-          continue;
-        }
-
-        const data: FetchResult = await response.json();
-        totalDeadlinesExtractedCount += data.deadlinesExtractedCount || 0;
-        totalDeadlinesSavedCount += data.deadlinesSavedCount || data.data?.deadlinesCount || 0;
-        if (data.resultStatus === "no_deadlines") {
-          sawNoDeadlines = true;
-        }
-        if (data.resultStatus === "duplicates_only") {
-          sawDuplicatesOnly = true;
-        }
-
-        if (data.success && data.data) {
-          anySuccess = true;
-          totalDeadlinesCount += data.data.deadlinesCount || 0;
-          allDeadlineIds.push(...(data.data.deadlineIds || []));
-          if (data.deadlines) {
-            allDeadlines.push(...data.deadlines);
+        if (complianceResponse.ok) {
+          const complianceData: ComplianceCheckResponse = await complianceResponse.json();
+          if (complianceData.blockedResults.length > 0) {
+            setError(complianceData.blockedResults[0]?.reasons[0] || "公開ページURLのみ取得できます");
+            setIsFetching(false);
+            releaseLock();
+            return;
+          }
+          if (complianceData.warningResults.length > 0) {
+            notifyMessage(
+              complianceData.warningResults[0]?.reasons[0] ||
+                "要確認: 利用規約を確認してください。",
+            );
           }
         }
+      } catch {
+        // Fall through to route-level validation.
+      }
+    }
 
-        if (data.data) {
-          totalDuplicatesSkipped += data.data.duplicatesSkipped || 0;
-          allDuplicateIds.push(...(data.data.duplicateIds || []));
-          if (!applicationMethod && data.data.applicationMethod) {
-            applicationMethod = data.data.applicationMethod;
-          }
-          if (data.data.requiredDocuments) {
-            for (const doc of data.data.requiredDocuments) {
-              if (!requiredDocuments.includes(doc)) {
-                requiredDocuments.push(doc);
-              }
-            }
-          }
-          if (!selectionProcess && data.data.selectionProcess) {
-            selectionProcess = data.data.selectionProcess;
-          }
-        }
+    setIsExtractingDeadlines(true);
+    try {
+      const response = await fetch(`/api/companies/${companyId}/fetch-info`, {
+        method: "POST",
+        headers: buildHeaders(),
+        credentials: "include",
+        body: JSON.stringify({
+          url: urlToFetch,
+          selectionType: selectionType || undefined,
+          graduationYear: activeGraduationYear || resolveGraduationYear() || undefined,
+        }),
+      });
 
-        totalCreditsConsumed += data.creditsConsumed || 0;
-        freeUsed = freeUsed || data.freeUsed;
-        freeRemaining = data.freeRemaining;
-        if (data.error) {
-          const uiError = toAppUiError(
-            data.error,
-            {
-              code: "FETCH_INFO_PARTIAL_ERROR",
-              userMessage: `URL ${i + 1} の取得で一部処理が完了しませんでした。`,
-              action: "必要に応じて候補URLを見直し、再試行してください。",
-            },
-            "FetchInfoButton.handleConfirmUrl.result"
-          );
-          errors.push(uiError.message);
-        }
-      } catch (err) {
-        const uiError = toAppUiError(
-          err,
+      if (response.status === 402) {
+        const uiError = await parseApiErrorResponse(
+          response,
+          {
+            code: "FETCH_INFO_LIMIT_REACHED",
+            userMessage: "この操作は現在利用できませんでした。",
+            action: "プランや残高を確認して、もう一度お試しください。",
+          },
+          "FetchInfoButton.handleConfirmUrl"
+        );
+        setError(uiError.message);
+        notifyError({
+          title: uiError.message,
+          description: uiError.action,
+        });
+        return;
+      }
+
+      if (!response.ok) {
+        const uiError = await parseApiErrorResponse(
+          response,
           {
             code: "FETCH_INFO_FAILED",
-            userMessage: `URL ${i + 1} の取得に失敗しました。`,
+            userMessage: "情報の取得に失敗しました。",
             action: "URLや設定を確認して、もう一度お試しください。",
             retryable: true,
           },
           "FetchInfoButton.handleConfirmUrl"
         );
-        errors.push(uiError.message);
-      } finally {
-        setFetchProgress({ current: i + 1, total: urlsToFetch.length });
+        setError(uiError.message);
+        notifyError({
+          title: uiError.message,
+          description: uiError.action,
+        });
+        return;
       }
-    }
 
-    setFetchProgress(null);
-    setIsFetching(false);
-    releaseLock();
+      const data: FetchResult = await response.json();
+      setResult(data);
+      setModalStep("result");
 
-    const mergedStatus: FetchResultStatus = anySuccess
-      ? "success"
-      : sawDuplicatesOnly
-        ? "duplicates_only"
-        : sawNoDeadlines
-          ? "no_deadlines"
-          : "error";
-
-    // Build merged result
-    const mergedResult: FetchResult = {
-      success: anySuccess,
-      resultStatus: mergedStatus,
-      data: anySuccess ? {
-        deadlinesCount: totalDeadlinesCount,
-        deadlineIds: allDeadlineIds,
-        duplicatesSkipped: totalDuplicatesSkipped,
-        duplicateIds: allDuplicateIds,
-        applicationMethod,
-        requiredDocuments,
-        selectionProcess,
-      } : {
-        deadlinesCount: 0,
-        deadlineIds: [],
-        duplicatesSkipped: totalDuplicatesSkipped,
-        duplicateIds: allDuplicateIds,
-        applicationMethod,
-        requiredDocuments,
-        selectionProcess,
-      },
-      deadlines: mergedStatus === "success" ? allDeadlines : [],
-      error: mergedStatus === "error" && errors.length > 0 ? errors.join("\n") : undefined,
-      message:
-        mergedStatus === "duplicates_only"
-          ? "取得した締切はすべて既存データと重複していたため、新規追加はありませんでした。"
-          : mergedStatus === "no_deadlines"
-            ? "締切は追加されませんでした。URLを見直すか、別の候補を試してください。"
-            : undefined,
-      deadlinesExtractedCount: totalDeadlinesExtractedCount,
-      deadlinesSavedCount: totalDeadlinesSavedCount,
-      creditsConsumed: totalCreditsConsumed,
-      freeUsed,
-      freeRemaining,
-    };
-
-    setResult(mergedResult);
-    setModalStep("result");
-
-    if (mergedStatus === "success" && onSuccess) {
-      onSuccess();
-      // Show success toast with credit consumption info
-      notifySuccess({
-        title: "企業情報を取得しました",
-        description: freeUsed ? "無料枠を使用" : `${totalCreditsConsumed}クレジット消費`,
+      if (data.resultStatus === "success") {
+        onSuccess?.();
+        window.setTimeout(() => {
+          notifySuccess({
+            title: "企業情報を取得しました",
+            description: data.freeUsed
+              ? "今回は無料枠を使用しました。"
+              : `${data.creditsConsumed}クレジットを消費しました。`,
+            duration: 4800,
+          });
+        }, 220);
+      }
+    } catch (err) {
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "FETCH_INFO_FAILED",
+          userMessage: "情報の取得に失敗しました。",
+          action: "URLや設定を確認して、もう一度お試しください。",
+          retryable: true,
+        },
+        "FetchInfoButton.handleConfirmUrl"
+      );
+      setError(uiError.message);
+      notifyError({
+        title: uiError.message,
+        description: uiError.action,
       });
+    } finally {
+      setIsFetching(false);
+      setIsExtractingDeadlines(false);
+      releaseLock();
     }
-
   };
 
   const closeResult = () => {
     setModalStep("result");
     setResult(null);
     setError(null);
-  };
-
-  const toggleUrlSelection = (url: string) => {
-    setSelectedUrls((prev) =>
-      prev.includes(url) ? prev.filter((u) => u !== url) : [...prev, url]
-    );
   };
 
   const handleReSearch = () => {
@@ -594,7 +497,7 @@ export function FetchInfoButton({
       >
         {isSearching || isFetching ? (
           <>
-            <LoadingSpinner />
+            <Loader2 className="size-5 shrink-0 animate-spin" aria-hidden />
             <span>{isSearching ? "検索中..." : "取得中..."}</span>
           </>
         ) : (
@@ -698,11 +601,12 @@ export function FetchInfoButton({
                     <Button
                       onClick={() => handleSearchPages()}
                       disabled={!selectionType || !resolveGraduationYear() || isSearching}
+                      className={cn(isSearching && "cursor-wait disabled:opacity-100")}
                     >
                       {isSearching ? (
                         <>
-                          <LoadingSpinner />
-                          <span className="ml-2">検索中...</span>
+                          <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                          <span>検索中...</span>
                         </>
                       ) : (
                         "検索"
@@ -755,44 +659,34 @@ export function FetchInfoButton({
                       </div>
                       <Button
                         onClick={handleConfirmUrl}
-                        disabled={selectedUrls.length === 0 || isFetching || isSearching}
+                        disabled={!selectedSource || isFetching || isSearching}
+                        aria-busy={isFetching}
+                        className={cn(isFetching && "cursor-wait disabled:opacity-100")}
                       >
                         {isFetching ? (
                           <>
-                            <LoadingSpinner />
-                            <span className="ml-2">取得中...</span>
+                            <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                            <span>取得中...</span>
                           </>
                         ) : (
-                          `選考スケジュールを取得${selectedUrls.length > 1 ? ` (${selectedUrls.length}件)` : ""}`
+                          "選考スケジュールを取得"
                         )}
                       </Button>
                     </div>
 
                     {(isSearching || isFetching) && (
                       <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                        {isFetching && fetchProgress ? (
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between text-sm text-blue-800">
-                              <span>
-                                {fetchProgress.current}/{fetchProgress.total} 処理中...
-                              </span>
-                              <span className="font-medium">
-                                {Math.round((fetchProgress.current / fetchProgress.total) * 100)}%
-                              </span>
-                            </div>
-                            <div className="w-full bg-blue-200 rounded-full h-1.5">
-                              <div
-                                className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
-                                style={{ width: `${(fetchProgress.current / fetchProgress.total) * 100}%` }}
-                              />
-                            </div>
+                        {isSearching ? (
+                          <div className="flex items-center gap-2 text-sm text-blue-800">
+                            <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                            <span>候補URLを検索中です。</span>
                           </div>
-                        ) : isFetching ? (
-                          <ProcessingSteps steps={COMPANY_FETCH_STEPS} isActive={isFetching} />
+                        ) : isExtractingDeadlines ? (
+                          <ProcessingSteps steps={COMPANY_FETCH_STEPS} isActive={isExtractingDeadlines} />
                         ) : (
                           <div className="flex items-center gap-2 text-sm text-blue-800">
-                            <LoadingSpinner />
-                            <span>候補URLを検索中です。</span>
+                            <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                            <span>取得の準備をしています…</span>
                           </div>
                         )}
                       </div>
@@ -818,13 +712,14 @@ export function FetchInfoButton({
                       size="sm"
                       onClick={handleReSearch}
                       disabled={isSearching || isFetching || !searchQuery.trim()}
+                      className={cn(isSearching && "cursor-wait disabled:opacity-100")}
                     >
-                      {isSearching ? <LoadingSpinner /> : "再検索"}
+                      {isSearching ? (
+                        <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                      ) : (
+                        "再検索"
+                      )}
                     </Button>
-                  </div>
-
-                  <div className="text-sm text-muted-foreground">
-                    選択中: <span className="font-medium text-foreground">{selectedUrls.length}件</span>
                   </div>
 
                   {error && (
@@ -837,9 +732,10 @@ export function FetchInfoButton({
                     {hasRecruitmentUrl && (
                       <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
                         <input
-                          type="checkbox"
-                          checked={selectedUrls.includes("existing")}
-                          onChange={() => toggleUrlSelection("existing")}
+                          type="radio"
+                          name="schedule-source"
+                          checked={selectedSource === "existing"}
+                          onChange={() => setSelectedSource("existing")}
                           className="mt-1"
                           disabled={isFetching}
                         />
@@ -871,9 +767,10 @@ export function FetchInfoButton({
                           className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
                         >
                           <input
-                            type="checkbox"
-                            checked={selectedUrls.includes(candidate.url)}
-                            onChange={() => toggleUrlSelection(candidate.url)}
+                            type="radio"
+                            name="schedule-source"
+                            checked={selectedSource === candidate.url}
+                            onChange={() => setSelectedSource(candidate.url)}
                             className="mt-1"
                             disabled={isFetching}
                           />
@@ -897,6 +794,14 @@ export function FetchInfoButton({
                                   {" ・ "}自動選択はされません
                                 </p>
                               )}
+                            {candidate.complianceStatus === "blocked" && candidate.complianceReasons?.[0] && (
+                              <p className="text-xs text-destructive mt-1">{candidate.complianceReasons[0]}</p>
+                            )}
+                            {candidate.complianceStatus === "warning" && candidate.complianceReasons?.[0] && (
+                              <p className="text-xs text-amber-700 mt-1">
+                                {candidate.complianceReasons[0]}
+                              </p>
+                            )}
                             <a
                               href={candidate.url}
                               target="_blank"
@@ -934,9 +839,10 @@ export function FetchInfoButton({
                     <div className="p-3 border rounded-lg">
                       <div className="flex items-center gap-3">
                         <input
-                          type="checkbox"
-                          checked={selectedUrls.includes("custom")}
-                          onChange={() => toggleUrlSelection("custom")}
+                          type="radio"
+                          name="schedule-source"
+                          checked={selectedSource === "custom"}
+                          onChange={() => setSelectedSource("custom")}
                           className="mt-0.5"
                           disabled={isFetching}
                         />
@@ -948,7 +854,7 @@ export function FetchInfoButton({
                         onChange={(e) => setCustomUrl(e.target.value)}
                         placeholder="https://example.com/recruit"
                         className="w-full mt-2 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                        disabled={!selectedUrls.includes("custom") || isFetching}
+                        disabled={selectedSource !== "custom" || isFetching}
                       />
                     </div>
                   </div>
@@ -1095,7 +1001,7 @@ export function FetchInfoButton({
                     </span>
                     <span className="font-medium">
                       {result.freeUsed
-                        ? `残り${result.freeRemaining ?? 0}回/日`
+                        ? `残り${result.freeRemaining ?? 0}回/月`
                         : `${result.creditsConsumed ?? 0}クレジット`}
                     </span>
                   </div>

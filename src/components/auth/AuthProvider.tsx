@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
 import { useSession } from "@/lib/auth/client";
 import { getDeviceToken, clearDeviceToken, hasDeviceToken } from "@/lib/auth/device-token";
+import { SnackbarHost } from "@/components/ui/snackbar-host";
 
 interface GuestSession {
   id: string;
@@ -27,6 +28,7 @@ interface AuthContextType {
     image: string | null;
   } | null;
   isLoading: boolean;
+  isReady: boolean;
   isAuthenticated: boolean;
 
   // Guest session
@@ -135,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       : null,
     isLoading: isPending || !isInitialized,
+    isReady: !isPending && isInitialized,
     isAuthenticated: !!session?.user,
     guest,
     isGuest: !session?.user && !!guest,
@@ -144,7 +147,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshPlan,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      <SnackbarHost />
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

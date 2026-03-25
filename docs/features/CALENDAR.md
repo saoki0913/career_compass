@@ -27,7 +27,7 @@
 ### Google 側の識別
 - タイトル接頭辞は `[就活Pass][締切]` または `[就活Pass][作業]`
 - `extendedProperties.private` に `managedBy`, `entityType`, `entityId` を保存する
-- 旧接頭辞 `[シューパス]`, `[就活Compass]` も同一イベントとして扱う
+- 接頭辞 `[就活Pass]`, `[シューパス]` を同一イベントとして扱う
 
 ## データ取得フロー
 

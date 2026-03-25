@@ -129,8 +129,8 @@ CORS_ORIGINS=["https://stg.shupass.jp"]
 
 ## 5-5. Upstash Redis 設定（レート制限用）
 
-Vercel のサーバーレス環境ではインメモリのレート制限が使えないため、Upstash Redis を使用します。
-未設定の場合はインメモリフォールバックで動作しますが、分散環境では正確なレート制限になりません。
+Vercel のサーバーレス環境では分散 rate limit のために Upstash Redis を使用します。
+未設定時や Upstash 障害時は in-memory fallback で継続しますが、これは fail-soft の best-effort 制御であり、分散環境では厳密な上限にはなりません。
 
 ### アカウント作成 & データベース作成
 

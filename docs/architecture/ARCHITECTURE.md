@@ -1,6 +1,6 @@
 # システムアーキテクチャ
 
-就活Compass（シューパス）のシステム全体構成を説明します。
+就活Pass（シューパス）のシステム全体構成を説明します。
 
 ---
 
@@ -60,6 +60,17 @@
 | Components | UI部品（shadcn/ui ベース） |
 | Hooks | データフェッチ、状態管理 |
 | API Routes | サーバーサイドロジック（認証、DB操作） |
+
+### 主要導線の描画方針
+
+- `dashboard`、`companies`、`es`、`companies/[id]`、`es/[id]` は server-first を基本とする。
+- ドキュメント**一覧**（`/es`、企業詳細の ES 一覧、`GET /api/documents` のリスト）は `getDocumentsPageData` の `includeContent: false` で DB の `content` を読まず、RSC/JSON を軽くする。本文は `GET /api/documents/[id]` と `getDocumentDetailPageData` で取得する。`getDocumentDetailPageData` は同一リクエスト内で React `cache` を使い、`generateMetadata` と page の二重クエリを避ける。
+- 認証済み `dashboard` はデータ取得部分を `Suspense` で囲み、`DashboardSkeleton` を先に表示する。`getViewerPlan` は React `cache` で `getCompaniesPageData` 内の同関数呼び出しと共有し、プロフィール plan の二重 DB を避ける。
+- ES 編集（`es/[id]`）では `ReviewPanel` / `VersionHistory` / `MobileReviewPanel` を `next/dynamic`（`ssr: false`）で遅延読み込みし、初回バンドルを抑える。
+- App Router の page は `headers()` + `getHeadersIdentity()` で viewer を解決し、shared loader (`src/lib/server/app-loaders.ts`) から初回表示に必要な最小データを直接取得する。
+- client component は操作・入力・モーダル・ストリーミング担当の island に限定し、初回表示のためだけの mount fetch は増やさない。
+- guest は `x-device-token` が必要なため、一部導線では client fetch フォールバックを残すが、ログイン導線を優先して最適化する。
+- read 系 API route は `getRequestIdentity()` + `createServerTimingRecorder()` を使い、`Server-Timing` で `identity` / `db` / `serialize` を観測できる形に揃える。
 
 ### バックエンド層
 
@@ -171,15 +182,13 @@ career_compass/
    └─> Next.js API (/api/documents/[id]/review/stream)
        ├─> 認証・クレジット確認
        ├─> 企業情報をDBから取得（テンプレ添削時）
-       ├─> company-sensitive 設問では bounded pre-stream 補強を実行
        └─> FastAPI (/api/es/review/stream) に中継
            ├─> 入力防御と sanitize
            ├─> RAGコンテキスト取得（ChromaDB + BM25）
            ├─> company evidence cards / reference quality profile / selected user facts を構築
-           ├─> 標準経路: 改善ポイント生成（最小JSON schema）
-           ├─> 改善案生成（標準: 通常 5 回 + 簡易化 1 回 / Qwen β: 通常 + compact retry）
-           ├─> 決定論的検証（文字数・文体・参考ES類似、短字数では soft-min 可）
-           └─> SSEで 標準=`改善案 → 改善ポイント → 出典リンク` / Qwen β=`改善案 → 出典リンク` を返却
+           ├─> rewrite-only 生成（strict → focused retry 1 → focused retry 2 → length-fix → degraded / 422）
+           ├─> 決定論的検証（文字数・文体・参考ES類似、短字数では final soft 可）
+           └─> SSEで `rewrite → sources → complete` を返却
 
 3. 結果を受け取り
    └─> Next.js API
@@ -199,12 +208,11 @@ career_compass/
            ├─> LLM（GPT-5-mini）で構造化抽出
            └─> 結果を返却
 
-2. RAGビルド
-   └─> FastAPI (/company-info/rag/build)
-       ├─> テキストをチャンク分割
-       ├─> 埋め込みベクトル生成
-       ├─> ChromaDBに保存
-       └─> BM25インデックス構築
+2. 構造化データ保存
+   └─> Next.js API
+       ├─> 締切を `deadlines` に保存
+       ├─> 応募方法 / 提出物 / 選考フローを返却
+       └─> 企業RAGは更新しない
 ```
 
 ---
@@ -245,7 +253,7 @@ career_compass/
 
 | エンドポイント | 役割 |
 |--------------|------|
-| `/api/es/review/stream` | ES添削SSE（標準は改善ポイント生成→改善案生成、Qwen β は rewrite-only） |
+| `/api/es/review/stream` | ES添削SSE（rewrite → sources → complete） |
 | `/api/gakuchika/*` | ガクチカ深掘り質問生成 |
 | `/api/motivation/*` | 志望動機の質問生成・評価・下書き |
 | `/company-info/*` | 企業情報スクレイピング・RAG構築 |
@@ -266,5 +274,4 @@ career_compass/
 
 - [TECH_STACK.md](./TECH_STACK.md) - 使用技術一覧
 - [DATABASE.md](./DATABASE.md) - データベース設計
-- [ENV_SETUP.md](../setup/ENV_SETUP.md) - 環境変数設定
-- [DEVELOPMENT.md](../setup/DEVELOPMENT.md) - 開発ガイド
+- [DEVELOPMENT_AND_ENV.md](../setup/DEVELOPMENT_AND_ENV.md) — 開発ガイドと環境変数

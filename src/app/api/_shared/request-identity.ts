@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { getGuestUser } from "@/lib/auth/guest";
+import { logError } from "@/lib/logger";
 
 export type RequestIdentity = {
   userId: string | null;
@@ -8,9 +9,17 @@ export type RequestIdentity = {
 };
 
 export async function getHeadersIdentity(requestHeaders: Headers): Promise<RequestIdentity | null> {
-  const session = await auth.api.getSession({
-    headers: requestHeaders,
-  });
+  let session: Awaited<ReturnType<typeof auth.api.getSession>> | null = null;
+
+  try {
+    session = await auth.api.getSession({
+      headers: requestHeaders,
+    });
+  } catch (error) {
+    logError("request-identity:get-session", error, {
+      hasDeviceToken: requestHeaders.has("x-device-token"),
+    });
+  }
 
   if (session?.user?.id) {
     return {

@@ -10,7 +10,7 @@ export type ContentType =
   | "midterm_plan";
 
 export type CorporateInfoSourceKind = "url" | "upload_pdf";
-export type CorporateInfoSourceOrigin = "manual_user" | "prestream_enrichment";
+export type CorporateInfoSourceOrigin = "manual_user";
 export type CorporateInfoSourceStatus =
   | "pending"
   | "processing"
@@ -46,6 +46,10 @@ export interface CorporateInfoSource {
   relationCompanyName?: string | null;
   parentAllowed?: boolean;
   trustedForEsReview?: boolean;
+  complianceStatus?: "allowed" | "warning" | "blocked";
+  complianceReasons?: string[];
+  complianceCheckedAt?: string;
+  policyVersion?: string;
 }
 
 const VALID_CONTENT_TYPES = new Set<ContentType>([
@@ -175,10 +179,18 @@ function normalizeNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((item): item is string => typeof item === "string");
+}
+
 export function inferTrustedForEsReview(source: Pick<
   CorporateInfoSource,
-  "kind" | "url" | "sourceType" | "parentAllowed" | "trustedForEsReview"
+  "kind" | "url" | "sourceType" | "parentAllowed" | "trustedForEsReview" | "complianceStatus"
 >): boolean {
+  if (source.complianceStatus === "blocked") {
+    return false;
+  }
   if (typeof source.trustedForEsReview === "boolean") {
     return source.trustedForEsReview;
   }
@@ -210,10 +222,7 @@ export function parseCorporateInfoSources(raw: string | null | undefined): Corpo
         return {
           ...entry,
           kind: uploadSource ? "upload_pdf" : "url",
-          sourceOrigin:
-            entry.sourceOrigin === "prestream_enrichment"
-              ? "prestream_enrichment"
-              : "manual_user",
+          sourceOrigin: "manual_user",
           fileName: typeof entry.fileName === "string" ? entry.fileName : undefined,
           contentType: normalizedContentType ?? (!uploadSource ? detectContentTypeFromUrl(String(entry.url)) ?? "corporate_site" : undefined),
           secondaryContentTypes: normalizeSecondaryContentTypes(entry.secondaryContentTypes),
@@ -238,6 +247,18 @@ export function parseCorporateInfoSources(raw: string | null | undefined): Corpo
             parentAllowed: normalizeBoolean(entry.parentAllowed),
             trustedForEsReview: normalizeBoolean(entry.trustedForEsReview),
           }),
+          complianceStatus:
+            entry.complianceStatus === "blocked"
+              ? "blocked"
+              : entry.complianceStatus === "warning"
+                ? "warning"
+                : entry.complianceStatus === "allowed"
+                  ? "allowed"
+                  : undefined,
+          complianceReasons: normalizeStringArray(entry.complianceReasons),
+          complianceCheckedAt:
+            typeof entry.complianceCheckedAt === "string" ? entry.complianceCheckedAt : undefined,
+          policyVersion: typeof entry.policyVersion === "string" ? entry.policyVersion : undefined,
         } satisfies CorporateInfoSource;
       });
   } catch (error) {

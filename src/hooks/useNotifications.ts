@@ -158,6 +158,59 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     }
   }, []);
 
+  const deleteNotification = useCallback(
+    async (notificationId: string): Promise<boolean> => {
+      try {
+        const response = await fetch(`/api/notifications/${notificationId}`, {
+          method: "DELETE",
+          headers: buildHeaders(),
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to delete notification");
+        }
+
+        setNotifications((prev) => {
+          const removed = prev.find((n) => n.id === notificationId);
+          if (removed && !removed.isRead) {
+            setUnreadCount((c) => Math.max(0, c - 1));
+          }
+          return prev.filter((n) => n.id !== notificationId);
+        });
+
+        return true;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "通知の削除に失敗しました");
+        return false;
+      }
+    },
+    []
+  );
+
+  const deleteAllNotifications = useCallback(async (): Promise<boolean> => {
+    try {
+      const response = await fetch("/api/notifications/delete", {
+        method: "POST",
+        headers: buildHeaders(),
+        credentials: "include",
+        body: JSON.stringify({ all: true }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete all notifications");
+      }
+
+      setNotifications([]);
+      setUnreadCount(0);
+
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "通知の削除に失敗しました");
+      return false;
+    }
+  }, []);
+
   return {
     notifications,
     unreadCount,
@@ -166,5 +219,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     refresh: fetchNotifications,
     markAsRead,
     markAllAsRead,
+    deleteNotification,
+    deleteAllNotifications,
   };
 }

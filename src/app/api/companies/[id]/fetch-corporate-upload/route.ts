@@ -17,9 +17,10 @@ import {
   getRemainingCompanyRagFreeUnits,
 } from "@/lib/company-info/usage";
 import {
-  calculatePdfIngestUnits,
   getCompanyRagSourceLimit,
+  normalizePdfPageCount,
 } from "@/lib/company-info/pricing";
+import { CORPORATE_MUTATE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 
 export const runtime = "nodejs";
 
@@ -37,6 +38,10 @@ interface UploadPdfResult {
   secondary_content_types?: string[];
   extraction_method: string;
   errors: string[];
+  source_total_pages?: number | null;
+  ingest_truncated?: boolean;
+  ocr_truncated?: boolean;
+  processing_notice_ja?: string | null;
 }
 
 interface BatchUploadItem {
@@ -47,12 +52,17 @@ interface BatchUploadItem {
   extractedChars?: number;
   pageCount?: number | null;
   ingestUnits?: number;
+  freeUnitsApplied?: number;
   creditsConsumed?: number;
   actualCreditsDeducted?: number;
   extractionMethod?: string;
   contentType?: string | null;
   secondaryContentTypes?: string[];
   error?: string;
+  sourceTotalPages?: number | null;
+  ingestTruncated?: boolean;
+  ocrTruncated?: boolean;
+  processingNoticeJa?: string | null;
 }
 
 function countLimitSources(sources: CorporateInfoSource[]): number {
@@ -154,6 +164,17 @@ export async function POST(
       );
     }
 
+    const rateLimited = await enforceRateLimitLayers(
+      request,
+      [...CORPORATE_MUTATE_RATE_LAYERS],
+      authUser.userId,
+      null,
+      "companies_fetch_corporate_upload"
+    );
+    if (rateLimited) {
+      return rateLimited;
+    }
+
     const access = await verifyCompanyAccess(companyId, authUser.userId);
     if (!access.valid || !access.company) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
@@ -186,7 +207,7 @@ export async function POST(
       backendForm.set("company_id", companyId);
       backendForm.set("company_name", company.name);
       backendForm.set("source_url", sourceUrl);
-      backendForm.set("allow_defer_ocr", "false");
+      backendForm.set("billing_plan", authUser.plan);
       backendForm.set("file", file, file.name);
 
       let uploadResult: UploadPdfResult;
@@ -222,7 +243,7 @@ export async function POST(
       }
 
       const nowIso = new Date().toISOString();
-      const ingestUnits = calculatePdfIngestUnits(uploadResult.page_count ?? 0);
+      const ingestUnits = normalizePdfPageCount(uploadResult.page_count);
 
       const completedSource: CorporateInfoSource = {
         url: sourceUrl,
@@ -248,7 +269,8 @@ export async function POST(
         const usage = await applyCompanyRagUsage({
           userId: authUser.userId,
           plan: authUser.plan,
-          units: ingestUnits,
+          pages: ingestUnits,
+          kind: "pdf",
           referenceId: companyId,
           description: `企業RAG取込(PDF): ${company.name}`,
         });
@@ -270,11 +292,16 @@ export async function POST(
           extractedChars: uploadResult.extracted_chars,
           pageCount: uploadResult.page_count ?? null,
           ingestUnits,
+          freeUnitsApplied: usage.freeUnitsApplied,
           creditsConsumed: usage.creditsDisplayed,
           actualCreditsDeducted: usage.creditsActuallyDeducted,
           extractionMethod: uploadResult.extraction_method,
           contentType: uploadResult.content_type || null,
           secondaryContentTypes: uploadResult.secondary_content_types || [],
+          sourceTotalPages: uploadResult.source_total_pages ?? null,
+          ingestTruncated: Boolean(uploadResult.ingest_truncated),
+          ocrTruncated: Boolean(uploadResult.ocr_truncated),
+          processingNoticeJa: uploadResult.processing_notice_ja ?? null,
         });
       } catch (error) {
         console.error("Completed PDF metadata update error:", error);
@@ -315,12 +342,10 @@ export async function POST(
       actualCreditsDeducted,
       estimatedCostBand:
         actualCreditsDeducted > 0
-          ? actualCreditsDeducted === 1
-            ? "1クレジット"
-            : "2クレジット以上"
+          ? `${actualCreditsDeducted}クレジット`
           : totalUnits > 0
-            ? "今回はクレジット消費なし"
-            : "無料枠内",
+            ? "今回はクレジット消費なし（無料枠内）"
+            : "—",
     });
   } catch (error) {
     console.error("Error uploading corporate PDF:", error);

@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowRight, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -37,7 +37,7 @@ export function ReferenceSourceCard({
   const isExternalHttp = Boolean(sourceUrl && /^https?:\/\//i.test(sourceUrl));
   const isInternalPath = Boolean(sourceUrl && sourceUrl.startsWith("/"));
   const resolvedLinkLabel =
-    linkLabel === "元ページを開く" && isInternalPath ? "アプリ内で開く" : linkLabel;
+    linkLabel === "元ページを開く" && isInternalPath ? "別タブで開く" : linkLabel;
   const content = (
     <div
       className={cn(
@@ -65,11 +65,7 @@ export function ReferenceSourceCard({
             variant="outline"
             className={cn("gap-1", compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-[11px]")}
           >
-            {isExternalHttp ? (
-              <ExternalLink className="size-3.5" />
-            ) : (
-              <ArrowRight className="size-3.5" />
-            )}
+            <ExternalLink className="size-3.5" aria-hidden />
             {resolvedLinkLabel}
           </Badge>
         ) : null}
@@ -84,7 +80,13 @@ export function ReferenceSourceCard({
 
   if (isInternalPath) {
     return (
-      <Link href={sourceUrl} className="block" title={resolvedLinkLabel}>
+      <Link
+        href={sourceUrl}
+        className="block"
+        title={resolvedLinkLabel}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
         {content}
       </Link>
     );

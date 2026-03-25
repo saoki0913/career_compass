@@ -1,0 +1,17 @@
+---
+description: 就活Pass の provider operations は repo scripts と docs を正本にする
+globs:
+  - "scripts/bootstrap/career-compass/**"
+  - "docs/release/RAILWAY.md"
+  - "docs/release/SUPABASE.md"
+  - "docs/release/VERCEL.md"
+alwaysApply: false
+---
+
+# Provider Ops
+
+- Railway: `scripts/bootstrap/career-compass/sync-career-compass-env.sh --target railway-*`
+- Supabase: `scripts/bootstrap/career-compass/bootstrap-career-compass-supabase.sh`
+- Vercel: `scripts/bootstrap/career-compass/sync-career-compass-env.sh --target vercel-*`
+
+manual drift を避け、repo scripts と docs に揃える。

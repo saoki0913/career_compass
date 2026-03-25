@@ -27,6 +27,7 @@ import {
   CATEGORY_LABELS,
   getStatusLabel,
 } from "@/lib/constants/status";
+import { notifySuccess } from "@/lib/notifications";
 
 // Icons
 const XIcon = () => (
@@ -141,6 +142,7 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
         notes: notes.trim() || null,
         status,
       });
+      notifySuccess({ title: "企業情報を保存しました" });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存に失敗しました");
@@ -300,6 +302,9 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
               {/* Mypage Info */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">マイページ情報</Label>
+                <p className="text-xs text-muted-foreground">
+                  ここに保存した MyPage 情報は参照と外部リンク用です。AI取得処理では使用しません。
+                </p>
                 <div className="space-y-3 p-3 rounded-lg border border-border/50 bg-muted/20">
                   <div className="space-y-1.5">
                     <Label htmlFor="edit-mypageUrl" className="text-xs">マイページURL</Label>

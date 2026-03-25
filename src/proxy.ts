@@ -9,8 +9,16 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { logError } from "@/lib/logger";
+import { getBetterAuthSessionCookieCandidates } from "@/lib/auth/ci-e2e";
 import { getTrustedOriginSet, getTrustedOrigins } from "@/lib/trusted-origins";
 import { getCsrfFailureReason, setCsrfCookie, type CsrfFailureReason } from "@/lib/csrf";
+import {
+  buildNonceCsp,
+  buildStaticCsp,
+  createCspNonce,
+  isHtmlDocumentRequest,
+  shouldUseNonceCsp,
+} from "@/lib/security/csp";
 
 // Routes that require authentication
 const PROTECTED_ROUTES = [
@@ -33,6 +41,7 @@ const AUTH_ROUTES = ["/login"];
 const CSRF_EXEMPT_PATHS = [
   "/api/auth/",       // Better Auth handles its own CSRF
   "/api/webhooks/",   // Webhooks use signature verification
+  "/api/internal/test-auth/", // CI-only test auth is guarded by a separate secret
 ];
 
 // State-changing HTTP methods that require CSRF protection
@@ -184,15 +193,59 @@ function shouldAttachCsrfCookie(request: NextRequest): boolean {
   return accept.includes("text/html");
 }
 
-function withCsrfCookie(request: NextRequest, response: NextResponse): NextResponse {
-  if (!request.cookies.get("csrf_token")?.value && shouldAttachCsrfCookie(request)) {
-    setCsrfCookie(response);
+type CspContext = {
+  nonce: string | null;
+  csp: string | null;
+};
+
+function getCspContext(request: NextRequest): CspContext {
+  const accept = request.headers.get("accept") || "";
+  if (!isHtmlDocumentRequest(request.nextUrl.pathname, accept, request.method)) {
+    return { nonce: null, csp: null };
+  }
+
+  if (shouldUseNonceCsp(request.nextUrl.pathname)) {
+    const nonce = createCspNonce();
+    return { nonce, csp: buildNonceCsp(nonce) };
+  }
+
+  return { nonce: null, csp: buildStaticCsp() };
+}
+
+function attachCsp(response: NextResponse, cspContext: CspContext): NextResponse {
+  if (cspContext.csp) {
+    response.headers.set("Content-Security-Policy", cspContext.csp);
   }
   return response;
 }
 
+function createForwardResponse(request: NextRequest, cspContext: CspContext): NextResponse {
+  if (!cspContext.nonce) {
+    return attachCsp(NextResponse.next(), cspContext);
+  }
+
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", cspContext.nonce);
+  return attachCsp(
+    NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    }),
+    cspContext
+  );
+}
+
+function withCsrfCookie(request: NextRequest, response: NextResponse, cspContext: CspContext): NextResponse {
+  if (!request.cookies.get("csrf_token")?.value && shouldAttachCsrfCookie(request)) {
+    setCsrfCookie(response);
+  }
+  return attachCsp(response, cspContext);
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const cspContext = getCspContext(request);
 
   // Skip static files and Better Auth / webhook routes for route protection
   if (
@@ -206,7 +259,7 @@ export async function proxy(request: NextRequest) {
       const csrfResult = validateCsrf(request);
       if (csrfResult) return csrfResult;
     }
-    return withCsrfCookie(request, NextResponse.next());
+    return withCsrfCookie(request, createForwardResponse(request, cspContext), cspContext);
   }
 
   // CSRF protection for API routes
@@ -214,15 +267,16 @@ export async function proxy(request: NextRequest) {
   if (csrfResult) return csrfResult;
 
   // Check for session cookie (Better Auth)
-  const sessionCookie = request.cookies.get("better-auth.session_token");
-  const isAuthenticated = !!sessionCookie?.value;
+  const isAuthenticated = getBetterAuthSessionCookieCandidates().some((cookieName) =>
+    Boolean(request.cookies.get(cookieName)?.value)
+  );
 
   // Auth routes - redirect to dashboard if already authenticated
   if (AUTH_ROUTES.some((route) => pathname.startsWith(route))) {
     if (isAuthenticated) {
-      return withCsrfCookie(request, NextResponse.redirect(new URL("/dashboard", request.url)));
+      return withCsrfCookie(request, NextResponse.redirect(new URL("/dashboard", request.url)), cspContext);
     }
-    return withCsrfCookie(request, NextResponse.next());
+    return withCsrfCookie(request, createForwardResponse(request, cspContext), cspContext);
   }
 
   // Protected routes - require authentication
@@ -230,16 +284,16 @@ export async function proxy(request: NextRequest) {
     if (!isAuthenticated) {
       const loginUrl = new URL("/login", request.url);
       loginUrl.searchParams.set("callbackUrl", pathname);
-      return withCsrfCookie(request, NextResponse.redirect(loginUrl));
+      return withCsrfCookie(request, NextResponse.redirect(loginUrl), cspContext);
     }
   }
 
   // Plan required routes - client-side AuthProvider handles plan check
   if (PLAN_REQUIRED_ROUTES.some((route) => pathname.startsWith(route))) {
-    return withCsrfCookie(request, NextResponse.next());
+    return withCsrfCookie(request, createForwardResponse(request, cspContext), cspContext);
   }
 
-  return withCsrfCookie(request, NextResponse.next());
+  return withCsrfCookie(request, createForwardResponse(request, cspContext), cspContext);
 }
 
 export const config = {

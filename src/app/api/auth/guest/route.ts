@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { getOrCreateGuestUser, getGuestUser } from "@/lib/auth/guest";
 import { logError } from "@/lib/logger";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
@@ -34,10 +35,14 @@ export async function POST(request: NextRequest) {
     const rateLimitKey = createRateLimitKey("guestAuth", null, deviceToken);
     const rateLimit = await checkRateLimit(rateLimitKey, RATE_LIMITS.guestAuth);
     if (!rateLimit.allowed) {
-      return NextResponse.json(
-        { error: "リクエストが多すぎます。しばらく待ってから再試行してください。" },
-        { status: 429, headers: { "Retry-After": String(rateLimit.resetIn) } }
-      );
+      const response = createApiErrorResponse(request, {
+        status: 429,
+        code: "RATE_LIMITED",
+        userMessage: "しばらく待ってから再試行してください。",
+        action: `${rateLimit.resetIn}秒ほど待ってから、もう一度お試しください。`,
+      });
+      response.headers.set("Retry-After", String(rateLimit.resetIn));
+      return response;
     }
 
     const guest = await getOrCreateGuestUser(deviceToken);

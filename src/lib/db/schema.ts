@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, integer, boolean, timestamp, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { ES_DOCUMENT_CATEGORIES } from "@/lib/es-document-category";
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
@@ -383,24 +384,6 @@ export const creditTransactions = pgTable(
   ]
 );
 
-// Daily free usage table - track daily free operations
-export const dailyFreeUsage = pgTable(
-  "daily_free_usage",
-  {
-    id: text("id").primaryKey(),
-    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
-    guestId: text("guest_id").references(() => guestUsers.id, { onDelete: "cascade" }),
-    date: text("date").notNull(), // YYYY-MM-DD in JST
-    companyFetchCount: integer("company_fetch_count").notNull().default(0),
-    createdAt: timestamptz("created_at").notNull().defaultNow(),
-  },
-  (t) => [
-    check("daily_free_usage_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
-    uniqueIndex("daily_free_usage_user_date_ux").on(t.userId, t.date),
-    uniqueIndex("daily_free_usage_guest_date_ux").on(t.guestId, t.date),
-  ]
-);
-
 export const companyInfoMonthlyUsage = pgTable(
   "company_info_monthly_usage",
   {
@@ -409,8 +392,12 @@ export const companyInfoMonthlyUsage = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     monthKey: text("month_key").notNull(), // YYYY-MM in JST
+    /** 当月に月次無料枠として消費したページ数（URL クロール＋PDF の合算。列名は後方互換のため rag_ingest_units のまま） */
     ragIngestUnits: integer("rag_ingest_units").notNull().default(0),
+    /** 旧 RAG overflow 繰越用。現行ロジックでは常に 0 にリセットする */
     ragOverflowUnits: integer("rag_overflow_units").notNull().default(0),
+    /** 当月の選考スケジュール取得で消費した月次無料枠の回数 */
+    scheduleFetchFreeUses: integer("schedule_fetch_free_uses").notNull().default(0),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
   },
@@ -496,6 +483,7 @@ export const documents = pgTable(
     applicationId: text("application_id").references(() => applications.id, { onDelete: "cascade" }),
     jobTypeId: text("job_type_id").references(() => jobTypes.id, { onDelete: "set null" }),
     type: text("type", { enum: ["es", "tips", "company_analysis"] }).notNull(),
+    esCategory: text("es_category", { enum: ES_DOCUMENT_CATEGORIES }).notNull().default("entry_sheet"),
     title: text("title").notNull(),
     content: text("content"),
     status: text("status", { enum: ["draft", "published", "deleted"] }).default("draft"),
@@ -688,70 +676,6 @@ export const calendarSyncJobs = pgTable(
   ]
 );
 
-// ES templates table
-export const esTemplates = pgTable(
-  "es_templates",
-  {
-    id: text("id").primaryKey(),
-    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
-    guestId: text("guest_id").references(() => guestUsers.id, { onDelete: "cascade" }),
-    title: text("title").notNull(),
-    description: text("description"),
-    questions: text("questions").notNull(),
-    isPublic: boolean("is_public").notNull().default(false),
-    language: text("language", { enum: ["ja", "en"] }).notNull().default("ja"),
-    tags: text("tags"),
-    industry: text("industry"),
-    likeCount: integer("like_count").notNull().default(0),
-    copyCount: integer("copy_count").notNull().default(0),
-    viewCount: integer("view_count").notNull().default(0),
-    authorDisplayName: text("author_display_name"),
-    isAnonymous: boolean("is_anonymous").notNull().default(false),
-    shareToken: text("share_token"),
-    sharedAt: timestamptz("shared_at"),
-    shareExpiresAt: timestamptz("share_expires_at"),
-    createdAt: timestamptz("created_at").notNull().defaultNow(),
-    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
-  },
-  (t) => [
-    check("es_templates_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
-    index("es_templates_user_id_idx").on(t.userId),
-    index("es_templates_guest_id_idx").on(t.guestId),
-  ]
-);
-
-// Template likes table
-export const templateLikes = pgTable(
-  "template_likes",
-  {
-    id: text("id").primaryKey(),
-    templateId: text("template_id")
-      .notNull()
-      .references(() => esTemplates.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    createdAt: timestamptz("created_at").notNull().defaultNow(),
-  },
-  (t) => [uniqueIndex("template_likes_user_template_ux").on(t.userId, t.templateId)]
-);
-
-// Template favorites table
-export const templateFavorites = pgTable(
-  "template_favorites",
-  {
-    id: text("id").primaryKey(),
-    templateId: text("template_id")
-      .notNull()
-      .references(() => esTemplates.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    createdAt: timestamptz("created_at").notNull().defaultNow(),
-  },
-  (t) => [uniqueIndex("template_favorites_user_template_ux").on(t.userId, t.templateId)]
-);
-
 // Submission items table - required documents for applications
 export const submissionItems = pgTable(
   "submission_items",
@@ -791,6 +715,8 @@ export const notificationSettings = pgTable("notification_settings", {
   companyFetch: boolean("company_fetch").notNull().default(true),
   esReview: boolean("es_review").notNull().default(true),
   dailySummary: boolean("daily_summary").notNull().default(true),
+  /** JST hour for daily summary: 7, 9, 12, or 18 */
+  dailySummaryHourJst: integer("daily_summary_hour_jst").notNull().default(9),
   reminderTiming: text("reminder_timing"),
   createdAt: timestamptz("created_at").notNull().defaultNow(),
   updatedAt: timestamptz("updated_at").notNull().defaultNow(),
@@ -838,22 +764,6 @@ export const processedStripeEvents = pgTable("processed_stripe_events", {
   eventType: text("event_type").notNull(),
   processedAt: timestamptz("processed_at").notNull().defaultNow(),
 });
-
-// Waitlist signups (pre-launch acquisition)
-export const waitlistSignups = pgTable(
-  "waitlist_signups",
-  {
-    id: text("id").primaryKey(),
-    email: text("email").notNull(),
-    graduationYear: integer("graduation_year"),
-    targetIndustry: text("target_industry"),
-    source: text("source"),
-    userAgent: text("user_agent"),
-    ipAddress: text("ip_address"),
-    createdAt: timestamptz("created_at").notNull().defaultNow(),
-  },
-  (t) => [uniqueIndex("waitlist_signups_email_lower_ux").on(sql`lower(${t.email})`)]
-);
 
 // User pins table - generic favorites for any entity
 export const userPins = pgTable(

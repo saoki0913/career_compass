@@ -12,10 +12,11 @@ import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
-import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
+import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { persistGakuchikaSummary } from "@/app/api/gakuchika/summary-server";
 import {
   QUESTIONS_PER_CREDIT,
+  CREDITS_PER_QUESTION_BATCH,
   getIdentity,
   getQuestionFromFastAPI,
   getWeakestElement,
@@ -26,6 +27,10 @@ import {
   type Message,
   type STARScores,
 } from "@/app/api/gakuchika/shared";
+import {
+  getRequestId,
+  logAiCreditCostSummary,
+} from "@/lib/ai/cost-summary-log";
 
 export async function GET(
   request: NextRequest,
@@ -33,12 +38,20 @@ export async function GET(
 ) {
   try {
     const { id: gakuchikaId } = await params;
+    const requestId = getRequestId(request);
 
     const identity = await getIdentity(request);
     if (!identity) {
       return NextResponse.json(
         { error: "Authentication required" },
         { status: 401 }
+      );
+    }
+
+    if (!identity.userId) {
+      return NextResponse.json(
+        { error: "ガクチカのAI深掘りはログインが必要です" },
+        { status: 401 },
       );
     }
 
@@ -176,6 +189,7 @@ export async function POST(
 ) {
   try {
     const { id: gakuchikaId } = await params;
+    const requestId = getRequestId(request);
 
     const identity = await getIdentity(request);
     if (!identity) {
@@ -187,20 +201,22 @@ export async function POST(
 
     const { userId, guestId } = identity;
 
-    // Rate limiting check
-    const rateLimitKey = createRateLimitKey("conversation", userId, guestId);
-    const rateLimit = await checkRateLimit(rateLimitKey, RATE_LIMITS.conversation);
-    if (!rateLimit.allowed) {
+    if (!userId) {
       return NextResponse.json(
-        { error: "リクエストが多すぎます。しばらく待ってから再試行してください。" },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(rateLimit.resetIn),
-            "X-RateLimit-Remaining": String(rateLimit.remaining),
-          },
-        }
+        { error: "ガクチカのAI深掘りはログインが必要です" },
+        { status: 401 },
       );
+    }
+
+    const rateLimited = await enforceRateLimitLayers(
+      request,
+      [...CONVERSATION_RATE_LAYERS],
+      userId,
+      guestId,
+      "gakuchika_conversation"
+    );
+    if (rateLimited) {
+      return rateLimited;
     }
 
     const hasAccess = await verifyGakuchikaAccess(gakuchikaId, userId, guestId);
@@ -312,7 +328,7 @@ export async function POST(
     // Only check availability here; consume after FastAPI success
     const shouldConsumeCredit = questionCount > 0 && questionCount % QUESTIONS_PER_CREDIT === 0 && !!userId;
     if (shouldConsumeCredit) {
-      const canPay = await hasEnoughCredits(userId!, 1);
+      const canPay = await hasEnoughCredits(userId!, CREDITS_PER_QUESTION_BATCH);
       if (!canPay) {
         return NextResponse.json(
           { error: "クレジットが不足しています" },
@@ -324,8 +340,10 @@ export async function POST(
     // Get next question with STAR evaluation
     const {
       question: nextQuestion,
+      error: nextQuestionError,
       starEvaluation,
       targetElement,
+      telemetry,
     } = await getQuestionFromFastAPI(
       {
         title: gakuchikaTitle,
@@ -334,12 +352,27 @@ export async function POST(
       },
       messages,
       questionCount,
-      currentStarScores
+      currentStarScores,
+      requestId,
     );
+
+    if (nextQuestionError) {
+      logAiCreditCostSummary({
+        feature: "gakuchika",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry,
+      });
+      return NextResponse.json(
+        { error: nextQuestionError },
+        { status: 503 }
+      );
+    }
 
     // Consume credit only after FastAPI success (business rule: charge on success only)
     if (shouldConsumeCredit && nextQuestion) {
-      await consumeCredits(userId!, 2, "gakuchika", gakuchikaId);
+      await consumeCredits(userId!, CREDITS_PER_QUESTION_BATCH, "gakuchika", gakuchikaId);
     }
 
     // Update STAR scores from evaluation
@@ -383,6 +416,13 @@ export async function POST(
         messages
       );
     }
+    logAiCreditCostSummary({
+      feature: "gakuchika",
+      requestId,
+      status: "success",
+      creditsUsed: shouldConsumeCredit ? CREDITS_PER_QUESTION_BATCH : 0,
+      telemetry,
+    });
 
     return NextResponse.json({
       messages,

@@ -51,7 +51,6 @@ async def test_final_quality_company_motivation_strong_evidence(monkeypatch: pyt
             "三菱商事を志望するのは、成長領域への投資を通じて社会課題を動かす現場で価値創出に挑みたいからだ。研究で仮説を立て検証を回した経験を土台に、若手から挑戦機会を得て事業理解を深め、具体的な成果へ着実につなげたい。"
         )
 
-    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
 
     result = await review_section_with_template(
         request=ReviewRequest(
@@ -107,83 +106,6 @@ async def test_final_quality_company_motivation_strong_evidence(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
-async def test_final_quality_company_motivation_strong_evidence_for_cohere(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_json_caller(*args, **kwargs):
-        return FakeJsonResult(
-            {
-                "top3": [
-                    {
-                        "category": "企業接続",
-                        "issue": "企業理解の軸を冒頭で示せていない",
-                        "suggestion": "事業理解と自分の経験の接点を冒頭で示す",
-                    }
-                ]
-            }
-        )
-
-    async def fake_text_caller(*args, **kwargs):
-        return FakeTextResult(
-            "三菱商事を志望するのは、成長領域へ挑む事業の中で仮説検証力を価値へ変えたいからだ。研究で論点を整理し検証を回した経験を土台に、若手から挑戦機会を得て事業理解を深め、現場での成果へ着実につなげたい。"
-        )
-
-    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
-
-    result = await review_section_with_template(
-        request=ReviewRequest(
-            content="研究で仮説検証を重ねた。",
-            section_title="三菱商事を志望する理由を教えてください。",
-            template_request=TemplateRequest(
-                template_type="company_motivation",
-                question="三菱商事を志望する理由を教えてください。",
-                answer="研究で仮説検証を重ねた。",
-                company_name="三菱商事",
-                role_name="総合職",
-                char_min=90,
-                char_max=120,
-            ),
-        ),
-        rag_sources=[
-            {
-                "content_type": "new_grad_recruitment",
-                "title": "新卒採用",
-                "excerpt": "若手に挑戦機会を与える",
-                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/newgrad/",
-            },
-            {
-                "content_type": "corporate_site",
-                "title": "注力事業",
-                "excerpt": "成長領域への投資を進める",
-                "source_url": "https://www.mitsubishicorp.com/jp/ja/business/",
-            },
-            {
-                "content_type": "employee_interviews",
-                "title": "社員インタビュー",
-                "excerpt": "現場で学びながら価値を広げる",
-                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/people/interview/",
-            },
-        ],
-        company_rag_available=True,
-        llm_provider="cohere",
-        llm_model="command-a-03-2025",
-        grounding_mode="company_general",
-        json_caller=fake_json_caller,
-        text_caller=fake_text_caller,
-        progress_queue=None,
-    )
-
-    rewrite = result.rewrites[0]
-    assert 90 <= len(rewrite) <= 120
-    _assert_dearu_style(rewrite)
-    assert "成長領域" in rewrite
-    assert result.review_meta is not None
-    assert result.review_meta.llm_provider == "cohere"
-    assert result.review_meta.llm_model == "command-a-03-2025"
-    assert result.review_meta.company_evidence_count >= 2
-
-
-@pytest.mark.asyncio
 async def test_final_quality_company_motivation_weak_evidence_safe_generalization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -208,7 +130,6 @@ async def test_final_quality_company_motivation_weak_evidence_safe_generalizatio
             "貴社を志望するのは、多様な事業に向き合う姿勢に引かれたからだ。研究で課題を構造化してきた経験を土台に、まずは事業理解を深めながら価値提供の幅を広げたい。現場に近い視点で学び、着実に貢献の解像度を高めたい。"
         )
 
-    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
 
     result = await review_section_with_template(
         request=ReviewRequest(
@@ -266,7 +187,6 @@ async def test_final_quality_gakuchika_uses_assistive_company_grounding(monkeypa
             "研究室で進捗管理の型を見直し、共有の遅れを減らした経験から、課題を構造化し周囲を巻き込んで改善を進める力を磨いた。状況を整理して役割分担を見直し、チーム全体の動きを前に進めたことが学びである。"
         )
 
-    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
 
     result = await review_section_with_template(
         request=ReviewRequest(
@@ -299,7 +219,7 @@ async def test_final_quality_gakuchika_uses_assistive_company_grounding(monkeypa
     rewrite = result.rewrites[0]
     assert 90 <= len(rewrite) <= 120
     _assert_dearu_style(rewrite)
-    assert all(issue.category != "企業接続" for issue in result.top3)
+    assert not hasattr(result, "top3")
     assert any(
         ("本文の主軸は課題・行動・成果・学びに置く" in prompt)
         or ("本文の主軸は自分の経験・強み・価値観に置く" in prompt)
@@ -333,7 +253,6 @@ async def test_final_quality_intern_reason_short_answer(monkeypatch: pytest.Monk
             "Business Intelligence Internshipに参加したい。研究で磨いた分析力を実務で試し、現場の意思決定に近い課題へ向き合いたい。参加後は、事実を整理して示唆へ変え、相手に伝わる形へ磨きたい。実務の視点も吸収したい。"
         )
 
-    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
 
     result = await review_section_with_template(
         request=ReviewRequest(
@@ -370,7 +289,7 @@ async def test_final_quality_intern_reason_short_answer(monkeypatch: pytest.Monk
     _assert_dearu_style(rewrite)
     assert "参加" in rewrite
     assert result.review_meta is not None
-    assert result.review_meta.length_policy in {"strict", "soft_min_applied"}
+    assert result.review_meta.length_policy in {"strict", "soft_ok"}
 
 
 @pytest.mark.asyncio
@@ -409,7 +328,6 @@ async def test_final_quality_over_max_retry_recovers_without_422(monkeypatch: py
             )
         )
 
-    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
 
     result = await review_section_with_template(
         request=ReviewRequest(
@@ -450,7 +368,6 @@ async def test_final_quality_over_max_retry_recovers_without_422(monkeypatch: py
     assert 390 <= len(rewrite) <= 400
     _assert_dearu_style(rewrite)
     assert result.review_meta is not None
-    assert result.review_meta.fallback_to_generic is False
     assert result.review_meta.length_fix_attempted is False
 
 
@@ -477,7 +394,6 @@ async def test_final_quality_self_pr_uses_assistive_company_fit(monkeypatch: pyt
             "私の強みは、課題を整理し周囲を巻き込みながら改善を前に進める点だ。研究室で進行の停滞要因を分解し共有方法を整えた経験を土台に、顧客起点で価値を磨く姿勢にもつなげていきたい。入社後も関係者の意図をそろえながら前進させたい。"
         )
 
-    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
 
     result = await review_section_with_template(
         request=ReviewRequest(
@@ -540,10 +456,9 @@ async def test_final_quality_role_course_reason_uses_role_and_company_axes(
     async def fake_text_caller(*args, **kwargs):
         captured_prompts.append(kwargs.get("system_prompt", "") or (args[0] if args else ""))
         return FakeTextResult(
-            "デジタル企画コースを志望するのは、事業理解と技術理解をつなぎながら価値を形にしたいからだ。研究で関係者の意図を整理し前進させた経験を土台に、成長領域へ挑む貴社で事業と開発をつなぐ役割を担いたい。"
+            "デジタル企画コースを志望するのは、事業理解と技術理解をつなぎながら価値を形にしたいからだ。研究で関係者の意図を整理し前進させた経験を土台に、現場の論点を明確化してきた点を活かし、成長領域へ挑む貴社で事業と開発をつなぐ役割を担いたい。"
         )
 
-    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
 
     result = await review_section_with_template(
         request=ReviewRequest(
@@ -622,7 +537,6 @@ async def test_final_quality_intern_goals_anchors_program_and_growth(
             "Business Intelligence Internshipでは、分析結果を事業判断へつなげる視点を学びたい。研究で示し方を改善してきた経験を土台に、実務に近いテーマを通じて仮説を価値へ変える力を磨きたい。"
         )
 
-    monkeypatch.setattr("app.routers.es_review._validate_reference_distance", lambda *args, **kwargs: (True, None))
 
     result = await review_section_with_template(
         request=ReviewRequest(

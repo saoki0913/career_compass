@@ -11,6 +11,7 @@
 import { z } from "zod";
 import { NextResponse, type NextRequest } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { esDocumentCategorySchema } from "@/lib/es-document-category";
 
 // ---------------------------------------------------------------------------
 // Shared schemas
@@ -43,6 +44,7 @@ export const documentCreateSchema = z.object({
   type: z.enum(["es", "tips", "company_analysis"]),
   title: z.string().trim().min(1, "タイトルは必須です").max(200),
   content: z.string().max(50000).optional().nullable(),
+  esCategory: esDocumentCategorySchema.optional(),
 });
 
 export const taskCreateSchema = z.object({

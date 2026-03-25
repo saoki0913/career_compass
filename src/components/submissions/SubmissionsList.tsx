@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -176,7 +176,7 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
             {completedCount}/{submissions.length} 完了
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setShowNewForm(true)}>
+        <Button type="button" variant="outline" size="sm" onClick={() => setShowNewForm(true)}>
           <PlusIcon />
           <span className="ml-1">追加</span>
         </Button>
@@ -270,6 +270,7 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
                   className="flex items-center gap-3 p-3 rounded-lg border bg-background"
                 >
                   <button
+                    type="button"
                     onClick={() => handleStatusChange(item)}
                     className={cn(
                       "flex items-center justify-center w-6 h-6 rounded-full transition-colors",
@@ -297,6 +298,7 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
                   {/* 履歴書・ESは削除不可（SPEC.md 18.2） */}
                   {!["resume", "es"].includes(item.type) && (
                     <button
+                      type="button"
                       onClick={() => handleDelete(item.id)}
                       className="text-muted-foreground hover:text-red-500 transition-colors"
                     >
@@ -318,6 +320,7 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
                   className="flex items-center gap-3 p-3 rounded-lg border bg-background"
                 >
                   <button
+                    type="button"
                     onClick={() => handleStatusChange(item)}
                     className={cn(
                       "flex items-center justify-center w-6 h-6 rounded-full transition-colors",
@@ -345,6 +348,7 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
                   {/* 履歴書・ESは削除不可（SPEC.md 18.2） */}
                   {!["resume", "es"].includes(item.type) && (
                     <button
+                      type="button"
                       onClick={() => handleDelete(item.id)}
                       className="text-muted-foreground hover:text-red-500 transition-colors"
                     >

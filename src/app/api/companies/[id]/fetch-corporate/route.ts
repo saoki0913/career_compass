@@ -9,6 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { companies, companyPdfIngestJobs, userProfiles } from "@/lib/db/schema";
@@ -17,6 +18,7 @@ import { headers } from "next/headers";
 import {
   detectContentTypeFromUrl,
   inferTrustedForEsReview,
+  isUploadSource,
   parseCorporateInfoSources,
   serializeCorporateInfoSources,
   type CorporateInfoSource,
@@ -29,6 +31,12 @@ import {
   calculateCorporateCrawlUnits,
   getCompanyRagSourceLimit,
 } from "@/lib/company-info/pricing";
+import { checkPublicSourceCompliance, filterAllowedPublicSourceUrls } from "@/lib/company-info/source-compliance";
+import {
+  CORPORATE_MUTATE_RATE_LAYERS,
+  STATUS_POLL_RATE_LAYERS,
+  enforceRateLimitLayers,
+} from "@/lib/rate-limit-spike";
 
 // FastAPI backend URL
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
@@ -92,18 +100,19 @@ export async function POST(
 
     // Get request body
     const body = await request.json();
-    const { urls, contentType, contentChannel, sourceOrigin, sourceMetadata } = body as {
+    const { urls, contentType, contentChannel, sourceMetadata } = body as {
       urls: string[];
       contentType?: string; // 9-category content type (e.g., new_grad_recruitment, ir_materials)
       contentChannel?: "corporate_ir" | "corporate_business" | "corporate_general";
-      sourceOrigin?: "manual_user" | "prestream_enrichment";
       sourceMetadata?: Record<string, SourceMetadataInput>;
     };
     if (!urls || !Array.isArray(urls) || urls.length === 0) {
-      return NextResponse.json(
-        { error: "URLを指定してください" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "CORPORATE_SOURCE_URL_REQUIRED",
+        userMessage: "URLを指定してください。",
+        action: "取得する公開ページURLを入力してください。",
+      });
     }
     const contentTypeResolved =
       contentType || detectContentTypeFromUrl(urls[0]) || "corporate_site";
@@ -124,6 +133,17 @@ export async function POST(
 
     const { userId, plan } = authUser;
 
+    const rateLimited = await enforceRateLimitLayers(
+      request,
+      [...CORPORATE_MUTATE_RATE_LAYERS],
+      userId,
+      null,
+      "companies_fetch_corporate"
+    );
+    if (rateLimited) {
+      return rateLimited;
+    }
+
     // Verify company access
     const access = await verifyCompanyAccess(companyId, userId);
     if (!access.valid || !access.company) {
@@ -140,6 +160,22 @@ export async function POST(
     const uniqueRequestedUrls = urls
       .map((u) => String(u).trim())
       .filter((u) => u.length > 0 && !existingUrlSet.has(u));
+
+    const compliance = await filterAllowedPublicSourceUrls(uniqueRequestedUrls);
+    if (compliance.blockedResults.length > 0) {
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "PUBLIC_SOURCE_BLOCKED",
+        userMessage: compliance.blockedResults[0]?.reasons[0] || "公開ページのみ取得できます。",
+        action: "公開ページURLのみを選び直してください。",
+        extra: {
+          blockedUrls: compliance.blockedResults.map((result) => ({
+            url: result.url,
+            reasons: result.reasons,
+          })),
+        },
+      });
+    }
 
     const remaining = Math.max(0, pageLimit - existingUrlSet.size);
     if (remaining <= 0) {
@@ -172,7 +208,7 @@ export async function POST(
         body: JSON.stringify({
           company_id: companyId,
           company_name: company.name,
-          urls: uniqueRequestedUrls,
+          urls: compliance.allowedUrls,
           content_channel: contentChannelResolved,
           content_type: contentTypeResolved, // 9-category content type for proper counting
         }),
@@ -194,10 +230,38 @@ export async function POST(
       crawlResult = await response.json();
     } catch (error) {
       console.error("Backend crawl error:", error);
-      return NextResponse.json(
-        { error: "企業情報の取得に失敗しました。しばらく後にお試しください。" },
-        { status: 503 }
-      );
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "CORPORATE_FETCH_FAILED",
+        userMessage: "企業情報の取得に失敗しました。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+        error,
+      });
+    }
+
+    if (!crawlResult.success || crawlResult.pages_crawled <= 0) {
+      const backendError =
+        crawlResult.errors.find((message) => typeof message === "string" && message.trim().length > 0) ||
+        "企業情報の取得に失敗しました。";
+      console.error("[企業情報取得] backend crawl reported failure", {
+        companyId,
+        contentType: contentTypeResolved,
+        contentChannel: contentChannelResolved,
+        urls: uniqueRequestedUrls,
+        errors: crawlResult.errors,
+      });
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "CORPORATE_FETCH_FAILED",
+        userMessage: "企業情報の取得に失敗しました。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+        developerMessage: backendError,
+        extra: {
+          backendErrors: crawlResult.errors,
+        },
+      });
     }
 
     // Update company record with URLs
@@ -216,7 +280,7 @@ export async function POST(
         return {
           url,
           kind: "url",
-          sourceOrigin: sourceOrigin === "prestream_enrichment" ? "prestream_enrichment" : "manual_user",
+          sourceOrigin: "manual_user",
           contentType: resolvedContentType,
           secondaryContentTypes: [],
           fetchedAt: new Date().toISOString(),
@@ -233,6 +297,10 @@ export async function POST(
             parentAllowed,
             trustedForEsReview: metadata?.trustedForEsReview,
           }),
+          complianceStatus: "allowed",
+          complianceReasons: [],
+          complianceCheckedAt: new Date().toISOString(),
+          policyVersion: "2026-03-22",
         };
       });
 
@@ -263,7 +331,8 @@ export async function POST(
     const usage = await applyCompanyRagUsage({
       userId,
       plan,
-      units: actualUnits,
+      pages: actualUnits,
+      kind: "url",
       referenceId: companyId,
       description: `企業RAG取込(URL): ${company.name}`,
     });
@@ -323,6 +392,17 @@ export async function GET(
       );
     }
 
+    const rateLimited = await enforceRateLimitLayers(
+      _request,
+      [...STATUS_POLL_RATE_LAYERS],
+      authUser.userId,
+      null,
+      "companies_fetch_corporate_status"
+    );
+    if (rateLimited) {
+      return rateLimited;
+    }
+
     // Verify company access
     const access = await verifyCompanyAccess(companyId, authUser.userId);
     if (!access.valid || !access.company) {
@@ -366,48 +446,84 @@ export async function GET(
       .where(eq(companyPdfIngestJobs.companyId, companyId));
 
     const jobsBySourceUrl = new Map(jobs.map((job) => [job.sourceUrl, job]));
-    const backfilledUrls = corporateInfoUrls.map((entry): CorporateInfoSource => {
-      const job = jobsBySourceUrl.get(entry.url);
-      const urlBackfilledType =
-        entry.contentType ||
-        (entry.kind !== "upload_pdf" ? detectContentTypeFromUrl(entry.url) || "corporate_site" : undefined);
+    const backfilledUrls = await Promise.all(
+      corporateInfoUrls.map(async (entry): Promise<CorporateInfoSource> => {
+        const job = jobsBySourceUrl.get(entry.url);
+        const urlBackfilledType =
+          entry.contentType ||
+          (entry.kind !== "upload_pdf" ? detectContentTypeFromUrl(entry.url) || "corporate_site" : undefined);
 
-      if (!job) {
-        return {
-          ...entry,
-          contentType: urlBackfilledType,
-          trustedForEsReview: inferTrustedForEsReview(entry),
-        };
-      }
+        const compliance =
+          entry.kind === "upload_pdf" || isUploadSource(entry.url)
+            ? {
+                complianceStatus: entry.complianceStatus,
+                complianceReasons: entry.complianceReasons,
+                complianceCheckedAt: entry.complianceCheckedAt,
+                policyVersion: entry.policyVersion,
+              }
+            : await checkPublicSourceCompliance(entry.url);
 
-      let secondaryContentTypes = entry.secondaryContentTypes || [];
-      if (typeof job.secondaryContentTypes === "string") {
-        try {
-          const parsedSecondary = JSON.parse(job.secondaryContentTypes);
-          if (Array.isArray(parsedSecondary)) {
-            secondaryContentTypes = parsedSecondary.filter(
-              (value): value is NonNullable<CorporateInfoSource["contentType"]> => typeof value === "string"
-            );
-          }
-        } catch {
-          // Ignore invalid JSON in legacy rows.
+        const normalizedCompliance = "status" in compliance
+          ? {
+              complianceStatus: compliance.status,
+              complianceReasons: compliance.reasons,
+              complianceCheckedAt: compliance.checkedAt,
+              policyVersion: compliance.policyVersion,
+            }
+          : compliance;
+
+        if (!job) {
+          const nextEntry: CorporateInfoSource = {
+            ...entry,
+            contentType: urlBackfilledType,
+            complianceStatus: normalizedCompliance.complianceStatus,
+            complianceReasons: normalizedCompliance.complianceReasons,
+            complianceCheckedAt: normalizedCompliance.complianceCheckedAt,
+            policyVersion: normalizedCompliance.policyVersion,
+          };
+          return {
+            ...nextEntry,
+            trustedForEsReview: inferTrustedForEsReview(nextEntry),
+          };
         }
-      }
 
-      return {
-        ...entry,
-        status: job.status,
-        jobId: job.id,
-        errorMessage: job.lastError || entry.errorMessage,
-        contentType: (job.detectedContentType as CorporateInfoSource["contentType"]) || urlBackfilledType,
-        secondaryContentTypes,
-        chunksStored: job.chunksStored || entry.chunksStored,
-        extractedChars: job.extractedChars || entry.extractedChars,
-        extractionMethod: job.extractionMethod || entry.extractionMethod,
-        updatedAt: job.updatedAt?.toISOString() || entry.updatedAt,
-        trustedForEsReview: inferTrustedForEsReview(entry),
-      };
-    });
+        let secondaryContentTypes = entry.secondaryContentTypes || [];
+        if (typeof job.secondaryContentTypes === "string") {
+          try {
+            const parsedSecondary = JSON.parse(job.secondaryContentTypes);
+            if (Array.isArray(parsedSecondary)) {
+              secondaryContentTypes = parsedSecondary.filter(
+                (value): value is NonNullable<CorporateInfoSource["contentType"]> => typeof value === "string"
+              );
+            }
+          } catch {
+            // Ignore invalid JSON in legacy rows.
+          }
+        }
+
+        const nextEntry: CorporateInfoSource = {
+          ...entry,
+          status: job.status,
+          jobId: job.id,
+          errorMessage: job.lastError || entry.errorMessage,
+          contentType: (job.detectedContentType as CorporateInfoSource["contentType"]) || urlBackfilledType,
+          secondaryContentTypes,
+          chunksStored: job.chunksStored || entry.chunksStored,
+          extractedChars: job.extractedChars || entry.extractedChars,
+          extractionMethod: job.extractionMethod || entry.extractionMethod,
+          updatedAt: job.updatedAt?.toISOString() || entry.updatedAt,
+          complianceStatus: normalizedCompliance.complianceStatus,
+          complianceReasons: normalizedCompliance.complianceReasons,
+          complianceCheckedAt: normalizedCompliance.complianceCheckedAt,
+          policyVersion: normalizedCompliance.policyVersion,
+        };
+
+        return {
+          ...nextEntry,
+          trustedForEsReview: inferTrustedForEsReview(nextEntry),
+        };
+      })
+    );
 
     if (JSON.stringify(backfilledUrls) !== JSON.stringify(corporateInfoUrls)) {
       await db

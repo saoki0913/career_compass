@@ -1,0 +1,15 @@
+---
+description: 就活Pass の本番リリース依頼では、repo 内の標準 release automation を使う。
+globs:
+  - "scripts/release/**"
+  - "scripts/bootstrap/career-compass/**"
+  - "docs/release/**"
+  - "docs/ops/CLI_GUARDRAILS.md"
+alwaysApply: false
+---
+
+- 本番/デプロイ/release の依頼では、`scripts/release/release-career-compass.sh` を正本として扱う。
+- 実行順は `make ops-release-check` → `make deploy`。
+- `make deploy` は `develop` 上の staged release scope を commit し、`develop` push、staging 確認、`develop -> main` 自動昇格、production 確認まで行う。
+- deploy 後の検証は `scripts/release/post-deploy-playwright.sh` が担当する。
+- 直接 `git push origin main`、`vercel deploy --prod`、`railway up` は使わない。

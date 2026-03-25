@@ -16,6 +16,7 @@ import {
 } from "@/hooks/useApplications";
 import { SubmissionsList } from "@/components/submissions/SubmissionsList";
 import { cn } from "@/lib/utils";
+import { notifySuccess } from "@/lib/notifications";
 
 interface ApplicationModalProps {
   isOpen: boolean;
@@ -134,6 +135,7 @@ export function ApplicationModal({
       } else {
         await onSubmit({ name: name.trim(), type, phase: phases });
       }
+      notifySuccess({ title: isEditing ? "応募枠を保存しました" : "応募枠を追加しました" });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "エラーが発生しました");
@@ -148,6 +150,7 @@ export function ApplicationModal({
     setIsDeleting(true);
     try {
       await onDelete();
+      notifySuccess({ title: "応募枠を削除しました" });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "削除に失敗しました");
@@ -159,26 +162,33 @@ export function ApplicationModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <Card className={cn("w-full my-8", isEditing ? "max-w-2xl" : "max-w-md")}>
-        <CardHeader>
-          <CardTitle>{isEditing ? "応募枠を編集" : "応募枠を追加"}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {showDeleteConfirm ? (
-            <div className="space-y-4">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4">
+      <div className="flex min-h-full items-start justify-center py-6 sm:items-center">
+        <Card
+          className={cn(
+            "w-full overflow-hidden",
+            isEditing ? "max-w-2xl" : "max-w-md"
+          )}
+        >
+          <CardHeader>
+            <CardTitle>{isEditing ? "応募枠を編集" : "応募枠を追加"}</CardTitle>
+          </CardHeader>
+          <CardContent className="max-h-[min(80vh,900px)] overflow-y-auto">
+            {showDeleteConfirm ? (
+              <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 「{application?.name}」を削除しますか？関連する締切や職種も削除されます。
               </p>
               <div className="flex justify-end gap-3">
                 <Button
+                  type="button"
                   variant="outline"
                   onClick={() => setShowDeleteConfirm(false)}
                   disabled={isDeleting}
                 >
                   キャンセル
                 </Button>
-                <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
+                <Button type="button" variant="destructive" onClick={handleDelete} disabled={isDeleting}>
                   {isDeleting ? (
                     <>
                       <LoadingSpinner />
@@ -189,9 +199,9 @@ export function ApplicationModal({
                   )}
                 </Button>
               </div>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-6">
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-6">
               {error && (
                 <div className="p-3 rounded-lg bg-red-50 border border-red-200">
                   <p className="text-sm text-red-800">{error}</p>
@@ -332,10 +342,11 @@ export function ApplicationModal({
                   </Button>
                 </div>
               </div>
-            </form>
-          )}
-        </CardContent>
-      </Card>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

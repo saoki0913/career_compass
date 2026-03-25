@@ -22,7 +22,9 @@ function makeOpenTasksQuery(result: unknown[]) {
       leftJoin: vi.fn(() => ({
         leftJoin: vi.fn(() => ({
           leftJoin: vi.fn(() => ({
-            where: vi.fn().mockResolvedValue(result),
+            leftJoin: vi.fn(() => ({
+              where: vi.fn().mockResolvedValue(result),
+            })),
           })),
         })),
       })),
@@ -98,15 +100,21 @@ describe("api/tasks/today", () => {
           id: "company-2",
           name: "Beta",
           createdAt: new Date("2026-03-12T00:00:00.000Z"),
+          userId: "user-1",
+          guestId: null,
         },
         application: {
           id: null,
           name: null,
+          userId: null,
+          guestId: null,
         },
         deadline: {
           id: null,
           title: null,
           dueDate: null,
+          userId: null,
+          guestId: null,
         },
       },
       {
@@ -122,15 +130,21 @@ describe("api/tasks/today", () => {
           id: "company-1",
           name: "Alpha",
           createdAt: new Date("2026-03-10T00:00:00.000Z"),
+          userId: "user-1",
+          guestId: null,
         },
         application: {
           id: null,
           name: null,
+          userId: null,
+          guestId: null,
         },
         deadline: {
           id: null,
           title: null,
           dueDate: null,
+          userId: null,
+          guestId: null,
         },
       },
     ];

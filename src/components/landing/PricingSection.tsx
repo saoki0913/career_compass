@@ -1,145 +1,128 @@
 import { Button } from "@/components/ui/button";
 import { Check } from "lucide-react";
 import Link from "next/link";
-import { cn } from "@/lib/utils";
+import { getMarketingPricingPlans } from "@/lib/marketing/pricing-plans";
 import { ScrollReveal } from "./ScrollReveal";
 
-const plans = [
-  {
-    name: "Free",
-    price: "¥0",
-    period: "/月",
-    description: "まず1つ試してみたい方に。",
-    features: [
-      "月30クレジット",
-      "企業登録 5社まで",
-      "ESエディタ",
-      "AI添削（2〜5クレジット/回）",
-      "カレンダー連携",
-    ],
-    cta: "無料で始める",
-    ctaLink: "/login",
-    highlight: false,
-  },
-  {
-    name: "Standard",
-    price: "¥980",
-    period: "/月",
-    dailyPrice: "1日たった¥33",
-    description: "継続的に就活を進めたい方に。",
-    features: [
-      "月300クレジット",
-      "企業登録 無制限",
-      "設問タイプ8種のAI添削",
-      "ガクチカ素材 10件まで",
-      "志望動機に活かせる企業情報整理",
-    ],
-    cta: "Standardで始める",
-    ctaLink: "/pricing",
-    highlight: true,
-  },
-  {
-    name: "Pro",
-    price: "¥2,980",
-    period: "/月",
-    dailyPrice: "1日¥99",
-    description: "添削や作成支援を多めに使いたい方に。",
-    features: [
-      "月800クレジット",
-      "企業登録 無制限",
-      "設問タイプ8種のAI添削",
-      "ガクチカ素材 20件まで",
-      "企業情報整理をより多く利用可能",
-    ],
-    cta: "Proで始める",
-    ctaLink: "/pricing",
-    highlight: false,
-  },
-] as const;
-
 export function PricingSection() {
+  const plans = getMarketingPricingPlans("monthly");
+  const recommendedPlan = plans.find((plan) => plan.isPopular) ?? plans[1] ?? plans[0];
+  const secondaryPlans = plans.filter((plan) => plan.id !== recommendedPlan.id);
+
   return (
-    <section
-      id="pricing"
-      className="landing-section-muted scroll-mt-24 py-28 lg:scroll-mt-28 lg:py-36"
-    >
+    <section id="pricing" className="scroll-mt-24 py-32 lg:scroll-mt-28 lg:py-40">
       <div className="mx-auto max-w-6xl px-4">
         <ScrollReveal>
-          <div className="mb-16 text-center lg:mb-20">
-            <p className="text-sm font-semibold tracking-widest text-primary uppercase">
-              料金
+          <div className="mx-auto mb-14 max-w-3xl text-center lg:mb-18">
+            <p className="text-sm font-semibold tracking-[0.18em] text-primary uppercase">
+              Pricing
             </p>
-            <h2 className="mt-4 text-balance text-3xl font-bold tracking-[-0.035em] sm:text-4xl lg:text-[3.25rem]">
-              まずは無料で始める。
+            <h2 className="mt-4 text-balance text-3xl font-semibold tracking-[-0.05em] text-slate-950 sm:text-4xl lg:text-5xl">
+              無料で始めて、
+              必要なぶんだけ広げる。
             </h2>
-            <p className="mx-auto mt-5 max-w-lg text-balance text-lg leading-relaxed text-muted-foreground">
-              カード不要。あとからプランを選べます。
+            <p className="mx-auto mt-6 max-w-2xl text-balance text-lg leading-8 text-slate-600">
+              まずは無料プランで流れを確かめて、必要になったら Standard や Pro に切り替えられます。
+              クレジットは成功した時だけ消費されるので、無駄なく使えます。
             </p>
+          </div>
+        </ScrollReveal>
+
+        <ScrollReveal delay={0.06}>
+          <div className="mb-8 grid gap-4 border-y border-slate-200/80 py-5 sm:grid-cols-2">
+            <div>
+              <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
+                Free start
+              </p>
+              <p className="mt-2 text-sm font-semibold text-slate-950">クレジットカード不要</p>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
+                Fair usage
+              </p>
+              <p className="mt-2 text-sm font-semibold text-slate-950">成功した時だけ消費</p>
+            </div>
           </div>
         </ScrollReveal>
 
         <ScrollReveal delay={0.1}>
-          <div className="grid items-start gap-6 md:grid-cols-3 lg:gap-8">
-            {plans.map((plan) => (
-              <div
-                key={plan.name}
-                className={cn(
-                  plan.highlight ? "landing-bento-highlight" : "landing-bento-card",
-                )}
-              >
-                <h3 className="text-xl font-semibold tracking-tight text-foreground">
-                  {plan.name}
+          <div className="grid gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
+            <div className="rounded-[34px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(245,249,255,0.95),rgba(255,255,255,0.94))] p-8 shadow-[0_32px_90px_-62px_rgba(15,23,42,0.22)] sm:p-10">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-xl font-semibold tracking-tight text-slate-950">
+                  {recommendedPlan.name}
                 </h3>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {plan.description}
-                </p>
-
-                <div className="mt-6 flex items-end gap-2">
-                  <span className="text-5xl font-semibold tracking-tight text-foreground">
-                    {plan.price}
-                  </span>
-                  <span className="pb-1 text-sm text-muted-foreground">
-                    {plan.period}
-                  </span>
-                </div>
-
-                {"dailyPrice" in plan && plan.dailyPrice ? (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {plan.dailyPrice}
-                  </p>
-                ) : (
-                  <div className="mt-2" />
-                )}
-
-                <ul className="mt-8 space-y-3.5">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-3">
-                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary/70" />
-                      <span className="text-sm leading-6 text-foreground">
-                        {feature}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-
-                <Button
-                  asChild
-                  variant={plan.highlight ? "default" : "outline"}
-                  className={cn(
-                    "mt-8 h-12 w-full",
-                    plan.highlight && "landing-cta-btn",
-                  )}
-                >
-                  <Link href={plan.ctaLink}>{plan.cta}</Link>
-                </Button>
+                <span className="rounded-full border border-primary/14 bg-primary/8 px-3 py-1 text-[11px] font-semibold tracking-[0.18em] text-primary uppercase">
+                  Recommended
+                </span>
               </div>
-            ))}
+              <p className="mt-3 max-w-md text-sm leading-6 text-slate-600">
+                {recommendedPlan.description}
+              </p>
+
+              <div className="mt-7 flex items-end gap-2">
+                <span className="text-5xl font-semibold tracking-tight text-slate-950">
+                  {recommendedPlan.price}
+                </span>
+                <span className="pb-1 text-sm text-slate-500">
+                  {recommendedPlan.period ? `/${recommendedPlan.period}` : ""}
+                </span>
+              </div>
+
+              {recommendedPlan.dailyPrice ? (
+                <p className="mt-2 text-xs text-slate-500">{recommendedPlan.dailyPrice}</p>
+              ) : null}
+
+              <ul className="mt-8 space-y-3.5">
+                {recommendedPlan.features.slice(0, 5).map((feature) => (
+                  <li key={feature} className="flex items-start gap-3">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <span className="text-sm leading-6 text-slate-700">{feature}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <Button asChild className="landing-cta-primary mt-8 h-12 w-full rounded-full">
+                <Link href="/pricing">{recommendedPlan.ctaLabel}</Link>
+              </Button>
+            </div>
+
+            <div className="grid gap-4">
+              {secondaryPlans.map((plan) => (
+                <div
+                  key={plan.id}
+                  className="flex flex-col gap-4 rounded-[28px] border border-slate-200/80 bg-white/90 p-6 shadow-[0_22px_64px_-52px_rgba(15,23,42,0.18)] sm:flex-row sm:items-end sm:justify-between"
+                >
+                  <div>
+                    <p className="text-sm font-semibold tracking-tight text-slate-950">
+                      {plan.name}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{plan.description}</p>
+                    <p className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">
+                      {plan.price}
+                      <span className="ml-1 text-sm font-normal text-slate-500">
+                        {plan.period ? `/${plan.period}` : ""}
+                      </span>
+                    </p>
+                  </div>
+                  <Button
+                    asChild
+                    variant="outline"
+                    className="landing-cta-secondary h-11 rounded-full px-5"
+                  >
+                    <Link href={plan.id === "free" ? "/login" : "/pricing"}>
+                      {plan.ctaLabel}
+                    </Link>
+                  </Button>
+                </div>
+              ))}
+
+              <p className="text-sm font-medium text-slate-500">
+                年額プランと細かい比較表は pricing page に掲載。クレジットは成功時のみ消費されます。
+              </p>
+            </div>
           </div>
         </ScrollReveal>
-
-        <p className="mt-10 text-center text-sm text-muted-foreground">
-          全プランで全機能を使えます。クレジットは成功時のみ消費。
-        </p>
       </div>
     </section>
   );

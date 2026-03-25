@@ -9,11 +9,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { documents, documentVersions, companies, applications } from "@/lib/db/schema";
+import { documents, documentVersions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import {
+  getOwnedApplication,
+  getOwnedCompany,
+  hasOwnedApplication,
+  hasOwnedCompany,
+  hasOwnedJobType,
+} from "@/app/api/_shared/owner-access";
+import { getDocumentDetailPageData } from "@/lib/server/app-loaders";
+import { esDocumentCategorySchema } from "@/lib/es-document-category";
 
 type DocumentRow = typeof documents.$inferSelect;
 
@@ -65,28 +76,16 @@ async function verifyDocumentAccess(
   return { valid: false };
 }
 
-async function buildDocumentResponse(doc: DocumentRow) {
+async function buildDocumentResponse(
+  doc: DocumentRow,
+  identity: { userId: string | null; guestId: string | null }
+) {
   const [company, application] = await Promise.all([
     doc.companyId
-      ? db
-          .select({
-            id: companies.id,
-            name: companies.name,
-            infoFetchedAt: companies.infoFetchedAt,
-            corporateInfoFetchedAt: companies.corporateInfoFetchedAt,
-          })
-          .from(companies)
-          .where(eq(companies.id, doc.companyId))
-          .limit(1)
-          .then((rows) => rows[0] ?? null)
+      ? getOwnedCompany(doc.companyId, identity)
       : Promise.resolve(null),
     doc.applicationId
-      ? db
-          .select({ id: applications.id, name: applications.name })
-          .from(applications)
-          .where(eq(applications.id, doc.applicationId))
-          .limit(1)
-          .then((rows) => rows[0] ?? null)
+      ? getOwnedApplication(doc.applicationId, identity)
       : Promise.resolve(null),
   ]);
 
@@ -102,10 +101,11 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const timing = createServerTimingRecorder();
   try {
     const { id: documentId } = await params;
 
-    const identity = await getIdentity(request);
+    const identity = await timing.measure("identity", () => getRequestIdentity(request));
     if (!identity) {
       return createApiErrorResponse(request, {
         status: 401,
@@ -118,8 +118,10 @@ export async function GET(
       });
     }
 
-    const access = await verifyDocumentAccess(documentId, identity.userId, identity.guestId);
-    if (!access.valid || !access.document) {
+    const detail = await timing.measure("db", () =>
+      getDocumentDetailPageData(identity, documentId)
+    );
+    if (!detail) {
       return createApiErrorResponse(request, {
         status: 404,
         code: "DOCUMENT_NOT_FOUND",
@@ -130,11 +132,11 @@ export async function GET(
       });
     }
 
-    const doc = access.document;
-
-    return NextResponse.json({
-      document: await buildDocumentResponse(doc),
-    });
+    return timing.apply(
+      NextResponse.json({
+        document: detail.document,
+      })
+    );
   } catch (error) {
     return createApiErrorResponse(request, {
       status: 500,
@@ -182,7 +184,7 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { title, content, status, companyId, applicationId, jobTypeId } = body;
+    const { title, content, status, companyId, applicationId, jobTypeId, esCategory: rawEsCategory } = body;
 
     const updateData: Record<string, unknown> = {
       updatedAt: new Date(),
@@ -261,15 +263,79 @@ export async function PUT(
     }
 
     if (companyId !== undefined) {
+      if (companyId) {
+        const hasCompany = await hasOwnedCompany(companyId, identity);
+        if (!hasCompany) {
+          return createApiErrorResponse(request, {
+            status: 404,
+            code: "DOCUMENT_COMPANY_NOT_FOUND",
+            userMessage: "関連する企業が見つかりませんでした。",
+            action: "企業の選択内容を確認して、もう一度お試しください。",
+            developerMessage: "Company not found for document update",
+            logContext: "document-update-validation",
+          });
+        }
+      }
       updateData.companyId = companyId || null;
     }
 
     if (applicationId !== undefined) {
+      if (applicationId) {
+        const hasApplication = await hasOwnedApplication(applicationId, identity);
+        if (!hasApplication) {
+          return createApiErrorResponse(request, {
+            status: 404,
+            code: "DOCUMENT_APPLICATION_NOT_FOUND",
+            userMessage: "関連する応募情報が見つかりませんでした。",
+            action: "応募情報の選択内容を確認して、もう一度お試しください。",
+            developerMessage: "Application not found for document update",
+            logContext: "document-update-validation",
+          });
+        }
+      }
       updateData.applicationId = applicationId || null;
     }
 
     if (jobTypeId !== undefined) {
+      if (jobTypeId) {
+        const hasJobType = await hasOwnedJobType(jobTypeId, identity);
+        if (!hasJobType) {
+          return createApiErrorResponse(request, {
+            status: 404,
+            code: "DOCUMENT_JOB_TYPE_NOT_FOUND",
+            userMessage: "関連する職種情報が見つかりませんでした。",
+            action: "職種の選択内容を確認して、もう一度お試しください。",
+            developerMessage: "Job type not found for document update",
+            logContext: "document-update-validation",
+          });
+        }
+      }
       updateData.jobTypeId = jobTypeId || null;
+    }
+
+    if (rawEsCategory !== undefined) {
+      if (access.document.type !== "es") {
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "DOCUMENT_ES_CATEGORY_NOT_APPLICABLE",
+          userMessage: "このドキュメントでは分類を変更できません。",
+          action: "別のドキュメントを選び直してください。",
+          developerMessage: "esCategory only for type es",
+          logContext: "document-update-validation",
+        });
+      }
+      const parsed = esDocumentCategorySchema.safeParse(rawEsCategory);
+      if (!parsed.success) {
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "DOCUMENT_ES_CATEGORY_INVALID",
+          userMessage: "文書の分類を確認して、もう一度お試しください。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          developerMessage: "Invalid esCategory",
+          logContext: "document-update-validation",
+        });
+      }
+      updateData.esCategory = parsed.data;
     }
 
     const updated = await db
@@ -279,7 +345,7 @@ export async function PUT(
       .returning();
 
     return NextResponse.json({
-      document: await buildDocumentResponse(updated[0]),
+      document: await buildDocumentResponse(updated[0], identity),
     });
   } catch (error) {
     return createApiErrorResponse(request, {

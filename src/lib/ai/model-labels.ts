@@ -24,9 +24,6 @@ function humanizeModelId(modelId: string): string {
   if (lower.startsWith("gemini")) {
     return "Gemini";
   }
-  if (lower.startsWith("command-a")) {
-    return "Cohere Command A";
-  }
   if (lower.startsWith("gpt-5.4-mini")) {
     return "クレジット消費を抑えて添削";
   }
@@ -53,10 +50,7 @@ export function getLLMResultLabel(params: {
   reviewVariant?: string | null;
 }): string | null {
   const { provider, modelId, modelAlias, reviewVariant } = params;
-
-  if (reviewVariant === "qwen3-beta" || provider === "qwen-es-review") {
-    return "Qwen3 Swallow 32B β";
-  }
+  void reviewVariant;
 
   if (modelAlias?.trim()) {
     return humanizeModelId(modelAlias.trim());
@@ -71,9 +65,6 @@ export function getLLMResultLabel(params: {
   }
   if (provider === "google") {
     return "Gemini";
-  }
-  if (provider === "cohere") {
-    return "Cohere Command";
   }
   if (provider === "openai") {
     return "OpenAI";

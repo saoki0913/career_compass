@@ -10,7 +10,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ListPageFilterBar } from "@/components/shared/ListPageFilterBar";
-import { ListPageSkeleton } from "@/components/shared/ListPageSkeleton";
+import { CompaniesListContentSkeleton } from "@/components/skeletons/CompaniesListContentSkeleton";
 import { ListPageEmptyState } from "@/components/shared/ListPageEmptyState";
 import { FavoritesSection } from "@/components/shared/FavoritesSection";
 import { ViewToggle } from "@/components/shared/ViewToggle";
@@ -56,7 +56,7 @@ type CompaniesPageClientProps = {
 };
 
 export function CompaniesPageClient({ initialData }: CompaniesPageClientProps) {
-  const { companies, count, limit, canAddMore, isLoading, error, togglePin } = useCompanies(
+  const { companies, count, limit, isLoading, error, togglePin } = useCompanies(
     initialData ? { initialData } : {}
   );
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -117,110 +117,96 @@ export function CompaniesPageClient({ initialData }: CompaniesPageClientProps) {
       <DashboardHeader />
 
       <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">登録企業</h1>
-            <p className="mt-1 text-muted-foreground">
-              {limit ? `${count} / ${limit} 社登録中` : `${count} 社登録中`}
-            </p>
-          </div>
-
-          {canAddMore && (
-            <Button asChild className="sm:self-start">
-              <Link href="/companies/new">
-                <Plus className="w-5 h-5" />
-                <span className="ml-2">企業を追加</span>
-              </Link>
-            </Button>
-          )}
-        </div>
-
-        {!canAddMore && (
-          <Card className="mb-6 border-orange-200 bg-orange-50/50">
-            <CardContent className="py-4">
-              <p className="text-sm text-orange-800">
-                登録企業数が上限（{limit}社）に達しています。
-                <Link href="/settings/plan" className="ml-1 text-primary hover:underline">
-                  プランをアップグレード
-                </Link>
-                すると無制限に登録できます。
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        <ListPageFilterBar
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          searchPlaceholder="企業名で検索..."
-          filterTabs={filterTabs}
-          activeFilter={filter}
-          onFilterChange={(key) => setFilter(key as FilterKey)}
-          tabCounts={tabCounts}
-          sortOptions={sortOptions}
-          sortBy={sortBy}
-          onSortChange={(value) => setSortBy(value as SortKey)}
-          extraFilter={
-            <MultiSelect
-              options={industryOptions}
-              selected={selectedIndustries}
-              onChange={setSelectedIndustries}
-              placeholder="業界"
-              className="w-[160px]"
-            />
-          }
-          viewToggle={<ViewToggle options={viewOptions} activeKey={viewMode} onChange={setViewMode} />}
-        />
-
-        {error && (
-          <Card className="mb-6 border-red-200 bg-red-50/50">
-            <CardContent className="py-4">
-              <p className="text-sm text-red-800">{error}</p>
-            </CardContent>
-          </Card>
-        )}
-
         {isLoading ? (
-          <ListPageSkeleton />
-        ) : filteredCompanies.length === 0 ? (
-          <ListPageEmptyState
-            icon={<Building2 className="w-12 h-12 text-muted-foreground/50" />}
-            title={isFiltered ? "該当する企業がありません" : "まだ企業が登録されていません"}
-            description={
-              isFiltered
-                ? "フィルターを変更するか、新しい企業を追加してください"
-                : "志望企業を登録して、ES提出や面接の締切を管理しましょう"
-            }
-            action={
-              canAddMore
-                ? {
+          <CompaniesListContentSkeleton />
+        ) : (
+          <>
+            <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight">登録企業</h1>
+                <p className="mt-1 text-muted-foreground">
+                  {limit ? `${count} / ${limit} 社登録中` : `${count} 社登録中`}
+                </p>
+              </div>
+
+              <Button asChild className="sm:self-start">
+                <Link href="/companies/new">
+                  <Plus className="w-5 h-5" />
+                  <span className="ml-2">企業を追加</span>
+                </Link>
+              </Button>
+            </div>
+
+            <ListPageFilterBar
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              searchPlaceholder="企業名で検索..."
+              filterTabs={filterTabs}
+              activeFilter={filter}
+              onFilterChange={(key) => setFilter(key as FilterKey)}
+              tabCounts={tabCounts}
+              sortOptions={sortOptions}
+              sortBy={sortBy}
+              onSortChange={(value) => setSortBy(value as SortKey)}
+              extraFilter={
+                <MultiSelect
+                  options={industryOptions}
+                  selected={selectedIndustries}
+                  onChange={setSelectedIndustries}
+                  placeholder="業界"
+                  className="w-[160px]"
+                />
+              }
+              viewToggle={<ViewToggle options={viewOptions} activeKey={viewMode} onChange={setViewMode} />}
+            />
+
+            {error && (
+              <Card className="mb-6 border-red-200 bg-red-50/50">
+                <CardContent className="py-4">
+                  <p className="text-sm text-red-800">{error}</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {filteredCompanies.length === 0 ? (
+              <ListPageEmptyState
+                icon={<Building2 className="w-12 h-12 text-muted-foreground/50" />}
+                title={isFiltered ? "該当する企業がありません" : "まだ企業が登録されていません"}
+                description={
+                  isFiltered
+                    ? "フィルターを変更するか、新しい企業を追加してください"
+                    : "志望企業を登録して、ES提出や面接の締切を管理しましょう"
+                }
+                action={
+                  {
                     label: "企業を追加する",
                     icon: <Plus className="w-5 h-5" />,
                     href: "/companies/new",
                   }
-                : undefined
-            }
-          />
-        ) : viewMode === "industry" ? (
-          <IndustryGroup companies={filteredCompanies} onTogglePin={togglePin} />
-        ) : (
-          <div className="space-y-8">
-            <FavoritesSection count={pinnedCompanies.length}>
-              <CompanyGrid companies={pinnedCompanies} onTogglePin={togglePin} />
-            </FavoritesSection>
+                }
+              />
+            ) : viewMode === "industry" ? (
+              <IndustryGroup companies={filteredCompanies} onTogglePin={togglePin} />
+            ) : (
+              <div className="space-y-8">
+                <FavoritesSection count={pinnedCompanies.length}>
+                  <CompanyGrid companies={pinnedCompanies} onTogglePin={togglePin} />
+                </FavoritesSection>
 
-            {unpinnedCompanies.length > 0 && (
-              <section>
-                {pinnedCompanies.length > 0 && (
-                  <div className="mb-4 flex items-center gap-2">
-                    <h2 className="text-lg font-semibold text-foreground">すべての企業</h2>
-                    <span className="text-sm text-muted-foreground">({unpinnedCompanies.length})</span>
-                  </div>
+                {unpinnedCompanies.length > 0 && (
+                  <section>
+                    {pinnedCompanies.length > 0 && (
+                      <div className="mb-4 flex items-center gap-2">
+                        <h2 className="text-lg font-semibold text-foreground">すべての企業</h2>
+                        <span className="text-sm text-muted-foreground">({unpinnedCompanies.length})</span>
+                      </div>
+                    )}
+                    <CompanyGrid companies={unpinnedCompanies} onTogglePin={togglePin} />
+                  </section>
                 )}
-                <CompanyGrid companies={unpinnedCompanies} onTogglePin={togglePin} />
-              </section>
+              </div>
             )}
-          </div>
+          </>
         )}
       </main>
     </div>

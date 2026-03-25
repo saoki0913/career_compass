@@ -1,4 +1,4 @@
-.PHONY: dev build start lint test test-ui db-push db-generate db-studio clean \
+.PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression db-push db-generate db-studio clean \
 	up down restart backend-test backend-test-search backend-lint backend-format logs check deps reset-db seed \
 	db-migrate db-status db-check db-drop db-introspect db-fresh backend-install \
 	backend-test-mappings backend-test-subsidiary backend-test-company \
@@ -6,7 +6,7 @@
 	backend-test-content-type backend-test-content-type-unit backend-test-content-type-integration \
 	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy \
 	backend-test-live-es-review \
-	deploy deploy-check deploy-migrate ops-status ops-auth-check ops-release-check
+	deploy deploy-stage-all deploy-check deploy-migrate ops-status ops-auth-check ops-release-check
 
 # ===========================================
 # フロントエンド (Next.js)
@@ -43,6 +43,41 @@ test-ui:
 ## ブラウザを表示してテスト実行
 test-headed:
 	npx playwright test --headed
+
+## UI実装前の preflight（例: make test-ui-preflight ROUTE=/pricing SURFACE=marketing AUTH=guest）
+SURFACE ?=
+test-ui-preflight:
+	npm run ui:preflight -- $(ROUTE) --surface=$(SURFACE) $(if $(AUTH),--auth=$(AUTH),)
+
+## UI変更後の対象ページ確認（例: make test-ui-review ROUTE=/pricing AUTH=guest）
+ROUTE ?= /
+AUTH ?=
+test-ui-review:
+	npm run test:ui:review -- $(ROUTE) $(if $(AUTH),--auth=$(AUTH),)
+
+## 主要機能の横断 Playwright テスト
+test-major:
+	npm run test:e2e:major
+
+## guest 主要機能の横断 Playwright テスト
+test-major-guest:
+	npm run test:e2e:major:guest
+
+## logged-in 主要機能の横断 Playwright テスト
+test-major-user:
+	npm run test:e2e:major:user
+
+## FastAPI を含む AI live major の Playwright テスト
+test-major-live:
+	npm run test:e2e:major:live
+
+## 認証・制限契約の Playwright テスト
+test-auth:
+	npm run test:e2e:auth
+
+## focused regression の Playwright テスト
+test-regression:
+	npm run test:e2e:regression
 
 # ===========================================
 # データベース (Drizzle + Supabase/PostgreSQL)
@@ -151,9 +186,16 @@ LIVE_SEARCH_USE_CURATED ?= 1
 LIVE_SEARCH_FAIL_ON_REGRESSION ?= 0
 BASELINE_SAVE ?= 0
 BASELINE_AUTO_PROMOTE ?= 0
-LIVE_ES_REVIEW_PROVIDERS ?= claude-sonnet,gpt-5.1,gemini-3.1-pro-preview,command-a-03-2025
+LIVE_ES_REVIEW_CASE_SET ?= extended
+# 空 = Python 既定（smoke は mini、extended は 4 モデル）
+LIVE_ES_REVIEW_PROVIDERS ?=gpt-5.4-mini,gemini-3.1-pro-preview,gpt-5.4,claude-sonnet
 LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS ?= 0
 LIVE_ES_REVIEW_OUTPUT_DIR ?= backend/tests/output
+LIVE_ES_REVIEW_ENABLE_JUDGE ?= 1
+LIVE_ES_REVIEW_REQUIRE_JUDGE_PASS ?= 0
+LIVE_ES_REVIEW_COLLECT_ONLY ?= 0
+LIVE_ES_REVIEW_JUDGE_MODEL ?= gpt-5.4-mini
+LIVE_ES_REVIEW_CASE_FILTER ?=
 
 ## 全バックエンドテストを実行
 backend-test:
@@ -199,17 +241,24 @@ backend-test-live-search-hybrid:
 backend-test-live-search-legacy:
 	@$(MAKE) backend-test-live-search LIVE_SEARCH_MODES=legacy
 
-## Live ES添削 provider gate（4 provider 実 API / レポート出力）
+## Live ES添削 provider gate（実 API / レポート出力。PROVIDERS 空で case_set 別既定）
 backend-test-live-es-review:
 	@echo "Running live ES review provider gate..."
-	@echo "  Providers: $(LIVE_ES_REVIEW_PROVIDERS)"
+	@echo "  Case set: $(LIVE_ES_REVIEW_CASE_SET)"
+	@echo "  Providers: (empty=defaults) $(LIVE_ES_REVIEW_PROVIDERS)"
 	@echo "  Output: $(LIVE_ES_REVIEW_OUTPUT_DIR)"
-	cd backend && \
 	RUN_LIVE_ES_REVIEW=1 \
+	LIVE_ES_REVIEW_CASE_SET="$(LIVE_ES_REVIEW_CASE_SET)" \
 	LIVE_ES_REVIEW_PROVIDERS="$(LIVE_ES_REVIEW_PROVIDERS)" \
 	LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS="$(LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS)" \
-	LIVE_ES_REVIEW_OUTPUT_DIR="../$(LIVE_ES_REVIEW_OUTPUT_DIR)" \
-	python -m pytest tests/es_review/integration/test_live_es_review_provider_report.py -v -s -m "integration"
+	LIVE_ES_REVIEW_OUTPUT_DIR="$(LIVE_ES_REVIEW_OUTPUT_DIR)" \
+	LIVE_ES_REVIEW_ENABLE_JUDGE="$(LIVE_ES_REVIEW_ENABLE_JUDGE)" \
+	LIVE_ES_REVIEW_REQUIRE_JUDGE_PASS="$(LIVE_ES_REVIEW_REQUIRE_JUDGE_PASS)" \
+	LIVE_ES_REVIEW_COLLECT_ONLY="$(LIVE_ES_REVIEW_COLLECT_ONLY)" \
+	LIVE_ES_REVIEW_JUDGE_MODEL="$(LIVE_ES_REVIEW_JUDGE_MODEL)" \
+	LIVE_ES_REVIEW_CASE_FILTER="$(LIVE_ES_REVIEW_CASE_FILTER)" \
+	npx dotenv -e .env.local -- \
+	python -m pytest backend/tests/es_review/integration/test_live_es_review_provider_report.py -v -s -m "integration"
 
 ## Pythonコードをリント（ruff/flake8）
 backend-lint:
@@ -310,55 +359,11 @@ CLI_SAFE_PATH := PATH="$(CLI_SAFE_BIN):$$PATH"
 
 ## develop の release 前検証（本番反映は GitHub PR merge のみ）
 deploy:
-	@echo ""
-	@echo "=========================================="
-	@echo " Release Check: develop -> staging -> main PR"
-	@echo "=========================================="
-	@echo ""
-	CURRENT=$$(git branch --show-current); \
-	if [ "$$CURRENT" != "develop" ]; then \
-		echo "ERROR: developブランチで実行してください（現在: $$CURRENT）"; \
-		exit 1; \
-	fi; \
-	if [ -n "$$(git status --porcelain)" ]; then \
-		echo "ERROR: 未コミットの変更があります。commit してから再実行してください。"; \
-		git status --short; \
-		exit 1; \
-	fi; \
-	echo "--- Phase 1: lint / build ---"; \
-	echo ""; \
-	echo "-> lint 実行中..."; \
-	if ! npm run lint; then \
-		echo ""; \
-		echo "ERROR: lint に失敗しました。develop を直してから staging に進んでください。"; \
-		exit 1; \
-	fi; \
-	echo ""; \
-	echo "-> build 実行中..."; \
-	if ! npm run build; then \
-		echo ""; \
-		echo "ERROR: build に失敗しました。develop を直してから staging に進んでください。"; \
-		exit 1; \
-	fi; \
-	echo ""; \
-	echo "-> lint / build OK"; \
-	echo ""; \
-	echo "--- Phase 2: push / staging / PR ---"; \
-	echo ""; \
-	echo "1. develop を push して staging を更新:"; \
-	echo "   git push origin develop"; \
-	echo ""; \
-	echo "2. staging で確認:"; \
-	echo "   Frontend: $(STAGING_FRONTEND_URL)"; \
-	echo "   Backend:  $(STAGING_BACKEND_URL)/health"; \
-	echo ""; \
-	echo "3. GitHub で develop -> main の PR を作成:"; \
-	echo "   $(RELEASE_PR_URL)"; \
-	echo ""; \
-	echo "4. main への merge が完了したら production health check を実行:"; \
-	echo "   make deploy-check"; \
-	echo ""; \
-	echo "NOTE: 本番 deploy は GitHub main merge と provider の自動 deploy だけを正本にします。"
+	zsh scripts/release/release-career-compass.sh
+
+## ローカル変更をすべて stage してから release を実行
+deploy-stage-all:
+	zsh scripts/release/release-career-compass.sh --stage-all
 
 ## ヘルスチェックのみ実行（スタンドアロン）
 deploy-check:
@@ -429,49 +434,15 @@ ops-status:
 	@echo ""
 	@$(CLI_SAFE_PATH) git status --short || true
 	@echo ""
-	@echo "--- GitHub / Deploy ---"
-	@$(CLI_SAFE_PATH) gh auth status || true
-	@$(CLI_SAFE_PATH) vercel whoami || true
-	@$(CLI_SAFE_PATH) railway whoami || true
-	@echo ""
-	@echo "--- Data / Billing / Model ---"
-	@$(CLI_SAFE_PATH) supabase status || true
-	@$(CLI_SAFE_PATH) stripe events list --limit 1 || true
-	@$(CLI_SAFE_PATH) hf whoami || true
-	@$(CLI_SAFE_PATH) modal app list || true
-	@$(CLI_SAFE_PATH) gcloud auth list || true
+	@bash scripts/release/provider-auth-status.sh || true
 
 ## 認証状態だけを安全ラッパー経由で確認
 ops-auth-check:
-	@echo "=== Safe CLI Auth Check ==="
-	@echo ""
-	@$(CLI_SAFE_PATH) gh auth status || true
-	@$(CLI_SAFE_PATH) vercel whoami || true
-	@$(CLI_SAFE_PATH) railway whoami || true
-	@$(CLI_SAFE_PATH) supabase projects list || true
-	@$(CLI_SAFE_PATH) stripe events list --limit 1 || true
-	@$(CLI_SAFE_PATH) hf whoami || true
-	@$(CLI_SAFE_PATH) gcloud auth list || true
+	bash scripts/release/provider-auth-status.sh --strict
 
 ## release 前の branch / deploy 前提だけを確認
 ops-release-check:
-	@echo "=== Release Guardrails Check ==="
-	@echo ""
-	@CURRENT=$$(git branch --show-current 2>/dev/null || true); \
-	echo "Current branch: $$CURRENT"; \
-	if [ "$$CURRENT" != "develop" ]; then \
-		echo "ERROR: release は develop ブランチで開始してください。"; \
-		exit 1; \
-	fi; \
-	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then \
-		echo "ERROR: 未コミットの変更があります。commit してから release に進んでください。"; \
-		exit 1; \
-	else \
-		echo "Working tree: clean"; \
-	fi; \
-	echo "Production branch: main"; \
-	echo "Staging branch: develop"; \
-	echo "Deploy flow: local verify -> push develop -> staging verify -> GitHub PR develop->main -> main merge -> Vercel/Railway auto deploy"
+	zsh scripts/release/release-career-compass.sh --check
 
 # ===========================================
 # ヘルプ
@@ -479,7 +450,7 @@ ops-release-check:
 
 ## 使用可能なコマンド一覧を表示
 help:
-	@echo "就活Compass (シューパス) - Makefile コマンド一覧"
+	@echo "就活Pass (シューパス) - Makefile コマンド一覧"
 	@echo "  (本番: $(FRONTEND_URL))"
 	@echo ""
 	@echo "  📦 開発サーバー:"
@@ -506,6 +477,8 @@ help:
 	@echo "    make test         - ヘッドレスでテスト実行"
 	@echo "    make test-ui      - UIモードでテスト"
 	@echo "    make test-headed  - ブラウザ表示でテスト"
+	@echo "    make test-major   - stable major"
+	@echo "    make test-major-live - AI live major"
 	@echo ""
 	@echo "  🗄️  データベース:"
 	@echo "    make db-push      - スキーマをDBに反映"
@@ -521,12 +494,13 @@ help:
 	@echo "    make logs         - バックエンドログ表示"
 	@echo ""
 	@echo "  🚀 デプロイ:"
-	@echo "    make deploy         - 本番デプロイ（ビルド検証→DBマイグレ→マージ→ヘルスチェック）"
+	@echo "    make deploy         - staged 済み release scope で本番反映"
+	@echo "    make deploy-stage-all - ローカル変更を全部 stage して本番反映"
 	@echo "    make deploy-check   - ヘルスチェックのみ（Frontend + Backend）"
 	@echo "    make deploy-migrate - 本番DBマイグレーションのみ"
-	@echo "    make ops-status     - 安全ラッパー経由で主要CLIの状態確認"
-	@echo "    make ops-auth-check - 安全ラッパー経由で認証状態確認"
-	@echo "    make ops-release-check - release 前の branch/guardrail 確認"
+	@echo "    make ops-status     - provider auth の現状確認"
+	@echo "    make ops-auth-check - provider auth の厳密確認"
+	@echo "    make ops-release-check - release 前提（auth/secrets/branch）確認"
 	@echo ""
 	@echo "  🔧 環境・セットアップ:"
 	@echo "    make check        - 開発環境の状態確認"

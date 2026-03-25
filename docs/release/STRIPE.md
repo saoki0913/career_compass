@@ -4,6 +4,8 @@
 
 Stripe は Vercel (フロントエンド) 側のみで使用します。バックエンド (Railway) には Stripe 関連の設定は不要です。
 
+特商法ページと `Commerce Disclosure` の整備は、[`INDIVIDUAL_BUSINESS_COMPLIANCE.md`](./INDIVIDUAL_BUSINESS_COMPLIANCE.md) を参照してください。
+
 ---
 
 ## 2-1. Stripe アカウントの本番利用申請
@@ -92,8 +94,8 @@ Stripe Dashboard → **商品カタログ** → **商品を追加**
 | 設定 | 値 |
 |---|---|
 | 商品名 | `Standard プラン` |
-| 説明 | `月300クレジット・企業30社・ES添削10回/月` |
-| 価格 | ¥980 / 月 (recurring) |
+| 説明 | `月100クレジット・企業無制限・選考50回/RAG100ページ無料枠（要約）` |
+| 価格 | ¥1,480 / 月 (recurring) |
 | 請求間隔 | 毎月 |
 
 作成後、価格の詳細画面で **Price ID** (`price_...`) を控える → `STRIPE_PRICE_STANDARD_MONTHLY`
@@ -103,7 +105,7 @@ Stripe Dashboard → **商品カタログ** → **商品を追加**
 | 設定 | 値 |
 |---|---|
 | 商品名 | `Pro プラン` |
-| 説明 | `月800クレジット・企業無制限・ES添削無制限` |
+| 説明 | `月300クレジット・企業無制限・選考150回/RAG300ページ無料枠（要約）` |
 | 価格 | ¥2,980 / 月 (recurring) |
 | 請求間隔 | 毎月 |
 

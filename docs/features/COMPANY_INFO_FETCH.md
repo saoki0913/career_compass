@@ -1,6 +1,6 @@
 # 企業情報検索機能
 
-採用ページ・コーポレートページから企業情報をAIで自動抽出し、RAG用に蓄積する機能。
+採用ページから選考情報を抽出する機能と、コーポレートページをクロールして **RAG 用に蓄積する**機能を扱う。**選考スケジュール取得では RAG を構築しない**（抽出結果は締切等の DB 保存に用いるのみ）。
 
 **参照実装**: `backend/app/routers/company_info.py`, `src/app/api/companies/[id]/fetch-info/route.ts`
 
@@ -11,14 +11,15 @@
 | 項目 | 内容 |
 |------|------|
 | **選考スケジュール取得** | 採用ページから締切・選考情報を抽出 |
-| **コーポレート情報取得** | IR・事業紹介ページをクロールしてRAG構築 |
-| **LLM** | 選考スケジュール抽出は `MODEL_SELECTION_SCHEDULE`、企業情報抽出は `MODEL_COMPANY_INFO` |
+| **コーポレート情報取得** | ユーザーが選択した公開ページをクロールしてRAG保存 |
+| **LLM** | 選考スケジュール抽出は `MODEL_SELECTION_SCHEDULE`（既定 `gpt-nano` → **GPT-5.4 nano**）、企業情報抽出は `MODEL_COMPANY_INFO`（既定 `gpt-fast`） |
 
 ### クレジット消費（選考スケジュール取得）
 
 | 結果 | 条件 | 消費 |
 |------|------|------|
-| 完全成功 | 締切情報あり | 1クレジット |
+| 完全成功 | 締切情報あり、**月次無料枠内** | 0クレジット（無料枠 1 回消費） |
+| 完全成功 | 締切情報あり、無料枠外 | 1クレジット |
 | 部分成功 | 締切なし、他データあり | 0クレジット |
 | 失敗 | データなし | 0クレジット |
 
@@ -26,18 +27,18 @@
 
 | プラン | 選考スケジュール | コーポレートページ |
 |--------|-----------------|-------------------|
-| guest | 5回/日 | 利用不可 |
-| free | 10回/日 | 10ソース + 月160unit無料 |
-| standard | 20回/日 | 100ソース + 月640unit無料 |
-| pro | 40回/日 | 500ソース + 月2400unit無料 |
+| guest | 利用不可（ログイン必須） | 利用不可 |
+| free | 5回/月 | 3ソース + 月10ページ無料 |
+| standard | 50回/月 | 100ソース + 月100ページ無料 |
+| pro | 150回/月 | 500ソース + 月300ページ無料 |
 
 ### コーポレートRAG課金
 
-- URL取込は `1ページ = 1 unit`。
-- PDF取込はページ数に応じて `2 / 4 / 6 / 10 unit`。
-- 無料枠を先に消費し、超過分は `40 unit = 1クレジット` で整数課金する。
-- 40unit 未満の overflow はその場では課金せず、当月の `ragOverflowUnits` に持ち越す。
-- API レスポンスは `actualUnits`, `freeUnitsApplied`, `remainingFreeUnits`, `creditsConsumed`, `actualCreditsDeducted` を返す。
+- 月次無料枠は **URL クロールのページ数 + PDF のページ数**を合算してカウントする。
+- 無料枠を先にページ数ぶん消費する。
+- **URL**: 無料に載らなかった超過分は **1ページ = 1クレジット**。
+- **PDF**: 文書ページ数の帯ごとに **固定クレジット**（無料枠で一部を消費してもティア額はフル課金）。ティアは `docs/features/CREDITS.md` §3.5。取込・課金に使うページ数は **実際に処理したページ**（プラン別上限で切り詰めた後）。上限は `docs/features/COMPANY_RAG.md` の表。
+- API レスポンスは `actualUnits`（ページ）, `freeUnitsApplied`, `remainingFreeUnits`, `creditsConsumed`, `actualCreditsDeducted` を返す。
 
 ---
 
@@ -81,22 +82,57 @@
    - 公式候補 → trusted job site の順で優先
    - 親会社 / 子会社候補は表示するが、自動選択しない
          ↓
-2. ユーザーがURL選択（複数可）
+2. ユーザーがURL選択
          ↓
-3. 情報抽出（URLごと順次処理）
+3. 情報抽出（選択した 1 URL のみ）
    POST /company-info/fetch-schedule
-   選択URLを抽出 → 日付付き締切が取れない場合だけ 1ホップ先の募集要項/締切リンクを追加探索 → 構造化抽出
+   ユーザーが選んだ URL の本文から構造化抽出（**別ページへの自動フォローは行わない**）
    - 取得元URLの relation / trusted job site / 年度一致を metadata 化
    - parent / subsidiary は confidence を low 上限に補正
    - trusted job site は medium 上限に補正
-   - direct PDF リンクは最大1件まで追加探索し、本文抽出に失敗した場合だけ OCR fallback
+   - PDF の本文抽出に失敗した場合は OCR fallback のみ（同一リクエスト内）
          ↓
-4. DB保存 & RAG構築（非同期）
+4. DB保存（非同期）
    - 締切 → deadlinesテーブル
-   - フルテキスト → ChromaDB
+   - 選考情報 → 検索・通知で使う構造化データ
          ↓
 5. Google Calendar連携（オプション）
 ```
+
+### LLM 失敗時の挙動（選考スケジュール・企業情報抽出）
+
+- JSON がパースできない場合、`call_llm_with_error`（`backend/app/utils/llm.py`）は **同一モデルでの `max_tokens` 段階リトライは行わず**、**OpenAI キーがあるときは JSON 修復を 1 回**試す。選考スケジュール（`selection_schedule`）は **`gpt-nano`（GPT‑5.4 nano）**、それ以外は **`gpt-fast`（mini 相当）**（`REPAIR_JSON_OPENAI_MAX_TOKENS`、既定 1500）。OpenAI キーが無いときは従来どおり Claude（Sonnet）または同一プロバイダーで修復。解析理由だけで主経路を別プロバイダーへ自動フォールバックはしない。
+- **課金不足（billing）・レート制限（rate_limit）・ネットワーク系（network）** のときは **別プロバイダーに自動切り替えしない**。
+- **いずれの主プロバイダーでも**、API エラー時に **別プロバイダーへ自動切り替えしない**（`_feature_cross_fallback_model` は常に無効。エラーを返して UI の再試行に委ねる）。
+- Next の [`fetch-info`](src/app/api/companies/[id]/fetch-info/route.ts) が FastAPI の `error_type` を解釈し、構造化エラーで返す（UI ではエラー用スナックバーで再試行を促す想定）。
+- **API キー未設定（no_api_key）** もフォールバックせず、「管理者にお問い合わせください」系のメッセージを返す。
+- 選考スケジュール抽出および企業情報一括抽出の初回 `max_tokens` はいずれも **1500**（選考は `SCHEDULE_LLM_MAX_OUTPUT_TOKENS`、フル抽出は `extract_info_with_llm` 呼び出し）。スキーマ上で締切・書類件数と文字列長を制限し、出力肥大を抑える。
+- **極端に長い HTML 本文**（`SCHEDULE_EXTREME_PAGE_CHARS` 超）では、`_compress_schedule_page_text_for_llm` がキーワード行・日付らしい行・末尾付近だけをルールで切り出してから LLM に渡し、入力を通常 **≤4000 文字**に抑える（長大ページの先頭だけを送るフォールバックは使わない）。
+
+### レート制限と abuse guard
+
+- `search-pages` / `search-corporate-pages` / `source-compliance/check` は company search 系 limiter を使う。
+- `fetch-info` は既存の `FETCH_INFO_RATE_LAYERS` を継続利用する。
+- `fetch-corporate` / `fetch-corporate-upload` は corporate mutate limiter を使う。
+- `delete-corporate-urls` は delete 専用 limiter を使う。
+- `fetch-corporate` GET と `es-review-status` GET は polling limiter を使う。
+- `source-compliance/check` は一度に 10 URL まで。超える場合は 400 を返す。
+- 429 は `RATE_LIMITED` の構造化エラーで返し、`Retry-After` を付け、`userMessage` は `しばらく待ってから再試行してください。` に統一する。
+
+### 開発者向け: LLM トークン・概算コストログ
+
+- **ユーザー向け UI や API レスポンスには含めない**（プロダクト上はクレジット／無料枠のみ表示）。
+- FastAPI（`backend/app/utils/llm.py`）で `LLM_USAGE_COST_LOG=true` のとき、チャット系 LLM 呼び出しごとに `logger.info` で **1 行の開発者向けログ**を出す。共通キーは `event=llm_cost`。
+  - 通常の 1 回呼び出し: `scope=call`（例: 構造化、テキスト、ストリーム、JSON 修復 `call_kind=json_repair`、PDF OCR `call_kind=pdf_ocr`）。
+  - 選考スケジュール 1 リクエストの集計: `scope=request`・`call_kind=selection_schedule_request`（行頭に `[選考スケジュール抽出]`、`source_url` は先頭 120 文字程度）。
+- **`ENVIRONMENT` によらず**、`LLM_USAGE_COST_LOG` のみで有効化できる。本番で ON にするとログ量が増えるため注意。
+- 概算 **USD** はデフォルト単価カタログ（`gpt-5.4-mini` は公式 Standard / Short context: Input $0.75 / Cached $0.075 / Output $4.50 per 1M 等）と任意の `LLM_PRICE_OVERRIDES_JSON` で算出。カタログに無いモデルは `usage_status=unavailable_price` になりやすい。
+- OpenAI mini の単価を環境変数で上書きする場合は **USD / 1M tokens** で次を設定（いずれか未設定ならカタログ値にフォールバック）:
+  - `OPENAI_PRICE_GPT_5_4_MINI_INPUT_PER_MTOK_USD`
+  - `OPENAI_PRICE_GPT_5_4_MINI_CACHED_INPUT_PER_MTOK_USD`（省略時は input 単価と同じ扱い）
+  - `OPENAI_PRICE_GPT_5_4_MINI_OUTPUT_PER_MTOK_USD`
+- ログに **概算円（`est_jpy`）** を付けるには `LLM_COST_USD_TO_JPY_RATE`（例: `155`）を **正の値で** 設定する。`est_usd` が算出できたときだけ `est_jpy=` が付く。実請求・為替とは一致しない。
+- 単価の出典・改定: [OpenAI API Pricing](https://openai.com/api/pricing/)、[Anthropic Pricing](https://www.anthropic.com/pricing) 等。改定時はカタログまたは `LLM_PRICE_OVERRIDES_JSON` を更新する。
 
 ### 抽出項目
 
@@ -175,7 +211,7 @@
          ↓
 4. ユーザーがURL選択
          ↓
-5. クロール & RAG構築
+5. クロール & RAG保存
    POST /company-info/rag/crawl-corporate
    1秒間隔でページ取得 → チャンキング → ベクトル化
 ```
@@ -275,7 +311,7 @@ COMPANY_QUERY_ALIASES = {
 | エンドポイント | 説明 |
 |---------------|------|
 | `POST /company-info/search-corporate-pages` | コーポレートページ候補を検索 |
-| `POST /company-info/rag/crawl-corporate` | ページをクロールしてRAG構築 |
+| `POST /company-info/rag/crawl-corporate` | ユーザーが選択したページをクロールしてRAG保存 |
 | `POST /company-info/rag/{company_id}/delete-by-urls` | 登録済みURLを削除 |
 
 ### RAG管理
@@ -295,7 +331,7 @@ COMPANY_QUERY_ALIASES = {
 
 - モーダルは step を切り替えても同じ shell 幅を維持
 - 卒業年度はプロフィール値を初期選択し、その場で変更可能
-- URL候補リスト（チェックボックスで複数選択）
+- URL候補リストから選択
 - 信頼度バッジ（high=緑、medium=黄、low=灰）
 - 親会社 / 子会社候補には relation ラベルを表示し、自動選択しない
 - カスタムURL入力
@@ -320,9 +356,9 @@ COMPANY_QUERY_ALIASES = {
 
 1. **締切は未確認状態で保存**: `isConfirmed: false`、ユーザー承認が必要
 2. **信頼度「低」は初期チェックOFF**: UI上で初期選択されない
-3. **RAG構築は自動トリガー**: 情報取得成功時に非同期で実行
+3. **選考スケジュール取得では RAG を構築しない**: RAG はコーポレート情報取得でのみ保存する
 4. **部分成功**: 締切なしでも他データがあれば0クレジットで保存する
-5. **複数URL順次処理**: 1つずつ順次処理し進捗を表示
+5. **コーポレート取得の複数 URL**: ユーザーが選んだ URL を順次クロールし進捗を表示（選考スケジュールは 1 URL のみ）
 6. **親子会社のラベルは relation-first**: `classify_company_domain_relation()` を source of truth とし、関連会社ページは `official` にしない
 7. **URL自動選択は strict**: `official + high` だけを自動選択し、parent / subsidiary / job_site は手動選択のみ
 
@@ -343,4 +379,4 @@ COMPANY_QUERY_ALIASES = {
 | `src/components/companies/FetchInfoButton.tsx` | 選考スケジュール取得UI |
 | `src/components/companies/CorporateInfoSection.tsx` | コーポレート情報UI |
 
-**RAG詳細**: `docs/COMPANY_RAG.md` を参照
+**RAG詳細**: `docs/features/COMPANY_RAG.md` を参照
