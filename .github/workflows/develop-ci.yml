@@ -30,23 +30,29 @@ jobs:
 
   ui-guardrails:
     needs: ui-scope
-    if: needs.ui-scope.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        if: needs.ui-scope.outputs.should_run == 'true'
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
+        if: needs.ui-scope.outputs.should_run == 'true'
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npm run lint:ui:guardrails
+      - name: Install and lint UI guardrails
+        if: needs.ui-scope.outputs.should_run == 'true'
+        run: |
+          npm ci
+          npm run lint:ui:guardrails
+      - name: Skip UI guardrails
+        if: needs.ui-scope.outputs.should_run != 'true'
+        run: echo "No UI review routes; skipping lint:ui:guardrails."
 
   ui-review:
     needs: [ui-scope, ui-guardrails]
-    if: needs.ui-scope.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -54,17 +60,26 @@ jobs:
       PLAYWRIGHT_SKIP_WEBSERVER: "1"
     steps:
       - uses: actions/checkout@v4
+        if: needs.ui-scope.outputs.should_run == 'true'
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
+        if: needs.ui-scope.outputs.should_run == 'true'
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
+      - name: Install dependencies
+        if: needs.ui-scope.outputs.should_run == 'true'
+        run: npm ci
       - name: Install Playwright Chromium
+        if: needs.ui-scope.outputs.should_run == 'true'
         run: npx playwright install --with-deps chromium
       - name: Run UI review
+        if: needs.ui-scope.outputs.should_run == 'true'
         run: npm run test:ui:review -- ${{ join(fromJson(needs.ui-scope.outputs.routes_json), ' ') }} --auth=${{ needs.ui-scope.outputs.auth_mode }}
+      - name: Skip UI review
+        if: needs.ui-scope.outputs.should_run != 'true'
+        run: echo "No UI review routes; skipping Playwright UI review."
 
   frontend:
     runs-on: ubuntu-latest
