@@ -116,7 +116,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: zsh scripts/ci/run-main-e2e.sh guest
+      - run: bash scripts/ci/run-main-e2e.sh guest
 
   e2e-auth:
     needs: [source-branch, staging-ready]
@@ -134,7 +134,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: zsh scripts/ci/run-main-e2e.sh auth
+      - run: bash scripts/ci/run-main-e2e.sh auth
 
   e2e-regression:
     needs: [source-branch, staging-ready]
@@ -170,7 +170,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: zsh scripts/ci/run-main-e2e.sh regression
+      - run: bash scripts/ci/run-main-e2e.sh regression
 
   ai-live-smoke:
     needs: source-branch
@@ -218,7 +218,7 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         env:
           RUN_AI_LIVE_SMOKE: "1"
-        run: zsh scripts/ci/run-ai-live-smoke.sh
+        run: bash scripts/ci/run-ai-live-smoke.sh
       - name: Upload live smoke report
         if: always() && steps.scope.outputs.run == 'true'
         uses: actions/upload-artifact@v4
