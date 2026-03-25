@@ -140,8 +140,6 @@ jobs:
     needs: [source-branch, staging-ready]
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    # Staging guest bootstrap can intermittently 500; do not block develop→main promotion.
-    continue-on-error: true
     env:
       NEXT_PUBLIC_APP_URL: https://stg.shupass.jp
       BETTER_AUTH_URL: https://stg.shupass.jp
@@ -172,14 +170,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      # Staging guest bootstrap can intermittently 500; do not block develop→main promotion.
       - run: bash scripts/ci/run-main-e2e.sh regression
+        continue-on-error: true
 
   ai-live-smoke:
     needs: source-branch
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Live LLM smoke is quality-gated; provider output can drift slightly from char bands.
-    continue-on-error: true
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -222,7 +220,9 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         env:
           RUN_AI_LIVE_SMOKE: "1"
+        # Live LLM smoke is quality-gated; provider output can drift slightly from char bands.
         run: bash scripts/ci/run-ai-live-smoke.sh
+        continue-on-error: true
       - name: Upload live smoke report
         if: always() && steps.scope.outputs.run == 'true'
         uses: actions/upload-artifact@v4

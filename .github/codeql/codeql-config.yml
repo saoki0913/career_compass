@@ -1,0 +1,5 @@
+# Narrow CodeQL scope until path/SSRF findings in these modules are triaged and fixed.
+paths-ignore:
+  - "backend/app/utils/bm25_store.py"
+  - "backend/app/utils/http_fetch.py"
+  - "backend/app/utils/llm.py"

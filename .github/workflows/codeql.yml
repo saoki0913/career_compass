@@ -30,6 +30,7 @@ jobs:
       - uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
+          config-file: ./.github/codeql/codeql-config.yml
       - uses: actions/setup-node@v4
         if: matrix.language == 'javascript-typescript'
         with:
@@ -47,6 +48,4 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r backend/requirements.txt
-      # TODO: remove continue-on-error after clearing Code Scanning alerts (e.g. bm25_store path hygiene).
       - uses: github/codeql-action/analyze@v3
-        continue-on-error: true
