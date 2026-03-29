@@ -8,23 +8,24 @@
 ## 1. 概要
 
 - **目的**: 会話形式で企業特化の志望動機を深掘りし、ES用の下書きを生成する
-- **質問数目安**: 8問前後
+- **質問数目安**: 固定問数は持たず、ES 下書きを十分に書ける品質へ達した時点で `isDraftReady=true`
 - **クレジット**: 新規質問が5回に達するたびに3クレジット + 下書き生成で6クレジット
 - **LLM**: `feature="motivation"` を使用（デフォルト: `gpt-fast` → GPT-5.4 mini, `MODEL_MOTIVATION` で切替可能）
 - **特徴**: 企業RAG・ガクチカ・プロフィール・応募職種を束ねて質問する
 - **開始フロー**: `setup(企業確認 / 業界確定 / 職種確定) → start API → chat`
 - **チャット段階**: `industry_reason → company_reason → desired_work → origin_experience → fit_connection → differentiation → closing`
 - **初回開始**: 空の会話履歴は `next-question` 内で初回ターンとして扱い、空 `messages=[]` を LLM に渡さない
-- **候補生成**: 質問は LLM が生成した後に server-side validator を通し、回答候補は grounded builder が `1〜2件` の直接回答文だけを決定論的に組み立て、その後 **軽量 LLM で文体リライト**（事実追加禁止・検証失敗時は原文）
+- **候補生成**: 質問は LLM が生成した後に server-side validator を通し、回答候補は `confirmed-only` builder が `0〜2件` の直接回答文だけを決定論的に組み立てる。候補本文に入れるのは `setup で確定した業界/職種` と `ユーザー本人が会話で明言した事実` のみで、RAG / profile / 応募情報は本文に混ぜない
 - **RAG クエリ**: 確定志望職種（なければ応募職種先頭）を検索クエリに付加し、職種・役割に寄ったチャンクを取りやすくする
 - **質問プロンプト**: 前半段階（`industry_reason`〜`origin_experience`）では評価の「最弱要素」を参照させず **段階の論点のみ**。`fit_connection` / `differentiation` / `closing` では最弱要素を補助指針として併記（段階を崩さない範囲）
-- **ハルシネーション抑制**: 企業情報・ガクチカ・プロフィール・確定職種・会話で確定済みのやりたい仕事以外の事実を使わないよう prompt と builder の両方で制限する
+- **ハルシネーション抑制**: `confirmedFacts` を会話状態に保持し、質問本文・候補本文ともに `setup確定値 + ユーザー明言値` だけを断定前提に使う。RAG / profile / 応募情報は質問の観点決めと evidence 表示に限定する
 - **候補数**: 回答候補は strong grounding がある候補だけ `1〜2件` に絞る。根拠が弱いときは `0件` を許容する
 - **raw 企業文フィルタ**: `Q4:` などの見出し、採用導線文、社員紹介コピー、URL断片は候補生成前に除外する
 - **question-fit**: 候補は `question_focus → 直接回答文テンプレート → question-fit scoring` で絞り込み、質問に答えていない候補を上位に残さない
 - **canonical question**: stream 中に見せる質問文と DB 保存・候補生成に使う質問文を一致させるため、server-side validator 後の canonical question だけを `string_chunk` / `complete` に流す
-- **重複防止**: 直前1件ではなく、会話内の直近 assistant 質問群と同一シグネチャの質問は reject し、別 anchor の fallback question に置換する
-- **企業名/職種ガード**: `company_reason / differentiation / closing` では対象企業以外の社名を reject し、setup や応募情報で確定していない職種は候補に混ぜない
+- **重複防止**: 会話履歴の assistant 質問シグネチャと `lastQuestionMeta.question_signature` の両方を見て重複を reject し、同一文の fallback 再利用を避ける
+- **未確認前提ガード**: 「御社のOOを志望している理由は？」のような断定質問は、対応する `confirmedFacts` がない限り reject する。未確認なら「OOという選択肢に興味を持つとしたら」のような非断定表現へ repair する
+- **再質問制御**: `stageAttemptCount` を持ち、同一段階の再質問は最大1回。2回目以降は未充足を残して次段階へ進む
 - **競合更新ガード**: `conversation/start` / `conversation/stream` は `updatedAt` ベースの compare-and-set で後勝ち更新を防ぎ、競合時は 409 を返す（`GET /conversation` は読み取りのみ）
 - **UI導線**: `会話をやり直す` は進捗 header 右上、`志望動機ESを作成` は desktop ではページ見出し右横、mobile では上部で見える位置に配置し、企業RAGの出典は `参考にした企業情報` の compact card で表示する
 
@@ -80,7 +81,7 @@ weighted = (
   - `documents` テーブルにES（type="es"）として保存
   - ESエディタ（`/es/{documentId}`）へ自動遷移
 5. **UI補助**
-  - 回答候補 `suggestionOptions` は `1〜2件` を基本に返し、根拠が薄いときは `0件` にする
+- 回答候補 `suggestionOptions` は `0〜2件`。未確認情報しかない場合は無理に出さない
   - 企業RAGの根拠要約 `evidenceSummary` と `evidenceCards` を返し、UI では `参考にした企業情報` の source card を主表示にする
   - 回答送信はSSEストリーミング経路を利用する
 
@@ -94,7 +95,7 @@ weighted = (
 
 - 会話履歴と setup 状態を返す
 - 会話未開始の場合でも、ここでは初回質問を自動生成しない
-- 返却: `nextQuestion`, `questionCount`, `isCompleted`, `scores`, `suggestionOptions`, `evidenceSummary`, `evidenceCards`, `generatedDraft`, `questionStage`, `stageStatus`, `conversationContext`, `setup`
+- 返却: `nextQuestion`, `questionCount`, `isDraftReady`, `scores`, `suggestionOptions`, `evidenceSummary`, `evidenceCards`, `generatedDraft`, `questionStage`, `stageStatus`, `conversationContext`, `setup`
 - 右カラム最上部の `志望動機ESを作成` CTA は開始前から表示し、深掘り完了までは disabled のまま理由を示す
 
 ### POST /start の動き
@@ -114,8 +115,9 @@ weighted = (
 - FastAPI の `next-question/stream` を consume-and-re-emit で中継（評価 → 質問 JSON ストリーム → サーバ側で候補生成・**候補リライト LLM**）
 - `progress` / `string_chunk` / `complete` / `error` を処理
 - 5問ごとにクレジット消費（ログインユーザーのみ、`complete` かつ DB compare-and-set 成功後）
-- 完了判定は FastAPI の重み付きスコアを優先。後方互換として `questionCount >= 8` かつ全要素70%以上でも完了扱い
+- 完了判定は FastAPI の重み付きスコアのみを使い、「会話終了」ではなく「ES 下書き生成が可能な品質に達した」ことを意味する
 - `string_chunk(question)` は raw LLM 文面をそのまま中継せず、validator / repair 後の canonical question を疑似ストリーム再生する
+- `conversationContext` には `confirmedFacts`, `stageAttemptCount`, `lastQuestionSignature`, `openSlots`, `lastQuestionMeta` を保存し、復元時は最後の assistant 文面ではなく `lastQuestionMeta.questionText` を優先する
 - stream 失敗時は古い chip をローカル復元せず、`GET /conversation` でサーバー保存済み状態を再取得する
 
 **ファイル:** `src/app/api/motivation/[companyId]/generate-draft/route.ts`
@@ -484,7 +486,7 @@ CREATE TABLE motivation_conversations (
 
 - `conversation_context` は JSON で保持し、`selectedIndustry`, `selectedIndustrySource`, `selectedRole`, `selectedRoleSource`, `desiredWork`, `questionStage`, `companyRoleCandidates`, `companyWorkCandidates` などを入れる
 - `20260302193000_add_motivation_conversation_context.sql`, `20260303195000_add_motivation_evidence_cards.sql` が追加カラムの migration
-- Next.js 側は `motivationConversationCompat.ts` で未適用 migration 環境にも後方互換で対応する
+- Next.js 側は `src/lib/motivation/conversation.ts` の共通 helper で会話状態を復元する。未適用 migration 向け compat layer は廃止した
 
 ---
 
@@ -514,7 +516,7 @@ CREATE TABLE motivation_conversations (
 - `src/app/api/motivation/[companyId]/conversation/stream/route.ts` - 会話SSE API
 - `src/app/api/motivation/[companyId]/generate-draft/route.ts` - 下書き生成API
 - `src/lib/constants/es-review-role-catalog.ts` - ES添削と共有する業界 / 職種 catalog
-- `src/lib/db/motivationConversationCompat.ts` - migration 未適用環境向け互換レイヤー
+- `src/lib/motivation/conversation.ts` - 志望動機会話の共通 parse / 復元 helper
 
 ### データベース
 

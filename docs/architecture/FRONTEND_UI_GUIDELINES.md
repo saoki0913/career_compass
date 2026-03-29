@@ -102,6 +102,8 @@ preflight では、最低限次の 7 点を言語化する。
 - motion は最低 2 個、多くても 3 個程度の意図的なものに留める。
 - fixed / floating UI は safe area に置き、本文や CTA に重ならないようにする。
 - desktop / mobile の両 viewport で確認する。
+- responsive 改修では最低でも `320 / 390 / 768 / 1024 / 1440` を意識し、横スクロール、safe-area 欠け、sticky/fixed 干渉、tap blockage を確認する。
+- full-screen overlay、bottom sheet、mobile menu、chat input、FAB は `env(safe-area-inset-*)` を考慮する。
 - PR では `.github/PULL_REQUEST_TEMPLATE.md` の `UI Review Routes` を埋め、必要な route を明示する。
 - UI 変更後は `docs/testing/UI_PLAYWRIGHT_VERIFICATION.md` に従い、`npm run test:ui:review -- <route>` で見た目と導線を確認する。
 
@@ -128,7 +130,7 @@ preflight では、最低限次の 7 点を言語化する。
 - **標準は trust-oriented skeleton UI**。白い空白と小さい spinner だけの待機面は作らない。
 - `src/components/ui/skeleton.tsx` をプリミティブにし、loading の主役は skeleton 自体にする。説明カードを積み増して情報量を増やさない。
 - app 全体の route transition は `src/app/loading.tsx` を起点にした minimal surface で受け、通常ヘッダーと本文骨格を先に見せる。
-- product route の `loading.tsx` は、可能な限りページ見出し、ヘッダー、フィルタ帯などの文脈を保った skeleton を返す。
+- product route の `loading.tsx` は、可能な限りページ見出し・フィルタ帯など**本文**の文脈を保った skeleton を返す。`(product)/layout` はヘッダーを持たないため、**実装に応じて** `loading.tsx` やページ側で `<DashboardHeader />` を含め、遷移中もトップナビの見た目を揃える（通知・クレジットは SWR でキー共有されデデュープされる）。
 - 一覧ページでは `ListPageFilterBar` を loading 中でも極力残し、検索・絞り込みの位置関係を消さない。
 - ページ別 skeleton は `src/components/skeletons/` に配置し、`DashboardSkeleton`、`CompaniesListSkeleton`、`ESListSkeleton` などの naming を維持する。
 - shimmer は控えめに使い、pulse や spinner を主役にしない。

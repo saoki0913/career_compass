@@ -98,7 +98,8 @@
 - ユーザーが「本番にデプロイして」「本番反映して」「公開して」など同義の自然文で依頼した場合も、本番リリース依頼として扱う
 - 明示がなければ、ローカル変更を全部含める標準入口は `make ops-release-check` → `make deploy-stage-all`
 - ユーザーが staged-only を明示したときだけ `make deploy` を使う
-- secrets 正本は `/Users/saoki/work/codex-company/.secrets/career_compass`
+- secrets 正本は codex-company 配下の `.secrets/career_compass`（解決ルールは `scripts/release/career-compass-secrets-root.sh` と同じ。環境変数は `docs/release/ENV_REFERENCE.md` の Release Automation Inputs を参照）
+- **エージェントは** `codex-company/.secrets/` 以下の実ファイル（`*.env`）を**読み取らない**。インベントリ確認・検証は `zsh scripts/release/sync-career-compass-secrets.sh --check` のみ。リポジトリにはプロバイダ用 env テンプレを置かない（`.env.example` はローカル開発用として従来どおり）
 - provider CLI の直接操作ではなく、repo 内 scripts を優先する
 
 ---
@@ -114,7 +115,7 @@
 ### 2. Auth / Onboarding
 - Login and onboarding live under `src/app/(auth)/`
 - Better Auth handles session management
-- Guest mode is supported via device token flow in `src/lib/auth/guest.ts`
+- Guest mode is supported via HttpOnly guest cookie flow in `src/lib/auth/guest-cookie.ts`
 
 ### 3. Core Product Areas
 - Dashboard: `src/app/dashboard`
@@ -184,6 +185,7 @@
 5. guest / user の両対応
 - 多くの API はログインユーザーとゲストの両方を扱う。
 - owner 判定は `userId` と `guestId` の排他的管理を前提にする。
+- ゲスト識別は browser-visible header ではなく `guest_device_token` cookie を正とする。
 
 ---
 
@@ -201,7 +203,7 @@
 
 ### Request Identity
 - 認証済みユーザーは Better Auth セッションから解決する。
-- ゲストは `x-device-token` を使って解決する。
+- ゲストは HttpOnly cookie から解決し、proxy が内部 `x-device-token` を再構成する。
 - 共通化済みロジックは `src/app/api/_shared/request-identity.ts` にある。
 
 ---
@@ -256,10 +258,10 @@ uvicorn app.main:app --reload --port 8000
 ## Key File Locations
 
 ### Next.js
-- Pages / layouts: `src/app/`
+- Pages / layouts: `src/app/`（プロダクトの `DashboardHeader` は各ページ／`loading.tsx` が個別配置。`(product)/layout` は `children` のみ）
 - API routes: `src/app/api/`
 - Components: `src/components/`
-- Hooks: `src/hooks/`
+- Hooks: `src/hooks/`（通知・クレジットは SWR 共有。`src/lib/swr-fetcher.ts`）
 - Shared libs: `src/lib/`
 - DB schema: `src/lib/db/schema.ts`
 

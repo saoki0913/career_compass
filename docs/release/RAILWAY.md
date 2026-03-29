@@ -4,7 +4,7 @@
 
 ---
 
-> いまの標準運用では、Railway の env は `scripts/bootstrap/career-compass/sync-career-compass-env.sh` で同期し、release は `make deploy` から開始します。Dashboard の手動更新は初期セットアップやトラブルシュート時だけに寄せます。
+> いまの標準運用では、Railway の env は `scripts/bootstrap/career-compass/sync-career-compass-env.sh` で同期し、値の正本は codex-company 側の `.secrets/career_compass`（`railway-*.env`）。一覧は [`docs/release/ENV_REFERENCE.md`](./ENV_REFERENCE.md) の Release Automation Inputs。release は `make deploy` から開始します。Dashboard の手動更新は初期セットアップやトラブルシュート時だけに寄せます。
 
 ## 3-0. Railway アカウント作成 & CLI インストール
 

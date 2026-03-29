@@ -1,0 +1,98 @@
+{
+  "mode": "advisory",
+  "rules": [
+    {
+      "name": "marketing-ui",
+      "match": [
+        "src/app/(marketing)/**",
+        "src/app/page.tsx",
+        "src/app/pricing/**",
+        "src/app/tools/**",
+        "src/app/templates/**",
+        "src/components/landing/**",
+        "src/components/seo/**"
+      ],
+      "suggest": [
+        "command:ui-start",
+        "skill:seo-change-check"
+      ]
+    },
+    {
+      "name": "product-ui",
+      "match": [
+        "src/app/(product)/**",
+        "src/components/**",
+        "src/components/skeletons/**"
+      ],
+      "suggest": [
+        "command:ui-start",
+        "skill:frontend-refactor-check"
+      ]
+    },
+    {
+      "name": "backend-api",
+      "match": [
+        "src/app/api/**",
+        "backend/app/routers/**",
+        "backend/app/prompts/**",
+        "backend/app/utils/llm.py"
+      ],
+      "suggest": [
+        "command:quality-check",
+        "skill:backend-refactor-check"
+      ]
+    },
+    {
+      "name": "rag-search",
+      "match": [
+        "backend/app/utils/vector_store.py",
+        "backend/app/utils/hybrid_search.py",
+        "backend/app/utils/reranker.py",
+        "backend/evals/**"
+      ],
+      "suggest": [
+        "command:quality-check",
+        "skill:rag-change-check"
+      ]
+    },
+    {
+      "name": "security-sensitive",
+      "match": [
+        "src/lib/auth/**",
+        "src/lib/csrf.ts",
+        "src/lib/trusted-origins.ts",
+        "src/app/api/webhooks/stripe/route.ts",
+        "src/lib/billing/**",
+        "src/lib/stripe/**"
+      ],
+      "suggest": [
+        "command:quality-check",
+        "skill:security-change-check"
+      ]
+    },
+    {
+      "name": "release-infra",
+      "match": [
+        "scripts/release/**",
+        "scripts/bootstrap/**",
+        "docs/release/**",
+        "docs/ops/CLI_GUARDRAILS.md"
+      ],
+      "suggest": [
+        "command:release",
+        "command:infra"
+      ]
+    },
+    {
+      "name": "demo-video",
+      "match": [
+        "public/marketing/videos/**",
+        "scripts/marketing/**",
+        "e2e/demo-recording.spec.ts"
+      ],
+      "suggest": [
+        "command:demo-video"
+      ]
+    }
+  ]
+}

@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# cloudflare.env lives next to other provider bundles: .../career_compass/cloudflare.env
+# Same resolution as scripts/release/sync-career-compass-secrets.sh (see career-compass-secrets-root.sh).
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../release/career-compass-secrets-root.sh
+source "${script_dir}/../../release/career-compass-secrets-root.sh"
+_secret_dir="${CAREER_COMPASS_SECRETS_DIR:-${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass}"
+
 mode="check"
 if [[ "${1:-}" == "--apply" ]]; then
   mode="apply"
 fi
 
-secret_file="${CAREER_COMPASS_SECRETS_DIR:-${CODEX_COMPANY_ROOT:-/Users/saoki/work/codex-company}/.secrets/career_compass}/cloudflare.env"
+secret_file="${_secret_dir}/cloudflare.env"
 [[ -f "${secret_file}" ]] || { echo "Missing secret file: ${secret_file}" >&2; exit 1; }
 
 set -a

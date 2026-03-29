@@ -5,8 +5,10 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
 source "${repo_root}/scripts/release/common.sh"
+# shellcheck source=../release/career-compass-secrets-root.sh
+source "${repo_root}/scripts/release/career-compass-secrets-root.sh"
 
-secret_file="${CODEX_COMPANY_SECRETS_ROOT:-/Users/saoki/work/codex-company/.secrets}/google-oauth/career_compass.env"
+secret_file="${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/google-oauth/career_compass.env"
 [[ -f "$secret_file" ]] || release_die "Missing secret file: ${secret_file}"
 
 set -a

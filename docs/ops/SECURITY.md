@@ -15,15 +15,15 @@
 
 ### CSP の現状
 
-- **marketing/public 面** は static CSP を使います。`script-src` は `unsafe-inline` を残し、Google Analytics / JSON-LD / Stripe を許可します。
-- **product + auth 面** は nonce-based CSP を使います。`script-src` は `nonce + strict-dynamic` を使い、`unsafe-inline` は許可しません。
+- **marketing/public 面** も **product + auth 面** も nonce-based CSP を使います。
+- `script-src` は `nonce + strict-dynamic` を使い、`unsafe-inline` は許可しません。
 - route 判定と nonce 生成は [`src/lib/security/csp.ts`](../../src/lib/security/csp.ts) と [`src/proxy.ts`](../../src/proxy.ts) が担当します。
-- Next.js の nonce 方針に合わせ、product 面は route group layout 側で dynamic rendering に寄せています（`src/app/(product)/layout.tsx`, `src/app/(auth)/layout.tsx`）。
+- JSON-LD と Google Analytics も nonce を付与して描画します。
 
 ### CSP の残課題
 
 - `style-src 'unsafe-inline'` は現状維持です。今回の対象は `script-src` の厳格化に限定しています。
-- marketing/public 面の `unsafe-inline` 除去は次フェーズです。候補は hash/SRI 併用ですが、静的最適化と third-party script の棚卸しが必要です。
+- third-party script の棚卸しと hash/SRI の併用は今後の hardening 候補です。
 
 ### HSTS preload
 
@@ -72,5 +72,5 @@
 ## 次のフェーズ（インフラ・アプリ外）
 
 - WAF / Bot 対策（Vercel / Cloudflare 等）
-- marketing/public 面の `unsafe-inline` 段階的撤廃
+- Host / Origin / service JWT 前提の運用監視強化
 - 依存パッケージの定期更新と脆弱性スキャン（`npm audit` 等）
