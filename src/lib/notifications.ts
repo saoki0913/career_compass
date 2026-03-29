@@ -85,3 +85,65 @@ export function notifyMotivationDraftReady() {
     duration: 4200,
   });
 }
+
+export function notifyTaskCreated() {
+  return notifySuccess({ title: "タスクを追加しました" });
+}
+
+export function notifyTaskSaved() {
+  return notifySuccess({ title: "タスクを保存しました" });
+}
+
+export function notifyTaskStatusChanged(isCompleted: boolean) {
+  return notifySuccess({
+    title: isCompleted ? "タスクを完了にしました" : "タスクを未完了に戻しました",
+  });
+}
+
+export function notifyTaskDeleted() {
+  return notifySuccess({ title: "タスクを削除しました" });
+}
+
+export function notifySubmissionCreated() {
+  return notifySuccess({ title: "提出物を追加しました" });
+}
+
+export function notifySubmissionStatusChanged(statusLabel: string) {
+  return notifySuccess({ title: `提出物を「${statusLabel}」に更新しました` });
+}
+
+export function notifySubmissionDeleted() {
+  return notifySuccess({ title: "提出物を削除しました" });
+}
+
+export function notifyCalendarEventCreated(type: "work_block" | "manual") {
+  return notifySuccess({
+    title: type === "work_block" ? "作業ブロックを追加しました" : "イベントを追加しました",
+  });
+}
+
+export function notifyCalendarEventDeleted() {
+  return notifySuccess({ title: "イベントを削除しました" });
+}
+
+export function notifyDocumentCreated() {
+  return notifySuccess({ title: "ドキュメントを作成しました" });
+}
+
+export function notifyDocumentDeleted() {
+  return notifySuccess({ title: "ドキュメントを削除しました" });
+}
+
+export function notifyDocumentRestored() {
+  return notifySuccess({ title: "ドキュメントを復元しました" });
+}
+
+export function notifyDocumentPermanentlyDeleted() {
+  return notifySuccess({ title: "ドキュメントを完全削除しました" });
+}
+
+export function notifyDocumentStatusChanged(isPublished: boolean) {
+  return notifySuccess({
+    title: isPublished ? "ドキュメントを公開しました" : "ドキュメントを下書きに戻しました",
+  });
+}

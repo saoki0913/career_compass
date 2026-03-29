@@ -48,6 +48,14 @@ import {
   ES_DOCUMENT_CATEGORY_LABELS,
   type EsDocumentCategory,
 } from "@/lib/es-document-category";
+import {
+  notifyDocumentCreated,
+  notifyDocumentDeleted,
+  notifyDocumentPermanentlyDeleted,
+  notifyDocumentRestored,
+  notifyDocumentStatusChanged,
+  notifyError,
+} from "@/lib/notifications";
 
 const filterTabs = [
   { key: "all", label: "すべて" },
@@ -331,7 +339,6 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
 
   useEffect(() => {
     if (searchParams.get("new") === "1") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- query param should open the modal before the URL is cleaned up
       setShowNewModal(true);
       router.replace("/es", { scroll: false });
     }
@@ -340,7 +347,6 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
   useEffect(() => {
     const companyId = searchParams.get("companyId");
     if (companyId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- preserve selected company while handling a one-shot deep link
       setInitialCompanyId(companyId);
       setShowNewModal(true);
       router.replace("/es", { scroll: false });
@@ -366,35 +372,63 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
       })
       .catch(() => {});
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- query param should open the modal before the URL is cleaned up
     setShowNewModal(true);
     router.replace("/es", { scroll: false });
   }, [router, searchParams]);
 
   const handleCreate = async (data: CreateDocumentInput) => {
-    const document = await createDocument(data);
-    if (document) {
+    try {
+      const document = await createDocument(data);
+      notifyDocumentCreated();
       router.push(`/es/${document.id}`);
+    } catch (error) {
+      notifyError({
+        title: error instanceof Error ? error.message : "ドキュメントを作成できませんでした。",
+      });
+      throw error;
     }
   };
 
   const handleRestore = async (documentId: string) => {
     if (confirm("このドキュメントを復元しますか？")) {
-      await restoreDocument(documentId);
+      try {
+        await restoreDocument(documentId);
+        notifyDocumentRestored();
+      } catch (error) {
+        notifyError({
+          title: error instanceof Error ? error.message : "ドキュメントを復元できませんでした。",
+        });
+      }
     }
   };
 
   const handlePermanentDelete = async (documentId: string) => {
     if (confirm("このドキュメントを完全に削除しますか？この操作は取り消せません。")) {
-      await permanentlyDeleteDocument(documentId);
+      try {
+        await permanentlyDeleteDocument(documentId);
+        notifyDocumentPermanentlyDeleted();
+      } catch (error) {
+        notifyError({
+          title: error instanceof Error ? error.message : "ドキュメントを完全削除できませんでした。",
+        });
+      }
     }
   };
 
   const handleToggleStatus = async (documentId: string, currentStatus: string) => {
     if (statusUpdatingId) return;
     setStatusUpdatingId(documentId);
-    await updateDocument(documentId, { status: currentStatus === "published" ? "draft" : "published" });
-    setStatusUpdatingId(null);
+    const nextStatus = currentStatus === "published" ? "draft" : "published";
+    try {
+      await updateDocument(documentId, { status: nextStatus });
+      notifyDocumentStatusChanged(nextStatus === "published");
+    } catch (error) {
+      notifyError({
+        title: error instanceof Error ? error.message : "ドキュメントを更新できませんでした。",
+      });
+    } finally {
+      setStatusUpdatingId(null);
+    }
   };
 
   const handleDeleteStart = (document: Document) => {
@@ -410,10 +444,16 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
     if (!deleteTarget) return;
 
     setIsDeletingDocument(true);
-    const deleted = await deleteDocument(deleteTarget.id);
-    setIsDeletingDocument(false);
-    if (deleted) {
+    try {
+      await deleteDocument(deleteTarget.id);
+      notifyDocumentDeleted();
       setDeleteTarget(null);
+    } catch (error) {
+      notifyError({
+        title: error instanceof Error ? error.message : "ドキュメントを削除できませんでした。",
+      });
+    } finally {
+      setIsDeletingDocument(false);
     }
   };
 

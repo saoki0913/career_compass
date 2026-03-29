@@ -359,8 +359,18 @@ export function useGoogleCalendar() {
       const data = await response.json();
       return data.suggestions || [];
     } catch (err) {
-      setError(err instanceof Error ? err.message : "タスクの提案に失敗しました");
-      return [];
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CALENDAR_SUGGEST_WORK_BLOCKS_FAILED",
+          userMessage: "作業ブロックの提案を取得できませんでした。",
+          action: "Google カレンダーの連携状態を確認して、もう一度お試しください。",
+          retryable: true,
+        },
+        "useGoogleCalendar.suggestWorkBlocks"
+      );
+      setError(uiError.message);
+      throw uiError;
     } finally {
       setIsLoading(false);
     }

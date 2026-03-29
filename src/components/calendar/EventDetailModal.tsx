@@ -125,8 +125,7 @@ export function EventDetailModal({ isOpen, event, onClose, onDelete }: EventDeta
       await onDelete(event.id);
       onClose();
     } catch (error) {
-      console.error("Failed to delete event:", error);
-      setDeleteError("削除に失敗しました");
+      setDeleteError(error instanceof Error ? error.message : "削除に失敗しました");
     } finally {
       setIsDeleting(false);
     }

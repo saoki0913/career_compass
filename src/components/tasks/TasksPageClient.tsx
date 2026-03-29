@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { notifyError } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 import {
   useTasks,
@@ -296,6 +297,11 @@ export function TasksPageClient({
       anchor.download = filename;
       anchor.click();
       URL.revokeObjectURL(url);
+    } catch {
+      notifyError({
+        title: "締切CSVを出力できませんでした。",
+        description: "時間を置いて、もう一度お試しください。",
+      });
     } finally {
       setExportingDeadlines(false);
     }
@@ -491,12 +497,27 @@ export function TasksPageClient({
           onClose={handleCloseModal}
           onSubmit={async (data) => {
             if (editingTask) {
-              await updateTask(editingTask.id, data as UpdateTaskInput);
-            } else {
-              await createTask(data as CreateTaskInput);
+              const updated = await updateTask(editingTask.id, data as UpdateTaskInput);
+              if (!updated) {
+                throw new Error("タスクを更新できませんでした。");
+              }
+              return;
+            }
+            const created = await createTask(data as CreateTaskInput);
+            if (!created) {
+              throw new Error("タスクを作成できませんでした。");
             }
           }}
-          onDelete={editingTask ? async () => void deleteTask(editingTask.id) : undefined}
+          onDelete={
+            editingTask
+              ? async () => {
+                  const deleted = await deleteTask(editingTask.id);
+                  if (!deleted) {
+                    throw new Error("タスクを削除できませんでした。");
+                  }
+                }
+              : undefined
+          }
         />
       </main>
     </div>

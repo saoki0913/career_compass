@@ -254,13 +254,19 @@
   }
 
   /* Typography hierarchy */
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     line-height: var(--line-height-tight);
     font-weight: 600;
   }
 
   /* Respect reduced motion preference */
   @media (prefers-reduced-motion: reduce) {
+
     *,
     *::before,
     *::after {
@@ -285,26 +291,20 @@
 @layer components {
   .landing-shell {
     background:
-      radial-gradient(
-        110% 70% at 50% -10%,
+      radial-gradient(110% 70% at 50% -10%,
         color-mix(in oklab, oklch(0.72 0.05 235) 16%, transparent) 0%,
-        transparent 55%
-      ),
+        transparent 55%),
       linear-gradient(180deg, oklch(0.997 0.001 240) 0%, oklch(0.988 0.004 240) 100%);
   }
 
   .landing-shell .landing-hero-backdrop {
     background:
-      radial-gradient(
-        110% 85% at 50% -18%,
+      radial-gradient(110% 85% at 50% -18%,
         color-mix(in oklab, oklch(0.8 0.04 235) 18%, transparent) 0%,
-        transparent 50%
-      ),
-      radial-gradient(
-        80% 60% at 100% 0%,
+        transparent 50%),
+      radial-gradient(80% 60% at 100% 0%,
         color-mix(in oklab, oklch(0.94 0.02 220) 55%, transparent) 0%,
-        transparent 54%
-      ),
+        transparent 54%),
       transparent;
   }
 
@@ -369,37 +369,66 @@
 
 /* Indeterminate progress bar animation */
 @keyframes indeterminate {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(350%); }
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(350%);
+  }
 }
 
 /* YouTube-style continuous horizontal sweep (loop feels “alive”) */
 @keyframes skeleton-shimmer {
-  0% { transform: translate3d(-120%, 0, 0); }
-  100% { transform: translate3d(320%, 0, 0); }
+  0% {
+    transform: translate3d(-120%, 0, 0);
+  }
+
+  100% {
+    transform: translate3d(320%, 0, 0);
+  }
 }
 
 @keyframes skeleton-shimmer-pulse {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 0.92; }
+
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 0.92;
+  }
 }
 
 @keyframes fade-up {
-  0% { opacity: 0; transform: translateY(20px); }
-  100% { opacity: 1; transform: translateY(0); }
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Chat typing indicator animation */
 @keyframes typing-dots {
-  0%, 20% {
+
+  0%,
+  20% {
     opacity: 0.3;
     transform: translateY(0);
   }
+
   50% {
     opacity: 1;
     transform: translateY(-4px);
   }
-  80%, 100% {
+
+  80%,
+  100% {
     opacity: 0.3;
     transform: translateY(0);
   }
@@ -410,6 +439,7 @@
     opacity: 0;
     transform: translateY(8px) scale(0.98);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -417,13 +447,27 @@
 }
 
 @keyframes scale-in {
-  0% { opacity: 0; transform: scale(0.95); }
-  100% { opacity: 1; transform: scale(1); }
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @keyframes draw-line {
-  0% { transform: scaleX(0); transform-origin: left; }
-  100% { transform: scaleX(1); transform-origin: left; }
+  0% {
+    transform: scaleX(0);
+    transform-origin: left;
+  }
+
+  100% {
+    transform: scaleX(1);
+    transform-origin: left;
+  }
 }
 
 @keyframes reveal-up {
@@ -431,6 +475,7 @@
     opacity: 0;
     transform: translateY(40px) scale(0.98);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -442,6 +487,7 @@
     opacity: 0;
     transform: translateY(30px);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0);
@@ -483,13 +529,33 @@
   }
 
   /* Animation delays for staggered effects */
-  .delay-100 { animation-delay: 100ms; }
-  .delay-200 { animation-delay: 200ms; }
-  .delay-300 { animation-delay: 300ms; }
-  .delay-400 { animation-delay: 400ms; }
-  .delay-500 { animation-delay: 500ms; }
-  .delay-700 { animation-delay: 700ms; }
-  .delay-1000 { animation-delay: 1000ms; }
+  .delay-100 {
+    animation-delay: 100ms;
+  }
+
+  .delay-200 {
+    animation-delay: 200ms;
+  }
+
+  .delay-300 {
+    animation-delay: 300ms;
+  }
+
+  .delay-400 {
+    animation-delay: 400ms;
+  }
+
+  .delay-500 {
+    animation-delay: 500ms;
+  }
+
+  .delay-700 {
+    animation-delay: 700ms;
+  }
+
+  .delay-1000 {
+    animation-delay: 1000ms;
+  }
 
   /* Gradient text utility */
   .text-gradient {
@@ -552,14 +618,12 @@
     left: -80%;
     width: 55%;
     transform: translate3d(-120%, 0, 0) skewX(-14deg);
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.06) 18%,
-      rgba(255, 255, 255, 0.72) 50%,
-      rgba(255, 255, 255, 0.12) 82%,
-      transparent 100%
-    );
+    background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.06) 18%,
+        rgba(255, 255, 255, 0.72) 50%,
+        rgba(255, 255, 255, 0.12) 82%,
+        transparent 100%);
     filter: blur(5px);
     animation: skeleton-shimmer 1.15s linear infinite;
     animation-delay: var(--skeleton-delay, 0ms);
@@ -573,14 +637,12 @@
   }
 
   .dark .skeleton-shimmer::after {
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.04) 18%,
-      rgba(255, 255, 255, 0.28) 50%,
-      rgba(255, 255, 255, 0.06) 82%,
-      transparent 100%
-    );
+    background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.04) 18%,
+        rgba(255, 255, 255, 0.28) 50%,
+        rgba(255, 255, 255, 0.06) 82%,
+        transparent 100%);
   }
 
   /* Stronger sweep on gradient CTA placeholders (quick actions, primary stat) */
@@ -592,26 +654,22 @@
 
   .skeleton-shimmer-inverse::after {
     filter: blur(4px);
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.12) 22%,
-      rgba(255, 255, 255, 0.85) 50%,
-      rgba(255, 255, 255, 0.18) 78%,
-      transparent 100%
-    );
+    background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.12) 22%,
+        rgba(255, 255, 255, 0.85) 50%,
+        rgba(255, 255, 255, 0.18) 78%,
+        transparent 100%);
     animation-duration: 1s;
   }
 
   .dark .skeleton-shimmer-inverse::after {
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.08) 22%,
-      rgba(255, 255, 255, 0.42) 50%,
-      rgba(255, 255, 255, 0.1) 78%,
-      transparent 100%
-    );
+    background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.08) 22%,
+        rgba(255, 255, 255, 0.42) 50%,
+        rgba(255, 255, 255, 0.1) 78%,
+        transparent 100%);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -653,35 +711,52 @@
 
   /* ── LP redesign: gradient blobs ── */
   .blob-blue {
-    background: radial-gradient(
-      circle at 50% 50%,
-      oklch(0.72 0.12 235 / 0.3) 0%,
-      transparent 70%
-    );
+    background: radial-gradient(circle at 50% 50%,
+        oklch(0.72 0.12 235 / 0.3) 0%,
+        transparent 70%);
   }
 
   .blob-blue-light {
-    background: radial-gradient(
-      circle at 50% 50%,
-      oklch(0.82 0.06 235 / 0.2) 0%,
-      transparent 60%
-    );
+    background: radial-gradient(circle at 50% 50%,
+        oklch(0.82 0.06 235 / 0.2) 0%,
+        transparent 60%);
   }
 
   /* ── LP redesign: floating animations ── */
   @keyframes float-slow {
-    0%, 100% { transform: translateY(0) rotate(0deg); }
-    50% { transform: translateY(-12px) rotate(2deg); }
+
+    0%,
+    100% {
+      transform: translateY(0) rotate(0deg);
+    }
+
+    50% {
+      transform: translateY(-12px) rotate(2deg);
+    }
   }
 
   @keyframes float-medium {
-    0%, 100% { transform: translateY(0) rotate(0deg); }
-    50% { transform: translateY(-8px) rotate(-1.5deg); }
+
+    0%,
+    100% {
+      transform: translateY(0) rotate(0deg);
+    }
+
+    50% {
+      transform: translateY(-8px) rotate(-1.5deg);
+    }
   }
 
   @keyframes float-fast {
-    0%, 100% { transform: translateY(0) rotate(0deg); }
-    50% { transform: translateY(-6px) rotate(1deg); }
+
+    0%,
+    100% {
+      transform: translateY(0) rotate(0deg);
+    }
+
+    50% {
+      transform: translateY(-6px) rotate(1deg);
+    }
   }
 
   .animate-float-slow {
@@ -699,11 +774,9 @@
   /* ── LP redesign: 3D decorative objects ── */
   .orb-gradient {
     border-radius: 50%;
-    background: linear-gradient(
-      135deg,
-      oklch(0.72 0.12 235) 0%,
-      oklch(0.60 0.18 235) 100%
-    );
+    background: linear-gradient(135deg,
+        oklch(0.72 0.12 235) 0%,
+        oklch(0.60 0.18 235) 100%);
     box-shadow:
       inset -4px -4px 12px rgba(0, 0, 0, 0.15),
       inset 4px 4px 12px rgba(255, 255, 255, 0.3),
@@ -712,11 +785,9 @@
 
   .orb-gradient-sm {
     border-radius: 50%;
-    background: linear-gradient(
-      135deg,
-      oklch(0.78 0.08 235) 0%,
-      oklch(0.65 0.14 235) 100%
-    );
+    background: linear-gradient(135deg,
+        oklch(0.78 0.08 235) 0%,
+        oklch(0.65 0.14 235) 100%);
     box-shadow:
       inset -2px -2px 6px rgba(0, 0, 0, 0.1),
       inset 2px 2px 6px rgba(255, 255, 255, 0.25),
@@ -744,6 +815,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+
     .animate-float-slow,
     .animate-float-medium,
     .animate-float-fast {
@@ -755,11 +827,13 @@
 
 /* ES editor: print / Save as PDF (browser) */
 @media print {
+
   /* size は印刷ダイアログの向き（縦/横）に任せる。横が詰まりすぎないよう左右をやや広めに */
   @page {
     /* 上は広め（タイトルが窮屈に見えないよう）。ヘッダー/フッター表示時も余裕を取る */
     margin: 32mm 26mm 16mm 26mm;
   }
+
   html,
   body {
     background: white !important;
@@ -768,11 +842,13 @@
     min-height: 0 !important;
     overflow: visible !important;
   }
+
   /* Snackbar / overlays should not appear in PDF */
   [data-app-snackbar-root],
   [data-app-snackbar] {
     display: none !important;
   }
+
   /* ES エディタ: 画面用の h-screen / flex / Card 由来のクリップを抑止 */
   .es-editor-print-scope,
   .es-editor-print-scope main,
@@ -782,15 +858,18 @@
     max-height: none !important;
     height: auto !important;
   }
+
   /* @page に加え、1ページ目のタイトル直上に確実に空きを入れる */
   .es-editor-print-scope .es-print-body {
     padding-top: 10mm !important;
   }
+
   textarea:disabled {
     -webkit-text-fill-color: black;
     color: black;
     opacity: 1;
   }
+
   /* Expand form fields so scroll-height content prints (auto-resize editor uses rows=1) */
   textarea {
     max-height: none !important;
@@ -800,10 +879,12 @@
     break-inside: auto;
     page-break-inside: auto;
   }
+
   input[type="text"],
   input:not([type]) {
     max-height: none !important;
   }
+
   textarea::placeholder,
   input::placeholder {
     color: transparent !important;

@@ -55,4 +55,88 @@ describe("notifications", () => {
       duration: 3600,
     });
   });
+
+  it("shows task notification helpers with short success copy", async () => {
+    const {
+      notifyTaskCreated,
+      notifyTaskSaved,
+      notifyTaskStatusChanged,
+      notifyTaskDeleted,
+    } = await import("./notifications");
+
+    notifyTaskCreated();
+    notifyTaskSaved();
+    notifyTaskStatusChanged(true);
+    notifyTaskDeleted();
+
+    expect(enqueueSnackbar).toHaveBeenNthCalledWith(1, {
+      tone: "success",
+      title: "タスクを追加しました",
+      duration: 3600,
+    });
+    expect(enqueueSnackbar).toHaveBeenNthCalledWith(2, {
+      tone: "success",
+      title: "タスクを保存しました",
+      duration: 3600,
+    });
+    expect(enqueueSnackbar).toHaveBeenNthCalledWith(3, {
+      tone: "success",
+      title: "タスクを完了にしました",
+      duration: 3600,
+    });
+    expect(enqueueSnackbar).toHaveBeenNthCalledWith(4, {
+      tone: "success",
+      title: "タスクを削除しました",
+      duration: 3600,
+    });
+  });
+
+  it("shows document and calendar notification helpers with short success copy", async () => {
+    const {
+      notifyDocumentCreated,
+      notifyDocumentRestored,
+      notifyDocumentPermanentlyDeleted,
+      notifyDocumentStatusChanged,
+      notifyCalendarEventCreated,
+      notifyCalendarEventDeleted,
+    } = await import("./notifications");
+
+    notifyDocumentCreated();
+    notifyDocumentRestored();
+    notifyDocumentPermanentlyDeleted();
+    notifyDocumentStatusChanged(false);
+    notifyCalendarEventCreated("work_block");
+    notifyCalendarEventDeleted();
+
+    expect(enqueueSnackbar).toHaveBeenNthCalledWith(1, {
+      tone: "success",
+      title: "ドキュメントを作成しました",
+      duration: 3600,
+    });
+    expect(enqueueSnackbar).toHaveBeenNthCalledWith(2, {
+      tone: "success",
+      title: "ドキュメントを復元しました",
+      duration: 3600,
+    });
+    expect(enqueueSnackbar).toHaveBeenNthCalledWith(3, {
+      tone: "success",
+      title: "ドキュメントを完全削除しました",
+      duration: 3600,
+    });
+    expect(enqueueSnackbar).toHaveBeenNthCalledWith(4, {
+      tone: "success",
+      title: "ドキュメントを下書きに戻しました",
+      duration: 3600,
+    });
+    expect(enqueueSnackbar).toHaveBeenNthCalledWith(5, {
+      tone: "success",
+      title: "作業ブロックを追加しました",
+      duration: 3600,
+    });
+    expect(enqueueSnackbar).toHaveBeenNthCalledWith(6, {
+      tone: "success",
+      title: "イベントを削除しました",
+      duration: 3600,
+    });
+  });
 });

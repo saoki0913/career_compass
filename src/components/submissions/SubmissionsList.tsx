@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { notifyError, notifySubmissionCreated, notifySubmissionDeleted, notifySubmissionStatusChanged } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 import {
   useSubmissions,
@@ -103,10 +104,13 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
         name: newItem.name.trim(),
         isRequired: newItem.isRequired,
       });
+      notifySubmissionCreated();
       setNewItem({ type: "es", name: "", isRequired: false });
       setShowNewForm(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "エラーが発生しました");
+      const message = err instanceof Error ? err.message : "提出物を追加できませんでした。";
+      setFormError(message);
+      notifyError({ title: message });
     } finally {
       setIsSubmitting(false);
     }
@@ -119,16 +123,22 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
 
     try {
       await updateSubmission(item.id, { status: nextStatus });
+      notifySubmissionStatusChanged(SUBMISSION_STATUS[nextStatus]);
     } catch (err) {
-      console.error("Status update failed:", err);
+      notifyError({
+        title: err instanceof Error ? err.message : "提出物を更新できませんでした。",
+      });
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
       await deleteSubmission(id);
+      notifySubmissionDeleted();
     } catch (err) {
-      console.error("Delete failed:", err);
+      notifyError({
+        title: err instanceof Error ? err.message : "提出物を削除できませんでした。",
+      });
     }
   };
 

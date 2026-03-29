@@ -9,7 +9,7 @@ import {
   deleteGuestDocument,
   expectOkResponse,
 } from "./fixtures/auth";
-import { hasGoogleAuthState, signInWithGoogle } from "./google-auth";
+import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
 
 const LIVE_AI_ENV_NAMES = [
   "OPENAI_API_KEY",
@@ -48,7 +48,7 @@ test.describe("Live AI major flow", () => {
   });
 
   test("logged-in user can complete live ES review stream", async ({ page }) => {
-    test.skip(!hasGoogleAuthState, "Google auth storage state is not configured");
+    test.skip(!hasAuthenticatedUserAccess, "Authenticated E2E access is not configured");
     test.setTimeout(240_000);
 
     const runId = `live-es-${Date.now()}`;
@@ -58,7 +58,7 @@ test.describe("Live AI major flow", () => {
     let documentId: string | null = null;
 
     try {
-      await signInWithGoogle(page, "/dashboard");
+      await signInAsAuthenticatedUser(page, "/dashboard");
       await expect(page.locator("main")).toBeVisible();
 
       const company = await createOwnedCompany(page, {

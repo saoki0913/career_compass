@@ -1,6 +1,6 @@
 # ES添削機能
 
-ES添削は、設問ごとに `rewrite` と `sources` を流し、`complete` で `review_meta` を返すストリーミング機能である。  
+ES添削は、設問ごとに改善案と出典を段階的に流し、最後の `complete` で `review_meta` を返すストリーミング機能である。  
 標準UIでは `Claude / GPT / Gemini / クレジット消費を抑えて添削` を選べる。内部の実モデルは `Claude Sonnet 4.6 / GPT-5.4 / GPT-5.4-mini / Gemini 3.1 Pro Preview` を使う。
 
 ## 入口
@@ -11,7 +11,7 @@ ES添削は、設問ごとに `rewrite` と `sources` を流し、`complete` で
 | UI          | `src/components/es/ReviewPanel.tsx`                     |
 | Next.js API | `POST /api/documents/[id]/review/stream`                |
 | FastAPI API | `POST /api/es/review/stream`                            |
-| 出力          | `rewrite`, `sources`, `complete`（`review_meta` を含む） |
+| 出力          | `progress`, `string_chunk`, `array_item_complete`, `complete`（`review_meta` を含む） |
 
 
 ### リクエストがサーバに届いてから返るまで
@@ -19,7 +19,7 @@ ES添削は、設問ごとに `rewrite` と `sources` を流し、`complete` で
 1. ユーザーが ES 画面で添削を開始すると、フロントは **Next.js** の `POST /api/documents/{id}/review/stream` を呼ぶ。
 2. Next は認証・クレジット等を処理したうえで、**FastAPI** の `POST /api/es/review/stream` に同内容を渡し、応答を **SSE（Server-Sent Events）** でクライアントに流し直す。画面に出る進捗バーは、この SSE の `progress` イベントに対応する。
 3. FastAPI 側ではまず `**_generate_review_progress`** が動く。ここで入力チェック →（企業があれば）RAG → 本体処理 `**review_section_with_template**` の順に進む。
-4. SSE は `rewrite → sources → complete` の順で流れる。`complete` には最終 rewrite と `review_meta` が入る。
+4. SSE はユーザー体験としては `rewrite → sources → complete` の順で見える。実イベントは `string_chunk(path="streaming_rewrite")` で改善案、`array_item_complete(path="keyword_sources.{n}")` で出典を流し、最後に `complete` で最終結果と `review_meta` を返す。
 
 ### ここで止まる（ユーザーにエラーとして返る）例
 
@@ -29,8 +29,8 @@ ES添削は、設問ごとに `rewrite` と `sources` を流し、`complete` で
 | 入力検証  | 本文が空（前後空白のみ含む）            | ストリームでエラー              |
 | 入力検証  | 設問タイトルが空                  | ストリームでエラー（設問が必要）       |
 | 注入リスク | 高リスクと判定                   | ストリームでエラー（汎用バリデーション文言） |
-| リライト  | 規定回数の生成・検証を尽くしても合格案が得られない | HTTP 422（検証エラー）        |
-| LLM   | リライト呼び出しが 503 相当で失敗       | サービス利用不可のエラー応答         |
+| リライト  | 規定回数の生成・検証を尽くしても合格案が得られない | ストリームでエラー（内部では 422 扱い） |
+| LLM   | リライト呼び出しが 503 相当で失敗       | ストリームでエラー（内部では 503 相当） |
 
 
 企業 ID が無い場合でも添削は続行できる（設問タイプの制限あり）。企業 ID がある場合は、このあと **企業 RAG（ハイブリッド検索）** で根拠チャンクを取り、プロンプト用のエビデンスカードを組み立てる。無い場合は RAG ステップを実質的にスキップする。
@@ -74,7 +74,7 @@ focused retry / length-fix は **単一原因だけでなく複数 failure code 
 3. それも不可なら **422** で終了する。
 
 **画面への出し方（ストリーミング）**  
-実装上、**rewrite を先に SSE で流し**、続けて出典リンク、最後に `complete` を流す。図では「案 → 出典 → 完了」の順に見えるが、ストリームのタイミングはこの順である。
+実装上、**改善案を `string_chunk` で先に SSE 送出**し、続けて出典リンクを `array_item_complete` で追加し、最後に `complete` を流す。図では「案 → 出典 → 完了」の順に見えるが、表示順もこの順である。
 
 ## 使う入力
 
@@ -234,12 +234,13 @@ quality hints では全標準モデルに共通で次を要求する。
 
 ## UI の要点
 
+- **認証**: ES 添削はログインユーザー向け機能で、guest では実行しない。未ログインまたは guest のときは `ReviewPanel` でログイン導線を出し、Next API も 401 を返す。
 - **Free プラン**: モデルは **GPT-5.4 mini 固定**（UI は案内のみ）。**消費クレジットは有料でプレミアムモデルを選んだ場合と同じ表**（6〜20）。`review/stream` が `user_profiles.plan` を見て `llm_model` を `low-cost` に上書きする。
 - **Standard / Pro**: `モデル選択` dropdown で `Claude / GPT / Gemini / クレジット消費を抑えて添削` を設問ごとに切り替えられる
 - 業界 / 職種 / 設問タイプは dropdown
 - CTA は固定フッター
-- 企業連携状態は `ReviewPanel` 上部に常時表示
-- 企業未選択でも、プロフィール / ガクチカを使う旨をバナーで明示する
+- 企業選択時は、企業連携状態を `ReviewPanel` 上部の `CompanyStatusBanner` で表示する
+- 企業未選択時は、空状態または設問セットアップ文言で「プロフィール / ガクチカを使って添削できる」旨を案内する
 
 ### クレジット消費（`calculateESReviewCost`）
 
@@ -278,7 +279,7 @@ quality hints では全標準モデルに共通で次を要求する。
 
 ### 出典カードの遷移
 
-- 内部リンク (`/profile`, `/gakuchika`) を含む出典カードは同一タブで開く（自動スクロールの挙動は上記「右パネル内スクロールと自動追尾」に集約）。
+- 内部リンク (`/profile`, `/gakuchika`, `/es/{document_id}`) を含む出典カードも新しいタブで開く。
 
 ## 主要 `review_meta`
 

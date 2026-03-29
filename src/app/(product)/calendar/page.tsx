@@ -14,6 +14,7 @@ import { useCalendarEvents, useGoogleCalendar, GoogleCalendarEvent, WorkBlockSug
 import { CalendarSidebar } from "@/components/calendar/CalendarSidebar";
 import { WorkBlockFAB } from "@/components/calendar/WorkBlockFAB";
 import { EventDetailModal, type DisplayEvent } from "@/components/calendar/EventDetailModal";
+import { notifyCalendarEventCreated, notifyCalendarEventDeleted, notifyError } from "@/lib/notifications";
 
 // Icons
 const ChevronLeftIcon = () => (
@@ -86,8 +87,6 @@ function WorkBlockSuggestionsModal({
     try {
       await onCreateFromSuggestion(suggestion);
       onClose();
-    } catch (error) {
-      console.error("Failed to create work block:", error);
     } finally {
       setIsCreating(false);
     }
@@ -472,17 +471,51 @@ export default function CalendarPage() {
     setSelectedDate(day);
     setShowSuggestionsModal(true);
     const dateStr = getLocalDateKey(day);
-    const suggestions = await suggestWorkBlocks(dateStr);
-    setWorkBlockSuggestions(suggestions);
+    try {
+      const suggestions = await suggestWorkBlocks(dateStr);
+      setWorkBlockSuggestions(suggestions);
+    } catch (error) {
+      setShowSuggestionsModal(false);
+      setSelectedDate(null);
+      setWorkBlockSuggestions([]);
+      notifyError({
+        title: error instanceof Error ? error.message : "作業ブロックの提案を取得できませんでした。",
+      });
+    }
+  };
+
+  const handleCreateEvent = async (data: {
+    type: "work_block";
+    title: string;
+    startAt: string;
+    endAt: string;
+  }) => {
+    try {
+      await createEvent(data);
+      notifyCalendarEventCreated("manual");
+    } catch (error) {
+      notifyError({
+        title: error instanceof Error ? error.message : "イベントを作成できませんでした。",
+      });
+      throw error;
+    }
   };
 
   const handleCreateFromSuggestion = async (suggestion: WorkBlockSuggestion) => {
-    await createEvent({
-      type: "work_block",
-      title: suggestion.title,
-      startAt: suggestion.start,
-      endAt: suggestion.end,
-    });
+    try {
+      await createEvent({
+        type: "work_block",
+        title: suggestion.title,
+        startAt: suggestion.start,
+        endAt: suggestion.end,
+      });
+      notifyCalendarEventCreated("work_block");
+    } catch (error) {
+      notifyError({
+        title: error instanceof Error ? error.message : "作業ブロックを作成できませんでした。",
+      });
+      throw error;
+    }
   };
 
   return (
@@ -763,7 +796,7 @@ export default function CalendarPage() {
             setShowAddModal(false);
             setSelectedDate(null);
           }}
-          onCreate={createEvent}
+          onCreate={handleCreateEvent}
         />
 
         {/* Work block suggestions modal */}
@@ -789,9 +822,17 @@ export default function CalendarPage() {
             setSelectedEvent(null);
           }}
           onDelete={async (eventId) => {
-            await deleteEvent(eventId);
-            setShowDetailModal(false);
-            setSelectedEvent(null);
+            try {
+              await deleteEvent(eventId);
+              notifyCalendarEventDeleted();
+              setShowDetailModal(false);
+              setSelectedEvent(null);
+            } catch (error) {
+              notifyError({
+                title: error instanceof Error ? error.message : "イベントを削除できませんでした。",
+              });
+              throw error;
+            }
           }}
         />
 
