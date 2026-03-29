@@ -77,3 +77,11 @@ export function notifyRateLimit(seconds: number) {
     duration: Math.min(seconds * 1000, 10000),
   });
 }
+
+export function notifyMotivationDraftReady() {
+  return notifySuccess({
+    title: "志望動機ESを作成できる状態になりました",
+    description: "右上の「志望動機ESを作成」から生成できます。会話はそのまま続けられます。",
+    duration: 4200,
+  });
+}

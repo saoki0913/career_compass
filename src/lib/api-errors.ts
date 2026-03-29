@@ -145,6 +145,17 @@ function logDebugInfo(context: string, error: AppUiError, rawMessage: string | n
     return;
   }
 
+  // 認証前の初期フェッチや E2E の未ログイン導線では 401 が出ることがあり、JSON の console.error がノイズになる
+  const code = error.code;
+  const isAuthRequiredDevNoise =
+    error.status === 401 &&
+    typeof code === "string" &&
+    (code === "AUTH_REQUIRED" || code.endsWith("_AUTH_REQUIRED"));
+  if (isAuthRequiredDevNoise) {
+    console.debug(`[${context}] ${code} (401)`);
+    return;
+  }
+
   logError(`${context}:api`, new Error(error.developerMessage || rawMessage || error.message), {
     code: error.code,
     requestId: error.requestId,
