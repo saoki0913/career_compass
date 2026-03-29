@@ -17,7 +17,11 @@ import {
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
+import { FaqJsonLd } from "@/components/seo/FaqJsonLd";
+import type { MarketingFaq } from "@/lib/marketing/landing-faqs";
 import { trackEvent } from "@/lib/analytics/client";
+import { getPricingSelectionAction } from "@/lib/billing/pricing-flow";
+import { getCheckoutAbandonState } from "@/lib/billing/url-state";
 import {
   getMarketingPricingPlans,
   type MarketingPricingPlan,
@@ -38,6 +42,7 @@ const comparisonRows: {
   { label: "月次クレジット", free: "30", standard: "100", pro: "300" },
   { label: "企業登録", free: "5社まで", standard: "無制限", pro: "無制限" },
   { label: "ES添削スタイル", free: "3種", standard: "全8種", pro: "全8種" },
+  { label: "面接対策", free: "GPT-5.4 mini・5CR/完了時", standard: "GPT-5.4 mini・5CR/完了時", pro: "GPT-5.4 mini・5CR/完了時" },
   { label: "ガクチカ素材", free: "3件", standard: "10件", pro: "20件" },
   { label: "企業情報取得（日次無料枠）", free: "1回", standard: "5回", pro: "20回" },
   { label: "選考スケジュール（月次無料）", free: "5回", standard: "50回", pro: "150回" },
@@ -52,37 +57,38 @@ const comparisonRows: {
   },
 ];
 
-const faqItems = [
+const faqItems: readonly MarketingFaq[] = [
   {
-    q: "クレジットとは何ですか？",
-    a: "AI実行や企業情報取得に使うポイントです。クレジットは成功時のみ消費され、毎月リセットされます。",
+    question: "クレジットとは何ですか？",
+    answer:
+      "AI実行や企業情報取得に使うポイントです。クレジットは成功時のみ消費され、毎月リセットされます。",
   },
   {
-    q: "AI添削は何回できますか？",
-    a: "文章の長さとプラン・モデルで消費クレジットが変わります。Free は GPT-5.4 mini 固定で 6〜20 クレジット/回（有料で選べるプレミアムモデルと同じ目安）です。有料プランでは低コスト 3〜12、Claude / GPT / Gemini で 6〜20 が目安です。",
+    question: "AI添削は何回できますか？",
+    answer:
+      "文章の長さとプラン・モデルで消費クレジットが変わります。Free は GPT-5.4 mini 固定で 6〜20 クレジット/回（有料で選べるプレミアムモデルと同じ目安）です。有料プランでは低コスト 3〜12、Claude / GPT / Gemini で 6〜20 が目安です。",
   },
   {
-    q: "解約はいつでもできますか？",
-    a: "はい。Stripeのサブスクリプションをいつでも解約できます。解約後も課金期間の終了まで有料機能をご利用いただけます。",
+    question: "面接対策は何回できますか？",
+    answer:
+      "企業特化の模擬面接は GPT-5.4 mini 固定で、セッション完了時に 5 クレジット消費します。月次無料枠はありません。",
   },
   {
-    q: "無料プランからの切り替えはデータを引き継げますか？",
-    a: "はい。プラン変更時にデータはそのまま引き継がれます。企業情報、ES、締切などすべてのデータが維持されます。",
+    question: "解約はいつでもできますか？",
+    answer:
+      "はい。Stripeのサブスクリプションをいつでも解約できます。解約後も課金期間の終了まで有料機能をご利用いただけます。",
   },
   {
-    q: "使い切れなかったクレジットは翌月に繰り越せますか？",
-    a: "クレジットは毎月リセットされ、繰り越しはありません。ただし、成功時のみ消費されるため無駄になることはありません。",
+    question: "無料プランからの切り替えはデータを引き継げますか？",
+    answer:
+      "はい。プラン変更時にデータはそのまま引き継がれます。企業情報、ES、締切などすべてのデータが維持されます。",
+  },
+  {
+    question: "使い切れなかったクレジットは翌月に繰り越せますか？",
+    answer:
+      "クレジットは毎月リセットされ、繰り越しはありません。ただし、成功時のみ消費されるため無駄になることはありません。",
   },
 ];
-
-const pricingFaqSchema = faqItems.map((item) => ({
-  "@type": "Question" as const,
-  name: item.q,
-  acceptedAnswer: {
-    "@type": "Answer" as const,
-    text: item.a,
-  },
-}));
 
 function ComparisonValue({
   value,
@@ -259,7 +265,7 @@ export default function PricingPage() {
 
 function PricingPageContent() {
   const searchParams = useSearchParams();
-  const canceled = searchParams.get("canceled");
+  const { canceled } = getCheckoutAbandonState(searchParams);
   const router = useRouter();
   const { isAuthenticated, isLoading, userPlan } = useAuth();
   const [isRoutePending, startTransition] = useTransition();
@@ -271,13 +277,23 @@ function PricingPageContent() {
 
   const currentPlan = getCurrentPlan(userPlan?.plan);
   const isBusy = isSubmitting || isRoutePending;
+  const source = searchParams.get("source") || "pricing";
+  const reason = searchParams.get("reason") || undefined;
 
   const plans = useMemo(() => getMarketingPricingPlans(billingPeriod), [billingPeriod]);
   const maxSavings = `¥${(PRO_MONTHLY * 12 - ANNUAL_PLAN_PRICES.pro).toLocaleString("ja-JP")}`;
 
   useEffect(() => {
-    trackEvent("pricing_view");
-  }, []);
+    trackEvent("pricing_view", { source, reason });
+  }, [reason, source]);
+
+  useEffect(() => {
+    if (!canceled) return;
+    trackEvent("checkout_abandon", {
+      source,
+      reason,
+    });
+  }, [canceled, reason, source]);
 
   const handleCheckout = useCallback(async (plan: PlanType, period: BillingPeriod) => {
     if (plan === "free") return;
@@ -297,7 +313,7 @@ function PricingPageContent() {
       }
 
       if (data.url) {
-        trackEvent("checkout_start", { plan, period });
+        trackEvent("checkout_start", { plan, period, source, reason });
         window.location.href = data.url;
       }
     } catch (checkoutError) {
@@ -307,11 +323,36 @@ function PricingPageContent() {
           ? checkoutError.message
           : "エラーが発生しました"
       );
-      trackEvent("checkout_error", { plan, period });
+      trackEvent("checkout_error", { plan, period, source, reason });
     } finally {
       setIsSubmitting(false);
     }
-  }, []);
+  }, [reason, source]);
+
+  const openBillingPortal = useCallback(async () => {
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/stripe/portal", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "請求管理ページを開けませんでした");
+      }
+      trackEvent("portal_opened", { source: "pricing", currentPlan: currentPlan ?? "unknown" });
+      window.location.href = data.url;
+    } catch (portalError) {
+      setError(
+        portalError instanceof Error
+          ? portalError.message
+          : "請求管理ページを開けませんでした"
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [currentPlan]);
 
   useEffect(() => {
     if (!isAuthenticated || isLoading) return;
@@ -328,22 +369,27 @@ function PricingPageContent() {
 
   const handlePlanSelect = useCallback(async (planId: PlanType) => {
     setSelectedPlan(planId);
+    const action = getPricingSelectionAction({
+      currentPlan,
+      targetPlan: planId,
+      isAuthenticated,
+    });
 
-    if (currentPlan === planId) {
+    if (action === "dashboard") {
       startTransition(() => {
         router.push("/dashboard");
       });
       return;
     }
 
-    if (planId === "free") {
+    if (action === "free") {
       startTransition(() => {
         router.push(isAuthenticated ? "/dashboard" : "/login?redirect=/dashboard");
       });
       return;
     }
 
-    if (!isAuthenticated) {
+    if (action === "login") {
       localStorage.setItem("selectedPlan", planId);
       localStorage.setItem("selectedPlanPeriod", billingPeriod);
       trackEvent("checkout_intent_login", { plan: planId, period: billingPeriod });
@@ -353,8 +399,21 @@ function PricingPageContent() {
       return;
     }
 
+    if (action === "portal") {
+      await openBillingPortal();
+      return;
+    }
+
     await handleCheckout(planId, billingPeriod);
-  }, [billingPeriod, currentPlan, handleCheckout, isAuthenticated, router, startTransition]);
+  }, [
+    billingPeriod,
+    currentPlan,
+    handleCheckout,
+    isAuthenticated,
+    openBillingPortal,
+    router,
+    startTransition,
+  ]);
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,oklch(0.995_0.002_245),oklch(0.986_0.005_245))]">
@@ -405,7 +464,7 @@ function PricingPageContent() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 pb-8 pt-4 sm:px-6 md:pb-12 md:pt-6">
-        {canceled === "true" ? (
+        {canceled ? (
           <div className="mb-6 rounded-[22px] border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm text-slate-800">
             チェックアウトがキャンセルされました。プラン内容を見直してから、いつでも再開できます。
           </div>
@@ -474,25 +533,25 @@ function PricingPageContent() {
         <section className="mb-8 border-t border-slate-200/80 pt-6">
           <p className="text-xs font-medium text-slate-500">プラン選びの目安</p>
           <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-600">
-            まずは Free で触り、継続なら Standard、添削・企業研究を多く使うなら Pro。成功時のみクレジット消費・いつでも変更可能・有料は
+            まずは Free で触り、継続なら Standard、添削・企業研究・面接対策を多く使うなら Pro。成功時のみクレジット消費・いつでも変更可能・有料は
             Stripe 決済です。
           </p>
-          <div className="mt-4 flex flex-wrap gap-3 border border-slate-200/80 bg-slate-50/50 px-3 py-3 sm:px-4">
-            <div className="flex min-w-[140px] flex-1 items-start gap-2">
+          <div className="mt-4 grid gap-3 border border-slate-200/80 bg-slate-50/50 px-3 py-3 sm:px-4 md:grid-cols-3">
+            <div className="flex min-w-0 items-start gap-2">
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
               <div className="min-w-0">
                 <p className="text-xs font-semibold text-slate-900">成功時のみ消費</p>
                 <p className="text-[11px] leading-snug text-slate-600">失敗時は減りません。</p>
               </div>
             </div>
-            <div className="flex min-w-[140px] flex-1 items-start gap-2">
+            <div className="flex min-w-0 items-start gap-2">
               <RefreshCcw className="mt-0.5 h-4 w-4 shrink-0 text-slate-600" aria-hidden />
               <div className="min-w-0">
                 <p className="text-xs font-semibold text-slate-900">変更・解約</p>
                 <p className="text-[11px] leading-snug text-slate-600">後から見直せます。</p>
               </div>
             </div>
-            <div className="flex min-w-[140px] flex-1 items-start gap-2">
+            <div className="flex min-w-0 items-start gap-2">
               <CreditCard className="mt-0.5 h-4 w-4 shrink-0 text-slate-600" aria-hidden />
               <div className="min-w-0">
                 <p className="text-xs font-semibold text-slate-900">Stripe</p>
@@ -516,7 +575,36 @@ function PricingPageContent() {
           <p className="mt-1 text-sm leading-relaxed text-slate-600">
             下表は就活Pass の実装どおりの制限値です。上部カードの説明と数字が異なる場合は、表を優先してください。
           </p>
-          <div className="mt-5 overflow-x-auto rounded-lg border border-slate-200/80">
+          <div className="mt-5 rounded-lg border border-slate-200/80 md:hidden">
+            <div className="divide-y divide-slate-200">
+              {comparisonRows.map((row) => (
+                <div key={row.label} className="space-y-3 px-4 py-4">
+                  <p className="text-sm font-semibold text-slate-900">{row.label}</p>
+                  <div className="grid gap-2">
+                    <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Free</p>
+                      <div className="mt-2">
+                        <ComparisonValue value={row.free} />
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-primary/20 bg-primary/[0.06] px-3 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Standard</p>
+                      <div className="mt-2">
+                        <ComparisonValue value={row.standard} emphasis />
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Pro</p>
+                      <div className="mt-2">
+                        <ComparisonValue value={row.pro} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="mt-5 hidden overflow-x-auto rounded-lg border border-slate-200/80 md:block">
             <div className="min-w-[min(100%,520px)]">
               <div className="grid grid-cols-[minmax(8rem,1.5fr)_repeat(3,minmax(0,1fr))] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-3 text-xs font-semibold text-slate-600 sm:px-4 sm:text-sm">
                 <span>項目</span>
@@ -559,7 +647,7 @@ function PricingPageContent() {
                 迷ったら Free で始めて、必要になった時に切り替えてください。
               </h2>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                Free は月30クレジット・企業5社まで・ES添削3種・ガクチカ3件・セクション添削なし。Standard（¥1,480/月・100CR）は1クレジット約15円、Pro（¥2,980/月・300CR）は約10円の目安です。
+                Free は月30クレジット・企業5社まで・ES添削3種・ガクチカ3件・面接対策は GPT-5.4 mini 固定で 5 クレジット/完了時。Standard（¥1,480/月・100CR）は1クレジット約15円、Pro（¥2,980/月・300CR）は約10円の目安です。
               </p>
             </div>
             <Button
@@ -585,15 +673,15 @@ function PricingPageContent() {
           </div>
           <div className="divide-y divide-slate-200/80 rounded-[24px] border border-slate-200/80 bg-slate-50/80">
             {faqItems.map((item) => (
-              <details key={item.q} className="group">
+              <details key={item.question} className="group">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-medium text-slate-900 [&::-webkit-details-marker]:hidden">
-                  <span>{item.q}</span>
+                  <span>{item.question}</span>
                   <ChevronDown
                     className="h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200 group-open:rotate-180"
                     aria-hidden
                   />
                 </summary>
-                <div className="px-5 pb-5 text-sm leading-7 text-slate-600">{item.a}</div>
+                <div className="px-5 pb-5 text-sm leading-7 text-slate-600">{item.answer}</div>
               </details>
             ))}
           </div>
@@ -606,16 +694,7 @@ function PricingPageContent() {
           </p>
         </section>
 
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              "@context": "https://schema.org",
-              "@type": "FAQPage",
-              mainEntity: pricingFaqSchema,
-            }),
-          }}
-        />
+        <FaqJsonLd faqs={faqItems} />
       </main>
     </div>
   );
