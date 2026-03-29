@@ -1,11 +1,11 @@
 """
 Gakuchika (学生時代に力を入れたこと) Router
 
-AI-powered deep-dive questioning for Gakuchika refinement using LLM.
+AI-powered authoring guidance for Gakuchika creation using LLM.
 
-Deep-dive enhancement:
+Authoring enhancement:
 - Merged STAR evaluation + question generation into a single LLM call
-- Phase-based question focus
+- Coverage-based question focus for concise drafting
 - Content-aware initial question generation
 - Reference-guide rubric for causal depth, credibility, goals, and rule scope
 """
@@ -47,48 +47,55 @@ router = APIRouter(prefix="/api/gakuchika", tags=["gakuchika"])
 
 # Configuration
 STAR_COMPLETION_THRESHOLD = 70  # 各STAR要素がこの%以上で完了とみなす
-QUESTIONS_PER_CREDIT = 5  # 5問回答ごとに1クレジット消費
+QUESTIONS_PER_CREDIT = 5  # 5問回答ごとに3クレジット消費
 INITIAL_QUESTION_MAX_TOKENS = 120
 NEXT_QUESTION_MAX_TOKENS = 360
 
 # Conversation phases based on question count
-PHASE_OPENING = "opening"  # 0-2: 全体像の把握
-PHASE_EXPLORATION = "exploration"  # 3-5: 課題と行動の深掘り
-PHASE_DEEP_DIVE = "deep_dive"  # 6-8: 具体的な場面の掘り下げ
-PHASE_SYNTHESIS = "synthesis"  # 9+: 学びと再現性の確認
+PHASE_ANCHOR = "anchor"  # 0-1: 活動の土台と役割
+PHASE_CHALLENGE = "challenge"  # 2-3: 課題認識と背景
+PHASE_ACTION = "action_decision"  # 4-5: 判断理由と打ち手
+PHASE_RESULT = "result_evidence"  # 6-7: 前後差と成果
+PHASE_LEARNING = "learning_transfer"  # 8+: 学びと再現性
 
 # Question focus categories
-FOCUS_SCENE = "scene"
-FOCUS_ROOT_CAUSE = "root_cause"
-FOCUS_DECISION_REASON = "decision_reason"
-FOCUS_CONCRETE_ACTION = "concrete_action"
-FOCUS_RESULT_LEARNING = "result_learning"
+FOCUS_ANCHOR = "anchor"
+FOCUS_CHALLENGE = "challenge"
+FOCUS_DECISION_REASON = "action_decision"
+FOCUS_RESULT = "result_evidence"
+FOCUS_LEARNING = "learning_transfer"
 FOCUS_CREDIBILITY_SCOPE = "credibility_scope"
 
 RULE_BASED_QUESTION_TEMPLATES: dict[str, dict[str, str]] = {
-    PHASE_OPENING: {
-        "situation": "その活動が始まった時期と、関わっていた人数はどれくらいでしたか。",
-        "task": "最初にいちばん解決したいと思っていた課題は何でしたか。",
-        "action": "その場で最初に自分から動いたことは何でしたか。",
-        "result": "取り組みのあと、何がどう変わりましたか。",
+    PHASE_ANCHOR: {
+        "situation": "その活動で自分が担っていた役割は、どこまででしたか。",
+        "task": "最初にこの経験で向き合っていたテーマは何でしたか。",
+        "action": "最初に自分から着手したことは何でしたか。",
+        "result": "この経験を一言で言うと、どんな変化を生みたかったですか。",
     },
-    PHASE_EXPLORATION: {
-        "situation": "その課題が起きていた場面を思い出すと、どんな状況でしたか。",
-        "task": "なぜそれを本当の課題だと見たのか、背景から聞かせてもらえますか。",
-        "action": "その課題に対して、自分はどんな順番で動きましたか。",
-        "result": "その行動によって、数字や周囲の反応はどう変わりましたか。",
+    PHASE_CHALLENGE: {
+        "situation": "その課題が表面化していた場面は、どんな状況でしたか。",
+        "task": "なぜそれを本当に解くべき課題だと考えたのですか。",
+        "action": "課題を見立てたあと、最初にどんな方向性で動こうとしましたか。",
+        "result": "その時点で、うまくいったかを何で判断していましたか。",
     },
-    PHASE_DEEP_DIVE: {
-        "situation": "印象に残っている場面を一つ選ぶと、どんな状況でしたか。",
-        "task": "その場面で、自分が特に向き合う必要があった課題は何でしたか。",
-        "action": "その場面での工夫や判断を、順番にたどるとどうなりますか。",
-        "result": "その場面のあと、どんな成果や学びにつながりましたか。",
+    PHASE_ACTION: {
+        "situation": "その判断が必要になった場面では、どんな前提がありましたか。",
+        "task": "他のやり方ではなく、その打ち手を選んだ理由は何でしたか。",
+        "action": "実際には、どんな順番で工夫を形にしましたか。",
+        "result": "その打ち手によって、どんな反応や変化が見え始めましたか。",
     },
-    PHASE_SYNTHESIS: {
-        "situation": "振り返ると、その経験の前提条件や特徴はどこにあったと思いますか。",
-        "task": "その経験を通じて、自分が本質的に向き合っていた課題は何だと整理できますか。",
-        "action": "その経験で得た行動の型は、どんな場面でも再現できそうですか。",
-        "result": "この経験から持ち帰れそうな学びや行動原則は何ですか。",
+    PHASE_RESULT: {
+        "situation": "行動前と行動後で、いちばん変わった点はどこでしたか。",
+        "task": "当時の目標に照らすと、何を成果として捉えていましたか。",
+        "action": "成果につながったと感じる自分の工夫は、どの部分でしたか。",
+        "result": "数字や前後差で表すなら、どんな変化がありましたか。",
+    },
+    PHASE_LEARNING: {
+        "situation": "この経験が成り立った前提条件は何でしたか。",
+        "task": "振り返ると、自分は何に一番向き合っていたと整理できますか。",
+        "action": "次に似た場面があっても使えそうな自分の行動原則は何ですか。",
+        "result": "この経験から持ち帰れる学びを一つに絞ると何ですか。",
     },
 }
 
@@ -302,32 +309,39 @@ def _determine_phase(question_count: int) -> tuple[str, str, list[str], list[str
     Returns:
         (phase_name, description, preferred_focuses, preferred_target_elements)
     """
-    if question_count <= 2:
+    if question_count <= 1:
         return (
-            PHASE_OPENING,
-            "全体像の把握。テーマの背景・時期・規模感を聞く",
-            [FOCUS_SCENE, FOCUS_CREDIBILITY_SCOPE],
+            PHASE_ANCHOR,
+            "作成の土台を固める。役割・状況・取り組みの輪郭を確認する",
+            [FOCUS_ANCHOR, FOCUS_CREDIBILITY_SCOPE],
             ["situation", "task"],
+        )
+    elif question_count <= 3:
+        return (
+            PHASE_CHALLENGE,
+            "課題認識を固める。なぜそれが本当に解くべき課題だったかを確認する",
+            [FOCUS_CHALLENGE, FOCUS_CREDIBILITY_SCOPE],
+            ["task", "action"],
         )
     elif question_count <= 5:
         return (
-            PHASE_EXPLORATION,
-            "課題と行動の深掘り。なぜ・どうやって・何が大変だったか",
-            [FOCUS_ROOT_CAUSE, FOCUS_DECISION_REASON, FOCUS_CONCRETE_ACTION],
-            ["task", "action"],
-        )
-    elif question_count <= 8:
-        return (
-            PHASE_DEEP_DIVE,
-            "具体的な場面の掘り下げ。感情・判断理由・数字",
-            [FOCUS_SCENE, FOCUS_DECISION_REASON, FOCUS_RESULT_LEARNING],
+            PHASE_ACTION,
+            "行動と判断理由を固める。打ち手と選定理由を一つの線で確認する",
+            [FOCUS_DECISION_REASON, FOCUS_CREDIBILITY_SCOPE],
             ["action", "result"],
+        )
+    elif question_count <= 7:
+        return (
+            PHASE_RESULT,
+            "成果の根拠を固める。前後差や評価軸を確認する",
+            [FOCUS_RESULT, FOCUS_CREDIBILITY_SCOPE],
+            ["result"],
         )
     else:
         return (
-            PHASE_SYNTHESIS,
-            "学びと再現性の確認。経験の意味づけと今後への活かし方",
-            [FOCUS_RESULT_LEARNING, FOCUS_CREDIBILITY_SCOPE],
+            PHASE_LEARNING,
+            "学びと再現性を固める。文章の結びに必要な持ち帰りを確認する",
+            [FOCUS_LEARNING, FOCUS_CREDIBILITY_SCOPE],
             ["result"],
         )
 
@@ -394,7 +408,7 @@ def _build_rule_based_question(target_element: str, question_count: int) -> str:
     phase_name, _, _, _ = _determine_phase(question_count)
     phase_templates = RULE_BASED_QUESTION_TEMPLATES.get(
         phase_name,
-        RULE_BASED_QUESTION_TEMPLATES[PHASE_EXPLORATION],
+        RULE_BASED_QUESTION_TEMPLATES[PHASE_ACTION],
     )
     return phase_templates.get(
         target_element,

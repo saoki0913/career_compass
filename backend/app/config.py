@@ -30,6 +30,10 @@ class Settings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("USE_HYBRID_SEARCH"),
     )
+    web_search_fast_max_queries: int = Field(
+        default=4,
+        validation_alias=AliasChoices("WEB_SEARCH_FAST_MAX_QUERIES"),
+    )
 
     # ===== CORS =====
     # Override via CORS_ORIGINS env var (JSON array string, e.g. '["http://localhost:3000","https://your-domain.com"]')
@@ -67,11 +71,50 @@ class Settings(BaseSettings):
         default="http://localhost:3000",
         validation_alias=AliasChoices("FRONTEND_URL", "NEXT_PUBLIC_APP_URL"),
     )
+    internal_api_jwt_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("INTERNAL_API_JWT_SECRET"),
+    )
+    trusted_hosts: list[str] = Field(
+        default=["localhost", "127.0.0.1"],
+        validation_alias=AliasChoices("BACKEND_TRUSTED_HOSTS"),
+    )
+
+    @field_validator("trusted_hosts", mode="before")
+    @classmethod
+    def parse_trusted_hosts(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return []
+            if s.startswith("["):
+                return v
+            return [item.strip() for item in s.split(",") if item.strip()]
+        return v
 
     # ===== API キー =====
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     google_api_key: str = ""
+    google_document_ai_project_id: str = ""
+    google_document_ai_location: str = Field(
+        default="us",
+        validation_alias=AliasChoices("GOOGLE_DOCUMENT_AI_LOCATION"),
+    )
+    google_document_ai_processor_id: str = ""
+    google_document_ai_service_account_json: str = ""
+    mistral_api_key: str = ""
+    firecrawl_api_key: str = ""
+    firecrawl_base_url: str = Field(
+        default="https://api.firecrawl.dev",
+        validation_alias=AliasChoices("FIRECRAWL_BASE_URL"),
+    )
+    firecrawl_timeout_seconds: int = Field(
+        default=30,
+        validation_alias=AliasChoices("FIRECRAWL_TIMEOUT_SECONDS"),
+    )
 
     # ===== キャッシュ =====
     # 環境変数: REDIS_URL
@@ -129,6 +172,7 @@ class Settings(BaseSettings):
     model_es_review: str = "claude-sonnet"           # MODEL_ES_REVIEW
     model_gakuchika: str = "gpt-fast"                # MODEL_GAKUCHIKA
     model_motivation: str = "gpt-fast"               # MODEL_MOTIVATION
+    model_interview: str = "gpt-fast"                # MODEL_INTERVIEW
     model_gakuchika_draft: str = Field(
         default="claude-sonnet",
         validation_alias=AliasChoices("MODEL_GAKUCHIKA_DRAFT"),
@@ -258,6 +302,30 @@ class Settings(BaseSettings):
     rag_pdf_ocr_timeout_seconds: int = Field(
         default=120,
         validation_alias=AliasChoices("RAG_PDF_OCR_TIMEOUT_SECONDS"),
+    )
+    pdf_ocr_timeout_seconds: int = Field(
+        default=120,
+        validation_alias=AliasChoices("PDF_OCR_TIMEOUT_SECONDS", "RAG_PDF_OCR_TIMEOUT_SECONDS"),
+    )
+    pdf_ocr_min_total_chars: int = Field(
+        default=200,
+        validation_alias=AliasChoices("PDF_OCR_MIN_TOTAL_CHARS"),
+    )
+    pdf_ocr_min_chars_per_page: int = Field(
+        default=120,
+        validation_alias=AliasChoices("PDF_OCR_MIN_CHARS_PER_PAGE"),
+    )
+    pdf_ocr_high_accuracy_min_pages: int = Field(
+        default=8,
+        validation_alias=AliasChoices("PDF_OCR_HIGH_ACCURACY_MIN_PAGES"),
+    )
+    pdf_ocr_google_weak_chars_per_page: int = Field(
+        default=250,
+        validation_alias=AliasChoices("PDF_OCR_GOOGLE_WEAK_CHARS_PER_PAGE"),
+    )
+    pdf_ocr_google_weak_quality_score: float = Field(
+        default=0.65,
+        validation_alias=AliasChoices("PDF_OCR_GOOGLE_WEAK_QUALITY_SCORE"),
     )
     # 開発用: 企業PDF取込の 1 行テレメトリ（OCR 有無・ページ・秒・概算コスト）
     company_pdf_ingest_telemetry_log: bool = Field(

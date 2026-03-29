@@ -4,6 +4,7 @@ Content classification utilities for company RAG chunks.
 
 from typing import Optional
 
+from app.prompts.notion_registry import get_managed_prompt_content
 from app.utils.content_types import CONTENT_TYPES
 from app.utils.intent_profile import INTENT_PROFILES
 from app.utils.llm import call_llm_with_error
@@ -115,7 +116,9 @@ async def classify_content_category_with_llm(
     source_channel: Optional[str] = None,
 ) -> Optional[str]:
     """LLM-based classification fallback."""
-    system_prompt = """あなたは企業情報ページの分類アシスタントです。
+    system_prompt = get_managed_prompt_content(
+        "company_info.content_classifier.system",
+        fallback="""あなたは企業情報ページの分類アシスタントです。
 以下のURL/見出し/本文から、最も適切な分類を1つ選んでください。
 必ずJSONを1つだけ出力してください。コードブロックや説明文は禁止です。
 
@@ -133,10 +136,13 @@ async def classify_content_category_with_llm(
 ## 曖昧なケースの優先ルール
 - 採用ページ内のインタビュー → employee_interviews
 - IR内の中期計画 → midterm_plan
-- 社長メッセージ内のビジョン → ceo_message"""
+- 社長メッセージ内のビジョン → ceo_message""",
+    )
 
     excerpt = (text or "")[:800]
-    user_message = f"""URL: {source_url}
+    user_message_template = get_managed_prompt_content(
+        "company_info.content_classifier.user",
+        fallback="""URL: {source_url}
 source_channel: {source_channel or ""}
 見出し: {heading or ""}
 本文抜粋: {excerpt}
@@ -145,7 +151,14 @@ source_channel: {source_channel or ""}
 {{"category": "..." }}
 
 出力例:
-{{"category":"new_grad_recruitment"}}"""
+{{"category":"new_grad_recruitment"}}""",
+    )
+    user_message = user_message_template.format(
+        source_url=source_url,
+        source_channel=source_channel or "",
+        heading=heading or "",
+        excerpt=excerpt,
+    )
 
     max_retries = 2
     retry_reason = ""

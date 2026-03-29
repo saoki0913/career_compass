@@ -19,6 +19,7 @@ from anthropic import AsyncAnthropic, APIError as AnthropicAPIError
 import openai
 from openai import APIError as OpenAIAPIError
 from app.config import settings
+from app.prompts.notion_registry import get_managed_prompt_content
 from app.utils.secure_logger import get_logger
 import json
 
@@ -341,6 +342,7 @@ def _build_model_config() -> dict[str, LLMModel]:
         "es_review": settings.model_es_review,
         "gakuchika": settings.model_gakuchika,
         "motivation": settings.model_motivation,
+        "interview": settings.model_interview,
         "gakuchika_draft": settings.model_gakuchika_draft,
         "motivation_draft": settings.model_motivation_draft,
         "selection_schedule": settings.model_selection_schedule,
@@ -367,6 +369,7 @@ FEATURE_NAMES = {
     "es_review": "ES添削",
     "gakuchika": "ガクチカ深掘り",
     "motivation": "志望動機作成",
+    "interview": "面接対策",
     "gakuchika_draft": "ガクチカES下書き",
     "motivation_draft": "志望動機ES下書き",
     "selection_schedule": "選考スケジュール抽出",
@@ -538,6 +541,24 @@ def _requires_json_prompt_hint(provider: LLMProvider) -> bool:
     return provider == "google"
 
 
+def _json_repair_system_prompt(*, require_valid: bool = False) -> str:
+    fallback = "あなたはJSON修復の専門家です。必ずJSONのみ出力してください。"
+    if require_valid:
+        fallback = "あなたはJSON修復の専門家です。必ず有効なJSONのみを返してください。"
+    return get_managed_prompt_content("llm_common.json_repair_system", fallback=fallback)
+
+
+def _json_repair_user_prompt(repair_source: str) -> str:
+    template = get_managed_prompt_content(
+        "llm_common.json_repair_user",
+        fallback=(
+            "以下のテキストを有効なJSONに修復してください。JSON以外は出力しないでください。\n\n"
+            "{repair_source}"
+        ),
+    )
+    return template.format(repair_source=repair_source)
+
+
 def _schema_body(json_schema: dict | None) -> dict | None:
     if not json_schema:
         return None
@@ -624,17 +645,26 @@ def _augment_system_prompt_for_provider_json(
 
     schema_body = _schema_body(json_schema)
     schema_example = _build_schema_example(schema_body)
-    strict_note = (
-        "\n\n# JSON出力の厳守\n"
-        "必ず有効なJSONのみを返してください。説明文、前置き、コードブロックは禁止です。"
-        "\n先頭文字は {、末尾文字は } にしてください。"
-        "\n期待するJSONの骨組み:\n"
-        f"{json.dumps(schema_example, ensure_ascii=False)}"
+    strict_note_template = get_managed_prompt_content(
+        "llm_common.json_strict_note",
+        fallback=(
+            "\n\n# JSON出力の厳守\n"
+            "必ず有効なJSONのみを返してください。説明文、前置き、コードブロックは禁止です。"
+            "\n先頭文字は {{、末尾文字は }} にしてください。"
+            "\n期待するJSONの骨組み:\n"
+            "{schema_example}"
+        ),
+    )
+    strict_note = strict_note_template.format(
+        schema_example=json.dumps(schema_example, ensure_ascii=False)
     )
     if provider == "google":
-        strict_note += (
-            "\nこれは単純な構造化出力タスクです。思考や解説を書かず、"
-            "回答のJSONオブジェクトを先に、かつそれだけを返してください。"
+        strict_note += get_managed_prompt_content(
+            "llm_common.json_strict_note_google_append",
+            fallback=(
+                "\nこれは単純な構造化出力タスクです。思考や解説を書かず、"
+                "回答のJSONオブジェクトを先に、かつそれだけを返してください。"
+            ),
         )
     return f"{system_prompt}{strict_note}"
 
@@ -648,14 +678,20 @@ def _augment_system_prompt_for_provider_text(
     if feature != "es_review" or provider == "anthropic":
         return system_prompt
 
-    strict_note = (
-        "\n\n# 出力形式の厳守\n"
-        "出力は最終本文のみを返してください。"
-        "\n説明、前置き、後書き、見出し、箇条書き、コードブロック、引用符は禁止です。"
-        "\n先頭から本文を書き始め、余計なラベルを付けないでください。"
+    strict_note = get_managed_prompt_content(
+        "llm_common.text_strict_note",
+        fallback=(
+            "\n\n# 出力形式の厳守\n"
+            "出力は最終本文のみを返してください。"
+            "\n説明、前置き、後書き、見出し、箇条書き、コードブロック、引用符は禁止です。"
+            "\n先頭から本文を書き始め、余計なラベルを付けないでください。"
+        ),
     )
     if provider == "google":
-        strict_note += "\n思考や解説は書かず、本文だけを返してください。"
+        strict_note += get_managed_prompt_content(
+            "llm_common.text_strict_note_google_append",
+            fallback="\n思考や解説は書かず、本文だけを返してください。",
+        )
     return f"{system_prompt}{strict_note}"
 
 
@@ -972,7 +1008,10 @@ def consume_request_llm_cost_summary(feature: str | None = None) -> dict[str, An
     est_jpy_total = summary.get("est_jpy_total")
     if isinstance(est_jpy_total, (int, float)) and est_jpy_total > 0:
         result["est_jpy_total"] = round(float(est_jpy_total), 2)
-    return result
+    logger.info("[llm_cost_summary] %s", json.dumps(result, ensure_ascii=False))
+    if settings.debug:
+        return result
+    return None
 
 
 def _append_llm_cost_estimate_parts(parts: list[str], est: float | None) -> None:
@@ -1374,7 +1413,7 @@ async def _repair_json_with_same_model(
 
     repair_system_prompt = _augment_system_prompt_for_provider_json(
         provider,
-        "あなたはJSON修復の専門家です。必ず有効なJSONのみを返してください。",
+        _json_repair_system_prompt(require_valid=True),
         "json_schema",
         json_schema,
     )
@@ -1427,7 +1466,7 @@ async def _repair_json_with_openai_model(
     if not repair_source:
         return None
 
-    base_repair = "あなたはJSON修復の専門家です。必ず有効なJSONのみを返してください。"
+    base_repair = _json_repair_system_prompt(require_valid=True)
     if parse_retry_instructions:
         base_repair = f"{base_repair}\n\n# JSON出力の厳守\n{parse_retry_instructions}"
     repair_system_prompt = _augment_system_prompt_for_provider_json(
@@ -1762,16 +1801,12 @@ async def call_llm_with_error(
                 if target.provider == "anthropic" and not settings.openai_api_key:
                     # OpenAI キーが無い環境では Claude で修復
                     _log(feature, "JSON修復を実行（Claude）", WARNING)
-                    repair_prompt = (
-                        "以下の出力を、構造は変えずに有効なJSONに修復してください。"
-                        "JSON以外は出力しないでください。\n\n"
-                        f"{repair_source}"
-                    )
+                    repair_prompt = _json_repair_user_prompt(repair_source)
                     repair_model = settings.claude_sonnet_model
                     if "haiku" in repair_model.lower():
                         repair_model = "claude-sonnet-4-5-20250929"
                     raw_repair, repair_usage = await _call_claude_raw(
-                        system_prompt="あなたはJSON修復の専門家です。必ずJSONのみ出力してください。",
+                        system_prompt=_json_repair_system_prompt(),
                         user_message=repair_prompt,
                         messages=None,
                         max_tokens=min(max_tokens, 2000),
@@ -2236,11 +2271,9 @@ async def call_llm_streaming(
 
         # JSON parse failed - try repair via non-streaming call
         _log(feature, "ストリーミング応答のJSON解析失敗、修復を試行", WARNING)
-        repair_prompt = f"""以下のテキストを有効なJSONに修復してください。JSON以外は出力しないでください。
-
-{accumulated[:3000]}"""
+        repair_prompt = _json_repair_user_prompt(accumulated[:3000])
         repair_result = await _call_claude(
-            system_prompt="あなたはJSON修復の専門家です。必ずJSONのみ出力してください。",
+            system_prompt=_json_repair_system_prompt(),
             user_message=repair_prompt,
             messages=None,
             max_tokens=max_tokens,
@@ -2460,11 +2493,9 @@ async def call_llm_streaming_fields(
 
         # JSON parse failed — try repair
         _log(feature, "フィールドストリーミング応答のJSON解析失敗、修復を試行", WARNING)
-        repair_prompt = f"""以下のテキストを有効なJSONに修復してください。JSON以外は出力しないでください。
-
-{accumulated[:3000]}"""
+        repair_prompt = _json_repair_user_prompt(accumulated[:3000])
         repair_result = await _call_claude(
-            system_prompt="あなたはJSON修復の専門家です。必ずJSONのみ出力してください。",
+            system_prompt=_json_repair_system_prompt(),
             user_message=repair_prompt,
             messages=None,
             max_tokens=max_tokens,
@@ -2964,6 +2995,8 @@ async def _call_openai_responses_raw_text(
             "max_output_tokens": max_out,
             "text": {"format": {"type": "text"}},
         }
+        if feature == "es_review":
+            kwargs["verbosity"] = "medium"
         if with_reasoning and reasoning_effort:
             kwargs["reasoning"] = {"effort": reasoning_effort}
         if _openai_supports_temperature(model):
