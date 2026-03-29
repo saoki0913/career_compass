@@ -1,6 +1,16 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: [
+      // Google OAuth アバター（lh3 など *.googleusercontent.com）
+      {
+        protocol: "https",
+        hostname: "**.googleusercontent.com",
+        pathname: "/**",
+      },
+    ],
+  },
   async redirects() {
     return [
       {

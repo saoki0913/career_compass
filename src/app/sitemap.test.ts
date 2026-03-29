@@ -11,5 +11,6 @@ describe("sitemap", () => {
     expect(entries).toContain(`${base}/shukatsu-kanri`);
     expect(entries).toContain(`${base}/entry-sheet-ai`);
     expect(entries).toContain(`${base}/es-ai-guide`);
+    expect(entries).toContain(`${base}/data-source-policy`);
   });
 });

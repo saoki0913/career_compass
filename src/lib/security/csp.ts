@@ -1,5 +1,5 @@
 const DEV_SCRIPT_EXTRAS = process.env.NODE_ENV === "development" ? ["'unsafe-eval'"] : [];
-const STATIC_SCRIPT_BASE = ["'self'", "'unsafe-inline'", "https://js.stripe.com", "https://www.googletagmanager.com"];
+const STATIC_SCRIPT_BASE = ["'self'", "https://js.stripe.com", "https://www.googletagmanager.com"];
 
 const CONNECT_SRC = [
   "'self'",
