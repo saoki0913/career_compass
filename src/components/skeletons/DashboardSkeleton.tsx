@@ -1,4 +1,3 @@
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton, SkeletonButton, SkeletonPill, SkeletonText } from "@/components/ui/skeleton";
 
@@ -62,8 +61,12 @@ export type DashboardSkeletonProps = {
 export function DashboardSkeleton({ showTodayTaskSkeleton = false }: DashboardSkeletonProps) {
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div
+        className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8"
+        role="status"
+        aria-busy="true"
+        aria-live="polite"
+      >
         <div className="mb-6 flex min-h-[4.5rem] flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
           <div className="min-w-0 flex-1 space-y-2">
             <div className="flex flex-wrap items-center gap-3">
@@ -163,7 +166,7 @@ export function DashboardSkeleton({ showTodayTaskSkeleton = false }: DashboardSk
             </CardContent>
           </Card>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

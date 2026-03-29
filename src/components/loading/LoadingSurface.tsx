@@ -31,7 +31,12 @@ export function PageTransitionSurface({
         </div>
       </div>
 
-      <main className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl items-start px-4 py-8 sm:px-6 sm:py-10">
+      <div
+        className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl items-start px-4 py-8 sm:px-6 sm:py-10"
+        role="status"
+        aria-busy="true"
+        aria-live="polite"
+      >
         <div className="w-full space-y-6">
           <div className="space-y-2">
             <SkeletonPill className="h-4 w-24" />
@@ -96,7 +101,7 @@ export function PageTransitionSurface({
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

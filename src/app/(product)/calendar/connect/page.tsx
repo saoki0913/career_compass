@@ -8,6 +8,7 @@ import { DashboardHeader } from "@/components/dashboard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getSafeRelativeReturnPath } from "@/lib/security/safe-return-path";
 
 const GoogleIcon = () => (
   <svg className="h-5 w-5" viewBox="0 0 24 24">
@@ -18,16 +19,12 @@ const GoogleIcon = () => (
   </svg>
 );
 
-function getSafeReturnTo(value: string | null) {
-  return value && value.startsWith("/") ? value : "/calendar/settings";
-}
-
 export default function CalendarConnectPage() {
   const searchParams = useSearchParams();
   const { isAuthenticated, isLoading } = useAuth();
 
   const returnTo = useMemo(
-    () => getSafeReturnTo(searchParams.get("returnTo")),
+    () => getSafeRelativeReturnPath(searchParams.get("returnTo"), "/calendar/settings"),
     [searchParams]
   );
   const oauthHref = `/api/calendar/connect?returnTo=${encodeURIComponent(returnTo)}`;

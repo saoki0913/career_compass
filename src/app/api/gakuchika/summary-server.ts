@@ -6,7 +6,8 @@ import {
   type LegacySummary,
   type StructuredSummary,
 } from "@/lib/gakuchika/summary";
-import { FASTAPI_URL, type Message } from "@/app/api/gakuchika/shared";
+import { type Message } from "@/app/api/gakuchika/shared";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -93,7 +94,7 @@ async function requestStructuredSummary(
   gakuchikaTitle: string,
   messages: Message[]
 ): Promise<StructuredSummary | null> {
-  const response = await fetch(`${FASTAPI_URL}/api/gakuchika/structured-summary`, {
+  const response = await fetchFastApiInternal("/api/gakuchika/structured-summary", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

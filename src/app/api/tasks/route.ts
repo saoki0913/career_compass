@@ -6,20 +6,16 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { tasks, companies, applications, deadlines } from "@/lib/db/schema";
-import { eq, and, desc, asc } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
+import { tasks } from "@/lib/db/schema";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   hasOwnedApplication,
   hasOwnedCompany,
   hasOwnedDeadline,
-  isOwnedByIdentity,
 } from "@/app/api/_shared/owner-access";
-import { alias } from "drizzle-orm/pg-core";
+import { getTasksPageData } from "@/lib/server/task-loaders";
 
 const TASK_TYPE_LABELS: Record<string, string> = {
   es: "ES作成",
@@ -30,32 +26,9 @@ const TASK_TYPE_LABELS: Record<string, string> = {
   other: "その他",
 };
 
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return createApiErrorResponse(request, {
         status: 401,
@@ -68,86 +41,18 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const { userId, guestId } = identity;
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status"); // open, done, all
     const companyId = searchParams.get("companyId");
     const applicationId = searchParams.get("applicationId");
 
-    // Build where clause
-    const conditions = [];
-
-    if (userId) {
-      conditions.push(eq(tasks.userId, userId));
-    } else if (guestId) {
-      conditions.push(eq(tasks.guestId, guestId));
-    }
-
-    if (status && status !== "all") {
-      conditions.push(eq(tasks.status, status as "open" | "done"));
-    }
-
-    if (companyId) {
-      conditions.push(eq(tasks.companyId, companyId));
-    }
-
-    if (applicationId) {
-      conditions.push(eq(tasks.applicationId, applicationId));
-    }
-
-    const deadlineCompany = alias(companies, "tasks_deadline_company");
-    const taskList = await db
-      .select({
-        task: tasks,
-        company: {
-          id: companies.id,
-          name: companies.name,
-          userId: companies.userId,
-          guestId: companies.guestId,
-        },
-        application: {
-          id: applications.id,
-          name: applications.name,
-          userId: applications.userId,
-          guestId: applications.guestId,
-        },
-        deadline: {
-          id: deadlines.id,
-          title: deadlines.title,
-          dueDate: deadlines.dueDate,
-          userId: deadlineCompany.userId,
-          guestId: deadlineCompany.guestId,
-        },
-      })
-      .from(tasks)
-      .leftJoin(companies, eq(tasks.companyId, companies.id))
-      .leftJoin(applications, eq(tasks.applicationId, applications.id))
-      .leftJoin(deadlines, eq(tasks.deadlineId, deadlines.id))
-      .leftJoin(deadlineCompany, eq(deadlines.companyId, deadlineCompany.id))
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(
-        asc(tasks.status), // open first
-        asc(tasks.dueDate), // earliest due date
-        desc(tasks.createdAt)
-      );
-
-    return NextResponse.json({
-      tasks: taskList.map((t) => ({
-        ...t.task,
-        company:
-          t.company?.id && isOwnedByIdentity(t.company, identity)
-            ? { id: t.company.id, name: t.company.name }
-            : null,
-        application:
-          t.application?.id && isOwnedByIdentity(t.application, identity)
-            ? { id: t.application.id, name: t.application.name }
-            : null,
-        deadline:
-          t.deadline?.id && isOwnedByIdentity(t.deadline, identity)
-            ? { id: t.deadline.id, title: t.deadline.title, dueDate: t.deadline.dueDate }
-            : null,
-      })),
+    const data = await getTasksPageData(identity, {
+      status: (status as "open" | "done" | "all" | null) ?? undefined,
+      companyId,
+      applicationId,
     });
+
+    return NextResponse.json(data);
   } catch (error) {
     return createApiErrorResponse(request, {
       status: 500,
@@ -164,7 +69,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return createApiErrorResponse(request, {
         status: 401,

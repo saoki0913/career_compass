@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { DeleteConfirmDialog as SharedDeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
 
 interface DeleteConfirmDialogProps {
   isOpen: boolean;
@@ -26,41 +18,13 @@ export function DeleteConfirmDialog({
   isDeleting,
 }: DeleteConfirmDialogProps) {
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle>本当に削除しますか?</DialogTitle>
-          <DialogDescription>
-            「{title}」とそのすべての深掘り会話履歴が完全に削除されます。
-            <br />
-            この操作は取り消せません。
-          </DialogDescription>
-        </DialogHeader>
-
-        <DialogFooter className="mt-4">
-          <Button
-            variant="outline"
-            onClick={onCancel}
-            disabled={isDeleting}
-          >
-            キャンセル
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={onConfirm}
-            disabled={isDeleting}
-          >
-            {isDeleting ? (
-              <>
-                <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2" />
-                削除中...
-              </>
-            ) : (
-              "削除する"
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <SharedDeleteConfirmDialog
+      isOpen={isOpen}
+      title="ガクチカを削除しますか？"
+      description={`「${title}」とその作成会話履歴が完全に削除されます。この操作は取り消せません。`}
+      isDeleting={isDeleting}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    />
   );
 }

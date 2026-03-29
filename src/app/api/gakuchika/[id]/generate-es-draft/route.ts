@@ -27,6 +27,7 @@ import {
   logAiCreditCostSummary,
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 async function getIdentity(
   request: NextRequest
@@ -78,8 +79,6 @@ function safeParseMessages(json: string): Message[] {
     return [];
   }
 }
-
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
 interface FastAPIDraftResponse {
   draft: string;
@@ -218,19 +217,16 @@ export async function POST(
 
   // Call FastAPI for draft generation
   try {
-    const response = await fetch(
-      `${FASTAPI_URL}/api/gakuchika/generate-es-draft`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
-        body: JSON.stringify({
-          gakuchika_title: gakuchika.title,
-          conversation_history: messages,
-          structured_summary: structuredSummary,
-          char_limit: charLimit,
-        }),
-      }
-    );
+    const response = await fetchFastApiInternal("/api/gakuchika/generate-es-draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
+      body: JSON.stringify({
+        gakuchika_title: gakuchika.title,
+        conversation_history: messages,
+        structured_summary: structuredSummary,
+        char_limit: charLimit,
+      }),
+    });
 
     if (!response.ok) {
       if (reservationId) await cancelReservation(reservationId);

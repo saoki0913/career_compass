@@ -17,7 +17,6 @@ import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-lim
 import { persistGakuchikaSummary } from "@/app/api/gakuchika/summary-server";
 import {
   FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS,
-  FASTAPI_URL,
   QUESTIONS_PER_CREDIT,
   CREDITS_PER_QUESTION_BATCH,
   buildHintPayload,
@@ -30,6 +29,7 @@ import {
   type Message,
   type STAREvaluation,
 } from "@/app/api/gakuchika/shared";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 import {
   getRequestId,
   logAiCreditCostSummary,
@@ -190,7 +190,7 @@ export async function POST(
 
     let aiResponse: Response;
     try {
-      aiResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/next-question/stream`, {
+      aiResponse = await fetchFastApiInternal("/api/gakuchika/next-question/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
         body: JSON.stringify({

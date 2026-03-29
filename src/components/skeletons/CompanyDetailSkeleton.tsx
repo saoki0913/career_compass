@@ -1,4 +1,3 @@
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Skeleton,
@@ -11,8 +10,7 @@ import {
 export function CompanyDetailSkeleton() {
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
-      <main className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
         <Skeleton className="mb-4 h-4 w-36 rounded-md" />
 
         {/* 企業ヘッダー + クイックアクション（border-b 帯） */}
@@ -174,7 +172,7 @@ export function CompanyDetailSkeleton() {
             </CardContent>
           </Card>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

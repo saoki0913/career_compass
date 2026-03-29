@@ -1,4 +1,3 @@
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Skeleton,
@@ -12,9 +11,7 @@ import {
 export function CalendarSkeleton() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
-      <DashboardHeader />
-
-      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden px-4 py-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden px-4 py-4 sm:px-6 lg:px-8">
         <div className="mb-4 flex shrink-0 items-center justify-between">
           <div>
             <Skeleton className="h-8 w-40 rounded-xl" />
@@ -80,7 +77,7 @@ export function CalendarSkeleton() {
             ))}
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

@@ -9,18 +9,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { notifications } from "@/lib/db/schema";
-import { eq, and, desc, isNull } from "drizzle-orm";
+import { eq, and, desc, isNull, count } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
-
-const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
-  deadline_reminder: "締切リマインド",
-  deadline_near: "締切が近づいています",
-  company_fetch: "企業情報取得",
-  es_review: "ES添削完了",
-  daily_summary: "デイリーサマリー",
-  calendar_sync_failed: "Google同期エラー",
-};
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -82,7 +73,7 @@ export async function GET(request: NextRequest) {
 
     // Get unread count
     const unreadCountResult = await db
-      .select()
+      .select({ unreadCount: count() })
       .from(notifications)
       .where(
         and(
@@ -97,7 +88,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       notifications: notificationList,
-      unreadCount: unreadCountResult.length,
+      unreadCount: Number(unreadCountResult[0]?.unreadCount ?? 0),
     });
   } catch (error) {
     console.error("Error fetching notifications:", error);

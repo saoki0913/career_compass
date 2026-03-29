@@ -1,11 +1,12 @@
 /**
  * Notifications Hook
  *
- * Manages notifications for the user
+ * SWR で通知一覧を共有キャッシュし、デデュープする。
  */
 
-import { useState, useEffect, useCallback } from "react";
-import { getDeviceToken } from "@/lib/auth/device-token";
+import { useCallback } from "react";
+import useSWR from "swr";
+import { buildAuthFetchHeaders, notificationsListUrl } from "@/lib/swr-fetcher";
 
 export type NotificationType =
   | "deadline_reminder"
@@ -46,73 +47,92 @@ export interface Notification {
   expiresAt: string | null;
 }
 
-function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore errors
-    }
-  }
-  return headers;
+export interface NotificationsResponse {
+  notifications: Notification[];
+  unreadCount: number;
 }
 
 export interface UseNotificationsOptions {
   limit?: number;
   unreadOnly?: boolean;
+  initialData?: NotificationsResponse;
+}
+
+async function fetchNotificationsList(url: string): Promise<NotificationsResponse> {
+  const response = await fetch(url, {
+    headers: buildAuthFetchHeaders(),
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error("Failed to fetch notifications");
+  }
+  const data = await response.json();
+  return {
+    notifications: data.notifications || [],
+    unreadCount: data.unreadCount || 0,
+  };
+}
+
+function cloneNotificationsResponse(response: NotificationsResponse): NotificationsResponse {
+  return {
+    notifications: response.notifications.map((notification) => ({ ...notification })),
+    unreadCount: response.unreadCount,
+  };
+}
+
+function updateReadState(
+  current: NotificationsResponse,
+  notificationId: string,
+  nextIsRead: boolean
+): NotificationsResponse {
+  let unreadCount = current.unreadCount;
+  const notifications = current.notifications.map((notification) => {
+    if (notification.id !== notificationId) {
+      return notification;
+    }
+
+    if (notification.isRead === nextIsRead) {
+      return notification;
+    }
+
+    unreadCount += nextIsRead ? -1 : 1;
+    return { ...notification, isRead: nextIsRead };
+  });
+
+  return {
+    notifications,
+    unreadCount: Math.max(0, unreadCount),
+  };
 }
 
 export function useNotifications(options: UseNotificationsOptions = {}) {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const swrKey = notificationsListUrl(options.limit, options.unreadOnly);
 
-  const fetchNotifications = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const { data, error, isLoading, mutate } = useSWR<NotificationsResponse>(swrKey, fetchNotificationsList, {
+    revalidateOnFocus: false,
+    dedupingInterval: 3000,
+    fallbackData: options.initialData,
+    revalidateOnMount: !options.initialData,
+  });
 
-    try {
-      const params = new URLSearchParams();
-      if (options.limit) params.set("limit", options.limit.toString());
-      if (options.unreadOnly) params.set("unreadOnly", "true");
+  const notifications = data?.notifications ?? [];
+  const unreadCount = data?.unreadCount ?? 0;
+  const errorMessage =
+    error instanceof Error ? error.message : error != null ? "通知の取得に失敗しました" : null;
 
-      const url = `/api/notifications${params.toString() ? `?${params.toString()}` : ""}`;
-      const response = await fetch(url, {
-        headers: buildHeaders(),
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch notifications");
-      }
-
-      const data = await response.json();
-      setNotifications(data.notifications || []);
-      setUnreadCount(data.unreadCount || 0);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "通知の取得に失敗しました");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [options.limit, options.unreadOnly]);
-
-  useEffect(() => {
-    fetchNotifications();
-  }, [fetchNotifications]);
+  const refresh = useCallback(() => mutate(), [mutate]);
 
   const markAsRead = useCallback(
     async (notificationId: string): Promise<boolean> => {
+      const current = data ? cloneNotificationsResponse(data) : { notifications: [], unreadCount: 0 };
+      const next = updateReadState(current, notificationId, true);
+
+      await mutate(next, { revalidate: false });
+
       try {
         const response = await fetch(`/api/notifications/${notificationId}/read`, {
           method: "POST",
-          headers: buildHeaders(),
+          headers: buildAuthFetchHeaders(),
           credentials: "include",
         });
 
@@ -120,26 +140,28 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
           throw new Error("Failed to mark notification as read");
         }
 
-        // Update local state
-        setNotifications((prev) =>
-          prev.map((n) => (n.id === notificationId ? { ...n, isRead: true } : n))
-        );
-        setUnreadCount((prev) => Math.max(0, prev - 1));
-
         return true;
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "通知の既読処理に失敗しました");
+      } catch {
+        await mutate(current, { revalidate: false });
         return false;
       }
     },
-    []
+    [data, mutate]
   );
 
   const markAllAsRead = useCallback(async (): Promise<boolean> => {
+    const current = data ? cloneNotificationsResponse(data) : { notifications: [], unreadCount: 0 };
+    const next = {
+      notifications: current.notifications.map((notification) => ({ ...notification, isRead: true })),
+      unreadCount: 0,
+    };
+
+    await mutate(next, { revalidate: false });
+
     try {
       const response = await fetch("/api/notifications/read-all", {
         method: "POST",
-        headers: buildHeaders(),
+        headers: buildAuthFetchHeaders(),
         credentials: "include",
       });
 
@@ -147,23 +169,31 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
         throw new Error("Failed to mark all notifications as read");
       }
 
-      // Update local state
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-      setUnreadCount(0);
-
       return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "通知の既読処理に失敗しました");
+    } catch {
+      await mutate(current, { revalidate: false });
       return false;
     }
-  }, []);
+  }, [data, mutate]);
 
   const deleteNotification = useCallback(
     async (notificationId: string): Promise<boolean> => {
+      const current = data ? cloneNotificationsResponse(data) : { notifications: [], unreadCount: 0 };
+      const removed = current.notifications.find((notification) => notification.id === notificationId);
+      const next = {
+        notifications: current.notifications.filter((notification) => notification.id !== notificationId),
+        unreadCount:
+          removed && !removed.isRead
+            ? Math.max(0, current.unreadCount - 1)
+            : current.unreadCount,
+      };
+
+      await mutate(next, { revalidate: false });
+
       try {
         const response = await fetch(`/api/notifications/${notificationId}`, {
           method: "DELETE",
-          headers: buildHeaders(),
+          headers: buildAuthFetchHeaders(),
           credentials: "include",
         });
 
@@ -171,28 +201,28 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
           throw new Error("Failed to delete notification");
         }
 
-        setNotifications((prev) => {
-          const removed = prev.find((n) => n.id === notificationId);
-          if (removed && !removed.isRead) {
-            setUnreadCount((c) => Math.max(0, c - 1));
-          }
-          return prev.filter((n) => n.id !== notificationId);
-        });
-
         return true;
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "通知の削除に失敗しました");
+      } catch {
+        await mutate(current, { revalidate: false });
         return false;
       }
     },
-    []
+    [data, mutate]
   );
 
   const deleteAllNotifications = useCallback(async (): Promise<boolean> => {
+    const current = data ? cloneNotificationsResponse(data) : { notifications: [], unreadCount: 0 };
+    const next = {
+      notifications: [],
+      unreadCount: 0,
+    };
+
+    await mutate(next, { revalidate: false });
+
     try {
       const response = await fetch("/api/notifications/delete", {
         method: "POST",
-        headers: buildHeaders(),
+        headers: buildAuthFetchHeaders(),
         credentials: "include",
         body: JSON.stringify({ all: true }),
       });
@@ -201,22 +231,19 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
         throw new Error("Failed to delete all notifications");
       }
 
-      setNotifications([]);
-      setUnreadCount(0);
-
       return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "通知の削除に失敗しました");
+    } catch {
+      await mutate(current, { revalidate: false });
       return false;
     }
-  }, []);
+  }, [data, mutate]);
 
   return {
     notifications,
     unreadCount,
     isLoading,
-    error,
-    refresh: fetchNotifications,
+    error: errorMessage,
+    refresh,
     markAsRead,
     markAllAsRead,
     deleteNotification,

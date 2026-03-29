@@ -13,6 +13,7 @@ import type { Company } from "@/hooks/useCompanies";
 interface IndustryGroupProps {
   companies: Company[];
   onTogglePin?: (companyId: string, isPinned: boolean) => void;
+  onDeleteStart?: (companyId: string) => void;
 }
 
 interface GroupedCompanies {
@@ -20,7 +21,7 @@ interface GroupedCompanies {
   companies: Company[];
 }
 
-export function IndustryGroup({ companies, onTogglePin }: IndustryGroupProps) {
+export function IndustryGroup({ companies, onTogglePin, onDeleteStart }: IndustryGroupProps) {
   // Group companies by industry
   const groupedCompanies = useMemo(() => {
     const groups = new Map<string, Company[]>();
@@ -72,7 +73,12 @@ export function IndustryGroup({ companies, onTogglePin }: IndustryGroupProps) {
           {/* Companies Grid - 4 columns */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6">
             {group.companies.map((company) => (
-              <CompanyCard key={company.id} company={company} onTogglePin={onTogglePin} />
+              <CompanyCard
+                key={company.id}
+                company={company}
+                onTogglePin={onTogglePin}
+                onDeleteStart={onDeleteStart}
+              />
             ))}
           </div>
         </div>

@@ -122,7 +122,7 @@ export function ChatInput({
     <div className={cn("border-t border-border bg-background", className)}>
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {/* Fixed height container to prevent layout shift */}
-        <div className="flex items-start gap-3 min-h-[60px]">
+        <div className="flex min-h-[60px] flex-col gap-3 sm:flex-row sm:items-start">
           <textarea
             ref={textareaRef}
             value={value}
@@ -144,12 +144,12 @@ export function ChatInput({
             onClick={onSend}
             disabled={!value.trim() || isSending || disableSend || disabled}
             size="icon"
-            className="w-12 h-12 rounded-xl shrink-0"
+            className="h-12 w-full rounded-xl shrink-0 sm:w-12"
           >
             {isSending ? <LoadingSpinner /> : <SendIcon />}
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground mt-2 text-center">
+        <p className="mt-2 text-center text-xs text-muted-foreground sm:text-left">
           Shift + Enter で改行、Enter で送信
         </p>
       </div>

@@ -1,4 +1,3 @@
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Skeleton,
@@ -15,10 +14,6 @@ import {
 export function ESEditorSkeleton() {
   return (
     <div className="es-editor-print-scope flex h-screen flex-col overflow-hidden bg-background">
-      <div className="print:hidden">
-        <DashboardHeader />
-      </div>
-
       <div className="sticky top-16 z-40 border-b border-border bg-background/95 backdrop-blur print:hidden">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-14 items-center justify-between gap-2">
@@ -53,7 +48,7 @@ export function ESEditorSkeleton() {
         </div>
       </div>
 
-      <main className="flex min-h-0 flex-1 overflow-hidden print:hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden print:hidden">
         <div className="min-h-0 w-full flex-1 overflow-y-auto transition-all duration-300 lg:w-[55%]">
           <div className="es-print-body mx-auto max-w-4xl px-4 py-4 sm:px-6 lg:px-8">
             <Card className="border-border/50 shadow-sm">
@@ -127,7 +122,7 @@ export function ESEditorSkeleton() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

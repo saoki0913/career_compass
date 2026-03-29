@@ -52,12 +52,26 @@ const PlusIcon = () => (
 interface CompanySelectModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  mode?: "motivation" | "interview";
 }
 
-export function CompanySelectModal({ open, onOpenChange }: CompanySelectModalProps) {
+export function CompanySelectModal({
+  open,
+  onOpenChange,
+  mode = "motivation",
+}: CompanySelectModalProps) {
   const router = useRouter();
   const { companies, isLoading } = useCompanies();
   const [searchQuery, setSearchQuery] = useState("");
+
+  const title =
+    mode === "interview"
+      ? "面接対策を始める企業を選択"
+      : "志望動機を作成する企業を選択";
+  const targetPath =
+    mode === "interview"
+      ? (companyId: string) => `/companies/${companyId}/interview`
+      : (companyId: string) => `/companies/${companyId}/motivation`;
 
   // Filter companies by search query
   const filteredCompanies = useMemo(() => {
@@ -72,14 +86,14 @@ export function CompanySelectModal({ open, onOpenChange }: CompanySelectModalPro
 
   const handleSelectCompany = (companyId: string) => {
     onOpenChange(false);
-    router.push(`/companies/${companyId}/motivation`);
+    router.push(targetPath(companyId));
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>志望動機を作成する企業を選択</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
 
         {/* Search input */}

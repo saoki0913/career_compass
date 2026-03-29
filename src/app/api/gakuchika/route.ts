@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations, userProfiles } from "@/lib/db/schema";
-import { eq, desc, isNull, and, or, asc } from "drizzle-orm";
+import { eq, desc, isNull, asc, count, sql, getTableColumns } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { PLAN_METADATA, type PlanTypeWithGuest } from "@/lib/stripe/config";
@@ -86,9 +86,33 @@ export async function GET(request: NextRequest) {
       plan = (profile?.plan || "free") as PlanTypeWithGuest;
     }
 
-    // Get gakuchika contents with their latest conversation data
+    // Fetch latest conversation fields inside the contents query to avoid a second pass.
+    const gakuchikaContentColumns = getTableColumns(gakuchikaContents);
     const contents = await db
-      .select()
+      .select({
+        ...gakuchikaContentColumns,
+        conversationStatus: sql<string | null>`(
+          SELECT ${gakuchikaConversations.status}
+          FROM ${gakuchikaConversations}
+          WHERE ${gakuchikaConversations.gakuchikaId} = ${gakuchikaContents.id}
+          ORDER BY ${gakuchikaConversations.updatedAt} DESC
+          LIMIT 1
+        )`,
+        conversationStarScores: sql<string | null>`(
+          SELECT ${gakuchikaConversations.starScores}
+          FROM ${gakuchikaConversations}
+          WHERE ${gakuchikaConversations.gakuchikaId} = ${gakuchikaContents.id}
+          ORDER BY ${gakuchikaConversations.updatedAt} DESC
+          LIMIT 1
+        )`,
+        conversationQuestionCount: sql<number | null>`(
+          SELECT ${gakuchikaConversations.questionCount}
+          FROM ${gakuchikaConversations}
+          WHERE ${gakuchikaConversations.gakuchikaId} = ${gakuchikaContents.id}
+          ORDER BY ${gakuchikaConversations.updatedAt} DESC
+          LIMIT 1
+        )`,
+      })
       .from(gakuchikaContents)
       .where(
         userId
@@ -99,30 +123,16 @@ export async function GET(request: NextRequest) {
       )
       .orderBy(asc(gakuchikaContents.sortOrder), desc(gakuchikaContents.updatedAt));
 
-    // Get conversation data for each gakuchika
-    const gakuchikasWithConversation = await Promise.all(
-      contents.map(async (gakuchika) => {
-        const [conversation] = await db
-          .select({
-            status: gakuchikaConversations.status,
-            starScores: gakuchikaConversations.starScores,
-            questionCount: gakuchikaConversations.questionCount,
-          })
-          .from(gakuchikaConversations)
-          .where(eq(gakuchikaConversations.gakuchikaId, gakuchika.id))
-          .orderBy(desc(gakuchikaConversations.updatedAt))
-          .limit(1);
-
-        return {
-          ...gakuchika,
-          conversationStatus: conversation?.status || null,
-          starScores: safeParseStarScores(conversation?.starScores || null),
-          questionCount: conversation?.questionCount || 0,
-          summaryKind: getGakuchikaSummaryKind(gakuchika.summary),
-          summaryPreview: getGakuchikaSummaryPreview(gakuchika.summary),
-        };
-      })
-    );
+    const gakuchikasWithConversation = contents.map((gakuchika) => {
+      return {
+        ...gakuchika,
+        conversationStatus: gakuchika.conversationStatus || null,
+        starScores: safeParseStarScores(gakuchika.conversationStarScores || null),
+        questionCount: Number(gakuchika.conversationQuestionCount ?? 0),
+        summaryKind: getGakuchikaSummaryKind(gakuchika.summary),
+        summaryPreview: getGakuchikaSummaryPreview(gakuchika.summary),
+      };
+    });
 
     const currentCount = contents.length;
     const maxCount = PLAN_METADATA[plan].gakuchika;
@@ -168,8 +178,8 @@ export async function POST(request: NextRequest) {
 
     // Check plan limits
     const maxGakuchika = PLAN_METADATA[plan].gakuchika;
-    const existingCount = await db
-      .select()
+    const [existingCount] = await db
+      .select({ count: count() })
       .from(gakuchikaContents)
       .where(
         userId
@@ -178,8 +188,9 @@ export async function POST(request: NextRequest) {
           ? eq(gakuchikaContents.guestId, guestId)
           : isNull(gakuchikaContents.id)
       );
+    const existingCountValue = Number(existingCount?.count ?? 0);
 
-    if (existingCount.length >= maxGakuchika) {
+    if (existingCountValue >= maxGakuchika) {
       return NextResponse.json(
         { error: `ガクチカ素材の作成上限（${maxGakuchika}件）に達しています。プランをアップグレードしてください。` },
         { status: 403 }

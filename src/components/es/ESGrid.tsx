@@ -7,6 +7,7 @@ interface ESGridProps {
   documents: Document[];
   pinnedIds: Set<string>;
   onTogglePin?: (documentId: string) => void;
+  onDeleteStart?: (documentId: string) => void;
   onToggleStatus?: (documentId: string, currentStatus: string) => void;
   statusUpdatingId?: string | null;
 }
@@ -15,6 +16,7 @@ export function ESGrid({
   documents,
   pinnedIds,
   onTogglePin,
+  onDeleteStart,
   onToggleStatus,
   statusUpdatingId,
 }: ESGridProps) {
@@ -30,6 +32,7 @@ export function ESGrid({
           document={doc}
           isPinned={pinnedIds.has(doc.id)}
           onTogglePin={onTogglePin}
+          onDeleteStart={onDeleteStart}
           onToggleStatus={onToggleStatus}
           statusUpdatingId={statusUpdatingId}
         />

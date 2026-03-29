@@ -9,6 +9,7 @@ import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 export interface Identity {
   userId: string | null;
@@ -40,7 +41,6 @@ export interface GakuchikaData {
   charLimitType?: string | null;
 }
 
-export const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 export const STAR_COMPLETION_THRESHOLD = 70;
 export const QUESTIONS_PER_CREDIT = 5;
 /** 上記 N 問ごとに一度まとめて消費するクレジット数 */
@@ -364,7 +364,7 @@ export async function getQuestionFromFastAPI(
   const abortController = new AbortController();
   const fetchTimeoutId = setTimeout(() => abortController.abort(), FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS);
   try {
-    const response = await fetch(`${FASTAPI_URL}/api/gakuchika/next-question/stream`, {
+    const response = await fetchFastApiInternal("/api/gakuchika/next-question/stream", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

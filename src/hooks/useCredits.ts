@@ -2,15 +2,13 @@
  * useCredits hook
  *
  * Hook for fetching credits info including balance and monthly free quotas.
- * Accepts an optional `isAuthenticated` flag so the 401-to-guest fallback
- * only fires for genuinely unauthenticated sessions — not for transient
- * cookie / session issues experienced by logged-in users.
+ * SWR で `/api/credits` を共有キャッシュし、マウントのたびの重複 fetch を防ぐ。
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { getDeviceToken } from "@/lib/auth/device-token";
+import useSWR from "swr";
+import { buildAuthFetchHeaders } from "@/lib/swr-fetcher";
 
-interface CreditsInfo {
+export interface CreditsInfo {
   type: "user" | "guest";
   plan: "guest" | "free" | "standard" | "pro";
   balance: number;
@@ -52,26 +50,46 @@ const GUEST_DEFAULTS: CreditsInfo = {
   },
 };
 
-function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore errors
-    }
+export type CreditsSwrKey = readonly ["/api/credits", "auth" | "guest"];
+
+export function creditsSwrKey(isAuthenticated: boolean): CreditsSwrKey {
+  return ["/api/credits", isAuthenticated ? "auth" : "guest"];
+}
+
+async function fetchCreditsData(key: CreditsSwrKey): Promise<CreditsInfo> {
+  const isAuthenticated = key[1] === "auth";
+  const headers = buildAuthFetchHeaders();
+  let response = await fetch("/api/credits", {
+    headers,
+    credentials: "include",
+  });
+
+  if (response.ok) {
+    return response.json() as Promise<CreditsInfo>;
   }
-  return headers;
+
+  if (response.status === 401) {
+    if (isAuthenticated) {
+      await new Promise((r) => setTimeout(r, 1000));
+      response = await fetch("/api/credits", {
+        headers,
+        credentials: "include",
+      });
+      if (response.ok) {
+        return response.json() as Promise<CreditsInfo>;
+      }
+      throw new Error("クレジット情報を取得できませんでした");
+    }
+    return GUEST_DEFAULTS;
+  }
+
+  throw new Error("Failed to fetch credits");
 }
 
 interface UseCreditsOptions {
   isAuthenticated?: boolean;
   isAuthReady?: boolean;
+  initialData?: CreditsInfo;
 }
 
 export function shouldFetchCredits(params: {
@@ -89,71 +107,27 @@ export function shouldUseGuestFallback(params: {
 }
 
 export function useCredits(opts: UseCreditsOptions = {}) {
-  const { isAuthenticated, isAuthReady } = opts;
-  const [credits, setCredits] = useState<CreditsInfo | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const retryCount = useRef(0);
+  const { isAuthenticated, isAuthReady, initialData } = opts;
+  const canFetch = shouldFetchCredits({ isAuthenticated, isAuthReady });
+  const swrKey: CreditsSwrKey | null =
+    canFetch && isAuthenticated !== undefined ? creditsSwrKey(isAuthenticated) : null;
 
-  const fetchCredits = useCallback(async () => {
-    if (!shouldFetchCredits({ isAuthenticated, isAuthReady })) {
-      return;
+  const { data, error, isLoading: swrLoading, mutate } = useSWR(
+    swrKey,
+    fetchCreditsData,
+    {
+      fallbackData: initialData,
+      revalidateOnFocus: false,
+      dedupingInterval: 3000,
+      revalidateOnMount: !initialData,
     }
+  );
 
-    try {
-      setIsLoading(true);
-      setError(null);
+  const isLoading = !canFetch ? isAuthReady !== true : swrLoading;
 
-      const response = await fetch("/api/credits", {
-        headers: buildHeaders(),
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          if (isAuthenticated) {
-            if (retryCount.current < 1) {
-              retryCount.current += 1;
-              await new Promise((r) => setTimeout(r, 1000));
-              const retryResp = await fetch("/api/credits", {
-                headers: buildHeaders(),
-                credentials: "include",
-              });
-              if (retryResp.ok) {
-                const data: CreditsInfo = await retryResp.json();
-                setCredits(data);
-                retryCount.current = 0;
-                return;
-              }
-            }
-            setError("クレジット情報を取得できませんでした");
-            return;
-          }
-          if (shouldUseGuestFallback({ isAuthenticated, isAuthReady })) {
-            setCredits(GUEST_DEFAULTS);
-          }
-          return;
-        }
-        throw new Error("Failed to fetch credits");
-      }
-
-      retryCount.current = 0;
-      const data: CreditsInfo = await response.json();
-      setCredits(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch credits");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isAuthenticated, isAuthReady]);
-
-  useEffect(() => {
-    if (!shouldFetchCredits({ isAuthenticated, isAuthReady })) {
-      setIsLoading(isAuthReady !== true);
-      return;
-    }
-    fetchCredits();
-  }, [fetchCredits, isAuthenticated, isAuthReady]);
+  const credits = data ?? null;
+  const errorMessage =
+    error instanceof Error ? error.message : error != null ? String(error) : null;
 
   const selectionScheduleRemaining = credits?.monthlyFree.selectionSchedule?.remaining ?? 0;
   const selectionScheduleLimit = credits?.monthlyFree.selectionSchedule?.limit ?? 0;
@@ -180,7 +154,7 @@ export function useCredits(opts: UseCreditsOptions = {}) {
     plan: credits?.plan ?? "guest",
     ragPdfLimits: credits?.ragPdfLimits,
     isLoading,
-    error,
-    refresh: fetchCredits,
+    error: errorMessage,
+    refresh: () => (swrKey ? mutate() : Promise.resolve(undefined)),
   };
 }

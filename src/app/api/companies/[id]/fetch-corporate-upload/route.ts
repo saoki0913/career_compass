@@ -21,10 +21,10 @@ import {
   normalizePdfPageCount,
 } from "@/lib/company-info/pricing";
 import { CORPORATE_MUTATE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 export const runtime = "nodejs";
 
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 const MAX_FILES_PER_REQUEST = 10;
 
 interface UploadPdfResult {
@@ -63,6 +63,31 @@ interface BatchUploadItem {
   ingestTruncated?: boolean;
   ocrTruncated?: boolean;
   processingNoticeJa?: string | null;
+}
+
+const VALID_PDF_CONTENT_TYPES = new Set<NonNullable<CorporateInfoSource["contentType"]>>([
+  "new_grad_recruitment",
+  "midcareer_recruitment",
+  "corporate_site",
+  "ir_materials",
+  "ceo_message",
+  "employee_interviews",
+  "press_release",
+  "csr_sustainability",
+  "midterm_plan",
+]);
+
+function normalizePdfContentType(raw: FormDataEntryValue | null): CorporateInfoSource["contentType"] {
+  if (typeof raw !== "string") {
+    return "corporate_site";
+  }
+  return VALID_PDF_CONTENT_TYPES.has(raw as NonNullable<CorporateInfoSource["contentType"]>)
+    ? (raw as NonNullable<CorporateInfoSource["contentType"]>)
+    : "corporate_site";
+}
+
+function getPdfContentChannel(contentType: CorporateInfoSource["contentType"]): "corporate_ir" | "corporate_general" {
+  return contentType === "ir_materials" || contentType === "midterm_plan" ? "corporate_ir" : "corporate_general";
 }
 
 function countLimitSources(sources: CorporateInfoSource[]): number {
@@ -127,7 +152,7 @@ async function verifyCompanyAccess(
 
 async function bestEffortDeleteRag(companyId: string, sourceUrl: string) {
   try {
-    await fetch(`${BACKEND_URL}/company-info/rag/${companyId}/delete-by-urls`, {
+    await fetchFastApiInternal(`/company-info/rag/${companyId}/delete-by-urls`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ urls: [sourceUrl] }),
@@ -145,6 +170,7 @@ export async function POST(
     const { id: companyId } = await params;
     const formData = await request.formData();
     const files = parseFiles(formData);
+    const contentType = normalizePdfContentType(formData.get("contentType") ?? formData.get("content_type"));
 
     if (files.length === 0) {
       return NextResponse.json({ error: "PDFファイルを指定してください" }, { status: 400 });
@@ -208,11 +234,13 @@ export async function POST(
       backendForm.set("company_name", company.name);
       backendForm.set("source_url", sourceUrl);
       backendForm.set("billing_plan", authUser.plan);
+      backendForm.set("content_type", contentType ?? "corporate_site");
+      backendForm.set("content_channel", getPdfContentChannel(contentType));
       backendForm.set("file", file, file.name);
 
       let uploadResult: UploadPdfResult;
       try {
-        const response = await fetch(`${BACKEND_URL}/company-info/rag/upload-pdf`, {
+        const response = await fetchFastApiInternal("/company-info/rag/upload-pdf", {
           method: "POST",
           body: backendForm,
         });
@@ -249,7 +277,7 @@ export async function POST(
         url: sourceUrl,
         kind: "upload_pdf",
         fileName: file.name,
-        contentType: (uploadResult.content_type || undefined) as CorporateInfoSource["contentType"],
+        contentType: (uploadResult.content_type || contentType || undefined) as CorporateInfoSource["contentType"],
         secondaryContentTypes: (uploadResult.secondary_content_types || []) as CorporateInfoSource["secondaryContentTypes"],
         status: "completed",
         fetchedAt: nowIso,
@@ -296,7 +324,7 @@ export async function POST(
           creditsConsumed: usage.creditsDisplayed,
           actualCreditsDeducted: usage.creditsActuallyDeducted,
           extractionMethod: uploadResult.extraction_method,
-          contentType: uploadResult.content_type || null,
+          contentType: uploadResult.content_type || contentType || null,
           secondaryContentTypes: uploadResult.secondary_content_types || [],
           sourceTotalPages: uploadResult.source_total_pages ?? null,
           ingestTruncated: Boolean(uploadResult.ingest_truncated),

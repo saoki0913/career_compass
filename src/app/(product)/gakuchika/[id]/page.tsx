@@ -1,18 +1,22 @@
 "use client";
 
 import { startTransition, useState, useEffect, useCallback, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
+import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
+import {
+  ConversationSidebarCard,
+  ConversationWorkspaceShell,
+} from "@/components/chat/ConversationWorkspaceShell";
 import { OperationLockProvider, useOperationLock } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
 import {
-  STARProgressBar,
   CompletionSummary,
   type STARScores,
   type GakuchikaSummary,
@@ -42,6 +46,13 @@ const PROCESSING_LABELS = {
 const SUMMARY_POLL_INTERVAL_MS = 1500;
 const SUMMARY_POLL_MAX_ATTEMPTS = 8;
 const STAR_ELEMENT_KEYS = ["situation", "task", "action", "result"] as const;
+const GAKUCHIKA_ES_DRAFT_CHAR_LIMIT = 400;
+const GAKUCHIKA_STAGE_LABELS: Record<(typeof STAR_ELEMENT_KEYS)[number], string> = {
+  situation: "状況を整理中",
+  task: "課題を整理中",
+  action: "行動を整理中",
+  result: "結果を整理中",
+};
 
 type AssistantProcessingPhase =
   | "idle"
@@ -72,6 +83,57 @@ function getWeakestElement(scores: STARScores | null): string | null {
   return STAR_ELEMENT_KEYS.reduce(
     (weakest, key) => (scores[key] < scores[weakest] ? key : weakest),
     STAR_ELEMENT_KEYS[0]
+  );
+}
+
+function getCurrentGakuchikaStage(
+  scores: STARScores | null,
+  targetElement: string | null,
+): (typeof STAR_ELEMENT_KEYS)[number] {
+  if (targetElement && STAR_ELEMENT_KEYS.includes(targetElement as (typeof STAR_ELEMENT_KEYS)[number])) {
+    return targetElement as (typeof STAR_ELEMENT_KEYS)[number];
+  }
+
+  const fallback = scores
+    ? STAR_ELEMENT_KEYS.find((key) => scores[key] < 70)
+    : null;
+
+  return fallback ?? "situation";
+}
+
+function GakuchikaStageTracker({
+  scores,
+  targetElement,
+}: {
+  scores: STARScores | null;
+  targetElement: string | null;
+}) {
+  const currentStage = getCurrentGakuchikaStage(scores, targetElement);
+
+  return (
+    <div className="space-y-2">
+      {STAR_ELEMENT_KEYS.map((key) => {
+        const isCompleted = Boolean(scores && scores[key] >= 70);
+        const isCurrent = !isCompleted && currentStage === key;
+
+        return (
+          <div
+            key={key}
+            className={cn(
+              "rounded-[18px] border px-3.5 py-2.5 text-xs shadow-sm",
+              isCurrent && "border-sky-300 bg-sky-50 text-slate-900",
+              isCompleted && "border-emerald-200 bg-emerald-50 text-emerald-900",
+              !isCurrent && !isCompleted && "border-border/60 bg-muted/20 text-muted-foreground",
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">{GAKUCHIKA_STAGE_LABELS[key]}</span>
+              <span>{isCompleted ? "完了" : isCurrent ? "進行中" : "未着手"}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -109,24 +171,14 @@ interface Message {
 }
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore errors
-    }
-  }
-  return headers;
 }
 
 function GakuchikaConversationContent() {
   const params = useParams();
+  const router = useRouter();
   const gakuchikaId = params.id as string;
   const { acquireLock, releaseLock } = useOperationLock();
 
@@ -156,6 +208,7 @@ function GakuchikaConversationContent() {
   const [assistantPhase, setAssistantPhase] = useState<AssistantProcessingPhase>("idle");
   const [streamingAssistantText, setStreamingAssistantText] = useState("");
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -320,8 +373,8 @@ function GakuchikaConversationContent() {
     };
   }, [fetchSummaryIfAvailable, isCompleted, isSummaryLoading, summary]);
 
-  // Start deep dive - create new conversation session
-  const handleStartDeepDive = async () => {
+  // Start writing session - create new conversation session
+  const handleStartDeepDive = useCallback(async () => {
     setIsStarting(true);
     setError(null);
 
@@ -334,7 +387,7 @@ function GakuchikaConversationContent() {
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "深掘りの開始に失敗しました");
+        throw new Error(data.error || "作成の開始に失敗しました");
       }
 
       const data = await response.json();
@@ -344,11 +397,11 @@ function GakuchikaConversationContent() {
       // Fetch the full conversation data
       await fetchConversation(data.conversation?.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "深掘りの開始に失敗しました");
+      setError(err instanceof Error ? err.message : "作成の開始に失敗しました");
     } finally {
       setIsStarting(false);
     }
-  };
+  }, [fetchConversation, gakuchikaId]);
 
   // Send answer with optimistic UI update via SSE streaming
   const handleSend = useCallback(async () => {
@@ -514,7 +567,7 @@ function GakuchikaConversationContent() {
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "深掘りの再開に失敗しました");
+        throw new Error(data.error || "作成の再開に失敗しました");
       }
 
       const data = await response.json();
@@ -539,25 +592,70 @@ function GakuchikaConversationContent() {
       setIsSummaryLoading(false);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "深掘りの再開に失敗しました");
+      setError(err instanceof Error ? err.message : "作成の再開に失敗しました");
     }
   };
+
+  const handleGenerateDraft = useCallback(async () => {
+    if (!isCompleted || isGeneratingDraft) return;
+    if (!acquireLock("ガクチカESを生成中")) return;
+
+    setIsGeneratingDraft(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/gakuchika/${gakuchikaId}/generate-es-draft`, {
+        method: "POST",
+        headers: buildHeaders(),
+        credentials: "include",
+        body: JSON.stringify({ charLimit: GAKUCHIKA_ES_DRAFT_CHAR_LIMIT }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error || "ES生成に失敗しました");
+      }
+
+      const data = await response.json();
+      if (data.documentId) {
+        router.push(`/es/${data.documentId}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ES生成に失敗しました");
+    } finally {
+      setIsGeneratingDraft(false);
+      releaseLock();
+    }
+  }, [acquireLock, gakuchikaId, isCompleted, isGeneratingDraft, releaseLock, router]);
 
   const processingText =
     assistantPhase === "organizing_intent" || assistantPhase === "generating_question"
       ? PROCESSING_LABELS[assistantPhase]
       : null;
+  const gakuchikaDraftHelperText = isCompleted
+    ? "深掘り内容をもとに、ガクチカESを 400 字前後で作成します。成功時のみクレジット消費です。"
+    : "深掘り完了後にガクチカESを作成できます。";
+  const currentSessionIndex = currentSessionId
+    ? sessions.findIndex((session) => session.id === currentSessionId)
+    : -1;
+  const currentSessionLabel =
+    currentSessionIndex >= 0 ? `#${sessions.length - currentSessionIndex}` : null;
+
+  const handleRestartConversation = useCallback(async () => {
+    if (isStarting || isSending || isGeneratingDraft) return;
+    await handleStartDeepDive();
+  }, [handleStartDeepDive, isGeneratingDraft, isSending, isStarting]);
 
   if (isLoading) {
     return (
       <div className="flex h-screen flex-col overflow-hidden bg-background">
         <DashboardHeader />
-        <GakuchikaDeepDiveSkeleton accent="深掘り会話の材料を読み込んでいます" />
+        <GakuchikaDeepDiveSkeleton accent="ガクチカ作成の材料を読み込んでいます" />
       </div>
     );
   }
 
-  // "Start Deep Dive" screen - shown when no conversation exists
+  // Start screen shown when no conversation exists
   if (!conversationStarted) {
     return (
       <div className="min-h-screen bg-background">
@@ -583,7 +681,7 @@ function GakuchikaConversationContent() {
                 )}
                 {!gakuchikaContent && (
                   <p className="text-sm text-muted-foreground">
-                    テーマのみ登録されています。深掘り会話で内容を膨らませましょう。
+                    テーマのみ登録されています。作成会話で内容を膨らませましょう。
                   </p>
                 )}
               </CardContent>
@@ -608,7 +706,7 @@ function GakuchikaConversationContent() {
               </summary>
               <div className="mt-2 space-y-2 pl-1">
                 <p className="text-xs text-muted-foreground mb-3">
-                  ガクチカを魅力的に伝えるための4つの要素です。深掘り会話で各要素の充実度を高めていきます。
+                  ガクチカを魅力的に伝えるための4つの要素です。作成会話で各要素の充実度を高めていきます。
                 </p>
                 {Object.entries(STAR_EXPLANATIONS).map(([key, info]) => (
                   <div
@@ -651,13 +749,13 @@ function GakuchikaConversationContent() {
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                   </svg>
-                  深掘りを始める
+                  作成を始める
                 </span>
               )}
             </Button>
 
             <p className="text-xs text-center text-muted-foreground">
-              AIアドバイザーがあなたのガクチカを深掘りする質問を投げかけます
+              AIが必要なことだけを質問しながら、面接で使えるガクチカ文章に整えます
             </p>
           </div>
         </main>
@@ -667,81 +765,46 @@ function GakuchikaConversationContent() {
 
   // Conversation UI (existing chat flow)
   return (
-    <div className="h-screen bg-background flex flex-col overflow-hidden">
-      <DashboardHeader />
-
-      {/* Header - compact */}
-      <div className="shrink-0 border-b border-border bg-background">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
-          {/* Row 1: Back + STAR Progress + badges + session selector */}
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:flex-nowrap">
-            <Link
-              href="/gakuchika"
-              className="inline-flex shrink-0 items-center text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ArrowLeftIcon />
-            </Link>
-
-            {/* STAR Progress Bar - inline */}
-            <div className="min-w-0 flex-1 basis-full max-lg:order-3 max-lg:basis-full lg:order-none lg:basis-auto">
-              <STARProgressBar scores={starScores} />
-            </div>
-
-            {/* AI badge */}
-            {isAIPowered ? (
-              <span className="flex shrink-0 items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary max-lg:order-2">
-                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                AI
-              </span>
-            ) : (
-              <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 max-lg:order-2">
-                基本
-              </span>
-            )}
-
-            {/* Session selector - subtle tabs */}
-            {sessions.length > 1 && (
-              <div className="flex max-w-full shrink-0 items-center gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] max-lg:order-4 max-lg:w-full [&::-webkit-scrollbar]:hidden">
-                {sessions.map((session, index) => (
-                  <button
-                    key={session.id}
-                    onClick={() => handleSessionSelect(session.id)}
-                    className={cn(
-                      "px-2 py-0.5 text-[10px] rounded border transition-colors",
-                      session.id === currentSessionId
-                        ? "bg-muted font-medium border-border text-foreground"
-                        : "text-muted-foreground border-transparent hover:text-foreground"
-                    )}
-                  >
-                    #{sessions.length - index}
-                    {session.status === "completed" ? " (完了)" : ` (${session.questionCount}問)`}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
+    <ConversationWorkspaceShell
+      backHref="/gakuchika"
+      title="ガクチカを作成"
+      subtitle={gakuchikaTitle || "深掘りセッション"}
+      actionBar={
+        <ConversationActionBar
+          helperText={gakuchikaDraftHelperText}
+          actionLabel="ガクチカESを作成"
+          pendingLabel="作成中..."
+          onAction={handleGenerateDraft}
+          disabled={!isCompleted || isGeneratingDraft}
+          isPending={isGeneratingDraft}
+        />
+      }
+      mobileStatus={
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <span>{questionCount > 0 ? `${questionCount}問` : "準備中"}</span>
+          {currentSessionLabel ? (
+            <Badge variant="outline" className="px-2 py-0 text-[11px]">
+              {currentSessionLabel}
+            </Badge>
+          ) : null}
+          <Badge variant={isAIPowered ? "soft-primary" : "outline"} className="px-2 py-0 text-[11px]">
+            {isAIPowered ? "AI" : "基本"}
+          </Badge>
         </div>
-      </div>
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto min-h-0">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="max-w-3xl mx-auto space-y-4">
-          {!isAIPowered && !isCompleted && (
-            <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+      }
+      conversation={
+        <div className="space-y-4">
+          {!isAIPowered && !isCompleted ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
               <p className="text-sm text-amber-800">
-                <strong>基本質問モード:</strong> AIサーバーに接続できないため、定型の質問を使用しています。
-                回答は通常通り保存されます。
+                <strong>基本質問モード:</strong> AIサーバーに接続できないため、定型の質問を使用しています。回答は通常通り保存されます。
               </p>
             </div>
-          )}
+          ) : null}
 
-          {error && (
-            <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20">
-              <p className="text-sm text-destructive mb-3">{error}</p>
+          {error ? (
+            <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4">
+              <p className="mb-3 text-sm text-destructive">{error}</p>
               <Button
                 variant="outline"
                 size="sm"
@@ -754,7 +817,7 @@ function GakuchikaConversationContent() {
                 もう一度試す
               </Button>
             </div>
-          )}
+          ) : null}
 
           {messages.map((message) => (
             <ChatMessage
@@ -765,59 +828,44 @@ function GakuchikaConversationContent() {
             />
           ))}
 
-          {isWaitingForResponse && !streamingAssistantText && processingText && (
+          {isWaitingForResponse && !streamingAssistantText && processingText ? (
             <ThinkingIndicator text={processingText} />
-          )}
+          ) : null}
 
-          {isWaitingForResponse && streamingAssistantText && (
-            <ChatMessage
-              role="assistant"
-              content={streamingAssistantText}
-              isStreaming
-            />
-          )}
+          {isWaitingForResponse && streamingAssistantText ? (
+            <ChatMessage role="assistant" content={streamingAssistantText} isStreaming />
+          ) : null}
 
-          {/* Next question from AI (skip if already shown in messages) */}
           {nextQuestion && !isCompleted && !isWaitingForResponse &&
-            !(messages.length > 0 &&
-              messages[messages.length - 1].role === "assistant" &&
-              messages[messages.length - 1].content === nextQuestion) && (
-            <ChatMessage
-              role="assistant"
-              content={nextQuestion}
-            />
-          )}
+          !(messages.length > 0 &&
+            messages[messages.length - 1].role === "assistant" &&
+            messages[messages.length - 1].content === nextQuestion) ? (
+            <ChatMessage role="assistant" content={nextQuestion} />
+          ) : null}
 
           <div ref={messagesEndRef} />
-          </div>
 
-          {/* Completion: use full list-page width (max-w-7xl container) */}
-          {isCompleted && (
+          {isCompleted ? (
             <CompletionSummary
               starScores={starScores!}
               summary={summary}
               isLoading={isSummaryLoading}
               gakuchikaId={gakuchikaId}
               onResumeSession={handleResumeSession}
+              hideGenerateAction
             />
-          )}
+          ) : null}
         </div>
-      </div>
-
-      {/* Input */}
-      {!isCompleted && (
-        <div className="border-t border-border bg-background pb-[env(safe-area-inset-bottom)]">
-          <div className="max-w-7xl mx-auto">
-            <div className="max-w-3xl mx-auto">
-            {/* STAR hint - inline */}
-            {targetElement && STAR_HINT_TEXTS[targetElement] && (
-              <div className="px-4 pt-2 pb-1">
-                <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                  <span>{STAR_HINT_ICONS[targetElement]}</span>
-                  <span>{STAR_HINT_TEXTS[targetElement]}</span>
-                </span>
-              </div>
-            )}
+      }
+      composer={
+        !isCompleted ? (
+          <div className="space-y-3">
+            {targetElement && STAR_HINT_TEXTS[targetElement] ? (
+              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                <span>{STAR_HINT_ICONS[targetElement]}</span>
+                <span>{STAR_HINT_TEXTS[targetElement]}</span>
+              </span>
+            ) : null}
 
             <ChatInput
               value={answer}
@@ -827,27 +875,92 @@ function GakuchikaConversationContent() {
               disabled={false}
               disableSend={assistantPhase !== "idle"}
               isSending={isSending}
-              className="border-t-0 [&>div]:max-w-none [&>div]:px-4 [&>div]:py-2 [&>p]:hidden"
+              className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0 [&>p]:hidden"
             />
-            {/* Save and continue later - only show after at least 1 answer */}
-            {questionCount > 0 && assistantPhase === "idle" && (
-              <div className="px-4 pb-2">
-                <Link
-                  href="/gakuchika"
-                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                  </svg>
-                  保存して後で続ける
-                </Link>
-              </div>
-            )}
-            </div>
+
+            {questionCount > 0 && assistantPhase === "idle" ? (
+              <Link
+                href="/gakuchika"
+                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                </svg>
+                保存して後で続ける
+              </Link>
+            ) : null}
           </div>
-        </div>
-      )}
-    </div>
+        ) : undefined
+      }
+      sidebar={
+        <>
+          <ConversationSidebarCard
+            title="進捗"
+            actions={
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRestartConversation}
+                disabled={isStarting || isSending || isGeneratingDraft}
+                className="h-9 rounded-xl px-3 text-xs shadow-sm"
+              >
+                会話をやり直す
+              </Button>
+            }
+          >
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={isAIPowered ? "soft-primary" : "outline"} className="px-3 py-1 text-[11px]">
+                  {isAIPowered ? "AI質問" : "基本質問"}
+                </Badge>
+                {currentSessionLabel ? (
+                  <Badge variant="outline" className="px-3 py-1 text-[11px]">
+                    セッション {currentSessionLabel}
+                  </Badge>
+                ) : null}
+              </div>
+              <GakuchikaStageTracker scores={starScores} targetElement={targetElement} />
+              <p className="text-xs leading-5 text-muted-foreground">
+                STAR の不足要素を埋めながら、面接で話しやすい順序に整えていきます。
+              </p>
+            </div>
+          </ConversationSidebarCard>
+
+          {sessions.length > 1 ? (
+            <ConversationSidebarCard title="セッション履歴">
+              <div className="space-y-2">
+                {sessions.map((session, index) => (
+                  <button
+                    key={session.id}
+                    onClick={() => handleSessionSelect(session.id)}
+                    className={cn(
+                      "w-full rounded-xl border px-3 py-3 text-left text-xs transition-colors",
+                      session.id === currentSessionId
+                        ? "border-primary/40 bg-primary/5 text-foreground"
+                        : "border-border/60 bg-background text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">#{sessions.length - index}</span>
+                      <span>{session.status === "completed" ? "完了" : `${session.questionCount}問`}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </ConversationSidebarCard>
+          ) : null}
+
+          <ConversationSidebarCard title="作成メモ">
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-foreground">{gakuchikaTitle}</p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {gakuchikaContent || "テーマのみ登録されています。会話で内容を膨らませていきます。"}
+              </p>
+            </div>
+          </ConversationSidebarCard>
+        </>
+      }
+    />
   );
 }
 
@@ -870,7 +983,7 @@ export default function GakuchikaConversationPage() {
       <div className="min-h-screen bg-background">
         <DashboardHeader />
         <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-10 max-lg:max-w-full max-lg:px-3">
-          <LoginRequiredForAi title="ガクチカのAI深掘りはログイン後にご利用いただけます" />
+          <LoginRequiredForAi title="ガクチカ作成はログイン後にご利用いただけます" />
         </main>
       </div>
     );

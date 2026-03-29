@@ -9,19 +9,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { applications, companies, deadlines } from "@/lib/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, count } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
-
-// Application type labels
-const APPLICATION_TYPE_LABELS: Record<string, string> = {
-  summer_intern: "夏インターン",
-  fall_intern: "秋インターン",
-  winter_intern: "冬インターン",
-  early: "早期選考",
-  main: "本選考",
-  other: "その他",
-};
 
 // Default phases by type
 const DEFAULT_PHASES: Record<string, string[]> = {
@@ -110,45 +100,77 @@ export async function GET(
       );
     }
 
-    // Get applications with deadline counts
-    const appList = await db
-      .select()
-      .from(applications)
-      .where(eq(applications.companyId, companyId))
-      .orderBy(applications.sortOrder, desc(applications.createdAt));
-
-    // Get deadline counts for each application
-    const appsWithDeadlines = await Promise.all(
-      appList.map(async (app) => {
-        const deadlineList = await db
-          .select()
-          .from(deadlines)
-          .where(eq(deadlines.applicationId, app.id));
-
-        const now = new Date();
-        const upcomingDeadlines = deadlineList.filter(
-          (d) => new Date(d.dueDate) > now && !d.completedAt
-        );
-        const nearestDeadline = upcomingDeadlines.sort(
-          (a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
-        )[0];
-
-        return {
-          ...app,
-          phase: app.phase ? JSON.parse(app.phase) : DEFAULT_PHASES[app.type] || [],
-          deadlineCount: deadlineList.length,
-          upcomingDeadlineCount: upcomingDeadlines.length,
-          nearestDeadline: nearestDeadline
-            ? {
-                id: nearestDeadline.id,
-                title: nearestDeadline.title,
-                dueDate: nearestDeadline.dueDate,
-                type: nearestDeadline.type,
-              }
-            : null,
-        };
+    const appDeadlineRows = await db
+      .select({
+        application: applications,
+        deadline: {
+          id: deadlines.id,
+          title: deadlines.title,
+          dueDate: deadlines.dueDate,
+          type: deadlines.type,
+          completedAt: deadlines.completedAt,
+        },
       })
-    );
+      .from(applications)
+      .leftJoin(deadlines, eq(deadlines.applicationId, applications.id))
+      .where(eq(applications.companyId, companyId))
+      .orderBy(applications.sortOrder, desc(applications.createdAt), desc(deadlines.dueDate));
+
+    const groupedApplications = new Map<
+      string,
+      {
+        application: typeof applications.$inferSelect;
+        deadlines: Array<{
+          id: string;
+          title: string | null;
+          dueDate: Date;
+          type: string;
+          completedAt: Date | null;
+        }>;
+      }
+    >();
+
+    for (const row of appDeadlineRows) {
+      const app = row.application;
+      const current = groupedApplications.get(app.id) || {
+        application: app,
+        deadlines: [],
+      };
+      if (row.deadline?.id) {
+        current.deadlines.push({
+          id: row.deadline.id,
+          title: row.deadline.title,
+          dueDate: row.deadline.dueDate,
+          type: row.deadline.type,
+          completedAt: row.deadline.completedAt,
+        });
+      }
+      groupedApplications.set(app.id, current);
+    }
+
+    const now = new Date();
+    const appsWithDeadlines = Array.from(groupedApplications.values()).map(({ application, deadlines: deadlineList }) => {
+      const upcomingDeadlines = deadlineList.filter(
+        (d) => new Date(d.dueDate) > now && !d.completedAt
+      );
+      const nearestDeadline = upcomingDeadlines
+        .toSorted((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0];
+
+      return {
+        ...application,
+        phase: application.phase ? JSON.parse(application.phase) : DEFAULT_PHASES[application.type] || [],
+        deadlineCount: deadlineList.length,
+        upcomingDeadlineCount: upcomingDeadlines.length,
+        nearestDeadline: nearestDeadline
+          ? {
+              id: nearestDeadline.id,
+              title: nearestDeadline.title,
+              dueDate: nearestDeadline.dueDate,
+              type: nearestDeadline.type,
+            }
+          : null,
+      };
+    });
 
     return NextResponse.json({
       applications: appsWithDeadlines,
@@ -189,19 +211,6 @@ export async function POST(
       );
     }
 
-    // Check application limit (max 10 per company)
-    const existingApps = await db
-      .select()
-      .from(applications)
-      .where(eq(applications.companyId, companyId));
-
-    if (existingApps.length >= 10) {
-      return NextResponse.json(
-        { error: "1企業あたりの応募枠は最大10件までです" },
-        { status: 400 }
-      );
-    }
-
     const body = await request.json();
     const { name, type } = body;
 
@@ -220,6 +229,20 @@ export async function POST(
       );
     }
 
+    const [existingAppCountRow] = await db
+      .select({ count: count() })
+      .from(applications)
+      .where(eq(applications.companyId, companyId))
+      .limit(1);
+
+    const existingAppCount = Number(existingAppCountRow?.count ?? 0);
+    if (existingAppCount >= 10) {
+      return NextResponse.json(
+        { error: "1企業あたりの応募枠は最大10件までです" },
+        { status: 400 }
+      );
+    }
+
     const now = new Date();
     const newApp = await db
       .insert(applications)
@@ -231,7 +254,7 @@ export async function POST(
         name,
         type,
         phase: JSON.stringify(DEFAULT_PHASES[type] || []),
-        sortOrder: existingApps.length,
+        sortOrder: existingAppCount,
         createdAt: now,
         updatedAt: now,
       })

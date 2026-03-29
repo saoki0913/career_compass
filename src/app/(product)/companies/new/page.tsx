@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCompanies } from "@/hooks/useCompanies";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { parseApiErrorResponse } from "@/lib/api-errors";
 import { trackEvent } from "@/lib/analytics/client";
 import { notifySuccess } from "@/lib/notifications";
@@ -66,20 +65,9 @@ const EyeOffIcon = () => (
 );
 
 function buildCompanyPostHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return headers;
 }
 
 const LoadingSpinner = () => (
@@ -95,7 +83,8 @@ const LoadingSpinner = () => (
 
 export default function NewCompanyPage() {
   const router = useRouter();
-  const { refresh } = useCompanies();
+  const { count, refresh } = useCompanies();
+  const isFirstCompany = count === 0;
 
   const [name, setName] = useState("");
   const [industry, setIndustry] = useState("");
@@ -175,10 +164,12 @@ export default function NewCompanyPage() {
         );
       }
 
+      const result = await response.json();
+
       trackEvent("company_create");
       await refresh();
       notifySuccess({ title: "企業を登録しました" });
-      router.push("/companies");
+      router.push(isFirstCompany ? `/companies/${result.company.id}/motivation` : `/companies/${result.company.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "企業の登録に失敗しました");
     } finally {
@@ -237,6 +228,11 @@ export default function NewCompanyPage() {
           </CardHeader>
 
           <CardContent>
+            {isFirstCompany ? (
+              <div className="mb-5 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+                初回は企業名と業界だけで始められます。登録後、そのまま志望動機の AI 作成に進みます。
+              </div>
+            ) : null}
             <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-4">
               {/* Error message - full width */}
               {error && (

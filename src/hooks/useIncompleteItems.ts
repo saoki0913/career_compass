@@ -8,7 +8,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { AppUiError, parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export interface DraftES {
@@ -63,12 +62,6 @@ export function useIncompleteItems(options: UseIncompleteItemsOptions = {}): Use
       const headers: HeadersInit = {
         "Content-Type": "application/json",
       };
-
-      // Add device token for guest support
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
 
       const response = await fetch("/api/dashboard/incomplete", {
         headers,

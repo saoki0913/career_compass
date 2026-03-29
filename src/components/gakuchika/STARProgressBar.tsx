@@ -149,7 +149,7 @@ export function STARProgressBar({
   return (
     <div className={cn("flex items-center gap-2", className)}>
       <span className="text-xs font-medium text-muted-foreground shrink-0">
-        深掘り進捗
+        作成進捗
       </span>
 
       <div className="flex items-center gap-2 flex-1 min-w-0">

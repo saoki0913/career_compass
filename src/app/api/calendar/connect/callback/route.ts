@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { GOOGLE_CALENDAR_SCOPES, storeGoogleCalendarTokens } from "@/lib/calendar/connection";
 import { exchangeCalendarCode, fetchGoogleUserEmail } from "@/lib/calendar/oauth";
+import { getSafeRelativeReturnPath } from "@/lib/security/safe-return-path";
 
 function redirectWithError(baseUrl: URL, message: string) {
   const target = new URL("/calendar/settings", baseUrl);
@@ -59,7 +60,10 @@ export async function GET(request: Request) {
       email,
     });
 
-    const target = new URL(storedState.returnTo || "/calendar/settings", url);
+    const target = new URL(
+      getSafeRelativeReturnPath(storedState.returnTo, "/calendar/settings"),
+      url
+    );
     if (missingScopes.length > 0) {
       target.searchParams.set("error", "必要な権限が不足しています。再連携してください。");
     } else {

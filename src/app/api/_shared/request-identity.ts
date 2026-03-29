@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { getGuestUser } from "@/lib/auth/guest";
+import { readGuestDeviceTokenFromCookieHeader } from "@/lib/auth/guest-cookie";
 import { logError } from "@/lib/logger";
 
 export type RequestIdentity = {
@@ -28,7 +29,9 @@ export async function getHeadersIdentity(requestHeaders: Headers): Promise<Reque
     };
   }
 
-  const deviceToken = requestHeaders.get("x-device-token");
+  const deviceToken =
+    requestHeaders.get("x-device-token") ??
+    readGuestDeviceTokenFromCookieHeader(requestHeaders.get("cookie"));
   if (!deviceToken) {
     return null;
   }

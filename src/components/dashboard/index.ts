@@ -6,3 +6,4 @@ export { QuickActions } from "./QuickActions";
 export { DeadlineList } from "./DeadlineList";
 export { CompanySelectModal } from "./CompanySelectModal";
 export { ActivationChecklistCard } from "./ActivationChecklistCard";
+export { InterviewNavigationTrigger } from "./InterviewNavigationTrigger";

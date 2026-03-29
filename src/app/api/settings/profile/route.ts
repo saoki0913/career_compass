@@ -8,12 +8,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { userProfiles, users } from "@/lib/db/schema";
+import { credits, subscriptions, userProfiles, users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { logError } from "@/lib/logger";
+import { getSettingsPageData } from "@/lib/server/account-loaders";
+import { getBillingPeriodFromPriceId } from "@/lib/stripe/config";
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -27,43 +29,10 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = session.user.id;
-
-    // Get user and profile
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-
-    const [profile] = await db
-      .select()
-      .from(userProfiles)
-      .where(eq(userProfiles.userId, userId))
-      .limit(1);
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
-    }
+    const { profile } = await getSettingsPageData(userId);
 
     return NextResponse.json({
-      profile: {
-        name: user.name,
-        email: user.email,
-        image: user.image,
-        plan: profile?.plan || "free",
-        university: profile?.university || null,
-        faculty: profile?.faculty || null,
-        graduationYear: profile?.graduationYear || null,
-        targetIndustries: profile?.targetIndustries
-          ? JSON.parse(profile.targetIndustries)
-          : [],
-        targetJobTypes: profile?.targetJobTypes
-          ? JSON.parse(profile.targetJobTypes)
-          : [],
-      },
+      profile,
     });
   } catch (error) {
     logError("fetch-profile", error);
@@ -201,18 +170,32 @@ export async function PUT(request: NextRequest) {
       });
     }
 
-    // Get updated profile
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-
-    const [profile] = await db
-      .select()
-      .from(userProfiles)
-      .where(eq(userProfiles.userId, userId))
-      .limit(1);
+    const [user, profile, creditRow, subscriptionRow] = await Promise.all([
+      db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then((rows) => rows[0]),
+      db
+        .select()
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, userId))
+        .limit(1)
+        .then((rows) => rows[0]),
+      db
+        .select()
+        .from(credits)
+        .where(eq(credits.userId, userId))
+        .limit(1)
+        .then((rows) => rows[0]),
+      db
+        .select()
+        .from(subscriptions)
+        .where(eq(subscriptions.userId, userId))
+        .limit(1)
+        .then((rows) => rows[0]),
+    ]);
 
     return NextResponse.json({
       profile: {
@@ -229,6 +212,13 @@ export async function PUT(request: NextRequest) {
         targetJobTypes: profile?.targetJobTypes
           ? JSON.parse(profile.targetJobTypes)
           : [],
+        creditsBalance: creditRow?.balance ?? 0,
+        currentPeriodEnd: subscriptionRow?.currentPeriodEnd?.toISOString() ?? null,
+        subscriptionStatus: subscriptionRow?.status ?? null,
+        billingPeriod: subscriptionRow?.stripePriceId
+          ? getBillingPeriodFromPriceId(subscriptionRow.stripePriceId)
+          : null,
+        cancelAtPeriodEnd: subscriptionRow?.cancelAtPeriodEnd ?? false,
       },
     });
   } catch (error) {

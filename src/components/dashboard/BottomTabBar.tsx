@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { InterviewNavigationTrigger } from "./InterviewNavigationTrigger";
 
 const HomeIcon = ({ active }: { active: boolean }) => (
   <svg className="w-5 h-5" fill={active ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 0 : 2}>
@@ -39,11 +41,29 @@ const NAV_ITEMS = [
   { href: "/companies", label: "企業", Icon: BuildingIcon },
   { href: "/es", label: "ES", Icon: DocumentIcon },
   { href: "/gakuchika", label: "ガクチカ", Icon: ChatIcon },
+  { href: "/interview", label: "面接対策", Icon: null },
   { href: "/calendar", label: "カレンダー", Icon: CalendarIcon },
 ] as const;
 
-export function BottomTabBar() {
+export function BottomTabBar({ onInterviewClick }: { onInterviewClick?: () => void }) {
   const pathname = usePathname();
+
+  useEffect(() => {
+    if (!pathname || pathname === "/" || pathname.startsWith("/login") || pathname.startsWith("/signup")) {
+      return;
+    }
+
+    document.body.classList.add("has-bottom-tab-bar");
+    document.documentElement.style.setProperty(
+      "--mobile-bottom-nav-offset",
+      "calc(5rem + env(safe-area-inset-bottom, 0px))"
+    );
+
+    return () => {
+      document.body.classList.remove("has-bottom-tab-bar");
+      document.documentElement.style.setProperty("--mobile-bottom-nav-offset", "0px");
+    };
+  }, [pathname]);
 
   // Don't show on auth pages or landing page
   if (!pathname || pathname === "/" || pathname.startsWith("/login") || pathname.startsWith("/signup")) {
@@ -51,41 +71,52 @@ export function BottomTabBar() {
   }
 
   return (
-    <>
-      {/* Spacer to prevent content from being hidden behind fixed bottom nav */}
-      <div className="h-16 lg:hidden" />
-      <nav
-        className="fixed bottom-0 left-0 right-0 z-50 lg:hidden border-t border-border/40 bg-background/80 backdrop-blur-xl"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
-        aria-label="メインナビゲーション"
-      >
-        <div className="flex items-center justify-around h-16 px-1">
-          {NAV_ITEMS.map(({ href, label, Icon }) => {
-            const isActive = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/40 bg-background/88 backdrop-blur-xl lg:hidden"
+      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      aria-label="メインナビゲーション"
+    >
+      <div className="flex h-20 items-start justify-around px-1 pt-2">
+        {NAV_ITEMS.map(({ href, label, Icon }) => {
+          const isInterviewItem = href === "/interview";
+          const isActive = isInterviewItem
+            ? Boolean(pathname && /^\/companies\/[^/]+\/interview(?:\/.*)?$/.test(pathname))
+            : pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+
+          if (isInterviewItem) {
             return (
-              <Link
+              <InterviewNavigationTrigger
                 key={href}
-                href={href}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-0.5 w-full h-full min-w-[44px] min-h-[44px] rounded-lg transition-colors duration-200",
-                  isActive
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                aria-current={isActive ? "page" : undefined}
-              >
-                <Icon active={isActive} />
-                <span className={cn(
-                  "text-[10px] leading-tight",
-                  isActive ? "font-semibold" : "font-medium"
-                )}>
-                  {label}
-                </span>
-              </Link>
+                active={isActive}
+                onClick={() => onInterviewClick?.()}
+                variant="mobile"
+              />
             );
-          })}
-        </div>
-      </nav>
-    </>
+          }
+
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={cn(
+                "flex h-full min-h-[44px] min-w-[44px] w-full flex-col items-center justify-start gap-1 rounded-lg px-1 py-1 transition-colors duration-200",
+                isActive
+                  ? "text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              aria-current={isActive ? "page" : undefined}
+            >
+              <Icon active={isActive} />
+              <span className={cn(
+                "text-[10px] leading-tight",
+                isActive ? "font-semibold" : "font-medium"
+              )}>
+                {label}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
