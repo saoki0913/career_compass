@@ -29,6 +29,11 @@ vi.mock("@/lib/auth/guest", () => ({
   migrateGuestToUser: migrateGuestToUserMock,
 }));
 
+vi.mock("@/lib/auth/guest-cookie", () => ({
+  clearGuestDeviceTokenCookie: vi.fn(),
+  readGuestDeviceToken: vi.fn(() => "550e8400-e29b-41d4-a716-446655440000"),
+}));
+
 vi.mock("@/lib/rate-limit", () => ({
   RATE_LIMITS: {
     guestMigrate: { maxTokens: 3, refillRate: 0.033, windowMs: 60_000 },

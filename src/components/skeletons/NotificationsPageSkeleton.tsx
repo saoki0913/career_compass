@@ -36,10 +36,10 @@ export function NotificationsListSkeleton() {
   );
 }
 
-/** Route `loading.tsx`: header + list with same `main` chrome as the real page. */
+/** Route `loading.tsx`: header + list with same chrome as the real page (no `<main>` — avoids duplicate landmarks during transition). */
 export function NotificationsPageSkeleton() {
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-3xl px-4 py-8 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:px-6 lg:px-8">
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-2">
           <Skeleton className="h-8 w-24 rounded-xl" />
@@ -51,6 +51,6 @@ export function NotificationsPageSkeleton() {
         </div>
       </div>
       <NotificationsListSkeleton />
-    </main>
+    </div>
   );
 }

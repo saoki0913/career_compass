@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -381,7 +380,6 @@ export default function SettingsPage() {
   if (isAuthLoading || isLoading) {
     return (
       <div className="min-h-screen bg-background">
-        <DashboardHeader />
         <main>
           <SettingsPageSkeleton />
         </main>
@@ -395,7 +393,6 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
 
       <main className="mx-auto max-w-3xl px-4 py-8 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:px-6 lg:px-8">
         {/* Header */}

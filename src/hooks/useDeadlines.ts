@@ -6,7 +6,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export interface Deadline {
@@ -34,20 +33,9 @@ interface UseDeadlinesOptions {
 }
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore errors
-    }
-  }
-  return headers;
 }
 
 export function useDeadlines(days: number = 7, options: UseDeadlinesOptions = {}) {

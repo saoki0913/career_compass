@@ -5,7 +5,6 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { ProcessingSteps, COMPANY_FETCH_STEPS } from "@/components/ui/ProcessingSteps";
 import { useOperationLock } from "@/hooks/useOperationLock";
 import { notifyError, notifyMessage, notifySuccess } from "@/lib/notifications";
@@ -15,6 +14,7 @@ import {
   INTEGRATED_BADGE_LABELS,
   normalizeSourceConfidence,
 } from "@/lib/company-info/source-badges";
+import { shouldCloseScheduleFetchModalOnResult } from "@/lib/company-info/fetch-ui";
 
 type SelectionType = "main_selection" | "internship";
 type SelectionTypeState = SelectionType | null;
@@ -106,20 +106,9 @@ const XIcon = () => (
 );
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore
-    }
-  }
-  return headers;
 }
 
 export function FetchInfoButton({
@@ -223,8 +212,8 @@ export function FetchInfoButton({
     setShowModal(true);
   };
 
-  const closeModal = () => {
-    if (isSearching || isFetching) return;
+  const closeModal = (force = false) => {
+    if (!force && (isSearching || isFetching)) return;
     setShowModal(false);
     resetTransientState();
   };
@@ -416,6 +405,33 @@ export function FetchInfoButton({
       }
 
       const data: FetchResult = await response.json();
+      if (shouldCloseScheduleFetchModalOnResult(data.resultStatus)) {
+        closeModal(true);
+        if (data.resultStatus === "success") {
+          onSuccess?.();
+          window.setTimeout(() => {
+            notifySuccess({
+              title: "選考スケジュールを取得しました",
+              description: data.freeUsed
+                ? "今回は無料枠を使用しました。"
+                : `${data.creditsConsumed}クレジットを消費しました。`,
+              duration: 4800,
+            });
+          }, 220);
+          return;
+        }
+
+        window.setTimeout(() => {
+          notifyMessage(
+            data.resultStatus === "duplicates_only"
+              ? "既存の締切と重複していたため、新しい締切は追加されませんでした。"
+              : "締切は見つかりませんでした。候補URLか年度条件を見直してください。",
+            4800
+          );
+        }, 220);
+        return;
+      }
+
       setResult(data);
       setModalStep("result");
 
@@ -455,7 +471,6 @@ export function FetchInfoButton({
   };
 
   const closeResult = () => {
-    setModalStep("result");
     setResult(null);
     setError(null);
   };

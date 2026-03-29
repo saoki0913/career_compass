@@ -38,7 +38,13 @@ export function createApiErrorResponse(
 ) {
   const requestId = getRequestId(request);
 
-  if (options.error || options.developerMessage) {
+  const routineAuthDenied =
+    process.env.NODE_ENV === "development" &&
+    options.status === 401 &&
+    typeof options.code === "string" &&
+    (options.code === "AUTH_REQUIRED" || options.code.endsWith("_AUTH_REQUIRED"));
+
+  if ((options.error || options.developerMessage) && !routineAuthDenied) {
     logError(
       options.logContext ?? options.code,
       options.error ?? new Error(options.developerMessage ?? options.userMessage),

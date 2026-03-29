@@ -4,9 +4,10 @@ import { LANDING_PAGE_FAQS } from "@/lib/marketing/landing-faqs";
 import { LandingHeader } from "@/components/landing/LandingHeader";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { ProductShowcase } from "@/components/landing/ProductShowcase";
+import { CTASectionVariant } from "@/components/landing/variants/CTASectionVariant";
+import { HowItWorksSection } from "@/components/landing/HowItWorksSection";
 import { PricingSection } from "@/components/landing/PricingSection";
 import { FAQSection } from "@/components/landing/FAQSection";
-import { CTASection } from "@/components/landing/CTASection";
 
 export default function Home() {
   return (
@@ -15,30 +16,35 @@ export default function Home() {
 
       <main className="flex-1 pt-16">
         <FaqJsonLd faqs={LANDING_PAGE_FAQS} />
+
         <HeroSection />
 
         <ProductShowcase />
+
+        <HowItWorksSection />
 
         <PricingSection />
 
         <FAQSection />
 
-        <CTASection />
+        <CTASectionVariant />
       </main>
 
-      <footer className="border-t border-slate-200/80 bg-white/80 py-16 backdrop-blur">
-        <div className="container mx-auto px-4">
-          <div className="grid grid-cols-1 gap-10 md:grid-cols-[1.4fr_repeat(3,minmax(0,1fr))]">
+      <footer className="border-t border-slate-200/80 bg-white/88 py-16 backdrop-blur">
+        <div className="mx-auto max-w-6xl px-4">
+          <div className="grid grid-cols-1 gap-10 md:grid-cols-[1.3fr_repeat(3,minmax(0,1fr))]">
             <div className="max-w-sm">
-              <p className="mb-3 text-lg font-semibold tracking-tight text-slate-950">就活Pass</p>
+              <p className="mb-3 text-lg font-semibold tracking-[-0.04em] text-slate-950">
+                就活Pass
+              </p>
               <p className="text-sm leading-7 text-slate-600">
-                ES添削、志望動機・ガクチカの対話支援、企業管理、締切管理を
-                ひと続きで進める就活支援アプリです。
+                ES添削・就活AI、志望動機・ガクチカの対話支援、企業管理、締切管理を
+                ひと続きで進める就活支援アプリ（就活パス／シューパス）です。
               </p>
             </div>
 
             <div>
-              <p className="mb-3 text-sm font-semibold tracking-[0.18em] text-slate-500 uppercase">
+              <p className="mb-3 text-xs font-semibold tracking-[0.24em] text-slate-500 uppercase">
                 Product
               </p>
               <ul className="space-y-2 text-sm text-slate-600">
@@ -66,7 +72,7 @@ export default function Home() {
             </div>
 
             <div>
-              <p className="mb-3 text-sm font-semibold tracking-[0.18em] text-slate-500 uppercase">
+              <p className="mb-3 text-xs font-semibold tracking-[0.24em] text-slate-500 uppercase">
                 Public Pages
               </p>
               <ul className="space-y-2 text-sm text-slate-600">
@@ -85,11 +91,26 @@ export default function Home() {
                     ES文字数カウント
                   </Link>
                 </li>
+                <li>
+                  <Link href="/es-tensaku-ai" className="transition-colors hover:text-slate-950">
+                    ES添削AI・ES AIのガイド
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/shukatsu-ai" className="transition-colors hover:text-slate-950">
+                    就活AIでできること
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/entry-sheet-ai" className="transition-colors hover:text-slate-950">
+                    エントリーシート AI
+                  </Link>
+                </li>
               </ul>
             </div>
 
             <div>
-              <p className="mb-3 text-sm font-semibold tracking-[0.18em] text-slate-500 uppercase">
+              <p className="mb-3 text-xs font-semibold tracking-[0.24em] text-slate-500 uppercase">
                 Legal
               </p>
               <ul className="space-y-2 text-sm text-slate-600">

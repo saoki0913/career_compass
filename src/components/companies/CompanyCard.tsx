@@ -10,6 +10,7 @@ import { memo } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Company } from "@/hooks/useCompanies";
 import { getStatusConfig } from "@/lib/constants/status";
@@ -19,6 +20,7 @@ import {
   FileText,
   ExternalLink,
   Star,
+  Trash2,
 } from "lucide-react";
 
 // Deadline type labels
@@ -39,9 +41,10 @@ const DEADLINE_TYPE_LABELS: Record<string, string> = {
 interface CompanyCardProps {
   company: Company;
   onTogglePin?: (companyId: string, isPinned: boolean) => void;
+  onDeleteStart?: (companyId: string) => void;
 }
 
-function CompanyCardComponent({ company, onTogglePin }: CompanyCardProps) {
+function CompanyCardComponent({ company, onTogglePin, onDeleteStart }: CompanyCardProps) {
   const status = company.status || "inbox";
   const statusConfig = getStatusConfig(status);
 
@@ -143,12 +146,30 @@ function CompanyCardComponent({ company, onTogglePin }: CompanyCardProps) {
                 {company.name}
               </h3>
             </div>
-            <Badge
-              variant="outline"
-              className={cn("text-xs px-2 py-0.5 h-6 flex-shrink-0 font-medium", statusConfig.bgColor, statusConfig.color)}
-            >
-              {statusConfig.label}
-            </Badge>
+            <div className="flex items-center gap-1.5">
+              {onDeleteStart ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onDeleteStart(company.id);
+                  }}
+                  aria-label={`${company.name} を削除`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              ) : null}
+              <Badge
+                variant="outline"
+                className={cn("text-xs px-2 py-0.5 h-6 flex-shrink-0 font-medium", statusConfig.bgColor, statusConfig.color)}
+              >
+                {statusConfig.label}
+              </Badge>
+            </div>
           </div>
 
           {/* Industry */}

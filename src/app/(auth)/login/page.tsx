@@ -3,6 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { getSafeRelativeReturnPath } from "@/lib/security/safe-return-path";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect } from "react";
 import Link from "next/link";
@@ -58,6 +59,7 @@ function LoginFallback() {
             width={56}
             height={56}
             className="relative rounded-xl shadow-lg"
+            priority
           />
         </div>
         <span className="text-3xl font-extrabold text-foreground tracking-tight">
@@ -79,15 +81,11 @@ function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectParam = searchParams.get("redirect") || searchParams.get("callbackUrl");
-  const safeRedirect = redirectParam && redirectParam.startsWith("/") ? redirectParam : null;
+  const safeRedirect = getSafeRelativeReturnPath(redirectParam, "/dashboard");
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      if (safeRedirect) {
-        router.push(safeRedirect);
-      } else {
-        router.push("/dashboard");
-      }
+      router.push(safeRedirect);
     }
   }, [isAuthenticated, isLoading, router, safeRedirect]);
 
@@ -112,6 +110,7 @@ function LoginPageContent() {
             width={56}
             height={56}
             className="relative rounded-xl shadow-lg"
+            priority
           />
         </div>
         <span className="text-3xl font-extrabold text-foreground tracking-tight">
@@ -126,7 +125,7 @@ function LoginPageContent() {
         transition={{ duration: 0.5, delay: 0.1 }}
         className="text-lg text-center mb-8 text-muted-foreground"
       >
-        ESも締切も、AIが見逃さない。
+        まず1社登録すると、次にやることと最初のAI作成が始まります。
       </motion.p>
 
       {/* Login Card */}
@@ -136,11 +135,14 @@ function LoginPageContent() {
         transition={{ duration: 0.4, delay: 0.2 }}
         className="w-full max-w-sm"
       >
-        <Card className="border-border/50 shadow-xl shadow-black/5">
+          <Card className="border-border/50 shadow-xl shadow-black/5">
           <CardContent className="pt-6 pb-6">
+            <div className="mb-5 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+              最短ルート: 企業を1社登録 → 志望動機をAIで作成 → 必要ならログインして保存
+            </div>
             {/* Primary CTA: Google Login */}
             <GoogleSignInButton
-              callbackURL={safeRedirect ?? "/dashboard"}
+              callbackURL={safeRedirect}
               className="w-full h-12 text-base"
             />
           </CardContent>
@@ -185,11 +187,11 @@ function LoginPageContent() {
           href="/dashboard"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors group"
         >
-          ゲストとして試す
+          ゲストで1社だけ登録して試す
           <ArrowRight className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />
         </Link>
         <p className="mt-2 text-xs text-center text-muted-foreground/70">
-          一部機能が制限されます
+          AI体験後にログインすれば進捗を引き継げます
         </p>
       </motion.div>
 

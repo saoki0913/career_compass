@@ -53,7 +53,7 @@ export async function POST(req: Request) {
       eventType: event.type,
       processedAt: new Date(),
     });
-  } catch (e) {
+  } catch {
     // Unique constraint violation = already processing/processed
     console.log(`[Stripe Webhook] Event ${event.id} already claimed, skipping`);
     return NextResponse.json({ received: true });
@@ -92,6 +92,7 @@ export async function POST(req: Request) {
                   stripePriceId: priceId,
                   status: subscription.status,
                   currentPeriodEnd: new Date(subscriptionItem.current_period_end * 1000),
+                  cancelAtPeriodEnd: subscription.cancel_at_period_end,
                   updatedAt: new Date(),
                 })
                 .where(eq(subscriptions.userId, userId));
@@ -113,6 +114,7 @@ export async function POST(req: Request) {
                 stripePriceId: priceId,
                 status: subscription.status,
                 currentPeriodEnd: new Date(subscriptionItem.current_period_end * 1000),
+                cancelAtPeriodEnd: subscription.cancel_at_period_end,
                 createdAt: new Date(),
                 updatedAt: new Date(),
               });
@@ -152,6 +154,7 @@ export async function POST(req: Request) {
             stripePriceId: priceId,
             status: subscription.status,
             currentPeriodEnd: new Date(subscriptionItem.current_period_end * 1000),
+            cancelAtPeriodEnd: subscription.cancel_at_period_end,
             updatedAt: new Date(),
           })
           .where(eq(subscriptions.stripeSubscriptionId, subscription.id));
@@ -165,8 +168,10 @@ export async function POST(req: Request) {
             })
             .where(eq(userProfiles.userId, existingSub.userId));
 
-          await updatePlanAllocation(existingSub.userId, newPlan);
-          console.log(`[Stripe Webhook] User ${existingSub.userId} plan updated to ${newPlan}`);
+          if (existingSub.stripePriceId !== priceId) {
+            await updatePlanAllocation(existingSub.userId, newPlan);
+            console.log(`[Stripe Webhook] User ${existingSub.userId} plan updated to ${newPlan}`);
+          }
         }
         break;
       }
@@ -183,6 +188,7 @@ export async function POST(req: Request) {
           .update(subscriptions)
           .set({
             status: "canceled",
+            cancelAtPeriodEnd: true,
             updatedAt: new Date(),
           })
           .where(eq(subscriptions.stripeSubscriptionId, subscription.id));

@@ -8,28 +8,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { getOrCreateGuestUser, getGuestUser } from "@/lib/auth/guest";
+import {
+  clearGuestDeviceTokenCookie,
+  issueGuestDeviceToken,
+  readGuestDeviceToken,
+  setGuestDeviceTokenCookie,
+} from "@/lib/auth/guest-cookie";
 import { logError } from "@/lib/logger";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
-    const { deviceToken } = await request.json();
-
-    if (!deviceToken || typeof deviceToken !== "string") {
-      return NextResponse.json(
-        { error: "Device token is required" },
-        { status: 400 }
-      );
-    }
-
-    // Validate UUID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(deviceToken)) {
-      return NextResponse.json(
-        { error: "Invalid device token format" },
-        { status: 400 }
-      );
-    }
+    const deviceToken = readGuestDeviceToken(request) || issueGuestDeviceToken();
 
     // Rate limit guest session creation by device token
     const rateLimitKey = createRateLimitKey("guestAuth", null, deviceToken);
@@ -54,12 +44,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       id: guest.id,
-      deviceToken: guest.deviceToken,
       expiresAt: guest.expiresAt.toISOString(),
       isMigrated: !!guest.migratedToUserId,
     });
+    setGuestDeviceTokenCookie(response, deviceToken);
+    return response;
   } catch (error) {
     logError("create-guest-session", error);
     return NextResponse.json(
@@ -71,20 +62,10 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const deviceToken = request.headers.get("X-Device-Token");
-
+    const deviceToken = readGuestDeviceToken(request);
     if (!deviceToken) {
       return NextResponse.json(
-        { error: "Device token header is required" },
-        { status: 400 }
-      );
-    }
-
-    // Validate UUID format (same validation as POST endpoint)
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(deviceToken)) {
-      return NextResponse.json(
-        { error: "Invalid device token format" },
+        { error: "Guest session cookie is required" },
         { status: 400 }
       );
     }
@@ -92,15 +73,16 @@ export async function GET(request: NextRequest) {
     const guest = await getGuestUser(deviceToken);
 
     if (!guest) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: "Guest session not found or expired" },
         { status: 404 }
       );
+      clearGuestDeviceTokenCookie(response);
+      return response;
     }
 
     return NextResponse.json({
       id: guest.id,
-      deviceToken: guest.deviceToken,
       expiresAt: guest.expiresAt.toISOString(),
       isValid: true,
     });

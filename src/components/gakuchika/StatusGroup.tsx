@@ -15,7 +15,7 @@ const STATUS_ORDER = ["completed", "in_progress", "not_started"] as const;
 
 const STATUS_LABELS: Record<string, string> = {
   completed: "完了",
-  in_progress: "深掘り中",
+  in_progress: "作成中",
   not_started: "未開始",
 };
 

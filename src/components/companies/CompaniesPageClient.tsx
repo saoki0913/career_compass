@@ -14,6 +14,7 @@ import { CompaniesListContentSkeleton } from "@/components/skeletons/CompaniesLi
 import { ListPageEmptyState } from "@/components/shared/ListPageEmptyState";
 import { FavoritesSection } from "@/components/shared/FavoritesSection";
 import { ViewToggle } from "@/components/shared/ViewToggle";
+import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
 import { useCompanies, type Company } from "@/hooks/useCompanies";
 import { getStatusCategory, type StatusCategory } from "@/lib/constants/status";
 import { INDUSTRIES } from "@/lib/constants/industries";
@@ -56,7 +57,7 @@ type CompaniesPageClientProps = {
 };
 
 export function CompaniesPageClient({ initialData }: CompaniesPageClientProps) {
-  const { companies, count, limit, isLoading, error, togglePin } = useCompanies(
+  const { companies, count, limit, isLoading, error, togglePin, deleteCompany } = useCompanies(
     initialData ? { initialData } : {}
   );
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -64,6 +65,8 @@ export function CompaniesPageClient({ initialData }: CompaniesPageClientProps) {
   const [viewMode, setViewMode] = useState("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("date_desc");
+  const [deleteTarget, setDeleteTarget] = useState<Company | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const filteredCompanies = useMemo(() => {
     const normalizedQuery = searchQuery.toLowerCase().trim();
@@ -111,6 +114,26 @@ export function CompaniesPageClient({ initialData }: CompaniesPageClientProps) {
   }, [companies]);
 
   const isFiltered = filter !== "all" || searchQuery !== "" || selectedIndustries.length > 0;
+
+  const handleDeleteStart = (companyId: string) => {
+    const target = companies.find((company) => company.id === companyId) ?? null;
+    setDeleteTarget(target);
+  };
+
+  const handleDeleteCancel = () => {
+    if (isDeleting) return;
+    setDeleteTarget(null);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    const deleted = await deleteCompany(deleteTarget.id);
+    setIsDeleting(false);
+    if (deleted) {
+      setDeleteTarget(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -186,11 +209,11 @@ export function CompaniesPageClient({ initialData }: CompaniesPageClientProps) {
                 }
               />
             ) : viewMode === "industry" ? (
-              <IndustryGroup companies={filteredCompanies} onTogglePin={togglePin} />
+              <IndustryGroup companies={filteredCompanies} onTogglePin={togglePin} onDeleteStart={handleDeleteStart} />
             ) : (
               <div className="space-y-8">
                 <FavoritesSection count={pinnedCompanies.length}>
-                  <CompanyGrid companies={pinnedCompanies} onTogglePin={togglePin} />
+                  <CompanyGrid companies={pinnedCompanies} onTogglePin={togglePin} onDeleteStart={handleDeleteStart} />
                 </FavoritesSection>
 
                 {unpinnedCompanies.length > 0 && (
@@ -201,11 +224,24 @@ export function CompaniesPageClient({ initialData }: CompaniesPageClientProps) {
                         <span className="text-sm text-muted-foreground">({unpinnedCompanies.length})</span>
                       </div>
                     )}
-                    <CompanyGrid companies={unpinnedCompanies} onTogglePin={togglePin} />
+                    <CompanyGrid companies={unpinnedCompanies} onTogglePin={togglePin} onDeleteStart={handleDeleteStart} />
                   </section>
                 )}
               </div>
             )}
+
+            <DeleteConfirmDialog
+              isOpen={deleteTarget !== null}
+              title="企業を削除しますか？"
+              description={
+                deleteTarget
+                  ? `「${deleteTarget.name}」を削除すると、関連する締切や選考情報も削除されます。この操作は取り消せません。`
+                  : ""
+              }
+              isDeleting={isDeleting}
+              onConfirm={handleDeleteConfirm}
+              onCancel={handleDeleteCancel}
+            />
           </>
         )}
       </main>

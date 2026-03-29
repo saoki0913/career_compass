@@ -1,20 +1,37 @@
 #!/bin/zsh
+#
+# Sync provider env from the canonical secrets bundle (codex-company .secrets).
+#
+# Default bundle directory: ${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass
+#   (see scripts/release/career-compass-secrets-root.sh)
+#
+# Override priority (highest first):
+#   1. --secret-dir PATH
+#   2. CAREER_COMPASS_SECRETS_DIR (path to the career_compass bundle folder itself)
+#   3. default as above
 
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
 source "${script_dir}/common.sh"
+# shellcheck source=career-compass-secrets-root.sh
+source "${script_dir}/career-compass-secrets-root.sh"
 
 mode="check"
 target="all"
-secret_dir="${CODEX_COMPANY_SECRETS_ROOT:-/Users/saoki/work/codex-company/.secrets}/career_compass"
-google_oauth_file="${CODEX_COMPANY_SECRETS_ROOT:-/Users/saoki/work/codex-company/.secrets}/google-oauth/career_compass.env"
+cli_secret_dir=""
 repo_slug="saoki0913/career_compass"
 
 usage() {
   cat <<'EOF'
 Usage: sync-career-compass-secrets.sh [--check|--apply] [--target all|vercel-staging|vercel-production|railway-staging|railway-production|github|supabase|google-oauth] [--secret-dir PATH]
+
+Secrets bundle (Vercel/Railway/supabase env files) lives under codex-company:
+  Default: ${CODEX_COMPANY_SECRETS_ROOT:-$CODEX_COMPANY_ROOT/.secrets}/career_compass
+  Or set CAREER_COMPASS_SECRETS_DIR to that bundle path, or pass --secret-dir.
+
+Google OAuth file: <same secrets root>/google-oauth/career_compass.env
 EOF
 }
 
@@ -31,7 +48,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --secret-dir)
-      secret_dir="${2:-}"
+      cli_secret_dir="${2:-}"
       shift
       ;;
     -h|--help)
@@ -44,6 +61,15 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+if [[ -n "$cli_secret_dir" ]]; then
+  secret_dir="$cli_secret_dir"
+elif [[ -n "${CAREER_COMPASS_SECRETS_DIR:-}" ]]; then
+  secret_dir="$CAREER_COMPASS_SECRETS_DIR"
+else
+  secret_dir="${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass"
+fi
+google_oauth_file="${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/google-oauth/career_compass.env"
 
 require_file() {
   [[ -f "$1" ]] || release_die "Missing required file: $1"

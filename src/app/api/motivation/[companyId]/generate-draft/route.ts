@@ -14,15 +14,17 @@ import { getGuestUser } from "@/lib/auth/guest";
 import { reserveCredits, confirmReservation, cancelReservation } from "@/lib/credits";
 import { randomUUID } from "crypto";
 import {
-  filterMotivationConversationUpdate,
-  getMotivationConversationByCondition,
-} from "@/lib/db/motivationConversationCompat";
+  getMotivationConversationByCondition as getConversationByCondition,
+  resolveDraftReadyState,
+  safeParseConversationContext,
+} from "@/lib/motivation/conversation";
 import { DRAFT_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import {
   getRequestId,
   logAiCreditCostSummary,
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -70,8 +72,6 @@ function safeParseMessages(json: string): Message[] {
     return [];
   }
 }
-
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
 interface FastAPIDraftResponse {
   draft: string;
@@ -131,7 +131,7 @@ export async function POST(
   }
 
   // Get conversation
-  const conversation = await getMotivationConversationByCondition(
+  const conversation = await getConversationByCondition(
     userId
       ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
       : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
@@ -144,6 +144,17 @@ export async function POST(
   const messages = safeParseMessages(conversation.messages);
   if (messages.length < 2) {
     return NextResponse.json({ error: "会話が十分にありません" }, { status: 400 });
+  }
+  const conversationContext = safeParseConversationContext(conversation.conversationContext ?? null);
+  const { isDraftReady } = resolveDraftReadyState(
+    conversationContext,
+    conversation.status as "in_progress" | "completed" | null,
+  );
+  if (!isDraftReady) {
+    return NextResponse.json(
+      { error: "十分な材料が揃ってから志望動機ESを作成できます" },
+      { status: 409 },
+    );
   }
 
   // Reserve credits upfront (6 credits for draft generation for logged-in users)
@@ -158,7 +169,7 @@ export async function POST(
 
   // Call FastAPI for draft generation
   try {
-    const response = await fetch(`${FASTAPI_URL}/api/motivation/generate-draft`, {
+    const response = await fetchFastApiInternal("/api/motivation/generate-draft", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
       body: JSON.stringify({
@@ -205,11 +216,11 @@ export async function POST(
     // Save draft to database
     await db
       .update(motivationConversations)
-      .set(await filterMotivationConversationUpdate({
+      .set({
         generatedDraft: data.draft,
         charLimitType: String(charLimit) as "300" | "400" | "500",
         updatedAt: new Date(),
-      }))
+      })
       .where(eq(motivationConversations.id, conversation.id));
 
     // Create ES document with the generated draft

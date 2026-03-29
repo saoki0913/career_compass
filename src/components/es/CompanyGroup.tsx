@@ -8,6 +8,7 @@ interface CompanyGroupProps {
   documents: Document[];
   pinnedIds: Set<string>;
   onTogglePin?: (documentId: string) => void;
+  onDeleteStart?: (documentId: string) => void;
   onToggleStatus?: (documentId: string, currentStatus: string) => void;
   statusUpdatingId?: string | null;
 }
@@ -16,6 +17,7 @@ export function CompanyGroup({
   documents,
   pinnedIds,
   onTogglePin,
+  onDeleteStart,
   onToggleStatus,
   statusUpdatingId,
 }: CompanyGroupProps) {
@@ -63,6 +65,7 @@ export function CompanyGroup({
                 document={doc}
                 isPinned={pinnedIds.has(doc.id)}
                 onTogglePin={onTogglePin}
+                onDeleteStart={onDeleteStart}
                 onToggleStatus={onToggleStatus}
                 statusUpdatingId={statusUpdatingId}
               />

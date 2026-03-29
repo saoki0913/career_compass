@@ -397,7 +397,7 @@ function FreePlanEsReviewModelNotice() {
         で添削を行います。プランをアップグレードすると、高性能モデルを選択できるようになります。
       </p>
       <Button className="mt-4 h-9 rounded-full px-4 text-xs" variant="outline" asChild>
-        <Link href="/pricing">プランを見る</Link>
+        <Link href="/pricing?source=es_review&reason=model_limit">プランを見る</Link>
       </Button>
     </div>
   );

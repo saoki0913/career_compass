@@ -6,8 +6,8 @@ import Link from "next/link";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import {
   CompanyStatus,
   getStatusConfig,
@@ -318,20 +318,9 @@ function PasswordDisplay({ companyId }: { companyId: string }) {
 }
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore errors
-    }
-  }
-  return headers;
 }
 
 export default function CompanyDetailPageClient({
@@ -746,7 +735,14 @@ export default function CompanyDetailPageClient({
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border hover:bg-muted/50 transition-colors text-sm font-medium"
               >
                 <FileTextIcon />
-                ES作成
+                ES作成/添削
+              </Link>
+              <Link
+                href={`/companies/${company.id}/interview`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border hover:bg-muted/50 transition-colors text-sm font-medium"
+              >
+                <SparklesIcon />
+                面接対策
               </Link>
               <FetchInfoButton
                 companyId={company.id}
@@ -1053,7 +1049,6 @@ export default function CompanyDetailPageClient({
           <CorporateInfoSection
             companyId={company.id}
             companyName={company.name}
-            onUpdate={fetchCompany}
           />
 
           {/* Linked ES Documents section */}
@@ -1199,42 +1194,15 @@ export default function CompanyDetailPageClient({
         )}
 
         {/* Delete confirmation dialog */}
-        {showDeleteConfirm && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <Card className="max-w-md w-full">
-              <CardHeader>
-                <CardTitle className="text-lg">企業を削除しますか？</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground mb-6">
-                  「{company.name}」を削除すると、関連する締切や選考情報もすべて削除されます。この操作は取り消せません。
-                </p>
-                <div className="flex justify-end gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowDeleteConfirm(false)}
-                    disabled={isDeleting}
-                  >
-                    キャンセル
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    onClick={handleDelete}
-                    disabled={isDeleting}
-                  >
-                    {isDeleting ? (
-                      <>
-                        <LoadingSpinner />
-                        <span className="ml-2">削除中...</span>
-                      </>
-                    ) : (
-                      "削除する"
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+        {company && (
+          <DeleteConfirmDialog
+            isOpen={showDeleteConfirm}
+            title="企業を削除しますか？"
+            description={`「${company.name}」を削除すると、関連する締切や選考情報もすべて削除されます。この操作は取り消せません。`}
+            isDeleting={isDeleting}
+            onConfirm={handleDelete}
+            onCancel={() => setShowDeleteConfirm(false)}
+          />
         )}
       </main>
     </div>

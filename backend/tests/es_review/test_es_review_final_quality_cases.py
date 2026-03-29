@@ -165,7 +165,7 @@ async def test_final_quality_company_motivation_weak_evidence_safe_generalizatio
     _assert_dearu_style(rewrite)
     assert "制度" not in rewrite
     assert "配属" not in rewrite
-    assert any("企業理解を1軸に絞って一般化した表現を優先する" in prompt for prompt in captured_prompts)
+    assert any("cards から別観点の company anchor を最低2点拾う" in prompt for prompt in captured_prompts)
     assert result.review_meta is not None
     assert result.review_meta.company_evidence_count == 1
     assert result.review_meta.evidence_coverage_level == "weak"

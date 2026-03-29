@@ -9,6 +9,7 @@ export function FaqJsonLd({ faqs }: FaqJsonLdProps) {
   if (faqs.length === 0) {
     return null;
   }
+
   return (
     <script
       type="application/ld+json"

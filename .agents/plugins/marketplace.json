@@ -1,0 +1,20 @@
+{
+  "name": "career-compass-local",
+  "interface": {
+    "displayName": "Career Compass Local"
+  },
+  "plugins": [
+    {
+      "name": "career-compass-dev",
+      "source": {
+        "source": "local",
+        "path": "./plugins/career-compass-dev"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

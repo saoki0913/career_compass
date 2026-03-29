@@ -1,18 +1,15 @@
-"use client";
-
-import { useState, useEffect } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/components/auth/AuthProvider";
-import { useCompanies } from "@/hooks/useCompanies";
-import { useEsStats } from "@/hooks/useDocuments";
-import { useCredits } from "@/hooks/useCredits";
-import { ProfilePageSkeleton } from "@/components/skeletons/ProfilePageSkeleton";
+import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
+import { buildNotificationPreviewData } from "@/components/notifications/notifications-data";
+import { getNotificationsPageData } from "@/lib/server/notification-loaders";
+import { getProfilePageData } from "@/lib/server/account-loaders";
 
-// Icons
 const ArrowLeftIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -92,81 +89,45 @@ const SettingsIcon = () => (
   </svg>
 );
 
-interface Profile {
-  name: string;
-  email: string;
-  image: string | null;
-  plan: string;
-  university: string | null;
-  faculty: string | null;
-  graduationYear: number | null;
-  targetIndustries: string[];
-  targetJobTypes: string[];
-  createdAt?: string;
-}
-
 const PLAN_LABELS: Record<string, string> = {
   free: "フリープラン",
   standard: "スタンダードプラン",
   pro: "プロプラン",
 };
 
-export default function ProfilePage() {
-  const router = useRouter();
-  const { user, isGuest, isAuthenticated, isLoading: authLoading, isReady: isAuthReady } = useAuth();
-  const { count: companyCount } = useCompanies();
-  const { total: esTotal, draftCount, publishedCount } = useEsStats();
-  const { balance } = useCredits({ isAuthenticated, isAuthReady });
+export default async function ProfilePage() {
+  const requestHeaders = await headers();
+  const identity = await getHeadersIdentity(requestHeaders);
 
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Redirect guests to login
-  useEffect(() => {
-    if (!authLoading && isGuest) {
-      router.push("/login?redirect=/profile");
-    }
-  }, [authLoading, isGuest, router]);
-
-  // Fetch profile data
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const response = await fetch("/api/settings/profile", {
-          credentials: "include",
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setProfile(data.profile);
-        }
-      } catch (error) {
-        console.error("Failed to fetch profile:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    if (!isGuest) {
-      fetchProfile();
-    }
-  }, [isGuest]);
-
-  if (authLoading || isLoading) {
-    return (
-      <div className="min-h-screen bg-background">
-        <DashboardHeader />
-        <main>
-          <ProfilePageSkeleton />
-        </main>
-      </div>
-    );
+  if (!identity || !identity.userId) {
+    redirect("/login?redirect=/profile");
   }
 
-  if (isGuest) {
-    return null;
-  }
+  const [profileData, notificationsData] = await Promise.all([
+    getProfilePageData(identity.userId),
+    getNotificationsPageData(identity, 5),
+  ]);
 
-  const formatDate = (dateString?: string) => {
+  const profile = profileData?.profile ?? {
+    name: "",
+    email: "",
+    image: null,
+    plan: "free",
+    university: null,
+    faculty: null,
+    graduationYear: null,
+    targetIndustries: [],
+    targetJobTypes: [],
+    createdAt: null,
+    creditsBalance: 0,
+  };
+  const companyCount = profileData?.companyCount ?? 0;
+  const draftCount = profileData?.esStats.draftCount ?? 0;
+  const publishedCount = profileData?.esStats.publishedCount ?? 0;
+  const esTotal = profileData?.esStats.total ?? 0;
+  const notificationsInitialData = buildNotificationPreviewData(notificationsData, 5);
+
+  const formatDate = (dateString?: string | null) => {
     if (!dateString) return "不明";
     const date = new Date(dateString);
     return date.toLocaleDateString("ja-JP", {
@@ -177,19 +138,20 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
+      <DashboardHeader
+        notificationsInitialData={notificationsInitialData}
+        creditsInitialData={profileData?.creditsInitialData}
+      />
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Back Link */}
+      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         <Link
           href="/dashboard"
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
+          className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeftIcon />
           ダッシュボードへ戻る
         </Link>
 
-        {/* Profile Header Card */}
         <Card className="mb-6">
           <CardHeader className="flex flex-row items-center justify-between">
             <div className="flex items-center gap-2">
@@ -205,31 +167,31 @@ export default function ProfilePage() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-4">
-              {profile?.image || user?.image ? (
-                <img
-                  src={profile?.image || user?.image || ""}
+              {profile.image ? (
+                <Image
+                  src={profile.image}
                   alt=""
-                  className="w-20 h-20 rounded-full ring-4 ring-muted"
+                  width={80}
+                  height={80}
+                  className="h-20 w-20 rounded-full ring-4 ring-muted"
                 />
               ) : (
-                <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center text-primary text-2xl font-bold">
-                  {(profile?.name || user?.name || "U").charAt(0)}
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-2xl font-bold text-primary ring-4 ring-muted">
+                  {(profile.name || "U").charAt(0)}
                 </div>
               )}
               <div>
-                <h2 className="text-xl font-bold">{profile?.name || user?.name || "名前未設定"}</h2>
-                <p className="text-muted-foreground">{profile?.email || user?.email}</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  利用開始: {formatDate(profile?.createdAt)}
+                <h2 className="text-xl font-bold">{profile.name || "名前未設定"}</h2>
+                <p className="text-muted-foreground">{profile.email || "不明"}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  利用開始: {formatDate(profile.createdAt)}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          {/* Usage Stats Card */}
+        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">
@@ -238,26 +200,25 @@ export default function ProfilePage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex justify-between items-center">
+              <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">登録企業</span>
                 <span className="font-semibold">{companyCount} 社</span>
               </div>
-              <div className="flex justify-between items-center">
+              <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">ES作成数</span>
                 <span className="font-semibold">{esTotal} 件</span>
               </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground pl-4">- 完了</span>
+              <div className="flex items-center justify-between text-sm">
+                <span className="pl-4 text-muted-foreground">- 完了</span>
                 <span>{publishedCount} 件</span>
               </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground pl-4">- 下書き</span>
+              <div className="flex items-center justify-between text-sm">
+                <span className="pl-4 text-muted-foreground">- 下書き</span>
                 <span>{draftCount} 件</span>
               </div>
             </CardContent>
           </Card>
 
-          {/* Plan Card */}
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">
@@ -266,15 +227,15 @@ export default function ProfilePage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex justify-between items-center">
+              <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">現在のプラン</span>
                 <span className="font-semibold text-primary">
-                  {PLAN_LABELS[profile?.plan || "free"] || "フリープラン"}
+                  {PLAN_LABELS[profile.plan || "free"] || "フリープラン"}
                 </span>
               </div>
-              <div className="flex justify-between items-center">
+              <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">クレジット残高</span>
-                <span className="font-semibold">{balance?.toLocaleString() ?? "---"}</span>
+                <span className="font-semibold">{profile.creditsBalance?.toLocaleString() ?? "---"}</span>
               </div>
               <div className="pt-2">
                 <Button variant="outline" size="sm" className="w-full" asChild>
@@ -285,7 +246,6 @@ export default function ProfilePage() {
           </Card>
         </div>
 
-        {/* Education Card */}
         <Card className="mb-6">
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -294,30 +254,27 @@ export default function ProfilePage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex justify-between items-center">
+            <div className="flex items-center justify-between">
               <span className="text-muted-foreground">大学</span>
-              <span className={profile?.university ? "font-medium" : "text-muted-foreground"}>
-                {profile?.university || "未設定"}
+              <span className={profile.university ? "font-medium" : "text-muted-foreground"}>
+                {profile.university || "未設定"}
               </span>
             </div>
-            <div className="flex justify-between items-center">
+            <div className="flex items-center justify-between">
               <span className="text-muted-foreground">学部・学科</span>
-              <span className={profile?.faculty ? "font-medium" : "text-muted-foreground"}>
-                {profile?.faculty || "未設定"}
+              <span className={profile.faculty ? "font-medium" : "text-muted-foreground"}>
+                {profile.faculty || "未設定"}
               </span>
             </div>
-            <div className="flex justify-between items-center">
+            <div className="flex items-center justify-between">
               <span className="text-muted-foreground">卒業予定</span>
-              <span className={profile?.graduationYear ? "font-medium" : "text-muted-foreground"}>
-                {profile?.graduationYear ? `${profile.graduationYear}年3月` : "未設定"}
+              <span className={profile.graduationYear ? "font-medium" : "text-muted-foreground"}>
+                {profile.graduationYear ? `${profile.graduationYear}年3月` : "未設定"}
               </span>
             </div>
-            {(!profile?.university || !profile?.faculty || !profile?.graduationYear) && (
+            {(!profile.university || !profile.faculty || !profile.graduationYear) && (
               <div className="pt-2">
-                <Link
-                  href="/settings"
-                  className="text-sm text-primary hover:underline"
-                >
+                <Link href="/settings" className="text-sm text-primary hover:underline">
                   設定画面で学歴情報を入力する →
                 </Link>
               </div>
@@ -325,7 +282,6 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
-        {/* Target Card */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -335,14 +291,11 @@ export default function ProfilePage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <p className="text-sm text-muted-foreground mb-2">志望業界</p>
-              {profile?.targetIndustries && profile.targetIndustries.length > 0 ? (
+              <p className="mb-2 text-sm text-muted-foreground">志望業界</p>
+              {profile.targetIndustries.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {profile.targetIndustries.map((industry) => (
-                    <span
-                      key={industry}
-                      className="px-3 py-1 text-sm rounded-full bg-primary/10 text-primary"
-                    >
+                    <span key={industry} className="rounded-full bg-primary/10 px-3 py-1 text-sm text-primary">
                       {industry}
                     </span>
                   ))}
@@ -352,14 +305,11 @@ export default function ProfilePage() {
               )}
             </div>
             <div>
-              <p className="text-sm text-muted-foreground mb-2">志望職種</p>
-              {profile?.targetJobTypes && profile.targetJobTypes.length > 0 ? (
+              <p className="mb-2 text-sm text-muted-foreground">志望職種</p>
+              {profile.targetJobTypes.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {profile.targetJobTypes.map((jobType) => (
-                    <span
-                      key={jobType}
-                      className="px-3 py-1 text-sm rounded-full bg-emerald-100 text-emerald-700"
-                    >
+                    <span key={jobType} className="rounded-full bg-emerald-100 px-3 py-1 text-sm text-emerald-700">
                       {jobType}
                     </span>
                   ))}
@@ -368,13 +318,9 @@ export default function ProfilePage() {
                 <p className="text-muted-foreground">未設定</p>
               )}
             </div>
-            {((!profile?.targetIndustries || profile.targetIndustries.length === 0) ||
-              (!profile?.targetJobTypes || profile.targetJobTypes.length === 0)) && (
+            {(profile.targetIndustries.length === 0 || profile.targetJobTypes.length === 0) && (
               <div className="pt-2">
-                <Link
-                  href="/settings"
-                  className="text-sm text-primary hover:underline"
-                >
+                <Link href="/settings" className="text-sm text-primary hover:underline">
                   設定画面で志望情報を入力する →
                 </Link>
               </div>

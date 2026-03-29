@@ -92,12 +92,28 @@ interface InMemoryState {
 
 const memoryStore = new Map<string, InMemoryState>();
 
+/** Upstash 未設定は想定内（ローカル開発）で、リクエストごとに JSON を出すと E2E / dev が埋まる */
+const loggedUpstashUnavailableOps = new Set<string>();
+
 function logRateLimitFallback(
   operation: string,
   key: string,
   mode: "upstash_unavailable" | "upstash_error",
   error?: unknown
 ) {
+  if (mode === "upstash_unavailable") {
+    if (!loggedUpstashUnavailableOps.has(operation)) {
+      loggedUpstashUnavailableOps.add(operation);
+      const msg = `[rate-limit] "${operation}": Upstash Redis 未設定のためインメモリでレート制限（同操作の再ログは省略）`;
+      if (process.env.NODE_ENV === "development") {
+        console.debug(msg);
+      } else {
+        console.warn(msg);
+      }
+    }
+    return;
+  }
+
   console.warn(
     JSON.stringify({
       event: "rate_limit_fallback",

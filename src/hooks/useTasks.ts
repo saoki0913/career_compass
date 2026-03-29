@@ -6,7 +6,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 export type TaskType =
@@ -89,31 +88,21 @@ export interface UpdateTaskInput {
 }
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore errors
-    }
-  }
-  return headers;
 }
 
 export interface UseTasksOptions {
   status?: TaskStatus | "all";
   companyId?: string;
   applicationId?: string;
+  initialData?: Task[];
 }
 
 export function useTasks(options: UseTasksOptions = {}) {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [tasks, setTasks] = useState<Task[]>(() => options.initialData ?? []);
+  const [isLoading, setIsLoading] = useState(() => !options.initialData);
   const [error, setError] = useState<string | null>(null);
 
   const fetchTasks = useCallback(async () => {
@@ -165,8 +154,11 @@ export function useTasks(options: UseTasksOptions = {}) {
   }, [options.status, options.companyId, options.applicationId]);
 
   useEffect(() => {
+    if (options.initialData) {
+      return;
+    }
     fetchTasks();
-  }, [fetchTasks]);
+  }, [fetchTasks, options.initialData]);
 
   const createTask = useCallback(
     async (input: CreateTaskInput): Promise<Task | null> => {
@@ -192,8 +184,14 @@ export function useTasks(options: UseTasksOptions = {}) {
         }
 
         const data = await response.json();
-        await fetchTasks();
-        return data.task;
+        const nextTask: Task = {
+          ...data.task,
+          company: null,
+          application: null,
+          deadline: null,
+        };
+        setTasks((prev) => (options.status === "done" ? prev : [nextTask, ...prev]));
+        return nextTask;
       } catch (err) {
         const uiError = toAppUiError(
           err,
@@ -209,7 +207,7 @@ export function useTasks(options: UseTasksOptions = {}) {
         return null;
       }
     },
-    [fetchTasks]
+    [options.status]
   );
 
   const updateTask = useCallback(
@@ -235,7 +233,28 @@ export function useTasks(options: UseTasksOptions = {}) {
           );
         }
 
-        await fetchTasks();
+        const data = await response.json();
+        setTasks((prev) => {
+          const nextTasks = prev.map((task) =>
+            task.id === taskId
+              ? {
+                  ...task,
+                  ...data.task,
+                  dueDate: data.task.dueDate ?? task.dueDate,
+                  completedAt: data.task.completedAt ?? null,
+                }
+              : task
+          );
+
+          if (options.status === "open") {
+            return nextTasks.filter((task) => task.status === "open");
+          }
+          if (options.status === "done") {
+            return nextTasks.filter((task) => task.status === "done");
+          }
+
+          return nextTasks;
+        });
         return true;
       } catch (err) {
         const uiError = toAppUiError(
@@ -252,7 +271,7 @@ export function useTasks(options: UseTasksOptions = {}) {
         return false;
       }
     },
-    [fetchTasks]
+    [options.status]
   );
 
   const deleteTask = useCallback(
@@ -277,7 +296,7 @@ export function useTasks(options: UseTasksOptions = {}) {
           );
         }
 
-        await fetchTasks();
+        setTasks((prev) => prev.filter((task) => task.id !== taskId));
         return true;
       } catch (err) {
         const uiError = toAppUiError(
@@ -294,7 +313,7 @@ export function useTasks(options: UseTasksOptions = {}) {
         return false;
       }
     },
-    [fetchTasks]
+    []
   );
 
   const toggleComplete = useCallback(
@@ -411,7 +430,7 @@ export function useTodayTask(options: UseTodayTaskOptions = {}) {
         );
       }
 
-      await fetchTodayTask();
+      setData({ mode: null, task: null });
       return true;
     } catch (err) {
       const uiError = toAppUiError(
@@ -427,7 +446,7 @@ export function useTodayTask(options: UseTodayTaskOptions = {}) {
       setError(uiError.message);
       return false;
     }
-  }, [data.task, fetchTodayTask]);
+  }, [data.task]);
 
   return {
     ...data,

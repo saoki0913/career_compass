@@ -37,6 +37,7 @@ import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 function deriveCharMin(charLimit?: number | null) {
   if (!charLimit) {
@@ -465,9 +466,7 @@ export async function handleReviewStream(
     const userProvidedCorporateUrls = collectUserProvidedCorporateUrls(companyInfo.corporateInfoUrls);
 
     // Call FastAPI SSE streaming endpoint
-    const fastApiUrl = process.env.FASTAPI_URL || "http://localhost:8000";
-
-    const aiResponse = await fetch(`${fastApiUrl}${backendPath}`, {
+    const aiResponse = await fetchFastApiInternal(backendPath, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

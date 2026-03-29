@@ -34,6 +34,7 @@ import { ListPageSkeleton } from "@/components/shared/ListPageSkeleton";
 import { ListPageEmptyState } from "@/components/shared/ListPageEmptyState";
 import { FavoritesSection } from "@/components/shared/FavoritesSection";
 import { ViewToggle } from "@/components/shared/ViewToggle";
+import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
 import {
   Select,
   SelectContent,
@@ -309,11 +310,14 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
   const [selectedEsCategory, setSelectedEsCategory] = useState<"all" | EsDocumentCategory>("all");
   const [groupByCompany, setGroupByCompany] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Document | null>(null);
+  const [isDeletingDocument, setIsDeletingDocument] = useState(false);
 
   const {
     documents,
     isLoading,
     createDocument,
+    deleteDocument,
     updateDocument,
     restoreDocument,
     permanentlyDeleteDocument,
@@ -391,6 +395,26 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
     setStatusUpdatingId(documentId);
     await updateDocument(documentId, { status: currentStatus === "published" ? "draft" : "published" });
     setStatusUpdatingId(null);
+  };
+
+  const handleDeleteStart = (document: Document) => {
+    setDeleteTarget(document);
+  };
+
+  const handleDeleteCancel = () => {
+    if (isDeletingDocument) return;
+    setDeleteTarget(null);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+
+    setIsDeletingDocument(true);
+    const deleted = await deleteDocument(deleteTarget.id);
+    setIsDeletingDocument(false);
+    if (deleted) {
+      setDeleteTarget(null);
+    }
   };
 
   const activeDocuments = documents.filter((document) => document.status !== "deleted");
@@ -545,7 +569,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
                   value={selectedEsCategory}
                   onValueChange={(v) => setSelectedEsCategory(v as "all" | EsDocumentCategory)}
                 >
-                  <SelectTrigger className="h-9 w-[150px] sm:w-[170px] font-normal text-sm">
+                  <SelectTrigger className="h-9 w-full sm:w-[170px] font-normal text-sm">
                     <SelectValue placeholder="分類" />
                   </SelectTrigger>
                   <SelectContent>
@@ -563,7 +587,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
                     selected={selectedCompanies}
                     onChange={setSelectedCompanies}
                     placeholder="企業"
-                    className="w-[160px]"
+                    className="w-full sm:w-[160px]"
                   />
                 ) : null}
               </Fragment>
@@ -647,6 +671,10 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
             documents={filteredDocuments}
             pinnedIds={pinnedIds}
             onTogglePin={togglePin}
+            onDeleteStart={(documentId) => {
+              const target = filteredDocuments.find((document) => document.id === documentId);
+              if (target) handleDeleteStart(target);
+            }}
             onToggleStatus={handleToggleStatus}
             statusUpdatingId={statusUpdatingId}
           />
@@ -657,6 +685,10 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
                 documents={pinnedDocs}
                 pinnedIds={pinnedIds}
                 onTogglePin={togglePin}
+                onDeleteStart={(documentId) => {
+                  const target = pinnedDocs.find((document) => document.id === documentId);
+                  if (target) handleDeleteStart(target);
+                }}
                 onToggleStatus={handleToggleStatus}
                 statusUpdatingId={statusUpdatingId}
               />
@@ -674,6 +706,10 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
                   documents={unpinnedDocs}
                   pinnedIds={pinnedIds}
                   onTogglePin={togglePin}
+                  onDeleteStart={(documentId) => {
+                    const target = unpinnedDocs.find((document) => document.id === documentId);
+                    if (target) handleDeleteStart(target);
+                  }}
                   onToggleStatus={handleToggleStatus}
                   statusUpdatingId={statusUpdatingId}
                 />
@@ -691,6 +727,20 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
           onCreate={handleCreate}
           companies={companies}
           initialCompanyId={initialCompanyId}
+        />
+
+        <DeleteConfirmDialog
+          isOpen={deleteTarget !== null}
+          title="ESをゴミ箱に移動しますか？"
+          description={
+            deleteTarget
+              ? `「${deleteTarget.title}」を一覧から外してゴミ箱へ移動します。完全削除はゴミ箱から行えます。`
+              : ""
+          }
+          confirmLabel="ゴミ箱へ移動"
+          isDeleting={isDeletingDocument}
+          onConfirm={handleDeleteConfirm}
+          onCancel={handleDeleteCancel}
         />
       </main>
     </div>

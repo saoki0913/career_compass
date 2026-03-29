@@ -69,8 +69,8 @@ export const PLAN_METADATA = {
 } as const;
 
 export const ANNUAL_PLAN_PRICES: Record<Exclude<PlanType, "free">, number> = {
-  /** 月額 1,480 円 × 12 に近い年額（従来 Standard 年額と同程度の割引感） */
-  standard: 15080,
+  /** Standard 年額 */
+  standard: 14980,
   pro: 29800,
 };
 
@@ -96,6 +96,17 @@ export function getPlanFromPriceId(priceId: string): PlanType | null {
     for (const [, id] of Object.entries(prices)) {
       if (id === priceId) {
         return plan as PlanType;
+      }
+    }
+  }
+  return null;
+}
+
+export function getBillingPeriodFromPriceId(priceId: string): BillingPeriod | null {
+  for (const prices of Object.values(STRIPE_PRICES)) {
+    for (const [period, id] of Object.entries(prices)) {
+      if (id === priceId) {
+        return period as BillingPeriod;
       }
     }
   }

@@ -68,7 +68,7 @@ export PATH="/Users/saoki/work/career_compass/tools/cli-safe/bin:$PATH"
 - ローカル変更を全部含めて本番リリース: `make deploy-stage-all`
 - provider auth baseline: `scripts/release/provider-auth-status.sh --strict`
 - bootstrap check: `scripts/bootstrap-career-compass-infra.sh --check`
-- secrets inventory sync: `scripts/release/sync-career-compass-secrets.sh --check|--apply`
+- secrets inventory sync: `scripts/release/sync-career-compass-secrets.sh --check|--apply`（正本は codex-company `.secrets/career_compass`。`codex-company/.secrets/` 内の実ファイルを直接読まず、一覧・検証はこのスクリプト経由に寄せる）
 
 自然文で `本番にデプロイして` / `本番反映して` / `公開して` / `ship it` / `deploy to production` と依頼された場合は、標準の本番リリース依頼として扱い、明示がなければ `make ops-release-check` → `make deploy-stage-all` を使う。
 

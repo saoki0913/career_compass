@@ -37,6 +37,20 @@ export async function POST(request: NextRequest) {
 
     const data: OnboardingData = await request.json();
     const userId = session.user.id;
+    const hasAnyInput = Boolean(
+      data.university?.trim() ||
+      data.faculty?.trim() ||
+      data.graduationYear ||
+      data.targetIndustries?.length ||
+      data.targetJobTypes?.length
+    );
+
+    if (!hasAnyInput) {
+      return NextResponse.json(
+        { error: "At least one onboarding field is required" },
+        { status: 400 }
+      );
+    }
 
     // Validate graduation year if provided
     if (data.graduationYear !== undefined) {

@@ -1,4 +1,3 @@
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { ListPageFilterBarSkeleton } from "@/components/shared/ListPageFilterBarSkeleton";
 import { Skeleton, SkeletonButton, SkeletonText } from "@/components/ui/skeleton";
 import { EsDocumentCardSkeleton } from "@/components/skeletons/EsDocumentCardSkeleton";
@@ -6,8 +5,7 @@ import { EsDocumentCardSkeleton } from "@/components/skeletons/EsDocumentCardSke
 export function ESListSkeleton() {
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
-      <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
             <Skeleton className="h-8 w-40" />
@@ -26,7 +24,7 @@ export function ESListSkeleton() {
             <EsDocumentCardSkeleton key={i} />
           ))}
         </div>
-      </main>
+      </div>
     </div>
   );
 }

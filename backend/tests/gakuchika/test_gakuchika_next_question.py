@@ -16,6 +16,8 @@ def test_build_next_question_prompt_includes_quality_guardrails() -> None:
         question_count=4,
     )
 
+    assert "短い入力からでも" in prompt
+    assert "完成度の高いガクチカ文章に育てる" in prompt
     assert "派手な結果より" in prompt
     assert "1問で広く浅く聞かず" in prompt
     assert "役割・裁量・他者との分担" in prompt
@@ -23,7 +25,7 @@ def test_build_next_question_prompt_includes_quality_guardrails() -> None:
     assert "面接官の懐疑心を生まないよう" in prompt
     assert "エピソードのすり替え禁止" in prompt
     assert "課題選定の筋の良さ" in prompt
-    assert "scene / root_cause / decision_reason" in prompt
+    assert "anchor / challenge / action_decision" in prompt
     assert "複数の打ち手" in prompt
     assert "列挙を広げる聞き方" in prompt
     assert "当時の目標" in prompt

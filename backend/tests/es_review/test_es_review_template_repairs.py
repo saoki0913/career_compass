@@ -33,7 +33,9 @@ from app.routers.es_review import (
     _parse_issues,
     _resolve_rewrite_focus_mode,
     _resolve_rewrite_focus_modes,
+    _select_retry_codes,
     _select_rewrite_prompt_context,
+    _should_short_circuit_to_length_fix,
     _select_prompt_user_facts,
     _soft_min_shortfall,
     _uses_tight_length_control,
@@ -57,7 +59,9 @@ def _make_role_course_pad(length: int) -> str:
     head = "デジタル企画の役割に惹かれ研究を生かしたい。"
     if length <= len(head):
         return head[:length]
-    return head + "あ" * (length - len(head))
+    if length == len(head) + 1:
+        return head + "。"
+    return head + "あ" * (length - len(head) - 1) + "。"
 
 
 def _make_intern_reason_pad(length: int) -> str:
@@ -67,7 +71,9 @@ def _make_intern_reason_pad(length: int) -> str:
     head = "Business Intelligence Internshipに参加して学びたい。研究で仮説検証を重ねた。"
     if length <= len(head):
         return head[:length]
-    return head + "あ" * (length - len(head))
+    if length == len(head) + 1:
+        return head + "。"
+    return head + "あ" * (length - len(head) - 1) + "。"
 
 
 def test_coerce_degraded_rewrite_dearu_strips_polite_auxiliaries() -> None:
@@ -264,6 +270,7 @@ def test_resolve_rewrite_focus_mode_tracks_latest_failure_code() -> None:
     assert _resolve_rewrite_focus_mode(retry_code="style") == "style_focus"
     assert _resolve_rewrite_focus_mode(retry_code="grounding") == "grounding_focus"
     assert _resolve_rewrite_focus_mode(retry_code="verbose_opening") == "opening_focus"
+    assert _resolve_rewrite_focus_mode(retry_code="negative_self_eval") == "positive_reframe_focus"
 
 
 def test_resolve_rewrite_focus_modes_combines_length_and_opening() -> None:
@@ -271,6 +278,26 @@ def test_resolve_rewrite_focus_modes_combines_length_and_opening() -> None:
         retry_code="under_min",
         failure_codes=["under_min", "verbose_opening"],
     ) == ["length_focus_min", "opening_focus"]
+
+
+def test_select_retry_codes_prioritizes_under_min_for_mixed_failures() -> None:
+    assert _select_retry_codes(
+        retry_code="verbose_opening",
+        failure_codes=["verbose_opening", "under_min"],
+    ) == ["under_min", "verbose_opening"]
+
+
+def test_should_short_circuit_to_length_fix_when_shortfall_remains_large() -> None:
+    assert _should_short_circuit_to_length_fix(
+        retry_code="under_min",
+        current_length=133,
+        last_under_min_length=126,
+        attempt_number=2,
+        llm_model="gpt-5.4-mini",
+        char_min=170,
+        char_max=220,
+        rewrite_source_answer="研究で課題を整理し、相手の課題を捉える力を生かしたい。",
+    )
 
 
 def test_validate_rewrite_candidate_accepts_soft_style_and_grounding_on_final_attempt() -> None:
@@ -292,10 +319,10 @@ def test_validate_rewrite_candidate_accepts_soft_style_and_grounding_on_final_at
         soft_validation_mode="final_soft",
     )
 
-    assert validated == candidate
+    assert validated == "貴社を志望するのは、研究で培った分析力を生かしたい。"
     assert retry_code == "soft_ok"
     assert retry_meta["soft_validation_applied"] is True
-    assert set(retry_meta["soft_validation_codes"]) == {"style", "grounding"}
+    assert set(retry_meta["soft_validation_codes"]) == {"grounding"}
 
 
 def test_es_review_temperature_uses_provider_defaultish_setting_for_gemini() -> None:
@@ -421,6 +448,56 @@ def test_build_company_evidence_cards_balances_role_and_company_axes_for_require
     themes = {card["theme"] for card in cards}
     assert "役割理解" in themes
     assert themes & {"事業理解", "価値観", "採用方針", "企業理解"}
+
+
+def test_build_company_evidence_cards_derives_two_themes_from_single_verified_required_source() -> None:
+    cards = _build_company_evidence_cards(
+        [
+            {
+                "content_type": "corporate_site",
+                "title": "事業戦略と現場期待",
+                "excerpt": "成長領域への投資を進めながら、現場で学び意思決定を担う人材を求めている。",
+                "source_url": "https://example.com/business",
+                "same_company_verified": True,
+            }
+        ],
+        template_type="company_motivation",
+        question="志望理由を200字以内で教えてください。",
+        answer="研究で仮説検証を重ねた経験を事業に生かしたい。",
+        role_name="総合職",
+        intern_name=None,
+        grounding_mode="company_general",
+    )
+
+    themes = {card["theme"] for card in cards}
+    assert len(cards) >= 2
+    assert "事業理解" in themes
+    assert "現場期待" in themes
+
+
+def test_build_company_evidence_cards_derives_two_themes_when_excerpt_is_primary_claim() -> None:
+    cards = _build_company_evidence_cards(
+        [
+            {
+                "content_type": "corporate_site",
+                "title": "事業戦略",
+                "excerpt": "幅広い事業領域で価値創出を進め、現場で学びながら社会課題に向き合う。",
+                "source_url": "https://example.com/business",
+                "same_company_verified": True,
+            }
+        ],
+        template_type="company_motivation",
+        question="三菱商事を志望する理由を200字以内で教えてください。",
+        answer="研究で複数の仮説を比較し、価値につながる打ち手を考えてきた。",
+        role_name="総合職",
+        intern_name=None,
+        grounding_mode="company_general",
+    )
+
+    themes = {card["theme"] for card in cards}
+    assert len(cards) >= 2
+    assert "事業理解" in themes
+    assert "現場期待" in themes
 
 
 def test_build_company_evidence_cards_prioritizes_user_provided_sources() -> None:
@@ -718,6 +795,46 @@ def test_validate_rewrite_candidate_intern_reason_allows_praxis_without_intern_k
     assert code == "ok"
     assert reason == "ok"
     assert meta.get("length_policy") == "strict"
+
+
+def test_validate_rewrite_candidate_rejects_unfinished_tail_as_fragment() -> None:
+    candidate, code, reason, meta = _validate_rewrite_candidate(
+        "デジタル企画の役割に惹かれ、研究で培った分析力を事業と技術をつなぐ仕事で生かしたい",
+        template_type="role_course_reason",
+        question="デジタル企画コースを選んだ理由を教えてください。",
+        company_name="三菱商事",
+        char_min=20,
+        char_max=120,
+        issues=[],
+        role_name="デジタル企画",
+        grounding_mode="role_grounded",
+        company_evidence_cards=[
+            {"theme": "役割理解", "claim": "事業と実装をつなぐ", "excerpt": "構想を前に進める"}
+        ],
+    )
+
+    assert candidate is None
+    assert code == "fragment"
+    assert "fragment" in meta["failure_codes"]
+
+
+def test_validate_rewrite_candidate_rejects_negative_self_eval_for_self_pr() -> None:
+    candidate, code, reason, meta = _validate_rewrite_candidate(
+        "私の強みは、経験不足だと感じる場面でも準備を重ね、任された仕事を最後までやり切る点だ。自信がない場面でも必要な確認を先回りして進める。",
+        template_type="self_pr",
+        question="自己PRを220字以内で教えてください。",
+        company_name=None,
+        char_min=20,
+        char_max=220,
+        issues=[],
+        role_name=None,
+        grounding_mode="none",
+    )
+
+    assert candidate is None
+    assert code in {"negative_self_eval", "verbose_opening", "answer_focus"}
+    assert "前向きな表現" in reason
+    assert "negative_self_eval" in meta["failure_codes"]
 
 
 def test_validate_rewrite_candidate_allows_soft_min_for_short_answer_on_final_attempt(
@@ -1133,6 +1250,53 @@ async def test_review_section_with_template_combines_length_and_opening_focus_mo
     assert result.review_meta is not None
     assert result.review_meta.rewrite_generation_mode == "length_focus_min+opening_focus"
     assert 175 <= len(result.rewrites[0]) <= 180
+
+
+@pytest.mark.asyncio
+async def test_review_section_with_template_salvages_gemini_style_only_with_deterministic_normalization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def fake_call_llm_text_with_error(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return FakeTextResult(
+            "実務に近い課題を通じて、分析を意思決定につなげる視点を学びたいです。"
+            "研究で培った分析力を実際の課題で試し、事業の制約を踏まえて価値に変える力を身につけたいです。"
+            "将来は現場の判断を支える提案へつなげたいです。"
+        )
+
+    monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
+
+    request = ReviewRequest(
+        content="実務に近い課題で分析を価値に変える力を磨きたい。",
+        section_title="参加理由を教えてください。",
+        template_request=TemplateRequest(
+            template_type="intern_reason",
+            question="Business Intelligence Internshipの参加理由を120字以内で教えてください。",
+            answer="実務に近い課題で分析を価値に変える力を磨きたい。",
+            company_name="三井物産",
+            char_min=85,
+            char_max=120,
+            intern_name="Business Intelligence Internship",
+        ),
+    )
+
+    result = await review_section_with_template(
+        request=request,
+        rag_sources=[],
+        company_rag_available=False,
+        llm_model="gemini-3.1-pro-preview",
+        grounding_mode="role_grounded",
+        progress_queue=None,
+    )
+
+    assert calls == 1
+    assert result.review_meta is not None
+    assert "です" not in result.rewrites[0]
+    assert "ます" not in result.rewrites[0]
+    assert 85 <= len(result.rewrites[0]) <= 120
 
 
 @pytest.mark.asyncio
@@ -1716,7 +1880,7 @@ async def test_review_section_with_template_uses_generalized_company_guidance_wh
     )
 
     assert captured_prompts
-    assert any("根拠が限定的な場合は、企業理解を1軸に絞って一般化した表現を優先する" in prompt for prompt in captured_prompts)
+    assert any("cards から別観点の company anchor を最低2点拾う" in prompt for prompt in captured_prompts)
     assert result.review_meta is not None
     assert result.review_meta.company_evidence_count == 1
     assert result.review_meta.evidence_coverage_level == "weak"

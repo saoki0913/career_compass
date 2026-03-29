@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="ja" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>就活Pass - 就活を、AIと一緒に迷わず進める</title>
+    <meta name="description" content="ES添削・志望動機・ガクチカ深掘り・企業管理を一つに。AIと一緒に就活を迷わず進められる状態へ。">
+
+    <!-- Google Fonts -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Noto+Sans+JP:wght@300;400;500;600;700&display=swap');
+    </style>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            DEFAULT: '#4338CA',
+                            dark: '#3730A3',
+                            light: '#6366F1',
+                            50: '#EEF2FF',
+                        },
+                        accent: {
+                            DEFAULT: '#059669',
+                            hover: '#047857',
+                            light: '#10B981',
+                        },
+                        warm: '#F59E0B',
+                        text: {
+                            DEFAULT: '#1E1B4B',
+                            muted: '#6B7280',
+                        },
+                        surface: '#FFFFFF',
+                        'bg-alt': '#F5F3FF',
+                    },
+                    fontFamily: {
+                        sans: ['DM Sans', 'Noto Sans JP', 'sans-serif'],
+                        jp: ['Noto Sans JP', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+
+    <style>
+        * {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        body {
+            font-family: 'DM Sans', 'Noto Sans JP', sans-serif;
+        }
+
+        .dot-grid {
+            background-image: radial-gradient(circle, rgba(99, 102, 241, 0.06) 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        .dot-grid-white {
+            background-image: radial-gradient(circle, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        .gradient-mesh-hero {
+            background:
+                radial-gradient(ellipse at 20% 50%, rgba(99, 102, 241, 0.07), transparent 60%),
+                radial-gradient(ellipse at 80% 20%, rgba(5, 150, 105, 0.05), transparent 50%),
+                radial-gradient(ellipse at 50% 80%, rgba(245, 158, 11, 0.03), transparent 50%),
+                #FAFAFA;
+        }
+
+        .gradient-mesh-cta {
+            background:
+                radial-gradient(ellipse at 30% 40%, rgba(5, 150, 105, 0.15), transparent 50%),
+                radial-gradient(ellipse at 70% 60%, rgba(99, 102, 241, 0.12), transparent 50%),
+                #1E1B4B;
+        }
+
+        .reveal {
+            opacity: 0;
+            transform: translateY(40px);
+            filter: blur(8px);
+            transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                        filter 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .reveal.visible {
+            opacity: 1;
+            transform: translateY(0);
+            filter: blur(0);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .reveal {
+                opacity: 1;
+                transform: none;
+                filter: none;
+                transition: none;
+            }
+        }
+
+        .card-hover {
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .card-hover:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 8px 40px rgba(67, 56, 202, 0.08);
+        }
+
+        .cta-glow:hover {
+            box-shadow: 0 0 30px rgba(5, 150, 105, 0.25), 0 8px 24px rgba(5, 150, 105, 0.3);
+        }
+
+        .faq-answer {
+            max-height: 0;
+            overflow: hidden;
+            opacity: 0;
+            transition: max-height 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                        opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .faq-answer.open {
+            max-height: 500px;
+            opacity: 1;
+        }
+
+        .faq-icon {
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .faq-icon.open {
+            transform: rotate(180deg);
+        }
+
+        .step-line {
+            position: relative;
+        }
+
+        .step-line::after {
+            content: '';
+            position: absolute;
+            top: 24px;
+            left: 60px;
+            width: calc(100% - 60px);
+            height: 2px;
+            background: linear-gradient(to right, #E5E7EB 0%, #E5E7EB 50%, transparent 50%, transparent 100%);
+            background-size: 12px 2px;
+        }
+
+        @media (max-width: 768px) {
+            .step-line::after {
+                display: none;
+            }
+        }
+
+        .gradient-border-top {
+            background: linear-gradient(to right, #6366F1, #059669);
+            height: 1px;
+        }
+    </style>
+</head>
+<body class="bg-[#FAFAFA] text-text">
+
+    <!-- HEADER -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-[rgba(250,250,250,0.9)] backdrop-blur-lg border-b border-[rgba(229,231,235,0.6)]">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-[60px]">
+                <!-- Logo -->
+                <div class="flex items-center gap-2">
+                    <div class="w-6 h-6 rounded bg-gradient-to-br from-primary to-primary-light"></div>
+                    <span class="font-bold text-lg text-primary-dark" style="font-family: 'DM Sans', sans-serif;">就活Pass</span>
+                </div>
+
+                <!-- Nav -->
+                <nav class="hidden md:flex items-center gap-8" style="font-family: 'Noto Sans JP', sans-serif; font-weight: 500;">
+                    <a href="#features" class="text-text-muted hover:text-primary-dark transition-colors cursor-pointer">機能</a>
+                    <a href="#how-it-works" class="text-text-muted hover:text-primary-dark transition-colors cursor-pointer">使い方</a>
+                    <a href="#pricing" class="text-text-muted hover:text-primary-dark transition-colors cursor-pointer">料金</a>
+                    <a href="#faq" class="text-text-muted hover:text-primary-dark transition-colors cursor-pointer">FAQ</a>
+                </nav>
+
+                <!-- CTA -->
+                <button class="bg-accent text-white px-5 py-2.5 rounded-lg shadow-sm hover:bg-accent-hover transition-colors cursor-pointer font-medium">
+                    無料で始める
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- HERO -->
+    <section class="pt-28 pb-20 gradient-mesh-hero relative overflow-hidden">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <!-- Pre-headline -->
+            <div class="inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-[rgba(99,102,241,0.2)] rounded-full text-primary-dark text-sm font-medium mb-6 reveal" style="font-family: 'Noto Sans JP', sans-serif;">
+                ES添削 × AI × 企業管理 をひとつに
+            </div>
+
+            <!-- Main headline -->
+            <h1 class="text-5xl md:text-6xl lg:text-7xl font-bold text-text mb-6 reveal" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif; letter-spacing: -0.03em; line-height: 1.08;">
+                就活を、AIと一緒に<br>迷わず進める。
+            </h1>
+
+            <!-- Subtext -->
+            <p class="text-lg md:text-xl text-text-muted max-w-[580px] mx-auto mb-10 reveal" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.85;">
+                ES添削、志望動機、ガクチカの深掘りから、企業管理・締切管理まで。<br>
+                就活に必要なすべてを、AIとともに一つの場所で進められます。
+            </p>
+
+            <!-- CTAs -->
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12 reveal">
+                <button class="bg-accent text-white px-8 py-4 rounded-xl text-lg font-semibold shadow-lg shadow-accent/20 hover:shadow-xl cta-glow transition-all cursor-pointer">
+                    無料で始める →
+                </button>
+                <button class="bg-primary-50 text-primary-dark px-8 py-4 rounded-xl text-lg font-semibold hover:bg-primary-50/80 transition-all cursor-pointer">
+                    料金プランを見る
+                </button>
+            </div>
+
+            <!-- Trust badges -->
+            <div class="flex flex-wrap items-center justify-center gap-6 text-sm text-text-muted mb-16 reveal" style="font-family: 'Noto Sans JP', sans-serif;">
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                    </svg>
+                    <span>クレジットカード不要</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <span>30秒で登録完了</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    <span>無料プランあり</span>
+                </div>
+            </div>
+
+            <!-- Screenshot -->
+            <div class="max-w-5xl mx-auto reveal">
+                <div class="rounded-2xl border border-gray-200 shadow-2xl overflow-hidden bg-white">
+                    <!-- Browser bar -->
+                    <div class="bg-gray-100 h-10 flex items-center px-4 gap-2">
+                        <div class="flex gap-1.5">
+                            <div class="w-3 h-3 rounded-full bg-gray-300"></div>
+                            <div class="w-3 h-3 rounded-full bg-gray-300"></div>
+                            <div class="w-3 h-3 rounded-full bg-gray-300"></div>
+                        </div>
+                        <div class="flex-1 flex justify-center">
+                            <div class="bg-gray-200 rounded-md px-4 py-1 text-xs text-gray-500">
+                                就活pass.com/dashboard
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Content -->
+                    <div class="bg-gradient-to-br from-primary-50 to-white min-h-[400px] flex items-center justify-center">
+                        <div class="text-center">
+                            <svg class="w-24 h-24 mx-auto mb-4 text-primary/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                            </svg>
+                            <p class="text-2xl font-bold text-primary-dark" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                                就活Pass - Dashboard
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- BENEFIT STRIP -->
+    <section class="bg-white border-y border-gray-100 py-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                <!-- Benefit 1 -->
+                <div class="text-center px-6 reveal">
+                    <div class="w-12 h-12 bg-primary-50 rounded-xl flex items-center justify-center mx-auto mb-4">
+                        <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-text mb-2" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                        迷わず進める
+                    </h3>
+                    <p class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.7;">
+                        今やることが見える状態を<br>AIが一緒に作ります。
+                    </p>
+                </div>
+
+                <!-- Benefit 2 -->
+                <div class="text-center px-6 reveal">
+                    <div class="w-12 h-12 bg-primary-50 rounded-xl flex items-center justify-center mx-auto mb-4">
+                        <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-text mb-2" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                        締切を見逃さない
+                    </h3>
+                    <p class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.7;">
+                        企業・締切を一元管理し、<br>リマインダーが届きます。
+                    </p>
+                </div>
+
+                <!-- Benefit 3 -->
+                <div class="text-center px-6 reveal">
+                    <div class="w-12 h-12 bg-primary-50 rounded-xl flex items-center justify-center mx-auto mb-4">
+                        <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-text mb-2" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                        ES品質向上
+                    </h3>
+                    <p class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.7;">
+                        設問タイプごとに8つの<br>スタイルでAI添削。
+                    </p>
+                </div>
+
+                <!-- Benefit 4 -->
+                <div class="text-center px-6 reveal">
+                    <div class="w-12 h-12 bg-primary-50 rounded-xl flex items-center justify-center mx-auto mb-4">
+                        <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-text mb-2" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                        月¥1,480から
+                    </h3>
+                    <p class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.7;">
+                        無料の30クレジットから<br>始められます。
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- PRODUCT SHOWCASE -->
+    <section id="features" class="py-24 bg-bg-alt dot-grid relative">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <!-- Section header -->
+            <div class="text-center mb-16">
+                <div class="inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-[rgba(99,102,241,0.2)] rounded-full text-primary-dark text-sm font-medium mb-6 reveal">
+                    FEATURES
+                </div>
+                <h2 class="text-4xl md:text-5xl font-bold text-text mb-4 reveal" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif; letter-spacing: -0.02em;">
+                    書くことも、管理することも、<br>同じ流れで進める。
+                </h2>
+            </div>
+
+            <!-- Feature grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Feature 1 -->
+                <div class="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm card-hover reveal">
+                    <div class="w-12 h-12 bg-primary rounded-full flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-semibold text-text mb-3" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                        AI添削
+                    </h3>
+                    <p class="text-text-muted mb-6" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.75;">
+                        設問タイプに合わせて、書き方の改善ポイントを整理。ESの下書き段階から添削が使えます。
+                    </p>
+                    <div class="rounded-xl bg-primary-50 h-48 flex items-center justify-center">
+                        <svg class="w-16 h-16 text-primary/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Feature 2 -->
+                <div class="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm card-hover reveal">
+                    <div class="w-12 h-12 bg-accent rounded-full flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-semibold text-text mb-3" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                        対話で整理
+                    </h3>
+                    <p class="text-text-muted mb-6" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.75;">
+                        志望動機・ガクチカの要素をAIが深掘り。構造化された素材が手に入ります。
+                    </p>
+                    <div class="rounded-xl bg-emerald-50 h-48 flex items-center justify-center">
+                        <svg class="w-16 h-16 text-accent/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Feature 3 -->
+                <div class="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm card-hover reveal">
+                    <div class="w-12 h-12 bg-amber-400 rounded-full flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-amber-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-semibold text-text mb-3" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                        企業・締切管理
+                    </h3>
+                    <p class="text-text-muted mb-6" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.75;">
+                        企業情報、選考状態、締切をまとめて管理。Googleカレンダーと連携できます。
+                    </p>
+                    <div class="rounded-xl bg-amber-50 h-48 flex items-center justify-center">
+                        <svg class="w-16 h-16 text-amber-400/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Feature 4 -->
+                <div class="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm card-hover reveal">
+                    <div class="w-12 h-12 bg-primary-light rounded-full flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-semibold text-text mb-3" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                        ダッシュボード
+                    </h3>
+                    <p class="text-text-muted mb-6" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.75;">
+                        今日やること、近い締切、進行中のES。就活の全体を一目で把握できます。
+                    </p>
+                    <div class="rounded-xl bg-primary-50 h-48 flex items-center justify-center">
+                        <svg class="w-16 h-16 text-primary/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zM14 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1h-4a1 1 0 01-1-1v-3z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section id="how-it-works" class="py-24 bg-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <!-- Section header -->
+            <div class="text-center mb-16">
+                <div class="inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-[rgba(99,102,241,0.2)] rounded-full text-primary-dark text-sm font-medium mb-6 reveal">
+                    HOW IT WORKS
+                </div>
+                <h2 class="text-4xl md:text-5xl font-bold text-text mb-4 reveal" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif; letter-spacing: -0.02em;">
+                    始め方はかんたん。
+                </h2>
+                <p class="text-lg text-text-muted max-w-2xl mx-auto reveal" style="font-family: 'Noto Sans JP', sans-serif;">
+                    4ステップで、今日から就活を前に進められます。
+                </p>
+            </div>
+
+            <!-- Steps -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-4 mb-12">
+                <!-- Step 1 -->
+                <div class="relative reveal">
+                    <div class="flex flex-col items-center text-center step-line">
+                        <div class="w-12 h-12 bg-primary-50 rounded-full flex items-center justify-center text-primary-dark font-bold text-xl mb-4" style="font-family: 'DM Sans', sans-serif;">
+                            1
+                        </div>
+                        <h3 class="text-lg font-semibold text-text mb-2" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                            無料登録
+                        </h3>
+                        <p class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.7;">
+                            Googleアカウントで、クレジットカード不要。30秒で完了。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="relative reveal">
+                    <div class="flex flex-col items-center text-center step-line">
+                        <div class="w-12 h-12 bg-primary-50 rounded-full flex items-center justify-center text-primary-dark font-bold text-xl mb-4" style="font-family: 'DM Sans', sans-serif;">
+                            2
+                        </div>
+                        <h3 class="text-lg font-semibold text-text mb-2" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                            企業を追加
+                        </h3>
+                        <p class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.7;">
+                            志望企業を登録して、選考管理・ES作成をスタート。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="relative reveal">
+                    <div class="flex flex-col items-center text-center step-line">
+                        <div class="w-12 h-12 bg-primary-50 rounded-full flex items-center justify-center text-primary-dark font-bold text-xl mb-4" style="font-family: 'DM Sans', sans-serif;">
+                            3
+                        </div>
+                        <h3 class="text-lg font-semibold text-text mb-2" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                            AIで準備
+                        </h3>
+                        <p class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.7;">
+                            ES添削、志望動機、ガクチカの深掘りをAIがサポート。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Step 4 -->
+                <div class="relative reveal">
+                    <div class="flex flex-col items-center text-center">
+                        <div class="w-12 h-12 bg-primary-50 rounded-full flex items-center justify-center text-primary-dark font-bold text-xl mb-4" style="font-family: 'DM Sans', sans-serif;">
+                            4
+                        </div>
+                        <h3 class="text-lg font-semibold text-text mb-2" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                            選考へ
+                        </h3>
+                        <p class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.7;">
+                            締切管理とリマインダーで、やるべきことを見逃しません。
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CTA -->
+            <div class="text-center reveal">
+                <button class="text-accent font-semibold hover:underline cursor-pointer inline-flex items-center gap-2">
+                    今すぐ無料で始める →
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- PRICING -->
+    <section id="pricing" class="py-24 bg-gradient-to-b from-white to-bg-alt">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <!-- Section header -->
+            <div class="text-center mb-16">
+                <div class="inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-[rgba(99,102,241,0.2)] rounded-full text-primary-dark text-sm font-medium mb-6 reveal">
+                    PRICING
+                </div>
+                <h2 class="text-4xl md:text-5xl font-bold text-text mb-4 reveal" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif; letter-spacing: -0.02em;">
+                    無料で始めて、必要なぶんだけ広げる。
+                </h2>
+                <p class="text-lg text-text-muted max-w-2xl mx-auto reveal" style="font-family: 'Noto Sans JP', sans-serif;">
+                    クレジットは成功した処理だけに消費。無駄なく使えます。
+                </p>
+            </div>
+
+            <!-- Pricing cards -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+                <!-- Free -->
+                <div class="bg-white rounded-2xl border border-gray-200 p-8 reveal card-hover">
+                    <h3 class="text-xl font-semibold text-gray-900 mb-2" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                        Free
+                    </h3>
+                    <div class="mb-6">
+                        <span class="text-5xl font-bold text-text" style="font-family: 'DM Sans', sans-serif;">¥0</span>
+                    </div>
+                    <p class="text-sm text-text-muted mb-6" style="font-family: 'Noto Sans JP', sans-serif;">
+                        まずは無料で試してみる
+                    </p>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif;">30クレジット/月</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif;">ES添削（基本モデル）</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif;">企業・締切管理</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif;">基本的な通知機能</span>
+                        </li>
+                    </ul>
+                    <button class="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200 transition-colors cursor-pointer">
+                        無料で始める
+                    </button>
+                </div>
+
+                <!-- Standard -->
+                <div class="bg-white rounded-2xl border-2 border-primary p-8 relative shadow-xl shadow-primary/10 reveal transform scale-[1.04]">
+                    <div class="absolute -top-4 left-1/2 -translate-x-1/2 bg-warm text-amber-900 px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap">
+                        最も人気
+                    </div>
+                    <h3 class="text-xl font-semibold text-text mb-2" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                        Standard
+                    </h3>
+                    <div class="mb-2">
+                        <span class="text-5xl font-bold text-text" style="font-family: 'DM Sans', sans-serif;">¥1,480</span>
+                        <span class="text-text-muted">/月</span>
+                    </div>
+                    <p class="text-sm text-text-muted mb-6" style="font-family: 'Noto Sans JP', sans-serif;">
+                        1日わずか¥49
+                    </p>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-primary mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif;">200クレジット/月</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-primary mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif;">ES添削（高性能モデル）</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-primary mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif;">志望動機・ガクチカ深掘り</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-primary mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif;">Googleカレンダー連携</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-primary mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-text-muted" style="font-family: 'Noto Sans JP', sans-serif;">高度な通知機能</span>
+                        </li>
+                    </ul>
+                    <button class="w-full bg-primary text-white py-3 rounded-xl font-semibold shadow-lg shadow-primary/25 hover:bg-primary-dark transition-colors cursor-pointer">
+                        Standardで始める
+                    </button>
+                </div>
+
+                <!-- Pro -->
+                <div class="bg-[#1E1B4B] rounded-2xl p-8 text-white reveal card-hover">
+                    <h3 class="text-xl font-semibold mb-2" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif;">
+                        Pro
+                    </h3>
+                    <div class="mb-2">
+                        <span class="text-5xl font-bold" style="font-family: 'DM Sans', sans-serif;">¥2,980</span>
+                        <span class="text-indigo-300">/月</span>
+                    </div>
+                    <p class="text-sm text-indigo-300 mb-6" style="font-family: 'Noto Sans JP', sans-serif;">
+                        1日わずか¥99
+                    </p>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-indigo-200" style="font-family: 'Noto Sans JP', sans-serif;">500クレジット/月</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-indigo-200" style="font-family: 'Noto Sans JP', sans-serif;">全機能フル活用</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-indigo-200" style="font-family: 'Noto Sans JP', sans-serif;">優先サポート</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-indigo-200" style="font-family: 'Noto Sans JP', sans-serif;">企業情報PDF取り込み</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span class="text-sm text-indigo-200" style="font-family: 'Noto Sans JP', sans-serif;">新機能の先行アクセス</span>
+                        </li>
+                    </ul>
+                    <button class="w-full bg-accent text-white py-3 rounded-xl font-semibold shadow-lg shadow-accent/25 hover:bg-accent-hover transition-colors cursor-pointer">
+                        Proで始める
+                    </button>
+                </div>
+            </div>
+
+            <!-- Footnote -->
+            <p class="text-center text-sm text-text-muted mt-8 reveal" style="font-family: 'Noto Sans JP', sans-serif;">
+                年額プランは割引あり。クレジットは成功時のみ消費されます。
+            </p>
+        </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="py-24 bg-white">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <!-- Section header -->
+            <div class="text-center mb-16">
+                <div class="inline-flex items-center gap-2 px-4 py-2 bg-primary-50 border border-[rgba(99,102,241,0.2)] rounded-full text-primary-dark text-sm font-medium mb-6 reveal">
+                    FAQ
+                </div>
+                <h2 class="text-4xl md:text-5xl font-bold text-text reveal" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif; letter-spacing: -0.02em;">
+                    よくある質問
+                </h2>
+            </div>
+
+            <!-- FAQ items -->
+            <div class="space-y-3">
+                <!-- FAQ 1 -->
+                <div class="bg-gray-50/70 rounded-xl overflow-hidden reveal">
+                    <button class="w-full px-6 py-5 flex items-center justify-between text-left cursor-pointer faq-toggle">
+                        <span class="font-medium text-gray-800 pr-4" style="font-family: 'Noto Sans JP', sans-serif;">
+                            ES添削AIやES AIとして使えますか？
+                        </span>
+                        <svg class="w-5 h-5 text-gray-400 flex-shrink-0 faq-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div class="faq-answer px-6">
+                        <p class="pb-5 text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.75;">
+                            はい、就活PassはES添削に特化したAIを搭載しています。設問タイプ（自己PR、ガクチカ、志望動機など）を自動判定し、8つの添削スタイルから最適な改善提案を行います。ES AI として、書き方の改善だけでなく、構成・論理性・具体性まで幅広くサポートします。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- FAQ 2 -->
+                <div class="bg-gray-50/70 rounded-xl overflow-hidden reveal">
+                    <button class="w-full px-6 py-5 flex items-center justify-between text-left cursor-pointer faq-toggle">
+                        <span class="font-medium text-gray-800 pr-4" style="font-family: 'Noto Sans JP', sans-serif;">
+                            就活AIアプリとして何ができますか？
+                        </span>
+                        <svg class="w-5 h-5 text-gray-400 flex-shrink-0 faq-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div class="faq-answer px-6">
+                        <p class="pb-5 text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.75;">
+                            就活PassはES添削、志望動機作成支援、ガクチカ深掘り、企業管理、締切管理、リマインダー通知、Googleカレンダー連携を一つに統合した就活AIアプリです。書類作成から選考管理まで、就活の全プロセスをAIがサポートします。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- FAQ 3 -->
+                <div class="bg-gray-50/70 rounded-xl overflow-hidden reveal">
+                    <button class="w-full px-6 py-5 flex items-center justify-between text-left cursor-pointer faq-toggle">
+                        <span class="font-medium text-gray-800 pr-4" style="font-family: 'Noto Sans JP', sans-serif;">
+                            無料プランでは何ができますか？
+                        </span>
+                        <svg class="w-5 h-5 text-gray-400 flex-shrink-0 faq-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div class="faq-answer px-6">
+                        <p class="pb-5 text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.75;">
+                            無料プランでは毎月30クレジットが付与され、基本的なES添削、企業管理、締切管理、通知機能を利用できます。クレジットカード登録は不要で、今すぐ始められます。高性能モデルや志望動機・ガクチカ深掘りはStandardプラン以上で利用可能です。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- FAQ 4 -->
+                <div class="bg-gray-50/70 rounded-xl overflow-hidden reveal">
+                    <button class="w-full px-6 py-5 flex items-center justify-between text-left cursor-pointer faq-toggle">
+                        <span class="font-medium text-gray-800 pr-4" style="font-family: 'Noto Sans JP', sans-serif;">
+                            他の就活サービスとの違いは何ですか？
+                        </span>
+                        <svg class="w-5 h-5 text-gray-400 flex-shrink-0 faq-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div class="faq-answer px-6">
+                        <p class="pb-5 text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.75;">
+                            就活Passは「書くこと」と「管理すること」を同じ流れで進められる点が最大の特徴です。ES添削だけ、企業管理だけのサービスではなく、就活の全体をワンストップでサポート。AIによる即時フィードバックと、使った分だけのクレジット制で、無駄なくリーズナブルに利用できます。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- FAQ 5 -->
+                <div class="bg-gray-50/70 rounded-xl overflow-hidden reveal">
+                    <button class="w-full px-6 py-5 flex items-center justify-between text-left cursor-pointer faq-toggle">
+                        <span class="font-medium text-gray-800 pr-4" style="font-family: 'Noto Sans JP', sans-serif;">
+                            入力したデータは安全ですか？
+                        </span>
+                        <svg class="w-5 h-5 text-gray-400 flex-shrink-0 faq-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div class="faq-answer px-6">
+                        <p class="pb-5 text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.75;">
+                            はい。すべてのデータは暗号化され、厳格なセキュリティ基準のもとで管理されています。あなたの個人情報やESの内容が第三者に公開されることはありません。また、AI学習に利用されることもありません。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- FAQ 6 -->
+                <div class="bg-gray-50/70 rounded-xl overflow-hidden reveal">
+                    <button class="w-full px-6 py-5 flex items-center justify-between text-left cursor-pointer faq-toggle">
+                        <span class="font-medium text-gray-800 pr-4" style="font-family: 'Noto Sans JP', sans-serif;">
+                            クレジットとは何ですか？
+                        </span>
+                        <svg class="w-5 h-5 text-gray-400 flex-shrink-0 faq-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div class="faq-answer px-6">
+                        <p class="pb-5 text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.75;">
+                            クレジットは就活PassでAI機能を利用する際の単位です。ES添削、志望動機作成、ガクチカ深掘りなど、AI処理が完了したときにのみ消費されます。途中でキャンセルした場合や処理が失敗した場合、クレジットは消費されません。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- FAQ 7 -->
+                <div class="bg-gray-50/70 rounded-xl overflow-hidden reveal">
+                    <button class="w-full px-6 py-5 flex items-center justify-between text-left cursor-pointer faq-toggle">
+                        <span class="font-medium text-gray-800 pr-4" style="font-family: 'Noto Sans JP', sans-serif;">
+                            1クレジットでどのくらいの操作ができますか？
+                        </span>
+                        <svg class="w-5 h-5 text-gray-400 flex-shrink-0 faq-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div class="faq-answer px-6">
+                        <p class="pb-5 text-text-muted" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.75;">
+                            機能によって異なります。ES添削は1回あたり5〜10クレジット、志望動機やガクチカの対話は1ターンあたり3〜5クレジット程度です。無料プランの30クレジットでも、ES添削3〜6回分、または対話形式の深掘り6〜10ターン分をお試しいただけます。
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA SECTION -->
+    <section class="py-24 gradient-mesh-cta dot-grid-white relative overflow-hidden">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
+            <h2 class="text-4xl md:text-5xl font-bold text-white mb-6 reveal" style="font-family: 'DM Sans', 'Noto Sans JP', sans-serif; letter-spacing: -0.02em;">
+                就活を、迷わず続けられる状態へ。
+            </h2>
+            <p class="text-lg md:text-xl text-indigo-200 max-w-2xl mx-auto mb-10 reveal" style="font-family: 'Noto Sans JP', sans-serif; line-height: 1.75;">
+                ES添削から企業管理まで、就活に必要なすべてを一つに。<br>
+                AIと一緒に、今日から就活を前に進めましょう。
+            </p>
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12 reveal">
+                <button class="bg-accent text-white px-8 py-4 rounded-xl text-lg font-semibold shadow-xl shadow-accent/30 cta-glow transition-all cursor-pointer">
+                    無料で始める →
+                </button>
+                <button class="bg-white/10 border border-white/20 text-white px-8 py-4 rounded-xl text-lg font-semibold hover:bg-white/15 transition-all cursor-pointer backdrop-blur-sm">
+                    料金プランを見る
+                </button>
+            </div>
+            <div class="flex flex-wrap items-center justify-center gap-6 text-sm text-indigo-400 reveal" style="font-family: 'Noto Sans JP', sans-serif;">
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                    </svg>
+                    <span>クレジットカード不要</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <span>30秒で登録完了</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    <span>無料プランあり</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="bg-[#1E1B4B] text-white">
+        <div class="gradient-border-top"></div>
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-8 mb-8">
+                <!-- Column 1 -->
+                <div>
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="w-5 h-5 rounded bg-gradient-to-br from-primary-light to-accent"></div>
+                        <span class="font-bold text-lg" style="font-family: 'DM Sans', sans-serif;">就活Pass</span>
+                    </div>
+                    <p class="text-sm text-indigo-300/60" style="font-family: 'Noto Sans JP', sans-serif;">
+                        就活を、AIと一緒に<br>迷わず進める。
+                    </p>
+                </div>
+
+                <!-- Column 2 -->
+                <div>
+                    <h4 class="font-semibold mb-3" style="font-family: 'Noto Sans JP', sans-serif;">機能</h4>
+                    <ul class="space-y-2 text-sm text-indigo-300/60" style="font-family: 'Noto Sans JP', sans-serif;">
+                        <li><a href="#" class="hover:text-white transition-colors cursor-pointer">ES添削</a></li>
+                        <li><a href="#" class="hover:text-white transition-colors cursor-pointer">志望動機</a></li>
+                        <li><a href="#" class="hover:text-white transition-colors cursor-pointer">ガクチカ</a></li>
+                        <li><a href="#" class="hover:text-white transition-colors cursor-pointer">企業管理</a></li>
+                    </ul>
+                </div>
+
+                <!-- Column 3 -->
+                <div>
+                    <h4 class="font-semibold mb-3" style="font-family: 'Noto Sans JP', sans-serif;">サポート</h4>
+                    <ul class="space-y-2 text-sm text-indigo-300/60" style="font-family: 'Noto Sans JP', sans-serif;">
+                        <li><a href="#" class="hover:text-white transition-colors cursor-pointer">ヘルプセンター</a></li>
+                        <li><a href="#" class="hover:text-white transition-colors cursor-pointer">お問い合わせ</a></li>
+                        <li><a href="#" class="hover:text-white transition-colors cursor-pointer">使い方ガイド</a></li>
+                        <li><a href="#" class="hover:text-white transition-colors cursor-pointer">FAQ</a></li>
+                    </ul>
+                </div>
+
+                <!-- Column 4 -->
+                <div>
+                    <h4 class="font-semibold mb-3" style="font-family: 'Noto Sans JP', sans-serif;">会社</h4>
+                    <ul class="space-y-2 text-sm text-indigo-300/60" style="font-family: 'Noto Sans JP', sans-serif;">
+                        <li><a href="#" class="hover:text-white transition-colors cursor-pointer">運営会社</a></li>
+                        <li><a href="#" class="hover:text-white transition-colors cursor-pointer">プライバシー</a></li>
+                        <li><a href="#" class="hover:text-white transition-colors cursor-pointer">利用規約</a></li>
+                        <li><a href="#" class="hover:text-white transition-colors cursor-pointer">特定商取引法</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="border-t border-indigo-900 pt-6">
+                <p class="text-center text-sm text-indigo-300/60" style="font-family: 'Noto Sans JP', sans-serif;">
+                    © 2025 就活Pass. All rights reserved.
+                </p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script>
+        // Intersection Observer for scroll reveal
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+        // FAQ accordion
+        document.querySelectorAll('.faq-toggle').forEach(toggle => {
+            toggle.addEventListener('click', () => {
+                const answer = toggle.nextElementSibling;
+                const icon = toggle.querySelector('.faq-icon');
+                const isOpen = answer.classList.contains('open');
+
+                // Close all other FAQs
+                document.querySelectorAll('.faq-answer').forEach(a => {
+                    if (a !== answer) {
+                        a.classList.remove('open');
+                    }
+                });
+                document.querySelectorAll('.faq-icon').forEach(i => {
+                    if (i !== icon) {
+                        i.classList.remove('open');
+                    }
+                });
+
+                // Toggle current FAQ
+                answer.classList.toggle('open');
+                icon.classList.toggle('open');
+            });
+        });
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    const headerOffset = 80;
+                    const elementPosition = target.getBoundingClientRect().top;
+                    const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+
+                    window.scrollTo({
+                        top: offsetPosition,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

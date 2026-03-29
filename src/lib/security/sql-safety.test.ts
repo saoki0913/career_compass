@@ -7,7 +7,7 @@ const repoRoot = process.cwd();
 const guardTargets = [
   "src/app/api/search/route.ts",
   "src/lib/search/utils.ts",
-  "src/lib/db/motivationConversationCompat.ts",
+  "src/lib/motivation/conversation.ts",
 ] as const;
 
 describe("sql safety guardrails", () => {
@@ -21,14 +21,14 @@ describe("sql safety guardrails", () => {
     expect(content).not.toMatch(/\bDELETE\b[\s\S]*\$\{/);
   });
 
-  it("documents allowed sql.raw usage as internal-only and isolated", () => {
-    const compatContent = readFileSync(
-      path.join(repoRoot, "src/lib/db/motivationConversationCompat.ts"),
+  it("keeps motivation conversation helpers free of raw SQL fragments", () => {
+    const helperContent = readFileSync(
+      path.join(repoRoot, "src/lib/motivation/conversation.ts"),
       "utf8",
     );
 
-    expect(compatContent).toContain('sql.raw(`"${column}"`)');
-    expect(compatContent).not.toMatch(/sql\.raw\s*\([^`]*\$\{/);
+    expect(helperContent).not.toMatch(/sql\.raw\s*\(/);
+    expect(helperContent).not.toMatch(/\bSELECT\b[\s\S]*\$\{/);
   });
 
   it("keeps search helpers parameter-oriented", () => {

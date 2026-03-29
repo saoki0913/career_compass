@@ -8,8 +8,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { db } from "@/lib/db";
 import { notifications, deadlines, companies, userProfiles, notificationSettings } from "@/lib/db/schema";
-import { eq, and, lte, gte, gt, isNull } from "drizzle-orm";
+import { eq, and, lte, gte, gt, isNull, count, inArray, or } from "drizzle-orm";
 import { getJstHour, startOfJstDayAsUtc } from "@/lib/datetime/jst";
+
+type NotificationInsertRow = typeof notifications.$inferInsert;
 
 /**
  * Constant-time token comparison to prevent timing attacks
@@ -25,6 +27,10 @@ function verifyToken(provided: string | null, expected: string): boolean {
   }
 
   return timingSafeEqual(providedBuffer, expectedBuffer);
+}
+
+function buildNotificationExpiry(now: Date) {
+  return new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
 }
 
 export async function POST(request: NextRequest) {
@@ -47,14 +53,18 @@ export async function POST(request: NextRequest) {
     if (type === "deadline_reminders") {
       // Find deadlines due within 24h and 3 days
       const now = new Date();
-      const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
       const in3d = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
       const jstDayStart = startOfJstDayAsUtc(now);
 
       const upcomingDeadlines = await db
         .select({
           deadline: deadlines,
-          company: { id: companies.id, name: companies.name },
+          company: {
+            id: companies.id,
+            name: companies.name,
+            userId: companies.userId,
+            guestId: companies.guestId,
+          },
         })
         .from(deadlines)
         .leftJoin(companies, eq(deadlines.companyId, companies.id))
@@ -67,63 +77,98 @@ export async function POST(request: NextRequest) {
           )
         );
 
-      let created = 0;
+      const reminderUserIds = Array.from(
+        new Set(
+          upcomingDeadlines
+            .map(({ company }) => company?.userId)
+            .filter((value): value is string => typeof value === "string" && value.length > 0)
+        )
+      );
+      const reminderGuestIds = Array.from(
+        new Set(
+          upcomingDeadlines
+            .map(({ company }) => company?.guestId)
+            .filter((value): value is string => typeof value === "string" && value.length > 0)
+        )
+      );
+
+      const [settingsRows, existingNotifications] = await Promise.all([
+        reminderUserIds.length > 0
+          ? db
+              .select({
+                userId: notificationSettings.userId,
+                deadlineReminder: notificationSettings.deadlineReminder,
+                deadlineNear: notificationSettings.deadlineNear,
+              })
+              .from(notificationSettings)
+              .where(inArray(notificationSettings.userId, reminderUserIds))
+          : Promise.resolve([]),
+        reminderUserIds.length > 0 || reminderGuestIds.length > 0
+          ? db
+              .select({
+                userId: notifications.userId,
+                guestId: notifications.guestId,
+                type: notifications.type,
+              })
+              .from(notifications)
+              .where(
+                and(
+                  gte(notifications.createdAt, jstDayStart),
+                  inArray(notifications.type, ["deadline_reminder", "deadline_near"]),
+                  or(
+                    reminderUserIds.length > 0
+                      ? inArray(notifications.userId, reminderUserIds)
+                      : isNull(notifications.userId),
+                    reminderGuestIds.length > 0
+                      ? inArray(notifications.guestId, reminderGuestIds)
+                      : isNull(notifications.guestId)
+                  )
+                )
+              )
+          : Promise.resolve([]),
+      ]);
+
+      const settingsMap = new Map(
+        settingsRows.map((row) => [
+          row.userId,
+          {
+            deadlineReminder: row.deadlineReminder,
+            deadlineNear: row.deadlineNear,
+          },
+        ])
+      );
+      const existingKeys = new Set(
+        existingNotifications.map((row) => {
+          const owner = row.userId ? `user:${row.userId}` : row.guestId ? `guest:${row.guestId}` : "";
+          return `${owner}:${row.type}`;
+        })
+      );
+
+      const notificationRows: NotificationInsertRow[] = [];
       for (const { deadline, company } of upcomingDeadlines) {
         const hoursUntilDue = (deadline.dueDate.getTime() - now.getTime()) / (1000 * 60 * 60);
         const notifType = hoursUntilDue <= 24 ? "deadline_near" : "deadline_reminder";
         const urgency = hoursUntilDue <= 24 ? "24時間以内" : "3日以内";
 
-        // Determine userId from company
-        const [companyData] = await db
-          .select()
-          .from(companies)
-          .where(eq(companies.id, deadline.companyId))
-          .limit(1);
-        if (!companyData) continue;
+        const ownerKey = company?.userId
+          ? `user:${company.userId}`
+          : company?.guestId
+            ? `guest:${company.guestId}`
+            : null;
+        if (!ownerKey) continue;
 
-        // Check user's notification settings
-        if (companyData.userId) {
-          const [settings] = await db
-            .select()
-            .from(notificationSettings)
-            .where(eq(notificationSettings.userId, companyData.userId))
-            .limit(1);
-
-          // Skip if user has disabled this notification type
-          if (settings) {
-            if (notifType === "deadline_near" && !settings.deadlineNear) continue;
-            if (notifType === "deadline_reminder" && !settings.deadlineReminder) continue;
-          }
+        const settings = company?.userId ? settingsMap.get(company.userId) : undefined;
+        if (settings) {
+          if (notifType === "deadline_near" && !settings.deadlineNear) continue;
+          if (notifType === "deadline_reminder" && !settings.deadlineReminder) continue;
         }
 
-        // Dedupe: same type already created since start of JST calendar day
-        const userCondition = companyData.userId
-          ? eq(notifications.userId, companyData.userId)
-          : companyData.guestId
-            ? eq(notifications.guestId, companyData.guestId)
-            : undefined;
+        if (existingKeys.has(`${ownerKey}:${notifType}`)) continue;
 
-        if (!userCondition) continue;
-
-        const [existingNotif] = await db
-          .select()
-          .from(notifications)
-          .where(
-            and(
-              userCondition,
-              eq(notifications.type, notifType),
-              gte(notifications.createdAt, jstDayStart)
-            )
-          )
-          .limit(1);
-
-        if (existingNotif) continue;
-
-        // Create notification
-        await db.insert(notifications).values({
+        notificationRows.push({
           id: crypto.randomUUID(),
-          userId: companyData.userId,
-          guestId: companyData.guestId,
+          userId: company?.userId,
+          guestId: company?.guestId,
           type: notifType,
           title: `締切が${urgency}です`,
           message: `${company?.name || ""}の${deadline.title}の締切が近づいています`,
@@ -133,13 +178,16 @@ export async function POST(request: NextRequest) {
             dueDate: deadline.dueDate.toISOString(),
           }),
           isRead: false,
-          createdAt: new Date(),
-          expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+          createdAt: now,
+          expiresAt: buildNotificationExpiry(now),
         });
-        created++;
       }
 
-      return NextResponse.json({ success: true, created });
+      if (notificationRows.length > 0) {
+        await db.insert(notifications).values(notificationRows);
+      }
+
+      return NextResponse.json({ success: true, created: notificationRows.length });
     }
 
     if (type === "cleanup") {
@@ -154,59 +202,80 @@ export async function POST(request: NextRequest) {
       const currentJstHour = getJstHour(now);
       const jstDayStart = startOfJstDayAsUtc(now);
 
-      const profiles = await db.select().from(userProfiles);
-      let created = 0;
+      const profileRows = await db
+        .select({
+          userId: userProfiles.userId,
+          dailySummary: notificationSettings.dailySummary,
+          dailySummaryHourJst: notificationSettings.dailySummaryHourJst,
+        })
+        .from(userProfiles)
+        .leftJoin(notificationSettings, eq(notificationSettings.userId, userProfiles.userId));
 
-      for (const profile of profiles) {
-        const [settings] = await db
-          .select()
-          .from(notificationSettings)
-          .where(eq(notificationSettings.userId, profile.userId))
-          .limit(1);
+      const profileUserIds = profileRows.map((row) => row.userId);
+      const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
 
-        if (settings && !settings.dailySummary) continue;
+      const [deadlineCountRows, existingRows] = await Promise.all([
+        profileUserIds.length > 0
+          ? db
+              .select({
+                userId: companies.userId,
+                count: count(),
+              })
+              .from(deadlines)
+              .innerJoin(companies, eq(deadlines.companyId, companies.id))
+              .where(
+                and(
+                  eq(deadlines.isConfirmed, true),
+                  isNull(deadlines.completedAt),
+                  lte(deadlines.dueDate, in72h),
+                  gt(deadlines.dueDate, now),
+                  inArray(companies.userId, profileUserIds)
+                )
+              )
+              .groupBy(companies.userId)
+          : Promise.resolve([]),
+        profileUserIds.length > 0
+          ? db
+              .select({
+                userId: notifications.userId,
+                type: notifications.type,
+              })
+              .from(notifications)
+              .where(
+                and(
+                  eq(notifications.type, "daily_summary"),
+                  gte(notifications.createdAt, jstDayStart),
+                  inArray(notifications.userId, profileUserIds)
+                )
+              )
+          : Promise.resolve([]),
+      ]);
+
+      const deadlineCountMap = new Map(
+        deadlineCountRows.map((row) => [row.userId, Number(row.count ?? 0)])
+      );
+      const existingToday = new Set(
+        existingRows.map((row) => `user:${row.userId}:${row.type}`)
+      );
+      const notificationRows: NotificationInsertRow[] = [];
+
+      for (const profile of profileRows) {
+        if (profile.dailySummary === false) continue;
 
         if (matchPreferredJstHour) {
-          const preferredHour = settings?.dailySummaryHourJst ?? 9;
+          const preferredHour = profile.dailySummaryHourJst ?? 9;
           if (currentJstHour !== preferredHour) continue;
         }
 
-        const [dupToday] = await db
-          .select({ id: notifications.id })
-          .from(notifications)
-          .where(
-            and(
-              eq(notifications.userId, profile.userId),
-              eq(notifications.type, "daily_summary"),
-              gte(notifications.createdAt, jstDayStart)
-            )
-          )
-          .limit(1);
+        if (existingToday.has(`user:${profile.userId}:daily_summary`)) continue;
 
-        if (dupToday) continue;
-
-        const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
-
-        const urgentDeadlines = await db
-          .select({ id: deadlines.id })
-          .from(deadlines)
-          .innerJoin(companies, eq(deadlines.companyId, companies.id))
-          .where(
-            and(
-              eq(companies.userId, profile.userId),
-              eq(deadlines.isConfirmed, true),
-              isNull(deadlines.completedAt),
-              lte(deadlines.dueDate, in72h),
-              gt(deadlines.dueDate, now)
-            )
-          );
-
+        const urgentDeadlineCount = deadlineCountMap.get(profile.userId) ?? 0;
         const message =
-          urgentDeadlines.length > 0
-            ? `今日は${urgentDeadlines.length}件の締切が近づいています。優先的に取り組みましょう。`
+          urgentDeadlineCount > 0
+            ? `今日は${urgentDeadlineCount}件の締切が近づいています。優先的に取り組みましょう。`
             : "今日の締切はありません。ES添削やガクチカ深掘りを進めましょう。";
 
-        await db.insert(notifications).values({
+        notificationRows.push({
           id: crypto.randomUUID(),
           userId: profile.userId,
           guestId: null,
@@ -214,16 +283,19 @@ export async function POST(request: NextRequest) {
           title: "今日のサマリー",
           message,
           data: JSON.stringify({
-            urgentDeadlineCount: urgentDeadlines.length,
+            urgentDeadlineCount,
           }),
           isRead: false,
-          createdAt: new Date(),
-          expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+          createdAt: now,
+          expiresAt: buildNotificationExpiry(now),
         });
-        created++;
       }
 
-      return NextResponse.json({ success: true, created, jstHour: currentJstHour });
+      if (notificationRows.length > 0) {
+        await db.insert(notifications).values(notificationRows);
+      }
+
+      return NextResponse.json({ success: true, created: notificationRows.length, jstHour: currentJstHour });
     }
 
     return NextResponse.json({ error: "Invalid batch type" }, { status: 400 });

@@ -13,6 +13,13 @@ describe("parseUiReviewArgs", () => {
     });
   });
 
+  it("accepts mock auth mode for authenticated UI review", () => {
+    expect(parseUiReviewArgs(["/companies/ui-review-company/motivation", "--auth=mock"])).toEqual({
+      authMode: "mock",
+      paths: ["/companies/ui-review-company/motivation"],
+    });
+  });
+
   it("defaults auth mode to none", () => {
     expect(parseUiReviewArgs(["/"])).toEqual({
       authMode: "none",
@@ -35,12 +42,12 @@ describe("buildUiReviewEnv", () => {
   it("builds Playwright env vars", () => {
     expect(
       buildUiReviewEnv({
-        authMode: "guest",
-        paths: ["/dashboard", "/companies"],
+        authMode: "mock",
+        paths: ["/dashboard", "/companies/ui-review-company/motivation"],
       })
     ).toEqual({
-      PLAYWRIGHT_UI_AUTH_MODE: "guest",
-      PLAYWRIGHT_UI_PATHS: "/dashboard,/companies",
+      PLAYWRIGHT_UI_AUTH_MODE: "mock",
+      PLAYWRIGHT_UI_PATHS: "/dashboard,/companies/ui-review-company/motivation",
     });
   });
 });

@@ -1,11 +1,13 @@
 import { DashboardHeader } from "@/components/dashboard";
-import { GakuchikaDeepDiveSkeleton } from "@/components/skeletons/GakuchikaDeepDiveSkeleton";
+import { ConversationPageSkeleton } from "@/components/skeletons/ConversationPageSkeleton";
 
 export default function Loading() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <DashboardHeader />
-      <GakuchikaDeepDiveSkeleton accent="深掘り会話の文脈を整えています" />
+      <main className="flex-1 overflow-hidden">
+        <ConversationPageSkeleton accent="ガクチカ作成の文脈を整えています" />
+      </main>
     </div>
   );
 }

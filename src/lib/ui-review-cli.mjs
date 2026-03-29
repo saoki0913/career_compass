@@ -1,7 +1,7 @@
-const VALID_AUTH_MODES = new Set(["none", "guest"]);
+const VALID_AUTH_MODES = new Set(["none", "guest", "mock"]);
 
 export function getUiReviewUsage() {
-  return "Usage: npm run test:ui:review -- /route [/another-route] [--auth=none|guest]";
+  return "Usage: npm run test:ui:review -- /route [/another-route] [--auth=none|guest|mock]";
 }
 
 export function parseUiReviewArgs(argv) {
@@ -22,7 +22,7 @@ export function parseUiReviewArgs(argv) {
   }
 
   if (!VALID_AUTH_MODES.has(authMode)) {
-    throw new Error(`UI review auth must be one of: none, guest`);
+    throw new Error(`UI review auth must be one of: none, guest, mock`);
   }
 
   if (paths.length === 0) {

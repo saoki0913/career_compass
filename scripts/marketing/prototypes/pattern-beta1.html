@@ -1,0 +1,1749 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>就活Pass - AIと一緒に迷わず進める就活管理アプリ</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --dark-bg: #0A0A0F;
+            --dark-navy: #0C1222;
+            --primary-blue: #3B82F6;
+            --text-white: #FFFFFF;
+            --text-dark: #1A1A2E;
+            --light-bg: #FAFBFC;
+            --lighter-bg: #F8FAFC;
+            --border-color: #E5E7EB;
+            --text-gray: #6B7280;
+            --text-gray-dark: #9CA3AF;
+            --footer-bg: #060610;
+        }
+
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            line-height: 1.6;
+            color: var(--text-dark);
+            overflow-x: hidden;
+        }
+
+        .en-text {
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+            font-feature-settings: 'tnum';
+        }
+
+        /* Header */
+        header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            padding: 20px 0;
+        }
+
+        header.scrolled {
+            background: rgba(10, 10, 15, 0.85);
+            backdrop-filter: blur(12px);
+            padding: 16px 0;
+            box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+
+        .header-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-family: 'Inter', sans-serif;
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-white);
+            letter-spacing: -0.02em;
+        }
+
+        nav {
+            display: flex;
+            gap: 48px;
+            align-items: center;
+        }
+
+        nav a {
+            color: var(--text-gray-dark);
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 500;
+            transition: color 0.2s ease;
+        }
+
+        nav a:hover {
+            color: var(--text-white);
+        }
+
+        .btn-primary {
+            background: var(--primary-blue);
+            color: var(--text-white);
+            padding: 10px 24px;
+            border-radius: 24px;
+            font-size: 15px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border: none;
+            cursor: pointer;
+            display: inline-block;
+        }
+
+        .btn-primary:hover {
+            background: #2563EB;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--text-white);
+            padding: 10px 24px;
+            border-radius: 24px;
+            font-size: 15px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            cursor: pointer;
+            display: inline-block;
+        }
+
+        .btn-secondary:hover {
+            border-color: rgba(255, 255, 255, 0.4);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, var(--dark-navy) 0%, var(--dark-bg) 100%);
+            min-height: 90vh;
+            display: flex;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+            padding-top: 80px;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.03) 1px, transparent 0);
+            background-size: 32px 32px;
+            pointer-events: none;
+        }
+
+        .hero-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 40px;
+            display: grid;
+            grid-template-columns: 55% 45%;
+            gap: 60px;
+            align-items: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-content {
+            padding-top: 40px;
+        }
+
+        .hero-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--primary-blue);
+            margin-bottom: 28px;
+            letter-spacing: 0.02em;
+        }
+
+        .hero-tag::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: var(--primary-blue);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--primary-blue);
+        }
+
+        .hero-headline {
+            font-size: 56px;
+            font-weight: 700;
+            line-height: 1.15;
+            letter-spacing: -0.03em;
+            color: var(--text-white);
+            margin-bottom: 24px;
+            white-space: pre-line;
+        }
+
+        .hero-subtext {
+            font-size: 18px;
+            line-height: 1.7;
+            color: var(--text-gray-dark);
+            margin-bottom: 40px;
+            max-width: 520px;
+        }
+
+        .hero-ctas {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .hero-note {
+            font-size: 14px;
+            color: var(--text-gray);
+            padding-left: 4px;
+        }
+
+        /* Dashboard Mockup */
+        .dashboard-mockup {
+            position: relative;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-12px); }
+        }
+
+        .mockup-card {
+            background: #1A1A2E;
+            border-radius: 16px;
+            padding: 0;
+            box-shadow:
+                0 20px 40px rgba(0, 0, 0, 0.4),
+                0 0 0 1px rgba(255, 255, 255, 0.05);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .mockup-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.1), transparent 60%);
+            pointer-events: none;
+        }
+
+        .mockup-header {
+            background: #0F0F1E;
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .mockup-dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .mockup-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .mockup-dot.red { background: #FF5F57; }
+        .mockup-dot.yellow { background: #FEBC2E; }
+        .mockup-dot.green { background: #28CA42; }
+
+        .mockup-title {
+            font-size: 13px;
+            color: var(--text-gray-dark);
+            font-weight: 500;
+        }
+
+        .mockup-body {
+            padding: 24px;
+        }
+
+        .mockup-section-title {
+            font-size: 12px;
+            color: var(--text-gray);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 16px;
+        }
+
+        .task-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.2s ease;
+        }
+
+        .task-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .task-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .task-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .task-status.urgent { background: #EF4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.6); }
+        .task-status.normal { background: #F59E0B; box-shadow: 0 0 8px rgba(245, 158, 11, 0.6); }
+        .task-status.done { background: #10B981; box-shadow: 0 0 8px rgba(16, 185, 129, 0.6); }
+
+        .task-text {
+            color: var(--text-white);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .task-deadline {
+            font-size: 12px;
+            color: var(--text-gray);
+            background: rgba(255, 255, 255, 0.05);
+            padding: 4px 10px;
+            border-radius: 12px;
+        }
+
+        .mini-calendar {
+            margin-top: 20px;
+            background: rgba(59, 130, 246, 0.08);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .calendar-header {
+            font-size: 12px;
+            color: var(--primary-blue);
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 6px;
+        }
+
+        .calendar-day {
+            width: 100%;
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: var(--text-gray-dark);
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 4px;
+        }
+
+        .calendar-day.today {
+            background: var(--primary-blue);
+            color: var(--text-white);
+            font-weight: 600;
+        }
+
+        /* Trust Strip */
+        .trust-strip {
+            background: var(--dark-bg);
+            padding: 60px 40px 80px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .trust-container {
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        .trust-title {
+            text-align: center;
+            font-size: 15px;
+            color: var(--text-gray);
+            margin-bottom: 48px;
+        }
+
+        .trust-metrics {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 40px;
+        }
+
+        .trust-metric {
+            text-align: center;
+        }
+
+        .metric-icon {
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 16px;
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .metric-icon::before {
+            content: '';
+            width: 20px;
+            height: 20px;
+            background: var(--primary-blue);
+            border-radius: 4px;
+            opacity: 0.6;
+        }
+
+        .metric-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-white);
+            margin-bottom: 6px;
+        }
+
+        .metric-label {
+            font-size: 14px;
+            color: var(--text-gray-dark);
+        }
+
+        /* Features Section */
+        .features {
+            background: var(--light-bg);
+            padding: 120px 40px 140px;
+        }
+
+        .features-container {
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        .section-label {
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--primary-blue);
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            font-size: 42px;
+            font-weight: 600;
+            line-height: 1.3;
+            letter-spacing: -0.02em;
+            color: var(--text-dark);
+            margin-bottom: 64px;
+            white-space: pre-line;
+        }
+
+        .bento-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .bento-card {
+            background: var(--text-white);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 40px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .bento-card:hover {
+            transform: translateY(-2px);
+            box-shadow:
+                0 4px 12px rgba(0, 0, 0, 0.08),
+                0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .bento-card.large {
+            grid-column: span 2;
+        }
+
+        .bento-card.tall {
+            grid-row: span 2;
+        }
+
+        .card-header {
+            margin-bottom: 24px;
+        }
+
+        .card-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-dark);
+            margin-bottom: 12px;
+            letter-spacing: -0.01em;
+        }
+
+        .card-description {
+            font-size: 15px;
+            color: var(--text-gray);
+            line-height: 1.7;
+        }
+
+        .card-mockup {
+            margin-top: 28px;
+            background: var(--light-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+        }
+
+        .editor-mockup {
+            display: flex;
+            gap: 16px;
+        }
+
+        .editor-content {
+            flex: 1;
+            font-size: 13px;
+            color: var(--text-dark);
+            line-height: 1.8;
+        }
+
+        .editor-highlight {
+            background: rgba(59, 130, 246, 0.1);
+            border-left: 3px solid var(--primary-blue);
+            padding-left: 8px;
+        }
+
+        .review-panel {
+            width: 180px;
+            background: var(--text-white);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            font-size: 12px;
+        }
+
+        .review-title {
+            font-weight: 700;
+            color: var(--text-dark);
+            margin-bottom: 8px;
+        }
+
+        .review-text {
+            color: var(--text-gray);
+            line-height: 1.6;
+        }
+
+        .chat-mockup {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .chat-bubble {
+            max-width: 75%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .chat-bubble.ai {
+            background: var(--text-white);
+            border: 1px solid var(--border-color);
+            color: var(--text-dark);
+            align-self: flex-start;
+        }
+
+        .chat-bubble.user {
+            background: var(--primary-blue);
+            color: var(--text-white);
+            align-self: flex-end;
+        }
+
+        .list-mockup {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .list-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: var(--text-white);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+        }
+
+        .list-item-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .list-item-icon {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--primary-blue);
+        }
+
+        .list-item-text {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-dark);
+        }
+
+        .list-item-badge {
+            font-size: 12px;
+            padding: 4px 10px;
+            background: var(--light-bg);
+            border-radius: 12px;
+            color: var(--text-gray);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .stat-box {
+            background: var(--text-white);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .stat-value {
+            font-family: 'Inter', sans-serif;
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--primary-blue);
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-gray);
+        }
+
+        /* How It Works */
+        .how-it-works {
+            background: var(--text-white);
+            padding: 100px 40px 120px;
+        }
+
+        .hiw-container {
+            max-width: 1040px;
+            margin: 0 auto;
+        }
+
+        .steps-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 60px;
+            position: relative;
+            margin-top: 72px;
+        }
+
+        .steps-container::before {
+            content: '';
+            position: absolute;
+            top: 32px;
+            left: 80px;
+            right: 80px;
+            height: 2px;
+            background: linear-gradient(to right,
+                var(--primary-blue) 0%,
+                var(--primary-blue) 33%,
+                var(--border-color) 33%,
+                var(--border-color) 66%,
+                var(--border-color) 100%);
+            background-size: 200% 100%;
+            border-radius: 2px;
+        }
+
+        .step {
+            position: relative;
+            text-align: center;
+        }
+
+        .step-number {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 24px;
+            background: var(--primary-blue);
+            color: var(--text-white);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Inter', sans-serif;
+            font-size: 24px;
+            font-weight: 700;
+            position: relative;
+            z-index: 1;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .step:nth-child(2) .step-number,
+        .step:nth-child(3) .step-number {
+            background: var(--text-white);
+            color: var(--text-gray);
+            border: 2px solid var(--border-color);
+            box-shadow: none;
+        }
+
+        .step-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-dark);
+            margin-bottom: 12px;
+            letter-spacing: -0.01em;
+        }
+
+        .step-description {
+            font-size: 14px;
+            color: var(--text-gray);
+            line-height: 1.7;
+        }
+
+        /* Pricing Section */
+        .pricing {
+            background: var(--lighter-bg);
+            padding: 110px 40px 130px;
+        }
+
+        .pricing-container {
+            max-width: 1160px;
+            margin: 0 auto;
+        }
+
+        .pricing-intro {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .pricing-subtitle {
+            font-size: 16px;
+            color: var(--text-gray);
+            margin-bottom: 64px;
+            text-align: center;
+        }
+
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+
+        .pricing-card {
+            background: var(--text-white);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 40px 32px;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .pricing-card.featured {
+            transform: translateY(-8px);
+            border-top: 3px solid var(--primary-blue);
+            box-shadow:
+                0 8px 24px rgba(0, 0, 0, 0.08),
+                0 2px 6px rgba(0, 0, 0, 0.04);
+        }
+
+        .pricing-card:hover {
+            box-shadow:
+                0 8px 24px rgba(0, 0, 0, 0.08),
+                0 2px 6px rgba(0, 0, 0, 0.04);
+        }
+
+        .pricing-badge {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--primary-blue);
+            color: var(--text-white);
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        .plan-name {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-dark);
+            margin-bottom: 8px;
+        }
+
+        .plan-tagline {
+            font-size: 14px;
+            color: var(--text-gray);
+            margin-bottom: 24px;
+        }
+
+        .plan-price {
+            font-family: 'Inter', sans-serif;
+            font-size: 48px;
+            font-weight: 700;
+            color: var(--text-dark);
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        .plan-price-unit {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--text-gray);
+        }
+
+        .plan-daily-cost {
+            font-size: 13px;
+            color: var(--primary-blue);
+            margin-bottom: 32px;
+            font-weight: 600;
+        }
+
+        .plan-cta {
+            width: 100%;
+            padding: 14px 24px;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 32px;
+        }
+
+        .pricing-card.featured .plan-cta {
+            background: var(--primary-blue);
+            color: var(--text-white);
+        }
+
+        .pricing-card.featured .plan-cta:hover {
+            background: #2563EB;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .pricing-card:not(.featured) .plan-cta {
+            background: transparent;
+            color: var(--text-dark);
+            border: 1px solid var(--border-color);
+        }
+
+        .pricing-card:not(.featured) .plan-cta:hover {
+            border-color: var(--text-gray);
+            background: var(--light-bg);
+        }
+
+        .plan-features {
+            list-style: none;
+        }
+
+        .plan-feature {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 14px;
+            font-size: 14px;
+            color: var(--text-dark);
+            line-height: 1.6;
+        }
+
+        .feature-check {
+            width: 20px;
+            height: 20px;
+            min-width: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 2px;
+        }
+
+        .pricing-card.featured .feature-check {
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--primary-blue);
+        }
+
+        .pricing-card:not(.featured) .feature-check {
+            background: var(--light-bg);
+            color: var(--text-gray);
+        }
+
+        .feature-check::before {
+            content: '✓';
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        /* FAQ Section */
+        .faq {
+            background: var(--text-white);
+            padding: 100px 40px 120px;
+        }
+
+        .faq-container {
+            max-width: 840px;
+            margin: 0 auto;
+        }
+
+        .faq-list {
+            margin-top: 56px;
+        }
+
+        .faq-item {
+            border-bottom: 1px solid var(--border-color);
+            padding: 28px 0;
+            transition: all 0.3s ease;
+        }
+
+        .faq-question {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .faq-question-text {
+            font-size: 17px;
+            font-weight: 600;
+            color: var(--text-dark);
+            letter-spacing: -0.01em;
+            padding-right: 24px;
+        }
+
+        .faq-icon {
+            width: 24px;
+            height: 24px;
+            min-width: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: var(--text-gray);
+            transition: transform 0.3s ease;
+        }
+
+        .faq-item.active .faq-icon {
+            transform: rotate(45deg);
+        }
+
+        .faq-answer {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .faq-answer-text {
+            padding-top: 16px;
+            font-size: 15px;
+            color: var(--text-gray);
+            line-height: 1.8;
+        }
+
+        /* CTA Section */
+        .cta-section {
+            background: linear-gradient(135deg, var(--dark-navy) 0%, var(--dark-bg) 100%);
+            padding: 100px 40px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cta-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.03) 1px, transparent 0);
+            background-size: 32px 32px;
+            pointer-events: none;
+        }
+
+        .cta-container {
+            max-width: 840px;
+            margin: 0 auto;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .cta-title {
+            font-size: 48px;
+            font-weight: 700;
+            line-height: 1.3;
+            letter-spacing: -0.02em;
+            color: var(--text-white);
+            margin-bottom: 24px;
+        }
+
+        .cta-text {
+            font-size: 18px;
+            color: var(--text-gray-dark);
+            margin-bottom: 40px;
+            line-height: 1.7;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+        }
+
+        /* Footer */
+        footer {
+            background: var(--footer-bg);
+            padding: 80px 40px 40px;
+        }
+
+        .footer-container {
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        .footer-grid {
+            display: grid;
+            grid-template-columns: 1.5fr repeat(3, 1fr);
+            gap: 60px;
+            margin-bottom: 60px;
+        }
+
+        .footer-brand {
+            max-width: 280px;
+        }
+
+        .footer-logo {
+            font-family: 'Inter', sans-serif;
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-white);
+            margin-bottom: 16px;
+            letter-spacing: -0.02em;
+        }
+
+        .footer-description {
+            font-size: 14px;
+            color: var(--text-gray);
+            line-height: 1.7;
+        }
+
+        .footer-column h4 {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-white);
+            margin-bottom: 20px;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .footer-links {
+            list-style: none;
+        }
+
+        .footer-links li {
+            margin-bottom: 12px;
+        }
+
+        .footer-links a {
+            color: var(--text-gray-dark);
+            text-decoration: none;
+            font-size: 14px;
+            transition: color 0.2s ease;
+        }
+
+        .footer-links a:hover {
+            color: var(--text-white);
+        }
+
+        .footer-bottom {
+            padding-top: 32px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-gray);
+        }
+
+        /* Fade In Animation */
+        .fade-in {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.6s ease, transform 0.6s ease;
+        }
+
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header id="header">
+        <div class="header-container">
+            <div class="logo">就活Pass</div>
+            <nav>
+                <a href="#features">機能</a>
+                <a href="#how-it-works">使い方</a>
+                <a href="#pricing">料金</a>
+                <a href="#faq">FAQ</a>
+            </nav>
+            <a href="#" class="btn-primary">無料で始める</a>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-container">
+            <div class="hero-content">
+                <div class="hero-tag">AI × 就活管理</div>
+                <h1 class="hero-headline">就活を、AIと一緒に
+迷わず進める。</h1>
+                <p class="hero-subtext">
+                    ES添削も、締切管理も、企業情報の整理も。就活で必要な機能を、ひとつのアプリに。AIが常にサポートしながら、迷わず前に進める環境を作ります。
+                </p>
+                <div class="hero-ctas">
+                    <a href="#" class="btn-primary">無料で始める →</a>
+                    <a href="#pricing" class="btn-secondary">料金プランを見る</a>
+                </div>
+                <p class="hero-note">クレジットカード不要 · 30秒で登録</p>
+            </div>
+            <div class="dashboard-mockup">
+                <div class="mockup-card">
+                    <div class="mockup-header">
+                        <div class="mockup-dots">
+                            <div class="mockup-dot red"></div>
+                            <div class="mockup-dot yellow"></div>
+                            <div class="mockup-dot green"></div>
+                        </div>
+                        <div class="mockup-title">就活Pass - Dashboard</div>
+                    </div>
+                    <div class="mockup-body">
+                        <div class="mockup-section-title">今日のタスク</div>
+                        <div class="task-item">
+                            <div class="task-left">
+                                <div class="task-status urgent"></div>
+                                <div class="task-text">三菱商事 ES提出</div>
+                            </div>
+                            <div class="task-deadline">明日まで</div>
+                        </div>
+                        <div class="task-item">
+                            <div class="task-left">
+                                <div class="task-status normal"></div>
+                                <div class="task-text">トヨタ自動車 面接準備</div>
+                            </div>
+                            <div class="task-deadline">3日後</div>
+                        </div>
+                        <div class="task-item">
+                            <div class="task-left">
+                                <div class="task-status done"></div>
+                                <div class="task-text">ソニー ES添削完了</div>
+                            </div>
+                            <div class="task-deadline">完了</div>
+                        </div>
+                        <div class="mini-calendar">
+                            <div class="calendar-header">今週の予定</div>
+                            <div class="calendar-grid">
+                                <div class="calendar-day">月</div>
+                                <div class="calendar-day">火</div>
+                                <div class="calendar-day today">水</div>
+                                <div class="calendar-day">木</div>
+                                <div class="calendar-day">金</div>
+                                <div class="calendar-day">土</div>
+                                <div class="calendar-day">日</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Trust Strip -->
+    <section class="trust-strip">
+        <div class="trust-container">
+            <p class="trust-title">就活の情報整理を、ひとつのアプリで。</p>
+            <div class="trust-metrics">
+                <div class="trust-metric">
+                    <div class="metric-icon"></div>
+                    <div class="metric-value">4つのAI機能</div>
+                    <div class="metric-label">ES添削・対話・要約・検索</div>
+                </div>
+                <div class="trust-metric">
+                    <div class="metric-icon"></div>
+                    <div class="metric-value">月30クレジット無料</div>
+                    <div class="metric-label">成功時のみ消費</div>
+                </div>
+                <div class="trust-metric">
+                    <div class="metric-icon"></div>
+                    <div class="metric-value">クレカ不要</div>
+                    <div class="metric-label">無料で全機能を体験</div>
+                </div>
+                <div class="trust-metric">
+                    <div class="metric-icon"></div>
+                    <div class="metric-value">カレンダー連携</div>
+                    <div class="metric-label">Googleカレンダー同期</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features fade-in" id="features">
+        <div class="features-container">
+            <div class="section-label">FEATURES</div>
+            <h2 class="section-title">書くことも、管理することも、
+同じ流れで進める。</h2>
+            <div class="bento-grid">
+                <!-- Large card: AI添削 -->
+                <div class="bento-card large">
+                    <div class="card-header">
+                        <h3 class="card-title">8種類のスタイルでES添削</h3>
+                        <p class="card-description">
+                            論理性重視、人間味重視、簡潔性重視など、8つの添削スタイルから選択。業界や企業文化に合わせて、最適な表現へ磨き上げます。成功時のみクレジット消費。
+                        </p>
+                    </div>
+                    <div class="card-mockup">
+                        <div class="editor-mockup">
+                            <div class="editor-content">
+                                <p>私は大学時代、学生団体の代表として150名の組織運営に携わりました。</p>
+                                <p class="editor-highlight">特に重視したのは、メンバー全員が主体的に活動できる環境づくりです。定期的な1on1面談を実施し、一人ひとりの目標設定をサポート。</p>
+                                <p>結果として、メンバーの定着率が前年比40%向上しました。</p>
+                            </div>
+                            <div class="review-panel">
+                                <div class="review-title">論理性重視</div>
+                                <div class="review-text">具体的な数値と因果関係が明確です。ただし、「定期的な」を「月1回の」など具体化すると、より説得力が増します。</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Standard card: 対話で深掘り -->
+                <div class="bento-card">
+                    <div class="card-header">
+                        <h3 class="card-title">対話で深掘り</h3>
+                        <p class="card-description">
+                            ガクチカや志望動機を、AIとの対話で整理。表面的な回答から、あなただけの経験と価値観を引き出します。
+                        </p>
+                    </div>
+                    <div class="card-mockup">
+                        <div class="chat-mockup">
+                            <div class="chat-bubble ai">その活動で、一番印象に残っている出来事は何ですか？</div>
+                            <div class="chat-bubble user">メンバーの一人が、目標を達成して泣いて喜んでくれたことです。</div>
+                            <div class="chat-bubble ai">素敵ですね。その時、あなたはどう感じましたか？</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Standard card: 企業・締切管理 -->
+                <div class="bento-card">
+                    <div class="card-header">
+                        <h3 class="card-title">企業・締切管理</h3>
+                        <p class="card-description">
+                            応募企業ごとに、締切・選考フェーズ・提出書類を一元管理。見逃しゼロで、計画的に進められます。
+                        </p>
+                    </div>
+                    <div class="card-mockup">
+                        <div class="list-mockup">
+                            <div class="list-item">
+                                <div class="list-item-left">
+                                    <div class="list-item-icon"></div>
+                                    <div class="list-item-text">三菱商事</div>
+                                </div>
+                                <div class="list-item-badge">明日締切</div>
+                            </div>
+                            <div class="list-item">
+                                <div class="list-item-left">
+                                    <div class="list-item-icon"></div>
+                                    <div class="list-item-text">トヨタ自動車</div>
+                                </div>
+                                <div class="list-item-badge">書類選考中</div>
+                            </div>
+                            <div class="list-item">
+                                <div class="list-item-left">
+                                    <div class="list-item-icon"></div>
+                                    <div class="list-item-text">ソニー</div>
+                                </div>
+                                <div class="list-item-badge">面接予定</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Wide card: ダッシュボード -->
+                <div class="bento-card large">
+                    <div class="card-header">
+                        <h3 class="card-title">ダッシュボードで全体を把握</h3>
+                        <p class="card-description">
+                            応募状況、タスク、通知、カレンダー連携。就活の全体像を一画面で確認できるから、迷いません。
+                        </p>
+                    </div>
+                    <div class="card-mockup">
+                        <div class="stats-grid">
+                            <div class="stat-box">
+                                <div class="stat-value">12</div>
+                                <div class="stat-label">応募中の企業</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-value">5</div>
+                                <div class="stat-label">今週のタスク</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-value">3</div>
+                                <div class="stat-label">未読通知</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="how-it-works fade-in" id="how-it-works">
+        <div class="hiw-container">
+            <div class="section-label">HOW IT WORKS</div>
+            <h2 class="section-title">3ステップで、すぐに始められます。</h2>
+            <div class="steps-container">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h3 class="step-title">アカウント作成</h3>
+                    <p class="step-description">Googleアカウントで30秒。クレジットカード不要で、すぐに使い始められます。</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h3 class="step-title">企業を登録</h3>
+                    <p class="step-description">応募企業を登録。企業情報は自動で整理され、締切も一目で確認できます。</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h3 class="step-title">AIと一緒に進める</h3>
+                    <p class="step-description">ES添削、志望動機作成、ガクチカ深掘り。AIがサポートしながら、着実に前へ。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section class="pricing fade-in" id="pricing">
+        <div class="pricing-container">
+            <div class="section-label">PRICING</div>
+            <div class="pricing-intro">
+                <h2 class="section-title">無料で始めて、必要なぶんだけ広げる。</h2>
+            </div>
+            <p class="pricing-subtitle">クレジットは成功した処理にだけ消費。無駄なく使えます。</p>
+            <div class="pricing-grid">
+                <!-- Free Plan -->
+                <div class="pricing-card">
+                    <h3 class="plan-name">Free</h3>
+                    <p class="plan-tagline">まずは体験したい方に</p>
+                    <div class="plan-price">
+                        <span class="en-text">¥0</span>
+                    </div>
+                    <button class="plan-cta">無料で始める</button>
+                    <ul class="plan-features">
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>月30クレジット</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>企業登録5社まで</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>ESエディタ</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>AI添削(GPT-5.4 mini固定)</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>ES添削スタイル3種</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>ガクチカ素材3件まで</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>選考スケジュール月5回まで無料</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>企業情報の自動整理 月10ページまで無料</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Standard Plan (Featured) -->
+                <div class="pricing-card featured">
+                    <div class="pricing-badge">最も人気</div>
+                    <h3 class="plan-name">Standard</h3>
+                    <p class="plan-tagline">本格的に就活を進める方に</p>
+                    <div class="plan-price">
+                        <span class="en-text">¥1,480</span>
+                        <span class="plan-price-unit">/月</span>
+                    </div>
+                    <p class="plan-daily-cost">1日わずか¥49</p>
+                    <button class="plan-cta">今すぐ始める</button>
+                    <ul class="plan-features">
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>月100クレジット</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>企業登録無制限</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>全8スタイルでES添削</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>ガクチカ素材10件まで</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>選考スケジュール月50回まで無料</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>企業情報の自動整理 月100ページまで無料</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Pro Plan -->
+                <div class="pricing-card">
+                    <h3 class="plan-name">Pro</h3>
+                    <p class="plan-tagline">複数企業に同時応募する方に</p>
+                    <div class="plan-price">
+                        <span class="en-text">¥2,980</span>
+                        <span class="plan-price-unit">/月</span>
+                    </div>
+                    <p class="plan-daily-cost">1日わずか¥99</p>
+                    <button class="plan-cta">今すぐ始める</button>
+                    <ul class="plan-features">
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>月300クレジット</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>企業登録無制限</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>全8スタイルでES添削</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>ガクチカ素材20件まで</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>選考スケジュール月150回まで無料</span>
+                        </li>
+                        <li class="plan-feature">
+                            <div class="feature-check"></div>
+                            <span>企業情報の自動整理 月300ページまで無料</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section class="faq fade-in" id="faq">
+        <div class="faq-container">
+            <div class="section-label">FAQ</div>
+            <h2 class="section-title">よくある質問</h2>
+            <div class="faq-list">
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <div class="faq-question-text">ES添削AIやES AIとして使えますか？</div>
+                        <div class="faq-icon">+</div>
+                    </div>
+                    <div class="faq-answer">
+                        <div class="faq-answer-text">
+                            はい、就活PassはES添削AI機能を搭載しています。8種類の添削スタイル(論理性重視、人間味重視、簡潔性重視など)から選択でき、業界や企業文化に合わせた最適な表現へ磨き上げます。GPT-5.4やGPT-4oなど複数のモデルに対応し、成功時のみクレジット消費となります。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <div class="faq-question-text">就活AIアプリとして何ができますか？</div>
+                        <div class="faq-icon">+</div>
+                    </div>
+                    <div class="faq-answer">
+                        <div class="faq-answer-text">
+                            就活PassはES添削、志望動機作成、ガクチカ深掘り、企業管理、締切管理、通知、Googleカレンダー連携など、就活に必要な機能を一つのアプリで提供します。AIが各フェーズでサポートし、情報整理から書類作成まで迷わず進められます。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <div class="faq-question-text">無料プランでは何ができますか？</div>
+                        <div class="faq-icon">+</div>
+                    </div>
+                    <div class="faq-answer">
+                        <div class="faq-answer-text">
+                            無料プランでは月30クレジット、企業登録5社まで、ESエディタ、AI添削(GPT-5.4 mini固定)、ES添削スタイル3種、ガクチカ素材3件まで、選考スケジュール月5回まで無料、企業情報の自動整理月10ページまで無料が利用できます。クレジットカード登録不要で、すぐに始められます。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <div class="faq-question-text">他の就活サービスとの違いは何ですか？</div>
+                        <div class="faq-icon">+</div>
+                    </div>
+                    <div class="faq-answer">
+                        <div class="faq-answer-text">
+                            就活Passは「情報整理に不安があり、就活塾には行かずに進めたい学生」をターゲットにしています。超高難度選考向けの専門対策より、迷わず進める管理体験を重視。AI処理は成功時のみクレジット消費で無駄がなく、ES添削・対話・企業管理・締切管理がシームレスに連携します。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <div class="faq-question-text">入力したデータは安全ですか？</div>
+                        <div class="faq-icon">+</div>
+                    </div>
+                    <div class="faq-answer">
+                        <div class="faq-answer-text">
+                            就活Passはセキュアなデータベース(Supabase/PostgreSQL)を使用し、Better Auth + Google OAuthで認証を管理しています。入力データは暗号化され、AI処理後も適切に保護されます。詳細はプライバシーポリシーをご確認ください。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <div class="faq-question-text">クレジットとは何ですか？</div>
+                        <div class="faq-icon">+</div>
+                    </div>
+                    <div class="faq-answer">
+                        <div class="faq-answer-text">
+                            クレジットはAI機能を使用する際の単位です。ES添削、対話、要約、検索などの処理が成功した場合のみ消費されます。失敗時やエラー時は消費されないため、安心して利用できます。無料プランでは月30クレジット、Standardプランでは月100クレジット、Proプランでは月300クレジットが付与されます。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <div class="faq-question-text">1クレジットでどのくらいの操作ができますか？</div>
+                        <div class="faq-icon">+</div>
+                    </div>
+                    <div class="faq-answer">
+                        <div class="faq-answer-text">
+                            処理の種類によって異なります。例えば、ES添削1回は通常1〜3クレジット、ガクチカ対話1往復は1クレジット、企業情報の要約は1〜2クレジット程度が目安です。具体的な消費量は処理内容や文字数によって変動しますが、ダッシュボードで常に残高を確認できます。
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section">
+        <div class="cta-container">
+            <h2 class="cta-title">就活を、迷わず続けられる状態へ。</h2>
+            <p class="cta-text">
+                ES添削、志望動機、ガクチカ、企業管理、締切管理。<br>
+                必要な機能すべてが、一つのアプリで完結します。
+            </p>
+            <div class="cta-buttons">
+                <a href="#" class="btn-primary">無料で始める →</a>
+                <a href="#pricing" class="btn-secondary">料金プランを見る</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <div class="footer-logo">就活Pass</div>
+                    <p class="footer-description">
+                        AIと一緒に迷わず進める就活管理アプリ。ES添削から締切管理まで、必要な機能をひとつに。
+                    </p>
+                </div>
+                <div class="footer-column">
+                    <h4>プロダクト</h4>
+                    <ul class="footer-links">
+                        <li><a href="#features">機能</a></li>
+                        <li><a href="#pricing">料金</a></li>
+                        <li><a href="#">ロードマップ</a></li>
+                        <li><a href="#">更新履歴</a></li>
+                    </ul>
+                </div>
+                <div class="footer-column">
+                    <h4>リソース</h4>
+                    <ul class="footer-links">
+                        <li><a href="#">使い方ガイド</a></li>
+                        <li><a href="#faq">よくある質問</a></li>
+                        <li><a href="#">ブログ</a></li>
+                        <li><a href="#">サポート</a></li>
+                    </ul>
+                </div>
+                <div class="footer-column">
+                    <h4>企業情報</h4>
+                    <ul class="footer-links">
+                        <li><a href="#">運営会社</a></li>
+                        <li><a href="#">プライバシーポリシー</a></li>
+                        <li><a href="#">利用規約</a></li>
+                        <li><a href="#">特定商取引法</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                &copy; 2026 就活Pass. All rights reserved.
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Header scroll effect
+        const header = document.getElementById('header');
+        let lastScroll = 0;
+
+        window.addEventListener('scroll', () => {
+            const currentScroll = window.pageYOffset;
+
+            if (currentScroll > 100) {
+                header.classList.add('scrolled');
+            } else {
+                header.classList.remove('scrolled');
+            }
+
+            lastScroll = currentScroll;
+        });
+
+        // FAQ Accordion
+        const faqItems = document.querySelectorAll('.faq-item');
+
+        faqItems.forEach(item => {
+            const question = item.querySelector('.faq-question');
+            const answer = item.querySelector('.faq-answer');
+
+            question.addEventListener('click', () => {
+                const isActive = item.classList.contains('active');
+
+                // Close all other items
+                faqItems.forEach(otherItem => {
+                    if (otherItem !== item) {
+                        otherItem.classList.remove('active');
+                        otherItem.querySelector('.faq-answer').style.maxHeight = null;
+                    }
+                });
+
+                // Toggle current item
+                if (isActive) {
+                    item.classList.remove('active');
+                    answer.style.maxHeight = null;
+                } else {
+                    item.classList.add('active');
+                    answer.style.maxHeight = answer.scrollHeight + 'px';
+                }
+            });
+        });
+
+        // Fade in animation on scroll
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.fade-in').forEach(el => {
+            observer.observe(el);
+        });
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                const href = this.getAttribute('href');
+                if (href !== '#') {
+                    e.preventDefault();
+                    const target = document.querySelector(href);
+                    if (target) {
+                        const headerHeight = 80;
+                        const targetPosition = target.offsetTop - headerHeight;
+                        window.scrollTo({
+                            top: targetPosition,
+                            behavior: 'smooth'
+                        });
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>

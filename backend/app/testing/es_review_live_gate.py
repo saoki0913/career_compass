@@ -71,9 +71,11 @@ class LiveESReviewCase:
     rag_sources: list[dict[str, str]] = field(default_factory=list)
     expected_focus_tokens: tuple[str, ...] = ()
     expected_focus_groups: tuple[tuple[str, ...], ...] = ()
+    required_focus_groups: tuple[tuple[str, ...], ...] = ()
     expected_user_fact_tokens: tuple[str, ...] = ()
     expected_company_tokens: tuple[str, ...] = ()
     forbidden_tokens: tuple[str, ...] = ("理由を", "教えて")
+    forbidden_anywhere_tokens: tuple[str, ...] = ()
 
 
 def _case(
@@ -98,8 +100,10 @@ def _case(
     rag_sources: list[dict[str, str]] | None = None,
     expected_focus_tokens: tuple[str, ...] = (),
     expected_focus_groups: tuple[tuple[str, ...], ...] = (),
+    required_focus_groups: tuple[tuple[str, ...], ...] = (),
     expected_user_fact_tokens: tuple[str, ...] = (),
     expected_company_tokens: tuple[str, ...] = (),
+    forbidden_anywhere_tokens: tuple[str, ...] = (),
 ) -> LiveESReviewCase:
     return LiveESReviewCase(
         case_id=case_id,
@@ -122,8 +126,10 @@ def _case(
         rag_sources=rag_sources or [],
         expected_focus_tokens=expected_focus_tokens,
         expected_focus_groups=expected_focus_groups,
+        required_focus_groups=required_focus_groups,
         expected_user_fact_tokens=expected_user_fact_tokens,
         expected_company_tokens=expected_company_tokens,
+        forbidden_anywhere_tokens=forbidden_anywhere_tokens,
     )
 
 
@@ -131,6 +137,37 @@ def _matches_anchor_groups(text: str, groups: tuple[tuple[str, ...], ...]) -> bo
     if not text:
         return False
     return any(any(token in text for token in group) for group in groups)
+
+
+def _matches_all_anchor_groups(text: str, groups: tuple[tuple[str, ...], ...]) -> bool:
+    if not text:
+        return False
+    return all(any(token in text for token in group) for group in groups)
+
+
+def _missing_anchor_group_indexes(text: str, groups: tuple[tuple[str, ...], ...]) -> list[int]:
+    if not text:
+        return list(range(1, len(groups) + 1))
+    missing: list[int] = []
+    for index, group in enumerate(groups, start=1):
+        if not any(token in text for token in group):
+            missing.append(index)
+    return missing
+
+
+def _length_shortfall_bucket(char_count: int, char_min: int) -> str | None:
+    shortfall = max(0, int(char_min or 0) - int(char_count or 0))
+    if shortfall <= 0:
+        return None
+    if shortfall <= 5:
+        return "1-5"
+    if shortfall <= 20:
+        return "6-20"
+    return "21+"
+
+
+def _has_unfinished_tail(text: str) -> bool:
+    return not (text or "").strip().endswith(("。", "！", "？", "!", "?"))
 
 
 SMOKE_CASES: tuple[LiveESReviewCase, ...] = (
@@ -798,6 +835,192 @@ EXTENDED_ONLY_CASES: tuple[LiveESReviewCase, ...] = (
             },
         ],
     ),
+    _case(
+        case_id="basic_companyless_selected_company_guard_short",
+        case_set=EXTENDED_CASE_SET,
+        template_type="basic",
+        question="研究内容と、その経験が仕事でどう活きるかを160字以内で教えてください。",
+        answer="需要予測の研究で、複数モデルの誤差要因を切り分けながら再現性のある評価設計を進めてきた。前提をそろえて比較する力は、業務でもデータの信頼性を高め、判断の質を上げる場面で生かせる。",
+        company_name="三菱商事",
+        char_min=95,
+        char_max=160,
+        char_band="short",
+        company_context="companyless",
+        grounding_mode="none",
+        expected_policy="assistive",
+        expected_effective_policy="none",
+        expected_focus_tokens=("研究", "活き", "仕事", "判断", "データ"),
+        expected_user_fact_tokens=("需要予測", "誤差", "評価", "再現"),
+    ),
+    _case(
+        case_id="gakuchika_bullet_memo_reconstruction_medium",
+        case_set=EXTENDED_CASE_SET,
+        template_type="gakuchika",
+        question="学生時代に力を入れたことを220字以内で教えてください。",
+        answer="・学園祭実行委員会\n・協賛5社の調整担当\n・情報共有が遅く準備が止まる\n・進行表を作成、担当ごとの締切を明確化\n・来場者アンケート回収率も改善",
+        char_min=150,
+        char_max=220,
+        char_band="medium",
+        company_context="companyless",
+        grounding_mode="none",
+        expected_policy="assistive",
+        expected_effective_policy="none",
+        expected_focus_tokens=("力を入れた", "取り組", "注力", "改善"),
+        expected_user_fact_tokens=("学園祭", "協賛", "進行表", "アンケート"),
+    ),
+    _case(
+        case_id="self_pr_numeric_retention_short",
+        case_set=EXTENDED_CASE_SET,
+        template_type="self_pr",
+        question="自己PRを180字以内で教えてください。",
+        answer="ゼミ発表会の運営で、3人の担当の進め方がばらつき、準備が遅れていた。そこで共有フォーマットを作り、2か月かけて進捗確認の頻度も見直した結果、当日の配布ミスを15%減らせた。私は、状況を整理して再現できる形に落とし込む力が強みだ。",
+        char_min=115,
+        char_max=180,
+        char_band="short",
+        company_context="companyless",
+        grounding_mode="none",
+        expected_policy="assistive",
+        expected_effective_policy="none",
+        expected_focus_tokens=("強み", "整理", "再現", "推進"),
+        expected_user_fact_tokens=("3人", "2か月", "15%", "共有フォーマット"),
+    ),
+    _case(
+        case_id="role_course_reason_near_role_disambiguation_medium",
+        case_set=EXTENDED_CASE_SET,
+        template_type="role_course_reason",
+        question="デジタル企画コースを志望する理由を220字以内で教えてください。",
+        answer="事業課題を理解したうえで、データや技術の活用方針を描き、構想を実装まで前に進める役割に魅力を感じている。研究では複数の仮説を比較し、論点整理を通じて関係者の認識をそろえてきた。この経験を、現場と技術をつなぐ仕事で生かしたい。",
+        company_name="三菱商事",
+        role_name="デジタル企画",
+        char_min=150,
+        char_max=220,
+        char_band="medium",
+        company_context="role_grounded",
+        grounding_mode="role_grounded",
+        expected_policy="required",
+        expected_effective_policy="role_grounded",
+        expected_min_company_evidence=2,
+        expected_focus_tokens=("志望", "魅力", "惹か", "役割"),
+        expected_user_fact_tokens=("研究", "仮説", "論点整理", "関係者"),
+        expected_company_tokens=("デジタル", "実装", "事業課題"),
+        forbidden_anywhere_tokens=("営業", "トレーディング"),
+        rag_sources=[
+            {
+                "content_type": "new_grad_recruitment",
+                "title": "デジタル企画コース",
+                "excerpt": "事業課題を捉え、技術活用の構想を実装まで前に進める。",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/newgrad/course/digital/",
+            },
+            {
+                "content_type": "new_grad_recruitment",
+                "title": "営業コース",
+                "excerpt": "トレーディングの現場で顧客と向き合い価値を届ける。",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/newgrad/course/sales/",
+            },
+        ],
+    ),
+    _case(
+        case_id="intern_reason_three_part_coverage_medium",
+        case_set=EXTENDED_CASE_SET,
+        template_type="intern_reason",
+        question="Business Intelligence Internshipに参加したい理由、自分のどの経験を活かせるか、そこで何を持ち帰りたいかを220字以内で教えてください。",
+        answer="研究で需要データの傾向を分析し、仮説の比較を重ねてきたが、実務の制約下で分析を意思決定へつなぐ経験はまだ足りない。だからこそ、実務に近い課題を扱うこのインターンで、自分の分析経験を試しながら、問いの立て方と判断へのつなぎ方を持ち帰りたい。",
+        company_name="三井物産",
+        role_name="Business Intelligence",
+        intern_name="Business Intelligence Internship",
+        char_min=150,
+        char_max=220,
+        char_band="medium",
+        company_context="role_grounded",
+        grounding_mode="role_grounded",
+        expected_policy="required",
+        expected_effective_policy="role_grounded",
+        expected_min_company_evidence=1,
+        expected_focus_tokens=("参加", "活か", "持ち帰", "学び"),
+        required_focus_groups=(
+            ("参加したい", "参加理由", "参加", "魅力"),
+            ("経験", "分析", "研究", "仮説"),
+            ("持ち帰りたい", "持ち帰", "得たい", "学びたい"),
+        ),
+        expected_user_fact_tokens=("需要データ", "分析", "仮説", "意思決定"),
+        expected_company_tokens=("Business Intelligence", "実務", "インターン"),
+        rag_sources=[
+            {
+                "content_type": "new_grad_recruitment",
+                "title": "Business Intelligence Internship",
+                "excerpt": "実務に近いテーマを扱い、分析を意思決定へつなげる。",
+                "source_url": "https://www.mitsui.com/jp/ja/recruit/internship/business-intelligence/",
+            },
+        ],
+    ),
+    _case(
+        case_id="company_motivation_noisy_rag_medium",
+        case_set=EXTENDED_CASE_SET,
+        template_type="company_motivation",
+        question="三菱商事を志望する理由を200字以内で教えてください。",
+        answer="研究では複数の仮説を比較し、事業の前提条件を整理しながら価値につながる打ち手を考えてきた。この経験を、幅広い事業領域を持つ環境で磨き、社会に届く価値へつなげたい。現場で学びながら、構想を実行へ移す力を高めたい。",
+        company_name="三菱商事",
+        role_name="総合職",
+        char_min=150,
+        char_max=200,
+        char_band="medium",
+        company_context="strong_same_company",
+        grounding_mode="company_general",
+        expected_policy="required",
+        expected_effective_policy="company_general",
+        expected_min_company_evidence=2,
+        expected_focus_tokens=("志望", "価値", "惹か", "魅力"),
+        expected_user_fact_tokens=("研究", "仮説", "価値", "構想"),
+        expected_company_tokens=("事業", "現場", "価値創出"),
+        forbidden_anywhere_tokens=("三井物産", "住宅補助", "社宅"),
+        rag_sources=[
+            {
+                "content_type": "corporate_site",
+                "title": "事業戦略",
+                "excerpt": "幅広い事業領域で価値創出を進め、現場で学びながら社会課題に向き合う。",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/business/",
+            },
+            {
+                "content_type": "new_grad_recruitment",
+                "title": "三井物産 採用FAQ",
+                "excerpt": "住宅補助や社宅制度などの福利厚生を案内する。",
+                "source_url": "https://www.mitsui.com/jp/ja/recruit/faq/",
+            },
+        ],
+    ),
+    _case(
+        case_id="basic_mixed_style_normalization_short",
+        case_set=EXTENDED_CASE_SET,
+        template_type="basic",
+        question="研究内容と自分の強みを160字以内で教えてください。",
+        answer="研究では需要予測をやっています。外れ値の扱いを見直して精度を上げました。で、比較するときは前提をそろえるのが大事だと思っていて、そのへんは強みです。",
+        char_min=100,
+        char_max=160,
+        char_band="short",
+        company_context="companyless",
+        grounding_mode="none",
+        expected_policy="assistive",
+        expected_effective_policy="none",
+        expected_focus_tokens=("研究", "強み", "予測", "比較"),
+        expected_user_fact_tokens=("需要予測", "外れ値", "精度", "前提"),
+    ),
+    _case(
+        case_id="self_pr_negative_phrase_reframing_medium",
+        case_set=EXTENDED_CASE_SET,
+        template_type="self_pr",
+        question="自己PRを220字以内で教えてください。",
+        answer="経験不足だが、任された仕事は最後までやる。ゼミでは議論の整理役として、資料の論点をまとめ、発表前の認識ずれを減らしてきた。自信がない場面でも準備を重ね、必要な確認を先回りして進めることはできる。",
+        char_min=150,
+        char_max=220,
+        char_band="medium",
+        company_context="companyless",
+        grounding_mode="none",
+        expected_policy="assistive",
+        expected_effective_policy="none",
+        expected_focus_tokens=("強み", "整理", "準備", "進める"),
+        expected_user_fact_tokens=("ゼミ", "論点", "認識ずれ", "確認"),
+        forbidden_anywhere_tokens=("経験不足", "自信がない"),
+    ),
 )
 
 
@@ -879,8 +1102,13 @@ def evaluate_live_case(
             )
         if not soft_ok:
             failures.append(f"char_count:{char_count} not in [{case.char_min},{case.char_max}]")
+            bucket = _length_shortfall_bucket(char_count, case.char_min)
+            if bucket:
+                failures.append(f"length_shortfall_bucket:{bucket}")
     if not dearu_style(rewrite):
         failures.append("style:not_dearu")
+    if _has_unfinished_tail(rewrite):
+        failures.append("unfinished_tail:detected")
     if not review_meta:
         return failures + ["review_meta:missing"]
 
@@ -918,7 +1146,12 @@ def evaluate_live_case(
         failures.append("first_sentence:missing")
     else:
         focus_text = f"{first}\n{rewrite}"
-        if case.expected_focus_groups:
+        if case.required_focus_groups:
+            missing_groups = _missing_anchor_group_indexes(rewrite, case.required_focus_groups)
+            if missing_groups:
+                failures.append("focus_tokens:missing")
+                failures.extend(f"focus_group_missing:{index}" for index in missing_groups)
+        elif case.expected_focus_groups:
             if not _matches_anchor_groups(focus_text, case.expected_focus_groups):
                 failures.append("focus_tokens:missing")
         elif case.expected_focus_tokens and not any(token in focus_text for token in case.expected_focus_tokens):
@@ -926,6 +1159,11 @@ def evaluate_live_case(
         for token in case.forbidden_tokens:
             if token in first:
                 failures.append(f"forbidden_token:{token}")
+        for token in case.forbidden_anywhere_tokens:
+            if token in rewrite:
+                failure = f"forbidden_token:{token}"
+                if failure not in failures:
+                    failures.append(failure)
 
     if case.expected_user_fact_tokens and not any(token in rewrite for token in case.expected_user_fact_tokens):
         failures.append("user_fact_tokens:missing")

@@ -26,6 +26,7 @@ ES添削時に、ユーザーが選択して保存した企業ソースだけを
 
 - URL 取込の月次カウントは **クロールしたページ数**。無料超過分は **1ページ = 1クレジット**。
 - PDF は **ページ数帯の固定クレジット**（無料枠でページを充当してもティア額はフル。詳細は `docs/features/CREDITS.md` §3.5）。**課金・月次カウントに使うページ数は実際に取り込んだページ数**（切り詰め後）。
+- OCR provider は **Google Document AI** が既定で、Google 側の抽出品質が弱い大型 PDF だけ **Mistral OCR** に昇格する。
 - `company_info_monthly_usage.rag_ingest_units` は当月の無料枠消化 **ページ数**（列名は後方互換）。`rag_overflow_units` は現行未使用。
 
 ### ES添削での活用

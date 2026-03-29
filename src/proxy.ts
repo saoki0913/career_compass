@@ -10,14 +10,13 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { logError } from "@/lib/logger";
 import { getBetterAuthSessionCookieCandidates } from "@/lib/auth/ci-e2e";
+import { readGuestDeviceToken } from "@/lib/auth/guest-cookie";
 import { getTrustedOriginSet, getTrustedOrigins } from "@/lib/trusted-origins";
 import { getCsrfFailureReason, setCsrfCookie, type CsrfFailureReason } from "@/lib/csrf";
 import {
   buildNonceCsp,
-  buildStaticCsp,
   createCspNonce,
   isHtmlDocumentRequest,
-  shouldUseNonceCsp,
 } from "@/lib/security/csp";
 
 // Routes that require authentication
@@ -145,10 +144,19 @@ function validateCsrf(request: NextRequest): NextResponse | null {
 
   const origin = request.headers.get("origin");
 
-  // Requests without Origin header (e.g., same-origin fetch without CORS)
-  // are generally safe due to SameSite cookies, but we still validate when present
   if (!origin) {
-    return null;
+    return createProxyErrorResponse(
+      request,
+      403,
+      "ORIGIN_REQUIRED",
+      "現在の環境ではこの操作を完了できませんでした。",
+      "ページを再読み込みして、もう一度お試しください。",
+      "CSRF validation failed: origin missing",
+      JSON.stringify({
+        pathname,
+        method,
+      })
+    );
   }
 
   const allowedOrigins = getTrustedOriginSet();
@@ -203,13 +211,8 @@ function getCspContext(request: NextRequest): CspContext {
   if (!isHtmlDocumentRequest(request.nextUrl.pathname, accept, request.method)) {
     return { nonce: null, csp: null };
   }
-
-  if (shouldUseNonceCsp(request.nextUrl.pathname)) {
-    const nonce = createCspNonce();
-    return { nonce, csp: buildNonceCsp(nonce) };
-  }
-
-  return { nonce: null, csp: buildStaticCsp() };
+  const nonce = createCspNonce();
+  return { nonce, csp: buildNonceCsp(nonce) };
 }
 
 function attachCsp(response: NextResponse, cspContext: CspContext): NextResponse {
@@ -220,12 +223,19 @@ function attachCsp(response: NextResponse, cspContext: CspContext): NextResponse
 }
 
 function createForwardResponse(request: NextRequest, cspContext: CspContext): NextResponse {
-  if (!cspContext.nonce) {
-    return attachCsp(NextResponse.next(), cspContext);
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.delete("x-device-token");
+  requestHeaders.delete("X-Device-Token");
+
+  const guestDeviceToken = readGuestDeviceToken(request);
+  if (guestDeviceToken) {
+    requestHeaders.set("x-device-token", guestDeviceToken);
   }
 
-  const requestHeaders = new Headers(request.headers);
-  requestHeaders.set("x-nonce", cspContext.nonce);
+  if (cspContext.nonce) {
+    requestHeaders.set("x-nonce", cspContext.nonce);
+  }
+
   return attachCsp(
     NextResponse.next({
       request: {

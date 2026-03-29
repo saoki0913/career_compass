@@ -15,6 +15,7 @@ interface CompletionSummaryProps {
   isLoading: boolean;
   gakuchikaId: string;
   onResumeSession?: () => void;
+  hideGenerateAction?: boolean;
 }
 
 const STAR_ELEMENTS = [
@@ -62,6 +63,7 @@ export function CompletionSummary({
   isLoading,
   gakuchikaId,
   onResumeSession,
+  hideGenerateAction = false,
 }: CompletionSummaryProps) {
   const structured = summary && isStructuredSummary(summary) ? summary : null;
   const legacy = summary && !isStructuredSummary(summary) ? summary : null;
@@ -81,10 +83,10 @@ export function CompletionSummary({
             <div className="space-y-2">
               <div className="inline-flex items-center gap-2 rounded-full border border-success/20 bg-success/10 px-3 py-1 text-xs font-medium text-success">
                 <CheckCircleIcon />
-                深掘り完了
+                作成完了
               </div>
               <div className="space-y-1">
-                <h2 className="text-xl font-semibold text-foreground">STARの材料が揃いました</h2>
+                <h2 className="text-xl font-semibold text-foreground">ガクチカの材料が揃いました</h2>
                 <p className="text-sm text-muted-foreground">
                   そのままESや面接準備に使えるよう、要点だけを見やすく整理しています。
                 </p>
@@ -253,18 +255,20 @@ export function CompletionSummary({
           ) : null}
 
           <div className="flex flex-col gap-3 border-t border-border/70 pt-5 sm:flex-row">
-            <Link href={`/es?gakuchikaId=${gakuchikaId}`} className="block flex-1">
-              <Button className="h-11 w-full text-sm font-medium">
-                <span className="flex items-center justify-center gap-2">
-                  この経験を使ってESを作成する
-                  <ArrowRightIcon />
-                </span>
-              </Button>
-            </Link>
+            {!hideGenerateAction ? (
+              <Link href={`/es?gakuchikaId=${gakuchikaId}`} className="block flex-1">
+                <Button className="h-11 w-full text-sm font-medium">
+                  <span className="flex items-center justify-center gap-2">
+                    この経験を使ってESを作成する
+                    <ArrowRightIcon />
+                  </span>
+                </Button>
+              </Link>
+            ) : null}
 
             {onResumeSession && (
               <Button variant="outline" className="h-11 sm:min-w-[140px]" onClick={onResumeSession}>
-                深掘りを続ける
+                作成を続ける
               </Button>
             )}
 

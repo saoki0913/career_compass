@@ -1,3 +1,5 @@
+import { HERO_PRODUCT_DEMO_VIDEO_PATH } from "@/lib/marketing/product-demo-config";
+
 /**
  * LP（ランディング）用の静的メディアパス。
  * 画像は `public/marketing/placeholders/` を参照。差し替え手順は docs/marketing/README.md を参照。
@@ -5,12 +7,14 @@
 export type LandingMedia = {
   src: string;
   alt: string;
+  videoSrc?: string;
 };
 
 export const landingMedia = {
   heroDashboard: {
     src: "/marketing/placeholders/hero-dashboard.svg",
     alt: "就活Passの企業管理と今日やることを確認できるダッシュボード画面",
+    videoSrc: HERO_PRODUCT_DEMO_VIDEO_PATH,
   },
   esReview: {
     src: "/marketing/placeholders/es-review-placeholder.svg",

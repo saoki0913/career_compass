@@ -29,9 +29,7 @@ import {
   logAiCreditCostSummary,
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
-
-// FastAPI backend URL
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 /** FastAPI HTTPException(detail={ error, error_type, ... }) from company-info LLM routes */
 function userFacingScheduleFetchError(detail: unknown): {
@@ -376,7 +374,7 @@ export async function POST(
     let fetchResult: FetchResult;
     let telemetry = null;
     try {
-      const response = await fetch(`${BACKEND_URL}/company-info/fetch-schedule`, {
+      const response = await fetchFastApiInternal("/company-info/fetch-schedule", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

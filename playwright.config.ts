@@ -5,6 +5,7 @@ const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEBSERVER === "1";
 const storageState = process.env.PLAYWRIGHT_AUTH_STATE;
 
 export default defineConfig({
+  globalSetup: "./e2e/global-setup.ts",
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
@@ -28,5 +29,7 @@ export default defineConfig({
         command: "npm run dev",
         url: "http://localhost:3000",
         reuseExistingServer: !process.env.CI,
+        /** 初回 Turbopack コンパイルが重い環境向け */
+        timeout: 180_000,
       },
 });

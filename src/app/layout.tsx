@@ -3,18 +3,17 @@ import "./globals.css";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { CsrfFetchBootstrap } from "@/components/security/CsrfFetchBootstrap";
 import { getAppUrl } from "@/lib/app-url";
-import { siteDescription } from "@/lib/seo/site-structured-data";
+import { siteDefaultTitle, siteDescription } from "@/lib/seo/site-structured-data";
 
 const siteUrl = getAppUrl();
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "就活Pass | ES添削・就活AI・志望動機・締切管理",
+    default: siteDefaultTitle,
     template: "%s | 就活Pass",
   },
-  description:
-    "就活Pass（シューパス・就活パス）は、ES添削・就活AI、志望動機・ガクチカの対話支援、企業・締切・Googleカレンダー連携をまとめて使える就活アプリです。",
+  description: siteDescription,
   alternates: {
     canonical: "/",
   },
@@ -22,16 +21,14 @@ export const metadata: Metadata = {
     type: "website",
     url: siteUrl,
     siteName: "就活Pass",
-    title: "就活Pass | ES添削・就活AI・志望動機・締切管理",
-    description:
-      "就活Pass（シューパス・就活パス）は、ES添削・就活AI、志望動機・ガクチカの対話支援、企業・締切・Googleカレンダー連携をまとめて使える就活アプリです。",
+    title: siteDefaultTitle,
+    description: siteDescription,
     locale: "ja_JP",
   },
   twitter: {
     card: "summary_large_image",
-    title: "就活Pass | ES添削・就活AI・志望動機・締切管理",
-    description:
-      "就活Pass（シューパス・就活パス）は、ES添削・就活AI、志望動機・ガクチカの対話支援、企業・締切・Googleカレンダー連携をまとめて使える就活アプリです。",
+    title: siteDefaultTitle,
+    description: siteDescription,
   },
   verification: {
     google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || undefined,

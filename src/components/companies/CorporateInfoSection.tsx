@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useCredits } from "@/hooks/useCredits";
 import { useOperationLock } from "@/hooks/useOperationLock";
@@ -27,6 +26,7 @@ import {
   getRagPdfMaxIngestPages,
 } from "@/lib/company-info/pdf-ingest-limits";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { shouldCloseCorporateFetchModalOnSuccess } from "@/lib/company-info/fetch-ui";
 
 interface RagStatus {
   hasRag: boolean;
@@ -87,6 +87,26 @@ const CONTENT_TYPE_TO_CHANNEL: Record<ContentType, "corporate_ir" | "corporate_g
   midterm_plan: "corporate_ir",
 };
 
+type PdfUploadContentType =
+  | "new_grad_recruitment"
+  | "midcareer_recruitment"
+  | "corporate_site"
+  | "ir_materials"
+  | "employee_interviews"
+  | "csr_sustainability"
+  | "midterm_plan";
+
+const PDF_UPLOAD_CONTENT_TYPE_OPTIONS: Array<{ value: PdfUploadContentType; label: string }> = [
+  { value: "ir_materials", label: "IR資料・決算資料" },
+  { value: "midterm_plan", label: "中期経営計画・経営方針" },
+  { value: "new_grad_recruitment", label: "採用資料・会社説明会資料" },
+  { value: "employee_interviews", label: "社員紹介・カルチャー資料" },
+  { value: "csr_sustainability", label: "サステナ・CSR資料" },
+  { value: "corporate_site", label: "会社概要・その他" },
+];
+
+const DEFAULT_PDF_UPLOAD_CONTENT_TYPE: PdfUploadContentType = "corporate_site";
+
 // Mapping from legacy type to new ContentType
 const LEGACY_TO_NEW_TYPE: Record<string, ContentType> = {
   ir: "ir_materials",
@@ -116,7 +136,6 @@ const CONTENT_TYPE_OPTIONS: Array<{ value: ContentType; label: string }> = [
 interface CorporateInfoSectionProps {
   companyId: string;
   companyName: string;
-  onUpdate?: () => void;
 }
 
 type InputMode = "web" | "url" | "pdf";
@@ -195,6 +214,7 @@ interface UrlDraft {
 
 interface PdfDraft {
   uploadFiles: File[];
+  uploadFileContentTypes: Record<string, PdfUploadContentType>;
 }
 
 function createInitialWebDraft(): WebDraft {
@@ -220,6 +240,7 @@ function createInitialUrlDraft(): UrlDraft {
 function createInitialPdfDraft(): PdfDraft {
   return {
     uploadFiles: [],
+    uploadFileContentTypes: {},
   };
 }
 
@@ -434,20 +455,9 @@ const BUSINESS_SEARCH_KEYWORDS = [
 ];
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore
-    }
-  }
-  return headers;
 }
 
 function mergePdfFiles(nextFiles: FileList | File[] | null | undefined, currentFiles: File[]) {
@@ -486,17 +496,60 @@ function pdfFileKey(file: File) {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
 
-function getExtractionMethodLabel(method?: string) {
+export function getExtractionMethodLabel(method?: string) {
   switch (method) {
     case "pypdf":
       return "PDF内の埋め込みテキストを抽出";
+    case "ocr":
     case "openai_pdf_ocr":
       return "OCRで本文を抽出";
+    case "ocr_high_accuracy":
+      return "高精度OCRで本文を抽出";
     case "deferred_ocr":
       return "遅延OCR（廃止・旧データ）";
     default:
       return method || "不明";
   }
+}
+
+function getPdfUploadContentTypeLabel(value: PdfUploadContentType) {
+  const option = PDF_UPLOAD_CONTENT_TYPE_OPTIONS.find((entry) => entry.value === value);
+  return option?.label || "会社概要・その他";
+}
+
+function mergePdfDraftFiles(prev: PdfDraft, nextFiles: FileList | File[] | null | undefined): PdfDraft {
+  if (!nextFiles) return prev;
+  const mergedFiles = mergePdfFiles(nextFiles, prev.uploadFiles);
+  const nextContentTypes = { ...prev.uploadFileContentTypes };
+  const mergedKeys = new Set(mergedFiles.map(pdfFileKey));
+
+  for (const file of mergedFiles) {
+    const key = pdfFileKey(file);
+    if (!nextContentTypes[key]) {
+      nextContentTypes[key] = DEFAULT_PDF_UPLOAD_CONTENT_TYPE;
+    }
+  }
+
+  for (const key of Object.keys(nextContentTypes)) {
+    if (!mergedKeys.has(key)) {
+      delete nextContentTypes[key];
+    }
+  }
+
+  return {
+    uploadFiles: mergedFiles,
+    uploadFileContentTypes: nextContentTypes,
+  };
+}
+
+function removePdfDraftFile(prev: PdfDraft, target: File): PdfDraft {
+  const nextContentTypes = { ...prev.uploadFileContentTypes };
+  delete nextContentTypes[pdfFileKey(target)];
+
+  return {
+    uploadFiles: removePdfFile(prev.uploadFiles, target),
+    uploadFileContentTypes: nextContentTypes,
+  };
 }
 
 function getSourceStatusMeta(status?: CorporateInfoSourceStatus) {
@@ -649,7 +702,6 @@ function isRecommendedCandidate(candidate: SearchCandidate) {
 export function CorporateInfoSection({
   companyId,
   companyName,
-  onUpdate,
 }: CorporateInfoSectionProps) {
   const { isAuthenticated, isReady: isAuthReady } = useAuth();
   const { companyRagUnitsLimit, companyRagUnitsRemaining, plan, ragPdfLimits } = useCredits({
@@ -1254,15 +1306,10 @@ export function CorporateInfoSection({
 
       const result = await response.json();
 
-      // 先に一覧・RAG統計を同期してから結果画面へ（背景の数値が急に変わるのを抑える）
       await fetchStatus();
-      onUpdate?.();
-
-      setFetchResult(result);
-      setModalStep("result");
-
       const chunks = result.chunksStored ?? 0;
-      if (result.success && chunks > 0) {
+      if (shouldCloseCorporateFetchModalOnSuccess(result)) {
+        closeModal();
         const costNote =
           typeof result.estimatedCostBand === "string" && result.estimatedCostBand.trim()
             ? ` ${result.estimatedCostBand}。`
@@ -1275,12 +1322,16 @@ export function CorporateInfoSection({
           });
         }, RAG_SUCCESS_SNACKBAR_DELAY_MS);
       } else if (result.success && chunks === 0 && (result.pagesCrawled ?? 0) > 0) {
+        closeModal();
         window.setTimeout(() => {
           notifyMessage(
             "ページの取得は完了しましたが、保存されたチャンクがありません。別のURLを試してください。",
             5200
           );
         }, RAG_SUCCESS_SNACKBAR_DELAY_MS);
+      } else {
+        setFetchResult(result);
+        setModalStep("result");
       }
     } catch (err) {
       const uiError = toAppUiError(
@@ -1339,6 +1390,9 @@ export function CorporateInfoSection({
         try {
           const formData = new FormData();
           formData.append("file", file);
+          const contentType =
+            pdfDraft.uploadFileContentTypes[pdfFileKey(file)] || DEFAULT_PDF_UPLOAD_CONTENT_TYPE;
+          formData.append("contentType", contentType);
 
           const response = await fetch(`/api/companies/${companyId}/fetch-corporate-upload`, {
             method: "POST",
@@ -1428,9 +1482,7 @@ export function CorporateInfoSection({
         .filter((item) => item.status === "completed")
         .reduce((sum, item) => sum + (item.freeUnitsApplied ?? 0), 0);
       await fetchStatus();
-      onUpdate?.();
-
-      setFetchResult({
+      const nextFetchResult: FetchResult = {
         success: completedCount > 0,
         pagesCrawled: pdfDraft.uploadFiles.length,
         chunksStored: totalChunks,
@@ -1452,8 +1504,14 @@ export function CorporateInfoSection({
           skippedLimit: skippedLimitCount,
         },
         items: allItems,
-      });
-      setModalStep("result");
+      };
+
+      if (shouldCloseCorporateFetchModalOnSuccess(nextFetchResult)) {
+        closeModal();
+      } else {
+        setFetchResult(nextFetchResult);
+        setModalStep("result");
+      }
 
       if (completedCount > 0 && totalChunks > 0) {
         const costNote =
@@ -2528,9 +2586,7 @@ export function CorporateInfoSection({
                             if (pdfUploadProgress || isUploading) return;
                             e.preventDefault();
                             e.stopPropagation();
-                            setPdfDraft((prev) => ({
-                              uploadFiles: mergePdfFiles(e.dataTransfer.files, prev.uploadFiles),
-                            }));
+                            setPdfDraft((prev) => mergePdfDraftFiles(prev, e.dataTransfer.files));
                           }}
                           onClick={() => {
                             if (pdfUploadProgress || isUploading) return;
@@ -2543,9 +2599,7 @@ export function CorporateInfoSection({
                             accept="application/pdf,.pdf"
                             multiple
                             onChange={(e) =>
-                              setPdfDraft((prev) => ({
-                                uploadFiles: mergePdfFiles(e.target.files, prev.uploadFiles),
-                              }))
+                              setPdfDraft((prev) => mergePdfDraftFiles(prev, e.target.files))
                             }
                             disabled={isUploading || isFetching || isSearching}
                             className="hidden"
@@ -2633,7 +2687,7 @@ export function CorporateInfoSection({
                                 {pdfDraft.uploadFiles.map((file) => (
                                   <div
                                     key={`${file.name}-${file.size}-${file.lastModified}`}
-                                    className="flex items-center gap-2 overflow-hidden rounded-md border border-border/70 bg-background/80 px-2.5 py-1.5"
+                                    className="flex flex-col gap-2 overflow-hidden rounded-md border border-border/70 bg-background/80 px-2.5 py-2 sm:flex-row sm:items-center"
                                   >
                                     <div className="min-w-0 flex-1">
                                       <p className="truncate text-xs font-medium text-foreground">
@@ -2643,20 +2697,56 @@ export function CorporateInfoSection({
                                         {(file.size / 1024 / 1024).toFixed(2)} MB
                                       </p>
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setPdfDraft((prev) => ({
-                                          uploadFiles: removePdfFile(prev.uploadFiles, file),
-                                        }));
-                                      }}
-                                      className="shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                                    >
-                                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                      </svg>
-                                    </button>
+                                    <div className="flex items-center gap-2 sm:shrink-0">
+                                      <label className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
+                                        <span className="shrink-0">資料タイプ</span>
+                                        <div className="flex flex-col">
+                                          <select
+                                            value={
+                                              pdfDraft.uploadFileContentTypes[pdfFileKey(file)] ||
+                                              DEFAULT_PDF_UPLOAD_CONTENT_TYPE
+                                            }
+                                          onChange={(e) => {
+                                            const nextType = e.target.value as PdfUploadContentType;
+                                            setPdfDraft((prev) => ({
+                                              ...prev,
+                                              uploadFileContentTypes: {
+                                                ...prev.uploadFileContentTypes,
+                                                [pdfFileKey(file)]: nextType,
+                                              },
+                                            }));
+                                          }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="h-9 min-w-0 rounded-md border border-border bg-background px-2.5 text-xs text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
+                                          >
+                                            {PDF_UPLOAD_CONTENT_TYPE_OPTIONS.map((option) => (
+                                              <option key={option.value} value={option.value}>
+                                                {option.label}
+                                              </option>
+                                            ))}
+                                          </select>
+                                          <p className="mt-1 text-[10px] text-muted-foreground">
+                                            OCRルーティング:{" "}
+                                            {getPdfUploadContentTypeLabel(
+                                              pdfDraft.uploadFileContentTypes[pdfFileKey(file)] ||
+                                                DEFAULT_PDF_UPLOAD_CONTENT_TYPE
+                                            )}
+                                          </p>
+                                        </div>
+                                      </label>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setPdfDraft((prev) => removePdfDraftFile(prev, file));
+                                        }}
+                                        className="shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                      >
+                                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                      </button>
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -2664,7 +2754,7 @@ export function CorporateInfoSection({
                                 OCRが必要なPDFがある場合、通常より時間がかかることがあります（1ファイルあたり5〜15秒）
                               </p>
                               {pdfCreditPreview ? (
-                                <div className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5 text-left text-[11px] leading-relaxed text-muted-foreground">
+                                <div className="max-h-44 overflow-y-auto overscroll-contain rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5 text-left text-[11px] leading-relaxed text-muted-foreground sm:max-h-52">
                                   {pdfCreditPreview.kind === "loading" ? (
                                     <p>PDF のページ数を確認しています…</p>
                                   ) : pdfCreditPreview.kind === "partial" ? (
@@ -2771,39 +2861,6 @@ export function CorporateInfoSection({
                             </div>
                           )}
                         </div>
-                        {!pdfUploadProgress && pdfDraft.uploadFiles.length > 0 && (
-                          <div className="mt-2.5 flex items-center justify-end gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                document.getElementById(pdfUploadInputId)?.click();
-                              }}
-                              disabled={isUploading}
-                            >
-                              追加選択
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleUploadPdf();
-                              }}
-                              disabled={isUploading}
-                            >
-                              {isUploading ? (
-                                <>
-                                  <LoadingSpinner />
-                                  <span className="ml-2">取り込み中...</span>
-                                </>
-                              ) : (
-                                `${pdfDraft.uploadFiles.length}件を取り込む`
-                              )}
-                            </Button>
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
@@ -2828,7 +2885,7 @@ export function CorporateInfoSection({
                       />
                     </div>
                   </div>
-                  <div className="flex gap-2 self-end sm:self-auto">
+                  <div className="flex flex-wrap items-center justify-end gap-2 self-end sm:self-auto">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -2874,6 +2931,40 @@ export function CorporateInfoSection({
                         )}
                       </Button>
                     )}
+                    {showConfigureStep &&
+                      inputMode === "pdf" &&
+                      !pdfUploadProgress &&
+                      pdfDraft.uploadFiles.length > 0 && (
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              document.getElementById(pdfUploadInputId)?.click();
+                            }}
+                            disabled={isUploading}
+                          >
+                            追加選択
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              void handleUploadPdf();
+                            }}
+                            disabled={isUploading}
+                          >
+                            {isUploading ? (
+                              <>
+                                <LoadingSpinner />
+                                <span className="ml-2">取り込み中...</span>
+                              </>
+                            ) : (
+                              `${pdfDraft.uploadFiles.length}件を取り込む`
+                            )}
+                          </Button>
+                        </>
+                      )}
                   </div>
                 </div>
               </div>

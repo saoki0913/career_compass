@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>就活Pass - 就活を、AIと一緒に迷わず進める</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;800;900&display=swap');
+
+        * {
+            font-family: 'Noto Sans JP', sans-serif;
+        }
+
+        .gradient-text {
+            background: linear-gradient(135deg, #3B82F6 0%, #6366F1 50%, #8B5CF6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .gradient-bg-blue-indigo {
+            background: linear-gradient(135deg, #3B82F6 0%, #6366F1 100%);
+        }
+
+        .gradient-bg-hero {
+            background: linear-gradient(180deg, #ffffff 0%, #EFF6FF 100%);
+        }
+
+        .gradient-bg-pricing {
+            background: linear-gradient(135deg, #DBEAFE 0%, #E0E7FF 100%);
+        }
+
+        .gradient-bg-cta {
+            background: linear-gradient(135deg, #1E3A8A 0%, #4C1D95 100%);
+        }
+
+        .blob-decoration {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.3;
+            z-index: 0;
+        }
+
+        .blob-1 {
+            width: 400px;
+            height: 400px;
+            background: #3B82F6;
+            top: -100px;
+            right: -100px;
+        }
+
+        .blob-2 {
+            width: 300px;
+            height: 300px;
+            background: #8B5CF6;
+            bottom: -50px;
+            left: -50px;
+        }
+
+        .blob-3 {
+            width: 250px;
+            height: 250px;
+            background: #6366F1;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        header {
+            transition: all 0.3s ease;
+        }
+
+        header.scrolled {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .step-connector {
+            position: relative;
+        }
+
+        .step-connector::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 100%;
+            width: 100%;
+            height: 2px;
+            background: repeating-linear-gradient(
+                to right,
+                #3B82F6 0px,
+                #3B82F6 8px,
+                transparent 8px,
+                transparent 16px
+            );
+            transform: translateY(-50%);
+        }
+
+        @media (max-width: 768px) {
+            .step-connector::after {
+                display: none;
+            }
+        }
+
+        .faq-item {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .faq-item:hover {
+            background-color: #F9FAFB;
+        }
+
+        .faq-answer {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .faq-item.active .faq-answer {
+            max-height: 500px;
+        }
+
+        .faq-item .faq-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .faq-item.active .faq-icon {
+            transform: rotate(180deg);
+        }
+
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+
+        .card-hover:hover {
+            transform: scale(1.05);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        .pricing-card-popular {
+            transform: scale(1.05);
+            box-shadow: 0 20px 25px -5px rgba(59, 130, 246, 0.2), 0 10px 10px -5px rgba(59, 130, 246, 0.1);
+        }
+
+        .screenshot-placeholder {
+            background: linear-gradient(135deg, #E5E7EB 0%, #F3F4F6 100%);
+            border: 2px solid #E5E7EB;
+        }
+    </style>
+</head>
+<body class="bg-white">
+    <!-- Header -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-transparent">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16 md:h-20">
+                <div class="flex items-center space-x-2">
+                    <span class="text-2xl">✨</span>
+                    <span class="text-xl md:text-2xl font-bold text-gray-900">就活Pass</span>
+                </div>
+
+                <nav class="hidden md:flex items-center space-x-8">
+                    <a href="#features" class="text-gray-700 hover:text-blue-600 font-medium transition">機能</a>
+                    <a href="#how-it-works" class="text-gray-700 hover:text-blue-600 font-medium transition">使い方</a>
+                    <a href="#pricing" class="text-gray-700 hover:text-blue-600 font-medium transition">料金</a>
+                    <a href="#faq" class="text-gray-700 hover:text-blue-600 font-medium transition">FAQ</a>
+                </nav>
+
+                <div>
+                    <a href="#pricing" class="gradient-bg-blue-indigo text-white px-6 py-2.5 rounded-lg font-semibold hover:opacity-90 transition inline-block">
+                        無料で始める
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="gradient-bg-hero pt-24 md:pt-32 pb-16 md:pb-24 relative overflow-hidden">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
+            <div class="inline-block mb-6 px-4 py-2 bg-white/80 backdrop-blur-sm rounded-full border border-blue-200 shadow-sm">
+                <span class="text-sm md:text-base font-medium text-gray-700">✨ ES添削 × AI × 企業管理をひとつに</span>
+            </div>
+
+            <h1 class="text-4xl md:text-6xl lg:text-7xl font-black mb-6 leading-tight">
+                <span class="gradient-text">就活を、AIと一緒に<br>迷わず進める。</span>
+            </h1>
+
+            <p class="text-lg md:text-xl text-gray-700 mb-8 max-w-3xl mx-auto leading-relaxed">
+                エントリーシート（ES）の添削・就活AIで文章を整えつつ、志望動機・ガクチカの整理、企業・締切管理も一つの流れで進められます。
+            </p>
+
+            <div class="flex flex-col sm:flex-row gap-4 justify-center mb-10">
+                <a href="#pricing" class="gradient-bg-blue-indigo text-white px-8 py-4 rounded-lg text-lg font-bold hover:opacity-90 transition inline-flex items-center justify-center shadow-lg">
+                    無料で始める
+                    <svg class="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </a>
+                <a href="#pricing" class="bg-white border-2 border-blue-600 text-blue-600 px-8 py-4 rounded-lg text-lg font-bold hover:bg-blue-50 transition inline-block">
+                    料金プランを見る
+                </a>
+            </div>
+
+            <div class="flex flex-wrap justify-center gap-6 mb-12 text-sm md:text-base">
+                <div class="flex items-center space-x-2">
+                    <span class="text-xl">✅</span>
+                    <span class="text-gray-700 font-medium">成功時のみ消費</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="text-xl">💳</span>
+                    <span class="text-gray-700 font-medium">クレジットカード不要</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="text-xl">📅</span>
+                    <span class="text-gray-700 font-medium">Googleカレンダー連携</span>
+                </div>
+            </div>
+
+            <div class="relative max-w-5xl mx-auto">
+                <div class="blob-decoration blob-1"></div>
+                <div class="blob-decoration blob-2"></div>
+                <div class="blob-decoration blob-3"></div>
+
+                <div class="screenshot-placeholder rounded-2xl shadow-2xl relative z-10" style="padding-top: 56.25%;">
+                    <div class="absolute inset-0 flex items-center justify-center">
+                        <span class="text-gray-400 text-lg font-semibold">Product Screenshot</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Benefits Strip -->
+    <section class="py-16 md:py-20 bg-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="card-hover bg-blue-50 rounded-2xl p-6 text-center">
+                    <div class="text-4xl mb-4">🎯</div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">迷わず進める</h3>
+                    <p class="text-gray-700">今やることが見える状態をAIと一緒に作る</p>
+                </div>
+
+                <div class="card-hover bg-indigo-50 rounded-2xl p-6 text-center">
+                    <div class="text-4xl mb-4">⏰</div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">締切を落とさない</h3>
+                    <p class="text-gray-700">企業・締切をまとめて管理。カレンダー連携で見逃し防止</p>
+                </div>
+
+                <div class="card-hover bg-violet-50 rounded-2xl p-6 text-center">
+                    <div class="text-4xl mb-4">✍️</div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">ES品質向上</h3>
+                    <p class="text-gray-700">設問タイプに合わせたAI添削で改善ポイントを整理</p>
+                </div>
+
+                <div class="card-hover bg-emerald-50 rounded-2xl p-6 text-center">
+                    <div class="text-4xl mb-4">💰</div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">月¥1,480から</h3>
+                    <p class="text-gray-700">成功時のみ消費。無料プランもあり</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Product Feature Grid -->
+    <section id="features" class="py-16 md:py-24 bg-gray-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-5xl font-black text-gray-900 mb-4">
+                    書くことも、管理することも、<br>同じ流れで進める。
+                </h2>
+                <p class="text-lg md:text-xl text-gray-700 max-w-3xl mx-auto">
+                    AIの出力だけを見るのではなく、そのまま就活の進行に戻れることを重視しています。
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Feature 1 -->
+                <div class="card-hover bg-white rounded-2xl p-8 shadow-lg">
+                    <div class="text-5xl mb-4">📝</div>
+                    <h3 class="text-2xl font-bold text-gray-900 mb-3">AI添削</h3>
+                    <p class="text-gray-700 mb-6">
+                        設問の切り口に合わせて、直しどころと書き換え案が分かる。
+                    </p>
+                    <div class="screenshot-placeholder rounded-lg" style="padding-top: 60%;">
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <span class="text-gray-400 text-sm font-medium">AI添削画面</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Feature 2 -->
+                <div class="card-hover bg-white rounded-2xl p-8 shadow-lg">
+                    <div class="text-5xl mb-4">💬</div>
+                    <h3 class="text-2xl font-bold text-gray-900 mb-3">対話で整理</h3>
+                    <p class="text-gray-700 mb-6">
+                        志望動機やガクチカを、会話しながら前に進められる。
+                    </p>
+                    <div class="screenshot-placeholder rounded-lg" style="padding-top: 60%;">
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <span class="text-gray-400 text-sm font-medium">対話画面</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Feature 3 -->
+                <div class="card-hover bg-white rounded-2xl p-8 shadow-lg">
+                    <div class="text-5xl mb-4">📅</div>
+                    <h3 class="text-2xl font-bold text-gray-900 mb-3">企業・締切管理</h3>
+                    <p class="text-gray-700 mb-6">
+                        応募先、締切、次にやることを見失わずに続けられる。
+                    </p>
+                    <div class="screenshot-placeholder rounded-lg" style="padding-top: 60%;">
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <span class="text-gray-400 text-sm font-medium">締切管理画面</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Feature 4 -->
+                <div class="card-hover bg-white rounded-2xl p-8 shadow-lg">
+                    <div class="text-5xl mb-4">📊</div>
+                    <h3 class="text-2xl font-bold text-gray-900 mb-3">ダッシュボード</h3>
+                    <p class="text-gray-700 mb-6">
+                        今日やること、近づく締切、進捗を一目で確認。
+                    </p>
+                    <div class="screenshot-placeholder rounded-lg" style="padding-top: 60%;">
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <span class="text-gray-400 text-sm font-medium">ダッシュボード画面</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section id="how-it-works" class="py-16 md:py-24 bg-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-5xl font-black text-gray-900 mb-4">
+                    始め方はかんたん。
+                </h2>
+                <p class="text-lg md:text-xl text-gray-700 max-w-3xl mx-auto">
+                    3ステップで、今日から就活を前に進められます。
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-8 md:gap-4 relative">
+                <!-- Step 1 -->
+                <div class="step-connector text-center">
+                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full gradient-bg-blue-indigo text-white text-2xl font-bold mb-4">
+                        1
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">無料登録</h3>
+                    <p class="text-gray-700">
+                        Googleアカウントで30秒。クレジットカード不要。
+                    </p>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="step-connector text-center">
+                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full gradient-bg-blue-indigo text-white text-2xl font-bold mb-4">
+                        2
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">企業を追加</h3>
+                    <p class="text-gray-700">
+                        志望企業を登録すると、情報整理が始まります。
+                    </p>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="step-connector text-center">
+                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full gradient-bg-blue-indigo text-white text-2xl font-bold mb-4">
+                        3
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">AIで準備</h3>
+                    <p class="text-gray-700">
+                        ES添削、志望動機、ガクチカを対話で進める。
+                    </p>
+                </div>
+
+                <!-- Step 4 -->
+                <div class="text-center">
+                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full gradient-bg-blue-indigo text-white text-2xl font-bold mb-4">
+                        4
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">提出へ</h3>
+                    <p class="text-gray-700">
+                        締切管理とカレンダー連携で、提出を見逃さない。
+                    </p>
+                </div>
+            </div>
+
+            <div class="text-center mt-12">
+                <a href="#pricing" class="gradient-bg-blue-indigo text-white px-8 py-4 rounded-lg text-lg font-bold hover:opacity-90 transition inline-flex items-center shadow-lg">
+                    今すぐ無料で始める
+                    <svg class="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section id="pricing" class="py-16 md:py-24 gradient-bg-pricing">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-4">
+                <span class="text-sm font-semibold text-blue-600 uppercase tracking-wide">Pricing</span>
+            </div>
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-5xl font-black text-gray-900 mb-4">
+                    無料で始めて、<br class="md:hidden">必要なぶんだけ広げる。
+                </h2>
+                <p class="text-lg md:text-xl text-gray-700 max-w-3xl mx-auto">
+                    クレジットは成功した時だけ消費。無駄なく使えます。
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+                <!-- Free Plan -->
+                <div class="card-hover bg-white rounded-2xl p-8 shadow-lg">
+                    <h3 class="text-2xl font-bold text-gray-900 mb-2">Free</h3>
+                    <div class="text-4xl font-black text-gray-900 mb-2">¥0</div>
+                    <p class="text-gray-600 mb-6">基本機能を試したい方に</p>
+
+                    <a href="#" class="block w-full text-center border-2 border-gray-900 text-gray-900 px-6 py-3 rounded-lg font-bold hover:bg-gray-900 hover:text-white transition mb-8">
+                        無料で始める
+                    </a>
+
+                    <ul class="space-y-3">
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">月30クレジット</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">企業登録 5社まで</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">ESエディタ</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">AI添削（GPT-5.4 mini固定・6〜20クレジット/回）</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">ES添削スタイル 3種</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">ガクチカ素材 3件まで</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">選考スケジュール 月5回まで無料</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">企業情報の自動整理 月10ページまで無料</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Standard Plan (Popular) -->
+                <div class="pricing-card-popular bg-white rounded-2xl p-8 relative border-2 border-blue-500">
+                    <div class="absolute -top-4 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-4 py-1 rounded-full text-sm font-bold">
+                        🏆 最も人気
+                    </div>
+
+                    <h3 class="text-2xl font-bold text-gray-900 mb-2">Standard</h3>
+                    <div class="text-4xl font-black text-gray-900 mb-1">¥1,480<span class="text-lg text-gray-600 font-normal">/月</span></div>
+                    <p class="text-sm text-gray-500 mb-2">1日わずか¥49</p>
+                    <p class="text-gray-600 mb-6">就活を継続的に進めたい方に</p>
+
+                    <a href="#" class="block w-full text-center gradient-bg-blue-indigo text-white px-6 py-3 rounded-lg font-bold hover:opacity-90 transition mb-8 shadow-lg">
+                        Standardで始める
+                    </a>
+
+                    <ul class="space-y-3">
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700 font-semibold">月100クレジット</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700 font-semibold">企業登録 無制限</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700 font-semibold">全8スタイルでES添削</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">ガクチカ素材 10件まで</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">選考スケジュール 月50回まで無料</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">企業情報の自動整理 月100ページまで無料</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Pro Plan -->
+                <div class="card-hover bg-white rounded-2xl p-8 shadow-lg">
+                    <h3 class="text-2xl font-bold text-gray-900 mb-2">Pro</h3>
+                    <div class="text-4xl font-black text-gray-900 mb-1">¥2,980<span class="text-lg text-gray-600 font-normal">/月</span></div>
+                    <p class="text-sm text-gray-500 mb-2">1日わずか¥99</p>
+                    <p class="text-gray-600 mb-6">添削や企業研究を重く使いたい方に</p>
+
+                    <a href="#" class="block w-full text-center border-2 border-gray-900 text-gray-900 px-6 py-3 rounded-lg font-bold hover:bg-gray-900 hover:text-white transition mb-8">
+                        Proで始める
+                    </a>
+
+                    <ul class="space-y-3">
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700 font-semibold">月300クレジット</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700 font-semibold">企業登録 無制限</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700 font-semibold">全8スタイルでES添削</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">ガクチカ素材 20件まで</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">選考スケジュール 月150回まで無料</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <span class="text-gray-700">企業情報の自動整理 月300ページまで無料</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section id="faq" class="py-16 md:py-24 bg-white">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-5xl font-black text-gray-900">よくある質問</h2>
+            </div>
+
+            <div class="space-y-4">
+                <!-- FAQ 1 -->
+                <div class="faq-item border border-gray-200 rounded-xl p-6">
+                    <div class="flex justify-between items-start cursor-pointer">
+                        <h3 class="text-lg font-bold text-gray-900 pr-8">無料プランでも全機能を使えますか？</h3>
+                        <svg class="faq-icon w-6 h-6 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </div>
+                    <div class="faq-answer pt-4">
+                        <p class="text-gray-700">はい、無料プランでも全機能をお試しいただけます。ただし、月30クレジット、企業登録5社まで、ES添削スタイルは3種類のみなど、一部制限があります。Standard以上のプランでは、クレジット数や企業数、添削スタイルの種類が増え、より多くのES添削や企業研究を進められます。</p>
+                    </div>
+                </div>
+
+                <!-- FAQ 2 -->
+                <div class="faq-item border border-gray-200 rounded-xl p-6">
+                    <div class="flex justify-between items-start cursor-pointer">
+                        <h3 class="text-lg font-bold text-gray-900 pr-8">クレジットはどのように消費されますか？</h3>
+                        <svg class="faq-icon w-6 h-6 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </div>
+                    <div class="faq-answer pt-4">
+                        <p class="text-gray-700">クレジットはAI添削や志望動機・ガクチカ生成などのAI処理が成功した時のみ消費されます。エラーが発生した場合や処理が途中で失敗した場合は消費されません。ES添削は設問の長さや選択した添削スタイルによって6〜20クレジット程度、志望動機生成は10〜15クレジット程度が目安です。</p>
+                    </div>
+                </div>
+
+                <!-- FAQ 3 -->
+                <div class="faq-item border border-gray-200 rounded-xl p-6">
+                    <div class="flex justify-between items-start cursor-pointer">
+                        <h3 class="text-lg font-bold text-gray-900 pr-8">プラン変更はいつでもできますか？</h3>
+                        <svg class="faq-icon w-6 h-6 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </div>
+                    <div class="faq-answer pt-4">
+                        <p class="text-gray-700">はい、いつでもプラン変更が可能です。上位プランへのアップグレードは即座に反映され、差額は日割り計算されます。ダウングレードは次回更新日から適用されます。解約もいつでも可能で、解約後も契約期間の終了までは引き続きご利用いただけます。</p>
+                    </div>
+                </div>
+
+                <!-- FAQ 4 -->
+                <div class="faq-item border border-gray-200 rounded-xl p-6">
+                    <div class="flex justify-between items-start cursor-pointer">
+                        <h3 class="text-lg font-bold text-gray-900 pr-8">Googleカレンダー連携は必須ですか？</h3>
+                        <svg class="faq-icon w-6 h-6 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </div>
+                    <div class="faq-answer pt-4">
+                        <p class="text-gray-700">いいえ、必須ではありません。Googleカレンダー連携なしでも就活Passの全機能をご利用いただけます。ただし、連携すると選考日程や締切が自動でカレンダーに追加され、スマートフォンやPCから締切を見逃さずに管理できます。連携はいつでも設定から有効化・無効化できます。</p>
+                    </div>
+                </div>
+
+                <!-- FAQ 5 -->
+                <div class="faq-item border border-gray-200 rounded-xl p-6">
+                    <div class="flex justify-between items-start cursor-pointer">
+                        <h3 class="text-lg font-bold text-gray-900 pr-8">AI添削の精度はどのくらいですか？</h3>
+                        <svg class="faq-icon w-6 h-6 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </div>
+                    <div class="faq-answer pt-4">
+                        <p class="text-gray-700">就活PassのAI添削は、最新のGPT-5.4をベースに、ES設問のタイプ（自己PR、ガクチカ、志望動機など）に応じた専用プロンプトを使用しています。文章の論理構造、具体性、企業との適合性などを多角的に分析し、改善ポイントと具体的な書き換え案を提示します。ただし、最終的な判断と調整は利用者ご自身で行っていただくことを推奨します。</p>
+                    </div>
+                </div>
+
+                <!-- FAQ 6 -->
+                <div class="faq-item border border-gray-200 rounded-xl p-6">
+                    <div class="flex justify-between items-start cursor-pointer">
+                        <h3 class="text-lg font-bold text-gray-900 pr-8">企業情報の自動整理とは何ですか？</h3>
+                        <svg class="faq-icon w-6 h-6 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </div>
+                    <div class="faq-answer pt-4">
+                        <p class="text-gray-700">企業の採用ページや説明会資料（PDF）をアップロードすると、AIが自動で企業情報、選考フロー、締切情報などを抽出・整理します。抽出された締切はユーザーの承認後にカレンダーに追加され、企業情報は志望動機作成時の参考情報として活用できます。各プランごとに月間処理ページ数の上限があります。</p>
+                    </div>
+                </div>
+
+                <!-- FAQ 7 -->
+                <div class="faq-item border border-gray-200 rounded-xl p-6">
+                    <div class="flex justify-between items-start cursor-pointer">
+                        <h3 class="text-lg font-bold text-gray-900 pr-8">データのセキュリティは大丈夫ですか？</h3>
+                        <svg class="faq-icon w-6 h-6 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </div>
+                    <div class="faq-answer pt-4">
+                        <p class="text-gray-700">就活Passは、Google OAuthによる安全なログイン、データベースの暗号化、定期的なバックアップなど、複数のセキュリティ対策を実施しています。また、お預かりしたESや個人情報は、サービス提供目的以外には一切使用せず、第三者に提供することもありません。詳細は利用規約およびプライバシーポリシーをご確認ください。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="py-16 md:py-24 gradient-bg-cta text-white relative overflow-hidden">
+        <div class="absolute inset-0 opacity-10">
+            <div class="absolute top-0 left-0 w-96 h-96 bg-white rounded-full filter blur-3xl"></div>
+            <div class="absolute bottom-0 right-0 w-96 h-96 bg-white rounded-full filter blur-3xl"></div>
+        </div>
+
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
+            <h2 class="text-3xl md:text-5xl font-black mb-6">
+                就活を、迷わず続けられる状態へ。
+            </h2>
+            <p class="text-lg md:text-xl text-gray-200 mb-10 max-w-2xl mx-auto">
+                ES添削、対話支援、企業管理、締切管理を一つにまとめて、次にやることが見える状態を作ります。
+            </p>
+
+            <div class="flex flex-col sm:flex-row gap-4 justify-center mb-8">
+                <a href="#pricing" class="bg-white text-blue-900 px-8 py-4 rounded-lg text-lg font-bold hover:bg-gray-100 transition inline-flex items-center justify-center shadow-xl">
+                    無料で始める
+                    <svg class="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </a>
+                <a href="#pricing" class="text-white border-2 border-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-white hover:text-blue-900 transition inline-block">
+                    料金を見る
+                </a>
+            </div>
+
+            <div class="flex flex-wrap justify-center gap-6 text-sm">
+                <span class="text-gray-200">✓ クレジットカード不要</span>
+                <span class="text-gray-200">✓ 成功時のみ消費</span>
+                <span class="text-gray-200">✓ Googleカレンダー連携</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-slate-950 text-gray-400 py-12 md:py-16">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+                <!-- Brand -->
+                <div>
+                    <div class="flex items-center space-x-2 mb-4">
+                        <span class="text-2xl">✨</span>
+                        <span class="text-xl font-bold text-white">就活Pass</span>
+                    </div>
+                    <p class="text-sm">就活を、AIと一緒に迷わず進める。</p>
+                </div>
+
+                <!-- Product -->
+                <div>
+                    <h4 class="text-white font-bold mb-4">プロダクト</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><a href="#features" class="hover:text-white transition">機能</a></li>
+                        <li><a href="#pricing" class="hover:text-white transition">料金</a></li>
+                        <li><a href="#how-it-works" class="hover:text-white transition">使い方</a></li>
+                        <li><a href="#" class="hover:text-white transition">アップデート</a></li>
+                    </ul>
+                </div>
+
+                <!-- Resources -->
+                <div>
+                    <h4 class="text-white font-bold mb-4">リソース</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><a href="#" class="hover:text-white transition">ヘルプセンター</a></li>
+                        <li><a href="#" class="hover:text-white transition">就活ガイド</a></li>
+                        <li><a href="#" class="hover:text-white transition">テンプレート</a></li>
+                        <li><a href="#faq" class="hover:text-white transition">FAQ</a></li>
+                    </ul>
+                </div>
+
+                <!-- Company -->
+                <div>
+                    <h4 class="text-white font-bold mb-4">会社情報</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><a href="#" class="hover:text-white transition">運営会社</a></li>
+                        <li><a href="#" class="hover:text-white transition">お問い合わせ</a></li>
+                        <li><a href="#" class="hover:text-white transition">利用規約</a></li>
+                        <li><a href="#" class="hover:text-white transition">プライバシーポリシー</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="border-t border-gray-800 pt-8 text-center text-sm">
+                <p>&copy; 2026 就活Pass. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Header scroll effect
+        window.addEventListener('scroll', function() {
+            const header = document.querySelector('header');
+            if (window.scrollY > 50) {
+                header.classList.add('scrolled');
+            } else {
+                header.classList.remove('scrolled');
+            }
+        });
+
+        // FAQ accordion
+        document.querySelectorAll('.faq-item').forEach(item => {
+            item.addEventListener('click', function() {
+                const isActive = this.classList.contains('active');
+
+                // Close all FAQ items
+                document.querySelectorAll('.faq-item').forEach(faq => {
+                    faq.classList.remove('active');
+                });
+
+                // Open clicked item if it wasn't active
+                if (!isActive) {
+                    this.classList.add('active');
+                }
+            });
+        });
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

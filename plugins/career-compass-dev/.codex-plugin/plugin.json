@@ -1,0 +1,43 @@
+{
+  "name": "career-compass-dev",
+  "version": "0.1.0",
+  "description": "Repo-local workflow plugin for Career Compass development.",
+  "author": {
+    "name": "Career Compass",
+    "email": "devnull@example.com",
+    "url": "https://www.shupass.jp/"
+  },
+  "homepage": "https://www.shupass.jp/",
+  "repository": "https://www.shupass.jp/",
+  "license": "UNLICENSED",
+  "keywords": [
+    "career-compass",
+    "shupass",
+    "developer-tools",
+    "nextjs",
+    "fastapi"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks.json",
+  "commands": "./commands/",
+  "interface": {
+    "displayName": "Career Compass Dev",
+    "shortDescription": "就活Pass の日常開発と運用を束ねる repo-local plugin。",
+    "longDescription": "UI 開始、品質確認、release、infra、demo video の intent-based workflow を repo 正本の script と docs に接続する。",
+    "developerName": "Career Compass",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://www.shupass.jp/",
+    "privacyPolicyURL": "https://www.shupass.jp/privacy",
+    "termsOfServiceURL": "https://www.shupass.jp/terms",
+    "defaultPrompt": [
+      "UI 作業を標準フローで始めて",
+      "この変更の品質確認フローを出して",
+      "標準の本番リリース手順で進めて"
+    ],
+    "brandColor": "#1F6FEB"
+  }
+}

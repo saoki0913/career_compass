@@ -1,15 +1,20 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useRef, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth/client";
 import Link from "next/link";
 import { useNotifications, NOTIFICATION_TYPE_ICONS } from "@/hooks/useNotifications";
-import { useCredits } from "@/hooks/useCredits";
+import { useCredits, type CreditsInfo } from "@/hooks/useCredits";
 import { SearchBar } from "@/components/search";
 import { BottomTabBar } from "./BottomTabBar";
+import { CompanySelectModal } from "./CompanySelectModal";
+import { InterviewNavigationTrigger } from "./InterviewNavigationTrigger";
 import { cn } from "@/lib/utils";
+import type { NotificationsResponse } from "@/hooks/useNotifications";
 
 const BellIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -73,17 +78,32 @@ const ChevronDownIcon = () => (
   </svg>
 );
 
-export function DashboardHeader() {
+export function DashboardHeader({
+  notificationsInitialData,
+  creditsInitialData,
+  notificationsLimit = 5,
+}: {
+  notificationsInitialData?: NotificationsResponse;
+  creditsInitialData?: CreditsInfo;
+  notificationsLimit?: number;
+}) {
   const { user, isGuest, isAuthenticated, isReady: isAuthReady } = useAuth();
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications({ limit: 5 });
+  const pathname = usePathname();
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications({
+    limit: notificationsLimit,
+    initialData: notificationsInitialData,
+  });
   const { balance, nextResetAt, plan, isLoading: creditsLoading, error: creditsError, refresh: refreshCredits } = useCredits({
     isAuthenticated,
     isAuthReady,
+    initialData: creditsInitialData,
   });
   const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [showInterviewCompanySelect, setShowInterviewCompanySelect] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
   const userDropdownRef = useRef<HTMLDivElement>(null);
+  const isInterviewRoute = Boolean(pathname && /^\/companies\/[^/]+\/interview(?:\/.*)?$/.test(pathname));
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -109,6 +129,7 @@ export function DashboardHeader() {
     plan !== "guest" && nextResetAt
       ? `次回リセット: ${nextResetAt.toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" })}`
       : undefined;
+  const previewNotifications = notifications.slice(0, 5);
 
   return (
     <>
@@ -117,9 +138,11 @@ export function DashboardHeader() {
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-4 max-lg:gap-3 lg:gap-8">
             <Link href="/dashboard" className="flex items-center gap-2 group">
-              <img
+              <Image
                 src="/icon.png"
                 alt="就活Pass"
+                width={40}
+                height={40}
                 className="w-10 h-10"
               />
               <span className="font-bold text-lg tracking-tight">就活Pass</span>
@@ -155,6 +178,10 @@ export function DashboardHeader() {
               >
                 カレンダー
               </Link>
+              <InterviewNavigationTrigger
+                active={isInterviewRoute}
+                onClick={() => setShowInterviewCompanySelect(true)}
+              />
             </nav>
           </div>
           <div className="flex items-center gap-1 sm:gap-2">
@@ -195,12 +222,12 @@ export function DashboardHeader() {
                     )}
                   </div>
                   <div className="max-h-80 overflow-y-auto">
-                    {notifications.length === 0 ? (
+                    {previewNotifications.length === 0 ? (
                       <div className="py-8 text-center text-muted-foreground">
                         <p className="text-sm">通知はありません</p>
                       </div>
                     ) : (
-                      notifications.map((notification) => (
+                      previewNotifications.map((notification) => (
                         <button
                           key={notification.id}
                           type="button"
@@ -281,9 +308,11 @@ export function DashboardHeader() {
                   className="flex items-center gap-2 p-1.5 pr-2 rounded-lg hover:bg-secondary transition-all duration-200 cursor-pointer"
                 >
                   {user?.image ? (
-                    <img
+                    <Image
                       src={user.image}
                       alt=""
+                      width={32}
+                      height={32}
                       className="w-8 h-8 rounded-full ring-2 ring-background"
                     />
                   ) : (
@@ -301,9 +330,11 @@ export function DashboardHeader() {
                     <div className="px-4 py-3 border-b border-border/50 bg-muted/30">
                       <div className="flex items-center gap-3">
                         {user?.image ? (
-                          <img
+                          <Image
                             src={user.image}
                             alt=""
+                            width={40}
+                            height={40}
                             className="w-10 h-10 rounded-full"
                           />
                         ) : (
@@ -382,7 +413,12 @@ export function DashboardHeader() {
         </div>
       </div>
     </header>
-    <BottomTabBar />
+    <CompanySelectModal
+      open={showInterviewCompanySelect}
+      onOpenChange={setShowInterviewCompanySelect}
+      mode="interview"
+    />
+    <BottomTabBar onInterviewClick={() => setShowInterviewCompanySelect(true)} />
     </>
   );
 }

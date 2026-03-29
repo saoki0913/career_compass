@@ -89,6 +89,10 @@ except ImportError:
 # =============================================================================
 
 WEB_SEARCH_MAX_QUERIES = 10  # Maximum query variations to generate
+WEB_SEARCH_FAST_MAX_QUERIES = max(
+    1,
+    min(int(settings.web_search_fast_max_queries), WEB_SEARCH_MAX_QUERIES),
+)  # Query budget for the initial fast path
 WEB_SEARCH_RESULTS_PER_QUERY = 12  # Results per DuckDuckGo search
 WEB_SEARCH_RRF_K = 60  # RRF constant
 WEB_SEARCH_RERANK_TOP_K = 30  # Top results to rerank
@@ -398,6 +402,37 @@ class WebSearchResult:
                 self.domain = urlparse(self.url).netloc.lower()
             except Exception:
                 self.domain = ""
+
+
+def should_run_deep_search(
+    results: list[WebSearchResult],
+    *,
+    search_intent: str,
+    content_type: str | None = None,
+) -> bool:
+    if len(results) < WEB_SEARCH_SITE_RETRY_MIN_RESULTS:
+        return True
+
+    top_results = results[:3]
+    is_recruitment_search = content_type == "new_grad_recruitment" or search_intent in {
+        "recruitment",
+        "new_grad",
+        "recruitment_intern",
+    }
+
+    if is_recruitment_search:
+        trusted_count = sum(
+            1
+            for result in top_results
+            if result.is_official
+            or result.source_type in {"official", "job_site", "aggregator"}
+        )
+        return trusted_count < 2
+
+    official_count = sum(
+        1 for result in top_results if result.is_official or result.source_type == "official"
+    )
+    return official_count < 1
 
 
 # =============================================================================
@@ -1988,12 +2023,13 @@ async def hybrid_web_search(
         graduation_year=graduation_year,
         selection_type=selection_type,
     )
+    fast_queries = queries[: min(len(queries), WEB_SEARCH_FAST_MAX_QUERIES)]
     logger.debug(f"[WebSearch] Generated {len(queries)} query variations")
     _debug_log("[WebSearch] Queries=%s", queries[:LOG_MAX_ITEMS])
 
     # Step 2 & 3: Execute searches and RRF fusion
     results, raw_results = await search_with_rrf_fusion(
-        queries=queries,
+        queries=fast_queries,
         max_results_per_query=WEB_SEARCH_RESULTS_PER_QUERY,
         rrf_k=WEB_SEARCH_RRF_K,
         return_raw=True,
@@ -2097,6 +2133,60 @@ async def hybrid_web_search(
     if not results:
         logger.warning(f"[WebSearch] No results after pre-filter for '{company_name}'")
         return []
+
+    results = score_results(
+        results=results,
+        company_name=company_name,
+        target_intent=target_intent,
+        domain_profile=domain_profile,
+        preferred_domain=preferred_domain,
+        allow_aggregators=allow_aggs,
+        graduation_year=graduation_year,
+    )
+    results = combine_scores(results=results)
+
+    deep_search_needed = should_run_deep_search(
+        results,
+        search_intent=search_intent,
+        content_type=content_type,
+    )
+    _debug_log(
+        "[WebSearch] Fast path queries=%d deep_search=%s",
+        len(fast_queries),
+        deep_search_needed,
+    )
+
+    if not deep_search_needed:
+        results = results[:max_results]
+        if write_cache and results and cache_key:
+            _set_cache(cache_key, results)
+        return results
+
+    if len(fast_queries) < len(queries):
+        results, raw_results = await search_with_rrf_fusion(
+            queries=queries,
+            max_results_per_query=WEB_SEARCH_RESULTS_PER_QUERY,
+            rrf_k=WEB_SEARCH_RRF_K,
+            return_raw=True,
+        )
+        if not results:
+            logger.warning(f"[WebSearch] No results in deep path for '{company_name}'")
+            return []
+        results = _prefilter_results(
+            results=results,
+            company_name=company_name,
+            official_patterns=list(official_patterns),
+            strict_match=strict_match,
+            allow_aggs=allow_aggs,
+            allow_snippet_match=allow_snippet_match,
+            short_name_guard=short_name_guard,
+            content_type=content_type,
+            target_intent=target_intent,
+            preferred_domain=preferred_domain,
+        )
+        if not results:
+            logger.warning(f"[WebSearch] No deep-path results after pre-filter for '{company_name}'")
+            return []
 
     # Step 4: Cross-encoder reranking
     # Use Japanese template for natural language rerank query
