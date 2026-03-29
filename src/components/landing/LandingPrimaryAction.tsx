@@ -20,7 +20,7 @@ export function LandingPrimaryAction({
   size = "lg",
   className,
   guestHref = "/dashboard",
-  guestLabel = "続ける",
+  guestLabel = "無料で始める",
   authenticatedHref = "/dashboard",
   authenticatedLabel = "ダッシュボードへ",
   unauthenticatedHref = "/login",

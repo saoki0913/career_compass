@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 type ScreenPreviewProps = {
   src: string;
   alt: string;
+  videoSrc?: string;
   label?: string;
   className?: string;
   imageClassName?: string;
@@ -13,6 +14,7 @@ type ScreenPreviewProps = {
 export function ScreenPreview({
   src,
   alt,
+  videoSrc,
   label,
   className,
   imageClassName,
@@ -37,15 +39,28 @@ export function ScreenPreview({
       </div>
       <div className="relative aspect-[16/10] overflow-hidden bg-[linear-gradient(180deg,#eef4ff_0%,#f8fbff_100%)]">
         <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-slate-200/70" />
-        <Image
-          src={src}
-          alt={alt}
-          fill
-          priority={priority}
-          unoptimized={unoptimized}
-          sizes="(min-width: 1024px) 960px, 100vw"
-          className={cn("object-cover object-top", imageClassName)}
-        />
+        {videoSrc ? (
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            poster={src}
+            className={cn("h-full w-full object-cover object-top", imageClassName)}
+          >
+            <source src={videoSrc} type="video/mp4" />
+          </video>
+        ) : (
+          <Image
+            src={src}
+            alt={alt}
+            fill
+            priority={priority}
+            unoptimized={unoptimized}
+            sizes="(min-width: 1024px) 960px, 100vw"
+            className={cn("object-cover object-top", imageClassName)}
+          />
+        )}
       </div>
     </div>
   );

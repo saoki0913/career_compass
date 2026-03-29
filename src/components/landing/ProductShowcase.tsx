@@ -1,77 +1,46 @@
-import { Building2, CalendarClock, FileText, MessageSquareQuote } from "lucide-react";
-import { landingMedia } from "./landing-media";
+import { Building2 } from "lucide-react";
+import { detailSections, valueStrip } from "@/lib/marketing/landing-content";
 import { ScreenPreview } from "./ScreenPreview";
 import { ScrollReveal } from "./ScrollReveal";
 
-const valueStrip = [
-  {
-    title: "AI添削",
-    description: "設問の切り口に合わせて、直しどころと書き換え案が分かる。",
-    Icon: FileText,
-  },
-  {
-    title: "対話で整理",
-    description: "志望動機やガクチカを、会話しながら前に進められる。",
-    Icon: MessageSquareQuote,
-  },
-  {
-    title: "企業・締切管理",
-    description: "応募先、締切、次にやることを見失わずに続けられる。",
-    Icon: CalendarClock,
-  },
-] as const;
-
-const detailSections = [
-  {
-    id: "ai-writing",
-    title: "書くことを、AIと同じ画面で前に進める。",
-    description:
-      "就活Pass は、添削だけ返して終わるツールではありません。ES を直す、志望動機の材料を整理する、途中までの状態から続きを書く。その流れを、一つの workspace で続けられます。",
-    points: ["設問別の添削", "書き換え案を見ながら更新", "途中のメモからでも始められる"],
-    image: landingMedia.esReview,
-    imageClassName: "scale-[1.05] object-top translate-y-[-34px] sm:translate-y-[-52px]",
-  },
-  {
-    id: "management",
-    title: "就活全体を、これ一つで見渡せる状態にする。",
-    description:
-      "企業一覧、締切、応募状況、Google カレンダー連携までを同じ流れにまとめます。ES 添削だけで終わらず、応募までの進行を止めないことを前提にした product です。",
-    points: ["企業ごとの状況整理", "締切の見落とし防止", "次にやることが見える dashboard"],
-    image: landingMedia.companies,
-    imageClassName: "scale-[1.04] object-top translate-y-[-20px] sm:translate-y-[-34px]",
-  },
-] as const;
-
 export function ProductShowcase() {
   return (
-    <section id="features" className="scroll-mt-24 py-32 lg:scroll-mt-28 lg:py-40">
+    <section
+      id="features"
+      className="scroll-mt-24 border-t border-slate-200/80 py-28 lg:scroll-mt-28 lg:py-36"
+    >
       <div className="mx-auto max-w-6xl px-4">
         <ScrollReveal>
-          <div className="mb-14 grid gap-8 border-y border-slate-200/80 py-6 lg:grid-cols-[0.84fr_1.16fr] lg:items-end lg:gap-12">
-            <div>
+          <div className="mb-14 grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-end lg:gap-12">
+            <div className="space-y-4">
+              <p className="text-sm font-semibold tracking-[0.22em] text-primary uppercase">
+                Features
+              </p>
               <h2 className="max-w-2xl text-balance text-3xl font-semibold tracking-[-0.05em] text-slate-950 sm:text-4xl lg:text-5xl">
-                書くことも、管理することも、
-                同じ流れで進める。
+                添削も、管理も、
+                ひとつのアプリで完結。
               </h2>
             </div>
             <p className="max-w-3xl text-pretty text-lg leading-8 text-slate-600">
-              AI の出力だけを見るのではなく、そのまま就活の進行に戻れることを重視しています。
-              書き直し、素材整理、企業管理、締切確認を、ばらばらのツールに分けずに扱えます。
+              ES添削から企業管理、締切確認まで。必要な機能がひとつにまとまっているから、ツールを行き来する手間がなくなります。
             </p>
           </div>
         </ScrollReveal>
 
         <ScrollReveal delay={0.08}>
-          <ul className="mb-20 grid gap-8 border-b border-slate-200/80 pb-10 md:grid-cols-3 lg:mb-24">
+          <ul className="mb-16 grid gap-5 md:grid-cols-3 lg:mb-20">
             {valueStrip.map(({ title, description, Icon }) => (
-              <li key={title} className="grid gap-3">
+              <li
+                key={title}
+                className="rounded-[28px] border border-slate-200/80 bg-white/88 p-6 shadow-[0_26px_80px_-64px_rgba(15,23,42,0.35)]"
+              >
                 <div className="flex items-center gap-3 text-slate-950">
-                  <span className="flex size-10 items-center justify-center rounded-full border border-slate-200 bg-white shadow-[0_10px_24px_-18px_rgba(15,23,42,0.28)]">
+                  <span className="flex size-10 items-center justify-center rounded-full border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#eff6ff_100%)] shadow-[0_10px_24px_-18px_rgba(59,130,246,0.38)]">
                     <Icon className="size-[18px]" />
                   </span>
                   <p className="text-base font-semibold tracking-[-0.03em]">{title}</p>
                 </div>
-                <p className="max-w-sm text-sm leading-7 text-slate-600">{description}</p>
+                <p className="mt-3 max-w-sm text-sm leading-7 text-slate-600">{description}</p>
               </li>
             ))}
           </ul>
@@ -83,26 +52,19 @@ export function ProductShowcase() {
 
             return (
               <ScrollReveal key={feature.id} delay={index * 0.05}>
-                <article
-                  id={feature.id}
-                  className="scroll-mt-28 border-t border-slate-200/80 pt-8 sm:pt-10"
-                >
+                <article id={feature.id} className="scroll-mt-28">
                   <div
                     className={[
-                      "grid items-center gap-8 lg:grid-cols-2 lg:gap-12",
+                      "grid items-center gap-8 rounded-[34px] border border-slate-200/80 bg-white/88 p-6 shadow-[0_30px_90px_-64px_rgba(15,23,42,0.34)] sm:p-8 lg:grid-cols-2 lg:gap-12 lg:p-10",
                       isReversed
                         ? "lg:[&>div:first-child]:order-2 lg:[&>div:last-child]:order-1"
                         : "",
                     ].join(" ")}
                   >
-                    <ScreenPreview
-                      src={feature.image.src}
-                      alt={feature.image.alt}
-                      imageClassName={feature.imageClassName}
-                      className="rounded-[32px] border border-white/70 bg-white/95"
-                    />
-
                     <div className="max-w-xl">
+                      <p className="mb-3 text-sm font-semibold tracking-[0.22em] text-primary uppercase">
+                        {index === 0 ? "Writing Flow" : "Management Flow"}
+                      </p>
                       <h3 className="text-balance text-2xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-3xl">
                         {feature.title}
                       </h3>
@@ -117,6 +79,16 @@ export function ProductShowcase() {
                           </li>
                         ))}
                       </ul>
+                    </div>
+
+                    <div className="relative">
+                      <div className="pointer-events-none absolute inset-x-[14%] top-8 h-24 rounded-full bg-[radial-gradient(circle,rgba(96,165,250,0.22),transparent_70%)] blur-3xl" />
+                      <ScreenPreview
+                        src={feature.image.src}
+                        alt={feature.image.alt}
+                        imageClassName={feature.imageClassName}
+                        className="rounded-[32px] border border-white/80 bg-white/95"
+                      />
                     </div>
                   </div>
                 </article>
