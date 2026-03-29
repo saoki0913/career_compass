@@ -36,6 +36,9 @@ def setup_search_patches(
     # Patch hybrid search constants
     monkeypatch.setattr(web_search_mod, "WEB_SEARCH_MAX_QUERIES", config.max_queries)
     monkeypatch.setattr(
+        web_search_mod, "WEB_SEARCH_FAST_MAX_QUERIES", config.fast_max_queries
+    )
+    monkeypatch.setattr(
         web_search_mod, "WEB_SEARCH_RESULTS_PER_QUERY", config.results_per_query
     )
     monkeypatch.setattr(web_search_mod, "WEB_SEARCH_RERANK_TOP_K", config.rerank_top_k)
