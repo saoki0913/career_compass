@@ -62,7 +62,7 @@ test.describe("Guest major flow", () => {
 
     try {
       await navigateTo(page, "/dashboard");
-      await expect(page.locator("main")).toBeVisible();
+      await expect(page.locator("main").first()).toBeVisible();
 
       const company = await createOwnedCompany(page, {
         name: companyName,
@@ -167,7 +167,7 @@ test.describe("Guest major flow", () => {
       await expect(page.locator("body")).toContainText(deadlineTitle);
 
       await navigateTo(page, `/companies/${companyId}/motivation`);
-      await expect(page.locator("main")).toBeVisible();
+      await expect(page.locator("main").first()).toBeVisible();
       await expect(page.locator("body")).toContainText(
         /志望動機|志望動機ESを作成|志望動機のAI支援はログイン/,
       );
@@ -176,10 +176,10 @@ test.describe("Guest major flow", () => {
       await expect(page.locator("body")).toContainText(documentTitle);
 
       await navigateTo(page, `/es/${documentId}`);
-      await expect(page.locator("main")).toBeVisible();
+      await expect(page.locator("main").first()).toBeVisible();
 
       await navigateTo(page, "/gakuchika");
-      await expect(page.locator("main")).toBeVisible();
+      await expect(page.locator("main").first()).toBeVisible();
 
       await navigateTo(page, "/tasks");
       await expect(page.locator("body")).toContainText(taskTitle);
@@ -194,7 +194,7 @@ test.describe("Guest major flow", () => {
       await expect(page.locator("body")).toContainText(notificationTitle);
 
       await navigateTo(page, "/dashboard");
-      await expect(page.locator("main")).toBeVisible();
+      await expect(page.locator("main").first()).toBeVisible();
       await expect(page.locator("body")).toContainText(companyName);
 
       await page.goto("/calendar");

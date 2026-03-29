@@ -186,12 +186,13 @@ def test_schedule_follow_links_exclude_mypage_even_if_anchor_looks_relevant():
 
 
 @pytest.mark.asyncio
-async def test_fetch_schedule_response_does_not_fetch_follow_up_html(
+async def test_fetch_schedule_response_fetches_follow_up_html_via_firecrawl(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """選考スケジュールはユーザー指定の 1 URL のみ。一次ページが短くてもリンク先は取得しない。"""
+    """Firecrawl 有効時は一次ページが弱ければ同一公式リンクを 1 件だけ追う。"""
     primary_url = "https://www.mitsui-steel.com/recruit/"
     follow_url = "https://www.mitsui-steel.com/recruit/guideline.html"
+    monkeypatch.setattr(company_info.settings, "firecrawl_api_key", "fc-test")
 
     async def _fake_fetch_page_content(url: str, timeout: float = 30.0) -> bytes:
         if url == primary_url:
@@ -199,11 +200,55 @@ async def test_fetch_schedule_response_does_not_fetch_follow_up_html(
                 "<html><body><p>募集案内</p>"
                 "<a href=\"/recruit/guideline.html\">募集要項</a></body></html>"
             ).encode("utf-8")
-        if url == follow_url:
-            raise AssertionError("follow-up URL must not be fetched for schedule")
         raise AssertionError(f"unexpected url: {url}")
 
+    calls: list[str] = []
+
+    async def _fake_extract_schedule_with_firecrawl(
+        candidate_url: str,
+        *,
+        graduation_year: int | None,
+        selection_type: str | None,
+    ):
+        _ = (graduation_year, selection_type)
+        calls.append(candidate_url)
+        if candidate_url == primary_url:
+            return (
+                None,
+                company_info.FirecrawlScrapeResult(
+                    success=True,
+                    markdown="募集案内",
+                ),
+            )
+        if candidate_url == follow_url:
+            return (
+                company_info.ExtractedScheduleInfo(
+                    deadlines=[
+                        company_info.ExtractedDeadline(
+                            type="es_submission",
+                            title="本エントリー締切",
+                            due_date="2026-04-30",
+                            source_url=follow_url,
+                            confidence="high",
+                        )
+                    ],
+                    required_documents=[],
+                    application_method=None,
+                    selection_process=None,
+                ),
+                company_info.FirecrawlScrapeResult(
+                    success=True,
+                    markdown="本エントリー締切 2026年4月30日",
+                ),
+            )
+        raise AssertionError(f"unexpected candidate url: {candidate_url}")
+
     monkeypatch.setattr(company_info, "fetch_page_content", _fake_fetch_page_content)
+    monkeypatch.setattr(
+        company_info,
+        "_extract_schedule_with_firecrawl",
+        _fake_extract_schedule_with_firecrawl,
+    )
 
     response = await _fetch_schedule_response(
         FetchRequest(
@@ -215,28 +260,102 @@ async def test_fetch_schedule_response_does_not_fetch_follow_up_html(
         feature="selection_schedule",
     )
 
-    assert response.success is False
-    assert response.error and "JavaScript" in response.error
+    assert response.success is True
+    assert response.data is not None
+    assert response.data.deadlines[0].source_url == follow_url
+    assert calls == [primary_url, follow_url]
 
 
 @pytest.mark.asyncio
-async def test_fetch_schedule_response_does_not_fetch_linked_pdf(
+async def test_fetch_schedule_response_runs_google_ocr_only_once_for_pdf_follow_link(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """選考は 1 URL のみ。HTML 内の PDF リンク先は取得しない。"""
+    """Firecrawl が弱く PDF follow-link がある場合は Google OCR を 1 回だけ使う。"""
     primary_url = "https://www.mitsui-steel.com/recruit/"
     pdf_url = "https://www.mitsui-steel.com/recruit/guideline.pdf"
+    second_pdf_url = "https://www.mitsui-steel.com/recruit/outline.pdf"
+    monkeypatch.setattr(company_info.settings, "firecrawl_api_key", "fc-test")
 
     async def _fake_fetch_page_content(url: str, timeout: float = 30.0) -> bytes:
         if url == primary_url:
-            return "<html><body><a href=\"/recruit/guideline.pdf\">募集要項PDF</a></body></html>".encode(
-                "utf-8"
-            )
+            return (
+                "<html><body>"
+                "<a href=\"/recruit/guideline.pdf\">募集要項PDF</a>"
+                "<a href=\"/recruit/outline.pdf\">選考PDF</a>"
+                "</body></html>"
+            ).encode("utf-8")
         if url == pdf_url:
-            raise AssertionError("PDF URL must not be fetched for schedule")
+            return b"%PDF-1.4 test"
+        if url == second_pdf_url:
+            raise AssertionError("secondary PDF must not be fetched")
         raise AssertionError(f"unexpected url: {url}")
 
+    async def _fake_extract_schedule_with_firecrawl(
+        candidate_url: str,
+        *,
+        graduation_year: int | None,
+        selection_type: str | None,
+    ):
+        _ = (candidate_url, graduation_year, selection_type)
+        return (
+            None,
+            company_info.FirecrawlScrapeResult(
+                success=True,
+                markdown="募集案内",
+            ),
+        )
+
+    ocr_calls: list[str] = []
+
+    async def _fake_extract_schedule_text_from_bytes(url: str, payload: bytes):
+        _ = payload
+        ocr_calls.append(url)
+        return ("本エントリー締切は2026年4月30日です。提出書類はエントリーシートです。" * 3, True)
+
+    async def _fake_extract_schedule_with_llm(
+        text: str,
+        url: str,
+        *,
+        feature: str,
+        graduation_year: int | None,
+        selection_type: str | None,
+    ):
+        _ = (text, feature, graduation_year, selection_type)
+        return (
+            company_info.ExtractedScheduleInfo(
+                deadlines=[
+                    company_info.ExtractedDeadline(
+                        type="es_submission",
+                        title="本エントリー締切",
+                        due_date="2026-04-30",
+                        source_url=url,
+                        confidence="high",
+                    )
+                ],
+                required_documents=[],
+                application_method=None,
+                selection_process=None,
+            ),
+            None,
+            "gpt-5.4-nano",
+        )
+
     monkeypatch.setattr(company_info, "fetch_page_content", _fake_fetch_page_content)
+    monkeypatch.setattr(
+        company_info,
+        "_extract_schedule_with_firecrawl",
+        _fake_extract_schedule_with_firecrawl,
+    )
+    monkeypatch.setattr(
+        company_info,
+        "_extract_schedule_text_from_bytes",
+        _fake_extract_schedule_text_from_bytes,
+    )
+    monkeypatch.setattr(
+        company_info,
+        "extract_schedule_with_llm",
+        _fake_extract_schedule_with_llm,
+    )
 
     response = await _fetch_schedule_response(
         FetchRequest(
@@ -248,5 +367,7 @@ async def test_fetch_schedule_response_does_not_fetch_linked_pdf(
         feature="selection_schedule",
     )
 
-    assert response.success is False
-    assert response.error and "JavaScript" in response.error
+    assert response.success is True
+    assert response.data is not None
+    assert response.data.deadlines[0].source_url == pdf_url
+    assert ocr_calls == [pdf_url]

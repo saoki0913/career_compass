@@ -118,6 +118,9 @@ def _review_meta_diag(review_meta: object | None) -> dict[str, object] | None:
         "company_evidence_verified_count": getattr(review_meta, "company_evidence_verified_count", None),
         "evidence_coverage_level": getattr(review_meta, "evidence_coverage_level", None),
         "weak_evidence_notice": getattr(review_meta, "weak_evidence_notice", None),
+        "selected_company_evidence_themes": list(
+            getattr(review_meta, "selected_company_evidence_themes", []) or []
+        ),
         "rewrite_validation_status": getattr(review_meta, "rewrite_validation_status", None),
         "rewrite_validation_codes": list(getattr(review_meta, "rewrite_validation_codes", []) or []),
         "rewrite_generation_mode": getattr(review_meta, "rewrite_generation_mode", None),
@@ -125,6 +128,8 @@ def _review_meta_diag(review_meta: object | None) -> dict[str, object] | None:
         "target_window_lower": getattr(review_meta, "target_window_lower", None),
         "target_window_upper": getattr(review_meta, "target_window_upper", None),
         "length_shortfall": getattr(review_meta, "length_shortfall", None),
+        "length_shortfall_bucket": getattr(review_meta, "length_shortfall_bucket", None),
+        "unfinished_tail_detected": getattr(review_meta, "unfinished_tail_detected", None),
         "retrieval_profile_name": getattr(review_meta, "retrieval_profile_name", None),
         "priority_source_match_count": getattr(review_meta, "priority_source_match_count", None),
     }
@@ -134,9 +139,15 @@ def _bucket_deterministic_failure(reason: str) -> str:
     r = (reason or "").strip()
     if r.startswith("char_count"):
         return "文字数"
+    if r.startswith("length_shortfall_bucket"):
+        return "文字数"
     if "focus_tokens" in r or r.startswith("forbidden_token"):
         return "フォーカス/禁止語"
+    if r.startswith("focus_group_missing"):
+        return "フォーカス/禁止語"
     if r.startswith("style:") or r == "style:not_dearu":
+        return "文体(だ・である)"
+    if r.startswith("unfinished_tail"):
         return "文体(だ・である)"
     if r.startswith("review_meta"):
         return "review_meta欠落"
@@ -161,6 +172,49 @@ def _bucket_deterministic_failure(reason: str) -> str:
     if r.startswith("judge:"):
         return "ジャッジブロック"
     return "その他"
+
+
+def test_review_meta_diag_includes_new_length_and_grounding_diagnostics() -> None:
+    review_meta = type(
+        "Meta",
+        (),
+        {
+            "llm_provider": "openai",
+            "llm_model": "gpt-5.4-mini",
+            "grounding_mode": "company_general",
+            "company_grounding_policy": "required",
+            "effective_company_grounding_policy": "required",
+            "company_evidence_count": 2,
+            "company_evidence_verified_count": 2,
+            "evidence_coverage_level": "partial",
+            "weak_evidence_notice": True,
+            "selected_company_evidence_themes": ["事業理解", "現場期待"],
+            "rewrite_validation_status": "strict_ok",
+            "rewrite_validation_codes": [],
+            "rewrite_generation_mode": "rewrite",
+            "length_profile_id": "openai-mini-medium",
+            "target_window_lower": 180,
+            "target_window_upper": 200,
+            "length_shortfall": 12,
+            "length_shortfall_bucket": "6-20",
+            "unfinished_tail_detected": True,
+            "retrieval_profile_name": "family_aligned",
+            "priority_source_match_count": 1,
+        },
+    )()
+
+    diag = _review_meta_diag(review_meta)
+
+    assert diag is not None
+    assert diag["selected_company_evidence_themes"] == ["事業理解", "現場期待"]
+    assert diag["length_shortfall_bucket"] == "6-20"
+    assert diag["unfinished_tail_detected"] is True
+
+
+def test_bucket_deterministic_failure_maps_new_reasons() -> None:
+    assert _bucket_deterministic_failure("length_shortfall_bucket:6-20") == "文字数"
+    assert _bucket_deterministic_failure("focus_group_missing:2") == "フォーカス/禁止語"
+    assert _bucket_deterministic_failure("unfinished_tail:detected") == "文体(だ・である)"
 
 
 def _format_attempt_trace_md(trace: object) -> str:

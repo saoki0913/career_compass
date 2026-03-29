@@ -14,7 +14,7 @@ test.describe("Auth boundary contracts", () => {
     await navigateTo(page, "/dashboard");
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForLoadState("domcontentloaded");
-    await expect(page.locator("main")).toBeVisible();
+    await expect(page.locator("main").first()).toBeVisible();
     expect(await getDeviceToken(page)).toBe(token);
 
     const secondPage = await context.newPage();

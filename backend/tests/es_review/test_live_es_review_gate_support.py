@@ -6,6 +6,7 @@ from app.testing.es_review_live_gate import (
     ALL_STANDARD_MODELS,
     DEFAULT_LIVE_PROVIDERS_EXTENDED,
     _live_gate_allows_soft_min_shortfall,
+    _matches_all_anchor_groups,
     _matches_anchor_groups,
     evaluate_live_case,
     get_live_cases,
@@ -42,6 +43,23 @@ def test_get_selected_models_defaults_follow_case_set() -> None:
     assert get_selected_models("extended", raw="") == list(DEFAULT_LIVE_PROVIDERS_EXTENDED)
     assert get_selected_models("canary", raw="") == ["claude-sonnet", "gemini-3.1-pro-preview"]
     assert get_selected_models("extended", raw="all_standard") == ALL_STANDARD_MODELS
+
+
+def test_get_live_cases_extended_includes_hard_input_patterns() -> None:
+    cases = get_live_cases("extended")
+    case_ids = {case.case_id for case in cases}
+
+    assert len(cases) == 30
+    assert {
+        "basic_companyless_selected_company_guard_short",
+        "gakuchika_bullet_memo_reconstruction_medium",
+        "self_pr_numeric_retention_short",
+        "role_course_reason_near_role_disambiguation_medium",
+        "intern_reason_three_part_coverage_medium",
+        "company_motivation_noisy_rag_medium",
+        "basic_mixed_style_normalization_short",
+        "self_pr_negative_phrase_reframing_medium",
+    } <= case_ids
 
 
 def test_evaluate_live_case_returns_fail_reasons_for_length_and_policy() -> None:
@@ -119,6 +137,17 @@ def test_matches_anchor_groups_accepts_synonym_hit() -> None:
     )
 
 
+def test_matches_all_anchor_groups_requires_every_group() -> None:
+    assert _matches_all_anchor_groups(
+        "参加理由として実務で学びたい点があり、研究で培った分析経験を持ち込み、判断材料の整理を持ち帰りたい。",
+        (("参加理由", "参加"), ("研究", "分析"), ("持ち帰りたい", "学びたい")),
+    )
+    assert not _matches_all_anchor_groups(
+        "参加理由として実務で試したい点があり、研究で培った分析経験を持ち込みたい。",
+        (("参加理由", "参加"), ("研究", "分析"), ("持ち帰りたい", "学びたい")),
+    )
+
+
 def test_evaluate_live_case_accepts_role_course_iruka_without_shibou_token() -> None:
     """ルータと同様、志望の言い換え（惹か）でライブゲートを通す。"""
     case = next(c for c in get_live_cases("smoke") if c.case_id == "role_course_reason_required_medium")
@@ -156,3 +185,111 @@ def test_evaluate_live_case_accepts_intern_reason_with_taikan_tokens() -> None:
         model_id="claude-sonnet",
     )
     assert "focus_tokens:missing" not in failures
+
+
+def test_evaluate_live_case_requires_all_focus_groups_for_multipart_prompt() -> None:
+    case = next(c for c in get_live_cases("extended") if c.case_id == "intern_reason_three_part_coverage_medium")
+    rewrite = (
+        "実務に近い課題に触れられる点に魅力を感じ、このインターンに参加したい。"
+        "研究では需要データを分析し、仮説を比較しながら論点整理を進めてきた。"
+    )
+    failures = evaluate_live_case(
+        case,
+        rewrite=rewrite,
+        review_meta=_review_meta(
+            company_grounding_policy="required",
+            grounding_mode="role_grounded",
+            company_evidence_count=1,
+            evidence_coverage_level="partial",
+        ),
+        provider="openai",
+        model_id="gpt-5.4-mini",
+    )
+
+    assert "focus_tokens:missing" in failures
+    assert "focus_group_missing:3" in failures
+
+
+def test_evaluate_live_case_rejects_forbidden_anywhere_tokens() -> None:
+    case = next(
+        c for c in get_live_cases("extended") if c.case_id == "role_course_reason_near_role_disambiguation_medium"
+    )
+    rewrite = (
+        "事業課題を捉え、技術活用の構想を実装まで前に進める役割に魅力を感じている。"
+        "研究では仮説を比較して論点を整理してきたが、将来は営業やトレーディングの現場も理解したい。"
+    )
+    failures = evaluate_live_case(
+        case,
+        rewrite=rewrite,
+        review_meta=_review_meta(
+            company_grounding_policy="required",
+            grounding_mode="role_grounded",
+            company_evidence_count=2,
+            evidence_coverage_level="strong",
+        ),
+        provider="openai",
+        model_id="gpt-5.4",
+    )
+
+    assert "forbidden_token:営業" in failures
+    assert "forbidden_token:トレーディング" in failures
+
+
+def test_evaluate_live_case_rejects_company_name_in_companyless_case() -> None:
+    case = next(
+        c for c in get_live_cases("extended") if c.case_id == "basic_companyless_selected_company_guard_short"
+    )
+    rewrite = (
+        "需要予測の研究で誤差要因を整理してきた経験は、三菱商事のように多様な事業でデータの信頼性を高める仕事でも生かせる。"
+    )
+    failures = evaluate_live_case(
+        case,
+        rewrite=rewrite,
+        review_meta=_review_meta(
+            company_grounding_policy="assistive",
+            grounding_mode="none",
+            company_evidence_count=0,
+            evidence_coverage_level="none",
+        ),
+        provider="openai",
+        model_id="gpt-5.4-mini",
+    )
+
+    assert "companyless:company_name_present" in failures
+
+
+def test_evaluate_live_case_adds_length_shortfall_bucket_for_under_min_failure() -> None:
+    case = next(c for c in get_live_cases("extended") if c.case_id == "self_pr_numeric_retention_short")
+    failures = evaluate_live_case(
+        case,
+        rewrite="短い。",
+        review_meta=_review_meta(
+            company_grounding_policy="assistive",
+            grounding_mode="none",
+            company_evidence_count=0,
+            evidence_coverage_level="none",
+        ),
+        provider="openai",
+        model_id="gpt-5.4-mini",
+    )
+
+    assert any(reason.startswith("length_shortfall_bucket:") for reason in failures)
+
+
+def test_evaluate_live_case_detects_unfinished_tail() -> None:
+    case = next(c for c in get_live_cases("extended") if c.case_id == "basic_mixed_style_normalization_short")
+    rewrite = "研究で需要予測の外れ値処理を見直し、比較条件をそろえて精度改善を進めた経験が強みだ"
+    failures = evaluate_live_case(
+        case,
+        rewrite=rewrite,
+        review_meta=_review_meta(
+            company_grounding_policy="assistive",
+            grounding_mode="none",
+            company_evidence_count=0,
+            evidence_coverage_level="none",
+        ),
+        provider="openai",
+        model_id="gpt-5.4",
+    )
+
+    assert "unfinished_tail:detected" in failures

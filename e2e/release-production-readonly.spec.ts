@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { hasGoogleAuthState, signInWithGoogle } from "./google-auth";
 
+const productionCompanyId = process.env.E2E_PRODUCTION_COMPANY_ID?.trim();
+
 test.describe("Production release smoke", () => {
   test("public surfaces are reachable", async ({ page }) => {
     await page.goto("/");
@@ -36,5 +38,18 @@ test.describe("Production release smoke", () => {
 
     await page.goto("/profile");
     await expect(page.locator("main")).toBeVisible();
+  });
+
+  test("company detail loads when E2E_PRODUCTION_COMPANY_ID is set", async ({ page }) => {
+    test.skip(
+      !hasGoogleAuthState || !productionCompanyId,
+      "Set PLAYWRIGHT_AUTH_STATE and E2E_PRODUCTION_COMPANY_ID to cover /companies/[id] SSR + DB"
+    );
+
+    await signInWithGoogle(page, "/dashboard");
+    await page.goto(`/companies/${productionCompanyId}`, { waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(new RegExp(`/companies/${productionCompanyId}`));
+    await expect(page.locator("main")).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("body")).not.toContainText(/This page couldn.t load|server error occurred/i);
   });
 });
