@@ -4,10 +4,27 @@ import path from "node:path";
 export type LiveAiConversationFeature = "gakuchika" | "motivation" | "interview";
 export type LiveAiConversationSuiteDepth = "smoke" | "extended";
 export type LiveAiConversationTargetEnv = "staging" | "production";
+export type LiveAiConversationSeverity = "passed" | "degraded" | "failed";
 
 export type LiveAiConversationTranscriptTurn = {
   role: "user" | "assistant";
   content: string;
+};
+
+export type LiveAiConversationCheck = {
+  name: string;
+  passed: boolean;
+  evidence: string[];
+};
+
+export type LiveAiConversationJudge = {
+  enabled: boolean;
+  model: string;
+  overallPass: boolean;
+  blocking: boolean;
+  scores?: Record<string, number>;
+  warnings: string[];
+  reasons: string[];
 };
 
 export type LiveAiConversationReportRow = {
@@ -15,6 +32,7 @@ export type LiveAiConversationReportRow = {
   caseId: string;
   title: string;
   status: "passed" | "failed" | "skipped";
+  severity: LiveAiConversationSeverity;
   durationMs: number;
   transcript: LiveAiConversationTranscriptTurn[];
   outputs: {
@@ -22,35 +40,96 @@ export type LiveAiConversationReportRow = {
     generatedDocumentId: string | null;
   };
   deterministicFailReasons: string[];
-  judgeScores: { overallPass: boolean; scores?: Record<string, number> } | null;
-  judgeFailReasons: string[];
+  checks: LiveAiConversationCheck[];
+  judge: LiveAiConversationJudge | null;
   cleanup: { ok: boolean; removedIds: string[] };
 };
 
+type LiveAiConversationSummaryCounts = {
+  total: number;
+  passed: number;
+  degraded: number;
+  failed: number;
+  skipped: number;
+};
+
 export type LiveAiConversationReport = {
+  reportType: LiveAiConversationFeature;
+  displayName: string;
   runId: string;
   generatedAt: string;
   generatedAtStamp: string;
   suiteDepth: LiveAiConversationSuiteDepth;
   targetEnv: LiveAiConversationTargetEnv;
-  summary: {
-    total: number;
-    passed: number;
-    failed: number;
-    skipped: number;
-    byFeature: Record<
-      LiveAiConversationFeature,
-      { total: number; passed: number; failed: number; skipped: number }
-    >;
-  };
+  summary: LiveAiConversationSummaryCounts;
   rows: LiveAiConversationReportRow[];
 };
 
-function emptyFeatureCounts() {
-  return { total: 0, passed: 0, failed: 0, skipped: 0 };
+const DISPLAY_NAMES: Record<LiveAiConversationFeature, string> = {
+  gakuchika: "ガクチカ作成",
+  motivation: "志望動機作成",
+  interview: "面接対策",
+};
+
+const TITLES: Record<LiveAiConversationFeature, string> = {
+  gakuchika: "Gakuchika Live AI Report",
+  motivation: "Motivation Live AI Report",
+  interview: "Interview Live AI Report",
+};
+
+function emptyCounts(): LiveAiConversationSummaryCounts {
+  return { total: 0, passed: 0, degraded: 0, failed: 0, skipped: 0 };
+}
+
+function incrementCounts(summary: LiveAiConversationSummaryCounts, row: LiveAiConversationReportRow) {
+  summary.total += 1;
+  summary[row.severity] += 1;
+  if (row.status === "skipped") {
+    summary.skipped += 1;
+  }
+}
+
+function markdownForRow(row: LiveAiConversationReportRow) {
+  const lines = [
+    `### \`${row.feature}\` / \`${row.caseId}\` / \`${row.severity}\``,
+    "",
+    `- title: \`${row.title}\``,
+    `- status: \`${row.status}\``,
+    `- severity: \`${row.severity}\``,
+    `- duration_ms: \`${row.durationMs}\``,
+    `- cleanup: \`${row.cleanup.ok ? "ok" : "failed"}\``,
+    row.deterministicFailReasons.length > 0
+      ? `- deterministic_fail_reasons: ${row.deterministicFailReasons.map((reason) => `\`${reason}\``).join(", ")}`
+      : "- deterministic_fail_reasons: `none`",
+    row.checks.length > 0
+      ? `- checks: ${row.checks.map((check) => `\`${check.name}:${check.passed ? "pass" : "fail"}\``).join(", ")}`
+      : "- checks: `none`",
+  ];
+
+  if (row.judge) {
+    lines.push(
+      `- judge: model=\`${row.judge.model}\` overall_pass=\`${row.judge.overallPass}\` blocking=\`${row.judge.blocking}\``,
+      row.judge.reasons.length > 0
+        ? `- judge_reasons: ${row.judge.reasons.map((reason) => `\`${reason}\``).join(", ")}`
+        : "- judge_reasons: `none`",
+      row.judge.warnings.length > 0
+        ? `- judge_warnings: ${row.judge.warnings.map((warning) => `\`${warning}\``).join(", ")}`
+        : "- judge_warnings: `none`",
+    );
+  } else {
+    lines.push("- judge: `disabled`");
+  }
+
+  lines.push(
+    row.outputs.finalText ? `- final_text: \`${row.outputs.finalText}\`` : "- final_text: `(empty)`",
+    "",
+  );
+
+  return lines;
 }
 
 export function generateLiveAiConversationReport(input: {
+  reportType: LiveAiConversationFeature;
   runId: string;
   generatedAt: string;
   generatedAtStamp: string;
@@ -58,65 +137,30 @@ export function generateLiveAiConversationReport(input: {
   targetEnv: LiveAiConversationTargetEnv;
   rows: LiveAiConversationReportRow[];
 }): LiveAiConversationReport & { markdown: string } {
-  const summary = {
-    total: input.rows.length,
-    passed: input.rows.filter((row) => row.status === "passed").length,
-    failed: input.rows.filter((row) => row.status === "failed").length,
-    skipped: input.rows.filter((row) => row.status === "skipped").length,
-    byFeature: {
-      gakuchika: emptyFeatureCounts(),
-      motivation: emptyFeatureCounts(),
-      interview: emptyFeatureCounts(),
-    } as Record<
-      LiveAiConversationFeature,
-      { total: number; passed: number; failed: number; skipped: number }
-    >,
-  };
-
+  const summary = emptyCounts();
   for (const row of input.rows) {
-    const bucket = summary.byFeature[row.feature];
-    bucket.total += 1;
-    bucket[row.status] += 1;
+    incrementCounts(summary, row);
   }
 
   const markdownLines = [
-    "# AI Live Conversation Report",
+    `# ${TITLES[input.reportType]}`,
     "",
+    `- feature: \`${DISPLAY_NAMES[input.reportType]}\``,
+    `- report_type: \`${input.reportType}\``,
     `- run_id: \`${input.runId}\``,
     `- generated_at: \`${input.generatedAt}\``,
     `- suite_depth: \`${input.suiteDepth}\``,
     `- target_env: \`${input.targetEnv}\``,
-    `- total: \`${summary.total}\` passed=\`${summary.passed}\` failed=\`${summary.failed}\` skipped=\`${summary.skipped}\``,
-    "",
-    "## By Feature",
-    "",
-    "| feature | total | passed | failed | skipped |",
-    "|---|---:|---:|---:|---:|",
-    ...(["gakuchika", "motivation", "interview"] as const).map(
-      (feature) =>
-        `| ${feature} | ${summary.byFeature[feature].total} | ${summary.byFeature[feature].passed} | ${summary.byFeature[feature].failed} | ${summary.byFeature[feature].skipped} |`,
-    ),
+    `- total: \`${summary.total}\` passed=\`${summary.passed}\` degraded=\`${summary.degraded}\` failed=\`${summary.failed}\` skipped=\`${summary.skipped}\``,
     "",
     "## Rows",
     "",
-    ...input.rows.flatMap((row) => [
-      `### \`${row.feature}\` / \`${row.caseId}\` / \`${row.status}\``,
-      "",
-      `- title: \`${row.title}\``,
-      `- duration_ms: \`${row.durationMs}\``,
-      `- cleanup: \`${row.cleanup.ok ? "ok" : "failed"}\``,
-      row.deterministicFailReasons.length > 0
-        ? `- deterministic_fail_reasons: ${row.deterministicFailReasons.map((reason) => `\`${reason}\``).join(", ")}`
-        : "- deterministic_fail_reasons: `none`",
-      row.judgeFailReasons.length > 0
-        ? `- judge_fail_reasons: ${row.judgeFailReasons.map((reason) => `\`${reason}\``).join(", ")}`
-        : "- judge_fail_reasons: `none`",
-      row.outputs.finalText ? `- final_text: \`${row.outputs.finalText}\`` : "- final_text: `(empty)`",
-      "",
-    ]),
+    ...input.rows.flatMap((row) => markdownForRow(row)),
   ];
 
   return {
+    reportType: input.reportType,
+    displayName: DISPLAY_NAMES[input.reportType],
     runId: input.runId,
     generatedAt: input.generatedAt,
     generatedAtStamp: input.generatedAtStamp,
@@ -136,8 +180,8 @@ export async function writeLiveAiConversationReport(input: {
 
   const stamp = input.report.generatedAtStamp.replace(/[^0-9TZ]+/g, "");
   const suffix = `${input.report.suiteDepth}_${stamp}`;
-  const jsonPath = path.join(input.outputDir, `live_ai_conversations_${suffix}.json`);
-  const markdownPath = path.join(input.outputDir, `live_ai_conversations_${suffix}.md`);
+  const jsonPath = path.join(input.outputDir, `live_${input.report.reportType}_${suffix}.json`);
+  const markdownPath = path.join(input.outputDir, `live_${input.report.reportType}_${suffix}.md`);
 
   await writeFile(jsonPath, JSON.stringify(input.report, null, 2), "utf8");
   await writeFile(markdownPath, input.report.markdown, "utf8");

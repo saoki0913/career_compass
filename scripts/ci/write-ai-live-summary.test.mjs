@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  buildAiLiveArtifacts,
   buildAiLiveSummaryMarkdown,
   collectLatestAiLiveReports,
 } from "./write-ai-live-summary.mjs";
@@ -54,13 +55,52 @@ test("builds a concise markdown summary with pass and failure counts", () => {
     },
     {
       path: "/tmp/live_motivation_smoke_20260329T140001Z.json",
-      rows: [{ case_id: "mot-1", status: "passed" }],
+      rows: [{ case_id: "mot-1", status: "passed", severity: "degraded", judge: { reasons: ["company-fit"] } }],
+    },
+    {
+      path: "/tmp/live_interview_smoke_20260329T140002Z.json",
+      rows: [{ case_id: "int-1", status: "passed" }],
     },
   ]);
 
-  assert.match(markdown, /# Nightly AI Live Summary/);
+  assert.match(markdown, /# AI Live Summary/);
   assert.match(markdown, /live_es_review_smoke_20260329T140000Z\.json/);
-  assert.match(markdown, /\| 2 \| 1 \| 1 \|/);
+  assert.match(markdown, /\| live_es_review_smoke_20260329T140000Z\.json \| 2 \| 1 \| 0 \| 1 \| 0 \|/);
+  assert.match(markdown, /## 志望動機作成/);
+  assert.match(markdown, /degraded=1/);
+  assert.match(markdown, /company-fit/);
   assert.match(markdown, /es-2/);
   assert.match(markdown, /judge:overall_pass_false/);
+});
+
+test("builds actionable recommendations and issue body", () => {
+  const artifacts = buildAiLiveArtifacts([
+    {
+      path: "/tmp/live_es_review_smoke_20260329T140000Z.json",
+      payload: { displayName: "ES添削", reportType: "es_review" },
+      rows: [
+        { case_id: "es-1", status: "failed", deterministic_fail_reasons: ["char_count:98 not in [108,150]"] },
+        { case_id: "es-2", status: "failed", deterministic_fail_reasons: ["char_count:141 not in [150,200]"] },
+      ],
+    },
+    {
+      path: "/tmp/live_gakuchika_smoke_20260329T140001Z.json",
+      payload: { displayName: "ガクチカ作成", reportType: "gakuchika" },
+      rows: [
+        { caseId: "g1", status: "passed", severity: "degraded", judge: { reasons: ["gakuchika:question-depth"], warnings: ["会話の深掘りが弱い"] } },
+      ],
+    },
+  ], {
+    generatedAt: "2026-03-29T14:30:00.000Z",
+    runUrl: "https://github.com/example/repo/actions/runs/123",
+    suite: "smoke",
+  });
+
+  assert.equal(artifacts.aggregate.overall.failed, 2);
+  assert.equal(artifacts.aggregate.features.es_review.priority, "high");
+  assert.match(artifacts.issueBody, /AI Live Daily Report 2026-03-29/);
+  assert.match(artifacts.issueBody, /ES添削/);
+  assert.match(artifacts.issueBody, /文字数制御/);
+  assert.match(artifacts.issueBody, /ガクチカ作成/);
+  assert.match(artifacts.issueBody, /会話の深掘り/);
 });

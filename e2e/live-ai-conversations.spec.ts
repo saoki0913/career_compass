@@ -17,6 +17,9 @@ import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-
 import {
   generateLiveAiConversationReport,
   writeLiveAiConversationReport,
+  type LiveAiConversationCheck,
+  type LiveAiConversationFeature,
+  type LiveAiConversationJudge,
   type LiveAiConversationReportRow,
   type LiveAiConversationSuiteDepth,
   type LiveAiConversationTargetEnv,
@@ -85,6 +88,9 @@ const CASE_SET = (
 const TARGET_ENV = (
   process.env.LIVE_AI_CONVERSATION_TARGET_ENV?.trim() || "staging"
 ) as LiveAiConversationTargetEnv;
+const FEATURE_FILTER = process.env.LIVE_AI_CONVERSATION_FEATURE?.trim() as
+  | LiveAiConversationFeature
+  | undefined;
 const OUTPUT_DIR = path.resolve(
   process.cwd(),
   process.env.AI_LIVE_OUTPUT_DIR?.trim() || "backend/tests/output",
@@ -144,10 +150,64 @@ function toUtcStamp(date: Date): string {
   return date.toISOString().replace(/\.\d{3}Z$/, "Z").replace(/[-:]/g, "");
 }
 
+function shouldRunFeature(feature: LiveAiConversationFeature) {
+  return !FEATURE_FILTER || FEATURE_FILTER === feature;
+}
+
 function pushAssistantIfPresent(transcript: LiveAiConversationTranscriptTurn[], content: string) {
   if (content.trim()) {
     transcript.push({ role: "assistant", content });
   }
+}
+
+function countTokenHits(texts: string[], tokens: string[]) {
+  return tokens.filter((token) => texts.some((text) => text.includes(token))).length;
+}
+
+function buildChecks(checks: Array<{ name: string; passed: boolean; evidence: string[] }>) {
+  return checks.map((check) => ({
+    name: check.name,
+    passed: check.passed,
+    evidence: check.evidence,
+  })) satisfies LiveAiConversationCheck[];
+}
+
+function buildJudge(
+  feature: LiveAiConversationFeature,
+  transcript: LiveAiConversationTranscriptTurn[],
+  finalText: string,
+  questionTokens: string[],
+  outputTokens: string[],
+): LiveAiConversationJudge {
+  const transcriptTexts = transcript.map((turn) => turn.content);
+  const questionHitCount = countTokenHits(transcriptTexts, questionTokens);
+  const outputHitCount = countTokenHits([finalText], outputTokens);
+  const questionThreshold = Math.max(1, Math.min(questionTokens.length, 2));
+  const outputThreshold = Math.max(1, Math.min(outputTokens.length, 2));
+  const warnings: string[] = [];
+  const reasons: string[] = [];
+
+  if (questionHitCount < questionThreshold) {
+    warnings.push("会話の深掘りが弱い");
+    reasons.push(`${feature}:question-depth`);
+  }
+  if (outputHitCount < outputThreshold) {
+    warnings.push("最終生成物の要点反映が弱い");
+    reasons.push(`${feature}:output-grounding`);
+  }
+
+  return {
+    enabled: process.env.LIVE_AI_CONVERSATION_ENABLE_JUDGE !== "0",
+    model: "heuristic-live-judge-v1",
+    overallPass: reasons.length === 0,
+    blocking: false,
+    scores: {
+      questionDepth: questionHitCount,
+      outputGrounding: outputHitCount,
+    },
+    warnings,
+    reasons,
+  };
 }
 
 async function createOwnedJobType(
@@ -258,6 +318,8 @@ async function runGakuchikaCase(
   let generatedDocumentId: string | null = null;
   let cleanupOk = true;
   let status: LiveAiConversationReportRow["status"] = "passed";
+  let checks: LiveAiConversationCheck[] = [];
+  let judge: LiveAiConversationJudge | null = null;
 
   try {
     const latestComplete = await runGakuchikaSetup(page, created.id, input.answers, transcript);
@@ -278,8 +340,42 @@ async function runGakuchikaCase(
 
     generatedDocumentId = draft.documentId;
     finalText = draft.draft;
-    expect(input.expectedQuestionTokens.some((token) => transcript.some((turn) => turn.content.includes(token)))).toBeTruthy();
-    expect(input.expectedSummaryTokens.some((token) => finalText.includes(token))).toBeTruthy();
+
+    const transcriptTexts = transcript.map((turn) => turn.content);
+    const questionHit = countTokenHits(transcriptTexts, input.expectedQuestionTokens);
+    const summaryHit = countTokenHits([finalText], input.expectedSummaryTokens);
+    checks = buildChecks([
+      {
+        name: "conversation-complete",
+        passed: latestComplete?.isCompleted === true,
+        evidence: [`isCompleted=${String(latestComplete?.isCompleted)}`],
+      },
+      {
+        name: "question-token-coverage",
+        passed: questionHit >= 1,
+        evidence: [`hits=${questionHit}/${input.expectedQuestionTokens.length}`],
+      },
+      {
+        name: "summary-token-coverage",
+        passed: summaryHit >= 1,
+        evidence: [`hits=${summaryHit}/${input.expectedSummaryTokens.length}`],
+      },
+      {
+        name: "draft-generated",
+        passed: Boolean(generatedDocumentId),
+        evidence: [generatedDocumentId ? `documentId=${generatedDocumentId}` : "documentId=none"],
+      },
+    ]);
+    for (const check of checks) {
+      expect(check.passed, `${input.id}:${check.name}`).toBeTruthy();
+    }
+    judge = buildJudge(
+      "gakuchika",
+      transcript,
+      finalText,
+      input.expectedQuestionTokens,
+      input.expectedSummaryTokens,
+    );
   } catch (error) {
     status = "failed";
     deterministicFailReasons.push(error instanceof Error ? error.message : "unknown_error");
@@ -301,17 +397,31 @@ async function runGakuchikaCase(
     }
   }
 
+  const cleanupCheck = {
+    name: "cleanup",
+    passed: cleanupOk,
+    evidence: cleanupOk ? removedIds : ["cleanup failed"],
+  };
+  checks = [...checks, cleanupCheck];
+  if (!cleanupOk) {
+    status = "failed";
+    deterministicFailReasons.push("cleanup_failed");
+  }
+  const severity: LiveAiConversationReportRow["severity"] =
+    status === "failed" ? "failed" : judge && !judge.overallPass ? "degraded" : "passed";
+
   return {
     feature: "gakuchika",
     caseId: input.id,
     title: input.title,
     status,
+    severity,
     durationMs: Date.now() - startedAt,
     transcript,
     outputs: { finalText, generatedDocumentId },
     deterministicFailReasons,
-    judgeScores: null,
-    judgeFailReasons: [],
+    checks,
+    judge,
     cleanup: { ok: cleanupOk, removedIds },
   };
 }
@@ -338,6 +448,8 @@ async function runMotivationCase(
   let generatedDocumentId: string | null = null;
   let cleanupOk = true;
   let status: LiveAiConversationReportRow["status"] = "passed";
+  let checks: LiveAiConversationCheck[] = [];
+  let judge: LiveAiConversationJudge | null = null;
 
   try {
     const latestComplete = await runMotivationSetup(
@@ -365,8 +477,41 @@ async function runMotivationCase(
 
     generatedDocumentId = draft.documentId;
     finalText = draft.draft;
-    expect(input.expectedQuestionTokens.some((token) => transcript.some((turn) => turn.content.includes(token)))).toBeTruthy();
-    expect(input.expectedDraftTokens.some((token) => finalText.includes(token))).toBeTruthy();
+    const transcriptTexts = transcript.map((turn) => turn.content);
+    const questionHit = countTokenHits(transcriptTexts, input.expectedQuestionTokens);
+    const draftHit = countTokenHits([finalText], input.expectedDraftTokens);
+    checks = buildChecks([
+      {
+        name: "draft-ready",
+        passed: latestComplete?.isDraftReady === true,
+        evidence: [`isDraftReady=${String(latestComplete?.isDraftReady)}`],
+      },
+      {
+        name: "question-token-coverage",
+        passed: questionHit >= 1,
+        evidence: [`hits=${questionHit}/${input.expectedQuestionTokens.length}`],
+      },
+      {
+        name: "draft-token-coverage",
+        passed: draftHit >= 1,
+        evidence: [`hits=${draftHit}/${input.expectedDraftTokens.length}`],
+      },
+      {
+        name: "draft-generated",
+        passed: Boolean(generatedDocumentId),
+        evidence: [generatedDocumentId ? `documentId=${generatedDocumentId}` : "documentId=none"],
+      },
+    ]);
+    for (const check of checks) {
+      expect(check.passed, `${input.id}:${check.name}`).toBeTruthy();
+    }
+    judge = buildJudge(
+      "motivation",
+      transcript,
+      finalText,
+      input.expectedQuestionTokens,
+      input.expectedDraftTokens,
+    );
   } catch (error) {
     status = "failed";
     deterministicFailReasons.push(error instanceof Error ? error.message : "unknown_error");
@@ -388,17 +533,31 @@ async function runMotivationCase(
     }
   }
 
+  const cleanupCheck = {
+    name: "cleanup",
+    passed: cleanupOk,
+    evidence: cleanupOk ? removedIds : ["cleanup failed"],
+  };
+  checks = [...checks, cleanupCheck];
+  if (!cleanupOk) {
+    status = "failed";
+    deterministicFailReasons.push("cleanup_failed");
+  }
+  const severity: LiveAiConversationReportRow["severity"] =
+    status === "failed" ? "failed" : judge && !judge.overallPass ? "degraded" : "passed";
+
   return {
     feature: "motivation",
     caseId: input.id,
     title: input.title,
     status,
+    severity,
     durationMs: Date.now() - startedAt,
     transcript,
     outputs: { finalText, generatedDocumentId },
     deterministicFailReasons,
-    judgeScores: null,
-    judgeFailReasons: [],
+    checks,
+    judge,
     cleanup: { ok: cleanupOk, removedIds },
   };
 }
@@ -426,6 +585,8 @@ async function runInterviewCase(
   let finalText = "";
   let cleanupOk = true;
   let status: LiveAiConversationReportRow["status"] = "passed";
+  let checks: LiveAiConversationCheck[] = [];
+  let judge: LiveAiConversationJudge | null = null;
 
   try {
     await runMotivationSetup(
@@ -530,9 +691,41 @@ async function runInterviewCase(
       ...(feedback?.strengths || []),
       ...(feedback?.improvements || []),
     ].join(" ");
-    expect(
-      input.interview.expectedFeedbackTokens.some((token) => feedbackSummary.includes(token)),
-    ).toBeTruthy();
+    const transcriptTexts = transcript.map((turn) => turn.content);
+    const questionHit = countTokenHits(transcriptTexts, input.interview.expectedQuestionTokens);
+    const feedbackHit = countTokenHits([feedbackSummary], input.interview.expectedFeedbackTokens);
+    checks = buildChecks([
+      {
+        name: "interview-started",
+        passed: Boolean(initialQuestion),
+        evidence: [initialQuestion || "initialQuestion=empty"],
+      },
+      {
+        name: "question-token-coverage",
+        passed: questionHit >= 1,
+        evidence: [`hits=${questionHit}/${input.interview.expectedQuestionTokens.length}`],
+      },
+      {
+        name: "feedback-token-coverage",
+        passed: feedbackHit >= 1,
+        evidence: [`hits=${feedbackHit}/${input.interview.expectedFeedbackTokens.length}`],
+      },
+      {
+        name: "feedback-generated",
+        passed: Boolean(feedback?.overall_comment || feedback?.improved_answer),
+        evidence: [feedback?.overall_comment || feedback?.improved_answer || "feedback=empty"],
+      },
+    ]);
+    for (const check of checks) {
+      expect(check.passed, `${input.id}:${check.name}`).toBeTruthy();
+    }
+    judge = buildJudge(
+      "interview",
+      transcript,
+      feedbackSummary,
+      input.interview.expectedQuestionTokens,
+      input.interview.expectedFeedbackTokens,
+    );
     finalText = feedback?.overall_comment || finalText;
   } catch (error) {
     status = "failed";
@@ -564,17 +757,31 @@ async function runInterviewCase(
     }
   }
 
+  const cleanupCheck = {
+    name: "cleanup",
+    passed: cleanupOk,
+    evidence: cleanupOk ? removedIds : ["cleanup failed"],
+  };
+  checks = [...checks, cleanupCheck];
+  if (!cleanupOk) {
+    status = "failed";
+    deterministicFailReasons.push("cleanup_failed");
+  }
+  const severity: LiveAiConversationReportRow["severity"] =
+    status === "failed" ? "failed" : judge && !judge.overallPass ? "degraded" : "passed";
+
   return {
     feature: "interview",
     caseId: input.id,
     title: input.title,
     status,
+    severity,
     durationMs: Date.now() - startedAt,
     transcript,
     outputs: { finalText, generatedDocumentId: null },
     deterministicFailReasons,
-    judgeScores: null,
-    judgeFailReasons: [],
+    checks,
+    judge,
     cleanup: { ok: cleanupOk, removedIds },
   };
 }
@@ -601,45 +808,56 @@ test.describe.serial("Live AI conversations", () => {
   });
 
   for (const item of gakuchikaCases) {
+    if (!shouldRunFeature("gakuchika")) continue;
     test(`gakuchika live: ${item.id}`, async ({ page }) => {
       const row = await runGakuchikaCase(page, item);
       reportRowsByKey.set(`${row.feature}:${row.caseId}`, row);
-      expect(row.status).toBe("passed");
+      expect(row.severity).not.toBe("failed");
     });
   }
 
   for (const item of motivationCases) {
+    if (!shouldRunFeature("motivation")) continue;
     test(`motivation live: ${item.id}`, async ({ page }) => {
       const row = await runMotivationCase(page, item);
       reportRowsByKey.set(`${row.feature}:${row.caseId}`, row);
-      expect(row.status).toBe("passed");
+      expect(row.severity).not.toBe("failed");
     });
   }
 
   for (const item of interviewCases) {
+    if (!shouldRunFeature("interview")) continue;
     test(`interview live: ${item.id}`, async ({ page }) => {
       const row = await runInterviewCase(page, item);
       reportRowsByKey.set(`${row.feature}:${row.caseId}`, row);
-      expect(row.status).toBe("passed");
+      expect(row.severity).not.toBe("failed");
     });
   }
 
   test.afterAll(async () => {
     const generatedAt = new Date();
-    const report = generateLiveAiConversationReport({
-      runId: RUN_ID,
-      generatedAt: generatedAt.toISOString(),
-      generatedAtStamp: toUtcStamp(generatedAt),
-      suiteDepth: CASE_SET,
-      targetEnv: TARGET_ENV,
-      rows: [...reportRowsByKey.values()],
-    });
+    const rows = [...reportRowsByKey.values()];
+    for (const feature of ["gakuchika", "motivation", "interview"] as const) {
+      const featureRows = rows.filter((row) => row.feature === feature);
+      if (featureRows.length === 0) {
+        continue;
+      }
+      const report = generateLiveAiConversationReport({
+        reportType: feature,
+        runId: RUN_ID,
+        generatedAt: generatedAt.toISOString(),
+        generatedAtStamp: toUtcStamp(generatedAt),
+        suiteDepth: CASE_SET,
+        targetEnv: TARGET_ENV,
+        rows: featureRows,
+      });
 
-    const result = await writeLiveAiConversationReport({
-      outputDir: OUTPUT_DIR,
-      report,
-    });
+      const result = await writeLiveAiConversationReport({
+        outputDir: OUTPUT_DIR,
+        report,
+      });
 
-    console.log(`wrote live AI conversation report: ${result.markdownPath}`);
+      console.log(`wrote live AI conversation report: ${result.markdownPath}`);
+    }
   });
 });

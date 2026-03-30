@@ -66,6 +66,7 @@
 | 文書 | 説明 |
 |------|------|
 | [testing/BACKEND_TESTS.md](./testing/BACKEND_TESTS.md) | pytest、検索まわり |
+| [testing/AI_LIVE.md](./testing/AI_LIVE.md) | AI Live の定時実行、artifact、朝の確認手順 |
 | [testing/RAG_EVAL.md](./testing/RAG_EVAL.md) | RAG オフライン評価 |
 | [testing/ES_REVIEW_QUALITY.md](./testing/ES_REVIEW_QUALITY.md) | ES 添削の品質評価 |
 | [testing/UI_PLAYWRIGHT_VERIFICATION.md](./testing/UI_PLAYWRIGHT_VERIFICATION.md) | UI 変更後の Playwright 確認 |
