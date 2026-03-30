@@ -154,6 +154,10 @@ function shouldRunFeature(feature: LiveAiConversationFeature) {
   return !FEATURE_FILTER || FEATURE_FILTER === feature;
 }
 
+function selectedFeatures(): LiveAiConversationFeature[] {
+  return (["gakuchika", "motivation", "interview"] as const).filter((feature) => shouldRunFeature(feature));
+}
+
 function pushAssistantIfPresent(transcript: LiveAiConversationTranscriptTurn[], content: string) {
   if (content.trim()) {
     transcript.push({ role: "assistant", content });
@@ -207,6 +211,29 @@ function buildJudge(
     },
     warnings,
     reasons,
+  };
+}
+
+function buildMissingFeatureRow(feature: LiveAiConversationFeature): LiveAiConversationReportRow {
+  return {
+    feature,
+    caseId: "__missing_report__",
+    title: `${feature} live suite failed before report rows were recorded`,
+    status: "failed",
+    severity: "failed",
+    durationMs: 0,
+    transcript: [],
+    outputs: { finalText: "", generatedDocumentId: null },
+    deterministicFailReasons: ["missing_report", "suite_failed_before_report_rows"],
+    checks: [
+      {
+        name: "report-generated",
+        passed: false,
+        evidence: ["no rows were captured before afterAll"],
+      },
+    ],
+    judge: null,
+    cleanup: { ok: true, removedIds: [] },
   };
 }
 
@@ -837,11 +864,8 @@ test.describe.serial("Live AI conversations", () => {
   test.afterAll(async () => {
     const generatedAt = new Date();
     const rows = [...reportRowsByKey.values()];
-    for (const feature of ["gakuchika", "motivation", "interview"] as const) {
+    for (const feature of selectedFeatures()) {
       const featureRows = rows.filter((row) => row.feature === feature);
-      if (featureRows.length === 0) {
-        continue;
-      }
       const report = generateLiveAiConversationReport({
         reportType: feature,
         runId: RUN_ID,
@@ -849,7 +873,7 @@ test.describe.serial("Live AI conversations", () => {
         generatedAtStamp: toUtcStamp(generatedAt),
         suiteDepth: CASE_SET,
         targetEnv: TARGET_ENV,
-        rows: featureRows,
+        rows: featureRows.length > 0 ? featureRows : [buildMissingFeatureRow(feature)],
       });
 
       const result = await writeLiveAiConversationReport({

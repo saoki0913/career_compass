@@ -104,3 +104,54 @@ test("builds actionable recommendations and issue body", () => {
   assert.match(artifacts.issueBody, /ガクチカ作成/);
   assert.match(artifacts.issueBody, /会話の深掘り/);
 });
+
+test("always renders all feature sections and flags missing reports", () => {
+  const artifacts = buildAiLiveArtifacts([
+    {
+      path: "/tmp/live_es_review_smoke_20260329T140000Z.json",
+      payload: { displayName: "ES添削", reportType: "es_review" },
+      rows: [
+        { case_id: "es-1", status: "failed", deterministic_fail_reasons: ["judge:overall_pass_false"] },
+      ],
+    },
+  ], {
+    generatedAt: "2026-03-29T14:30:00.000Z",
+    runUrl: "https://github.com/example/repo/actions/runs/123",
+    suite: "smoke",
+  });
+
+  assert.equal(artifacts.aggregate.features.es_review.status, "failed");
+  assert.equal(artifacts.aggregate.features.gakuchika.status, "missing_report");
+  assert.equal(artifacts.aggregate.features.motivation.status, "missing_report");
+  assert.equal(artifacts.aggregate.features.interview.status, "missing_report");
+  assert.match(artifacts.issueBody, /## ES添削/);
+  assert.match(artifacts.issueBody, /## ガクチカ作成/);
+  assert.match(artifacts.issueBody, /## 志望動機作成/);
+  assert.match(artifacts.issueBody, /## 面接対策/);
+  assert.match(artifacts.issueBody, /missing_report/);
+  assert.match(artifacts.issueBody, /job log と artifact の回収経路を確認/);
+});
+
+test("always includes all four feature sections and missing-report guidance", () => {
+  const artifacts = buildAiLiveArtifacts([
+    {
+      path: "/tmp/live_es_review_smoke_20260329T140000Z.json",
+      payload: { displayName: "ES添削", reportType: "es_review" },
+      rows: [{ case_id: "es-1", status: "passed" }],
+    },
+  ], {
+    generatedAt: "2026-03-29T14:30:00.000Z",
+    runUrl: "https://github.com/example/repo/actions/runs/123",
+    suite: "smoke",
+  });
+
+  assert.match(artifacts.issueBody, /## ES添削/);
+  assert.match(artifacts.issueBody, /## ガクチカ作成/);
+  assert.match(artifacts.issueBody, /## 志望動機作成/);
+  assert.match(artifacts.issueBody, /## 面接対策/);
+  assert.match(artifacts.issueBody, /report 未生成/);
+  assert.match(artifacts.issueBody, /job log と artifact の回収経路を確認/);
+  assert.equal(artifacts.aggregate.features.gakuchika.status, "missing_report");
+  assert.equal(artifacts.aggregate.features.motivation.status, "missing_report");
+  assert.equal(artifacts.aggregate.features.interview.status, "missing_report");
+});

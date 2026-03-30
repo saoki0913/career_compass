@@ -10,6 +10,7 @@ const FEATURE_DISPLAY = {
   motivation: "志望動機作成",
   interview: "面接対策",
 };
+const FEATURE_ORDER = ["es_review", "gakuchika", "motivation", "interview"];
 
 const FEATURE_RECOMMENDATIONS = {
   es_review: [
@@ -254,7 +255,34 @@ function normalizeReports(reports) {
   });
 }
 
+function createMissingFeature(reportType) {
+  return {
+    reportType,
+    displayName: FEATURE_DISPLAY[reportType] || reportType,
+    counts: { total: 0, passed: 0, degraded: 0, failed: 0, skipped: 0 },
+    topReasons: [{ value: "missing_report", count: 1 }],
+    topWarnings: [],
+    degradedLines: [],
+    failedLines: [],
+    priority: "high",
+    recommendations: [
+      {
+        id: "missing-report",
+        title: "report 未生成の原因を確認",
+        description: "feature report が生成されておらず、失敗内容を朝の issue だけでは追えない。",
+        nextStep: "対象 job log と artifact の回収経路を確認し、report 出力失敗を先に直す。",
+        signals: [{ value: "missing_report", count: 1 }],
+      },
+    ],
+    reportFile: "(missing)",
+    status: "missing_report",
+  };
+}
+
 function buildRecommendations(report) {
+  if (report.status === "missing_report") {
+    return report.recommendations;
+  }
   const rules = FEATURE_RECOMMENDATIONS[report.reportType] || [];
   const recommendations = [];
   for (const rule of rules) {
@@ -283,9 +311,16 @@ function buildRecommendations(report) {
 }
 
 function priorityForReport(report) {
+  if (report.status === "missing_report") return "high";
   if (report.counts.failed > 0) return "high";
   if (report.counts.degraded > 0) return "medium";
   return "low";
+}
+
+function statusForReport(report) {
+  if (report.counts.failed > 0) return "failed";
+  if (report.counts.degraded > 0) return "degraded";
+  return "ok";
 }
 
 function buildTodayActions(features) {
@@ -324,7 +359,7 @@ export function buildAiLiveArtifacts(reports, options = {}) {
     { total: 0, passed: 0, degraded: 0, failed: 0, skipped: 0 },
   );
 
-  const features = normalizedReports.map((report) => ({
+  const existingFeatures = normalizedReports.map((report) => ({
     reportType: report.reportType,
     displayName: report.displayName,
     counts: report.counts,
@@ -335,7 +370,10 @@ export function buildAiLiveArtifacts(reports, options = {}) {
     priority: priorityForReport(report),
     recommendations: buildRecommendations(report),
     reportFile: path.basename(report.path),
+    status: statusForReport(report),
   }));
+  const featureMap = new Map(existingFeatures.map((feature) => [feature.reportType, feature]));
+  const features = FEATURE_ORDER.map((reportType) => featureMap.get(reportType) || createMissingFeature(reportType));
 
   const aggregate = {
     generatedAt,
@@ -369,8 +407,14 @@ export function buildAiLiveArtifacts(reports, options = {}) {
       `- report: \`${feature.reportFile}\``,
       `- total=${feature.counts.total} passed=${feature.counts.passed} degraded=${feature.counts.degraded} failed=${feature.counts.failed} skipped=${feature.counts.skipped}`,
       `- priority: \`${feature.priority}\``,
+      `- status: \`${feature.status}\``,
       "",
     );
+
+    if (feature.status === "missing_report") {
+      summaryLines.push("_Latest run did not produce a feature report. Check job logs and artifact upload path first._", "");
+      continue;
+    }
 
     if (feature.recommendations.length > 0) {
       summaryLines.push("### Recommendations", "");
@@ -413,8 +457,25 @@ export function buildAiLiveArtifacts(reports, options = {}) {
       `- 状態: passed=${feature.counts.passed} degraded=${feature.counts.degraded} failed=${feature.counts.failed}`,
       `- 優先度: \`${feature.priority}\``,
       `- report: \`${feature.reportFile}\``,
+      `- report_status: \`${feature.status}\``,
       "",
     );
+
+    if (feature.status === "missing_report") {
+      issueLines.push(
+        "### 主な原因",
+        "",
+        "- `missing_report` x 1",
+        "",
+        "### 改善提案",
+        "",
+        "- **report 未生成の原因を確認**: feature report が生成されておらず、失敗内容を朝の issue だけでは追えない。対象 job log と artifact の回収経路を確認し、report 出力失敗を先に直す。",
+        "",
+        "_この機能は report 未生成のため、まず job log と artifact の回収経路を確認してください。_",
+        "",
+      );
+      continue;
+    }
 
     if (feature.topReasons.length > 0) {
       issueLines.push("### 主な原因", "");
@@ -469,33 +530,11 @@ export function writeAiLiveSummary({ outputDir, summaryFile, runUrl, suite } = {
   const reports = collectLatestAiLiveReports(resolvedOutputDir);
   mkdirSync(resolvedOutputDir, { recursive: true });
 
-  const artifacts =
-    reports.length > 0
-      ? buildAiLiveArtifacts(reports, {
-          generatedAt: new Date().toISOString(),
-          runUrl: resolvedRunUrl,
-          suite: resolvedSuite,
-        })
-      : {
-          aggregate: {
-            generatedAt: new Date().toISOString(),
-            dateJst: toJstDate(new Date().toISOString()),
-            runUrl: resolvedRunUrl,
-            suite: resolvedSuite,
-            overall: { total: 0, passed: 0, degraded: 0, failed: 0, skipped: 0 },
-            features: {},
-          },
-          summaryMarkdown: [
-            "# AI Live Summary",
-            "",
-            `Generated: ${new Date().toISOString()}`,
-            "",
-            `No live JSON reports found under \`${resolvedOutputDir}\`.`,
-            "",
-          ].join("\n"),
-          issueBody: `# AI Live Daily Report ${toJstDate(new Date().toISOString())}\n\n- 実行結果が見つかりませんでした。\n`,
-          recommendations: [],
-        };
+  const artifacts = buildAiLiveArtifacts(reports, {
+    generatedAt: new Date().toISOString(),
+    runUrl: resolvedRunUrl,
+    suite: resolvedSuite,
+  });
 
   writeFileSync(path.join(resolvedOutputDir, "ai-live-summary.json"), JSON.stringify(artifacts.aggregate, null, 2), "utf8");
   writeFileSync(path.join(resolvedOutputDir, "ai-live-summary.md"), `${artifacts.summaryMarkdown}\n`, "utf8");
