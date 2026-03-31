@@ -81,6 +81,16 @@ get_env_value() {
   print -r -- "$value"
 }
 
+require_env_value() {
+  local file="$1"
+  local key="$2"
+  local value
+
+  value="$(get_env_value "$file" "$key" 2>/dev/null || true)"
+  [[ -n "$value" ]] || release_die "${key} missing in $(basename "$file")"
+  print -r -- "$value"
+}
+
 is_meta_key() {
   [[ "$1" == VERCEL_* || "$1" == RAILWAY_* || "$1" == GITHUB_* || "$1" == TARGET_* || "$1" == SUPABASE_* ]]
 }
@@ -176,11 +186,13 @@ apply_google_oauth_env() {
 
 if should_run_target "vercel-staging"; then
   staging_file="${secret_dir}/vercel-staging.env"
+  staging_project_id="$(require_env_value "$staging_file" "VERCEL_PROJECT_ID")"
+  staging_team_id="$(require_env_value "$staging_file" "VERCEL_TEAM_ID")"
   validate_env_file "$staging_file"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Vercel staging env"
-    vercel_upsert_env_file "$staging_file" production "$VERCEL_PROJECT_ID" "$VERCEL_TEAM_ID"
-    vercel_upsert_env_file "$staging_file" preview "$VERCEL_PROJECT_ID" "$VERCEL_TEAM_ID" "develop"
+    vercel_upsert_env_file "$staging_file" production "$staging_project_id" "$staging_team_id"
+    vercel_upsert_env_file "$staging_file" preview "$staging_project_id" "$staging_team_id" "develop"
   else
     release_log "Checked Vercel staging env"
   fi
@@ -188,11 +200,13 @@ fi
 
 if should_run_target "vercel-production"; then
   production_file="${secret_dir}/vercel-production.env"
+  production_project_id="$(require_env_value "$production_file" "VERCEL_PROJECT_ID")"
+  production_team_id="$(require_env_value "$production_file" "VERCEL_TEAM_ID")"
   validate_env_file "$production_file"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Vercel production env"
-    vercel_upsert_env_file "$production_file" production "$VERCEL_PROJECT_ID" "$VERCEL_TEAM_ID"
-    vercel_upsert_env_file "$production_file" preview "$VERCEL_PROJECT_ID" "$VERCEL_TEAM_ID" "develop"
+    vercel_upsert_env_file "$production_file" production "$production_project_id" "$production_team_id"
+    vercel_upsert_env_file "$production_file" preview "$production_project_id" "$production_team_id" "develop"
   else
     release_log "Checked Vercel production env"
   fi
@@ -200,10 +214,13 @@ fi
 
 if should_run_target "railway-staging"; then
   railway_staging_file="${secret_dir}/railway-staging.env"
+  railway_staging_project_id="$(require_env_value "$railway_staging_file" "RAILWAY_PROJECT_ID")"
+  railway_staging_service_name="$(require_env_value "$railway_staging_file" "RAILWAY_SERVICE_NAME")"
+  railway_staging_environment_name="$(require_env_value "$railway_staging_file" "RAILWAY_ENVIRONMENT_NAME")"
   validate_env_file "$railway_staging_file"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Railway staging env"
-    railway_apply_env_file "$railway_staging_file" "$RAILWAY_PROJECT_ID" "$RAILWAY_SERVICE_NAME" "$RAILWAY_ENVIRONMENT_NAME"
+    railway_apply_env_file "$railway_staging_file" "$railway_staging_project_id" "$railway_staging_service_name" "$railway_staging_environment_name"
   else
     release_log "Checked Railway staging env"
   fi
@@ -211,10 +228,13 @@ fi
 
 if should_run_target "railway-production"; then
   railway_production_file="${secret_dir}/railway-production.env"
+  railway_production_project_id="$(require_env_value "$railway_production_file" "RAILWAY_PROJECT_ID")"
+  railway_production_service_name="$(require_env_value "$railway_production_file" "RAILWAY_SERVICE_NAME")"
+  railway_production_environment_name="$(require_env_value "$railway_production_file" "RAILWAY_ENVIRONMENT_NAME")"
   validate_env_file "$railway_production_file"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Railway production env"
-    railway_apply_env_file "$railway_production_file" "$RAILWAY_PROJECT_ID" "$RAILWAY_SERVICE_NAME" "$RAILWAY_ENVIRONMENT_NAME"
+    railway_apply_env_file "$railway_production_file" "$railway_production_project_id" "$railway_production_service_name" "$railway_production_environment_name"
   else
     release_log "Checked Railway production env"
   fi
@@ -233,6 +253,7 @@ fi
 
 if should_run_target "supabase"; then
   supabase_file="${secret_dir}/supabase.env"
+  SUPABASE_PRODUCTION_PROJECT_REF="$(require_env_value "$supabase_file" "SUPABASE_PRODUCTION_PROJECT_REF")"
   validate_env_file "$supabase_file"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Supabase secrets"
