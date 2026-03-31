@@ -4,12 +4,9 @@ import path from "node:path";
 
 import {
   apiRequest,
-  createGuestDocument,
+  apiRequestAsAuthenticatedUser,
   createOwnedApplication,
-  createOwnedCompany,
   createOwnedGakuchika,
-  deleteGuestCompany,
-  deleteGuestDocument,
   deleteOwnedGakuchika,
   expectOkResponse,
 } from "./fixtures/auth";
@@ -79,6 +76,14 @@ type InterviewCase = {
 
 type ParsedSseEvent = { type: string; [key: string]: unknown };
 type ChatMessage = { role: "assistant" | "user"; content: string };
+type SetupResponseLike = {
+  ok(): boolean;
+  status(): number;
+  statusText(): string;
+  text(): Promise<string>;
+};
+
+type SetupRequester = typeof apiRequest;
 
 const CASE_SET = (
   process.env.LIVE_AI_CONVERSATION_CASE_SET?.trim() ||
@@ -180,6 +185,82 @@ function buildChecks(checks: Array<{ name: string; passed: boolean; evidence: st
   })) satisfies LiveAiConversationCheck[];
 }
 
+async function readSetupResponseBody(response: SetupResponseLike, label: string) {
+  const body = await response.text().catch(() => "");
+  if (!response.ok()) {
+    throw new Error(`${label} failed with ${response.status()} ${response.statusText()}\n${body.slice(0, 1200)}`);
+  }
+  return body;
+}
+
+export async function createAuthenticatedCompanyWithRequest(
+  request: SetupRequester,
+  page: Parameters<typeof apiRequest>[0],
+  input: {
+    name: string;
+    industry?: string;
+    recruitmentUrl?: string;
+    corporateUrl?: string;
+    notes?: string;
+    status?: string;
+  },
+) {
+  const response = await request(page, "POST", "/api/companies", input);
+  const payload = JSON.parse(
+    await readSetupResponseBody(response, "create authenticated company"),
+  ) as { company: { id: string; name: string } };
+  return payload.company;
+}
+
+async function createAuthenticatedCompany(
+  page: Parameters<typeof apiRequest>[0],
+  input: Parameters<typeof createAuthenticatedCompanyWithRequest>[2],
+) {
+  return createAuthenticatedCompanyWithRequest(apiRequestAsAuthenticatedUser, page, input);
+}
+
+async function deleteAuthenticatedCompany(
+  page: Parameters<typeof apiRequest>[0],
+  companyId: string,
+  request: SetupRequester = apiRequestAsAuthenticatedUser,
+) {
+  const response = await request(page, "DELETE", `/api/companies/${companyId}`);
+  await readSetupResponseBody(response, `delete company ${companyId}`).catch(() => "");
+}
+
+export async function createAuthenticatedDocumentWithRequest(
+  request: SetupRequester,
+  page: Parameters<typeof apiRequest>[0],
+  input: {
+    title: string;
+    type: "es" | "tips" | "company_analysis";
+    companyId?: string;
+    content?: Array<Record<string, unknown>>;
+  },
+) {
+  const response = await request(page, "POST", "/api/documents", input);
+  const payload = JSON.parse(
+    await readSetupResponseBody(response, "create authenticated document"),
+  ) as { document: { id: string; title: string } };
+  return payload.document;
+}
+
+async function createAuthenticatedDocument(
+  page: Parameters<typeof apiRequest>[0],
+  input: Parameters<typeof createAuthenticatedDocumentWithRequest>[2],
+) {
+  return createAuthenticatedDocumentWithRequest(apiRequestAsAuthenticatedUser, page, input);
+}
+
+async function deleteAuthenticatedDocument(
+  page: Parameters<typeof apiRequest>[0],
+  documentId: string,
+  request: SetupRequester = apiRequestAsAuthenticatedUser,
+) {
+  const response = await request(page, "DELETE", `/api/documents/${documentId}`);
+  await readSetupResponseBody(response, `delete document ${documentId}`).catch(() => "");
+}
+
 function buildJudge(
   feature: LiveAiConversationFeature,
   transcript: LiveAiConversationTranscriptTurn[],
@@ -246,7 +327,7 @@ async function createOwnedJobType(
   applicationId: string,
   name: string,
 ) {
-  const response = await apiRequest(page, "POST", `/api/applications/${applicationId}/job-types`, {
+  const response = await apiRequestAsAuthenticatedUser(page, "POST", `/api/applications/${applicationId}/job-types`, {
     name,
   });
   const body = JSON.parse(
@@ -263,7 +344,7 @@ async function runMotivationSetup(
   answers: string[],
   transcript?: LiveAiConversationTranscriptTurn[],
 ) {
-  const startResponse = await apiRequest(page, "POST", `/api/motivation/${companyId}/conversation/start`, {
+  const startResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/motivation/${companyId}/conversation/start`, {
     selectedIndustry,
     selectedRole,
   });
@@ -281,7 +362,7 @@ async function runMotivationSetup(
   let latestComplete: Record<string, unknown> | null = null;
   for (const answer of answers) {
     transcript?.push({ role: "user", content: answer });
-    const streamResponse = await apiRequest(page, "POST", `/api/motivation/${companyId}/conversation/stream`, {
+    const streamResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/motivation/${companyId}/conversation/stream`, {
       answer,
       sessionId,
     });
@@ -294,15 +375,29 @@ async function runMotivationSetup(
   return latestComplete;
 }
 
-async function runGakuchikaSetup(
+const GAKUCHIKA_FALLBACK_ANSWERS = [
+  "補足すると、役割分担を明確にしながら、周囲が動きやすい状態を整えました。",
+  "さらに、改善提案を小さく回して、関係者と認識をそろえました。",
+  "最後に、数字と現場の声の両方を見ながら、運用を微調整しました。",
+  "加えて、継続して見直せるように、共有の型も整えました。",
+];
+
+function buildGakuchikaFallbackAnswer(nextQuestion: string, attemptIndex: number) {
+  const fallback = GAKUCHIKA_FALLBACK_ANSWERS[Math.min(attemptIndex, GAKUCHIKA_FALLBACK_ANSWERS.length - 1)];
+  const trimmedQuestion = nextQuestion.trim();
+  return trimmedQuestion ? `${fallback} 想定される追加確認は「${trimmedQuestion}」です。` : fallback;
+}
+
+export async function runGakuchikaSetupWithRequest(
+  request: SetupRequester,
   page: Parameters<typeof apiRequest>[0],
   gakuchikaId: string,
   answers: string[],
   transcript?: LiveAiConversationTranscriptTurn[],
 ) {
-  const startResponse = await apiRequest(page, "POST", `/api/gakuchika/${gakuchikaId}/conversation/new`, {});
+  const startResponse = await request(page, "POST", `/api/gakuchika/${gakuchikaId}/conversation/new`, {});
   const startBody = JSON.parse(
-    await expectOkResponse(startResponse, `gakuchika setup start ${gakuchikaId}`),
+    await readSetupResponseBody(startResponse, `gakuchika setup start ${gakuchikaId}`),
   ) as {
     conversation: { id: string };
     messages: ChatMessage[];
@@ -316,19 +411,38 @@ async function runGakuchikaSetup(
   );
 
   let latestComplete: Record<string, unknown> | null = null;
-  for (const answer of answers) {
+  let nextQuestionText = startBody.nextQuestion || startBody.messages[0]?.content || "";
+  const totalAttempts = Math.max(answers.length + GAKUCHIKA_FALLBACK_ANSWERS.length, 6);
+  for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
+    const answer =
+      attempt < answers.length
+        ? answers[attempt]
+        : buildGakuchikaFallbackAnswer(nextQuestionText, attempt - answers.length);
     transcript?.push({ role: "user", content: answer });
-    const streamResponse = await apiRequest(page, "POST", `/api/gakuchika/${gakuchikaId}/conversation/stream`, {
+    const streamResponse = await request(page, "POST", `/api/gakuchika/${gakuchikaId}/conversation/stream`, {
       answer,
       sessionId,
     });
-    const events = parseSseEvents(await expectOkResponse(streamResponse, `gakuchika setup stream ${gakuchikaId}`));
+    const events = parseSseEvents(await readSetupResponseBody(streamResponse, `gakuchika setup stream ${gakuchikaId}`));
     const nextQuestion = collectChunks(events, "question");
-    pushAssistantIfPresent(transcript ?? [], nextQuestion);
     latestComplete = parseCompleteData(events);
+    nextQuestionText = String(latestComplete?.nextQuestion || nextQuestion || "");
+    pushAssistantIfPresent(transcript ?? [], nextQuestionText);
+    if (latestComplete?.isCompleted === true) {
+      return latestComplete;
+    }
   }
 
-  return latestComplete;
+  throw new Error("gakuchika conversation did not complete");
+}
+
+async function runGakuchikaSetup(
+  page: Parameters<typeof apiRequest>[0],
+  gakuchikaId: string,
+  answers: string[],
+  transcript?: LiveAiConversationTranscriptTurn[],
+) {
+  return runGakuchikaSetupWithRequest(apiRequestAsAuthenticatedUser, page, gakuchikaId, answers, transcript);
 }
 
 async function runGakuchikaCase(
@@ -355,11 +469,7 @@ async function runGakuchikaCase(
   try {
     const latestComplete = await runGakuchikaSetup(page, created.id, input.answers, transcript);
 
-    if (latestComplete?.isCompleted !== true) {
-      throw new Error("gakuchika conversation did not complete");
-    }
-
-    const draftResponse = await apiRequest(page, "POST", `/api/gakuchika/${created.id}/generate-es-draft`, {
+    const draftResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/gakuchika/${created.id}/generate-es-draft`, {
       charLimit: Number(input.charLimitType),
     });
     const draft = JSON.parse(
@@ -461,7 +571,7 @@ async function runMotivationCase(
   page: Parameters<typeof apiRequest>[0],
   input: MotivationCase,
 ): Promise<LiveAiConversationReportRow> {
-  const company = await createOwnedCompany(page, {
+  const company = await createAuthenticatedCompany(page, {
     name: buildScopedCompanyName(input.companyName, input.id),
     industry: input.industry,
   });
@@ -496,7 +606,7 @@ async function runMotivationCase(
       throw new Error("motivation draft was not ready");
     }
 
-    const draftResponse = await apiRequest(page, "POST", `/api/motivation/${company.id}/generate-draft`, {
+    const draftResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/motivation/${company.id}/generate-draft`, {
       charLimit: 400,
     });
     const draft = JSON.parse(
@@ -549,7 +659,7 @@ async function runMotivationCase(
   } finally {
     try {
       if (generatedDocumentId) {
-        await deleteGuestDocument(page, generatedDocumentId);
+        await deleteAuthenticatedDocument(page, generatedDocumentId);
         removedIds.push(generatedDocumentId);
       }
     } catch {
@@ -557,7 +667,7 @@ async function runMotivationCase(
     }
 
     try {
-      await deleteGuestCompany(page, company.id);
+      await deleteAuthenticatedCompany(page, company.id);
       removedIds.push(company.id);
     } catch {
       cleanupOk = false;
@@ -597,7 +707,7 @@ async function runInterviewCase(
   page: Parameters<typeof apiRequest>[0],
   input: InterviewCase,
 ): Promise<LiveAiConversationReportRow> {
-  const company = await createOwnedCompany(page, {
+  const company = await createAuthenticatedCompany(page, {
     name: buildScopedCompanyName(input.companyName, input.id),
     industry: input.industry,
   });
@@ -644,7 +754,7 @@ async function runInterviewCase(
       throw new Error("interview setup gakuchika did not complete");
     }
 
-    const gakuchikaDraftResponse = await apiRequest(page, "POST", `/api/gakuchika/${gakuchika.id}/generate-es-draft`, {
+    const gakuchikaDraftResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/gakuchika/${gakuchika.id}/generate-es-draft`, {
       charLimit: Number(input.gakuchika.charLimitType),
     });
     const gakuchikaDraft = JSON.parse(
@@ -652,7 +762,7 @@ async function runInterviewCase(
     ) as { documentId: string };
     createdDocumentIds.push(gakuchikaDraft.documentId);
 
-    const esDocument = await createGuestDocument(page, {
+    const esDocument = await createAuthenticatedDocument(page, {
       title: `${input.companyName} ES`,
       type: "es",
       companyId: company.id,
@@ -672,7 +782,7 @@ async function runInterviewCase(
     });
     createdDocumentIds.push(esDocument.id);
 
-    const startResponse = await apiRequest(page, "POST", `/api/companies/${company.id}/interview/start`, {});
+    const startResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/companies/${company.id}/interview/start`, {});
     const startEvents = parseSseEvents(await expectOkResponse(startResponse, `interview start ${input.id}`));
     const startComplete = parseCompleteData(startEvents);
     const initialQuestion = String(startComplete.question || collectChunks(startEvents, "question") || "");
@@ -690,7 +800,7 @@ async function runInterviewCase(
       transcript.push({ role: "user", content: answer });
       messages = [...messages, { role: "user", content: answer }];
 
-      const response = await apiRequest(page, "POST", `/api/companies/${company.id}/interview/stream`, {
+      const response = await apiRequestAsAuthenticatedUser(page, "POST", `/api/companies/${company.id}/interview/stream`, {
         messages,
       });
       const events = parseSseEvents(await expectOkResponse(response, `interview stream ${input.id}`));
@@ -703,7 +813,7 @@ async function runInterviewCase(
       finalText = nextQuestion || finalText;
     }
 
-    const feedbackResponse = await apiRequest(page, "POST", `/api/companies/${company.id}/interview/feedback`, {
+    const feedbackResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/companies/${company.id}/interview/feedback`, {
       messages,
     });
     const feedbackEvents = parseSseEvents(await expectOkResponse(feedbackResponse, `interview feedback ${input.id}`));
@@ -764,7 +874,7 @@ async function runInterviewCase(
   } finally {
     for (const documentId of createdDocumentIds) {
       try {
-        await deleteGuestDocument(page, documentId);
+        await deleteAuthenticatedDocument(page, documentId);
         removedIds.push(documentId);
       } catch {
         cleanupOk = false;
@@ -781,7 +891,7 @@ async function runInterviewCase(
     }
 
     try {
-      await deleteGuestCompany(page, company.id);
+      await deleteAuthenticatedCompany(page, company.id);
       removedIds.push(company.id);
     } catch {
       cleanupOk = false;

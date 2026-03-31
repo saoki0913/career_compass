@@ -280,6 +280,21 @@ export async function getDeviceTokenHeader(
   return {};
 }
 
+async function buildApiRequestHeaders(page: Page, includeGuestToken: boolean) {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (includeGuestToken) {
+    const token = await getDeviceToken(page);
+    if (token) {
+      headers["x-device-token"] = token;
+    }
+  }
+
+  return headers;
+}
+
 /**
  * Make an authenticated API request as guest
  */
@@ -289,14 +304,24 @@ export async function apiRequest(
   endpoint: string,
   body?: Record<string, unknown>
 ) {
-  const token = await getDeviceToken(page);
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
+  const headers = await buildApiRequestHeaders(page, true);
 
-  if (token) {
-    headers["x-device-token"] = token;
-  }
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
+
+  return await page.context().request.fetch(`${baseURL}${endpoint}`, {
+    method,
+    headers,
+    data: body ? JSON.stringify(body) : undefined,
+  });
+}
+
+export async function apiRequestAsAuthenticatedUser(
+  page: Page,
+  method: string,
+  endpoint: string,
+  body?: Record<string, unknown>
+) {
+  const headers = await buildApiRequestHeaders(page, false);
 
   const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
 
@@ -339,10 +364,32 @@ export async function createGuestCompany(
   return payload.company;
 }
 
-export const createOwnedCompany = createGuestCompany;
+export async function createOwnedCompany(
+  page: Page,
+  input: {
+    name: string;
+    industry?: string;
+    recruitmentUrl?: string;
+    corporateUrl?: string;
+    notes?: string;
+    status?: string;
+  },
+): Promise<{ id: string; name: string }> {
+  const response = await apiRequestAsAuthenticatedUser(page, "POST", "/api/companies", input);
+  if (!response.ok()) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Failed to create owned company: ${response.status()}\n${body.slice(0, 1200)}`);
+  }
+  const payload = (await response.json()) as { company: { id: string; name: string } };
+  return payload.company;
+}
 
 export async function deleteGuestCompany(page: Page, companyId: string): Promise<void> {
   await apiRequest(page, "DELETE", `/api/companies/${companyId}`);
+}
+
+export async function deleteOwnedCompany(page: Page, companyId: string): Promise<void> {
+  await apiRequestAsAuthenticatedUser(page, "DELETE", `/api/companies/${companyId}`);
 }
 
 export async function createGuestDocument(
@@ -364,6 +411,28 @@ export async function createGuestDocument(
 
 export async function deleteGuestDocument(page: Page, documentId: string): Promise<void> {
   await apiRequest(page, "DELETE", `/api/documents/${documentId}`);
+}
+
+export async function createOwnedDocument(
+  page: Page,
+  input: {
+    title: string;
+    type: "es" | "tips" | "company_analysis";
+    companyId?: string;
+    content?: Array<Record<string, unknown>>;
+  },
+): Promise<{ id: string; title: string }> {
+  const response = await apiRequestAsAuthenticatedUser(page, "POST", "/api/documents", input);
+  if (!response.ok()) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Failed to create owned document: ${response.status()}\n${body.slice(0, 1200)}`);
+  }
+  const payload = (await response.json()) as { document: { id: string; title: string } };
+  return payload.document;
+}
+
+export async function deleteOwnedDocument(page: Page, documentId: string): Promise<void> {
+  await apiRequestAsAuthenticatedUser(page, "DELETE", `/api/documents/${documentId}`);
 }
 
 export async function createOwnedDeadline(

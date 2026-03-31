@@ -3,10 +3,10 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   apiRequest,
-  createGuestDocument,
   createOwnedCompany,
-  deleteGuestCompany,
-  deleteGuestDocument,
+  createOwnedDocument,
+  deleteOwnedCompany,
+  deleteOwnedDocument,
   expectOkResponse,
 } from "./fixtures/auth";
 import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
@@ -67,7 +67,7 @@ test.describe("Live AI major flow", () => {
       });
       companyId = company.id;
 
-      const document = await createGuestDocument(page, {
+      const document = await createOwnedDocument(page, {
         title: `AI添削ES_${runId}`,
         type: "es",
         companyId,
@@ -109,10 +109,10 @@ test.describe("Live AI major flow", () => {
       await expect(page.locator("body")).toContainText("志望動機");
     } finally {
       if (documentId) {
-        await deleteGuestDocument(page, documentId);
+        await deleteOwnedDocument(page, documentId);
       }
       if (companyId) {
-        await deleteGuestCompany(page, companyId);
+        await deleteOwnedCompany(page, companyId);
       }
     }
   });

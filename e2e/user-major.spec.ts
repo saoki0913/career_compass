@@ -3,7 +3,7 @@ import {
   createOwnedCompany,
   createOwnedNotification,
   createOwnedTask,
-  deleteGuestCompany,
+  deleteOwnedCompany,
   deleteOwnedNotification,
   deleteOwnedTask,
 } from "./fixtures/auth";
@@ -82,7 +82,7 @@ test.describe("User major flow", () => {
         await deleteOwnedTask(page, taskId);
       }
       if (companyId) {
-        await deleteGuestCompany(page, companyId);
+        await deleteOwnedCompany(page, companyId);
       }
     }
   });

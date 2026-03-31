@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   createOwnedCompany,
   createOwnedTask,
-  deleteGuestCompany,
+  deleteOwnedCompany,
   deleteOwnedTask,
 } from "./fixtures/auth";
 import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
@@ -71,7 +71,7 @@ test.describe("Dashboard today task card layout", () => {
         await deleteOwnedTask(page, taskId);
       }
       if (companyId) {
-        await deleteGuestCompany(page, companyId);
+        await deleteOwnedCompany(page, companyId);
       }
     }
   });

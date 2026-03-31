@@ -2,11 +2,11 @@ import { expect, test } from "@playwright/test";
 import {
   apiRequest,
   createOwnedApplication,
-  createOwnedCompany,
   createOwnedDeadline,
   createOwnedNotification,
   createOwnedSubmission,
   createOwnedTask,
+  createGuestCompany,
   createGuestDocument,
   deleteGuestCompany,
   deleteGuestDocument,
@@ -64,7 +64,7 @@ test.describe("Guest major flow", () => {
       await navigateTo(page, "/dashboard");
       await expect(page.locator("main").first()).toBeVisible();
 
-      const company = await createOwnedCompany(page, {
+      const company = await createGuestCompany(page, {
         name: companyName,
         industry: "IT・ソフトウェア",
       });
