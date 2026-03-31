@@ -13,6 +13,7 @@ import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { parseBody, contactSchema } from "@/lib/validation";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 import { logError } from "@/lib/logger";
+import { sendContactNotification } from "@/lib/mail/contact-notifications";
 
 function getClientIp(request: NextRequest): string | null {
   const xff = request.headers.get("x-forwarded-for");
@@ -60,9 +61,26 @@ export async function POST(request: NextRequest) {
       createdAt: now,
     });
 
+    await sendContactNotification({
+      senderEmail: email,
+      subject: subject ?? null,
+      message,
+      userId,
+      ipAddress: ip === "unknown" ? null : ip,
+      userAgent: request.headers.get("user-agent"),
+      createdAt: now,
+    });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     logError("save-contact-message", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "CONTACT_SUBMIT_FAILED",
+      userMessage: "お問い合わせを送信できませんでした。",
+      action: "時間をおいて、もう一度お試しください。",
+      developerMessage: "Failed to save contact message",
+      error,
+    });
   }
 }

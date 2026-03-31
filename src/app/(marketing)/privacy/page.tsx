@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { createMarketingMetadata } from "@/lib/marketing-metadata";
+import { getLegalSupportEmail } from "@/lib/legal/commerce-disclosure";
+
+const supportEmail = getLegalSupportEmail();
 
 export const metadata: Metadata = createMarketingMetadata({
   title: "プライバシーポリシー | 就活Pass",
@@ -84,6 +87,10 @@ export default function PrivacyPage() {
               <Link href="/contact" className="underline hover:text-foreground">
                 お問い合わせページ
               </Link>
+              {" "}または{" "}
+              <a href={`mailto:${supportEmail}`} className="underline hover:text-foreground">
+                {supportEmail}
+              </a>
               よりご連絡ください。
             </p>
           </section>
