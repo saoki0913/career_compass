@@ -77,6 +77,10 @@ export function canonicalizeIndustry(value?: string | null): Industry | null {
     return null;
   }
 
+  if (normalized === "IT・ソフトウェア") {
+    return "IT・通信";
+  }
+
   if (normalized === "その他人気企業") {
     return "その他";
   }

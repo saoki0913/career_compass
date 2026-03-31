@@ -9,13 +9,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { companies, userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { headers } from "next/headers";
 import { encrypt } from "@/lib/crypto";
 import { CompanyStatus, VALID_STATUSES } from "@/lib/constants/status";
 import { stripCompanyCredentials } from "@/lib/db/sanitize";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
-import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import { getCompaniesPageData } from "@/lib/server/app-loaders";
 
 // Plan limits for companies
@@ -29,8 +28,8 @@ const COMPANY_LIMITS = {
 /**
  * Get current user or guest from request
  */
-async function getCurrentIdentity() {
-  const identity = await getHeadersIdentity(await headers());
+async function getCurrentIdentity(request: NextRequest) {
+  const identity = await getRequestIdentity(request);
   if (!identity) {
     return null;
   }
@@ -61,7 +60,7 @@ async function getCurrentIdentity() {
 export async function GET(request: NextRequest) {
   const timing = createServerTimingRecorder();
   try {
-    const identity = await timing.measure("identity", () => getCurrentIdentity());
+    const identity = await timing.measure("identity", () => getCurrentIdentity(request));
 
     if (!identity) {
       return createApiErrorResponse(request, {
@@ -95,7 +94,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const identity = await getCurrentIdentity();
+    const identity = await getCurrentIdentity(request);
 
     if (!identity) {
       return createApiErrorResponse(request, {

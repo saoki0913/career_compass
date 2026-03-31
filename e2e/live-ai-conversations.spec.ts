@@ -97,6 +97,10 @@ const OUTPUT_DIR = path.resolve(
 );
 const RUN_ID = `live-ai-conversations-${Date.now()}`;
 
+function buildScopedCompanyName(companyName: string, caseId: string) {
+  return `${companyName}_${caseId}_${RUN_ID}`.slice(0, 120);
+}
+
 function readJsonCases<T>(relativePath: string): T[] {
   const absolutePath = path.resolve(process.cwd(), relativePath);
   const raw = JSON.parse(readFileSync(absolutePath, "utf8"));
@@ -458,7 +462,7 @@ async function runMotivationCase(
   input: MotivationCase,
 ): Promise<LiveAiConversationReportRow> {
   const company = await createOwnedCompany(page, {
-    name: input.companyName,
+    name: buildScopedCompanyName(input.companyName, input.id),
     industry: input.industry,
   });
   const application = await createOwnedApplication(page, company.id, {
@@ -594,7 +598,7 @@ async function runInterviewCase(
   input: InterviewCase,
 ): Promise<LiveAiConversationReportRow> {
   const company = await createOwnedCompany(page, {
-    name: input.companyName,
+    name: buildScopedCompanyName(input.companyName, input.id),
     industry: input.industry,
   });
   const application = await createOwnedApplication(page, company.id, {

@@ -63,7 +63,7 @@ test.describe("Live AI major flow", () => {
 
       const company = await createOwnedCompany(page, {
         name: companyName,
-        industry: "IT・ソフトウェア",
+        industry: "IT・通信",
       });
       companyId = company.id;
 
@@ -97,7 +97,7 @@ test.describe("Live AI major flow", () => {
           sectionTitle: "志望動機",
           sectionCharLimit: 400,
           templateType: "company_motivation",
-          industryOverride: "IT・ソフトウェア",
+          industryOverride: "IT・通信",
           roleName: "企画職",
         }),
         "live es review stream",
