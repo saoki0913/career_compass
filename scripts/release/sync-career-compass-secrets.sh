@@ -54,14 +54,31 @@ should_run_target() {
 }
 
 load_env_file() {
-  local file="$1"
-  set -a
-  source "$file"
-  set +a
+  return 0
 }
 
 iter_env_keys() {
-  grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$1" | cut -d= -f1
+  sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=.*$/\2/p' "$1"
+}
+
+get_env_value() {
+  local file="$1"
+  local key="$2"
+  local value
+
+  value="$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?(${key})[[:space:]]*=(.*)$/\\3/p" "$file" | tail -n 1)" || return 1
+  [[ -n "$value" ]] || return 1
+
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+
+  if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+    value="${value:1:${#value}-2}"
+  elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+    value="${value:1:${#value}-2}"
+  fi
+
+  print -r -- "$value"
 }
 
 is_meta_key() {
@@ -81,7 +98,7 @@ validate_env_file() {
   while IFS= read -r key; do
     [[ -n "$key" ]] || continue
     is_meta_key "$key" && continue
-    value="${(P)key:-}"
+    value="$(get_env_value "$file" "$key" 2>/dev/null || true)"
     is_placeholder_value "$value" && release_die "${key} missing or replace_me in $(basename "$file")"
   done < <(iter_env_keys "$file")
 }
@@ -98,7 +115,7 @@ vercel_upsert_env_file() {
   while IFS= read -r key; do
     [[ -n "$key" ]] || continue
     is_meta_key "$key" && continue
-    value="${(P)key}"
+    value="$(get_env_value "$file" "$key")"
     if [[ "$env_target" == "preview" && -n "$preview_git_branch" ]]; then
       VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
         run_real vercel env rm "$key" preview "$preview_git_branch" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 || true
@@ -129,7 +146,7 @@ railway_apply_env_file() {
     while IFS= read -r key; do
       [[ -n "$key" ]] || continue
       is_meta_key "$key" && continue
-      value="${(P)key}"
+      value="$(get_env_value "$file" "$key")"
       run_real railway variable set "${key}=${value}" --service "$service" --environment "$environment" --skip-deploys >/dev/null
     done < <(iter_env_keys "$file")
   )
@@ -144,7 +161,7 @@ apply_supabase_bundle() {
   while IFS= read -r key; do
     [[ -n "$key" ]] || continue
     [[ "$key" == SUPABASE_ACCESS_TOKEN || "$key" == SUPABASE_ORG_ID ]] && continue
-    value="${(P)key}"
+    value="$(get_env_value "$file" "$key")"
     pairs+=("${key}=${value}")
   done < <(iter_env_keys "$file")
 
