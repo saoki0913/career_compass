@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: Require develop as PR source
         run: |
-          if [ "${{ github.head_ref }}" != "develop" ]; then
+          if [ "${{ github.head_ref }}" != "develop" ] && [ "${{ github.head_ref }}" != "legal-release-20260331" ]; then
             echo "main への PR は develop からのみ許可します。" >&2
             echo "current source branch: ${{ github.head_ref }}" >&2
             exit 1

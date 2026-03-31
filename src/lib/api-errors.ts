@@ -219,3 +219,11 @@ export function toAppUiError(
   logDebugInfo(context, uiError, error instanceof Error ? error.message : String(error));
   return uiError;
 }
+
+export function getUserFacingErrorMessage(
+  error: unknown,
+  fallback: ApiErrorFallback,
+  context: string
+): string {
+  return toAppUiError(error, fallback, context).message;
+}
