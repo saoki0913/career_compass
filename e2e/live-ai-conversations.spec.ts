@@ -283,6 +283,39 @@ function buildMissingFeatureRow(feature: LiveAiConversationFeature): LiveAiConve
   };
 }
 
+type OwnedCompanySummary = { id: string; name: string };
+
+export function collectStaleLiveAiCompanyIds(
+  companies: OwnedCompanySummary[],
+  caseIds: string[],
+) {
+  return companies
+    .filter((company) =>
+      company.name.includes("_live-ai-conversations-") &&
+      caseIds.some((caseId) => company.name.includes(`_${caseId}_live-ai-conversations-`)),
+    )
+    .map((company) => company.id);
+}
+
+async function listOwnedCompanies(page: Parameters<typeof apiRequest>[0]) {
+  const response = await apiRequestAsAuthenticatedUser(page, "GET", "/api/companies");
+  const body = JSON.parse(
+    await expectOkResponse(response, "list owned companies"),
+  ) as { companies: OwnedCompanySummary[] };
+  return body.companies;
+}
+
+async function cleanupStaleLiveAiCompanies(
+  page: Parameters<typeof apiRequest>[0],
+  caseIds: string[],
+) {
+  const companies = await listOwnedCompanies(page);
+  const staleIds = collectStaleLiveAiCompanyIds(companies, caseIds);
+  for (const staleId of staleIds) {
+    await deleteOwnedCompany(page, staleId);
+  }
+}
+
 async function createOwnedJobType(
   page: Parameters<typeof apiRequest>[0],
   applicationId: string,
@@ -783,6 +816,7 @@ async function runMotivationCase(
   page: Parameters<typeof apiRequest>[0],
   input: MotivationCase,
 ): Promise<LiveAiConversationReportRow> {
+  await cleanupStaleLiveAiCompanies(page, LIVE_COMPANY_CASE_IDS);
   const company = await createOwnedCompany(page, {
     name: buildScopedCompanyName(input.companyName, input.id),
     industry: input.industry,
@@ -942,6 +976,7 @@ async function runInterviewCase(
   page: Parameters<typeof apiRequest>[0],
   input: InterviewCase,
 ): Promise<LiveAiConversationReportRow> {
+  await cleanupStaleLiveAiCompanies(page, LIVE_COMPANY_CASE_IDS);
   const company = await createOwnedCompany(page, {
     name: buildScopedCompanyName(input.companyName, input.id),
     industry: input.industry,
@@ -1194,6 +1229,7 @@ const motivationCases = selectCases(
 const interviewCases = selectCases(
   readJsonCases<InterviewCase>("tests/ai_eval/interview_cases.json"),
 );
+const LIVE_COMPANY_CASE_IDS = [...motivationCases, ...interviewCases].map((item) => item.id);
 
 const reportRowsByKey = new Map<string, LiveAiConversationReportRow>();
 

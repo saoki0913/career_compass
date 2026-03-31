@@ -16,11 +16,25 @@ vi.mock("@playwright/test", () => ({
 import {
   buildDeterministicGakuchikaFollowupAnswer,
   buildDeterministicMotivationFollowupAnswer,
+  collectStaleLiveAiCompanyIds,
   runMotivationSetupWithRequest,
   runGakuchikaSetupWithRequest,
 } from "../../../e2e/live-ai-conversations.spec";
 
 describe("live ai conversation helpers", () => {
+  it("collects stale live ai companies by case id signature", () => {
+    const staleIds = collectStaleLiveAiCompanyIds(
+      [
+        { id: "company-1", name: "テスト社_interview_company_fit_and_depth_live-ai-conversations-123" },
+        { id: "company-2", name: "一般企業" },
+        { id: "company-3", name: "別企業_motivation_company_reason_live-ai-conversations-456" },
+      ],
+      ["interview_company_fit_and_depth", "motivation_company_reason"],
+    );
+
+    expect(staleIds).toEqual(["company-1", "company-3"]);
+  });
+
   it("builds deterministic gakuchika follow-up answers from transcript context", () => {
     const answer = buildDeterministicGakuchikaFollowupAnswer({
       nextQuestion: "そのとき自分の役割は何でしたか",
