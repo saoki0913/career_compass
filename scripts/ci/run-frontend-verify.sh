@@ -10,4 +10,6 @@ cd "$repo_root"
 npx eslint src e2e tools playwright.config.ts playwright.live.config.ts vitest.config.ts
 npm run build
 npm run test:unit
-npm audit --audit-level=high
+if [[ "${SKIP_NPM_AUDIT:-0}" != "1" ]]; then
+  npm audit --audit-level=high
+fi
