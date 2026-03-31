@@ -1,6 +1,5 @@
 import { expect, type Page } from "@playwright/test";
 import { getBetterAuthSessionCookieCandidates } from "../src/lib/auth/ci-e2e";
-import { buildCiE2EAuthFailureMessage } from "../src/lib/testing/ci-e2e-auth";
 
 const ciE2EAuthSecret = process.env.CI_E2E_AUTH_SECRET?.trim();
 export const hasGoogleAuthState = Boolean(process.env.PLAYWRIGHT_AUTH_STATE);
@@ -29,6 +28,45 @@ function parseErrorCode(rawBody: string) {
   } catch {
     return "";
   }
+}
+
+function buildCiE2EAuthFailureMessage(input: {
+  status: number;
+  errorCode?: string | null;
+  endpoint: string;
+  requestId?: string | null;
+  responseSnippet?: string | null;
+}) {
+  const errorCode = String(input.errorCode || "").trim();
+  const parts: string[] = [];
+
+  if (input.status === 404 && errorCode === "CI_TEST_AUTH_DISABLED") {
+    parts.push(
+      "CI E2E auth is disabled on staging. Check CI_E2E_AUTH_SECRET, BETTER_AUTH_SECRET, CI_E2E_AUTH_ENABLED, NEXT_PUBLIC_APP_URL, and BETTER_AUTH_URL.",
+    );
+  } else if (input.status === 404) {
+    parts.push("CI E2E auth route is missing or the deployment is serving a node without the route enabled.");
+  } else if (input.status === 401) {
+    parts.push("CI E2E auth secret was rejected by the staging route.");
+  } else if (input.status >= 500) {
+    parts.push("CI E2E auth route returned an upstream/server error.");
+  } else {
+    parts.push("CI E2E auth route returned an unexpected response.");
+  }
+
+  parts.push(`status=${input.status}`);
+  if (errorCode) {
+    parts.push(`code=${errorCode}`);
+  }
+  parts.push(`endpoint=${input.endpoint}`);
+  if (input.requestId) {
+    parts.push(`requestId=${input.requestId}`);
+  }
+  if (input.responseSnippet) {
+    parts.push(`response=${input.responseSnippet}`);
+  }
+
+  return parts.join(" | ");
 }
 
 function getBaseUrl() {
