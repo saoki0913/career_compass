@@ -300,7 +300,7 @@ export async function apiRequest(
 
   const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
 
-  return await page.request.fetch(`${baseURL}${endpoint}`, {
+  return await page.context().request.fetch(`${baseURL}${endpoint}`, {
     method,
     headers,
     data: body ? JSON.stringify(body) : undefined,
@@ -332,7 +332,8 @@ export async function createGuestCompany(
 ): Promise<{ id: string; name: string }> {
   const response = await apiRequest(page, "POST", "/api/companies", input);
   if (!response.ok()) {
-    throw new Error(`Failed to create company: ${response.status()}`);
+    const body = await response.text().catch(() => "");
+    throw new Error(`Failed to create company: ${response.status()}\n${body.slice(0, 1200)}`);
   }
   const payload = (await response.json()) as { company: { id: string; name: string } };
   return payload.company;
@@ -461,7 +462,8 @@ export async function createOwnedGakuchika(
 ): Promise<{ id: string; title: string }> {
   const response = await apiRequest(page, "POST", "/api/gakuchika", input);
   if (!response.ok()) {
-    throw new Error(`Failed to create gakuchika: ${response.status()}`);
+    const body = await response.text().catch(() => "");
+    throw new Error(`Failed to create gakuchika: ${response.status()}\n${body.slice(0, 1200)}`);
   }
   const payload = (await response.json()) as { gakuchika: { id: string; title: string } };
   return payload.gakuchika;
@@ -497,4 +499,3 @@ export async function createOwnedNotification(
 export async function deleteOwnedNotification(page: Page, notificationId: string): Promise<void> {
   await apiRequest(page, "DELETE", `/api/notifications/${notificationId}`);
 }
-

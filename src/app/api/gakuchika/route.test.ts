@@ -2,31 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const {
-  authGetSessionMock,
-  getGuestUserMock,
+  getRequestIdentityMock,
   dbSelectMock,
   dbInsertMock,
 } = vi.hoisted(() => ({
-  authGetSessionMock: vi.fn(),
-  getGuestUserMock: vi.fn(),
+  getRequestIdentityMock: vi.fn(),
   dbSelectMock: vi.fn(),
   dbInsertMock: vi.fn(),
 }));
 
-vi.mock("next/headers", () => ({
-  headers: vi.fn(async () => new Headers()),
-}));
-
-vi.mock("@/lib/auth", () => ({
-  auth: {
-    api: {
-      getSession: authGetSessionMock,
-    },
-  },
-}));
-
-vi.mock("@/lib/auth/guest", () => ({
-  getGuestUser: getGuestUserMock,
+vi.mock("@/app/api/_shared/request-identity", () => ({
+  getRequestIdentity: getRequestIdentityMock,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -56,15 +42,11 @@ function makeThenableQuery(result: unknown) {
   return query as Query;
 }
 
-describe("api/gakuchika GET", () => {
+describe("api/gakuchika", () => {
   beforeEach(() => {
-    authGetSessionMock.mockReset();
-    getGuestUserMock.mockReset();
+    getRequestIdentityMock.mockReset();
     dbSelectMock.mockReset();
     dbInsertMock.mockReset();
-
-    authGetSessionMock.mockResolvedValue({ user: { id: "user-1" } });
-    getGuestUserMock.mockResolvedValue(null);
   });
 
   it("loads latest conversations in the main contents query", async () => {
@@ -96,6 +78,7 @@ describe("api/gakuchika GET", () => {
 
     const selectResults = [profile, contents];
     let selectCallIndex = 0;
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     dbSelectMock.mockImplementation(() => ({
       from: vi.fn(() => makeThenableQuery(selectResults[selectCallIndex++] ?? [])),
     }));
@@ -110,6 +93,64 @@ describe("api/gakuchika GET", () => {
     expect(data.gakuchikas[0].conversationStatus).toBe("done");
     expect(data.gakuchikas[0].questionCount).toBe(4);
     expect(data.gakuchikas[1].conversationStatus).toBe("active");
+    expect(getRequestIdentityMock).toHaveBeenCalledWith(request);
     expect(dbSelectMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("creates a gakuchika for an authenticated user resolved via shared request identity", async () => {
+    const now = new Date("2026-03-31T00:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    const inserted = [
+      {
+        id: "gk-new",
+        userId: "user-1",
+        guestId: null,
+        title: "学園祭での改善",
+        content: "模擬店のオペレーションを改善した。",
+        charLimitType: "400",
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    dbSelectMock
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => makeThenableQuery([{ plan: "free" }])),
+      }))
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => makeThenableQuery([{ count: 0 }])),
+      }));
+    dbInsertMock.mockReturnValue({
+      values: vi.fn(() => ({
+        returning: vi.fn().mockResolvedValue(inserted),
+      })),
+    });
+
+    const { POST } = await import("@/app/api/gakuchika/route");
+    const request = new NextRequest("http://localhost:3000/api/gakuchika", {
+      method: "POST",
+      body: JSON.stringify({
+        title: "学園祭での改善",
+        content: "模擬店のオペレーションを改善した。",
+        charLimitType: "400",
+      }),
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(getRequestIdentityMock).toHaveBeenCalledWith(request);
+    expect(data.gakuchika.id).toBe("gk-new");
+    expect(data.gakuchika.userId).toBe("user-1");
+
+    vi.useRealTimers();
   });
 });

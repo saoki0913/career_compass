@@ -6,40 +6,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations, userProfiles } from "@/lib/db/schema";
 import { eq, desc, isNull, asc, count, sql, getTableColumns } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
 import { PLAN_METADATA, type PlanTypeWithGuest } from "@/lib/stripe/config";
 import {
   getGakuchikaSummaryKind,
   getGakuchikaSummaryPreview,
 } from "@/lib/gakuchika/summary";
-
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
-}
 
 interface STARScores {
   situation: number;
@@ -65,7 +40,7 @@ function safeParseStarScores(json: string | null): STARScores | null {
 
 export async function GET(request: NextRequest) {
   try {
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return NextResponse.json(
         { error: "Authentication required" },
@@ -155,7 +130,7 @@ const VALID_CHAR_LIMITS = ["300", "400", "500"] as const;
 
 export async function POST(request: NextRequest) {
   try {
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return NextResponse.json(
         { error: "Authentication required" },
