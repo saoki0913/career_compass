@@ -55,11 +55,17 @@ const MOCK_AUTH_ROUTE_PREFIXES = [
   "/companies/ui-review-company/interview",
 ];
 const MOCK_AUTH_ROUTES = new Set([
+  "/dashboard",
   "/gakuchika",
   "/tasks",
   "/calendar",
   "/notifications",
   "/companies",
+  "/companies/new",
+  "/es",
+  "/settings",
+  "/profile",
+  "/search",
 ]);
 const COMPONENT_ROUTE_OVERRIDES = [
   { pattern: /^src\/components\/calendar\//, route: "/calendar", kind: "product" },

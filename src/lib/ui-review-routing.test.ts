@@ -80,15 +80,26 @@ describe("resolveUiReviewRoutes", () => {
     expect(scope.authMode).toBe("none");
   });
 
-  it("marks mixed product routes as guest", () => {
+  it("prefers mock auth when mixed product routes are fixture-backed", () => {
     expect(
       classifyUiReviewAuthMode(["/", "/dashboard", "/companies"])
-    ).toBe("guest");
+    ).toBe("mock");
   });
 
   it("prefers mock auth when every product route is backed by UI fixtures", () => {
     expect(
       classifyUiReviewAuthMode(["/gakuchika", "/companies/ui-review-company/motivation"])
     ).toBe("mock");
+  });
+
+  it("uses mock auth for full fallback coverage when product routes are fixture-backed", () => {
+    const scope = resolveUiReviewRoutes({
+      changedFiles: ["src/components/ui/button.tsx"],
+    });
+
+    expect(scope.source).toBe("fallback");
+    expect(scope.authMode).toBe("mock");
+    expect(scope.routes).toContain("/calendar");
+    expect(scope.routes).toContain("/settings");
   });
 });
