@@ -84,7 +84,7 @@ assert_url_contains() {
   local body
 
   body="$(run_real curl -sL --max-time 20 "$url" || true)"
-  print -r -- "$body" | rg -Fq "$pattern" || release_die "Expected '${pattern}' in ${url}"
+  [[ "$body" == *"$pattern"* ]] || release_die "Expected '${pattern}' in ${url}"
 }
 
 wait_for_github_workflow_success() {
