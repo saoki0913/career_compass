@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent, DeadlineEvent, GoogleCalendarEvent } from "@/hooks/useCalendar";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 
 // Extended type for display purposes
 export type DisplayEvent =
@@ -125,7 +126,10 @@ export function EventDetailModal({ isOpen, event, onClose, onDelete }: EventDeta
       await onDelete(event.id);
       onClose();
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : "削除に失敗しました");
+      setDeleteError(getUserFacingErrorMessage(error, {
+        code: "CALENDAR_EVENT_DELETE_FAILED",
+        userMessage: "削除に失敗しました。",
+      }, "EventDetailModal:delete"));
     } finally {
       setIsDeleting(false);
     }

@@ -11,6 +11,7 @@ suite="${AI_LIVE_SUITE:-smoke}"
 feature="${AI_LIVE_FEATURE:-all}"
 output_dir="${AI_LIVE_OUTPUT_DIR:-backend/tests/output}"
 summary_file="${AI_LIVE_SUMMARY_FILE:-${GITHUB_STEP_SUMMARY:-}}"
+skip_summary="${AI_LIVE_SKIP_SUMMARY:-0}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,6 +30,10 @@ while [[ $# -gt 0 ]]; do
     --summary-file)
       summary_file="${2:-}"
       shift 2
+      ;;
+    --skip-summary)
+      skip_summary="1"
+      shift
       ;;
     *)
       echo "Unknown argument: $1" >&2
@@ -86,12 +91,18 @@ if [[ "$suite" == "extended" ]]; then
 fi
 
 run_es_review() {
+  local blocking_failures="1"
+  if [[ "$suite" == "extended" ]]; then
+    blocking_failures="0"
+  fi
+
   run_logged \
     "es-review-pytest" \
     env \
     RUN_LIVE_ES_REVIEW=1 \
     LIVE_ES_REVIEW_OUTPUT_DIR="$run_dir" \
     LIVE_ES_REVIEW_CASE_SET="$suite" \
+    LIVE_ES_REVIEW_BLOCKING_FAILURES="$blocking_failures" \
     python -m pytest backend/tests/es_review/integration/test_live_es_review_provider_report.py -v -s -m integration
 
   run_logged \
@@ -130,18 +141,20 @@ case "$feature" in
     ;;
 esac
 
-if [[ -n "$summary_file" ]]; then
-  mkdir -p "$(dirname "$summary_file")"
-fi
+if [[ "$skip_summary" != "1" ]]; then
+  if [[ -n "$summary_file" ]]; then
+    mkdir -p "$(dirname "$summary_file")"
+  fi
 
-summary_args=(node scripts/ci/write-ai-live-summary.mjs --output-dir "$run_dir")
-if [[ -n "$summary_file" ]]; then
-  summary_args+=(--summary-file "$summary_file")
-fi
-run_logged "summary" "${summary_args[@]}"
+  summary_args=(node scripts/ci/write-ai-live-summary.mjs --output-dir "$run_dir")
+  if [[ -n "$summary_file" ]]; then
+    summary_args+=(--summary-file "$summary_file")
+  fi
+  run_logged "summary" "${summary_args[@]}"
 
-if [[ -n "$summary_file" && -f "$summary_file" ]]; then
-  cp "$summary_file" "$run_dir/summary.md"
+  if [[ -n "$summary_file" && -f "$summary_file" ]]; then
+    cp "$summary_file" "$run_dir/summary.md"
+  fi
 fi
 
 echo "[ai-live] run dir: $run_dir"

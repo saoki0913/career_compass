@@ -68,9 +68,12 @@ function hasJapanese(text: string): boolean {
 
 function isTechnicalMessage(text: string): boolean {
   return (
-    /(internal server error|failed to fetch|authentication required|permission denied|api|response|server log|trace|stack|sql|backend|request failed)/i.test(
+    /(internal server error|failed to fetch|authentication required|permission denied|api|response|server log|trace|stack|sql|backend|request failed|request id|requestId|debug|developer|migration|schema|table|db\b)/i.test(
       text
-    ) || /サーバーログ|API 応答|SQL|バックエンド/i.test(text)
+    ) ||
+    /サーバーログ|API 応答|SQL|バックエンド|内部|開発|デバッグ|マイグレーション|migration|schema|スキーマ|テーブル|DB|requestId|リクエストID/i.test(
+      text
+    )
   );
 }
 
@@ -229,4 +232,12 @@ export function toAppUiError(
   });
   logDebugInfo(context, uiError, error instanceof Error ? error.message : String(error));
   return uiError;
+}
+
+export function getUserFacingErrorMessage(
+  error: unknown,
+  fallback: ApiErrorFallback,
+  context: string
+): string {
+  return toAppUiError(error, fallback, context).message;
 }

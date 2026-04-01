@@ -35,6 +35,7 @@ if (placeholderUrl(url)) {
 
 const journal = JSON.parse(fs.readFileSync(journalPath, "utf8"));
 const expectedMigrations = journal.entries?.length ?? 0;
+const requiredInterviewTables = ["interview_conversations", "interview_feedback_histories"];
 
 const sql = postgres(url, { max: 1, ssl: "require" });
 
@@ -49,6 +50,21 @@ try {
   `;
   const hasEsCategory = col.length > 0;
   console.log("[check-prod-db-drift] documents.es_category:", hasEsCategory ? "OK" : "MISSING");
+
+  const interviewTables = await sql`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name IN ('interview_conversations', 'interview_feedback_histories')
+  `;
+  const presentInterviewTables = new Set(interviewTables.map((row) => row.table_name));
+  const missingInterviewTables = requiredInterviewTables.filter(
+    (tableName) => !presentInterviewTables.has(tableName),
+  );
+  console.log(
+    "[check-prod-db-drift] interview persistence tables:",
+    missingInterviewTables.length === 0 ? "OK" : `MISSING (${missingInterviewTables.join(", ")})`
+  );
 
   const metaSchemas = await sql`
     SELECT table_schema
@@ -90,6 +106,13 @@ try {
   if (!hasEsCategory) {
     console.error(
       "[check-prod-db-drift] es_category がありません。アプリコードと DB が不整合です（企業詳細などで 500 になり得ます）。make deploy-migrate を実行してください。"
+    );
+    process.exitCode = 1;
+  }
+
+  if (missingInterviewTables.length > 0) {
+    console.error(
+      `[check-prod-db-drift] interview session tables がありません (${missingInterviewTables.join(", ")})。面接対策は 500 / 503 になり得ます。make deploy-migrate を実行してください。`
     );
     process.exitCode = 1;
   }

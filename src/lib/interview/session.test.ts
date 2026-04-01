@@ -2,54 +2,77 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_INTERVIEW_QUESTION_COUNT,
+  INTERVIEW_MAX_QUESTION_COUNT,
+  INTERVIEW_MIN_QUESTION_COUNT,
   INTERVIEW_STAGE_ORDER,
-  getInterviewQuestionStage,
+  createInitialInterviewTurnState,
   getInterviewStageStatus,
+  getInterviewTrackerStatus,
   shouldChargeInterviewSession,
 } from "./session";
 
 describe("interview session helpers", () => {
-  it("uses five fixed interview questions", () => {
-    expect(DEFAULT_INTERVIEW_QUESTION_COUNT).toBe(5);
+  it("uses adaptive interview question bounds", () => {
+    expect(DEFAULT_INTERVIEW_QUESTION_COUNT).toBe(10);
+    expect(INTERVIEW_MIN_QUESTION_COUNT).toBe(10);
+    expect(INTERVIEW_MAX_QUESTION_COUNT).toBe(15);
     expect(INTERVIEW_STAGE_ORDER).toEqual([
+      "industry_reason",
+      "role_reason",
       "opening",
-      "company_understanding",
       "experience",
+      "company_understanding",
       "motivation_fit",
       "feedback",
     ]);
   });
 
-  it("maps question count to the fixed interview stage flow", () => {
-    expect(getInterviewQuestionStage(1)).toBe("opening");
-    expect(getInterviewQuestionStage(2)).toBe("company_understanding");
-    expect(getInterviewQuestionStage(3)).toBe("experience");
-    expect(getInterviewQuestionStage(4)).toBe("motivation_fit");
-    expect(getInterviewQuestionStage(5)).toBe("motivation_fit");
-    expect(getInterviewQuestionStage(6)).toBe("feedback");
-    expect(getInterviewQuestionStage(99)).toBe("feedback");
+  it("creates an initial interview turn state for the industry reason question", () => {
+    expect(createInitialInterviewTurnState()).toEqual({
+      currentStage: "industry_reason",
+      totalQuestionCount: 0,
+      stageQuestionCounts: {
+        industry_reason: 0,
+        role_reason: 0,
+        opening: 0,
+        experience: 0,
+        company_understanding: 0,
+        motivation_fit: 0,
+      },
+      completedStages: [],
+      lastQuestionFocus: null,
+      nextAction: "ask",
+    });
   });
 
-  it("computes stage status for the active question and final feedback", () => {
-    expect(getInterviewStageStatus(1, false)).toEqual({
-      current: "opening",
+  it("computes stage status from the active stage", () => {
+    expect(getInterviewStageStatus("industry_reason")).toEqual({
+      current: "industry_reason",
       completed: [],
-      pending: ["company_understanding", "experience", "motivation_fit", "feedback"],
+      pending: ["role_reason", "opening", "experience", "company_understanding", "motivation_fit", "feedback"],
     });
-    expect(getInterviewStageStatus(3, false)).toEqual({
+    expect(getInterviewStageStatus("experience")).toEqual({
       current: "experience",
-      completed: ["opening", "company_understanding"],
-      pending: ["motivation_fit", "feedback"],
+      completed: ["industry_reason", "role_reason", "opening"],
+      pending: ["company_understanding", "motivation_fit", "feedback"],
     });
-    expect(getInterviewStageStatus(5, false)).toEqual({
-      current: "motivation_fit",
-      completed: ["opening", "company_understanding", "experience"],
-      pending: ["feedback"],
-    });
-    expect(getInterviewStageStatus(5, true)).toEqual({
+    expect(getInterviewStageStatus("feedback")).toEqual({
       current: "feedback",
-      completed: ["opening", "company_understanding", "experience", "motivation_fit"],
+      completed: ["industry_reason", "role_reason", "opening", "experience", "company_understanding", "motivation_fit"],
       pending: [],
+    });
+  });
+
+  it("reports tracker copy for adaptive progress within a stage", () => {
+    expect(
+      getInterviewTrackerStatus({
+        totalQuestionCount: 7,
+        currentStage: "experience",
+        currentStageQuestionCount: 2,
+      }),
+    ).toEqual({
+      headline: "7 / 15問",
+      detail: "経験・ガクチカを深掘り中 2問目",
     });
   });
 

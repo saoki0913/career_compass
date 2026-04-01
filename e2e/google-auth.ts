@@ -216,10 +216,12 @@ export async function ensureCiE2EAuthSession(page: Page) {
       .headersArray()
       .filter((header) => header.name.toLowerCase() === "set-cookie")
       .map((header) => parseSetCookieHeader(header.value, new URL(baseUrl)))
-      .filter(
-        (cookie): cookie is NonNullable<ReturnType<typeof parseSetCookieHeader>> =>
-          Boolean(cookie) && sessionProbe.cookieCandidates.includes(cookie.name),
-      );
+      .filter((cookie): cookie is NonNullable<ReturnType<typeof parseSetCookieHeader>> => {
+        if (!cookie) {
+          return false;
+        }
+        return sessionProbe.cookieCandidates.includes(cookie.name);
+      });
 
     if (parsedCookies.length > 0) {
       await page.context().addCookies(parsedCookies);

@@ -173,6 +173,10 @@ class Settings(BaseSettings):
     model_gakuchika: str = "gpt-fast"                # MODEL_GAKUCHIKA
     model_motivation: str = "gpt-fast"               # MODEL_MOTIVATION
     model_interview: str = "gpt-fast"                # MODEL_INTERVIEW
+    model_interview_feedback: str = Field(
+        default="claude-sonnet",
+        validation_alias=AliasChoices("MODEL_INTERVIEW_FEEDBACK"),
+    )
     model_gakuchika_draft: str = Field(
         default="claude-sonnet",
         validation_alias=AliasChoices("MODEL_GAKUCHIKA_DRAFT"),

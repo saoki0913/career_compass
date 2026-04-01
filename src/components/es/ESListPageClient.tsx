@@ -56,6 +56,7 @@ import {
   notifyDocumentStatusChanged,
   notifyError,
 } from "@/lib/notifications";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 
 const filterTabs = [
   { key: "all", label: "すべて" },
@@ -133,7 +134,10 @@ function NewDocumentModal({
       });
       onClose();
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "エラーが発生しました");
+      setError(getUserFacingErrorMessage(submitError, {
+        code: "DOCUMENT_CREATE_FAILED",
+        userMessage: "ドキュメントを作成できませんでした。",
+      }, "ESListPageClient:createDocument"));
     } finally {
       setIsSubmitting(false);
     }
@@ -383,7 +387,10 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
       router.push(`/es/${document.id}`);
     } catch (error) {
       notifyError({
-        title: error instanceof Error ? error.message : "ドキュメントを作成できませんでした。",
+        title: getUserFacingErrorMessage(error, {
+          code: "DOCUMENT_CREATE_FAILED",
+          userMessage: "ドキュメントを作成できませんでした。",
+        }, "ESListPageClient:createDocumentToast"),
       });
       throw error;
     }
@@ -396,7 +403,10 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
         notifyDocumentRestored();
       } catch (error) {
         notifyError({
-          title: error instanceof Error ? error.message : "ドキュメントを復元できませんでした。",
+          title: getUserFacingErrorMessage(error, {
+            code: "DOCUMENT_RESTORE_FAILED",
+            userMessage: "ドキュメントを復元できませんでした。",
+          }, "ESListPageClient:restoreDocument"),
         });
       }
     }
@@ -409,7 +419,10 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
         notifyDocumentPermanentlyDeleted();
       } catch (error) {
         notifyError({
-          title: error instanceof Error ? error.message : "ドキュメントを完全削除できませんでした。",
+          title: getUserFacingErrorMessage(error, {
+            code: "DOCUMENT_PERMANENT_DELETE_FAILED",
+            userMessage: "ドキュメントを完全削除できませんでした。",
+          }, "ESListPageClient:permanentDeleteDocument"),
         });
       }
     }
@@ -424,7 +437,10 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
       notifyDocumentStatusChanged(nextStatus === "published");
     } catch (error) {
       notifyError({
-        title: error instanceof Error ? error.message : "ドキュメントを更新できませんでした。",
+        title: getUserFacingErrorMessage(error, {
+          code: "DOCUMENT_UPDATE_FAILED",
+          userMessage: "ドキュメントを更新できませんでした。",
+        }, "ESListPageClient:updateDocument"),
       });
     } finally {
       setStatusUpdatingId(null);
@@ -450,7 +466,10 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
       setDeleteTarget(null);
     } catch (error) {
       notifyError({
-        title: error instanceof Error ? error.message : "ドキュメントを削除できませんでした。",
+        title: getUserFacingErrorMessage(error, {
+          code: "DOCUMENT_DELETE_FAILED",
+          userMessage: "ドキュメントを削除できませんでした。",
+        }, "ESListPageClient:deleteDocument"),
       });
     } finally {
       setIsDeletingDocument(false);

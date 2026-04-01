@@ -25,11 +25,14 @@ describe("ci e2e auth helpers", () => {
     expect(getBetterAuthSessionCookieAttributes("https://stg.shupass.jp").secure).toBe(true);
   });
 
-  it("only enables CI auth when the flag is set and the app is not production", () => {
-    process.env.CI_E2E_AUTH_ENABLED = "1";
+  it("enables CI auth on non-production apps when the shared secret is configured", () => {
+    process.env.CI_E2E_AUTH_SECRET = "top-secret";
     expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(true);
     expect(isCiE2EAuthEnabled("https://www.shupass.jp")).toBe(false);
     process.env.CI_E2E_AUTH_ENABLED = "0";
+    expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(false);
+    delete process.env.CI_E2E_AUTH_ENABLED;
+    delete process.env.CI_E2E_AUTH_SECRET;
     expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(false);
   });
 });

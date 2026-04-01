@@ -29,6 +29,7 @@ import {
   safeParseStageStatus as parseStageStatus,
   safeParseSuggestionOptions as parseSuggestionOptions,
   resolveDraftReadyState,
+  type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
 import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
 
@@ -87,42 +88,7 @@ interface StageStatus {
   pending: MotivationConversationContext["questionStage"][];
 }
 
-interface MotivationConversationContext {
-  selectedIndustry?: string;
-  selectedIndustrySource?: "company_field" | "company_override" | "user_selected";
-  industryReason?: string;
-  companyReason?: string;
-  selectedRole?: string;
-  selectedRoleSource?: "profile" | "company_doc" | "application_job_type" | "user_free_text";
-  desiredWork?: string;
-  originExperience?: string;
-  userAnchorStrengths: string[];
-  userAnchorEpisodes: string[];
-  profileAnchorIndustries: string[];
-  profileAnchorJobTypes: string[];
-  companyAnchorKeywords: string[];
-  companyRoleCandidates: string[];
-  companyWorkCandidates: string[];
-  stageAttemptCount?: number;
-  lastQuestionSignature?: string | null;
-  confirmedFacts?: Record<string, boolean>;
-  openSlots?: string[];
-  lastQuestionMeta?: {
-    questionText?: string | null;
-    question_signature?: string | null;
-    question_stage?: string | null;
-    stage_attempt_count?: number | null;
-    premise_mode?: string | null;
-  } | null;
-  questionStage:
-    | "industry_reason"
-    | "company_reason"
-    | "desired_work"
-    | "origin_experience"
-    | "fit_connection"
-    | "differentiation"
-    | "closing";
-}
+type MotivationConversationContext = BaseMotivationConversationContext;
 
 function buildEvidenceSummaryFromCards(cards: EvidenceCard[]): string | null {
   if (cards.length === 0) return null;

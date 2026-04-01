@@ -913,14 +913,19 @@
 - 画面は `DashboardHeader` + `max-w-7xl` の 2 カラム product UI
 - 開始前、進行中、完了後は同一レイアウト上で切り替える
 - 固定 5 段階表示: `opening` → `company_understanding` → `experience` → `motivation_fit` → `feedback`
-- 質問数は `5問 + 最終講評`
-- 5問目は `motivation_fit` の追加深掘りとして扱い、完了後に `feedback` へ進む
+- 質問数は固定 5 問ではなく **適応型 6〜10 問**
+- 最低到達条件は `opening=1`, `company_understanding=1`, `experience=2`, `motivation_fit=2`
+- 各ターンで直近回答を評価し、浅ければ同一段階を深掘りし、十分なら次段階へ進む
+- `motivation_fit` が十分で総質問数 6 問以上なら `feedback` へ進む
+- 10 問到達時は未充足でも `feedback` へ進み、不足は最終講評へ反映する
 - Next API は `GET /api/companies/[id]/interview` + `POST /api/companies/[id]/interview/start` + `POST /api/companies/[id]/interview/stream`
 - opening、各 follow-up、最終講評のすべてを SSE で streaming 表示する
-- SSE event は `progress / string_chunk / complete / error`
+- SSE event は `progress / string_chunk / field_complete / array_item_complete / complete / error`
 - 右カラムに段階 tracker と `参考にする材料` を表示する
 - `DashboardHeader` と `BottomTabBar` から `面接対策` を開くと `CompanySelectModal mode="interview"` を出し、企業選択後に対象 route へ遷移する
 - 最終講評では `企業適合 / 具体性 / 論理性 / 説得力` の4軸評価、良かった点、改善点、改善回答例、追加準備論点を返す
+- 最終講評 card は先に表示し、`overall_comment`・スコア・箇条書き・改善回答例を段階的に埋める
+- LLM の質問文・講評文に合わせて会話欄を自動スクロールし、講評 complete 後は success snackbar を表示する
 - 会話の永続化は今回も client-side `sessionStorage` を使い、DB テーブルは追加しない
 - セッション完了時にのみ 5 クレジット消費する
 
@@ -1060,5 +1065,7 @@
 
 ### 25.3 企業RAG更新戦略
 - 更新時の挙動: **差分追加**
-- 既存RAGを残し、新しいURLの分のみ追加
-- 完全置換はしない
+- 新しいURLの取得は既存RAGを残したまま追加
+- 既に保存済みの同一URLを再取得した場合は、そのURLの既存チャンクだけを置換
+- 同一URLの再取得失敗では旧データを残す
+- URL全体の分類結果が変わった場合は、旧分類から新分類へ移す

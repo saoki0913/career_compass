@@ -339,13 +339,13 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 
 | 機能 | 状態 | 備考 |
 |------|------|------|
-| 企業別模擬面接UI | ✅ 更新 | motivation 準拠の 2 カラム UI + 5 段階 tracker |
-| 面接対策 API | ✅ 更新 | `GET /interview` + `POST /interview/start` + `POST /interview/stream` |
-| FastAPI interview router | ✅ 更新 | opening / turn / feedback を SSE 化 |
+| 企業別模擬面接UI | ✅ 更新 | motivation 準拠の 2 カラム UI + 固定段階 tracker + 自動スクロール |
+| 面接対策 API | ✅ 更新 | `GET /interview` + `POST /interview/start` + `POST /interview/stream` + `POST /interview/feedback` |
+| FastAPI interview router | ✅ 更新 | adaptive 6〜10 問 + opening / turn / feedback SSE |
 | モデル固定 | ✅ 完了 | `MODEL_INTERVIEW=gpt-fast` → `GPT-5.4 mini` |
 | セッション課金 | ✅ 完了 | 完了時のみ `5 credits` |
 | 月次無料枠 | ✅ 完了 | なし |
-| 4軸講評 | ✅ 完了 | 企業適合 / 具体性 / 論理性 / 説得力 |
+| 4軸講評 | ✅ 完了 | 企業適合 / 具体性 / 論理性 / 説得力 + card 逐次更新 |
 | ナビ導線 | ✅ 更新 | header / mobile nav から modal 起動 |
 | UI review route | ✅ 更新 | `/companies/ui-review-company/interview --auth=mock` |
 

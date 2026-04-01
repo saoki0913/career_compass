@@ -1,0 +1,53 @@
+import { describe, expect, it } from "vitest";
+
+import { getUserFacingErrorMessage, parseApiErrorResponse } from "./api-errors";
+
+describe("api-errors", () => {
+  it("falls back when an error message contains internal technical details", () => {
+    const message = getUserFacingErrorMessage(
+      new Error("面接セッション保存用の DB migration が未適用です。"),
+      {
+        code: "INTERVIEW_UNAVAILABLE",
+        userMessage: "現在この機能を利用できません。",
+      },
+      "api-errors:test"
+    );
+
+    expect(message).toBe("現在この機能を利用できません。");
+  });
+
+  it("parses structured API errors without exposing developer debug payloads", async () => {
+    const response = new Response(
+      JSON.stringify({
+        error: {
+          code: "SETTINGS_PROFILE_UPDATE_FAILED",
+          userMessage: "プロフィールを保存できませんでした。",
+          action: "時間をおいて、もう一度お試しください。",
+          retryable: false,
+        },
+        requestId: "req-123",
+      }),
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-Id": "req-123",
+        },
+      }
+    );
+
+    const error = await parseApiErrorResponse(
+      response,
+      {
+        code: "FALLBACK",
+        userMessage: "保存できませんでした。",
+      },
+      "api-errors:test"
+    );
+
+    expect(error.message).toBe("プロフィールを保存できませんでした。");
+    expect(error.requestId).toBe("req-123");
+    expect(error.developerMessage).toBeUndefined();
+    expect(error.details).toBeUndefined();
+  });
+});

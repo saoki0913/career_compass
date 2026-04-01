@@ -12,8 +12,8 @@
 
 import { test, type Page } from "@playwright/test";
 import {
-  createOwnedCompany,
-  createOwnedGakuchika,
+  createGuestCompany,
+  createGuestGakuchika,
   ensureGuestSession,
   loginAsGuest,
   mockCredits,
@@ -49,7 +49,7 @@ async function initGuest(page: Page) {
 
 async function tryCreateCompany(page: Page, name: string, industry: string): Promise<string | null> {
   try {
-    const company = await createOwnedCompany(page, { name, industry });
+    const company = await createGuestCompany(page, { name, industry });
     return company.id;
   } catch {
     return null;
@@ -211,7 +211,7 @@ test("05-demo-gakuchika", async ({ page }) => {
   test.setTimeout(90_000);
   await initGuest(page);
 
-  const gakuchika = await createOwnedGakuchika(page, {
+  const gakuchika = await createGuestGakuchika(page, {
     title: DEMO_GAKUCHIKA_TITLE,
     content: DEMO_GAKUCHIKA_CONTENT,
     charLimitType: "400",

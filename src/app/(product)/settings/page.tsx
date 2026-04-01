@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { notifySuccess } from "@/lib/notifications";
 import { SettingsPageSkeleton } from "@/components/skeletons/SettingsPageSkeleton";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 
 const LoadingSpinner = () => (
   <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -117,7 +118,10 @@ export default function SettingsPage() {
         setSelectedIndustries(data.profile.targetIndustries || []);
         setSelectedJobTypes(data.profile.targetJobTypes || []);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "プロフィールの取得に失敗しました");
+        setError(getUserFacingErrorMessage(err, {
+          code: "SETTINGS_PROFILE_FETCH_FAILED",
+          userMessage: "プロフィールの取得に失敗しました。",
+        }, "SettingsPage:fetchProfile"));
       } finally {
         setIsLoading(false);
       }
@@ -184,7 +188,10 @@ export default function SettingsPage() {
       setProfile(data.profile);
       notifySuccess({ title: "プロフィールを保存しました" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存に失敗しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "SETTINGS_PROFILE_UPDATE_FAILED",
+        userMessage: "プロフィールを保存できませんでした。",
+      }, "SettingsPage:saveProfile"));
     } finally {
       setIsSaving(false);
     }
@@ -231,7 +238,10 @@ export default function SettingsPage() {
       setNotificationSettings(data.settings);
       notifySuccess({ title: "通知設定を保存しました" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "通知設定の保存に失敗しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "SETTINGS_NOTIFICATIONS_UPDATE_FAILED",
+        userMessage: "通知設定を保存できませんでした。",
+      }, "SettingsPage:saveNotifications"));
     } finally {
       setIsSavingNotifications(false);
     }
@@ -281,7 +291,10 @@ export default function SettingsPage() {
         return;
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "プラン変更に失敗しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "STRIPE_CHECKOUT_CREATE_FAILED",
+        userMessage: "プラン変更を開始できませんでした。",
+      }, "SettingsPage:startCheckout"));
     } finally {
       setIsChangingPlan(false);
     }
@@ -305,7 +318,10 @@ export default function SettingsPage() {
       const { url } = await response.json();
       window.location.href = url;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "請求管理ページを開けませんでした");
+      setError(getUserFacingErrorMessage(err, {
+        code: "STRIPE_PORTAL_CREATE_FAILED",
+        userMessage: "請求管理ページを開けませんでした。",
+      }, "SettingsPage:openBillingPortal"));
     } finally {
       setIsOpeningPortal(false);
     }
@@ -343,7 +359,10 @@ export default function SettingsPage() {
       setShowPlanModal(false);
       notifySuccess({ title: "プラン変更を反映しました" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "プラン変更に失敗しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "STRIPE_CHECKOUT_CREATE_FAILED",
+        userMessage: "プラン変更を開始できませんでした。",
+      }, "SettingsPage:changePlan"));
     } finally {
       setIsChangingPlan(false);
     }
@@ -372,7 +391,10 @@ export default function SettingsPage() {
       // Redirect to login page after successful deletion
       router.push("/login");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "アカウント削除に失敗しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "SETTINGS_ACCOUNT_DELETE_FAILED",
+        userMessage: "アカウント削除に失敗しました。",
+      }, "SettingsPage:deleteAccount"));
       setIsDeleting(false);
     }
   };

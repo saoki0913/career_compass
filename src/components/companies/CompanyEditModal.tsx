@@ -28,6 +28,7 @@ import {
   getStatusLabel,
 } from "@/lib/constants/status";
 import { notifySuccess } from "@/lib/notifications";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 
 // Icons
 const XIcon = () => (
@@ -145,7 +146,18 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
       notifySuccess({ title: "企業情報を保存しました" });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "COMPANY_UPDATE_FAILED",
+            userMessage: "保存に失敗しました。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "CompanyEditModal.handleSubmit"
+        )
+      );
     } finally {
       setIsSubmitting(false);
     }

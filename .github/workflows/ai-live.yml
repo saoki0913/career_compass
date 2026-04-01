@@ -83,14 +83,20 @@ jobs:
           python -m pip install -r backend/requirements.txt
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
+      - name: Preflight CI E2E auth
+        run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
       - name: Run ES review live
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
         run: bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature es-review
-      - name: Upload ES review live artifacts
+      - name: Upload ES review internal artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ai-live-es-review-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
-          path: backend/tests/output/ai_live_es_review_*
+          name: ai-live-internal-es-review-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_es_review_*/live_es_review_*.json
+            backend/tests/output/ai_live_es_review_*/*.log
           if-no-files-found: warn
           retention-days: 90
 
@@ -115,14 +121,20 @@ jobs:
         run: npm ci
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
+      - name: Preflight CI E2E auth
+        run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
       - name: Run gakuchika live
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
         run: bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature gakuchika
-      - name: Upload gakuchika live artifacts
+      - name: Upload gakuchika internal artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ai-live-gakuchika-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
-          path: backend/tests/output/ai_live_gakuchika_*
+          name: ai-live-internal-gakuchika-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_gakuchika_*/live_gakuchika_*.json
+            backend/tests/output/ai_live_gakuchika_*/*.log
           if-no-files-found: warn
           retention-days: 90
 
@@ -147,14 +159,20 @@ jobs:
         run: npm ci
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
+      - name: Preflight CI E2E auth
+        run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
       - name: Run motivation live
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
         run: bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature motivation
-      - name: Upload motivation live artifacts
+      - name: Upload motivation internal artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ai-live-motivation-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
-          path: backend/tests/output/ai_live_motivation_*
+          name: ai-live-internal-motivation-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_motivation_*/live_motivation_*.json
+            backend/tests/output/ai_live_motivation_*/*.log
           if-no-files-found: warn
           retention-days: 90
 
@@ -179,14 +197,20 @@ jobs:
         run: npm ci
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
+      - name: Preflight CI E2E auth
+        run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
       - name: Run interview live
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
         run: bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature interview
-      - name: Upload interview live artifacts
+      - name: Upload interview internal artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ai-live-interview-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
-          path: backend/tests/output/ai_live_interview_*
+          name: ai-live-internal-interview-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_interview_*/live_interview_*.json
+            backend/tests/output/ai_live_interview_*/*.log
           if-no-files-found: warn
           retention-days: 90
 
@@ -211,34 +235,44 @@ jobs:
         if: ${{ needs.es-review-live.result != 'skipped' }}
         uses: actions/download-artifact@v4
         with:
-          name: ai-live-es-review-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          name: ai-live-internal-es-review-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
           path: backend/tests/output/downloads/es-review
       - name: Download gakuchika artifact
         if: ${{ needs.gakuchika-live.result != 'skipped' }}
         uses: actions/download-artifact@v4
         with:
-          name: ai-live-gakuchika-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          name: ai-live-internal-gakuchika-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
           path: backend/tests/output/downloads/gakuchika
       - name: Download motivation artifact
         if: ${{ needs.motivation-live.result != 'skipped' }}
         uses: actions/download-artifact@v4
         with:
-          name: ai-live-motivation-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          name: ai-live-internal-motivation-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
           path: backend/tests/output/downloads/motivation
       - name: Download interview artifact
         if: ${{ needs.interview-live.result != 'skipped' }}
         uses: actions/download-artifact@v4
         with:
-          name: ai-live-interview-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          name: ai-live-internal-interview-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
           path: backend/tests/output/downloads/interview
+      - name: Curate AI live public bundle
+        shell: bash
+        run: |
+          mkdir -p backend/tests/output/public
+          find backend/tests/output/downloads -type f -name 'live_*.json' -exec cp {} backend/tests/output/public/ \;
       - name: Build AI live summary
-        run: node scripts/ci/write-ai-live-summary.mjs --output-dir backend/tests/output/downloads --summary-file "$GITHUB_STEP_SUMMARY" --suite "${{ needs.resolve-suite.outputs.suite }}" --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        run: node scripts/ci/write-ai-live-summary.mjs --output-dir backend/tests/output/public --summary-file "$GITHUB_STEP_SUMMARY" --suite "${{ needs.resolve-suite.outputs.suite }}" --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
       - name: Upload compiled live report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ai-live-summary-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
-          path: backend/tests/output/downloads
+          name: ai-live-report-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/public/ai-live-summary.md
+            backend/tests/output/public/live_es_review_*.json
+            backend/tests/output/public/live_gakuchika_*.json
+            backend/tests/output/public/live_motivation_*.json
+            backend/tests/output/public/live_interview_*.json
           if-no-files-found: warn
           retention-days: 90
 
@@ -257,8 +291,10 @@ jobs:
       - name: Download compiled live report artifact
         uses: actions/download-artifact@v4
         with:
-          name: ai-live-summary-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          name: ai-live-report-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
           path: backend/tests/output/publish
+      - name: Rebuild AI live issue body
+        run: node scripts/ci/write-ai-live-summary.mjs --output-dir backend/tests/output/publish --suite "${{ needs.resolve-suite.outputs.suite }}" --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
       - name: Publish AI live daily issue
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

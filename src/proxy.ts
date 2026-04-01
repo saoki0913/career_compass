@@ -100,15 +100,6 @@ function createProxyErrorResponse(
         retryable: false,
       },
       requestId,
-      ...(process.env.NODE_ENV === "development"
-        ? {
-            debug: {
-              developerMessage,
-              details,
-              status,
-            },
-          }
-        : {}),
     },
     {
       status,

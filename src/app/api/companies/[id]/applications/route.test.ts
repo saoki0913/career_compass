@@ -96,7 +96,7 @@ describe("api/companies/[id]/applications GET", () => {
         deadline: {
           id: "deadline-1",
           title: "ES提出",
-          dueDate: new Date("2026-04-01T00:00:00.000Z"),
+          dueDate: new Date("2026-06-01T00:00:00.000Z"),
           type: "es_submission",
           completedAt: null,
         },
@@ -106,7 +106,7 @@ describe("api/companies/[id]/applications GET", () => {
         deadline: {
           id: "deadline-2",
           title: "面接",
-          dueDate: new Date("2026-05-01T00:00:00.000Z"),
+          dueDate: new Date("2026-07-01T00:00:00.000Z"),
           type: "interview_1",
           completedAt: null,
         },

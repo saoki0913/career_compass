@@ -109,7 +109,7 @@ describe("api/deadlines/upcoming", () => {
     });
   });
 
-  it("includes the underlying debug message for development 500 responses", async () => {
+  it("returns a structured 500 response in development", async () => {
     const { GET } = await import("@/app/api/deadlines/upcoming/route");
     process.env.NODE_ENV = "development";
     getRequestIdentityMock.mockRejectedValue(new Error("identity resolution exploded"));
@@ -119,6 +119,7 @@ describe("api/deadlines/upcoming", () => {
 
     expect(response.status).toBe(500);
     expect(data.error.code).toBe("UPCOMING_DEADLINES_FETCH_FAILED");
-    expect(data.debug.developerMessage).toBe("identity resolution exploded");
+    expect(data.requestId).toEqual(expect.any(String));
+    expect(data).not.toHaveProperty("debug");
   });
 });

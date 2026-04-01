@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { apiRequest } from "../../../e2e/fixtures/auth";
+import { apiRequest, apiRequestAsAuthenticatedUser } from "../../../e2e/fixtures/auth";
 
 describe("e2e auth fixtures", () => {
   it("uses the browser context request client for authenticated API requests", async () => {
@@ -26,6 +26,16 @@ describe("e2e auth fixtures", () => {
     );
 
     expect(contextFetch).toHaveBeenCalledTimes(1);
+    expect(pageFetch).not.toHaveBeenCalled();
+
+    await apiRequestAsAuthenticatedUser(
+      page as never,
+      "POST",
+      "/api/companies",
+      { name: "認証済み会社" },
+    );
+
+    expect(contextFetch).toHaveBeenCalledTimes(2);
     expect(pageFetch).not.toHaveBeenCalled();
   });
 
@@ -91,6 +101,102 @@ describe("e2e auth fixtures", () => {
 
     expect(evaluate).not.toHaveBeenCalled();
     expect(contextFetch).toHaveBeenCalledTimes(4);
+    for (const call of contextFetch.mock.calls) {
+      expect(call[1]?.headers).toMatchObject({
+        "Content-Type": "application/json",
+      });
+      expect(call[1]?.headers).not.toHaveProperty("x-device-token");
+    }
+  });
+
+  it("keeps guest application, task, notification, and gakuchika helpers on the guest token path", async () => {
+    const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
+    const evaluate = vi.fn().mockResolvedValue("guest-device-token");
+
+    const page = {
+      evaluate,
+      context: () => ({
+        request: {
+          fetch: contextFetch,
+        },
+      }),
+    };
+
+    const auth = await import("../../../e2e/fixtures/auth");
+
+    await auth.createGuestApplication(page as never, "company-id", {
+      name: "ゲスト応募",
+      type: "main",
+    });
+    await auth.deleteGuestApplication(page as never, "application-id");
+    await auth.createGuestTask(page as never, {
+      title: "ゲストタスク",
+      type: "other",
+    });
+    await auth.deleteGuestTask(page as never, "task-id");
+    await auth.createGuestNotification(page as never, {
+      type: "daily_summary",
+      title: "ゲスト通知",
+      message: "ゲスト通知本文",
+    });
+    await auth.deleteGuestNotification(page as never, "notification-id");
+    await auth.createGuestGakuchika(page as never, {
+      title: "ゲストガクチカ",
+      content: "内容",
+      charLimitType: "400",
+    });
+    await auth.deleteGuestGakuchika(page as never, "gakuchika-id");
+
+    expect(evaluate).toHaveBeenCalled();
+    expect(contextFetch).toHaveBeenCalledTimes(8);
+    for (const call of contextFetch.mock.calls) {
+      expect(call[1]?.headers).toMatchObject({
+        "Content-Type": "application/json",
+        "x-device-token": "guest-device-token",
+      });
+    }
+  });
+
+  it("keeps owned application, task, notification, and gakuchika helpers off the guest token path", async () => {
+    const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
+    const evaluate = vi.fn().mockResolvedValue("guest-device-token");
+
+    const page = {
+      evaluate,
+      context: () => ({
+        request: {
+          fetch: contextFetch,
+        },
+      }),
+    };
+
+    const auth = await import("../../../e2e/fixtures/auth");
+
+    await auth.createOwnedApplication(page as never, "company-id", {
+      name: "認証済み応募",
+      type: "main",
+    });
+    await auth.deleteOwnedApplication(page as never, "application-id");
+    await auth.createOwnedTask(page as never, {
+      title: "認証済みタスク",
+      type: "other",
+    });
+    await auth.deleteOwnedTask(page as never, "task-id");
+    await auth.createOwnedNotification(page as never, {
+      type: "daily_summary",
+      title: "認証済み通知",
+      message: "認証済み通知本文",
+    });
+    await auth.deleteOwnedNotification(page as never, "notification-id");
+    await auth.createOwnedGakuchika(page as never, {
+      title: "認証済みガクチカ",
+      content: "内容",
+      charLimitType: "400",
+    });
+    await auth.deleteOwnedGakuchika(page as never, "gakuchika-id");
+
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(contextFetch).toHaveBeenCalledTimes(8);
     for (const call of contextFetch.mock.calls) {
       expect(call[1]?.headers).toMatchObject({
         "Content-Type": "application/json",

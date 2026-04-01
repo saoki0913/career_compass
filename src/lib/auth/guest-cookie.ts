@@ -1,5 +1,3 @@
-import "server-only";
-
 import type { NextRequest, NextResponse } from "next/server";
 
 export const GUEST_COOKIE_NAME = "guest_device_token";

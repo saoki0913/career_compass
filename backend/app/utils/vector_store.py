@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime
 from urllib.parse import urlparse
+import hashlib
+from uuid import uuid4
 
 from app.config import settings
 from app.utils.embeddings import (
@@ -59,6 +61,111 @@ CONTENT_TYPE_JA = {
     "corporate_general": "企業情報",
     "full_text": "フルテキスト",
 }
+
+
+def _make_ingest_session_id() -> str:
+    return uuid4().hex
+
+
+def _make_source_hash(source_url: str) -> str:
+    normalized = (source_url or "").strip().encode("utf-8")
+    return hashlib.sha256(normalized).hexdigest()[:16]
+
+
+def _make_source_document_id(
+    company_id: str,
+    source_url: str,
+    content_type: str,
+    chunk_index: int,
+    ingest_session_id: str,
+) -> str:
+    source_hash = _make_source_hash(source_url)
+    return f"{company_id}_{source_hash}_{content_type}_{chunk_index}_{ingest_session_id}"
+
+
+def _extract_ids_to_delete_for_source(
+    results: dict,
+    current_ingest_session_id: Optional[str] = None,
+) -> list[str]:
+    ids = results.get("ids") or []
+    metadatas = results.get("metadatas") or []
+    deletable_ids: list[str] = []
+
+    for doc_id, metadata in zip(ids, metadatas):
+        ingest_session_id = (
+            metadata.get("ingest_session_id")
+            if isinstance(metadata, dict)
+            else None
+        )
+        if current_ingest_session_id and ingest_session_id == current_ingest_session_id:
+            continue
+        deletable_ids.append(doc_id)
+
+    if len(ids) > len(metadatas):
+        deletable_ids.extend(ids[len(metadatas):])
+
+    return deletable_ids
+
+
+def _delete_source_records_for_backends(
+    company_id: str,
+    source_url: str,
+    backend: EmbeddingBackend,
+    *,
+    current_ingest_session_id: Optional[str] = None,
+) -> int:
+    deleted_total = 0
+    for name in _collection_names_for_backend(backend):
+        collection = _get_collection(name)
+        existing = collection.get(
+            where={
+                "$and": [
+                    {"company_id": company_id},
+                    {"source_url": source_url},
+                ]
+            },
+            include=["metadatas"],
+        )
+        ids_to_delete = _extract_ids_to_delete_for_source(
+            existing,
+            current_ingest_session_id=current_ingest_session_id,
+        )
+        if ids_to_delete:
+            collection.delete(ids=ids_to_delete)
+            deleted_total += len(ids_to_delete)
+    return deleted_total
+
+
+def _delete_current_ingest_session_records(
+    company_id: str,
+    source_url: str,
+    backend: EmbeddingBackend,
+    ingest_session_id: str,
+) -> int:
+    deleted_total = 0
+    for name in _collection_names_for_backend(backend):
+        collection = _get_collection(name)
+        existing = collection.get(
+            where={
+                "$and": [
+                    {"company_id": company_id},
+                    {"source_url": source_url},
+                ]
+            },
+            include=["metadatas"],
+        )
+        ids = existing.get("ids") or []
+        metadatas = existing.get("metadatas") or []
+        ids_to_delete = [
+            doc_id
+            for doc_id, metadata in zip(ids, metadatas)
+            if isinstance(metadata, dict)
+            and metadata.get("ingest_session_id") == ingest_session_id
+        ]
+        if ids_to_delete:
+            collection.delete(ids=ids_to_delete)
+            deleted_total += len(ids_to_delete)
+    return deleted_total
 
 
 def get_chroma_client() -> chromadb.PersistentClient:
@@ -521,47 +628,43 @@ async def store_full_text_content(
             chunks, source_channel=content_channel, fallback_type=content_type
         )
 
-        # Group by classified content_type
-        grouped: dict[str, list[dict]] = {}
         secondary_content_types: set[str] = set()
         for chunk in classified:
             meta = chunk.get("metadata") or {}
-            ct = (
-                meta.get("content_type")
-                or content_type
-                or "corporate_site"
-            )
+            ct = meta.get("content_type") or content_type or "corporate_site"
+            meta["content_type"] = ct
             for secondary in meta.get("secondary_content_types") or []:
                 if isinstance(secondary, str):
                     secondary_content_types.add(secondary)
-            grouped.setdefault(ct, []).append(chunk)
 
         # Determine dominant content_type by chunk count (majority vote)
+        content_type_counts: dict[str, int] = {}
+        for chunk in classified:
+            meta = chunk.get("metadata") or {}
+            ct = meta.get("content_type") or content_type or "corporate_site"
+            content_type_counts[ct] = content_type_counts.get(ct, 0) + 1
         dominant_content_type = (
-            max(grouped, key=lambda k: len(grouped[k])) if grouped else None
+            max(content_type_counts, key=content_type_counts.get)
+            if content_type_counts
+            else None
         )
 
-        any_success = False
-        for ct, group_chunks in grouped.items():
-            # Store per content type (deletes existing of that type)
-            success = await _store_content_by_type(
-                company_id=company_id,
-                company_name=company_name,
-                content_chunks=group_chunks,
-                source_url=source_url,
-                content_type=ct,
-                backend=backend,
-            )
-            any_success = any_success or success
+        success = await _store_content_by_source_url(
+            company_id=company_id,
+            company_name=company_name,
+            content_chunks=classified,
+            source_url=source_url,
+            backend=backend,
+        )
 
-        if any_success:
+        if success:
             schedule_bm25_update(company_id)
             cache = get_rag_cache()
             if cache:
                 await cache.invalidate_company(company_id)
 
         return {
-            "success": any_success,
+            "success": success,
             "dominant_content_type": dominant_content_type,
             "secondary_content_types": sorted(secondary_content_types),
         }
@@ -571,54 +674,32 @@ async def store_full_text_content(
         return _fail
 
 
-async def _store_content_by_type(
+async def _store_content_by_source_url(
     company_id: str,
     company_name: str,
     content_chunks: list[dict],
     source_url: str,
-    content_type: str,
     backend: EmbeddingBackend,
 ) -> bool:
     """
-    Store content chunks by content type.
+    Store content chunks for a single source URL.
 
-    This deletes existing content of the same type before storing new content,
-    preserving content of other types.
+    New chunks are added first, then older chunks for the same company_id +
+    source_url are removed. This preserves the previous successful RAG data
+    when re-ingest fails midway.
 
     Args:
         company_id: Company identifier
         company_name: Company name
         content_chunks: List of content chunks
         source_url: Source URL
-        content_type: Content type to store
 
     Returns:
         True if successful
     """
+    ingest_session_id = _make_ingest_session_id()
     try:
         collection = get_company_collection(backend)
-
-        # Delete existing content of this type only across related collections
-        deletion_errors = []
-        for name in _collection_names_for_backend(backend):
-            try:
-                _get_collection(name).delete(
-                    where={
-                        "$and": [
-                            {"company_id": company_id},
-                            {"content_type": content_type},
-                        ]
-                    }
-                )
-            except Exception as e:
-                # Log but continue - deletion failure shouldn't block insert
-                deletion_errors.append(f"{name}: {e}")
-
-        if deletion_errors:
-            ct_ja = CONTENT_TYPE_JA.get(content_type, content_type)
-            print(
-                f"[RAG保存] ⚠️ {ct_ja}削除エラー (会社ID: {company_id[:8]}...): {'; '.join(deletion_errors)}"
-            )
 
         # Prepare documents
         documents = []
@@ -630,8 +711,17 @@ async def _store_content_by_type(
             if not text or len(text.strip()) < 10:
                 continue
 
-            # Create unique ID including content type
-            doc_id = f"{company_id}_{content_type}_{idx}"
+            content_type = (
+                (chunk.get("metadata") or {}).get("content_type")
+                or "corporate_site"
+            )
+            doc_id = _make_source_document_id(
+                company_id=company_id,
+                source_url=source_url,
+                content_type=content_type,
+                chunk_index=idx,
+                ingest_session_id=ingest_session_id,
+            )
 
             metadata = {
                 "company_id": company_id,
@@ -640,6 +730,7 @@ async def _store_content_by_type(
                 "chunk_type": chunk.get("type", "full_text"),
                 "content_type": content_type,
                 "chunk_index": idx,
+                "ingest_session_id": ingest_session_id,
                 "embedding_provider": backend.provider,
                 "embedding_model": backend.model,
             }
@@ -685,15 +776,35 @@ async def _store_content_by_type(
             embeddings=list(valid_embs),
         )
 
-        ct_ja = CONTENT_TYPE_JA.get(content_type, content_type)
+        deleted_old = _delete_source_records_for_backends(
+            company_id=company_id,
+            source_url=source_url,
+            backend=backend,
+            current_ingest_session_id=ingest_session_id,
+        )
         print(
-            f"[RAG保存] ✅ {ct_ja} {len(valid_docs)}チャンク保存完了 (会社ID: {company_id[:8]}...)"
+            f"[RAG保存] ✅ URL単位更新完了 {len(valid_docs)}チャンク保存 / "
+            f"旧{deleted_old}チャンク削除 (会社ID: {company_id[:8]}...)"
         )
 
         return True
 
     except Exception as e:
-        print(f"[RAG保存] ❌ コンテンツタイプ別保存エラー: {e}")
+        try:
+            cleanup_deleted = _delete_current_ingest_session_records(
+                company_id=company_id,
+                source_url=source_url,
+                backend=backend,
+                ingest_session_id=ingest_session_id,
+            )
+            if cleanup_deleted:
+                print(
+                    f"[RAG保存] ⚠️ 失敗後のURL cleanup 実行 {cleanup_deleted}チャンク削除 "
+                    f"(会社ID: {company_id[:8]}...)"
+                )
+        except Exception:
+            pass
+        print(f"[RAG保存] ❌ URL単位保存エラー: {e}")
         return False
 
 

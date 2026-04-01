@@ -29,6 +29,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
 import { ConversationPageSkeleton } from "@/components/skeletons/ConversationPageSkeleton";
 import { notifyMotivationDraftReady } from "@/lib/notifications";
+import { getUserFacingErrorMessage, parseApiErrorResponse } from "@/lib/api-errors";
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -628,8 +629,16 @@ function MotivationConversationContent() {
       );
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.error || "職種候補の取得に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "MOTIVATION_ROLE_OPTIONS_FETCH_FAILED",
+            userMessage: "職種候補の取得に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.fetchRoleOptions"
+        );
       }
 
       const data = await response.json();
@@ -643,7 +652,18 @@ function MotivationConversationContent() {
         return null;
       }
       setRoleOptionsData(null);
-      setRoleOptionsError(err instanceof Error ? err.message : "職種候補の取得に失敗しました");
+      setRoleOptionsError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "MOTIVATION_ROLE_OPTIONS_FETCH_FAILED",
+            userMessage: "職種候補の取得に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.fetchRoleOptions"
+        )
+      );
       return null;
     } finally {
       if (requestId === roleOptionsRequestIdRef.current) {
@@ -670,7 +690,18 @@ function MotivationConversationContent() {
         }),
       ]);
 
-      if (!companyRes.ok) throw new Error("企業情報の取得に失敗しました");
+      if (!companyRes.ok) {
+        throw await parseApiErrorResponse(
+          companyRes,
+          {
+            code: "MOTIVATION_COMPANY_FETCH_FAILED",
+            userMessage: "企業情報の取得に失敗しました。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.fetchData.company"
+        );
+      }
       const companyData = await companyRes.json();
       if (requestId !== fetchDataRequestIdRef.current) return;
       setCompany(companyData.company);
@@ -725,7 +756,18 @@ function MotivationConversationContent() {
       setConversationLoadError(message);
     } catch (err) {
       if (requestId !== fetchDataRequestIdRef.current) return;
-      setError(err instanceof Error ? err.message : "データの取得に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "MOTIVATION_DATA_FETCH_FAILED",
+            userMessage: "データの取得に失敗しました。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.fetchData"
+        )
+      );
     } finally {
       if (requestId === fetchDataRequestIdRef.current) {
         setIsLoading(false);
@@ -813,14 +855,33 @@ function MotivationConversationContent() {
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        throw new Error(data?.error || "会話の開始に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "MOTIVATION_CONVERSATION_START_FAILED",
+            userMessage: "会話の開始に失敗しました。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleStartConversation"
+        );
       }
 
       const data = await response.json();
       applyConversationPayload(data, roleOptionsData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "会話の開始に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "MOTIVATION_CONVERSATION_START_FAILED",
+            userMessage: "会話の開始に失敗しました。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleStartConversation"
+        )
+      );
     } finally {
       setIsStartingConversation(false);
       releaseLock();
@@ -884,8 +945,16 @@ function MotivationConversationContent() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "送信に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "MOTIVATION_CONVERSATION_STREAM_FAILED",
+            userMessage: "送信に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleSend"
+        );
       }
 
       // Process SSE stream
@@ -996,7 +1065,18 @@ function MotivationConversationContent() {
       if (err instanceof Error && err.name === "AbortError") {
         setError("AIの応答に時間がかかりすぎています。再度お試しください。");
       } else {
-        setError(err instanceof Error ? err.message : "送信に失敗しました");
+        setError(
+          getUserFacingErrorMessage(
+            err,
+            {
+              code: "MOTIVATION_CONVERSATION_STREAM_FAILED",
+              userMessage: "送信に失敗しました。",
+              action: "時間を置いて、もう一度お試しください。",
+              retryable: true,
+            },
+            "MotivationPage.handleSend"
+          )
+        );
       }
       await fetchData();
     } finally {
@@ -1029,8 +1109,16 @@ function MotivationConversationContent() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "ES生成に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "MOTIVATION_DRAFT_GENERATE_FAILED",
+            userMessage: "ES生成に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleGenerateDraft"
+        );
       }
 
       const data = await response.json();
@@ -1041,7 +1129,18 @@ function MotivationConversationContent() {
         router.push(`/es/${data.documentId}`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ES生成に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "MOTIVATION_DRAFT_GENERATE_FAILED",
+            userMessage: "ES生成に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleGenerateDraft"
+        )
+      );
     } finally {
       setIsGeneratingDraft(false);
       releaseLock();
@@ -1073,14 +1172,33 @@ function MotivationConversationContent() {
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        throw new Error(data?.error || "会話の初期化に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "MOTIVATION_CONVERSATION_RESET_FAILED",
+            userMessage: "会話の初期化に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleResetConversation"
+        );
       }
 
       resetConversationState();
       await fetchData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "会話の初期化に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "MOTIVATION_CONVERSATION_RESET_FAILED",
+            userMessage: "会話の初期化に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleResetConversation"
+        )
+      );
     } finally {
       setIsResetting(false);
       releaseLock();

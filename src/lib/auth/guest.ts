@@ -190,14 +190,30 @@ export async function migrateGuestToUser(deviceToken: string, userId: string) {
   const now = new Date();
 
   await db.transaction(async (tx) => {
-    const migrateOwner = async (table: { guestId: unknown; userId: unknown }) => {
+    const migrateOwner = async (
+      table:
+        | typeof companies
+        | typeof applications
+        | typeof deadlines
+        | typeof documents
+        | typeof tasks
+        | typeof notifications
+        | typeof gakuchikaContents
+        | typeof motivationConversations
+        | typeof submissionItems
+        | typeof userPins,
+    ) => {
+      const ownerTable = table as typeof table & {
+        guestId: typeof companies.guestId;
+        userId: typeof companies.userId;
+      };
       await tx
         .update(table)
         .set({
           guestId: null,
           userId,
-        })
-        .where(eq(table.guestId, guest.id));
+        } as never)
+        .where(eq(ownerTable.guestId, guest.id));
     };
 
     await Promise.all([

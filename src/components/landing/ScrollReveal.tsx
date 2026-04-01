@@ -31,7 +31,11 @@ export function ScrollReveal({
   /** Playwright sets webdriver; reading it on first paint causes SSR/client hydration mismatch. */
   const [isAutomationBrowser, setIsAutomationBrowser] = useState(false);
   useEffect(() => {
-    setIsAutomationBrowser(typeof navigator !== "undefined" && Boolean(navigator.webdriver));
+    const frameId = window.requestAnimationFrame(() => {
+      setIsAutomationBrowser(Boolean(navigator.webdriver));
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
   }, []);
   const shouldShowImmediately = prefersReducedMotion || isAutomationBrowser;
   const animateState =

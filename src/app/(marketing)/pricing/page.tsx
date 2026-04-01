@@ -28,6 +28,7 @@ import {
 } from "@/lib/marketing/pricing-plans";
 import { ANNUAL_PLAN_PRICES, type BillingPeriod } from "@/lib/stripe/config";
 import { cn } from "@/lib/utils";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 
 type PlanType = "free" | "standard" | "pro";
 
@@ -318,11 +319,10 @@ function PricingPageContent() {
       }
     } catch (checkoutError) {
       console.error("Checkout error:", checkoutError);
-      setError(
-        checkoutError instanceof Error
-          ? checkoutError.message
-          : "エラーが発生しました"
-      );
+      setError(getUserFacingErrorMessage(checkoutError, {
+        code: "STRIPE_CHECKOUT_CREATE_FAILED",
+        userMessage: "プラン変更を開始できませんでした。",
+      }, "PricingPage:checkout"));
       trackEvent("checkout_error", { plan, period, source, reason });
     } finally {
       setIsSubmitting(false);
@@ -344,11 +344,10 @@ function PricingPageContent() {
       trackEvent("portal_opened", { source: "pricing", currentPlan: currentPlan ?? "unknown" });
       window.location.href = data.url;
     } catch (portalError) {
-      setError(
-        portalError instanceof Error
-          ? portalError.message
-          : "請求管理ページを開けませんでした"
-      );
+      setError(getUserFacingErrorMessage(portalError, {
+        code: "STRIPE_PORTAL_CREATE_FAILED",
+        userMessage: "請求管理ページを開けませんでした。",
+      }, "PricingPage:openBillingPortal"));
     } finally {
       setIsSubmitting(false);
     }

@@ -137,7 +137,7 @@ Volume がないとデプロイごとにデータが消失します。
 >
 > `backend/docker-entrypoint.sh` が `/app/data/chroma` と `/app/data/bm25` サブディレクトリを自動作成し、パーミッションを設定します。
 >
-> **初回起動時**: Volume は空の状態。企業情報を取得するたびにデータが蓄積されます。
+> **初回起動時**: Volume は空の状態。企業情報の新規URL取得ではデータが蓄積されます。同じURLの再取得時は、そのURLに紐づく既存RAGだけを更新します。
 >
 > Railway は `RAILWAY_VOLUME_NAME` と `RAILWAY_VOLUME_MOUNT_PATH` 環境変数を自動で注入します（手動設定不要）。
 

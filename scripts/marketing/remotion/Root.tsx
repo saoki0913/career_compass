@@ -19,7 +19,7 @@ const defaultProps: ProductDemoVideoProps = {
 
 export function RemotionRoot() {
   return (
-    <Composition<ProductDemoVideoProps>
+    <Composition
       id="ProductDemo"
       component={ProductDemoVideo}
       durationInFrames={PRODUCT_DEMO_TOTAL_FRAMES}

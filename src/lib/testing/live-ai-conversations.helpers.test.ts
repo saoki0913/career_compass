@@ -14,31 +14,37 @@ vi.mock("@playwright/test", () => ({
 }));
 
 import {
-  createAuthenticatedCompanyWithRequest,
+  buildDeterministicGakuchikaFollowupAnswer,
+  collectStaleLiveAiCompanyIds,
   runGakuchikaSetupWithRequest,
 } from "../../../e2e/live-ai-conversations.spec";
 
 describe("live ai conversation helpers", () => {
-  it("uses the authenticated request path for company creation", async () => {
-    const request = vi.fn().mockResolvedValue({
-      ok: () => true,
-      status: () => 200,
-      statusText: () => "OK",
-      text: async () => JSON.stringify({ company: { id: "company-1", name: "テスト会社" } }),
-      json: async () => ({ company: { id: "company-1", name: "テスト会社" } }),
-    });
-
-    const company = await createAuthenticatedCompanyWithRequest(request as never, {} as never, {
-      name: "テスト会社",
-    });
-
-    expect(company.id).toBe("company-1");
-    expect(request).toHaveBeenCalledWith(
-      expect.anything(),
-      "POST",
-      "/api/companies",
-      { name: "テスト会社" },
+  it("collects stale live ai companies by case id signature", () => {
+    const staleIds = collectStaleLiveAiCompanyIds(
+      [
+        { id: "company-1", name: "テスト社_interview_company_fit_and_depth_live-ai-conversations-123" },
+        { id: "company-2", name: "一般企業" },
+        { id: "company-3", name: "別企業_motivation_company_reason_live-ai-conversations-456" },
+      ],
+      ["interview_company_fit_and_depth", "motivation_company_reason"],
     );
+
+    expect(staleIds).toEqual(["company-1", "company-3"]);
+  });
+
+  it("builds deterministic gakuchika follow-up answers from transcript context", () => {
+    const answer = buildDeterministicGakuchikaFollowupAnswer({
+      nextQuestion: "そのとき自分の役割は何でしたか",
+      attemptIndex: 2,
+      transcript: [
+        { role: "assistant", content: "最初の質問" },
+        { role: "user", content: "校舎改善で共有フォーマットを作りました。" },
+      ],
+    });
+
+    expect(answer).toContain("共有フォーマットを作りました");
+    expect(answer).toContain("そのとき自分の役割は何でしたか");
   });
 
   it("continues gakuchika setup with fallback answers until completion", async () => {
@@ -97,7 +103,7 @@ describe("live ai conversation helpers", () => {
     expect(request).toHaveBeenCalledTimes(3);
     expect(transcript.filter((turn) => turn.role === "user").map((turn) => turn.content)).toEqual([
       "1つ目の回答",
-      expect.stringContaining("補足"),
+      expect.stringContaining("1つ目の回答"),
     ]);
   });
 });

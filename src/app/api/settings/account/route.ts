@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { stripe } from "@/lib/stripe";
 import { logError } from "@/lib/logger";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 export async function DELETE(request: NextRequest) {
   try {
@@ -20,10 +21,12 @@ export async function DELETE(request: NextRequest) {
     });
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        developerMessage: "Authentication required",
+      });
     }
 
     const userId = session.user.id;
@@ -73,9 +76,13 @@ export async function DELETE(request: NextRequest) {
     });
   } catch (error) {
     logError("delete-account", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "SETTINGS_ACCOUNT_DELETE_FAILED",
+      userMessage: "アカウントを削除できませんでした。",
+      action: "時間をおいて、もう一度お試しください。",
+      developerMessage: "Failed to delete account",
+      error,
+    });
   }
 }

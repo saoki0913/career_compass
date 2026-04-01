@@ -136,6 +136,7 @@ const CONTENT_TYPE_OPTIONS: Array<{ value: ContentType; label: string }> = [
 interface CorporateInfoSectionProps {
   companyId: string;
   companyName: string;
+  onUpdate?: () => void;
 }
 
 type InputMode = "web" | "url" | "pdf";
@@ -702,6 +703,7 @@ function isRecommendedCandidate(candidate: SearchCandidate) {
 export function CorporateInfoSection({
   companyId,
   companyName,
+  onUpdate,
 }: CorporateInfoSectionProps) {
   const { isAuthenticated, isReady: isAuthReady } = useAuth();
   const { companyRagUnitsLimit, companyRagUnitsRemaining, plan, ragPdfLimits } = useCredits({

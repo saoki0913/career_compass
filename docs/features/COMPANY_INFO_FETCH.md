@@ -232,6 +232,13 @@
    - 背景の企業詳細ページ全体は skeleton に戻さず、RAG 状態セクションだけ同期
 ```
 
+### 再取得時の保存ルール
+
+- 新しい URL を追加で取得した場合は、既存 URL の RAG を消さずに蓄積する
+- 既に保存済みの URL をもう一度取得した場合は、その URL の既存チャンクだけを新しい取得結果で置き換える
+- 同じ URL の分類結果が変わった場合は、旧 `content_type` 側のその URL のチャンクを消し、新しい分類へ移す
+- 再取得失敗時は旧データを残す
+
 ### コンテンツタイプと検索タイプの対応
 
 | ContentType | SearchType | 検索クエリ例 |
@@ -328,7 +335,7 @@ COMPANY_QUERY_ALIASES = {
 |---------------|------|
 | `POST /company-info/search-corporate-pages` | コーポレートページ候補を検索 |
 | `POST /company-info/rag/crawl-corporate` | ユーザーが選択したページをクロールしてRAG保存 |
-| `POST /company-info/rag/{company_id}/delete-by-urls` | 登録済みURLを削除 |
+| `POST /company-info/rag/{company_id}/delete-by-urls` | 登録済みURLを削除（指定URLのRAGだけ削除） |
 
 ### RAG管理
 

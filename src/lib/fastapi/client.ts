@@ -1,5 +1,3 @@
-import "server-only";
-
 import { createInternalServiceJwt } from "@/lib/fastapi/internal-jwt";
 
 function getFastApiBaseUrl() {

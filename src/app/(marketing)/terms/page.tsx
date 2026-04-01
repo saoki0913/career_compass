@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { createMarketingMetadata } from "@/lib/marketing-metadata";
+import { getLegalSupportEmail } from "@/lib/legal/commerce-disclosure";
+
+const supportEmail = getLegalSupportEmail();
 
 export const metadata: Metadata = createMarketingMetadata({
   title: "利用規約 | 就活Pass",
@@ -18,7 +21,7 @@ export default function TermsPage() {
           利用規約
         </h1>
         <p className="text-sm text-muted-foreground mb-8">
-          最終更新日: 2026-03-20
+          最終更新日: 2026-03-31
         </p>
 
         <div className="space-y-8 text-sm leading-7">
@@ -65,7 +68,25 @@ export default function TermsPage() {
           <section>
             <h2 id="billing" className="text-base font-semibold mb-2">5. 料金・決済</h2>
             <p>
-              有料プランの購入、変更、解約、支払い失敗時の扱い等は、アプリ内の表示および決済事業者（Stripe）による手続に従います。
+              有料プランの料金は
+              <Link href="/pricing" className="mx-1 underline hover:text-foreground">
+                料金プランページ
+              </Link>
+              に表示する税込価格のとおりです。決済は Stripe を通じて行われ、カード情報は当社サーバーに保存されません。
+            </p>
+            <ul className="list-disc pl-5 mt-2 space-y-1">
+              <li>有料プランは月額または年額の自動更新サブスクリプションです。</li>
+              <li>初回は申込時に即時決済され、以後は各請求期間の更新日に自動で請求されます。</li>
+              <li>解約はアプリ内の設定画面または Stripe 顧客ポータルからいつでも行えます。</li>
+              <li>解約後も現在の請求期間の終了日までは有料機能を利用できます。</li>
+              <li>デジタルサービスの性質上、法令上必要な場合を除き、支払済み料金の返金は行いません。</li>
+            </ul>
+            <p className="mt-2">
+              詳細は
+              <Link href="/legal" className="mx-1 underline hover:text-foreground">
+                特定商取引法に基づく表記
+              </Link>
+              をご確認ください。
             </p>
           </section>
 
@@ -90,6 +111,10 @@ export default function TermsPage() {
               <Link href="/contact" className="underline hover:text-foreground">
                 お問い合わせページ
               </Link>
+              {" "}または{" "}
+              <a href={`mailto:${supportEmail}`} className="underline hover:text-foreground">
+                {supportEmail}
+              </a>
               よりご連絡ください。
             </p>
           </section>

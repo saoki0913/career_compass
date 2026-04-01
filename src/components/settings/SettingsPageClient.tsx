@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { notifySuccess } from "@/lib/notifications";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 import type {
   AccountNotificationSettingsData,
   AccountProfileData,
@@ -140,7 +141,10 @@ export default function SettingsPageClient({
       }));
       notifySuccess({ title: "プロフィールを保存しました" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存に失敗しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "SETTINGS_PROFILE_UPDATE_FAILED",
+        userMessage: "プロフィールを保存できませんでした。",
+      }, "SettingsPageClient:saveProfile"));
     } finally {
       setIsSaving(false);
     }
@@ -187,7 +191,10 @@ export default function SettingsPageClient({
       setNotificationSettings(data.settings);
       notifySuccess({ title: "通知設定を保存しました" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "通知設定の保存に失敗しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "SETTINGS_NOTIFICATIONS_UPDATE_FAILED",
+        userMessage: "通知設定を保存できませんでした。",
+      }, "SettingsPageClient:saveNotifications"));
     } finally {
       setIsSavingNotifications(false);
     }
@@ -226,7 +233,10 @@ export default function SettingsPageClient({
       trackEvent("portal_opened", { source: "settings", plan: profile.plan });
       window.location.href = url;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "請求管理ページを開けませんでした");
+      setError(getUserFacingErrorMessage(err, {
+        code: "STRIPE_PORTAL_CREATE_FAILED",
+        userMessage: "請求管理ページを開けませんでした。",
+      }, "SettingsPageClient:openBillingPortal"));
     } finally {
       setIsOpeningPortal(false);
     }
@@ -255,7 +265,10 @@ export default function SettingsPageClient({
       // Redirect to login page after successful deletion
       router.push("/login");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "アカウント削除に失敗しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "SETTINGS_ACCOUNT_DELETE_FAILED",
+        userMessage: "アカウント削除に失敗しました。",
+      }, "SettingsPageClient:deleteAccount"));
       setIsDeleting(false);
     }
   };

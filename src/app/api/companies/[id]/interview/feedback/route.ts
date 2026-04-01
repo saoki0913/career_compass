@@ -2,62 +2,103 @@ import { NextRequest } from "next/server";
 
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import {
+  cancelReservation,
+  confirmReservation,
+  DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
+  reserveCredits,
+} from "@/lib/credits";
 
-import { buildInterviewContext, validateInterviewMessages } from "../shared";
-import { createInterviewProxyStream } from "../stream-utils";
+import {
+  buildInterviewContext,
+  saveInterviewConversationProgress,
+  saveInterviewFeedbackHistory,
+} from "../shared";
+import {
+  createInterviewPersistenceUnavailableResponse,
+  normalizeInterviewPersistenceError,
+} from "../persistence-errors";
+import {
+  createInterviewUpstreamStream,
+  normalizeFeedback,
+} from "../stream-utils";
+
+function buildSeedSummary(materials: Array<{ kind?: string; label: string; text: string }>) {
+  return materials
+    .filter((material) => material.kind === "industry_seed" || material.kind === "company_seed")
+    .map((material) => `${material.label}: ${material.text}`)
+    .join("\n");
+}
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const identity = await getRequestIdentity(request);
-  if (!identity?.userId) {
+  if (!identity) {
     return createApiErrorResponse(request, {
       status: 401,
       code: "INTERVIEW_AUTH_REQUIRED",
-      userMessage: "面接対策はログイン後に利用できます。",
-      action: "ログイン後に、もう一度お試しください。",
+      userMessage: "面接対策を利用するには認証が必要です。",
+      action: "ログイン、またはゲスト状態を確認してから、もう一度お試しください。",
     });
   }
 
   const { id: companyId } = await params;
-  const context = await buildInterviewContext(companyId, identity.userId);
-  if (!context) {
+  let context;
+  try {
+    context = await buildInterviewContext(companyId, identity);
+  } catch (error) {
+    const persistenceError = normalizeInterviewPersistenceError(error, {
+      companyId,
+      operation: "interview:feedback",
+    });
+    if (persistenceError) {
+      return createInterviewPersistenceUnavailableResponse(request, persistenceError);
+    }
+    throw error;
+  }
+  if (!context?.conversation) {
     return createApiErrorResponse(request, {
       status: 404,
-      code: "INTERVIEW_COMPANY_NOT_FOUND",
-      userMessage: "企業が見つかりません。",
-      action: "企業一覧から対象の企業を開き直してください。",
+      code: "INTERVIEW_CONVERSATION_NOT_FOUND",
+      userMessage: "面接対策の会話が見つかりません。",
+      action: "面接対策を開始してから、もう一度お試しください。",
     });
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch (error) {
+  const userAnswerCount = context.conversation.messages.filter((message) => message.role === "user").length;
+  if (userAnswerCount === 0) {
     return createApiErrorResponse(request, {
       status: 400,
-      code: "INTERVIEW_INVALID_JSON",
-      userMessage: "送信内容を読み取れませんでした。",
-      action: "画面を更新してから、もう一度お試しください。",
-      error,
+      code: "INTERVIEW_NOT_ENOUGH_MESSAGES",
+      userMessage: "最終講評を作るには、先に面接質問へ回答してください。",
+      action: "少なくとも数問回答してから、もう一度お試しください。",
     });
   }
 
-  const messages = validateInterviewMessages((body as { messages?: unknown }).messages ?? []);
-  if (!messages || messages.filter((message) => message.role === "user").length === 0) {
-    return createApiErrorResponse(request, {
-      status: 400,
-      code: "INTERVIEW_INVALID_MESSAGES",
-      userMessage: "会話履歴の形式が正しくありません。",
-      action: "画面を更新してから、もう一度お試しください。",
-    });
+  let reservationId: string | null = null;
+  if (identity.userId) {
+    const reservation = await reserveCredits(
+      identity.userId,
+      DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
+      "interview_feedback",
+      companyId,
+      `面接対策講評: ${context.company.name}`,
+    );
+    if (!reservation.success) {
+      return createApiErrorResponse(request, {
+        status: 402,
+        code: "INTERVIEW_CREDITS_REQUIRED",
+        userMessage: "クレジットが不足しています。",
+        action: "残高を確認してから、もう一度お試しください。",
+      });
+    }
+    reservationId = reservation.reservationId;
   }
 
-  return createInterviewProxyStream({
+  return createInterviewUpstreamStream({
     request,
-    context,
-    initialMessages: messages,
     upstreamPath: "/api/interview/feedback",
     upstreamPayload: {
       company_name: context.company.name,
@@ -65,10 +106,72 @@ export async function POST(
       motivation_summary: context.motivationSummary,
       gakuchika_summary: context.gakuchikaSummary,
       es_summary: context.esSummary,
-      conversation_history: messages,
+      conversation_history: context.conversation.messages,
+      turn_state: context.conversation.turnState,
+      selected_industry: context.setup.selectedIndustry,
+      selected_role: context.setup.selectedRole,
+      selected_role_source: context.setup.selectedRoleSource,
+      seed_summary: buildSeedSummary(context.materials),
     },
-    userId: identity.userId,
-    companyId,
-    isCompleted: true,
+    onComplete: async (upstreamData) => {
+      const feedback = normalizeFeedback(upstreamData);
+      const turnState = {
+        ...context.conversation!.turnState,
+        currentStage: "feedback" as const,
+        nextAction: "feedback" as const,
+      };
+      let feedbackHistories;
+
+      try {
+        await saveInterviewConversationProgress({
+          conversationId: context.conversation!.id,
+          companyId,
+          messages: context.conversation!.messages,
+          turnState,
+          status: "feedback_completed",
+          feedback,
+        });
+        feedbackHistories = await saveInterviewFeedbackHistory({
+          conversationId: context.conversation!.id,
+          companyId,
+          identity,
+          feedback,
+          sourceMessagesSnapshot: context.conversation!.messages,
+          sourceQuestionCount: context.conversation!.questionCount,
+        });
+      } catch (error) {
+        if (reservationId) {
+          await cancelReservation(reservationId);
+        }
+        throw error;
+      }
+
+      if (reservationId) {
+        await confirmReservation(reservationId);
+      }
+
+      return {
+        messages: context.conversation!.messages,
+        questionCount: context.conversation!.questionCount,
+        stageStatus: upstreamData.stage_status ?? context.conversation!.stageStatus,
+        questionStage: "feedback",
+        focus: null,
+        feedback,
+        questionFlowCompleted: true,
+        creditCost: DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
+        turnState,
+        feedbackHistories,
+      };
+    },
+    onAbort: async () => {
+      if (reservationId) {
+        await cancelReservation(reservationId);
+      }
+    },
+    onError: async () => {
+      if (reservationId) {
+        await cancelReservation(reservationId);
+      }
+    },
   });
 }

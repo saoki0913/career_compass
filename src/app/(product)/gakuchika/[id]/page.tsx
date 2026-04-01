@@ -26,6 +26,7 @@ import { parseGakuchikaSummary } from "@/lib/gakuchika/summary";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
 import { GakuchikaDeepDiveSkeleton } from "@/components/skeletons/GakuchikaDeepDiveSkeleton";
+import { getUserFacingErrorMessage, parseApiErrorResponse } from "@/lib/api-errors";
 
 const STAR_HINT_ICONS: Record<string, string> = {
   situation: "\u{1F4CD}",
@@ -336,7 +337,18 @@ function GakuchikaConversationContent() {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "会話の取得に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "GAKUCHIKA_CONVERSATION_FETCH_FAILED",
+            userMessage: "会話の取得に失敗しました。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaPage.fetchConversation"
+        )
+      );
     } finally {
       setAssistantPhase("idle");
       setIsLoading(false);
@@ -386,8 +398,16 @@ function GakuchikaConversationContent() {
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "作成の開始に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "GAKUCHIKA_CONVERSATION_START_FAILED",
+            userMessage: "作成の開始に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaPage.handleStartDeepDive"
+        );
       }
 
       const data = await response.json();
@@ -397,7 +417,18 @@ function GakuchikaConversationContent() {
       // Fetch the full conversation data
       await fetchConversation(data.conversation?.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "作成の開始に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "GAKUCHIKA_CONVERSATION_START_FAILED",
+            userMessage: "作成の開始に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaPage.handleStartDeepDive"
+        )
+      );
     } finally {
       setIsStarting(false);
     }
@@ -442,8 +473,16 @@ function GakuchikaConversationContent() {
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to send");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "GAKUCHIKA_CONVERSATION_STREAM_FAILED",
+            userMessage: "送信に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaPage.handleSend"
+        );
       }
 
       // Process SSE stream
@@ -527,7 +566,18 @@ function GakuchikaConversationContent() {
       setStreamingAssistantText("");
       setAssistantPhase("idle");
       setIsWaitingForResponse(false);
-      setError(err instanceof Error ? err.message : "送信に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "GAKUCHIKA_CONVERSATION_STREAM_FAILED",
+            userMessage: "送信に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaPage.handleSend"
+        )
+      );
     } finally {
       setIsSending(false);
       if (!receivedComplete) {
@@ -566,8 +616,16 @@ function GakuchikaConversationContent() {
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "作成の再開に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "GAKUCHIKA_CONVERSATION_RESUME_FAILED",
+            userMessage: "作成の再開に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaPage.handleResumeSession"
+        );
       }
 
       const data = await response.json();
@@ -592,7 +650,18 @@ function GakuchikaConversationContent() {
       setIsSummaryLoading(false);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "作成の再開に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "GAKUCHIKA_CONVERSATION_RESUME_FAILED",
+            userMessage: "作成の再開に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaPage.handleResumeSession"
+        )
+      );
     }
   };
 
@@ -612,8 +681,16 @@ function GakuchikaConversationContent() {
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        throw new Error(data?.error || "ES生成に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "GAKUCHIKA_DRAFT_GENERATE_FAILED",
+            userMessage: "ES生成に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaPage.handleGenerateDraft"
+        );
       }
 
       const data = await response.json();
@@ -621,7 +698,18 @@ function GakuchikaConversationContent() {
         router.push(`/es/${data.documentId}`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ES生成に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "GAKUCHIKA_DRAFT_GENERATE_FAILED",
+            userMessage: "ES生成に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaPage.handleGenerateDraft"
+        )
+      );
     } finally {
       setIsGeneratingDraft(false);
       releaseLock();

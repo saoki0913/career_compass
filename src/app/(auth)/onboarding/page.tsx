@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { INDUSTRIES, PROFILE_JOB_TYPES } from "@/lib/constants/industries";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 
 function getGraduationYears(): number[] {
   const currentYear = new Date().getFullYear();
@@ -76,7 +77,10 @@ export default function OnboardingPage() {
           targetJobTypes: result.data.targetJobTypes || [],
         });
       } catch (err) {
-        setError(err instanceof Error ? err.message : "エラーが発生しました");
+        setError(getUserFacingErrorMessage(err, {
+          code: "ONBOARDING_FETCH_FAILED",
+          userMessage: "初期設定を読み込めませんでした。",
+        }, "OnboardingPage:fetch"));
       } finally {
         setIsFetching(false);
       }
@@ -142,7 +146,10 @@ export default function OnboardingPage() {
       await refreshPlan();
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "エラーが発生しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "ONBOARDING_SAVE_FAILED",
+        userMessage: "初期設定を保存できませんでした。",
+      }, "OnboardingPage:save"));
     } finally {
       setIsSubmitting(false);
     }

@@ -15,6 +15,7 @@ import { CalendarSidebar } from "@/components/calendar/CalendarSidebar";
 import { WorkBlockFAB } from "@/components/calendar/WorkBlockFAB";
 import { EventDetailModal, type DisplayEvent } from "@/components/calendar/EventDetailModal";
 import { notifyCalendarEventCreated, notifyCalendarEventDeleted, notifyError } from "@/lib/notifications";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 
 // Icons
 const ChevronLeftIcon = () => (
@@ -228,7 +229,10 @@ function AddEventModal({ isOpen, selectedDate, onClose, onCreate }: AddEventModa
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "エラーが発生しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "CALENDAR_EVENT_SUBMIT_FAILED",
+        userMessage: "イベントを保存できませんでした。",
+      }, "CalendarPage:submitEvent"));
     } finally {
       setIsSubmitting(false);
     }
@@ -479,7 +483,10 @@ export default function CalendarPage() {
       setSelectedDate(null);
       setWorkBlockSuggestions([]);
       notifyError({
-        title: error instanceof Error ? error.message : "作業ブロックの提案を取得できませんでした。",
+        title: getUserFacingErrorMessage(error, {
+          code: "CALENDAR_WORK_BLOCK_SUGGESTIONS_FAILED",
+          userMessage: "作業ブロックの提案を取得できませんでした。",
+        }, "CalendarPage:suggestWorkBlocks"),
       });
     }
   };
@@ -495,7 +502,10 @@ export default function CalendarPage() {
       notifyCalendarEventCreated("manual");
     } catch (error) {
       notifyError({
-        title: error instanceof Error ? error.message : "イベントを作成できませんでした。",
+        title: getUserFacingErrorMessage(error, {
+          code: "CALENDAR_EVENT_CREATE_FAILED",
+          userMessage: "イベントを作成できませんでした。",
+        }, "CalendarPage:createEvent"),
       });
       throw error;
     }
@@ -512,7 +522,10 @@ export default function CalendarPage() {
       notifyCalendarEventCreated("work_block");
     } catch (error) {
       notifyError({
-        title: error instanceof Error ? error.message : "作業ブロックを作成できませんでした。",
+        title: getUserFacingErrorMessage(error, {
+          code: "CALENDAR_WORK_BLOCK_CREATE_FAILED",
+          userMessage: "作業ブロックを作成できませんでした。",
+        }, "CalendarPage:createWorkBlock"),
       });
       throw error;
     }
@@ -829,7 +842,10 @@ export default function CalendarPage() {
               setSelectedEvent(null);
             } catch (error) {
               notifyError({
-                title: error instanceof Error ? error.message : "イベントを削除できませんでした。",
+                title: getUserFacingErrorMessage(error, {
+                  code: "CALENDAR_EVENT_DELETE_FAILED",
+                  userMessage: "イベントを削除できませんでした。",
+                }, "CalendarPage:deleteEvent"),
               });
               throw error;
             }

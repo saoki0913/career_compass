@@ -127,6 +127,10 @@
 | `cloudflare.env` | `stg-api.shupass.jp` を含む zone bootstrap inputs |
 | `<secrets root>/google-oauth/career_compass.env` | Google OAuth inventory（バンドルと兄弟） |
 
+補足:
+- staging / preview の CI test auth は `CI_E2E_AUTH_SECRET` が設定されていれば有効。
+- 明示的に止めたい場合のみ frontend env に `CI_E2E_AUTH_ENABLED=0` を入れる。
+
 ## Sync Commands
 
 - auth 確認: `zsh scripts/release/provider-auth-status.sh --strict`

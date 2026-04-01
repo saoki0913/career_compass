@@ -31,10 +31,10 @@ export type TransactionType =
   | "gakuchika_draft"
   | "motivation"
   | "motivation_draft"
-  | "interview"
+  | "interview_feedback"
   | "refund";
 
-export const DEFAULT_INTERVIEW_SESSION_CREDIT_COST = 5;
+export const DEFAULT_INTERVIEW_SESSION_CREDIT_COST = 6;
 
 /**
  * Get the current date in JST (YYYY-MM-DD format)

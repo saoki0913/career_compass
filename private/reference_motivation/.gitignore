@@ -1,0 +1,4 @@
+# Keep this directory in Git, but never commit private motivation samples.
+*
+!.gitignore
+!README.md

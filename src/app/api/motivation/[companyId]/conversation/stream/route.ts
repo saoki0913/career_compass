@@ -29,6 +29,8 @@ import {
   getMotivationConversationByCondition as getConversationByCondition,
   mergeDraftReadyContext,
   resolveDraftReadyState,
+  safeParseConversationContext as parseConversationContext,
+  type LastQuestionMeta as BaseLastQuestionMeta,
   type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
 import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
@@ -87,14 +89,7 @@ interface SuggestionOption {
   isTentative?: boolean;
 }
 
-interface LastQuestionMeta {
-  questionText?: string | null;
-  question_signature?: string | null;
-  question_stage?: string | null;
-  question_focus?: string | null;
-  stage_attempt_count?: number | null;
-  premise_mode?: string | null;
-}
+type LastQuestionMeta = BaseLastQuestionMeta;
 
 type MotivationConversationContext = BaseMotivationConversationContext;
 
@@ -156,59 +151,7 @@ function safeParseScores(json: string | null): MotivationScores | null {
 }
 
 function safeParseConversationContext(json: string | null): MotivationConversationContext {
-  if (!json) {
-    return {
-      userAnchorStrengths: [],
-      userAnchorEpisodes: [],
-      profileAnchorIndustries: [],
-      profileAnchorJobTypes: [],
-      companyAnchorKeywords: [],
-      companyRoleCandidates: [],
-      companyWorkCandidates: [],
-      questionStage: "industry_reason",
-    };
-  }
-  try {
-    const parsed = JSON.parse(json);
-    return {
-      selectedIndustry: typeof parsed.selectedIndustry === "string" ? parsed.selectedIndustry : undefined,
-      selectedIndustrySource: typeof parsed.selectedIndustrySource === "string" ? parsed.selectedIndustrySource : undefined,
-      industryReason: typeof parsed.industryReason === "string" ? parsed.industryReason : undefined,
-      companyReason: typeof parsed.companyReason === "string" ? parsed.companyReason : undefined,
-      selectedRole: typeof parsed.selectedRole === "string" ? parsed.selectedRole : undefined,
-      selectedRoleSource: typeof parsed.selectedRoleSource === "string" ? parsed.selectedRoleSource : undefined,
-      desiredWork: typeof parsed.desiredWork === "string" ? parsed.desiredWork : undefined,
-      originExperience: typeof parsed.originExperience === "string" ? parsed.originExperience : undefined,
-      fitConnection: typeof parsed.fitConnection === "string" ? parsed.fitConnection : undefined,
-      differentiationReason:
-        typeof parsed.differentiationReason === "string" ? parsed.differentiationReason : undefined,
-      userAnchorStrengths: Array.isArray(parsed.userAnchorStrengths) ? parsed.userAnchorStrengths.filter((v: unknown): v is string => typeof v === "string") : [],
-      userAnchorEpisodes: Array.isArray(parsed.userAnchorEpisodes) ? parsed.userAnchorEpisodes.filter((v: unknown): v is string => typeof v === "string") : [],
-      profileAnchorIndustries: Array.isArray(parsed.profileAnchorIndustries) ? parsed.profileAnchorIndustries.filter((v: unknown): v is string => typeof v === "string") : [],
-      profileAnchorJobTypes: Array.isArray(parsed.profileAnchorJobTypes) ? parsed.profileAnchorJobTypes.filter((v: unknown): v is string => typeof v === "string") : [],
-      companyAnchorKeywords: Array.isArray(parsed.companyAnchorKeywords) ? parsed.companyAnchorKeywords.filter((v: unknown): v is string => typeof v === "string") : [],
-      companyRoleCandidates: Array.isArray(parsed.companyRoleCandidates) ? parsed.companyRoleCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
-      companyWorkCandidates: Array.isArray(parsed.companyWorkCandidates) ? parsed.companyWorkCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
-      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "industry_reason",
-      stageAttemptCount: typeof parsed.stageAttemptCount === "number" ? parsed.stageAttemptCount : undefined,
-      confirmedFacts: parsed.confirmedFacts && typeof parsed.confirmedFacts === "object" ? parsed.confirmedFacts : undefined,
-      openSlots: Array.isArray(parsed.openSlots) ? parsed.openSlots.filter((v: unknown): v is string => typeof v === "string") : undefined,
-      lastQuestionMeta: parsed.lastQuestionMeta && typeof parsed.lastQuestionMeta === "object" ? parsed.lastQuestionMeta : undefined,
-      draftReady: typeof parsed.draftReady === "boolean" ? parsed.draftReady : undefined,
-      draftReadyUnlockedAt: typeof parsed.draftReadyUnlockedAt === "string" ? parsed.draftReadyUnlockedAt : null,
-    };
-  } catch {
-    return {
-      userAnchorStrengths: [],
-      userAnchorEpisodes: [],
-      profileAnchorIndustries: [],
-      profileAnchorJobTypes: [],
-      companyAnchorKeywords: [],
-      companyRoleCandidates: [],
-      companyWorkCandidates: [],
-      questionStage: "industry_reason",
-    };
-  }
+  return parseConversationContext(json);
 }
 
 async function fetchApplicationJobCandidates(

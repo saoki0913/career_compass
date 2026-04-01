@@ -232,6 +232,7 @@ function normalizeReports(reports) {
     const counts = countRows(report.rows || []);
     const reasonCounts = new Map();
     const warningCounts = new Map();
+    const failureKindCounts = new Map();
 
     for (const row of report.rows || []) {
       for (const reason of collectReasons(row)) {
@@ -239,6 +240,10 @@ function normalizeReports(reports) {
       }
       for (const warning of collectWarnings(row)) {
         warningCounts.set(warning, (warningCounts.get(warning) || 0) + 1);
+      }
+      const failureKind = typeof row.failure_kind === "string" ? row.failure_kind : "";
+      if (failureKind) {
+        failureKindCounts.set(failureKind, (failureKindCounts.get(failureKind) || 0) + 1);
       }
     }
 
@@ -249,6 +254,7 @@ function normalizeReports(reports) {
       counts,
       topReasons: rankEntries(reasonCounts),
       topWarnings: rankEntries(warningCounts),
+      topFailureKinds: rankEntries(failureKindCounts),
       degradedLines: buildIssueLines(report.rows || [], "degraded"),
       failedLines: buildIssueLines(report.rows || [], "failed"),
     };
@@ -262,6 +268,7 @@ function createMissingFeature(reportType) {
     counts: { total: 0, passed: 0, degraded: 0, failed: 0, skipped: 0 },
     topReasons: [{ value: "missing_report", count: 1 }],
     topWarnings: [],
+    topFailureKinds: [],
     degradedLines: [],
     failedLines: [],
     priority: "high",
@@ -276,6 +283,7 @@ function createMissingFeature(reportType) {
     ],
     reportFile: "(missing)",
     status: "missing_report",
+    workflowImpact: "blocking",
   };
 }
 
@@ -323,6 +331,23 @@ function statusForReport(report) {
   return "ok";
 }
 
+function isExtendedEsQualityReportOnly(report, suite) {
+  if (suite !== "extended" || report.reportType !== "es_review" || report.counts.failed === 0) {
+    return false;
+  }
+  if (report.topFailureKinds.length === 0) {
+    return false;
+  }
+  return report.topFailureKinds.every((entry) => entry.value === "quality");
+}
+
+function workflowImpactForReport(report, suite) {
+  if (report.status === "missing_report") return "blocking";
+  if (report.counts.failed === 0) return "none";
+  if (isExtendedEsQualityReportOnly(report, suite)) return "report_only";
+  return "blocking";
+}
+
 function buildTodayActions(features) {
   return features
     .filter((feature) => feature.priority !== "low")
@@ -365,12 +390,22 @@ export function buildAiLiveArtifacts(reports, options = {}) {
     counts: report.counts,
     topReasons: report.topReasons,
     topWarnings: report.topWarnings,
+    topFailureKinds: report.topFailureKinds,
     degradedLines: report.degradedLines,
     failedLines: report.failedLines,
     priority: priorityForReport(report),
     recommendations: buildRecommendations(report),
     reportFile: path.basename(report.path),
     status: statusForReport(report),
+    workflowImpact: workflowImpactForReport(
+      {
+        reportType: report.reportType,
+        counts: report.counts,
+        topFailureKinds: report.topFailureKinds,
+        status: statusForReport(report),
+      },
+      suite
+    ),
   }));
   const featureMap = new Map(existingFeatures.map((feature) => [feature.reportType, feature]));
   const features = FEATURE_ORDER.map((reportType) => featureMap.get(reportType) || createMissingFeature(reportType));
@@ -381,6 +416,7 @@ export function buildAiLiveArtifacts(reports, options = {}) {
     runUrl,
     suite,
     overall,
+    blockingFailureCount: features.filter((feature) => feature.workflowImpact === "blocking").length,
     features: Object.fromEntries(features.map((feature) => [feature.reportType, feature])),
   };
 
@@ -408,6 +444,7 @@ export function buildAiLiveArtifacts(reports, options = {}) {
       `- total=${feature.counts.total} passed=${feature.counts.passed} degraded=${feature.counts.degraded} failed=${feature.counts.failed} skipped=${feature.counts.skipped}`,
       `- priority: \`${feature.priority}\``,
       `- status: \`${feature.status}\``,
+      `- workflow_impact: \`${feature.workflowImpact}\``,
       "",
     );
 
@@ -458,8 +495,16 @@ export function buildAiLiveArtifacts(reports, options = {}) {
       `- 優先度: \`${feature.priority}\``,
       `- report: \`${feature.reportFile}\``,
       `- report_status: \`${feature.status}\``,
+      `- workflow_impact: \`${feature.workflowImpact}\``,
       "",
     );
+
+    if (feature.workflowImpact === "report_only") {
+      issueLines.push(
+        "_extended suite のため、この feature の quality failure は report-only です。infra/config failure ではない限り workflow の blocking 対象にしません。_",
+        "",
+      );
+    }
 
     if (feature.status === "missing_report") {
       issueLines.push(

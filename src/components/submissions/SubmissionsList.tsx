@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { notifyError, notifySubmissionCreated, notifySubmissionDeleted, notifySubmissionStatusChanged } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 import {
   useSubmissions,
   SubmissionItem,
@@ -108,7 +109,10 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
       setNewItem({ type: "es", name: "", isRequired: false });
       setShowNewForm(false);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "提出物を追加できませんでした。";
+      const message = getUserFacingErrorMessage(err, {
+        code: "SUBMISSION_CREATE_FAILED",
+        userMessage: "提出物を追加できませんでした。",
+      }, "SubmissionsList:create");
       setFormError(message);
       notifyError({ title: message });
     } finally {
@@ -126,7 +130,10 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
       notifySubmissionStatusChanged(SUBMISSION_STATUS[nextStatus]);
     } catch (err) {
       notifyError({
-        title: err instanceof Error ? err.message : "提出物を更新できませんでした。",
+        title: getUserFacingErrorMessage(err, {
+          code: "SUBMISSION_UPDATE_FAILED",
+          userMessage: "提出物を更新できませんでした。",
+        }, "SubmissionsList:update"),
       });
     }
   };
@@ -137,7 +144,10 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
       notifySubmissionDeleted();
     } catch (err) {
       notifyError({
-        title: err instanceof Error ? err.message : "提出物を削除できませんでした。",
+        title: getUserFacingErrorMessage(err, {
+          code: "SUBMISSION_DELETE_FAILED",
+          userMessage: "提出物を削除できませんでした。",
+        }, "SubmissionsList:delete"),
       });
     }
   };

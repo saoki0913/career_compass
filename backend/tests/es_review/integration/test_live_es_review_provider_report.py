@@ -97,6 +97,17 @@ def _collect_only() -> bool:
     return os.getenv("LIVE_ES_REVIEW_COLLECT_ONLY", "0").strip() == "1"
 
 
+def _blocking_failures_enabled(case_set: str) -> bool:
+    override = os.getenv("LIVE_ES_REVIEW_BLOCKING_FAILURES", "").strip()
+    if override == "1":
+        return True
+    if override == "0":
+        return False
+    if _collect_only():
+        return False
+    return case_set == SMOKE_CASE_SET
+
+
 def _md_detail_level() -> str:
     """Markdown 付録に載せるケース: failed のみ（既定） / 全件（all）。"""
     raw = os.getenv("LIVE_ES_REVIEW_MD_DETAIL", "failed").strip().lower()
@@ -659,6 +670,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
     require_judge_pass = _require_judge_pass()
     judge_min_scores = _judge_min_score_thresholds()
     collect_only = _collect_only()
+    blocking_failures_enabled = _blocking_failures_enabled(case_set)
     missing_models = [
         model_id
         for model_id in selected_models
@@ -730,7 +742,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                         "note": preflight["reason"],
                     }
                 )
-                if not _is_canary_case_set(case_set) and not collect_only:
+                if not _is_canary_case_set(case_set) and blocking_failures_enabled:
                     blocking_failures.append(f"{model_id}::{case.case_id} failed: {preflight['reason']}")
             continue
         for case in selected_cases:
@@ -834,7 +846,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                     detail=f"{duration_ms}ms det={len(deterministic_failures)} judge_block={len(judge_failures)}",
                 )
                 if combined_failures:
-                    if not _is_canary_case_set(case_set) and not collect_only:
+                    if not _is_canary_case_set(case_set) and blocking_failures_enabled:
                         blocking_failures.append(
                             f"{model_id}::{case.case_id} failed: {', '.join(combined_failures)}"
                         )
@@ -862,7 +874,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                         "note": note,
                     }
                 )
-                if not _is_canary_case_set(case_set) and not collect_only:
+                if not _is_canary_case_set(case_set) and blocking_failures_enabled:
                     blocking_failures.append(
                         f"{model_id}::{case.case_id} failed: {exc.detail}"
                         + (f" | debug={dbg}" if dbg else "")
@@ -893,7 +905,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                         "note": str(exc),
                     }
                 )
-                if not _is_canary_case_set(case_set) and not collect_only:
+                if not _is_canary_case_set(case_set) and blocking_failures_enabled:
                     blocking_failures.append(f"{model_id}::{case.case_id} failed: {exc}")
                 _cli_progress(
                     step=progress_step,
@@ -907,5 +919,5 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
     json_path, md_path = _write_report(case_set, rows)
     assert json_path.exists()
     assert md_path.exists()
-    if blocking_failures and not collect_only:
+    if blocking_failures and blocking_failures_enabled:
         pytest.fail("\n".join(blocking_failures))

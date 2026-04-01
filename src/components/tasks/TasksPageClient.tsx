@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { notifyError } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 import {
   useTasks,
   useTodayTask,
@@ -123,7 +124,10 @@ function TaskModal({ isOpen, task, onClose, onSubmit, onDelete }: TaskModalProps
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "エラーが発生しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "TASKS_MODAL_SUBMIT_FAILED",
+        userMessage: "タスクを保存できませんでした。",
+      }, "TasksPageClient:submitTask"));
     } finally {
       setIsSubmitting(false);
     }
@@ -136,7 +140,10 @@ function TaskModal({ isOpen, task, onClose, onSubmit, onDelete }: TaskModalProps
       await onDelete();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "削除に失敗しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "TASKS_MODAL_DELETE_FAILED",
+        userMessage: "タスクを削除できませんでした。",
+      }, "TasksPageClient:deleteTask"));
     } finally {
       setIsDeleting(false);
     }

@@ -1,19 +1,20 @@
 import { expect, test } from "@playwright/test";
 import {
   apiRequest,
-  createOwnedApplication,
-  createOwnedDeadline,
-  createOwnedNotification,
-  createOwnedSubmission,
-  createOwnedTask,
+  createGuestApplication,
+  createGuestDeadline,
+  createGuestNotification,
+  createGuestSubmission,
   createGuestCompany,
   createGuestDocument,
+  createGuestTask,
+  deleteGuestDeadline,
   deleteGuestCompany,
   deleteGuestDocument,
-  deleteOwnedApplication,
-  deleteOwnedNotification,
-  deleteOwnedSubmission,
-  deleteOwnedTask,
+  deleteGuestApplication,
+  deleteGuestNotification,
+  deleteGuestSubmission,
+  deleteGuestTask,
   ensureGuestSession,
   expectOkResponse,
   loginAsGuest,
@@ -70,20 +71,20 @@ test.describe("Guest major flow", () => {
       });
       companyId = company.id;
 
-      const application = await createOwnedApplication(page, companyId, {
+      const application = await createGuestApplication(page, companyId, {
         name: applicationName,
         type: "main",
       });
       applicationId = application.id;
 
-      const submission = await createOwnedSubmission(page, applicationId, {
+      const submission = await createGuestSubmission(page, applicationId, {
         type: "other",
         name: submissionName,
         isRequired: true,
       });
       submissionId = submission.id;
 
-      const deadline = await createOwnedDeadline(page, companyId, {
+      const deadline = await createGuestDeadline(page, companyId, {
         type: "es_submission",
         title: deadlineTitle,
         memo: `${runId} memo`,
@@ -91,7 +92,7 @@ test.describe("Guest major flow", () => {
       });
       deadlineId = deadline.id;
 
-      const task = await createOwnedTask(page, {
+      const task = await createGuestTask(page, {
         title: taskTitle,
         type: "self_analysis",
         companyId,
@@ -114,7 +115,7 @@ test.describe("Guest major flow", () => {
       });
       documentId = document.id;
 
-      const notification = await createOwnedNotification(page, {
+      const notification = await createGuestNotification(page, {
         type: "deadline_reminder",
         title: notificationTitle,
         message: `${deadlineTitle} を確認してください`,
@@ -212,19 +213,22 @@ test.describe("Guest major flow", () => {
       ).toBeTruthy();
     } finally {
       if (notificationId) {
-        await deleteOwnedNotification(page, notificationId);
+        await deleteGuestNotification(page, notificationId);
       }
       if (taskId) {
-        await deleteOwnedTask(page, taskId);
+        await deleteGuestTask(page, taskId);
       }
       if (documentId) {
         await deleteGuestDocument(page, documentId);
       }
+      if (deadlineId) {
+        await deleteGuestDeadline(page, deadlineId);
+      }
       if (submissionId) {
-        await deleteOwnedSubmission(page, submissionId);
+        await deleteGuestSubmission(page, submissionId);
       }
       if (applicationId) {
-        await deleteOwnedApplication(page, applicationId);
+        await deleteGuestApplication(page, applicationId);
       }
       if (companyId) {
         await deleteGuestCompany(page, companyId);

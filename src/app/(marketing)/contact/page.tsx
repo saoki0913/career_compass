@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ContactForm } from "@/components/marketing/ContactForm";
 import { createMarketingMetadata } from "@/lib/marketing-metadata";
+import { getLegalSupportEmail } from "@/lib/legal/commerce-disclosure";
+
+const supportEmail = getLegalSupportEmail();
 
 export const metadata: Metadata = createMarketingMetadata({
   title: "お問い合わせ | 就活Pass",
@@ -20,6 +23,15 @@ export default function ContactPage() {
           </h1>
           <p className="text-sm text-muted-foreground">
             不具合報告・改善要望・決済に関するご相談など、お気軽にご連絡ください。
+          </p>
+          <p className="text-sm text-muted-foreground mt-2">
+            通常は 2 営業日以内を目安に、
+            {" "}
+            <a href={`mailto:${supportEmail}`} className="underline hover:text-foreground">
+              {supportEmail}
+            </a>
+            {" "}
+            よりご返信します。
           </p>
           <p className="text-xs text-muted-foreground mt-2">
             送信内容は
@@ -46,6 +58,12 @@ export default function ContactPage() {
                 <p className="text-muted-foreground">
                   可能であれば、発生日時・画面URL・操作手順を添えてください。
                 </p>
+              </div>
+              <div className="pt-2 border-t space-y-2">
+                <p className="text-muted-foreground">フォーム送信が難しい場合は、直接メールでも受け付けます。</p>
+                <a href={`mailto:${supportEmail}`} className="font-medium text-primary hover:underline">
+                  {supportEmail}
+                </a>
               </div>
             </div>
           </div>

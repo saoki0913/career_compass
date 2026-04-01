@@ -1,6 +1,6 @@
 # ドキュメント一覧（地図）
 
-**最終更新**: 2026-03-21
+**最終更新**: 2026-03-30
 
 **この文書の目的**: `docs/` 配下の全ファイルへの入口です。初めての方は先に [OVERVIEW.md](./OVERVIEW.md) を読んでください。
 
@@ -36,6 +36,7 @@
 |------|------|
 | [architecture/ARCHITECTURE.md](./architecture/ARCHITECTURE.md) | システム全体構成、Next.js と FastAPI の役割 |
 | [architecture/DATABASE.md](./architecture/DATABASE.md) | DB スキーマの説明（詳細は `src/lib/db/schema.ts`） |
+| [architecture/TENANT_ISOLATION_AUDIT.md](./architecture/TENANT_ISOLATION_AUDIT.md) | `companyId` と企業RAGの tenant 分離監査メモ |
 | [architecture/TECH_STACK.md](./architecture/TECH_STACK.md) | 使用ライブラリ・バージョンの目安 |
 | [architecture/ERROR_HANDLING.md](./architecture/ERROR_HANDLING.md) | API エラーとユーザー向け文言の方針 |
 | [architecture/FRONTEND_UI_GUIDELINES.md](./architecture/FRONTEND_UI_GUIDELINES.md) | フロントの UI ガイドライン |
@@ -78,7 +79,9 @@
 | 文書 | 説明 |
 |------|------|
 | [release/PRODUCTION.md](./release/PRODUCTION.md) | 本番リリースの全体フロー（一覧表あり） |
-| [release/DOMAIN.md](./release/DOMAIN.md) | ドメイン |
+| [release/DOMAIN_OPERATIONS.md](./release/DOMAIN_OPERATIONS.md) | `shupass.jp` のドメイン運用正本。最初に見る文書。Web、Google Workspace メール運用、解約判断を統合 |
+| [release/DOMAIN.md](./release/DOMAIN.md) | 旧分割文書の案内。Web ドメイン接続の旧入口 |
+| [release/EMAIL_GOOGLE_WORKSPACE.md](./release/EMAIL_GOOGLE_WORKSPACE.md) | 旧分割文書の案内。Google Workspace メール運用の旧入口 |
 | [release/SUPABASE.md](./release/SUPABASE.md) | 本番 Supabase |
 | [release/STRIPE.md](./release/STRIPE.md) | Stripe 本番 |
 | [release/RAILWAY.md](./release/RAILWAY.md) | Railway（FastAPI） |
@@ -103,7 +106,7 @@
 |------|------|
 | [ops/CLI_GUARDRAILS.md](./ops/CLI_GUARDRAILS.md) | CLI の安全な使い方 |
 | [ops/SECURITY.md](./ops/SECURITY.md) | セキュリティの注意事項 |
-| [ops/DOMAIN_AND_HOSTING_AUDIT.md](./ops/DOMAIN_AND_HOSTING_AUDIT.md) | お名前.com / Cloudflare / 解約判断の棚卸し手順 |
+| [ops/DOMAIN_AND_HOSTING_AUDIT.md](./ops/DOMAIN_AND_HOSTING_AUDIT.md) | 旧分割文書の案内。ops から `release/DOMAIN_OPERATIONS.md` へ辿るための入口 |
 
 ---
 

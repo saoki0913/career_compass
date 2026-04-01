@@ -165,7 +165,7 @@ describe("api/tasks/today", () => {
     });
   });
 
-  it("includes the underlying debug message for development 500 responses", async () => {
+  it("returns a structured 500 response in development", async () => {
     const { GET } = await import("@/app/api/tasks/today/route");
     process.env.NODE_ENV = "development";
     getRequestIdentityMock.mockRejectedValue(new Error("session lookup exploded"));
@@ -175,6 +175,7 @@ describe("api/tasks/today", () => {
 
     expect(response.status).toBe(500);
     expect(data.error.code).toBe("TODAY_TASK_FETCH_FAILED");
-    expect(data.debug.developerMessage).toBe("session lookup exploded");
+    expect(data.requestId).toEqual(expect.any(String));
+    expect(data).not.toHaveProperty("debug");
   });
 });

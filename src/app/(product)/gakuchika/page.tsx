@@ -40,6 +40,7 @@ import {
 import { GakuchikaListPageHeaderSkeleton } from "@/components/skeletons/GakuchikaListPageHeaderSkeleton";
 import type { FilterTab, SortOption } from "@/components/shared";
 import { Reorder } from "framer-motion";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 import {
   GripVertical,
   Pencil,
@@ -125,7 +126,10 @@ function NewGakuchikaModal({
       setContent("");
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "エラーが発生しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "GAKUCHIKA_FETCH_FAILED",
+        userMessage: "ガクチカ一覧を読み込めませんでした。",
+      }, "GakuchikaPage:fetch"));
     } finally {
       setIsSubmitting(false);
     }

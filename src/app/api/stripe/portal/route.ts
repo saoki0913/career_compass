@@ -4,7 +4,7 @@
  * POST: Create a billing portal session for subscription management
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
@@ -12,8 +12,10 @@ import { db } from "@/lib/db";
 import { subscriptions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getAppUrl } from "@/lib/app-url";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { logError } from "@/lib/logger";
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
     const appUrl = getAppUrl();
     const session = await auth.api.getSession({
@@ -21,7 +23,12 @@ export async function POST() {
     });
 
     if (!session?.user) {
-      return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        developerMessage: "Authentication required",
+      });
     }
 
     // Get user's subscription
@@ -32,10 +39,13 @@ export async function POST() {
       .limit(1);
 
     if (!subscription?.stripeCustomerId) {
-      return NextResponse.json(
-        { error: "アクティブなサブスクリプションがありません" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "STRIPE_PORTAL_SUBSCRIPTION_REQUIRED",
+        userMessage: "請求管理ページを開けませんでした。",
+        action: "利用中のプラン状況を確認してください。",
+        developerMessage: "No active subscription for billing portal",
+      });
     }
 
     // Create billing portal session
@@ -46,10 +56,14 @@ export async function POST() {
 
     return NextResponse.json({ url: portalSession.url });
   } catch (error) {
-    console.error("Stripe portal error:", error);
-    return NextResponse.json(
-      { error: "請求ポータルの作成に失敗しました" },
-      { status: 500 }
-    );
+    logError("stripe-portal", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "STRIPE_PORTAL_CREATE_FAILED",
+      userMessage: "請求管理ページを開けませんでした。",
+      action: "時間をおいて、もう一度お試しください。",
+      developerMessage: "Failed to create Stripe billing portal session",
+      error,
+    });
   }
 }

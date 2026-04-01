@@ -21,6 +21,7 @@ import {
   getMotivationConversationByCondition as getConversationByCondition,
   mergeDraftReadyContext,
   resolveDraftReadyState,
+  safeParseConversationContext as parseConversationContext,
   type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
 import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
@@ -168,60 +169,7 @@ interface FastAPIQuestionResponse {
 }
 
 function safeParseConversationContext(json: string | null): MotivationConversationContext {
-  if (!json) {
-    return {
-      userAnchorStrengths: [],
-      userAnchorEpisodes: [],
-      profileAnchorIndustries: [],
-      profileAnchorJobTypes: [],
-      companyAnchorKeywords: [],
-      companyRoleCandidates: [],
-      companyWorkCandidates: [],
-      questionStage: "industry_reason",
-    };
-  }
-
-  try {
-    const parsed = JSON.parse(json);
-    return {
-      selectedIndustry: typeof parsed.selectedIndustry === "string" ? parsed.selectedIndustry : undefined,
-      selectedIndustrySource: typeof parsed.selectedIndustrySource === "string" ? parsed.selectedIndustrySource : undefined,
-      industryReason: typeof parsed.industryReason === "string" ? parsed.industryReason : undefined,
-      companyReason: typeof parsed.companyReason === "string" ? parsed.companyReason : undefined,
-      selectedRole: typeof parsed.selectedRole === "string" ? parsed.selectedRole : undefined,
-      selectedRoleSource: typeof parsed.selectedRoleSource === "string" ? parsed.selectedRoleSource : undefined,
-      desiredWork: typeof parsed.desiredWork === "string" ? parsed.desiredWork : undefined,
-      originExperience: typeof parsed.originExperience === "string" ? parsed.originExperience : undefined,
-      fitConnection: typeof parsed.fitConnection === "string" ? parsed.fitConnection : undefined,
-      differentiationReason:
-        typeof parsed.differentiationReason === "string" ? parsed.differentiationReason : undefined,
-      userAnchorStrengths: Array.isArray(parsed.userAnchorStrengths) ? parsed.userAnchorStrengths.filter((v: unknown): v is string => typeof v === "string") : [],
-      userAnchorEpisodes: Array.isArray(parsed.userAnchorEpisodes) ? parsed.userAnchorEpisodes.filter((v: unknown): v is string => typeof v === "string") : [],
-      profileAnchorIndustries: Array.isArray(parsed.profileAnchorIndustries) ? parsed.profileAnchorIndustries.filter((v: unknown): v is string => typeof v === "string") : [],
-      profileAnchorJobTypes: Array.isArray(parsed.profileAnchorJobTypes) ? parsed.profileAnchorJobTypes.filter((v: unknown): v is string => typeof v === "string") : [],
-      companyAnchorKeywords: Array.isArray(parsed.companyAnchorKeywords) ? parsed.companyAnchorKeywords.filter((v: unknown): v is string => typeof v === "string") : [],
-      companyRoleCandidates: Array.isArray(parsed.companyRoleCandidates) ? parsed.companyRoleCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
-      companyWorkCandidates: Array.isArray(parsed.companyWorkCandidates) ? parsed.companyWorkCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
-      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "industry_reason",
-      stageAttemptCount: typeof parsed.stageAttemptCount === "number" ? parsed.stageAttemptCount : undefined,
-      confirmedFacts: parsed.confirmedFacts && typeof parsed.confirmedFacts === "object" ? parsed.confirmedFacts : undefined,
-      openSlots: Array.isArray(parsed.openSlots) ? parsed.openSlots.filter((v: unknown): v is string => typeof v === "string") : undefined,
-      lastQuestionMeta: parsed.lastQuestionMeta && typeof parsed.lastQuestionMeta === "object" ? parsed.lastQuestionMeta : undefined,
-      draftReady: typeof parsed.draftReady === "boolean" ? parsed.draftReady : undefined,
-      draftReadyUnlockedAt: typeof parsed.draftReadyUnlockedAt === "string" ? parsed.draftReadyUnlockedAt : null,
-    };
-  } catch {
-    return {
-      userAnchorStrengths: [],
-      userAnchorEpisodes: [],
-      profileAnchorIndustries: [],
-      profileAnchorJobTypes: [],
-      companyAnchorKeywords: [],
-      companyRoleCandidates: [],
-      companyWorkCandidates: [],
-      questionStage: "industry_reason",
-    };
-  }
+  return parseConversationContext(json);
 }
 
 function uniqueStrings(values: Array<string | null | undefined>, maxItems = 8): string[] {
@@ -354,6 +302,7 @@ async function getQuestionFromFastAPI(
   question: string | null;
   error: string | null;
   evaluation: MotivationEvaluation | null;
+  draftReady: boolean;
   suggestionOptions: SuggestionOption[];
   evidenceSummary: string | null;
   evidenceCards: EvidenceCard[];
@@ -402,6 +351,7 @@ async function getQuestionFromFastAPI(
         question: null,
         error: errorData.detail?.error || "AIサービスに接続できませんでした",
         evaluation: null,
+        draftReady: false,
         suggestionOptions: [],
         evidenceSummary: null,
         evidenceCards: [],
@@ -421,6 +371,7 @@ async function getQuestionFromFastAPI(
       question: data.question,
       error: null,
       evaluation: data.evaluation || null,
+      draftReady: Boolean(data.draft_ready),
       suggestionOptions: data.suggestion_options || [],
       evidenceSummary: data.evidence_summary || null,
       evidenceCards: data.evidence_cards || [],
@@ -439,6 +390,7 @@ async function getQuestionFromFastAPI(
         ? "AIの応答がタイムアウトしました"
         : "AIサービスに接続できませんでした",
       evaluation: null,
+      draftReady: false,
       suggestionOptions: [],
       evidenceSummary: null,
       evidenceCards: [],
@@ -631,7 +583,7 @@ export async function POST(
       persistedContext,
       conversation.status as "in_progress" | "completed" | null,
     );
-    const isDraftReady = currentDraftReadyState.isDraftReady || Boolean(result.draft_ready);
+    const isDraftReady = currentDraftReadyState.isDraftReady || result.draftReady;
     const nextContext = mergeDraftReadyContext(
       persistedContext,
       isDraftReady,

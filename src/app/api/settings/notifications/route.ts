@@ -12,6 +12,8 @@ import { notificationSettings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { DAILY_SUMMARY_HOURS_JST, isDailySummaryHourJst } from "@/lib/datetime/jst";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { logError } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,10 +22,12 @@ export async function GET(request: NextRequest) {
     });
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        developerMessage: "Authentication required",
+      });
     }
 
     const userId = session.user.id;
@@ -74,11 +78,15 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Error fetching notification settings:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logError("fetch-notification-settings", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "SETTINGS_NOTIFICATIONS_FETCH_FAILED",
+      userMessage: "通知設定を読み込めませんでした。",
+      action: "時間をおいて、もう一度お試しください。",
+      developerMessage: "Failed to fetch notification settings",
+      error,
+    });
   }
 }
 
@@ -89,10 +97,12 @@ export async function PUT(request: NextRequest) {
     });
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        developerMessage: "Authentication required",
+      });
     }
 
     const userId = session.user.id;
@@ -136,21 +146,24 @@ export async function PUT(request: NextRequest) {
     if (dailySummaryHourJst !== undefined) {
       const h = Number(dailySummaryHourJst);
       if (!isDailySummaryHourJst(h)) {
-        return NextResponse.json(
-          {
-            error: `デイリーサマリーの時刻は ${DAILY_SUMMARY_HOURS_JST.join(" / ")} 時（JST）から選んでください`,
-          },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "SETTINGS_NOTIFICATIONS_INVALID_DAILY_SUMMARY_HOUR",
+          userMessage: "デイリーサマリーの時刻を確認してください。",
+          action: `${DAILY_SUMMARY_HOURS_JST.join(" / ")} 時（JST）から選択してください。`,
+          developerMessage: "Invalid daily summary hour",
+        });
       }
       settingsData.dailySummaryHourJst = h;
     }
     if (reminderTiming !== undefined) {
       if (!Array.isArray(reminderTiming)) {
-        return NextResponse.json(
-          { error: "リマインダー設定の形式が無効です" },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "SETTINGS_NOTIFICATIONS_INVALID_REMINDER_TIMING",
+          userMessage: "通知設定の内容を確認してください。",
+          developerMessage: "Reminder timing payload is invalid",
+        });
       }
       settingsData.reminderTiming = JSON.stringify(reminderTiming);
     }
@@ -205,10 +218,14 @@ export async function PUT(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Error updating notification settings:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logError("update-notification-settings", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "SETTINGS_NOTIFICATIONS_UPDATE_FAILED",
+      userMessage: "通知設定を保存できませんでした。",
+      action: "時間をおいて、もう一度お試しください。",
+      developerMessage: "Failed to update notification settings",
+      error,
+    });
   }
 }

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCompanies } from "@/hooks/useCompanies";
-import { parseApiErrorResponse } from "@/lib/api-errors";
+import { getUserFacingErrorMessage, parseApiErrorResponse } from "@/lib/api-errors";
 import { trackEvent } from "@/lib/analytics/client";
 import { notifySuccess } from "@/lib/notifications";
 import { DashboardHeader } from "@/components/dashboard";
@@ -171,7 +171,18 @@ export default function NewCompanyPage() {
       notifySuccess({ title: "企業を登録しました" });
       router.push(isFirstCompany ? `/companies/${result.company.id}/motivation` : `/companies/${result.company.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "企業の登録に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "COMPANY_CREATE_FAILED",
+            userMessage: "企業の登録に失敗しました。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "NewCompanyPage.handleSubmit"
+        )
+      );
     } finally {
       setIsSubmitting(false);
     }

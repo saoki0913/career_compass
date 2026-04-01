@@ -68,6 +68,26 @@ private/reference_es/*
 !private/reference_es/.gitignore
 !private/reference_es/README.md
 
+# Local-only interview reference samples
+private/reference_interview/*
+!private/reference_interview/.gitignore
+!private/reference_interview/README.md
+
+# Local-only shared note reference samples
+private/reference_notes/*
+!private/reference_notes/.gitignore
+!private/reference_notes/README.md
+
+# Local-only gakuchika reference samples
+private/reference_gakuchika/*
+!private/reference_gakuchika/.gitignore
+!private/reference_gakuchika/README.md
+
+# Local-only motivation reference samples
+private/reference_motivation/*
+!private/reference_motivation/.gitignore
+!private/reference_motivation/README.md
+
 # Qwen ES review training artifacts
 ml/es_review_qwen/data/generated/
 ml/es_review_qwen/outputs/

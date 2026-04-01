@@ -36,6 +36,7 @@ import { CompanyEditModal, UpdateCompanyData } from "@/components/companies/Comp
 import { OperationLockProvider } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
 import { CompanyDetailSkeleton } from "@/components/skeletons/CompanyDetailSkeleton";
+import { getUserFacingErrorMessage, parseApiErrorResponse } from "@/lib/api-errors";
 
 interface Company {
   id: string;
@@ -242,12 +243,34 @@ function PasswordDisplay({ companyId }: { companyId: string }) {
         headers: buildHeaders(),
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to fetch credentials");
+      if (!res.ok) {
+        throw await parseApiErrorResponse(
+          res,
+          {
+            code: "COMPANY_CREDENTIALS_FETCH_FAILED",
+            userMessage: "パスワードを取得できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "CompanyDetailPageClient.fetchPassword"
+        );
+      }
       const data = await res.json();
       setPassword(data.mypagePassword);
       setFetched(true);
-    } catch {
-      setError("パスワードの取得に失敗しました");
+    } catch (err) {
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "COMPANY_CREDENTIALS_FETCH_FAILED",
+            userMessage: "パスワードを取得できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "CompanyDetailPageClient.fetchPassword"
+        )
+      );
     } finally {
       setLoading(false);
     }
@@ -393,13 +416,35 @@ export default function CompanyDetailPageClient({
           setError("企業が見つかりません");
           return;
         }
-        throw new Error("Failed to fetch company");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "COMPANY_FETCH_FAILED",
+            userMessage: "企業情報の取得に失敗しました。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+            notFoundMessage: "企業が見つかりません。",
+          },
+          "CompanyDetailPageClient.fetchCompany"
+        );
       }
 
       const data = await response.json();
       setCompany(data.company);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "企業情報の取得に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "COMPANY_FETCH_FAILED",
+            userMessage: "企業情報の取得に失敗しました。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+            notFoundMessage: "企業が見つかりません。",
+          },
+          "CompanyDetailPageClient.fetchCompany"
+        )
+      );
     } finally {
       setIsLoading(false);
     }
@@ -443,7 +488,16 @@ export default function CompanyDetailPageClient({
     });
 
     if (!response.ok) {
-      throw new Error("Failed to update company");
+      throw await parseApiErrorResponse(
+        response,
+        {
+          code: "COMPANY_UPDATE_FAILED",
+          userMessage: "企業情報を保存できませんでした。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          retryable: true,
+        },
+        "CompanyDetailPageClient.handleUpdateCompany"
+      );
     }
 
     const result = await response.json();
@@ -462,12 +516,32 @@ export default function CompanyDetailPageClient({
       });
 
       if (!response.ok) {
-        throw new Error("Failed to delete company");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "COMPANY_DELETE_FAILED",
+            userMessage: "企業を削除できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "CompanyDetailPageClient.handleDelete"
+        );
       }
 
       router.push("/companies");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "削除に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "COMPANY_DELETE_FAILED",
+            userMessage: "企業を削除できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "CompanyDetailPageClient.handleDelete"
+        )
+      );
       setIsDeleting(false);
     }
   };
@@ -784,20 +858,9 @@ export default function CompanyDetailPageClient({
                   </a>
                 )}
                 {company.mypageLoginId && (
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-muted-foreground">ID:</span>
-                    <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-xs">{company.mypageLoginId}</code>
-                    <button
-                      type="button"
-                      onClick={() => navigator.clipboard.writeText(company.mypageLoginId || "")}
-                      className="p-0.5 text-muted-foreground hover:text-foreground"
-                      title="コピー"
-                    >
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                    </button>
-                  </div>
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                    ログイン情報を保存済み
+                  </span>
                 )}
                 {company.hasCredentials && (
                   <PasswordDisplay companyId={company.id} />

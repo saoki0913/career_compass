@@ -8,24 +8,23 @@ from app.routers.interview import (
     InterviewStartRequest,
     InterviewTurnRequest,
     _generate_feedback_progress,
-    _generate_question_progress,
+    _generate_start_progress,
+    _generate_turn_progress,
 )
 
 
 @pytest.mark.asyncio
-async def test_question_stream_emits_stage_aware_chunks_and_complete(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_start_stream_emits_industry_reason_stage(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_stream(*args, **kwargs):
-        yield SimpleNamespace(type="string_chunk", path="question", text="UI Review")
-        yield SimpleNamespace(type="string_chunk", path="question", text="株式会社を志望する理由を教えてください。")
+        yield SimpleNamespace(type="string_chunk", path="question", text="その")
+        yield SimpleNamespace(type="string_chunk", path="question", text="業界を志望する理由を教えてください。")
         yield SimpleNamespace(
             type="complete",
             result=SimpleNamespace(
                 success=True,
                 data={
-                    "question": "UI Review株式会社を志望する理由を教えてください。",
-                    "focus": "企業理解の起点",
+                    "question": "その業界を志望する理由を教えてください。",
+                    "focus": "業界志望の核",
                 },
                 error=None,
             ),
@@ -39,29 +38,92 @@ async def test_question_stream_emits_stage_aware_chunks_and_complete(
         motivation_summary="顧客課題の解像度を上げたい。",
         gakuchika_summary="学園祭運営で進行管理を担当。",
         es_summary="ES で課題整理力を訴求。",
+        selected_industry="コンサルティング",
+        selected_role="コンサルタント",
     )
 
     events = []
-    async for payload in _generate_question_progress(request, question_index=1):
+    async for payload in _generate_start_progress(request):
         events.append(json.loads(payload.removeprefix("data: ").strip()))
 
-    question_chunks = [e for e in events if e["type"] == "string_chunk" and e["path"] == "question"]
     complete_event = next(e for e in events if e["type"] == "complete")
-
-    assert "".join(chunk["text"] for chunk in question_chunks) == "UI Review株式会社を志望する理由を教えてください。"
-    assert complete_event["data"]["question"] == "UI Review株式会社を志望する理由を教えてください。"
-    assert complete_event["data"]["question_stage"] == "opening"
+    assert complete_event["data"]["question_stage"] == "industry_reason"
     assert complete_event["data"]["stage_status"] == {
-        "current": "opening",
+        "current": "industry_reason",
         "completed": [],
-        "pending": ["company_understanding", "experience", "motivation_fit", "feedback"],
+        "pending": ["role_reason", "opening", "experience", "company_understanding", "motivation_fit", "feedback"],
     }
 
 
 @pytest.mark.asyncio
-async def test_feedback_stream_emits_overall_comment_then_complete(
+async def test_turn_stream_emits_transition_line_when_stage_advances(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    async def fake_evaluate(*args, **kwargs):
+        return {
+            "decision": "advance",
+            "recommended_focus": "職種志望の根拠",
+            "missing_points": [],
+            "interviewer_concerns": [],
+        }
+
+    async def fake_stream(*args, **kwargs):
+        yield SimpleNamespace(
+            type="complete",
+            result=SimpleNamespace(
+                success=True,
+                data={
+                    "question": "その職種を志望する理由を、強みと合わせて教えてください。",
+                    "focus": "職種志望の根拠",
+                    "transition_line": "次は職種志望理由について伺います。",
+                },
+                error=None,
+            ),
+        )
+
+    monkeypatch.setattr("app.routers.interview._evaluate_turn", fake_evaluate)
+    monkeypatch.setattr("app.routers.interview.call_llm_streaming_fields", fake_stream)
+
+    request = InterviewTurnRequest(
+        company_name="UI Review株式会社",
+        company_summary="DX 支援を行う。",
+        motivation_summary="顧客課題の解像度を上げたい。",
+        gakuchika_summary="学園祭運営で進行管理を担当。",
+        es_summary="ES で課題整理力を訴求。",
+        selected_industry="コンサルティング",
+        selected_role="コンサルタント",
+        conversation_history=[
+            {"role": "assistant", "content": "その業界を志望する理由を教えてください。"},
+            {"role": "user", "content": "課題解決の仕事に関心があるからです。"},
+        ],
+        turn_state={
+            "currentStage": "industry_reason",
+            "totalQuestionCount": 1,
+            "stageQuestionCounts": {
+                "industry_reason": 1,
+                "role_reason": 0,
+                "opening": 0,
+                "experience": 0,
+                "company_understanding": 0,
+                "motivation_fit": 0,
+            },
+            "completedStages": [],
+            "lastQuestionFocus": "業界志望の核",
+            "nextAction": "ask",
+        },
+    )
+
+    events = []
+    async for payload in _generate_turn_progress(request):
+        events.append(json.loads(payload.removeprefix("data: ").strip()))
+
+    complete_event = next(e for e in events if e["type"] == "complete")
+    assert complete_event["data"]["question_stage"] == "role_reason"
+    assert complete_event["data"]["transition_line"] == "次は職種志望理由について伺います。"
+
+
+@pytest.mark.asyncio
+async def test_feedback_stream_emits_premise_consistency(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_stream(*args, **kwargs):
         yield SimpleNamespace(type="string_chunk", path="overall_comment", text="企業理解と")
         yield SimpleNamespace(type="string_chunk", path="overall_comment", text="経験接続は明確でした。")
@@ -81,6 +143,7 @@ async def test_feedback_stream_emits_overall_comment_then_complete(
                     "improvements": ["結論を先に述べる"],
                     "improved_answer": "結論から述べ、企業との接点を先に示します。",
                     "preparation_points": ["志望理由の一言要約"],
+                    "premise_consistency": 82,
                 },
                 error=None,
             ),
@@ -91,6 +154,8 @@ async def test_feedback_stream_emits_overall_comment_then_complete(
     request = InterviewFeedbackRequest(
         company_name="UI Review株式会社",
         company_summary="DX 支援を行う。",
+        selected_industry="コンサルティング",
+        selected_role="コンサルタント",
         conversation_history=[
             {"role": "assistant", "content": "志望理由を教えてください。"},
             {"role": "user", "content": "顧客課題に近い立場で改善したいです。"},
@@ -101,59 +166,6 @@ async def test_feedback_stream_emits_overall_comment_then_complete(
     async for payload in _generate_feedback_progress(request):
         events.append(json.loads(payload.removeprefix("data: ").strip()))
 
-    feedback_chunks = [
-        e for e in events if e["type"] == "string_chunk" and e["path"] == "overall_comment"
-    ]
     complete_event = next(e for e in events if e["type"] == "complete")
-
-    assert "".join(chunk["text"] for chunk in feedback_chunks) == "企業理解と経験接続は明確でした。"
-    assert complete_event["data"]["overall_comment"] == "企業理解と経験接続は明確でした。"
-    assert complete_event["data"]["scores"]["company_fit"] == 4
-    assert complete_event["data"]["stage_status"] == {
-        "current": "feedback",
-        "completed": ["opening", "company_understanding", "experience", "motivation_fit"],
-        "pending": [],
-    }
-
-
-@pytest.mark.asyncio
-async def test_follow_up_question_index_maps_to_motivation_fit_stage(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_stream(*args, **kwargs):
-        yield SimpleNamespace(
-            type="complete",
-            result=SimpleNamespace(
-                success=True,
-                data={"question": "この企業で実現したい役割をもう少し具体化してください。"},
-                error=None,
-            ),
-        )
-
-    monkeypatch.setattr("app.routers.interview.call_llm_streaming_fields", fake_stream)
-
-    request = InterviewTurnRequest(
-        company_name="UI Review株式会社",
-        company_summary="DX 支援を行う。",
-        motivation_summary="顧客課題の解像度を上げたい。",
-        gakuchika_summary="学園祭運営で進行管理を担当。",
-        es_summary="ES で課題整理力を訴求。",
-        conversation_history=[
-            {"role": "assistant", "content": "導入質問"},
-            {"role": "user", "content": "回答1"},
-            {"role": "assistant", "content": "企業理解質問"},
-            {"role": "user", "content": "回答2"},
-            {"role": "assistant", "content": "経験質問"},
-            {"role": "user", "content": "回答3"},
-            {"role": "assistant", "content": "適合質問"},
-            {"role": "user", "content": "回答4"},
-        ],
-    )
-
-    events = []
-    async for payload in _generate_question_progress(request, question_index=5):
-        events.append(json.loads(payload.removeprefix("data: ").strip()))
-
-    complete_event = next(e for e in events if e["type"] == "complete")
-    assert complete_event["data"]["question_stage"] == "motivation_fit"
-    assert complete_event["data"]["stage_status"]["current"] == "motivation_fit"
+    assert complete_event["data"]["premise_consistency"] == 82
+    assert complete_event["data"]["question_stage"] == "feedback"

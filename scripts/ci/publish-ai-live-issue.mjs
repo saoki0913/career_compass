@@ -39,14 +39,19 @@ async function listArtifacts(repo, runId, token) {
   }));
 }
 
-function appendArtifactLinks(body, artifacts) {
-  if (artifacts.length === 0) return body;
+export function filterPublicArtifacts(artifacts) {
+  return artifacts.filter((artifact) => !artifact.name.startsWith("ai-live-internal-"));
+}
+
+export function appendArtifactLinks(body, artifacts) {
+  const publicArtifacts = filterPublicArtifacts(artifacts);
+  if (publicArtifacts.length === 0) return body;
   return [
     body.trimEnd(),
     "",
     "## Artifact Links",
     "",
-    ...artifacts.map((artifact) => `- [${artifact.name}](${artifact.url})`),
+    ...publicArtifacts.map((artifact) => `- [${artifact.name}](${artifact.url})`),
     "",
   ].join("\n");
 }

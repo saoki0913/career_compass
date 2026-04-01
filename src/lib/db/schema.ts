@@ -370,6 +370,7 @@ export const creditTransactions = pgTable(
         "gakuchika_draft",
         "motivation",
         "motivation_draft",
+        "interview_feedback",
         "refund",
       ],
     }).notNull(),
@@ -756,6 +757,73 @@ export const motivationConversations = pgTable(
     index("motivation_conversations_company_id_idx").on(t.companyId),
     uniqueIndex("motivation_conversations_company_user_ux").on(t.companyId, t.userId),
     uniqueIndex("motivation_conversations_company_guest_ux").on(t.companyId, t.guestId),
+  ]
+);
+
+export const interviewConversations = pgTable(
+  "interview_conversations",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    guestId: text("guest_id").references(() => guestUsers.id, { onDelete: "cascade" }),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    messages: text("messages").notNull(),
+    status: text("status", {
+      enum: ["setup_pending", "in_progress", "question_flow_completed", "feedback_completed"],
+    })
+      .notNull()
+      .default("setup_pending"),
+    currentStage: text("current_stage").notNull().default("industry_reason"),
+    questionCount: integer("question_count").notNull().default(0),
+    stageQuestionCounts: text("stage_question_counts").notNull().default("{}"),
+    completedStages: text("completed_stages").notNull().default("[]"),
+    lastQuestionFocus: text("last_question_focus"),
+    questionFlowCompleted: boolean("question_flow_completed").notNull().default(false),
+    selectedIndustry: text("selected_industry"),
+    selectedRole: text("selected_role"),
+    selectedRoleSource: text("selected_role_source"),
+    activeFeedbackDraft: text("active_feedback_draft"),
+    currentFeedbackId: text("current_feedback_id"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    check("interview_conversations_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
+    index("interview_conversations_company_idx").on(t.companyId),
+    uniqueIndex("interview_conversations_company_user_ux").on(t.companyId, t.userId),
+    uniqueIndex("interview_conversations_company_guest_ux").on(t.companyId, t.guestId),
+  ]
+);
+
+export const interviewFeedbackHistories = pgTable(
+  "interview_feedback_histories",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => interviewConversations.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    guestId: text("guest_id").references(() => guestUsers.id, { onDelete: "cascade" }),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    overallComment: text("overall_comment").notNull(),
+    scores: text("scores").notNull().default("{}"),
+    strengths: text("strengths").notNull().default("[]"),
+    improvements: text("improvements").notNull().default("[]"),
+    improvedAnswer: text("improved_answer").notNull().default(""),
+    preparationPoints: text("preparation_points").notNull().default("[]"),
+    premiseConsistency: integer("premise_consistency").notNull().default(0),
+    sourceQuestionCount: integer("source_question_count").notNull().default(0),
+    sourceMessagesSnapshot: text("source_messages_snapshot").notNull().default("[]"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    check("interview_feedback_histories_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
+    index("interview_feedback_histories_company_idx").on(t.companyId, t.createdAt),
+    index("interview_feedback_histories_conversation_idx").on(t.conversationId, t.createdAt),
   ]
 );
 

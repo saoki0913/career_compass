@@ -30,6 +30,6 @@ describe("credits month reset", () => {
   it("exposes interview transaction type and default session cost", async () => {
     const { DEFAULT_INTERVIEW_SESSION_CREDIT_COST } = await import("@/lib/credits");
 
-    expect(DEFAULT_INTERVIEW_SESSION_CREDIT_COST).toBe(5);
+    expect(DEFAULT_INTERVIEW_SESSION_CREDIT_COST).toBe(6);
   });
 });

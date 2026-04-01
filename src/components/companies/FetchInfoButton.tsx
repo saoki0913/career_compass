@@ -434,19 +434,6 @@ export function FetchInfoButton({
 
       setResult(data);
       setModalStep("result");
-
-      if (data.resultStatus === "success") {
-        onSuccess?.();
-        window.setTimeout(() => {
-          notifySuccess({
-            title: "企業情報を取得しました",
-            description: data.freeUsed
-              ? "今回は無料枠を使用しました。"
-              : `${data.creditsConsumed}クレジットを消費しました。`,
-            duration: 4800,
-          });
-        }, 220);
-      }
     } catch (err) {
       const uiError = toAppUiError(
         err,
@@ -531,7 +518,7 @@ export function FetchInfoButton({
                 <CardTitle className="text-lg">{modalTitle}</CardTitle>
                 <button
                   type="button"
-                  onClick={closeModal}
+                  onClick={() => closeModal()}
                   className="p-1 rounded-full hover:bg-muted transition-colors"
                   disabled={isSearching || isFetching}
                 >
@@ -610,7 +597,7 @@ export function FetchInfoButton({
                   )}
 
                   <div className="flex justify-end gap-2 pt-2">
-                    <Button variant="outline" onClick={closeModal}>
+                    <Button variant="outline" onClick={() => closeModal()}>
                       キャンセル
                     </Button>
                     <Button
@@ -668,7 +655,7 @@ export function FetchInfoButton({
                         >
                           条件に戻る
                         </Button>
-                        <Button variant="outline" onClick={closeModal} disabled={isSearching || isFetching}>
+                        <Button variant="outline" onClick={() => closeModal()} disabled={isSearching || isFetching}>
                           キャンセル
                         </Button>
                       </div>
@@ -1041,7 +1028,7 @@ export function FetchInfoButton({
                         候補に戻る
                       </Button>
                     )}
-                    <Button onClick={closeModal}>閉じる</Button>
+                    <Button onClick={() => closeModal()}>閉じる</Button>
                   </div>
                 </>
               )}

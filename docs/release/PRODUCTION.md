@@ -55,7 +55,7 @@
 
 | Step | 内容 | ドキュメント |
 |---|---|---|
-| **Step 0** | ドメイン設定（お名前.com → Vercel） | [DOMAIN.md](./DOMAIN.md) |
+| **Step 0** | ドメイン運用正本（Web / Mail / 解約判断） | [DOMAIN_OPERATIONS.md](./DOMAIN_OPERATIONS.md) |
 | **Step 1** | Supabase (PostgreSQL) 本番データベース | [SUPABASE.md](./SUPABASE.md) |
 | **Step 2** | Stripe 本番設定 | [STRIPE.md](./STRIPE.md) |
 | **Step 3** | Railway にバックエンドをデプロイ | [RAILWAY.md](./RAILWAY.md) |
@@ -140,7 +140,7 @@ git push origin develop
 npm run check:prod-db-drift
 ```
 
-`documents.es_category` の有無と `__drizzle_migrations` 件数を [drizzle_pg/meta/_journal.json](drizzle_pg/meta/_journal.json) と突合します。問題があれば `make deploy-migrate` の後に再実行してください。
+`documents.es_category` の有無、`interview_conversations` / `interview_feedback_histories` の存在、`__drizzle_migrations` 件数を [drizzle_pg/meta/_journal.json](drizzle_pg/meta/_journal.json) と突合します。問題があれば `make deploy-migrate` の後に再実行してください。
 
 本番 Playwright（`scripts/release/post-deploy-playwright.sh production`）で企業詳細まで踏む場合は、Google storage state に加え **`E2E_PRODUCTION_COMPANY_ID`**（対象企業の UUID）を環境変数で渡してください（[e2e/release-production-readonly.spec.ts](../../e2e/release-production-readonly.spec.ts)）。
 

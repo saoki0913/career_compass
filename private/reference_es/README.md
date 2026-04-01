@@ -6,6 +6,10 @@
 - `es_references.json`
 - `raw_notion_dump.json`
 
+補足:
+- `private/reference_notes/reference_corpus.json` から派生した note-based reference も `es_references.json` にマージされます
+- 既存の ES 参考データは保持しつつ、`notes_` プレフィックスの ID で追加されます
+
 形式:
 
 ```json

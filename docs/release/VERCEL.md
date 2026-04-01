@@ -137,7 +137,7 @@ UPSTASH_REDIS_REST_TOKEN=AXxx...
 
 1. Vercel Dashboard → 対象プロジェクト → **「Settings」** → 左メニュー **「Domains」**
 2. ドメイン入力欄に `shupass.jp` と入力 → **「Add」** ボタンをクリック
-3. DNS 設定の指示が表示される（[Step 0](./DOMAIN.md) で設定済み）
+3. DNS 設定の指示が表示される（[Step 0](./DOMAIN_OPERATIONS.md) で設定済み）
 
 **Step 0 で設定済み。** 以下が Valid Configuration であることを確認:
 

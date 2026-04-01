@@ -1,5 +1,3 @@
-import "server-only";
-
 import { createHmac } from "crypto";
 
 const INTERNAL_SERVICE_ISSUER = "next-bff";
