@@ -32,7 +32,7 @@ describe("proxy CSP", () => {
     expect(response.status).toBe(200);
   });
 
-  it("keeps public marketing routes on a static CSP without a nonce", async () => {
+  it("adds a nonce-based CSP to public marketing routes too", async () => {
     const { proxy } = await import("@/proxy");
     const request = new NextRequest("http://localhost:3000/", {
       headers: {
@@ -45,6 +45,7 @@ describe("proxy CSP", () => {
 
     expect(response.status).toBe(200);
     expect(csp).toContain("script-src 'self'");
-    expect(csp).not.toContain("'nonce-");
+    expect(csp).toContain("'nonce-");
+    expect(csp).toContain("'strict-dynamic'");
   });
 });

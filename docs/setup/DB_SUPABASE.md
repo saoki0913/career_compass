@@ -267,11 +267,44 @@ npm run db:migrate
 
 ### 4.4 DIRECT_URL 接続エラー時の対処
 
-ネットワーク環境により Direct 接続（ポート 5432）がブロックされる場合:
+#### `getaddrinfo ENOTFOUND db.<project-ref>.supabase.co`
+
+`db.*.supabase.co` は **IPv6 の AAAA レコードのみ**のことがあり、IPv4 だけの回線・DNS・Node の名前解決では **`ENOTFOUND`** になることがあります。
+
+**対処:** Supabase Dashboard → **Project Settings → Database → Connection string** で **Session mode**（または **Direct** が失敗する場合は **Transaction** ではなくマイグレーション向けに案内されている **5432 の URI**）をコピーし、ホストが **`aws-*.pooler.supabase.com`** のものを `.env.production` / `.env.local` の `DIRECT_URL` に使う。ユーザー名は多くの場合 `postgres.<PROJECT_REF>` 形式になる。
+
+リージョン例（Dashboard の接続画面の表記に合わせる）:
+
+- South Asia (Mumbai): `aws-0-ap-south-1.pooler.supabase.com`
+
+#### その他（ブロック・IPv6 優先）
+
+ネットワーク環境により接続が不安定な場合:
 
 ```bash
-# DIRECT_URL を無効化して Pooler 経由でマイグレーション
+# Node が先に壊れた IPv6 を選ぶのを抑える（A レコードがあるホスト向け）
+NODE_OPTIONS=--dns-result-order=ipv4first npm run db:migrate
+```
+
+`db:*.supabase.co` が解決できない場合は上記 **Session pooler の URI** への切り替えが先。
+
+```bash
+# DIRECT_URL を無効化して Pooler 経由でマイグレーション（ローカルで DATABASE_URL だけプールのとき）
 DIRECT_URL="" npx dotenv -e .env.local -- drizzle-kit migrate
+```
+
+`DIRECT_URL` が別 DB を指していて Next.js（`DATABASE_URL` 専用）とズレている場合は、**アプリと同じ URL** で流す:
+
+```bash
+npm run db:migrate:as-app
+```
+
+（`drizzle.config.ts` の `DRIZZLE_MIGRATE_USE_DATABASE_URL=1` 経由）
+
+履歴テーブルだけ先に進んで `cancel_at_period_end` が無い（`42703`）場合は、**Next と同じ `DATABASE_URL`** で列を冪等追加する:
+
+```bash
+npm run db:repair:subscription-cancel-column
 ```
 
 ---

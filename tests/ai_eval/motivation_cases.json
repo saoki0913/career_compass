@@ -1,41 +1,36 @@
 [
   {
-    "id": "motivation_generic_reason",
-    "title": "どの会社にも言える志望理由",
-    "conversation_seed": [
-      "成長できそうだから志望している",
-      "若手から挑戦できそうだと感じた"
+    "id": "motivation_company_reason",
+    "suiteDepth": "smoke",
+    "title": "DX 推進の会社で企画職を志望するケース",
+    "companyName": "株式会社テストDX",
+    "industry": "IT・通信",
+    "selectedIndustry": "IT・通信",
+    "selectedRole": "企画職",
+    "applicationJobType": "企画職",
+    "answers": [
+      "業務改革を通じて顧客課題を減らせる点に魅力を感じています。",
+      "大学では企画運営を担当し、関係者を巻き込みながら改善を進めてきました。",
+      "入社後は、現場に近い位置で課題を整理し、提案に落とし込みたいです。"
     ],
-    "expected_checks": [
-      "他社でも通る理由として扱う",
-      "企業固有の特徴との接続を求める",
-      "why now を補強する"
-    ]
+    "expectedQuestionTokens": ["株式会社テストDX", "企画職"],
+    "expectedDraftTokens": ["業務改革", "企画", "顧客課題"]
   },
   {
-    "id": "motivation_company_only",
-    "title": "企業理解はあるが本人接続が弱いケース",
-    "conversation_seed": [
-      "御社のDX推進に魅力を感じる",
-      "海外展開にも惹かれている"
+    "id": "motivation_differentiation_and_fit",
+    "suiteDepth": "extended",
+    "title": "同業比較で第一志望を説明するケース",
+    "companyName": "株式会社テスト商事",
+    "industry": "商社",
+    "selectedIndustry": "商社",
+    "selectedRole": "総合職",
+    "applicationJobType": "総合職",
+    "answers": [
+      "同業他社も見ていますが、事業の幅広さよりも、若手が現場で学びながら動ける点に惹かれています。",
+      "サークル運営で、立場の違う人の意見を整理して合意形成した経験があり、それを活かしたいです。",
+      "入社後は、まず現場理解を深めてから、提案の精度を高めたいです。"
     ],
-    "expected_checks": [
-      "本人の経験との因果接続を求める",
-      "やりたい仕事に繋げる",
-      "固有語の列挙だけでは高得点にしない"
-    ]
-  },
-  {
-    "id": "motivation_fit_and_differentiation",
-    "title": "差別化を強くするケース",
-    "conversation_seed": [
-      "同業他社も見ているが、この会社が第一志望",
-      "大学時代の企画経験を活かしたい"
-    ],
-    "expected_checks": [
-      "比較軸を掘る",
-      "職種や役割への接続を求める",
-      "入社後の価値発揮まで繋げる"
-    ]
+    "expectedQuestionTokens": ["第一志望", "総合職"],
+    "expectedDraftTokens": ["若手", "現場", "合意形成"]
   }
 ]

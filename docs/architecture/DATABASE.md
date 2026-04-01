@@ -79,6 +79,12 @@ export const users = pgTable("users", {
 
 ## 5. テーブル一覧
 
+補足:
+
+- `companies`, `documents`, `motivation_conversations` などの Postgres テーブルでは `userId` / `guestId` の XOR 制約で owner を表現している
+- 一方、企業RAGの実体である ChromaDB / BM25 は Postgres 外の永続化ストアであり、この XOR 制約は直接は及ばない
+- 企業RAGの tenant 分離は、現状では `companyId` と Next API の owner check で成り立っている。詳細は `docs/architecture/TENANT_ISOLATION_AUDIT.md` を参照
+
 ### 認証関連（Better Auth）
 
 | テーブル | 用途 |

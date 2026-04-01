@@ -9,6 +9,7 @@ import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 export interface Identity {
   userId: string | null;
@@ -21,17 +22,29 @@ export interface Message {
   content: string;
 }
 
-export interface STARScores {
-  situation: number;
-  task: number;
-  action: number;
-  result: number;
-}
+export type BuildElement = "overview" | "context" | "task" | "action" | "result" | "learning";
+export type DeepDiveFocus =
+  | "role"
+  | "challenge"
+  | "action_reason"
+  | "result_evidence"
+  | "learning_transfer"
+  | "credibility"
+  | "future"
+  | "backstory";
+export type FocusKey = BuildElement | DeepDiveFocus;
+export type ConversationStage = "es_building" | "draft_ready" | "deep_dive_active" | "interview_ready";
 
-export interface STAREvaluation {
-  scores: STARScores;
-  weakest_element: string;
-  is_complete: boolean;
+export interface ConversationState {
+  stage: ConversationStage;
+  focusKey: FocusKey | null;
+  progressLabel: string | null;
+  answerHint: string | null;
+  missingElements: BuildElement[];
+  readyForDraft: boolean;
+  draftReadinessReason: string;
+  draftText: string | null;
+  deepdiveStage: string | null;
 }
 
 export interface GakuchikaData {
@@ -40,26 +53,180 @@ export interface GakuchikaData {
   charLimitType?: string | null;
 }
 
-export const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
-export const STAR_COMPLETION_THRESHOLD = 70;
 export const QUESTIONS_PER_CREDIT = 5;
-/** 上記 N 問ごとに一度まとめて消費するクレジット数 */
 export const CREDITS_PER_QUESTION_BATCH = 3;
-
-const STAR_HINT_TEXTS: Record<string, string> = {
-  situation: "この質問では、当時の状況や背景が伝わると答えやすくなります",
-  task: "この質問では、何が課題だったのかをはっきりさせると伝わりやすいです",
-  action: "この質問では、自分がどう考えて動いたかまで話せると強くなります",
-  result: "この質問では、結果とそこから得た学びまでつなげるとまとまりやすいです",
-};
-
-const STAR_ELEMENT_KEYS = ["situation", "task", "action", "result"] as const;
-
-const FASTAPI_ERROR_MESSAGE = "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。";
-/** FastAPI ガクチカ stream 呼び出しのタイムアウト（new / resume / 会話ストリームで共通） */
 export const FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS = 60_000;
 
-/** FastAPI `next-question/stream` の SSE を行単位でパースする（Next の中継と new/resume の完読で共用） */
+const BUILD_ELEMENTS: BuildElement[] = ["overview", "context", "task", "action", "result", "learning"];
+const FOCUS_KEYS = new Set<FocusKey>([
+  "overview",
+  "context",
+  "task",
+  "action",
+  "result",
+  "learning",
+  "role",
+  "challenge",
+  "action_reason",
+  "result_evidence",
+  "learning_transfer",
+  "credibility",
+  "future",
+  "backstory",
+]);
+
+const FASTAPI_ERROR_MESSAGE = "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。";
+
+function isBuildElement(value: string): value is BuildElement {
+  return BUILD_ELEMENTS.includes(value as BuildElement);
+}
+
+function isFocusKey(value: string): value is FocusKey {
+  return FOCUS_KEYS.has(value as FocusKey);
+}
+
+function defaultConversationState(): ConversationState {
+  return {
+    stage: "es_building",
+    focusKey: null,
+    progressLabel: null,
+    answerHint: null,
+    missingElements: ["context", "task", "action", "result", "learning"],
+    readyForDraft: false,
+    draftReadinessReason: "",
+    draftText: null,
+    deepdiveStage: null,
+  };
+}
+
+function normalizeString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeMissingElements(value: unknown): BuildElement[] {
+  if (!Array.isArray(value)) return [];
+  const normalized: BuildElement[] = [];
+  for (const item of value) {
+    if (typeof item === "string" && isBuildElement(item) && !normalized.includes(item)) {
+      normalized.push(item);
+    }
+  }
+  return normalized;
+}
+
+export function safeParseMessages(json: string): Message[] {
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter((message): message is { id?: string; role: string; content: string } =>
+        message &&
+        typeof message === "object" &&
+        (message.role === "user" || message.role === "assistant") &&
+        typeof message.content === "string"
+      )
+      .map((message) => ({
+        id: message.id || crypto.randomUUID(),
+        role: message.role as "user" | "assistant",
+        content: message.content,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function parseLegacyState(value: Record<string, unknown>, status: string | null | undefined): ConversationState | null {
+  const hasLegacyScores = ["situation", "task", "action", "result"].some((key) => typeof value[key] === "number");
+  if (!hasLegacyScores) return null;
+  return {
+    stage: status === "completed" ? "interview_ready" : "es_building",
+    focusKey: status === "completed" ? "learning_transfer" : "task",
+    progressLabel: status === "completed" ? "面接準備完了" : "作成中",
+    answerHint: null,
+    missingElements: [],
+    readyForDraft: status === "completed",
+    draftReadinessReason: "",
+    draftText: null,
+    deepdiveStage: status === "completed" ? "legacy_completed" : null,
+  };
+}
+
+export function safeParseConversationState(
+  json: string | null,
+  status?: string | null,
+): ConversationState {
+  if (!json) {
+    return status === "completed"
+      ? { ...defaultConversationState(), stage: "interview_ready", readyForDraft: true, progressLabel: "面接準備完了" }
+      : defaultConversationState();
+  }
+
+  try {
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    const legacy = parseLegacyState(parsed, status);
+    if (legacy) return legacy;
+
+    const stage = normalizeString(parsed.stage) as ConversationStage | null;
+    const focusKeyRaw = normalizeString(parsed.focus_key ?? parsed.focusKey);
+    const focusKey = focusKeyRaw && isFocusKey(focusKeyRaw) ? focusKeyRaw : null;
+
+    return {
+      stage:
+        stage === "draft_ready" || stage === "deep_dive_active" || stage === "interview_ready"
+          ? stage
+          : "es_building",
+      focusKey,
+      progressLabel: normalizeString(parsed.progress_label ?? parsed.progressLabel),
+      answerHint: normalizeString(parsed.answer_hint ?? parsed.answerHint),
+      missingElements: normalizeMissingElements(parsed.missing_elements ?? parsed.missingElements),
+      readyForDraft: Boolean(parsed.ready_for_draft ?? parsed.readyForDraft),
+      draftReadinessReason: String(parsed.draft_readiness_reason ?? parsed.draftReadinessReason ?? "").trim(),
+      draftText: normalizeString(parsed.draft_text ?? parsed.draftText),
+      deepdiveStage: normalizeString(parsed.deepdive_stage ?? parsed.deepdiveStage),
+    };
+  } catch {
+    return defaultConversationState();
+  }
+}
+
+export function serializeConversationState(state: ConversationState): string {
+  return JSON.stringify({
+    stage: state.stage,
+    focus_key: state.focusKey,
+    progress_label: state.progressLabel,
+    answer_hint: state.answerHint,
+    missing_elements: state.missingElements,
+    ready_for_draft: state.readyForDraft,
+    draft_readiness_reason: state.draftReadinessReason,
+    draft_text: state.draftText,
+    deepdive_stage: state.deepdiveStage,
+  });
+}
+
+export function isDraftReady(state: ConversationState | null): boolean {
+  if (!state) return false;
+  return state.readyForDraft || ["draft_ready", "deep_dive_active", "interview_ready"].includes(state.stage);
+}
+
+export function isInterviewReady(state: ConversationState | null): boolean {
+  if (!state) return false;
+  return state.stage === "interview_ready";
+}
+
+export function buildConversationStatePatch(
+  current: ConversationState,
+  patch: Partial<ConversationState>,
+): ConversationState {
+  return {
+    ...current,
+    ...patch,
+    missingElements: patch.missingElements ?? current.missingElements,
+  };
+}
+
 export async function* iterateGakuchikaFastApiSseEvents(
   body: ReadableStream<Uint8Array>,
 ): AsyncGenerator<{ event: Record<string, unknown>; telemetry: InternalCostTelemetry | null }> {
@@ -95,20 +262,17 @@ export type ConsumeGakuchikaNextQuestionSseResult =
   | {
       ok: true;
       question: string;
-      starEvaluation: STAREvaluation | null;
-      targetElement: string | null;
+      conversationState: ConversationState;
       telemetry: InternalCostTelemetry | null;
     }
   | {
       ok: false;
       question: null;
-      starEvaluation: null;
-      targetElement: null;
+      conversationState: ConversationState | null;
       telemetry: InternalCostTelemetry | null;
       error: string;
     };
 
-/** SSE を最後まで読み、`complete` または `error` で終了する（new / resume 用） */
 export async function consumeGakuchikaNextQuestionSse(
   response: Response,
 ): Promise<ConsumeGakuchikaNextQuestionSseResult> {
@@ -123,8 +287,7 @@ export async function consumeGakuchikaNextQuestionSse(
     return {
       ok: false,
       question: null,
-      starEvaluation: null,
-      targetElement: null,
+      conversationState: null,
       telemetry,
       error: msg,
     };
@@ -135,8 +298,7 @@ export async function consumeGakuchikaNextQuestionSse(
     return {
       ok: false,
       question: null,
-      starEvaluation: null,
-      targetElement: null,
+      conversationState: null,
       telemetry: null,
       error: FASTAPI_ERROR_MESSAGE,
     };
@@ -144,72 +306,45 @@ export async function consumeGakuchikaNextQuestionSse(
 
   let streamedQuestionText = "";
   let latestTelemetry: InternalCostTelemetry | null = null;
-  let hintedTargetElement: string | null = null;
+  const partialState: Partial<ConversationState> = {};
 
   for await (const { event, telemetry } of iterateGakuchikaFastApiSseEvents(body)) {
     latestTelemetry = telemetry ?? latestTelemetry;
     const type = event.type;
 
-    if (
-      type === "string_chunk" &&
-      event.path === "question" &&
-      typeof event.text === "string"
-    ) {
+    if (type === "string_chunk" && event.path === "question" && typeof event.text === "string") {
       streamedQuestionText += event.text;
-    } else if (
-      type === "field_complete" &&
-      event.path === "star_scores" &&
-      event.value &&
-      typeof event.value === "object"
-    ) {
-      const v = event.value as Record<string, unknown>;
-      const partialScores: STARScores = {
-        situation: Number(v.situation ?? 0),
-        task: Number(v.task ?? 0),
-        action: Number(v.action ?? 0),
-        result: Number(v.result ?? 0),
-      };
-      hintedTargetElement = getWeakestElement(partialScores);
+    } else if (type === "field_complete") {
+      if (event.path === "focus_key" && typeof event.value === "string" && isFocusKey(event.value)) {
+        partialState.focusKey = event.value;
+      } else if (event.path === "progress_label" && typeof event.value === "string") {
+        partialState.progressLabel = event.value;
+      } else if (event.path === "answer_hint" && typeof event.value === "string") {
+        partialState.answerHint = event.value;
+      } else if (event.path === "ready_for_draft") {
+        partialState.readyForDraft = Boolean(event.value);
+      } else if (event.path === "draft_readiness_reason" && typeof event.value === "string") {
+        partialState.draftReadinessReason = event.value;
+      } else if (event.path === "deepdive_stage" && typeof event.value === "string") {
+        partialState.deepdiveStage = event.value;
+      }
     } else if (type === "complete") {
       const data = event.data as {
         question?: string;
-        target_element?: string;
-        star_evaluation?: STAREvaluation;
+        conversation_state?: Record<string, unknown>;
       };
       const questionText =
         typeof data.question === "string" && data.question.trim()
           ? data.question.trim()
-          : streamedQuestionText.trim() || "";
-      if (!questionText) {
-        return {
-          ok: false,
-          question: null,
-          starEvaluation: null,
-          targetElement: null,
-          telemetry: latestTelemetry,
-          error: FASTAPI_ERROR_MESSAGE,
-        };
-      }
-
-      const starEvaluation = data.star_evaluation ?? null;
-      let targetElement: string | null =
-        typeof data.target_element === "string" ? data.target_element : hintedTargetElement;
-
-      if (starEvaluation) {
-        targetElement =
-          (typeof data.target_element === "string" && data.target_element) ||
-          starEvaluation.weakest_element ||
-          getWeakestElement(starEvaluation.scores);
-      }
-      if (!targetElement && starEvaluation?.scores) {
-        targetElement = getWeakestElement(starEvaluation.scores);
-      }
+          : streamedQuestionText.trim();
+      const state = data.conversation_state
+        ? safeParseConversationState(JSON.stringify(data.conversation_state))
+        : buildConversationStatePatch(defaultConversationState(), partialState);
 
       return {
         ok: true,
         question: questionText,
-        starEvaluation,
-        targetElement,
+        conversationState: state,
         telemetry: latestTelemetry,
       };
     } else if (type === "error") {
@@ -220,8 +355,7 @@ export async function consumeGakuchikaNextQuestionSse(
       return {
         ok: false,
         question: null,
-        starEvaluation: null,
-        targetElement: null,
+        conversationState: null,
         telemetry: latestTelemetry,
         error: msg,
       };
@@ -231,8 +365,7 @@ export async function consumeGakuchikaNextQuestionSse(
   return {
     ok: false,
     question: null,
-    starEvaluation: null,
-    targetElement: null,
+    conversationState: null,
     telemetry: latestTelemetry,
     error: FASTAPI_ERROR_MESSAGE,
   };
@@ -263,7 +396,7 @@ export async function getIdentity(request: NextRequest): Promise<Identity | null
 export async function verifyGakuchikaAccess(
   gakuchikaId: string,
   userId: string | null,
-  guestId: string | null
+  guestId: string | null,
 ): Promise<boolean> {
   const [gakuchika] = await db
     .select()
@@ -277,74 +410,16 @@ export async function verifyGakuchikaAccess(
   return false;
 }
 
-export function safeParseMessages(json: string): Message[] {
-  try {
-    const parsed = JSON.parse(json);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed
-      .filter((message): message is { id?: string; role: string; content: string } =>
-        message &&
-        typeof message === "object" &&
-        (message.role === "user" || message.role === "assistant") &&
-        typeof message.content === "string"
-      )
-      .map((message) => ({
-        id: message.id || crypto.randomUUID(),
-        role: message.role as "user" | "assistant",
-        content: message.content,
-      }));
-  } catch {
-    return [];
-  }
-}
-
-export function safeParseStarScores(json: string | null): STARScores | null {
-  if (!json) return null;
-
-  try {
-    const parsed = JSON.parse(json);
-    return {
-      situation: parsed.situation ?? 0,
-      task: parsed.task ?? 0,
-      action: parsed.action ?? 0,
-      result: parsed.result ?? 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export function getWeakestElement(scores: STARScores | null): string | null {
-  if (!scores) return null;
-
-  return STAR_ELEMENT_KEYS.reduce(
-    (weakest, key) => (scores[key] < scores[weakest] ? key : weakest),
-    STAR_ELEMENT_KEYS[0]
-  );
-}
-
-export function isStarComplete(scores: STARScores | null): boolean {
-  if (!scores) return false;
-  return (
-    scores.situation >= STAR_COMPLETION_THRESHOLD &&
-    scores.task >= STAR_COMPLETION_THRESHOLD &&
-    scores.action >= STAR_COMPLETION_THRESHOLD &&
-    scores.result >= STAR_COMPLETION_THRESHOLD
-  );
-}
-
-export function buildHintPayload(targetElement: string | null) {
-  if (!targetElement || !STAR_HINT_TEXTS[targetElement]) {
+export function buildHintPayload(state: ConversationState | null) {
+  if (!state?.focusKey || !state.answerHint || !state.progressLabel) {
     return null;
   }
 
   return {
-    targetElement,
-    hintText: STAR_HINT_TEXTS[targetElement],
-    source: "rule",
+    focusKey: state.focusKey,
+    answerHint: state.answerHint,
+    progressLabel: state.progressLabel,
+    source: "model",
   };
 }
 
@@ -352,19 +427,18 @@ export async function getQuestionFromFastAPI(
   gakuchika: GakuchikaData,
   conversationHistory: Array<Omit<Message, "id"> | Message>,
   questionCount: number,
-  starScores?: STARScores | null,
+  conversationState?: ConversationState | null,
   requestId?: string,
 ): Promise<{
   question: string | null;
   error: string | null;
-  starEvaluation: STAREvaluation | null;
-  targetElement: string | null;
+  conversationState: ConversationState | null;
   telemetry: InternalCostTelemetry | null;
 }> {
   const abortController = new AbortController();
   const fetchTimeoutId = setTimeout(() => abortController.abort(), FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS);
   try {
-    const response = await fetch(`${FASTAPI_URL}/api/gakuchika/next-question/stream`, {
+    const response = await fetchFastApiInternal("/api/gakuchika/next-question/stream", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -379,7 +453,19 @@ export async function getQuestionFromFastAPI(
           content: message.content,
         })),
         question_count: questionCount,
-        star_scores: starScores || null,
+        conversation_state: conversationState
+          ? {
+              stage: conversationState.stage,
+              focus_key: conversationState.focusKey,
+              progress_label: conversationState.progressLabel,
+              answer_hint: conversationState.answerHint,
+              missing_elements: conversationState.missingElements,
+              ready_for_draft: conversationState.readyForDraft,
+              draft_readiness_reason: conversationState.draftReadinessReason,
+              draft_text: conversationState.draftText,
+              deepdive_stage: conversationState.deepdiveStage,
+            }
+          : null,
       }),
       signal: abortController.signal,
     });
@@ -389,19 +475,15 @@ export async function getQuestionFromFastAPI(
       return {
         question: null,
         error: consumed.error,
-        starEvaluation: consumed.starEvaluation,
-        targetElement: consumed.targetElement,
+        conversationState: consumed.conversationState,
         telemetry: consumed.telemetry,
       };
     }
+
     return {
       question: consumed.question,
       error: null,
-      starEvaluation: consumed.starEvaluation,
-      targetElement:
-        consumed.targetElement ||
-        consumed.starEvaluation?.weakest_element ||
-        null,
+      conversationState: consumed.conversationState,
       telemetry: consumed.telemetry,
     };
   } catch (e) {
@@ -409,16 +491,14 @@ export async function getQuestionFromFastAPI(
       return {
         question: null,
         error: "AIの応答がタイムアウトしました。再度お試しください。",
-        starEvaluation: null,
-        targetElement: null,
+        conversationState: null,
         telemetry: null,
       };
     }
     return {
       question: null,
       error: "AIサービスに接続できませんでした",
-      starEvaluation: null,
-      targetElement: null,
+      conversationState: null,
       telemetry: null,
     };
   } finally {

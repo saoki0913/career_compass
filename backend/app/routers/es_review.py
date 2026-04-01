@@ -263,6 +263,7 @@ class ReviewMeta(BaseModel):
     company_grounding_safety_applied: bool = False
     evidence_coverage_level: str = "none"
     weak_evidence_notice: bool = False
+    selected_company_evidence_themes: list[str] = Field(default_factory=list)
     injection_risk: Optional[str] = None
     user_context_sources: list[str] = Field(default_factory=list)
     hallucination_guard_mode: str = "strict"
@@ -270,6 +271,7 @@ class ReviewMeta(BaseModel):
     rewrite_attempt_count: int = 0
     length_policy: str = "strict"
     length_shortfall: int = 0
+    length_shortfall_bucket: Optional[str] = None
     soft_min_floor_ratio: float | None = None
     length_fix_attempted: bool = False
     length_fix_result: str = "not_needed"
@@ -283,6 +285,7 @@ class ReviewMeta(BaseModel):
     required_growth: int = 0
     latest_failed_length: int = 0
     length_failure_code: Optional[str] = None
+    unfinished_tail_detected: bool = False
     retrieval_profile_name: Optional[str] = None
     priority_source_match_count: int = 0
     token_usage: Optional[ReviewTokenUsage] = Field(default=None, exclude=True)
@@ -629,6 +632,24 @@ def _coerce_degraded_rewrite_dearu_style(text: str) -> str:
     if "です" not in text and "ます" not in text:
         return text
     t = text
+    regex_pairs = (
+        (r"したい(?:です|と思います|と考えています)", "したい"),
+        (r"なりたい(?:です|と思います|と考えています)", "なりたい"),
+        (r"学びたい(?:です|と思います|と考えています)", "学びたい"),
+        (r"磨きたい(?:です|と思います|と考えています)", "磨きたい"),
+        (r"高めたい(?:です|と思います|と考えています)", "高めたい"),
+        (r"深めたい(?:です|と思います|と考えています)", "深めたい"),
+        (r"試したい(?:です|と思います|と考えています)", "試したい"),
+        (r"身につけたい(?:です|と思います|と考えています)", "身につけたい"),
+        (r"活かしたい(?:です|と思います|と考えています)", "活かしたい"),
+        (r"生かしたい(?:です|と思います|と考えています)", "生かしたい"),
+        (r"携わりたい(?:です|と思います|と考えています)", "携わりたい"),
+        (r"貢献したい(?:です|と思います|と考えています)", "貢献したい"),
+        (r"考えています", "考える"),
+        (r"思います", "考える"),
+    )
+    for pattern, replacement in regex_pairs:
+        t = re.sub(pattern, replacement, t)
     pairs = (
         ("しています", "している"),
         ("いています", "いている"),
@@ -647,6 +668,7 @@ def _coerce_degraded_rewrite_dearu_style(text: str) -> str:
     )
     for old, new in pairs:
         t = t.replace(old, new)
+    t = re.sub(r"([ぁ-んァ-ン一-龥A-Za-z0-9]+たい)だ(?=。|$)", r"\1", t)
     t = t.strip()
     return t if t else text
 
@@ -678,6 +700,8 @@ def _describe_retry_reason(reason: str) -> str:
         return f"{reason} 先頭文だけで答えが伝わる構成にして再試行します。"
     if "断片的" in reason:
         return "断片的な本文になったため、1本の文章として再試行します。"
+    if "自己否定" in reason:
+        return "自己否定語が残っていたため、事実を保ったまま前向きな表現へ言い換えて再試行します。"
     return f"{reason} 再試行します。"
 
 
@@ -695,7 +719,7 @@ def _best_effort_rewrite_admissible(
     """
     if not (normalized_text or "").strip():
         return False
-    if primary_failure_code in {"empty", "fragment"}:
+    if primary_failure_code in {"empty", "fragment", "negative_self_eval"}:
         return False
     return True
 
@@ -726,6 +750,10 @@ def _rewrite_validation_degraded_hint(codes: list[str]) -> str:
         ),
         "grounding": (
             "提出前に、企業や役割との接点が本文から伝わるよう、1文で結び直してください。"
+        ),
+        "negative_self_eval": (
+            "提出前に、「経験不足」「自信がない」などの自己否定語を残さず、"
+            "準備・責任感・学習姿勢などの前向きな表現へ言い換えてください。"
         ),
         "generic": (
             "提出前に、文体（だ・である調）・指定字数・冒頭の結論の置き方を確認し、"
@@ -1058,6 +1086,11 @@ _INTERN_GOALS_HEAD_FOCUS = (
     r"学びたい|身につけたい|やりたい|獲得したい|高めたい|磨きたい|確かめたい|得たい|"
     r"習得したい|鍛えたい|深めたい|試したい|経験したい|積みたい|培いたい|伸ばしたい"
 )
+_NEGATIVE_SELF_EVAL_PATTERNS = (
+    r"経験不足",
+    r"自信がない",
+    r"自信はない",
+)
 
 
 def _role_name_appears_in_text(role_name: str | None, haystack: str) -> bool:
@@ -1078,6 +1111,19 @@ def _role_name_appears_in_text(role_name: str | None, haystack: str) -> bool:
 def _split_candidate_sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[。！？!?])", (text or "").strip())
     return [part.strip() for part in parts if part.strip()]
+
+
+def _has_unfinished_tail(text: str) -> bool:
+    stripped = (text or "").strip()
+    if not stripped:
+        return True
+    return not stripped.endswith(("。", "！", "？", "!", "?"))
+
+
+def _contains_negative_self_eval(text: str, *, template_type: str) -> bool:
+    if template_type != "self_pr":
+        return False
+    return any(re.search(pattern, text or "") for pattern in _NEGATIVE_SELF_EVAL_PATTERNS)
 
 
 def _validate_standard_conclusion_focus(
@@ -1504,6 +1550,37 @@ def _infer_company_evidence_theme(
     return "企業理解"
 
 
+def _infer_secondary_company_evidence_theme(
+    *,
+    template_type: str,
+    content_type: str,
+    text: str,
+    primary_theme: str,
+    role_terms: list[str],
+    grounding_mode: str,
+) -> str | None:
+    haystack = text or ""
+    if (
+        grounding_mode == "role_grounded"
+        and primary_theme != "役割理解"
+        and (
+            any(term and term in haystack for term in role_terms)
+            or content_type in ROLE_SUPPORTIVE_CONTENT_TYPES
+        )
+    ):
+        return "役割理解"
+    if primary_theme != "現場期待" and re.search(r"現場|実務|若手|学び|経験|意思決定", haystack):
+        return "現場期待"
+    if primary_theme != "事業理解" and re.search(r"事業|投資|価値創出|社会課題|成長領域", haystack):
+        return "事業理解"
+    if template_type == "post_join_goals" and primary_theme != "将来接続" and re.search(
+        r"将来|成長|機会|挑戦|キャリア",
+        haystack,
+    ):
+        return "将来接続"
+    return None
+
+
 def _score_company_evidence_source(
     source: dict,
     *,
@@ -1640,6 +1717,31 @@ def _build_company_evidence_cards(
                 "same_company_verified": bool(source.get("same_company_verified", True)),
             }
         )
+        secondary_theme = _infer_secondary_company_evidence_theme(
+            template_type=template_type,
+            content_type=content_type,
+            text=excerpt,
+            primary_theme=theme,
+            role_terms=role_terms,
+            grounding_mode=grounding_mode,
+        )
+        if (
+            company_grounding == "required"
+            and secondary_theme
+            and secondary_theme != theme
+            and len(excerpt) >= 20
+        ):
+            candidates.append(
+                {
+                    "theme": secondary_theme,
+                    "claim": excerpt,
+                    "excerpt": title if title and title != excerpt else "",
+                    "source_url": str(source.get("source_url") or ""),
+                    "content_type": content_type,
+                    "title": title,
+                    "same_company_verified": bool(source.get("same_company_verified", True)),
+                }
+            )
 
     effective_max_items = min(max_items, 1 if company_grounding == "assistive" else 4)
 
@@ -1946,8 +2048,10 @@ def _build_review_meta(
     company_grounding_safety_applied: bool = False,
     evidence_coverage_level: str = "none",
     weak_evidence_notice: bool = False,
+    selected_company_evidence_themes: list[str] | None = None,
     length_policy: str = "strict",
     length_shortfall: int = 0,
+    length_shortfall_bucket: str | None = None,
     soft_min_floor_ratio: float | None = None,
     length_fix_attempted: bool = False,
     length_fix_result: str = "not_needed",
@@ -1962,6 +2066,7 @@ def _build_review_meta(
     required_growth: int = 0,
     latest_failed_length: int = 0,
     length_failure_code: str | None = None,
+    unfinished_tail_detected: bool = False,
     retrieval_profile_name: str | None = None,
     priority_source_match_count: int = 0,
     rewrite_rejection_reasons: list[str] | None = None,
@@ -1996,6 +2101,7 @@ def _build_review_meta(
         company_grounding_safety_applied=company_grounding_safety_applied,
         evidence_coverage_level=evidence_coverage_level,
         weak_evidence_notice=weak_evidence_notice,
+        selected_company_evidence_themes=list(selected_company_evidence_themes or []),
         injection_risk=injection_risk,
         user_context_sources=_collect_user_context_sources(request),
         hallucination_guard_mode="strict",
@@ -2003,6 +2109,7 @@ def _build_review_meta(
         rewrite_attempt_count=rewrite_attempt_count,
         length_policy=length_policy,
         length_shortfall=length_shortfall,
+        length_shortfall_bucket=length_shortfall_bucket,
         soft_min_floor_ratio=soft_min_floor_ratio,
         length_fix_attempted=length_fix_attempted,
         length_fix_result=length_fix_result,
@@ -2016,6 +2123,7 @@ def _build_review_meta(
         required_growth=required_growth,
         latest_failed_length=latest_failed_length,
         length_failure_code=length_failure_code,
+        unfinished_tail_detected=unfinished_tail_detected,
         retrieval_profile_name=retrieval_profile_name,
         priority_source_match_count=priority_source_match_count,
         token_usage=token_usage,
@@ -3239,6 +3347,10 @@ def _retry_hint_from_code(
         "verbose_opening": "設問の言い換えから始めず、1文目は結論だけを短く置く",
         "fragment": "本文を断片で終わらせず、最後まで言い切る",
         "bulletish_or_listlike": "箇条書きや列挙ではなく、1本の本文にする",
+        "negative_self_eval": (
+            "「経験不足」「自信がない」などの自己否定語を残さず、"
+            "準備・責任感・学習姿勢として言い換える"
+        ),
         "generic": "条件を満たす安全な改善案を返す",
     }
     return mapping.get(code, mapping["generic"])
@@ -3259,6 +3371,11 @@ def _select_retry_codes(*, retry_code: str, failure_codes: list[str] | None = No
     if not selected:
         selected.append(raw_codes[0])
     return _dedupe_preserve_order(selected)
+
+
+def _primary_retry_code(*, retry_code: str, failure_codes: list[str] | None = None) -> str:
+    selected_codes = _select_retry_codes(retry_code=retry_code, failure_codes=failure_codes)
+    return selected_codes[0] if selected_codes else (retry_code or "generic")
 
 
 def _retry_hints_from_codes(
@@ -3296,6 +3413,7 @@ def _resolve_rewrite_focus_mode(*, retry_code: str) -> str:
         "bulletish_or_listlike": "structure_focus",
         "empty": "structure_focus",
         "fragment": "structure_focus",
+        "negative_self_eval": "positive_reframe_focus",
         "generic": "structure_focus",
     }
     return mapping.get(retry_code or "generic", "structure_focus")
@@ -3385,7 +3503,13 @@ def _should_short_circuit_to_length_fix(
         return False
     if last_under_min_length is None:
         return False
-    return (current_length - last_under_min_length) < 4
+    growth = current_length - last_under_min_length
+    if growth < 4:
+        return True
+    remaining_shortfall = max(0, (char_min or 0) - current_length) if char_min else 0
+    if remaining_shortfall >= 24 and growth < max(8, remaining_shortfall // 4):
+        return True
+    return False
 
 
 def _soft_min_shortfall(
@@ -3406,6 +3530,24 @@ def _soft_min_shortfall(
     if len(text) < floor:
         return 0
     return shortfall
+
+
+def _length_shortfall_bucket(
+    *,
+    char_min: int | None,
+    latest_failed_length: int,
+    length_failure_code: str | None,
+) -> str | None:
+    if length_failure_code != "under_min" or not char_min or latest_failed_length <= 0:
+        return None
+    shortfall = max(0, char_min - latest_failed_length)
+    if shortfall <= 0:
+        return None
+    if shortfall <= 5:
+        return "1-5"
+    if shortfall <= 20:
+        return "6-20"
+    return "21+"
 
 
 def _es_review_temperature(
@@ -3448,7 +3590,9 @@ def _should_attempt_length_fix(
     if not normalized:
         return False
     failure_code_set = set(failure_codes or ([primary_failure_code] if primary_failure_code else []))
-    if failure_code_set & {"bulletish_or_listlike", "empty", "fragment"}:
+    if failure_code_set & {"bulletish_or_listlike", "empty", "negative_self_eval"}:
+        return False
+    if "fragment" in failure_code_set and not (failure_code_set & {"under_min", "over_max", "style", "grounding"}):
         return False
     if failure_code_set & {"style", "grounding"}:
         return True
@@ -3562,6 +3706,9 @@ def _validate_rewrite_candidate(
     if not normalized:
         return None, "empty", "改善案が空でした。本文を必ず返してください。", {}
 
+    if "です" in normalized or "ます" in normalized:
+        normalized = _coerce_degraded_rewrite_dearu_style(normalized)
+
     style_invalid = "です" in normalized or "ます" in normalized
     bulletish_invalid = bool(
         "\n" in normalized and re.search(r"(^|\n)\s*([・\-•]|\d+[.)])", normalized)
@@ -3611,6 +3758,12 @@ def _validate_rewrite_candidate(
     if "\n" in fitted and re.search(r"(^|\n)\s*([・\-•]|\d+[.)])", fitted):
         bulletish_invalid = True
 
+    fragment_invalid = _has_unfinished_tail(fitted)
+    negative_self_eval_invalid = _contains_negative_self_eval(
+        fitted,
+        template_type=template_type,
+    )
+
     focus_code, focus_reason = _validate_standard_conclusion_focus(
         fitted,
         template_type=template_type,
@@ -3644,12 +3797,18 @@ def _validate_rewrite_candidate(
     if bulletish_invalid:
         failure_codes.append("bulletish_or_listlike")
         failure_reason = "箇条書きや列挙ではなく、1本の本文にしてください。"
+    if fragment_invalid:
+        failure_codes.append("fragment")
+        failure_reason = "本文が断片的です。文を最後まで言い切ってください。"
     if focus_code:
         failure_codes.append(focus_code)
         failure_reason = focus_reason or "設問への適合が不足しています。"
     if grounding_invalid:
         failure_codes.append("grounding")
         failure_reason = "企業や役割との接点が本文から十分に伝わっていません。"
+    if negative_self_eval_invalid:
+        failure_codes.append("negative_self_eval")
+        failure_reason = "自己否定語を残さず、事実を保ったまま前向きな表現へ言い換えてください。"
     if primary_length_code:
         failure_codes.append(primary_length_code)
         if len(failure_codes) == 1:
@@ -4017,12 +4176,19 @@ async def review_section_with_template(
                 best_rejected_candidate = normalized_candidate
                 best_rejected_length = len(best_rejected_candidate)
                 best_rejected_distance = candidate_distance
-                best_retry_code = retry_code
-                best_failure_codes = failure_codes
-            accepted_length_failure_code = retry_code
-            if retry_code == "under_min":
-                if _should_short_circuit_to_length_fix(
+                best_retry_code = _primary_retry_code(
                     retry_code=retry_code,
+                    failure_codes=failure_codes,
+                )
+                best_failure_codes = failure_codes
+            primary_retry_code = _primary_retry_code(
+                retry_code=retry_code,
+                failure_codes=failure_codes,
+            )
+            accepted_length_failure_code = primary_retry_code
+            if primary_retry_code == "under_min":
+                if _should_short_circuit_to_length_fix(
+                    retry_code=primary_retry_code,
                     current_length=current_length,
                     last_under_min_length=last_under_min_length,
                     attempt_number=attempt + 1,
@@ -4365,8 +4531,18 @@ async def review_section_with_template(
             company_grounding_safety_applied=has_mismatched_company_sources,
             evidence_coverage_level=evidence_coverage_level,
             weak_evidence_notice=weak_evidence_notice,
+            selected_company_evidence_themes=[
+                str(card.get("theme") or "").strip()
+                for card in prompt_company_evidence_cards
+                if str(card.get("theme") or "").strip()
+            ],
             length_policy=accepted_length_policy,
             length_shortfall=accepted_length_shortfall,
+            length_shortfall_bucket=_length_shortfall_bucket(
+                char_min=char_min,
+                latest_failed_length=accepted_latest_failed_length,
+                length_failure_code=accepted_length_failure_code,
+            ),
             soft_min_floor_ratio=accepted_soft_min_floor_ratio,
             length_fix_attempted=length_fix_attempted,
             length_fix_result=length_fix_result,
@@ -4380,6 +4556,7 @@ async def review_section_with_template(
             required_growth=accepted_required_growth,
             latest_failed_length=accepted_latest_failed_length,
             length_failure_code=accepted_length_failure_code,
+            unfinished_tail_detected=_has_unfinished_tail(final_rewrite),
             retrieval_profile_name=retrieval_profile_name,
             priority_source_match_count=priority_source_match_count,
             token_usage=_maybe_review_token_usage(review_token_usage),

@@ -8,10 +8,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { userProfiles, users } from "@/lib/db/schema";
+import { credits, subscriptions, userProfiles, users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { logError } from "@/lib/logger";
+import { getSettingsPageData } from "@/lib/server/account-loaders";
+import { getBillingPeriodFromPriceId } from "@/lib/stripe/config";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,57 +23,30 @@ export async function GET(request: NextRequest) {
     });
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        developerMessage: "Authentication required",
+      });
     }
 
     const userId = session.user.id;
-
-    // Get user and profile
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-
-    const [profile] = await db
-      .select()
-      .from(userProfiles)
-      .where(eq(userProfiles.userId, userId))
-      .limit(1);
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
-    }
+    const { profile } = await getSettingsPageData(userId);
 
     return NextResponse.json({
-      profile: {
-        name: user.name,
-        email: user.email,
-        image: user.image,
-        plan: profile?.plan || "free",
-        university: profile?.university || null,
-        faculty: profile?.faculty || null,
-        graduationYear: profile?.graduationYear || null,
-        targetIndustries: profile?.targetIndustries
-          ? JSON.parse(profile.targetIndustries)
-          : [],
-        targetJobTypes: profile?.targetJobTypes
-          ? JSON.parse(profile.targetJobTypes)
-          : [],
-      },
+      profile,
     });
   } catch (error) {
     logError("fetch-profile", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "SETTINGS_PROFILE_FETCH_FAILED",
+      userMessage: "プロフィールを読み込めませんでした。",
+      action: "時間をおいて、もう一度お試しください。",
+      developerMessage: "Failed to fetch profile",
+      error,
+    });
   }
 }
 
@@ -99,16 +75,20 @@ export async function PUT(request: NextRequest) {
     // Update user name if provided
     if (name !== undefined) {
       if (!name || !name.trim()) {
-        return NextResponse.json(
-          { error: "名前は必須です" },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "SETTINGS_PROFILE_NAME_REQUIRED",
+          userMessage: "名前を入力してください。",
+          developerMessage: "Name is required",
+        });
       }
       if (typeof name !== "string" || name.trim().length > MAX_STRING_LENGTH) {
-        return NextResponse.json(
-          { error: `名前は${MAX_STRING_LENGTH}文字以内にしてください` },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "SETTINGS_PROFILE_NAME_TOO_LONG",
+          userMessage: `名前は${MAX_STRING_LENGTH}文字以内にしてください。`,
+          developerMessage: "Name exceeds maximum length",
+        });
       }
       await db
         .update(users)
@@ -120,10 +100,13 @@ export async function PUT(request: NextRequest) {
     for (const [field, value] of Object.entries({ university, faculty })) {
       if (value !== undefined && value !== null) {
         if (typeof value !== "string" || value.trim().length > MAX_STRING_LENGTH) {
-          return NextResponse.json(
-            { error: `${field}は${MAX_STRING_LENGTH}文字以内にしてください` },
-            { status: 400 }
-          );
+          return createApiErrorResponse(request, {
+            status: 400,
+            code: "SETTINGS_PROFILE_INVALID_TEXT",
+            userMessage: "入力内容を確認してください。",
+            action: `${MAX_STRING_LENGTH}文字以内で入力してください。`,
+            developerMessage: `${field} exceeds maximum length`,
+          });
         }
       }
     }
@@ -132,17 +115,23 @@ export async function PUT(request: NextRequest) {
     for (const [field, value] of Object.entries({ targetIndustries, targetJobTypes })) {
       if (value !== undefined && value !== null) {
         if (!Array.isArray(value) || value.length > MAX_ARRAY_SIZE) {
-          return NextResponse.json(
-            { error: `${field}は${MAX_ARRAY_SIZE}件以内にしてください` },
-            { status: 400 }
-          );
+          return createApiErrorResponse(request, {
+            status: 400,
+            code: "SETTINGS_PROFILE_INVALID_LIST",
+            userMessage: "選択内容を確認してください。",
+            action: `${MAX_ARRAY_SIZE}件以内で選択してください。`,
+            developerMessage: `${field} exceeds maximum array size`,
+          });
         }
         for (const item of value) {
           if (typeof item !== "string" || item.length > MAX_ARRAY_ITEM_LENGTH) {
-            return NextResponse.json(
-              { error: `${field}の各項目は${MAX_ARRAY_ITEM_LENGTH}文字以内の文字列にしてください` },
-              { status: 400 }
-            );
+            return createApiErrorResponse(request, {
+              status: 400,
+              code: "SETTINGS_PROFILE_INVALID_LIST_ITEM",
+              userMessage: "選択内容を確認してください。",
+              action: `${MAX_ARRAY_ITEM_LENGTH}文字以内の項目を選択してください。`,
+              developerMessage: `${field} contains an invalid item`,
+            });
           }
         }
       }
@@ -168,10 +157,12 @@ export async function PUT(request: NextRequest) {
     if (graduationYear !== undefined) {
       const year = parseInt(graduationYear);
       if (graduationYear && (isNaN(year) || year < 2020 || year > 2040)) {
-        return NextResponse.json(
-          { error: "無効な卒業年度です" },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "SETTINGS_PROFILE_INVALID_GRADUATION_YEAR",
+          userMessage: "卒業年度を確認してください。",
+          developerMessage: "Invalid graduation year",
+        });
       }
       profileData.graduationYear = graduationYear ? year : null;
     }
@@ -201,18 +192,32 @@ export async function PUT(request: NextRequest) {
       });
     }
 
-    // Get updated profile
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-
-    const [profile] = await db
-      .select()
-      .from(userProfiles)
-      .where(eq(userProfiles.userId, userId))
-      .limit(1);
+    const [user, profile, creditRow, subscriptionRow] = await Promise.all([
+      db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then((rows) => rows[0]),
+      db
+        .select()
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, userId))
+        .limit(1)
+        .then((rows) => rows[0]),
+      db
+        .select()
+        .from(credits)
+        .where(eq(credits.userId, userId))
+        .limit(1)
+        .then((rows) => rows[0]),
+      db
+        .select()
+        .from(subscriptions)
+        .where(eq(subscriptions.userId, userId))
+        .limit(1)
+        .then((rows) => rows[0]),
+    ]);
 
     return NextResponse.json({
       profile: {
@@ -229,13 +234,24 @@ export async function PUT(request: NextRequest) {
         targetJobTypes: profile?.targetJobTypes
           ? JSON.parse(profile.targetJobTypes)
           : [],
+        creditsBalance: creditRow?.balance ?? 0,
+        currentPeriodEnd: subscriptionRow?.currentPeriodEnd?.toISOString() ?? null,
+        subscriptionStatus: subscriptionRow?.status ?? null,
+        billingPeriod: subscriptionRow?.stripePriceId
+          ? getBillingPeriodFromPriceId(subscriptionRow.stripePriceId)
+          : null,
+        cancelAtPeriodEnd: subscriptionRow?.cancelAtPeriodEnd ?? false,
       },
     });
   } catch (error) {
     logError("update-profile", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "SETTINGS_PROFILE_UPDATE_FAILED",
+      userMessage: "プロフィールを保存できませんでした。",
+      action: "時間をおいて、もう一度お試しください。",
+      developerMessage: "Failed to update profile",
+      error,
+    });
   }
 }

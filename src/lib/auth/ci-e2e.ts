@@ -39,5 +39,10 @@ export function getBetterAuthSessionCookieAttributes(appUrl = getAppUrl()) {
 }
 
 export function isCiE2EAuthEnabled(appUrl = getAppUrl()) {
-  return process.env.CI_E2E_AUTH_ENABLED === "1" && !isProductionAppUrl(appUrl);
+  if (isProductionAppUrl(appUrl)) {
+    return false;
+  }
+
+  const authSecret = process.env.CI_E2E_AUTH_SECRET?.trim();
+  return Boolean(authSecret) && process.env.CI_E2E_AUTH_ENABLED !== "0";
 }

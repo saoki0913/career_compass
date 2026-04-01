@@ -1,0 +1,4 @@
+# Keep this directory in Git, but never commit private gakuchika samples.
+*
+!.gitignore
+!README.md

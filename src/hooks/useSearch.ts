@@ -5,27 +5,15 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import type { SearchResponse } from "@/lib/search/utils";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
 const DEBOUNCE_MS = 300;
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore errors
-    }
-  }
-  return headers;
 }
 
 export interface UseSearchOptions {
@@ -37,6 +25,12 @@ export interface UseSearchOptions {
   debounceMs?: number;
   /** Auto-search when query changes */
   autoSearch?: boolean;
+  /** Initial query shown in the input */
+  initialQuery?: string;
+  /** Initial results rendered before any client-side request */
+  initialResults?: SearchResponse | null;
+  /** Initial loading state used when the server has not preloaded results yet */
+  initialLoading?: boolean;
 }
 
 export interface UseSearchResult {
@@ -62,12 +56,15 @@ export function useSearch(options: UseSearchOptions = {}): UseSearchResult {
     limit = 5,
     debounceMs = DEBOUNCE_MS,
     autoSearch = true,
+    initialQuery = "",
+    initialResults = null,
+    initialLoading = false,
   } = options;
 
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [results, setResults] = useState<SearchResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [results, setResults] = useState<SearchResponse | null>(initialResults);
+  const [isLoading, setIsLoading] = useState(initialLoading);
   const [error, setError] = useState<string | null>(null);
 
   // Abort controller ref for cancelling previous requests

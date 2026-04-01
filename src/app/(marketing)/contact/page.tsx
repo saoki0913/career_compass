@@ -25,10 +25,12 @@ export default function ContactPage() {
             不具合報告・改善要望・決済に関するご相談など、お気軽にご連絡ください。
           </p>
           <p className="text-sm text-muted-foreground mt-2">
-            通常は 2 営業日以内を目安に{" "}
+            通常は 2 営業日以内を目安に、
+            {" "}
             <a href={`mailto:${supportEmail}`} className="underline hover:text-foreground">
               {supportEmail}
-            </a>{" "}
+            </a>
+            {" "}
             よりご返信します。
           </p>
           <p className="text-xs text-muted-foreground mt-2">

@@ -32,12 +32,14 @@ async def test_upload_pdf_uses_ocr_when_text_too_short(monkeypatch: pytest.Monke
     )
 
     async def _fake_ocr(*_args, **_kwargs):
-        return "これは十分な長さのOCR抽出テキストです。" * 20, {
-            "input_tokens": 100,
-            "output_tokens": 50,
-            "reasoning_tokens": 0,
-            "cached_input_tokens": 0,
-        }, "gpt-5.4-mini"
+        return {
+            "text": "これは十分な長さのOCR抽出テキストです。" * 20,
+            "provider": "google_document_ai",
+            "quality_score": 0.85,
+            "processed_pages": 5,
+            "estimated_cost_usd": 0.01,
+            "diagnostics": {},
+        }
 
     async def _fake_store_full_text_content(**_kwargs):
         return {
@@ -46,7 +48,7 @@ async def test_upload_pdf_uses_ocr_when_text_too_short(monkeypatch: pytest.Monke
             "secondary_content_types": ["csr_sustainability"],
         }
 
-    monkeypatch.setattr(company_info, "extract_text_from_pdf_with_openai", _fake_ocr)
+    monkeypatch.setattr(company_info, "extract_text_from_pdf_with_ocr", _fake_ocr)
     monkeypatch.setattr(company_info, "store_full_text_content", _fake_store_full_text_content)
     monkeypatch.setattr(company_info, "_get_pdf_page_count", lambda _b: 5)
     monkeypatch.setattr(company_info, "_slice_pdf_bytes_to_first_n_pages", lambda b, _n: (b, False))
@@ -65,7 +67,121 @@ async def test_upload_pdf_uses_ocr_when_text_too_short(monkeypatch: pytest.Monke
     )
 
     assert result.success is True
-    assert result.extraction_method == "openai_pdf_ocr"
+    assert result.extraction_method == "ocr"
     assert result.content_type == "ir_materials"
     assert result.secondary_content_types == ["csr_sustainability"]
     assert result.chunks_stored > 0
+
+
+@pytest.mark.asyncio
+async def test_upload_pdf_uses_google_ocr_route_when_text_too_short(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(company_info, "resolve_embedding_backend", lambda: object())
+    monkeypatch.setattr(
+        company_info,
+        "_extract_text_from_pdf_locally",
+        lambda _pdf_bytes: "short text",
+    )
+
+    async def _fake_pdf_ocr(*_args, **_kwargs):
+        return {
+            "text": "Google OCR result " * 30,
+            "provider": "google_document_ai",
+            "quality_score": 0.9,
+            "processed_pages": 5,
+            "estimated_cost_usd": 0.01,
+            "diagnostics": {},
+        }
+
+    async def _fake_store_full_text_content(**_kwargs):
+        return {
+            "success": True,
+            "dominant_content_type": "corporate_site",
+            "secondary_content_types": [],
+        }
+
+    monkeypatch.setattr(company_info, "extract_text_from_pdf_with_ocr", _fake_pdf_ocr)
+    monkeypatch.setattr(company_info, "store_full_text_content", _fake_store_full_text_content)
+    monkeypatch.setattr(company_info, "_get_pdf_page_count", lambda _b: 5)
+    monkeypatch.setattr(company_info, "_slice_pdf_bytes_to_first_n_pages", lambda b, _n: (b, False))
+
+    upload = UploadFile(filename="company.pdf", file=io.BytesIO(b"%PDF-1.4 test"))
+
+    result = await company_info.upload_corporate_pdf(
+        _minimal_request(),
+        company_id="company-1",
+        company_name="テスト株式会社",
+        source_url="upload://corporate-pdf/company-1/test",
+        content_type="corporate_site",
+        content_channel=None,
+        billing_plan="free",
+        file=upload,
+    )
+
+    assert result.success is True
+    assert result.extraction_method == "ocr"
+
+
+@pytest.mark.asyncio
+async def test_upload_pdf_uses_high_accuracy_ocr_for_standard_ir_materials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(company_info, "resolve_embedding_backend", lambda: object())
+    monkeypatch.setattr(
+        company_info,
+        "_extract_text_from_pdf_locally",
+        lambda _pdf_bytes: "short text",
+    )
+    monkeypatch.setattr(company_info, "_get_pdf_page_count", lambda _b: 12)
+    monkeypatch.setattr(company_info, "_slice_pdf_bytes_to_first_n_pages", lambda b, _n: (b, False))
+
+    calls: list[str] = []
+
+    async def _fake_pdf_ocr(*_args, **kwargs):
+        route_hint = kwargs.get("route_hint", "default")
+        calls.append(route_hint)
+        if route_hint == "high_accuracy":
+            return {
+                "text": "Mistral OCR result " * 40,
+                "provider": "mistral_ocr",
+                "quality_score": 0.92,
+                "processed_pages": 12,
+                "estimated_cost_usd": 0.03,
+                "diagnostics": {},
+            }
+        return {
+            "text": "weak google result",
+            "provider": "google_document_ai",
+            "quality_score": 0.4,
+            "processed_pages": 12,
+            "estimated_cost_usd": 0.02,
+            "diagnostics": {},
+        }
+
+    async def _fake_store_full_text_content(**_kwargs):
+        return {
+            "success": True,
+            "dominant_content_type": "ir_materials",
+            "secondary_content_types": [],
+        }
+
+    monkeypatch.setattr(company_info, "extract_text_from_pdf_with_ocr", _fake_pdf_ocr)
+    monkeypatch.setattr(company_info, "store_full_text_content", _fake_store_full_text_content)
+
+    upload = UploadFile(filename="ir.pdf", file=io.BytesIO(b"%PDF-1.4 test"))
+
+    result = await company_info.upload_corporate_pdf(
+        _minimal_request(),
+        company_id="company-1",
+        company_name="テスト株式会社",
+        source_url="upload://corporate-pdf/company-1/test",
+        content_type="ir_materials",
+        content_channel=None,
+        billing_plan="standard",
+        file=upload,
+    )
+
+    assert result.success is True
+    assert result.extraction_method == "ocr_high_accuracy"
+    assert calls == ["default", "high_accuracy"]

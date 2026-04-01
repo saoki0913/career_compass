@@ -80,19 +80,22 @@ make db-studio
 
 ```
 career_compass/
-├── src/
-│   ├── app/           # Next.js App Router
-│   ├── components/    # React コンポーネント (shadcn/ui)
-│   └── lib/           # ユーティリティ (auth, db, storage, stripe)
-├── backend/           # FastAPI バックエンド
-│   ├── app/
-│   │   ├── routers/   # APIエンドポイント
-│   │   ├── utils/     # ユーティリティ (RAG, LLM, 検索)
-│   │   └── prompts/   # プロンプトテンプレート
-│   └── data/          # ChromaDB, BM25インデックス
+├── src/               # Next.js 本体
+│   ├── app/           # App Router ((marketing) / (auth) / (product) / api)
+│   ├── components/    # UI コンポーネント
+│   ├── hooks/         # client hook
+│   ├── lib/           # server / 共通ロジック
+│   └── proxy.ts       # Auth / CSP 入口
+├── backend/           # FastAPI, RAG, 評価, pytest
+├── drizzle_pg/        # 現行 Drizzle migration
+├── supabase/          # provider 側 SQL / local state
+├── scripts/           # release / bootstrap / dev scripts
 ├── e2e/               # Playwright テスト
+├── tests/             # 補助テスト
 └── docs/              # ドキュメント
 ```
+
+詳細な tree と責務の説明は [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) を正本とします。
 
 ## 主な機能
 

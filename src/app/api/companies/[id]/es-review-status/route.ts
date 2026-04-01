@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { STATUS_POLL_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -88,8 +89,7 @@ export async function GET(
       });
     }
 
-    const fastApiUrl = process.env.FASTAPI_URL || "http://localhost:8000";
-    const response = await fetch(`${fastApiUrl}/api/es/company-status/${id}`, {
+    const response = await fetchFastApiInternal(`/api/es/company-status/${id}`, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",

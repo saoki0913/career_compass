@@ -7,33 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { isStructuredSummary, type GakuchikaSummary } from "@/lib/gakuchika/summary";
-import { type STARScores } from "./STARProgressBar";
 
 interface CompletionSummaryProps {
-  starScores: STARScores;
   summary: GakuchikaSummary | null;
   isLoading: boolean;
   gakuchikaId: string;
   onResumeSession?: () => void;
-}
-
-const STAR_ELEMENTS = [
-  { key: "situation" as const, shortLabel: "S", label: "状況" },
-  { key: "task" as const, shortLabel: "T", label: "課題" },
-  { key: "action" as const, shortLabel: "A", label: "行動" },
-  { key: "result" as const, shortLabel: "R", label: "結果" },
-];
-
-function getScoreColor(score: number): string {
-  if (score >= 70) return "text-success";
-  if (score >= 40) return "text-info";
-  return "text-muted-foreground";
-}
-
-function getScoreSurface(score: number): string {
-  if (score >= 70) return "border-success/20 bg-success/5";
-  if (score >= 40) return "border-info/20 bg-info/5";
-  return "border-border bg-muted/40";
+  hideGenerateAction?: boolean;
 }
 
 function SkeletonText({ className }: { className?: string }) {
@@ -57,17 +37,27 @@ function SectionTitle({ children }: { children: ReactNode }) {
 }
 
 export function CompletionSummary({
-  starScores,
   summary,
   isLoading,
   gakuchikaId,
   onResumeSession,
+  hideGenerateAction = false,
 }: CompletionSummaryProps) {
   const structured = summary && isStructuredSummary(summary) ? summary : null;
   const legacy = summary && !isStructuredSummary(summary) ? summary : null;
   const leadText = isLoading
     ? "ここまでで面接で話せる材料はかなり揃いました。要点を整理しています。"
     : "ここまでで面接で話せる材料はかなり揃いました。要点をこのままESや面接で使える形にまとめます。";
+  const starSections: Array<{
+    key: "situation_text" | "task_text" | "action_text" | "result_text";
+    shortLabel: "S" | "T" | "A" | "R";
+    label: string;
+  }> = [
+    { key: "situation_text", shortLabel: "S", label: "状況" },
+    { key: "task_text", shortLabel: "T", label: "課題" },
+    { key: "action_text", shortLabel: "A", label: "行動" },
+    { key: "result_text", shortLabel: "R", label: "結果" },
+  ];
 
   return (
     <div className="space-y-4">
@@ -81,34 +71,14 @@ export function CompletionSummary({
             <div className="space-y-2">
               <div className="inline-flex items-center gap-2 rounded-full border border-success/20 bg-success/10 px-3 py-1 text-xs font-medium text-success">
                 <CheckCircleIcon />
-                深掘り完了
+                作成完了
               </div>
               <div className="space-y-1">
-                <h2 className="text-xl font-semibold text-foreground">STARの材料が揃いました</h2>
+                <h2 className="text-xl font-semibold text-foreground">面接用の補足まで整理できました</h2>
                 <p className="text-sm text-muted-foreground">
-                  そのままESや面接準備に使えるよう、要点だけを見やすく整理しています。
+                  ES の本文に加えて、面接で補足しやすい論点まで見やすく整理しています。
                 </p>
               </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {STAR_ELEMENTS.map((element) => {
-                const score = starScores[element.key];
-                return (
-                  <div
-                    key={element.key}
-                    className={cn(
-                      "flex min-w-[74px] items-center gap-2 rounded-full border px-3 py-1.5",
-                      getScoreSurface(score)
-                    )}
-                  >
-                    <span className="text-xs font-semibold text-foreground">{element.shortLabel}</span>
-                    <span className={cn("text-sm font-semibold tabular-nums", getScoreColor(score))}>
-                      {score}
-                    </span>
-                  </div>
-                );
-              })}
             </div>
           </div>
 
@@ -136,8 +106,8 @@ export function CompletionSummary({
           ) : structured ? (
             <>
               <div className="grid gap-3 sm:grid-cols-2">
-                {STAR_ELEMENTS.map((element) => {
-                  const text = structured[`${element.key}_text`];
+                {starSections.map((element) => {
+                  const text = structured[element.key];
                   if (!text) return null;
 
                   return (
@@ -234,6 +204,51 @@ export function CompletionSummary({
                   </section>
                 )}
               </div>
+
+              {(structured.interview_supporting_details?.length ||
+                structured.future_outlook_notes?.length ||
+                structured.backstory_notes?.length) && (
+                <div className="grid gap-4 lg:grid-cols-3">
+                  {structured.interview_supporting_details && structured.interview_supporting_details.length > 0 && (
+                    <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                      <SectionTitle>面接で補足しやすい事実</SectionTitle>
+                      <ul className="space-y-2">
+                        {structured.interview_supporting_details.map((item, index) => (
+                          <li key={`${item}-${index}`} className="text-sm leading-6 text-foreground/90">
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+
+                  {structured.future_outlook_notes && structured.future_outlook_notes.length > 0 && (
+                    <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                      <SectionTitle>将来展望の補足</SectionTitle>
+                      <ul className="space-y-2">
+                        {structured.future_outlook_notes.map((item, index) => (
+                          <li key={`${item}-${index}`} className="text-sm leading-6 text-foreground/90">
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+
+                  {structured.backstory_notes && structured.backstory_notes.length > 0 && (
+                    <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                      <SectionTitle>背景・原体験の補足</SectionTitle>
+                      <ul className="space-y-2">
+                        {structured.backstory_notes.map((item, index) => (
+                          <li key={`${item}-${index}`} className="text-sm leading-6 text-foreground/90">
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+                </div>
+              )}
             </>
           ) : legacy ? (
             <section className="space-y-4 rounded-2xl border border-border bg-muted/20 p-4">
@@ -253,18 +268,20 @@ export function CompletionSummary({
           ) : null}
 
           <div className="flex flex-col gap-3 border-t border-border/70 pt-5 sm:flex-row">
-            <Link href={`/es?gakuchikaId=${gakuchikaId}`} className="block flex-1">
-              <Button className="h-11 w-full text-sm font-medium">
-                <span className="flex items-center justify-center gap-2">
-                  この経験を使ってESを作成する
-                  <ArrowRightIcon />
-                </span>
-              </Button>
-            </Link>
+            {!hideGenerateAction ? (
+              <Link href={`/es?gakuchikaId=${gakuchikaId}`} className="block flex-1">
+                <Button className="h-11 w-full text-sm font-medium">
+                  <span className="flex items-center justify-center gap-2">
+                    この経験を使ってESを作成する
+                    <ArrowRightIcon />
+                  </span>
+                </Button>
+              </Link>
+            ) : null}
 
             {onResumeSession && (
               <Button variant="outline" className="h-11 sm:min-w-[140px]" onClick={onResumeSession}>
-                深掘りを続ける
+                更に深掘りする
               </Button>
             )}
 

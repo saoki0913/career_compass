@@ -4,11 +4,15 @@ import { NextRequest } from "next/server";
 const {
   getSessionMock,
   dbSelectMock,
+  dbUpdateMock,
   enforceRateLimitLayersMock,
+  fetchFastApiInternalMock,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
   dbSelectMock: vi.fn(),
+  dbUpdateMock: vi.fn(),
   enforceRateLimitLayersMock: vi.fn(),
+  fetchFastApiInternalMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -26,6 +30,7 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     select: dbSelectMock,
+    update: dbUpdateMock,
   },
 }));
 
@@ -49,6 +54,10 @@ vi.mock("@/lib/company-info/pricing", () => ({
 vi.mock("@/lib/rate-limit-spike", () => ({
   enforceRateLimitLayers: enforceRateLimitLayersMock,
   CORPORATE_MUTATE_RATE_LAYERS: [],
+}));
+
+vi.mock("@/lib/fastapi/client", () => ({
+  fetchFastApiInternal: fetchFastApiInternalMock,
 }));
 
 function makeProfileQuery() {
@@ -78,18 +87,32 @@ function makeCompanyQuery() {
   };
 }
 
+function makeUpdateQuery() {
+  return {
+    set: vi.fn(() => ({
+      where: vi.fn().mockResolvedValue(undefined),
+    })),
+  };
+}
+
 describe("api/companies/[id]/fetch-corporate-upload", () => {
   beforeEach(() => {
     getSessionMock.mockReset();
     dbSelectMock.mockReset();
+    dbUpdateMock.mockReset();
     enforceRateLimitLayersMock.mockReset();
+    fetchFastApiInternalMock.mockReset();
     vi.restoreAllMocks();
 
     getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
     dbSelectMock
       .mockReturnValueOnce(makeProfileQuery())
       .mockReturnValueOnce(makeCompanyQuery());
+    dbUpdateMock.mockReturnValue(makeUpdateQuery());
     enforceRateLimitLayersMock.mockResolvedValue(null);
+    fetchFastApiInternalMock.mockImplementation((path: string, init?: RequestInit) =>
+      fetch(`https://fastapi.test${path}`, init)
+    );
   });
 
   it("returns 429 without uploading files when rate limited", async () => {
@@ -121,5 +144,62 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
 
     expect(response.status).toBe(429);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("forwards contentType to the backend upload request", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          company_id: "company-1",
+          source_url: "upload://corporate-pdf/company-1/test",
+          chunks_stored: 3,
+          extracted_chars: 1200,
+          page_count: 4,
+          content_type: "ir_materials",
+          secondary_content_types: [],
+          extraction_method: "ocr",
+          errors: [],
+          source_total_pages: 4,
+          ingest_truncated: false,
+          ocr_truncated: false,
+          processing_notice_ja: null,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const applyCompanyRagUsage = await import("@/lib/company-info/usage");
+    vi.mocked(applyCompanyRagUsage.applyCompanyRagUsage).mockResolvedValue({
+      freeUnitsApplied: 4,
+      overflowUnits: 0,
+      creditsDisplayed: 1,
+      creditsActuallyDeducted: 1,
+      remainingFreeUnits: 6,
+    });
+    vi.mocked(applyCompanyRagUsage.getRemainingCompanyRagFreeUnits).mockResolvedValue(6);
+
+    const companyInfoSources = await import("@/lib/company-info/sources");
+    vi.mocked(companyInfoSources.upsertCorporateInfoSource).mockImplementation((sources) => sources);
+
+    const formData = new FormData();
+    formData.append("file", new File(["pdf"], "company.pdf", { type: "application/pdf" }));
+    formData.append("contentType", "ir_materials");
+
+    const { POST } = await import("@/app/api/companies/[id]/fetch-corporate-upload/route");
+    const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate-upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
+
+    expect(response.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, fetchInit] = fetchSpy.mock.calls[0];
+    const backendForm = fetchInit?.body as FormData;
+    expect(backendForm.get("content_type")).toBe("ir_materials");
+    expect(backendForm.get("billing_plan")).toBe("free");
   });
 });

@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { migrateGuestToUser } from "@/lib/auth/guest";
+import { clearGuestDeviceTokenCookie, readGuestDeviceToken } from "@/lib/auth/guest-cookie";
 import { headers } from "next/headers";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
@@ -38,11 +39,10 @@ export async function POST(request: NextRequest) {
       return response;
     }
 
-    const { deviceToken } = await request.json();
-
-    if (!deviceToken || typeof deviceToken !== "string" || deviceToken.length > 100) {
+    const deviceToken = readGuestDeviceToken(request);
+    if (!deviceToken) {
       return NextResponse.json(
-        { error: "Device token is required" },
+        { error: "Guest session not found" },
         { status: 400 }
       );
     }
@@ -56,12 +56,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       guestId: result.guestId,
       userId: result.userId,
       message: "Guest data migrated successfully",
     });
+    clearGuestDeviceTokenCookie(response);
+    return response;
   } catch (error) {
     console.error("Error migrating guest data:", error);
     return NextResponse.json(

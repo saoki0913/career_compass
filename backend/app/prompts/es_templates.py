@@ -11,12 +11,18 @@ Each template specifies:
 from dataclasses import dataclass
 from typing import Optional
 
-_GLOBAL_CONCLUSION_FIRST_RULES = """【結論ファースト（全設問・全文字数）】
+from app.prompts.notion_registry import get_managed_prompt_content
+
+_GLOBAL_CONCLUSION_FIRST_RULES_FALLBACK = """【結論ファースト（全設問・全文字数）】
 - 1文目は設問への答えを結論として短く言い切る（設問文の言い換えや背景説明から入らない）
 - 各文は役割を1つに絞り、同趣旨を言い換えて引き延ばさない
 - 企業接点・貢献・活かし方は必要なら1文に圧縮してよく、段階を無理に増やさない
 - 指定の字数下限を下回る改善案は再検証で弾かれる。要約しすぎず、下限まで本文を伸ばす
 - 下限が200字を超える設問では、具体を削りすぎず下限付近まで本文を伸ばす"""
+_GLOBAL_CONCLUSION_FIRST_RULES = get_managed_prompt_content(
+    "es_review.global_conclusion_first_rules",
+    fallback=_GLOBAL_CONCLUSION_FIRST_RULES_FALLBACK,
+)
 
 
 @dataclass(frozen=True)
@@ -578,7 +584,12 @@ def _format_company_guidance(
         if generic_role_mode:
             usage_lines.append("- broad な職種名ではなく、事業理解と得たい経験・スキルの2軸で企業理解を示す")
         if evidence_coverage_level in {"weak", "partial"} and company_grounding == "required":
-            usage_lines.append("- 根拠が限定的な場合は、企業理解を1軸に絞って一般化した表現を優先する")
+            usage_lines.extend(
+                [
+                    "- 根拠が限定的でも、cards から別観点の company anchor を最低2点拾う",
+                    "- 事業理解と現場期待/役割期待を1文ずつ、または1文内の2句で圧縮してつなぐ",
+                ]
+            )
         elif evidence_coverage_level in {"weak", "partial"}:
             usage_lines.append("- 根拠が限定的な場合は、本文では薄く触れるか触れず、改善の方向づけだけに使う")
         return f"""
@@ -619,6 +630,15 @@ def _format_short_answer_guidance(
     if not char_max or char_max > 220:
         return ""
 
+    required_templates = {
+        "company_motivation",
+        "intern_reason",
+        "intern_goals",
+        "post_join_goals",
+        "role_course_reason",
+    }
+    required_dense_band = template_type in required_templates and 150 <= char_max <= 220
+
     target = _format_target_char_window(
         char_min,
         char_max,
@@ -642,6 +662,19 @@ def _format_short_answer_guidance(
     )
     min_guard = f"- {char_min}字未満で終えない" if char_min else ""
     extra_lines: list[str] = []
+    sentence_count_line = "- 3〜4文で構成する" if required_dense_band else "- 2〜3文で構成する"
+    bridge_line = (
+        "- 文字数が足りないときは、既にある経験・役割・企業接点のつながりを1〜2文まで補う"
+        if required_dense_band
+        else "- 文字数が足りないときは、既にある経験・役割・企業接点のつながりを1文だけ補う"
+    )
+    if required_dense_band:
+        extra_lines.extend(
+            [
+                "- required 設問では、根拠経験だけで終わらせず、企業接点と貢献の両方を残す",
+                "- 3文で足りなければ4文目で役割・学び・貢献のいずれかを言い切る",
+            ]
+        )
     if 160 <= char_max <= 220 and template_type in {"self_pr", "gakuchika", "work_values"}:
         extra_lines.extend(
             [
@@ -654,10 +687,10 @@ def _format_short_answer_guidance(
     extra_guidance = "\n" + "\n".join(extra_lines) if extra_lines else ""
     return f"""
 【短字数設問の書き方】
-- 2〜3文で構成する
+{sentence_count_line}
 - {structure}
 - 目標は {target} で、短く終わらせない
-- 文字数が足りないときは、既にある経験・役割・企業接点のつながりを1文だけ補う
+{bridge_line}
 - 一般論の言い換えだけで埋めず、元回答にある材料をつないで伸ばす
 {min_guard}
 - 文を細かく切りすぎず、各文に意味を持たせる{extra_guidance}"""
@@ -724,6 +757,37 @@ def _format_midrange_length_guidance(
     return "\n".join(guidance_lines)
 
 
+def _format_question_specific_guidance(
+    template_type: str,
+    question: str,
+) -> str:
+    normalized = (question or "").strip()
+    if (
+        template_type == "intern_reason"
+        and "活か" in normalized
+        and ("持ち帰" in normalized or "得たい" in normalized or "学びたい" in normalized)
+    ):
+        return """
+【この設問で落としてはいけない3要素】
+- 参加したい理由を1文で明示する
+- 活かせる経験・事実を1文で置く
+- 持ち帰りたい学び・視点を最後に1文で言い切る
+- 3要素のどれも省略しない
+""".strip()
+    return ""
+
+
+def _format_negative_reframe_guidance(template_type: str) -> str:
+    if template_type != "self_pr":
+        return ""
+    return """
+【自己PRで避ける表現】
+- 「経験不足」「自信がない」などの自己否定語をそのまま残さない
+- 元の事実は保ちつつ、準備・責任感・学習姿勢・確認力などの前向きな表現に言い換える
+- 弱さの告白で締めず、仕事で再現できる行動特性で締める
+""".strip()
+
+
 def _dedupe_text_items(items: list[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -788,6 +852,13 @@ def _format_focus_mode_guidance(focus_mode: str | list[str]) -> str:
                 "【今回の修正フォーカス】",
                 "- 箇条書きや断片ではなく、つながった本文として書き切る",
                 "- 1文ごとの役割を整理し、途中で切れないようにする",
+            ]
+        ),
+        "positive_reframe_focus": "\n".join(
+            [
+                "【今回の修正フォーカス】",
+                "- 自己否定語をそのまま残さず、元の事実を保ったまま前向きな表現へ言い換える",
+                "- 準備・責任感・学習姿勢・確認力など、仕事で再現できる行動特性として示す",
             ]
         ),
     }
@@ -1047,6 +1118,8 @@ def build_template_rewrite_prompt(
     original_len=original_len,
     llm_model=llm_model,
 )}
+{_format_question_specific_guidance(template_type, question)}
+{_format_negative_reframe_guidance(template_type)}
 {_format_company_guidance(
     company_evidence_cards=company_evidence_cards,
     has_rag=has_rag,
@@ -1174,6 +1247,8 @@ def build_template_fallback_rewrite_prompt(
     original_len=original_len,
     llm_model=llm_model,
 )}
+{_format_question_specific_guidance(template_type, question)}
+{_format_negative_reframe_guidance(template_type)}
 {_format_company_guidance(
     company_evidence_cards=company_evidence_cards,
     has_rag=has_rag,
@@ -1242,9 +1317,14 @@ def build_template_length_fix_prompt(
     for mode in resolved_focus_modes:
         if mode == "length_focus_min":
             if length_control_mode == "under_min_recovery":
-                mode_instructions.append(
-                    "意味を変えず、既にある経験・職種・企業接点のつながりを補う短い文を1文まで足し、必要なら補足句も使って指定字数に収める"
-                )
+                if char_min and char_min >= 150 and under_shortfall >= 30:
+                    mode_instructions.append(
+                        "意味を変えず、既にある経験・職種・企業接点のつながりを補う短い文を1〜2文まで足し、必要なら補足句も使って指定字数に収める"
+                    )
+                else:
+                    mode_instructions.append(
+                        "意味を変えず、既にある経験・職種・企業接点のつながりを補う短い文を1文まで足し、必要なら補足句も使って指定字数に収める"
+                    )
             elif under_shortfall > 40:
                 mode_instructions.append(
                     "意味を変えず、既存の文脈のつながりを保ちながら短い接続句を1〜2か所足し、新事実は足さずに指定字数に近づける"
@@ -1295,6 +1375,7 @@ def build_template_length_fix_prompt(
     original_len=original_len,
     llm_model=llm_model,
 )}
+{_format_negative_reframe_guidance(template_type)}
 {_format_required_template_length_fix_guidance(
     template_type,
     char_min,

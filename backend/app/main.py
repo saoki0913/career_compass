@@ -1,13 +1,15 @@
 from uuid import uuid4
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.config import settings
 from app.limiter import limiter
-from app.routers import health, company_info, es_review, gakuchika, motivation
+from app.routers import health, company_info, es_review, gakuchika, motivation, interview
+from app.security.internal_service import require_internal_service
 from app.utils.secure_logger import get_logger
 from app.utils.llm import reset_request_llm_cost_summary
 
@@ -46,6 +48,9 @@ app = FastAPI(
     title="就活Pass API",
     description="Backend API for 就活Pass",
     version="0.1.0",
+    docs_url="/docs" if settings.debug else None,
+    redoc_url="/redoc" if settings.debug else None,
+    openapi_url="/openapi.json" if settings.debug else None,
 )
 
 # Rate limiter state
@@ -55,6 +60,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Security headers middleware (applied to all responses)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIdMiddleware)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 
 # CORS middleware - explicitly specify allowed methods and headers for security
 app.add_middleware(
@@ -78,10 +84,11 @@ async def startup_event():
 
 # Include routers
 app.include_router(health.router, tags=["health"])
-app.include_router(company_info.router)
-app.include_router(es_review.router)
-app.include_router(gakuchika.router)
-app.include_router(motivation.router)
+app.include_router(company_info.router, dependencies=[Depends(require_internal_service)])
+app.include_router(es_review.router, dependencies=[Depends(require_internal_service)])
+app.include_router(gakuchika.router, dependencies=[Depends(require_internal_service)])
+app.include_router(motivation.router, dependencies=[Depends(require_internal_service)])
+app.include_router(interview.router, dependencies=[Depends(require_internal_service)])
 
 
 @app.get("/")

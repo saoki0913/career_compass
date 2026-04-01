@@ -28,8 +28,8 @@ export function WorkBlockFAB({ onClick, isVisible = true, className }: WorkBlock
       type="button"
       onClick={onClick}
       className={cn(
-        "fixed bottom-6 right-6 z-40",
-        "flex items-center gap-2 px-4 py-3 rounded-full",
+        "fixed right-4 z-40 bottom-[max(1rem,env(safe-area-inset-bottom))] sm:bottom-6 sm:right-6",
+        "flex min-h-11 items-center gap-2 rounded-full px-3.5 py-3 sm:px-4",
         "bg-gradient-to-r from-amber-500 to-orange-500",
         "text-white font-medium shadow-lg",
         "hover:from-amber-600 hover:to-orange-600",
@@ -40,6 +40,7 @@ export function WorkBlockFAB({ onClick, isVisible = true, className }: WorkBlock
         className
       )}
       title="タスクを提案"
+      aria-label="タスクを提案"
     >
       <LightbulbIcon />
       <span className="hidden sm:inline">タスク提案</span>

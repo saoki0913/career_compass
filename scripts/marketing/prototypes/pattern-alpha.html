@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="ja" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>就活Pass - ES添削・志望動機・企業管理をひとつに</title>
+    <meta name="description" content="エントリーシート（ES）の添削、志望動機・ガクチカの整理、企業・締切管理を一つの流れで進められる就活支援アプリ。AIと一緒に、迷わず就活を進めましょう。">
+
+    <!-- Google Fonts -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;700&family=Noto+Serif+JP:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap');
+    </style>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary': '#0F1B3D',
+                        'primary-light': '#1E3A6E',
+                        'accent': '#D4A853',
+                        'accent-light': '#E8C67A',
+                        'cta': '#2563EB',
+                        'cta-hover': '#1D4ED8',
+                        'bg': '#FAFAF7',
+                        'bg-alt': '#F0EDE6',
+                        'text': '#1A1A2E',
+                        'text-muted': '#5A5A6E',
+                        'border': '#E0DDD6',
+                    },
+                    fontFamily: {
+                        'serif': ['"Noto Serif JP"', 'serif'],
+                        'sans': ['"Noto Sans JP"', 'sans-serif'],
+                        'display': ['"Playfair Display"', 'serif'],
+                        'number': ['"DM Sans"', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            color: #1A1A2E;
+            background-color: #FAFAF7;
+        }
+
+        /* Typography */
+        h1, h2, h3 {
+            font-family: 'Noto Serif JP', serif;
+        }
+
+        .font-display {
+            font-family: 'Playfair Display', serif;
+        }
+
+        .font-number {
+            font-family: 'DM Sans', sans-serif;
+        }
+
+        /* Paper texture overlay */
+        .paper-texture::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                repeating-conic-gradient(from 0deg at 50% 50%,
+                    rgba(0,0,0,0.015) 0deg,
+                    transparent 0.1deg,
+                    transparent 1deg,
+                    rgba(0,0,0,0.015) 1.5deg);
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        /* Grain texture for dark sections */
+        .grain-texture::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                repeating-linear-gradient(0deg,
+                    rgba(255,255,255,0.03) 0px,
+                    transparent 1px,
+                    transparent 2px,
+                    rgba(255,255,255,0.03) 3px),
+                repeating-linear-gradient(90deg,
+                    rgba(255,255,255,0.03) 0px,
+                    transparent 1px,
+                    transparent 2px,
+                    rgba(255,255,255,0.03) 3px);
+            pointer-events: none;
+        }
+
+        /* Frosted glass header */
+        .frosted-glass {
+            background: rgba(250, 250, 247, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        /* Scroll reveal animations */
+        .reveal {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.6s ease, transform 0.6s ease;
+        }
+
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .reveal {
+                opacity: 1;
+                transform: none;
+                transition: none;
+            }
+        }
+
+        /* Card hover effects */
+        .card-hover {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card-hover:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(15, 27, 61, 0.12);
+        }
+
+        /* Button transitions */
+        button, a {
+            transition: all 0.2s ease;
+        }
+
+        /* FAQ accordion */
+        .faq-answer {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .faq-answer.open {
+            max-height: 500px;
+        }
+
+        /* Gold accent line */
+        .gold-line {
+            width: 40px;
+            height: 2px;
+            background-color: #D4A853;
+        }
+
+        /* Section divider */
+        .section-divider {
+            height: 1px;
+            background: linear-gradient(to right, transparent, #D4A853, transparent);
+        }
+
+        /* Pill badge */
+        .pill-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.375rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            border: 1px solid #D4A853;
+            color: #D4A853;
+            background-color: rgba(212, 168, 83, 0.05);
+        }
+
+        /* Popular badge */
+        .popular-badge {
+            background-color: #D4A853;
+            color: #0F1B3D;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-block;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Browser chrome frame */
+        .browser-frame {
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 30px rgba(15, 27, 61, 0.15);
+            background: white;
+        }
+
+        .browser-chrome {
+            height: 32px;
+            background: #0F1B3D;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            gap: 6px;
+        }
+
+        .chrome-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .browser-content {
+            background: #F5F5F5;
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #9CA3AF;
+            font-size: 1.125rem;
+            font-weight: 500;
+        }
+
+        /* Step connector line */
+        .step-line {
+            position: absolute;
+            top: 50%;
+            left: 100%;
+            width: 100%;
+            height: 2px;
+            background: repeating-linear-gradient(
+                to right,
+                #D4A853 0,
+                #D4A853 8px,
+                transparent 8px,
+                transparent 16px
+            );
+            transform: translateY(-50%);
+        }
+
+        @media (max-width: 768px) {
+            .step-line {
+                display: none;
+            }
+        }
+
+        /* Table styles */
+        .pricing-table {
+            border-collapse: separate;
+            border-spacing: 0;
+            width: 100%;
+        }
+
+        .pricing-table th {
+            font-weight: 600;
+            padding: 1.5rem 1rem;
+            text-align: left;
+        }
+
+        .pricing-table td {
+            padding: 1.25rem 1rem;
+            border-bottom: 1px solid #F0EDE6;
+        }
+
+        .pricing-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .pricing-table .popular-col {
+            background-color: rgba(212, 168, 83, 0.05);
+        }
+
+        /* Icon SVG styles */
+        .icon {
+            width: 24px;
+            height: 24px;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+        }
+
+        .icon-sm {
+            width: 20px;
+            height: 20px;
+        }
+
+        .icon-lg {
+            width: 48px;
+            height: 48px;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- HEADER -->
+    <header class="frosted-glass fixed top-0 left-0 right-0 z-50 border-b border-black border-opacity-[0.06]">
+        <div class="container mx-auto px-8 max-w-[1200px]">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo -->
+                <div class="flex items-center gap-1">
+                    <span class="text-xl font-serif font-semibold text-primary">就活Pass</span>
+                    <span class="w-1.5 h-1.5 rounded-full bg-accent"></span>
+                </div>
+
+                <!-- Nav -->
+                <nav class="hidden md:flex items-center gap-8">
+                    <a href="#features" class="text-primary hover:text-primary-light text-sm font-medium">機能</a>
+                    <a href="#how-it-works" class="text-primary hover:text-primary-light text-sm font-medium">使い方</a>
+                    <a href="#pricing" class="text-primary hover:text-primary-light text-sm font-medium">料金</a>
+                    <a href="#faq" class="text-primary hover:text-primary-light text-sm font-medium">FAQ</a>
+                </nav>
+
+                <!-- CTA -->
+                <button class="bg-primary text-white px-6 py-2.5 rounded-full font-medium text-sm hover:bg-primary-light">
+                    無料で始める
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Spacer for fixed header -->
+    <div class="h-16"></div>
+
+    <!-- HERO -->
+    <section class="relative py-20 md:py-28 overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-radial from-white via-bg to-bg-alt opacity-60"></div>
+        <div class="container mx-auto px-8 max-w-[1200px] relative z-10">
+            <div class="grid md:grid-cols-2 gap-12 items-center">
+                <!-- Left: Text -->
+                <div class="space-y-8">
+                    <div class="pill-badge">
+                        ES添削 × AI × 企業管理 をひとつに
+                    </div>
+
+                    <h1 class="text-4xl md:text-[3.5rem] leading-[1.15] font-serif font-semibold text-primary tracking-tight">
+                        就活を、AIと一緒に<br>迷わず進める。
+                    </h1>
+
+                    <p class="text-lg text-text-muted leading-relaxed max-w-xl">
+                        エントリーシート（ES）の添削・就活AIで文章を整えつつ、<br>
+                        志望動機・ガクチカの整理、企業・締切管理を一つの流れで進められます。<br>
+                        就活Pass（就活パス）は、今やることが見える状態を、<br>
+                        AIと一緒に作る就活アプリです。
+                    </p>
+
+                    <!-- Trust badges -->
+                    <div class="flex flex-wrap gap-6 text-sm text-text-muted">
+                        <div class="flex items-center gap-2">
+                            <svg class="icon-sm text-accent" viewBox="0 0 24 24">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            <span>全日本の大学対応</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <svg class="icon-sm text-accent" viewBox="0 0 24 24">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            <span>クレジットカード不要</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <svg class="icon-sm text-accent" viewBox="0 0 24 24">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            <span>Googleカレンダー連携</span>
+                        </div>
+                    </div>
+
+                    <!-- CTAs -->
+                    <div class="flex flex-wrap gap-4 pt-4">
+                        <button class="bg-primary text-white px-8 py-3.5 rounded-lg font-semibold hover:bg-primary-light shadow-sm">
+                            無料で始める
+                        </button>
+                        <button class="border-2 border-primary text-primary px-8 py-3.5 rounded-lg font-semibold hover:bg-primary hover:text-white">
+                            料金を見る
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Right: Screenshot -->
+                <div class="space-y-6">
+                    <div class="browser-frame">
+                        <div class="browser-chrome">
+                            <div class="chrome-dot"></div>
+                            <div class="chrome-dot"></div>
+                            <div class="chrome-dot"></div>
+                        </div>
+                        <div class="browser-content">
+                            就活Pass - Dashboard
+                        </div>
+                    </div>
+
+                    <!-- Feature labels -->
+                    <div class="flex justify-around text-sm text-text-muted font-medium">
+                        <div class="flex items-center gap-2">
+                            <svg class="icon-sm text-accent" viewBox="0 0 24 24">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                            </svg>
+                            <span>Review</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <svg class="icon-sm text-accent" viewBox="0 0 24 24">
+                                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+                            </svg>
+                            <span>Organize</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <svg class="icon-sm text-accent" viewBox="0 0 24 24">
+                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="16" y1="2" x2="16" y2="6"></line>
+                                <line x1="8" y1="2" x2="8" y2="6"></line>
+                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                            </svg>
+                            <span>Track</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- VALUE PROPOSITION STRIP -->
+    <section class="bg-white border-t border-b border-border py-16">
+        <div class="container mx-auto px-8 max-w-[1200px]">
+            <div class="grid md:grid-cols-4 gap-8">
+                <!-- Item 1 -->
+                <div class="text-center space-y-4 reveal">
+                    <div class="flex justify-center">
+                        <div class="gold-line mb-3"></div>
+                    </div>
+                    <svg class="icon-lg mx-auto text-accent" viewBox="0 0 24 24">
+                        <line x1="12" y1="20" x2="12" y2="10"></line>
+                        <line x1="18" y1="20" x2="18" y2="4"></line>
+                        <line x1="6" y1="20" x2="6" y2="16"></line>
+                    </svg>
+                    <h3 class="font-number font-semibold text-primary text-lg">AI添削</h3>
+                    <p class="text-sm text-text-muted leading-relaxed">
+                        設問タイプに合わせた<br>8スタイルのES添削
+                    </p>
+                </div>
+
+                <!-- Item 2 -->
+                <div class="text-center space-y-4 reveal" style="transition-delay: 0.1s;">
+                    <div class="flex justify-center">
+                        <div class="gold-line mb-3"></div>
+                    </div>
+                    <svg class="icon-lg mx-auto text-accent" viewBox="0 0 24 24">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <h3 class="font-number font-semibold text-primary text-lg">対話で整理</h3>
+                    <p class="text-sm text-text-muted leading-relaxed">
+                        志望動機・ガクチカを<br>AIが深掘り・構造化
+                    </p>
+                </div>
+
+                <!-- Item 3 -->
+                <div class="text-center space-y-4 reveal" style="transition-delay: 0.2s;">
+                    <div class="flex justify-center">
+                        <div class="gold-line mb-3"></div>
+                    </div>
+                    <svg class="icon-lg mx-auto text-accent" viewBox="0 0 24 24">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                    </svg>
+                    <h3 class="font-number font-semibold text-primary text-lg">企業管理</h3>
+                    <p class="text-sm text-text-muted leading-relaxed">
+                        企業情報・選考・RAG整理を<br>まとめて管理
+                    </p>
+                </div>
+
+                <!-- Item 4 -->
+                <div class="text-center space-y-4 reveal" style="transition-delay: 0.3s;">
+                    <div class="flex justify-center">
+                        <div class="gold-line mb-3"></div>
+                    </div>
+                    <svg class="icon-lg mx-auto text-accent" viewBox="0 0 24 24">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                        <polyline points="8 14 10 16 16 10"></polyline>
+                    </svg>
+                    <h3 class="font-number font-semibold text-primary text-lg">締切管理</h3>
+                    <p class="text-sm text-text-muted leading-relaxed">
+                        Googleカレンダー連携で<br>締切を見逃さない
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- PRODUCT SHOWCASE -->
+    <section id="features" class="relative py-28 bg-bg-alt paper-texture">
+        <div class="container mx-auto px-8 max-w-[1200px]">
+            <!-- Section header -->
+            <div class="text-center space-y-4 mb-20 reveal">
+                <div class="pill-badge">FEATURES</div>
+                <h2 class="text-3xl md:text-5xl font-serif font-semibold text-primary leading-tight">
+                    書くことも、管理することも、<br>同じ流れで進める。
+                </h2>
+                <p class="text-lg text-text-muted max-w-2xl mx-auto">
+                    AIの力だけを見るのではなく、そのまま就活の進行に溶け込むことを重視しています。
+                </p>
+            </div>
+
+            <!-- Feature 1 -->
+            <div class="grid md:grid-cols-2 gap-16 items-center mb-32 reveal">
+                <div class="space-y-6">
+                    <h3 class="text-2xl md:text-3xl font-serif font-medium text-primary leading-snug">
+                        書くことを、AIの同じ画面で<br>前に進める。
+                    </h3>
+                    <p class="text-base text-text-muted leading-relaxed">
+                        ES添削では、設問タイプに合わせた改善ポイントを整理し、書き手と添削が同じ画面で進みます。
+                    </p>
+                    <ul class="space-y-3">
+                        <li class="flex items-start gap-3">
+                            <svg class="icon text-accent flex-shrink-0 mt-0.5" viewBox="0 0 24 24">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            <span class="text-text-muted">設問別の添削</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="icon text-accent flex-shrink-0 mt-0.5" viewBox="0 0 24 24">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            <span class="text-text-muted">書き手と添削を並びで表示</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="icon text-accent flex-shrink-0 mt-0.5" viewBox="0 0 24 24">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            <span class="text-text-muted">自然な改善ヒントを提示</span>
+                        </li>
+                    </ul>
+                </div>
+                <div class="browser-frame">
+                    <div class="browser-chrome">
+                        <div class="chrome-dot"></div>
+                        <div class="chrome-dot"></div>
+                        <div class="chrome-dot"></div>
+                    </div>
+                    <div class="browser-content">
+                        ES添削画面
+                    </div>
+                </div>
+            </div>
+
+            <!-- Feature 2 -->
+            <div class="grid md:grid-cols-2 gap-16 items-center reveal">
+                <div class="browser-frame order-2 md:order-1">
+                    <div class="browser-chrome">
+                        <div class="chrome-dot"></div>
+                        <div class="chrome-dot"></div>
+                        <div class="chrome-dot"></div>
+                    </div>
+                    <div class="browser-content">
+                        企業管理画面
+                    </div>
+                </div>
+                <div class="space-y-6 order-1 md:order-2">
+                    <h3 class="text-2xl md:text-3xl font-serif font-medium text-primary leading-snug">
+                        就活全体を、これ一つで<br>見渡せる状態にする。
+                    </h3>
+                    <p class="text-base text-text-muted leading-relaxed">
+                        企業リスト、選考状況、選考スケジュール、Googleカレンダーまでをワンアプリでまとめることで、進行を見逃さない状態を作ります。
+                    </p>
+                    <ul class="space-y-3">
+                        <li class="flex items-start gap-3">
+                            <svg class="icon text-accent flex-shrink-0 mt-0.5" viewBox="0 0 24 24">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            <span class="text-text-muted">企業ごとの状態管理</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="icon text-accent flex-shrink-0 mt-0.5" viewBox="0 0 24 24">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            <span class="text-text-muted">締切の自動表示と通知</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="icon text-accent flex-shrink-0 mt-0.5" viewBox="0 0 24 24">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            <span class="text-text-muted">月/日/リスト形式 の dashboard</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section id="how-it-works" class="bg-white py-28">
+        <div class="container mx-auto px-8 max-w-[1200px]">
+            <!-- Section header -->
+            <div class="text-center space-y-4 mb-20 reveal">
+                <div class="pill-badge">HOW IT WORKS</div>
+                <h2 class="text-3xl md:text-5xl font-serif font-semibold text-primary">
+                    3ステップで、すぐに始められます。
+                </h2>
+            </div>
+
+            <!-- Steps -->
+            <div class="grid md:grid-cols-3 gap-8 md:gap-12">
+                <!-- Step 1 -->
+                <div class="relative reveal">
+                    <div class="bg-white rounded-xl p-8 shadow-md border border-black border-opacity-[0.04] card-hover h-full">
+                        <div class="font-display text-5xl font-bold text-accent mb-6">01</div>
+                        <h3 class="text-xl font-serif font-semibold text-primary mb-4">アカウント作成</h3>
+                        <p class="text-text-muted leading-relaxed">
+                            Googleアカウントで30秒で登録。<br>クレジットカード不要で始められます。
+                        </p>
+                    </div>
+                    <div class="step-line hidden md:block"></div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="relative reveal" style="transition-delay: 0.1s;">
+                    <div class="bg-white rounded-xl p-8 shadow-md border border-black border-opacity-[0.04] card-hover h-full">
+                        <div class="font-display text-5xl font-bold text-accent mb-6">02</div>
+                        <h3 class="text-xl font-serif font-semibold text-primary mb-4">企業を登録</h3>
+                        <p class="text-text-muted leading-relaxed">
+                            志望企業を登録して、ES添削、企業情報、<br>締切管理をスタート。
+                        </p>
+                    </div>
+                    <div class="step-line hidden md:block"></div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="reveal" style="transition-delay: 0.2s;">
+                    <div class="bg-white rounded-xl p-8 shadow-md border border-black border-opacity-[0.04] card-hover h-full">
+                        <div class="font-display text-5xl font-bold text-accent mb-6">03</div>
+                        <h3 class="text-xl font-serif font-semibold text-primary mb-4">AIと一緒に進める</h3>
+                        <p class="text-text-muted leading-relaxed">
+                            ES添削、志望動機の深掘り、<br>ガクチカ整理をAIがサポート。
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- PRICING -->
+    <section id="pricing" class="relative py-28 bg-bg-alt paper-texture">
+        <div class="container mx-auto px-8 max-w-[1200px]">
+            <!-- Section header -->
+            <div class="text-center space-y-4 mb-12 reveal">
+                <div class="pill-badge">PRICING</div>
+                <h2 class="text-3xl md:text-5xl font-serif font-semibold text-primary">
+                    無料で始めて、必要なぶんだけ広げる。
+                </h2>
+                <p class="text-base text-text-muted max-w-3xl mx-auto leading-relaxed">
+                    まずは無料プランで全体を試してから。必要になったら Standard や Pro に切り替えられます。<br>
+                    クレジットは成功した処理だけに消費されるので、無駄なく使えます。
+                </p>
+            </div>
+
+            <!-- Pricing table -->
+            <div class="bg-white rounded-xl shadow-lg overflow-hidden reveal">
+                <div class="overflow-x-auto">
+                    <table class="pricing-table">
+                        <thead>
+                            <tr class="bg-bg-alt">
+                                <th class="text-left text-primary font-serif text-lg"></th>
+                                <th class="text-center">
+                                    <div class="font-serif text-xl text-primary">Free</div>
+                                </th>
+                                <th class="text-center popular-col">
+                                    <div class="popular-badge mx-auto">最も人気</div>
+                                    <div class="font-serif text-xl text-primary">Standard</div>
+                                </th>
+                                <th class="text-center">
+                                    <div class="font-serif text-xl text-primary">Pro</div>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="font-medium text-primary">月額料金</td>
+                                <td class="text-center popular-col">
+                                    <div class="font-number text-2xl font-bold text-primary">¥0</div>
+                                </td>
+                                <td class="text-center popular-col">
+                                    <div class="font-number text-2xl font-bold text-primary">¥1,480</div>
+                                </td>
+                                <td class="text-center">
+                                    <div class="font-number text-2xl font-bold text-primary">¥2,980</div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="font-medium text-primary">月クレジット</td>
+                                <td class="text-center text-text-muted">30</td>
+                                <td class="text-center popular-col text-text-muted">100</td>
+                                <td class="text-center text-text-muted">300</td>
+                            </tr>
+                            <tr>
+                                <td class="font-medium text-primary">企業登録</td>
+                                <td class="text-center text-text-muted">5社まで</td>
+                                <td class="text-center popular-col text-text-muted">無制限</td>
+                                <td class="text-center text-text-muted">無制限</td>
+                            </tr>
+                            <tr>
+                                <td class="font-medium text-primary">ES添削スタイル</td>
+                                <td class="text-center text-text-muted">3種</td>
+                                <td class="text-center popular-col text-text-muted">全8種</td>
+                                <td class="text-center text-text-muted">全8種</td>
+                            </tr>
+                            <tr>
+                                <td class="font-medium text-primary">ガクチカ素材</td>
+                                <td class="text-center text-text-muted">3件</td>
+                                <td class="text-center popular-col text-text-muted">10件</td>
+                                <td class="text-center text-text-muted">20件</td>
+                            </tr>
+                            <tr>
+                                <td class="font-medium text-primary">選考スケジュール</td>
+                                <td class="text-center text-text-muted">月5回</td>
+                                <td class="text-center popular-col text-text-muted">月50回</td>
+                                <td class="text-center text-text-muted">月150回</td>
+                            </tr>
+                            <tr>
+                                <td class="font-medium text-primary">企業情報の自動整理</td>
+                                <td class="text-center text-text-muted">月10ページ</td>
+                                <td class="text-center popular-col text-text-muted">月100ページ</td>
+                                <td class="text-center text-text-muted">月300ページ</td>
+                            </tr>
+                            <tr>
+                                <td class="pt-6"></td>
+                                <td class="text-center pt-6">
+                                    <button class="border-2 border-primary text-primary px-6 py-2.5 rounded-lg font-semibold hover:bg-primary hover:text-white w-full max-w-[200px]">
+                                        無料で始める
+                                    </button>
+                                </td>
+                                <td class="text-center popular-col pt-6">
+                                    <button class="bg-accent text-primary px-6 py-2.5 rounded-lg font-semibold hover:bg-accent-light w-full max-w-[200px]">
+                                        Standardで始める
+                                    </button>
+                                </td>
+                                <td class="text-center pt-6">
+                                    <button class="border-2 border-primary text-primary px-6 py-2.5 rounded-lg font-semibold hover:bg-primary hover:text-white w-full max-w-[200px]">
+                                        Proで始める
+                                    </button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="px-8 py-6 bg-bg-alt text-center text-sm text-text-muted">
+                    年額プランは割引あり。詳しくは pricing page を確認。クレジットは成功時のみ消費されます。
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="bg-white py-28">
+        <div class="container mx-auto px-8 max-w-[900px]">
+            <!-- Section header -->
+            <div class="text-center space-y-4 mb-16 reveal">
+                <div class="pill-badge">FAQ</div>
+                <h2 class="text-3xl md:text-5xl font-serif font-semibold text-primary">
+                    よくある質問
+                </h2>
+            </div>
+
+            <!-- FAQ Items -->
+            <div class="space-y-0 border-t border-border">
+                <!-- FAQ 1 -->
+                <div class="faq-item border-b border-border reveal">
+                    <button class="faq-question w-full py-6 flex items-center justify-between text-left cursor-pointer hover:text-primary-light group" onclick="toggleFaq(this)">
+                        <span class="font-medium text-primary pr-8">ES添削AIやES AIとして使えますか？</span>
+                        <svg class="icon text-accent flex-shrink-0 transition-transform duration-300" viewBox="0 0 24 24">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
+                    <div class="faq-answer">
+                        <div class="pb-6 text-text-muted leading-relaxed max-w-[85%]">
+                            はい。設問タイプに合わせたAI添削（ES添削）に対応しており、エントリーシートの下書き段階から改善ポイントを整理できます。無料プランでも月30クレジットの範囲でお試しいただけます。
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FAQ 2 -->
+                <div class="faq-item border-b border-border reveal" style="transition-delay: 0.05s;">
+                    <button class="faq-question w-full py-6 flex items-center justify-between text-left cursor-pointer hover:text-primary-light group" onclick="toggleFaq(this)">
+                        <span class="font-medium text-primary pr-8">就活AIアプリとして何ができますか？</span>
+                        <svg class="icon text-accent flex-shrink-0 transition-transform duration-300" viewBox="0 0 24 24">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
+                    <div class="faq-answer">
+                        <div class="pb-6 text-text-muted leading-relaxed max-w-[85%]">
+                            就活Passは、ES添削に加え、志望動機・ガクチカの対話支援、企業情報の整理、締切管理とGoogleカレンダー連携までを1つのアプリで扱える就活向けのAI支援ツールです。
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FAQ 3 -->
+                <div class="faq-item border-b border-border reveal" style="transition-delay: 0.1s;">
+                    <button class="faq-question w-full py-6 flex items-center justify-between text-left cursor-pointer hover:text-primary-light group" onclick="toggleFaq(this)">
+                        <span class="font-medium text-primary pr-8">無料プランでは何ができますか？</span>
+                        <svg class="icon text-accent flex-shrink-0 transition-transform duration-300" viewBox="0 0 24 24">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
+                    <div class="faq-answer">
+                        <div class="pb-6 text-text-muted leading-relaxed max-w-[85%]">
+                            月30クレジットが付与され、AI添削（GPT-5.4 mini・3スタイル）、企業登録 5社まで、ガクチカ素材 3件まで、選考スケジュール取得 月5回まで無料、企業情報の自動整理 月10ページまで無料、ESエディタ、締切管理、Googleカレンダー連携が利用できます。クレジットカード不要で始められます。
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FAQ 4 -->
+                <div class="faq-item border-b border-border reveal" style="transition-delay: 0.15s;">
+                    <button class="faq-question w-full py-6 flex items-center justify-between text-left cursor-pointer hover:text-primary-light group" onclick="toggleFaq(this)">
+                        <span class="font-medium text-primary pr-8">他の就活サービスとの違いは何ですか？</span>
+                        <svg class="icon text-accent flex-shrink-0 transition-transform duration-300" viewBox="0 0 24 24">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
+                    <div class="faq-answer">
+                        <div class="pb-6 text-text-muted leading-relaxed max-w-[85%]">
+                            就活Passは、設問タイプに合わせたAI添削に加え、志望動機・ガクチカの対話支援、企業・締切の整理とGoogleカレンダー連携までを1つのアプリでつなげて使える点が違いです。無料ツールの手軽さと、継続的に進めやすい管理体験を両立することを重視しています。
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FAQ 5 -->
+                <div class="faq-item border-b border-border reveal" style="transition-delay: 0.2s;">
+                    <button class="faq-question w-full py-6 flex items-center justify-between text-left cursor-pointer hover:text-primary-light group" onclick="toggleFaq(this)">
+                        <span class="font-medium text-primary pr-8">入力したデータは安全ですか？</span>
+                        <svg class="icon text-accent flex-shrink-0 transition-transform duration-300" viewBox="0 0 24 24">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
+                    <div class="faq-answer">
+                        <div class="pb-6 text-text-muted leading-relaxed max-w-[85%]">
+                            Google OAuth によるログインと通信の暗号化に対応しています。AI 処理のため外部サービスへデータを送信する場合がありますが、学習には使用されません。詳しくはプライバシーポリシーをご確認ください。
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FAQ 6 -->
+                <div class="faq-item border-b border-border reveal" style="transition-delay: 0.25s;">
+                    <button class="faq-question w-full py-6 flex items-center justify-between text-left cursor-pointer hover:text-primary-light group" onclick="toggleFaq(this)">
+                        <span class="font-medium text-primary pr-8">クレジットとは何ですか？</span>
+                        <svg class="icon text-accent flex-shrink-0 transition-transform duration-300" viewBox="0 0 24 24">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
+                    <div class="faq-answer">
+                        <div class="pb-6 text-text-muted leading-relaxed max-w-[85%]">
+                            AI 機能や企業情報整理などの実行時に消費するポイントです。クレジットは成功時のみ消費され、毎月リセットされます。実行前に消費見積もりが表示されるため、使い方を把握しながら進められます。
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FAQ 7 -->
+                <div class="faq-item border-b border-border reveal" style="transition-delay: 0.3s;">
+                    <button class="faq-question w-full py-6 flex items-center justify-between text-left cursor-pointer hover:text-primary-light group" onclick="toggleFaq(this)">
+                        <span class="font-medium text-primary pr-8">1クレジットでどのくらいの操作ができますか？</span>
+                        <svg class="icon text-accent flex-shrink-0 transition-transform duration-300" viewBox="0 0 24 24">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
+                    <div class="faq-answer">
+                        <div class="pb-6 text-text-muted leading-relaxed max-w-[85%]">
+                            AI添削は1回あたり6〜20クレジット（文字数に応じて変動）、課金プランで低コストモデルを選ぶと3〜12クレジットです。ガクチカ深掘りや志望動機は5回答ごとに3クレジット、下書き生成は6クレジットが目安です。実行前に消費見積もりが表示されるので、使いすぎる心配はありません。Freeプランの30クレジットでも、AI添削を1〜5回ほどお試しいただけます。
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA SECTION -->
+    <section class="relative py-28 bg-primary grain-texture">
+        <div class="container mx-auto px-8 max-w-[1000px] text-center relative z-10">
+            <div class="section-divider max-w-md mx-auto mb-12"></div>
+            <div class="space-y-8 reveal">
+                <div class="pill-badge border-accent text-accent">START</div>
+                <h2 class="text-3xl md:text-5xl font-serif font-semibold text-white leading-tight">
+                    就活を、迷わず続けられる状態へ。
+                </h2>
+                <p class="text-lg text-white text-opacity-70 max-w-2xl mx-auto leading-relaxed">
+                    ES添削、対話支援、企業管理、締切管理を一つにまとめて、<br>
+                    次にやることが見える状態を作ります。まずは無料から始められます。
+                </p>
+                <div class="flex flex-wrap gap-4 justify-center pt-4">
+                    <button class="bg-accent text-primary px-8 py-3.5 rounded-lg font-semibold hover:bg-accent-light shadow-lg">
+                        無料で始める
+                    </button>
+                    <button class="border-2 border-white text-white px-8 py-3.5 rounded-lg font-semibold hover:bg-white hover:text-primary">
+                        料金を見る
+                    </button>
+                </div>
+                <div class="flex flex-wrap justify-center gap-6 text-sm text-white text-opacity-50 pt-6">
+                    <span>クレジットカード不要</span>
+                    <span>|</span>
+                    <span>全日本の大学対応</span>
+                    <span>|</span>
+                    <span>Googleカレンダー連携</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="bg-[#0A1128] text-white py-16">
+        <div class="container mx-auto px-8 max-w-[1200px]">
+            <div class="grid md:grid-cols-4 gap-12 mb-12">
+                <!-- Column 1 -->
+                <div class="space-y-4">
+                    <div class="flex items-center gap-1 mb-4">
+                        <span class="text-xl font-serif font-semibold">就活Pass</span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-accent"></span>
+                    </div>
+                    <p class="text-white text-opacity-50 text-sm leading-relaxed">
+                        ES添削、対話支援、企業管理、締切管理をひとつにまとめた就活支援アプリ。
+                    </p>
+                    <a href="#" class="text-accent hover:text-accent-light text-sm font-medium inline-block">
+                        無料で始める →
+                    </a>
+                </div>
+
+                <!-- Column 2 -->
+                <div class="space-y-3">
+                    <h4 class="font-semibold text-white mb-4">プロダクト</h4>
+                    <a href="#features" class="block text-white text-opacity-70 hover:text-opacity-100 text-sm">機能</a>
+                    <a href="#pricing" class="block text-white text-opacity-70 hover:text-opacity-100 text-sm">料金</a>
+                    <a href="#faq" class="block text-white text-opacity-70 hover:text-opacity-100 text-sm">FAQ</a>
+                    <a href="#" class="block text-white text-opacity-70 hover:text-opacity-100 text-sm">無料で始める</a>
+                </div>
+
+                <!-- Column 3 -->
+                <div class="space-y-3">
+                    <h4 class="font-semibold text-white mb-4">リソース</h4>
+                    <a href="#" class="block text-white text-opacity-70 hover:text-opacity-100 text-sm">無料ツール</a>
+                    <a href="#" class="block text-white text-opacity-70 hover:text-opacity-100 text-sm">テンプレ集</a>
+                    <a href="#" class="block text-white text-opacity-70 hover:text-opacity-100 text-sm">ESテンプレート</a>
+                </div>
+
+                <!-- Column 4 -->
+                <div class="space-y-3">
+                    <h4 class="font-semibold text-white mb-4">企業情報</h4>
+                    <a href="#" class="block text-white text-opacity-70 hover:text-opacity-100 text-sm">運営会社</a>
+                    <a href="#" class="block text-white text-opacity-70 hover:text-opacity-100 text-sm">プライバシーポリシー</a>
+                    <a href="#" class="block text-white text-opacity-70 hover:text-opacity-100 text-sm">特定商取引法</a>
+                    <a href="#" class="block text-white text-opacity-70 hover:text-opacity-100 text-sm">お問い合わせ</a>
+                </div>
+            </div>
+
+            <!-- Bottom bar -->
+            <div class="border-t border-white border-opacity-10 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
+                <p class="text-white text-opacity-50 text-sm">© 2025 就活Pass. All rights reserved.</p>
+                <div class="flex gap-6">
+                    <a href="#" class="text-white text-opacity-50 hover:text-opacity-100 transition-colors" aria-label="Twitter">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M23 3a10.9 10.9 0 0 1-3.14 1.53 4.48 4.48 0 0 0-7.86 3v1A10.66 10.66 0 0 1 3 4s-4 9 5 13a11.64 11.64 0 0 1-7 2c9 5 20 0 20-11.5a4.5 4.5 0 0 0-.08-.83A7.72 7.72 0 0 0 23 3z"></path>
+                        </svg>
+                    </a>
+                    <a href="#" class="text-white text-opacity-50 hover:text-opacity-100 transition-colors" aria-label="GitHub">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+                        </svg>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script>
+        // Scroll reveal
+        const revealElements = document.querySelectorAll('.reveal');
+
+        const revealObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry, index) => {
+                if (entry.isIntersecting) {
+                    setTimeout(() => {
+                        entry.target.classList.add('active');
+                    }, index * 50);
+                }
+            });
+        }, {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        });
+
+        revealElements.forEach(el => {
+            revealObserver.observe(el);
+        });
+
+        // FAQ accordion
+        function toggleFaq(button) {
+            const faqItem = button.closest('.faq-item');
+            const answer = faqItem.querySelector('.faq-answer');
+            const icon = button.querySelector('svg');
+            const isOpen = answer.classList.contains('open');
+
+            // Close all other FAQs
+            document.querySelectorAll('.faq-answer').forEach(a => {
+                a.classList.remove('open');
+            });
+            document.querySelectorAll('.faq-question svg').forEach(i => {
+                i.style.transform = 'rotate(0deg)';
+            });
+
+            // Toggle current FAQ
+            if (!isOpen) {
+                answer.classList.add('open');
+                icon.style.transform = 'rotate(45deg)';
+            }
+        }
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    const headerOffset = 80;
+                    const elementPosition = target.getBoundingClientRect().top;
+                    const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+
+                    window.scrollTo({
+                        top: offsetPosition,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+
+        // Header shadow on scroll
+        const header = document.querySelector('header');
+        let lastScroll = 0;
+
+        window.addEventListener('scroll', () => {
+            const currentScroll = window.pageYOffset;
+
+            if (currentScroll > 50) {
+                header.style.boxShadow = '0 2px 20px rgba(15, 27, 61, 0.08)';
+            } else {
+                header.style.boxShadow = 'none';
+            }
+
+            lastScroll = currentScroll;
+        });
+    </script>
+</body>
+</html>

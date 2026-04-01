@@ -136,12 +136,62 @@ def test_required_medium_long_fallback_prompt_includes_same_structure(
     assert "研究" in user_prompt
 
 
+def test_intern_reason_rewrite_prompt_includes_three_part_guidance_for_multipart_question() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="intern_reason",
+        company_name="三井物産",
+        industry="総合商社",
+        question="インターンに参加したい理由と、これまでの経験をどう活かせるか、そして持ち帰りたい学びを教えてください。",
+        answer="研究で仮説検証を重ね、論点整理を担ってきた。この経験を実務でも試したい。",
+        char_min=150,
+        char_max=220,
+        company_evidence_cards=[
+            {
+                "theme": "インターン機会",
+                "claim": "実務に近い課題を扱う",
+                "excerpt": "意思決定に近い分析を体感できる",
+            }
+        ],
+        has_rag=True,
+        allowed_user_facts=[{"source": "current_answer", "text": "研究で仮説検証を重ねた。"}],
+        role_name="Business Intelligence",
+        intern_name="Business Intelligence Internship",
+        grounding_mode="role_grounded",
+    )
+
+    assert "【この設問で落としてはいけない3要素】" in system_prompt
+    assert "参加したい理由" in system_prompt
+    assert "活かせる経験" in system_prompt
+    assert "持ち帰りたい学び" in system_prompt
+
+
+def test_self_pr_rewrite_prompt_includes_negative_reframe_guidance() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="self_pr",
+        company_name=None,
+        industry=None,
+        question="自己PRを220字以内で教えてください。",
+        answer="経験不足だが、最後までやり切る。自信がない場面でも準備を重ねる。",
+        char_min=150,
+        char_max=220,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "ゼミで論点整理を担った。"}],
+        role_name=None,
+        grounding_mode="none",
+    )
+
+    assert "【自己PRで避ける表現】" in system_prompt
+    assert "「経験不足」「自信がない」" in system_prompt
+    assert "準備・責任感・学習姿勢・確認力" in system_prompt
+
+
 def test_required_length_fix_prompt_stays_minimal_and_bridge_only() -> None:
     system_prompt, user_prompt = build_template_length_fix_prompt(
         template_type="role_course_reason",
         current_text="研究で培った分析力を生かしたい。",
-        char_min=180,
-        char_max=260,
+        char_min=120,
+        char_max=140,
         fix_mode="under_min",
         length_control_mode="under_min_recovery",
     )
@@ -150,6 +200,19 @@ def test_required_length_fix_prompt_stays_minimal_and_bridge_only() -> None:
     assert "1文まで足し" in system_prompt
     assert "新しい経験・役割・成果・数字・企業施策を足さない" in system_prompt
     assert "研究で培った分析力を生かしたい。" in user_prompt
+
+
+def test_required_length_fix_prompt_allows_two_short_bridges_for_large_medium_shortfall() -> None:
+    system_prompt, _ = build_template_length_fix_prompt(
+        template_type="role_course_reason",
+        current_text="研究で培った分析力を生かしたい。",
+        char_min=170,
+        char_max=220,
+        fix_mode="under_min",
+        length_control_mode="under_min_recovery",
+    )
+
+    assert "1〜2文まで足し" in system_prompt
 
 
 def test_length_fix_prompt_allows_extra_bridge_when_large_under_shortfall() -> None:
@@ -163,6 +226,20 @@ def test_length_fix_prompt_allows_extra_bridge_when_large_under_shortfall() -> N
     )
 
     assert "1〜2か所足し" in system_prompt
+
+
+def test_self_pr_length_fix_prompt_includes_negative_reframe_guidance() -> None:
+    system_prompt, _ = build_template_length_fix_prompt(
+        template_type="self_pr",
+        current_text="経験不足だが、最後までやり切る。",
+        char_min=150,
+        char_max=220,
+        fix_mode="under_min",
+        length_control_mode="under_min_recovery",
+    )
+
+    assert "【自己PRで避ける表現】" in system_prompt
+    assert "自己否定語をそのまま残さない" in system_prompt
 
 
 def test_required_short_prompt_includes_required_playbook_and_min_guard() -> None:
@@ -317,3 +394,30 @@ def test_short_answer_guidance_covers_self_pr_structure() -> None:
     assert "1文目で強みの核" in system_prompt
     assert "2文目で根拠経験" in system_prompt
     assert "3文目で仕事や企業との接点" in system_prompt
+
+
+def test_required_short_answer_guidance_avoids_over_compression_in_150_to_220_band() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="company_motivation",
+        company_name="三菱商事",
+        industry="総合商社",
+        question="三菱商事を志望する理由を200字以内で教えてください。",
+        answer="研究で複数の仮説を比較し、価値につながる打ち手を考えてきた。",
+        char_min=150,
+        char_max=200,
+        company_evidence_cards=[
+            {
+                "theme": "事業理解",
+                "claim": "幅広い事業領域で価値創出を進める",
+                "excerpt": "現場で学びながら社会課題に向き合う",
+            }
+        ],
+        has_rag=True,
+        allowed_user_facts=[{"source": "current_answer", "text": "研究で複数の仮説を比較した。"}],
+        role_name="総合職",
+        grounding_mode="company_general",
+    )
+
+    assert "3〜4文で構成する" in system_prompt
+    assert "1〜2文まで補う" in system_prompt
+    assert "企業接点と貢献の両方を残す" in system_prompt

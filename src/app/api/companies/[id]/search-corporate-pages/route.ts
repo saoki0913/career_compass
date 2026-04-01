@@ -7,6 +7,7 @@ import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { filterAllowedPublicSourceUrls } from "@/lib/company-info/source-compliance";
 import { COMPANY_SEARCH_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 interface SearchCandidate {
   url: string;
@@ -154,9 +155,8 @@ export async function POST(
       graduationYear = requestedGraduationYear;
     }
 
-    const fastApiUrl = process.env.FASTAPI_URL || "http://localhost:8000";
     try {
-      const response = await fetch(`${fastApiUrl}/company-info/search-corporate-pages`, {
+      const response = await fetchFastApiInternal("/company-info/search-corporate-pages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

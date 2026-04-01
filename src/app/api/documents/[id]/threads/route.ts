@@ -10,7 +10,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { documents, aiThreads, aiMessages } from "@/lib/db/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, count } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getGuestUser } from "@/lib/auth/guest";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
@@ -100,34 +100,25 @@ export async function GET(
       );
     }
 
-    // Get all threads for this document
     const threads = await db
       .select({
         id: aiThreads.id,
         title: aiThreads.title,
         status: aiThreads.status,
         createdAt: aiThreads.createdAt,
+        messageCount: count(aiMessages.id),
       })
       .from(aiThreads)
+      .leftJoin(aiMessages, eq(aiMessages.threadId, aiThreads.id))
       .where(eq(aiThreads.documentId, documentId))
+      .groupBy(aiThreads.id, aiThreads.title, aiThreads.status, aiThreads.createdAt)
       .orderBy(desc(aiThreads.createdAt));
 
-    // Get message counts for each thread
-    const threadsWithCounts = await Promise.all(
-      threads.map(async (thread) => {
-        const [messageCount] = await db
-          .select({ count: sql<number>`count(*)` })
-          .from(aiMessages)
-          .where(eq(aiMessages.threadId, thread.id))
-          .limit(1);
-
-        return {
-          ...thread,
-          messageCount: messageCount?.count || 0,
-          createdAt: thread.createdAt.toISOString(),
-        };
-      })
-    );
+    const threadsWithCounts = threads.map((thread) => ({
+      ...thread,
+      messageCount: Number(thread.messageCount ?? 0),
+      createdAt: thread.createdAt.toISOString(),
+    }));
 
     return NextResponse.json({ threads: threadsWithCounts });
   } catch (error) {
@@ -214,19 +205,16 @@ export async function POST(
         gakuchikaId: null,
       });
 
-      for (let i = 0; i < parsed.data.messages.length; i++) {
-        const m = parsed.data.messages[i]!;
-        const createdAt = new Date(now.getTime() + i);
-        await tx.insert(aiMessages).values({
+      await tx.insert(aiMessages).values(
+        parsed.data.messages.map((m, i) => ({
           id: crypto.randomUUID(),
           threadId,
           role: m.role,
           content: m.content,
-          metadata:
-            m.metadata !== undefined ? JSON.stringify(m.metadata) : null,
-          createdAt,
-        });
-      }
+          metadata: m.metadata !== undefined ? JSON.stringify(m.metadata) : null,
+          createdAt: new Date(now.getTime() + i),
+        }))
+      );
     });
 
     return NextResponse.json(

@@ -6,8 +6,14 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import {
+  notifyError,
+  notifyTaskCreated,
+  notifyTaskDeleted,
+  notifyTaskSaved,
+  notifyTaskStatusChanged,
+} from "@/lib/notifications";
 
 export type TaskType =
   | "es"
@@ -89,31 +95,26 @@ export interface UpdateTaskInput {
 }
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore errors
-    }
-  }
-  return headers;
 }
 
 export interface UseTasksOptions {
   status?: TaskStatus | "all";
   companyId?: string;
   applicationId?: string;
+  initialData?: Task[];
+}
+
+interface UpdateTaskNotifyOptions {
+  success: "saved" | "toggle";
+  toggledTo?: TaskStatus;
 }
 
 export function useTasks(options: UseTasksOptions = {}) {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [tasks, setTasks] = useState<Task[]>(() => options.initialData ?? []);
+  const [isLoading, setIsLoading] = useState(() => !options.initialData);
   const [error, setError] = useState<string | null>(null);
 
   const fetchTasks = useCallback(async () => {
@@ -165,8 +166,11 @@ export function useTasks(options: UseTasksOptions = {}) {
   }, [options.status, options.companyId, options.applicationId]);
 
   useEffect(() => {
+    if (options.initialData) {
+      return;
+    }
     fetchTasks();
-  }, [fetchTasks]);
+  }, [fetchTasks, options.initialData]);
 
   const createTask = useCallback(
     async (input: CreateTaskInput): Promise<Task | null> => {
@@ -192,8 +196,15 @@ export function useTasks(options: UseTasksOptions = {}) {
         }
 
         const data = await response.json();
-        await fetchTasks();
-        return data.task;
+        const nextTask: Task = {
+          ...data.task,
+          company: null,
+          application: null,
+          deadline: null,
+        };
+        setTasks((prev) => (options.status === "done" ? prev : [nextTask, ...prev]));
+        notifyTaskCreated();
+        return nextTask;
       } catch (err) {
         const uiError = toAppUiError(
           err,
@@ -206,14 +217,22 @@ export function useTasks(options: UseTasksOptions = {}) {
           "useTasks.create"
         );
         setError(uiError.message);
+        notifyError({
+          title: uiError.message,
+          description: uiError.action ?? undefined,
+        });
         return null;
       }
     },
-    [fetchTasks]
+    [options.status]
   );
 
-  const updateTask = useCallback(
-    async (taskId: string, input: UpdateTaskInput): Promise<boolean> => {
+  const updateTaskInternal = useCallback(
+    async (
+      taskId: string,
+      input: UpdateTaskInput,
+      notifyOptions: UpdateTaskNotifyOptions
+    ): Promise<boolean> => {
       try {
         const response = await fetch(`/api/tasks/${taskId}`, {
           method: "PUT",
@@ -235,7 +254,33 @@ export function useTasks(options: UseTasksOptions = {}) {
           );
         }
 
-        await fetchTasks();
+        const data = await response.json();
+        setTasks((prev) => {
+          const nextTasks = prev.map((task) =>
+            task.id === taskId
+              ? {
+                  ...task,
+                  ...data.task,
+                  dueDate: data.task.dueDate ?? task.dueDate,
+                  completedAt: data.task.completedAt ?? null,
+                }
+              : task
+          );
+
+          if (options.status === "open") {
+            return nextTasks.filter((task) => task.status === "open");
+          }
+          if (options.status === "done") {
+            return nextTasks.filter((task) => task.status === "done");
+          }
+
+          return nextTasks;
+        });
+        if (notifyOptions.success === "toggle") {
+          notifyTaskStatusChanged(notifyOptions.toggledTo === "done");
+        } else {
+          notifyTaskSaved();
+        }
         return true;
       } catch (err) {
         const uiError = toAppUiError(
@@ -249,10 +294,20 @@ export function useTasks(options: UseTasksOptions = {}) {
           "useTasks.update"
         );
         setError(uiError.message);
+        notifyError({
+          title: uiError.message,
+          description: uiError.action ?? undefined,
+        });
         return false;
       }
     },
-    [fetchTasks]
+    [options.status]
+  );
+
+  const updateTask = useCallback(
+    async (taskId: string, input: UpdateTaskInput): Promise<boolean> =>
+      updateTaskInternal(taskId, input, { success: "saved" }),
+    [updateTaskInternal]
   );
 
   const deleteTask = useCallback(
@@ -277,7 +332,8 @@ export function useTasks(options: UseTasksOptions = {}) {
           );
         }
 
-        await fetchTasks();
+        setTasks((prev) => prev.filter((task) => task.id !== taskId));
+        notifyTaskDeleted();
         return true;
       } catch (err) {
         const uiError = toAppUiError(
@@ -291,10 +347,14 @@ export function useTasks(options: UseTasksOptions = {}) {
           "useTasks.delete"
         );
         setError(uiError.message);
+        notifyError({
+          title: uiError.message,
+          description: uiError.action ?? undefined,
+        });
         return false;
       }
     },
-    [fetchTasks]
+    []
   );
 
   const toggleComplete = useCallback(
@@ -303,9 +363,9 @@ export function useTasks(options: UseTasksOptions = {}) {
       if (!task) return false;
 
       const newStatus = task.status === "open" ? "done" : "open";
-      return updateTask(taskId, { status: newStatus });
+      return updateTaskInternal(taskId, { status: newStatus }, { success: "toggle", toggledTo: newStatus });
     },
-    [tasks, updateTask]
+    [tasks, updateTaskInternal]
   );
 
   return {
@@ -411,7 +471,8 @@ export function useTodayTask(options: UseTodayTaskOptions = {}) {
         );
       }
 
-      await fetchTodayTask();
+      setData({ mode: null, task: null });
+      notifyTaskStatusChanged(true);
       return true;
     } catch (err) {
       const uiError = toAppUiError(
@@ -425,9 +486,13 @@ export function useTodayTask(options: UseTodayTaskOptions = {}) {
         "useTodayTask.markComplete"
       );
       setError(uiError.message);
+      notifyError({
+        title: uiError.message,
+        description: uiError.action ?? undefined,
+      });
       return false;
     }
-  }, [data.task, fetchTodayTask]);
+  }, [data.task]);
 
   return {
     ...data,

@@ -10,9 +10,9 @@ import { cn } from "@/lib/utils";
 
 const navLinks = [
   { label: "機能", href: "#features" },
+  { label: "使い方", href: "#how-it-works" },
   { label: "料金", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
-  { label: "無料ツール", href: "/tools" },
 ] as const;
 
 export function LandingHeader() {
@@ -29,6 +29,21 @@ export function LandingHeader() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const previousTouchAction = document.body.style.touchAction;
+
+    if (isMobileMenuOpen) {
+      document.body.style.overflow = "hidden";
+      document.body.style.touchAction = "none";
+    }
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.touchAction = previousTouchAction;
+    };
+  }, [isMobileMenuOpen]);
+
   const handleNavClick = () => {
     setIsMobileMenuOpen(false);
   };
@@ -37,9 +52,9 @@ export function LandingHeader() {
     <header
       className={cn(
         "fixed left-0 right-0 top-0 z-50 transition-all duration-300",
-        "border-b bg-white/72 backdrop-blur-2xl",
+        "border-b bg-white/78 backdrop-blur-2xl",
         isScrolled
-          ? "border-slate-200/80 shadow-[0_18px_50px_-40px_rgba(15,23,42,0.18)]"
+          ? "border-slate-200/80 shadow-[0_18px_50px_-38px_rgba(15,23,42,0.18)]"
           : "border-transparent"
       )}
     >
@@ -52,18 +67,19 @@ export function LandingHeader() {
               width={34}
               height={34}
               className="rounded-xl"
+              priority
             />
             <span className="block text-lg font-semibold tracking-[-0.04em] text-slate-950">
               就活Pass
             </span>
           </Link>
 
-          <nav className="hidden items-center gap-1 md:flex">
+          <nav className="hidden items-center gap-1 rounded-full border border-slate-200/80 bg-white/70 p-1 shadow-[0_16px_40px_-32px_rgba(15,23,42,0.3)] md:flex">
             {navLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
-                className="rounded-full px-3 py-2 text-sm font-medium text-slate-500 transition-colors duration-200 hover:text-slate-950"
+                className="rounded-full px-4 py-2 text-sm font-medium text-slate-500 transition-colors duration-200 hover:bg-slate-50 hover:text-slate-950"
               >
                 {link.label}
               </Link>
@@ -84,7 +100,12 @@ export function LandingHeader() {
               </Button>
             ) : (
               <>
-                <Button variant="ghost" size="sm" asChild className="h-9 text-muted-foreground">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  asChild
+                  className="h-9 rounded-full px-4 text-muted-foreground"
+                >
                   <Link href="/login">ログイン</Link>
                 </Button>
                 <Button size="sm" asChild className="landing-cta-primary h-10 rounded-full px-5">
@@ -99,7 +120,7 @@ export function LandingHeader() {
 
           <button
             onClick={() => setIsMobileMenuOpen((prev) => !prev)}
-            className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white transition-colors duration-200 hover:bg-slate-50 md:hidden"
+            className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white/92 transition-colors duration-200 hover:bg-slate-50 md:hidden"
             aria-label={isMobileMenuOpen ? "メニューを閉じる" : "メニューを開く"}
           >
             {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -108,46 +129,56 @@ export function LandingHeader() {
       </div>
 
       {isMobileMenuOpen ? (
-        <div className="border-b border-slate-200/80 bg-white/95 backdrop-blur-xl md:hidden">
-          <div className="mx-auto max-w-6xl space-y-2 px-4 py-4">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={handleNavClick}
-                className="block rounded-2xl px-4 py-3 text-sm font-medium text-slate-600 transition-colors duration-200 hover:bg-slate-50 hover:text-slate-950"
-              >
-                {link.label}
-              </Link>
-            ))}
-            <div className="space-y-2 border-t border-slate-200/80 pt-3">
-              {isLoading ? null : isAuthenticated ? (
-                <Button asChild className="h-11 w-full">
-                  <Link href="/dashboard" onClick={handleNavClick}>
-                    ダッシュボード
-                  </Link>
-                </Button>
-              ) : (
-                <>
-                  <Button asChild className="landing-cta-primary h-11 w-full rounded-full">
-                    <Link href="/login" onClick={handleNavClick}>
-                      無料で始める
-                    </Link>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    asChild
-                    className="landing-cta-secondary h-11 w-full rounded-full"
+        <>
+          <button
+            type="button"
+            aria-label="メニューを閉じる"
+            className="fixed inset-0 top-16 z-40 bg-slate-950/20 backdrop-blur-[2px] md:hidden"
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+          <div className="fixed inset-x-0 bottom-0 top-16 z-50 border-b border-slate-200/80 bg-white/96 backdrop-blur-xl md:hidden">
+            <div className="mx-auto flex h-full max-w-6xl flex-col overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
+              <div className="space-y-2">
+                {navLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={handleNavClick}
+                    className="block rounded-2xl px-4 py-3 text-sm font-medium text-slate-600 transition-colors duration-200 hover:bg-slate-50 hover:text-slate-950"
                   >
-                    <Link href="/login" onClick={handleNavClick}>
-                      ログイン
+                    {link.label}
+                  </Link>
+                ))}
+              </div>
+              <div className="mt-4 space-y-2 border-t border-slate-200/80 pt-4">
+                {isLoading ? null : isAuthenticated ? (
+                  <Button asChild className="h-11 w-full">
+                    <Link href="/dashboard" onClick={handleNavClick}>
+                      ダッシュボード
                     </Link>
                   </Button>
-                </>
-              )}
+                ) : (
+                  <>
+                    <Button asChild className="landing-cta-primary h-11 w-full rounded-full">
+                      <Link href="/login" onClick={handleNavClick}>
+                        無料で始める
+                      </Link>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      asChild
+                      className="landing-cta-secondary h-11 w-full rounded-full"
+                    >
+                      <Link href="/login" onClick={handleNavClick}>
+                        ログイン
+                      </Link>
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        </>
       ) : null}
     </header>
   );

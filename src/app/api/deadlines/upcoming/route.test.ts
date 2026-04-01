@@ -16,19 +16,13 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-function makeCompaniesQuery(result: unknown[]) {
-  return {
-    from: vi.fn(() => ({
-      where: vi.fn().mockResolvedValue(result),
-    })),
-  };
-}
-
 function makeUpcomingDeadlinesQuery(result: unknown[]) {
   return {
     from: vi.fn(() => ({
-      where: vi.fn(() => ({
-        orderBy: vi.fn().mockResolvedValue(result),
+      innerJoin: vi.fn(() => ({
+        where: vi.fn(() => ({
+          orderBy: vi.fn().mockResolvedValue(result),
+        })),
       })),
     })),
   };
@@ -61,7 +55,7 @@ describe("api/deadlines/upcoming", () => {
   it("returns an empty list when the user has no companies", async () => {
     const { GET } = await import("@/app/api/deadlines/upcoming/route");
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
-    dbSelectMock.mockReturnValueOnce(makeCompaniesQuery([]));
+    dbSelectMock.mockReturnValueOnce(makeUpcomingDeadlinesQuery([]));
 
     const response = await GET(new NextRequest("http://localhost:3000/api/deadlines/upcoming?days=7"));
     const data = await response.json();
@@ -81,23 +75,21 @@ describe("api/deadlines/upcoming", () => {
     const deadlineDate = new Date("2026-03-20T12:00:00.000Z");
     dbSelectMock
       .mockReturnValueOnce(
-        makeCompaniesQuery([
-          { id: "company-1", name: "Alpha" },
-          { id: "company-2", name: "Beta" },
-        ])
-      )
-      .mockReturnValueOnce(
         makeUpcomingDeadlinesQuery([
           {
-            id: "deadline-1",
-            companyId: "company-1",
-            type: "es_submission",
-            title: "ES提出",
-            description: null,
-            dueDate: deadlineDate,
-            isConfirmed: true,
-            confidence: "high",
-            sourceUrl: null,
+            deadline: {
+              id: "deadline-1",
+              companyId: "company-1",
+              type: "es_submission",
+              title: "ES提出",
+              description: null,
+              dueDate: deadlineDate,
+              isConfirmed: true,
+              confidence: "high",
+              sourceUrl: null,
+              completedAt: null,
+            },
+            companyName: "Alpha",
           },
         ])
       );
@@ -117,7 +109,7 @@ describe("api/deadlines/upcoming", () => {
     });
   });
 
-  it("includes the underlying debug message for development 500 responses", async () => {
+  it("returns a structured 500 response in development", async () => {
     const { GET } = await import("@/app/api/deadlines/upcoming/route");
     process.env.NODE_ENV = "development";
     getRequestIdentityMock.mockRejectedValue(new Error("identity resolution exploded"));
@@ -127,6 +119,7 @@ describe("api/deadlines/upcoming", () => {
 
     expect(response.status).toBe(500);
     expect(data.error.code).toBe("UPCOMING_DEADLINES_FETCH_FAILED");
-    expect(data.debug.developerMessage).toBe("identity resolution exploded");
+    expect(data.requestId).toEqual(expect.any(String));
+    expect(data).not.toHaveProperty("debug");
   });
 });

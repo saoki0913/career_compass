@@ -279,6 +279,7 @@ npx playwright test companies
 - `npm run test:e2e:major:guest` は guest の stable major を横断確認する。
 - `npm run test:e2e:major:user` は Google auth state があるときに logged-in 導線を確認する。
 - GitHub Actions の `Main Release Gate` は Google auth state を使わず、staging の non-production test auth route と `CI_E2E_AUTH_SECRET` で authenticated major を実行する。
+- staging の test auth route は `CI_E2E_AUTH_SECRET` が設定されている間は有効で、明示的に止めたいときだけ `CI_E2E_AUTH_ENABLED=0` を使う。
 - `npm run test:e2e:major:live` は FastAPI を自動起動し、`motivation` / `gakuchika` / `ES review` の AI live 導線を確認する。
 - `npm run test:e2e:auth` は guest の session persistence と guest/user access boundary を確認する。
 - `npm run test:e2e:regression` は feature-specific regression を確認する。

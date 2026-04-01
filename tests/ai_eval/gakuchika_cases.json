@@ -1,41 +1,32 @@
 [
   {
-    "id": "gakuchika_credibility_scope",
-    "title": "アルバイト権限が大きく見えるケース",
-    "conversation_seed": [
-      "塾のアルバイトで校舎改善に取り組んだ",
-      "自分が中心となって施策を進めた"
+    "id": "gakuchika_scope_and_role",
+    "suiteDepth": "smoke",
+    "title": "塾講師のアルバイトで校舎改善を進めた経験",
+    "gakuchikaTitle": "塾講師のアルバイト",
+    "gakuchikaContent": "塾講師のアルバイトで校舎改善に取り組み、担当生徒の学習進捗と保護者対応の両方を改善した経験がある。",
+    "charLimitType": "400",
+    "answers": [
+      "私は、担当生徒のつまずきを可視化して授業外の声かけを増やし、学習継続率を上げる役割を担っていました。",
+      "一方で、講師ごとに対応粒度がばらついていたため、共有フォーマットを作り、改善提案を毎週回せるようにしました。",
+      "数字だけでなく、保護者からの相談件数や生徒の宿題提出率も見ながら運用を調整しました。"
     ],
-    "expected_checks": [
-      "役割範囲の確認に向かう",
-      "社員との分担を確認する",
-      "盛りすぎに加点しない"
-    ]
+    "expectedQuestionTokens": ["役割", "分担", "改善"],
+    "expectedSummaryTokens": ["共有", "継続", "提案"]
   },
   {
     "id": "gakuchika_process_over_result",
-    "title": "結果よりプロセス重視のケース",
-    "conversation_seed": [
-      "数値成果は小さいが、仕組み化で改善した",
-      "担当割り当てとマニュアル整備を行った"
+    "suiteDepth": "extended",
+    "title": "イベント運営で仕組み化を進めた経験",
+    "gakuchikaTitle": "大学祭の企画運営",
+    "gakuchikaContent": "大学祭の企画運営で、担当者間の連携不足を仕組みで解消し、準備の再現性を高めた経験がある。",
+    "charLimitType": "500",
+    "answers": [
+      "数値成果は大きくないものの、担当者の作業手順を揃えることを最優先にしていました。",
+      "進行表の更新ルールと確認タイミングを決め、誰が見ても同じ判断ができる状態を作りました。",
+      "結果として、直前の修正が減り、全体の進行が安定しました。"
     ],
-    "expected_checks": [
-      "判断理由を掘る",
-      "仕組み化を強みとして拾う",
-      "再現性に繋げる"
-    ]
-  },
-  {
-    "id": "gakuchika_scene_vividness",
-    "title": "場面描写が弱いケース",
-    "conversation_seed": [
-      "イベントを企画した",
-      "大変だったが頑張った"
-    ],
-    "expected_checks": [
-      "具体場面を聞く",
-      "感情と判断を掘る",
-      "前後比較を求める"
-    ]
+    "expectedQuestionTokens": ["手順", "判断", "再現"],
+    "expectedSummaryTokens": ["仕組み", "安定", "共有"]
   }
 ]

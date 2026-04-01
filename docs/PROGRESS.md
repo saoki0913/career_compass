@@ -1,6 +1,6 @@
 # 実装進捗ドキュメント
 
-**最終更新**: 2026-03-24
+**最終更新**: 2026-03-29
 
 ## 人向け要約（読み始めに）
 
@@ -12,12 +12,16 @@
 
 ## 最近の更新
 
+- 2026-03-29: 面接対策を motivation 準拠の 2 カラム product UI に刷新。`DashboardHeader` / `BottomTabBar` に `面接対策` 導線を追加し、`CompanySelectModal mode="interview"` で企業選択後に `/companies/[id]/interview` へ遷移する形へ統一。固定 5 段階 tracker、5 問 + 最終講評、`GET + start + stream` の SSE 契約、interview 専用 skeleton、mock UI review route を追加し、`docs/features/INTERVIEW.md`・`docs/SPEC.md` を同期。
+- 2026-03-29: ガクチカを `深掘り` から `作成` に寄せて UI 文言を整理。`/gakuchika` 一覧・詳細・完了画面の主要文言を更新し、未使用の `STAROnboarding` / `STARHintBanner` を削除。FastAPI に `interview` feature と `MODEL_INTERVIEW` を追加し、Next/FastAPI 間で企業特化模擬面接を実装。面接対策は `GPT-5.4 mini` 固定・月次無料枠なし・成功したセッション完了時のみ `5 credits` 消費へ統一。`docs/features/CREDITS.md`、`docs/features/GAKUCHIKA_DEEP_DIVE.md`、`docs/release/ENV_REFERENCE.md`、pricing 表記を同期。
+- 2026-03-27: 通知と profile の初回描画を frontend 側で集約。`/notifications` は page で 50 件の通知を server preload し、`DashboardHeader` には 5 件のプレビューのみを渡して page と header の重複 fetch を解消。`/profile` は profile / companies / ES / 通知 / credits を server preload し、header の通知・クレジットも初回から初期データで描画するよう整理。`useNotifications` / `useCredits` は SWR の `initialData` を受け取れるようにして mount fetch を抑制。関連文書を `docs/architecture/ARCHITECTURE.md` に同期。
 - 2026-03-25: ES添削の live extended で多発した **字数不足・インターン/コース志望のフォーカストークン** に対し、プロンプト（結論ファースト・長文・required テンプレの型）と **`under_min` リトライヒント**（現状字数と不足分の明示）、`gpt-5.4-mini` の温度・`max_tokens`、Gemini 長文の出力余裕を調整。`evaluate_live_case` 用ライブケースの期待トークンを表記ゆれに合わせて拡張。`docs/features/ES_REVIEW.md` / `docs/testing/ES_REVIEW_QUALITY.md` を同期。
 - 2026-03-24: ES添削の出力契約を rewrite-only に整理し、SSE の順序を `rewrite → sources → complete` に統一。retry は `strict → focused retry 1 → focused retry 2 → length-fix → degraded/422` に固定し、focus modes を `length_focus_min/max`, `style_focus`, `grounding_focus`, `answer_focus`, `opening_focus`, `structure_focus` に整理。`length-fix` の final soft は `length` / `style` / `grounding` のみ、`length_fix_result=soft_recovered` と `rewrite_validation_status=soft_ok` を使うよう更新。`user_provided_corporate_urls` は family-aligned retrieval boost 扱いに変更。参考ESは `quality hints + skeleton + conditional hints` のみを使い、overlap guard は削除。
 - 2026-03-21: LP・UI/UX 改善。カラーシステムを oklch hue 265（パープル）→ 235（ブルー）に移行。LP 全セクションのコピーを共感+安心型に書き換え、色を `text-primary` / `bg-primary/*` に統一。ローディング UI をスケルトン UI に統一し、`RouteProgressBar` と `PageLoadingState` を廃止。ページ別スケルトン 7 種を `src/components/skeletons/` に追加し、9 個の `loading.tsx` を更新。`/pricing` ページに損失回避（Free 制限コールアウト）、1クレジットあたりコスト表示、FAQ 2 項目追加。
 - 2026-03-21: 主要導線のパフォーマンス改善。`/companies/[id]` と `/es/[id]` を server wrapper + client island 構成へ移行し、初回表示の company/document/applications/deadlines/ES 一覧を shared loader (`src/lib/server/app-loaders.ts`) から直接取得する形に変更。`useApplications` / `useCompanyDeadlines` / `useDocument` に `initialData` 対応を追加し、mount 時の不要 fetch を削減。`/api/companies/[id]` と `/api/documents/[id]` は `getRequestIdentity()` + `Server-Timing` 付きの shared loader 経由に統一。旧 page 実装は `src/components/companies/CompanyDetailPageClient.tsx` と `src/components/es/ESEditorPageClient.tsx` へ移し、App Router page は薄い server wrapper に整理。
 - 2026-03-21: `/pricing` ページを UX 心理学テクニック適用＋プレミアムリデザイン。アンカリング効果（年額時に月額取り消し線＋具体的な節約額表示）、メンタルアカウンティング（日割り表現改善）、コントラスト効果（年額トグルに 15%お得バッジ＋最大節約額アニメーション表示）を適用。テキスト比較セクションを視覚的な比較テーブルに置換。FAQ を統一カード＋回転シェブロンの洗練されたアコーディオンに改善。pricing 専用カードと比較レイアウトを再設計し、LP `PricingSection` のプラン仕様を `/pricing` と統一。
 - 2026-03-22: ES添削 ReviewPanel のスクロール UX を再整理。開始直後は `priming` でパネル上端と内側コンテナ先頭を見せ、最初の実結果が見えた時点で `following` に移って下端追尾、ユーザーが上へ戻ったら `paused` で追尾停止する phase 制御に統一。scroll helper / unit test を更新し、重複していた scroll effect と古い ref を削除。`docs/features/ES_REVIEW.md` を実装に合わせて更新。
+- 2026-03-25: プロダクト UI のクライアント fetch 最適化。`useNotifications` / `useCredits` を SWR 化し `/api/notifications`・`/api/credits` を同一キーでデデュープ。`src/lib/swr-fetcher.ts` に認証付き fetch ヘッダー共通化。`(product)/layout` は `children` のみとし、`DashboardHeader` は各ページ／`loading.tsx` が配置（ES 添削など画面単位のレイアウトは `origin/develop` と整合）。
 - 2026-03-21: ES添削・クレジット不具合修正。ReviewPanel 二重マウント解消（`useSyncExternalStore` で viewport 判定し単一マウント）、`acquireLock` 失敗時のトースト表示、`useCredits` の 401 フォールバック修正（認証済みユーザーにゲスト値を返さない）、DashboardHeader のクレジット読み込み/エラー表示、`useESReview` の HTTP 402 明示処理、ReviewPanel のクレジット不足ソフトガード、`review/stream` のクレジット確定ロジック強化（ストリーム終了時のバッファ再スキャン）。
 - 2026-03-21: ES添削の retry / pricing / provider 契約を簡素化。rewrite は最大3回 + 専用 length-fix 1回に統一し、Standard 300 / Pro 1000 credits と新しい ES credit band（<=500 / <=1000 / <=1500 / >1500）に更新。
 - 2026-03-22: ES添削の OpenAI rewrite を stability-first の plain text 経路へ切り替え、`prompt_cache_key` と `verbosity=medium` を追加。strict 文字数帯は常に `X-10〜X` に統一し、retry は `strict → focused retry 1 → focused retry 2 → length-fix → degraded / 422` に整理。final soft は `length` / `style` / `grounding` のみに限定し、`answer_focus / grounding / 参考ES距離 / だ・である調` は strict 維持。Gemini は低温固定を外し、live gate は `all_standard` sweep を手動・夜間で回せるよう更新した。
@@ -86,9 +90,10 @@
 
 | 機能 | 状態 | 備考 |
 |------|------|------|
-| 月次付与 | ✅ 完了 | Free: 30, Standard: 300, Pro: 1000 |
+| 月次付与 | ✅ 完了 | Free: 30, Standard: 100, Pro: 300 |
 | 企業情報取得/更新の無料回数 | ✅ 完了 | Guest: 5、Free: 10、Standard: 20、Pro: 40 / 日 |
-| ES添削クレジット消費 | ✅ 完了 | Claude 4/6/8/10、GPT 4/6/8/10、Gemini 4/6/8/10、low-cost 1/2/4/6 |
+| ES添削クレジット消費 | ✅ 完了 | Claude / GPT / Gemini: 6/10/14/20、low-cost: 3/6/9/12 |
+| 面接対策クレジット消費 | ✅ 完了 | `GPT-5.4 mini` 固定、完了時のみ 5 credits |
 | 部分成功（0クレジット） | ✅ 完了 | 締切抽出失敗でも他データ保存時は無料 |
 | 部分成功UX | ✅ 完了 | 部分成功メッセージと課金ルールを最新化 |
 | 0.5累積バー表示 | ⏸️ MVP除外 | 0.5クレジット仕様を廃止 |
@@ -117,6 +122,7 @@
 | ガクチカ一覧 | ✅ 完了 | `/gakuchika` |
 | ガクチカ詳細 | ✅ 完了 | `/gakuchika/[id]` |
 | 志望動機作成 | ✅ 完了 | `/companies/[id]/motivation` |
+| 面接対策 | ✅ 完了 | `/companies/[id]/interview` |
 | 検索結果 | ✅ 完了 | `/search` グローバル検索結果画面 |
 
 ---
@@ -125,11 +131,11 @@
 
 | 機能 | 状態 | 備考 |
 |------|------|------|
-| 大学・学部入力 | ✅ 完了 | Step 1 |
-| 志望業界・職種選択 | ✅ 完了 | Step 2 |
-| スキップ機能 | ✅ 完了 | いつでもスキップ可能 |
-| ダッシュボードへの遷移 | ✅ 完了 | 完了後遷移 |
-| ガクチカ素材入力 | 🔴 未実装 | オンボーディング内では未実装（別画面で対応） |
+| 企業登録導線の優先表示 | ✅ 完了 | ダッシュボードの「最初の一歩」に統合 |
+| 企業登録後の志望動機導線 | ✅ 完了 | 初回は `/companies/[id]/motivation` へ遷移 |
+| プロフィール補完 | ✅ 完了 | `/onboarding` は任意入力画面に整理 |
+| 空送信スキップ防止 | ✅ 完了 | `/api/auth/onboarding` が 1 項目以上を要求 |
+| ガクチカ素材入力 | ✅ 別導線 | 初回オンボーディングからは外し、専用画面で対応 |
 
 ---
 
@@ -291,49 +297,65 @@
 
 ---
 
-## 17. ガクチカ深掘りBot (SPEC Section 17)
+## 17. ガクチカ作成 (SPEC Section 17)
 
 | 機能 | 状態 | 備考 |
 |------|------|------|
-| 深掘り対話 | ✅ 完了 | FastAPI `gakuchika.py` |
-| 目安8問 | ✅ 完了 | |
+| 作成対話 | ✅ 完了 | FastAPI `gakuchika.py` |
+| 最大6問の質問設計 | ✅ 完了 | 十分な材料が揃えば早終了 |
 | 中断/再開 | ✅ 完了 | |
-| クレジット消費（5問ごと1） | ✅ 完了 | |
+| クレジット消費（5問ごと3） | ✅ 完了 | |
 | Q&A保存 | ✅ 完了 | `gakuchikaConversations` |
 | 再実行時の履歴保持（17.2） | ✅ 完了 | 別セッション開始と同一セッション再開の両方に対応 |
-| 素材の企業紐づけ | ⚪︎ スキーマ残存 | 現行の深掘り UI / API では未使用 |
+| 素材の企業紐づけ | ⚪︎ スキーマ残存 | 現行の作成 UI / API では未使用 |
 | サマリー生成 | ✅ 完了 | 完了時は `/structured-summary` のみ（失敗時は回答連結フォールバック） |
 
 ---
 
 ## 17.5 志望動機作成（AI対話形式） 🆕
 
-ESテンプレートギャラリー機能の代替として実装。ガクチカ深掘りと同様の対話形式で志望動機を作成。
+ESテンプレートギャラリー機能の代替として実装。ガクチカ作成と同様の対話形式で志望動機を作成。
 
 | 機能 | 状態 | 備考 |
 |------|------|------|
 | 対話形式での深掘り | ✅ 完了 | FastAPI `motivation.py` |
-| 目安8問 | ✅ 完了 | 4要素評価（企業理解/自己分析/キャリアビジョン/差別化） |
+| 骨格ベース評価 | ✅ 完了 | 6要素（業界理由/企業理由/自己接続/やりたい仕事/価値発揮/差別化） |
 | 中断/再開 | ✅ 完了 | `motivationConversations` テーブル |
-| クレジット消費（5問ごと1） | ✅ 完了 | ガクチカと同様のロジック |
+| クレジット消費（5問ごと3） | ✅ 完了 | ガクチカと同様のロジック |
 | 企業RAG連携 | ✅ 完了 | 企業情報を質問に反映 |
 | 回答候補 / 参考企業情報 | ✅ 完了 | `suggestionOptions` は `2〜4件` の直接回答文に絞り、`evidenceCards` は compact card UI で表示 |
 | ガクチカ連携 | ✅ 完了 | 完了済み要約を質問生成に反映 |
-| SSEストリーミング送信 | ✅ 完了 | 進捗表示と canonical question の逐次表示 |
+| SSEストリーミング送信 | ✅ 完了 | 進捗表示のみ先出しし、質問は確定後の canonical question だけを表示 |
 | ES下書き生成 | ✅ 完了 | 300/400/500文字指定 |
 | 企業ページからの導線 | ✅ 完了 | 「志望動機を作成」ボタン |
-| 進捗バー（4要素） | ✅ 完了 | スコア表示UI |
+| 進捗バー（6要素） | ✅ 完了 | setup / 進捗 / draft ready を統一表示 |
 | setup-first 初期設定 | ✅ 完了 | 業界/職種をチャット前に確定 |
 | 初回開始の空履歴処理 | ✅ 完了 | 空 `messages=[]` をそのまま LLM に渡さない |
-| 質問適合候補 | ✅ 完了 | LLM質問は server-side validator で単一論点・stage 適合を確認し、`question_focus` と grounded builder で `1〜2件` の直接回答文に絞り、続けて軽量 LLM で文体リライトする。protected token 検証に失敗した場合は原文へ戻す。raw企業文や見出しは除外。回答送信は `conversation/stream` のみ（JSON `POST /conversation` は廃止） |
+| 質問適合候補 | ✅ 完了 | LLM質問は server-side validator で単一論点・未確認前提なしを確認し、候補は grounded builder で 2〜4 件の直接回答文だけを返す。raw企業文や見出しは除外。回答送信は `conversation/stream` のみ |
+
+---
+
+## 17.6 面接対策（企業特化模擬面接） 🆕
+
+| 機能 | 状態 | 備考 |
+|------|------|------|
+| 企業別模擬面接UI | ✅ 更新 | motivation 準拠の 2 カラム UI + 固定段階 tracker + 自動スクロール |
+| 面接対策 API | ✅ 更新 | `GET /interview` + `POST /interview/start` + `POST /interview/stream` + `POST /interview/feedback` |
+| FastAPI interview router | ✅ 更新 | adaptive 6〜10 問 + opening / turn / feedback SSE |
+| モデル固定 | ✅ 完了 | `MODEL_INTERVIEW=gpt-fast` → `GPT-5.4 mini` |
+| セッション課金 | ✅ 完了 | 完了時のみ `5 credits` |
+| 月次無料枠 | ✅ 完了 | なし |
+| 4軸講評 | ✅ 完了 | 企業適合 / 具体性 / 論理性 / 説得力 + card 逐次更新 |
+| ナビ導線 | ✅ 更新 | header / mobile nav から modal 起動 |
+| UI review route | ✅ 更新 | `/companies/ui-review-company/interview --auth=mock` |
 
 **関連ファイル:**
-- `backend/app/routers/motivation.py`
-- `src/app/(product)/companies/[id]/motivation/page.tsx`
-- `src/app/api/motivation/[companyId]/conversation/route.ts`
-- `src/app/api/motivation/[companyId]/conversation/start/route.ts`
-- `src/app/api/motivation/[companyId]/conversation/stream/route.ts`
-- `src/app/api/motivation/[companyId]/generate-draft/route.ts`
+- `backend/app/routers/interview.py`
+- `src/app/(product)/companies/[id]/interview/page.tsx`
+- `src/app/api/companies/[id]/interview/route.ts`
+- `src/app/api/companies/[id]/interview/start/route.ts`
+- `src/app/api/companies/[id]/interview/stream/route.ts`
+- `docs/features/INTERVIEW.md`
 
 ---
 
@@ -417,8 +439,9 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 機能 | 状態 | ファイル |
 |------|------|------|
 | ES添削 | ✅ 完了 | `backend/app/routers/es_review.py` |
-| ガクチカ深掘り | ✅ 完了 | `backend/app/routers/gakuchika.py` |
+| ガクチカ作成 | ✅ 完了 | `backend/app/routers/gakuchika.py` |
 | 志望動機作成 | ✅ 完了 | `backend/app/routers/motivation.py` |
+| 面接対策 | ✅ 完了 | `backend/app/routers/interview.py` |
 | 企業情報抽出 | 🟡 部分実装 | `backend/app/routers/company_info.py` |
 | LLMユーティリティ | ✅ 完了 | `backend/app/utils/llm.py` |
 | ベクトルストア（RAG） | 🟡 部分実装 | `backend/app/utils/vector_store.py` |
@@ -433,6 +456,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | ES添削ストリーミング | ✅ 完了 | `src/app/api/documents/[id]/review/stream/route.ts` |
 | 志望動機会話API | ✅ 完了 | `conversation/route.ts`（GET/DELETE）、`conversation/stream/route.ts`（回答送信SSE） |
 | 志望動機下書き生成 | ✅ 完了 | `src/app/api/motivation/[companyId]/generate-draft/route.ts` |
+| 面接対策 API | ✅ 完了 | `src/app/api/companies/[id]/interview/route.ts` |
 
 ---
 
@@ -522,6 +546,16 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 ---
 
 ## 最近の更新履歴
+
+### 2026-03-29
+- 📏 **ES添削の短答 required 設問の under-min を抑制**
+  - `company_motivation` など required 設問の **150〜220字帯**は、短答でも `3〜4文` と bridge guidance を使い、`under_min` 時に経験→役割/企業接点→貢献の接続を 1〜2文まで補えるよう更新
+- 🧩 **required 設問の single-source evidence を補強**
+  - 同一 verified source しか残らない場合でも、excerpt が `事業理解` と `現場期待 / 役割理解` を両方含むなら 2 theme card として安全に分解できるよう修正
+  - `company_motivation_noisy_rag_medium` 系で、短い title のため excerpt が primary claim になるケースでも `company_evidence_count` を落としにくくした
+- 🧪 **ES添削の回帰テストと docs を更新**
+  - `backend/tests/es_review/test_es_review_template_repairs.py` と `backend/tests/es_review/test_es_review_prompt_structure.py` に今回の failure pattern 用の固定ケースを追加
+  - `docs/features/ES_REVIEW.md` と `docs/testing/ES_REVIEW_QUALITY.md` を最新の length / evidence 方針に更新
 
 ### 2026-03-13
 - 🧠 **ES添削の企業依存設問 quality gate を強化**
@@ -669,7 +703,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
   - 各ファイル間の相対パスリンクを更新
 - ✅ **志望動機作成機能（AI対話形式）を追加**（Section 17.5）
   - ESテンプレートギャラリー機能の代替として実装
-  - 対話形式での深掘り、4要素評価、企業RAG連携
+  - 対話形式での深掘り、6要素評価、企業RAG連携
   - ES下書き生成（300/400/500文字指定）
   - 関連ファイル: `backend/app/routers/motivation.py`, `src/app/companies/[id]/motivation/page.tsx`
 - ❌ **ESテンプレートギャラリー機能を削除**

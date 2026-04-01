@@ -41,14 +41,10 @@ export function ContactForm({ className }: { className?: string }) {
       trackEvent("contact_submit_success");
       setSent(true);
     } catch (err) {
-      const msg = getUserFacingErrorMessage(
-        err,
-        {
-          code: "CONTACT_SUBMIT_FAILED",
-          userMessage: "お問い合わせを送信できませんでした。",
-        },
-        "ContactForm:submit"
-      );
+      const msg = getUserFacingErrorMessage(err, {
+        code: "CONTACT_SUBMIT_FAILED",
+        userMessage: "お問い合わせを送信できませんでした。",
+      }, "ContactForm:submit");
       setError(msg);
       trackEvent("contact_submit_error");
     } finally {

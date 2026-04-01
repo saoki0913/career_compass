@@ -431,27 +431,25 @@ custom_query 指定あり?
 ```
 1. クエリ生成
    ↓
-2. DDG並列検索
+2. fast path
+   - `WEB_SEARCH_FAST_MAX_QUERIES` 件までの query variation で DDG 並列検索
+   - RRF 融合 → prefilter → heuristic 合成
+   - 候補が十分ならここで返す
    ↓
-3. RRF (Reciprocal Rank Fusion) で融合
+3. deep path（候補不足 / official 不足時のみ）
+   - 全 query variation で再検索
+   - 必要なら site rescue
+   - Cross-Encoder Rerank
+   - light verification
    ↓
-4. Cross-Encoder Rerank (利用可能時)
-   ↓
-5. Heuristic スコア算出
-   ↓
-6. 正規化合成
-   - Rerank: 0.5
-   - Heuristic: 0.3
-   - RRF: 0.2
-   ↓
-7. combined_score 降順ソート
+4. combined_score 降順ソート
 ```
 
 ---
 
 ## デバッグログ
 
-`WEB_SEARCH_DEBUG=1` を設定すると、Hybrid検索の詳細ログを出力します。
+`WEB_SEARCH_DEBUG=1` を設定すると、Hybrid検索の詳細ログを出力します。`WEB_SEARCH_FAST_MAX_QUERIES` を変えながら fast path / deep path の発火率を比較できます。
 
 ### 出力内容（例）
 

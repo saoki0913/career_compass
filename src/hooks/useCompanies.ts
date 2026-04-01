@@ -5,7 +5,6 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { CompanyStatus } from "@/lib/constants/status";
 import { trackEvent } from "@/lib/analytics/client";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
@@ -73,20 +72,9 @@ interface UpdateCompanyData extends Partial<CreateCompanyData> {
 }
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore errors on server side
-    }
-  }
-  return headers;
 }
 
 export function useCompanies(options: UseCompaniesOptions = {}) {
@@ -232,7 +220,7 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
     }
   }, []);
 
-  const deleteCompany = useCallback(async (id: string) => {
+  const deleteCompany = useCallback(async (id: string): Promise<boolean> => {
     try {
       setError(null);
 
@@ -258,6 +246,7 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
       setCompanies((prev) => prev.filter((c) => c.id !== id));
       setCount((prev) => prev - 1);
       setCanAddMore(true);
+      return true;
     } catch (err) {
       const uiError = toAppUiError(
         err,
@@ -270,7 +259,7 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
         "useCompanies.delete"
       );
       setError(uiError.message);
-      throw uiError;
+      return false;
     }
   }, []);
 

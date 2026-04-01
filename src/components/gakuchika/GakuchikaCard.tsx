@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import {
   STARStatusBadge,
   STARProgressCompact,
-  type STARScores,
+  type ConversationState,
 } from "@/components/gakuchika";
 import { Star, MoreVertical, Pencil, Trash2 } from "lucide-react";
 
@@ -22,7 +22,7 @@ interface Gakuchika {
   createdAt: string;
   updatedAt: string;
   conversationStatus: "in_progress" | "completed" | null;
-  starScores: STARScores | null;
+  conversationState: ConversationState | null;
   questionCount: number;
 }
 
@@ -52,11 +52,13 @@ function GakuchikaCardComponent({
 }: GakuchikaCardProps) {
   const summaryText = gakuchika.summaryPreview
     ? gakuchika.summaryPreview
+    : gakuchika.conversationState?.stage === "draft_ready"
+    ? "ES本文を作成できる状態です"
     : gakuchika.conversationStatus === "completed"
     ? "要約を生成中..."
     : gakuchika.conversationStatus === "in_progress"
-    ? "深掘り中..."
-    : "タップして深掘りを開始";
+    ? "作成中..."
+    : "タップして作成を始める";
 
   return (
     <Link href={`/gakuchika/${gakuchika.id}`}>
@@ -96,7 +98,25 @@ function GakuchikaCardComponent({
                 {gakuchika.title}
               </h3>
             </div>
-            <STARStatusBadge scores={gakuchika.starScores} />
+            <div className="flex items-center gap-1.5">
+              {onDeleteStart ? (
+              <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onDeleteStart(gakuchika.id);
+                  }}
+                  aria-label={`${gakuchika.title} を削除`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              ) : null}
+              <STARStatusBadge state={gakuchika.conversationState} status={gakuchika.conversationStatus} />
+            </div>
           </div>
 
           {/* Summary preview */}
@@ -106,7 +126,7 @@ function GakuchikaCardComponent({
 
           {/* STAR progress */}
           <div className="mb-3">
-            <STARProgressCompact scores={gakuchika.starScores} />
+            <STARProgressCompact state={gakuchika.conversationState} status={gakuchika.conversationStatus} />
           </div>
 
           {/* Footer: Date + Menu */}
@@ -116,7 +136,7 @@ function GakuchikaCardComponent({
             </span>
 
             {/* 3-dot menu */}
-            {(onEditStart || onDeleteStart) && (
+            {onEditStart && (
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -143,19 +163,6 @@ function GakuchikaCardComponent({
                     >
                       <Pencil className="w-4 h-4" />
                       タイトル編集
-                    </button>
-                  )}
-                  {onDeleteStart && (
-                    <button
-                      className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md hover:bg-destructive/10 text-destructive transition-colors"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        onDeleteStart(gakuchika.id);
-                      }}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      削除
                     </button>
                   )}
                 </PopoverContent>

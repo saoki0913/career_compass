@@ -7,7 +7,6 @@ import { ActivationChecklistCard } from "@/components/dashboard/ActivationCheckl
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DeadlineList } from "@/components/dashboard/DeadlineList";
 import { EmptyState } from "@/components/dashboard/EmptyState";
-import { FirstRunGuideCard } from "@/components/onboarding/FirstRunGuideCard";
 import { QuickActions } from "@/components/dashboard/QuickActions";
 import { StatsCard } from "@/components/dashboard/StatsCard";
 import { IncompleteTasksCard } from "@/components/dashboard/IncompleteTasksCard";
@@ -149,22 +148,21 @@ const baseQuickActions = [
     color: "indigo" as const,
   },
   {
-    title: "ES作成",
-    description: "エントリーシートを書く",
+    title: "ES作成/添削",
+    description: "書いて整える",
     href: "/es?new=1",
     icon: <DocumentIcon />,
     color: "orange" as const,
   },
   {
-    title: "AI添削",
-    description: "ESをAIがチェック",
-    href: "/es?action=review",
+    title: "面接対策",
+    description: "企業別に模擬面接",
     icon: <SparklesIcon />,
     color: "emerald" as const,
   },
   {
-    title: "ガクチカ深掘り",
-    description: "自己分析を深める",
+    title: "ガクチカ作成",
+    description: "経験を言語化する",
     href: "/gakuchika",
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -232,6 +230,7 @@ export function DashboardPageClient({
   initialIncompleteItems,
 }: DashboardPageClientProps) {
   const [showCompanySelect, setShowCompanySelect] = useState(false);
+  const [showInterviewCompanySelect, setShowInterviewCompanySelect] = useState(false);
   const { companies, count: companyCount, isLoading: companiesLoading } = useCompanies(
     initialCompanies ? { initialData: initialCompanies } : {}
   );
@@ -254,7 +253,14 @@ export function DashboardPageClient({
   }
 
   const quickActions = [
-    ...baseQuickActions,
+    ...baseQuickActions.map((action) =>
+      action.title === "面接対策"
+        ? {
+            ...action,
+            onClick: () => setShowInterviewCompanySelect(true),
+          }
+        : action
+    ),
     {
       title: "AIで志望動機",
       description: "志望動機を作成",
@@ -272,8 +278,6 @@ export function DashboardPageClient({
     date: new Date(deadline.dueDate),
     daysLeft: deadline.daysLeft,
   }));
-  const shouldShowFirstRunGuide = activationData?.completedSteps === 0;
-
   return (
     <div className="min-h-screen bg-background">
       <DashboardHeader />
@@ -355,10 +359,8 @@ export function DashboardPageClient({
           ) : null}
         </div>
 
-        <FirstRunGuideCard isVisible={!!shouldShowFirstRunGuide} />
-
         {activationData && activationData.completedSteps < activationData.totalSteps ? (
-          <ActivationChecklistCard progress={activationData} muted={!!shouldShowFirstRunGuide} />
+          <ActivationChecklistCard progress={activationData} isGuest={viewer.isGuest} />
         ) : null}
 
         <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-3 lg:gap-6">
@@ -394,7 +396,16 @@ export function DashboardPageClient({
           </QuickActions>
         </section>
 
-        <CompanySelectModal open={showCompanySelect} onOpenChange={setShowCompanySelect} />
+        <CompanySelectModal
+          open={showCompanySelect}
+          onOpenChange={setShowCompanySelect}
+          mode="motivation"
+        />
+        <CompanySelectModal
+          open={showInterviewCompanySelect}
+          onOpenChange={setShowInterviewCompanySelect}
+          mode="interview"
+        />
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
           <Card className="border-border/50">

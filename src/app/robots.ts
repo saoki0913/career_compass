@@ -26,6 +26,7 @@ export default function robots(): MetadataRoute.Robots {
           "/privacy",
           "/contact",
           "/legal",
+          "/data-source-policy",
         ],
         disallow: [
           "/api/",

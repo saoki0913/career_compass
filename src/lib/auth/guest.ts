@@ -6,7 +6,20 @@
 
 import { createHash } from "crypto";
 import { db } from "@/lib/db";
-import { guestUsers, loginPrompts } from "@/lib/db/schema";
+import {
+  applications,
+  companies,
+  deadlines,
+  documents,
+  gakuchikaContents,
+  guestUsers,
+  loginPrompts,
+  motivationConversations,
+  notifications,
+  submissionItems,
+  tasks,
+  userPins,
+} from "@/lib/db/schema";
 import { eq, and, lt, isNull } from "drizzle-orm";
 
 const GUEST_RETENTION_DAYS = 7;
@@ -174,17 +187,56 @@ export async function migrateGuestToUser(deviceToken: string, userId: string) {
     return null;
   }
 
-  // Mark guest as migrated
-  await db
-    .update(guestUsers)
-    .set({
-      migratedToUserId: userId,
-      updatedAt: new Date(),
-    })
-    .where(eq(guestUsers.id, guest.id));
+  const now = new Date();
 
-  // TODO: Migrate guest's data (companies, etc.) to user
-  // This will be implemented when those features are added
+  await db.transaction(async (tx) => {
+    const migrateOwner = async (
+      table:
+        | typeof companies
+        | typeof applications
+        | typeof deadlines
+        | typeof documents
+        | typeof tasks
+        | typeof notifications
+        | typeof gakuchikaContents
+        | typeof motivationConversations
+        | typeof submissionItems
+        | typeof userPins,
+    ) => {
+      const ownerTable = table as typeof table & {
+        guestId: typeof companies.guestId;
+        userId: typeof companies.userId;
+      };
+      await tx
+        .update(table)
+        .set({
+          guestId: null,
+          userId,
+        } as never)
+        .where(eq(ownerTable.guestId, guest.id));
+    };
+
+    await Promise.all([
+      migrateOwner(companies),
+      migrateOwner(applications),
+      migrateOwner(deadlines),
+      migrateOwner(documents),
+      migrateOwner(tasks),
+      migrateOwner(notifications),
+      migrateOwner(gakuchikaContents),
+      migrateOwner(motivationConversations),
+      migrateOwner(submissionItems),
+      migrateOwner(userPins),
+    ]);
+
+    await tx
+      .update(guestUsers)
+      .set({
+        migratedToUserId: userId,
+        updatedAt: now,
+      })
+      .where(eq(guestUsers.id, guest.id));
+  });
 
   return { guestId: guest.id, userId };
 }

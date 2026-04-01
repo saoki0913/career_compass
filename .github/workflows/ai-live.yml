@@ -1,0 +1,307 @@
+name: AI Live
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+on:
+  schedule:
+    - cron: "0 14 * * *"
+    - cron: "30 14 * * 0"
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Live suite depth"
+        type: choice
+        required: true
+        default: smoke
+        options:
+          - smoke
+          - extended
+      feature:
+        description: "Feature scope"
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - es-review
+          - gakuchika
+          - motivation
+          - interview
+
+concurrency:
+  group: ai-live
+  cancel-in-progress: false
+
+jobs:
+  resolve-suite:
+    runs-on: ubuntu-latest
+    outputs:
+      suite: ${{ steps.suite.outputs.suite }}
+    steps:
+      - name: Resolve suite depth
+        id: suite
+        shell: bash
+        run: |
+          suite="${{ inputs.suite }}"
+          if [[ -z "$suite" ]]; then
+            case "${{ github.event.schedule }}" in
+              "30 14 * * 0") suite="extended" ;;
+              *) suite="smoke" ;;
+            esac
+          fi
+          echo "suite=$suite" >> "$GITHUB_OUTPUT"
+
+  es-review-live:
+    needs: resolve-suite
+    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'es-review' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: staging
+    env:
+      PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
+      PLAYWRIGHT_SKIP_WEBSERVER: "1"
+      CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Preflight CI E2E auth
+        run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Run ES review live
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
+        run: bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature es-review
+      - name: Upload ES review internal artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-live-internal-es-review-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_es_review_*/live_es_review_*.json
+            backend/tests/output/ai_live_es_review_*/*.log
+          if-no-files-found: warn
+          retention-days: 90
+
+  gakuchika-live:
+    needs: resolve-suite
+    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'gakuchika' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: staging
+    env:
+      PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
+      PLAYWRIGHT_SKIP_WEBSERVER: "1"
+      CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Preflight CI E2E auth
+        run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Run gakuchika live
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
+        run: bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature gakuchika
+      - name: Upload gakuchika internal artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-live-internal-gakuchika-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_gakuchika_*/live_gakuchika_*.json
+            backend/tests/output/ai_live_gakuchika_*/*.log
+          if-no-files-found: warn
+          retention-days: 90
+
+  motivation-live:
+    needs: resolve-suite
+    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'motivation' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: staging
+    env:
+      PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
+      PLAYWRIGHT_SKIP_WEBSERVER: "1"
+      CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Preflight CI E2E auth
+        run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Run motivation live
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
+        run: bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature motivation
+      - name: Upload motivation internal artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-live-internal-motivation-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_motivation_*/live_motivation_*.json
+            backend/tests/output/ai_live_motivation_*/*.log
+          if-no-files-found: warn
+          retention-days: 90
+
+  interview-live:
+    needs: resolve-suite
+    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'interview' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: staging
+    env:
+      PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
+      PLAYWRIGHT_SKIP_WEBSERVER: "1"
+      CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Preflight CI E2E auth
+        run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Run interview live
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
+        run: bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature interview
+      - name: Upload interview internal artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-live-internal-interview-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_interview_*/live_interview_*.json
+            backend/tests/output/ai_live_interview_*/*.log
+          if-no-files-found: warn
+          retention-days: 90
+
+  compile-live-report:
+    needs:
+      - resolve-suite
+      - es-review-live
+      - gakuchika-live
+      - motivation-live
+      - interview-live
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Download ES review artifact
+        if: ${{ needs.es-review-live.result != 'skipped' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-live-internal-es-review-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: backend/tests/output/downloads/es-review
+      - name: Download gakuchika artifact
+        if: ${{ needs.gakuchika-live.result != 'skipped' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-live-internal-gakuchika-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: backend/tests/output/downloads/gakuchika
+      - name: Download motivation artifact
+        if: ${{ needs.motivation-live.result != 'skipped' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-live-internal-motivation-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: backend/tests/output/downloads/motivation
+      - name: Download interview artifact
+        if: ${{ needs.interview-live.result != 'skipped' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-live-internal-interview-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: backend/tests/output/downloads/interview
+      - name: Curate AI live public bundle
+        shell: bash
+        run: |
+          mkdir -p backend/tests/output/public
+          find backend/tests/output/downloads -type f -name 'live_*.json' -exec cp {} backend/tests/output/public/ \;
+      - name: Build AI live summary
+        run: node scripts/ci/write-ai-live-summary.mjs --output-dir backend/tests/output/public --summary-file "$GITHUB_STEP_SUMMARY" --suite "${{ needs.resolve-suite.outputs.suite }}" --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: Upload compiled live report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-live-report-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/public/ai-live-summary.md
+            backend/tests/output/public/live_es_review_*.json
+            backend/tests/output/public/live_gakuchika_*.json
+            backend/tests/output/public/live_motivation_*.json
+            backend/tests/output/public/live_interview_*.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  publish-live-report:
+    needs:
+      - resolve-suite
+      - compile-live-report
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Download compiled live report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-live-report-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: backend/tests/output/publish
+      - name: Rebuild AI live issue body
+        run: node scripts/ci/write-ai-live-summary.mjs --output-dir backend/tests/output/publish --suite "${{ needs.resolve-suite.outputs.suite }}" --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: Publish AI live daily issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          issue_date=$(TZ=Asia/Tokyo date +%F)
+          node scripts/ci/publish-ai-live-issue.mjs \
+            --repo "${{ github.repository }}" \
+            --issue-date "$issue_date" \
+            --issue-body-file backend/tests/output/publish/ai-live-issue-body.md \
+            --run-id "${{ github.run_id }}"

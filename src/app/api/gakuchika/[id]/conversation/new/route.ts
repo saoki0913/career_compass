@@ -11,7 +11,8 @@ import { eq, desc } from "drizzle-orm";
 import {
   getIdentity,
   getQuestionFromFastAPI,
-  safeParseStarScores,
+  safeParseConversationState,
+  serializeConversationState,
   verifyGakuchikaAccess,
   type Message,
 } from "@/app/api/gakuchika/shared";
@@ -69,8 +70,7 @@ export async function POST(
     const {
       question: initialQuestion,
       error,
-      starEvaluation,
-      targetElement,
+      conversationState,
       telemetry,
     } = await getQuestionFromFastAPI(
       {
@@ -98,6 +98,8 @@ export async function POST(
       );
     }
 
+    const initialState = conversationState ?? safeParseConversationState(null, "in_progress");
+
     // Create new conversation record with first question
     const conversationId = crypto.randomUUID();
     const now = new Date();
@@ -107,15 +109,13 @@ export async function POST(
       content: initialQuestion!
     }];
 
-    const initialStarScores = starEvaluation?.scores || { situation: 0, task: 0, action: 0, result: 0 };
-
     await db.insert(gakuchikaConversations).values({
       id: conversationId,
       gakuchikaId,
       messages: JSON.stringify(initialMessages),
       questionCount: 0,
       status: "in_progress",
-      starScores: JSON.stringify(initialStarScores),
+      starScores: serializeConversationState(initialState),
       createdAt: now,
       updatedAt: now,
     });
@@ -136,7 +136,7 @@ export async function POST(
     const sessions = allConversations.map(c => ({
       id: c.id,
       status: c.status,
-      starScores: safeParseStarScores(c.starScores),
+      conversationState: safeParseConversationState(c.starScores, c.status),
       questionCount: c.questionCount || 0,
       createdAt: c.createdAt,
     }));
@@ -154,9 +154,7 @@ export async function POST(
       nextQuestion: null,
       questionCount: 0,
       isCompleted: false,
-      starScores: initialStarScores,
-      starEvaluation,
-      targetElement,
+      conversationState: initialState,
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,

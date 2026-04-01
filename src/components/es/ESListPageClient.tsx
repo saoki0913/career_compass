@@ -34,6 +34,7 @@ import { ListPageSkeleton } from "@/components/shared/ListPageSkeleton";
 import { ListPageEmptyState } from "@/components/shared/ListPageEmptyState";
 import { FavoritesSection } from "@/components/shared/FavoritesSection";
 import { ViewToggle } from "@/components/shared/ViewToggle";
+import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
 import {
   Select,
   SelectContent,
@@ -47,6 +48,15 @@ import {
   ES_DOCUMENT_CATEGORY_LABELS,
   type EsDocumentCategory,
 } from "@/lib/es-document-category";
+import {
+  notifyDocumentCreated,
+  notifyDocumentDeleted,
+  notifyDocumentPermanentlyDeleted,
+  notifyDocumentRestored,
+  notifyDocumentStatusChanged,
+  notifyError,
+} from "@/lib/notifications";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 
 const filterTabs = [
   { key: "all", label: "すべて" },
@@ -124,7 +134,10 @@ function NewDocumentModal({
       });
       onClose();
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "エラーが発生しました");
+      setError(getUserFacingErrorMessage(submitError, {
+        code: "DOCUMENT_CREATE_FAILED",
+        userMessage: "ドキュメントを作成できませんでした。",
+      }, "ESListPageClient:createDocument"));
     } finally {
       setIsSubmitting(false);
     }
@@ -309,11 +322,14 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
   const [selectedEsCategory, setSelectedEsCategory] = useState<"all" | EsDocumentCategory>("all");
   const [groupByCompany, setGroupByCompany] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Document | null>(null);
+  const [isDeletingDocument, setIsDeletingDocument] = useState(false);
 
   const {
     documents,
     isLoading,
     createDocument,
+    deleteDocument,
     updateDocument,
     restoreDocument,
     permanentlyDeleteDocument,
@@ -327,7 +343,6 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
 
   useEffect(() => {
     if (searchParams.get("new") === "1") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- query param should open the modal before the URL is cleaned up
       setShowNewModal(true);
       router.replace("/es", { scroll: false });
     }
@@ -336,7 +351,6 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
   useEffect(() => {
     const companyId = searchParams.get("companyId");
     if (companyId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- preserve selected company while handling a one-shot deep link
       setInitialCompanyId(companyId);
       setShowNewModal(true);
       router.replace("/es", { scroll: false });
@@ -362,35 +376,104 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
       })
       .catch(() => {});
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- query param should open the modal before the URL is cleaned up
     setShowNewModal(true);
     router.replace("/es", { scroll: false });
   }, [router, searchParams]);
 
   const handleCreate = async (data: CreateDocumentInput) => {
-    const document = await createDocument(data);
-    if (document) {
+    try {
+      const document = await createDocument(data);
+      notifyDocumentCreated();
       router.push(`/es/${document.id}`);
+    } catch (error) {
+      notifyError({
+        title: getUserFacingErrorMessage(error, {
+          code: "DOCUMENT_CREATE_FAILED",
+          userMessage: "ドキュメントを作成できませんでした。",
+        }, "ESListPageClient:createDocumentToast"),
+      });
+      throw error;
     }
   };
 
   const handleRestore = async (documentId: string) => {
     if (confirm("このドキュメントを復元しますか？")) {
-      await restoreDocument(documentId);
+      try {
+        await restoreDocument(documentId);
+        notifyDocumentRestored();
+      } catch (error) {
+        notifyError({
+          title: getUserFacingErrorMessage(error, {
+            code: "DOCUMENT_RESTORE_FAILED",
+            userMessage: "ドキュメントを復元できませんでした。",
+          }, "ESListPageClient:restoreDocument"),
+        });
+      }
     }
   };
 
   const handlePermanentDelete = async (documentId: string) => {
     if (confirm("このドキュメントを完全に削除しますか？この操作は取り消せません。")) {
-      await permanentlyDeleteDocument(documentId);
+      try {
+        await permanentlyDeleteDocument(documentId);
+        notifyDocumentPermanentlyDeleted();
+      } catch (error) {
+        notifyError({
+          title: getUserFacingErrorMessage(error, {
+            code: "DOCUMENT_PERMANENT_DELETE_FAILED",
+            userMessage: "ドキュメントを完全削除できませんでした。",
+          }, "ESListPageClient:permanentDeleteDocument"),
+        });
+      }
     }
   };
 
   const handleToggleStatus = async (documentId: string, currentStatus: string) => {
     if (statusUpdatingId) return;
     setStatusUpdatingId(documentId);
-    await updateDocument(documentId, { status: currentStatus === "published" ? "draft" : "published" });
-    setStatusUpdatingId(null);
+    const nextStatus = currentStatus === "published" ? "draft" : "published";
+    try {
+      await updateDocument(documentId, { status: nextStatus });
+      notifyDocumentStatusChanged(nextStatus === "published");
+    } catch (error) {
+      notifyError({
+        title: getUserFacingErrorMessage(error, {
+          code: "DOCUMENT_UPDATE_FAILED",
+          userMessage: "ドキュメントを更新できませんでした。",
+        }, "ESListPageClient:updateDocument"),
+      });
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  };
+
+  const handleDeleteStart = (document: Document) => {
+    setDeleteTarget(document);
+  };
+
+  const handleDeleteCancel = () => {
+    if (isDeletingDocument) return;
+    setDeleteTarget(null);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+
+    setIsDeletingDocument(true);
+    try {
+      await deleteDocument(deleteTarget.id);
+      notifyDocumentDeleted();
+      setDeleteTarget(null);
+    } catch (error) {
+      notifyError({
+        title: getUserFacingErrorMessage(error, {
+          code: "DOCUMENT_DELETE_FAILED",
+          userMessage: "ドキュメントを削除できませんでした。",
+        }, "ESListPageClient:deleteDocument"),
+      });
+    } finally {
+      setIsDeletingDocument(false);
+    }
   };
 
   const activeDocuments = documents.filter((document) => document.status !== "deleted");
@@ -545,7 +628,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
                   value={selectedEsCategory}
                   onValueChange={(v) => setSelectedEsCategory(v as "all" | EsDocumentCategory)}
                 >
-                  <SelectTrigger className="h-9 w-[150px] sm:w-[170px] font-normal text-sm">
+                  <SelectTrigger className="h-9 w-full sm:w-[170px] font-normal text-sm">
                     <SelectValue placeholder="分類" />
                   </SelectTrigger>
                   <SelectContent>
@@ -563,7 +646,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
                     selected={selectedCompanies}
                     onChange={setSelectedCompanies}
                     placeholder="企業"
-                    className="w-[160px]"
+                    className="w-full sm:w-[160px]"
                   />
                 ) : null}
               </Fragment>
@@ -647,6 +730,10 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
             documents={filteredDocuments}
             pinnedIds={pinnedIds}
             onTogglePin={togglePin}
+            onDeleteStart={(documentId) => {
+              const target = filteredDocuments.find((document) => document.id === documentId);
+              if (target) handleDeleteStart(target);
+            }}
             onToggleStatus={handleToggleStatus}
             statusUpdatingId={statusUpdatingId}
           />
@@ -657,6 +744,10 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
                 documents={pinnedDocs}
                 pinnedIds={pinnedIds}
                 onTogglePin={togglePin}
+                onDeleteStart={(documentId) => {
+                  const target = pinnedDocs.find((document) => document.id === documentId);
+                  if (target) handleDeleteStart(target);
+                }}
                 onToggleStatus={handleToggleStatus}
                 statusUpdatingId={statusUpdatingId}
               />
@@ -674,6 +765,10 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
                   documents={unpinnedDocs}
                   pinnedIds={pinnedIds}
                   onTogglePin={togglePin}
+                  onDeleteStart={(documentId) => {
+                    const target = unpinnedDocs.find((document) => document.id === documentId);
+                    if (target) handleDeleteStart(target);
+                  }}
                   onToggleStatus={handleToggleStatus}
                   statusUpdatingId={statusUpdatingId}
                 />
@@ -691,6 +786,20 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
           onCreate={handleCreate}
           companies={companies}
           initialCompanyId={initialCompanyId}
+        />
+
+        <DeleteConfirmDialog
+          isOpen={deleteTarget !== null}
+          title="ESをゴミ箱に移動しますか？"
+          description={
+            deleteTarget
+              ? `「${deleteTarget.title}」を一覧から外してゴミ箱へ移動します。完全削除はゴミ箱から行えます。`
+              : ""
+          }
+          confirmLabel="ゴミ箱へ移動"
+          isDeleting={isDeletingDocument}
+          onConfirm={handleDeleteConfirm}
+          onCancel={handleDeleteCancel}
         />
       </main>
     </div>

@@ -47,6 +47,21 @@ export function SearchBar({ className }: SearchBarProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (!isExpanded) return;
+    if (typeof window !== "undefined" && window.innerWidth >= 768) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const previousTouchAction = document.body.style.touchAction;
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.touchAction = previousTouchAction;
+    };
+  }, [isExpanded]);
+
   // Handle keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -126,54 +141,62 @@ export function SearchBar({ className }: SearchBarProps) {
 
       {/* Mobile expanded overlay */}
       {isExpanded && (
-        <div className="md:hidden fixed inset-0 z-50 bg-background p-4">
-          <form onSubmit={handleSubmit} className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                ref={inputRef}
-                type="search"
-                placeholder="企業・ES・締切を検索..."
-                value={query}
-                onChange={handleInputChange}
-                className="pl-9 pr-9"
-                autoFocus
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={handleClear}
-                  className="absolute right-3 top-1/2 -translate-y-1/2"
-                >
-                  {isLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                  ) : (
-                    <X className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-                  )}
-                </button>
+        <div className="fixed inset-0 z-50 bg-background/98 backdrop-blur-xl md:hidden">
+          <div className="flex h-full flex-col px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]">
+            <form onSubmit={handleSubmit} className="flex items-center gap-2 border-b border-border/60 pb-3">
+              <div className="relative min-w-0 flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  ref={inputRef}
+                  type="search"
+                  placeholder="企業・ES・締切を検索..."
+                  value={query}
+                  onChange={handleInputChange}
+                  className="h-11 rounded-xl pl-9 pr-9"
+                  autoFocus
+                />
+                {query && (
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    className="absolute right-3 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full"
+                    aria-label="検索語をクリア"
+                  >
+                    {isLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    ) : (
+                      <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                    )}
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleClose}
+                className="inline-flex h-11 shrink-0 items-center rounded-xl px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
+              >
+                キャンセル
+              </button>
+            </form>
+
+            <div className="min-h-0 flex-1 overflow-y-auto pt-3">
+              {showDropdown ? (
+                <div className="overflow-hidden rounded-2xl border border-border bg-background shadow-lg">
+                  <SearchDropdownContent
+                    results={results}
+                    query={query}
+                    isLoading={isLoading}
+                    onResultClick={handleResultClick}
+                    onViewAll={handleSubmit}
+                  />
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-border/70 bg-muted/20 px-4 py-5 text-sm text-muted-foreground">
+                  企業名、ES、締切名で検索できます。
+                </div>
               )}
             </div>
-            <button
-              type="button"
-              onClick={handleClose}
-              className="p-2 text-muted-foreground hover:text-foreground"
-            >
-              キャンセル
-            </button>
-          </form>
-
-          {/* Mobile dropdown results */}
-          {showDropdown && (
-            <div className="mt-2 border border-border rounded-xl bg-background shadow-lg overflow-hidden">
-              <SearchDropdownContent
-                results={results}
-                query={query}
-                isLoading={isLoading}
-                onResultClick={handleResultClick}
-                onViewAll={handleSubmit}
-              />
-            </div>
-          )}
+          </div>
         </div>
       )}
 
@@ -205,7 +228,7 @@ export function SearchBar({ className }: SearchBarProps) {
 
         {/* Desktop dropdown */}
         {showDropdown && (
-          <div className="absolute top-full left-0 right-0 mt-2 border border-border rounded-xl bg-background shadow-lg overflow-hidden z-50 min-w-80">
+          <div className="absolute left-0 top-full z-50 mt-2 w-[min(24rem,calc(100vw-2rem))] max-w-[24rem] overflow-hidden rounded-xl border border-border bg-background shadow-lg">
             <SearchDropdownContent
               results={results}
               query={query}

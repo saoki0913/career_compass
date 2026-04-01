@@ -15,4 +15,10 @@ describe("landingMedia", () => {
       expect(media.alt.length).toBeGreaterThan(0);
     }
   });
+
+  it("heroDashboard にプロダクトデモ動画の videoSrc が設定されている", () => {
+    expect(landingMedia.heroDashboard.videoSrc).toBe(
+      "/marketing/videos/product-demo.mp4",
+    );
+  });
 });

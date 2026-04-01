@@ -3,13 +3,13 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   apiRequest,
-  createGuestDocument,
   createOwnedCompany,
-  deleteGuestCompany,
-  deleteGuestDocument,
+  createOwnedDocument,
+  deleteOwnedCompany,
+  deleteOwnedDocument,
   expectOkResponse,
 } from "./fixtures/auth";
-import { hasGoogleAuthState, signInWithGoogle } from "./google-auth";
+import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
 
 const LIVE_AI_ENV_NAMES = [
   "OPENAI_API_KEY",
@@ -48,7 +48,7 @@ test.describe("Live AI major flow", () => {
   });
 
   test("logged-in user can complete live ES review stream", async ({ page }) => {
-    test.skip(!hasGoogleAuthState, "Google auth storage state is not configured");
+    test.skip(!hasAuthenticatedUserAccess, "Authenticated E2E access is not configured");
     test.setTimeout(240_000);
 
     const runId = `live-es-${Date.now()}`;
@@ -58,16 +58,16 @@ test.describe("Live AI major flow", () => {
     let documentId: string | null = null;
 
     try {
-      await signInWithGoogle(page, "/dashboard");
+      await signInAsAuthenticatedUser(page, "/dashboard");
       await expect(page.locator("main")).toBeVisible();
 
       const company = await createOwnedCompany(page, {
         name: companyName,
-        industry: "IT・ソフトウェア",
+        industry: "IT・通信",
       });
       companyId = company.id;
 
-      const document = await createGuestDocument(page, {
+      const document = await createOwnedDocument(page, {
         title: `AI添削ES_${runId}`,
         type: "es",
         companyId,
@@ -97,7 +97,7 @@ test.describe("Live AI major flow", () => {
           sectionTitle: "志望動機",
           sectionCharLimit: 400,
           templateType: "company_motivation",
-          industryOverride: "IT・ソフトウェア",
+          industryOverride: "IT・通信",
           roleName: "企画職",
         }),
         "live es review stream",
@@ -109,10 +109,10 @@ test.describe("Live AI major flow", () => {
       await expect(page.locator("body")).toContainText("志望動機");
     } finally {
       if (documentId) {
-        await deleteGuestDocument(page, documentId);
+        await deleteOwnedDocument(page, documentId);
       }
       if (companyId) {
-        await deleteGuestCompany(page, companyId);
+        await deleteOwnedCompany(page, companyId);
       }
     }
   });

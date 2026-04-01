@@ -110,6 +110,7 @@ class SearchTestConfig:
 
     # Hybrid tuning
     max_queries: int = 10
+    fast_max_queries: int = 4
     results_per_query: int = 12
     rerank_top_k: int = 30
 
@@ -196,6 +197,16 @@ class SearchTestConfig:
                     10,
                 ),
             ),
+            fast_max_queries=max(
+                1,
+                min(
+                    _env_int(
+                        "LIVE_SEARCH_FAST_MAX_QUERIES",
+                        ws.get("WEB_SEARCH_FAST_MAX_QUERIES", 4),
+                    ),
+                    10,
+                ),
+            ),
             results_per_query=max(
                 1,
                 min(
@@ -255,6 +266,7 @@ class SearchTestConfig:
             "pass_top_n": self.pass_top_n,
             "allow_snippet_match": self.allow_snippet_match,
             "max_queries": self.max_queries,
+            "fast_max_queries": self.fast_max_queries,
             "results_per_query": self.results_per_query,
             "rerank_top_k": self.rerank_top_k,
             "primary_mode": self.primary_mode,

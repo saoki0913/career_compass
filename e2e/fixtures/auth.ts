@@ -280,6 +280,21 @@ export async function getDeviceTokenHeader(
   return {};
 }
 
+async function buildApiRequestHeaders(page: Page, includeGuestToken: boolean) {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (includeGuestToken) {
+    const token = await getDeviceToken(page);
+    if (token) {
+      headers["x-device-token"] = token;
+    }
+  }
+
+  return headers;
+}
+
 /**
  * Make an authenticated API request as guest
  */
@@ -289,18 +304,28 @@ export async function apiRequest(
   endpoint: string,
   body?: Record<string, unknown>
 ) {
-  const token = await getDeviceToken(page);
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-
-  if (token) {
-    headers["x-device-token"] = token;
-  }
+  const headers = await buildApiRequestHeaders(page, true);
 
   const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
 
-  return await page.request.fetch(`${baseURL}${endpoint}`, {
+  return await page.context().request.fetch(`${baseURL}${endpoint}`, {
+    method,
+    headers,
+    data: body ? JSON.stringify(body) : undefined,
+  });
+}
+
+export async function apiRequestAsAuthenticatedUser(
+  page: Page,
+  method: string,
+  endpoint: string,
+  body?: Record<string, unknown>
+) {
+  const headers = await buildApiRequestHeaders(page, false);
+
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
+
+  return await page.context().request.fetch(`${baseURL}${endpoint}`, {
     method,
     headers,
     data: body ? JSON.stringify(body) : undefined,
@@ -332,16 +357,39 @@ export async function createGuestCompany(
 ): Promise<{ id: string; name: string }> {
   const response = await apiRequest(page, "POST", "/api/companies", input);
   if (!response.ok()) {
-    throw new Error(`Failed to create company: ${response.status()}`);
+    const body = await response.text().catch(() => "");
+    throw new Error(`Failed to create company: ${response.status()}\n${body.slice(0, 1200)}`);
   }
   const payload = (await response.json()) as { company: { id: string; name: string } };
   return payload.company;
 }
 
-export const createOwnedCompany = createGuestCompany;
+export async function createOwnedCompany(
+  page: Page,
+  input: {
+    name: string;
+    industry?: string;
+    recruitmentUrl?: string;
+    corporateUrl?: string;
+    notes?: string;
+    status?: string;
+  },
+): Promise<{ id: string; name: string }> {
+  const response = await apiRequestAsAuthenticatedUser(page, "POST", "/api/companies", input);
+  if (!response.ok()) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Failed to create owned company: ${response.status()}\n${body.slice(0, 1200)}`);
+  }
+  const payload = (await response.json()) as { company: { id: string; name: string } };
+  return payload.company;
+}
 
 export async function deleteGuestCompany(page: Page, companyId: string): Promise<void> {
   await apiRequest(page, "DELETE", `/api/companies/${companyId}`);
+}
+
+export async function deleteOwnedCompany(page: Page, companyId: string): Promise<void> {
+  await apiRequestAsAuthenticatedUser(page, "DELETE", `/api/companies/${companyId}`);
 }
 
 export async function createGuestDocument(
@@ -365,7 +413,49 @@ export async function deleteGuestDocument(page: Page, documentId: string): Promi
   await apiRequest(page, "DELETE", `/api/documents/${documentId}`);
 }
 
+export async function createOwnedDocument(
+  page: Page,
+  input: {
+    title: string;
+    type: "es" | "tips" | "company_analysis";
+    companyId?: string;
+    content?: Array<Record<string, unknown>>;
+  },
+): Promise<{ id: string; title: string }> {
+  const response = await apiRequestAsAuthenticatedUser(page, "POST", "/api/documents", input);
+  if (!response.ok()) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Failed to create owned document: ${response.status()}\n${body.slice(0, 1200)}`);
+  }
+  const payload = (await response.json()) as { document: { id: string; title: string } };
+  return payload.document;
+}
+
+export async function deleteOwnedDocument(page: Page, documentId: string): Promise<void> {
+  await apiRequestAsAuthenticatedUser(page, "DELETE", `/api/documents/${documentId}`);
+}
+
 export async function createOwnedDeadline(
+  page: Page,
+  companyId: string,
+  input: {
+    type: string;
+    title: string;
+    dueDate: string;
+    description?: string;
+    memo?: string;
+    sourceUrl?: string;
+  },
+): Promise<{ id: string; title: string }> {
+  const response = await apiRequestAsAuthenticatedUser(page, "POST", `/api/companies/${companyId}/deadlines`, input);
+  if (!response.ok()) {
+    throw new Error(`Failed to create owned deadline: ${response.status()}`);
+  }
+  const payload = (await response.json()) as { deadline: { id: string; title: string } };
+  return payload.deadline;
+}
+
+export async function createGuestDeadline(
   page: Page,
   companyId: string,
   input: {
@@ -379,10 +469,18 @@ export async function createOwnedDeadline(
 ): Promise<{ id: string; title: string }> {
   const response = await apiRequest(page, "POST", `/api/companies/${companyId}/deadlines`, input);
   if (!response.ok()) {
-    throw new Error(`Failed to create deadline: ${response.status()}`);
+    throw new Error(`Failed to create guest deadline: ${response.status()}`);
   }
   const payload = (await response.json()) as { deadline: { id: string; title: string } };
   return payload.deadline;
+}
+
+export async function deleteOwnedDeadline(page: Page, deadlineId: string): Promise<void> {
+  await apiRequestAsAuthenticatedUser(page, "DELETE", `/api/deadlines/${deadlineId}`);
+}
+
+export async function deleteGuestDeadline(page: Page, deadlineId: string): Promise<void> {
+  await apiRequest(page, "DELETE", `/api/deadlines/${deadlineId}`);
 }
 
 export async function createOwnedApplication(
@@ -393,15 +491,35 @@ export async function createOwnedApplication(
     type: "summer_intern" | "fall_intern" | "winter_intern" | "early" | "main" | "other";
   },
 ): Promise<{ id: string; name: string }> {
+  const response = await apiRequestAsAuthenticatedUser(page, "POST", `/api/companies/${companyId}/applications`, input);
+  if (!response.ok()) {
+    throw new Error(`Failed to create owned application: ${response.status()}`);
+  }
+  const payload = (await response.json()) as { application: { id: string; name: string } };
+  return payload.application;
+}
+
+export async function createGuestApplication(
+  page: Page,
+  companyId: string,
+  input: {
+    name: string;
+    type: "summer_intern" | "fall_intern" | "winter_intern" | "early" | "main" | "other";
+  },
+): Promise<{ id: string; name: string }> {
   const response = await apiRequest(page, "POST", `/api/companies/${companyId}/applications`, input);
   if (!response.ok()) {
-    throw new Error(`Failed to create application: ${response.status()}`);
+    throw new Error(`Failed to create guest application: ${response.status()}`);
   }
   const payload = (await response.json()) as { application: { id: string; name: string } };
   return payload.application;
 }
 
 export async function deleteOwnedApplication(page: Page, applicationId: string): Promise<void> {
+  await apiRequestAsAuthenticatedUser(page, "DELETE", `/api/applications/${applicationId}`);
+}
+
+export async function deleteGuestApplication(page: Page, applicationId: string): Promise<void> {
   await apiRequest(page, "DELETE", `/api/applications/${applicationId}`);
 }
 
@@ -415,15 +533,37 @@ export async function createOwnedSubmission(
     notes?: string;
   },
 ): Promise<{ id: string; name: string }> {
+  const response = await apiRequestAsAuthenticatedUser(page, "POST", `/api/applications/${applicationId}/submissions`, input);
+  if (!response.ok()) {
+    throw new Error(`Failed to create owned submission: ${response.status()}`);
+  }
+  const payload = (await response.json()) as { submission: { id: string; name: string } };
+  return payload.submission;
+}
+
+export async function createGuestSubmission(
+  page: Page,
+  applicationId: string,
+  input: {
+    type: string;
+    name: string;
+    isRequired?: boolean;
+    notes?: string;
+  },
+): Promise<{ id: string; name: string }> {
   const response = await apiRequest(page, "POST", `/api/applications/${applicationId}/submissions`, input);
   if (!response.ok()) {
-    throw new Error(`Failed to create submission: ${response.status()}`);
+    throw new Error(`Failed to create guest submission: ${response.status()}`);
   }
   const payload = (await response.json()) as { submission: { id: string; name: string } };
   return payload.submission;
 }
 
 export async function deleteOwnedSubmission(page: Page, submissionId: string): Promise<void> {
+  await apiRequestAsAuthenticatedUser(page, "DELETE", `/api/submissions/${submissionId}`);
+}
+
+export async function deleteGuestSubmission(page: Page, submissionId: string): Promise<void> {
   await apiRequest(page, "DELETE", `/api/submissions/${submissionId}`);
 }
 
@@ -439,15 +579,39 @@ export async function createOwnedTask(
     dueDate?: string;
   },
 ): Promise<{ id: string; title: string }> {
+  const response = await apiRequestAsAuthenticatedUser(page, "POST", "/api/tasks", input);
+  if (!response.ok()) {
+    throw new Error(`Failed to create owned task: ${response.status()}`);
+  }
+  const payload = (await response.json()) as { task: { id: string; title: string } };
+  return payload.task;
+}
+
+export async function createGuestTask(
+  page: Page,
+  input: {
+    title: string;
+    type: "es" | "web_test" | "self_analysis" | "gakuchika" | "video" | "other";
+    description?: string;
+    companyId?: string;
+    applicationId?: string;
+    deadlineId?: string;
+    dueDate?: string;
+  },
+): Promise<{ id: string; title: string }> {
   const response = await apiRequest(page, "POST", "/api/tasks", input);
   if (!response.ok()) {
-    throw new Error(`Failed to create task: ${response.status()}`);
+    throw new Error(`Failed to create guest task: ${response.status()}`);
   }
   const payload = (await response.json()) as { task: { id: string; title: string } };
   return payload.task;
 }
 
 export async function deleteOwnedTask(page: Page, taskId: string): Promise<void> {
+  await apiRequestAsAuthenticatedUser(page, "DELETE", `/api/tasks/${taskId}`);
+}
+
+export async function deleteGuestTask(page: Page, taskId: string): Promise<void> {
   await apiRequest(page, "DELETE", `/api/tasks/${taskId}`);
 }
 
@@ -459,15 +623,37 @@ export async function createOwnedGakuchika(
     charLimitType: "300" | "400" | "500";
   },
 ): Promise<{ id: string; title: string }> {
+  const response = await apiRequestAsAuthenticatedUser(page, "POST", "/api/gakuchika", input);
+  if (!response.ok()) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Failed to create owned gakuchika: ${response.status()}\n${body.slice(0, 1200)}`);
+  }
+  const payload = (await response.json()) as { gakuchika: { id: string; title: string } };
+  return payload.gakuchika;
+}
+
+export async function createGuestGakuchika(
+  page: Page,
+  input: {
+    title: string;
+    content: string;
+    charLimitType: "300" | "400" | "500";
+  },
+): Promise<{ id: string; title: string }> {
   const response = await apiRequest(page, "POST", "/api/gakuchika", input);
   if (!response.ok()) {
-    throw new Error(`Failed to create gakuchika: ${response.status()}`);
+    const body = await response.text().catch(() => "");
+    throw new Error(`Failed to create guest gakuchika: ${response.status()}\n${body.slice(0, 1200)}`);
   }
   const payload = (await response.json()) as { gakuchika: { id: string; title: string } };
   return payload.gakuchika;
 }
 
 export async function deleteOwnedGakuchika(page: Page, gakuchikaId: string): Promise<void> {
+  await apiRequestAsAuthenticatedUser(page, "DELETE", `/api/gakuchika/${gakuchikaId}`);
+}
+
+export async function deleteGuestGakuchika(page: Page, gakuchikaId: string): Promise<void> {
   await apiRequest(page, "DELETE", `/api/gakuchika/${gakuchikaId}`);
 }
 
@@ -486,15 +672,41 @@ export async function createOwnedNotification(
     data?: Record<string, unknown>;
   },
 ): Promise<{ id: string; title: string }> {
+  const response = await apiRequestAsAuthenticatedUser(page, "POST", "/api/notifications", input);
+  if (!response.ok()) {
+    throw new Error(`Failed to create owned notification: ${response.status()}`);
+  }
+  const payload = (await response.json()) as { notification: { id: string; title: string } };
+  return payload.notification;
+}
+
+export async function createGuestNotification(
+  page: Page,
+  input: {
+    type:
+      | "deadline_reminder"
+      | "deadline_near"
+      | "company_fetch"
+      | "es_review"
+      | "daily_summary"
+      | "calendar_sync_failed";
+    title: string;
+    message: string;
+    data?: Record<string, unknown>;
+  },
+): Promise<{ id: string; title: string }> {
   const response = await apiRequest(page, "POST", "/api/notifications", input);
   if (!response.ok()) {
-    throw new Error(`Failed to create notification: ${response.status()}`);
+    throw new Error(`Failed to create guest notification: ${response.status()}`);
   }
   const payload = (await response.json()) as { notification: { id: string; title: string } };
   return payload.notification;
 }
 
 export async function deleteOwnedNotification(page: Page, notificationId: string): Promise<void> {
-  await apiRequest(page, "DELETE", `/api/notifications/${notificationId}`);
+  await apiRequestAsAuthenticatedUser(page, "DELETE", `/api/notifications/${notificationId}`);
 }
 
+export async function deleteGuestNotification(page: Page, notificationId: string): Promise<void> {
+  await apiRequest(page, "DELETE", `/api/notifications/${notificationId}`);
+}

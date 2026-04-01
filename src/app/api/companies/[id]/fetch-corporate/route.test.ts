@@ -9,6 +9,7 @@ const {
   parseCorporateInfoSourcesMock,
   checkPublicSourceComplianceMock,
   enforceRateLimitLayersMock,
+  fetchFastApiInternalMock,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
   dbSelectMock: vi.fn(),
@@ -23,6 +24,7 @@ const {
     policyVersion: "test",
   })),
   enforceRateLimitLayersMock: vi.fn(),
+  fetchFastApiInternalMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -84,6 +86,10 @@ vi.mock("@/lib/rate-limit-spike", () => ({
   STATUS_POLL_RATE_LAYERS: [],
 }));
 
+vi.mock("@/lib/fastapi/client", () => ({
+  fetchFastApiInternal: fetchFastApiInternalMock,
+}));
+
 function makeProfileQuery(plan: "free" | "standard" | "pro") {
   return {
     from: vi.fn(() => ({
@@ -120,6 +126,7 @@ describe("api/companies/[id]/fetch-corporate", () => {
     parseCorporateInfoSourcesMock.mockReset();
     checkPublicSourceComplianceMock.mockReset();
     enforceRateLimitLayersMock.mockReset();
+    fetchFastApiInternalMock.mockReset();
     vi.restoreAllMocks();
 
     getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
@@ -132,6 +139,9 @@ describe("api/companies/[id]/fetch-corporate", () => {
       policyVersion: "test",
     }));
     enforceRateLimitLayersMock.mockResolvedValue(null);
+    fetchFastApiInternalMock.mockImplementation((path: string, init?: RequestInit) =>
+      fetch(`https://fastapi.test${path}`, init)
+    );
     dbSelectMock
       .mockReturnValueOnce(makeProfileQuery("free"))
       .mockReturnValueOnce(makeCompanyQuery());

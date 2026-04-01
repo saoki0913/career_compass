@@ -26,9 +26,13 @@ import {
   fetchProfileContext,
 } from "@/lib/ai/user-context";
 import {
-  filterMotivationConversationUpdate,
-  getMotivationConversationByCondition,
-} from "@/lib/db/motivationConversationCompat";
+  getMotivationConversationByCondition as getConversationByCondition,
+  mergeDraftReadyContext,
+  resolveDraftReadyState,
+  safeParseConversationContext as parseConversationContext,
+  type LastQuestionMeta as BaseLastQuestionMeta,
+  type MotivationConversationContext as BaseMotivationConversationContext,
+} from "@/lib/motivation/conversation";
 import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import {
@@ -37,6 +41,7 @@ import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
@@ -77,31 +82,16 @@ interface MotivationScores {
 interface SuggestionOption {
   id: string;
   label: string;
-  sourceType: "company" | "gakuchika" | "profile" | "application_job_type" | "hybrid";
+  sourceType: "conversation" | "gakuchika" | "profile" | "safe_fallback";
   intent: string;
   evidenceSourceIds?: string[];
   rationale?: string | null;
   isTentative?: boolean;
 }
 
-interface MotivationConversationContext {
-  selectedIndustry?: string;
-  selectedIndustrySource?: "company_field" | "company_override" | "user_selected";
-  industryReason?: string;
-  companyReason?: string;
-  selectedRole?: string;
-  selectedRoleSource?: "profile" | "company_doc" | "application_job_type" | "user_free_text";
-  desiredWork?: string;
-  originExperience?: string;
-  userAnchorStrengths: string[];
-  userAnchorEpisodes: string[];
-  profileAnchorIndustries: string[];
-  profileAnchorJobTypes: string[];
-  companyAnchorKeywords: string[];
-  companyRoleCandidates: string[];
-  companyWorkCandidates: string[];
-  questionStage: string;
-}
+type LastQuestionMeta = BaseLastQuestionMeta;
+
+type MotivationConversationContext = BaseMotivationConversationContext;
 
 interface CompanyData {
   id: string;
@@ -161,50 +151,7 @@ function safeParseScores(json: string | null): MotivationScores | null {
 }
 
 function safeParseConversationContext(json: string | null): MotivationConversationContext {
-  if (!json) {
-    return {
-      userAnchorStrengths: [],
-      userAnchorEpisodes: [],
-      profileAnchorIndustries: [],
-      profileAnchorJobTypes: [],
-      companyAnchorKeywords: [],
-      companyRoleCandidates: [],
-      companyWorkCandidates: [],
-      questionStage: "industry_reason",
-    };
-  }
-  try {
-    const parsed = JSON.parse(json);
-    return {
-      selectedIndustry: typeof parsed.selectedIndustry === "string" ? parsed.selectedIndustry : undefined,
-      selectedIndustrySource: typeof parsed.selectedIndustrySource === "string" ? parsed.selectedIndustrySource : undefined,
-      industryReason: typeof parsed.industryReason === "string" ? parsed.industryReason : undefined,
-      companyReason: typeof parsed.companyReason === "string" ? parsed.companyReason : undefined,
-      selectedRole: typeof parsed.selectedRole === "string" ? parsed.selectedRole : undefined,
-      selectedRoleSource: typeof parsed.selectedRoleSource === "string" ? parsed.selectedRoleSource : undefined,
-      desiredWork: typeof parsed.desiredWork === "string" ? parsed.desiredWork : undefined,
-      originExperience: typeof parsed.originExperience === "string" ? parsed.originExperience : undefined,
-      userAnchorStrengths: Array.isArray(parsed.userAnchorStrengths) ? parsed.userAnchorStrengths.filter((v: unknown): v is string => typeof v === "string") : [],
-      userAnchorEpisodes: Array.isArray(parsed.userAnchorEpisodes) ? parsed.userAnchorEpisodes.filter((v: unknown): v is string => typeof v === "string") : [],
-      profileAnchorIndustries: Array.isArray(parsed.profileAnchorIndustries) ? parsed.profileAnchorIndustries.filter((v: unknown): v is string => typeof v === "string") : [],
-      profileAnchorJobTypes: Array.isArray(parsed.profileAnchorJobTypes) ? parsed.profileAnchorJobTypes.filter((v: unknown): v is string => typeof v === "string") : [],
-      companyAnchorKeywords: Array.isArray(parsed.companyAnchorKeywords) ? parsed.companyAnchorKeywords.filter((v: unknown): v is string => typeof v === "string") : [],
-      companyRoleCandidates: Array.isArray(parsed.companyRoleCandidates) ? parsed.companyRoleCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
-      companyWorkCandidates: Array.isArray(parsed.companyWorkCandidates) ? parsed.companyWorkCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
-      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "industry_reason",
-    };
-  } catch {
-    return {
-      userAnchorStrengths: [],
-      userAnchorEpisodes: [],
-      profileAnchorIndustries: [],
-      profileAnchorJobTypes: [],
-      companyAnchorKeywords: [],
-      companyRoleCandidates: [],
-      companyWorkCandidates: [],
-      questionStage: "industry_reason",
-    };
-  }
+  return parseConversationContext(json);
 }
 
 async function fetchApplicationJobCandidates(
@@ -297,11 +244,18 @@ function applyAnswerToConversationContext(
     case "company_reason":
       next.companyReason = trimmed;
       break;
+    case "self_connection":
+      next.selfConnection = trimmed;
+      next.fitConnection = trimmed;
+      break;
     case "desired_work":
       next.desiredWork = trimmed;
       break;
-    case "origin_experience":
-      next.originExperience = trimmed;
+    case "value_contribution":
+      next.valueContribution = trimmed;
+      break;
+    case "differentiation":
+      next.differentiationReason = trimmed;
       break;
     default:
       break;
@@ -310,11 +264,8 @@ function applyAnswerToConversationContext(
 }
 
 // Configuration
-const ELEMENT_COMPLETION_THRESHOLD = 70;
 const QUESTIONS_PER_CREDIT = 5;
 const CREDITS_PER_QUESTION_BATCH = 3;
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
-
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ companyId: string }> }
@@ -375,7 +326,7 @@ export async function POST(
     }
 
     // Get conversation
-    const conversation = await getMotivationConversationByCondition(
+    const conversation = await getConversationByCondition(
       userId
         ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
         : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
@@ -385,13 +336,6 @@ export async function POST(
       return new Response(
         JSON.stringify({ error: "会話が見つかりません" }),
         { status: 404, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    if (conversation.status === "completed") {
-      return new Response(
-        JSON.stringify({ error: "この会話は既に完了しています" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
@@ -461,7 +405,7 @@ export async function POST(
 
     let aiResponse: Response;
     try {
-      aiResponse = await fetch(`${FASTAPI_URL}/api/motivation/next-question/stream`, {
+      aiResponse = await fetchFastApiInternal("/api/motivation/next-question/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
         body: JSON.stringify({
@@ -616,13 +560,12 @@ export async function POST(
               if (event.type === "progress") {
                 // Forward progress events immediately
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-              } else if (event.type === "string_chunk") {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
               } else if (event.type === "complete") {
                 // Process complete event: DB save + credit consumption
                 const fastApiData = (event as {
                   data: {
                     question?: string;
+                    draft_ready?: boolean;
                     evaluation?: { scores: MotivationScores; is_complete: boolean };
                     captured_context?: Partial<MotivationConversationContext>;
                     question_stage?: string;
@@ -636,7 +579,12 @@ export async function POST(
                 }).data;
 
                 // Add AI question to messages
-                let isCompleted = false;
+                const currentDraftReadyState = resolveDraftReadyState(
+                  resolvedAfterAnswer.conversationContext,
+                  conversation.status as "in_progress" | "completed" | null,
+                );
+                const wasDraftReady = currentDraftReadyState.isDraftReady;
+                let isDraftReady = wasDraftReady;
                 let newScores = scores;
 
                 if (fastApiData.question) {
@@ -650,48 +598,39 @@ export async function POST(
 
                 if (fastApiData.evaluation) {
                   newScores = fastApiData.evaluation.scores;
-                  isCompleted = fastApiData.evaluation.is_complete;
+                  isDraftReady = isDraftReady || fastApiData.evaluation.is_complete;
                 }
-
-                // Check completion
-                if (newQuestionCount >= 8 && newScores) {
-                  const allComplete =
-                    newScores.company_understanding >= ELEMENT_COMPLETION_THRESHOLD &&
-                    newScores.self_analysis >= ELEMENT_COMPLETION_THRESHOLD &&
-                    newScores.career_vision >= ELEMENT_COMPLETION_THRESHOLD &&
-                    newScores.differentiation >= ELEMENT_COMPLETION_THRESHOLD;
-                  if (allComplete) {
-                    isCompleted = true;
-                  }
-                }
+                isDraftReady = isDraftReady || Boolean(fastApiData.draft_ready);
+                const draftReadyJustUnlocked = !wasDraftReady && isDraftReady;
+                const nextConversationContext = mergeDraftReadyContext(
+                  {
+                    ...resolvedAfterAnswer.conversationContext,
+                    ...(fastApiData.captured_context || {}),
+                    lastQuestionMeta: {
+                      ...(((resolvedAfterAnswer.conversationContext.lastQuestionMeta || {}) as LastQuestionMeta)),
+                      ...((((fastApiData.captured_context?.lastQuestionMeta as LastQuestionMeta | undefined) || {}))),
+                      questionText: fastApiData.question || null,
+                    },
+                  },
+                  isDraftReady,
+                  currentDraftReadyState.unlockedAt ?? undefined,
+                );
 
                 // Update database
                 const updatedRows = await db
                   .update(motivationConversations)
-                  .set(await filterMotivationConversationUpdate({
+                  .set({
                     messages: JSON.stringify(messages),
                     questionCount: newQuestionCount,
-                    status: isCompleted ? "completed" : "in_progress",
+                    status: isDraftReady ? "completed" : "in_progress",
                     motivationScores: newScores ? JSON.stringify(newScores) : null,
-                    conversationContext: JSON.stringify({
-                      ...resolvedAfterAnswer.conversationContext,
-                      ...(fastApiData.captured_context || {}),
-                    }),
-                    selectedRole:
-                      fastApiData.captured_context?.selectedRole ??
-                      resolvedAfterAnswer.conversationContext.selectedRole ??
-                      null,
-                    selectedRoleSource:
-                      fastApiData.captured_context?.selectedRoleSource ??
-                      resolvedAfterAnswer.conversationContext.selectedRoleSource ??
-                      null,
-                    desiredWork:
-                      fastApiData.captured_context?.desiredWork ??
-                      resolvedAfterAnswer.conversationContext.desiredWork ??
-                      null,
+                    conversationContext: JSON.stringify(nextConversationContext),
+                    selectedRole: nextConversationContext.selectedRole ?? null,
+                    selectedRoleSource: nextConversationContext.selectedRoleSource ?? null,
+                    desiredWork: nextConversationContext.desiredWork ?? null,
                     questionStage:
                       fastApiData.question_stage ??
-                      resolvedAfterAnswer.conversationContext.questionStage,
+                      nextConversationContext.questionStage,
                     lastSuggestionOptions: JSON.stringify(fastApiData.suggestion_options || []),
                     lastEvidenceCards: JSON.stringify(fastApiData.evidence_cards || []),
                     stageStatus: JSON.stringify(
@@ -702,7 +641,7 @@ export async function POST(
                       }
                     ),
                     updatedAt: new Date(),
-                  }))
+                  })
                   .where(and(eq(motivationConversations.id, conversation.id), eq(motivationConversations.updatedAt, conversation.updatedAt)))
                   .returning({ id: motivationConversations.id });
 
@@ -730,10 +669,11 @@ export async function POST(
                   type: "complete",
                   data: {
                     messages,
-                    nextQuestion: isCompleted ? null : fastApiData.question,
-                    suggestionOptions: isCompleted ? [] : ((fastApiData.suggestion_options || []) as SuggestionOption[]),
+                    nextQuestion: fastApiData.question || null,
+                    suggestionOptions: (fastApiData.suggestion_options || []) as SuggestionOption[],
                     questionCount: newQuestionCount,
-                    isCompleted,
+                    isDraftReady,
+                    draftReadyJustUnlocked,
                     scores: newScores,
                     evidenceSummary: fastApiData.evidence_summary || null,
                     evidenceCards: fastApiData.evidence_cards || [],

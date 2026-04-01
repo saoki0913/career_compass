@@ -4,7 +4,7 @@
 
 ---
 
-> いまの標準運用では、Railway の env は `scripts/bootstrap/career-compass/sync-career-compass-env.sh` で同期し、release は `make deploy` から開始します。Dashboard の手動更新は初期セットアップやトラブルシュート時だけに寄せます。
+> いまの標準運用では、Railway の env は `scripts/bootstrap/career-compass/sync-career-compass-env.sh` で同期し、値の正本は codex-company 側の `.secrets/career_compass`（`railway-*.env`）。一覧は [`docs/release/ENV_REFERENCE.md`](./ENV_REFERENCE.md) の Release Automation Inputs。release は `make deploy` から開始します。Dashboard の手動更新は初期セットアップやトラブルシュート時だけに寄せます。
 
 ## 3-0. Railway アカウント作成 & CLI インストール
 
@@ -137,7 +137,7 @@ Volume がないとデプロイごとにデータが消失します。
 >
 > `backend/docker-entrypoint.sh` が `/app/data/chroma` と `/app/data/bm25` サブディレクトリを自動作成し、パーミッションを設定します。
 >
-> **初回起動時**: Volume は空の状態。企業情報を取得するたびにデータが蓄積されます。
+> **初回起動時**: Volume は空の状態。企業情報の新規URL取得ではデータが蓄積されます。同じURLの再取得時は、そのURLに紐づく既存RAGだけを更新します。
 >
 > Railway は `RAILWAY_VOLUME_NAME` と `RAILWAY_VOLUME_MOUNT_PATH` 環境変数を自動で注入します（手動設定不要）。
 

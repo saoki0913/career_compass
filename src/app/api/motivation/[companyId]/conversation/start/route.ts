@@ -18,9 +18,12 @@ import {
   type ProfileContext,
 } from "@/lib/ai/user-context";
 import {
-  filterMotivationConversationUpdate,
-  getMotivationConversationByCondition,
-} from "@/lib/db/motivationConversationCompat";
+  getMotivationConversationByCondition as getConversationByCondition,
+  mergeDraftReadyContext,
+  resolveDraftReadyState,
+  safeParseConversationContext as parseConversationContext,
+  type MotivationConversationContext as BaseMotivationConversationContext,
+} from "@/lib/motivation/conversation";
 import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import {
@@ -29,6 +32,7 @@ import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 function resolveSafeMotivationStartError(raw: string | null | undefined): {
   userMessage: string;
@@ -92,6 +96,10 @@ interface MotivationEvaluation {
   scores: MotivationScores;
   weakest_element: string;
   is_complete: boolean;
+  ready_for_draft?: boolean;
+  slot_status?: Record<string, string>;
+  missing_slots?: string[];
+  draft_readiness_reason?: string;
   missing_aspects?: Record<string, string[]>;
   hidden_eval?: Record<string, number>;
   risk_flags?: string[];
@@ -100,11 +108,13 @@ interface MotivationEvaluation {
 interface SuggestionOption {
   id: string;
   label: string;
-  sourceType: "company" | "gakuchika" | "profile" | "application_job_type" | "hybrid";
+  sourceType: "conversation" | "gakuchika" | "profile" | "safe_fallback";
   intent:
+    | "industry_reason"
     | "company_reason"
+    | "self_connection"
     | "desired_work"
-    | "fit_connection"
+    | "value_contribution"
     | "differentiation"
     | "closing";
   evidenceSourceIds?: string[];
@@ -127,31 +137,7 @@ interface StageStatus {
   pending: MotivationConversationContext["questionStage"][];
 }
 
-interface MotivationConversationContext {
-  selectedIndustry?: string;
-  selectedIndustrySource?: "company_field" | "company_override" | "user_selected";
-  industryReason?: string;
-  companyReason?: string;
-  selectedRole?: string;
-  selectedRoleSource?: "profile" | "company_doc" | "application_job_type" | "user_free_text";
-  desiredWork?: string;
-  originExperience?: string;
-  userAnchorStrengths: string[];
-  userAnchorEpisodes: string[];
-  profileAnchorIndustries: string[];
-  profileAnchorJobTypes: string[];
-  companyAnchorKeywords: string[];
-  companyRoleCandidates: string[];
-  companyWorkCandidates: string[];
-  questionStage:
-    | "industry_reason"
-    | "company_reason"
-    | "desired_work"
-    | "origin_experience"
-    | "fit_connection"
-    | "differentiation"
-    | "closing";
-}
+type MotivationConversationContext = BaseMotivationConversationContext;
 
 interface CompanyData {
   id: string;
@@ -172,7 +158,10 @@ interface FastAPIQuestionResponse {
   reasoning?: string;
   should_continue?: boolean;
   suggested_end?: boolean;
+  draft_ready?: boolean;
   evaluation?: MotivationEvaluation;
+  target_slot?: MotivationConversationContext["questionStage"];
+  question_intent?: string;
   target_element?: string;
   company_insight?: string;
   suggestion_options?: SuggestionOption[];
@@ -187,54 +176,8 @@ interface FastAPIQuestionResponse {
   internal_telemetry?: unknown;
 }
 
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
-
 function safeParseConversationContext(json: string | null): MotivationConversationContext {
-  if (!json) {
-    return {
-      userAnchorStrengths: [],
-      userAnchorEpisodes: [],
-      profileAnchorIndustries: [],
-      profileAnchorJobTypes: [],
-      companyAnchorKeywords: [],
-      companyRoleCandidates: [],
-      companyWorkCandidates: [],
-      questionStage: "industry_reason",
-    };
-  }
-
-  try {
-    const parsed = JSON.parse(json);
-    return {
-      selectedIndustry: typeof parsed.selectedIndustry === "string" ? parsed.selectedIndustry : undefined,
-      selectedIndustrySource: typeof parsed.selectedIndustrySource === "string" ? parsed.selectedIndustrySource : undefined,
-      industryReason: typeof parsed.industryReason === "string" ? parsed.industryReason : undefined,
-      companyReason: typeof parsed.companyReason === "string" ? parsed.companyReason : undefined,
-      selectedRole: typeof parsed.selectedRole === "string" ? parsed.selectedRole : undefined,
-      selectedRoleSource: typeof parsed.selectedRoleSource === "string" ? parsed.selectedRoleSource : undefined,
-      desiredWork: typeof parsed.desiredWork === "string" ? parsed.desiredWork : undefined,
-      originExperience: typeof parsed.originExperience === "string" ? parsed.originExperience : undefined,
-      userAnchorStrengths: Array.isArray(parsed.userAnchorStrengths) ? parsed.userAnchorStrengths.filter((v: unknown): v is string => typeof v === "string") : [],
-      userAnchorEpisodes: Array.isArray(parsed.userAnchorEpisodes) ? parsed.userAnchorEpisodes.filter((v: unknown): v is string => typeof v === "string") : [],
-      profileAnchorIndustries: Array.isArray(parsed.profileAnchorIndustries) ? parsed.profileAnchorIndustries.filter((v: unknown): v is string => typeof v === "string") : [],
-      profileAnchorJobTypes: Array.isArray(parsed.profileAnchorJobTypes) ? parsed.profileAnchorJobTypes.filter((v: unknown): v is string => typeof v === "string") : [],
-      companyAnchorKeywords: Array.isArray(parsed.companyAnchorKeywords) ? parsed.companyAnchorKeywords.filter((v: unknown): v is string => typeof v === "string") : [],
-      companyRoleCandidates: Array.isArray(parsed.companyRoleCandidates) ? parsed.companyRoleCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
-      companyWorkCandidates: Array.isArray(parsed.companyWorkCandidates) ? parsed.companyWorkCandidates.filter((v: unknown): v is string => typeof v === "string") : [],
-      questionStage: typeof parsed.questionStage === "string" ? parsed.questionStage : "industry_reason",
-    };
-  } catch {
-    return {
-      userAnchorStrengths: [],
-      userAnchorEpisodes: [],
-      profileAnchorIndustries: [],
-      profileAnchorJobTypes: [],
-      companyAnchorKeywords: [],
-      companyRoleCandidates: [],
-      companyWorkCandidates: [],
-      questionStage: "industry_reason",
-    };
-  }
+  return parseConversationContext(json);
 }
 
 function uniqueStrings(values: Array<string | null | undefined>, maxItems = 8): string[] {
@@ -367,6 +310,7 @@ async function getQuestionFromFastAPI(
   question: string | null;
   error: string | null;
   evaluation: MotivationEvaluation | null;
+  draftReady: boolean;
   suggestionOptions: SuggestionOption[];
   evidenceSummary: string | null;
   evidenceCards: EvidenceCard[];
@@ -381,7 +325,7 @@ async function getQuestionFromFastAPI(
   const timeoutId = setTimeout(() => controller.abort(), 60_000);
 
   try {
-    const response = await fetch(`${FASTAPI_URL}/api/motivation/next-question`, {
+    const response = await fetchFastApiInternal("/api/motivation/next-question", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -415,6 +359,7 @@ async function getQuestionFromFastAPI(
         question: null,
         error: errorData.detail?.error || "AIサービスに接続できませんでした",
         evaluation: null,
+        draftReady: false,
         suggestionOptions: [],
         evidenceSummary: null,
         evidenceCards: [],
@@ -434,6 +379,7 @@ async function getQuestionFromFastAPI(
       question: data.question,
       error: null,
       evaluation: data.evaluation || null,
+      draftReady: Boolean(data.draft_ready),
       suggestionOptions: data.suggestion_options || [],
       evidenceSummary: data.evidence_summary || null,
       evidenceCards: data.evidence_cards || [],
@@ -452,6 +398,7 @@ async function getQuestionFromFastAPI(
         ? "AIの応答がタイムアウトしました"
         : "AIサービスに接続できませんでした",
       evaluation: null,
+      draftReady: false,
       suggestionOptions: [],
       evidenceSummary: null,
       evidenceCards: [],
@@ -522,7 +469,7 @@ export async function POST(
       ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
       : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!));
 
-    let conversation = await getMotivationConversationByCondition(ownerCondition);
+    let conversation = await getConversationByCondition(ownerCondition);
     if (!conversation) {
       const newId = crypto.randomUUID();
       const now = new Date();
@@ -548,15 +495,11 @@ export async function POST(
         });
       }
 
-      conversation = await getMotivationConversationByCondition(ownerCondition);
+      conversation = await getConversationByCondition(ownerCondition);
     }
 
     if (!conversation) {
       return NextResponse.json({ error: "会話の作成に失敗しました" }, { status: 500 });
-    }
-
-    if (conversation.status === "completed") {
-      return NextResponse.json({ error: "この会話は既に完了しています" }, { status: 400 });
     }
 
     if (conversation.messages !== "[]") {
@@ -638,25 +581,40 @@ export async function POST(
     const persistedContext = {
       ...resolvedInputs.conversationContext,
       ...(result.capturedContext || {}),
+      lastQuestionMeta: {
+        ...resolvedInputs.conversationContext.lastQuestionMeta,
+        ...((result.capturedContext?.lastQuestionMeta as Record<string, unknown> | undefined) || {}),
+        questionText: result.question,
+      },
     };
+    const currentDraftReadyState = resolveDraftReadyState(
+      persistedContext,
+      conversation.status as "in_progress" | "completed" | null,
+    );
+    const isDraftReady = currentDraftReadyState.isDraftReady || result.draftReady;
+    const nextContext = mergeDraftReadyContext(
+      persistedContext,
+      isDraftReady,
+      currentDraftReadyState.unlockedAt ?? undefined,
+    );
 
     const updatedRows = await db
       .update(motivationConversations)
-      .set(await filterMotivationConversationUpdate({
+      .set({
         messages: JSON.stringify(messages),
         questionCount: 0,
-        status: "in_progress",
+        status: isDraftReady ? "completed" : "in_progress",
         motivationScores: result.evaluation ? JSON.stringify(result.evaluation.scores) : null,
-        conversationContext: JSON.stringify(persistedContext),
-        selectedRole: persistedContext.selectedRole ?? null,
-        selectedRoleSource: persistedContext.selectedRoleSource ?? null,
-        desiredWork: persistedContext.desiredWork ?? null,
-        questionStage: result.questionStage ?? persistedContext.questionStage,
+        conversationContext: JSON.stringify(nextContext),
+        selectedRole: nextContext.selectedRole ?? null,
+        selectedRoleSource: nextContext.selectedRoleSource ?? null,
+        desiredWork: nextContext.desiredWork ?? null,
+        questionStage: result.questionStage ?? nextContext.questionStage,
         lastSuggestionOptions: JSON.stringify(result.suggestionOptions || []),
         lastEvidenceCards: JSON.stringify(result.evidenceCards || []),
         stageStatus: JSON.stringify(result.stageStatus || null),
         updatedAt: new Date(),
-      }))
+      })
       .where(and(eq(motivationConversations.id, conversation.id), eq(motivationConversations.updatedAt, conversation.updatedAt)))
       .returning({ id: motivationConversations.id });
 
@@ -678,25 +636,25 @@ export async function POST(
       conversation: {
         id: conversation.id,
         questionCount: 0,
-        status: "in_progress",
+        status: isDraftReady ? "completed" : "in_progress",
       },
       messages,
       nextQuestion: result.question,
       suggestionOptions: result.suggestionOptions,
       questionCount: 0,
-      isCompleted: false,
+      isDraftReady,
       scores: result.evaluation?.scores || null,
       evidenceSummary: result.evidenceSummary || buildEvidenceSummaryFromCards(result.evidenceCards),
       evidenceCards: result.evidenceCards,
       coachingFocus: result.coachingFocus,
       riskFlags: result.riskFlags,
-      questionStage: result.questionStage || persistedContext.questionStage,
+      questionStage: result.questionStage || nextContext.questionStage,
       stageStatus: result.stageStatus,
-      conversationContext: persistedContext,
+      conversationContext: nextContext,
       setup: {
-        selectedIndustry: persistedContext.selectedIndustry || resolvedInputs.company.industry,
-        selectedRole: persistedContext.selectedRole || null,
-        selectedRoleSource: persistedContext.selectedRoleSource || null,
+        selectedIndustry: nextContext.selectedIndustry || resolvedInputs.company.industry,
+        selectedRole: nextContext.selectedRole || null,
+        selectedRoleSource: nextContext.selectedRoleSource || null,
         requiresIndustrySelection: resolvedInputs.requiresIndustrySelection,
         resolvedIndustry: resolvedInputs.company.industry,
         isComplete: true,

@@ -14,6 +14,8 @@ import { useCalendarEvents, useGoogleCalendar, GoogleCalendarEvent, WorkBlockSug
 import { CalendarSidebar } from "@/components/calendar/CalendarSidebar";
 import { WorkBlockFAB } from "@/components/calendar/WorkBlockFAB";
 import { EventDetailModal, type DisplayEvent } from "@/components/calendar/EventDetailModal";
+import { notifyCalendarEventCreated, notifyCalendarEventDeleted, notifyError } from "@/lib/notifications";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 
 // Icons
 const ChevronLeftIcon = () => (
@@ -86,8 +88,6 @@ function WorkBlockSuggestionsModal({
     try {
       await onCreateFromSuggestion(suggestion);
       onClose();
-    } catch (error) {
-      console.error("Failed to create work block:", error);
     } finally {
       setIsCreating(false);
     }
@@ -96,8 +96,8 @@ function WorkBlockSuggestionsModal({
   if (!isOpen || !selectedDate) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={onClose}>
+      <Card className="max-h-[min(80vh,42rem)] w-full max-w-md overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <CardHeader>
           <CardTitle>タスク提案</CardTitle>
           <p className="text-sm text-muted-foreground">
@@ -229,7 +229,10 @@ function AddEventModal({ isOpen, selectedDate, onClose, onCreate }: AddEventModa
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "エラーが発生しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "CALENDAR_EVENT_SUBMIT_FAILED",
+        userMessage: "イベントを保存できませんでした。",
+      }, "CalendarPage:submitEvent"));
     } finally {
       setIsSubmitting(false);
     }
@@ -238,8 +241,8 @@ function AddEventModal({ isOpen, selectedDate, onClose, onCreate }: AddEventModa
   if (!isOpen || !selectedDate) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={onClose}>
+      <Card className="max-h-[min(80vh,42rem)] w-full max-w-md overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <CardHeader>
           <CardTitle>タスクを追加</CardTitle>
         </CardHeader>
@@ -472,17 +475,60 @@ export default function CalendarPage() {
     setSelectedDate(day);
     setShowSuggestionsModal(true);
     const dateStr = getLocalDateKey(day);
-    const suggestions = await suggestWorkBlocks(dateStr);
-    setWorkBlockSuggestions(suggestions);
+    try {
+      const suggestions = await suggestWorkBlocks(dateStr);
+      setWorkBlockSuggestions(suggestions);
+    } catch (error) {
+      setShowSuggestionsModal(false);
+      setSelectedDate(null);
+      setWorkBlockSuggestions([]);
+      notifyError({
+        title: getUserFacingErrorMessage(error, {
+          code: "CALENDAR_WORK_BLOCK_SUGGESTIONS_FAILED",
+          userMessage: "作業ブロックの提案を取得できませんでした。",
+        }, "CalendarPage:suggestWorkBlocks"),
+      });
+    }
+  };
+
+  const handleCreateEvent = async (data: {
+    type: "work_block";
+    title: string;
+    startAt: string;
+    endAt: string;
+  }) => {
+    try {
+      await createEvent(data);
+      notifyCalendarEventCreated("manual");
+    } catch (error) {
+      notifyError({
+        title: getUserFacingErrorMessage(error, {
+          code: "CALENDAR_EVENT_CREATE_FAILED",
+          userMessage: "イベントを作成できませんでした。",
+        }, "CalendarPage:createEvent"),
+      });
+      throw error;
+    }
   };
 
   const handleCreateFromSuggestion = async (suggestion: WorkBlockSuggestion) => {
-    await createEvent({
-      type: "work_block",
-      title: suggestion.title,
-      startAt: suggestion.start,
-      endAt: suggestion.end,
-    });
+    try {
+      await createEvent({
+        type: "work_block",
+        title: suggestion.title,
+        startAt: suggestion.start,
+        endAt: suggestion.end,
+      });
+      notifyCalendarEventCreated("work_block");
+    } catch (error) {
+      notifyError({
+        title: getUserFacingErrorMessage(error, {
+          code: "CALENDAR_WORK_BLOCK_CREATE_FAILED",
+          userMessage: "作業ブロックを作成できませんでした。",
+        }, "CalendarPage:createWorkBlock"),
+      });
+      throw error;
+    }
   };
 
   return (
@@ -567,7 +613,7 @@ export default function CalendarPage() {
                         <div
                           key={day}
                           className={cn(
-                            "py-2 text-center text-sm font-medium",
+                            "py-2 text-center text-xs font-medium sm:text-sm",
                             i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-muted-foreground"
                           )}
                         >
@@ -577,7 +623,7 @@ export default function CalendarPage() {
                     </div>
 
                     {/* 週の行は最低高さを確保し、はみ出しはカード内スクロール */}
-                    <div className="grid grid-cols-7 gap-1 auto-rows-[minmax(4.5rem,auto)]">
+                    <div className="grid auto-rows-[minmax(4rem,auto)] grid-cols-7 gap-1 sm:auto-rows-[minmax(4.5rem,auto)]">
                       {calendarDays.map((day, index) => {
                         const isCurrentMonth = day.getMonth() === currentDate.getMonth();
                         const dateKey = getLocalDateKey(day);
@@ -606,7 +652,7 @@ export default function CalendarPage() {
                           >
                             <span
                               className={cn(
-                                "inline-flex items-center justify-center w-6 h-6 rounded-full text-sm",
+                                "inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] sm:h-6 sm:w-6 sm:text-sm",
                                 !isCurrentMonth && "text-muted-foreground",
                                 isToday && "bg-primary text-primary-foreground",
                                 dayOfWeek === 0 && isCurrentMonth && !isToday && "text-red-500",
@@ -616,7 +662,7 @@ export default function CalendarPage() {
                               {day.getDate()}
                             </span>
                             <div className="mt-1 space-y-0.5">
-                              {dayEvents.slice(0, 3).map((event, i) => {
+                              {dayEvents.slice(0, 2).map((event, i) => {
                                 const isDeadline = "eventType" in event && event.eventType === "deadline";
                                 const isGoogle = "type" in event && event.type === "google";
                                 const isCompleted = isDeadline && "completedAt" in event && !!event.completedAt;
@@ -630,7 +676,7 @@ export default function CalendarPage() {
                                       setShowDetailModal(true);
                                     }}
                                     className={cn(
-                                      "w-full text-left text-xs px-1 py-0.5 rounded truncate cursor-pointer",
+                                      "w-full truncate rounded px-1 py-0.5 text-left text-[10px] cursor-pointer sm:text-xs",
                                       "hover:opacity-80 transition-opacity",
                                       isDeadline
                                         ? "bg-red-100 text-red-700"
@@ -644,7 +690,7 @@ export default function CalendarPage() {
                                   </button>
                                 );
                               })}
-                              {dayEvents.length > 3 && (
+                              {dayEvents.length > 2 && (
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -654,7 +700,7 @@ export default function CalendarPage() {
                                   }}
                                   className="text-xs text-primary hover:underline px-1 cursor-pointer"
                                 >
-                                  +{dayEvents.length - 3}件
+                                  +{dayEvents.length - 2}件
                                 </button>
                               )}
                             </div>
@@ -668,7 +714,7 @@ export default function CalendarPage() {
             </Card>
 
             {/* Legend */}
-            <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground shrink-0">
+            <div className="mt-2 flex shrink-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded bg-red-100" />
                 <span>締切</span>
@@ -730,7 +776,7 @@ export default function CalendarPage() {
                 </svg>
               </button>
             </SheetTrigger>
-            <SheetContent side="bottom" className="max-h-[70vh] overflow-y-auto">
+            <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]">
               <SheetHeader>
                 <SheetTitle>カレンダー情報</SheetTitle>
               </SheetHeader>
@@ -763,7 +809,7 @@ export default function CalendarPage() {
             setShowAddModal(false);
             setSelectedDate(null);
           }}
-          onCreate={createEvent}
+          onCreate={handleCreateEvent}
         />
 
         {/* Work block suggestions modal */}
@@ -789,9 +835,20 @@ export default function CalendarPage() {
             setSelectedEvent(null);
           }}
           onDelete={async (eventId) => {
-            await deleteEvent(eventId);
-            setShowDetailModal(false);
-            setSelectedEvent(null);
+            try {
+              await deleteEvent(eventId);
+              notifyCalendarEventDeleted();
+              setShowDetailModal(false);
+              setSelectedEvent(null);
+            } catch (error) {
+              notifyError({
+                title: getUserFacingErrorMessage(error, {
+                  code: "CALENDAR_EVENT_DELETE_FAILED",
+                  userMessage: "イベントを削除できませんでした。",
+                }, "CalendarPage:deleteEvent"),
+              });
+              throw error;
+            }
           }}
         />
 

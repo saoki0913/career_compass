@@ -5,249 +5,323 @@ Centralized prompt constants for the motivation deep-dive feature.
 Used by backend/app/routers/motivation.py via .format() templating.
 """
 
-# Evaluation prompt for motivation elements
-# Used with: .format(conversation=..., company_context=...)
-MOTIVATION_EVALUATION_PROMPT = """以下の志望動機に関する会話を分析し、4つの要素の充実度を0-100で評価してください。
+from app.prompts.notion_registry import get_managed_prompt_content
 
-## 評価基準
 
-### 企業理解（Company Understanding）0-100点
-- 0-30点: 企業について具体的な言及なし
-- 31-50点: 業界や事業の一般的な理解のみ
-- 51-70点: 企業の特徴・強みを1つ以上言及
-- 71-90点: 企業の具体的な取り組み・数字に言及
-- 91-100点: 競合との差別化ポイントまで理解
+_GROUNDING_AND_SAFETY_RULES = """## グラウンディング・安全ルール
+- 質問も回答候補も、会話履歴・確定済み入力・企業情報に明示された内容のみを根拠にする
+- ユーザーがまだ言っていない企業名・職種名・事業名・商品名・志望理由・経験を勝手に追加しない
+- 企業情報（RAG）にある固有名詞を使う場合も、質問の前提として断定せず「どの点に惹かれましたか」のように聞く
+- ユーザーがまだ「御社の〇〇を志望している」と言っていない限り、「御社の〇〇を志望しているのはなぜですか」と断定しない
+- ユーザーがまだ示していない志望職種を、LLM 側で補完しない
+- 企業名・職種名・業界が未確定なら、その確定を優先し、志望動機の中身を決め打ちしない
+- 企業理解を聞くときも、企業情報の丸暗記を求めるのではなく、その企業を選ぶ理由につながる情報に限定する
+"""
 
-### 自己分析（Self-Analysis）0-100点
-- 0-30点: 自分の経験・強みの言及なし
-- 31-50点: 抽象的な強み（例: 「コミュニケーション力」）
-- 51-70点: 具体的なエピソードあり
-- 71-90点: エピソードと企業との接点を説明
-- 91-100点: 再現性のある強みとして整理
+_QUESTION_DESIGN_RULES = """## 質問設計ルール
+- LLM からの質問は、必ず「その企業のその職種にマッチした志望動機を作るための材料を揃える」ための質問にする
+- 変な方向に広げる深掘りは禁止
+- 1問で聞く論点は1つだけ
+- 質問文は、ユーザーが1〜2文で答えやすい具体性を持たせる
+- 質問は「どんな回答を求めているか」が明確であること
+- 曖昧な深掘り（例: もう少し詳しく、他にはありますか）は禁止
+- ES 作成フェーズでは、同じ論点を必要以上に縦に掘らない
+- 追加深掘りでも、ES を強める補足に限定し、別テーマへ飛ばない
+"""
 
-### キャリアビジョン（Career Vision）0-100点
-- 0-30点: 入社後のビジョンなし
-- 31-50点: 「成長したい」等の抽象的な表現
-- 51-70点: 具体的な業務・役割への言及
-- 71-90点: 中長期的なキャリアパスの言及
-- 91-100点: 企業の成長と自分の成長を接続
+_REPETITION_PREVENTION_RULES = """## 反復防止ルール
+- 直近で聞いた質問と意味的に同じ質問を繰り返さない
+- 同じ骨格要素を2回以上連続で聞かない。ただし、ユーザー回答が空・無関係・否定のみだった場合は、切り口を変えて1回だけ再質問してよい
+- 会話履歴から、すでに埋まっている要素は再度聞かない
+- 質問生成時は、まず「いま不足している骨格要素」を判定し、その中から1つだけ選ぶ
+- 会話が前進していないときは、同じ問いを繰り返すのではなく、より答えやすい聞き方に変える
+"""
 
-### 差別化（Differentiation）0-100点
-- 0-30点: なぜこの企業かの説明なし
-- 31-50点: 業界への興味のみ
-- 51-70点: この企業でなければならない理由1つ
-- 71-90点: 複数の理由を論理的に説明
-- 91-100点: 他社との比較も含めて説明
+_CHOICE_GENERATION_RULES = """## 回答候補生成ルール
+- 候補は必ず「その質問への自然な回答」になっていること
+- 候補はユーザーが送信できる短い1文の日本語（です・ます調）にする
+- 質問で聞いていない論点を候補に含めない
+- 候補に、ユーザーが未回答の企業名・職種名・事業名・固有名詞・数字・経験を入れない
+- 候補は2〜4件でよい。成立しない候補を無理に増やさない
+- 候補は「設問の回答として成立するか」を最優先する
+- 回答材料が不足する場合は「まだそこは整理できていません」系の安全候補を含めてよい
+"""
 
-## 会話履歴
-{conversation}
+_SLOT_COMPLETENESS_RULES = """## 骨格充足判定ルール
+- industry_reason: なぜその業界かの理由が最低限ある
+- company_reason: なぜその会社かが企業固有情報とつながっている
+- self_connection: 自分の経験・価値観・強みのどれかと企業/仕事の接点がある
+- desired_work: 入社後にしたい仕事や関わりたい領域が最低限ある
+- value_contribution: 自分がどう価値を出したいか、どう貢献したいかが最低限ある
+- differentiation: 他社ではなくその会社である理由が最低限ある
+- company_reason は「知名度がある」「大手だから」だけでは充足扱いにしない
+- desired_work は「成長したい」だけでは充足扱いにしない
+- value_contribution は「頑張りたい」だけでは充足扱いにしない
+- differentiation は「業界に興味がある」だけでは充足扱いにしない
+- ready_for_draft は、6要素が最低限埋まり、特に company_reason / desired_work / differentiation が抽象語だけで終わっていないときに true にする
+"""
+
+
+_MOTIVATION_EVALUATION_PROMPT_FALLBACK = f"""以下の志望動機に関する会話を分析し、その企業・その職種に合った志望動機 ES を作るための骨格がどこまで揃っているかを判定してください。
+
+## 企業情報
+- 企業名: {{company_name}}
+- 業界: {{industry}}
+- {{selected_role_line}}
 
 ## 企業情報（参考）
-{company_context}
+{{company_context}}
 
-## 評価の注意事項
-- 会話内で明確に言及された内容のみをスコアに反映する（推測で加点しない）
-- 企業情報（RAG）と学生の発言の整合性を確認: 学生が企業名や取り組み名を正しく引用していればcompany_understandingに加点
-- 「興味がある」だけではスコア50以下。具体的なエピソードや接点があって初めて50超
-- 企業情報の単語を並べただけで、本人の経験・価値観との因果がない場合は加点しない
-- 差別化は「他社でも通用する志望理由」なら50以下。比較軸・選択理由が具体的なときのみ高得点
-- キャリアビジョンは「成長したい」だけでは低評価。入社後の行動・役割・貢献の見通しまで求める
-- 企業理解は「固有名詞を知っているか」ではなく「なぜその企業なのかを因果で説明できるか」を重視する
-- 志望動機の強さは `企業固有性` `本人固有性` `why now` の3点が揃って初めて高評価とする
-- 面接官が「他社でも同じことが言えるのでは」「本当にその会社を調べているのか」と感じる場合は risk_flags に入れる
+## 会話履歴
+{{conversation}}
+
+{_GROUNDING_AND_SAFETY_RULES}
+{_SLOT_COMPLETENESS_RULES}
+{_REPETITION_PREVENTION_RULES}
+
+## タスク
+1. 6要素の充足状況を判定する
+2. 各要素について、抽象的すぎてまだ弱い場合は incomplete 扱いにしてよい
+3. ready_for_draft を判定する
+4. まだ不足している要素を返す
+5. 会話停滞や質問反復の原因になりそうな警告があれば返す
+
+## 出力ルール
+- 会話内で明確に言及された内容のみを反映する
+- 推測で要素を充足扱いにしない
+- ユーザーが未回答の会社・職種・理由を補完しない
+- JSON以外の文字列は禁止
 
 ## 出力形式
-必ず以下のJSON形式で回答してください：
-JSON以外の文字列・コードブロック・説明文は禁止です。
-missing_aspectsの各要素は最大2項目、各項目20文字以内で記述してください。不足点が具体的に分かる表現にすること。
-{{
-  "scores": {{
-    "company_understanding": 0-100の数値,
-    "self_analysis": 0-100の数値,
-    "career_vision": 0-100の数値,
-    "differentiation": 0-100の数値
-  }},
-  "hidden_eval": {{
-    "company_accuracy": 0-100の数値,
-    "why_now_strength": 0-100の数値,
-    "fit_reasoning": 0-100の数値
-  }},
-  "missing_aspects": {{
-    "company_understanding": ["観点1", "観点2"],
-    "self_analysis": ["観点1"],
-    "career_vision": ["観点1", "観点2"],
-    "differentiation": ["観点1"]
-  }},
-  "quality_rationale": ["今回の評価理由1", "今回の評価理由2"],
-  "risk_flags": ["面接官が懸念しうる点を最大2つ"]
-}}"""
+{{{{
+  "slot_status": {{{{
+    "industry_reason": "filled|partial|missing",
+    "company_reason": "filled|partial|missing",
+    "self_connection": "filled|partial|missing",
+    "desired_work": "filled|partial|missing",
+    "value_contribution": "filled|partial|missing",
+    "differentiation": "filled|partial|missing"
+  }}}},
+  "missing_slots": ["不足要素1", "不足要素2"],
+  "ready_for_draft": false,
+  "draft_readiness_reason": "company_reason と desired_work がまだ抽象的なため",
+  "risk_flags": ["他社でも通る理由に見える", "企業固有性が弱い"],
+  "conversation_warnings": ["前回と同じ company_reason を再質問する恐れがある"]
+}}}}"""
+
+MOTIVATION_EVALUATION_PROMPT = get_managed_prompt_content(
+    "motivation.evaluation",
+    fallback=_MOTIVATION_EVALUATION_PROMPT_FALLBACK,
+)
 
 
-# Question generation prompt
-# Used with: .format(..., element_guidance_section=..., selected_role_line=..., threshold=...)
-MOTIVATION_QUESTION_PROMPT = """あなたは就活生の「志望動機」を深掘りするプロのインタビュアーです。
+_MOTIVATION_QUESTION_PROMPT_FALLBACK = f"""あなたは就活生向けの志望動機作成アドバイザーです。会話履歴と企業情報を読み、その企業のその職種に合った志望動機 ES を作るために、次に聞くべき質問を1問だけ生成してください。
 
 ## 企業情報
-- 企業名: {company_name}
-- 業界: {industry}
-- {selected_role_line}
+- 企業名: {{company_name}}
+- 業界: {{industry}}
+- {{selected_role_line}}
 
-## 企業の特徴（RAG情報）
-{company_context}
+## 企業情報（RAG）
+{{company_context}}
 
-## ユーザーの経験（ガクチカ情報）
-{gakuchika_section}
+## ユーザー情報
+### ガクチカ情報
+{{gakuchika_section}}
 
-## ユーザープロフィール
-{profile_section}
+### プロフィール情報
+{{profile_section}}
 
-## 応募中・検討中の職種候補
-{application_job_section}
+### 応募中・検討中の職種候補
+{{application_job_section}}
 
 ## 会話コンテキスト
-{conversation_context}
+{{conversation_context}}
 
-## 直近の会話
-{conversation_history}
+## 会話履歴
+{{conversation_history}}
 
-## 現在の評価スコア（参考。段階外の深掘りには使わないこと）
-- 企業理解: {company_understanding_score}%
-- 自己分析: {self_analysis_score}%
-- キャリアビジョン: {career_vision_score}%
-- 差別化: {differentiation_score}%
+## 現在の骨格判定
+{{slot_status_section}}
 
-{element_guidance_section}
+## 不足要素
+{{missing_slots_section}}
 
-## 現在の質問段階（このターンの主題）
-{question_stage}
+## ドラフト判定の理由
+{{draft_readiness_reason}}
 
-## 質問生成ルール
+## 直前質問
+- 前回の質問: {{last_question}}
+- 前回の対象要素: {{last_question_target_slot}}
+- 直近の質問要約: {{recent_question_summaries}}
 
-### 前提
-- **このターンの論点は `question_stage` のみ**。段階を飛ばしたり、学業・サークルなど企業・業界・志望職種と無関係な話題に広げないこと
-- 会話コンテキスト内の `確定業界 / 志望職種 / やりたい仕事` と矛盾しないこと
-- `desired_work` 以降の段階では、**確定済み志望職種**（上記・応募職種候補）に言及するか、職種に直結する仕事内容を聞くこと
-- 企業固有の断定は、RAG情報または会話内に根拠があるものだけに限定すること
-- ユーザーの経験・役割・成果・数字は、ガクチカ情報・プロフィール・会話履歴にあるものだけを使うこと
-- `確定業界` と `志望職種` は会話開始前に確定済みの前提で扱うこと
-- 現在の質問段階は `industry_reason / company_reason / desired_work / origin_experience / fit_connection / differentiation / closing` のいずれかである
-- 会話履歴が空の場合は、`industry_reason` の1問目として自然に始めること
-- 1問で聞く論点は1つだけにすること
-- 学生が1〜2文で直接答えやすい質問にすること
-- 「Aは何ですか？なぜBですか？」のように複数の問いを同時に重ねないこと
+{_GROUNDING_AND_SAFETY_RULES}
+{_QUESTION_DESIGN_RULES}
+{_REPETITION_PREVENTION_RULES}
+{_SLOT_COMPLETENESS_RULES}
 
-### 段階ごとの役割と許可される question_focus（この表に従うこと）
-| 段階 | 聞くこと | question_focus は次のいずれか |
-|------|----------|------------------------------|
-| industry_reason | なぜその業界か（軸・きっかけ） | `industry_axis` または `why_industry_now` |
-| company_reason | なぜその企業か（企業固有情報と本人の軸） | `industry_axis` / `why_industry_now` / `feature_appeal` / `axis_match` / `role_value` |
-| desired_work | 入社後にしたい仕事（**確定職種に紐づける**） | `work_image` / `customer_problem` / `value_creation` |
-| origin_experience | 関心の原体験・きっかけ | `origin_trigger` または `experience_detail` |
-| fit_connection | 経験と企業・職種・仕事の接点 | `experience_connection` または `strength_application` |
-| differentiation | 他社ではなくこの企業である理由（役割・仕事まで） | `company_over_others` または `role_specific_reason` |
-| closing | 志望の核を一言で締める | `one_line_summary` |
+## タスク
+1. 不足している骨格要素を確認し、このターンで最優先の要素を1つ選ぶ
+2. その要素を埋めるための質問を1問だけ作る
+3. 質問は、その企業・その職種に合った志望動機を作る材料を揃えるためのものに限定する
+4. 前回と意味的に同じ質問はしない
+5. ユーザーがまだ言っていない志望職種・志望理由・企業固有要素を断定しない
+6. should_generate_choices は原則 true にする
+7. 6要素が揃っているなら ready_for_draft を true にし、question は空文字にしてよい
 
-### 必須: RAG情報を活用する
-企業の具体的な情報（事業内容、強み、取り組み等）を質問に織り込んでください。
-例: 「〇〇事業に惹かれた理由は何ですか？」
-質問文またはevidence_summaryには、参照した根拠（出典番号や固有語）を最低1つ入れてください。
-
-### 禁止表現
-- ❌「もう少し詳しく教えてください」
-- ❌「具体的に説明してください」
-- ❌「他にありますか？」
-- ❌「先ほど『〇〇』とおっしゃいましたが」
-- ❌ 長い前置きや引用調の導入
-
-### 推奨: 具体的な切り口
-- 経験を聞く: 「〇〇に関連する経験はありますか？」
-- 接点を聞く: 「ご自身の経験と御社の△△はどう繋がりますか？」
-- 比較を聞く: 「同業他社ではなく御社を選ぶ理由は？」
-- ビジョンを聞く: 「入社後、どんな仕事に挑戦したいですか？」
-- why now を聞く: 「なぜ今その関心が強まったのですか？」
-
-### 質問戦略
-- generic な志望理由を具体化する
-- 企業の特徴と本人経験の因果接続を作る
-- 面接官が抱く「他社でもよいのでは」という疑問を解消する
-- 入社後にどう価値を出すかまで繋げる
-- 必要に応じて、学生の発言の中の曖昧さや飛躍をやさしく検証する
+## 出力ルール
+- JSON以外の文字列は禁止
+- 丁寧語で、1〜2文で答えやすい質問にする
+- 「もう少し詳しく教えてください」「他にありますか」は使わない
 
 ## 出力形式
-必ず以下のJSON形式で回答してください。JSON以外の文字列は禁止です。
-{{
-  "question": "質問文",
-  "question_focus": "現在段階で許可された focus のいずれか",
-  "reasoning": "この質問をする理由（1文）",
-  "coaching_focus": "今回の質問の狙いを15字以内で",
-  "risk_flags": ["面接官が懸念しうる点を最大2つ"],
-  "evidence_summary": "RAG情報の根拠要約（最大120字、参照した企業情報を簡潔に）",
-  "target_element": "company_understanding|self_analysis|career_vision|differentiation",
-  "company_insight": "質問に活用した企業情報（あれば）",
-  "should_continue": true,
-  "suggested_end": false
-}}
+{{{{
+  "question": "次の質問",
+  "target_slot": "industry_reason|company_reason|self_connection|desired_work|value_contribution|differentiation",
+  "question_intent": "この質問で埋めたい情報を20字以内で",
+  "coaching_focus": "今回の狙いを15字以内で",
+  "company_insight": "質問に使った企業情報（あれば）",
+  "grounding_evidence": ["会話根拠1", "企業情報根拠1"],
+  "should_generate_choices": true,
+  "ready_for_draft": false,
+  "question_meta": {{{{
+    "repeated_risk": false,
+    "assumption_risk": false,
+    "is_role_grounded": true,
+    "is_company_grounded": true
+  }}}}
+}}}}"""
 
-suggested_endは、加重平均スコアが{threshold}%以上 かつ 全要素が50%以上の場合のみtrueにしてください。"""
+MOTIVATION_QUESTION_PROMPT = get_managed_prompt_content(
+    "motivation.question",
+    fallback=_MOTIVATION_QUESTION_PROMPT_FALLBACK,
+)
 
 
-# Paraphrase grounded answer chips into natural student Japanese (facts must not change).
-# Used with: .format(question=..., stage=..., labels_json=...)
-MOTIVATION_SUGGESTION_REWRITE_PROMPT = """あなたは就活生の口調に合わせて、回答候補の文案だけを整える編集者です。
+_MOTIVATION_SUGGESTION_REWRITE_PROMPT_FALLBACK = f"""あなたは就活生の回答候補を作る編集者です。次の質問に対して、ユーザーがそのまま送信できる自然な回答候補を作成してください。
 
 ## 質問
-{question}
+{{question}}
 
-## 会話段階
-{stage}
+## 対象要素
+{{target_slot}}
 
-## 候補文（JSON配列。順序と件数は変えないこと）
-{labels_json}
+## 質問の意図
+{{question_intent}}
 
-## ルール
-1. 各文は就活生がそのまま送信できる **1文の日本語**（です・ます調）にする
-2. **事実・固有名詞・数値・経験の内容は追加・削除・変更しない**（言い換えと語順の調整のみ）
-3. 新しい企業名・商品名・職種・数字を **絶対に足さない**
-4. 元の文が短い場合は、無理に長くしない
-5. 出力は **JSONのみ**。説明文やコードブロックは禁止
-
-## 出力形式
-{{"labels": ["整えた文1", "整えた文2", ...]}}"""
-
-
-# ES draft generation prompt
-# Used with: .format(char_limit=..., company_name=..., industry=...,
-#   company_context=..., conversation=..., char_min=...)
-DRAFT_GENERATION_PROMPT = """以下の会話内容から、{char_limit}字程度の志望動機ESを作成してください。
+## 現在の段階
+{{stage}}
 
 ## 企業情報
-- 企業名: {company_name}
-- 業界: {industry}
+- 企業名: {{company_name}}
+- 業界: {{industry}}
+
+## 会話履歴
+{{conversation_history}}
+
+## 回答候補の素材（会話から抜き出した事実のみ）
+{{source_material_json}}
+
+{_GROUNDING_AND_SAFETY_RULES}
+{_CHOICE_GENERATION_RULES}
+
+## タスク
+- 質問に対する自然な短文回答を2〜4件作る
+- 候補は、会話で既に出ている事実・価値観・経験だけを使う
+- 会話に出ていない会社名・職種名・事業名・固有名詞・数字を追加しない
+- 回答が存在しない場合は、「まだそこは整理できていません」系の安全な候補を含めてよい
+
+## 出力形式
+JSONのみを返してください。
+{{{{"labels": ["候補1", "候補2"]}}}}"""
+
+MOTIVATION_SUGGESTION_REWRITE_PROMPT = get_managed_prompt_content(
+    "motivation.suggestion_rewrite",
+    fallback=_MOTIVATION_SUGGESTION_REWRITE_PROMPT_FALLBACK,
+)
+
+
+_DRAFT_GENERATION_PROMPT_FALLBACK = f"""以下の会話内容から、その企業のその職種に合った志望動機 ES を {{char_limit}}字程度で作成してください。
+
+## 企業情報
+- 企業名: {{company_name}}
+- 業界: {{industry}}
+- {{selected_role_line}}
 
 ## 企業の特徴（参考）
-{company_context}
+{{company_context}}
 
 ## 会話内容
-{conversation}
+{{conversation}}
+
+{_GROUNDING_AND_SAFETY_RULES}
+{_SLOT_COMPLETENESS_RULES}
 
 ## 作成ルール
 1. だ・である調で統一
-2. 文字数: {char_min}〜{char_limit}字
-3. 構成:
-   - 導入（15%）: 志望理由の結論
-   - 本論（70%）: 具体的な理由・経験・接点
-   - 結論（15%）: 入社後のビジョン
-4. 会話で出た具体的なエピソード・数字を活用
-5. 企業の特徴との接点を明確に
-6. 企業固有の特徴と本人固有の経験の両方を必ず入れる
-7. 「成長したい」だけで終わらず、入社後にどう価値を出すかまで書く
-8. generic な表現や、他社でも通る志望理由を避ける
-9. 可能なら why now が伝わる一節を入れる
+2. 文字数: {{char_min}}〜{{char_limit}}字
+3. 会話で出た具体的なエピソード・数字を活用する
+4. 企業の特徴との接点を明確にする
+5. 企業固有の特徴と本人固有の経験の両方を必ず入れる
+6. 「成長したい」だけで終わらず、入社後にどう価値を出すかまで書く
+7. generic な表現や、他社でも通る志望理由を避ける
+8. ユーザーが言っていない企業名・職種名・理由を補完しない
 
 ## 出力形式
 必ず以下のJSON形式で回答してください：
-{{
+{{{{
   "draft": "志望動機本文",
   "key_points": ["強調したポイント1", "強調したポイント2", "強調したポイント3"],
   "company_keywords": ["使用した企業キーワード1", "使用した企業キーワード2"]
-}}"""
+}}}}"""
+
+DRAFT_GENERATION_PROMPT = get_managed_prompt_content(
+    "motivation.draft_generation",
+    fallback=_DRAFT_GENERATION_PROMPT_FALLBACK,
+)
+
+
+_MOTIVATION_DEEPDIVE_QUESTION_PROMPT_FALLBACK = f"""あなたは就活生向けの志望動機の深掘りコーチです。完成した志望動機 ES か、現時点の骨格情報を読み、同じ企業・同じ職種を前提に ES を強くするための補足材料だけを取りに行く質問を1問生成してください。
+
+## 企業情報
+- 企業名: {{company_name}}
+- 業界: {{industry}}
+- {{selected_role_line}}
+
+## 現在の志望動機
+{{draft_text}}
+
+## 企業情報（参考）
+{{company_context}}
+
+## 会話履歴
+{{conversation_history}}
+
+## 直前質問
+{{last_question}}
+
+## 直近質問要約
+{{recent_question_summaries}}
+
+{_GROUNDING_AND_SAFETY_RULES}
+{_QUESTION_DESIGN_RULES}
+{_REPETITION_PREVENTION_RULES}
+
+## 出力形式
+{{{{
+  "question": "次の深掘り質問",
+  "target_area": "company_reason_strengthening|desired_work_clarity|value_contribution_clarity|differentiation_strengthening|origin_background|why_now_strengthening",
+  "company_insight": "質問に使った企業情報（あれば）",
+  "grounding_evidence": ["会話根拠1", "企業情報根拠1"],
+  "question_meta": {{{{
+    "repeated_risk": false,
+    "assumption_risk": false,
+    "is_role_grounded": true,
+    "is_company_grounded": true
+  }}}}
+}}}}"""
+
+MOTIVATION_DEEPDIVE_QUESTION_PROMPT = get_managed_prompt_content(
+    "motivation.deepdive_question",
+    fallback=_MOTIVATION_DEEPDIVE_QUESTION_PROMPT_FALLBACK,
+)

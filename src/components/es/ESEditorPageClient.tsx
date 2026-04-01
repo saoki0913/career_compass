@@ -23,7 +23,6 @@ import {
 import { SectionReviewCTA } from "@/components/es/SectionReviewCTA";
 import { OperationLockProvider, useOperationLock } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { Printer } from "lucide-react";
 import { ESEditorSkeleton } from "@/components/skeletons/ESEditorSkeleton";
 
@@ -494,18 +493,7 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
     }
 
     let cancelled = false;
-    const headers: Record<string, string> = {};
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore device token errors.
-    }
-
     void fetch(`/api/companies/${currentCompanyId}/es-review-status`, {
-      headers,
       credentials: "include",
       cache: "no-store",
     })

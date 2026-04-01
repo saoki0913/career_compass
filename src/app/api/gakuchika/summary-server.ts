@@ -6,7 +6,8 @@ import {
   type LegacySummary,
   type StructuredSummary,
 } from "@/lib/gakuchika/summary";
-import { FASTAPI_URL, type Message } from "@/app/api/gakuchika/shared";
+import { type Message } from "@/app/api/gakuchika/shared";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -71,6 +72,9 @@ function normalizeStructuredSummaryPayload(data: unknown): StructuredSummary | n
     credibility_notes: cleanStringList(data.credibility_notes),
     role_scope: cleanString(data.role_scope),
     reusable_principles: cleanStringList(data.reusable_principles),
+    interview_supporting_details: cleanStringList(data.interview_supporting_details),
+    future_outlook_notes: cleanStringList(data.future_outlook_notes),
+    backstory_notes: cleanStringList(data.backstory_notes),
   };
 }
 
@@ -91,12 +95,14 @@ function buildFallbackSummary(messages: Message[]): LegacySummary {
 
 async function requestStructuredSummary(
   gakuchikaTitle: string,
+  draftText: string,
   messages: Message[]
 ): Promise<StructuredSummary | null> {
-  const response = await fetch(`${FASTAPI_URL}/api/gakuchika/structured-summary`, {
+  const response = await fetchFastApiInternal("/api/gakuchika/structured-summary", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      draft_text: draftText,
       conversation_history: messages.map((message) => ({
         role: message.role,
         content: message.content,
@@ -114,10 +120,11 @@ async function requestStructuredSummary(
 
 export async function generateGakuchikaSummary(
   gakuchikaTitle: string,
+  draftText: string,
   messages: Message[]
 ): Promise<GakuchikaSummary> {
   try {
-    const structured = await requestStructuredSummary(gakuchikaTitle, messages);
+    const structured = await requestStructuredSummary(gakuchikaTitle, draftText, messages);
     if (structured) {
       return structured;
     }
@@ -131,9 +138,10 @@ export async function generateGakuchikaSummary(
 export async function persistGakuchikaSummary(
   gakuchikaId: string,
   gakuchikaTitle: string,
+  draftText: string,
   messages: Message[]
 ): Promise<GakuchikaSummary> {
-  const summary = await generateGakuchikaSummary(gakuchikaTitle, messages);
+  const summary = await generateGakuchikaSummary(gakuchikaTitle, draftText, messages);
 
   await db
     .update(gakuchikaContents)

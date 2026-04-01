@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useCalendarSettings } from "@/hooks/useCalendar";
-import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { getUserFacingErrorMessage, parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import { notifySuccess } from "@/lib/notifications";
 
 interface GoogleCalendar {
@@ -166,7 +166,10 @@ export default function CalendarSettingsPage() {
       await updateSettings(payload);
       notifySuccess({ title: "カレンダー設定を保存しました" });
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "保存に失敗しました");
+      setSaveError(getUserFacingErrorMessage(err, {
+        code: "CALENDAR_SETTINGS_SAVE_FAILED",
+        userMessage: "設定を保存できませんでした。",
+      }, "CalendarSettingsPage:save"));
     } finally {
       setIsSaving(false);
     }
@@ -192,7 +195,10 @@ export default function CalendarSettingsPage() {
       });
       notifySuccess({ title: "Googleカレンダー設定を保存しました" });
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Googleカレンダー設定の保存に失敗しました");
+      setSaveError(getUserFacingErrorMessage(err, {
+        code: "CALENDAR_SETTINGS_GOOGLE_SAVE_FAILED",
+        userMessage: "Googleカレンダー設定を保存できませんでした。",
+      }, "CalendarSettingsPage:saveGoogleSettings"));
     } finally {
       setIsSaving(false);
     }

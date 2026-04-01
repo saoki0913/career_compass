@@ -11,6 +11,7 @@ import {
   UpdateDeadlineInput,
   DEADLINE_TYPE_LABELS,
 } from "@/hooks/useCompanyDeadlines";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 
 interface DeadlineFormProps {
   deadline?: Deadline;
@@ -84,7 +85,10 @@ export function DeadlineForm({
     try {
       await onSubmit(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "エラーが発生しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "DEADLINE_FORM_SUBMIT_FAILED",
+        userMessage: "締切を保存できませんでした。",
+      }, "DeadlineForm:submit"));
     }
   };
 

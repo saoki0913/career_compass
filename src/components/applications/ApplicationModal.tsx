@@ -17,6 +17,7 @@ import {
 import { SubmissionsList } from "@/components/submissions/SubmissionsList";
 import { cn } from "@/lib/utils";
 import { notifySuccess } from "@/lib/notifications";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 
 interface ApplicationModalProps {
   isOpen: boolean;
@@ -138,7 +139,10 @@ export function ApplicationModal({
       notifySuccess({ title: isEditing ? "応募枠を保存しました" : "応募枠を追加しました" });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "エラーが発生しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "APPLICATION_MODAL_SUBMIT_FAILED",
+        userMessage: "応募情報を保存できませんでした。",
+      }, "ApplicationModal:submit"));
     } finally {
       setIsSubmitting(false);
     }
@@ -153,7 +157,10 @@ export function ApplicationModal({
       notifySuccess({ title: "応募枠を削除しました" });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "削除に失敗しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "APPLICATION_MODAL_DELETE_FAILED",
+        userMessage: "応募情報を削除できませんでした。",
+      }, "ApplicationModal:delete"));
     } finally {
       setIsDeleting(false);
     }

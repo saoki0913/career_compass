@@ -6,11 +6,11 @@ import {
 } from "@/components/ui/skeleton";
 
 /**
- * ガクチカ深掘り会話画面（`/gakuchika/[id]`）のローディング用。
- * `DashboardHeader` の直下に置く — コンパクトバー（STAR 帯）＋チャット＋入力の骨格に合わせる。
+ * ガクチカ作成会話画面（`/gakuchika/[id]`）のローディング用。
+ * コンパクトバー（STAR 帯）＋チャット＋入力の骨格。グローバル `DashboardHeader` は `loading.tsx` 等で別途表示する。
  */
 export function GakuchikaDeepDiveSkeleton({
-  accent = "深掘り会話を読み込んでいます",
+  accent = "ガクチカ作成の会話を読み込んでいます",
 }: {
   accent?: string;
 }) {

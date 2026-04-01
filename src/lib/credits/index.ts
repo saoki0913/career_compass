@@ -22,35 +22,59 @@ export const PLAN_CREDITS = {
 } as const;
 
 export type PlanType = "guest" | "free" | "standard" | "pro";
-export type TransactionType = "monthly_grant" | "plan_change" | "company_fetch" | "es_review" | "gakuchika" | "gakuchika_draft" | "motivation" | "motivation_draft" | "refund";
+export type TransactionType =
+  | "monthly_grant"
+  | "plan_change"
+  | "company_fetch"
+  | "es_review"
+  | "gakuchika"
+  | "gakuchika_draft"
+  | "motivation"
+  | "motivation_draft"
+  | "interview_feedback"
+  | "refund";
+
+export const DEFAULT_INTERVIEW_SESSION_CREDIT_COST = 6;
 
 /**
  * Get the current date in JST (YYYY-MM-DD format)
  */
 export function getJSTDateString(): string {
-  const now = new Date();
-  const jstOffset = 9 * 60; // JST is UTC+9
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const jst = new Date(utc + (jstOffset * 60000));
+  const jst = new Date(Date.now() + (9 * 60 * 60 * 1000));
   return jst.toISOString().split("T")[0];
 }
 
 /**
- * Get the next monthly reset date based on the last reset date
+ * Get the current JST month key (YYYY-MM)
  */
-export function getNextResetDate(lastResetAt: Date): Date {
-  const next = new Date(lastResetAt);
-  next.setMonth(next.getMonth() + 1);
-  return next;
+export function getJSTMonthKey(date: Date = new Date()): string {
+  const jst = new Date(date.getTime() + (9 * 60 * 60 * 1000));
+  return jst.toISOString().slice(0, 7);
+}
+
+/**
+ * Get the next monthly reset date based on JST month boundaries.
+ */
+export function getNextResetDate(referenceDate: Date = new Date()): Date {
+  const jstOffsetMs = 9 * 60 * 60 * 1000;
+  const jstReference = new Date(referenceDate.getTime() + jstOffsetMs);
+  const nextMonthStartUtc = Date.UTC(
+    jstReference.getUTCFullYear(),
+    jstReference.getUTCMonth() + 1,
+    1,
+    0,
+    0,
+    0,
+    0
+  );
+  return new Date(nextMonthStartUtc - jstOffsetMs);
 }
 
 /**
  * Check if monthly credits should be granted
  */
 export function shouldGrantMonthlyCredits(lastResetAt: Date): boolean {
-  const now = new Date();
-  const nextReset = getNextResetDate(lastResetAt);
-  return now >= nextReset;
+  return getJSTMonthKey(lastResetAt) !== getJSTMonthKey(new Date());
 }
 
 /**

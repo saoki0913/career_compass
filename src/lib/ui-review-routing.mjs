@@ -50,6 +50,36 @@ const PUBLIC_MARKETING_ROUTES = [
 ];
 
 const PUBLIC_ROUTE_PREFIXES = ["/pricing/", "/tools/", "/templates/"];
+const MOCK_AUTH_ROUTE_PREFIXES = [
+  "/companies/ui-review-company/motivation",
+  "/companies/ui-review-company/interview",
+];
+const MOCK_AUTH_ROUTES = new Set([
+  "/dashboard",
+  "/gakuchika",
+  "/tasks",
+  "/calendar",
+  "/notifications",
+  "/companies",
+  "/companies/new",
+  "/es",
+  "/settings",
+  "/profile",
+  "/search",
+]);
+const COMPONENT_ROUTE_OVERRIDES = [
+  { pattern: /^src\/components\/calendar\//, route: "/calendar", kind: "product" },
+  { pattern: /^src\/components\/companies\//, route: "/companies", kind: "product" },
+  { pattern: /^src\/components\/dashboard\//, route: "/dashboard", kind: "product" },
+  { pattern: /^src\/components\/es\//, route: "/es", kind: "product" },
+  { pattern: /^src\/components\/gakuchika\//, route: "/gakuchika", kind: "product" },
+  { pattern: /^src\/components\/notifications\//, route: "/notifications", kind: "product" },
+  { pattern: /^src\/components\/profile\//, route: "/profile", kind: "product" },
+  { pattern: /^src\/components\/search\//, route: "/search", kind: "product" },
+  { pattern: /^src\/components\/settings\//, route: "/settings", kind: "product" },
+  { pattern: /^src\/components\/tasks\//, route: "/tasks", kind: "product" },
+  { pattern: /^src\/components\/tools\//, route: "/tools", kind: "public" },
+];
 
 function uniqueStrings(values) {
   return [...new Set(values.filter(Boolean))];
@@ -108,7 +138,21 @@ export function normalizeReviewRoute(route) {
 }
 
 export function classifyUiReviewAuthMode(routes) {
-  return routes.some((route) => isProductReviewRoute(route)) ? "guest" : "none";
+  const normalizedRoutes = uniqueStrings(routes.map(normalizeReviewRoute));
+  const hasProductRoute = normalizedRoutes.some((route) => isProductReviewRoute(route));
+  const allProductRoutesSupportMock =
+    hasProductRoute &&
+    normalizedRoutes
+      .filter((route) => isProductReviewRoute(route))
+      .every((route) =>
+        MOCK_AUTH_ROUTES.has(route) || MOCK_AUTH_ROUTE_PREFIXES.some((prefix) => route.startsWith(prefix))
+      );
+
+  if (allProductRoutesSupportMock) {
+    return "mock";
+  }
+
+  return hasProductRoute ? "guest" : "none";
 }
 
 export function resolveUiReviewRoutes({
@@ -231,6 +275,14 @@ function resolveRoutesForFile(filePath) {
     return null;
   }
 
+  if (/^src\/app\/\(product\)\/companies\/\[id\]\/motivation\//.test(normalized)) {
+    return { routes: ["/companies/ui-review-company/motivation"], kind: "product", shared: false };
+  }
+
+  if (/^src\/app\/\(product\)\/companies\/\[id\]\/interview\//.test(normalized)) {
+    return { routes: ["/companies/ui-review-company/interview"], kind: "product", shared: false };
+  }
+
   if (/^src\/app\/\(marketing\)\/page\.tsx$/.test(normalized)) {
     return { routes: ["/"], kind: "public", shared: false };
   }
@@ -256,6 +308,15 @@ function resolveRoutesForFile(filePath) {
     if (derived) {
       return { routes: [derived], kind: isPublicRoute(derived) ? "public" : "product", shared: false };
     }
+  }
+
+  const componentOverride = COMPONENT_ROUTE_OVERRIDES.find(({ pattern }) => pattern.test(normalized));
+  if (componentOverride) {
+    return {
+      routes: [componentOverride.route],
+      kind: componentOverride.kind,
+      shared: false,
+    };
   }
 
   if (/^src\/components\//.test(normalized)) {

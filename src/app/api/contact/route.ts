@@ -10,6 +10,7 @@ import { contactMessages } from "@/lib/db/schema";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { CSRF_COOKIE_NAME } from "@/lib/csrf";
 import { parseBody, contactSchema } from "@/lib/validation";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 import { logError } from "@/lib/logger";
@@ -26,8 +27,12 @@ function getClientIp(request: NextRequest): string | null {
 export async function POST(request: NextRequest) {
   try {
     // Rate limit by IP to prevent spam
-    const ip = getClientIp(request) || "unknown";
-    const rateLimitKey = createRateLimitKey("contact", null, ip);
+    const rateLimitPrincipal =
+      request.cookies.get(CSRF_COOKIE_NAME)?.value ||
+      getClientIp(request) ||
+      "unknown";
+    const ip = getClientIp(request) || null;
+    const rateLimitKey = createRateLimitKey("contact", null, rateLimitPrincipal);
     const rateLimit = await checkRateLimit(rateLimitKey, RATE_LIMITS.contact);
     if (!rateLimit.allowed) {
       const response = createApiErrorResponse(request, {
@@ -66,7 +71,7 @@ export async function POST(request: NextRequest) {
       subject: subject ?? null,
       message,
       userId,
-      ipAddress: ip === "unknown" ? null : ip,
+      ipAddress: ip,
       userAgent: request.headers.get("user-agent"),
       createdAt: now,
     });

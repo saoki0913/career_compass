@@ -37,10 +37,9 @@ import {
   STATUS_POLL_RATE_LAYERS,
   enforceRateLimitLayers,
 } from "@/lib/rate-limit-spike";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 // FastAPI backend URL
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
-
 interface CrawlResult {
   success: boolean;
   company_id: string;
@@ -202,7 +201,7 @@ export async function POST(
     // Call FastAPI backend to crawl pages
     let crawlResult: CrawlResult;
     try {
-    const response = await fetch(`${BACKEND_URL}/company-info/rag/crawl-corporate`, {
+    const response = await fetchFastApiInternal("/company-info/rag/crawl-corporate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -429,8 +428,8 @@ export async function GET(
     };
 
     try {
-      const response = await fetch(
-        `${BACKEND_URL}/company-info/rag/status-detailed/${companyId}`
+      const response = await fetchFastApiInternal(
+        `/company-info/rag/status-detailed/${companyId}`
       );
       if (response.ok) {
         ragStatus = await response.json();

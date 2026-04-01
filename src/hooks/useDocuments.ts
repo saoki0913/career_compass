@@ -5,7 +5,6 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { trackEvent } from "@/lib/analytics/client";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import type { EsDocumentCategory } from "@/lib/es-document-category";
@@ -76,20 +75,9 @@ export interface UpdateDocumentInput {
 }
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore errors
-    }
-  }
-  return headers;
 }
 
 export interface UseDocumentsOptions {
@@ -168,7 +156,7 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
   }, [fetchDocuments]);
 
   const createDocument = useCallback(
-    async (input: CreateDocumentInput): Promise<Document | null> => {
+    async (input: CreateDocumentInput): Promise<Document> => {
       try {
         const response = await fetch("/api/documents", {
           method: "POST",
@@ -208,14 +196,14 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
           "useDocuments.create"
         );
         setError(uiError.message);
-        return null;
+        throw uiError;
       }
     },
     [fetchDocuments]
   );
 
   const deleteDocument = useCallback(
-    async (documentId: string): Promise<boolean> => {
+    async (documentId: string): Promise<void> => {
       try {
         const response = await fetch(`/api/documents/${documentId}`, {
           method: "DELETE",
@@ -237,7 +225,6 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         }
 
         await fetchDocuments();
-        return true;
       } catch (err) {
         const uiError = toAppUiError(
           err,
@@ -250,14 +237,14 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
           "useDocuments.delete"
         );
         setError(uiError.message);
-        return false;
+        throw uiError;
       }
     },
     [fetchDocuments]
   );
 
   const updateDocument = useCallback(
-    async (documentId: string, input: UpdateDocumentInput): Promise<boolean> => {
+    async (documentId: string, input: UpdateDocumentInput): Promise<void> => {
       try {
         const response = await fetch(`/api/documents/${documentId}`, {
           method: "PUT",
@@ -280,7 +267,6 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         }
 
         await fetchDocuments();
-        return true;
       } catch (err) {
         const uiError = toAppUiError(
           err,
@@ -293,14 +279,14 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
           "useDocuments.update"
         );
         setError(uiError.message);
-        return false;
+        throw uiError;
       }
     },
     [fetchDocuments]
   );
 
   const restoreDocument = useCallback(
-    async (documentId: string): Promise<boolean> => {
+    async (documentId: string): Promise<void> => {
       try {
         const response = await fetch(`/api/documents/${documentId}/restore`, {
           method: "POST",
@@ -322,7 +308,6 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         }
 
         await fetchDocuments();
-        return true;
       } catch (err) {
         const uiError = toAppUiError(
           err,
@@ -335,14 +320,14 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
           "useDocuments.restore"
         );
         setError(uiError.message);
-        return false;
+        throw uiError;
       }
     },
     [fetchDocuments]
   );
 
   const permanentlyDeleteDocument = useCallback(
-    async (documentId: string): Promise<boolean> => {
+    async (documentId: string): Promise<void> => {
       try {
         const response = await fetch(`/api/documents/${documentId}/permanent`, {
           method: "DELETE",
@@ -364,7 +349,6 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         }
 
         await fetchDocuments();
-        return true;
       } catch (err) {
         const uiError = toAppUiError(
           err,
@@ -377,7 +361,7 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
           "useDocuments.permanentDelete"
         );
         setError(uiError.message);
-        return false;
+        throw uiError;
       }
     },
     [fetchDocuments]

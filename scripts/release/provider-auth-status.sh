@@ -72,10 +72,23 @@ check_command() {
   report "OK" "$name" "$(first_nonempty_line "$output")"
 }
 
+check_command_passthrough() {
+  local name="$1"
+  shift
+
+  if ! "$@"; then
+    report "NG" "$name" "command failed"
+    mark_failure
+    return
+  fi
+
+  report "OK" "$name" "command succeeded"
+}
+
 echo "Provider auth status"
 echo
 
-check_command "GitHub" run_real gh auth status
+check_command_passthrough "GitHub" run_real gh auth status
 check_command "Vercel" run_real vercel whoami
 check_command "Railway" run_real railway whoami
 check_command "Supabase" run_real supabase projects list

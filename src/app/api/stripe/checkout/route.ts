@@ -14,6 +14,8 @@ import { subscriptions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getPriceId, type PlanType, type BillingPeriod } from "@/lib/stripe/config";
 import { getAppUrl } from "@/lib/app-url";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { logError } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,7 +25,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (!session?.user) {
-      return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
+      return createApiErrorResponse(req, {
+        status: 401,
+        code: "AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        developerMessage: "Authentication required",
+      });
     }
 
     const body = await req.json();
@@ -32,19 +39,24 @@ export async function POST(req: NextRequest) {
 
     // Validate plan
     if (!plan || !["standard", "pro"].includes(plan)) {
-      return NextResponse.json(
-        { error: "有効なプランを指定してください" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(req, {
+        status: 400,
+        code: "STRIPE_CHECKOUT_INVALID_PLAN",
+        userMessage: "プランの選択内容を確認してください。",
+        developerMessage: "Invalid plan selection",
+      });
     }
 
     // Get price ID
     const priceId = getPriceId(plan, period);
     if (!priceId) {
-      return NextResponse.json(
-        { error: "価格設定が見つかりません。管理者にお問い合わせください。" },
-        { status: 500 }
-      );
+      return createApiErrorResponse(req, {
+        status: 500,
+        code: "STRIPE_CHECKOUT_PRICE_NOT_FOUND",
+        userMessage: "プラン変更を開始できませんでした。",
+        action: "時間をおいて、もう一度お試しください。",
+        developerMessage: "Price ID not found for checkout",
+      });
     }
 
     // Get or create Stripe customer
@@ -104,10 +116,14 @@ export async function POST(req: NextRequest) {
       sessionId: checkoutSession.id,
     });
   } catch (error) {
-    console.error("Stripe checkout error:", error);
-    return NextResponse.json(
-      { error: "チェックアウトセッションの作成に失敗しました" },
-      { status: 500 }
-    );
+    logError("stripe-checkout", error);
+    return createApiErrorResponse(req, {
+      status: 500,
+      code: "STRIPE_CHECKOUT_CREATE_FAILED",
+      userMessage: "プラン変更を開始できませんでした。",
+      action: "時間をおいて、もう一度お試しください。",
+      developerMessage: "Failed to create Stripe checkout session",
+      error,
+    });
   }
 }

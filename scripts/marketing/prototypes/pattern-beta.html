@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>就活Pass - 就活を、AIと一緒に迷わず進める</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+        :root {
+            --color-primary: #2563EB;
+            --color-primary-dark: #1D4ED8;
+            --color-primary-light: #3B82F6;
+            --color-primary-50: #EFF6FF;
+            --color-accent: #F97316;
+            --color-accent-hover: #EA580C;
+            --color-bg: #F8FAFC;
+            --color-bg-alt: #F1F5F9;
+            --color-surface: #FFFFFF;
+            --color-text: #0F172A;
+            --color-text-muted: #475569;
+            --color-border: #E2E8F0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            color: var(--color-text);
+            background-color: var(--color-bg);
+            line-height: 1.75;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        h1, h2, h3, .heading-font {
+            font-family: 'Plus Jakarta Sans', 'Noto Sans JP', sans-serif;
+        }
+
+        h1 {
+            font-size: 3.25rem;
+            line-height: 1.1;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+
+        h2 {
+            font-size: 2.25rem;
+            line-height: 1.2;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+        }
+
+        h3 {
+            font-size: 1.375rem;
+            line-height: 1.3;
+            font-weight: 600;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2.25rem;
+            }
+            h2 {
+                font-size: 1.75rem;
+            }
+        }
+
+        /* Glassmorphism */
+        .glass {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(226, 232, 240, 0.5);
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        /* Decorative gradient blobs */
+        .blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .blob-blue {
+            background: rgba(37, 99, 235, 0.15);
+            width: 600px;
+            height: 600px;
+            top: -200px;
+            left: -100px;
+        }
+
+        .blob-indigo {
+            background: rgba(99, 102, 241, 0.1);
+            width: 500px;
+            height: 500px;
+            top: -150px;
+            right: -100px;
+        }
+
+        .blob-orange {
+            background: rgba(249, 115, 22, 0.08);
+            width: 400px;
+            height: 400px;
+            top: 300px;
+            right: 10%;
+        }
+
+        .blob-cta-1 {
+            background: rgba(255, 255, 255, 0.1);
+            width: 500px;
+            height: 500px;
+            top: -100px;
+            left: 10%;
+        }
+
+        .blob-cta-2 {
+            background: rgba(255, 255, 255, 0.08);
+            width: 400px;
+            height: 400px;
+            bottom: -100px;
+            right: 15%;
+        }
+
+        /* Scroll reveal animation */
+        .reveal {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+                        transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .reveal.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .reveal {
+                opacity: 1;
+                transform: none;
+                transition: none;
+            }
+        }
+
+        /* Gradient text */
+        .gradient-text {
+            background: linear-gradient(135deg, #2563EB 0%, #4F46E5 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Button styles */
+        .btn-primary {
+            background: linear-gradient(135deg, #2563EB 0%, #4F46E5 100%);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            font-size: 1.125rem;
+            box-shadow: 0 10px 40px -10px rgba(37, 99, 235, 0.25);
+            transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+            cursor: pointer;
+            border: none;
+            display: inline-block;
+            text-decoration: none;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 50px -10px rgba(37, 99, 235, 0.35);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: var(--color-primary);
+            padding: 1rem 2rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            font-size: 1.125rem;
+            border: 1px solid var(--color-border);
+            transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+            cursor: pointer;
+            display: inline-block;
+            text-decoration: none;
+        }
+
+        .btn-secondary:hover {
+            background: var(--color-bg-alt);
+        }
+
+        .btn-accent {
+            background: var(--color-accent);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            font-size: 1.125rem;
+            box-shadow: 0 10px 40px -10px rgba(249, 115, 22, 0.3);
+            transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+            cursor: pointer;
+            border: none;
+            display: inline-block;
+            text-decoration: none;
+        }
+
+        .btn-accent:hover {
+            background: var(--color-accent-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 20px 50px -10px rgba(249, 115, 22, 0.4);
+        }
+
+        /* Card hover effects */
+        .card-hover {
+            transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .card-hover:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px -10px rgba(37, 99, 235, 0.1);
+        }
+
+        /* FAQ accordion */
+        .faq-answer {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+                        padding-top 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .faq-answer.open {
+            max-height: 500px;
+            padding-top: 1rem;
+        }
+
+        .faq-icon {
+            transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .faq-icon.rotate {
+            transform: rotate(180deg);
+        }
+
+        /* Grid pattern for CTA */
+        .grid-pattern {
+            background-image: repeating-linear-gradient(
+                0deg,
+                rgba(255, 255, 255, 0.03) 0px,
+                transparent 1px,
+                transparent 40px,
+                rgba(255, 255, 255, 0.03) 41px
+            ),
+            repeating-linear-gradient(
+                90deg,
+                rgba(255, 255, 255, 0.03) 0px,
+                transparent 1px,
+                transparent 40px,
+                rgba(255, 255, 255, 0.03) 41px
+            );
+        }
+
+        /* Connecting lines for steps */
+        .step-connector {
+            position: relative;
+        }
+
+        .step-connector::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            right: -2rem;
+            width: 4rem;
+            height: 2px;
+            background: linear-gradient(90deg, #93C5FD 0%, transparent 100%);
+            border-top: 2px dashed #93C5FD;
+        }
+
+        @media (max-width: 1024px) {
+            .step-connector::after {
+                display: none;
+            }
+        }
+
+        /* Popular badge */
+        .popular-badge {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, #2563EB 0%, #4F46E5 100%);
+            color: white;
+            padding: 0.375rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+
+        /* Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 1.5rem;
+        }
+
+        .container-narrow {
+            max-width: 768px;
+            margin: 0 auto;
+            padding: 0 1.5rem;
+        }
+
+        .container-wide {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 1.5rem;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- HEADER -->
+    <header class="fixed top-4 left-6 right-6 z-50 glass rounded-2xl" style="height: 56px; box-shadow: 0 4px 30px rgba(0,0,0,0.05);">
+        <div class="container-wide h-full flex items-center justify-between">
+            <div class="gradient-text heading-font text-xl font-bold">就活Pass</div>
+
+            <nav class="hidden md:flex items-center gap-8">
+                <a href="#features" class="text-slate-600 hover:text-blue-600 font-medium transition-colors" style="font-size: 0.9375rem;">機能</a>
+                <a href="#how-it-works" class="text-slate-600 hover:text-blue-600 font-medium transition-colors" style="font-size: 0.9375rem;">使い方</a>
+                <a href="#pricing" class="text-slate-600 hover:text-blue-600 font-medium transition-colors" style="font-size: 0.9375rem;">料金</a>
+                <a href="#faq" class="text-slate-600 hover:text-blue-600 font-medium transition-colors" style="font-size: 0.9375rem;">FAQ</a>
+            </nav>
+
+            <div>
+                <a href="#pricing" class="btn-primary" style="padding: 0.625rem 1.5rem; font-size: 0.9375rem;">無料で始める</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- HERO -->
+    <section class="relative overflow-hidden" style="padding-top: 8rem; padding-bottom: 4rem;">
+        <!-- Decorative blobs -->
+        <div class="blob blob-blue"></div>
+        <div class="blob blob-indigo"></div>
+        <div class="blob blob-orange"></div>
+
+        <div class="container relative z-10">
+            <div class="text-center reveal">
+                <!-- Pre-headline badge -->
+                <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-6" style="background: linear-gradient(135deg, #EFF6FF 0%, #EEF2FF 100%); border: 1px solid rgba(37, 99, 235, 0.2);">
+                    <span class="text-blue-700 font-medium" style="font-size: 0.875rem;">ES添削 × AI × 企業管理 をひとつに</span>
+                </div>
+
+                <!-- Main headline -->
+                <h1 class="mb-6 text-slate-900" style="letter-spacing: -0.02em;">
+                    就活を、AIと一緒に<br>迷わず進める。
+                </h1>
+
+                <!-- Subtext -->
+                <p class="text-slate-500 mb-8 mx-auto" style="max-width: 640px; font-size: 1.1rem; line-height: 1.8;">
+                    エントリーシート（ES）の添削・就活AIで文章を整えつつ、<br class="hidden md:block">
+                    志望動機・ガクチカの整理、企業・締切管理を一つの流れで進められます。
+                </p>
+
+                <!-- CTAs -->
+                <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
+                    <a href="#pricing" class="btn-primary">無料で始める</a>
+                    <a href="#pricing" class="btn-secondary">料金プランを見る</a>
+                </div>
+
+                <!-- Trust badges -->
+                <div class="flex flex-wrap items-center justify-center gap-6 text-slate-500" style="font-size: 0.9rem;">
+                    <div class="flex items-center gap-2">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                        <span>全日本の大学対応</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                        <span>クレジットカード不要</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                        <span>Googleカレンダー連携</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Screenshot -->
+            <div class="mt-16 reveal" style="transition-delay: 0.2s;">
+                <div class="mx-auto glass-card rounded-2xl p-2 shadow-2xl" style="max-width: 1100px;">
+                    <!-- Browser chrome -->
+                    <div class="flex items-center gap-2 px-4 py-3 border-b" style="border-color: rgba(226, 232, 240, 0.5); background: rgba(241, 245, 249, 0.5);">
+                        <div class="w-3 h-3 rounded-full" style="background: #FF5F56;"></div>
+                        <div class="w-3 h-3 rounded-full" style="background: #FFBD2E;"></div>
+                        <div class="w-3 h-3 rounded-full" style="background: #27C93F;"></div>
+                    </div>
+                    <!-- Screenshot placeholder -->
+                    <div class="bg-slate-100 rounded-b-xl flex items-center justify-center text-slate-400 font-medium" style="aspect-ratio: 16/10; font-size: 0.875rem;">
+                        就活Pass - Dashboard スクリーンショット
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- BENEFIT STRIP -->
+    <section class="bg-white border-t" style="border-color: var(--color-border); padding: 4rem 0;">
+        <div class="container">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Benefit 1 -->
+                <div class="bg-slate-50/50 rounded-xl p-6 card-hover reveal">
+                    <div class="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mb-4">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600">
+                            <path d="M12 20h9"></path>
+                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-slate-900 mb-2 heading-font" style="font-size: 1.1rem;">迷わず進める</h3>
+                    <p class="text-slate-500" style="font-size: 0.875rem; line-height: 1.7;">今やることが見える状態を<br>AIが一緒に作ります。</p>
+                </div>
+
+                <!-- Benefit 2 -->
+                <div class="bg-slate-50/50 rounded-xl p-6 card-hover reveal" style="transition-delay: 0.1s;">
+                    <div class="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-600">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                    </div>
+                    <h3 class="text-slate-900 mb-2 heading-font" style="font-size: 1.1rem;">締切を見逃さない</h3>
+                    <p class="text-slate-500" style="font-size: 0.875rem; line-height: 1.7;">企業・締切を一元管理し、<br>リマインダーが届きます。</p>
+                </div>
+
+                <!-- Benefit 3 -->
+                <div class="bg-slate-50/50 rounded-xl p-6 card-hover reveal" style="transition-delay: 0.2s;">
+                    <div class="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mb-4">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600">
+                            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
+                            <polyline points="16 7 22 7 22 13"></polyline>
+                        </svg>
+                    </div>
+                    <h3 class="text-slate-900 mb-2 heading-font" style="font-size: 1.1rem;">ES品質向上</h3>
+                    <p class="text-slate-500" style="font-size: 0.875rem; line-height: 1.7;">設問タイプごとに8つの<br>スタイルでAI添削。</p>
+                </div>
+
+                <!-- Benefit 4 -->
+                <div class="bg-slate-50/50 rounded-xl p-6 card-hover reveal" style="transition-delay: 0.3s;">
+                    <div class="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-600">
+                            <line x1="12" y1="1" x2="12" y2="23"></line>
+                            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-slate-900 mb-2 heading-font" style="font-size: 1.1rem;">月¥1,480から</h3>
+                    <p class="text-slate-500" style="font-size: 0.875rem; line-height: 1.7;">無料の30クレジットから<br>始められます。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- PRODUCT SHOWCASE -->
+    <section id="features" class="relative" style="background: linear-gradient(180deg, #F8FAFC 0%, #FFFFFF 100%); padding: 6rem 0;">
+        <div class="container">
+            <!-- Section label -->
+            <div class="text-center mb-4 reveal">
+                <div class="inline-flex items-center px-4 py-1.5 rounded-full" style="background: rgba(37, 99, 235, 0.1); border: 1px solid rgba(37, 99, 235, 0.2);">
+                    <span class="text-blue-700 font-semibold heading-font" style="font-size: 0.75rem; letter-spacing: 0.05em;">FEATURES</span>
+                </div>
+            </div>
+
+            <!-- Headline -->
+            <div class="text-center mb-6 reveal">
+                <h2 class="text-slate-900 mb-4">書くことも、管理することも、<br>同じ流れで進める。</h2>
+                <p class="text-slate-500 mx-auto" style="max-width: 600px; font-size: 1.0625rem;">
+                    ES添削、志望動機、ガクチカの整理から企業・締切管理まで、<br class="hidden md:block">
+                    就活に必要な機能を一つの場所に集約しました。
+                </p>
+            </div>
+
+            <!-- Feature 1: Text left, Screenshot right -->
+            <div class="mt-20 reveal">
+                <div class="flex flex-col lg:flex-row items-center gap-12">
+                    <div class="flex-1">
+                        <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-6" style="background: linear-gradient(135deg, #2563EB 0%, #4F46E5 100%);">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 20h9"></path>
+                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                            </svg>
+                        </div>
+                        <h3 class="text-slate-900 mb-4 heading-font" style="font-size: 1.5rem;">書くことを、AIの同じ画面で<br>前に進める。</h3>
+                        <p class="text-slate-600 mb-6" style="line-height: 1.8;">
+                            エントリーシート（ES）の添削は、設問タイプ（志望動機、自己PR、ガクチカなど）に応じて最適なスタイルを選択。書き手の原稿と添削結果を並べて表示し、自然な改善ヒントを提供します。
+                        </p>
+                        <ul class="space-y-3">
+                            <li class="flex items-start gap-3">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-blue-600 mt-0.5 flex-shrink-0">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                    <polyline points="22 4 12 14.01 9 11.01" fill="none" stroke="white" stroke-width="2"></polyline>
+                                </svg>
+                                <span class="text-slate-600">設問別の添削（志望動機、自己PR、ガクチカ、価値観など）</span>
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-blue-600 mt-0.5 flex-shrink-0">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                    <polyline points="22 4 12 14.01 9 11.01" fill="none" stroke="white" stroke-width="2"></polyline>
+                                </svg>
+                                <span class="text-slate-600">書き手と添削を並びで表示し、変更点を確認しやすく</span>
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-blue-600 mt-0.5 flex-shrink-0">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                    <polyline points="22 4 12 14.01 9 11.01" fill="none" stroke="white" stroke-width="2"></polyline>
+                                </svg>
+                                <span class="text-slate-600">自然な改善ヒントを提示し、次の書き直しに活かせる</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="flex-1">
+                        <div class="glass-card rounded-2xl p-2 shadow-xl">
+                            <div class="bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 font-medium" style="aspect-ratio: 4/3; font-size: 0.875rem;">
+                                ES添削画面のスクリーンショット
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Feature 2: Screenshot left, Text right -->
+            <div class="mt-32 reveal">
+                <div class="flex flex-col lg:flex-row-reverse items-center gap-12">
+                    <div class="flex-1">
+                        <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-6" style="background: linear-gradient(135deg, #4F46E5 0%, #6366F1 100%);">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="9" y1="3" x2="9" y2="21"></line>
+                            </svg>
+                        </div>
+                        <h3 class="text-slate-900 mb-4 heading-font" style="font-size: 1.5rem;">就活全体を、これ一つで<br>見渡せる状態にする。</h3>
+                        <p class="text-slate-600 mb-6" style="line-height: 1.8;">
+                            企業ごとの応募状態、ES提出締切、選考ステップを一元管理。月表示・日表示・リスト表示を切り替えて、今やるべきことを見逃さずに進められます。Googleカレンダーとの連携で、スケジュールも自動で整理されます。
+                        </p>
+                        <ul class="space-y-3">
+                            <li class="flex items-start gap-3">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-indigo-600 mt-0.5 flex-shrink-0">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                    <polyline points="22 4 12 14.01 9 11.01" fill="none" stroke="white" stroke-width="2"></polyline>
+                                </svg>
+                                <span class="text-slate-600">企業ごとの状態管理（書類選考、面接、内定など）</span>
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-indigo-600 mt-0.5 flex-shrink-0">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                    <polyline points="22 4 12 14.01 9 11.01" fill="none" stroke="white" stroke-width="2"></polyline>
+                                </svg>
+                                <span class="text-slate-600">締切の自動表示と通知で、提出忘れを防ぐ</span>
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-indigo-600 mt-0.5 flex-shrink-0">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                    <polyline points="22 4 12 14.01 9 11.01" fill="none" stroke="white" stroke-width="2"></polyline>
+                                </svg>
+                                <span class="text-slate-600">月/日/リスト形式のダッシュボードで全体を把握</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="flex-1">
+                        <div class="glass-card rounded-2xl p-2 shadow-xl">
+                            <div class="bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 font-medium" style="aspect-ratio: 4/3; font-size: 0.875rem;">
+                                企業管理ダッシュボードのスクリーンショット
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section id="how-it-works" class="bg-white" style="padding: 6rem 0;">
+        <div class="container">
+            <!-- Section label -->
+            <div class="text-center mb-4 reveal">
+                <div class="inline-flex items-center px-4 py-1.5 rounded-full" style="background: rgba(37, 99, 235, 0.1); border: 1px solid rgba(37, 99, 235, 0.2);">
+                    <span class="text-blue-700 font-semibold heading-font" style="font-size: 0.75rem; letter-spacing: 0.05em;">HOW IT WORKS</span>
+                </div>
+            </div>
+
+            <!-- Headline -->
+            <div class="text-center mb-16 reveal">
+                <h2 class="text-slate-900 mb-4">3ステップで、すぐに始められます。</h2>
+                <p class="text-slate-500 mx-auto" style="max-width: 600px; font-size: 1.0625rem;">
+                    アカウント作成から実際の添削開始まで、<br class="hidden md:block">
+                    最短30秒で就活管理をスタートできます。
+                </p>
+            </div>
+
+            <!-- Steps -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12">
+                <!-- Step 1 -->
+                <div class="bg-white rounded-2xl shadow-lg border p-8 reveal step-connector" style="border-color: #F1F5F9; box-shadow: 0 10px 30px -5px rgba(100, 116, 139, 0.1);">
+                    <div class="relative mb-6">
+                        <div class="heading-font gradient-text" style="font-size: 3rem; font-weight: 800; opacity: 0.15;">01</div>
+                    </div>
+                    <h3 class="text-slate-900 mb-3 heading-font">アカウント作成</h3>
+                    <p class="text-slate-600" style="line-height: 1.7;">
+                        Googleアカウントで30秒で登録。<br>
+                        クレジットカード不要で始められます。
+                    </p>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="bg-white rounded-2xl shadow-lg border p-8 reveal step-connector" style="border-color: #F1F5F9; box-shadow: 0 10px 30px -5px rgba(100, 116, 139, 0.1); transition-delay: 0.1s;">
+                    <div class="relative mb-6">
+                        <div class="heading-font gradient-text" style="font-size: 3rem; font-weight: 800; opacity: 0.15;">02</div>
+                    </div>
+                    <h3 class="text-slate-900 mb-3 heading-font">企業を登録</h3>
+                    <p class="text-slate-600" style="line-height: 1.7;">
+                        志望企業を登録して、ES添削、企業情報、<br>
+                        締切管理をスタート。
+                    </p>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="bg-white rounded-2xl shadow-lg border p-8 reveal" style="border-color: #F1F5F9; box-shadow: 0 10px 30px -5px rgba(100, 116, 139, 0.1); transition-delay: 0.2s;">
+                    <div class="relative mb-6">
+                        <div class="heading-font gradient-text" style="font-size: 3rem; font-weight: 800; opacity: 0.15;">03</div>
+                    </div>
+                    <h3 class="text-slate-900 mb-3 heading-font">AIと一緒に進める</h3>
+                    <p class="text-slate-600" style="line-height: 1.7;">
+                        ES添削、志望動機の深掘り、<br>
+                        ガクチカ整理をAIがサポート。
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- PRICING -->
+    <section id="pricing" class="relative" style="background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%); padding: 6rem 0;">
+        <div class="container">
+            <!-- Section label -->
+            <div class="text-center mb-4 reveal">
+                <div class="inline-flex items-center px-4 py-1.5 rounded-full" style="background: rgba(37, 99, 235, 0.1); border: 1px solid rgba(37, 99, 235, 0.2);">
+                    <span class="text-blue-700 font-semibold heading-font" style="font-size: 0.75rem; letter-spacing: 0.05em;">PRICING</span>
+                </div>
+            </div>
+
+            <!-- Headline -->
+            <div class="text-center mb-6 reveal">
+                <h2 class="text-slate-900 mb-4">無料で始めて、必要なぶんだけ広げる。</h2>
+                <p class="text-slate-500 mx-auto" style="max-width: 640px; font-size: 1.0625rem;">
+                    まずは無料プランで全体を試してから。<br class="hidden md:block">
+                    必要になったらStandard や Pro に切り替えられます。
+                </p>
+            </div>
+
+            <!-- Pricing cards -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-12">
+                <!-- Free Plan -->
+                <div class="bg-white rounded-2xl border p-8 reveal" style="border-color: var(--color-border);">
+                    <div class="mb-6">
+                        <div class="text-slate-600 font-semibold mb-2 heading-font">Free</div>
+                        <div class="flex items-baseline gap-1 mb-2">
+                            <span class="heading-font" style="font-size: 3rem; font-weight: 700; color: var(--color-text);">¥0</span>
+                        </div>
+                        <p class="text-slate-500" style="font-size: 0.875rem;">基本機能を試したい方に</p>
+                    </div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">月30クレジット</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">企業登録 5社まで</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">AI添削（GPT-5.4 mini固定）</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">ES添削スタイル 3種</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">ガクチカ素材 3件まで</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">選考スケジュール 月5回</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">企業情報の自動整理 月10ページ</span>
+                        </li>
+                    </ul>
+                    <a href="#" class="block w-full text-center py-3 rounded-xl border font-semibold transition-colors" style="border-color: var(--color-primary); color: var(--color-primary); background: white;">
+                        無料で始める
+                    </a>
+                </div>
+
+                <!-- Standard Plan (Popular) -->
+                <div class="bg-white rounded-2xl border-2 p-8 reveal relative" style="border-color: var(--color-primary); box-shadow: 0 20px 40px -10px rgba(37, 99, 235, 0.15); transition-delay: 0.1s;">
+                    <div class="popular-badge">最も人気</div>
+                    <div class="mb-6">
+                        <div class="text-slate-600 font-semibold mb-2 heading-font">Standard</div>
+                        <div class="flex items-baseline gap-1 mb-1">
+                            <span class="heading-font" style="font-size: 3rem; font-weight: 700; color: var(--color-text);">¥1,480</span>
+                            <span class="text-slate-500" style="font-size: 1.125rem;">/月</span>
+                        </div>
+                        <p class="text-slate-400 mb-2" style="font-size: 0.8125rem;">1日わずか¥49</p>
+                        <p class="text-slate-600" style="font-size: 0.875rem;">就活を継続的に進めたい方に</p>
+                    </div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-blue-600 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01" fill="none" stroke="white" stroke-width="2"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">月100クレジット</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-blue-600 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01" fill="none" stroke="white" stroke-width="2"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">企業登録 無制限</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-blue-600 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01" fill="none" stroke="white" stroke-width="2"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">全8スタイルでES添削</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-blue-600 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01" fill="none" stroke="white" stroke-width="2"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">ガクチカ素材 10件まで</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-blue-600 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01" fill="none" stroke="white" stroke-width="2"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">選考スケジュール 月50回</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-blue-600 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01" fill="none" stroke="white" stroke-width="2"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">企業情報の自動整理 月100ページ</span>
+                        </li>
+                    </ul>
+                    <a href="#" class="block w-full text-center py-3 rounded-xl font-semibold transition-all" style="background: linear-gradient(135deg, #2563EB 0%, #4F46E5 100%); color: white; box-shadow: 0 10px 30px -5px rgba(37, 99, 235, 0.3);">
+                        Standardで始める
+                    </a>
+                </div>
+
+                <!-- Pro Plan -->
+                <div class="bg-white rounded-2xl border p-8 reveal" style="border-color: var(--color-border); transition-delay: 0.2s;">
+                    <div class="mb-6">
+                        <div class="text-slate-600 font-semibold mb-2 heading-font">Pro</div>
+                        <div class="flex items-baseline gap-1 mb-1">
+                            <span class="heading-font" style="font-size: 3rem; font-weight: 700; color: var(--color-text);">¥2,980</span>
+                            <span class="text-slate-500" style="font-size: 1.125rem;">/月</span>
+                        </div>
+                        <p class="text-slate-400 mb-2" style="font-size: 0.8125rem;">1日わずず¥99</p>
+                        <p class="text-slate-600" style="font-size: 0.875rem;">添削や企業研究を重く使いたい方に</p>
+                    </div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">月300クレジット</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">企業登録 無制限</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">全8スタイルでES添削</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">ガクチカ素材 20件まで</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">選考スケジュール 月150回</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 mt-0.5 flex-shrink-0">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span class="text-slate-600" style="font-size: 0.9375rem;">企業情報の自動整理 月300ページ</span>
+                        </li>
+                    </ul>
+                    <a href="#" class="block w-full text-center py-3 rounded-xl font-semibold transition-all" style="background: var(--color-text); color: white;">
+                        Proで始める
+                    </a>
+                </div>
+            </div>
+
+            <!-- Footnote -->
+            <div class="text-center mt-8 reveal" style="transition-delay: 0.3s;">
+                <p class="text-slate-500" style="font-size: 0.875rem;">
+                    年額プランは割引あり。クレジットは成功時のみ消費されます。
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="bg-white" style="padding: 6rem 0;">
+        <div class="container-narrow">
+            <!-- Section label -->
+            <div class="text-center mb-4 reveal">
+                <div class="inline-flex items-center px-4 py-1.5 rounded-full" style="background: rgba(37, 99, 235, 0.1); border: 1px solid rgba(37, 99, 235, 0.2);">
+                    <span class="text-blue-700 font-semibold heading-font" style="font-size: 0.75rem; letter-spacing: 0.05em;">FAQ</span>
+                </div>
+            </div>
+
+            <!-- Headline -->
+            <div class="text-center mb-12 reveal">
+                <h2 class="text-slate-900">よくある質問</h2>
+            </div>
+
+            <!-- FAQ Items -->
+            <div class="space-y-0">
+                <div class="faq-item border-b reveal" style="border-color: var(--color-border); padding: 1.25rem 0;">
+                    <button class="faq-question w-full flex items-center justify-between text-left cursor-pointer">
+                        <span class="text-slate-800 font-medium" style="font-size: 1.0625rem;">就活Passは無料で使えますか？</span>
+                        <svg class="faq-icon text-slate-400 flex-shrink-0" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    <div class="faq-answer text-slate-600" style="line-height: 1.75;">
+                        はい、無料プランで月30クレジット、企業登録5社まで、基本的なES添削機能をお試しいただけます。クレジットカード登録は不要です。
+                    </div>
+                </div>
+
+                <div class="faq-item border-b reveal" style="border-color: var(--color-border); padding: 1.25rem 0; transition-delay: 0.05s;">
+                    <button class="faq-question w-full flex items-center justify-between text-left cursor-pointer">
+                        <span class="text-slate-800 font-medium" style="font-size: 1.0625rem;">クレジットとは何ですか？</span>
+                        <svg class="faq-icon text-slate-400 flex-shrink-0" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    <div class="faq-answer text-slate-600" style="line-height: 1.75;">
+                        クレジットは、ES添削やAI機能を利用する際に消費される単位です。成功時のみ消費されるため、エラーや失敗時には減りません。プランごとに月次でリセットされます。
+                    </div>
+                </div>
+
+                <div class="faq-item border-b reveal" style="border-color: var(--color-border); padding: 1.25rem 0; transition-delay: 0.1s;">
+                    <button class="faq-question w-full flex items-center justify-between text-left cursor-pointer">
+                        <span class="text-slate-800 font-medium" style="font-size: 1.0625rem;">どの大学・学年でも使えますか？</span>
+                        <svg class="faq-icon text-slate-400 flex-shrink-0" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    <div class="faq-answer text-slate-600" style="line-height: 1.75;">
+                        はい。全国すべての大学・専門学校、学年に対応しています。学部3年生から大学院生まで、就活を進めるすべての方にご利用いただけます。
+                    </div>
+                </div>
+
+                <div class="faq-item border-b reveal" style="border-color: var(--color-border); padding: 1.25rem 0; transition-delay: 0.15s;">
+                    <button class="faq-question w-full flex items-center justify-between text-left cursor-pointer">
+                        <span class="text-slate-800 font-medium" style="font-size: 1.0625rem;">ES添削の精度はどのくらいですか？</span>
+                        <svg class="faq-icon text-slate-400 flex-shrink-0" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    <div class="faq-answer text-slate-600" style="line-height: 1.75;">
+                        OpenAI GPT-4をベースにした最新の言語モデルを使用し、設問タイプ（志望動機、自己PR、ガクチカなど）に応じた8つの添削スタイルで、構成・表現・論理性を多角的にチェックします。
+                    </div>
+                </div>
+
+                <div class="faq-item border-b reveal" style="border-color: var(--color-border); padding: 1.25rem 0; transition-delay: 0.2s;">
+                    <button class="faq-question w-full flex items-center justify-between text-left cursor-pointer">
+                        <span class="text-slate-800 font-medium" style="font-size: 1.0625rem;">プラン変更はいつでもできますか？</span>
+                        <svg class="faq-icon text-slate-400 flex-shrink-0" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    <div class="faq-answer text-slate-600" style="line-height: 1.75;">
+                        はい。いつでもプランをアップグレード・ダウングレード可能です。アップグレード時は即座に反映され、ダウングレード時は次回更新日から適用されます。
+                    </div>
+                </div>
+
+                <div class="faq-item border-b reveal" style="border-color: var(--color-border); padding: 1.25rem 0; transition-delay: 0.25s;">
+                    <button class="faq-question w-full flex items-center justify-between text-left cursor-pointer">
+                        <span class="text-slate-800 font-medium" style="font-size: 1.0625rem;">Googleカレンダー連携は必須ですか？</span>
+                        <svg class="faq-icon text-slate-400 flex-shrink-0" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    <div class="faq-answer text-slate-600" style="line-height: 1.75;">
+                        いいえ。カレンダー連携はオプション機能です。連携すると、締切や選考日程が自動でGoogleカレンダーに反映され、スマホからも確認できるようになります。
+                    </div>
+                </div>
+
+                <div class="faq-item reveal" style="padding: 1.25rem 0; transition-delay: 0.3s;">
+                    <button class="faq-question w-full flex items-center justify-between text-left cursor-pointer">
+                        <span class="text-slate-800 font-medium" style="font-size: 1.0625rem;">データのセキュリティは大丈夫ですか？</span>
+                        <svg class="faq-icon text-slate-400 flex-shrink-0" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    <div class="faq-answer text-slate-600" style="line-height: 1.75;">
+                        すべてのデータは暗号化され、業界標準のセキュリティ対策を実施しています。お客様の個人情報やES内容を第三者に開示することはありません。
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA SECTION -->
+    <section class="relative overflow-hidden" style="background: linear-gradient(135deg, #2563EB 0%, #4F46E5 100%); padding: 6rem 0;">
+        <!-- Decorative elements -->
+        <div class="blob blob-cta-1"></div>
+        <div class="blob blob-cta-2"></div>
+        <div class="absolute inset-0 grid-pattern"></div>
+
+        <div class="container relative z-10">
+            <div class="text-center reveal">
+                <h2 class="text-white mb-6 heading-font" style="font-size: 2.5rem;">就活を、迷わず続けられる状態へ。</h2>
+                <p class="text-white/80 mb-10 mx-auto" style="max-width: 600px; font-size: 1.125rem; line-height: 1.75;">
+                    ES添削から企業管理まで、就活に必要な機能をひとつに。<br class="hidden md:block">
+                    今すぐ無料で始めて、AIと一緒に就活を前に進めましょう。
+                </p>
+
+                <!-- CTAs -->
+                <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10">
+                    <a href="#pricing" class="bg-white text-blue-700 px-8 py-4 rounded-xl font-semibold transition-transform hover:scale-105 cursor-pointer" style="font-size: 1.125rem; box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.2);">
+                        無料で始める
+                    </a>
+                    <a href="#pricing" class="bg-white/20 text-white px-8 py-4 rounded-xl font-semibold border border-white/30 transition-all hover:bg-white/30 cursor-pointer" style="font-size: 1.125rem; backdrop-filter: blur(10px);">
+                        料金プランを見る
+                    </a>
+                </div>
+
+                <!-- Trust items -->
+                <div class="flex flex-wrap items-center justify-center gap-6 text-white/60" style="font-size: 0.9rem;">
+                    <div class="flex items-center gap-2">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                        <span>全日本の大学対応</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                        <span>クレジットカード不要</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                        <span>30秒で登録完了</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="bg-slate-900 text-slate-400" style="position: relative;">
+        <!-- Gradient line -->
+        <div style="height: 1px; background: linear-gradient(90deg, #2563EB 0%, #4F46E5 50%, #2563EB 100%);"></div>
+
+        <div class="container" style="padding: 4rem 1.5rem 2rem;">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
+                <!-- Brand -->
+                <div>
+                    <div class="text-white heading-font text-xl font-bold mb-4">就活Pass</div>
+                    <p class="text-slate-400" style="font-size: 0.9375rem; line-height: 1.7;">
+                        ES添削・企業管理・締切管理を<br>一つにまとめた就活支援アプリ
+                    </p>
+                </div>
+
+                <!-- Product -->
+                <div>
+                    <div class="text-slate-300 font-semibold mb-4" style="font-size: 0.875rem;">プロダクト</div>
+                    <ul class="space-y-2.5" style="font-size: 0.9375rem;">
+                        <li><a href="#features" class="text-slate-400 hover:text-white transition-colors cursor-pointer">機能</a></li>
+                        <li><a href="#pricing" class="text-slate-400 hover:text-white transition-colors cursor-pointer">料金</a></li>
+                        <li><a href="#how-it-works" class="text-slate-400 hover:text-white transition-colors cursor-pointer">使い方</a></li>
+                        <li><a href="#" class="text-slate-400 hover:text-white transition-colors cursor-pointer">リリース</a></li>
+                    </ul>
+                </div>
+
+                <!-- Support -->
+                <div>
+                    <div class="text-slate-300 font-semibold mb-4" style="font-size: 0.875rem;">サポート</div>
+                    <ul class="space-y-2.5" style="font-size: 0.9375rem;">
+                        <li><a href="#faq" class="text-slate-400 hover:text-white transition-colors cursor-pointer">よくある質問</a></li>
+                        <li><a href="#" class="text-slate-400 hover:text-white transition-colors cursor-pointer">お問い合わせ</a></li>
+                        <li><a href="#" class="text-slate-400 hover:text-white transition-colors cursor-pointer">ヘルプセンター</a></li>
+                        <li><a href="#" class="text-slate-400 hover:text-white transition-colors cursor-pointer">ステータス</a></li>
+                    </ul>
+                </div>
+
+                <!-- Legal -->
+                <div>
+                    <div class="text-slate-300 font-semibold mb-4" style="font-size: 0.875rem;">法務</div>
+                    <ul class="space-y-2.5" style="font-size: 0.9375rem;">
+                        <li><a href="#" class="text-slate-400 hover:text-white transition-colors cursor-pointer">利用規約</a></li>
+                        <li><a href="#" class="text-slate-400 hover:text-white transition-colors cursor-pointer">プライバシーポリシー</a></li>
+                        <li><a href="#" class="text-slate-400 hover:text-white transition-colors cursor-pointer">特定商取引法</a></li>
+                        <li><a href="#" class="text-slate-400 hover:text-white transition-colors cursor-pointer">運営会社</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Bottom -->
+            <div class="border-t pt-6" style="border-color: #1E293B;">
+                <p class="text-center text-slate-500" style="font-size: 0.875rem;">
+                    © 2025 就活Pass. All rights reserved.
+                </p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Scroll reveal
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.reveal').forEach(el => {
+            observer.observe(el);
+        });
+
+        // FAQ accordion
+        document.querySelectorAll('.faq-question').forEach(button => {
+            button.addEventListener('click', () => {
+                const answer = button.nextElementSibling;
+                const icon = button.querySelector('.faq-icon');
+
+                // Toggle current item
+                answer.classList.toggle('open');
+                icon.classList.toggle('rotate');
+            });
+        });
+
+        // Smooth scroll offset for fixed header
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                const href = this.getAttribute('href');
+                if (href === '#') return;
+
+                e.preventDefault();
+                const target = document.querySelector(href);
+                if (target) {
+                    const offsetTop = target.offsetTop - 80;
+                    window.scrollTo({
+                        top: offsetTop,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -11,29 +11,7 @@ import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { headers } from "next/headers";
 import { parseGakuchikaSummary } from "@/lib/gakuchika/summary";
-
-interface STARScores {
-  situation: number;
-  task: number;
-  action: number;
-  result: number;
-}
-
-function parseStarScores(starScoresJson: string | null): STARScores | null {
-  if (!starScoresJson) return null;
-
-  try {
-    const parsed = JSON.parse(starScoresJson);
-    return {
-      situation: parsed.situation ?? 0,
-      task: parsed.task ?? 0,
-      action: parsed.action ?? 0,
-      result: parsed.result ?? 0,
-    };
-  } catch {
-    return null;
-  }
-}
+import { isInterviewReady, safeParseConversationState } from "@/app/api/gakuchika/shared";
 
 export async function GET() {
   try {
@@ -80,14 +58,17 @@ export async function GET() {
         const parsedSummary = parseGakuchikaSummary(content.summary);
 
         // Parse star scores
-        const starScores = parseStarScores(latestConversation?.starScores || null);
+        const conversationState = safeParseConversationState(
+          latestConversation?.starScores || null,
+          latestConversation?.status || null,
+        );
 
         return {
           id: content.id,
           title: content.title,
           summary: parsedSummary,
-          starScores,
-          isCompleted: latestConversation?.status === "completed",
+          conversationState,
+          isCompleted: isInterviewReady(conversationState),
         };
       })
     );

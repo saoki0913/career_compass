@@ -68,9 +68,12 @@ function hasJapanese(text: string): boolean {
 
 function isTechnicalMessage(text: string): boolean {
   return (
-    /(internal server error|failed to fetch|authentication required|permission denied|api|response|server log|trace|stack|sql|backend|request failed)/i.test(
+    /(internal server error|failed to fetch|authentication required|permission denied|api|response|server log|trace|stack|sql|backend|request failed|request id|requestId|debug|developer|migration|schema|table|db\b)/i.test(
       text
-    ) || /サーバーログ|API 応答|SQL|バックエンド/i.test(text)
+    ) ||
+    /サーバーログ|API 応答|SQL|バックエンド|内部|開発|デバッグ|マイグレーション|migration|schema|スキーマ|テーブル|DB|requestId|リクエストID/i.test(
+      text
+    )
   );
 }
 
@@ -142,6 +145,17 @@ function logDebugInfo(context: string, error: AppUiError, rawMessage: string | n
   if (error.code === "ES_REVIEW_STREAM_FAILED" && error.retryable) {
     const detail = error.developerMessage || rawMessage || error.message;
     console.warn(`[${context}] ${error.code}:`, detail);
+    return;
+  }
+
+  // 認証前の初期フェッチや E2E の未ログイン導線では 401 が出ることがあり、JSON の console.error がノイズになる
+  const code = error.code;
+  const isAuthRequiredDevNoise =
+    error.status === 401 &&
+    typeof code === "string" &&
+    (code === "AUTH_REQUIRED" || code.endsWith("_AUTH_REQUIRED"));
+  if (isAuthRequiredDevNoise) {
+    console.debug(`[${context}] ${code} (401)`);
     return;
   }
 

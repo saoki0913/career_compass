@@ -6,11 +6,17 @@ const {
   dbSelectMock,
   reserveCreditsMock,
   enforceRateLimitLayersMock,
+  getMotivationConversationByConditionMock,
+  resolveDraftReadyStateMock,
+  safeParseConversationContextMock,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
   dbSelectMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
   enforceRateLimitLayersMock: vi.fn(),
+  getMotivationConversationByConditionMock: vi.fn(),
+  resolveDraftReadyStateMock: vi.fn(),
+  safeParseConversationContextMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -43,20 +49,19 @@ vi.mock("@/lib/credits", () => ({
   cancelReservation: vi.fn(),
 }));
 
-vi.mock("@/lib/db/motivationConversationCompat", () => ({
-  filterMotivationConversationUpdate: vi.fn(async (value: unknown) => value),
-  getMotivationConversationByCondition: vi.fn(async () => ({
-    id: "conversation-1",
-    messages: JSON.stringify([
-      { role: "user", content: "a" },
-      { role: "assistant", content: "b" },
-    ]),
-  })),
+vi.mock("@/lib/motivation/conversation", () => ({
+  getMotivationConversationByCondition: getMotivationConversationByConditionMock,
+  resolveDraftReadyState: resolveDraftReadyStateMock,
+  safeParseConversationContext: safeParseConversationContextMock,
 }));
 
 vi.mock("@/lib/rate-limit-spike", () => ({
   enforceRateLimitLayers: enforceRateLimitLayersMock,
   DRAFT_RATE_LAYERS: [],
+}));
+
+vi.mock("@/lib/fastapi/client", () => ({
+  fetchFastApiInternal: vi.fn(),
 }));
 
 function makeCompanyQuery() {
@@ -81,12 +86,26 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     dbSelectMock.mockReset();
     reserveCreditsMock.mockReset();
     enforceRateLimitLayersMock.mockReset();
+    getMotivationConversationByConditionMock.mockReset();
+    resolveDraftReadyStateMock.mockReset();
+    safeParseConversationContextMock.mockReset();
     vi.restoreAllMocks();
 
     getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
     dbSelectMock.mockReturnValue(makeCompanyQuery());
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-1" });
     enforceRateLimitLayersMock.mockResolvedValue(null);
+    getMotivationConversationByConditionMock.mockResolvedValue({
+      id: "conversation-1",
+      status: "completed",
+      conversationContext: JSON.stringify({ draftReady: true }),
+      messages: JSON.stringify([
+        { role: "user", content: "a" },
+        { role: "assistant", content: "b" },
+      ]),
+    });
+    safeParseConversationContextMock.mockReturnValue({ draftReady: true });
+    resolveDraftReadyStateMock.mockReturnValue({ isDraftReady: true, unlockedAt: null });
   });
 
   it("returns 429 without reserving credits or calling backend when rate limited", async () => {
@@ -117,5 +136,21 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     expect(response.status).toBe(429);
     expect(reserveCreditsMock).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 when the conversation is not draft ready yet", async () => {
+    resolveDraftReadyStateMock.mockReturnValueOnce({ isDraftReady: false, unlockedAt: null });
+
+    const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft/route");
+    const request = new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft", {
+      method: "POST",
+      body: JSON.stringify({ charLimit: 400 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ companyId: "company-1" }) });
+
+    expect(response.status).toBe(409);
+    expect(reserveCreditsMock).not.toHaveBeenCalled();
   });
 });

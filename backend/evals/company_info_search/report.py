@@ -117,6 +117,7 @@ class ReportGenerator:
             "per_industry_min": self.config.per_industry_min,
             "patched_hybrid": {
                 "WEB_SEARCH_MAX_QUERIES": self.config.max_queries,
+                "WEB_SEARCH_FAST_MAX_QUERIES": self.config.fast_max_queries,
                 "WEB_SEARCH_RESULTS_PER_QUERY": self.config.results_per_query,
                 "WEB_SEARCH_RERANK_TOP_K": self.config.rerank_top_k,
             },

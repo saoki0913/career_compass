@@ -1,13 +1,12 @@
 import { cache } from "react";
 import { db } from "@/lib/db";
 import {
-  aiThreads,
   applications,
   companies,
-  creditTransactions,
   deadlines,
   documents,
   gakuchikaContents,
+  motivationConversations,
   tasks,
   userProfiles,
 } from "@/lib/db/schema";
@@ -391,28 +390,16 @@ export async function getUpcomingDeadlinesData(identity: RequestIdentity, days =
   const endDate = new Date(now.getTime());
   endDate.setDate(endDate.getDate() + maxDays);
 
-  const userCompanies = await db
-    .select({ id: companies.id, name: companies.name })
-    .from(companies)
-    .where(buildCompanyWhere(identity));
-
-  if (userCompanies.length === 0) {
-    return {
-      deadlines: [],
-      count: 0,
-      periodDays: maxDays,
-    };
-  }
-
-  const companyIds = userCompanies.map((company) => company.id);
-  const companyMap = new Map(userCompanies.map((company) => [company.id, company.name]));
-
   const upcomingDeadlines = await db
-    .select()
+    .select({
+      deadline: deadlines,
+      companyName: companies.name,
+    })
     .from(deadlines)
+    .innerJoin(companies, eq(deadlines.companyId, companies.id))
     .where(
       and(
-        inArray(deadlines.companyId, companyIds),
+        buildCompanyWhere(identity),
         gte(deadlines.dueDate, now),
         lte(deadlines.dueDate, endDate),
         isNull(deadlines.completedAt)
@@ -420,12 +407,12 @@ export async function getUpcomingDeadlinesData(identity: RequestIdentity, days =
     )
     .orderBy(deadlines.dueDate);
 
-  const formattedDeadlines = upcomingDeadlines.map((deadline) => {
+  const formattedDeadlines = upcomingDeadlines.map(({ deadline, companyName }) => {
     const dueDate = new Date(deadline.dueDate);
     return {
       id: deadline.id,
       companyId: deadline.companyId,
-      company: companyMap.get(deadline.companyId) || "Unknown",
+      company: companyName || "Unknown",
       type: deadline.type,
       title: deadline.title,
       description: deadline.description,
@@ -512,6 +499,17 @@ export async function getTodayTaskData(identity: RequestIdentity) {
   if (urgentDeadlines.length > 0) {
     mode = "DEADLINE";
     const appScores = new Map<string, { score: number; dueDate: Date }>();
+    const openTaskCountByApplication = new Map<string, number>();
+
+    for (const { task } of openTasks) {
+      if (!task.applicationId) {
+        continue;
+      }
+      openTaskCountByApplication.set(
+        task.applicationId,
+        (openTaskCountByApplication.get(task.applicationId) ?? 0) + 1
+      );
+    }
 
     for (const urgentDeadline of urgentDeadlines) {
       if (!urgentDeadline.applicationId) {
@@ -520,7 +518,8 @@ export async function getTodayTaskData(identity: RequestIdentity) {
 
       const dueDate = new Date(urgentDeadline.dueDate);
       const hoursToDue = Math.max(1, (dueDate.getTime() - now.getTime()) / (1000 * 60 * 60));
-      const score = openTasks.filter((task) => task.task.applicationId === urgentDeadline.applicationId).length / hoursToDue;
+      const score =
+        (openTaskCountByApplication.get(urgentDeadline.applicationId) ?? 0) / hoursToDue;
       const existing = appScores.get(urgentDeadline.applicationId);
 
       if (!existing || score > existing.score) {
@@ -629,67 +628,59 @@ export async function getTodayTaskData(identity: RequestIdentity) {
 
 export async function getActivationData(identity: RequestIdentity) {
   const companyWhere = buildCompanyWhere(identity);
-  const documentWhere = buildDocumentWhere(identity);
+  const motivationWhere = identity.userId
+    ? eq(motivationConversations.userId, identity.userId)
+    : eq(motivationConversations.guestId, identity.guestId!);
 
-  const [companyCountRows, deadlineCountRows, esCountRows] = await Promise.all([
+  const [companyCountRows, firstCompanyRows, motivationCountRows, profileRows] = await Promise.all([
     db.select({ count: sql`count(*)` }).from(companies).where(companyWhere),
     db
-      .select({ count: sql`count(*)` })
-      .from(deadlines)
-      .innerJoin(companies, eq(deadlines.companyId, companies.id))
-      .where(companyWhere),
+      .select({ id: companies.id })
+      .from(companies)
+      .where(companyWhere)
+      .orderBy(asc(companies.createdAt))
+      .limit(1),
     db
       .select({ count: sql`count(*)` })
-      .from(documents)
-      .where(and(documentWhere, eq(documents.type, "es"), ne(documents.status, "deleted"))),
+      .from(motivationConversations)
+      .where(motivationWhere),
+    identity.userId
+      ? db
+          .select({ onboardingCompleted: userProfiles.onboardingCompleted })
+          .from(userProfiles)
+          .where(eq(userProfiles.userId, identity.userId))
+          .limit(1)
+      : Promise.resolve([]),
   ]);
 
-  const aiReviewCount = identity.userId
-    ? db
-        .select({ count: sql`count(*)` })
-        .from(creditTransactions)
-        .where(and(eq(creditTransactions.userId, identity.userId), eq(creditTransactions.type, "es_review")))
-        .then((rows) => toNumber(rows?.[0]?.count))
-    : db
-        .select({ count: sql`count(*)` })
-        .from(aiThreads)
-        .innerJoin(documents, eq(aiThreads.documentId, documents.id))
-        .where(and(eq(documents.guestId, identity.guestId!), eq(documents.type, "es"), ne(documents.status, "deleted")))
-        .then((rows) => toNumber(rows?.[0]?.count));
-
   const companyCount = toNumber(companyCountRows[0]?.count);
-  const deadlineCount = toNumber(deadlineCountRows[0]?.count);
-  const esCount = toNumber(esCountRows[0]?.count);
-  const resolvedAiReviewCount = await aiReviewCount;
+  const motivationCount = toNumber(motivationCountRows[0]?.count);
+  const firstCompanyId = firstCompanyRows[0]?.id ?? null;
+  const profileCompleted = identity.userId ? Boolean(profileRows[0]?.onboardingCompleted) : false;
+  const profileHref = identity.userId ? "/onboarding" : "/login?redirect=/onboarding";
 
   const steps = {
     company: {
-      label: "企業を1社登録",
+      label: "企業を登録して締切管理を始める",
       done: companyCount > 0,
       count: companyCount,
       href: "/companies/new",
     },
-    deadline: {
-      label: "締切を1件追加",
-      done: deadlineCount > 0,
-      count: deadlineCount,
-      href: companyCount > 0 ? "/companies" : "/companies/new",
+    motivation: {
+      label: "志望動機をAIでたたき台化する",
+      done: motivationCount > 0,
+      count: motivationCount,
+      href: firstCompanyId ? `/companies/${firstCompanyId}/motivation` : "/companies/new",
     },
-    es: {
-      label: "ESを1件作成",
-      done: esCount > 0,
-      count: esCount,
-      href: "/es?new=1",
-    },
-    ai_review: {
-      label: "AI添削を1回実行",
-      done: resolvedAiReviewCount > 0,
-      count: resolvedAiReviewCount,
-      href: "/es?action=review",
+    profile: {
+      label: identity.userId ? "プロフィールを整えて提案精度を上げる" : "ログインして進捗を保存する",
+      done: profileCompleted,
+      count: profileCompleted ? 1 : 0,
+      href: profileHref,
     },
   } as const;
 
-  const ordered = [steps.company, steps.deadline, steps.es, steps.ai_review];
+  const ordered = [steps.company, steps.motivation, steps.profile];
   const nextAction = ordered.find((step) => !step.done) ?? null;
 
   return {

@@ -6,66 +6,20 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations, userProfiles } from "@/lib/db/schema";
-import { eq, desc, isNull, and, or, asc } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
+import { eq, desc, isNull, asc, count, sql, getTableColumns } from "drizzle-orm";
 import { PLAN_METADATA, type PlanTypeWithGuest } from "@/lib/stripe/config";
 import {
   getGakuchikaSummaryKind,
   getGakuchikaSummaryPreview,
 } from "@/lib/gakuchika/summary";
-
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
-}
-
-interface STARScores {
-  situation: number;
-  task: number;
-  action: number;
-  result: number;
-}
-
-function safeParseStarScores(json: string | null): STARScores | null {
-  if (!json) return null;
-  try {
-    const parsed = JSON.parse(json);
-    return {
-      situation: parsed.situation ?? 0,
-      task: parsed.task ?? 0,
-      action: parsed.action ?? 0,
-      result: parsed.result ?? 0,
-    };
-  } catch {
-    return null;
-  }
-}
+import { safeParseConversationState } from "@/app/api/gakuchika/shared";
 
 export async function GET(request: NextRequest) {
   try {
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return NextResponse.json(
         { error: "Authentication required" },
@@ -86,9 +40,33 @@ export async function GET(request: NextRequest) {
       plan = (profile?.plan || "free") as PlanTypeWithGuest;
     }
 
-    // Get gakuchika contents with their latest conversation data
+    // Fetch latest conversation fields inside the contents query to avoid a second pass.
+    const gakuchikaContentColumns = getTableColumns(gakuchikaContents);
     const contents = await db
-      .select()
+      .select({
+        ...gakuchikaContentColumns,
+        conversationStatus: sql<string | null>`(
+          SELECT ${gakuchikaConversations.status}
+          FROM ${gakuchikaConversations}
+          WHERE ${gakuchikaConversations.gakuchikaId} = ${gakuchikaContents.id}
+          ORDER BY ${gakuchikaConversations.updatedAt} DESC
+          LIMIT 1
+        )`,
+        conversationStarScores: sql<string | null>`(
+          SELECT ${gakuchikaConversations.starScores}
+          FROM ${gakuchikaConversations}
+          WHERE ${gakuchikaConversations.gakuchikaId} = ${gakuchikaContents.id}
+          ORDER BY ${gakuchikaConversations.updatedAt} DESC
+          LIMIT 1
+        )`,
+        conversationQuestionCount: sql<number | null>`(
+          SELECT ${gakuchikaConversations.questionCount}
+          FROM ${gakuchikaConversations}
+          WHERE ${gakuchikaConversations.gakuchikaId} = ${gakuchikaContents.id}
+          ORDER BY ${gakuchikaConversations.updatedAt} DESC
+          LIMIT 1
+        )`,
+      })
       .from(gakuchikaContents)
       .where(
         userId
@@ -99,30 +77,19 @@ export async function GET(request: NextRequest) {
       )
       .orderBy(asc(gakuchikaContents.sortOrder), desc(gakuchikaContents.updatedAt));
 
-    // Get conversation data for each gakuchika
-    const gakuchikasWithConversation = await Promise.all(
-      contents.map(async (gakuchika) => {
-        const [conversation] = await db
-          .select({
-            status: gakuchikaConversations.status,
-            starScores: gakuchikaConversations.starScores,
-            questionCount: gakuchikaConversations.questionCount,
-          })
-          .from(gakuchikaConversations)
-          .where(eq(gakuchikaConversations.gakuchikaId, gakuchika.id))
-          .orderBy(desc(gakuchikaConversations.updatedAt))
-          .limit(1);
-
-        return {
-          ...gakuchika,
-          conversationStatus: conversation?.status || null,
-          starScores: safeParseStarScores(conversation?.starScores || null),
-          questionCount: conversation?.questionCount || 0,
-          summaryKind: getGakuchikaSummaryKind(gakuchika.summary),
-          summaryPreview: getGakuchikaSummaryPreview(gakuchika.summary),
-        };
-      })
-    );
+    const gakuchikasWithConversation = contents.map((gakuchika) => {
+      return {
+        ...gakuchika,
+        conversationStatus: gakuchika.conversationStatus || null,
+        conversationState: safeParseConversationState(
+          gakuchika.conversationStarScores || null,
+          gakuchika.conversationStatus || null,
+        ),
+        questionCount: Number(gakuchika.conversationQuestionCount ?? 0),
+        summaryKind: getGakuchikaSummaryKind(gakuchika.summary),
+        summaryPreview: getGakuchikaSummaryPreview(gakuchika.summary),
+      };
+    });
 
     const currentCount = contents.length;
     const maxCount = PLAN_METADATA[plan].gakuchika;
@@ -145,7 +112,7 @@ const VALID_CHAR_LIMITS = ["300", "400", "500"] as const;
 
 export async function POST(request: NextRequest) {
   try {
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return NextResponse.json(
         { error: "Authentication required" },
@@ -168,8 +135,8 @@ export async function POST(request: NextRequest) {
 
     // Check plan limits
     const maxGakuchika = PLAN_METADATA[plan].gakuchika;
-    const existingCount = await db
-      .select()
+    const [existingCount] = await db
+      .select({ count: count() })
       .from(gakuchikaContents)
       .where(
         userId
@@ -178,8 +145,9 @@ export async function POST(request: NextRequest) {
           ? eq(gakuchikaContents.guestId, guestId)
           : isNull(gakuchikaContents.id)
       );
+    const existingCountValue = Number(existingCount?.count ?? 0);
 
-    if (existingCount.length >= maxGakuchika) {
+    if (existingCountValue >= maxGakuchika) {
       return NextResponse.json(
         { error: `ガクチカ素材の作成上限（${maxGakuchika}件）に達しています。プランをアップグレードしてください。` },
         { status: 403 }

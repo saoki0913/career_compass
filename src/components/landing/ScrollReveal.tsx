@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   motion,
   useInView,
@@ -28,8 +28,16 @@ export function ScrollReveal({
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, amount: 0.15 });
   const prefersReducedMotion = useReducedMotion();
-  const isUiReview = typeof navigator !== "undefined" && navigator.webdriver;
-  const shouldShowImmediately = prefersReducedMotion || isUiReview;
+  /** Playwright sets webdriver; reading it on first paint causes SSR/client hydration mismatch. */
+  const [isAutomationBrowser, setIsAutomationBrowser] = useState(false);
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      setIsAutomationBrowser(Boolean(navigator.webdriver));
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, []);
+  const shouldShowImmediately = prefersReducedMotion || isAutomationBrowser;
   const animateState =
     shouldShowImmediately || inView ? { opacity: 1, y: 0 } : { opacity: 0, y: offset };
 

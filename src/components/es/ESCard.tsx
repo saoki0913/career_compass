@@ -4,11 +4,12 @@ import { memo } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Document } from "@/hooks/useDocuments";
 import { DOCUMENT_TYPE_LABELS } from "@/hooks/useDocuments";
 import { ES_DOCUMENT_CATEGORY_LABELS } from "@/lib/es-document-category";
-import { Star, Building2, FileText } from "lucide-react";
+import { Star, Building2, Trash2 } from "lucide-react";
 
 const STATUS_CONFIG = {
   draft: { label: "下書き", bgColor: "bg-amber-100", color: "text-amber-700" },
@@ -20,6 +21,7 @@ interface ESCardProps {
   document: Document;
   isPinned: boolean;
   onTogglePin?: (documentId: string) => void;
+  onDeleteStart?: (documentId: string) => void;
   onToggleStatus?: (documentId: string, currentStatus: string) => void;
   statusUpdatingId?: string | null;
 }
@@ -37,6 +39,7 @@ function ESCardComponent({
   document: doc,
   isPinned,
   onTogglePin,
+  onDeleteStart,
   onToggleStatus,
   statusUpdatingId,
 }: ESCardProps) {
@@ -84,16 +87,34 @@ function ESCardComponent({
                 {doc.title}
               </h3>
             </div>
-            <Badge
-              variant="outline"
-              className={cn(
-                "text-xs px-2 py-0.5 h-6 flex-shrink-0 font-medium",
-                statusConfig.bgColor,
-                statusConfig.color
-              )}
-            >
-              {statusConfig.label}
-            </Badge>
+            <div className="flex items-center gap-1.5">
+              {onDeleteStart && doc.status !== "deleted" ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onDeleteStart(doc.id);
+                  }}
+                  aria-label={`${doc.title} をゴミ箱に移動`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              ) : null}
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-xs px-2 py-0.5 h-6 flex-shrink-0 font-medium",
+                  statusConfig.bgColor,
+                  statusConfig.color
+                )}
+              >
+                {statusConfig.label}
+              </Badge>
+            </div>
           </div>
 
           {/* Company */}

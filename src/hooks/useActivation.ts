@@ -5,10 +5,9 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 
-export type ActivationStepId = "company" | "deadline" | "es" | "ai_review";
+export type ActivationStepId = "company" | "motivation" | "profile";
 
 export interface ActivationStep {
   label: string;
@@ -29,20 +28,9 @@ interface UseActivationOptions {
 }
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return headers;
 }
 
 export function useActivation(options: UseActivationOptions = {}) {

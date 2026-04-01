@@ -5,7 +5,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { notifyError, notifySubmissionCreated, notifySubmissionDeleted, notifySubmissionStatusChanged } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 import {
   useSubmissions,
   SubmissionItem,
@@ -103,10 +105,16 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
         name: newItem.name.trim(),
         isRequired: newItem.isRequired,
       });
+      notifySubmissionCreated();
       setNewItem({ type: "es", name: "", isRequired: false });
       setShowNewForm(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "エラーが発生しました");
+      const message = getUserFacingErrorMessage(err, {
+        code: "SUBMISSION_CREATE_FAILED",
+        userMessage: "提出物を追加できませんでした。",
+      }, "SubmissionsList:create");
+      setFormError(message);
+      notifyError({ title: message });
     } finally {
       setIsSubmitting(false);
     }
@@ -119,16 +127,28 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
 
     try {
       await updateSubmission(item.id, { status: nextStatus });
+      notifySubmissionStatusChanged(SUBMISSION_STATUS[nextStatus]);
     } catch (err) {
-      console.error("Status update failed:", err);
+      notifyError({
+        title: getUserFacingErrorMessage(err, {
+          code: "SUBMISSION_UPDATE_FAILED",
+          userMessage: "提出物を更新できませんでした。",
+        }, "SubmissionsList:update"),
+      });
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
       await deleteSubmission(id);
+      notifySubmissionDeleted();
     } catch (err) {
-      console.error("Delete failed:", err);
+      notifyError({
+        title: getUserFacingErrorMessage(err, {
+          code: "SUBMISSION_DELETE_FAILED",
+          userMessage: "提出物を削除できませんでした。",
+        }, "SubmissionsList:delete"),
+      });
     }
   };
 

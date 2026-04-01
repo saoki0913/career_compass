@@ -2,12 +2,11 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
 import { useSession } from "@/lib/auth/client";
-import { getDeviceToken, clearDeviceToken, hasDeviceToken } from "@/lib/auth/device-token";
+import { clearDeviceToken, hasDeviceToken } from "@/lib/auth/device-token";
 import { SnackbarHost } from "@/components/ui/snackbar-host";
 
 interface GuestSession {
   id: string;
-  deviceToken: string;
   expiresAt: string;
 }
 
@@ -54,11 +53,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const initGuest = useCallback(async () => {
     try {
-      const deviceToken = getDeviceToken();
       const response = await fetch("/api/auth/guest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deviceToken }),
       });
 
       if (response.ok) {
@@ -72,11 +69,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const migrateGuestData = useCallback(async () => {
     try {
-      const deviceToken = getDeviceToken();
       const response = await fetch("/api/guest/migrate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deviceToken }),
       });
 
       if (response.ok) {
@@ -109,14 +104,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (typeof window === "undefined") return;
 
     const init = async () => {
+      if (hasDeviceToken()) {
+        clearDeviceToken();
+      }
+
       // If user is authenticated, fetch plan and migrate guest if needed
       if (session?.user) {
         await fetchUserPlan();
-
-        // Check for existing device token to migrate
-        if (hasDeviceToken()) {
-          await migrateGuestData();
-        }
+        await migrateGuestData();
       } else if (!isPending) {
         // No user session, initialize guest
         await initGuest();

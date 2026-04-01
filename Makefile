@@ -6,7 +6,9 @@
 	backend-test-content-type backend-test-content-type-unit backend-test-content-type-integration \
 	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy \
 	backend-test-live-es-review \
-	deploy deploy-stage-all deploy-check deploy-migrate ops-status ops-auth-check ops-release-check
+	deploy deploy-stage-all deploy-check deploy-migrate ops-status ops-auth-check ops-release-check \
+	db-up db-down db-restart db-down-clean db-local-status \
+	supabase-start supabase-stop supabase-stop-clean supabase-status
 
 # ===========================================
 # フロントエンド (Next.js)
@@ -124,6 +126,37 @@ db-check:
 db-introspect:
 	@echo "Introspecting database schema..."
 	npx drizzle-kit introspect
+
+## ローカル DB サーバー起動（Supabase on Docker。Docker Desktop 必須。詳細: docs/setup/DB_SUPABASE.md）
+db-up:
+	@command -v supabase >/dev/null 2>&1 || { echo "Supabase CLI が見つかりません: brew install supabase/tap/supabase"; exit 1; }
+	supabase start
+
+## ローカル DB サーバー停止（Postgres 等のデータは Docker ボリュームに保持）
+db-down:
+	@command -v supabase >/dev/null 2>&1 || { echo "Supabase CLI が見つかりません: brew install supabase/tap/supabase"; exit 1; }
+	supabase stop
+
+## ローカル DB サーバー再起動（db-down のあと db-up）
+db-restart:
+	@$(MAKE) db-down
+	@$(MAKE) db-up
+
+## ローカル DB 停止＋ローカル DB データ削除（supabase stop --no-backup）
+db-down-clean:
+	@command -v supabase >/dev/null 2>&1 || { echo "Supabase CLI が見つかりません: brew install supabase/tap/supabase"; exit 1; }
+	supabase stop --no-backup
+
+## ローカル Supabase / Postgres の稼働状況（supabase status）
+db-local-status:
+	@command -v supabase >/dev/null 2>&1 || { echo "Supabase CLI が見つかりません: brew install supabase/tap/supabase"; exit 1; }
+	supabase status
+
+## 互換エイリアス（make db-up と同じ）
+supabase-start: db-up
+supabase-stop: db-down
+supabase-stop-clean: db-down-clean
+supabase-status: db-local-status
 
 ## 全テーブルを削除（⚠️ 危険：確認プロンプトあり）
 db-drop:
@@ -347,7 +380,7 @@ setup: install db-push
 
 # デプロイ設定
 FRONTEND_URL := https://www.shupass.jp
-BACKEND_URL := https://career-compass-backend.up.railway.app
+BACKEND_URL := https://shupass-backend-production.up.railway.app
 STAGING_FRONTEND_URL := https://stg.shupass.jp
 STAGING_BACKEND_URL := https://stg-api.shupass.jp
 RELEASE_PR_URL := https://github.com/saoki0913/career_compass/compare/main...develop?expand=1
@@ -481,11 +514,20 @@ help:
 	@echo "    make test-major-live - AI live major"
 	@echo ""
 	@echo "  🗄️  データベース:"
+	@echo "    【ローカル DB サーバー】Postgres を Docker 上で起動・停止（Supabase CLI）"
+	@echo "    make db-up           - 起動（メモリを使うのは主にここ）"
+	@echo "    make db-down         - 停止（データはボリュームに残る）"
+	@echo "    make db-restart      - 停止してから再起動"
+	@echo "    make db-down-clean   - 停止＋ローカル DB データ削除"
+	@echo "    make db-local-status - 稼働状況（supabase status）"
+	@echo "    （互換: make supabase-start / supabase-stop / … は上と同じ）"
+	@echo ""
+	@echo "    【Drizzle / アプリ用】すでに db-up 済みの Postgres にスキーマを当てる"
 	@echo "    make db-push      - スキーマをDBに反映"
 	@echo "    make db-generate  - マイグレーションファイル生成"
-	@echo "    make db-migrate   - マイグレーション実行"
+	@echo "    make db-migrate   - Drizzle migration 実行（app DB 用。schema.ts を追加したらまずこれ）"
 	@echo "    make db-studio    - Drizzle Studio起動"
-	@echo "    make db-status    - 未適用変更を確認"
+	@echo "    make db-status    - 未適用スキーマ変更を確認（Drizzle。Supabase mirror 未追跡は別途注意）"
 	@echo "    make db-fresh     - DBリセット＋シード投入"
 	@echo "    make reset-db     - DBリセット（強制push）"
 	@echo "    make seed         - シードデータ投入"

@@ -12,9 +12,10 @@ import type { Company } from "@/hooks/useCompanies";
 interface CompanyGridProps {
   companies: Company[];
   onTogglePin?: (companyId: string, isPinned: boolean) => void;
+  onDeleteStart?: (companyId: string) => void;
 }
 
-export function CompanyGrid({ companies, onTogglePin }: CompanyGridProps) {
+export function CompanyGrid({ companies, onTogglePin, onDeleteStart }: CompanyGridProps) {
   if (companies.length === 0) {
     return null;
   }
@@ -22,7 +23,7 @@ export function CompanyGrid({ companies, onTogglePin }: CompanyGridProps) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6">
       {companies.map((company) => (
-        <CompanyCard key={company.id} company={company} onTogglePin={onTogglePin} />
+        <CompanyCard key={company.id} company={company} onTogglePin={onTogglePin} onDeleteStart={onDeleteStart} />
       ))}
     </div>
   );

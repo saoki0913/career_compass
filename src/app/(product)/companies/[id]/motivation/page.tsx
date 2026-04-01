@@ -18,8 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
+import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { OperationLockProvider, useOperationLock } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
@@ -28,6 +28,8 @@ import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
 import { ConversationPageSkeleton } from "@/components/skeletons/ConversationPageSkeleton";
+import { notifyMotivationDraftReady } from "@/lib/notifications";
+import { getUserFacingErrorMessage, parseApiErrorResponse } from "@/lib/api-errors";
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -47,12 +49,6 @@ const LoadingSpinner = () => (
   </svg>
 );
 
-const CheckIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-  </svg>
-);
-
 const ResetIcon = () => (
   <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
@@ -69,13 +65,6 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   isOptimistic?: boolean;
-}
-
-interface MotivationScores {
-  company_understanding: number;
-  self_analysis: number;
-  career_vision: number;
-  differentiation: number;
 }
 
 interface Company {
@@ -120,20 +109,19 @@ interface MotivationSetupSnapshot {
   requiresIndustrySelection: boolean;
   resolvedIndustry: string | null;
   isComplete: boolean;
-  requiresRestart: boolean;
   hasSavedConversation: boolean;
 }
 
 interface SuggestionOption {
   id: string;
   label: string;
-  sourceType: "company" | "gakuchika" | "profile" | "application_job_type" | "hybrid";
+  sourceType: string;
   intent:
     | "industry_reason"
     | "company_reason"
+    | "self_connection"
     | "desired_work"
-    | "origin_experience"
-    | "fit_connection"
+    | "value_contribution"
     | "differentiation"
     | "closing";
   evidenceSourceIds?: string[];
@@ -159,9 +147,9 @@ interface StageStatus {
 const STAGE_LABELS: Record<SuggestionOption["intent"], string> = {
   industry_reason: "業界志望理由を整理中",
   company_reason: "企業志望理由を整理中",
+  self_connection: "自分との接続を整理中",
   desired_work: "やりたい仕事を確認中",
-  origin_experience: "原体験を整理中",
-  fit_connection: "経験との接続を深掘り中",
+  value_contribution: "価値発揮を整理中",
   differentiation: "他社との差を整理中",
   closing: "仕上げを整理中",
 };
@@ -169,9 +157,9 @@ const STAGE_LABELS: Record<SuggestionOption["intent"], string> = {
 const STAGE_ORDER: SuggestionOption["intent"][] = [
   "industry_reason",
   "company_reason",
+  "self_connection",
   "desired_work",
-  "origin_experience",
-  "fit_connection",
+  "value_contribution",
   "differentiation",
   "closing",
 ];
@@ -179,28 +167,17 @@ const STAGE_ORDER: SuggestionOption["intent"][] = [
 const STAGE_ANSWER_GUIDE: Record<SuggestionOption["intent"], string> = {
   industry_reason: "その業界を志望する理由を1文で答える",
   company_reason: "この企業のどこに惹かれたかを1文で答える",
+  self_connection: "自分の経験や価値観がどうつながるかを1文で答える",
   desired_work: "入社後に挑戦したい仕事を1文で答える",
-  origin_experience: "その志望につながる原体験を1文で答える",
-  fit_connection: "自分の経験がどう活きるかを1文で答える",
+  value_contribution: "入社後にどう価値を出したいかを1文で答える",
   differentiation: "他社ではなくこの企業を選ぶ理由を1文で答える",
   closing: "最後に伝えたい目標を短くまとめる",
 };
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore errors
-    }
-  }
-  return headers;
 }
 
 function findRoleOption(roleGroups: RoleGroup[], value: string | null | undefined) {
@@ -344,10 +321,10 @@ function MotivationStageTracker({ stageStatus }: { stageStatus: StageStatus | nu
           <div
             key={stage}
             className={cn(
-              "rounded-lg border px-3 py-2 text-xs",
-              isCurrent && "border-primary/50 bg-primary/5",
+              "rounded-[18px] border px-3.5 py-2.5 text-xs shadow-sm",
+              isCurrent && "border-sky-300 bg-sky-50 text-slate-900",
               isCompleted && "border-emerald-200 bg-emerald-50 text-emerald-800",
-              !isCurrent && !isCompleted && "border-border/60 bg-background text-muted-foreground"
+              !isCurrent && !isCompleted && "border-border/60 bg-muted/20 text-muted-foreground"
             )}
           >
             <div className="flex items-center justify-between gap-2">
@@ -385,115 +362,76 @@ function MotivationDraftActionBar({
   showTitle?: boolean;
 }) {
   const isInline = layout === "inline";
+  const controls = (
+    <>
+      <p className="text-xs font-medium text-muted-foreground xl:shrink-0">文字数</p>
+      <div className="grid grid-cols-3 gap-2">
+        {([300, 400, 500] as const).map((limit) => (
+          <button
+            key={limit}
+            type="button"
+            onClick={() => onCharLimitChange(limit)}
+            className={cn(
+              "rounded-xl border px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
+              charLimit === limit
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-background hover:bg-secondary"
+            )}
+          >
+            {limit}字
+          </button>
+        ))}
+      </div>
+    </>
+  );
+
+  if (isInline) {
+    return (
+      <ConversationActionBar
+        helperText={helperText}
+        actionLabel="志望動機ESを作成"
+        pendingLabel="作成中..."
+        onAction={onGenerate}
+        disabled={disabled}
+        isPending={isGenerating}
+        controls={controls}
+      />
+    );
+  }
 
   return (
-    <div
-      className={cn(
-        isInline
-          ? "rounded-2xl border border-border/60 bg-background/80 px-2.5 py-2 shadow-sm"
-          : "space-y-3"
-      )}
-    >
+    <div className="space-y-3">
       <div
         className={cn(
           "gap-2",
-          isInline
-            ? "grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto_auto] xl:items-center"
-            : compact
-              ? "flex flex-col"
-              : "flex items-start justify-between"
+          compact ? "flex flex-col" : "flex items-start justify-between"
         )}
       >
         <div className="min-w-0">
           {showTitle ? <p className="text-sm font-semibold text-foreground">志望動機ESを作成</p> : null}
-          <p
-            className={cn(
-              "text-xs leading-5 text-muted-foreground",
-              !showTitle && "text-sm leading-5",
-              isInline && "max-w-[42rem] xl:max-w-[34rem]"
-            )}
-          >
+          <p className={cn("text-xs leading-5 text-muted-foreground", !showTitle && "text-sm leading-5")}>
             {helperText}
           </p>
         </div>
 
-        <div className="flex items-center gap-2 xl:justify-self-end">
-          <p className="hidden text-xs font-medium text-muted-foreground md:block xl:shrink-0">文字数</p>
-          <div className="grid grid-cols-3 gap-2">
-            {([300, 400, 500] as const).map((limit) => (
-              <button
-                key={limit}
-                type="button"
-                onClick={() => onCharLimitChange(limit)}
-                className={cn(
-                  "min-w-[78px] rounded-xl border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
-                  charLimit === limit
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-background hover:bg-secondary"
-                )}
-              >
-                {limit}字
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <Button
-          onClick={onGenerate}
-          disabled={disabled || isGenerating}
-          className={cn(
-            "rounded-2xl shadow-sm",
-            compact
-              ? "h-11 w-full"
-              : isInline
-                ? "h-10 w-full px-5 xl:min-w-[228px] xl:w-auto xl:self-center"
-                : "h-11 min-w-[180px]"
-          )}
-        >
-          {isGenerating ? (
-            <>
-              <LoadingSpinner />
-              <span className="ml-2">作成中...</span>
-            </>
-          ) : (
-            "志望動機ESを作成"
-          )}
-        </Button>
+        <>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center xl:justify-self-end">{controls}</div>
+          <Button
+            onClick={onGenerate}
+            disabled={disabled || isGenerating}
+            className={cn("rounded-2xl shadow-sm", compact ? "h-11 w-full" : "h-11 min-w-[180px]")}
+          >
+            {isGenerating ? (
+              <>
+                <LoadingSpinner />
+                <span className="ml-2">作成中...</span>
+              </>
+            ) : (
+              "志望動機ESを作成"
+            )}
+          </Button>
+        </>
       </div>
-    </div>
-  );
-}
-
-// Progress bar component for motivation elements
-function MotivationProgressBar({ scores }: { scores: MotivationScores | null }) {
-  if (!scores) return null;
-
-  const elements = [
-    { key: "company_understanding", label: "企業理解", score: scores.company_understanding },
-    { key: "self_analysis", label: "自己分析", score: scores.self_analysis },
-    { key: "career_vision", label: "キャリアビジョン", score: scores.career_vision },
-    { key: "differentiation", label: "差別化", score: scores.differentiation },
-  ];
-
-  return (
-    <div className="space-y-2">
-      {elements.map(({ key, label, score }) => (
-        <div key={key} className="space-y-1">
-          <div className="flex justify-between text-xs">
-            <span className="text-muted-foreground">{label}</span>
-            <span className="font-medium">{score}%</span>
-          </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all duration-500",
-                score >= 70 ? "bg-emerald-500" : score >= 40 ? "bg-amber-500" : "bg-red-400"
-              )}
-              style={{ width: `${score}%` }}
-            />
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
@@ -508,14 +446,13 @@ function MotivationConversationContent() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [nextQuestion, setNextQuestion] = useState<string | null>(null);
   const [questionCount, setQuestionCount] = useState(0);
-  const [isCompleted, setIsCompleted] = useState(false);
+  const [isDraftReady, setIsDraftReady] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [conversationLoadError, setConversationLoadError] = useState<string | null>(null);
-  const [scores, setScores] = useState<MotivationScores | null>(null);
   const [suggestionOptions, setSuggestionOptions] = useState<SuggestionOption[]>([]);
   const [evidenceSummary, setEvidenceSummary] = useState<string | null>(null);
   const [evidenceCards, setEvidenceCards] = useState<EvidenceCard[]>([]);
@@ -543,8 +480,8 @@ function MotivationConversationContent() {
     messages: Message[];
     nextQuestion: string | null;
     questionCount: number;
-    isCompleted: boolean;
-    scores: MotivationScores | null;
+    isDraftReady: boolean;
+    draftReadyJustUnlocked: boolean;
     suggestionOptions: SuggestionOption[];
     evidenceSummary: string | null;
     evidenceCards: EvidenceCard[];
@@ -576,8 +513,7 @@ function MotivationConversationContent() {
         setMessages(pendingCompleteData.messages);
         setNextQuestion(pendingCompleteData.nextQuestion);
         setQuestionCount(pendingCompleteData.questionCount || 0);
-        setIsCompleted(pendingCompleteData.isCompleted || false);
-        setScores(pendingCompleteData.scores || null);
+        setIsDraftReady(pendingCompleteData.isDraftReady || false);
         setSuggestionOptions(pendingCompleteData.suggestionOptions || []);
         setEvidenceSummary(pendingCompleteData.evidenceSummary || null);
         setEvidenceCards(pendingCompleteData.evidenceCards || []);
@@ -588,6 +524,9 @@ function MotivationConversationContent() {
         setIsTextStreaming(false);
         setStreamingTargetText("");
       });
+      if (pendingCompleteData.draftReadyJustUnlocked) {
+        notifyMotivationDraftReady();
+      }
     }, 180);
 
     return () => window.clearTimeout(timer);
@@ -630,8 +569,7 @@ function MotivationConversationContent() {
     messages?: Array<{ role: "user" | "assistant"; content: string; id?: string }>;
     nextQuestion?: string | null;
     questionCount?: number;
-    isCompleted?: boolean;
-    scores?: MotivationScores | null;
+    isDraftReady?: boolean;
     suggestionOptions?: SuggestionOption[];
     evidenceSummary?: string | null;
     evidenceCards?: EvidenceCard[];
@@ -657,8 +595,7 @@ function MotivationConversationContent() {
     setMessages(messagesWithIds);
     setNextQuestion(convData.nextQuestion ?? null);
     setQuestionCount(convData.questionCount || 0);
-    setIsCompleted(convData.isCompleted || false);
-    setScores(convData.scores || null);
+    setIsDraftReady(convData.isDraftReady || false);
     setSuggestionOptions(convData.suggestionOptions || []);
     setEvidenceSummary(convData.evidenceSummary || null);
     setEvidenceCards(convData.evidenceCards || []);
@@ -692,8 +629,16 @@ function MotivationConversationContent() {
       );
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.error || "職種候補の取得に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "MOTIVATION_ROLE_OPTIONS_FETCH_FAILED",
+            userMessage: "職種候補の取得に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.fetchRoleOptions"
+        );
       }
 
       const data = await response.json();
@@ -707,7 +652,18 @@ function MotivationConversationContent() {
         return null;
       }
       setRoleOptionsData(null);
-      setRoleOptionsError(err instanceof Error ? err.message : "職種候補の取得に失敗しました");
+      setRoleOptionsError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "MOTIVATION_ROLE_OPTIONS_FETCH_FAILED",
+            userMessage: "職種候補の取得に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.fetchRoleOptions"
+        )
+      );
       return null;
     } finally {
       if (requestId === roleOptionsRequestIdRef.current) {
@@ -734,7 +690,18 @@ function MotivationConversationContent() {
         }),
       ]);
 
-      if (!companyRes.ok) throw new Error("企業情報の取得に失敗しました");
+      if (!companyRes.ok) {
+        throw await parseApiErrorResponse(
+          companyRes,
+          {
+            code: "MOTIVATION_COMPANY_FETCH_FAILED",
+            userMessage: "企業情報の取得に失敗しました。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.fetchData.company"
+        );
+      }
       const companyData = await companyRes.json();
       if (requestId !== fetchDataRequestIdRef.current) return;
       setCompany(companyData.company);
@@ -763,8 +730,7 @@ function MotivationConversationContent() {
         messages: [],
         nextQuestion: null,
         questionCount: 0,
-        isCompleted: false,
-        scores: null,
+        isDraftReady: false,
         suggestionOptions: [],
         evidenceSummary: null,
         evidenceCards: [],
@@ -784,14 +750,24 @@ function MotivationConversationContent() {
           requiresIndustrySelection: Boolean(roleData?.requiresIndustrySelection),
           resolvedIndustry: roleData?.industry || companyData.company.industry,
           isComplete: false,
-          requiresRestart: false,
           hasSavedConversation: false,
         },
       }, roleData);
       setConversationLoadError(message);
     } catch (err) {
       if (requestId !== fetchDataRequestIdRef.current) return;
-      setError(err instanceof Error ? err.message : "データの取得に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "MOTIVATION_DATA_FETCH_FAILED",
+            userMessage: "データの取得に失敗しました。",
+            action: "ページを再読み込みして、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.fetchData"
+        )
+      );
     } finally {
       if (requestId === fetchDataRequestIdRef.current) {
         setIsLoading(false);
@@ -804,9 +780,8 @@ function MotivationConversationContent() {
       setMessages([]);
       setNextQuestion(null);
       setQuestionCount(0);
-      setIsCompleted(false);
+      setIsDraftReady(false);
       setAnswer("");
-      setScores(null);
       setSuggestionOptions([]);
       setEvidenceSummary(null);
       setEvidenceCards([]);
@@ -880,14 +855,33 @@ function MotivationConversationContent() {
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        throw new Error(data?.error || "会話の開始に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "MOTIVATION_CONVERSATION_START_FAILED",
+            userMessage: "会話の開始に失敗しました。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleStartConversation"
+        );
       }
 
       const data = await response.json();
       applyConversationPayload(data, roleOptionsData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "会話の開始に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "MOTIVATION_CONVERSATION_START_FAILED",
+            userMessage: "会話の開始に失敗しました。",
+            action: "入力内容を確認して、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleStartConversation"
+        )
+      );
     } finally {
       setIsStartingConversation(false);
       releaseLock();
@@ -951,18 +945,25 @@ function MotivationConversationContent() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "送信に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "MOTIVATION_CONVERSATION_STREAM_FAILED",
+            userMessage: "送信に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleSend"
+        );
       }
 
       // Process SSE stream
       const reader = response.body?.getReader();
       if (!reader) throw new Error("ストリームが取得できませんでした");
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let completed = false;
-
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let completed = false;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -983,12 +984,7 @@ function MotivationConversationContent() {
             continue;
           }
 
-          if (event.type === "string_chunk" && event.path === "question") {
-            setStreamingTargetText((prev) => prev + event.text);
-            setIsTextStreaming(true);
-            setIsWaitingForResponse(false);
-            startedQuestionPlayback = true;
-          } else if (event.type === "progress") {
+          if (event.type === "progress") {
             setStreamingLabel(event.label || null);
           } else if (event.type === "complete") {
             completed = true;
@@ -1003,8 +999,8 @@ function MotivationConversationContent() {
               messages: messagesWithIds,
               nextQuestion: data.nextQuestion,
               questionCount: data.questionCount || 0,
-              isCompleted: data.isCompleted || false,
-              scores: data.scores || null,
+              isDraftReady: data.isDraftReady || false,
+              draftReadyJustUnlocked: data.draftReadyJustUnlocked || false,
               suggestionOptions: data.suggestionOptions || [],
               evidenceSummary: data.evidenceSummary || null,
               evidenceCards: data.evidenceCards || [],
@@ -1013,11 +1009,14 @@ function MotivationConversationContent() {
               coachingFocus: data.coachingFocus || null,
             };
             const questionForPlayback =
-              !nextData.isCompleted && typeof nextData.nextQuestion === "string"
+              typeof nextData.nextQuestion === "string"
                 ? nextData.nextQuestion.trim()
                 : "";
 
             if (startedQuestionPlayback) {
+              if (questionForPlayback) {
+                setStreamingTargetText(questionForPlayback);
+              }
               setPendingCompleteData(nextData);
             } else if (questionForPlayback) {
               setStreamingTargetText(questionForPlayback);
@@ -1029,14 +1028,16 @@ function MotivationConversationContent() {
               setMessages(nextData.messages);
               setNextQuestion(nextData.nextQuestion);
               setQuestionCount(nextData.questionCount);
-              setIsCompleted(nextData.isCompleted);
-              setScores(nextData.scores);
+              setIsDraftReady(nextData.isDraftReady);
               setSuggestionOptions(nextData.suggestionOptions);
               setEvidenceSummary(nextData.evidenceSummary);
               setEvidenceCards(nextData.evidenceCards);
               setQuestionStage(nextData.questionStage);
               setStageStatus(nextData.stageStatus);
               setCoachingFocus(nextData.coachingFocus || null);
+              if (nextData.draftReadyJustUnlocked) {
+                notifyMotivationDraftReady();
+              }
             }
           } else if (event.type === "error") {
             throw new Error(event.message || "AIサービスでエラーが発生しました");
@@ -1056,7 +1057,18 @@ function MotivationConversationContent() {
       if (err instanceof Error && err.name === "AbortError") {
         setError("AIの応答に時間がかかりすぎています。再度お試しください。");
       } else {
-        setError(err instanceof Error ? err.message : "送信に失敗しました");
+        setError(
+          getUserFacingErrorMessage(
+            err,
+            {
+              code: "MOTIVATION_CONVERSATION_STREAM_FAILED",
+              userMessage: "送信に失敗しました。",
+              action: "時間を置いて、もう一度お試しください。",
+              retryable: true,
+            },
+            "MotivationPage.handleSend"
+          )
+        );
       }
       await fetchData();
     } finally {
@@ -1074,7 +1086,7 @@ function MotivationConversationContent() {
 
   // Generate ES draft and redirect to ES editor
   const handleGenerateDraft = async () => {
-    if (isGeneratingDraft || messages.length === 0 || !isCompleted || isStartingConversation) return;
+    if (isGeneratingDraft || messages.length === 0 || !isDraftReady || isStartingConversation) return;
     if (!acquireLock("志望動機を生成中")) return;
 
     setIsGeneratingDraft(true);
@@ -1089,8 +1101,16 @@ function MotivationConversationContent() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "ES生成に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "MOTIVATION_DRAFT_GENERATE_FAILED",
+            userMessage: "ES生成に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleGenerateDraft"
+        );
       }
 
       const data = await response.json();
@@ -1101,7 +1121,18 @@ function MotivationConversationContent() {
         router.push(`/es/${data.documentId}`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ES生成に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "MOTIVATION_DRAFT_GENERATE_FAILED",
+            userMessage: "ES生成に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleGenerateDraft"
+        )
+      );
     } finally {
       setIsGeneratingDraft(false);
       releaseLock();
@@ -1133,14 +1164,33 @@ function MotivationConversationContent() {
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        throw new Error(data?.error || "会話の初期化に失敗しました");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "MOTIVATION_CONVERSATION_RESET_FAILED",
+            userMessage: "会話の初期化に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleResetConversation"
+        );
       }
 
       resetConversationState();
       await fetchData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "会話の初期化に失敗しました");
+      setError(
+        getUserFacingErrorMessage(
+          err,
+          {
+            code: "MOTIVATION_CONVERSATION_RESET_FAILED",
+            userMessage: "会話の初期化に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleResetConversation"
+        )
+      );
     } finally {
       setIsResetting(false);
       releaseLock();
@@ -1197,7 +1247,7 @@ function MotivationConversationContent() {
     setupSnapshot?.hasSavedConversation ||
     questionCount > 0 ||
     messages.length > 0 ||
-    isCompleted;
+    isDraftReady;
   const hasStartedConversation = messages.length > 0;
   const requiresIndustrySelection = Boolean(roleOptionsData?.requiresIndustrySelection);
   const effectiveIndustry =
@@ -1207,21 +1257,18 @@ function MotivationConversationContent() {
     company.industry ||
     "";
   const isSetupComplete = Boolean(selectedRoleName.trim()) && (!requiresIndustrySelection || Boolean(effectiveIndustry));
-  const showRestartBlock = Boolean(setupSnapshot?.requiresRestart);
-  const showSetupScreen = !showRestartBlock && !hasStartedConversation && !isCompleted;
-  const disableSetupEditing = hasStartedConversation || isCompleted;
+  const showSetupScreen = !hasStartedConversation;
+  const disableSetupEditing = hasStartedConversation;
   const isCustomRoleActive = roleSelectionSource === "custom" && customRoleInput.trim().length > 0;
   const canGenerateDraft =
-    isCompleted &&
+    isDraftReady &&
     messages.length >= 2 &&
-    !showSetupScreen &&
-    !showRestartBlock;
+    !showSetupScreen;
 
   const draftHelperText = (() => {
     if (isGeneratingDraft) return "会話内容をもとに志望動機ESを生成しています。";
-    if (showRestartBlock) return "会話を初期化すると、再度この企業向けのESを作成できます。";
     if (showSetupScreen) return "質問開始後に、会話内容をもとに志望動機ESを作成できます。";
-    if (!isCompleted) return "深掘り完了後に作成できます。";
+    if (!isDraftReady) return "十分な材料が揃うと作成できます。会話は途中でも続けられます。";
     if (isLocked) return "進行中の処理が終わると、志望動機ESを作成できます。";
     return "会話内容から志望動機ESを自動生成して、編集画面へ移動します。";
   })();
@@ -1229,7 +1276,7 @@ function MotivationConversationContent() {
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
       <DashboardHeader />
-      <main className="flex flex-1 flex-col overflow-hidden mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 lg:px-8 max-lg:px-3">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden px-3 py-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-4 flex shrink-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div className="flex items-center gap-3">
@@ -1265,20 +1312,13 @@ function MotivationConversationContent() {
         <div className="grid grid-cols-1 gap-4 flex-1 overflow-hidden lg:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.75fr)]">
           {/* Chat area */}
           <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-card">
-            {/* Mobile progress indicator - shown only below lg */}
             <div className="border-b border-border/50 px-3 py-3 sm:px-4 lg:hidden">
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                <span className="text-sm font-medium text-muted-foreground">進捗</span>
-                <div className="h-2 min-w-0 flex-1 basis-32 overflow-hidden rounded-full bg-muted sm:basis-[140px]">
-                  <div
-                    className="h-full bg-primary rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min((questionCount / 8) * 100, 100)}%` }}
-                  />
-                </div>
-                <span className="text-sm font-semibold tabular-nums">{questionCount}/8</span>
                 {questionStage ? (
-                  <span className="text-xs text-muted-foreground">{STAGE_LABELS[questionStage]}</span>
-                ) : null}
+                  <span className="text-sm font-medium text-muted-foreground">{STAGE_LABELS[questionStage]}</span>
+                ) : (
+                  <span className="text-sm font-medium text-muted-foreground">深掘りを進行中</span>
+                )}
                 {hasSavedConversation ? (
                   <Button
                     variant="outline"
@@ -1295,16 +1335,8 @@ function MotivationConversationContent() {
             </div>
 
             {/* Messages - scrollable */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {showRestartBlock ? (
-                <div className="mx-auto max-w-xl rounded-2xl border border-amber-200 bg-amber-50/70 p-5">
-                  <p className="text-sm font-semibold text-amber-900">保存済み会話を一度やり直してください</p>
-                  <p className="mt-2 text-sm leading-6 text-amber-900/80">
-                    この会話は初期設定 UI 追加前の状態です。新しい志望動機フローで続けるには、右上の
-                    「会話をやり直す」から会話を初期化してください。
-                  </p>
-                </div>
-              ) : showSetupScreen ? (
+            <div className="flex-1 space-y-4 overflow-y-auto p-3 sm:p-4">
+              {showSetupScreen ? (
                 <div className="mx-auto max-w-2xl space-y-4">
                   <div className="rounded-[26px] border border-border/70 bg-background/95 p-5 shadow-sm">
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1480,7 +1512,7 @@ function MotivationConversationContent() {
                   <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
                     <p className="text-sm font-medium text-foreground">開始後の流れ</p>
                     <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      最初に業界を志望する理由を1問だけ確認し、その後にこの企業の志望理由、入社後にやりたい仕事、原体験、経験との接続を順番に深掘りします。
+                      最初に業界を志望する理由を確認し、その後にこの企業の志望理由、入社後にやりたい仕事、自分との接続、価値発揮、他社との差を順番に整理します。
                     </p>
                   </div>
                 </div>
@@ -1593,7 +1625,7 @@ function MotivationConversationContent() {
             )}
 
             {/* Bottom fixed area: input */}
-            <div className="shrink-0 border-t border-border/50 p-4 space-y-4">
+            <div className="shrink-0 space-y-4 border-t border-border/50 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4">
               {showSetupScreen ? (
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm text-muted-foreground">
@@ -1614,21 +1646,12 @@ function MotivationConversationContent() {
                     )}
                   </Button>
                 </div>
-              ) : showRestartBlock ? (
-                <p className="text-sm text-muted-foreground">
-                  右上の「会話をやり直す」から初期化すると、新しいフローで最初から始められます。
-                </p>
-              ) : isCompleted ? (
-                <div className="flex items-center gap-2 p-4 rounded-lg bg-emerald-500/10 text-emerald-700">
-                  <CheckIcon />
-                  <span>深掘りが完了しました。志望動機ESを作成できます。</span>
-                </div>
               ) : (
                 <ChatInput
                   value={answer}
                   onChange={setAnswer}
                   onSend={() => handleSend()}
-                  disabled={isSending || !nextQuestion || isLocked || showSetupScreen || showRestartBlock}
+                  disabled={isSending || !nextQuestion || isLocked || showSetupScreen}
                   placeholder="回答を入力..."
                   className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0"
                 />
@@ -1638,9 +1661,9 @@ function MotivationConversationContent() {
 
           {/* Sidebar */}
           <div className="space-y-4 lg:flex lg:min-h-0 lg:flex-col lg:space-y-0">
-            <div className="space-y-4 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+            <div className="space-y-3 lg:flex-1 lg:overflow-y-auto lg:pr-1">
               <Card className="border-border/50">
-                <CardHeader className="py-3 flex-row items-center justify-between space-y-0">
+                <CardHeader className="flex min-h-12 flex-row items-center justify-between space-y-0 px-3.5 py-2.5">
                   <CardTitle className="text-sm font-medium">進捗</CardTitle>
                   {hasSavedConversation ? (
                     <Button
@@ -1648,15 +1671,15 @@ function MotivationConversationContent() {
                       size="sm"
                       onClick={handleResetConversation}
                       disabled={isLocked || isSending || isGeneratingDraft || isResetting || isStartingConversation}
-                      className="h-10 rounded-xl border-border/80 bg-background px-4 text-xs shadow-sm"
+                      className="h-9 rounded-xl border-border/80 bg-background px-3 text-xs shadow-sm"
                     >
                       <ResetIcon />
                       <span className="ml-2">{isResetting ? "初期化中..." : "会話をやり直す"}</span>
                     </Button>
                   ) : null}
                 </CardHeader>
-                <CardContent className="pt-0">
-                  <div className="mb-4 flex flex-wrap gap-2">
+                <CardContent className="px-3.5 pb-3.5 pt-0">
+                  <div className="mb-3 flex flex-wrap gap-2">
                     {effectiveIndustry ? (
                       <Badge variant="soft-info" className="px-3 py-1 text-[11px]">
                         業界: {effectiveIndustry}
@@ -1678,7 +1701,7 @@ function MotivationConversationContent() {
                   </div>
 
                   {showSetupScreen ? (
-                    <div className="space-y-3">
+                    <div className="space-y-2.5">
                       <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
                         <p className="text-sm font-medium text-foreground">開始前の設定</p>
                         <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -1686,32 +1709,20 @@ function MotivationConversationContent() {
                         </p>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        最初に業界志望理由、その後に企業志望理由、やりたい仕事、経験との接続を深掘りします。
-                      </p>
-                    </div>
-                  ) : showRestartBlock ? (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
-                      <p className="text-sm font-medium text-amber-900">旧会話を再設定します</p>
-                      <p className="mt-1 text-xs leading-5 text-amber-900/80">
-                        今の保存済み会話は新しい初期設定フローに対応していません。やり直し後に、業界と職種を先に設定してください。
+                        最初に業界志望理由、その後に企業志望理由、自分との接続、やりたい仕事、価値発揮、他社との差を順番に深掘りします。
                       </p>
                     </div>
                   ) : (
                     <>
-                      <div className="text-center mb-4">
-                        <span className="text-3xl font-bold">{questionCount}</span>
-                        <span className="text-muted-foreground"> / 8問</span>
-                      </div>
                       {questionStage && (
-                        <p className="mb-3 text-xs text-center text-muted-foreground">{STAGE_LABELS[questionStage]}</p>
+                        <p className="mb-2 text-xs text-center text-muted-foreground">{STAGE_LABELS[questionStage]}</p>
                       )}
                       {coachingFocus && (
-                        <p className="mb-3 text-xs text-center text-muted-foreground">
+                        <p className="mb-2 text-xs text-center text-muted-foreground">
                           今回の狙い: <span className="font-medium text-foreground/80">{coachingFocus}</span>
                         </p>
                       )}
-                      <MotivationProgressBar scores={scores} />
-                      <div className="mt-4">
+                      <div className="mt-3">
                         <MotivationStageTracker stageStatus={stageStatus} />
                       </div>
                     </>
@@ -1720,14 +1731,15 @@ function MotivationConversationContent() {
               </Card>
 
               <Card className="border-border/50">
-                <CardHeader className="py-3">
+                <CardHeader className="px-3.5 py-2.5">
                   <CardTitle className="text-sm font-medium">参考にした企業情報</CardTitle>
                 </CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="px-3.5 pb-3.5 pt-0">
                   {evidenceCards.length > 0 || evidenceSummary ? (
                     <MotivationEvidenceSection
                       evidenceCards={evidenceCards}
                       evidenceSummary={evidenceSummary}
+                      compact
                       showHeader={false}
                     />
                   ) : (

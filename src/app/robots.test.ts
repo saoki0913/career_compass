@@ -12,6 +12,7 @@ describe("robots", () => {
         "/entry-sheet-ai",
         "/es-ai-guide",
         "/shukatsu-kanri",
+        "/data-source-policy",
       ])
     );
     expect(primaryRule?.disallow).toEqual(

@@ -91,6 +91,38 @@ describe("api/internal/test-auth/login", () => {
     expect(response.status).toBe(404);
   });
 
+  it("returns 404 when the CI auth secret is missing", async () => {
+    delete process.env.CI_E2E_AUTH_SECRET;
+    const { POST } = await import("@/app/api/internal/test-auth/login/route");
+
+    const response = await POST(
+      new NextRequest("http://localhost:3000/api/internal/test-auth/login", {
+        method: "POST",
+      })
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "CI_TEST_AUTH_DISABLED" },
+    });
+  });
+
+  it("returns 404 when the Better Auth secret is missing", async () => {
+    delete process.env.BETTER_AUTH_SECRET;
+    const { POST } = await import("@/app/api/internal/test-auth/login/route");
+
+    const response = await POST(
+      new NextRequest("http://localhost:3000/api/internal/test-auth/login", {
+        method: "POST",
+      })
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "CI_TEST_AUTH_DISABLED" },
+    });
+  });
+
   it("returns 401 when the bearer secret is invalid", async () => {
     const { POST } = await import("@/app/api/internal/test-auth/login/route");
 

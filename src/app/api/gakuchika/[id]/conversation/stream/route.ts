@@ -17,19 +17,20 @@ import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-lim
 import { persistGakuchikaSummary } from "@/app/api/gakuchika/summary-server";
 import {
   FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS,
-  FASTAPI_URL,
   QUESTIONS_PER_CREDIT,
   CREDITS_PER_QUESTION_BATCH,
   buildHintPayload,
+  buildConversationStatePatch,
   getIdentity,
-  getWeakestElement,
-  isStarComplete,
+  isInterviewReady,
   iterateGakuchikaFastApiSseEvents,
+  safeParseConversationState,
   safeParseMessages,
-  safeParseStarScores,
+  serializeConversationState,
+  type ConversationState,
   type Message,
-  type STAREvaluation,
 } from "@/app/api/gakuchika/shared";
+import { fetchFastApiInternal } from "@/lib/fastapi/client";
 import {
   getRequestId,
   logAiCreditCostSummary,
@@ -149,7 +150,7 @@ export async function POST(
 
     const messages = safeParseMessages(conversation.messages);
     const currentQuestionCount = conversation.questionCount ?? 0;
-    const currentStarScores = safeParseStarScores(conversation.starScores);
+    const currentConversationState = safeParseConversationState(conversation.starScores, conversation.status);
 
     // Ensure the current question is in messages (same logic as non-stream POST)
     const lastAssistantMessage = messages.filter(m => m.role === "assistant").pop();
@@ -190,7 +191,7 @@ export async function POST(
 
     let aiResponse: Response;
     try {
-      aiResponse = await fetch(`${FASTAPI_URL}/api/gakuchika/next-question/stream`, {
+      aiResponse = await fetchFastApiInternal("/api/gakuchika/next-question/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
         body: JSON.stringify({
@@ -202,7 +203,19 @@ export async function POST(
             content: m.content,
           })),
           question_count: newQuestionCount,
-          star_scores: currentStarScores || null,
+          conversation_state: currentConversationState
+            ? {
+                stage: currentConversationState.stage,
+                focus_key: currentConversationState.focusKey,
+                progress_label: currentConversationState.progressLabel,
+                answer_hint: currentConversationState.answerHint,
+                missing_elements: currentConversationState.missingElements,
+                ready_for_draft: currentConversationState.readyForDraft,
+                draft_readiness_reason: currentConversationState.draftReadinessReason,
+                draft_text: currentConversationState.draftText,
+                deepdive_stage: currentConversationState.deepdiveStage,
+              }
+            : null,
         }),
         signal: abortController.signal,
       });
@@ -301,7 +314,7 @@ export async function POST(
         const encoder = new TextEncoder();
         let streamedQuestionText = "";
         let hasStartedQuestionStream = false;
-        let hintedTargetElement: string | null = getWeakestElement(currentStarScores);
+        let partialState: Partial<ConversationState> = {};
 
         try {
           for await (const { event, telemetry } of iterateGakuchikaFastApiSseEvents(fastApiBody)) {
@@ -317,31 +330,31 @@ export async function POST(
               hasStartedQuestionStream = true;
               streamedQuestionText += event.text;
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-            } else if (
-              event.type === "field_complete" &&
-              event.path === "star_scores" &&
-              event.value &&
-              typeof event.value === "object"
-            ) {
-              const partialScores = {
-                situation: Number((event.value as Record<string, unknown>).situation ?? 0),
-                task: Number((event.value as Record<string, unknown>).task ?? 0),
-                action: Number((event.value as Record<string, unknown>).action ?? 0),
-                result: Number((event.value as Record<string, unknown>).result ?? 0),
-              };
-              hintedTargetElement = getWeakestElement(partialScores);
-              const hintPayload = buildHintPayload(hintedTargetElement);
+            } else if (event.type === "field_complete") {
+              if (event.path === "focus_key" && typeof event.value === "string") {
+                partialState = { ...partialState, focusKey: event.value as ConversationState["focusKey"] };
+              } else if (event.path === "answer_hint" && typeof event.value === "string") {
+                partialState = { ...partialState, answerHint: event.value };
+              } else if (event.path === "progress_label" && typeof event.value === "string") {
+                partialState = { ...partialState, progressLabel: event.value };
+              } else if (event.path === "ready_for_draft") {
+                partialState = { ...partialState, readyForDraft: Boolean(event.value) };
+              } else if (event.path === "deepdive_stage" && typeof event.value === "string") {
+                partialState = { ...partialState, deepdiveStage: event.value };
+              }
+              const hintPayload = buildHintPayload(
+                buildConversationStatePatch(currentConversationState, partialState),
+              );
               if (hintPayload) {
                 controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ type: "hint_ready", data: hintPayload })}\n\n`)
+                  encoder.encode(`data: ${JSON.stringify({ type: "hint_ready", data: hintPayload })}\n\n`),
                 );
               }
             } else if (event.type === "complete") {
               const fastApiData = (event as {
                 data: {
                   question?: string;
-                  target_element?: string;
-                  star_evaluation?: STAREvaluation;
+                  conversation_state?: Record<string, unknown>;
                 };
               }).data;
 
@@ -349,12 +362,6 @@ export async function POST(
                 await consumeCredits(userId!, CREDITS_PER_QUESTION_BATCH, "gakuchika", gakuchikaId);
               }
 
-              let newStarScores = currentStarScores || { situation: 0, task: 0, action: 0, result: 0 };
-              let starEvaluation: STAREvaluation | null = null;
-              let targetElement: string | null =
-                typeof fastApiData.target_element === "string"
-                  ? fastApiData.target_element
-                  : hintedTargetElement;
               const nextQuestionText =
                 typeof fastApiData.question === "string" && fastApiData.question
                   ? fastApiData.question
@@ -369,20 +376,12 @@ export async function POST(
                 messages.push(aiMessage);
               }
 
-              if (fastApiData.star_evaluation) {
-                starEvaluation = fastApiData.star_evaluation;
-                newStarScores = fastApiData.star_evaluation.scores;
-                targetElement =
-                  (typeof fastApiData.target_element === "string" && fastApiData.target_element) ||
-                  fastApiData.star_evaluation.weakest_element || getWeakestElement(newStarScores);
-              }
-
-              if (!targetElement) {
-                targetElement = getWeakestElement(newStarScores);
-              }
-
-              const starComplete = isStarComplete(newStarScores);
-              const isCompleted = starComplete || (starEvaluation?.is_complete ?? false);
+              const nextConversationState = fastApiData.conversation_state
+                ? safeParseConversationState(JSON.stringify(fastApiData.conversation_state))
+                : buildConversationStatePatch(currentConversationState, partialState);
+              const isCompleted =
+                nextConversationState.stage === "draft_ready" ||
+                nextConversationState.stage === "interview_ready";
               const status = isCompleted ? "completed" : "in_progress";
 
               await db
@@ -391,17 +390,18 @@ export async function POST(
                   messages: JSON.stringify(messages),
                   questionCount: newQuestionCount,
                   status,
-                  starScores: JSON.stringify(newStarScores),
+                  starScores: serializeConversationState(nextConversationState),
                   updatedAt: new Date(),
                 })
                 .where(eq(gakuchikaConversations.id, conversation.id));
 
-              if (isCompleted) {
+              if (nextConversationState.stage === "interview_ready" && nextConversationState.draftText) {
                 const summaryMessages = messages.map((message) => ({ ...message }));
                 after(async () => {
                   await persistGakuchikaSummary(
                     gakuchikaId,
                     gakuchika.title,
+                    nextConversationState.draftText!,
                     summaryMessages
                   );
                 });
@@ -414,11 +414,10 @@ export async function POST(
                   nextQuestion: isCompleted ? null : nextQuestionText,
                   questionCount: newQuestionCount,
                   isCompleted,
-                  starScores: newStarScores,
-                  starEvaluation,
-                  targetElement,
+                  conversationState: nextConversationState,
+                  isInterviewReady: isInterviewReady(nextConversationState),
                   isAIPowered: true,
-                  summaryPending: isCompleted,
+                  summaryPending: nextConversationState.stage === "interview_ready",
                 },
               };
               logSummaryOnce({

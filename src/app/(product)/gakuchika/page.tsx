@@ -18,13 +18,11 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { getDeviceToken } from "@/lib/auth/device-token";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
 import {
   STARStatusBadge,
   STARProgressCompact,
-  type STARScores,
   DeleteConfirmDialog,
 } from "@/components/gakuchika";
 import { GakuchikaGrid } from "@/components/gakuchika/GakuchikaGrid";
@@ -42,8 +40,8 @@ import {
 import { GakuchikaListPageHeaderSkeleton } from "@/components/skeletons/GakuchikaListPageHeaderSkeleton";
 import type { FilterTab, SortOption } from "@/components/shared";
 import { Reorder } from "framer-motion";
+import { getUserFacingErrorMessage } from "@/lib/api-errors";
 import {
-  MoreVertical,
   GripVertical,
   Pencil,
   Trash2,
@@ -59,7 +57,7 @@ import {
 const filterTabs: FilterTab[] = [
   { key: "all", label: "すべて" },
   { key: "not_started", label: "未開始" },
-  { key: "in_progress", label: "深掘り中" },
+  { key: "in_progress", label: "作成中" },
   { key: "completed", label: "完了" },
 ];
 
@@ -83,20 +81,9 @@ function getStatusKey(
 }
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
+  return {
     "Content-Type": "application/json",
   };
-  if (typeof window !== "undefined") {
-    try {
-      const deviceToken = getDeviceToken();
-      if (deviceToken) {
-        headers["x-device-token"] = deviceToken;
-      }
-    } catch {
-      // Ignore errors
-    }
-  }
-  return headers;
 }
 
 // ─── New Gakuchika Modal ────────────────────────────────────────────
@@ -139,7 +126,10 @@ function NewGakuchikaModal({
       setContent("");
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "エラーが発生しました");
+      setError(getUserFacingErrorMessage(err, {
+        code: "GAKUCHIKA_FETCH_FAILED",
+        userMessage: "ガクチカ一覧を読み込めませんでした。",
+      }, "GakuchikaPage:fetch"));
     } finally {
       setIsSubmitting(false);
     }
@@ -165,7 +155,7 @@ function NewGakuchikaModal({
             </div>
             <DialogTitle>新しいガクチカを作成</DialogTitle>
             <DialogDescription>
-              テーマと内容を入力して深掘りを始めましょう
+              最初の内容を入力すると、AIが必要なことだけを聞きながら文章化を進めます
             </DialogDescription>
           </DialogHeader>
 
@@ -206,7 +196,7 @@ function NewGakuchikaModal({
                 )}
               />
               <p className="text-xs text-muted-foreground">
-                深掘りの材料として使うため、400文字程度を目安に入力してください
+                最初は簡単な内容で十分です。あとからAIが必要なことだけ質問します
               </p>
             </div>
           </div>
@@ -227,7 +217,7 @@ function NewGakuchikaModal({
                   作成中...
                 </>
               ) : (
-                "作成して深掘り開始"
+                "作成を始める"
               )}
             </Button>
           </DialogFooter>
@@ -335,12 +325,19 @@ function ReorderView({
                             <h3 className="font-medium truncate">
                               {gakuchika.title}
                             </h3>
-                            <STARStatusBadge scores={gakuchika.starScores} />
+                            <STARStatusBadge
+                              state={gakuchika.conversationState}
+                              status={gakuchika.conversationStatus}
+                            />
                           </div>
                         )}
                         {gakuchika.summaryPreview ? (
                           <p className="text-sm text-muted-foreground line-clamp-2">
                             {gakuchika.summaryPreview}
+                          </p>
+                        ) : gakuchika.conversationState?.stage === "draft_ready" ? (
+                          <p className="text-sm text-muted-foreground">
+                            ES本文を作成できる状態です
                           </p>
                         ) : gakuchika.conversationStatus === "completed" ? (
                           <p className="text-sm text-muted-foreground">
@@ -348,15 +345,18 @@ function ReorderView({
                           </p>
                         ) : gakuchika.conversationStatus === "in_progress" ? (
                           <p className="text-sm text-muted-foreground">
-                            深掘り中...
+                            作成中...
                           </p>
                         ) : (
                           <p className="text-sm text-muted-foreground">
-                            タップして深掘りを開始
+                            タップして作成を始める
                           </p>
                         )}
                         <div className="flex items-center justify-between mt-3">
-                          <STARProgressCompact scores={gakuchika.starScores} />
+                          <STARProgressCompact
+                            state={gakuchika.conversationState}
+                            status={gakuchika.conversationStatus}
+                          />
                           <p className="text-xs text-muted-foreground">
                             {new Date(gakuchika.updatedAt).toLocaleDateString(
                               "ja-JP",
@@ -659,7 +659,7 @@ export default function GakuchikaListPage() {
       <div className="min-h-screen bg-background">
         <DashboardHeader />
         <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8 max-lg:max-w-full max-lg:px-3">
-          <LoginRequiredForAi title="ガクチカのAI深掘りはログイン後にご利用いただけます" />
+          <LoginRequiredForAi title="ガクチカ作成はログイン後にご利用いただけます" />
         </main>
       </div>
     );
@@ -677,14 +677,14 @@ export default function GakuchikaListPage() {
           <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold tracking-tight">ガクチカ深掘り</h1>
+                <h1 className="text-2xl font-bold tracking-tight">ガクチカ作成</h1>
                 {maxCount > 0 && (
                   <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                     {currentCount}/{maxCount} 素材使用中
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-muted-foreground">AIと対話しながら自己分析を深めましょう</p>
+              <p className="mt-1 text-muted-foreground">AIと対話しながら、面接やESで使えるガクチカ文章に整えます</p>
             </div>
             <Button
               onClick={() => setShowNewModal(true)}
@@ -772,7 +772,7 @@ export default function GakuchikaListPage() {
               <MessageCircle className="w-12 h-12 text-muted-foreground/50" />
             }
             title="ガクチカがありません"
-            description="AIが深掘り質問をしてあなたの経験を引き出します"
+            description="最初の内容から、AIが必要なことだけを質問しながらガクチカを作成します"
             action={{
               label: "新規作成",
               icon: <Plus className="w-5 h-5" />,
@@ -857,7 +857,7 @@ export default function GakuchikaListPage() {
           <Button
             onClick={() => setShowNewModal(true)}
             disabled={isAtLimit}
-            className="fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full shadow-lg sm:hidden"
+            className="fixed right-4 z-40 h-14 w-14 rounded-full shadow-lg bottom-[calc(var(--mobile-bottom-nav-offset)+1rem)] sm:hidden"
             size="icon"
             title={isAtLimit ? "上限に達しました" : "新規作成"}
           >

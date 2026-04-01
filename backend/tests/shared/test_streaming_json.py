@@ -299,17 +299,23 @@ class TestRealisticScenarios:
         """Handles a typical gakuchika next-question response."""
         extractor = StreamingJSONExtractor(
             stream_string_fields=["question"],
-            schema_hints={"question": "string", "star_scores": "object"},
+            schema_hints={
+                "question": "string",
+                "answer_hint": "string",
+                "progress_label": "string",
+                "focus_key": "string",
+                "missing_elements": "array",
+                "ready_for_draft": "boolean",
+            },
         )
         json_str = (
             '{"question": "具体的にどんな困難に直面しましたか？", '
-            '"reasoning": "行動面を深掘りするため", '
-            '"should_continue": true, '
-            '"star_scores": {"situation": 60, "task": 45, "action": 20, "result": 10}, '
-            '"target_element": "action", '
-            '"question_type": "difficulty", '
-            '"suggestions": ["チームの課題", "個人の挑戦", "予想外の事態"], '
-            '"quality_rationale": ["行動面のスコアが低い"]}'
+            '"answer_hint": "ご自身が取った具体的な行動を書くと伝わりやすいです。", '
+            '"progress_label": "行動を整理中", '
+            '"focus_key": "action", '
+            '"missing_elements": ["action", "result"], '
+            '"ready_for_draft": false, '
+            '"draft_readiness_reason": "task と action の具体性をもう少し補いたいです。"}'
         )
 
         events = []
@@ -329,24 +335,15 @@ class TestRealisticScenarios:
         field_events = [e for e in events if e.type == StreamEventType.FIELD_COMPLETE]
         field_paths = [e.path for e in field_events]
         assert "question" in field_paths
-        assert "star_scores" in field_paths
-        assert "suggestions" in field_paths
+        assert "answer_hint" in field_paths
+        assert "missing_elements" in field_paths
 
-        # Array items from suggestions
-        suggestion_items = [
+        missing_items = [
             e for e in events
-            if e.type == StreamEventType.ARRAY_ITEM_COMPLETE and e.path.startswith("suggestions.")
+            if e.type == StreamEventType.ARRAY_ITEM_COMPLETE and e.path.startswith("missing_elements.")
         ]
-        assert len(suggestion_items) == 3
-        assert suggestion_items[0].value == "チームの課題"
-
-        # quality_rationale array items
-        rationale_items = [
-            e for e in events
-            if e.type == StreamEventType.ARRAY_ITEM_COMPLETE and e.path.startswith("quality_rationale.")
-        ]
-        assert len(rationale_items) == 1
-        assert rationale_items[0].value == "行動面のスコアが低い"
+        assert len(missing_items) == 2
+        assert missing_items[0].value == "action"
 
     def test_es_review_response(self):
         """Handles a typical ES review response."""

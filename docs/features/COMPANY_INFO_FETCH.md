@@ -77,10 +77,11 @@
 ```
 1. 採用ページ検索
    POST /company-info/search-pages
-   Hybrid検索を優先し、公式/trusted候補が得られない場合だけ Legacy 検索へフォールバック
+   Hybrid検索を優先し、まず軽量な fast path（少ない query budget / rescue なし / deep verify なし）で候補を返す
    - プロフィールの卒業年度を初期値に使用
    - 公式候補 → trusted job site の順で優先
    - 親会社 / 子会社候補は表示するが、自動選択しない
+   - 候補不足や official 不足のときだけ deep path（追加 query / site rescue / rerank / light verification）へ進む
          ↓
 2. ユーザーがURL選択
          ↓
@@ -96,8 +97,19 @@
    - 締切 → deadlinesテーブル
    - 選考情報 → 検索・通知で使う構造化データ
          ↓
-5. Google Calendar連携（オプション）
+5. UI更新
+   - 成功時はモーダルを閉じ、snackbar で完了通知
+   - 企業詳細ページ全体は再ローディングせず、締切一覧など必要なセクションだけ更新
+         ↓
+6. Google Calendar連携（オプション）
 ```
+
+### 選考スケジュール取得の実行経路
+
+- 通常の採用ページ HTML は **`Firecrawl`** を優先利用して、締切・提出物・応募方法・選考フローを抽出する。
+- `Firecrawl` で情報が弱く、かつ **PDF / OCR 必要** と判断された場合のみ、**`Google Document AI (Enterprise Document OCR)`** を **1 回だけ**追加で利用する。
+- `Google Layout Parser` は使わない。
+- `Firecrawl` が失敗した場合は、既存の `extract_text_from_html() + extract_schedule_with_llm()` へフォールバックする。
 
 ### LLM 失敗時の挙動（選考スケジュール・企業情報抽出）
 
@@ -202,19 +214,30 @@
          ↓
 2. ページ検索
    POST /company-info/search-corporate-pages
-   DuckDuckGo「{企業名} {タイプラベル}」
+   まず軽量な fast path で候補を返し、不十分な場合だけ deep path に進む
          ↓
-3. 3段階検索戦略
-   ① 厳格: 企業名 + ドメイン一致必須
-   ② 緩和: 結果 < 3件なら企業名マッチを緩和
-   ③ フォールバック: 就活サイトも許可
+3. 段階的検索戦略
+   ① fast path: 少ない query variation で検索し、候補が十分なら即返す
+   ② deep path: 候補不足 / official 不足のときだけ追加 query, site rescue, rerank, light verification
+   ③ Legacy fallback: Hybrid で十分な候補が得られない場合だけ旧検索へフォールバック
          ↓
 4. ユーザーがURL選択
          ↓
 5. クロール & RAG保存
    POST /company-info/rag/crawl-corporate
    1秒間隔でページ取得 → チャンキング → ベクトル化
+         ↓
+6. UI更新
+   - RAG 保存と状態同期が完了したらモーダルを閉じ、snackbar で完了通知
+   - 背景の企業詳細ページ全体は skeleton に戻さず、RAG 状態セクションだけ同期
 ```
+
+### 再取得時の保存ルール
+
+- 新しい URL を追加で取得した場合は、既存 URL の RAG を消さずに蓄積する
+- 既に保存済みの URL をもう一度取得した場合は、その URL の既存チャンクだけを新しい取得結果で置き換える
+- 同じ URL の分類結果が変わった場合は、旧 `content_type` 側のその URL のチャンクを消し、新しい分類へ移す
+- 再取得失敗時は旧データを残す
 
 ### コンテンツタイプと検索タイプの対応
 
@@ -312,7 +335,7 @@ COMPANY_QUERY_ALIASES = {
 |---------------|------|
 | `POST /company-info/search-corporate-pages` | コーポレートページ候補を検索 |
 | `POST /company-info/rag/crawl-corporate` | ユーザーが選択したページをクロールしてRAG保存 |
-| `POST /company-info/rag/{company_id}/delete-by-urls` | 登録済みURLを削除 |
+| `POST /company-info/rag/{company_id}/delete-by-urls` | 登録済みURLを削除（指定URLのRAGだけ削除） |
 
 ### RAG管理
 
