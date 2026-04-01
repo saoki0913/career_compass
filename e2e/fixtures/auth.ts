@@ -304,9 +304,10 @@ export async function apiRequest(
   endpoint: string,
   body?: Record<string, unknown>
 ) {
-  const headers = await buildApiRequestHeaders(page, true);
-
   const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
+  const headers = await buildApiRequestHeaders(page, true);
+  headers.Origin = baseURL;
+  headers.Referer = `${baseURL}/`;
 
   return await page.context().request.fetch(`${baseURL}${endpoint}`, {
     method,
@@ -321,9 +322,10 @@ export async function apiRequestAsAuthenticatedUser(
   endpoint: string,
   body?: Record<string, unknown>
 ) {
-  const headers = await buildApiRequestHeaders(page, false);
-
   const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
+  const headers = await buildApiRequestHeaders(page, false);
+  headers.Origin = baseURL;
+  headers.Referer = `${baseURL}/`;
 
   return await page.context().request.fetch(`${baseURL}${endpoint}`, {
     method,

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   clearGuestSession,
+  ensureGuestSession,
   getDeviceToken,
   hasDeviceToken,
   loginAsGuest,
@@ -11,6 +12,7 @@ test.describe("Auth boundary contracts", () => {
   test("guest session persists across refresh and tabs", async ({ page, context }) => {
     test.setTimeout(90_000);
     const token = await loginAsGuest(page);
+    await ensureGuestSession(page);
     await navigateTo(page, "/dashboard");
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForLoadState("domcontentloaded");
@@ -22,6 +24,7 @@ test.describe("Auth boundary contracts", () => {
     await secondPage.evaluate(([key, value]) => {
       localStorage.setItem(key, value);
     }, ["ukarun_device_token", token]);
+    await ensureGuestSession(secondPage);
     await navigateTo(secondPage, "/companies");
     expect(await getDeviceToken(secondPage)).toBe(token);
     await secondPage.close();
@@ -29,6 +32,7 @@ test.describe("Auth boundary contracts", () => {
 
   test("guest is redirected or blocked from authenticated-only pages", async ({ page }) => {
     await loginAsGuest(page);
+    await ensureGuestSession(page);
 
     await page.goto("/settings");
     await page.waitForTimeout(1000);
