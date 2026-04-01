@@ -3,6 +3,19 @@ import { describe, expect, it } from "vitest";
 import { getUserFacingErrorMessage, parseApiErrorResponse } from "./api-errors";
 
 describe("api-errors", () => {
+  it("returns the fallback user message for technical errors", () => {
+    const message = getUserFacingErrorMessage(
+      new Error("server exploded"),
+      {
+        code: "CONTACT_SUBMIT_FAILED",
+        userMessage: "お問い合わせを送信できませんでした。",
+      },
+      "ContactForm:submit"
+    );
+
+    expect(message).toBe("お問い合わせを送信できませんでした。");
+  });
+
   it("falls back when an error message contains internal technical details", () => {
     const message = getUserFacingErrorMessage(
       new Error("面接セッション保存用の DB migration が未適用です。"),

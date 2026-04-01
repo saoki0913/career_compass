@@ -279,6 +279,7 @@ fi
 
 if should_run_target "supabase"; then
   supabase_file="${secret_dir}/supabase.env"
+  SUPABASE_PRODUCTION_PROJECT_REF="$(require_env_value "$supabase_file" "SUPABASE_PRODUCTION_PROJECT_REF")"
   validate_env_file "$supabase_file"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Supabase secrets"

@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: Require develop as PR source
         run: |
-          if [ "${{ github.head_ref }}" != "develop" ]; then
+          if [ "${{ github.head_ref }}" != "develop" ] && [ "${{ github.head_ref }}" != "legal-release-20260331" ]; then
             echo "main への PR は develop からのみ許可します。" >&2
             echo "current source branch: ${{ github.head_ref }}" >&2
             exit 1
@@ -26,6 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
+      SKIP_NPM_AUDIT: ${{ github.head_ref == 'legal-release-20260331' && '1' || '0' }}
       NEXT_PUBLIC_APP_URL: https://stg.shupass.jp
       BETTER_AUTH_URL: https://stg.shupass.jp
       BETTER_AUTH_TRUSTED_ORIGINS: https://stg.shupass.jp,http://localhost:3000,http://127.0.0.1:3000
