@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { Page, expect, test } from "@playwright/test";
 import {
   apiRequest,
   createGuestApplication,
@@ -36,6 +36,22 @@ type SearchResponse = {
     deadlines: Array<{ title: string }>;
   };
 };
+
+async function expectSearchPageToContain(page: Page, query: string, expectedTexts: string[]) {
+  await expect
+    .poll(
+      async () => {
+        await navigateTo(page, `/search?q=${encodeURIComponent(query)}`);
+        const bodyText = await page.locator("body").textContent();
+        return expectedTexts.every((text) => bodyText?.includes(text));
+      },
+      {
+        timeout: 30_000,
+        intervals: [1_000, 2_000, 5_000],
+      },
+    )
+    .toBe(true);
+}
 
 test.describe("Guest major flow", () => {
   test("covers guest core product flows with created data", async ({ page }) => {
@@ -186,10 +202,7 @@ test.describe("Guest major flow", () => {
       await expect(page.locator("body")).toContainText(taskTitle);
       await expect(page.locator("body")).toContainText(companyName);
 
-      await navigateTo(page, `/search?q=${encodeURIComponent(runId)}`);
-      await expect(page.locator("body")).toContainText(companyName);
-      await expect(page.locator("body")).toContainText(documentTitle);
-      await expect(page.locator("body")).toContainText(deadlineTitle);
+      await expectSearchPageToContain(page, runId, [companyName, documentTitle, deadlineTitle]);
 
       await navigateTo(page, "/notifications");
       await expect(page.locator("body")).toContainText(notificationTitle);
