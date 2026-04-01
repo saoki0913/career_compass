@@ -21,9 +21,6 @@ test.describe("Auth boundary contracts", () => {
 
     const secondPage = await context.newPage();
     await secondPage.goto("/");
-    await secondPage.evaluate(([key, value]) => {
-      localStorage.setItem(key, value);
-    }, ["ukarun_device_token", token]);
     await ensureGuestSession(secondPage);
     await navigateTo(secondPage, "/companies");
     expect(await getDeviceToken(secondPage)).toBe(token);

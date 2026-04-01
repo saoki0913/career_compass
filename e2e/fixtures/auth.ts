@@ -6,8 +6,12 @@
 
 import { APIResponse, Page, expect } from "@playwright/test";
 
-// Device token key used by the app
+// Legacy device token key kept for cleanup checks in E2E.
 const DEVICE_TOKEN_KEY = "ukarun_device_token";
+const GUEST_COOKIE_NAME = "guest_device_token";
+const CSRF_COOKIE_NAME = "csrf_token";
+const CSRF_HEADER_NAME = "x-csrf-token";
+const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /**
  * Generate a random UUID for device token
@@ -21,29 +25,61 @@ function generateUUID(): string {
 }
 
 /**
- * Login as a guest user by setting device token in localStorage
+ * Login as a guest user by issuing the server-managed guest cookie.
  */
 export async function loginAsGuest(page: Page): Promise<string> {
-  const deviceToken = generateUUID();
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
 
-  // Navigate to a page first to set localStorage
   await page.goto("/");
-
-  // Set the device token in localStorage
-  await page.evaluate(
-    ({ key, token }) => {
-      localStorage.setItem(key, token);
+  const response = await page.context().request.fetch(`${baseURL}/api/auth/guest`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: baseURL,
+      Referer: `${baseURL}/`,
     },
-    { key: DEVICE_TOKEN_KEY, token: deviceToken }
-  );
+    data: JSON.stringify({}),
+  });
+  if (!response.ok()) {
+    throw new Error(`Failed to login as guest: ${response.status()}`);
+  }
 
-  return deviceToken;
+  await ensureCsrfToken(page, baseURL);
+  const guestToken = await getCookieValue(page, baseURL, GUEST_COOKIE_NAME);
+  if (!guestToken) {
+    throw new Error("Guest session cookie was not issued");
+  }
+
+  return guestToken;
 }
 
 /**
  * Clear guest session by removing device token
  */
 export async function clearGuestSession(page: Page): Promise<void> {
+  const baseURL = new URL(process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000");
+  await page.context().addCookies([
+    {
+      name: GUEST_COOKIE_NAME,
+      value: "",
+      domain: baseURL.hostname,
+      path: "/",
+      expires: 0,
+      httpOnly: true,
+      sameSite: "Lax",
+      secure: baseURL.protocol === "https:",
+    },
+    {
+      name: CSRF_COOKIE_NAME,
+      value: "",
+      domain: baseURL.hostname,
+      path: "/",
+      expires: 0,
+      httpOnly: false,
+      sameSite: "Strict",
+      secure: baseURL.protocol === "https:",
+    },
+  ]);
   await page.evaluate((key) => {
     localStorage.removeItem(key);
   }, DEVICE_TOKEN_KEY);
@@ -53,39 +89,34 @@ export async function clearGuestSession(page: Page): Promise<void> {
  * Check if device token exists in localStorage
  */
 export async function hasDeviceToken(page: Page): Promise<boolean> {
-  return await page.evaluate((key) => {
-    return localStorage.getItem(key) !== null;
-  }, DEVICE_TOKEN_KEY);
+  return (await getDeviceToken(page)) !== null;
 }
 
 /**
  * Get the current device token from localStorage
  */
 export async function getDeviceToken(page: Page): Promise<string | null> {
-  return await page.evaluate((key) => {
-    return localStorage.getItem(key);
-  }, DEVICE_TOKEN_KEY);
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
+  return getCookieValue(page, baseURL, GUEST_COOKIE_NAME);
 }
 
 export async function ensureGuestSession(page: Page): Promise<void> {
-  const token = await getDeviceToken(page);
-  if (!token) {
-    throw new Error("Guest device token is not set");
-  }
-
   const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
   const url = `${baseURL}/api/auth/guest`;
-  const body = { deviceToken: token };
   let lastStatus = 0;
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const response = await page.request.post(url, {
+    const response = await page.context().request.fetch(url, {
+      method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Origin: baseURL,
+        Referer: `${baseURL}/`,
       },
-      data: body,
+      data: JSON.stringify({}),
     });
     lastStatus = response.status();
     if (response.ok()) {
+      await ensureCsrfToken(page, baseURL);
       return;
     }
     if (lastStatus >= 500 && attempt < 3) {
@@ -94,6 +125,31 @@ export async function ensureGuestSession(page: Page): Promise<void> {
     }
     throw new Error(`Failed to bootstrap guest session: ${lastStatus}`);
   }
+}
+
+async function getCookieValue(
+  page: Page,
+  baseURL: string,
+  name: string,
+): Promise<string | null> {
+  const cookies = (await page.context().cookies(baseURL)) ?? [];
+  return cookies.find((cookie) => cookie.name === name)?.value ?? null;
+}
+
+async function ensureCsrfToken(page: Page, baseURL: string): Promise<string | null> {
+  const existingToken = await getCookieValue(page, baseURL, CSRF_COOKIE_NAME);
+  if (existingToken) {
+    return existingToken;
+  }
+
+  await page.context().request.fetch(`${baseURL}/api/csrf`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  return getCookieValue(page, baseURL, CSRF_COOKIE_NAME);
 }
 
 /**
@@ -280,15 +336,27 @@ export async function getDeviceTokenHeader(
   return {};
 }
 
-async function buildApiRequestHeaders(page: Page, includeGuestToken: boolean) {
+async function buildApiRequestHeaders(
+  page: Page,
+  baseURL: string,
+  includeGuestToken: boolean,
+  method: string,
+) {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
 
   if (includeGuestToken) {
-    const token = await getDeviceToken(page);
+    const token = await getCookieValue(page, baseURL, GUEST_COOKIE_NAME);
     if (token) {
       headers["x-device-token"] = token;
+    }
+  }
+
+  if (STATE_CHANGING_METHODS.has(method.toUpperCase())) {
+    const csrfToken = await ensureCsrfToken(page, baseURL);
+    if (csrfToken) {
+      headers[CSRF_HEADER_NAME] = csrfToken;
     }
   }
 
@@ -305,7 +373,7 @@ export async function apiRequest(
   body?: Record<string, unknown>
 ) {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
-  const headers = await buildApiRequestHeaders(page, true);
+  const headers = await buildApiRequestHeaders(page, baseURL, true, method);
   headers.Origin = baseURL;
   headers.Referer = `${baseURL}/`;
 
@@ -323,7 +391,7 @@ export async function apiRequestAsAuthenticatedUser(
   body?: Record<string, unknown>
 ) {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
-  const headers = await buildApiRequestHeaders(page, false);
+  const headers = await buildApiRequestHeaders(page, baseURL, false, method);
   headers.Origin = baseURL;
   headers.Referer = `${baseURL}/`;
 
