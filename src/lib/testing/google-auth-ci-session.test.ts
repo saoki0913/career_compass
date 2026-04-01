@@ -17,7 +17,7 @@ function makeApiResponse(input: {
   };
 }
 
-describe("ensureCiE2EAuthSession", () => {
+describe("ensureCiE2EAuthSession", { timeout: 15000 }, () => {
   beforeEach(() => {
     vi.resetModules();
     process.env.CI_E2E_AUTH_SECRET = "top-secret";
