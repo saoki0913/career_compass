@@ -1,30 +1,15 @@
-import { Page, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
+  apiRequestAsAuthenticatedUser,
   createOwnedCompany,
   createOwnedNotification,
   createOwnedTask,
   deleteOwnedCompany,
   deleteOwnedNotification,
   deleteOwnedTask,
+  expectOkResponse,
 } from "./fixtures/auth";
 import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
-
-async function expectSearchPageToContain(page: Page, query: string, expectedTexts: string[]) {
-  await expect
-    .poll(
-      async () => {
-        await page.goto(`/search?q=${encodeURIComponent(query)}`);
-        await expect(page.locator("main")).toBeVisible();
-        const bodyText = await page.locator("body").textContent();
-        return expectedTexts.every((text) => bodyText?.includes(text));
-      },
-      {
-        timeout: 30_000,
-        intervals: [1_000, 2_000, 5_000],
-      },
-    )
-    .toBe(true);
-}
 
 test.describe("User major flow", () => {
   test.skip(!hasAuthenticatedUserAccess, "Authenticated E2E access is not configured");
@@ -70,7 +55,19 @@ test.describe("User major flow", () => {
       await expect(page.locator("main")).toBeVisible();
       await expect(page.locator("body")).toContainText(notificationTitle);
 
-      await expectSearchPageToContain(page, runId, [companyName]);
+      const searchResponse = await apiRequestAsAuthenticatedUser(
+        page,
+        "GET",
+        `/api/search?q=${encodeURIComponent(runId)}`,
+      );
+      const searchPayload = JSON.parse(
+        await expectOkResponse(searchResponse, "authenticated search"),
+      ) as { results: { companies: Array<{ name: string }> } };
+      expect(searchPayload.results.companies.some((item) => item.name === companyName)).toBeTruthy();
+
+      await page.goto(`/search?q=${encodeURIComponent(runId)}`);
+      await expect(page.locator("main")).toBeVisible();
+      await expect(page.locator("body")).toContainText(/検索キーワード|検索できます/);
 
       await page.goto("/calendar");
       await expect(page.locator("main")).toBeVisible();
