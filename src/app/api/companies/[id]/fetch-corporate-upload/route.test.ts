@@ -6,11 +6,13 @@ const {
   dbSelectMock,
   dbUpdateMock,
   enforceRateLimitLayersMock,
+  fetchFastApiInternalMock,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
   dbSelectMock: vi.fn(),
   dbUpdateMock: vi.fn(),
   enforceRateLimitLayersMock: vi.fn(),
+  fetchFastApiInternalMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -54,6 +56,10 @@ vi.mock("@/lib/rate-limit-spike", () => ({
   CORPORATE_MUTATE_RATE_LAYERS: [],
 }));
 
+vi.mock("@/lib/fastapi/client", () => ({
+  fetchFastApiInternal: fetchFastApiInternalMock,
+}));
+
 function makeProfileQuery() {
   return {
     from: vi.fn(() => ({
@@ -95,6 +101,7 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
     dbSelectMock.mockReset();
     dbUpdateMock.mockReset();
     enforceRateLimitLayersMock.mockReset();
+    fetchFastApiInternalMock.mockReset();
     vi.restoreAllMocks();
 
     getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
@@ -103,6 +110,9 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
       .mockReturnValueOnce(makeCompanyQuery());
     dbUpdateMock.mockReturnValue(makeUpdateQuery());
     enforceRateLimitLayersMock.mockResolvedValue(null);
+    fetchFastApiInternalMock.mockImplementation((path: string, init?: RequestInit) =>
+      fetch(`https://fastapi.test${path}`, init)
+    );
   });
 
   it("returns 429 without uploading files when rate limited", async () => {
