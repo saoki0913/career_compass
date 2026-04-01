@@ -34,6 +34,32 @@ describe("ensureCiE2EAuthSession", { timeout: 15000 }, () => {
           name: "__Secure-better-auth.session_token",
           value: "signed-token",
         },
+      ])
+      .mockResolvedValueOnce([
+        {
+          name: "__Secure-better-auth.session_token",
+          value: "signed-token",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          name: "__Secure-better-auth.session_token",
+          value: "signed-token",
+        },
+        {
+          name: "csrf_token",
+          value: "csrf-cookie",
+        },
+      ])
+      .mockResolvedValue([
+        {
+          name: "__Secure-better-auth.session_token",
+          value: "signed-token",
+        },
+        {
+          name: "csrf_token",
+          value: "csrf-cookie",
+        },
       ]);
     const sessionGetMock = vi
       .fn()
@@ -132,7 +158,6 @@ describe("ensureCiE2EAuthSession", { timeout: 15000 }, () => {
       ]);
 
     const page = {
-      evaluate: vi.fn().mockResolvedValue("guest-device-token"),
       context: () => ({
         request: requestClient,
         cookies: cookiesMock,
@@ -147,12 +172,20 @@ describe("ensureCiE2EAuthSession", { timeout: 15000 }, () => {
     await createOwnedCompany(page as never, { name: "認証済み企業" });
 
     expect(fetchMock).toHaveBeenCalledWith(
+      "https://stg.shupass.jp/api/csrf",
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
       "https://stg.shupass.jp/api/companies",
       expect.objectContaining({
         method: "POST",
-        headers: {
+        headers: expect.objectContaining({
           "Content-Type": "application/json",
-        },
+          Origin: "https://stg.shupass.jp",
+          Referer: "https://stg.shupass.jp/",
+        }),
       }),
     );
   });

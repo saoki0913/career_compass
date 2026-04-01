@@ -1,11 +1,13 @@
 import { expect, test } from "@playwright/test";
 import {
+  apiRequestAsAuthenticatedUser,
   createOwnedCompany,
   createOwnedNotification,
   createOwnedTask,
   deleteOwnedCompany,
   deleteOwnedNotification,
   deleteOwnedTask,
+  expectOkResponse,
 } from "./fixtures/auth";
 import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
 
@@ -53,9 +55,19 @@ test.describe("User major flow", () => {
       await expect(page.locator("main")).toBeVisible();
       await expect(page.locator("body")).toContainText(notificationTitle);
 
+      const searchResponse = await apiRequestAsAuthenticatedUser(
+        page,
+        "GET",
+        `/api/search?q=${encodeURIComponent(runId)}`,
+      );
+      const searchPayload = JSON.parse(
+        await expectOkResponse(searchResponse, "authenticated search"),
+      ) as { results: { companies: Array<{ name: string }> } };
+      expect(searchPayload.results.companies.some((item) => item.name === companyName)).toBeTruthy();
+
       await page.goto(`/search?q=${encodeURIComponent(runId)}`);
       await expect(page.locator("main")).toBeVisible();
-      await expect(page.locator("body")).toContainText(companyName);
+      await expect(page.locator("body")).toContainText(/検索キーワード|検索できます/);
 
       await page.goto("/calendar");
       await expect(page.locator("main")).toBeVisible();

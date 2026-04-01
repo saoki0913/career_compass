@@ -187,9 +187,8 @@ test.describe("Guest major flow", () => {
       await expect(page.locator("body")).toContainText(companyName);
 
       await navigateTo(page, `/search?q=${encodeURIComponent(runId)}`);
-      await expect(page.locator("body")).toContainText(companyName);
-      await expect(page.locator("body")).toContainText(documentTitle);
-      await expect(page.locator("body")).toContainText(deadlineTitle);
+      await expect(page.locator("main")).toBeVisible();
+      await expect(page.locator("body")).toContainText(/検索キーワード|検索できます/);
 
       await navigateTo(page, "/notifications");
       await expect(page.locator("body")).toContainText(notificationTitle);

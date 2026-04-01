@@ -5,10 +5,13 @@ describe("e2e auth fixtures", () => {
   it("uses the browser context request client for authenticated API requests", async () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true });
     const pageFetch = vi.fn().mockResolvedValue({ ok: () => true });
+    const cookies = vi.fn().mockResolvedValue([
+      { name: "csrf_token", value: "csrf-cookie" },
+    ]);
 
     const page = {
-      evaluate: vi.fn().mockResolvedValue(null),
       context: () => ({
+        cookies,
         request: {
           fetch: contextFetch,
         },
@@ -39,13 +42,63 @@ describe("e2e auth fixtures", () => {
     expect(pageFetch).not.toHaveBeenCalled();
   });
 
-  it("keeps guest company and document helpers on the guest token path", async () => {
-    const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
-    const evaluate = vi.fn().mockResolvedValue("guest-device-token");
+  it("bootstraps a csrf token before state-changing requests when missing", async () => {
+    const contextFetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: () => true })
+      .mockResolvedValueOnce({ ok: () => true });
+    const cookies = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { name: "csrf_token", value: "csrf-cookie" },
+      ]);
 
     const page = {
-      evaluate,
       context: () => ({
+        cookies,
+        request: {
+          fetch: contextFetch,
+        },
+      }),
+    };
+
+    await apiRequestAsAuthenticatedUser(
+      page as never,
+      "POST",
+      "/api/companies",
+      { name: "認証済み会社" },
+    );
+
+    expect(contextFetch).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:3000/api/csrf",
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
+    expect(contextFetch).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:3000/api/companies",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "x-csrf-token": "csrf-cookie",
+        }),
+      }),
+    );
+  });
+
+  it("keeps guest company and document helpers on the guest token path", async () => {
+    const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
+    const cookies = vi.fn().mockResolvedValue([
+      { name: "guest_device_token", value: "guest-device-token" },
+      { name: "csrf_token", value: "csrf-cookie" },
+    ]);
+
+    const page = {
+      context: () => ({
+        cookies,
         request: {
           fetch: contextFetch,
         },
@@ -62,25 +115,28 @@ describe("e2e auth fixtures", () => {
       type: "es",
     });
 
-    expect(evaluate).toHaveBeenCalled();
     expect(contextFetch).toHaveBeenCalledTimes(2);
     expect(contextFetch.mock.calls[0]?.[1]?.headers).toMatchObject({
       "Content-Type": "application/json",
+      "x-csrf-token": "csrf-cookie",
       "x-device-token": "guest-device-token",
     });
     expect(contextFetch.mock.calls[1]?.[1]?.headers).toMatchObject({
       "Content-Type": "application/json",
+      "x-csrf-token": "csrf-cookie",
       "x-device-token": "guest-device-token",
     });
   });
 
   it("keeps owned company and document helpers off the guest token path", async () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
-    const evaluate = vi.fn().mockResolvedValue("guest-device-token");
+    const cookies = vi.fn().mockResolvedValue([
+      { name: "csrf_token", value: "csrf-cookie" },
+    ]);
 
     const page = {
-      evaluate,
       context: () => ({
+        cookies,
         request: {
           fetch: contextFetch,
         },
@@ -99,11 +155,11 @@ describe("e2e auth fixtures", () => {
     });
     await auth.deleteOwnedDocument(page as never, "document-id");
 
-    expect(evaluate).not.toHaveBeenCalled();
     expect(contextFetch).toHaveBeenCalledTimes(4);
     for (const call of contextFetch.mock.calls) {
       expect(call[1]?.headers).toMatchObject({
         "Content-Type": "application/json",
+        "x-csrf-token": "csrf-cookie",
       });
       expect(call[1]?.headers).not.toHaveProperty("x-device-token");
     }
@@ -111,11 +167,14 @@ describe("e2e auth fixtures", () => {
 
   it("keeps guest application, task, notification, and gakuchika helpers on the guest token path", async () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
-    const evaluate = vi.fn().mockResolvedValue("guest-device-token");
+    const cookies = vi.fn().mockResolvedValue([
+      { name: "guest_device_token", value: "guest-device-token" },
+      { name: "csrf_token", value: "csrf-cookie" },
+    ]);
 
     const page = {
-      evaluate,
       context: () => ({
+        cookies,
         request: {
           fetch: contextFetch,
         },
@@ -147,11 +206,11 @@ describe("e2e auth fixtures", () => {
     });
     await auth.deleteGuestGakuchika(page as never, "gakuchika-id");
 
-    expect(evaluate).toHaveBeenCalled();
     expect(contextFetch).toHaveBeenCalledTimes(8);
     for (const call of contextFetch.mock.calls) {
       expect(call[1]?.headers).toMatchObject({
         "Content-Type": "application/json",
+        "x-csrf-token": "csrf-cookie",
         "x-device-token": "guest-device-token",
       });
     }
@@ -159,11 +218,13 @@ describe("e2e auth fixtures", () => {
 
   it("keeps owned application, task, notification, and gakuchika helpers off the guest token path", async () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
-    const evaluate = vi.fn().mockResolvedValue("guest-device-token");
+    const cookies = vi.fn().mockResolvedValue([
+      { name: "csrf_token", value: "csrf-cookie" },
+    ]);
 
     const page = {
-      evaluate,
       context: () => ({
+        cookies,
         request: {
           fetch: contextFetch,
         },
@@ -195,11 +256,11 @@ describe("e2e auth fixtures", () => {
     });
     await auth.deleteOwnedGakuchika(page as never, "gakuchika-id");
 
-    expect(evaluate).not.toHaveBeenCalled();
     expect(contextFetch).toHaveBeenCalledTimes(8);
     for (const call of contextFetch.mock.calls) {
       expect(call[1]?.headers).toMatchObject({
         "Content-Type": "application/json",
+        "x-csrf-token": "csrf-cookie",
       });
       expect(call[1]?.headers).not.toHaveProperty("x-device-token");
     }
