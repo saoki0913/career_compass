@@ -12,7 +12,7 @@ export function HeroSectionC() {
   const unoptimized = heroMedia.src.endsWith(".svg");
 
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-blue-50/60 via-white to-white">
+    <section className="relative overflow-hidden bg-gradient-to-b from-primary/5 via-white to-white">
       <div className="mx-auto max-w-6xl px-4 pb-16 pt-28 sm:pb-20 lg:pt-36">
         {/* Full-width centered text */}
         <ScrollReveal>
