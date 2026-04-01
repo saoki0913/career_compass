@@ -16,7 +16,31 @@ permissions:
   security-events: write
 
 jobs:
+  code-scanning-availability:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              await github.request("GET /repos/{owner}/{repo}/code-scanning/default-setup", {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+              });
+              core.info("Code scanning is available for this repository.");
+              core.setOutput("enabled", "true");
+            } catch (error) {
+              core.warning(`Skipping CodeQL because code scanning is unavailable: ${error.message}`);
+              core.setOutput("enabled", "false");
+            }
+
   analyze:
+    needs:
+      - code-scanning-availability
+    if: needs.code-scanning-availability.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

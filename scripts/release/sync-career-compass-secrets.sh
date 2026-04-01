@@ -183,7 +183,7 @@ railway_apply_env_file() {
       [[ -n "$key" ]] || continue
       is_meta_key "$key" && continue
       value="$(get_env_value "$file" "$key")"
-      run_real railway variable set "${key}=${value}" --service "$service" --environment "$environment" --skip-deploys >/dev/null
+      print -rn -- "$value" | run_real railway variable set "$key" --service "$service" --environment "$environment" --skip-deploys --stdin >/dev/null
     done < <(iter_env_keys "$file")
   )
 }
