@@ -150,9 +150,11 @@ describe("ensureCiE2EAuthSession", { timeout: 15000 }, () => {
       "https://stg.shupass.jp/api/companies",
       expect.objectContaining({
         method: "POST",
-        headers: {
+        headers: expect.objectContaining({
           "Content-Type": "application/json",
-        },
+          Origin: "https://stg.shupass.jp",
+          Referer: "https://stg.shupass.jp/",
+        }),
       }),
     );
   });
