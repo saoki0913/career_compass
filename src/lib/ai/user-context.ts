@@ -5,6 +5,7 @@ import {
   userProfiles,
 } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
+import { isInterviewReady, safeParseConversationState } from "@/app/api/gakuchika/shared";
 
 export interface ProfileContext {
   university: string | null;
@@ -134,13 +135,18 @@ export async function fetchGakuchikaContext(
       if (results.length >= limit) break;
 
       const [latestConv] = await db
-        .select({ status: gakuchikaConversations.status })
+        .select({
+          status: gakuchikaConversations.status,
+          starScores: gakuchikaConversations.starScores,
+        })
         .from(gakuchikaConversations)
         .where(eq(gakuchikaConversations.gakuchikaId, content.id))
         .orderBy(desc(gakuchikaConversations.updatedAt))
         .limit(1);
 
-      const isCompleted = latestConv?.status === "completed";
+      const isCompleted = latestConv
+        ? isInterviewReady(safeParseConversationState(latestConv.starScores ?? null, latestConv.status))
+        : false;
       if (isCompleted && content.summary) {
         try {
           const parsed = JSON.parse(content.summary);

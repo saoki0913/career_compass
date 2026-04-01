@@ -319,19 +319,19 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 機能 | 状態 | 備考 |
 |------|------|------|
 | 対話形式での深掘り | ✅ 完了 | FastAPI `motivation.py` |
-| 目安8問 | ✅ 完了 | 4要素評価（企業理解/自己分析/キャリアビジョン/差別化） |
+| 骨格ベース評価 | ✅ 完了 | 6要素（業界理由/企業理由/自己接続/やりたい仕事/価値発揮/差別化） |
 | 中断/再開 | ✅ 完了 | `motivationConversations` テーブル |
 | クレジット消費（5問ごと3） | ✅ 完了 | ガクチカと同様のロジック |
 | 企業RAG連携 | ✅ 完了 | 企業情報を質問に反映 |
 | 回答候補 / 参考企業情報 | ✅ 完了 | `suggestionOptions` は `2〜4件` の直接回答文に絞り、`evidenceCards` は compact card UI で表示 |
 | ガクチカ連携 | ✅ 完了 | 完了済み要約を質問生成に反映 |
-| SSEストリーミング送信 | ✅ 完了 | 進捗表示と canonical question の逐次表示 |
+| SSEストリーミング送信 | ✅ 完了 | 進捗表示のみ先出しし、質問は確定後の canonical question だけを表示 |
 | ES下書き生成 | ✅ 完了 | 300/400/500文字指定 |
 | 企業ページからの導線 | ✅ 完了 | 「志望動機を作成」ボタン |
-| 進捗バー（4要素） | ✅ 完了 | スコア表示UI |
+| 進捗バー（6要素） | ✅ 完了 | setup / 進捗 / draft ready を統一表示 |
 | setup-first 初期設定 | ✅ 完了 | 業界/職種をチャット前に確定 |
 | 初回開始の空履歴処理 | ✅ 完了 | 空 `messages=[]` をそのまま LLM に渡さない |
-| 質問適合候補 | ✅ 完了 | LLM質問は server-side validator で単一論点・stage 適合を確認し、`question_focus` と grounded builder で `1〜2件` の直接回答文に絞り、続けて軽量 LLM で文体リライトする。protected token 検証に失敗した場合は原文へ戻す。raw企業文や見出しは除外。回答送信は `conversation/stream` のみ（JSON `POST /conversation` は廃止） |
+| 質問適合候補 | ✅ 完了 | LLM質問は server-side validator で単一論点・未確認前提なしを確認し、候補は grounded builder で 2〜4 件の直接回答文だけを返す。raw企業文や見出しは除外。回答送信は `conversation/stream` のみ |
 
 ---
 
@@ -703,7 +703,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
   - 各ファイル間の相対パスリンクを更新
 - ✅ **志望動機作成機能（AI対話形式）を追加**（Section 17.5）
   - ESテンプレートギャラリー機能の代替として実装
-  - 対話形式での深掘り、4要素評価、企業RAG連携
+  - 対話形式での深掘り、6要素評価、企業RAG連携
   - ES下書き生成（300/400/500文字指定）
   - 関連ファイル: `backend/app/routers/motivation.py`, `src/app/companies/[id]/motivation/page.tsx`
 - ❌ **ESテンプレートギャラリー機能を削除**

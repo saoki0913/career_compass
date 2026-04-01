@@ -5,9 +5,9 @@ import { desc, eq } from "drizzle-orm";
 import {
   getIdentity,
   getQuestionFromFastAPI,
-  getWeakestElement,
   safeParseMessages,
-  safeParseStarScores,
+  safeParseConversationState,
+  serializeConversationState,
   verifyGakuchikaAccess,
 } from "@/app/api/gakuchika/shared";
 import {
@@ -71,11 +71,17 @@ export async function POST(
 
     let messages = safeParseMessages(conversation.messages);
     const questionCount = conversation.questionCount || 0;
-    const starScores = safeParseStarScores(conversation.starScores);
-    let targetElement = getWeakestElement(starScores);
+    let conversationState = safeParseConversationState(conversation.starScores, conversation.status);
     let status = conversation.status;
 
-    if (conversation.status === "completed") {
+    if (conversationState.stage === "draft_ready" && !conversationState.draftText) {
+      return NextResponse.json(
+        { error: "先にガクチカESを作成してから深掘りを再開してください。" },
+        { status: 409 },
+      );
+    }
+
+    if (conversation.status === "completed" && conversationState.stage === "draft_ready") {
       const result = await getQuestionFromFastAPI(
         {
           title: gakuchika.title,
@@ -84,7 +90,7 @@ export async function POST(
         },
         messages,
         questionCount,
-        starScores,
+        conversationState,
         requestId,
       );
 
@@ -110,7 +116,7 @@ export async function POST(
           content: result.question,
         },
       ];
-      targetElement = result.targetElement || targetElement;
+      conversationState = result.conversationState ?? conversationState;
       status = "in_progress";
 
       await db
@@ -118,6 +124,7 @@ export async function POST(
         .set({
           messages: JSON.stringify(messages),
           status,
+          starScores: serializeConversationState(conversationState),
           updatedAt: new Date(),
         })
         .where(eq(gakuchikaConversations.id, sessionId));
@@ -143,12 +150,15 @@ export async function POST(
       .orderBy(desc(gakuchikaConversations.createdAt));
 
     const sessions = allConversations.map((item) => ({
-      id: item.id,
-      status: item.id === sessionId ? status : item.status,
-      starScores: safeParseStarScores(item.starScores),
-      questionCount: item.questionCount || 0,
-      createdAt: item.createdAt,
-    }));
+        id: item.id,
+        status: item.id === sessionId ? status : item.status,
+        conversationState:
+          item.id === sessionId
+            ? conversationState
+            : safeParseConversationState(item.starScores, item.status),
+        questionCount: item.questionCount || 0,
+        createdAt: item.createdAt,
+      }));
 
     const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
 
@@ -161,9 +171,8 @@ export async function POST(
       messages,
       nextQuestion: lastAssistantMessage?.content || null,
       questionCount,
-      isCompleted: false,
-      starScores,
-      targetElement,
+      isCompleted: status === "completed",
+      conversationState,
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,

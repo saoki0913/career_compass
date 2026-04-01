@@ -82,7 +82,7 @@ interface MotivationScores {
 interface SuggestionOption {
   id: string;
   label: string;
-  sourceType: "company" | "gakuchika" | "profile" | "application_job_type" | "hybrid";
+  sourceType: "conversation" | "gakuchika" | "profile" | "safe_fallback";
   intent: string;
   evidenceSourceIds?: string[];
   rationale?: string | null;
@@ -244,11 +244,18 @@ function applyAnswerToConversationContext(
     case "company_reason":
       next.companyReason = trimmed;
       break;
+    case "self_connection":
+      next.selfConnection = trimmed;
+      next.fitConnection = trimmed;
+      break;
     case "desired_work":
       next.desiredWork = trimmed;
       break;
-    case "origin_experience":
-      next.originExperience = trimmed;
+    case "value_contribution":
+      next.valueContribution = trimmed;
+      break;
+    case "differentiation":
+      next.differentiationReason = trimmed;
       break;
     default:
       break;
@@ -552,8 +559,6 @@ export async function POST(
 
               if (event.type === "progress") {
                 // Forward progress events immediately
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-              } else if (event.type === "string_chunk") {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
               } else if (event.type === "complete") {
                 // Process complete event: DB save + credit consumption

@@ -325,12 +325,19 @@ function ReorderView({
                             <h3 className="font-medium truncate">
                               {gakuchika.title}
                             </h3>
-                            <STARStatusBadge scores={gakuchika.starScores} />
+                            <STARStatusBadge
+                              state={gakuchika.conversationState}
+                              status={gakuchika.conversationStatus}
+                            />
                           </div>
                         )}
                         {gakuchika.summaryPreview ? (
                           <p className="text-sm text-muted-foreground line-clamp-2">
                             {gakuchika.summaryPreview}
+                          </p>
+                        ) : gakuchika.conversationState?.stage === "draft_ready" ? (
+                          <p className="text-sm text-muted-foreground">
+                            ES本文を作成できる状態です
                           </p>
                         ) : gakuchika.conversationStatus === "completed" ? (
                           <p className="text-sm text-muted-foreground">
@@ -346,7 +353,10 @@ function ReorderView({
                           </p>
                         )}
                         <div className="flex items-center justify-between mt-3">
-                          <STARProgressCompact scores={gakuchika.starScores} />
+                          <STARProgressCompact
+                            state={gakuchika.conversationState}
+                            status={gakuchika.conversationStatus}
+                          />
                           <p className="text-xs text-muted-foreground">
                             {new Date(gakuchika.updatedAt).toLocaleDateString(
                               "ja-JP",

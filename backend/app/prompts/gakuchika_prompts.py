@@ -1,130 +1,96 @@
 """
-Gakuchika (ガクチカ) Prompt Templates
+Gakuchika (ガクチカ) prompt templates.
 
-Centralized prompt constants for the gakuchika deep-dive feature.
-Used by backend/app/routers/gakuchika.py via .format() templating.
+The flow now has two distinct phases:
+- ES build: gather enough material to write a credible ES draft quickly
+- Deep dive: after the ES exists, sharpen it for interview follow-ups
 """
 
 from app.prompts.notion_registry import get_managed_prompt_content
 
-# Shared prohibition list for question generation prompts
-_PROHIBITED_EXPRESSIONS_FALLBACK = """### 禁止表現パターン（絶対に使わない）
-以下のパターンに該当する表現は全て禁止:
-- 「〜してください」で終わる依頼文（「教えてください」「聞かせてください」「説明してください」）
-- 「もう少し」「詳しく」「具体的に」等の漠然とした深掘り依頼
-- 「他にありますか」「何かありますか」等の列挙依頼
-- 「どうでしたか」「いかがでしたか」等のyes/no誘導
-- 「先ほど『〇〇』とおっしゃいましたが」等の不自然な定型引用
-- 「〇〇とのことですが」で毎回始める硬い書き出し
+
+QUESTION_TONE_AND_ALIGNMENT_RULES = """## 質問トーンと整合ルール
+- 質問文は必ず自然な丁寧語にする
+- 1問で聞く論点は1つだけにする
+- 質問・answer_hint・progress_label・focus_key の整合を必ず取る
+- answer_hint は、その質問に答えるために書くとよい内容だけを1文で示す
+- progress_label は focus_key と対応した短い日本語にする
+- 会話や ES に出ていない別エピソードへ飛ばさない
+- 役割や成果を盛りすぎる方向に誘導しない
+"""
+
+
+_PROHIBITED_EXPRESSIONS_FALLBACK = """## 禁止表現パターン
+- 「〜してください」で終わる依頼文（「教えてください」「聞かせてください」「説明してください」など）
+- 「もう少し」「詳しく」「具体的に」などの曖昧な深掘り依頼
+- 「他にありますか」「何かありますか」などの列挙依頼
+- 「どうでしたか」「いかがでしたか」などの yes/no に寄る聞き方
+- 「先ほど『〇〇』とおっしゃいましたが」などの不自然な引用調
 - 毎回ほぼ同じ書き出しで始める単調な質問文"""
 PROHIBITED_EXPRESSIONS = get_managed_prompt_content(
     "gakuchika.prohibited_expressions",
     fallback=_PROHIBITED_EXPRESSIONS_FALLBACK,
 )
 
-_QUESTION_QUALITY_PRINCIPLES_FALLBACK = """## 質問品質の原則
-- 短い入力からでも、完成度の高いガクチカ文章に育てるために必要な情報だけを集める
-- 派手な結果より、課題設定・判断理由・工夫・仕組み化の過程を優先する
-- 1問で広く浅く聞かず、同じエピソードの1本の因果線を縦に深掘りする
-- 会話に出ていない別の活動・未登場の人物・未言及の設定を仮定して質問しない（エピソードのすり替え禁止）
-- 「何が起きたか」だけでなく、「なぜそれを本当の課題と見たか」を、既に述べた事実に接続して確認する
-- 学生本人の役割・裁量・他者との分担が自然に伝わる聞き方にする。本人と周囲の役割境界が曖昧なら、その境界を確認する質問にする
-- 面接官が情景を思い浮かべられる場面、前後差、比較軸を引き出す（情景が薄いフェーズでは場面寄り、学びが薄いフェーズでは再現可能な行動原則寄り）
-- 行動は「何をしたか」だけでなく「なぜその方法を選んだか」まで掘る
-- 結果は数字の有無だけでなく、そこから得た学びが次に再現できる形かを見る
-- 不自然に盛った印象を与える質問、本人の権限を超えた前提の質問は避ける
-- 複数の打ち手や施策が会話に出ているときは、列挙を広げず「いま追う一本の線」を選び、その打ち手を選んだ判断軸か、他と比べて何を後回しにしたかのどちらか一方だけを聞く
-- 現象・困りごとと「本当に解きたかった課題」が混ざっているときは、いつ・何をきっかけに課題だと認識したかを、すでに述べた事実に接続して聞く
-- 上長・本部・社員など他者の関与が示唆されるときは、指示と自主の切り分け（何を任され、何を自ら決めたか）を同じ場面で1点だけ確認する
-- 意見の食い違いや対立に触れているときは、論点を増やさず「目標の再確認」か「合意に至った理由」のどちらか一方に絞って聞く
-- 失敗・効果の切れ・想定外に触れているのに、原因の見立てと次の打ち手がセットで語られていなければ、そのギャップを1問で埋める
-- 成果や打ち手は語られているのに、当時の目標や「うまくいったか」の基準（定性でも定量でもよい）が会話上まだ曖昧なときだけ、すでに述べた事実に接続して1点だけ確認する（目標がはっきりしているなら無理に聞かない）
-- マニュアル・ルール・手順を自分たちで整えたと話しているのに、会社・本部など共通の枠組みと現場独自の範囲の切り分けが曖昧なときだけ、等身大の役割に収まるよう1点だけ確認する（触れていないなら仮定して聞かない）"""
-QUESTION_QUALITY_PRINCIPLES = get_managed_prompt_content(
-    "gakuchika.question_quality_principles",
-    fallback=_QUESTION_QUALITY_PRINCIPLES_FALLBACK,
+
+_ES_BUILD_QUESTION_PRINCIPLES_FALLBACK = """## ES作成フェーズの質問原則
+- 目的は、面接深掘りではなく、ESに記載できるレベルの材料を短い往復で集めること
+- 最初から同じ論点を縦に掘りすぎない
+- まずは ES の骨格として必要な 6 要素を優先して集める
+  - overview: 何に取り組んだか
+  - context: どんな状況だったか
+  - task: 何が課題だったか
+  - action: 自分は何をしたか
+  - result: その結果どうなったか
+  - learning: そこから何を学んだか
+- 情報が薄いときは、深掘りより先に骨格の欠けを埋める
+- 派手な成果より、課題設定・工夫・役割の自然さを優先する
+- 抽象語だけで骨格が埋まった扱いにしない
+- 同じ論点を追うのは 1〜2 問までを目安とし、ES 骨格に未充足項目があるなら次へ進む
+- 役割境界が曖昧なときだけ role を確認する
+- 数字は重要だが、なければ定性的変化でも先に前後差を押さえる
+- ready_for_draft は、6要素があるだけではなく、task と action が ES として読んで弱くない最低限の具体性を持つときだけ true にする
+- task は、何を課題と見たかが抽象語だけで終わっていないこと
+- action は、自分が実際に取った行動や工夫が少なくとも1つ読めること
+- 完璧さより、まずドラフト可能かどうかを優先する"""
+ES_BUILD_QUESTION_PRINCIPLES = get_managed_prompt_content(
+    "gakuchika.es_build_question_principles",
+    fallback=_ES_BUILD_QUESTION_PRINCIPLES_FALLBACK,
 )
 
-_REFERENCE_GUIDE_RUBRIC_FALLBACK = """## 参考ルーブリック（面接深掘りの要点）
-- 面接官の懐疑心を生まないよう、本人の権限・役割範囲に収まる事実から掘る
-- 課題は表面的な困りごとではなく、なぜそれが成果や現場に効いたのか（課題選定の筋の良さ）まで確認する
-- 行動は実施内容だけでなく、代替案比較・判断理由・順番の設計まで掘る
-- 失敗・予定外・ズレに触れている場合は、原因の見立てと次に取った打ち手まで、1本の因果で聞く
-- 盛った成果より、等身大の役割・周囲との分担・仕組み化の工夫を優先する
-- 回答の中の「撒き餌」になっているキーワードは拾うが、論点を増やさず1本の線で深掘りする
-- 学びは抽象語だけで終わらせず、次に再現できる行動原則へ接続する質問にする
-- ユーザーが複数の具体策に触れた直後でも、「ほかには」「別の施策は」と広げず、直前に話した一本に沿って深掘りする
-- 組織やチームとして何を達成したいか・何をもって成功とみなすかが曖昧だと説得力が落ちるため、会話に既に出ている文脈だけを手がかりに、目標や評価の軸を1点だけ補う
-- 独自の仕組み・手順の主張があるときは、共通ルールの上での補完なのかゼロからの整備なのかが曖昧だと懐疑心につながるため、本人の権限の範囲で1点だけ確認する"""
+
+_DEEPDIVE_QUESTION_PRINCIPLES_FALLBACK = """## 深掘りフェーズの質問原則
+- このフェーズは、完成した ES を見たあとに「更に深掘りする」導線から始まる
+- 目的は面接で話せる粒度まで解像度を上げること
+- 質問は必ず ES 本文または会話履歴に既に出ている同じエピソードに留める
+- 1問で広く浅く聞かず、同じエピソードの 1 本の因果線を縦に深掘りする
+- 優先観点は role / challenge / action_reason / result_evidence / learning_transfer / credibility / future / backstory のいずれか 1 つだけ
+- future は、その経験を踏まえて今後どんな挑戦をしたいか、仕事や次の行動にどうつなげるかを確認したいときに使う
+- backstory は、その強みや価値観の原体験、またはその経験に力を入れた背景を確認したいときに使う
+- 迷ったら、数字より先に「なぜそう判断したか」「なぜそれを課題と見たか」を優先する
+- 盛りすぎた印象を避け、本人の権限・役割範囲に収まるように確認する
+- 失敗やズレに触れているなら、原因の見立てと次の打ち手をセットで確認する
+- 学びは抽象語で終わらせず、次に再現できる行動原則へ接続する
+- 将来展望や原体験を聞く場合でも、別エピソードに飛ばしすぎず、現在のガクチカとのつながりが分かる聞き方にする"""
+DEEPDIVE_QUESTION_PRINCIPLES = get_managed_prompt_content(
+    "gakuchika.deepdive_question_principles",
+    fallback=_DEEPDIVE_QUESTION_PRINCIPLES_FALLBACK,
+)
+
+
+_REFERENCE_GUIDE_RUBRIC_FALLBACK = """## 参考ルーブリック
+- ES 作成段階では、本人の役割・課題・工夫・成果が等身大に読めることを優先する
+- 深掘り段階では、判断理由・役割境界・信憑性・再現可能性を優先する
+- どちらの段階でも、未言及の別エピソードや未登場の人物・組織を仮定して聞かない
+- 役割が曖昧なまま成果だけを膨らませない
+- 学びは抽象語だけで終わらせず、次に活きる行動原則へつなげる"""
 REFERENCE_GUIDE_RUBRIC = get_managed_prompt_content(
     "gakuchika.reference_guide_rubric",
     fallback=_REFERENCE_GUIDE_RUBRIC_FALLBACK,
 )
 
 
-# 統合プロンプト: STAR評価 + 質問生成
-# Used with: .format(gakuchika_title=..., conversation=..., phase_name=...,
-#   phase_description=..., preferred_focuses=...,
-#   preferred_target_elements=..., prohibited_expressions=..., threshold=...)
-_STAR_EVALUATE_AND_QUESTION_PROMPT_FALLBACK = """あなたは就活生向けの深掘りコーチです。学生の経験を、面接で伝わる形に整理する質問を1つだけ返してください。
-
-## テーマ
-{gakuchika_title}
-
-## 会話履歴
-{conversation}
-
-## 会話フェーズ
-- 現在: {phase_name}
-- 意図: {phase_description}
-- 優先したい深掘り観点: {preferred_focuses}
-- 優先したいSTAR要素: {preferred_target_elements}
-
-{question_quality_principles}
-{reference_guide_rubric}
-
-## 評価ルール
-- STAR の 4 要素を 0-100 点で評価する
-- 具体的な時期・人数・前後比較・判断理由・学びは加点する
-- 抽象語だけ、因果不明、役割過大、数字の根拠不足は加点しない
-- 次質問は、直前回答の同じエピソードを縦に深掘りする
-- 1問で複数の論点を聞かない
-- 課題の深さ、役割の妥当性、具体場面、学びの再現性のうち、いちばん不足している1点だけを補う
-- 自然な会話にし、硬い引用や定型句を避ける
-- 迷ったら、数字より先に「なぜそう判断したか」「なぜそれを課題と見たか」を優先する
-- 曖昧な深掘りではなく、anchor / challenge / action_decision / result_evidence / learning_transfer / credibility_scope のどれか1つだけを狙う
-- 禁止: ユーザーがまだ話していない別エピソードへ誘導すること、未登場の第三者や組織を前提にした聞き方
-- 禁止: 列挙を広げる聞き方（「ほかにも」「別の施策は」等）で、まだ触れていない別の打ち手へ誘導すること
-
-{prohibited_expressions}
-
-## 出力ルール
-- JSON以外を出力しない
-- コードフェンス、説明文、理由、前置きは禁止
-- question を最初に出力する
-- question は1文、簡潔で自然な日本語にする
-
-## 出力形式
-{{
-  "question": "次の深掘り質問",
-  "star_scores": {{
-    "situation": 0,
-    "task": 0,
-    "action": 0,
-    "result": 0
-  }}
-}}
-"""
-STAR_EVALUATE_AND_QUESTION_PROMPT = get_managed_prompt_content(
-    "gakuchika.star_evaluate_and_question",
-    fallback=_STAR_EVALUATE_AND_QUESTION_PROMPT_FALLBACK,
-)
-
-
-# 初回質問生成プロンプト(コンテンツあり)
-# Used with: .format(gakuchika_title=..., gakuchika_content=...,
-#   prohibited_expressions=...)
-_INITIAL_QUESTION_PROMPT_FALLBACK = """あなたは10年以上の経験を持つ就活アドバイザーです。学生が記載したガクチカの内容を読み、最初の深掘り質問を生成してください。
+_INITIAL_QUESTION_PROMPT_FALLBACK = """あなたは就活生向けの ES 作成アドバイザーです。学生の簡単な入力から、ES に記載できるレベルのガクチカを作るための最初の 1 問を生成してください。
 
 ## テーマ
 {gakuchika_title}
@@ -132,31 +98,32 @@ _INITIAL_QUESTION_PROMPT_FALLBACK = """あなたは10年以上の経験を持つ
 ## 学生が記載した内容
 {gakuchika_content}
 
-## タスク
-上記の内容を読み、学生が最も印象に残っている場面や、最も力を入れた部分について尋ねる質問を生成してください。
-初回質問でも、曖昧・誇張になりやすい部分を避けるため、役割や具体場面に寄せた聞き方にしてください。
-質問は必ず上記「学生が記載した内容」と同じエピソード・同じ主題に留め、記載にない別活動や別テーマへ誘導しないこと。
-
-{question_quality_principles}
+{question_tone_and_alignment_rules}
+{es_build_question_principles}
 {reference_guide_rubric}
-
-## 質問生成ルール
-
 {prohibited_expressions}
 
-### 推奨: 内容に基づいた具体的な質問
-- 記載内容から具体的なキーワードを引用する
-- 書き出しは会話として自然にする
-- 役割、当時の状況、なぜその経験が印象に残っているかのいずれかに絞る
-- いきなり成果や学びだけを聞かない
-- 「誰が何をしたのか」の境界が曖昧なら、まず本人の役割範囲を確認する
-- いきなり抽象論に行かず、面接官が一場面を想像できる入口を作る
-- 記載にない別の活動や人物を持ち出さない。曖昧なら本人の役割や当時の状況から入る
+## タスク
+- 上記の内容を読み、ES 作成に必要な骨格を作るための最初の 1 問を生成する
+- 最初から深掘りしすぎず、まずは「何をした経験か」「どんな状況か」「自分の役割は何か」のいずれか、最も欠けている 1 点を聞く
+- 学生が書いた内容と同じエピソード・同じ主題に留める
+- 記載にない別活動や別人物を持ち出さない
+- answer_hint は、その質問に答えるために書くとよい内容だけを 1 文で示す
+- progress_label は focus_key と一致した短い日本語にする
+- この時点では ready_for_draft は原則 false にする。ただし既に骨格が十分揃っている場合のみ true にしてよい
+
+## 出力ルール
+- JSON 以外を出力しない
+- コードフェンス、説明文、前置きは禁止
 
 ## 出力形式
-必ず以下のJSON形式で回答してください:
 {{
-  "question": "質問文(内容を踏まえつつ、自然な日本語で具体的な切り口にする)"
+  "question": "最初の質問",
+  "answer_hint": "この質問に答えるヒント",
+  "progress_label": "取り組みを整理中",
+  "focus_key": "overview",
+  "missing_elements": ["context", "task", "action", "result", "learning"],
+  "ready_for_draft": false
 }}"""
 INITIAL_QUESTION_PROMPT = get_managed_prompt_content(
     "gakuchika.initial_question",
@@ -164,9 +131,7 @@ INITIAL_QUESTION_PROMPT = get_managed_prompt_content(
 )
 
 
-# 構造化サマリープロンプト
-# Used with: .format(gakuchika_title=..., conversation=...)
-_STRUCTURED_SUMMARY_PROMPT_FALLBACK = """あなたは就活アドバイザーです。以下のガクチカ深掘り会話の内容を分析し、STAR構造に整理してください。
+_ES_BUILD_AND_QUESTION_PROMPT_FALLBACK = """あなたは就活生向けの ES 作成アドバイザーです。会話履歴を読み、ES に記載できるレベルの材料を揃えるための次の 1 問を生成してください。
 
 ## テーマ
 {gakuchika_title}
@@ -174,34 +139,188 @@ _STRUCTURED_SUMMARY_PROMPT_FALLBACK = """あなたは就活アドバイザーで
 ## 会話履歴
 {conversation}
 
-{question_quality_principles}
+## 既に整理できている事実
+{known_facts}
+
+{question_tone_and_alignment_rules}
+{es_build_question_principles}
+{reference_guide_rubric}
+{prohibited_expressions}
+
+## 判定観点
+以下の 6 要素が ES 骨格です:
+- overview: 何に取り組んだか
+- context: どんな状況だったか
+- task: 何が課題だったか
+- action: 自分は何をしたか
+- result: どんな成果・変化があったか
+- learning: 何を学んだか
 
 ## タスク
-1. STAR要素を簡潔に抽出
-2. 強みを2個特定（短いタイトル+説明）
-3. 学びを2個特定（短いタイトル+説明）
+1. 会話履歴を読み、6 要素のうち未充足または薄い要素を判定する
+2. いま最優先で 1 つだけ補うべき要素を選ぶ
+3. その要素を埋めるための次質問を 1 問だけ生成する
+4. ES 本文を無理なく書ける最低限の材料が揃っていれば ready_for_draft=true にする
+5. ready_for_draft=true の場合は、question / answer_hint / progress_label を空文字にしてよい
+
+## 質問生成ルール
+- ES 作成段階では、同じ論点を必要以上に縦に掘らない
+- まだ骨格が欠けているなら、判断理由や真因より先に骨格を埋める
+- 役割が曖昧なまま成果だけを膨らませない
+- 結果に数字がなくても、前後差や変化があれば result とみなせる
+- learning は抽象語だけでなく、その経験で得た気づきが分かる程度まで確認する
+
+## 出力ルール
+- JSON 以外を出力しない
+- コードフェンス、説明文、理由、前置きは禁止
+- missing_elements は未充足のものだけを返す
+
+## 出力形式
+{{
+  "question": "次の質問",
+  "answer_hint": "この質問に答えるヒント",
+  "progress_label": "課題を整理中",
+  "focus_key": "task",
+  "missing_elements": ["result", "learning"],
+  "ready_for_draft": false,
+  "draft_readiness_reason": "課題と行動はあるが、成果と学びがまだ文章化に足りないため"
+}}"""
+ES_BUILD_AND_QUESTION_PROMPT = get_managed_prompt_content(
+    "gakuchika.es_build_and_question",
+    fallback=_ES_BUILD_AND_QUESTION_PROMPT_FALLBACK,
+)
+
+
+_GAKUCHIKA_DRAFT_PROMPT_FALLBACK = """以下の会話から、{char_limit}字程度のガクチカ ES を作成してください。ここでの目的は、まず ES に記載できるレベルの本文を完成させることです。面接用の過度な深掘りはこの段階では行いません。
+
+## テーマ
+{gakuchika_title}
+
+## 会話内容
+{conversation}
+
+## 作成ルール
+1. だ・である調で統一
+2. 文字数: {char_min}〜{char_limit}字（厳守）
+3. 構成:
+   - 導入（15%）: 何に取り組んだかを一文で示す
+   - 本論（70%）: 状況 → 課題 → 行動を、役割と工夫が分かるように書く
+   - 結論（15%）: 成果・変化と学びを書く
+4. 会話で出た具体的な事実・数字・前後差のみを使う
+5. 成果を盛りすぎず、本人の役割範囲と因果関係が自然に読めるようにする
+6. 課題は、何が問題だったかが伝わるように自然に書く
+7. 行動は、「頑張った」ではなく、自分が実際に何をしたかが 1 つ以上見えるように書く
+8. 数字がなければ、定性的な変化を自然に成果としてまとめてよい
+9. 学びは一言で終わらせず、今後に活かせる強みの芽が伝わるようにする
+10. 面接深掘りで使う補足情報は本文に詰め込みすぎない
+
+## 出力ルール
+- JSON 以外を出力しない
+- コードフェンス、説明文、前置きは禁止
+
+## 出力形式
+{{
+  "draft": "ガクチカ本文（{char_min}〜{char_limit}字）",
+  "char_count": 320,
+  "followup_suggestion": "更に深掘りする"
+}}"""
+GAKUCHIKA_DRAFT_PROMPT = get_managed_prompt_content(
+    "gakuchika.draft_generation",
+    fallback=_GAKUCHIKA_DRAFT_PROMPT_FALLBACK,
+)
+
+
+_STAR_EVALUATE_AND_QUESTION_PROMPT_FALLBACK = """あなたは就活生向けの面接深掘りコーチです。完成したガクチカ ES と会話履歴を読み、面接で話せる粒度まで解像度を上げるための次の 1 問を生成してください。STAR の点数評価は不要です。
+
+## テーマ
+{gakuchika_title}
+
+## 完成したガクチカ ES
+{draft_text}
+
+## 会話履歴
+{conversation}
+
+## 深掘りフェーズ
+- 現在: {phase_name}
+- 意図: {phase_description}
+- 優先したい観点: {preferred_focuses}
+
+{question_tone_and_alignment_rules}
+{deepdive_question_principles}
+{reference_guide_rubric}
+{prohibited_expressions}
+
+## タスク
+- ES 本文または会話履歴に既に出ている内容だけを根拠に、次の 1 問を生成する
+- 1問で 1 論点だけを聞く
+- 狙う論点は role / challenge / action_reason / result_evidence / learning_transfer / credibility / future / backstory のいずれか 1 つだけにする
+- future を選ぶ場合は、その経験を今後どう活かしたいか、どんな挑戦につなげたいかを聞く
+- backstory を選ぶ場合は、その強みや価値観の背景、またはその経験に力を入れた理由の原体験を聞く
+- 面接準備として十分であれば deepdive_stage を interview_ready にして、question / answer_hint / progress_label を空文字にしてよい
+
+## 出力ルール
+- JSON 以外を出力しない
+- コードフェンス、説明文、理由、前置きは禁止
+
+## 出力形式
+{{
+  "question": "次の深掘り質問",
+  "answer_hint": "この質問に答えるヒント",
+  "progress_label": "判断理由を整理中",
+  "focus_key": "action_reason",
+  "deepdive_stage": "es_aftercare"
+}}"""
+STAR_EVALUATE_AND_QUESTION_PROMPT = get_managed_prompt_content(
+    "gakuchika.star_evaluate_and_question",
+    fallback=_STAR_EVALUATE_AND_QUESTION_PROMPT_FALLBACK,
+)
+
+
+_STRUCTURED_SUMMARY_PROMPT_FALLBACK = """あなたは就活アドバイザーです。完成したガクチカ ES と、その後の深掘り会話の内容を分析し、STAR 構造と面接用メモに整理してください。
+
+## テーマ
+{gakuchika_title}
+
+## 完成したガクチカ ES
+{draft_text}
+
+## 会話履歴
+{conversation}
+
+{deepdive_question_principles}
+{reference_guide_rubric}
+
+## タスク
+1. STAR 要素を簡潔に抽出
+2. 強みを 2 個特定
+3. 学びを 2 個特定
 4. 具体的な数字を抽出
 5. 面接で深掘りされると強いポイントを抽出
 6. 信憑性を担保する補足メモを抽出
+7. ES 本文に書ききれなかったが面接では使える補足を抽出
+8. 将来展望や原体験が会話に出ていれば、面接で使える補足として整理する
 
 ## 出力ルール
 - situation_text: 時期・場所・規模を含む状況説明（50-80字）。会話に情報なければ「記載なし」
-- task_text: 「なぜ課題か」を含む課題説明（50-80字）
-- action_text: 行動の理由・工夫を含む具体的行動（80-120字）
-- result_text: 可能な限り数字を含む成果（50-80字）
-- strengths: 2個、titleは「行動力」「分析力」等の汎用ラベルではなくエピソード固有の表現（例: 「データ駆動の改善提案力」）。descriptionは30字以内
-- learnings: 2個、「コミュニケーションの大切さ」等の定型句禁止。会話で述べた学びを抽出。descriptionは30字以内
-- numbers: 会話に出た具体的数字のみ（推測・捏造禁止、0個でも可）
-- interviewer_hooks: 面接官が深掘りしたくなる論点を2-3個、20字以内
-- decision_reasons: 判断理由や施策選定理由を最大3個
-- before_after_comparisons: 前後差・比較軸を最大3個
-- credibility_notes: 面接で突っ込まれた時に補足すべき事実を最大2個
-- role_scope: 自分の責任範囲を40字以内で
-- reusable_principles: 入社後にも再現できる行動原則を最大3個
-- JSONのみ出力。説明文やマークダウンは禁止
+- task_text: 課題と、その課題をなぜ重要と見たかを含む説明（50-80字）
+- action_text: 行動の理由・工夫・役割を含む具体行動（80-120字）
+- result_text: 可能な限り数字や前後差を含む成果（50-80字）
+- strengths: 2個。title は汎用ラベルではなくエピソード固有の表現にする。description は 30 字以内
+- learnings: 2個。定型句禁止。description は 30 字以内
+- numbers: 会話に出た具体的数字のみ
+- interviewer_hooks: 面接官が深掘りしたくなる論点を 2-3 個、20 字以内
+- decision_reasons: 判断理由や施策選定理由を最大 3 個
+- before_after_comparisons: 前後差・比較軸を最大 3 個
+- credibility_notes: 面接で突っ込まれた時に補足すべき事実を最大 3 個
+- role_scope: 自分の責任範囲を 40 字以内で
+- reusable_principles: 入社後にも再現できる行動原則を最大 3 個
+- interview_supporting_details: ES には書かれていないが、面接で補足に使える具体事実を最大 3 個
+- future_outlook_notes: 将来展望に関する補足を最大 2 個
+- backstory_notes: 原体験や背景に関する補足を最大 2 個
+- JSON のみ出力。説明文やマークダウンは禁止
 
 ## 出力形式
-必ず以下のJSON形式で回答してください:
 {{
   "situation_text": "...",
   "task_text": "...",
@@ -215,47 +334,12 @@ _STRUCTURED_SUMMARY_PROMPT_FALLBACK = """あなたは就活アドバイザーで
   "before_after_comparisons": ["比較軸"],
   "credibility_notes": ["補足メモ"],
   "role_scope": "自分の責任範囲",
-  "reusable_principles": ["再現可能な原則"]
+  "reusable_principles": ["再現可能な原則"],
+  "interview_supporting_details": ["面接で使える補足事実"],
+  "future_outlook_notes": ["将来展望の補足"],
+  "backstory_notes": ["原体験の補足"]
 }}"""
 STRUCTURED_SUMMARY_PROMPT = get_managed_prompt_content(
     "gakuchika.structured_summary",
     fallback=_STRUCTURED_SUMMARY_PROMPT_FALLBACK,
-)
-
-
-# ガクチカES下書き生成プロンプト
-# Used with: .format(char_limit=..., gakuchika_title=...,
-#   structured_summary_section=..., conversation=..., char_min=...)
-_GAKUCHIKA_DRAFT_PROMPT_FALLBACK = """以下のガクチカ深掘り会話から、{char_limit}字程度のガクチカESを作成してください。
-
-## テーマ
-{gakuchika_title}
-
-{structured_summary_section}
-
-## 会話内容
-{conversation}
-
-## 作成ルール
-1. だ・である調で統一
-2. 文字数: {char_min}〜{char_limit}字（厳守）
-3. 構成:
-   - 導入（15%）: 取り組みの結論・概要を一文で
-   - 本論（70%）: 状況→課題→行動（具体的な工夫・判断理由を重点的に）
-   - 結論（15%）: 数字を含む成果と、学び・今後への応用
-4. 会話で出た具体的なエピソード・数字を必ず活用する
-5. 「私は」で始め、面接官に「もっと聞きたい」と思わせる深さ
-6. 抽象的な表現を避け、自分だけの具体的な経験を描写する
-7. 成果を盛りすぎず、役割範囲と因果関係が自然に読めるようにする
-8. 最後は学びだけで終わらず、再現可能な強みや行動原則が伝わるようにする
-
-## 出力形式
-必ず以下のJSON形式で回答:
-{{
-  "draft": "ガクチカ本文（{char_min}〜{char_limit}字）",
-  "char_count": 実際の文字数
-}}"""
-GAKUCHIKA_DRAFT_PROMPT = get_managed_prompt_content(
-    "gakuchika.draft_generation",
-    fallback=_GAKUCHIKA_DRAFT_PROMPT_FALLBACK,
 )

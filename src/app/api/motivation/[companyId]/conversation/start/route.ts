@@ -96,6 +96,10 @@ interface MotivationEvaluation {
   scores: MotivationScores;
   weakest_element: string;
   is_complete: boolean;
+  ready_for_draft?: boolean;
+  slot_status?: Record<string, string>;
+  missing_slots?: string[];
+  draft_readiness_reason?: string;
   missing_aspects?: Record<string, string[]>;
   hidden_eval?: Record<string, number>;
   risk_flags?: string[];
@@ -104,11 +108,13 @@ interface MotivationEvaluation {
 interface SuggestionOption {
   id: string;
   label: string;
-  sourceType: "company" | "gakuchika" | "profile" | "application_job_type" | "hybrid";
+  sourceType: "conversation" | "gakuchika" | "profile" | "safe_fallback";
   intent:
+    | "industry_reason"
     | "company_reason"
+    | "self_connection"
     | "desired_work"
-    | "fit_connection"
+    | "value_contribution"
     | "differentiation"
     | "closing";
   evidenceSourceIds?: string[];
@@ -154,6 +160,8 @@ interface FastAPIQuestionResponse {
   suggested_end?: boolean;
   draft_ready?: boolean;
   evaluation?: MotivationEvaluation;
+  target_slot?: MotivationConversationContext["questionStage"];
+  question_intent?: string;
   target_element?: string;
   company_insight?: string;
   suggestion_options?: SuggestionOption[];

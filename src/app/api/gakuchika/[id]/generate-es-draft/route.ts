@@ -1,20 +1,17 @@
 /**
  * Gakuchika ES Draft Generation API
  *
- * POST: Generate ES draft from completed gakuchika conversation
+ * POST: Generate ES draft once the conversation reaches draft-ready quality
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   gakuchikaContents,
   gakuchikaConversations,
   documents,
 } from "@/lib/db/schema";
-import { eq, desc, and } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
+import { eq, desc } from "drizzle-orm";
 import {
   reserveCredits,
   confirmReservation,
@@ -27,62 +24,19 @@ import {
   logAiCreditCostSummary,
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import {
+  getIdentity,
+  isDraftReady,
+  safeParseConversationState,
+  safeParseMessages,
+  serializeConversationState,
+} from "@/app/api/gakuchika/shared";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
-
-async function getIdentity(
-  request: NextRequest
-): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
-}
-
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-}
-
-function safeParseMessages(json: string): Message[] {
-  try {
-    const parsed = JSON.parse(json);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(
-        (m): m is { role: string; content: string } =>
-          m &&
-          typeof m === "object" &&
-          (m.role === "user" || m.role === "assistant") &&
-          typeof m.content === "string"
-      )
-      .map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      }));
-  } catch {
-    return [];
-  }
-}
 
 interface FastAPIDraftResponse {
   draft: string;
   char_count: number;
+  followup_suggestion?: string;
   internal_telemetry?: unknown;
 }
 
@@ -155,23 +109,26 @@ export async function POST(
     );
   }
 
-  // Get latest completed conversation
+  // Get latest conversation that belongs to this gakuchika
   const [conversation] = await db
     .select()
     .from(gakuchikaConversations)
-    .where(
-      and(
-        eq(gakuchikaConversations.gakuchikaId, gakuchikaId),
-        eq(gakuchikaConversations.status, "completed")
-      )
-    )
+    .where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId))
     .orderBy(desc(gakuchikaConversations.updatedAt))
     .limit(1);
 
   if (!conversation) {
     return NextResponse.json(
-      { error: "完了済みの深掘りセッションが見つかりません" },
+      { error: "ガクチカ作成セッションが見つかりません" },
       { status: 404 }
+    );
+  }
+
+  const conversationState = safeParseConversationState(conversation.starScores, conversation.status);
+  if (!isDraftReady(conversationState)) {
+    return NextResponse.json(
+      { error: "ES本文を書くための材料がまだ揃っていません" },
+      { status: 409 }
     );
   }
 
@@ -256,9 +213,27 @@ export async function POST(
       feature: "gakuchika_draft",
       requestId,
       status: "success",
-      creditsUsed: reservationId ? 2 : 0,
+      creditsUsed: reservationId ? 6 : 0,
       telemetry,
     });
+
+    const updatedConversationState = {
+      ...conversationState,
+      stage: "draft_ready" as const,
+      readyForDraft: true,
+      progressLabel: "ES作成可",
+      answerHint: "必要なら、この本文を起点に面接向けの深掘りを続けられます。",
+      draftText: data.draft,
+    };
+
+    await db
+      .update(gakuchikaConversations)
+      .set({
+        status: "completed",
+        starScores: serializeConversationState(updatedConversationState),
+        updatedAt: new Date(),
+      })
+      .where(eq(gakuchikaConversations.id, conversation.id));
 
     // Create ES document with the generated draft
     const documentId = randomUUID();
@@ -291,6 +266,7 @@ export async function POST(
     return NextResponse.json({
       draft: data.draft,
       charCount: data.char_count,
+      followupSuggestion: data.followup_suggestion ?? "更に深掘りする",
       documentId: documentId,
     });
   } catch (error) {

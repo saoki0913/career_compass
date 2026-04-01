@@ -3,7 +3,7 @@ export {
   STARProgressCompact,
   STARStatusBadge,
   STAR_EXPLANATIONS,
-  type STARScores,
+  type ConversationState,
 } from "./STARProgressBar";
 
 export { CompletionSummary } from "./CompletionSummary";

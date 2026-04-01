@@ -15,28 +15,7 @@ import {
   getGakuchikaSummaryKind,
   getGakuchikaSummaryPreview,
 } from "@/lib/gakuchika/summary";
-
-interface STARScores {
-  situation: number;
-  task: number;
-  action: number;
-  result: number;
-}
-
-function safeParseStarScores(json: string | null): STARScores | null {
-  if (!json) return null;
-  try {
-    const parsed = JSON.parse(json);
-    return {
-      situation: parsed.situation ?? 0,
-      task: parsed.task ?? 0,
-      action: parsed.action ?? 0,
-      result: parsed.result ?? 0,
-    };
-  } catch {
-    return null;
-  }
-}
+import { safeParseConversationState } from "@/app/api/gakuchika/shared";
 
 export async function GET(request: NextRequest) {
   try {
@@ -102,7 +81,10 @@ export async function GET(request: NextRequest) {
       return {
         ...gakuchika,
         conversationStatus: gakuchika.conversationStatus || null,
-        starScores: safeParseStarScores(gakuchika.conversationStarScores || null),
+        conversationState: safeParseConversationState(
+          gakuchika.conversationStarScores || null,
+          gakuchika.conversationStatus || null,
+        ),
         questionCount: Number(gakuchika.conversationQuestionCount ?? 0),
         summaryKind: getGakuchikaSummaryKind(gakuchika.summary),
         summaryPreview: getGakuchikaSummaryPreview(gakuchika.summary),

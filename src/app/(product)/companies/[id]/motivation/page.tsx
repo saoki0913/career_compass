@@ -115,13 +115,13 @@ interface MotivationSetupSnapshot {
 interface SuggestionOption {
   id: string;
   label: string;
-  sourceType: "company" | "gakuchika" | "profile" | "application_job_type" | "hybrid";
+  sourceType: string;
   intent:
     | "industry_reason"
     | "company_reason"
+    | "self_connection"
     | "desired_work"
-    | "origin_experience"
-    | "fit_connection"
+    | "value_contribution"
     | "differentiation"
     | "closing";
   evidenceSourceIds?: string[];
@@ -147,9 +147,9 @@ interface StageStatus {
 const STAGE_LABELS: Record<SuggestionOption["intent"], string> = {
   industry_reason: "業界志望理由を整理中",
   company_reason: "企業志望理由を整理中",
+  self_connection: "自分との接続を整理中",
   desired_work: "やりたい仕事を確認中",
-  origin_experience: "原体験を整理中",
-  fit_connection: "経験との接続を深掘り中",
+  value_contribution: "価値発揮を整理中",
   differentiation: "他社との差を整理中",
   closing: "仕上げを整理中",
 };
@@ -157,9 +157,9 @@ const STAGE_LABELS: Record<SuggestionOption["intent"], string> = {
 const STAGE_ORDER: SuggestionOption["intent"][] = [
   "industry_reason",
   "company_reason",
+  "self_connection",
   "desired_work",
-  "origin_experience",
-  "fit_connection",
+  "value_contribution",
   "differentiation",
   "closing",
 ];
@@ -167,9 +167,9 @@ const STAGE_ORDER: SuggestionOption["intent"][] = [
 const STAGE_ANSWER_GUIDE: Record<SuggestionOption["intent"], string> = {
   industry_reason: "その業界を志望する理由を1文で答える",
   company_reason: "この企業のどこに惹かれたかを1文で答える",
+  self_connection: "自分の経験や価値観がどうつながるかを1文で答える",
   desired_work: "入社後に挑戦したい仕事を1文で答える",
-  origin_experience: "その志望につながる原体験を1文で答える",
-  fit_connection: "自分の経験がどう活きるかを1文で答える",
+  value_contribution: "入社後にどう価値を出したいかを1文で答える",
   differentiation: "他社ではなくこの企業を選ぶ理由を1文で答える",
   closing: "最後に伝えたい目標を短くまとめる",
 };
@@ -964,8 +964,6 @@ function MotivationConversationContent() {
     const decoder = new TextDecoder();
     let buffer = "";
     let completed = false;
-    let streamedQuestionText = "";
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -986,13 +984,7 @@ function MotivationConversationContent() {
             continue;
           }
 
-          if (event.type === "string_chunk" && event.path === "question") {
-            streamedQuestionText += typeof event.text === "string" ? event.text : "";
-            setStreamingTargetText(streamedQuestionText);
-            setIsTextStreaming(true);
-            setIsWaitingForResponse(false);
-            startedQuestionPlayback = true;
-          } else if (event.type === "progress") {
+          if (event.type === "progress") {
             setStreamingLabel(event.label || null);
           } else if (event.type === "complete") {
             completed = true;
@@ -1520,7 +1512,7 @@ function MotivationConversationContent() {
                   <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
                     <p className="text-sm font-medium text-foreground">開始後の流れ</p>
                     <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      最初に業界を志望する理由を1問だけ確認し、その後にこの企業の志望理由、入社後にやりたい仕事、原体験、経験との接続を順番に深掘りします。
+                      最初に業界を志望する理由を確認し、その後にこの企業の志望理由、入社後にやりたい仕事、自分との接続、価値発揮、他社との差を順番に整理します。
                     </p>
                   </div>
                 </div>
@@ -1717,7 +1709,7 @@ function MotivationConversationContent() {
                         </p>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        最初に業界志望理由、その後に企業志望理由、やりたい仕事、経験との接続を深掘りします。
+                        最初に業界志望理由、その後に企業志望理由、自分との接続、やりたい仕事、価値発揮、他社との差を順番に深掘りします。
                       </p>
                     </div>
                   ) : (

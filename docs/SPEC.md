@@ -814,16 +814,20 @@
 
 ### 17.2 MVPとして確定していること
 - 機能として搭載する（作成対話が可能）
-- 対話回数は最大6問を基本にし、十分な材料が揃えば早終了する
+- 固定質問数は持たず、ES を書ける最低品質に達した時点で `draft_ready` にする
 - 保存形式はQ&Aの会話ログ
 - 中断/再開が可能
 - 同じ素材に対して再実行できる
   - **再実行時のデータ扱い**: 履歴として残す
   - 前回の作成結果は履歴として保持
   - 初回の再実行は別セッション追加で開始できる
-  - 完了後は `作成を続ける` で同じセッションを再開できる
+  - ES 生成後は `更に深掘りする` で同じセッションを再開できる
 - クレジット消費は5問回答ごとに3
-- 次質問生成のAI出力は `star_scores` / `question` の最小構成を前提とする
+- 次質問生成のAI出力は `question` と `conversation_state` を主契約とする
+- ES 作成前は `overview / context / task / action / result / learning` の不足を埋める
+- `ready_for_draft=true` は、要素数だけでなく `task` と `action` に最低具体性があることを条件にする
+- ES 生成後だけ、同じ画面・同じセッションで面接向け深掘りへ進める
+- 深掘りでは `future` と `backstory` を必要時の観点として扱う
 - 回答送信時のUIは `質問の意図を整理中` → `次の質問を生成中...` → 次質問ストリーミング の順で表示する
 
 ### 17.3 ガクチカ素材の管理
@@ -842,36 +846,41 @@
 企業特化の志望動機を対話形式で深掘りし、ES用の下書きを生成する。ESテンプレート共有/ギャラリー機能の代替として実装。
 
 ### 17.5.2 基本仕様
-- 会話形式で質問に回答し、4要素を深掘りする
+- 会話形式で質問に回答し、志望動機の 6 要素を深掘りする
 - 固定質問数は持たず、ES 下書きに十分な品質へ達した時点で draft ready とする
 - 企業RAGと連携し、企業情報を質問に反映
 - チャット前に `企業確認 / 業界確定 / 職種確定` の setup を行う
 - `company.industry` が broad / 未設定の企業だけ setup で業界選択を必須にする
-- 初回質問は `industry_reason` から開始し、業界志望理由を1問だけ確認した後に `company_reason` と `desired_work` を聞く
-- 回答候補は canonical final question に対応する `2〜4件` の `suggestions / suggestionOptions` を返し、直接回答文だけを表示する
-- 質問は LLM 生成後に server-side validator を通し、曖昧・複数論点・stage 不一致の質問は fallback question へ置換する
-- 4択は質問本文と同じ根拠束から生成し、server-side validator で質問適合と根拠妥当性を確認する
+- 初回質問は `industry_reason` から開始する
+- 会話骨格は `industry_reason → company_reason → self_connection → desired_work → value_contribution → differentiation`
+- 回答候補は canonical final question に対応する `2〜4件` の `suggestionOptions` を返し、質問への直接回答だけを表示する
+- 質問は LLM 生成後に server-side validator を通し、曖昧・複数論点・未確認前提・stage 不一致の質問は repair / fallback する
 - 志望職種は setup で先に確定し、その後の `desired_work` でやりたい仕事を具体化する
 - ログインユーザーは完了済みガクチカ要約を質問生成に利用する
-- `industry_reason / company_reason / desired_work / origin_experience / fit_connection / differentiation / closing` の順で深掘りし、4択は `question_focus` を使う grounded builder で返す
-- `company_reason / differentiation / closing` では対象企業以外の社名を reject し、未確定職種は候補に混ぜない
+- `company_reason / differentiation / closing` では対象企業以外の社名を reject し、未確認の職種や仕事内容を前提にしない
 - `conversation/start` / `conversation` / `conversation/stream` は `updatedAt` compare-and-set で同時更新 race を防ぐ
 - `isDraftReady` は「会話終了」ではなく「志望動機ESを作成できる品質に達した」ことを意味し、到達後も会話は継続できる
+- `draft_ready` 到達直後は自動質問を止め、CTA 有効化と通知だけを行う
+- 追加深掘りは draft ready 後にユーザーが会話を続けた時だけ行い、ES を強める補足に限定する
 - 中断/再開が可能
 - 同じ企業に対して再実行できる（前回結果は履歴として保持）
 
-### 17.5.3 4要素評価フレームワーク
-志望動機を以下の4要素で評価（各0-100点）:
+### 17.5.3 6要素の骨格評価
+志望動機は次の 6 要素で評価する。
 
 | 要素 | 説明 |
 |------|------|
-| **企業理解** | 企業の特徴・事業・強みの理解度 |
-| **自己分析** | 自身の経験・強み・関連エピソード |
-| **キャリアビジョン** | 入社後のビジョン・役割・キャリアパス |
-| **差別化** | なぜこの企業なのかの明確な理由 |
+| `industry_reason` | なぜその業界か |
+| `company_reason` | なぜその会社か |
+| `self_connection` | 自分の経験・価値観・強みとの接点 |
+| `desired_work` | 入社後にやりたい仕事 |
+| `value_contribution` | どう価値を出したいか |
+| `differentiation` | 他社ではなくその会社である理由 |
 
-- **完了閾値**: 重み付きスコアが70以上かつ全要素50以上
-- **重み**: 差別化30% / キャリアビジョン25% / 企業理解25% / 自己分析20%
+- FastAPI は `slot_status / missing_slots / ready_for_draft / draft_readiness_reason / conversation_warnings` を返す
+- `ready_for_draft` は 6 要素が最低限埋まり、特に `company_reason / desired_work / differentiation` が抽象語だけで終わっていない時に true
+- 同じ要素の再質問は最大 1 回まで
+- `origin_experience` と `fit_connection` は現行では `self_connection` に統合する
 
 ### 17.5.4 ES下書き生成
 - 文字数指定: 300字 / 400字 / 500字から選択
@@ -897,10 +906,10 @@
 ### 17.5.7 ガクチカ機能との比較
 | 項目 | 志望動機作成 | ガクチカ作成 |
 |------|-------------|---------------|
-| **評価軸** | 4要素（企業理解/自己分析/ビジョン/差別化） | STAR法（状況/課題/行動/結果） |
+| **評価軸** | 6要素（業界理由/企業理由/自己接続/やりたい仕事/価値発揮/差別化） | STAR法（状況/課題/行動/結果） |
 | **企業RAG** | あり（企業情報を質問に反映） | なし |
-| **出力** | ES下書き（300/400/500字） | サマリー（JSON） |
-| **保存先** | `documents` テーブル（type="es"） | `gakuchikaConversations` |
+| **出力** | ES下書き（300/400/500字） | ES-first の会話状態 + ES下書き + 最終サマリー |
+| **保存先** | `documents` テーブル（type="es"） | `gakuchikaConversations` + `documents` + `gakuchika_contents.summary` |
 
 ## 17.6 面接対策（企業特化模擬面接）
 

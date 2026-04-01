@@ -4,6 +4,7 @@ import {
   safeParseConversationContext,
   resolveDraftReadyState,
   mergeDraftReadyContext,
+  safeParseStageStatus,
 } from "./conversation";
 
 describe("motivation conversation draft readiness", () => {
@@ -34,6 +35,39 @@ describe("motivation conversation draft readiness", () => {
     expect(mergeDraftReadyContext(context, false)).toMatchObject({
       draftReady: true,
       draftReadyUnlockedAt: "2026-03-29T09:00:00.000Z",
+    });
+  });
+
+  it("defaults to the new six-slot open state", () => {
+    const context = safeParseConversationContext(null);
+
+    expect(context.openSlots).toEqual([
+      "industry_reason",
+      "company_reason",
+      "self_connection",
+      "desired_work",
+      "value_contribution",
+      "differentiation",
+    ]);
+  });
+
+  it("derives stage status from six-slot confirmed facts", () => {
+    const context = safeParseConversationContext(JSON.stringify({
+      questionStage: "desired_work",
+      confirmedFacts: {
+        industry_reason_confirmed: true,
+        company_reason_confirmed: true,
+        self_connection_confirmed: true,
+        desired_work_confirmed: false,
+        value_contribution_confirmed: false,
+        differentiation_confirmed: false,
+      },
+    }));
+
+    expect(safeParseStageStatus(null, context)).toEqual({
+      current: "desired_work",
+      completed: ["industry_reason", "company_reason", "self_connection"],
+      pending: ["value_contribution", "differentiation"],
     });
   });
 });

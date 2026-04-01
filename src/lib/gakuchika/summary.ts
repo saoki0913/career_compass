@@ -22,6 +22,9 @@ export interface StructuredSummary {
   credibility_notes?: string[];
   role_scope?: string;
   reusable_principles?: string[];
+  interview_supporting_details?: string[];
+  future_outlook_notes?: string[];
+  backstory_notes?: string[];
 }
 
 export interface LegacySummary {
@@ -148,6 +151,9 @@ export function parseGakuchikaSummary(summary: unknown): GakuchikaSummary | null
       credibility_notes: cleanStringList(summary.credibility_notes),
       role_scope: cleanString(summary.role_scope),
       reusable_principles: cleanStringList(summary.reusable_principles),
+      interview_supporting_details: cleanStringList(summary.interview_supporting_details),
+      future_outlook_notes: cleanStringList(summary.future_outlook_notes),
+      backstory_notes: cleanStringList(summary.backstory_notes),
     };
   }
 

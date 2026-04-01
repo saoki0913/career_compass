@@ -7,7 +7,7 @@ from app.routers.motivation import NextQuestionRequest, _generate_next_question_
 
 
 @pytest.mark.asyncio
-async def test_streaming_emits_canonical_question_chunks_only(
+async def test_streaming_emits_only_final_canonical_question(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_company_context(*args, **kwargs):
@@ -82,6 +82,5 @@ async def test_streaming_emits_canonical_question_chunks_only(
 
     assert complete_events
     canonical_question = complete_events[0]["data"]["question"]
-    assert canonical_question == "株式会社テストで企画職という選択肢に興味を持つとしたら、どんな点が気になりますか？"
-    assert "".join(event["text"] for event in question_chunks) == canonical_question
-    assert any("企画職" in event["text"] for event in question_chunks)
+    assert canonical_question == "株式会社テストを志望先として考えるとき、どんな点に魅力を感じますか？"
+    assert question_chunks == []

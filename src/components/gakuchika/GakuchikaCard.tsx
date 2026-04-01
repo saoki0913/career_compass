@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import {
   STARStatusBadge,
   STARProgressCompact,
-  type STARScores,
+  type ConversationState,
 } from "@/components/gakuchika";
 import { Star, MoreVertical, Pencil, Trash2 } from "lucide-react";
 
@@ -22,7 +22,7 @@ interface Gakuchika {
   createdAt: string;
   updatedAt: string;
   conversationStatus: "in_progress" | "completed" | null;
-  starScores: STARScores | null;
+  conversationState: ConversationState | null;
   questionCount: number;
 }
 
@@ -52,6 +52,8 @@ function GakuchikaCardComponent({
 }: GakuchikaCardProps) {
   const summaryText = gakuchika.summaryPreview
     ? gakuchika.summaryPreview
+    : gakuchika.conversationState?.stage === "draft_ready"
+    ? "ES本文を作成できる状態です"
     : gakuchika.conversationStatus === "completed"
     ? "要約を生成中..."
     : gakuchika.conversationStatus === "in_progress"
@@ -98,7 +100,7 @@ function GakuchikaCardComponent({
             </div>
             <div className="flex items-center gap-1.5">
               {onDeleteStart ? (
-                <Button
+              <Button
                   type="button"
                   variant="ghost"
                   size="icon"
@@ -113,7 +115,7 @@ function GakuchikaCardComponent({
                   <Trash2 className="h-4 w-4" />
                 </Button>
               ) : null}
-              <STARStatusBadge scores={gakuchika.starScores} />
+              <STARStatusBadge state={gakuchika.conversationState} status={gakuchika.conversationStatus} />
             </div>
           </div>
 
@@ -124,7 +126,7 @@ function GakuchikaCardComponent({
 
           {/* STAR progress */}
           <div className="mb-3">
-            <STARProgressCompact scores={gakuchika.starScores} />
+            <STARProgressCompact state={gakuchika.conversationState} status={gakuchika.conversationStatus} />
           </div>
 
           {/* Footer: Date + Menu */}

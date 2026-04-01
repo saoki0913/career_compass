@@ -59,13 +59,13 @@ async function getIdentity(request: NextRequest): Promise<{
 interface SuggestionOption {
   id: string;
   label: string;
-  sourceType: "company" | "gakuchika" | "profile" | "application_job_type" | "hybrid";
+  sourceType: "conversation" | "gakuchika" | "profile" | "safe_fallback";
   intent:
     | "industry_reason"
     | "company_reason"
     | "desired_work"
-    | "origin_experience"
-    | "fit_connection"
+    | "self_connection"
+    | "value_contribution"
     | "differentiation"
     | "closing";
   evidenceSourceIds?: string[];

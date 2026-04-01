@@ -1,9 +1,13 @@
+import pytest
+
 from app.routers.motivation import (
+    NextQuestionRequest,
     _build_evidence_cards_from_sources,
     _build_question_messages,
     _build_stage_specific_suggestion_options,
     _build_stage_status,
     _capture_answer_into_context,
+    _evaluate_motivation_internal,
     _ensure_distinct_question,
     _get_next_stage,
     _repair_generated_question_for_response,
@@ -120,7 +124,10 @@ def test_stage_specific_options_for_company_reason_why_now_avoid_generic_labels(
     )
 
     assert 2 <= len(options) <= 4
-    assert any("関心が強まり" in option.label or "志望度が高まった" in option.label or "惹かれたため" in option.label for option in options)
+    assert any(
+        "関心" in option.label or "きっかけ" in option.label or "感じたため" in option.label
+        for option in options
+    )
     assert all("成長したい" not in option.label for option in options)
 
 
@@ -175,7 +182,7 @@ def test_stage_specific_options_for_industry_choice_question_stay_on_question():
     )
 
     assert 2 <= len(options) <= 4
-    assert all(any(keyword in option.label for keyword in ("産業", "横断", "事業", "選択肢", "商社")) for option in options)
+    assert any(any(keyword in option.label for keyword in ("産業", "横断", "事業", "選択肢", "商社")) for option in options)
     assert all("入社後は" not in option.label for option in options)
 
 
@@ -244,6 +251,96 @@ def test_stage_specific_options_for_desired_work_can_return_four_distinct_answer
     assert all(option.label.startswith("入社後は") for option in options)
 
 
+def test_capture_answer_into_context_updates_self_connection_and_value_contribution():
+    connection_context = _capture_answer_into_context(
+        {
+            "selectedRole": "企画職",
+            "questionStage": "self_connection",
+            "confirmedFacts": {
+                "industry_reason_confirmed": True,
+                "company_reason_confirmed": True,
+                "self_connection_confirmed": False,
+                "desired_work_confirmed": False,
+                "value_contribution_confirmed": False,
+                "differentiation_confirmed": False,
+            },
+        },
+        "学生団体で課題を整理して改善案を提案した経験が、御社の仕事につながると感じています。",
+    )
+
+    assert connection_context["selfConnection"].startswith("学生団体で課題を整理して")
+    assert connection_context["confirmedFacts"]["self_connection_confirmed"] is True
+
+    contribution_context = _capture_answer_into_context(
+        {
+            "selectedRole": "企画職",
+            "questionStage": "value_contribution",
+            "confirmedFacts": {
+                "industry_reason_confirmed": True,
+                "company_reason_confirmed": True,
+                "self_connection_confirmed": True,
+                "desired_work_confirmed": True,
+                "value_contribution_confirmed": False,
+                "differentiation_confirmed": False,
+            },
+        },
+        "課題の整理と改善提案で、顧客にとって分かりやすい価値を出したいです。",
+    )
+
+    assert contribution_context["valueContribution"].startswith("課題の整理と改善提案で")
+    assert contribution_context["confirmedFacts"]["value_contribution_confirmed"] is True
+
+
+@pytest.mark.asyncio
+async def test_evaluate_motivation_internal_respects_slot_based_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_llm(*args, **kwargs):
+        return type(
+            "Result",
+            (),
+            {
+                "success": True,
+                "data": {
+                    "slot_status": {
+                        "industry_reason": "filled",
+                        "company_reason": "filled",
+                        "self_connection": "filled",
+                        "desired_work": "filled",
+                        "value_contribution": "filled",
+                        "differentiation": "filled",
+                    },
+                    "missing_slots": [],
+                    "ready_for_draft": True,
+                    "draft_readiness_reason": "骨格が揃っているため",
+                    "risk_flags": [],
+                    "conversation_warnings": [],
+                },
+            },
+        )()
+
+    monkeypatch.setattr("app.routers.motivation.call_llm_with_error", fake_llm)
+
+    request = NextQuestionRequest(
+        company_id="company_test",
+        company_name="株式会社テスト",
+        industry="IT・通信",
+        conversation_history=[
+            {"role": "assistant", "content": "IT・通信業界を志望する理由を教えてください。"},
+            {"role": "user", "content": "複数の業界課題に関われるからです。"},
+        ],
+        question_count=1,
+        conversation_context={"selectedIndustry": "IT・通信", "selectedRole": "企画職"},
+    )
+
+    result = await _evaluate_motivation_internal(
+        request,
+        company_context="顧客課題に向き合うDX支援と業務改革を進める。",
+    )
+
+    assert result["ready_for_draft"] is True
+    assert result["slot_status"]["value_contribution"] == "filled"
+    assert result["missing_slots"] == []
+
+
 def test_stage_specific_options_filter_out_raw_company_headings_and_copy():
     options = _build_stage_specific_suggestion_options(
         stage="company_reason",
@@ -308,7 +405,7 @@ def test_get_next_stage_moves_to_differentiation_for_weakest_element():
         },
         weakest_element="differentiation",
         is_complete=False,
-    ) == "fit_connection"
+    ) == "value_contribution"
 
 
 def test_get_next_stage_keeps_fit_connection_when_not_complete():
@@ -323,7 +420,7 @@ def test_get_next_stage_keeps_fit_connection_when_not_complete():
         },
         weakest_element="self_analysis",
         is_complete=False,
-    ) == "fit_connection"
+    ) == "value_contribution"
 
 
 def test_get_next_stage_moves_to_differentiation_after_fit_connection_confirmed():
@@ -339,7 +436,7 @@ def test_get_next_stage_moves_to_differentiation_after_fit_connection_confirmed(
         },
         weakest_element="differentiation",
         is_complete=False,
-    ) == "differentiation"
+    ) == "value_contribution"
 
 
 def test_get_next_stage_reasks_same_stage_only_once_then_advances():
@@ -383,7 +480,7 @@ def test_get_next_stage_reasks_same_stage_only_once_then_advances():
         },
         weakest_element="company_understanding",
         is_complete=False,
-    ) == "desired_work"
+    ) == "self_connection"
 
 
 def test_get_next_stage_moves_to_origin_experience_before_fit_connection():
@@ -397,7 +494,7 @@ def test_get_next_stage_moves_to_origin_experience_before_fit_connection():
         },
         weakest_element="self_analysis",
         is_complete=False,
-    ) == "origin_experience"
+    ) == "self_connection"
 
 
 def test_get_next_stage_starts_with_industry_reason_when_missing() -> None:
@@ -447,7 +544,7 @@ def test_get_next_stage_advances_after_one_reask_when_still_unconfirmed() -> Non
         },
         weakest_element="company_understanding",
         is_complete=False,
-    ) == "desired_work"
+    ) == "self_connection"
 
 
 def test_build_question_messages_returns_none_for_initial_turn():
@@ -504,7 +601,7 @@ def test_validate_or_repair_question_replaces_multi_part_question():
         gakuchika_strength="巻き込み力",
     )
 
-    assert repaired == "株式会社テストの業務改革に惹かれた理由を1つ教えてください。"
+    assert repaired == "株式会社テストで企画職を考えるとき、どんな点に惹かれますか？"
 
 
 def test_validate_or_repair_question_replaces_instructional_copy():
@@ -519,7 +616,7 @@ def test_validate_or_repair_question_replaces_instructional_copy():
         gakuchika_strength="巻き込み力",
     )
 
-    assert repaired == "株式会社テストの業務改革に惹かれた理由を1つ教えてください。"
+    assert repaired == "株式会社テストで企画職を考えるとき、どんな点に惹かれますか？"
 
 
 def test_validate_or_repair_question_replaces_stage_misaligned_question():
@@ -549,7 +646,7 @@ def test_validate_or_repair_question_replaces_instruction_like_copy():
         gakuchika_strength="巻き込み力",
     )
 
-    assert repaired == "株式会社テストの業務改革に惹かれた理由を1つ教えてください。"
+    assert repaired == "株式会社テストで企画職を考えるとき、どんな点に惹かれますか？"
 
 
 def test_repair_generated_question_rejects_other_company_name():
@@ -597,7 +694,7 @@ def test_repair_generated_question_rejects_unconfirmed_role_premise():
     )
 
     assert "志望している" not in repaired
-    assert "興味を持つとしたら" in repaired
+    assert "どんな点に魅力を感じますか" in repaired
 
 
 def test_stage_specific_options_do_not_introduce_unconfirmed_role():
@@ -682,7 +779,7 @@ def test_ensure_distinct_question_replaces_duplicate_with_fallback():
         gakuchika_strength="巻き込み力",
     )
 
-    assert distinct == "株式会社テストの業務改革に惹かれた理由を1つ教えてください。"
+    assert distinct == "株式会社テストで企画職を考えるとき、どんな点に惹かれますか？"
 
 
 def test_ensure_distinct_question_replaces_duplicate_seen_earlier_in_history():
@@ -704,7 +801,7 @@ def test_ensure_distinct_question_replaces_duplicate_seen_earlier_in_history():
         gakuchika_strength="巻き込み力",
     )
 
-    assert distinct == "株式会社テストの業務改革に惹かれた理由を1つ教えてください。"
+    assert distinct == "株式会社テストで企画職を考えるとき、どんな点に惹かれますか？"
 
 
 def test_build_stage_status_marks_company_reason_as_completed():
@@ -748,7 +845,9 @@ def test_build_stage_status_keeps_unconfirmed_required_stages_pending():
     )
 
     assert "origin_experience" not in status.completed
-    assert "fit_connection" in status.pending
+    assert status.current == "self_connection"
+    assert "self_connection" not in status.pending
+    assert "value_contribution" in status.pending
     assert "differentiation" in status.pending
 
 
@@ -794,6 +893,7 @@ def test_capture_answer_into_context_updates_fit_connection_for_current_stage():
 
     assert captured["fitConnection"] == "学生団体で培った巻き込み力を、顧客課題の整理や提案に活かせると考えています。"
     assert captured["confirmedFacts"]["fit_connection_confirmed"] is True
+    assert captured["confirmedFacts"]["self_connection_confirmed"] is True
 
 
 def test_capture_answer_into_context_updates_differentiation_for_current_stage():
@@ -822,3 +922,45 @@ def test_capture_answer_into_context_marks_shallow_company_reason_as_unconfirmed
 
     assert captured["companyReason"] == "気になります。"
     assert captured["confirmedFacts"]["company_reason_confirmed"] is False
+
+
+def test_get_next_stage_moves_to_self_connection_after_company_reason():
+    stage = _get_next_stage(
+        {
+            "questionStage": "company_reason",
+            "stageAttemptCount": 1,
+            "confirmedFacts": {
+                "industry_reason_confirmed": True,
+                "company_reason_confirmed": True,
+                "self_connection_confirmed": False,
+                "desired_work_confirmed": False,
+                "value_contribution_confirmed": False,
+                "differentiation_confirmed": False,
+            },
+        }
+    )
+
+    assert stage == "self_connection"
+
+
+def test_capture_answer_into_context_updates_value_contribution_for_current_stage():
+    captured = _capture_answer_into_context(
+        {
+            "selectedIndustry": "IT・通信",
+            "selectedRole": "企画職",
+            "questionStage": "value_contribution",
+            "confirmedFacts": {
+                "industry_reason_confirmed": True,
+                "company_reason_confirmed": True,
+                "self_connection_confirmed": True,
+                "desired_work_confirmed": True,
+                "value_contribution_confirmed": False,
+                "differentiation_confirmed": False,
+            },
+        },
+        "入社後は顧客の課題整理を通じて、意思決定を前に進める価値を出したいです。",
+    )
+
+    assert captured["valueContribution"] == "入社後は顧客の課題整理を通じて、意思決定を前に進める価値を出したいです。"
+    assert captured["confirmedFacts"]["value_contribution_confirmed"] is True
+    assert "value_contribution" not in captured["openSlots"]

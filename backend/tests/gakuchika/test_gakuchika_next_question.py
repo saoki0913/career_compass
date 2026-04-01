@@ -1,41 +1,65 @@
 import pytest
 
 from app.routers.gakuchika import (
-    RULE_BASED_QUESTION_TEMPLATES,
-    STARScores,
-    _build_next_question_prompt,
-    _normalize_next_question_payload,
+    BUILD_FOCUS_FALLBACKS,
+    ConversationStateInput,
+    DEEPDIVE_FOCUS_FALLBACKS,
+    NextQuestionRequest,
+    _build_deepdive_prompt,
+    _build_es_prompt,
+    _normalize_deepdive_payload,
+    _normalize_es_build_payload,
 )
 from app.utils.llm import call_llm_streaming_fields
 
 
-def test_build_next_question_prompt_includes_quality_guardrails() -> None:
-    prompt = _build_next_question_prompt(
-        gakuchika_title="塾講師のアルバイト",
-        conversation_text="質問: どんな課題がありましたか。\n\n回答: メンバーごとの差がありました。",
-        question_count=4,
+def test_build_es_prompt_includes_readiness_guardrails() -> None:
+    prompt = _build_es_prompt(
+        NextQuestionRequest(
+            gakuchika_title="塾講師のアルバイト",
+            gakuchika_content="高校生向け個別指導塾で講師を担当していました。",
+            conversation_history=[
+                {"role": "assistant", "content": "どのような経験でしたか。"},
+                {"role": "user", "content": "塾講師として担当生徒の成績向上に取り組みました。"},
+            ],
+            question_count=2,
+        )
     )
 
-    assert "短い入力からでも" in prompt
-    assert "完成度の高いガクチカ文章に育てる" in prompt
-    assert "派手な結果より" in prompt
-    assert "1問で広く浅く聞かず" in prompt
-    assert "役割・裁量・他者との分担" in prompt
-    assert "再現できる形" in prompt
-    assert "面接官の懐疑心を生まないよう" in prompt
-    assert "エピソードのすり替え禁止" in prompt
-    assert "課題選定の筋の良さ" in prompt
-    assert "anchor / challenge / action_decision" in prompt
-    assert "複数の打ち手" in prompt
-    assert "列挙を広げる聞き方" in prompt
-    assert "当時の目標" in prompt
-    assert "会社・本部など共通" in prompt
-    assert "評価の軸" in prompt
-    assert "共通ルールの上での補完" in prompt
+    assert "ready_for_draft=true" in prompt
+    assert "6要素があるだけではなく" in prompt
+    assert "task と action が ES として読んで弱くない最低限の具体性" in prompt
+    assert "抽象語だけで終わっていない" in prompt
+    assert "自然な丁寧語" in prompt
+    assert '"answer_hint"' in prompt
+    assert '"progress_label"' in prompt
 
 
-def test_rule_based_question_templates_avoid_prohibited_phrases() -> None:
-    """定型フォールバックが PROHIBITED_EXPRESSIONS と整合するスモーク。"""
+def test_build_deepdive_prompt_includes_future_and_backstory() -> None:
+    prompt = _build_deepdive_prompt(
+        NextQuestionRequest(
+            gakuchika_title="塾講師のアルバイト",
+            conversation_history=[
+                {"role": "assistant", "content": "その課題に対して何をしましたか。"},
+                {"role": "user", "content": "面談の頻度を増やし、宿題管理表を導入しました。"},
+            ],
+            question_count=6,
+            conversation_state=ConversationStateInput(
+                stage="draft_ready",
+                draft_text="私は個別指導塾で担当生徒の学習継続率改善に取り組みました。",
+                ready_for_draft=True,
+            ),
+        )
+    )
+
+    assert "future" in prompt
+    assert "backstory" in prompt
+    assert "将来展望" in prompt
+    assert "原体験" in prompt
+    assert "STAR の点数評価は不要です" in prompt
+
+
+def test_fallback_questions_avoid_prohibited_phrases() -> None:
     banned = (
         "教えてください",
         "聞かせてください",
@@ -47,43 +71,75 @@ def test_rule_based_question_templates_avoid_prohibited_phrases() -> None:
         "いかがでしたか",
         "どうでしたか",
     )
-    for templates in RULE_BASED_QUESTION_TEMPLATES.values():
-        for text in templates.values():
-            for fragment in banned:
-                assert fragment not in text, (fragment, text)
+
+    for templates in (BUILD_FOCUS_FALLBACKS, DEEPDIVE_FOCUS_FALLBACKS):
+        for text_map in templates.values():
+            for text in text_map.values():
+                for fragment in banned:
+                    assert fragment not in text, (fragment, text)
 
 
-def test_normalize_next_question_payload_uses_fallback_scores() -> None:
-    question, star_eval, target_element, source = _normalize_next_question_payload(
-        {"question": "何が一番難しかったですか。"},
-        fallback_scores=STARScores(situation=62, task=38, action=71, result=54),
-        question_count=4,
+def test_normalize_es_build_payload_keeps_building_until_quality_threshold() -> None:
+    question, state, source = _normalize_es_build_payload(
+        {
+            "question": "その課題を、なぜ優先すべきだと考えたのですか。",
+            "focus_key": "task",
+            "answer_hint": "課題だと判断した根拠を書くと強くなります。",
+            "progress_label": "課題を整理中",
+            "missing_elements": ["task", "result", "learning"],
+            "ready_for_draft": False,
+            "draft_readiness_reason": "task と action の具体性がまだ弱いです。",
+        },
+        fallback_state=None,
     )
 
-    assert question == "何が一番難しかったですか。"
-    assert star_eval["scores"] == {
-        "situation": 62,
-        "task": 38,
-        "action": 71,
-        "result": 54,
-    }
-    assert target_element == "task"
-    assert source == "partial_json"
+    assert question == "その課題を、なぜ優先すべきだと考えたのですか。"
+    assert source == "full_json"
+    assert state["stage"] == "es_building"
+    assert state["focus_key"] == "task"
+    assert state["ready_for_draft"] is False
+    assert state["missing_elements"] == ["task", "result", "learning"]
 
 
-def test_normalize_next_question_payload_falls_back_to_rule_question() -> None:
-    question, star_eval, target_element, source = _normalize_next_question_payload(
-        {},
-        fallback_scores=STARScores(situation=74, task=76, action=71, result=28),
-        question_count=10,
+def test_normalize_es_build_payload_marks_draft_ready() -> None:
+    question, state, source = _normalize_es_build_payload(
+        {
+            "focus_key": "action",
+            "ready_for_draft": True,
+            "missing_elements": [],
+            "draft_readiness_reason": "task と action に ES 本文へ落とせる具体性があります。",
+        },
+        fallback_state=ConversationStateInput(draft_text="既存の下書き"),
     )
 
-    assert source == "rule_fallback"
-    assert target_element == "result"
-    assert star_eval["scores"]["result"] == 28
-    assert "学び" in question
-    assert "教えてください" not in question
-    assert "詳しく" not in question
+    assert question == ""
+    assert source == "draft_ready"
+    assert state["stage"] == "draft_ready"
+    assert state["progress_label"] == "ES作成可"
+    assert state["ready_for_draft"] is True
+    assert state["draft_text"] == "既存の下書き"
+
+
+def test_normalize_deepdive_payload_marks_interview_ready() -> None:
+    question, state, source = _normalize_deepdive_payload(
+        {
+            "focus_key": "future",
+            "deepdive_stage": "interview_ready",
+        },
+        fallback_state=ConversationStateInput(
+            missing_elements=[],
+            ready_for_draft=True,
+            draft_readiness_reason="ES本文の材料は十分です。",
+            draft_text="下書き本文",
+        ),
+    )
+
+    assert question == ""
+    assert source == "interview_ready"
+    assert state["stage"] == "interview_ready"
+    assert state["progress_label"] == "面接準備完了"
+    assert state["focus_key"] == "future"
+    assert state["draft_text"] == "下書き本文"
 
 
 @pytest.mark.asyncio
@@ -91,7 +147,7 @@ async def test_call_llm_streaming_fields_uses_partial_success_without_repair(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_stream(*args, **kwargs):
-        yield '{"question":"何が一番難しかったですか","star_scores":{"situation":"4'
+        yield '{"question":"何が一番難しかったですか","conversation_state":{"stage":"es_build'
 
     async def fail_repair(*args, **kwargs):
         raise AssertionError("JSON repair should not run for gakuchika partial success")

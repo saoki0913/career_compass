@@ -5,7 +5,8 @@ AI-powered deep-dive questioning for creating company motivation ES drafts.
 
 Features:
 - Company RAG integration for contextual questions
-- 4-element evaluation: Company Understanding, Self-Analysis, Career Vision, Differentiation
+- 6-slot evaluation: industry/company reason, self-connection, desired work,
+  value contribution, differentiation
 - Dynamic question generation based on conversation progress
 - ES draft generation from conversation
 """
@@ -34,6 +35,7 @@ from app.utils.secure_logger import get_logger
 from app.utils.content_types import content_type_label
 from app.prompts.motivation_prompts import (
     MOTIVATION_EVALUATION_PROMPT,
+    MOTIVATION_DEEPDIVE_QUESTION_PROMPT,
     MOTIVATION_QUESTION_PROMPT,
     MOTIVATION_SUGGESTION_REWRITE_PROMPT,
     DRAFT_GENERATION_PROMPT,
@@ -61,12 +63,12 @@ class MotivationScores(BaseModel):
 
 
 class MotivationEvaluation(BaseModel):
-    scores: MotivationScores
-    weakest_element: str
-    is_complete: bool
-    missing_aspects: dict[str, list[str]]
-    hidden_eval: Optional[dict[str, Any]] = None
+    slot_status: dict[str, str]
+    missing_slots: list[str]
+    ready_for_draft: bool
+    draft_readiness_reason: str
     risk_flags: list[str] = []
+    conversation_warnings: list[str] = []
 
 
 class MotivationScoresInput(BaseModel):
@@ -128,6 +130,8 @@ class NextQuestionResponse(BaseModel):
     suggested_end: bool = False
     draft_ready: bool = False
     evaluation: Optional[dict] = None
+    target_slot: Optional[str] = None
+    question_intent: Optional[str] = None
     target_element: Optional[str] = None
     company_insight: Optional[str] = None  # RAG-based company insight used
     suggestion_options: list[SuggestionOption] = []
@@ -281,29 +285,27 @@ def _extract_gakuchika_strength(gakuchika_context: list[dict] | None) -> str | N
 STAGE_ORDER = [
     "industry_reason",
     "company_reason",
+    "self_connection",
     "desired_work",
-    "origin_experience",
-    "fit_connection",
+    "value_contribution",
     "differentiation",
-    "closing",
 ]
 
 STAGE_LABELS = {
     "industry_reason": "業界志望理由",
     "company_reason": "企業志望理由",
+    "self_connection": "自分との接続",
     "desired_work": "やりたい仕事",
-    "origin_experience": "原体験",
-    "fit_connection": "経験との接続",
+    "value_contribution": "価値発揮",
     "differentiation": "差別化",
-    "closing": "締めの整理",
 }
 
 REQUIRED_MOTIVATION_STAGES = (
     "industry_reason",
     "company_reason",
+    "self_connection",
     "desired_work",
-    "origin_experience",
-    "fit_connection",
+    "value_contribution",
     "differentiation",
 )
 
@@ -312,9 +314,9 @@ MAX_STAGE_REASKS = 1
 STAGE_CONFIRMED_FACT_KEYS = {
     "industry_reason": "industry_reason_confirmed",
     "company_reason": "company_reason_confirmed",
+    "self_connection": "self_connection_confirmed",
     "desired_work": "desired_work_confirmed",
-    "origin_experience": "origin_experience_confirmed",
-    "fit_connection": "fit_connection_confirmed",
+    "value_contribution": "value_contribution_confirmed",
     "differentiation": "differentiation_confirmed",
 }
 
@@ -327,12 +329,12 @@ PREMISE_ASSERTIVE_PATTERNS = (
 )
 
 QUESTION_FOCUS_BY_STAGE = {
-    "industry_reason": ("industry_axis", "why_industry_now"),
-    "company_reason": ("industry_axis", "why_industry_now", "feature_appeal", "axis_match", "role_value"),
-    "desired_work": ("work_image", "customer_problem", "value_creation"),
-    "origin_experience": ("origin_trigger", "experience_detail"),
-    "fit_connection": ("experience_connection", "strength_application"),
-    "differentiation": ("company_over_others", "role_specific_reason"),
+    "industry_reason": ("industry_reason",),
+    "company_reason": ("company_reason", "differentiation_seed"),
+    "self_connection": ("origin_background", "experience_connection"),
+    "desired_work": ("desired_work",),
+    "value_contribution": ("value_contribution",),
+    "differentiation": ("differentiation",),
     "closing": ("one_line_summary",),
 }
 
@@ -363,9 +365,9 @@ def _default_confirmed_facts() -> dict[str, bool]:
     return {
         "industry_reason_confirmed": False,
         "company_reason_confirmed": False,
+        "self_connection_confirmed": False,
         "desired_work_confirmed": False,
-        "origin_experience_confirmed": False,
-        "fit_connection_confirmed": False,
+        "value_contribution_confirmed": False,
         "differentiation_confirmed": False,
     }
 
@@ -378,6 +380,14 @@ def _normalize_confirmed_facts(value: Any) -> dict[str, bool]:
     for key in defaults:
         if key in value:
             normalized[key] = bool(value[key])
+    if "origin_experience_confirmed" in value:
+        normalized["self_connection_confirmed"] = (
+            normalized["self_connection_confirmed"] or bool(value["origin_experience_confirmed"])
+        )
+    if "fit_connection_confirmed" in value:
+        normalized["self_connection_confirmed"] = (
+            normalized["self_connection_confirmed"] or bool(value["fit_connection_confirmed"])
+        )
     return normalized
 
 
@@ -405,17 +415,17 @@ def _answer_is_confirmed_for_stage(stage: str, answer: str) -> bool:
         return len(normalized) >= 18 and any(
             token in normalized for token in ("理由", "ため", "から", "惹かれ", "魅力", "合う")
         )
+    if stage == "self_connection":
+        return len(normalized) >= 18 and any(
+            token in normalized for token in ("経験", "価値観", "強み", "きっかけ", "つなが", "活か")
+        )
     if stage == "desired_work":
         return len(normalized) >= 16 and any(
             token in normalized for token in ("したい", "挑戦", "関わりたい", "担いたい", "取り組みたい")
         )
-    if stage == "origin_experience":
+    if stage == "value_contribution":
         return len(normalized) >= 16 and any(
-            token in normalized for token in ("経験", "原体験", "きっかけ", "通じ", "から")
-        )
-    if stage == "fit_connection":
-        return len(normalized) >= 16 and any(
-            token in normalized for token in ("活か", "つなが", "生か", "再現", "役立", "結びつ")
+            token in normalized for token in ("価値", "貢献", "役立", "前に進め", "支え", "実現")
         )
     if stage == "differentiation":
         return len(normalized) >= 16 and any(
@@ -444,10 +454,18 @@ def _normalize_conversation_context(value: dict[str, Any] | None) -> dict[str, A
         "companyReason": str(context.get("companyReason") or "").strip() or None,
         "selectedRole": str(context.get("selectedRole") or "").strip() or None,
         "selectedRoleSource": str(context.get("selectedRoleSource") or "").strip() or None,
+        "selfConnection": str(
+            context.get("selfConnection")
+            or context.get("fitConnection")
+            or context.get("originExperience")
+            or ""
+        ).strip()
+        or None,
         "desiredWork": str(context.get("desiredWork") or "").strip() or None,
+        "valueContribution": str(context.get("valueContribution") or "").strip() or None,
+        "differentiationReason": str(context.get("differentiationReason") or "").strip() or None,
         "originExperience": str(context.get("originExperience") or "").strip() or None,
         "fitConnection": str(context.get("fitConnection") or "").strip() or None,
-        "differentiationReason": str(context.get("differentiationReason") or "").strip() or None,
         "userAnchorStrengths": _coerce_string_list(context.get("userAnchorStrengths"), max_items=4),
         "userAnchorEpisodes": _coerce_string_list(context.get("userAnchorEpisodes"), max_items=4),
         "profileAnchorIndustries": _coerce_string_list(context.get("profileAnchorIndustries"), max_items=4),
@@ -463,7 +481,11 @@ def _normalize_conversation_context(value: dict[str, Any] | None) -> dict[str, A
             max_items=4,
             max_len=32,
         ),
-        "questionStage": str(context.get("questionStage") or "").strip() or "industry_reason",
+        "questionStage": (
+            "self_connection"
+            if str(context.get("questionStage") or "").strip() in {"origin_experience", "fit_connection"}
+            else str(context.get("questionStage") or "").strip() or "industry_reason"
+        ),
         "stageAttemptCount": stage_attempt_count,
         "lastQuestionSignature": str(context.get("lastQuestionSignature") or "").strip() or None,
         "confirmedFacts": confirmed_facts,
@@ -480,12 +502,12 @@ def _normalize_conversation_context(value: dict[str, Any] | None) -> dict[str, A
             confirmed_facts["industry_reason_confirmed"] = True
         if normalized["companyReason"]:
             confirmed_facts["company_reason_confirmed"] = True
+        if normalized["selfConnection"]:
+            confirmed_facts["self_connection_confirmed"] = True
         if normalized["desiredWork"]:
             confirmed_facts["desired_work_confirmed"] = True
-        if normalized["originExperience"]:
-            confirmed_facts["origin_experience_confirmed"] = True
-        if normalized["fitConnection"]:
-            confirmed_facts["fit_connection_confirmed"] = True
+        if normalized["valueContribution"]:
+            confirmed_facts["value_contribution_confirmed"] = True
         if normalized["differentiationReason"]:
             confirmed_facts["differentiation_confirmed"] = True
         normalized["confirmedFacts"] = confirmed_facts
@@ -507,19 +529,24 @@ def _capture_answer_into_context(
         context["industryReason"] = trimmed
     elif stage == "company_reason":
         context["companyReason"] = trimmed
+    elif stage == "self_connection":
+        context["selfConnection"] = trimmed
+        context["fitConnection"] = trimmed
     elif stage == "desired_work":
         context["desiredWork"] = trimmed
-    elif stage == "origin_experience":
-        context["originExperience"] = trimmed
-    elif stage == "fit_connection":
-        context["fitConnection"] = trimmed
+    elif stage == "value_contribution":
+        context["valueContribution"] = trimmed
     elif stage == "differentiation":
         context["differentiationReason"] = trimmed
 
     confirmed_facts = _normalize_confirmed_facts(context.get("confirmedFacts"))
     fact_key = _confirmed_fact_key_for_stage(stage)
     if fact_key:
-        confirmed_facts[fact_key] = _answer_is_confirmed_for_stage(stage, trimmed)
+        is_confirmed = _answer_is_confirmed_for_stage(stage, trimmed)
+        confirmed_facts[fact_key] = is_confirmed
+        if stage == "self_connection":
+            confirmed_facts["origin_experience_confirmed"] = is_confirmed
+            confirmed_facts["fit_connection_confirmed"] = is_confirmed
     context["confirmedFacts"] = confirmed_facts
     context["openSlots"] = _build_open_slots_from_confirmed_facts(confirmed_facts)
 
@@ -564,9 +591,9 @@ def _format_conversation_context_for_prompt(conversation_context: dict[str, Any]
         f"- 業界志望理由: {context['industryReason'] or '未整理'}",
         f"- 企業志望理由: {context['companyReason'] or '未整理'}",
         f"- 志望職種: {context['selectedRole'] or '未整理'}",
+        f"- 自分との接続: {context['selfConnection'] or '未整理'}",
         f"- やりたい仕事: {context['desiredWork'] or '未整理'}",
-        f"- 原体験: {context['originExperience'] or '未整理'}",
-        f"- 経験との接続: {context['fitConnection'] or '未整理'}",
+        f"- 価値発揮: {context['valueContribution'] or '未整理'}",
         f"- 他社ではなくこの企業の理由: {context['differentiationReason'] or '未整理'}",
         f"- 現在段階: {STAGE_LABELS.get(context['questionStage'], context['questionStage'])}",
         f"- 段階再質問回数: {context['stageAttemptCount']}",
@@ -574,9 +601,9 @@ def _format_conversation_context_for_prompt(conversation_context: dict[str, Any]
             "- confirmed facts: "
             f"industry={confirmed_facts['industry_reason_confirmed']}, "
             f"company={confirmed_facts['company_reason_confirmed']}, "
+            f"self_connection={confirmed_facts['self_connection_confirmed']}, "
             f"desired_work={confirmed_facts['desired_work_confirmed']}, "
-            f"origin={confirmed_facts['origin_experience_confirmed']}, "
-            f"fit_connection={confirmed_facts['fit_connection_confirmed']}, "
+            f"value_contribution={confirmed_facts['value_contribution_confirmed']}, "
             f"differentiation={confirmed_facts['differentiation_confirmed']}"
         ),
     ]
@@ -709,9 +736,9 @@ GENERIC_OPTION_BLOCKLIST = {
 DIRECT_ANSWER_REQUIRED_TERMS = {
     "industry_reason": ("ため", "から", "関心", "惹かれ", "理由"),
     "company_reason": ("ため", "から", "魅力", "惹かれ", "理由"),
+    "self_connection": ("経験", "価値観", "強み", "つなが", "活か", "きっかけ"),
     "desired_work": ("したい", "挑戦", "関わりたい", "担いたい", "取り組みたい", "向き合いたい"),
-    "origin_experience": ("経験", "原体験", "きっかけ", "通じて", "から"),
-    "fit_connection": ("活か", "活き", "つなが", "再現", "役立", "生か"),
+    "value_contribution": ("価値", "貢献", "役立", "支え", "実現", "前に進め"),
     "differentiation": ("他社", "違い", "理由", "合うため", "最も", "だからこそ"),
     "closing": ("したい", "目指", "貢献", "実現", "価値を出", "なりたい"),
 }
@@ -719,9 +746,9 @@ DIRECT_ANSWER_REQUIRED_TERMS = {
 QUESTION_KEYWORDS_BY_STAGE = {
     "industry_reason": ("業界", "関心", "理由", "きっかけ", "今"),
     "company_reason": ("理由", "魅力", "惹かれ", "きっかけ", "選ぶ"),
+    "self_connection": ("経験", "価値観", "強み", "つなが", "活か", "原体験"),
     "desired_work": ("入社後", "仕事", "挑戦", "担い", "関わり"),
-    "origin_experience": ("経験", "原体験", "きっかけ", "通じ", "関心"),
-    "fit_connection": ("経験", "強み", "活か", "つなが", "再現"),
+    "value_contribution": ("価値", "貢献", "役立", "実現", "前に進め"),
     "differentiation": ("他社", "違い", "選ぶ", "理由", "だからこそ"),
     "closing": ("一言", "まとめ", "実現", "目標", "価値"),
 }
@@ -744,22 +771,14 @@ QUESTION_INSTRUCTION_BLOCKLIST = (
 )
 
 QUESTION_FIT_KEYWORDS = {
-    ("industry_reason", "industry_axis"): ("業界", "産業", "横断", "幅広", "選択肢", "IT・通信", "商社"),
-    ("industry_reason", "why_industry_now"): ("きっかけ", "関心", "高ま", "強まり", "惹かれ", "今"),
-    ("company_reason", "industry_axis"): ("業界", "産業", "横断", "幅広", "選択肢", "商社", "事業"),
-    ("company_reason", "why_industry_now"): ("きっかけ", "関心", "高ま", "強まり", "惹かれ", "今"),
-    ("company_reason", "role_value"): ("職種", "役割", "関わ", "担", "志望"),
-    ("company_reason", "feature_appeal"): ("魅力", "強み", "特徴", "惹かれ", "姿勢"),
-    ("company_reason", "axis_match"): ("軸", "合う", "重なる", "一致"),
-    ("desired_work", "customer_problem"): ("入社後", "課題", "提案", "向き合", "整理"),
-    ("desired_work", "work_image"): ("入社後", "挑戦", "担いたい", "関わりたい"),
-    ("desired_work", "value_creation"): ("入社後", "価値", "貢献", "成果", "実現"),
-    ("origin_experience", "origin_trigger"): ("きっかけ", "原体験", "関心", "強ま", "通じて"),
-    ("origin_experience", "experience_detail"): ("経験", "取り組み", "出来事", "場面", "通じて"),
-    ("fit_connection", "strength_application"): ("強み", "活か", "再現", "巻き込み", "つなが"),
-    ("fit_connection", "experience_connection"): ("経験", "培った", "活か", "つなが", "エピソード"),
-    ("differentiation", "company_over_others"): ("他社", "違う", "比べ", "最も", "だからこそ"),
-    ("differentiation", "role_specific_reason"): ("職種", "役割", "仕事", "描ける", "実務"),
+    ("industry_reason", "industry_reason"): ("業界", "関心", "理由", "きっかけ", "今"),
+    ("company_reason", "company_reason"): ("企業", "魅力", "理由", "惹かれ", "選ぶ"),
+    ("company_reason", "differentiation_seed"): ("他社", "違い", "ならでは", "選ぶ"),
+    ("self_connection", "origin_background"): ("原体験", "きっかけ", "価値観", "関心"),
+    ("self_connection", "experience_connection"): ("経験", "強み", "活か", "つなが"),
+    ("desired_work", "desired_work"): ("入社後", "仕事", "挑戦", "担いたい"),
+    ("value_contribution", "value_contribution"): ("価値", "貢献", "役立", "支え", "実現"),
+    ("differentiation", "differentiation"): ("他社", "違い", "理由", "だからこそ"),
     ("closing", "one_line_summary"): ("貢献", "価値", "実現", "目指", "したい"),
 }
 
@@ -1043,13 +1062,16 @@ def _build_evidence_cards_from_sources(
 def _build_stage_status(conversation_context: dict[str, Any] | None, current_stage: str) -> StageStatus:
     context = _normalize_conversation_context(conversation_context)
     confirmed_facts = _normalize_confirmed_facts(context.get("confirmedFacts"))
+    normalized_current_stage = (
+        "self_connection" if current_stage in {"origin_experience", "fit_connection"} else current_stage
+    )
     completed: list[str] = []
     for stage, fact_key in STAGE_CONFIRMED_FACT_KEYS.items():
         if confirmed_facts.get(fact_key, False):
             completed.append(stage)
 
-    pending = [stage for stage in STAGE_ORDER if stage not in completed and stage != current_stage]
-    return StageStatus(current=current_stage, completed=completed, pending=pending)
+    pending = [stage for stage in STAGE_ORDER if stage not in completed and stage != normalized_current_stage]
+    return StageStatus(current=normalized_current_stage, completed=completed, pending=pending)
 
 
 def _build_suggestion_rationale(stage: str, source_type: str) -> str:
@@ -1075,12 +1097,19 @@ def _build_suggestion_rationale(stage: str, source_type: str) -> str:
             "hybrid": "仕事内容と本人経験をつなぐ候補",
             "application_job_type": "応募職種から自然に導いた仕事候補",
         },
-        "fit_connection": {
+        "self_connection": {
             "company": "企業理解を補強しつつ接点を示す候補",
             "gakuchika": "強みや経験を前面に出す候補",
             "profile": "志向や専攻を踏まえた候補",
             "hybrid": "企業と本人の因果接続を作る候補",
             "application_job_type": "職種選択と経験を結びつける候補",
+        },
+        "value_contribution": {
+            "company": "企業で出したい価値を整理する候補",
+            "gakuchika": "経験から価値発揮へつなぐ候補",
+            "profile": "志向や職種から価値発揮を示す候補",
+            "hybrid": "やりたい仕事と貢献像をつなぐ候補",
+            "application_job_type": "職種起点で価値発揮を整理する候補",
         },
         "differentiation": {
             "company": "この企業ならではの理由を示す候補",
@@ -1097,7 +1126,7 @@ def _build_suggestion_rationale(stage: str, source_type: str) -> str:
             "application_job_type": "職種軸で締める候補",
         },
     }
-    return rationale_map.get(stage, rationale_map["fit_connection"]).get(
+    return rationale_map.get(stage, rationale_map["self_connection"]).get(
         source_type,
         "回答のたたき台として使える候補",
     )
@@ -1181,44 +1210,26 @@ def _detect_question_focus(stage: str, question: str | None) -> str:
         return allowed[0] if allowed else "default"
 
     if stage == "industry_reason":
-        if _question_has_any_keyword(text, ("きっかけ", "今", "関心が高ま", "強まり")):
-            return "why_industry_now"
-        return "industry_axis"
+        return "industry_reason"
 
     if stage == "company_reason":
-        if _question_has_any_keyword(text, ("なぜ商社", "選択肢", "業界", "多岐", "幅広", "横断")):
-            return "industry_axis"
-        if _question_has_any_keyword(text, ("なぜ今", "きっかけ", "関心が強", "興味を持っ", "原体験")):
-            return "why_industry_now"
-        if _question_has_any_keyword(text, ("職種", "役割", "どのような役割", "どんな役割")):
-            return "role_value"
-        if _question_has_any_keyword(text, ("どの点", "どんな点", "どこに魅力", "惹かれ", "魅力")):
-            return "feature_appeal"
-        return "axis_match"
+        if _question_has_any_keyword(text, ("他社", "違い", "ならでは", "選ぶ")):
+            return "differentiation_seed"
+        return "company_reason"
 
-    if stage == "desired_work":
-        if _question_has_any_keyword(text, ("顧客", "課題", "解決", "向き合")):
-            return "customer_problem"
-        if _question_has_any_keyword(text, ("価値", "貢献", "成果", "実現")):
-            return "value_creation"
-        return "work_image"
-
-    if stage == "origin_experience":
-        if _question_has_any_keyword(text, ("きっかけ", "原体験", "関心が高ま", "関心を持っ", "今")):
-            return "origin_trigger"
-        return "experience_detail"
-
-    if stage == "fit_connection":
-        if _question_has_any_keyword(text, ("強み", "再現", "活か")):
-            return "strength_application"
-        if _question_has_any_keyword(text, ("経験", "原体験", "エピソード")):
-            return "experience_connection"
+    if stage == "self_connection":
+        if _question_has_any_keyword(text, ("原体験", "きっかけ", "価値観")):
+            return "origin_background"
         return "experience_connection"
 
+    if stage == "desired_work":
+        return "desired_work"
+
+    if stage == "value_contribution":
+        return "value_contribution"
+
     if stage == "differentiation":
-        if _question_has_any_keyword(text, ("職種", "役割", "仕事")):
-            return "role_specific_reason"
-        return "company_over_others"
+        return "differentiation"
 
     if stage == "closing":
         return "one_line_summary"
@@ -1360,36 +1371,41 @@ def _build_question_fallback_candidates(
     gakuchika_strength: str | None,
     confirmed_facts: dict[str, bool] | None = None,
 ) -> list[str]:
+    normalized_stage = "self_connection" if stage in {"origin_experience", "fit_connection"} else stage
     confirmed = _normalize_confirmed_facts(confirmed_facts) if confirmed_facts is not None else None
     if stage == "industry_reason":
         if selected_industry:
             return [f"{selected_industry}業界を志望する理由を1つ教えてください。"]
         return ["この業界を志望する理由を1つ教えてください。"]
 
-    if stage == "company_reason":
+    if normalized_stage == "company_reason":
         if selected_role and confirmed is not None and not confirmed["company_reason_confirmed"]:
             return [
-                f"{company_name}で{selected_role}という選択肢に興味を持つとしたら、どんな点が気になりますか？",
-                f"{company_name}で{selected_role}を選ぶとしたら、どんな理由が考えられそうですか？",
-                f"{company_name}で{selected_role}として働くイメージを持てる点はありますか？",
-            ]
-        if grounded_company_anchor:
-            return [
-                f"{company_name}の{grounded_company_anchor}に惹かれた理由を1つ教えてください。",
-                f"{company_name}の{grounded_company_anchor}のどこに魅力を感じますか？",
-                f"{company_name}の{grounded_company_anchor}がご自身の軸と重なる点はどこですか？",
+                f"{company_name}を志望先として考えるとき、どんな点に魅力を感じますか？",
+                f"{company_name}を選びたいと思う理由があるとしたら、何が近いですか？",
             ]
         if selected_role:
             return [
-                f"{company_name}で{selected_role}を選ぶ理由を1つ教えてください。",
-                f"{company_name}で{selected_role}に関心を持つ点を1つ教えてください。",
+                f"{company_name}で{selected_role}を考えるとき、どんな点に惹かれますか？",
+                f"{company_name}を志望する理由として近いものを1つ教えてください。",
             ]
         return [
             f"{company_name}を志望する理由を1つ教えてください。",
             f"{company_name}に惹かれる点を1つ教えてください。",
         ]
 
-    if stage == "desired_work":
+    if normalized_stage == "self_connection":
+        if gakuchika_episode:
+            return [
+                f"{gakuchika_episode}の経験は、今の志望とどうつながっていますか？",
+                "ご自身の経験や価値観の中で、今の志望につながるものは何ですか？",
+            ]
+        return [
+            "ご自身の経験や価値観の中で、今の志望につながるものは何ですか？",
+            "これまでの経験で、今の志望に影響していることはありますか？",
+        ]
+
+    if normalized_stage == "desired_work":
         if selected_role and desired_work:
             return [
                 f"入社後、{selected_role}として{desired_work}の中で特に挑戦したいことは何ですか？",
@@ -1405,49 +1421,13 @@ def _build_question_fallback_candidates(
             "入社後にどんな役割を担いたいですか？",
         ]
 
-    if stage == "origin_experience":
-        if gakuchika_episode:
-            return [
-                f"{gakuchika_episode}の経験を通じて、その仕事への関心が強まったきっかけは何ですか？",
-                f"{gakuchika_episode}の経験のどんな場面が、今の関心につながっていますか？",
-            ]
-        if desired_work:
-            return [
-                f"{desired_work}に関心を持つようになった原体験は何ですか？",
-                f"{desired_work}に近いことへ興味を持ったきっかけは何ですか？",
-            ]
+    if normalized_stage == "value_contribution":
         return [
-            "その仕事に関心を持つようになった原体験は何ですか？",
-            "今の関心につながるきっかけは何ですか？",
+            "入社後、どんな価値や貢献を出したいですか？",
+            "その仕事を通じて、相手にどんな変化を届けたいですか？",
         ]
 
-    if stage == "fit_connection":
-        if gakuchika_episode and desired_work:
-            return [
-                f"{gakuchika_episode}の経験は、{desired_work}にどう活かせますか？",
-                f"{gakuchika_episode}の経験は、{desired_work}とどこでつながりますか？",
-            ]
-        if gakuchika_strength and selected_role:
-            return [
-                f"{gakuchika_strength}は、{selected_role}の仕事でどう活かせますか？",
-                f"{gakuchika_strength}は、{selected_role}で価値を出す場面とどうつながりますか？",
-            ]
-        return [
-            "これまでの経験は、その仕事にどうつながりますか？",
-            "これまでの経験のどの部分が、その仕事で活きそうですか？",
-        ]
-
-    if stage == "differentiation":
-        if grounded_company_anchor:
-            return [
-                f"同業他社ではなく、{company_name}の{grounded_company_anchor}を選ぶ理由は何ですか？",
-                f"同業他社と比べて、{company_name}の{grounded_company_anchor}に惹かれる理由は何ですか？",
-            ]
-        if selected_role:
-            return [
-                f"同業他社ではなく、{company_name}で{selected_role}を目指す理由は何ですか？",
-                f"同業他社と比べて、{company_name}で{selected_role}に惹かれる理由は何ですか？",
-            ]
+    if normalized_stage == "differentiation":
         return [
             f"同業他社ではなく、{company_name}を選ぶ理由は何ですか？",
             f"同業他社と比べて、{company_name}に惹かれる理由は何ですか？",
@@ -1545,7 +1525,9 @@ def _validate_or_repair_question(
         return fallback
     if stage == "desired_work" and "入社後" not in normalized:
         return fallback
-    if stage == "origin_experience" and not any(token in normalized for token in ("経験", "原体験", "きっかけ")):
+    if stage == "self_connection" and not any(token in normalized for token in ("経験", "価値観", "きっかけ", "つなが")):
+        return fallback
+    if stage == "value_contribution" and not any(token in normalized for token in ("価値", "貢献", "役立", "支え", "実現")):
         return fallback
     if stage == "differentiation" and "他社" not in normalized and "違い" not in normalized:
         return fallback
@@ -1586,7 +1568,11 @@ def _rotate_question_focus_for_reask(
 ) -> str:
     allowed = QUESTION_FOCUS_BY_STAGE.get(stage, ())
     if question_focus not in allowed:
-        return question_focus
+        return _preferred_question_focus_for_turn(
+            stage,
+            stage_attempt_count=int(_normalize_conversation_context(conversation_context).get("stageAttemptCount") or 0),
+            last_question_meta=_normalize_conversation_context(conversation_context).get("lastQuestionMeta"),
+        ) or question_focus
     context = _normalize_conversation_context(conversation_context)
     if int(context.get("stageAttemptCount") or 0) <= 0:
         return question_focus
@@ -1755,9 +1741,7 @@ def _score_suggestion_question_fit(
             score += 2
         else:
             score -= 3
-    elif stage == "origin_experience" and any(token in label for token in ("経験", "原体験", "きっかけ", "通じて")):
-        score += 2
-    elif stage == "fit_connection" and any(token in label for token in ("経験", "培った", "活か", "つなが", "再現")):
+    elif stage == "self_connection" and any(token in label for token in ("経験", "原体験", "きっかけ", "通じて", "価値観", "つなが")):
         score += 2
     elif stage == "differentiation" and focus == "company_over_others" and "他社" in label:
         score += 2
@@ -1766,7 +1750,7 @@ def _score_suggestion_question_fit(
 
     if selected_role and selected_role in label:
         score += 1
-    if desired_work and desired_work in label and stage in ("fit_connection", "differentiation", "closing"):
+    if desired_work and desired_work in label and stage in ("self_connection", "differentiation", "closing"):
         score += 1
     return score
 
@@ -1859,15 +1843,15 @@ def _build_low_grounding_fallback_suggestions(
             f"入社後は{role_prefix}相手の課題に向き合える仕事に取り組みたいです。",
             f"入社後は{role_prefix}価値を出せる役割に挑戦したいです。",
         ]
-    if stage == "origin_experience":
-        return [
-            "これまでに相手の課題に向き合った経験が、今の志望につながっています。",
-            "過去に手応えを感じた経験が、今の関心の原点になっています。",
-        ]
-    if stage == "fit_connection":
+    if stage == "self_connection":
         return [
             "これまでの経験で培った視点は、入社後の仕事でも活かせると考えています。",
             "過去の経験で身につけた力が、志望している仕事につながると考えています。",
+        ]
+    if stage == "value_contribution":
+        return [
+            "相手の課題を整理し、前に進みやすい状態をつくることで価値を出したいです。",
+            "自分の経験を活かして、より良い提案や意思決定につながる価値を出したいです。",
         ]
     if stage == "differentiation":
         return [
@@ -1895,630 +1879,121 @@ def _build_stage_specific_suggestion_options(
     company_work_candidates: list[str] | None,
     conversation_context: dict[str, Any] | None,
 ) -> list[SuggestionOption]:
+    normalized_stage = "self_connection" if stage in {"origin_experience", "fit_connection"} else stage
     context = _normalize_conversation_context(conversation_context)
     confirmed_facts = _normalize_confirmed_facts(context.get("confirmedFacts"))
-    selected_role_from_context = context["selectedRole"]
-    features = _extract_company_features(company_context, company_sources, max_features=4)
-    role_candidates = _merge_candidate_lists(
-        application_job_candidates or [],
-        company_role_candidates or [],
-        _extract_role_candidates_from_context(company_context),
-        _extract_profile_job_types(profile_context),
-        max_items=4,
-    )
-    work_candidates = _merge_candidate_lists(
-        _sanitize_existing_grounding_candidates(company_work_candidates, max_items=4, max_len=32),
-        _extract_work_candidates_from_context(
-            company_context,
-            company_sources,
-            selected_role=selected_role_from_context,
-            max_items=4,
-        ),
-        max_items=4,
+    selected_role = context.get("selectedRole") or (application_job_candidates or [None])[0]
+    selected_industry = context.get("selectedIndustry") or (
+        (_extract_profile_industries(profile_context) or [None])[0]
     )
     gakuchika_strength = _extract_gakuchika_strength(gakuchika_context)
     gakuchika_episode = _extract_gakuchika_episode(gakuchika_context)
-    profile_job_types = _extract_profile_job_types(profile_context)
-    profile_industries = _extract_profile_industries(profile_context)
-    profile_anchor = _extract_profile_anchor(profile_context)
-    source_ids = _top_source_ids(company_sources, max_items=2)
-    focus = _normalize_question_focus(stage, question_focus, question)
+    self_connection = context.get("selfConnection") or context.get("fitConnection") or context.get("originExperience")
+    desired_work = context.get("desiredWork")
+    value_contribution = context.get("valueContribution")
+    company_reason = context.get("companyReason") if confirmed_facts["company_reason_confirmed"] else None
+    industry_reason = context.get("industryReason") if confirmed_facts["industry_reason_confirmed"] else None
 
-    feature1 = features[0] if features else None
-    feature2 = features[1] if len(features) > 1 else feature1
-    application_role = (application_job_candidates or [None])[0]
-    selected_role = selected_role_from_context or application_role
-    fallback_work = _fallback_work_for_role(selected_role) if selected_role else None
-    work1 = work_candidates[0] if work_candidates else fallback_work
-    work2 = work_candidates[1] if len(work_candidates) > 1 else fallback_work
-    confirmed_industry_reason = context["industryReason"] if confirmed_facts["industry_reason_confirmed"] else None
-    confirmed_company_reason = context["companyReason"] if confirmed_facts["company_reason_confirmed"] else None
-    confirmed_desired_work = context["desiredWork"] if confirmed_facts["desired_work_confirmed"] else None
-    confirmed_origin_experience = (
-        context["originExperience"] if confirmed_facts["origin_experience_confirmed"] else None
-    )
-    desired_work = confirmed_desired_work
-    industry_axis = _format_industry_axis(profile_industries)
-    has_multi_industry_axis = len(profile_industries) >= 2
-
-    def option(
-        label: str,
+    def push(
+        bucket: list[SuggestionOption],
+        label: str | None,
         source_type: str,
         *,
-        include_company_evidence: bool = False,
         is_tentative: bool = False,
-        rationale: str | None = None,
-    ) -> SuggestionOption:
-        return _decorate_suggestion_option(
-            label,
-            source_type,
-            stage,
-            source_ids if include_company_evidence else [],
-            is_tentative=is_tentative,
-            rationale=rationale,
-        )
-
-    def finalize_options() -> list[SuggestionOption]:
-        finalized = _finalize_suggestion_options(
-            options,
-            stage=stage,
-            focus=focus,
-            selected_role=selected_role,
-            desired_work=desired_work,
-        )
-        if len(finalized) >= 2:
-            return finalized
-
-        existing_signatures = {_suggestion_signature(item.label) for item in finalized}
-        for label in _build_low_grounding_fallback_suggestions(
-            stage=stage,
-            company_name=company_name,
-            selected_industry=context["selectedIndustry"],
-            selected_role=selected_role,
-        ):
-            signature = _suggestion_signature(label)
-            if signature in existing_signatures:
-                continue
-            finalized.append(
-                _decorate_suggestion_option(
-                    label,
-                    "profile",
-                    stage,
-                    source_ids if stage in {"company_reason", "differentiation"} and has_company_evidence else [],
-                    is_tentative=stage == "desired_work",
-                )
+    ) -> None:
+        cleaned = " ".join((label or "").split()).strip()
+        if not cleaned:
+            return
+        if len(cleaned) > 120:
+            cleaned = cleaned[:117].rstrip() + "…"
+        if any(_suggestion_signature(cleaned) == _suggestion_signature(item.label) for item in bucket):
+            return
+        bucket.append(
+            _decorate_suggestion_option(
+                cleaned,
+                source_type,
+                normalized_stage,
+                [],
+                is_tentative=is_tentative,
+                rationale="質問に直接答える候補",
             )
-            existing_signatures.add(signature)
-            if len(finalized) >= 2:
-                break
-
-        return finalized[:4]
+        )
 
     options: list[SuggestionOption] = []
-    grounded_company_anchor = feature1 or (work_candidates[0] if work_candidates else None)
-    secondary_company_anchor = feature2 or grounded_company_anchor
-    has_company_evidence = bool(grounded_company_anchor)
-    company_reason_anchor = (
-        grounded_company_anchor
-        if grounded_company_anchor and grounded_company_anchor not in set(work_candidates)
-        else None
-    )
-    role_based_source = (
-        "application_job_type"
-        if application_role and application_role == selected_role
-        else "profile"
-    )
-    question = _validate_or_repair_question(
-        question=question,
-        stage=stage,
-        company_name=company_name,
-        selected_industry=context["selectedIndustry"],
-        selected_role=selected_role,
-        desired_work=desired_work,
-        grounded_company_anchor=grounded_company_anchor,
-        gakuchika_episode=gakuchika_episode,
-        gakuchika_strength=gakuchika_strength,
-        confirmed_facts=confirmed_facts,
-    )
+    normalized_question = " ".join((question or "").split())
 
-    if stage == "industry_reason":
-        selected_industry = context["selectedIndustry"] or industry_axis
-        if focus == "why_industry_now":
-            if gakuchika_episode:
-                options.append(
-                    option(
-                        f"{gakuchika_episode}を通じて{selected_industry}業界への関心が強まったため",
-                        "gakuchika",
-                    )
-                )
-            if selected_role:
-                options.append(
-                    option(
-                        f"{selected_role}として幅広い課題に向き合える点から、{selected_industry}業界への関心が高まったため",
-                        "profile",
-                    )
-                )
-        if has_multi_industry_axis:
-            options.append(
-                option(
-                    f"{industry_axis}に関心がある中でも、複数の課題に関われる{selected_industry}業界に魅力を感じるため",
-                    "profile",
-                )
-            )
-        if gakuchika_strength:
-            options.append(
-                option(
-                    f"{gakuchika_strength}を活かして多様な課題解決に関わりたいので、{selected_industry}業界を志望している",
-                    "gakuchika",
-                )
-            )
-        return finalize_options()
+    if normalized_stage == "industry_reason":
+        if industry_reason:
+            push(options, industry_reason, "conversation")
+        if selected_industry and gakuchika_episode:
+            push(options, f"{gakuchika_episode}を通じて、{selected_industry}業界への関心が強まったためです。", "gakuchika")
+        if selected_industry and selected_role:
+            push(options, f"{selected_role}として向き合いたい課題があり、{selected_industry}業界を志望しているためです。", "profile")
+        if selected_industry:
+            push(options, f"複数の課題に関わりながら価値を出せる点に魅力を感じ、{selected_industry}業界を志望しています。", "safe_fallback", is_tentative=True)
 
-    if stage == "company_reason":
-        if focus == "industry_axis":
-            if confirmed_industry_reason:
-                options.append(
-                    option(
-                        f"{confirmed_industry_reason}という軸と、この企業で働く方向性が重なると感じるためです。",
-                        "profile",
-                    )
-                )
-            if has_multi_industry_axis:
-                options.append(
-                    option(
-                        f"{industry_axis}に関心がある中でも、複数の産業や課題に向き合える点に魅力を感じたためです。",
-                        "profile",
-                    )
-                )
-            if selected_role:
-                options.append(
-                    option(
-                        f"{selected_role}として複数の産業や事業を横断して関われる選択肢だと感じたためです。",
-                        "profile",
-                    )
-                )
-        elif focus == "why_industry_now":
-            if confirmed_industry_reason:
-                options.append(
-                    option(
-                        f"{confirmed_industry_reason}と感じるようになり、この企業への関心も強まったためです。",
-                        "profile",
-                    )
-                )
-            if gakuchika_episode:
-                options.append(
-                    option(
-                        f"{gakuchika_episode}を通じて課題解決への関心が強まり、この企業にも惹かれるようになりました。",
-                        "gakuchika",
-                    )
-                )
-            if selected_role:
-                options.append(
-                    option(
-                        f"{selected_role}という方向で考えたことで、自分の志望理由がより具体化し、関心が強まったためです。",
-                        "profile",
-                    )
-                )
-            if company_reason_anchor:
-                options.append(
-                    option(
-                        f"{company_reason_anchor}に関われると知り、今の関心がさらに強まったためです。",
-                        "company",
-                        include_company_evidence=True,
-                    )
-                )
-        elif focus == "role_value":
-            if selected_role:
-                options.append(
-                    option(
-                        f"{selected_role}として自分なりの価値を出すイメージを持てたためです。",
-                        role_based_source,
-                    )
-                )
-            if selected_role and confirmed_industry_reason:
-                options.append(
-                    option(
-                        f"{selected_role}という役割が、自分の関心や就活軸と重なると感じたためです。",
-                        "profile",
-                    )
-                )
-            if gakuchika_strength and selected_role:
-                options.append(
-                    option(
-                        f"{gakuchika_strength}を活かしながら{selected_role}で価値を出せると感じたためです。",
-                        "hybrid" if has_company_evidence else "gakuchika",
-                        include_company_evidence=has_company_evidence,
-                    )
-                )
-        elif focus == "feature_appeal":
-            if confirmed_company_reason:
-                options.append(
-                    option(
-                        confirmed_company_reason,
-                        "hybrid" if gakuchika_strength else "profile",
-                    )
-                )
-            if selected_role:
-                options.append(
-                    option(
-                        f"{selected_role}として働くイメージを持てる点が、自分の志向と合うためです。",
-                        "profile",
-                    )
-                )
-        elif focus == "axis_match":
-            if confirmed_industry_reason:
-                options.append(
-                    option(
-                        f"{confirmed_industry_reason}という就活軸を、この企業でより実現できると感じたためです。",
-                        "profile",
-                    )
-                )
-            if selected_role:
-                options.append(
-                    option(
-                        f"{selected_role}として向き合いたいテーマと、この企業の方向性が重なると感じたためです。",
-                        "profile",
-                    )
-                )
-            if company_reason_anchor:
-                options.append(
-                    option(
-                        f"{company_reason_anchor}のように産業や事業を横断して価値を出せる点に魅力を感じたためです。",
-                        "company",
-                        include_company_evidence=True,
-                    )
-                )
-
-        if confirmed_company_reason:
-            options.append(
-                option(
-                    confirmed_company_reason,
-                    "profile",
-                )
-            )
-        if gakuchika_episode and gakuchika_strength:
-            options.append(
-                option(
-                    f"{gakuchika_episode}で培った{gakuchika_strength}を、この企業でも活かせると感じるためです。",
-                    "gakuchika",
-                )
-            )
-        if selected_role and focus not in {"industry_axis", "why_industry_now"}:
-            options.append(
-                option(
-                    (
-                        f"{selected_role}として複数の産業に関われる働き方が、自分の就活軸と合うと感じたためです。"
-                        if focus == "industry_axis"
-                        else f"{selected_role}という方向で考えたときに、自分の就活軸と合うと感じたためです。"
-                    ),
-                    "profile",
-                )
-            )
-        if selected_role and focus != "industry_axis":
-            options.append(
-                option(
-                    (
-                        f"{selected_role}としてどんな価値を出したいかが見え、志望度が高まったためです。"
-                        if focus == "why_industry_now"
-                        else f"{selected_role}としてどんな価値を出したいかを描きやすかったためです。"
-                    ),
-                    role_based_source,
-                )
-            )
-        return finalize_options()
-
-    if stage == "desired_work":
-        if focus == "customer_problem":
-            if selected_role:
-                options.append(
-                    option(
-                        f"入社後は{selected_role}として、相手の課題を整理しながら解決に近づける仕事がしたいです。",
-                        role_based_source,
-                        is_tentative=True,
-                    )
-                )
-            if gakuchika_episode:
-                options.append(
-                    option(
-                        f"入社後は、{gakuchika_episode}で向き合ったように、相手の課題を言語化して提案できる仕事がしたいです。",
-                        "gakuchika",
-                        is_tentative=True,
-                    )
-                )
-        elif focus == "value_creation":
-            if selected_role:
-                options.append(
-                    option(
-                        f"入社後は{selected_role}として、相手の意思決定や前進を後押しできる仕事がしたいです。",
-                        role_based_source,
-                        is_tentative=True,
-                    )
-                )
-            if gakuchika_strength:
-                options.append(
-                    option(
-                        f"入社後は{gakuchika_strength}を活かして、周囲を巻き込みながら改善を進める仕事がしたいです。",
-                        "gakuchika",
-                        is_tentative=True,
-                    )
-                )
-        elif focus == "work_image":
-            if selected_role:
-                options.append(
-                    option(
-                        f"入社後は{selected_role}として、現場や顧客に近い立場で課題解決に関わる仕事がしたいです。",
-                        role_based_source,
-                        is_tentative=True,
-                    )
-                )
-            if gakuchika_episode:
-                options.append(
-                    option(
-                        f"入社後は、{gakuchika_episode}で得た経験を活かしながら、相手に向き合う仕事に挑戦したいです。",
-                        "gakuchika",
-                        is_tentative=True,
-                    )
-                )
-
+    elif normalized_stage == "company_reason":
+        if company_reason:
+            push(options, company_reason, "conversation")
+        if any(token in normalized_question for token in ("なぜ今", "高まった", "強まった", "きっかけ")):
+            push(options, f"{gakuchika_episode or 'これまでの経験'}を通じて、業界への関心を具体的な仕事として考えるようになったためです。", "gakuchika", is_tentative=True)
+            push(options, f"就活を進める中で、自分の関心を仕事に結びつけるなら{company_name}だと感じたためです。", "safe_fallback", is_tentative=True)
+        if any(token in normalized_question for token in ("選択肢", "商社", "なぜその業界", "なぜこの業界")):
+            industry_axis = selected_industry or _format_industry_axis(_extract_profile_industries(profile_context))
+            push(options, f"{industry_axis}だけでなく複数の事業や産業に関われる選択肢として、{company_name}が気になったためです。", "profile", is_tentative=True)
+            push(options, f"一つの領域に閉じずに事業や産業を横断して価値を出せる点に、{company_name}らしさを感じたためです。", "safe_fallback", is_tentative=True)
+        if industry_reason:
+            push(options, f"{industry_reason}という軸を、{company_name}でより具体的に実現できると感じるためです。", "conversation")
         if selected_role:
-            options.append(
-                option(
-                    f"入社後は{selected_role}として、自分の強みを活かしながら価値を出せる仕事に挑戦したいです。",
-                    role_based_source,
-                    is_tentative=True,
-                )
-            )
-        if gakuchika_episode:
-            options.append(
-                option(
-                    f"入社後は、{gakuchika_episode}の経験を活かせる仕事に取り組みたいです。",
-                    "gakuchika",
-                    is_tentative=True,
-                )
-            )
+            push(options, f"{selected_role}として向き合いたいテーマと、{company_name}で挑戦したい方向性が重なると感じるためです。", "profile", is_tentative=True)
+        push(options, f"業界への関心を具体的な仕事につなげる場として、{company_name}を志望したいと考えています。", "safe_fallback", is_tentative=True)
+
+    elif normalized_stage == "self_connection":
+        if self_connection:
+            push(options, self_connection, "conversation")
+        if desired_work:
+            push(options, f"これまでの経験で培った課題整理の視点が、{desired_work}につながると感じています。", "conversation", is_tentative=True)
+        if gakuchika_episode and selected_role:
+            push(options, f"{gakuchika_episode}で課題を整理して動いた経験が、{selected_role}の仕事につながると感じています。", "gakuchika")
+        if gakuchika_strength and selected_role:
+            push(options, f"{gakuchika_strength}を発揮してきた経験が、{selected_role}として価値を出す場面でも活かせると考えています。", "gakuchika")
+        push(options, "まだ言語化しきれていませんが、自分の経験や価値観とこの仕事には接点があると感じています。", "safe_fallback", is_tentative=True)
+
+    elif normalized_stage == "desired_work":
+        if desired_work:
+            push(options, desired_work, "conversation")
         if selected_role:
-            options.append(
-                option(
-                    f"入社後は{selected_role}として、現場や顧客に近い立場で改善を進めたいです。",
-                    role_based_source,
-                    is_tentative=True,
-                )
-            )
-        if gakuchika_strength:
-            options.append(
-                option(
-                    f"入社後は{gakuchika_strength}を活かして、相手の課題解決に貢献できる仕事がしたいです。",
-                    "gakuchika",
-                    is_tentative=True,
-                )
-            )
-        return finalize_options()
-
-    if stage == "origin_experience":
-        if focus == "origin_trigger":
-            if gakuchika_episode and confirmed_desired_work:
-                options.append(
-                    option(
-                        f"{gakuchika_episode}を通じて、{confirmed_desired_work}のような仕事に関心を持つようになりました。",
-                        "gakuchika",
-                    )
-                )
+            push(options, f"入社後は{selected_role}として、相手の課題を整理しながら前に進める仕事に挑戦したいです。", "profile", is_tentative=True)
         if gakuchika_episode:
-            options.append(
-                option(
-                    f"{gakuchika_episode}で相手の課題に向き合った経験が、今の志望につながっている",
-                    "gakuchika",
-                )
-            )
-        if gakuchika_strength:
-            options.append(
-                option(
-                    f"{gakuchika_strength}を発揮できた経験を通じて、この仕事への関心が強まった",
-                    "gakuchika",
-                )
-            )
-        if confirmed_desired_work:
-            options.append(
-                option(
-                    f"{confirmed_desired_work}に近いことへ手応えを感じた経験があり、それが志望の原点になっています。",
-                    "profile",
-                )
-            )
-        return finalize_options()
-
-    if stage == "fit_connection":
-        if focus == "strength_application":
-            if gakuchika_strength and selected_role:
-                options.append(
-                    option(
-                        f"{gakuchika_strength}は、{selected_role}として周囲を巻き込みながら進める場面で活かせると考えています。",
-                        "gakuchika",
-                    )
-                )
-            if gakuchika_episode and confirmed_desired_work:
-                options.append(
-                    option(
-                        f"{gakuchika_episode}での経験が、{confirmed_desired_work}につながると考えています。",
-                        "gakuchika",
-                    )
-                )
-        elif focus == "experience_connection":
-            if gakuchika_episode and gakuchika_strength and selected_role:
-                options.append(
-                    option(
-                        f"{gakuchika_episode}で培った{gakuchika_strength}を、{selected_role}で活かせると考えています。",
-                        "gakuchika",
-                    )
-                )
-            if selected_role and confirmed_desired_work:
-                options.append(
-                    option(
-                        f"{selected_role}として{confirmed_desired_work}に取り組む際に、自分の経験が活きると考えています。",
-                        role_based_source,
-                    )
-                )
-
-        if gakuchika_episode and gakuchika_strength and selected_role:
-            options.append(
-                option(
-                    f"{gakuchika_episode}で培った{gakuchika_strength}を、{selected_role}で活かせると考えています。",
-                    "gakuchika",
-                )
-            )
-        if selected_role and confirmed_desired_work:
-            options.append(
-                option(
-                    f"{selected_role}として{confirmed_desired_work}に取り組む際に、自分の経験が活きると考えています。",
-                    role_based_source,
-                )
-            )
-        if profile_anchor and selected_role:
-            options.append(
-                option(
-                    f"{profile_anchor}で培った視点も、{selected_role}で価値を出す上でつながっていると考えています。",
-                    "profile",
-                )
-            )
-        return finalize_options()
-
-    if stage == "differentiation":
-        if focus == "company_over_others":
-            if confirmed_company_reason:
-                options.append(
-                    option(
-                        f"{confirmed_company_reason}と感じており、その点が他社より自分の軸に合うためです。",
-                        "profile",
-                    )
-                )
-            if selected_role:
-                options.append(
-                    option(
-                        f"{selected_role}として価値を出すイメージを最も具体的に持てるためです。",
-                        role_based_source,
-                    )
-                )
-            if gakuchika_episode:
-                options.append(
-                    option(
-                        f"{gakuchika_episode}の経験を最も自然に活かせるのが{company_name}だと感じるためです。",
-                        "hybrid" if has_company_evidence else "gakuchika",
-                        include_company_evidence=has_company_evidence,
-                    )
-                )
-        elif focus == "role_specific_reason":
-            if selected_role:
-                options.append(
-                    option(
-                        f"{selected_role}として働く方向が、自分の就活軸に最も合うためです。",
-                        role_based_source,
-                    )
-                )
-            if gakuchika_strength and selected_role:
-                options.append(
-                    option(
-                        f"{gakuchika_strength}を活かしながら{selected_role}で価値を出す姿が描きやすいためです。",
-                        "gakuchika",
-                    )
-                )
-
-        if confirmed_company_reason:
-            options.append(
-                option(
-                    f"{confirmed_company_reason}と感じており、それが自分の軸に最も合うためです。",
-                    "profile",
-                )
-            )
-        if gakuchika_episode:
-            options.append(
-                option(
-                    f"{gakuchika_episode}の経験を{company_name}で最も再現しやすいと感じるためです。",
-                    "hybrid" if has_company_evidence else "gakuchika",
-                    include_company_evidence=has_company_evidence,
-                )
-            )
-        if selected_role and confirmed_desired_work:
-            options.append(
-                option(
-                    f"{selected_role}と{confirmed_desired_work}の両方を具体的に描ける点で、自分に合うと感じています。",
-                    role_based_source,
-                )
-            )
-        if has_multi_industry_axis:
-            options.append(
-                option(
-                    f"{industry_axis}に関心がある中でも、{company_name}は複数の産業と接点を持てる点が自分の軸に最も合うため",
-                    "profile",
-                )
-            )
-        return finalize_options()
-
-    if stage == "closing":
-        if focus == "one_line_summary":
-            if selected_role and confirmed_desired_work:
-                options.append(
-                    option(
-                        f"{selected_role}として{confirmed_desired_work}を通じて価値を出したいです。",
-                        role_based_source,
-                    )
-                )
-            if gakuchika_strength and selected_role:
-                options.append(
-                    option(
-                        f"{gakuchika_strength}を活かして{selected_role}で価値を出したい",
-                        "hybrid" if has_company_evidence else "gakuchika",
-                        include_company_evidence=has_company_evidence,
-                    )
-                )
-
-        if selected_role and confirmed_company_reason:
-            options.append(
-                option(
-                    f"{selected_role}として、自分らしい価値を出せる環境だと感じています。",
-                    "profile",
-                )
-            )
-        if gakuchika_strength:
-            options.append(
-                option(
-                    f"{gakuchika_strength}を軸に成果を出したい",
-                    "gakuchika",
-                )
-            )
-        if confirmed_desired_work:
-            options.append(
-                option(
-                    f"{confirmed_desired_work}を形にして価値を出したいです。",
-                    role_based_source,
-                )
-            )
+            push(options, f"入社後は、{gakuchika_episode}で向き合ったような課題に、仕事として関われる役割に挑戦したいです。", "gakuchika", is_tentative=True)
         if selected_role:
-            options.append(
-                option(
-                    f"{company_name}で{selected_role}の専門性を磨きたい",
-                    "profile",
-                )
-            )
-        return finalize_options()
+            push(options, f"入社後は{selected_role}として、現場の課題を捉えて提案につなげる仕事がしたいです。", "safe_fallback", is_tentative=True)
 
-    options = [
-        option(
-            f"{gakuchika_episode}の経験を今後の仕事にも結びつけたいと考えています。",
-            "gakuchika",
-        ) if gakuchika_episode else None,
-        option(
-            f"{selected_role}で{gakuchika_strength}を再現したい",
-            "gakuchika",
-        ) if selected_role and gakuchika_strength else None,
-        option(
-            f"{confirmed_company_reason}",
-            "profile",
-        ) if confirmed_company_reason else None,
-        option(
-            f"{confirmed_desired_work}につなげたいと考えています。",
-            "profile",
-        ) if confirmed_desired_work else None,
-    ]
-    return finalize_options()
+    elif normalized_stage == "value_contribution":
+        if value_contribution:
+            push(options, value_contribution, "conversation")
+        if desired_work:
+            push(options, f"{desired_work}を通じて、相手が動きやすくなる価値を出したいです。", "conversation", is_tentative=True)
+        if selected_role:
+            push(options, f"{selected_role}として課題を整理し、関係者が前に進みやすい状態をつくることで価値を出したいです。", "profile", is_tentative=True)
+        push(options, "相手の課題を整理して、より良い意思決定につながる価値を出したいです。", "safe_fallback", is_tentative=True)
+
+    elif normalized_stage == "differentiation":
+        if company_reason:
+            push(options, f"{company_reason}と感じており、その点が他社よりも自分の軸に合うためです。", "conversation")
+        if selected_role and desired_work:
+            push(options, f"{selected_role}として{desired_work}を実現するイメージを、{company_name}で最も具体的に持てるためです。", "profile", is_tentative=True)
+        if gakuchika_episode:
+            push(options, f"{gakuchika_episode}の経験を踏まえると、{company_name}でこそ自分の志向を形にしやすいと感じています。", "gakuchika", is_tentative=True)
+        push(options, f"業界に興味があるだけでなく、自分の軸を具体的な仕事につなげやすい点で、{company_name}を選びたいと考えています。", "safe_fallback", is_tentative=True)
+
+    else:
+        if desired_work:
+            push(options, f"{desired_work}を通じて価値を出したいです。", "conversation")
+        if selected_role:
+            push(options, f"{selected_role}として自分なりの価値を出していきたいです。", "profile", is_tentative=True)
+
+    return options[:4]
 
 
 def _repair_generated_question_for_response(
@@ -2536,27 +2011,9 @@ def _repair_generated_question_for_response(
     conversation_context: dict[str, Any] | None,
 ) -> str:
     context = _normalize_conversation_context(conversation_context)
-    role_candidates = _merge_candidate_lists(
-        application_job_candidates or [],
-        company_role_candidates or [],
-        _extract_role_candidates_from_context(company_context),
-        _extract_profile_job_types(profile_context),
-        max_items=4,
-    )
-    work_candidates = _merge_candidate_lists(
-        _sanitize_existing_grounding_candidates(company_work_candidates, max_items=4, max_len=32),
-        _extract_work_candidates_from_context(
-            company_context,
-            company_sources,
-            selected_role=context["selectedRole"],
-            max_items=4,
-        ),
-        max_items=4,
-    )
-    features = _extract_company_features(company_context, company_sources, max_features=3)
     selected_role = context["selectedRole"] or (application_job_candidates or [None])[0]
-    desired_work = context["desiredWork"] or (work_candidates[0] if work_candidates else _fallback_work_for_role(selected_role))
-    grounded_company_anchor = features[0] if features else (work_candidates[0] if work_candidates else None)
+    desired_work = context["desiredWork"]
+    grounded_company_anchor = None
     return _validate_or_repair_question(
         question=question,
         stage=stage,
@@ -2574,9 +2031,13 @@ def _repair_generated_question_for_response(
 def _get_next_stage(
     conversation_context: dict[str, Any] | None,
     *,
+    missing_slots: list[str] | None = None,
+    ready_for_draft: bool = False,
     weakest_element: str | None = None,
-    is_complete: bool = False,
+    is_complete: bool | None = None,
 ) -> str:
+    if is_complete is True:
+        ready_for_draft = True
     context = _normalize_conversation_context(conversation_context)
     confirmed_facts = _normalize_confirmed_facts(context.get("confirmedFacts"))
     current_stage = context.get("questionStage") or "industry_reason"
@@ -2593,65 +2054,63 @@ def _get_next_stage(
                 if not confirmed_facts[next_key]:
                     return next_stage
 
+    if ready_for_draft:
+        return current_stage
+
+    slot_priority = [slot for slot in REQUIRED_MOTIVATION_STAGES if slot in (missing_slots or [])]
+    if slot_priority:
+        return slot_priority[0]
+
     for stage in REQUIRED_MOTIVATION_STAGES:
         fact_key = STAGE_CONFIRMED_FACT_KEYS[stage]
         if not confirmed_facts[fact_key]:
             return stage
 
-    if is_complete:
-        return "closing"
-    if weakest_element == "self_analysis":
-        return "fit_connection"
-    if weakest_element == "differentiation":
-        return "differentiation"
-    return "closing"
+    return current_stage
 
 
-def _get_weakest_element(scores: MotivationScores) -> str:
-    """Get the element with the lowest score."""
-    elements = {
-        "company_understanding": scores.company_understanding,
-        "self_analysis": scores.self_analysis,
-        "career_vision": scores.career_vision,
-        "differentiation": scores.differentiation,
+def _slot_to_legacy_element(slot: str) -> str:
+    mapping = {
+        "industry_reason": "company_understanding",
+        "company_reason": "company_understanding",
+        "self_connection": "self_analysis",
+        "desired_work": "career_vision",
+        "value_contribution": "career_vision",
+        "differentiation": "differentiation",
     }
-    return min(elements, key=elements.get)
+    return mapping.get(slot, "company_understanding")
 
 
-def _get_element_japanese_name(element: str) -> str:
-    """Convert element to Japanese name."""
-    names = {
-        "company_understanding": "企業理解",
-        "self_analysis": "自己分析",
-        "career_vision": "キャリアビジョン",
+def _slot_label(slot: str) -> str:
+    labels = {
+        "industry_reason": "業界志望理由",
+        "company_reason": "企業志望理由",
+        "self_connection": "自分との接続",
+        "desired_work": "やりたい仕事",
+        "value_contribution": "価値発揮",
         "differentiation": "差別化",
     }
-    return names.get(element, element)
+    return labels.get(slot, slot)
 
 
-def _is_complete(scores: MotivationScores, threshold: int = ELEMENT_COMPLETION_THRESHOLD) -> bool:
-    """Check if motivation is complete using weighted scoring.
-
-    Weights reflect each element's impact on ES quality:
-    - differentiation (30%): strongest predictor of unique, compelling ESes
-    - career_vision (25%): demonstrates forward-thinking and commitment
-    - company_understanding (25%): shows genuine interest and research
-    - self_analysis (20%): foundation that supports all other elements
-    """
-    weighted = (
-        scores.differentiation * 0.30
-        + scores.career_vision * 0.25
-        + scores.company_understanding * 0.25
-        + scores.self_analysis * 0.20
+def _slot_status_to_scores(slot_status: dict[str, str]) -> MotivationScores:
+    score_map = {"missing": 20, "partial": 55, "filled": 82}
+    company_score = min(
+        score_map.get(slot_status.get("industry_reason", "missing"), 20),
+        score_map.get(slot_status.get("company_reason", "missing"), 20),
     )
-    # Weighted average must meet threshold AND no element below 50%
-    min_element = min(
-        scores.company_understanding,
-        scores.self_analysis,
-        scores.career_vision,
-        scores.differentiation,
+    self_score = score_map.get(slot_status.get("self_connection", "missing"), 20)
+    career_score = min(
+        score_map.get(slot_status.get("desired_work", "missing"), 20),
+        score_map.get(slot_status.get("value_contribution", "missing"), 20),
     )
-    return weighted >= threshold and min_element >= 50
+    differentiation_score = score_map.get(slot_status.get("differentiation", "missing"), 20)
+    return MotivationScores(
+        company_understanding=company_score,
+        self_analysis=self_score,
+        career_vision=career_score,
+        differentiation=differentiation_score,
+    )
 
 
 def _build_adaptive_rag_query(
@@ -2729,7 +2188,7 @@ def _build_element_guidance_for_question_prompt(
     weakest_element_jp: str,
     missing_aspects_text: str,
 ) -> str:
-    late_stages = frozenset({"fit_connection", "differentiation", "closing"})
+    late_stages = frozenset({"self_connection", "value_contribution", "differentiation", "closing"})
     if stage in late_stages:
         ma = missing_aspects_text or "（特になし）"
         return (
@@ -2741,7 +2200,7 @@ def _build_element_guidance_for_question_prompt(
     return (
         "## 評価に基づく補助指針\n"
         "- いまは **質問段階の論点だけ** を扱う。4要素スコアや「最も弱い要素」の深掘り指示は "
-        "**このターンでは参照しない**（後続の fit_connection / differentiation / closing で反映する）。\n"
+        "**このターンでは参照しない**（後続の self_connection / value_contribution / differentiation / closing で反映する）。\n"
         "- スコア欄は参考情報であり、段階を飛ばす理由にならない。"
     )
 
@@ -2759,8 +2218,9 @@ class _MotivationQuestionPrep:
     scores: MotivationScores
     weakest_element: str
     is_complete: bool
-    missing_aspects: dict[str, Any]
+    missing_slots: list[str]
     stage: str
+    was_draft_ready: bool
 
 
 async def _get_company_context(
@@ -2816,19 +2276,28 @@ async def _evaluate_motivation_internal(
                 "career_vision": 0,
                 "differentiation": 0,
             },
-            "weakest_element": "company_understanding",
+            "weakest_element": "company_reason",
             "is_complete": False,
-            "hidden_eval": {
-                "company_accuracy": 0,
-                "why_now_strength": 0,
-                "fit_reasoning": 0,
+            "slot_status": {
+                "industry_reason": "missing",
+                "company_reason": "missing",
+                "self_connection": "missing",
+                "desired_work": "missing",
+                "value_contribution": "missing",
+                "differentiation": "missing",
             },
-            "missing_aspects": {
-                "company_understanding": ["企業の事業内容", "企業の強み・特徴"],
-                "self_analysis": ["関連する経験", "自分の強み"],
-                "career_vision": ["入社後にやりたいこと", "キャリアパス"],
-                "differentiation": ["この企業を選ぶ理由", "他社との違い"],
-            },
+            "missing_slots": [
+                "industry_reason",
+                "company_reason",
+                "self_connection",
+                "desired_work",
+                "value_contribution",
+                "differentiation",
+            ],
+            "ready_for_draft": False,
+            "draft_readiness_reason": "志望動機の骨格がまだ揃っていないため",
+            "conversation_warnings": [],
+            "missing_aspects": {},
             "risk_flags": [],
         }
 
@@ -2852,6 +2321,12 @@ async def _evaluate_motivation_internal(
     conversation_text = _format_conversation(trimmed_history)
     prompt = MOTIVATION_EVALUATION_PROMPT.format(
         conversation=conversation_text,
+        company_name=sanitize_prompt_input(request.company_name, max_length=200),
+        industry=sanitize_prompt_input(request.industry or "不明", max_length=100),
+        selected_role_line=_format_selected_role_line_for_prompt(
+            _normalize_conversation_context(request.conversation_context),
+            request.application_job_candidates,
+        ),
         company_context=company_context or "（企業情報なし）",
     )
     if settings.debug:
@@ -2879,43 +2354,73 @@ async def _evaluate_motivation_internal(
     )
 
     if not llm_result.success or llm_result.data is None:
-        if request.scores:
-            scores = MotivationScores(
-                company_understanding=request.scores.company_understanding,
-                self_analysis=request.scores.self_analysis,
-                career_vision=request.scores.career_vision,
-                differentiation=request.scores.differentiation,
-            )
-        else:
-            scores = MotivationScores()
+        scores = MotivationScores()
         return {
             "scores": scores.model_dump(),
-            "weakest_element": _get_weakest_element(scores),
-            "is_complete": _is_complete(scores),
-            "hidden_eval": {
-                "company_accuracy": 0,
-                "why_now_strength": 0,
-                "fit_reasoning": 0,
+            "weakest_element": "company_reason",
+            "is_complete": False,
+            "slot_status": {
+                "industry_reason": "missing",
+                "company_reason": "missing",
+                "self_connection": "missing",
+                "desired_work": "missing",
+                "value_contribution": "missing",
+                "differentiation": "missing",
             },
+            "missing_slots": [
+                "industry_reason",
+                "company_reason",
+                "self_connection",
+                "desired_work",
+                "value_contribution",
+                "differentiation",
+            ],
+            "ready_for_draft": False,
+            "draft_readiness_reason": "評価に失敗したため骨格未確認",
+            "conversation_warnings": [],
             "missing_aspects": {},
             "risk_flags": [],
         }
 
     data = llm_result.data
-    scores_data = data.get("scores", {})
-    scores = MotivationScores(
-        company_understanding=scores_data.get("company_understanding", 0),
-        self_analysis=scores_data.get("self_analysis", 0),
-        career_vision=scores_data.get("career_vision", 0),
-        differentiation=scores_data.get("differentiation", 0),
-    )
+    slot_status = data.get("slot_status") or {}
+    missing_slots = [
+        slot
+        for slot in data.get("missing_slots", [])
+        if slot in {
+            "industry_reason",
+            "company_reason",
+            "self_connection",
+            "desired_work",
+            "value_contribution",
+            "differentiation",
+        }
+    ]
+    ready_for_draft = bool(data.get("ready_for_draft", False))
+    weakest_element = _slot_to_legacy_element(missing_slots[0] if missing_slots else "differentiation")
 
     return {
-        "scores": scores.model_dump(),
-        "weakest_element": _get_weakest_element(scores),
-        "is_complete": _is_complete(scores),
-        "hidden_eval": data.get("hidden_eval", {}),
-        "missing_aspects": data.get("missing_aspects", {}),
+        "scores": {
+            "company_understanding": 0,
+            "self_analysis": 0,
+            "career_vision": 0,
+            "differentiation": 0,
+        },
+        "weakest_element": weakest_element,
+        "is_complete": ready_for_draft,
+        "slot_status": {
+            "industry_reason": slot_status.get("industry_reason", "missing"),
+            "company_reason": slot_status.get("company_reason", "missing"),
+            "self_connection": slot_status.get("self_connection", "missing"),
+            "desired_work": slot_status.get("desired_work", "missing"),
+            "value_contribution": slot_status.get("value_contribution", "missing"),
+            "differentiation": slot_status.get("differentiation", "missing"),
+        },
+        "missing_slots": missing_slots,
+        "ready_for_draft": ready_for_draft,
+        "draft_readiness_reason": str(data.get("draft_readiness_reason") or ""),
+        "conversation_warnings": _coerce_string_list(data.get("conversation_warnings"), max_items=4),
+        "missing_aspects": {},
         "risk_flags": _coerce_risk_flags(data.get("risk_flags"), max_items=2),
     }
 
@@ -2982,15 +2487,16 @@ async def _prepare_motivation_next_question(
     )
 
     eval_result = await _evaluate_motivation_internal(request, company_context=company_context)
-    scores = MotivationScores(**eval_result["scores"])
+    scores = MotivationScores(**(eval_result.get("scores") or MotivationScores().model_dump()))
     weakest_element = eval_result["weakest_element"]
-    is_complete = eval_result["is_complete"]
-    missing_aspects = eval_result.get("missing_aspects", {})
+    is_complete = bool(eval_result.get("ready_for_draft") or eval_result.get("is_complete"))
+    missing_slots = list(eval_result.get("missing_slots") or [])
+    was_draft_ready = bool(conversation_context.get("draftReady"))
 
     stage = _get_next_stage(
         conversation_context,
-        weakest_element=weakest_element,
-        is_complete=is_complete,
+        missing_slots=missing_slots,
+        ready_for_draft=is_complete,
     )
     previous_stage = conversation_context.get("questionStage") or "industry_reason"
     previous_attempt_count = int(conversation_context.get("stageAttemptCount") or 0)
@@ -3017,8 +2523,9 @@ async def _prepare_motivation_next_question(
         scores=scores,
         weakest_element=weakest_element,
         is_complete=is_complete,
-        missing_aspects=missing_aspects,
+        missing_slots=missing_slots,
         stage=stage,
+        was_draft_ready=was_draft_ready,
     )
 
 
@@ -3027,18 +2534,6 @@ def _build_motivation_question_system_prompt(
     request: NextQuestionRequest,
     prep: _MotivationQuestionPrep,
 ) -> str:
-    weakest_jp = _get_element_japanese_name(prep.weakest_element)
-    missing_for_weakest = prep.missing_aspects.get(prep.weakest_element, [])
-    missing_aspects_text = (
-        f"「{weakest_jp}」で不足: {', '.join(missing_for_weakest)}"
-        if missing_for_weakest
-        else ""
-    )
-    element_guidance = _build_element_guidance_for_question_prompt(
-        prep.stage,
-        weakest_jp,
-        missing_aspects_text,
-    )
     selected_role_line = _format_selected_role_line_for_prompt(
         prep.conversation_context,
         request.application_job_candidates,
@@ -3049,29 +2544,108 @@ def _build_motivation_question_system_prompt(
     application_job_section = _format_application_jobs_for_prompt(request.application_job_candidates)
     conversation_context_section = _format_conversation_context_for_prompt(prep.conversation_context)
     conversation_history_section = _format_recent_conversation_for_prompt(request.conversation_history)
-    reask_instruction_section = _build_reask_instruction_section(
-        prep.stage,
-        stage_attempt_count=int(prep.conversation_context.get("stageAttemptCount") or 0),
-        last_question_meta=prep.conversation_context.get("lastQuestionMeta"),
+    slot_status = prep.eval_result.get("slot_status") or {}
+    slot_status_section = "\n".join(
+        f"- {slot}: {slot_status.get(slot, 'missing')}"
+        for slot in (
+            "industry_reason",
+            "company_reason",
+            "self_connection",
+            "desired_work",
+            "value_contribution",
+            "differentiation",
+        )
     )
+    missing_slots_section = ", ".join(prep.missing_slots) if prep.missing_slots else "（不足要素なし）"
+    last_question_meta = prep.conversation_context.get("lastQuestionMeta") or {}
+    last_question = str(last_question_meta.get("questionText") or "").strip() or "（なし）"
+    last_question_target_slot = str(last_question_meta.get("question_stage") or "").strip() or "（なし）"
+    recent_question_summaries = []
+    for message in request.conversation_history[-4:]:
+        if message.role == "assistant" and message.content.strip():
+            recent_question_summaries.append(_clean_short_phrase(message.content, max_len=36))
+    recent_question_summaries_text = ", ".join(recent_question_summaries) if recent_question_summaries else "（なし）"
     return MOTIVATION_QUESTION_PROMPT.format(
         company_name=safe_company_name,
         industry=sanitize_prompt_input(prep.industry or "不明", max_length=100),
+        selected_role_line=selected_role_line,
         company_context=prep.company_context or "（企業情報なし）",
         gakuchika_section=gakuchika_section,
         profile_section=profile_section,
         application_job_section=application_job_section,
         conversation_context=conversation_context_section,
         conversation_history=conversation_history_section,
-        company_understanding_score=prep.scores.company_understanding,
-        self_analysis_score=prep.scores.self_analysis,
-        career_vision_score=prep.scores.career_vision,
-        differentiation_score=prep.scores.differentiation,
-        element_guidance_section=element_guidance,
-        reask_instruction_section=reask_instruction_section,
+        slot_status_section=slot_status_section,
+        missing_slots_section=missing_slots_section,
+        draft_readiness_reason=str(prep.eval_result.get("draft_readiness_reason") or "（理由なし）"),
+        last_question=last_question,
+        last_question_target_slot=last_question_target_slot,
+        recent_question_summaries=recent_question_summaries_text,
+    )
+
+
+def _build_motivation_deepdive_system_prompt(
+    *,
+    request: NextQuestionRequest,
+    prep: _MotivationQuestionPrep,
+) -> str:
+    selected_role_line = _format_selected_role_line_for_prompt(
+        prep.conversation_context,
+        request.application_job_candidates,
+    )
+    draft_text = "（まだ下書きは生成していませんが、骨格は揃っています）"
+    last_question_meta = prep.conversation_context.get("lastQuestionMeta") or {}
+    last_question = str(last_question_meta.get("questionText") or "").strip() or "（なし）"
+    recent_question_summaries = []
+    for message in request.conversation_history[-4:]:
+        if message.role == "assistant" and message.content.strip():
+            recent_question_summaries.append(_clean_short_phrase(message.content, max_len=36))
+    recent_question_summaries_text = ", ".join(recent_question_summaries) if recent_question_summaries else "（なし）"
+    return MOTIVATION_DEEPDIVE_QUESTION_PROMPT.format(
+        company_name=sanitize_prompt_input(request.company_name, max_length=200),
+        industry=sanitize_prompt_input(prep.industry or "不明", max_length=100),
         selected_role_line=selected_role_line,
+        draft_text=draft_text,
+        company_context=prep.company_context or "（企業情報なし）",
+        conversation_history=_format_recent_conversation_for_prompt(request.conversation_history, max_messages=8),
+        last_question=last_question,
+        recent_question_summaries=recent_question_summaries_text,
+    )
+
+
+def _deepdive_area_to_stage(target_area: str | None) -> str:
+    mapping = {
+        "company_reason_strengthening": "company_reason",
+        "desired_work_clarity": "desired_work",
+        "value_contribution_clarity": "value_contribution",
+        "differentiation_strengthening": "differentiation",
+        "origin_background": "self_connection",
+        "why_now_strengthening": "company_reason",
+    }
+    return mapping.get(str(target_area or "").strip(), "differentiation")
+
+
+def _build_draft_ready_response(prep: _MotivationQuestionPrep) -> NextQuestionResponse:
+    stage_status = _build_stage_status(prep.conversation_context, prep.stage)
+    return NextQuestionResponse(
+        question="",
+        should_continue=True,
+        suggested_end=True,
+        draft_ready=True,
+        evaluation=prep.eval_result,
+        target_slot=None,
+        question_intent=None,
+        suggestion_options=[],
+        evidence_summary=_build_evidence_summary_from_sources(prep.company_sources, focus="参考企業情報"),
+        evidence_cards=_build_evidence_cards_from_sources(prep.company_sources),
         question_stage=prep.stage,
-        threshold=ELEMENT_COMPLETION_THRESHOLD,
+        stage_status=stage_status,
+        captured_context=prep.conversation_context,
+        coaching_focus="ES作成可能",
+        risk_flags=_coerce_risk_flags(prep.eval_result.get("risk_flags"), max_items=2),
+        stage_attempt_count=prep.conversation_context.get("stageAttemptCount") or 0,
+        premise_mode="confirmed_only",
+        internal_telemetry=consume_request_llm_cost_summary("motivation"),
     )
 
 
@@ -3080,14 +2654,22 @@ async def _paraphrase_suggestion_options(
     *,
     question: str,
     stage: str,
+    company_name: str,
+    industry: str,
+    conversation_history: list[Message],
 ) -> list[SuggestionOption]:
     if not options:
         return options
-    labels_json = json.dumps([o.label for o in options], ensure_ascii=False)
+    source_material_json = json.dumps([o.label for o in options], ensure_ascii=False)
     system_prompt = MOTIVATION_SUGGESTION_REWRITE_PROMPT.format(
         question=sanitize_prompt_input(question, max_length=600),
+        target_slot=sanitize_prompt_input(stage, max_length=80),
+        question_intent=sanitize_prompt_input(STAGE_LABELS.get(stage, stage), max_length=80),
         stage=sanitize_prompt_input(stage, max_length=80),
-        labels_json=labels_json,
+        company_name=sanitize_prompt_input(company_name, max_length=120),
+        industry=sanitize_prompt_input(industry, max_length=80),
+        conversation_history=_format_recent_conversation_for_prompt(conversation_history, max_messages=6),
+        source_material_json=source_material_json,
     )
     llm_result = await call_llm_with_error(
         system_prompt=system_prompt,
@@ -3200,6 +2782,9 @@ async def _assemble_regular_next_question_response(
         suggestion_options,
         question=validated_question,
         stage=stage,
+        company_name=request.company_name,
+        industry=prep.industry,
+        conversation_history=request.conversation_history,
     )
     evidence_summary = data.get("evidence_summary") or _build_evidence_summary_from_sources(
         prep.company_sources, focus="質問の根拠"
@@ -3226,6 +2811,8 @@ async def _assemble_regular_next_question_response(
         suggested_end=bool(data.get("suggested_end", False) or prep.is_complete),
         draft_ready=prep.is_complete,
         evaluation=prep.eval_result,
+        target_slot=data.get("target_slot", stage),
+        question_intent=data.get("question_intent", STAGE_LABELS.get(stage, stage)),
         target_element=data.get("target_element", prep.weakest_element),
         company_insight=data.get("company_insight"),
         suggestion_options=suggestion_options,
@@ -3238,6 +2825,36 @@ async def _assemble_regular_next_question_response(
         coaching_focus=str(data.get("coaching_focus") or STAGE_LABELS.get(stage, stage)),
         risk_flags=risk_flags,
         question_signature=_question_signature(validated_question),
+        stage_attempt_count=prep.conversation_context.get("stageAttemptCount") or 0,
+        premise_mode="confirmed_only",
+        internal_telemetry=consume_request_llm_cost_summary("motivation"),
+    )
+
+
+def _build_draft_ready_unlock_response(
+    *,
+    prep: _MotivationQuestionPrep,
+) -> NextQuestionResponse:
+    stage_status = _build_stage_status(prep.conversation_context, prep.stage)
+    return NextQuestionResponse(
+        question="",
+        reasoning="志望動機ESの骨格が揃ったため、追加質問を出さずに下書き作成へ進めます。",
+        should_continue=True,
+        suggested_end=True,
+        draft_ready=True,
+        evaluation=prep.eval_result,
+        target_element=None,
+        company_insight=None,
+        suggestion_options=[],
+        evidence_summary=_build_evidence_summary_from_sources(prep.company_sources, focus="参考情報"),
+        evidence_cards=_build_evidence_cards_from_sources(prep.company_sources),
+        question_stage=prep.stage,
+        question_focus=None,
+        stage_status=stage_status,
+        captured_context=prep.conversation_context,
+        coaching_focus="ES作成可能",
+        risk_flags=_coerce_risk_flags(prep.eval_result.get("risk_flags"), max_items=2),
+        question_signature=None,
         stage_attempt_count=prep.conversation_context.get("stageAttemptCount") or 0,
         premise_mode="confirmed_only",
         internal_telemetry=consume_request_llm_cost_summary("motivation"),
@@ -3259,8 +2876,14 @@ async def get_next_question(payload: NextQuestionRequest, request: Request):
         raise _prompt_safety_http_error()
 
     prep = await _prepare_motivation_next_question(request)
+    if prep.is_complete and not prep.was_draft_ready:
+        return _build_draft_ready_unlock_response(prep=prep)
 
-    prompt = _build_motivation_question_system_prompt(request=request, prep=prep)
+    prompt = (
+        _build_motivation_deepdive_system_prompt(request=request, prep=prep)
+        if prep.was_draft_ready
+        else _build_motivation_question_system_prompt(request=request, prep=prep)
+    )
     gakuchika_section = _format_gakuchika_for_prompt(request.gakuchika_context)
     if settings.debug:
         message_chars = sum(len(msg.content) for msg in request.conversation_history)
@@ -3303,6 +2926,10 @@ async def get_next_question(payload: NextQuestionRequest, request: Request):
             detail={"error": "AIから有効な質問を取得できませんでした。"},
         )
 
+    if prep.was_draft_ready:
+        prep.stage = _deepdive_area_to_stage(data.get("target_area"))
+        prep.conversation_context["questionStage"] = prep.stage
+
     return await _assemble_regular_next_question_response(request=request, prep=prep, data=data)
 
 
@@ -3335,6 +2962,36 @@ async def _generate_next_question_progress(
         await asyncio.sleep(0.05)
 
         prep = await _prepare_motivation_next_question(request)
+        if prep.is_complete and not prep.was_draft_ready:
+            response_obj = _build_draft_ready_unlock_response(prep=prep)
+            yield _sse_event("complete", {
+                "data": {
+                    "question": response_obj.question,
+                    "reasoning": response_obj.reasoning,
+                    "should_continue": response_obj.should_continue,
+                    "suggested_end": response_obj.suggested_end,
+                    "draft_ready": response_obj.draft_ready,
+                    "evaluation": response_obj.evaluation,
+                    "target_element": response_obj.target_element,
+                    "company_insight": response_obj.company_insight,
+                    "suggestion_options": [],
+                    "evidence_summary": response_obj.evidence_summary,
+                    "evidence_cards": [c.model_dump() for c in response_obj.evidence_cards],
+                    "question_stage": response_obj.question_stage,
+                    "question_focus": response_obj.question_focus,
+                    "stage_status": response_obj.stage_status.model_dump()
+                    if response_obj.stage_status
+                    else {},
+                    "captured_context": response_obj.captured_context,
+                    "coaching_focus": response_obj.coaching_focus,
+                    "risk_flags": response_obj.risk_flags,
+                    "question_signature": response_obj.question_signature,
+                    "stage_attempt_count": response_obj.stage_attempt_count,
+                    "premise_mode": response_obj.premise_mode,
+                },
+                "internal_telemetry": response_obj.internal_telemetry,
+            })
+            return
 
         yield _sse_event("progress", {
             "step": "evaluation", "progress": 40, "label": "回答を分析中...",
@@ -3346,12 +3003,15 @@ async def _generate_next_question_progress(
         })
         await asyncio.sleep(0.05)
 
-        prompt = _build_motivation_question_system_prompt(request=request, prep=prep)
+        prompt = (
+            _build_motivation_deepdive_system_prompt(request=request, prep=prep)
+            if prep.was_draft_ready
+            else _build_motivation_question_system_prompt(request=request, prep=prep)
+        )
         messages = _build_question_messages(request.conversation_history)
         user_message = _build_question_user_message(request.conversation_history)
 
         llm_result = None
-        preview_question_parts: list[str] = []
         async for event in call_llm_streaming_fields(
             system_prompt=prompt,
             user_message=user_message,
@@ -3375,8 +3035,6 @@ async def _generate_next_question_progress(
                     "internal_telemetry": consume_request_llm_cost_summary("motivation"),
                 })
                 return
-            elif event.type == "string_chunk" and event.path == "question":
-                preview_question_parts.append(event.text)
             elif event.type == "complete":
                 llm_result = event.result
 
@@ -3396,6 +3054,10 @@ async def _generate_next_question_progress(
             })
             return
 
+        if prep.was_draft_ready:
+            prep.stage = _deepdive_area_to_stage(data.get("target_area"))
+            prep.conversation_context["questionStage"] = prep.stage
+
         yield _sse_event("progress", {
             "step": "suggestions", "progress": 85, "label": "回答候補を整えています...",
         })
@@ -3404,21 +3066,6 @@ async def _generate_next_question_progress(
         response_obj = await _assemble_regular_next_question_response(
             request=request, prep=prep, data=data
         )
-        preview_question = "".join(preview_question_parts).strip()
-        final_question = response_obj.question.strip()
-        if preview_question and preview_question != final_question:
-            logger.info(
-                "[Motivation] Canonical question replaced preview: "
-                f"company_id={request.company_id} "
-                f"company_name={request.company_name} "
-                f"stage={response_obj.question_stage} "
-                f"question_signature={response_obj.question_signature} "
-                f"preview={preview_question!r} "
-                f"final={final_question!r}"
-            )
-
-        yield _sse_event("string_chunk", {"path": "question", "text": response_obj.question})
-
         yield _sse_event("complete", {
             "data": {
                 "question": response_obj.question,
@@ -3427,6 +3074,8 @@ async def _generate_next_question_progress(
                 "suggested_end": response_obj.suggested_end,
                 "draft_ready": response_obj.draft_ready,
                 "evaluation": response_obj.evaluation,
+                "target_slot": response_obj.target_slot,
+                "question_intent": response_obj.question_intent,
                 "target_element": response_obj.target_element,
                 "company_insight": response_obj.company_insight,
                 "suggestion_options": [o.model_dump() for o in response_obj.suggestion_options],
