@@ -1,7 +1,16 @@
+import "server-only";
+
 import { createInternalServiceJwt } from "@/lib/fastapi/internal-jwt";
 
+function normalizeConfiguredUrl(value?: string) {
+  return value?.trim().replace(/^['"]+|['"]+$/g, "");
+}
+
 function getFastApiBaseUrl() {
-  const url = process.env.FASTAPI_URL?.trim() || process.env.BACKEND_URL?.trim() || "http://localhost:8000";
+  const url =
+    normalizeConfiguredUrl(process.env.FASTAPI_URL) ||
+    normalizeConfiguredUrl(process.env.BACKEND_URL) ||
+    "http://localhost:8000";
   return url.replace(/\/+$/, "");
 }
 
