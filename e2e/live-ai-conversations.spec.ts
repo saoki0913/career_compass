@@ -357,7 +357,7 @@ export async function runMotivationSetupWithRequest(
   let nextQuestionText = firstQuestion;
 
   let latestComplete: Record<string, unknown> | null = null;
-  const totalAttempts = Math.max(answers.length + MOTIVATION_FALLBACK_ANSWERS.length, 6);
+  const totalAttempts = Math.max(answers.length + MOTIVATION_FALLBACK_ANSWERS.length, 8);
 
   for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
     const answer =
@@ -366,7 +366,7 @@ export async function runMotivationSetupWithRequest(
         : buildDeterministicMotivationFollowupAnswer({
             nextQuestion: nextQuestionText,
             attemptIndex: attempt - answers.length,
-            transcript,
+            latestComplete,
           });
     transcript?.push({ role: "user", content: answer });
     const streamResponse = await request(page, "POST", `/api/motivation/${companyId}/conversation/stream`, {
@@ -416,12 +416,42 @@ const MOTIVATION_FALLBACK_ANSWERS = [
 function buildDeterministicMotivationFollowupAnswer(input: {
   nextQuestion: string;
   attemptIndex: number;
-  transcript?: LiveAiConversationTranscriptTurn[];
+  latestComplete?: Record<string, unknown> | null;
 }) {
+  const questionStage =
+    typeof input.latestComplete?.questionStage === "string"
+      ? input.latestComplete.questionStage
+      : typeof (input.latestComplete?.stageStatus as { current?: unknown } | undefined)?.current === "string"
+        ? String((input.latestComplete?.stageStatus as { current?: unknown }).current)
+        : "";
   const question = input.nextQuestion.trim();
   const normalizedQuestion = question.replace(/\s+/g, "");
 
   const targetedAnswer = (() => {
+    if (questionStage === "industry_reason") {
+      return "学園祭運営で申請と連絡の流れを整理し、確認漏れを減らした経験から、業務改革で顧客課題を減らせるIT業界を志望しています。";
+    }
+
+    if (questionStage === "company_reason") {
+      return "株式会社テストDXは現場の業務改革を企画から実装まで支援しており、企画職として課題整理から提案まで担える点に魅力を感じています。";
+    }
+
+    if (questionStage === "self_connection") {
+      return "大学の企画運営では関係者の要望を整理し、優先順位を決めて改善を進めてきたため、企画職でも論点整理と巻き込み力を活かせます。";
+    }
+
+    if (questionStage === "desired_work") {
+      return "入社後は現場ヒアリングを通じて課題を構造化し、実行可能な改善企画に落とし込む役割を担いたいです。";
+    }
+
+    if (questionStage === "value_contribution") {
+      return "まずは利用部門の声を定量・定性の両面で整理し、関係者を巻き込みながら改善提案を前に進めたいです。";
+    }
+
+    if (questionStage === "differentiation") {
+      return "他社比較では事業の広さより、顧客業務に入り込み改善を回し続けられる点で御社の志望度が高いです。";
+    }
+
     if (
       normalizedQuestion.includes("他社") ||
       normalizedQuestion.includes("御社") ||
@@ -473,35 +503,53 @@ function buildDeterministicMotivationFollowupAnswer(input: {
     ];
   })();
 
-  return question ? `${targetedAnswer} 特に「${question}」への回答として整理しています。` : targetedAnswer;
+  return targetedAnswer;
 }
 
 const GAKUCHIKA_FALLBACK_ANSWERS = [
-  "補足すると、役割分担を明確にしながら、周囲が動きやすい状態を整えました。",
-  "さらに、改善提案を小さく回して、関係者と認識をそろえました。",
-  "最後に、数字と現場の声の両方を見ながら、運用を微調整しました。",
-  "加えて、継続して見直せるように、共有の型も整えました。",
+  "宿題未提出が続く生徒が増え、保護者からも学習習慣への相談が続いていたため、校舎全体で対応を見直す必要がありました。",
+  "私は担当講師としてだけでなく、他の講師も同じ基準で動けるように共有フォーマットを整える役割も担いました。",
+  "宿題提出率と面談メモを見て要注意生徒から優先して声かけし、週次ミーティングで改善提案を回しました。",
+  "その結果、宿題提出率が上がり、保護者相談への初期対応も早くなって学習継続率の改善につながりました。",
+  "数字と現場の声を両方見て基準をそろえることで、個人依存ではなく再現性ある改善になると学びました。",
 ];
 
 export function buildDeterministicGakuchikaFollowupAnswer(input: {
   nextQuestion: string;
   attemptIndex: number;
-  transcript?: LiveAiConversationTranscriptTurn[];
+  latestComplete?: Record<string, unknown> | null;
 }) {
-  const fallback =
-    GAKUCHIKA_FALLBACK_ANSWERS[
+  const conversationState =
+    input.latestComplete?.conversationState && typeof input.latestComplete.conversationState === "object"
+      ? (input.latestComplete.conversationState as { focusKey?: unknown; missingElements?: unknown })
+      : null;
+  const focusKey =
+    typeof conversationState?.focusKey === "string"
+      ? conversationState.focusKey
+      : Array.isArray(conversationState?.missingElements)
+        ? conversationState.missingElements.find((value): value is string => typeof value === "string") || ""
+        : "";
+  const normalizedQuestion = input.nextQuestion.trim().replace(/\s+/g, "");
+
+  const targetedAnswer = (() => {
+    if (focusKey === "context" || focusKey === "challenge") return GAKUCHIKA_FALLBACK_ANSWERS[0];
+    if (focusKey === "role" || focusKey === "task") return GAKUCHIKA_FALLBACK_ANSWERS[1];
+    if (focusKey === "action" || focusKey === "action_reason") return GAKUCHIKA_FALLBACK_ANSWERS[2];
+    if (focusKey === "result" || focusKey === "result_evidence") return GAKUCHIKA_FALLBACK_ANSWERS[3];
+    if (focusKey === "learning" || focusKey === "learning_transfer") return GAKUCHIKA_FALLBACK_ANSWERS[4];
+
+    if (/(役割|どこまで判断|担当)/.test(normalizedQuestion)) return GAKUCHIKA_FALLBACK_ANSWERS[1];
+    if (/(課題|きっかけ|どんな場面|背景)/.test(normalizedQuestion)) return GAKUCHIKA_FALLBACK_ANSWERS[0];
+    if (/(基準|判断軸|優先|なぜその順番|どう決め)/.test(normalizedQuestion)) return GAKUCHIKA_FALLBACK_ANSWERS[2];
+    if (/(結果|変化|どれだけ|改善|成果)/.test(normalizedQuestion)) return GAKUCHIKA_FALLBACK_ANSWERS[3];
+    if (/(学び|今後|活か|再現)/.test(normalizedQuestion)) return GAKUCHIKA_FALLBACK_ANSWERS[4];
+
+    return GAKUCHIKA_FALLBACK_ANSWERS[
       Math.min(input.attemptIndex, GAKUCHIKA_FALLBACK_ANSWERS.length - 1)
     ];
-  const latestUserAnswer =
-    [...(input.transcript ?? [])]
-      .reverse()
-      .find((turn) => turn.role === "user" && turn.content.trim())
-      ?.content.trim() || "";
-  const trimmedQuestion = input.nextQuestion.trim();
-  const contextPrefix = latestUserAnswer ? `直前の回答「${latestUserAnswer}」を踏まえると、` : "";
-  return trimmedQuestion
-    ? `${contextPrefix}${fallback} 追加確認としては「${trimmedQuestion}」に答える形で補足します。`
-    : `${contextPrefix}${fallback}`;
+  })();
+
+  return targetedAnswer;
 }
 
 export async function runGakuchikaSetupWithRequest(
@@ -528,7 +576,7 @@ export async function runGakuchikaSetupWithRequest(
 
   let latestComplete: Record<string, unknown> | null = null;
   let nextQuestionText = startBody.nextQuestion || startBody.messages[0]?.content || "";
-  const totalAttempts = Math.max(answers.length + GAKUCHIKA_FALLBACK_ANSWERS.length, 6);
+  const totalAttempts = Math.max(answers.length + GAKUCHIKA_FALLBACK_ANSWERS.length, 8);
   for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
     const answer =
       attempt < answers.length
@@ -536,7 +584,7 @@ export async function runGakuchikaSetupWithRequest(
         : buildDeterministicGakuchikaFollowupAnswer({
             nextQuestion: nextQuestionText,
             attemptIndex: attempt - answers.length,
-            transcript,
+            latestComplete,
           });
     transcript?.push({ role: "user", content: answer });
     const streamResponse = await request(page, "POST", `/api/gakuchika/${gakuchikaId}/conversation/stream`, {
