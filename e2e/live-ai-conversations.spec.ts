@@ -259,39 +259,6 @@ function buildMissingFeatureRow(feature: LiveAiConversationFeature): LiveAiConve
   };
 }
 
-type OwnedCompanySummary = { id: string; name: string };
-
-export function collectStaleLiveAiCompanyIds(
-  companies: OwnedCompanySummary[],
-  caseIds: string[],
-) {
-  return companies
-    .filter((company) =>
-      company.name.includes("_live-ai-conversations-") &&
-      caseIds.some((caseId) => company.name.includes(`_${caseId}_live-ai-conversations-`)),
-    )
-    .map((company) => company.id);
-}
-
-async function listOwnedCompanies(page: Parameters<typeof apiRequest>[0]) {
-  const response = await apiRequestAsAuthenticatedUser(page, "GET", "/api/companies");
-  const body = JSON.parse(
-    await expectOkResponse(response, "list owned companies"),
-  ) as { companies: OwnedCompanySummary[] };
-  return body.companies;
-}
-
-async function cleanupStaleLiveAiCompanies(
-  page: Parameters<typeof apiRequest>[0],
-  caseIds: string[],
-) {
-  const companies = await listOwnedCompanies(page);
-  const staleIds = collectStaleLiveAiCompanyIds(companies, caseIds);
-  for (const staleId of staleIds) {
-    await deleteOwnedCompany(page, staleId);
-  }
-}
-
 async function createOwnedJobType(
   page: Parameters<typeof apiRequest>[0],
   applicationId: string,
@@ -306,20 +273,30 @@ async function createOwnedJobType(
   return body.jobType;
 }
 
-async function runMotivationSetup(
+async function startMotivationSetupWithRequest(
+  request: SetupRequester,
   page: Parameters<typeof apiRequest>[0],
   companyId: string,
   selectedIndustry: string,
   selectedRole: string,
-  answers: string[],
   transcript?: LiveAiConversationTranscriptTurn[],
 ) {
-  const startResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/motivation/${companyId}/conversation/start`, {
+  let startResponse = await request(page, "POST", `/api/motivation/${companyId}/conversation/start`, {
     selectedIndustry,
     selectedRole,
   });
+
+  if (startResponse.status() === 409) {
+    const resetResponse = await request(page, "DELETE", `/api/motivation/${companyId}/conversation`);
+    await readSetupResponseBody(resetResponse, `motivation setup reset ${companyId}`);
+    startResponse = await request(page, "POST", `/api/motivation/${companyId}/conversation/start`, {
+      selectedIndustry,
+      selectedRole,
+    });
+  }
+
   const startBody = JSON.parse(
-    await expectOkResponse(startResponse, `motivation setup start ${companyId}`),
+    await readSetupResponseBody(startResponse, `motivation setup start ${companyId}`),
   ) as {
     conversation: { id: string };
     nextQuestion: string;
@@ -327,8 +304,33 @@ async function runMotivationSetup(
   };
 
   const sessionId = startBody.conversation.id;
-  let nextQuestionText = startBody.nextQuestion || startBody.messages[0]?.content || "";
+  const nextQuestionText = startBody.nextQuestion || startBody.messages[0]?.content || "";
   pushAssistantIfPresent(transcript ?? [], nextQuestionText);
+
+  return {
+    sessionId,
+    nextQuestionText,
+  };
+}
+
+export async function runMotivationSetupWithRequest(
+  request: SetupRequester,
+  page: Parameters<typeof apiRequest>[0],
+  companyId: string,
+  selectedIndustry: string,
+  selectedRole: string,
+  answers: string[],
+  transcript?: LiveAiConversationTranscriptTurn[],
+) {
+  const { sessionId, nextQuestionText: firstQuestion } = await startMotivationSetupWithRequest(
+    request,
+    page,
+    companyId,
+    selectedIndustry,
+    selectedRole,
+    transcript,
+  );
+  let nextQuestionText = firstQuestion;
 
   let latestComplete: Record<string, unknown> | null = null;
   const totalAttempts = Math.max(answers.length + MOTIVATION_FALLBACK_ANSWERS.length, 6);
@@ -343,11 +345,11 @@ async function runMotivationSetup(
             transcript,
           });
     transcript?.push({ role: "user", content: answer });
-    const streamResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/motivation/${companyId}/conversation/stream`, {
+    const streamResponse = await request(page, "POST", `/api/motivation/${companyId}/conversation/stream`, {
       answer,
       sessionId,
     });
-    const events = parseSseEvents(await expectOkResponse(streamResponse, `motivation setup stream ${companyId}`));
+    const events = parseSseEvents(await readSetupResponseBody(streamResponse, `motivation setup stream ${companyId}`));
     const nextQuestion = collectChunks(events, "question");
     latestComplete = parseCompleteData(events);
     nextQuestionText = String(latestComplete?.nextQuestion || nextQuestion || "");
@@ -358,6 +360,25 @@ async function runMotivationSetup(
   }
 
   throw new Error("motivation conversation did not reach draft_ready");
+}
+
+async function runMotivationSetup(
+  page: Parameters<typeof apiRequest>[0],
+  companyId: string,
+  selectedIndustry: string,
+  selectedRole: string,
+  answers: string[],
+  transcript?: LiveAiConversationTranscriptTurn[],
+) {
+  return runMotivationSetupWithRequest(
+    apiRequestAsAuthenticatedUser,
+    page,
+    companyId,
+    selectedIndustry,
+    selectedRole,
+    answers,
+    transcript,
+  );
 }
 
 const MOTIVATION_FALLBACK_ANSWERS = [
@@ -601,7 +622,6 @@ async function runMotivationCase(
   page: Parameters<typeof apiRequest>[0],
   input: MotivationCase,
 ): Promise<LiveAiConversationReportRow> {
-  await cleanupStaleLiveAiCompanies(page, LIVE_COMPANY_CASE_IDS);
   const company = await createOwnedCompany(page, {
     name: buildScopedCompanyName(input.companyName, input.id),
     industry: input.industry,
@@ -738,7 +758,6 @@ async function runInterviewCase(
   page: Parameters<typeof apiRequest>[0],
   input: InterviewCase,
 ): Promise<LiveAiConversationReportRow> {
-  await cleanupStaleLiveAiCompanies(page, LIVE_COMPANY_CASE_IDS);
   const company = await createOwnedCompany(page, {
     name: buildScopedCompanyName(input.companyName, input.id),
     industry: input.industry,
@@ -968,7 +987,6 @@ const motivationCases = selectCases(
 const interviewCases = selectCases(
   readJsonCases<InterviewCase>("tests/ai_eval/interview_cases.json"),
 );
-const LIVE_COMPANY_CASE_IDS = [...motivationCases, ...interviewCases].map((item) => item.id);
 
 const reportRowsByKey = new Map<string, LiveAiConversationReportRow>();
 

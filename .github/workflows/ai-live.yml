@@ -87,6 +87,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Preflight CI E2E auth
         run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Reset AI live state
+        run: node scripts/ci/reset-ai-live-state.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
       - name: Run ES review live
         env:
           AI_LIVE_SKIP_SUMMARY: "1"
@@ -103,8 +105,10 @@ jobs:
           retention-days: 90
 
   gakuchika-live:
-    needs: resolve-suite
-    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'gakuchika' }}
+    needs:
+      - resolve-suite
+      - es-review-live
+    if: ${{ always() && (github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'gakuchika') && (needs.es-review-live.result == 'success' || needs.es-review-live.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
@@ -125,6 +129,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Preflight CI E2E auth
         run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Reset AI live state
+        run: node scripts/ci/reset-ai-live-state.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
       - name: Run gakuchika live
         env:
           AI_LIVE_SKIP_SUMMARY: "1"
@@ -217,8 +223,10 @@ jobs:
           retention-days: 90
 
   motivation-live:
-    needs: resolve-suite
-    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'motivation' }}
+    needs:
+      - resolve-suite
+      - gakuchika-live
+    if: ${{ always() && (github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'motivation') && (needs.gakuchika-live.result == 'success' || needs.gakuchika-live.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
@@ -239,6 +247,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Preflight CI E2E auth
         run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Reset AI live state
+        run: node scripts/ci/reset-ai-live-state.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
       - name: Run motivation live
         env:
           AI_LIVE_SKIP_SUMMARY: "1"
@@ -255,8 +265,10 @@ jobs:
           retention-days: 90
 
   interview-live:
-    needs: resolve-suite
-    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'interview' }}
+    needs:
+      - resolve-suite
+      - motivation-live
+    if: ${{ always() && (github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'interview') && (needs.motivation-live.result == 'success' || needs.motivation-live.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
@@ -277,6 +289,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Preflight CI E2E auth
         run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Reset AI live state
+        run: node scripts/ci/reset-ai-live-state.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
       - name: Run interview live
         env:
           AI_LIVE_SKIP_SUMMARY: "1"
