@@ -5,6 +5,7 @@
  */
 
 import { APIResponse, Page, expect } from "@playwright/test";
+import { ensureCiE2EAuthSession } from "../google-auth";
 
 // Legacy device token key kept for cleanup checks in E2E.
 const DEVICE_TOKEN_KEY = "ukarun_device_token";
@@ -12,6 +13,10 @@ const GUEST_COOKIE_NAME = "guest_device_token";
 const CSRF_COOKIE_NAME = "csrf_token";
 const CSRF_HEADER_NAME = "x-csrf-token";
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function getResponseStatus(response: { status: number | (() => number) }) {
+  return typeof response.status === "function" ? response.status() : response.status;
+}
 
 /**
  * Generate a random UUID for device token
@@ -410,15 +415,30 @@ export async function apiRequestAsAuthenticatedUser(
   body?: Record<string, unknown>
 ) {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
+  if (process.env.CI_E2E_AUTH_SECRET?.trim()) {
+    await ensureCiE2EAuthSession(page);
+  }
   const headers = await buildApiRequestHeaders(page, baseURL, false, method);
   headers.Origin = baseURL;
   headers.Referer = `${baseURL}/`;
 
-  return await page.context().request.fetch(`${baseURL}${endpoint}`, {
+  let response = await page.context().request.fetch(`${baseURL}${endpoint}`, {
     method,
     headers,
     data: body ? JSON.stringify(body) : undefined,
   });
+  if (getResponseStatus(response) === 401 && process.env.CI_E2E_AUTH_SECRET?.trim()) {
+    await ensureCiE2EAuthSession(page);
+    const retryHeaders = await buildApiRequestHeaders(page, baseURL, false, method);
+    retryHeaders.Origin = baseURL;
+    retryHeaders.Referer = `${baseURL}/`;
+    response = await page.context().request.fetch(`${baseURL}${endpoint}`, {
+      method,
+      headers: retryHeaders,
+      data: body ? JSON.stringify(body) : undefined,
+    });
+  }
+  return response;
 }
 
 export async function expectOkResponse(

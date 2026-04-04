@@ -10,9 +10,11 @@ import {
 } from "@/lib/auth/ci-e2e";
 import { db } from "@/lib/db";
 import { sessions, userProfiles, users } from "@/lib/db/schema";
+import type { PlanType } from "@/lib/stripe/config";
 
 const DEFAULT_TEST_EMAIL = "ci-e2e-user@shupass.jp";
 const DEFAULT_TEST_NAME = "CI E2E User";
+const DEFAULT_TEST_PLAN: PlanType = "standard";
 
 function parseBearerSecret(request: NextRequest) {
   const header = request.headers.get("authorization")?.trim();
@@ -60,6 +62,11 @@ export async function POST(request: NextRequest) {
   try {
     const email = process.env.CI_E2E_TEST_EMAIL?.trim() || DEFAULT_TEST_EMAIL;
     const name = process.env.CI_E2E_TEST_NAME?.trim() || DEFAULT_TEST_NAME;
+    const requestedPlan = process.env.CI_E2E_TEST_PLAN?.trim();
+    const plan: PlanType =
+      requestedPlan === "free" || requestedPlan === "standard" || requestedPlan === "pro"
+        ? requestedPlan
+        : DEFAULT_TEST_PLAN;
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
@@ -98,7 +105,7 @@ export async function POST(request: NextRequest) {
         await tx
           .update(userProfiles)
           .set({
-            plan: "free",
+            plan,
             planSelectedAt: existingProfile.planSelectedAt ?? now,
             onboardingCompleted: true,
             updatedAt: now,
@@ -108,7 +115,7 @@ export async function POST(request: NextRequest) {
         await tx.insert(userProfiles).values({
           id: randomUUID(),
           userId: resolvedUserId,
-          plan: "free",
+          plan,
           planSelectedAt: now,
           onboardingCompleted: true,
           createdAt: now,

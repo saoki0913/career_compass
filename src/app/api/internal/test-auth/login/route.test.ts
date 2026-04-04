@@ -66,6 +66,7 @@ describe("api/internal/test-auth/login", () => {
     process.env.BETTER_AUTH_SECRET = "better-auth-secret";
     process.env.CI_E2E_TEST_EMAIL = "ci@example.com";
     process.env.CI_E2E_TEST_NAME = "CI";
+    process.env.CI_E2E_TEST_PLAN = "standard";
 
     isCiE2EAuthEnabledMock.mockReturnValue(true);
     getBetterAuthSessionCookieNameMock.mockReturnValue("__Secure-better-auth.session_token");
