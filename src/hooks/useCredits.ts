@@ -137,12 +137,8 @@ export function useCredits(opts: UseCreditsOptions = {}) {
     balance: credits?.balance ?? 0,
     monthlyAllocation: credits?.monthlyAllocation ?? 0,
     nextResetAt: credits?.nextResetAt ? new Date(credits.nextResetAt) : null,
-    /** @deprecated 選考スケジュールは月次。`selectionScheduleRemaining` を優先 */
-    dailyFreeRemaining: selectionScheduleRemaining,
-    /** @deprecated 選考スケジュールは月次。`selectionScheduleLimit` を優先 */
-    dailyFreeLimit: selectionScheduleLimit,
-    selectionScheduleFreeRemaining: selectionScheduleRemaining,
-    selectionScheduleFreeLimit: selectionScheduleLimit,
+    selectionScheduleRemaining,
+    selectionScheduleLimit,
     companyRagUnitsRemaining:
       credits?.monthlyFree.companyRagPages?.remaining ??
       credits?.monthlyFree.companyRagUnits?.remaining ??

@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import {
+  getGakuchikaNextAction,
   getIdentity,
   getQuestionFromFastAPI,
   safeParseConversationState,
@@ -71,6 +72,7 @@ export async function POST(
       question: initialQuestion,
       error,
       conversationState,
+      nextAction,
       telemetry,
     } = await getQuestionFromFastAPI(
       {
@@ -155,6 +157,7 @@ export async function POST(
       questionCount: 0,
       isCompleted: false,
       conversationState: initialState,
+      nextAction: nextAction ?? getGakuchikaNextAction(initialState),
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,

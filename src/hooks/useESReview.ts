@@ -113,12 +113,19 @@ export interface ReviewResult {
     reference_conditional_hints_applied?: boolean;
     reference_profile_variance?: "low" | "medium" | "high" | null;
     company_grounding_policy?: "required" | "assistive";
+    effective_company_grounding_policy?: "required" | "assistive";
+    recommended_grounding_level?: "none" | "light" | "standard" | "deep";
+    effective_grounding_level?: "none" | "light" | "standard" | "deep";
     company_evidence_count?: number;
     evidence_coverage_level?: "none" | "weak" | "partial" | "strong";
     weak_evidence_notice?: boolean;
     injection_risk?: string | null;
     user_context_sources?: string[];
     hallucination_guard_mode?: "strict";
+    classification_confidence?: "high" | "medium" | "low";
+    classification_secondary_candidates?: TemplateType[];
+    classification_rationale?: string | null;
+    misclassification_recovery_applied?: boolean;
     rewrite_attempt_count?: number;
     length_policy?: "strict" | "soft_ok";
     length_shortfall?: number;
@@ -128,6 +135,9 @@ export interface ReviewResult {
     rewrite_validation_status?: "strict_ok" | "soft_ok" | "degraded";
     rewrite_validation_codes?: string[];
     rewrite_validation_user_hint?: string | null;
+    fallback_triggered?: boolean;
+    fallback_reason?: string | null;
+    grounding_repair_applied?: boolean;
   };
 }
 

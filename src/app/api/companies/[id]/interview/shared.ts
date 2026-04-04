@@ -9,34 +9,58 @@ import {
   gakuchikaContents,
   interviewConversations,
   interviewFeedbackHistories,
+  interviewTurnEvents,
   jobTypes,
   motivationConversations,
 } from "@/lib/db/schema";
 import {
+  getInterviewCompanySeed,
+  getInterviewIndustrySeed,
+} from "@/lib/interview/company-seeds";
+import {
+  classifyInterviewRoleTrack,
+  INTERVIEW_FORMAT_OPTIONS,
+  INTERVIEW_STAGE_OPTIONS,
+  INTERVIEWER_TYPE_OPTIONS,
+  ROLE_TRACK_OPTIONS,
+  SELECTION_TYPE_OPTIONS,
+  STRICTNESS_MODE_OPTIONS,
   createInitialInterviewTurnState,
   getInterviewStageStatus,
+  normalizeInterviewTurnState,
+  type InterviewFormat,
+  type InterviewPlan,
+  type InterviewRoleTrack,
+  type InterviewRoundStage,
+  type InterviewSelectionType,
   type InterviewStageStatus,
+  type InterviewStrictnessMode,
+  type InterviewTurnMeta,
   type InterviewTurnState,
+  type InterviewerType,
 } from "@/lib/interview/session";
 import {
   hydrateInterviewTurnStateFromRow,
-  serializeInterviewTurnState,
+  parseInterviewTurnMeta,
   safeParseInterviewFeedback,
   safeParseInterviewMessages,
   type InterviewFeedback,
   type InterviewMessage,
 } from "@/lib/interview/conversation";
-import {
-  getInterviewCompanySeed,
-  getInterviewIndustrySeed,
-} from "@/lib/interview/company-seeds";
 import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
 import { normalizeInterviewPersistenceError } from "./persistence-errors";
 
 export type InterviewMaterialCard = {
   label: string;
   text: string;
-  kind?: "motivation" | "gakuchika" | "es" | "industry_seed" | "company_seed";
+  kind?:
+    | "motivation"
+    | "gakuchika"
+    | "es"
+    | "academic"
+    | "research"
+    | "industry_seed"
+    | "company_seed";
 };
 
 export type InterviewSetupState = {
@@ -46,6 +70,12 @@ export type InterviewSetupState = {
   resolvedIndustry: string | null;
   requiresIndustrySelection: boolean;
   industryOptions: string[];
+  roleTrack: InterviewRoleTrack;
+  interviewFormat: InterviewFormat;
+  selectionType: InterviewSelectionType;
+  interviewStage: InterviewRoundStage;
+  interviewerType: InterviewerType;
+  strictnessMode: InterviewStrictnessMode;
 };
 
 export type InterviewFeedbackHistoryItem = {
@@ -54,9 +84,15 @@ export type InterviewFeedbackHistoryItem = {
   scores: InterviewFeedback["scores"];
   strengths: string[];
   improvements: string[];
+  consistencyRisks: string[];
+  weakestQuestionType: string | null;
+  weakestTurnId: string | null;
+  weakestQuestionSnapshot: string | null;
+  weakestAnswerSnapshot: string | null;
   improvedAnswer: string;
-  preparationPoints: string[];
+  nextPreparation: string[];
   premiseConsistency: number;
+  satisfactionScore: number | null;
   sourceQuestionCount: number;
   createdAt: string;
 };
@@ -66,14 +102,31 @@ export type HydratedInterviewConversation = {
   status: "setup_pending" | "in_progress" | "question_flow_completed" | "feedback_completed";
   messages: InterviewMessage[];
   turnState: InterviewTurnState;
+  turnMeta: InterviewTurnMeta | null;
+  plan: InterviewPlan | null;
   stageStatus: InterviewStageStatus;
   questionCount: number;
-  questionStage: InterviewTurnState["currentStage"];
   questionFlowCompleted: boolean;
   feedback: InterviewFeedback | null;
   selectedIndustry: string | null;
   selectedRole: string | null;
   selectedRoleSource: string | null;
+  roleTrack: InterviewRoleTrack | null;
+  interviewFormat: InterviewFormat | null;
+  selectionType: InterviewSelectionType | null;
+  interviewStage: InterviewRoundStage | null;
+  interviewerType: InterviewerType | null;
+  strictnessMode: InterviewStrictnessMode | null;
+  isLegacySession: boolean;
+};
+
+type PersistedInterviewSetup = {
+  roleTrack?: string | null;
+  interviewFormat?: string | null;
+  selectionType?: string | null;
+  interviewStage?: string | null;
+  interviewerType?: string | null;
+  strictnessMode?: string | null;
 };
 
 function clipText(value: string | null | undefined, maxLength = 500) {
@@ -83,8 +136,60 @@ function clipText(value: string | null | undefined, maxLength = 500) {
   return compact.length <= maxLength ? compact : `${compact.slice(0, maxLength).trim()}...`;
 }
 
-function parseConversationMessages(value: string | null | undefined): InterviewMessage[] {
-  return safeParseInterviewMessages(value);
+function buildCompanySummary(input: {
+  companyName: string;
+  industry: string | null;
+  role: string | null;
+  notes: string | null;
+  recruitmentUrl: string | null;
+  corporateUrl: string | null;
+}) {
+  return [
+    `事業: ${input.companyName}${input.industry ? ` / ${input.industry}` : ""}`,
+    input.role ? `選考上の主対象職種: ${input.role}` : "",
+    input.notes ? `カルチャー / 補足: ${clipText(input.notes, 600)}` : "",
+    input.recruitmentUrl ? `採用URL: ${input.recruitmentUrl}` : "",
+    input.corporateUrl ? `企業URL: ${input.corporateUrl}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildMotivationSummary(input: {
+  generatedDraft: string | null | undefined;
+  selectedRole: string | null | undefined;
+  desiredWork: string | null | undefined;
+  messages: string | null | undefined;
+}) {
+  if (input.generatedDraft) {
+    return clipText(input.generatedDraft, 900);
+  }
+
+  const messageTrail = safeParseInterviewMessages(input.messages)
+    .slice(-4)
+    .map((message) => message.content)
+    .join(" ");
+
+  return clipText(
+    [
+      input.selectedRole ? `職種理由: ${input.selectedRole}` : "",
+      input.desiredWork ? `やりたい仕事: ${input.desiredWork}` : "",
+      messageTrail ? `経験接続: ${messageTrail}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    900,
+  );
+}
+
+function buildGakuchikaSummary(rows: Array<{ title: string; summary: string | null }>) {
+  return rows
+    .map((row) => {
+      const summary = clipText(row.summary, 320);
+      return summary ? `${row.title}: 役割 / 行動 / 結果 / 再現性 -> ${summary}` : row.title;
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 function parseJsonArray(value: string | null | undefined): string[] {
@@ -109,44 +214,94 @@ function parseFeedbackScores(value: string | null | undefined): InterviewFeedbac
   }
 }
 
-export function validateInterviewMessages(value: unknown): InterviewMessage[] | null {
-  if (!Array.isArray(value)) return null;
-  const messages = value.filter(
-    (message): message is InterviewMessage =>
-      !!message &&
-      typeof message === "object" &&
-      ((message as { role?: string }).role === "user" ||
-        (message as { role?: string }).role === "assistant") &&
-      typeof (message as { content?: unknown }).content === "string",
-  );
+export function normalizeInterviewPlanValue(value: unknown): InterviewPlan | null {
+  if (!value || typeof value !== "object") return null;
+  const parsed = value as Partial<InterviewPlan> & {
+    interview_type?: unknown;
+    priority_topics?: unknown;
+    opening_topic?: unknown;
+    must_cover_topics?: unknown;
+    risk_topics?: unknown;
+    suggested_timeflow?: unknown;
+  };
 
-  if (messages.length !== value.length) return null;
-
-  return messages.map((message) => ({
-    role: message.role,
-    content: message.content.trim(),
-  }));
+  return {
+    interviewType:
+      typeof parsed.interviewType === "string"
+        ? parsed.interviewType
+        : typeof parsed.interview_type === "string"
+          ? parsed.interview_type
+          : "new_grad_behavioral",
+    priorityTopics: Array.isArray(parsed.priorityTopics)
+      ? parsed.priorityTopics.filter((item): item is string => typeof item === "string")
+      : Array.isArray(parsed.priority_topics)
+        ? parsed.priority_topics.filter((item): item is string => typeof item === "string")
+        : [],
+    openingTopic:
+      typeof parsed.openingTopic === "string"
+        ? parsed.openingTopic
+        : typeof parsed.opening_topic === "string"
+          ? parsed.opening_topic
+          : null,
+    mustCoverTopics: Array.isArray(parsed.mustCoverTopics)
+      ? parsed.mustCoverTopics.filter((item): item is string => typeof item === "string")
+      : Array.isArray(parsed.must_cover_topics)
+        ? parsed.must_cover_topics.filter((item): item is string => typeof item === "string")
+        : [],
+    riskTopics: Array.isArray(parsed.riskTopics)
+      ? parsed.riskTopics.filter((item): item is string => typeof item === "string")
+      : Array.isArray(parsed.risk_topics)
+        ? parsed.risk_topics.filter((item): item is string => typeof item === "string")
+        : [],
+    suggestedTimeflow: Array.isArray(parsed.suggestedTimeflow)
+      ? parsed.suggestedTimeflow.filter((item): item is string => typeof item === "string")
+      : Array.isArray(parsed.suggested_timeflow)
+        ? parsed.suggested_timeflow.filter((item): item is string => typeof item === "string")
+        : [],
+  };
 }
 
-export function validateInterviewTurnState(value: unknown): InterviewTurnState | null {
-  if (!value || typeof value !== "object") {
+function parseInterviewPlan(value: string | null | undefined): InterviewPlan | null {
+  if (!value) return null;
+  try {
+    return normalizeInterviewPlanValue(JSON.parse(value));
+  } catch {
     return null;
   }
-  return hydrateInterviewTurnStateFromRow({
-    currentStage: (value as { currentStage?: string }).currentStage ?? null,
-    questionCount: (value as { totalQuestionCount?: number }).totalQuestionCount ?? null,
-    stageQuestionCounts: JSON.stringify(
-      (value as { stageQuestionCounts?: InterviewTurnState["stageQuestionCounts"] })
-        .stageQuestionCounts ?? {},
-    ),
-    completedStages: JSON.stringify(
-      (value as { completedStages?: InterviewTurnState["completedStages"] }).completedStages ?? [],
-    ),
-    lastQuestionFocus: (value as { lastQuestionFocus?: string }).lastQuestionFocus ?? null,
-    questionFlowCompleted:
-      (value as { nextAction?: InterviewTurnState["nextAction"] }).nextAction === "feedback" ||
-      (value as { currentStage?: string }).currentStage === "feedback",
-  });
+}
+
+function parseEnumValue<T extends readonly string[]>(value: unknown, options: T, fallback: T[number]): T[number] {
+  return typeof value === "string" && (options as readonly string[]).includes(value) ? (value as T[number]) : fallback;
+}
+
+function inferSelectionType(applicationTypes: string[]): InterviewSelectionType {
+  return applicationTypes.some((type) => ["summer_intern", "fall_intern", "winter_intern"].includes(type))
+    ? "internship"
+    : "fulltime";
+}
+
+function inferInterviewStage(companyStatus: string | null | undefined): InterviewRoundStage {
+  if (companyStatus === "final_interview") return "final";
+  if (companyStatus === "interview_1" || companyStatus === "interview_2" || companyStatus === "waiting_result") {
+    return "mid";
+  }
+  return "early";
+}
+
+function inferInterviewerType(stage: InterviewRoundStage): InterviewerType {
+  if (stage === "final") return "executive";
+  if (stage === "early") return "hr";
+  return "line_manager";
+}
+
+function pickSummaryFromTexts(
+  texts: string[],
+  keywords: RegExp,
+  maxLength = 700,
+) {
+  const matched = texts.filter((text) => keywords.test(text)).slice(0, 3);
+  const joined = matched.join("\n");
+  return joined ? clipText(joined, maxLength) : null;
 }
 
 async function getOwnedCompany(companyId: string, identity: RequestIdentity) {
@@ -163,9 +318,10 @@ async function getOwnedCompany(companyId: string, identity: RequestIdentity) {
   return company ?? null;
 }
 
-async function fetchApplicationJobCandidates(identity: RequestIdentity, companyId: string) {
+async function fetchApplicationContext(identity: RequestIdentity, companyId: string) {
   const rows = await db
     .select({
+      applicationType: applications.type,
       jobTypeName: jobTypes.name,
     })
     .from(applications)
@@ -176,9 +332,12 @@ async function fetchApplicationJobCandidates(identity: RequestIdentity, companyI
         : and(eq(applications.companyId, companyId), eq(applications.guestId, identity.guestId!)),
     );
 
-  return rows
-    .map((row) => row.jobTypeName?.trim())
-    .filter((value): value is string => Boolean(value));
+  return {
+    applicationTypes: rows.flatMap((row) => (row.applicationType ? [row.applicationType] : [])),
+    applicationRoles: rows
+      .map((row) => row.jobTypeName?.trim())
+      .filter((value): value is string => Boolean(value)),
+  };
 }
 
 function buildSeedMaterials(companyName: string, industry: string | null): InterviewMaterialCard[] {
@@ -208,10 +367,13 @@ function buildSeedMaterials(companyName: string, industry: string | null): Inter
 function buildSetupState(input: {
   companyName: string;
   companyIndustry: string | null;
+  companyStatus: string | null | undefined;
   selectedIndustry: string | null;
   selectedRole: string | null;
   selectedRoleSource: string | null;
+  applicationTypes: string[];
   applicationRoles: string[];
+  persisted?: PersistedInterviewSetup | null;
 }): InterviewSetupState {
   const resolution = resolveMotivationRoleContext({
     companyName: input.companyName,
@@ -220,20 +382,69 @@ function buildSetupState(input: {
     applicationRoles: input.applicationRoles,
   });
 
+  const selectedRole = input.selectedRole;
+  const interviewStage = parseEnumValue(
+    input.persisted?.interviewStage,
+    INTERVIEW_STAGE_OPTIONS,
+    inferInterviewStage(input.companyStatus),
+  );
+
   return {
     selectedIndustry: input.selectedIndustry || resolution.resolvedIndustry,
-    selectedRole: input.selectedRole,
+    selectedRole,
     selectedRoleSource: input.selectedRoleSource,
     resolvedIndustry: resolution.resolvedIndustry,
     requiresIndustrySelection: resolution.requiresIndustrySelection,
     industryOptions: [...resolution.industryOptions],
+    roleTrack: parseEnumValue(
+      input.persisted?.roleTrack,
+      ROLE_TRACK_OPTIONS,
+      classifyInterviewRoleTrack(selectedRole),
+    ),
+    interviewFormat: parseEnumValue(
+      input.persisted?.interviewFormat,
+      INTERVIEW_FORMAT_OPTIONS,
+      "standard_behavioral",
+    ),
+    selectionType: parseEnumValue(
+      input.persisted?.selectionType,
+      SELECTION_TYPE_OPTIONS,
+      inferSelectionType(input.applicationTypes),
+    ),
+    interviewStage,
+    interviewerType: parseEnumValue(
+      input.persisted?.interviewerType,
+      INTERVIEWER_TYPE_OPTIONS,
+      inferInterviewerType(interviewStage),
+    ),
+    strictnessMode: parseEnumValue(
+      input.persisted?.strictnessMode,
+      STRICTNESS_MODE_OPTIONS,
+      "standard",
+    ),
   };
 }
 
-async function loadInterviewPersistence(
-  companyId: string,
-  identity: RequestIdentity,
-) {
+function isLegacyInterviewConversation(row: {
+  turnStateJson?: string | null;
+  roleTrack?: string | null;
+  interviewFormat?: string | null;
+  selectionType?: string | null;
+  interviewStage?: string | null;
+  interviewerType?: string | null;
+  strictnessMode?: string | null;
+} | null): boolean {
+  if (!row) return false;
+  return !row.turnStateJson ||
+    !row.roleTrack ||
+    !row.interviewFormat ||
+    !row.selectionType ||
+    !row.interviewStage ||
+    !row.interviewerType ||
+    !row.strictnessMode;
+}
+
+async function loadInterviewPersistence(companyId: string, identity: RequestIdentity) {
   const [conversation, feedbackRows] = await Promise.all([
     db
       .select()
@@ -262,6 +473,32 @@ async function loadInterviewPersistence(
   };
 }
 
+export function validateInterviewMessages(value: unknown): InterviewMessage[] | null {
+  if (!Array.isArray(value)) return null;
+  const messages = value.filter(
+    (message): message is InterviewMessage =>
+      !!message &&
+      typeof message === "object" &&
+      ((message as { role?: string }).role === "user" ||
+        (message as { role?: string }).role === "assistant") &&
+      typeof (message as { content?: unknown }).content === "string",
+  );
+
+  if (messages.length !== value.length) return null;
+
+  return messages.map((message) => ({
+    role: message.role,
+    content: message.content.trim(),
+  }));
+}
+
+export function validateInterviewTurnState(value: unknown): InterviewTurnState | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return normalizeInterviewTurnState(value as Partial<InterviewTurnState>);
+}
+
 export async function buildInterviewContext(companyId: string, identity: RequestIdentity) {
   const company = await getOwnedCompany(companyId, identity);
   if (!company) {
@@ -276,15 +513,18 @@ export async function buildInterviewContext(companyId: string, identity: Request
     desiredWork: string | null;
   }> = [];
   let gakuchikaRows: Array<{ title: string; summary: string | null }> = [];
-  let esDocuments: Array<{ title: string; content: string | null }> = [];
+  let documentRows: Array<{ title: string; content: string | null; esCategory: string | null }> = [];
   let persistence = {
     activeConversation: null,
     feedbackRows: [],
   } as unknown as Awaited<ReturnType<typeof loadInterviewPersistence>>;
-  let applicationRoles: string[] = [];
+  let applicationContext = {
+    applicationTypes: [],
+    applicationRoles: [],
+  } as Awaited<ReturnType<typeof fetchApplicationContext>>;
 
   try {
-    [motivationConversation, gakuchikaRows, esDocuments, persistence, applicationRoles] =
+    [motivationConversation, gakuchikaRows, documentRows, persistence, applicationContext] =
       await Promise.all([
         db
           .select({
@@ -318,6 +558,7 @@ export async function buildInterviewContext(companyId: string, identity: Request
           .select({
             title: documents.title,
             content: documents.content,
+            esCategory: documents.esCategory,
           })
           .from(documents)
           .where(
@@ -336,9 +577,9 @@ export async function buildInterviewContext(companyId: string, identity: Request
                 ),
           )
           .orderBy(desc(documents.updatedAt))
-          .limit(3),
+          .limit(8),
         loadInterviewPersistence(companyId, identity),
-        fetchApplicationJobCandidates(identity, companyId),
+        fetchApplicationContext(identity, companyId),
       ]);
   } catch (error) {
     throw (
@@ -353,30 +594,23 @@ export async function buildInterviewContext(companyId: string, identity: Request
   const activeConversation = persistence.activeConversation;
   const feedbackRows = persistence.feedbackRows;
 
-  const motivationSummary = clipText(
-    motivation?.generatedDraft ||
-      [
-        motivation?.selectedRole ? `志望職種: ${motivation.selectedRole}` : "",
-        motivation?.desiredWork ? `やりたい仕事: ${motivation.desiredWork}` : "",
-        parseConversationMessages(motivation?.messages)
-          .slice(-4)
-          .map((message) => message.content)
-          .join(" "),
-      ]
-        .filter(Boolean)
-        .join(" "),
-    900,
-  );
+  const motivationSummary = buildMotivationSummary({
+    generatedDraft: motivation?.generatedDraft,
+    selectedRole: motivation?.selectedRole,
+    desiredWork: motivation?.desiredWork,
+    messages: motivation?.messages,
+  });
 
-  const gakuchikaSummary = gakuchikaRows
-    .map((row) => {
-      const summary = clipText(row.summary, 320);
-      return summary ? `${row.title}: ${summary}` : row.title;
-    })
-    .filter(Boolean)
-    .join("\n");
+  const gakuchikaSummary = buildGakuchikaSummary(gakuchikaRows);
 
-  const esSummary = esDocuments
+  const textCandidates = documentRows.map((doc) => `${doc.title}: ${clipText(doc.content, 280)}`);
+  const academicSummary =
+    pickSummaryFromTexts(textCandidates, /(ゼミ|卒論|学業|授業|専攻|学ん|勉強)/i) ??
+    pickSummaryFromTexts(textCandidates.filter((_, index) => documentRows[index]?.esCategory === "interview_prep"), /(ゼミ|卒論|学業|授業|専攻|学ん|勉強|研究)/i);
+  const researchSummary = pickSummaryFromTexts(textCandidates, /(研究|実験|分析|論文|研究室|テーマ|データ)/i);
+
+  const esSummary = documentRows
+    .slice(0, 4)
     .map((doc) => `${doc.title}: ${clipText(doc.content, 260)}`)
     .filter(Boolean)
     .join("\n");
@@ -385,53 +619,90 @@ export async function buildInterviewContext(companyId: string, identity: Request
   const setup = buildSetupState({
     companyName: company.name,
     companyIndustry: company.industry,
+    companyStatus: company.status,
     selectedIndustry,
     selectedRole: activeConversation?.selectedRole ?? motivation?.selectedRole ?? null,
-    selectedRoleSource:
-      activeConversation?.selectedRoleSource ??
-      motivation?.selectedRoleSource ??
-      null,
-    applicationRoles,
+    selectedRoleSource: activeConversation?.selectedRoleSource ?? motivation?.selectedRoleSource ?? null,
+    applicationTypes: applicationContext.applicationTypes,
+    applicationRoles: applicationContext.applicationRoles,
+    persisted: activeConversation
+      ? {
+          roleTrack: activeConversation.roleTrack,
+          interviewFormat: activeConversation.interviewFormat,
+          selectionType: activeConversation.selectionType,
+          interviewStage: activeConversation.interviewStage,
+          interviewerType: activeConversation.interviewerType,
+          strictnessMode: activeConversation.strictnessMode,
+        }
+      : null,
   });
 
-  const companySummary = [
-    `企業名: ${company.name}`,
-    setup.resolvedIndustry ? `業界: ${setup.resolvedIndustry}` : "",
-    setup.selectedRole ? `志望職種: ${setup.selectedRole}` : "",
-    company.notes ? `メモ: ${clipText(company.notes, 600)}` : "",
-    company.recruitmentUrl ? `採用URL: ${company.recruitmentUrl}` : "",
-    company.corporateUrl ? `企業URL: ${company.corporateUrl}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const companySummary = buildCompanySummary({
+    companyName: company.name,
+    industry: setup.resolvedIndustry,
+    role: setup.selectedRole,
+    notes: company.notes,
+    recruitmentUrl: company.recruitmentUrl,
+    corporateUrl: company.corporateUrl,
+  });
 
   const materials: InterviewMaterialCard[] = [];
-  if (motivationSummary) {
-    materials.push({ label: "志望動機", text: motivationSummary, kind: "motivation" });
-  }
-  if (gakuchikaSummary) {
-    materials.push({ label: "ガクチカ", text: gakuchikaSummary, kind: "gakuchika" });
-  }
-  if (esSummary) {
-    materials.push({ label: "関連ES", text: esSummary, kind: "es" });
-  }
+  if (motivationSummary) materials.push({ label: "志望動機", text: motivationSummary, kind: "motivation" });
+  if (gakuchikaSummary) materials.push({ label: "ガクチカ", text: gakuchikaSummary, kind: "gakuchika" });
+  if (academicSummary) materials.push({ label: "学業 / ゼミ / 卒論", text: academicSummary, kind: "academic" });
+  if (researchSummary) materials.push({ label: "研究", text: researchSummary, kind: "research" });
+  if (esSummary) materials.push({ label: "関連ES", text: esSummary, kind: "es" });
   materials.push(...buildSeedMaterials(company.name, setup.resolvedIndustry));
 
   const turnState = hydrateInterviewTurnStateFromRow(activeConversation);
+  const plan = parseInterviewPlan(activeConversation?.interviewPlanJson);
+  const stageStatus = getInterviewStageStatus({
+    currentTopicLabel: turnState.currentTopic,
+    coveredTopics: turnState.coveredTopics,
+    remainingTopics: turnState.remainingTopics,
+  });
   const hydratedConversation: HydratedInterviewConversation | null = activeConversation
     ? {
         id: activeConversation.id,
         status: activeConversation.status,
         messages: safeParseInterviewMessages(activeConversation.messages),
         turnState,
-        stageStatus: getInterviewStageStatus(turnState.currentStage),
-        questionCount: activeConversation.questionCount ?? turnState.totalQuestionCount,
-        questionStage: turnState.currentStage,
+        turnMeta: parseInterviewTurnMeta(activeConversation.turnMetaJson),
+        plan,
+        stageStatus,
+        questionCount: activeConversation.questionCount ?? turnState.turnCount,
         questionFlowCompleted: Boolean(activeConversation.questionFlowCompleted),
         feedback: safeParseInterviewFeedback(activeConversation.activeFeedbackDraft),
         selectedIndustry: activeConversation.selectedIndustry,
         selectedRole: activeConversation.selectedRole,
         selectedRoleSource: activeConversation.selectedRoleSource,
+        roleTrack: parseEnumValue(activeConversation.roleTrack, ROLE_TRACK_OPTIONS, setup.roleTrack),
+        interviewFormat: parseEnumValue(
+          activeConversation.interviewFormat,
+          INTERVIEW_FORMAT_OPTIONS,
+          setup.interviewFormat,
+        ),
+        selectionType: parseEnumValue(
+          activeConversation.selectionType,
+          SELECTION_TYPE_OPTIONS,
+          setup.selectionType,
+        ),
+        interviewStage: parseEnumValue(
+          activeConversation.interviewStage,
+          INTERVIEW_STAGE_OPTIONS,
+          setup.interviewStage,
+        ),
+        interviewerType: parseEnumValue(
+          activeConversation.interviewerType,
+          INTERVIEWER_TYPE_OPTIONS,
+          setup.interviewerType,
+        ),
+        strictnessMode: parseEnumValue(
+          activeConversation.strictnessMode,
+          STRICTNESS_MODE_OPTIONS,
+          setup.strictnessMode,
+        ),
+        isLegacySession: isLegacyInterviewConversation(activeConversation),
       }
     : null;
 
@@ -441,9 +712,15 @@ export async function buildInterviewContext(companyId: string, identity: Request
     scores: parseFeedbackScores(row.scores),
     strengths: parseJsonArray(row.strengths),
     improvements: parseJsonArray(row.improvements),
+    consistencyRisks: parseJsonArray(row.consistencyRisks),
+    weakestQuestionType: row.weakestQuestionType ?? null,
+    weakestTurnId: row.weakestTurnId ?? null,
+    weakestQuestionSnapshot: row.weakestQuestionSnapshot ?? null,
+    weakestAnswerSnapshot: row.weakestAnswerSnapshot ?? null,
     improvedAnswer: row.improvedAnswer,
-    preparationPoints: parseJsonArray(row.preparationPoints),
+    nextPreparation: parseJsonArray(row.preparationPoints),
     premiseConsistency: row.premiseConsistency,
+    satisfactionScore: row.satisfactionScore ?? null,
     sourceQuestionCount: row.sourceQuestionCount,
     createdAt: row.createdAt.toISOString(),
   }));
@@ -453,6 +730,8 @@ export async function buildInterviewContext(companyId: string, identity: Request
     companySummary,
     motivationSummary: motivationSummary || null,
     gakuchikaSummary: gakuchikaSummary || null,
+    academicSummary,
+    researchSummary,
     esSummary: esSummary || null,
     materials,
     setup,
@@ -476,11 +755,7 @@ function buildFeedbackOwnerWhere(companyId: string, identity: RequestIdentity) {
 export async function ensureInterviewConversation(
   companyId: string,
   identity: RequestIdentity,
-  setup: {
-    selectedIndustry: string | null;
-    selectedRole: string | null;
-    selectedRoleSource: string | null;
-  },
+  setup: InterviewSetupState,
 ) {
   let existing;
   try {
@@ -498,16 +773,24 @@ export async function ensureInterviewConversation(
     );
   }
 
+  const setupPatch = {
+    selectedIndustry: setup.selectedIndustry,
+    selectedRole: setup.selectedRole,
+    selectedRoleSource: setup.selectedRoleSource,
+    roleTrack: setup.roleTrack,
+    interviewFormat: setup.interviewFormat,
+    selectionType: setup.selectionType,
+    interviewStage: setup.interviewStage,
+    interviewerType: setup.interviewerType,
+    strictnessMode: setup.strictnessMode,
+    updatedAt: new Date(),
+  };
+
   if (existing[0]) {
     try {
       const [updated] = await db
         .update(interviewConversations)
-        .set({
-          selectedIndustry: setup.selectedIndustry,
-          selectedRole: setup.selectedRole,
-          selectedRoleSource: setup.selectedRoleSource,
-          updatedAt: new Date(),
-        })
+        .set(setupPatch)
         .where(eq(interviewConversations.id, existing[0].id))
         .returning();
       return updated ?? existing[0];
@@ -531,15 +814,24 @@ export async function ensureInterviewConversation(
         guestId: identity.guestId ?? undefined,
         messages: "[]",
         status: "setup_pending",
-        currentStage: "industry_reason",
+        currentStage: "setup",
         questionCount: 0,
-        stageQuestionCounts: JSON.stringify(createInitialInterviewTurnState().stageQuestionCounts),
-        completedStages: "[]",
+        stageQuestionCounts: JSON.stringify({}),
+        completedStages: JSON.stringify([]),
         lastQuestionFocus: null,
         questionFlowCompleted: false,
         selectedIndustry: setup.selectedIndustry,
         selectedRole: setup.selectedRole,
         selectedRoleSource: setup.selectedRoleSource,
+        roleTrack: setup.roleTrack,
+        interviewFormat: setup.interviewFormat,
+        selectionType: setup.selectionType,
+        interviewStage: setup.interviewStage,
+        interviewerType: setup.interviewerType,
+        strictnessMode: setup.strictnessMode,
+        interviewPlanJson: null,
+        turnStateJson: JSON.stringify(createInitialInterviewTurnState()),
+        turnMetaJson: null,
         activeFeedbackDraft: null,
         currentFeedbackId: null,
         createdAt: new Date(),
@@ -565,20 +857,24 @@ export async function saveInterviewConversationProgress(args: {
   turnState: InterviewTurnState;
   status: "in_progress" | "question_flow_completed" | "feedback_completed";
   feedback?: InterviewFeedback | null;
+  plan?: InterviewPlan | null;
+  turnMeta?: InterviewTurnMeta | null;
 }) {
-  const serializedTurnState = serializeInterviewTurnState(args.turnState);
+  const serializedTurnState = JSON.stringify(args.turnState);
   try {
     const [updated] = await db
       .update(interviewConversations)
       .set({
         messages: JSON.stringify(args.messages),
         status: args.status,
-        currentStage: serializedTurnState.currentStage,
-        questionCount: serializedTurnState.questionCount,
-        stageQuestionCounts: serializedTurnState.stageQuestionCounts,
-        completedStages: serializedTurnState.completedStages,
-        lastQuestionFocus: serializedTurnState.lastQuestionFocus,
-        questionFlowCompleted: serializedTurnState.questionFlowCompleted,
+        currentStage: args.turnState.currentTopic ?? "setup",
+        questionCount: args.turnState.turnCount,
+        completedStages: JSON.stringify(args.turnState.coveredTopics),
+        lastQuestionFocus: args.turnState.currentTurnMeta?.topic ?? args.turnState.currentTopic,
+        questionFlowCompleted: args.turnState.nextAction === "feedback",
+        interviewPlanJson: args.plan ? JSON.stringify(args.plan) : undefined,
+        turnStateJson: serializedTurnState,
+        turnMetaJson: args.turnMeta ? JSON.stringify(args.turnMeta) : null,
         activeFeedbackDraft: args.feedback ? JSON.stringify(args.feedback) : null,
         updatedAt: new Date(),
       })
@@ -590,6 +886,121 @@ export async function saveInterviewConversationProgress(args: {
       normalizeInterviewPersistenceError(error, {
         companyId: args.companyId,
         operation: "interview:save-progress",
+      }) ?? error
+    );
+  }
+}
+
+export async function saveInterviewTurnEvent(args: {
+  conversationId: string;
+  companyId: string;
+  identity: RequestIdentity;
+  turnId: string;
+  question: string;
+  answer: string;
+  questionType: string | null;
+  turnState: InterviewTurnState;
+  turnMeta: InterviewTurnMeta | null;
+}) {
+  const activeCoverage = args.turnState.coverageState.find(
+    (item) => item.topic === (args.turnMeta?.topic ?? args.turnState.currentTopic ?? ""),
+  );
+
+  try {
+    await db.insert(interviewTurnEvents).values({
+      id: crypto.randomUUID(),
+      turnId: args.turnId,
+      conversationId: args.conversationId,
+      companyId: args.companyId,
+      userId: args.identity.userId ?? undefined,
+      guestId: args.identity.guestId ?? undefined,
+      question: args.question,
+      answer: args.answer,
+      topic: args.turnMeta?.topic ?? args.turnState.currentTopic ?? null,
+      questionType: args.questionType,
+      turnAction: args.turnMeta?.turnAction ?? null,
+      followupStyle: args.turnMeta?.followupStyle ?? null,
+      intentKey: args.turnMeta?.intentKey ?? null,
+      coverageChecklistSnapshot: JSON.stringify({
+        topic: activeCoverage?.topic ?? args.turnMeta?.topic ?? args.turnState.currentTopic ?? null,
+        requiredChecklist: activeCoverage?.requiredChecklist ?? [],
+        passedChecklistKeys: activeCoverage?.passedChecklistKeys ?? [],
+        missingChecklistKeys:
+          activeCoverage?.requiredChecklist.filter(
+            (key) => !(activeCoverage?.passedChecklistKeys ?? []).includes(key),
+          ) ?? [],
+      }),
+      deterministicCoveragePassed: activeCoverage?.deterministicCoveragePassed ?? false,
+      llmCoverageHint: activeCoverage?.llmCoverageHint ?? null,
+      formatPhase: args.turnState.formatPhase,
+      formatGuardApplied: args.turnMeta?.formatGuardApplied ?? null,
+      createdAt: new Date(),
+    });
+  } catch (error) {
+    throw (
+      normalizeInterviewPersistenceError(error, {
+        companyId: args.companyId,
+        operation: "interview:save-turn-event",
+      }) ?? error
+    );
+  }
+}
+
+export async function listInterviewTurnEvents(args: {
+  conversationId: string;
+  companyId: string;
+  identity: RequestIdentity;
+  limit?: number;
+}) {
+  try {
+    const rows = await db
+      .select()
+      .from(interviewTurnEvents)
+      .where(
+        args.identity.userId
+          ? and(
+              eq(interviewTurnEvents.companyId, args.companyId),
+              eq(interviewTurnEvents.conversationId, args.conversationId),
+              eq(interviewTurnEvents.userId, args.identity.userId),
+            )
+          : and(
+              eq(interviewTurnEvents.companyId, args.companyId),
+              eq(interviewTurnEvents.conversationId, args.conversationId),
+              eq(interviewTurnEvents.guestId, args.identity.guestId!),
+            ),
+      )
+      .orderBy(desc(interviewTurnEvents.createdAt))
+      .limit(args.limit ?? 24);
+
+    return rows.map((row) => ({
+      id: row.id,
+      turnId: row.turnId,
+      question: row.question,
+      answer: row.answer,
+      topic: row.topic ?? null,
+      questionType: row.questionType ?? null,
+      turnAction: row.turnAction ?? null,
+      followupStyle: row.followupStyle ?? null,
+      intentKey: row.intentKey ?? null,
+      coverageChecklistSnapshot: (() => {
+        try {
+          const parsed = JSON.parse(row.coverageChecklistSnapshot);
+          return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+        } catch {
+          return {};
+        }
+      })(),
+      deterministicCoveragePassed: row.deterministicCoveragePassed,
+      llmCoverageHint: row.llmCoverageHint ?? null,
+      formatPhase: row.formatPhase ?? null,
+      formatGuardApplied: row.formatGuardApplied ?? null,
+      createdAt: row.createdAt.toISOString(),
+    }));
+  } catch (error) {
+    throw (
+      normalizeInterviewPersistenceError(error, {
+        companyId: args.companyId,
+        operation: "interview:list-turn-events",
       }) ?? error
     );
   }
@@ -615,9 +1026,16 @@ export async function saveInterviewFeedbackHistory(args: {
       scores: JSON.stringify(args.feedback.scores ?? {}),
       strengths: JSON.stringify(args.feedback.strengths ?? []),
       improvements: JSON.stringify(args.feedback.improvements ?? []),
+      consistencyRisks: JSON.stringify(args.feedback.consistency_risks ?? []),
+      weakestQuestionType: args.feedback.weakest_question_type ?? null,
+      weakestTurnId: args.feedback.weakest_turn_id ?? null,
+      weakestQuestionSnapshot: args.feedback.weakest_question_snapshot ?? null,
+      weakestAnswerSnapshot: args.feedback.weakest_answer_snapshot ?? null,
       improvedAnswer: args.feedback.improved_answer,
-      preparationPoints: JSON.stringify(args.feedback.preparation_points ?? []),
+      preparationPoints: JSON.stringify(args.feedback.next_preparation ?? []),
       premiseConsistency: args.feedback.premise_consistency ?? 0,
+      satisfactionScore:
+        typeof args.feedback.satisfaction_score === "number" ? args.feedback.satisfaction_score : null,
       sourceQuestionCount: args.sourceQuestionCount,
       sourceMessagesSnapshot: JSON.stringify(args.sourceMessagesSnapshot),
       createdAt: new Date(),
@@ -644,9 +1062,15 @@ export async function saveInterviewFeedbackHistory(args: {
       scores: parseFeedbackScores(row.scores),
       strengths: parseJsonArray(row.strengths),
       improvements: parseJsonArray(row.improvements),
+      consistencyRisks: parseJsonArray(row.consistencyRisks),
+      weakestQuestionType: row.weakestQuestionType ?? null,
+      weakestTurnId: row.weakestTurnId ?? null,
+      weakestQuestionSnapshot: row.weakestQuestionSnapshot ?? null,
+      weakestAnswerSnapshot: row.weakestAnswerSnapshot ?? null,
       improvedAnswer: row.improvedAnswer,
-      preparationPoints: parseJsonArray(row.preparationPoints),
+      nextPreparation: parseJsonArray(row.preparationPoints),
       premiseConsistency: row.premiseConsistency,
+      satisfactionScore: row.satisfactionScore ?? null,
       sourceQuestionCount: row.sourceQuestionCount,
       createdAt: row.createdAt.toISOString(),
     }));
@@ -655,6 +1079,43 @@ export async function saveInterviewFeedbackHistory(args: {
       normalizeInterviewPersistenceError(error, {
         companyId: args.companyId,
         operation: "interview:save-feedback-history",
+      }) ?? error
+    );
+  }
+}
+
+export async function saveInterviewFeedbackSatisfaction(args: {
+  companyId: string;
+  identity: RequestIdentity;
+  historyId: string;
+  satisfactionScore: number;
+}) {
+  try {
+    const [updated] = await db
+      .update(interviewFeedbackHistories)
+      .set({
+        satisfactionScore: args.satisfactionScore,
+      })
+      .where(
+        args.identity.userId
+          ? and(
+              eq(interviewFeedbackHistories.id, args.historyId),
+              eq(interviewFeedbackHistories.companyId, args.companyId),
+              eq(interviewFeedbackHistories.userId, args.identity.userId),
+            )
+          : and(
+              eq(interviewFeedbackHistories.id, args.historyId),
+              eq(interviewFeedbackHistories.companyId, args.companyId),
+              eq(interviewFeedbackHistories.guestId, args.identity.guestId!),
+            ),
+      )
+      .returning();
+    return updated ?? null;
+  } catch (error) {
+    throw (
+      normalizeInterviewPersistenceError(error, {
+        companyId: args.companyId,
+        operation: "interview:save-feedback-satisfaction",
       }) ?? error
     );
   }
@@ -670,12 +1131,15 @@ export async function resetInterviewConversation(
       .set({
         messages: "[]",
         status: "setup_pending",
-        currentStage: "industry_reason",
+        currentStage: "setup",
         questionCount: 0,
-        stageQuestionCounts: JSON.stringify(createInitialInterviewTurnState().stageQuestionCounts),
-        completedStages: "[]",
+        stageQuestionCounts: JSON.stringify({}),
+        completedStages: JSON.stringify([]),
         lastQuestionFocus: null,
         questionFlowCompleted: false,
+        interviewPlanJson: null,
+        turnStateJson: JSON.stringify(createInitialInterviewTurnState()),
+        turnMetaJson: null,
         activeFeedbackDraft: null,
         updatedAt: new Date(),
       })

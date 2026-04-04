@@ -77,16 +77,6 @@ interface FastAPIDraftResponse {
   internal_telemetry?: unknown;
 }
 
-interface SuggestionOption {
-  id: string;
-  label: string;
-  sourceType: "conversation" | "gakuchika" | "profile" | "safe_fallback";
-  intent: string;
-  evidenceSourceIds?: string[];
-  rationale?: string | null;
-  isTentative?: boolean;
-}
-
 interface EvidenceCard {
   sourceId: string;
   title: string;
@@ -98,11 +88,16 @@ interface EvidenceCard {
 
 interface FollowUpQuestionResponse {
   question: string;
-  suggestion_options?: SuggestionOption[];
   evidence_summary?: string | null;
   evidence_cards?: EvidenceCard[];
   coaching_focus?: string | null;
   question_stage?: string | null;
+  conversation_mode?: "slot_fill" | "deepdive";
+  current_slot?: string | null;
+  current_intent?: string | null;
+  next_advance_condition?: string | null;
+  progress?: Record<string, unknown> | null;
+  causal_gaps?: unknown[];
   stage_status?: unknown;
   captured_context?: Record<string, unknown> | null;
 }
@@ -265,11 +260,16 @@ export async function POST(
     });
 
     let nextQuestion: string | null = null;
-    let suggestionOptions: SuggestionOption[] = [];
     let evidenceSummary: string | null = null;
     let evidenceCards: EvidenceCard[] = [];
     let coachingFocus: string | null = null;
     let questionStage: string | null = null;
+    let conversationMode: "slot_fill" | "deepdive" | null = null;
+    let currentSlot: string | null = null;
+    let currentIntent: string | null = null;
+    let nextAdvanceCondition: string | null = null;
+    let progress: Record<string, unknown> | null = null;
+    let causalGaps: unknown[] = [];
     let stageStatus: unknown = null;
     let updatedMessages = messages;
 
@@ -300,11 +300,16 @@ export async function POST(
 
       if (followUp?.question) {
         nextQuestion = followUp.question;
-        suggestionOptions = Array.isArray(followUp.suggestion_options) ? followUp.suggestion_options : [];
         evidenceSummary = typeof followUp.evidence_summary === "string" ? followUp.evidence_summary : null;
         evidenceCards = Array.isArray(followUp.evidence_cards) ? followUp.evidence_cards : [];
         coachingFocus = typeof followUp.coaching_focus === "string" ? followUp.coaching_focus : null;
         questionStage = typeof followUp.question_stage === "string" ? followUp.question_stage : null;
+        conversationMode = followUp.conversation_mode || null;
+        currentSlot = followUp.current_slot || null;
+        currentIntent = followUp.current_intent || null;
+        nextAdvanceCondition = followUp.next_advance_condition || null;
+        progress = followUp.progress || null;
+        causalGaps = Array.isArray(followUp.causal_gaps) ? followUp.causal_gaps : [];
         stageStatus = followUp.stage_status ?? null;
         updatedMessages = [
           ...messages,
@@ -325,6 +330,11 @@ export async function POST(
         conversationContext: JSON.stringify({
           ...conversationContext,
           draftReady: true,
+          conversationMode: conversationMode || conversationContext.conversationMode || "deepdive",
+          currentIntent: currentIntent || conversationContext.currentIntent || null,
+          nextAdvanceCondition:
+            nextAdvanceCondition || conversationContext.nextAdvanceCondition || null,
+          causalGaps,
           questionStage: questionStage || conversationContext.questionStage,
           lastQuestionMeta: nextQuestion
             ? {
@@ -335,7 +345,6 @@ export async function POST(
             : conversationContext.lastQuestionMeta || null,
         }),
         questionStage: questionStage || conversation.questionStage,
-        lastSuggestionOptions: JSON.stringify(suggestionOptions),
         lastEvidenceCards: JSON.stringify(evidenceCards),
         stageStatus: JSON.stringify(stageStatus),
         updatedAt: new Date(),
@@ -349,11 +358,16 @@ export async function POST(
       companyKeywords: data.company_keywords,
       documentId: documentId,
       nextQuestion,
-      suggestionOptions,
       evidenceSummary,
       evidenceCards,
       coachingFocus,
       questionStage,
+      conversationMode,
+      currentSlot,
+      currentIntent,
+      nextAdvanceCondition,
+      progress,
+      causalGaps,
       stageStatus,
       messages: updatedMessages,
     });

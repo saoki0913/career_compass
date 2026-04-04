@@ -47,7 +47,7 @@ export function CompletionSummary({
   const legacy = summary && !isStructuredSummary(summary) ? summary : null;
   const leadText = isLoading
     ? "ここまでで面接で話せる材料はかなり揃いました。要点を整理しています。"
-    : "ここまでで面接で話せる材料はかなり揃いました。要点をこのままESや面接で使える形にまとめます。";
+    : "ここまでで面接で話せる材料はかなり揃いました。まずはそのまま話せる核と2分骨子を前に出して整理します。";
   const starSections: Array<{
     key: "situation_text" | "task_text" | "action_text" | "result_text";
     shortLabel: "S" | "T" | "A" | "R";
@@ -76,7 +76,7 @@ export function CompletionSummary({
               <div className="space-y-1">
                 <h2 className="text-xl font-semibold text-foreground">面接用の補足まで整理できました</h2>
                 <p className="text-sm text-muted-foreground">
-                  ES の本文に加えて、面接で補足しやすい論点まで見やすく整理しています。
+                  ES の本文に加えて、面接でそのまま話す核と次に備える論点まで見やすく整理しています。
                 </p>
               </div>
             </div>
@@ -105,6 +105,71 @@ export function CompletionSummary({
             </div>
           ) : structured ? (
             <>
+              {(structured.one_line_core_answer ||
+                structured.two_minute_version_outline?.length ||
+                structured.likely_followup_questions?.length ||
+                structured.weak_points_to_prepare?.length) && (
+                <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+                  <section className="space-y-4 rounded-2xl border border-border bg-background p-4 sm:p-5">
+                    <div className="space-y-2">
+                      <SectionTitle>まず話す核</SectionTitle>
+                      {structured.one_line_core_answer ? (
+                        <p className="rounded-2xl border border-primary/15 bg-primary/5 px-4 py-4 text-sm font-medium leading-7 text-foreground">
+                          {structured.one_line_core_answer}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {structured.two_minute_version_outline && structured.two_minute_version_outline.length > 0 ? (
+                      <div className="space-y-3">
+                        <SectionTitle>2分で話す骨子</SectionTitle>
+                        <ol className="space-y-2">
+                          {structured.two_minute_version_outline.map((item, index) => (
+                            <li
+                              key={`${item}-${index}`}
+                              className="flex gap-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-3 text-sm leading-6 text-foreground/90"
+                            >
+                              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">
+                                {index + 1}
+                              </span>
+                              <span>{item}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    ) : null}
+                  </section>
+
+                  <div className="grid gap-4">
+                    {structured.likely_followup_questions && structured.likely_followup_questions.length > 0 ? (
+                      <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                        <SectionTitle>次に聞かれやすい質問</SectionTitle>
+                        <ul className="space-y-2">
+                          {structured.likely_followup_questions.map((item, index) => (
+                            <li key={`${item}-${index}`} className="text-sm leading-6 text-foreground/90">
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    ) : null}
+
+                    {structured.weak_points_to_prepare && structured.weak_points_to_prepare.length > 0 ? (
+                      <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                        <SectionTitle>詰まりやすいポイント</SectionTitle>
+                        <ul className="space-y-2">
+                          {structured.weak_points_to_prepare.map((item, index) => (
+                            <li key={`${item}-${index}`} className="text-sm leading-6 text-foreground/90">
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+
               <div className="grid gap-3 sm:grid-cols-2">
                 {starSections.map((element) => {
                   const text = structured[element.key];

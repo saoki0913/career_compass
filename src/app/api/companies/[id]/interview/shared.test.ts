@@ -160,4 +160,57 @@ describe("buildInterviewContext", () => {
       missingTables: ["interview_feedback_histories"],
     });
   });
+
+  it("detects missing interview v2 columns separately from missing tables", async () => {
+    const {
+      createInterviewPersistenceUnavailableResponse,
+      normalizeInterviewPersistenceError,
+    } = await import("./persistence-errors");
+
+    const cause = new Error('column "role_track" of relation "interview_conversations" does not exist');
+    Object.assign(cause, { code: "42703" });
+    const wrapped = new Error(
+      'Failed query: select "role_track" from "interview_conversations" where "company_id" = $1',
+    );
+    wrapped.cause = cause;
+
+    const normalized = normalizeInterviewPersistenceError(wrapped, {
+      companyId: "company-1",
+      operation: "interview:test-columns",
+    });
+
+    expect(normalized).toMatchObject({
+      code: "INTERVIEW_PERSISTENCE_UNAVAILABLE",
+      missingTables: [],
+      missingColumns: ["interview_conversations.role_track"],
+    });
+
+    const response = createInterviewPersistenceUnavailableResponse(
+      new Request("http://localhost/api/companies/company-1/interview") as never,
+      normalized!,
+    );
+    const payload = await response.json();
+    expect(payload.error.extra).toMatchObject({
+      missingTables: [],
+      missingColumns: ["interview_conversations.role_track"],
+    });
+  });
+
+  it("detects bare Postgres missing-column errors for interview persistence", async () => {
+    const { normalizeInterviewPersistenceError } = await import("./persistence-errors");
+
+    const error = new Error('column "role_track" does not exist');
+    Object.assign(error, { code: "42703" });
+
+    expect(
+      normalizeInterviewPersistenceError(error, {
+        companyId: "company-1",
+        operation: "interview:test-bare-column",
+      }),
+    ).toMatchObject({
+      code: "INTERVIEW_PERSISTENCE_UNAVAILABLE",
+      missingTables: [],
+      missingColumns: ["interview_conversations.role_track"],
+    });
+  });
 });

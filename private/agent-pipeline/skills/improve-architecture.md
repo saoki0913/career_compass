@@ -1,0 +1,27 @@
+---
+name: improve-architecture
+description: Review the codebase for structural weaknesses, compare interface options, and write an RFC instead of refactoring blindly.
+command_description: Produce an architecture improvement RFC under docs/rfc from codebase analysis.
+cursor_description: Produce an architecture improvement RFC under docs/rfc from codebase analysis.
+---
+
+# Improve Architecture
+
+Inspect the codebase for places where structure is holding future work back, then propose a better shape.
+
+## Workflow
+
+1. Explore the codebase and list modules that feel shallow, tangled, or hard for an AI to reason about.
+2. Prioritize candidates that block delivery speed, testability, or change safety.
+3. Compare at least three interface or module-shape options for the top candidate.
+4. If subagents are available, parallelize the option generation. If not, write the options yourself.
+5. Recommend one option and explain the tradeoffs.
+6. Write the RFC in Japanese using `private/agent-pipeline/templates/rfc-template.md`.
+7. Save it to `docs/rfc/YYYY-MM-DD-<slug>.md`.
+
+## Rules
+
+- Do not refactor code as part of this step unless the user explicitly asks for execution.
+- Focus on boundaries, ownership, and testability rather than cosmetic cleanup.
+- Prefer deeper modules with simpler public interfaces.
+- Keep the RFC concrete enough that implementation can follow without reopening first-principles design.

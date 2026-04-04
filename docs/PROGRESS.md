@@ -1,6 +1,6 @@
 # 実装進捗ドキュメント
 
-**最終更新**: 2026-03-29
+**最終更新**: 2026-04-02
 
 ## 人向け要約（読み始めに）
 
@@ -12,8 +12,11 @@
 
 ## 最近の更新
 
-- 2026-03-29: 面接対策を motivation 準拠の 2 カラム product UI に刷新。`DashboardHeader` / `BottomTabBar` に `面接対策` 導線を追加し、`CompanySelectModal mode="interview"` で企業選択後に `/companies/[id]/interview` へ遷移する形へ統一。固定 5 段階 tracker、5 問 + 最終講評、`GET + start + stream` の SSE 契約、interview 専用 skeleton、mock UI review route を追加し、`docs/features/INTERVIEW.md`・`docs/SPEC.md` を同期。
-- 2026-03-29: ガクチカを `深掘り` から `作成` に寄せて UI 文言を整理。`/gakuchika` 一覧・詳細・完了画面の主要文言を更新し、未使用の `STAROnboarding` / `STARHintBanner` を削除。FastAPI に `interview` feature と `MODEL_INTERVIEW` を追加し、Next/FastAPI 間で企業特化模擬面接を実装。面接対策は `GPT-5.4 mini` 固定・月次無料枠なし・成功したセッション完了時のみ `5 credits` 消費へ統一。`docs/features/CREDITS.md`、`docs/features/GAKUCHIKA_DEEP_DIVE.md`、`docs/release/ENV_REFERENCE.md`、pricing 表記を同期。
+- 2026-04-02: ES添削の品質基盤を更新。設問分類を `confidence / secondary_candidates / rationale / recommended_grounding_level` 付きへ拡張し、company grounding を `none / light / standard / deep` の段階制へ移行。company evidence card は `value_orientation / business_characteristics / work_environment / role_expectation` の中間表現へ正規化し、非 length 主因の複合失敗では safe fallback rewrite を使うようにした。`review_meta` と telemetry に classification / grounding / fallback / misclassification recovery 診断を追加し、ReviewPanel に自動判定の推奨理由表示を追加。
+- 2026-04-02: 企業特化模擬面接を v2.1 に更新。`coverageState` を deterministic coverage の正本にし、`recentQuestionSummariesV2 + intentKey` による同義質問抑止、`formatPhase` による方式別制御、`interview_turn_events` による各ターンの canonical log 保存、`weakest_turn_id` に紐づく `improved_answer`、完了後の `satisfactionScore` 保存を追加。開始時は既存進行中セッションを reset し、講評履歴のみ保持する形に統一。`docs/features/INTERVIEW.md` と `docs/SPEC.md` を最新の state / API / UI に同期。
+- 2026-04-02: 企業特化模擬面接を v2 に移行。開始前設定を `業界 / 職種 / 面接方式 / 選考種別 / 面接段階 / 面接官タイプ / 厳しさ` の確認型に再編し、`roleTrack` は内部自動分類へ変更。FastAPI / Next API / product UI を固定段階フローから `interview_plan + turn_state + turn_meta` ベースの進行へ置換し、`standard_behavioral / case / technical / discussion / presentation` を同一機能で扱えるよう更新。最終講評は 7 軸評価、一貫性リスク、弱い設問タイプ、次の準備論点を返す形へ拡張し、旧版セッションは reset 扱いに統一。`docs/features/INTERVIEW.md`、`docs/SPEC.md`、`docs/features/CREDITS.md`、pricing 表記を同期。
+- 2026-03-29: 面接対策を motivation 準拠の 2 カラム product UI に刷新。`DashboardHeader` / `BottomTabBar` に `面接対策` 導線を追加し、`CompanySelectModal mode="interview"` で企業選択後に `/companies/[id]/interview` へ遷移する形へ統一。interview 専用 skeleton、mock UI review route を追加。
+- 2026-03-29: ガクチカを `深掘り` から `作成` に寄せて UI 文言を整理。`/gakuchika` 一覧・詳細・完了画面の主要文言を更新し、未使用の `STAROnboarding` / `STARHintBanner` を削除。FastAPI に `interview` feature と `MODEL_INTERVIEW` を追加し、Next/FastAPI 間で企業特化模擬面接を実装。
 - 2026-03-27: 通知と profile の初回描画を frontend 側で集約。`/notifications` は page で 50 件の通知を server preload し、`DashboardHeader` には 5 件のプレビューのみを渡して page と header の重複 fetch を解消。`/profile` は profile / companies / ES / 通知 / credits を server preload し、header の通知・クレジットも初回から初期データで描画するよう整理。`useNotifications` / `useCredits` は SWR の `initialData` を受け取れるようにして mount fetch を抑制。関連文書を `docs/architecture/ARCHITECTURE.md` に同期。
 - 2026-03-25: ES添削の live extended で多発した **字数不足・インターン/コース志望のフォーカストークン** に対し、プロンプト（結論ファースト・長文・required テンプレの型）と **`under_min` リトライヒント**（現状字数と不足分の明示）、`gpt-5.4-mini` の温度・`max_tokens`、Gemini 長文の出力余裕を調整。`evaluate_live_case` 用ライブケースの期待トークンを表記ゆれに合わせて拡張。`docs/features/ES_REVIEW.md` / `docs/testing/ES_REVIEW_QUALITY.md` を同期。
 - 2026-03-24: ES添削の出力契約を rewrite-only に整理し、SSE の順序を `rewrite → sources → complete` に統一。retry は `strict → focused retry 1 → focused retry 2 → length-fix → degraded/422` に固定し、focus modes を `length_focus_min/max`, `style_focus`, `grounding_focus`, `answer_focus`, `opening_focus`, `structure_focus` に整理。`length-fix` の final soft は `length` / `style` / `grounding` のみ、`length_fix_result=soft_recovered` と `rewrite_validation_status=soft_ok` を使うよう更新。`user_provided_corporate_urls` は family-aligned retrieval boost 扱いに変更。参考ESは `quality hints + skeleton + conditional hints` のみを使い、overlap guard は削除。
@@ -93,7 +96,7 @@
 | 月次付与 | ✅ 完了 | Free: 30, Standard: 100, Pro: 300 |
 | 企業情報取得/更新の無料回数 | ✅ 完了 | Guest: 5、Free: 10、Standard: 20、Pro: 40 / 日 |
 | ES添削クレジット消費 | ✅ 完了 | Claude / GPT / Gemini: 6/10/14/20、low-cost: 3/6/9/12 |
-| 面接対策クレジット消費 | ✅ 完了 | `GPT-5.4 mini` 固定、完了時のみ 5 credits |
+| 面接対策クレジット消費 | ✅ 完了 | `GPT-5.4 mini` 固定、最終講評成功時のみ 6 credits |
 | 部分成功（0クレジット） | ✅ 完了 | 締切抽出失敗でも他データ保存時は無料 |
 | 部分成功UX | ✅ 完了 | 部分成功メッセージと課金ルールを最新化 |
 | 0.5累積バー表示 | ⏸️ MVP除外 | 0.5クレジット仕様を廃止 |
@@ -323,7 +326,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 中断/再開 | ✅ 完了 | `motivationConversations` テーブル |
 | クレジット消費（5問ごと3） | ✅ 完了 | ガクチカと同様のロジック |
 | 企業RAG連携 | ✅ 完了 | 企業情報を質問に反映 |
-| 回答候補 / 参考企業情報 | ✅ 完了 | `suggestionOptions` は `2〜4件` の直接回答文に絞り、`evidenceCards` は compact card UI で表示 |
+| 参考企業情報 | ✅ 完了 | 自由入力UIに切り替え、`evidenceCards` は compact card UI で表示 |
 | ガクチカ連携 | ✅ 完了 | 完了済み要約を質問生成に反映 |
 | SSEストリーミング送信 | ✅ 完了 | 進捗表示のみ先出しし、質問は確定後の canonical question だけを表示 |
 | ES下書き生成 | ✅ 完了 | 300/400/500文字指定 |
@@ -331,7 +334,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 進捗バー（6要素） | ✅ 完了 | setup / 進捗 / draft ready を統一表示 |
 | setup-first 初期設定 | ✅ 完了 | 業界/職種をチャット前に確定 |
 | 初回開始の空履歴処理 | ✅ 完了 | 空 `messages=[]` をそのまま LLM に渡さない |
-| 質問適合候補 | ✅ 完了 | LLM質問は server-side validator で単一論点・未確認前提なしを確認し、候補は grounded builder で 2〜4 件の直接回答文だけを返す。raw企業文や見出しは除外。回答送信は `conversation/stream` のみ |
+| 質問適合候補 | ✅ 完了 | LLM質問は server-side validator で単一論点・未確認前提なしを確認し、回答は自由入力のみ。raw企業文や見出しは除外。回答送信は `conversation/stream` のみ |
 
 ---
 
@@ -339,11 +342,11 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 
 | 機能 | 状態 | 備考 |
 |------|------|------|
-| 企業別模擬面接UI | ✅ 更新 | motivation 準拠の 2 カラム UI + 固定段階 tracker + 自動スクロール |
+| 企業別模擬面接UI | ✅ 更新 | motivation 準拠の 2 カラム UI + setup-first + 論点ベース進捗 + 自動スクロール |
 | 面接対策 API | ✅ 更新 | `GET /interview` + `POST /interview/start` + `POST /interview/stream` + `POST /interview/feedback` |
 | FastAPI interview router | ✅ 更新 | adaptive 6〜10 問 + opening / turn / feedback SSE |
 | モデル固定 | ✅ 完了 | `MODEL_INTERVIEW=gpt-fast` → `GPT-5.4 mini` |
-| セッション課金 | ✅ 完了 | 完了時のみ `5 credits` |
+| セッション課金 | ✅ 完了 | 最終講評成功時のみ `6 credits` |
 | 月次無料枠 | ✅ 完了 | なし |
 | 4軸講評 | ✅ 完了 | 企業適合 / 具体性 / 論理性 / 説得力 + card 逐次更新 |
 | ナビ導線 | ✅ 更新 | header / mobile nav から modal 起動 |

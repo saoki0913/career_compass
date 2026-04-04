@@ -83,8 +83,9 @@ root の採用トップや generic page しか取れていない場合は、`gro
 - `evidence_coverage_level` は件数ベースではなく、same-company 検証済み evidence card だけで判定する
 - `employee_interviews` から弾かれた official page でも、`ir_materials` や `midterm_plan` として検証済みなら company evidence に使える
 - company mismatch source が混ざった場合は rewrite 前に安全弁を適用する
-  - safe evidence が残る: `effective_company_grounding_policy=assistive`
+  - safe evidence が残る: `effective_grounding_level=light` かつ `effective_company_grounding_policy=assistive`
   - safe evidence が残らない: `effective_grounding_mode=none`
+- evidence card は prompt へそのまま生転写せず、`value_orientation / business_characteristics / work_environment / role_expectation` に正規化して使う
 
 ---
 

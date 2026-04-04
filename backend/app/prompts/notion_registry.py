@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.prompts.notion_sync import validate_prompt_format_template
+
 
 GENERATED_PROMPTS_PATH = Path(__file__).resolve().parent / "generated" / "notion_prompts.json"
 
@@ -32,6 +34,7 @@ def _coerce_prompt(key: str, payload: Any) -> ManagedPrompt:
     version = int(payload.get("version") or 0)
     raw_variables = payload.get("variables") or []
     variables = tuple(str(item) for item in raw_variables if str(item).strip())
+    validate_prompt_format_template(content, variables, key=key)
 
     return ManagedPrompt(
         key=key,

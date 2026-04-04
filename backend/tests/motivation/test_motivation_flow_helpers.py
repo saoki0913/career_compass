@@ -1,966 +1,154 @@
 import pytest
 
 from app.routers.motivation import (
-    NextQuestionRequest,
-    _build_evidence_cards_from_sources,
-    _build_question_messages,
-    _build_stage_specific_suggestion_options,
-    _build_stage_status,
-    _capture_answer_into_context,
-    _evaluate_motivation_internal,
-    _ensure_distinct_question,
-    _get_next_stage,
-    _repair_generated_question_for_response,
-    _rotate_question_focus_for_reask,
-    _validate_or_repair_question,
+    _build_progress_payload,
+    _classify_slot_state,
+    _compute_deterministic_causal_gaps,
+    _determine_next_turn,
+    _normalize_conversation_context,
+    _should_use_deepdive_mode,
 )
 
 
-def test_stage_specific_options_for_company_reason_anchor_to_company_and_role():
-    options = _build_stage_specific_suggestion_options(
-        stage="company_reason",
-        question="この企業のどこに魅力を感じますか？",
-        company_name="株式会社テスト",
-        company_context="顧客課題に向き合うDX支援と業務改革を進める。企画職や営業職が連携して提案する。",
-        company_sources=[
-            {
-                "source_id": "S1",
-                "source_url": "https://example.com/jobs",
-                "content_type": "new_grad_recruitment",
-                "title": "募集職種",
-                "excerpt": "企画職や営業職が連携して提案する",
-            }
-        ],
-        gakuchika_context=[
-            {
-                "title": "学生団体の運営",
-                "strengths": ["巻き込み力"],
-                "action_text": "企画を主導",
-                "result_text": "参加率向上",
-                "numbers": ["30%改善"],
-            }
-        ],
-        profile_context={
-            "target_job_types": ["企画職"],
-            "target_industries": ["IT・通信"],
-        },
-        application_job_candidates=["企画職"],
-        company_role_candidates=["企画職", "営業職"],
-        company_work_candidates=["DX支援", "業務改革の提案"],
-        conversation_context={"selectedRole": "企画職", "questionStage": "company_reason"},
-    )
+def test_determine_next_turn_starts_from_industry_reason() -> None:
+    context = _normalize_conversation_context(None)
 
-    assert 2 <= len(options) <= 4
-    assert any("企画職" in option.label for option in options)
-    assert all("Q4" not in option.label for option in options)
-    assert len({option.label for option in options}) == len(options)
-    assert all(option.intent == "company_reason" for option in options)
+    turn = _determine_next_turn(context)
+
+    assert turn["mode"] == "slot_fill"
+    assert turn["target_slot"] == "industry_reason"
+    assert turn["intent"] == "initial_capture"
+    assert turn["unlock"] is False
 
 
-def test_stage_specific_options_for_industry_reason_return_direct_reason_sentences():
-    options = _build_stage_specific_suggestion_options(
-        stage="industry_reason",
-        question="IT・通信業界を志望する理由を1つ教えてください。",
-        company_name="株式会社テスト",
-        company_context="顧客課題に向き合うDX支援と業務改革を進める。",
-        company_sources=[{"source_id": "S1", "source_url": "https://example.com/jobs"}],
-        gakuchika_context=[{"title": "学生団体の運営", "strengths": ["巻き込み力"]}],
-        profile_context={"target_job_types": ["企画職"], "target_industries": ["IT・通信", "金融"]},
-        application_job_candidates=["企画職"],
-        company_role_candidates=["企画職"],
-        company_work_candidates=["DX支援", "業務改革の提案"],
-        conversation_context={
-            "selectedIndustry": "IT・通信",
-            "selectedRole": "企画職",
-            "questionStage": "industry_reason",
-        },
-        question_focus="industry_axis",
-    )
-
-    assert 1 <= len(options) <= 4
-    assert all("業界" in option.label or "IT・通信" in option.label or "産業" in option.label for option in options)
-    assert all(option.intent == "industry_reason" for option in options)
-
-
-def test_stage_specific_options_for_desired_work_prioritize_selected_role():
-    options = _build_stage_specific_suggestion_options(
-        stage="desired_work",
-        question="入社後にどんな仕事に挑戦したいですか？",
-        company_name="株式会社テスト",
-        company_context="顧客課題に向き合うDX支援と業務改革を進める。",
-        company_sources=None,
-        gakuchika_context=[
-            {
-                "title": "学生団体の運営",
-                "strengths": ["巻き込み力"],
-            }
-        ],
-        profile_context={"target_job_types": ["企画職"], "target_industries": ["IT・通信"]},
-        application_job_candidates=["企画職"],
-        company_role_candidates=["企画職"],
-        company_work_candidates=["DX支援", "業務改革の提案"],
-        conversation_context={"selectedRole": "企画職", "questionStage": "desired_work"},
-    )
-
-    assert 2 <= len(options) <= 4
-    assert any(option.label.startswith("入社後は企画職として") for option in options)
-    assert all("DX支援" not in option.label and "業務改革" not in option.label for option in options)
-    assert all(option.isTentative for option in options)
-
-
-def test_stage_specific_options_for_company_reason_why_now_avoid_generic_labels():
-    options = _build_stage_specific_suggestion_options(
-        stage="company_reason",
-        question="なぜ今その関心が高まったのですか？",
-        company_name="株式会社テスト",
-        company_context="顧客課題に向き合うDX支援と業務改革を進める。",
-        company_sources=[{"source_id": "S1", "source_url": "https://example.com/jobs"}],
-        gakuchika_context=[{"title": "学生団体の運営", "strengths": ["巻き込み力"]}],
-        profile_context={"target_job_types": ["企画職"]},
-        application_job_candidates=["企画職"],
-        company_role_candidates=["企画職"],
-        company_work_candidates=["DX支援", "業務改革の提案"],
-        conversation_context={"selectedRole": "企画職", "questionStage": "company_reason"},
-    )
-
-    assert 2 <= len(options) <= 4
-    assert any(
-        "関心" in option.label or "きっかけ" in option.label or "感じたため" in option.label
-        for option in options
-    )
-    assert all("成長したい" not in option.label for option in options)
-
-
-def test_stage_specific_options_for_company_reason_return_up_to_four_distinct_answers():
-    options = _build_stage_specific_suggestion_options(
-        stage="company_reason",
-        question="東京海上日動のどんな点が、ご自身の就活軸と重なると感じますか？",
-        company_name="東京海上日動火災保険",
-        company_context="企業や社会の挑戦を支えるリスクソリューションを提供する。営業職やコンサルティング営業が顧客に伴走する。",
-        company_sources=[{"source_id": "S1", "source_url": "https://example.com/jobs"}],
-        gakuchika_context=[{"title": "学生団体の運営", "strengths": ["巻き込み力"]}],
-        profile_context={"target_job_types": ["営業 / コンサルティング営業"], "target_industries": ["保険", "金融"]},
-        application_job_candidates=["営業 / コンサルティング営業"],
-        company_role_candidates=["営業 / コンサルティング営業"],
-        company_work_candidates=["リスクソリューションの提案"],
-        conversation_context={
-            "selectedIndustry": "保険",
-            "industryReason": "不確実性を捉えて意思決定を支えたいからです。",
-            "selectedRole": "営業 / コンサルティング営業",
-            "questionStage": "company_reason",
-            "confirmedFacts": {
-                "industry_reason_confirmed": True,
-                "company_reason_confirmed": False,
-                "desired_work_confirmed": False,
-                "origin_experience_confirmed": False,
-                "fit_connection_confirmed": False,
-                "differentiation_confirmed": False,
-            },
-        },
-        question_focus="axis_match",
-    )
-
-    assert 2 <= len(options) <= 4
-    assert len({option.label for option in options}) == len(options)
-    assert all("1文で答える" not in option.label for option in options)
-
-
-def test_stage_specific_options_for_industry_choice_question_stay_on_question():
-    options = _build_stage_specific_suggestion_options(
-        stage="company_reason",
-        question="なぜ商社という選択肢が出てきたのですか？",
-        company_name="三菱商事",
-        company_context="複数の産業を横断しながら事業投資とDX支援を進める。",
-        company_sources=[{"source_id": "S1", "source_url": "https://example.com/recruit"}],
-        gakuchika_context=[{"title": "サークル運営", "strengths": ["巻き込み力"]}],
-        profile_context={"target_job_types": ["総合職"], "target_industries": ["IT・通信", "金融"]},
-        application_job_candidates=["総合職"],
-        company_role_candidates=["総合職"],
-        company_work_candidates=["事業投資", "DX支援"],
-        conversation_context={"selectedRole": "総合職", "questionStage": "company_reason"},
-        question_focus="industry_axis",
-    )
-
-    assert 2 <= len(options) <= 4
-    assert any(any(keyword in option.label for keyword in ("産業", "横断", "事業", "選択肢", "商社")) for option in options)
-    assert all("入社後は" not in option.label for option in options)
-
-
-def test_stage_specific_options_for_fit_connection_use_captured_desired_work():
-    options = _build_stage_specific_suggestion_options(
-        stage="fit_connection",
-        question="これまでの経験は、その仕事にどうつながりますか？",
-        company_name="株式会社テスト",
-        company_context="顧客課題に向き合うDX支援と業務改革を進める。",
-        company_sources=[{"source_id": "S1", "source_url": "https://example.com/jobs"}],
-        gakuchika_context=[{"title": "学生団体の運営", "strengths": ["巻き込み力"]}],
-        profile_context={"target_job_types": ["企画職"]},
-        application_job_candidates=["企画職"],
-        company_role_candidates=["企画職"],
-        company_work_candidates=["DX支援", "業務改革の提案"],
-        conversation_context={
-            "selectedRole": "企画職",
-            "desiredWork": "法人顧客への改善提案",
-            "questionStage": "fit_connection",
-        },
-    )
-
-    assert 2 <= len(options) <= 4
-    assert any("法人顧客への改善提案" in option.label for option in options)
-
-
-def test_stage_specific_options_for_desired_work_return_direct_answer_sentences():
-    options = _build_stage_specific_suggestion_options(
-        stage="desired_work",
-        question="入社後にどんな仕事に挑戦したいですか？",
-        company_name="株式会社テスト",
-        company_context="顧客課題に向き合うDX支援と業務改革を進める。",
-        company_sources=[{"source_id": "S1", "source_url": "https://example.com/jobs"}],
-        gakuchika_context=[{"title": "学生団体の運営", "strengths": ["巻き込み力"]}],
-        profile_context={"target_job_types": ["企画職"]},
-        application_job_candidates=["企画職"],
-        company_role_candidates=["企画職"],
-        company_work_candidates=["DX支援", "業務改革の提案"],
-        conversation_context={"selectedRole": "企画職", "questionStage": "desired_work"},
-    )
-
-    assert 2 <= len(options) <= 4
-    assert all(option.label.startswith("入社後は") for option in options)
-    assert all(any(term in option.label for term in ("したい", "挑戦", "担いたい", "向き合いたい", "取り組みたい")) for option in options)
-    assert all(option.isTentative for option in options)
-
-
-def test_stage_specific_options_for_desired_work_can_return_four_distinct_answers():
-    options = _build_stage_specific_suggestion_options(
-        stage="desired_work",
-        question="入社後は、どんな相手や課題に向き合う仕事がしたいですか？",
-        company_name="株式会社テスト",
-        company_context="顧客課題に向き合うDX支援と業務改革を進める。",
-        company_sources=[{"source_id": "S1", "source_url": "https://example.com/jobs"}],
-        gakuchika_context=[{"title": "学生団体の運営", "strengths": ["巻き込み力"]}],
-        profile_context={"target_job_types": ["企画職"]},
-        application_job_candidates=["企画職"],
-        company_role_candidates=["企画職"],
-        company_work_candidates=["DX支援", "業務改革の提案"],
-        conversation_context={"selectedRole": "企画職", "questionStage": "desired_work"},
-        question_focus="work_image",
-    )
-
-    assert 2 <= len(options) <= 4
-    assert len({option.label for option in options}) == len(options)
-    assert all(option.label.startswith("入社後は") for option in options)
-
-
-def test_capture_answer_into_context_updates_self_connection_and_value_contribution():
-    connection_context = _capture_answer_into_context(
+def test_determine_next_turn_unlocks_after_six_slots_are_locked() -> None:
+    context = _normalize_conversation_context(
         {
-            "selectedRole": "企画職",
-            "questionStage": "self_connection",
-            "confirmedFacts": {
-                "industry_reason_confirmed": True,
-                "company_reason_confirmed": True,
-                "self_connection_confirmed": False,
-                "desired_work_confirmed": False,
-                "value_contribution_confirmed": False,
-                "differentiation_confirmed": False,
-            },
-        },
-        "学生団体で課題を整理して改善案を提案した経験が、御社の仕事につながると感じています。",
-    )
-
-    assert connection_context["selfConnection"].startswith("学生団体で課題を整理して")
-    assert connection_context["confirmedFacts"]["self_connection_confirmed"] is True
-
-    contribution_context = _capture_answer_into_context(
-        {
-            "selectedRole": "企画職",
-            "questionStage": "value_contribution",
-            "confirmedFacts": {
-                "industry_reason_confirmed": True,
-                "company_reason_confirmed": True,
-                "self_connection_confirmed": True,
-                "desired_work_confirmed": True,
-                "value_contribution_confirmed": False,
-                "differentiation_confirmed": False,
-            },
-        },
-        "課題の整理と改善提案で、顧客にとって分かりやすい価値を出したいです。",
-    )
-
-    assert contribution_context["valueContribution"].startswith("課題の整理と改善提案で")
-    assert contribution_context["confirmedFacts"]["value_contribution_confirmed"] is True
-
-
-@pytest.mark.asyncio
-async def test_evaluate_motivation_internal_respects_slot_based_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_llm(*args, **kwargs):
-        return type(
-            "Result",
-            (),
-            {
-                "success": True,
-                "data": {
-                    "slot_status": {
-                        "industry_reason": "filled",
-                        "company_reason": "filled",
-                        "self_connection": "filled",
-                        "desired_work": "filled",
-                        "value_contribution": "filled",
-                        "differentiation": "filled",
-                    },
-                    "missing_slots": [],
-                    "ready_for_draft": True,
-                    "draft_readiness_reason": "骨格が揃っているため",
-                    "risk_flags": [],
-                    "conversation_warnings": [],
-                },
-            },
-        )()
-
-    monkeypatch.setattr("app.routers.motivation.call_llm_with_error", fake_llm)
-
-    request = NextQuestionRequest(
-        company_id="company_test",
-        company_name="株式会社テスト",
-        industry="IT・通信",
-        conversation_history=[
-            {"role": "assistant", "content": "IT・通信業界を志望する理由を教えてください。"},
-            {"role": "user", "content": "複数の業界課題に関われるからです。"},
-        ],
-        question_count=1,
-        conversation_context={"selectedIndustry": "IT・通信", "selectedRole": "企画職"},
-    )
-
-    result = await _evaluate_motivation_internal(
-        request,
-        company_context="顧客課題に向き合うDX支援と業務改革を進める。",
-    )
-
-    assert result["ready_for_draft"] is True
-    assert result["slot_status"]["value_contribution"] == "filled"
-    assert result["missing_slots"] == []
-
-
-def test_stage_specific_options_filter_out_raw_company_headings_and_copy():
-    options = _build_stage_specific_suggestion_options(
-        stage="company_reason",
-        question="この企業を志望するきっかけは何ですか？",
-        company_name="三菱商事",
-        company_context=(
-            "MCの事業を支え、これからの未来を創る多才・多彩な社員をご紹介します。\n"
-            "三菱商事の見出し：Q4：コングロマリットバリュー実現への意気込み\n"
-            "総合職として事業投資やDX支援に関われる。"
-        ),
-        company_sources=[
-            {
-                "source_id": "S1",
-                "source_url": "https://example.com/recruit",
-                "content_type": "new_grad_recruitment",
-                "title": "社員紹介",
-                "excerpt": "MCの事業を支え、これからの未来を創る多才・多彩な社員をご紹介します。",
-            }
-        ],
-        gakuchika_context=[{"title": "サークル活動", "strengths": ["巻き込み力"]}],
-        profile_context={"target_job_types": ["総合職"], "target_industries": ["IT・通信", "金融"]},
-        application_job_candidates=["総合職"],
-        company_role_candidates=["総合職"],
-        company_work_candidates=["事業投資", "DX支援"],
-        conversation_context={"selectedRole": "総合職", "questionStage": "company_reason"},
-    )
-
-    assert 2 <= len(options) <= 4
-    assert all("Q4" not in option.label for option in options)
-    assert all("ご紹介します" not in option.label for option in options)
-    assert all("見出し" not in option.label for option in options)
-
-
-def test_stage_specific_options_do_not_force_four_when_grounding_is_thin():
-    options = _build_stage_specific_suggestion_options(
-        stage="company_reason",
-        question="この企業を志望する理由は何ですか？",
-        company_name="株式会社テスト",
-        company_context="（企業情報なし）",
-        company_sources=None,
-        gakuchika_context=None,
-        profile_context={"target_job_types": ["企画職"]},
-        application_job_candidates=["企画職"],
-        company_role_candidates=None,
-        company_work_candidates=None,
-        conversation_context={"selectedRole": "企画職", "questionStage": "company_reason"},
-    )
-
-    assert 2 <= len(options) <= 4
-    assert len({option.label for option in options}) == len(options)
-
-
-def test_get_next_stage_moves_to_differentiation_for_weakest_element():
-    assert _get_next_stage(
-        {
-            "selectedIndustry": "IT・通信",
-            "industryReason": "複数産業の課題に関われるため",
-            "selectedRole": "企画職",
-            "companyReason": "理由",
-            "desiredWork": "やりたい仕事",
-            "originExperience": "学生時代に課題整理へ手応えを感じた経験",
-        },
-        weakest_element="differentiation",
-        is_complete=False,
-    ) == "value_contribution"
-
-
-def test_get_next_stage_keeps_fit_connection_when_not_complete():
-    assert _get_next_stage(
-        {
-            "selectedIndustry": "IT・通信",
-            "industryReason": "複数産業の課題に関われるため",
-            "selectedRole": "企画職",
-            "companyReason": "理由",
-            "desiredWork": "やりたい仕事",
-            "originExperience": "学生時代に課題整理へ手応えを感じた経験",
-        },
-        weakest_element="self_analysis",
-        is_complete=False,
-    ) == "value_contribution"
-
-
-def test_get_next_stage_moves_to_differentiation_after_fit_connection_confirmed():
-    assert _get_next_stage(
-        {
-            "selectedIndustry": "IT・通信",
-            "industryReason": "複数産業の課題に関われるため",
-            "selectedRole": "企画職",
-            "companyReason": "理由",
-            "desiredWork": "やりたい仕事",
-            "originExperience": "学生時代に課題整理へ手応えを感じた経験",
-            "fitConnection": "経験を入社後の課題整理に活かせると考えています。",
-        },
-        weakest_element="differentiation",
-        is_complete=False,
-    ) == "value_contribution"
-
-
-def test_get_next_stage_reasks_same_stage_only_once_then_advances():
-    assert _get_next_stage(
-        {
-            "selectedIndustry": "IT・通信",
-            "industryReason": "複数産業の課題に関われるため",
-            "selectedRole": "企画職",
-            "companyReason": "気になります。",
-            "questionStage": "company_reason",
-            "stageAttemptCount": 0,
-            "confirmedFacts": {
-                "industry_reason_confirmed": True,
-                "company_reason_confirmed": False,
-                "desired_work_confirmed": False,
-                "origin_experience_confirmed": False,
-                "fit_connection_confirmed": False,
-                "differentiation_confirmed": False,
-            },
-        },
-        weakest_element="company_understanding",
-        is_complete=False,
-    ) == "company_reason"
-
-    assert _get_next_stage(
-        {
-            "selectedIndustry": "IT・通信",
-            "industryReason": "複数産業の課題に関われるため",
-            "selectedRole": "企画職",
-            "companyReason": "気になります。",
-            "questionStage": "company_reason",
-            "stageAttemptCount": 1,
-            "confirmedFacts": {
-                "industry_reason_confirmed": True,
-                "company_reason_confirmed": False,
-                "desired_work_confirmed": False,
-                "origin_experience_confirmed": False,
-                "fit_connection_confirmed": False,
-                "differentiation_confirmed": False,
-            },
-        },
-        weakest_element="company_understanding",
-        is_complete=False,
-    ) == "self_connection"
-
-
-def test_get_next_stage_moves_to_origin_experience_before_fit_connection():
-    assert _get_next_stage(
-        {
-            "selectedIndustry": "IT・通信",
-            "industryReason": "複数産業の課題に関われるため",
-            "selectedRole": "企画職",
-            "companyReason": "理由",
-            "desiredWork": "法人顧客の業務改善に挑戦したい",
-        },
-        weakest_element="self_analysis",
-        is_complete=False,
-    ) == "self_connection"
-
-
-def test_get_next_stage_starts_with_industry_reason_when_missing() -> None:
-    assert _get_next_stage(
-        {"selectedIndustry": "IT・通信", "selectedRole": "企画職"},
-        weakest_element="company_understanding",
-        is_complete=False,
-    ) == "industry_reason"
-
-
-def test_get_next_stage_reasks_once_before_advancing() -> None:
-    assert _get_next_stage(
-        {
-            "selectedIndustry": "IT・通信",
-            "selectedRole": "企画職",
-            "questionStage": "company_reason",
-            "stageAttemptCount": 0,
-            "confirmedFacts": {
-                "industry_reason_confirmed": True,
-                "company_reason_confirmed": False,
-                "desired_work_confirmed": False,
-                "origin_experience_confirmed": False,
-                "fit_connection_confirmed": False,
-                "differentiation_confirmed": False,
-            },
-        },
-        weakest_element="company_understanding",
-        is_complete=False,
-    ) == "company_reason"
-
-
-def test_get_next_stage_advances_after_one_reask_when_still_unconfirmed() -> None:
-    assert _get_next_stage(
-        {
-            "selectedIndustry": "IT・通信",
-            "selectedRole": "企画職",
-            "questionStage": "company_reason",
-            "stageAttemptCount": 1,
-            "confirmedFacts": {
-                "industry_reason_confirmed": True,
-                "company_reason_confirmed": False,
-                "desired_work_confirmed": False,
-                "origin_experience_confirmed": False,
-                "fit_connection_confirmed": False,
-                "differentiation_confirmed": False,
-            },
-        },
-        weakest_element="company_understanding",
-        is_complete=False,
-    ) == "self_connection"
-
-
-def test_build_question_messages_returns_none_for_initial_turn():
-    assert _build_question_messages([]) is None
-
-
-def test_build_evidence_cards_from_sources_includes_links_and_labels():
-    cards = _build_evidence_cards_from_sources(
-        [
-            {
-                "source_id": "S1",
-                "source_url": "https://example.com/recruit",
-                "content_type": "new_grad_recruitment",
-                "title": "募集要項",
-                "excerpt": "営業職・企画職を募集しています。",
-            }
-        ]
-    )
-
-    assert len(cards) == 1
-    assert cards[0].sourceId == "S1"
-    assert cards[0].sourceUrl == "https://example.com/recruit"
-    assert cards[0].title == "募集要項"
-    assert cards[0].relevanceLabel
-
-
-def test_build_evidence_cards_from_sources_limits_count_and_excerpt_length():
-    cards = _build_evidence_cards_from_sources(
-        [
-            {
-                "source_id": f"S{i}",
-                "source_url": f"https://example.com/source-{i}",
-                "content_type": "new_grad_recruitment",
-                "title": f"募集要項 {i}",
-                "excerpt": "営業職・企画職を募集しています。" * 8,
-            }
-            for i in range(1, 6)
-        ]
-    )
-
-    assert len(cards) == 3
-    assert all(len(card.excerpt) <= 84 for card in cards)
-
-
-def test_validate_or_repair_question_replaces_multi_part_question():
-    repaired = _validate_or_repair_question(
-        question="なぜこの企業に興味を持ったのですか？また、入社後に何をしたいですか？",
-        stage="company_reason",
-        company_name="株式会社テスト",
-        selected_role="企画職",
-        desired_work="DX支援",
-        grounded_company_anchor="業務改革",
-        gakuchika_episode="学生団体の運営",
-        gakuchika_strength="巻き込み力",
-    )
-
-    assert repaired == "株式会社テストで企画職を考えるとき、どんな点に惹かれますか？"
-
-
-def test_validate_or_repair_question_replaces_instructional_copy():
-    repaired = _validate_or_repair_question(
-        question="この企業のどこに惹かれたかを1文で答える",
-        stage="company_reason",
-        company_name="株式会社テスト",
-        selected_role="企画職",
-        desired_work="DX支援",
-        grounded_company_anchor="業務改革",
-        gakuchika_episode="学生団体の運営",
-        gakuchika_strength="巻き込み力",
-    )
-
-    assert repaired == "株式会社テストで企画職を考えるとき、どんな点に惹かれますか？"
-
-
-def test_validate_or_repair_question_replaces_stage_misaligned_question():
-    repaired = _validate_or_repair_question(
-        question="この企業の魅力は何ですか？",
-        stage="desired_work",
-        company_name="株式会社テスト",
-        selected_role="企画職",
-        desired_work="DX支援",
-        grounded_company_anchor="業務改革",
-        gakuchika_episode="学生団体の運営",
-        gakuchika_strength="巻き込み力",
-    )
-
-    assert repaired == "入社後、企画職としてDX支援の中で特に挑戦したいことは何ですか？"
-
-
-def test_validate_or_repair_question_replaces_instruction_like_copy():
-    repaired = _validate_or_repair_question(
-        question="この企業のどこに惹かれたかを1文で答える",
-        stage="company_reason",
-        company_name="株式会社テスト",
-        selected_role="企画職",
-        desired_work="DX支援",
-        grounded_company_anchor="業務改革",
-        gakuchika_episode="学生団体の運営",
-        gakuchika_strength="巻き込み力",
-    )
-
-    assert repaired == "株式会社テストで企画職を考えるとき、どんな点に惹かれますか？"
-
-
-def test_repair_generated_question_rejects_other_company_name():
-    repaired = _repair_generated_question_for_response(
-        question="堀江篤マテリアルソリューションのDX支援に惹かれた理由を1つ教えてください。",
-        stage="company_reason",
-        company_name="株式会社テスト",
-        company_context="顧客課題に向き合うDX支援と業務改革を進める。",
-        company_sources=[{"source_id": "S1", "source_url": "https://example.com/recruit"}],
-        gakuchika_context=[{"title": "学生団体の運営", "strengths": ["巻き込み力"]}],
-        profile_context={"target_job_types": ["企画職"], "target_industries": ["IT・通信"]},
-        application_job_candidates=["企画職"],
-        company_role_candidates=["企画職"],
-        company_work_candidates=["DX支援"],
-        conversation_context={"selectedIndustry": "IT・通信", "selectedRole": "企画職", "questionStage": "company_reason"},
-    )
-
-    assert "堀江篤マテリアルソリューション" not in repaired
-    assert "株式会社テスト" in repaired
-
-
-def test_repair_generated_question_rejects_unconfirmed_role_premise():
-    repaired = _repair_generated_question_for_response(
-        question="弊社の企画職を志望しているのはなんでですか？",
-        stage="company_reason",
-        company_name="株式会社テスト",
-        company_context="顧客課題に向き合うDX支援と業務改革を進める。",
-        company_sources=[{"source_id": "S1", "source_url": "https://example.com/recruit"}],
-        gakuchika_context=[{"title": "学生団体の運営", "strengths": ["巻き込み力"]}],
-        profile_context={"target_job_types": ["企画職"], "target_industries": ["IT・通信"]},
-        application_job_candidates=["企画職"],
-        company_role_candidates=["企画職"],
-        company_work_candidates=["DX支援"],
-        conversation_context={
-            "selectedIndustry": "IT・通信",
-            "selectedRole": "企画職",
-            "questionStage": "company_reason",
-            "confirmedFacts": {
-                "industry_reason_confirmed": True,
-                "company_reason_confirmed": False,
-                "desired_work_confirmed": False,
-                "origin_experience_confirmed": False,
-            },
-        },
-    )
-
-    assert "志望している" not in repaired
-    assert "どんな点に魅力を感じますか" in repaired
-
-
-def test_stage_specific_options_do_not_introduce_unconfirmed_role():
-    options = _build_stage_specific_suggestion_options(
-        stage="desired_work",
-        question="入社後にどんな仕事に挑戦したいですか？",
-        company_name="株式会社テスト",
-        company_context="顧客課題に向き合うDX支援と業務改革を進める。営業職や企画職が連携する。",
-        company_sources=[{"source_id": "S1", "source_url": "https://example.com/jobs"}],
-        gakuchika_context=[{"title": "学生団体の運営", "strengths": ["巻き込み力"]}],
-        profile_context={"target_industries": ["IT・通信"]},
-        application_job_candidates=None,
-        company_role_candidates=["営業職", "企画職"],
-        company_work_candidates=["DX支援"],
-        conversation_context={"selectedIndustry": "IT・通信", "questionStage": "desired_work"},
-    )
-
-    assert options
-    assert all("営業職" not in option.label and "企画職" not in option.label for option in options)
-
-
-def test_stage_specific_options_do_not_introduce_unconfirmed_work_candidates():
-    options = _build_stage_specific_suggestion_options(
-        stage="desired_work",
-        question="入社後にどんな仕事に挑戦したいですか？",
-        company_name="株式会社テスト",
-        company_context="顧客課題に向き合うDX支援と業務改革を進める。営業職や企画職が連携する。",
-        company_sources=[{"source_id": "S1", "source_url": "https://example.com/jobs"}],
-        gakuchika_context=[{"title": "学生団体の運営", "strengths": ["巻き込み力"]}],
-        profile_context={"target_industries": ["IT・通信"]},
-        application_job_candidates=["企画職"],
-        company_role_candidates=["企画職"],
-        company_work_candidates=["DX支援", "業務改革の提案"],
-        conversation_context={
-            "selectedIndustry": "IT・通信",
-            "selectedRole": "企画職",
-            "questionStage": "desired_work",
-            "confirmedFacts": {
-                "industry_reason_confirmed": True,
-                "company_reason_confirmed": False,
-                "desired_work_confirmed": False,
-                "origin_experience_confirmed": False,
-            },
-        },
-    )
-
-    assert options
-    assert all("DX支援" not in option.label and "業務改革" not in option.label for option in options)
-
-
-def test_rotate_question_focus_for_reask_changes_focus_after_previous_attempt():
-    focus = _rotate_question_focus_for_reask(
-        stage="company_reason",
-        question_focus="feature_appeal",
-        conversation_context={
-            "questionStage": "company_reason",
-            "stageAttemptCount": 1,
-            "lastQuestionMeta": {
-                "question_stage": "company_reason",
-                "question_focus": "feature_appeal",
-            },
-        },
-    )
-
-    assert focus != "feature_appeal"
-
-
-def test_ensure_distinct_question_replaces_duplicate_with_fallback():
-    distinct = _ensure_distinct_question(
-        question="株式会社テストのDX支援に惹かれた理由を1つ教えてください。",
-        stage="company_reason",
-        conversation_history=[
-            {"role": "assistant", "content": "株式会社テストのDX支援に惹かれた理由を1つ教えてください。"},
-            {"role": "user", "content": "顧客課題を解決できるからです。"},
-        ],
-        company_name="株式会社テスト",
-        selected_industry="IT・通信",
-        selected_role="企画職",
-        desired_work="DX支援",
-        grounded_company_anchor="業務改革",
-        gakuchika_episode="学生団体の運営",
-        gakuchika_strength="巻き込み力",
-    )
-
-    assert distinct == "株式会社テストで企画職を考えるとき、どんな点に惹かれますか？"
-
-
-def test_ensure_distinct_question_replaces_duplicate_seen_earlier_in_history():
-    distinct = _ensure_distinct_question(
-        question="株式会社テストのDX支援に惹かれた理由を1つ教えてください。",
-        stage="company_reason",
-        conversation_history=[
-            {"role": "assistant", "content": "株式会社テストのDX支援に惹かれた理由を1つ教えてください。"},
-            {"role": "user", "content": "顧客課題を解決できる点に惹かれます。"},
-            {"role": "assistant", "content": "入社後にどんな仕事へ挑戦したいですか？"},
-            {"role": "user", "content": "企画職として業務改善に関わりたいです。"},
-        ],
-        company_name="株式会社テスト",
-        selected_industry="IT・通信",
-        selected_role="企画職",
-        desired_work="DX支援",
-        grounded_company_anchor="業務改革",
-        gakuchika_episode="学生団体の運営",
-        gakuchika_strength="巻き込み力",
-    )
-
-    assert distinct == "株式会社テストで企画職を考えるとき、どんな点に惹かれますか？"
-
-
-def test_build_stage_status_marks_company_reason_as_completed():
-    status = _build_stage_status(
-        {
-            "selectedIndustry": "IT・通信",
-            "industryReason": "複数産業の課題に関われるため",
-            "selectedRole": "企画職",
-            "companyReason": "事業の幅に惹かれる",
-            "desiredWork": None,
-            "questionStage": "desired_work",
-        },
-        "desired_work",
-    )
-
-    assert status.current == "desired_work"
-    assert "industry_reason" in status.completed
-    assert "company_reason" in status.completed
-    assert "desired_work" not in status.completed
-
-
-def test_build_stage_status_keeps_unconfirmed_required_stages_pending():
-    status = _build_stage_status(
-        {
-            "selectedIndustry": "IT・通信",
-            "industryReason": "複数産業の課題に関われるため",
-            "selectedRole": "企画職",
-            "companyReason": "業務の幅に惹かれます。",
-            "desiredWork": "顧客の業務改善に関わりたいです。",
-            "questionStage": "origin_experience",
-            "confirmedFacts": {
-                "industry_reason_confirmed": True,
-                "company_reason_confirmed": True,
-                "desired_work_confirmed": True,
-                "origin_experience_confirmed": False,
-                "fit_connection_confirmed": False,
-                "differentiation_confirmed": False,
-            },
-        },
-        "origin_experience",
-    )
-
-    assert "origin_experience" not in status.completed
-    assert status.current == "self_connection"
-    assert "self_connection" not in status.pending
-    assert "value_contribution" in status.pending
-    assert "differentiation" in status.pending
-
-
-def test_capture_answer_into_context_updates_company_reason_for_current_stage():
-    captured = _capture_answer_into_context(
-        {
-            "selectedIndustry": "IT・通信",
-            "selectedRole": "企画職",
-            "questionStage": "company_reason",
-        },
-        "業務改革を通じて顧客課題を解決できる点に惹かれます。",
-    )
-
-    assert captured["companyReason"] == "業務改革を通じて顧客課題を解決できる点に惹かれます。"
-    assert captured["questionStage"] == "company_reason"
-    assert captured["confirmedFacts"]["company_reason_confirmed"] is True
-
-
-def test_capture_answer_into_context_updates_desired_work_for_current_stage():
-    captured = _capture_answer_into_context(
-        {
-            "selectedIndustry": "IT・通信",
-            "selectedRole": "企画職",
-            "companyReason": "業務改革に惹かれます。",
-            "questionStage": "desired_work",
-        },
-        "入社後は企画職として顧客の業務改善に挑戦したいです。",
-    )
-
-    assert captured["desiredWork"] == "入社後は企画職として顧客の業務改善に挑戦したいです。"
-    assert captured["confirmedFacts"]["desired_work_confirmed"] is True
-
-
-def test_capture_answer_into_context_updates_fit_connection_for_current_stage():
-    captured = _capture_answer_into_context(
-        {
-            "selectedIndustry": "IT・通信",
-            "selectedRole": "企画職",
-            "questionStage": "fit_connection",
-        },
-        "学生団体で培った巻き込み力を、顧客課題の整理や提案に活かせると考えています。",
-    )
-
-    assert captured["fitConnection"] == "学生団体で培った巻き込み力を、顧客課題の整理や提案に活かせると考えています。"
-    assert captured["confirmedFacts"]["fit_connection_confirmed"] is True
-    assert captured["confirmedFacts"]["self_connection_confirmed"] is True
-
-
-def test_capture_answer_into_context_updates_differentiation_for_current_stage():
-    captured = _capture_answer_into_context(
-        {
-            "selectedIndustry": "IT・通信",
-            "selectedRole": "企画職",
-            "questionStage": "differentiation",
-        },
-        "他社よりも顧客課題に長く向き合える点が、自分の軸に最も合うためです。",
-    )
-
-    assert captured["differentiationReason"] == "他社よりも顧客課題に長く向き合える点が、自分の軸に最も合うためです。"
-    assert captured["confirmedFacts"]["differentiation_confirmed"] is True
-
-
-def test_capture_answer_into_context_marks_shallow_company_reason_as_unconfirmed():
-    captured = _capture_answer_into_context(
-        {
-            "selectedIndustry": "IT・通信",
-            "selectedRole": "企画職",
-            "questionStage": "company_reason",
-        },
-        "気になります。",
-    )
-
-    assert captured["companyReason"] == "気になります。"
-    assert captured["confirmedFacts"]["company_reason_confirmed"] is False
-
-
-def test_get_next_stage_moves_to_self_connection_after_company_reason():
-    stage = _get_next_stage(
-        {
-            "questionStage": "company_reason",
-            "stageAttemptCount": 1,
-            "confirmedFacts": {
-                "industry_reason_confirmed": True,
-                "company_reason_confirmed": True,
-                "self_connection_confirmed": False,
-                "desired_work_confirmed": False,
-                "value_contribution_confirmed": False,
-                "differentiation_confirmed": False,
+            "conversationMode": "slot_fill",
+            "turnCount": 6,
+            "slotStates": {
+                "industry_reason": "locked",
+                "company_reason": "locked",
+                "self_connection": "locked",
+                "desired_work": "locked",
+                "value_contribution": "locked",
+                "differentiation": "locked",
             },
         }
     )
 
-    assert stage == "self_connection"
+    turn = _determine_next_turn(context)
+
+    assert turn["mode"] == "slot_fill"
+    assert turn["unlock"] is True
+    assert turn["unlock_reason"] == "completed_six_slots"
 
 
-def test_capture_answer_into_context_updates_value_contribution_for_current_stage():
-    captured = _capture_answer_into_context(
+def test_determine_next_turn_uses_deepdive_gap_when_generated_draft_exists() -> None:
+    context = _normalize_conversation_context(
         {
-            "selectedIndustry": "IT・通信",
-            "selectedRole": "企画職",
-            "questionStage": "value_contribution",
-            "confirmedFacts": {
-                "industry_reason_confirmed": True,
-                "company_reason_confirmed": True,
-                "self_connection_confirmed": True,
-                "desired_work_confirmed": True,
-                "value_contribution_confirmed": False,
-                "differentiation_confirmed": False,
-            },
-        },
-        "入社後は顧客の課題整理を通じて、意思決定を前に進める価値を出したいです。",
+            "conversationMode": "deepdive",
+            "draftReady": True,
+            "generatedDraft": "志望動機の下書き",
+            "deepdiveTurnCount": 1,
+            "causalGaps": [
+                {
+                    "id": "company_reason_specificity",
+                    "slot": "company_reason",
+                    "reason": "企業固有語が不足している",
+                    "promptHint": "企業のどの特徴に惹かれたかを具体化する",
+                }
+            ],
+        }
     )
 
-    assert captured["valueContribution"] == "入社後は顧客の課題整理を通じて、意思決定を前に進める価値を出したいです。"
-    assert captured["confirmedFacts"]["value_contribution_confirmed"] is True
-    assert "value_contribution" not in captured["openSlots"]
+    turn = _determine_next_turn(context)
+
+    assert turn["mode"] == "deepdive"
+    assert turn["target_slot"] == "company_reason"
+    assert turn["intent"] == "specificity_check"
+    assert turn["unlock"] is False
+
+
+@pytest.mark.parametrize(
+    ("slot", "answer", "expected"),
+    [
+        ("industry_reason", "IT業界なら幅広い課題に関われるからです。", "sufficient"),
+        ("company_reason", "社会課題を解決したいからです。", "rough"),
+        ("self_connection", "学生団体で課題整理を続けた経験がつながると思います。", "sufficient"),
+        ("desired_work", "入社後は企画職として顧客の課題整理に関わりたいです。", "sufficient"),
+    ],
+)
+def test_classify_slot_state(slot: str, answer: str, expected: str) -> None:
+    context = _normalize_conversation_context(
+        {
+            "selectedRole": "企画職",
+            "companyAnchorKeywords": ["DX支援", "業務改革"],
+        }
+    )
+
+    assert _classify_slot_state(slot, answer, context) == expected
+
+
+def test_compute_deterministic_causal_gaps_flags_company_and_role_weakness() -> None:
+    context = _normalize_conversation_context(
+        {
+            "companyReason": "社会課題を解決したいからです。",
+            "desiredWork": "入社後は成長したいです。",
+            "selfConnection": "学生時代に課題解決へ向き合いました。",
+            "valueContribution": "価値を出したいです。",
+            "differentiationReason": "",
+            "slotSummaries": {
+                "company_reason": "社会課題を解決したいからです。",
+                "desired_work": "入社後は成長したいです。",
+                "self_connection": "学生時代に課題解決へ向き合いました。",
+                "value_contribution": "価値を出したいです。",
+            },
+            "selectedRole": "企画職",
+        }
+    )
+
+    gaps = _compute_deterministic_causal_gaps(context)
+
+    assert {gap["id"] for gap in gaps} >= {
+        "company_reason_specificity",
+        "role_reason_missing",
+        "differentiation_missing",
+    }
+
+
+def test_build_progress_payload_reports_current_slot_and_completion() -> None:
+    context = _normalize_conversation_context(
+        {
+            "conversationMode": "slot_fill",
+            "slotStates": {
+                "industry_reason": "locked",
+                "company_reason": "locked",
+                "self_connection": "locked",
+                "desired_work": "empty",
+                "value_contribution": "empty",
+                "differentiation": "empty",
+            },
+        }
+    )
+
+    progress = _build_progress_payload(
+        context,
+        current_slot="desired_work",
+        current_intent="initial_capture",
+        next_advance_condition="入社後にやりたい仕事が1つ言えれば次に進みます。",
+    )
+
+    assert progress["completed"] == 3
+    assert progress["total"] == 6
+    assert progress["current_slot"] == "desired_work"
+
+
+def test_should_use_deepdive_mode_requires_actual_generated_draft() -> None:
+    class Prep:
+        def __init__(self, was_draft_ready: bool, has_generated_draft: bool) -> None:
+            self.was_draft_ready = was_draft_ready
+            self.has_generated_draft = has_generated_draft
+
+    assert _should_use_deepdive_mode(Prep(True, False)) is False
+    assert _should_use_deepdive_mode(Prep(True, True)) is True

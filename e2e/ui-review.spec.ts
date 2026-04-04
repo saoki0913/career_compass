@@ -389,16 +389,16 @@ async function mockMotivationRoute(
           career_vision: 28,
           differentiation: 33,
         },
-        suggestionOptions: [
-          {
-            id: "option-1",
-            label: "業務改革を通じて顧客課題を解決できる点に惹かれたため",
-            sourceType: "company",
-            intent: "company_reason",
-            rationale: "企業固有の特徴に直接触れる候補",
-            isTentative: false,
-          },
-        ],
+        conversationMode: "slot_fill",
+        progress: {
+          completedCount: 1,
+          totalCount: 6,
+          label: "6項目中 1 項目取得",
+        },
+        currentSlot: "company_reason",
+        currentIntent: "initial_capture",
+        nextAdvanceCondition: "この企業を選ぶ理由が1つ言えればOK",
+        causalGaps: [],
         evidenceSummary: "新卒採用ページ: 業務改革とDX支援を推進",
         evidenceCards: [
           {
@@ -414,7 +414,7 @@ async function mockMotivationRoute(
         stageStatus: {
           current: "company_reason",
           completed: [],
-          pending: ["desired_work", "fit_connection", "differentiation", "closing"],
+          pending: ["self_connection", "desired_work", "value_contribution", "differentiation"],
         },
         coachingFocus: "企業志望理由",
         conversationContext: {

@@ -24,15 +24,8 @@ export type MotivationStage =
   | "differentiation"
   | "closing";
 
-export interface SuggestionOption {
-  id: string;
-  label: string;
-  sourceType: "conversation" | "profile" | "gakuchika" | "safe_fallback";
-  intent: MotivationStage;
-  evidenceSourceIds?: string[];
-  rationale?: string | null;
-  isTentative?: boolean;
-}
+export type MotivationSlot = Exclude<MotivationStage, "closing">;
+export type SlotState = "empty" | "rough" | "sufficient" | "locked";
 
 export interface EvidenceCard {
   sourceId: string;
@@ -61,13 +54,41 @@ export interface ConfirmedFacts {
 export interface LastQuestionMeta {
   questionText?: string | null;
   question_signature?: string | null;
+  semantic_question_signature?: string | null;
   question_stage?: MotivationStage | null;
   question_focus?: string | null;
   stage_attempt_count?: number | null;
+  question_difficulty_level?: number | null;
   premise_mode?: string | null;
 }
 
+export type SlotStatusV2 = "filled_strong" | "filled_weak" | "partial" | "missing";
+
+export interface ForbiddenReask {
+  slot: MotivationSlot;
+  intent: string;
+  reason: string;
+}
+
+export interface CausalGap {
+  id: string;
+  slot: MotivationSlot;
+  reason: string;
+  promptHint: string;
+}
+
+export interface MotivationProgress {
+  completed: number;
+  total: number;
+  current_slot: MotivationSlot | null;
+  current_slot_label: string | null;
+  current_intent: string | null;
+  next_advance_condition: string | null;
+  mode: "slot_fill" | "deepdive";
+}
+
 export interface MotivationConversationContext {
+  conversationMode?: "slot_fill" | "deepdive";
   selectedIndustry?: string;
   selectedIndustrySource?: "company_field" | "company_override" | "user_selected";
   industryReason?: string;
@@ -88,11 +109,32 @@ export interface MotivationConversationContext {
   companyAnchorKeywords: string[];
   companyRoleCandidates: string[];
   companyWorkCandidates: string[];
+  turnCount?: number;
+  deepdiveTurnCount?: number;
   questionStage: MotivationStage;
   stageAttemptCount: number;
   lastQuestionSignature?: string | null;
+  lastQuestionSemanticSignature?: string | null;
   confirmedFacts: ConfirmedFacts;
   openSlots: string[];
+  closedSlots?: MotivationStage[];
+  recentlyClosedSlots?: MotivationStage[];
+  weakSlotRetries?: Partial<Record<MotivationStage, number>>;
+  slotStatusV2?: Partial<Record<MotivationStage, SlotStatusV2>>;
+  draftBlockers?: MotivationStage[];
+  slotStates?: Partial<Record<MotivationSlot, SlotState>>;
+  slotSummaries?: Partial<Record<MotivationSlot, string | null>>;
+  slotEvidenceSentences?: Partial<Record<MotivationSlot, string[]>>;
+  slotIntentsAsked?: Partial<Record<MotivationSlot, string[]>>;
+  reaskBudgetBySlot?: Partial<Record<MotivationSlot, number>>;
+  forbiddenReasks?: ForbiddenReask[];
+  unresolvedPoints?: string[];
+  causalGaps?: CausalGap[];
+  roleReason?: string | null;
+  roleReasonState?: SlotState;
+  unlockReason?: string | null;
+  currentIntent?: string | null;
+  nextAdvanceCondition?: string | null;
   lastQuestionMeta?: LastQuestionMeta | null;
   draftReady?: boolean;
   draftReadyUnlockedAt?: string | null;
@@ -108,6 +150,7 @@ export const DEFAULT_CONFIRMED_FACTS: ConfirmedFacts = {
 };
 
 export const DEFAULT_MOTIVATION_CONTEXT: MotivationConversationContext = {
+  conversationMode: "slot_fill",
   userAnchorStrengths: [],
   userAnchorEpisodes: [],
   profileAnchorIndustries: [],
@@ -115,6 +158,8 @@ export const DEFAULT_MOTIVATION_CONTEXT: MotivationConversationContext = {
   companyAnchorKeywords: [],
   companyRoleCandidates: [],
   companyWorkCandidates: [],
+  turnCount: 0,
+  deepdiveTurnCount: 0,
   questionStage: "industry_reason",
   stageAttemptCount: 0,
   confirmedFacts: { ...DEFAULT_CONFIRMED_FACTS },
@@ -126,6 +171,24 @@ export const DEFAULT_MOTIVATION_CONTEXT: MotivationConversationContext = {
     "value_contribution",
     "differentiation",
   ],
+  closedSlots: [],
+  recentlyClosedSlots: [],
+  weakSlotRetries: {},
+  slotStatusV2: {},
+  draftBlockers: [],
+  slotStates: {},
+  slotSummaries: {},
+  slotEvidenceSentences: {},
+  slotIntentsAsked: {},
+  reaskBudgetBySlot: {},
+  forbiddenReasks: [],
+  unresolvedPoints: [],
+  causalGaps: [],
+  roleReason: null,
+  roleReasonState: "empty",
+  unlockReason: null,
+  currentIntent: null,
+  nextAdvanceCondition: null,
   lastQuestionMeta: null,
   draftReady: false,
   draftReadyUnlockedAt: null,
@@ -139,6 +202,80 @@ const ALL_SLOTS: MotivationStage[] = [
   "value_contribution",
   "differentiation",
 ];
+
+function parseSlotState(value: unknown): SlotState | null {
+  return value === "empty" || value === "rough" || value === "sufficient" || value === "locked"
+    ? value
+    : null;
+}
+
+function parseSlotStateMap(
+  value: unknown,
+): Partial<Record<MotivationSlot, SlotState>> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, raw]) => {
+      const state = parseSlotState(raw);
+      return state && key !== "closing" ? [[key, state]] : [];
+    }),
+  ) as Partial<Record<MotivationSlot, SlotState>>;
+}
+
+function parseStringMap(value: unknown): Partial<Record<MotivationSlot, string | null>> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, raw]) =>
+      key !== "closing" ? [[key, typeof raw === "string" ? raw : null]] : [],
+    ),
+  ) as Partial<Record<MotivationSlot, string | null>>;
+}
+
+function parseStringArrayMap(value: unknown): Partial<Record<MotivationSlot, string[]>> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, raw]) =>
+      key !== "closing" ? [[key, parseStringArray(raw)]] : [],
+    ),
+  ) as Partial<Record<MotivationSlot, string[]>>;
+}
+
+function parseNumberMap(value: unknown): Partial<Record<MotivationSlot, number>> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, raw]) =>
+      key !== "closing" && typeof raw === "number" ? [[key, raw]] : [],
+    ),
+  ) as Partial<Record<MotivationSlot, number>>;
+}
+
+function parseForbiddenReasks(value: unknown): ForbiddenReask[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is ForbiddenReask =>
+    Boolean(
+      item &&
+      typeof item === "object" &&
+      item.slot &&
+      item.slot !== "closing" &&
+      typeof item.intent === "string" &&
+      typeof item.reason === "string",
+    ),
+  );
+}
+
+function parseCausalGaps(value: unknown): CausalGap[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is CausalGap =>
+    Boolean(
+      item &&
+      typeof item === "object" &&
+      item.slot &&
+      item.slot !== "closing" &&
+      typeof item.id === "string" &&
+      typeof item.reason === "string" &&
+      typeof item.promptHint === "string",
+    ),
+  );
+}
 
 function parseStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
@@ -195,16 +332,6 @@ export function safeParseScores(json: string | null): MotivationScores | null {
     };
   } catch {
     return null;
-  }
-}
-
-export function safeParseSuggestionOptions(json: string | null): SuggestionOption[] {
-  if (!json) return [];
-  try {
-    const parsed = JSON.parse(json);
-    return Array.isArray(parsed) ? (parsed.filter(Boolean) as SuggestionOption[]) : [];
-  } catch {
-    return [];
   }
 }
 
@@ -285,6 +412,7 @@ export function safeParseConversationContext(json: string | null): MotivationCon
 
     return {
       ...DEFAULT_MOTIVATION_CONTEXT,
+      conversationMode: parsed.conversationMode === "deepdive" ? "deepdive" : "slot_fill",
       selectedIndustry: typeof parsed.selectedIndustry === "string" ? parsed.selectedIndustry : undefined,
       selectedIndustrySource:
         typeof parsed.selectedIndustrySource === "string" ? parsed.selectedIndustrySource : undefined,
@@ -308,15 +436,62 @@ export function safeParseConversationContext(json: string | null): MotivationCon
       companyAnchorKeywords: parseStringArray(parsed.companyAnchorKeywords),
       companyRoleCandidates: parseStringArray(parsed.companyRoleCandidates),
       companyWorkCandidates: parseStringArray(parsed.companyWorkCandidates),
+      turnCount: typeof parsed.turnCount === "number" ? parsed.turnCount : 0,
+      deepdiveTurnCount: typeof parsed.deepdiveTurnCount === "number" ? parsed.deepdiveTurnCount : 0,
       questionStage: coerceQuestionStage(parsed.questionStage),
       stageAttemptCount: typeof parsed.stageAttemptCount === "number" ? parsed.stageAttemptCount : 0,
       lastQuestionSignature:
         typeof parsed.lastQuestionSignature === "string" ? parsed.lastQuestionSignature : null,
+      lastQuestionSemanticSignature:
+        typeof parsed.lastQuestionSemanticSignature === "string"
+          ? parsed.lastQuestionSemanticSignature
+          : null,
       confirmedFacts,
       openSlots:
         parseStringArray(parsed.openSlots).length > 0
           ? parseStringArray(parsed.openSlots)
           : buildOpenSlots(confirmedFacts),
+      closedSlots: parseStringArray(parsed.closedSlots) as MotivationStage[],
+      recentlyClosedSlots: parseStringArray(parsed.recentlyClosedSlots) as MotivationStage[],
+      weakSlotRetries:
+        parsed.weakSlotRetries && typeof parsed.weakSlotRetries === "object"
+          ? Object.fromEntries(
+              Object.entries(parsed.weakSlotRetries).filter(
+                ([key, value]) =>
+                  typeof key === "string" &&
+                  typeof value === "number" &&
+                  value >= 0,
+              ),
+            ) as Partial<Record<MotivationStage, number>>
+          : {},
+      slotStatusV2:
+        parsed.slotStatusV2 && typeof parsed.slotStatusV2 === "object"
+          ? Object.fromEntries(
+              Object.entries(parsed.slotStatusV2).filter(
+                ([key, value]) =>
+                  typeof key === "string" &&
+                  (value === "filled_strong" ||
+                    value === "filled_weak" ||
+                    value === "partial" ||
+                    value === "missing"),
+              ),
+            ) as Partial<Record<MotivationStage, SlotStatusV2>>
+          : {},
+      draftBlockers: parseStringArray(parsed.draftBlockers) as MotivationStage[],
+      slotStates: parseSlotStateMap(parsed.slotStates),
+      slotSummaries: parseStringMap(parsed.slotSummaries),
+      slotEvidenceSentences: parseStringArrayMap(parsed.slotEvidenceSentences),
+      slotIntentsAsked: parseStringArrayMap(parsed.slotIntentsAsked),
+      reaskBudgetBySlot: parseNumberMap(parsed.reaskBudgetBySlot),
+      forbiddenReasks: parseForbiddenReasks(parsed.forbiddenReasks),
+      unresolvedPoints: parseStringArray(parsed.unresolvedPoints),
+      causalGaps: parseCausalGaps(parsed.causalGaps),
+      roleReason: typeof parsed.roleReason === "string" ? parsed.roleReason : null,
+      roleReasonState: parseSlotState(parsed.roleReasonState) ?? "empty",
+      unlockReason: typeof parsed.unlockReason === "string" ? parsed.unlockReason : null,
+      currentIntent: typeof parsed.currentIntent === "string" ? parsed.currentIntent : null,
+      nextAdvanceCondition:
+        typeof parsed.nextAdvanceCondition === "string" ? parsed.nextAdvanceCondition : null,
       lastQuestionMeta:
         parsed.lastQuestionMeta && typeof parsed.lastQuestionMeta === "object"
           ? {

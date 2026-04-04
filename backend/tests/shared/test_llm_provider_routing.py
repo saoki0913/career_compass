@@ -473,6 +473,25 @@ def test_openai_reasoning_effort_json_schema_is_none_for_es_review() -> None:
     )
 
 
+def test_should_use_openai_responses_api_for_interview_features() -> None:
+    assert (
+        llm._should_use_openai_responses_api(
+            provider="openai",
+            feature="interview",
+            use_responses_api=False,
+        )
+        is True
+    )
+    assert (
+        llm._should_use_openai_responses_api(
+            provider="openai",
+            feature="interview_feedback",
+            use_responses_api=False,
+        )
+        is True
+    )
+
+
 @pytest.mark.asyncio
 async def test_call_llm_text_with_error_uses_chat_completions_for_openai_es_review(
     monkeypatch: pytest.MonkeyPatch,
@@ -680,6 +699,159 @@ async def test_call_openai_responses_retries_once_when_incomplete_max_output(
 
     assert result == {"ok": True}
     assert attempts == [500, 2048]
+
+
+@pytest.mark.asyncio
+async def test_call_openai_responses_reads_item_parsed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "test-openai-key")
+
+    class ParsedItem:
+        parsed = {"ok": True}
+        text = None
+        output_text = None
+
+    class OutputItem:
+        content = [ParsedItem()]
+
+    class FakeResponse:
+        output_parsed = None
+        output_text = ""
+        output = [OutputItem()]
+        status = "completed"
+        usage = {}
+
+    class FakeResponses:
+        async def create(self, **kwargs):
+            return FakeResponse()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    async def fake_get_openai_client(*, for_rag: bool = False):
+        return FakeClient()
+
+    monkeypatch.setattr(llm, "get_openai_client", fake_get_openai_client)
+
+    result, _ = await llm._call_openai_responses(
+        system_prompt="system",
+        user_message="user",
+        messages=None,
+        max_tokens=120,
+        temperature=0.2,
+        model="gpt-5.4-mini",
+        response_format="json_schema",
+        json_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+        feature="interview",
+    )
+
+    assert result == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_error_returns_refusal_error_for_interview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "test-openai-key")
+
+    class RefusalItem:
+        refusal = "safety refusal"
+        text = None
+        output_text = None
+
+    class OutputItem:
+        content = [RefusalItem()]
+
+    class FakeResponse:
+        output_parsed = None
+        output_text = ""
+        output = [OutputItem()]
+        status = "completed"
+        usage = {}
+
+    class FakeResponses:
+        async def create(self, **kwargs):
+            return FakeResponse()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    async def fake_get_openai_client(*, for_rag: bool = False):
+        return FakeClient()
+
+    monkeypatch.setattr(llm, "get_openai_client", fake_get_openai_client)
+
+    result = await llm.call_llm_with_error(
+        system_prompt="system",
+        user_message="user",
+        model="gpt-5.4-mini",
+        feature="interview",
+        response_format="json_schema",
+        json_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+        disable_fallback=True,
+    )
+
+    assert result.success is False
+    assert result.error is not None
+    assert result.error.error_type == "refusal"
+
+
+@pytest.mark.asyncio
+async def test_call_openai_responses_retries_once_when_incomplete_max_output_for_interview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "test-openai-key")
+
+    attempts: list[int] = []
+
+    class Incomplete:
+        output_parsed = None
+        output_text = ""
+        output: list = []
+        status = "incomplete"
+
+        class incomplete_details:
+            reason = "max_output_tokens"
+
+        usage = {}
+
+    class Complete:
+        output_parsed = {"ok": True}
+        output_text = ""
+        output: list = []
+        status = "completed"
+        usage = {}
+
+    class FakeResponses:
+        async def create(self, **kwargs):
+            attempts.append(int(kwargs.get("max_output_tokens", 0)))
+            if len(attempts) == 1:
+                return Incomplete()
+            return Complete()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    async def fake_get_openai_client(*, for_rag: bool = False):
+        return FakeClient()
+
+    monkeypatch.setattr(llm, "get_openai_client", fake_get_openai_client)
+
+    result, _ = await llm._call_openai_responses(
+        system_prompt="system",
+        user_message="user",
+        messages=None,
+        max_tokens=700,
+        temperature=0.2,
+        model="gpt-5.4-mini",
+        response_format="json_schema",
+        json_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+        feature="interview",
+    )
+
+    assert result == {"ok": True}
+    assert attempts == [700, 1400]
 
 
 @pytest.mark.asyncio

@@ -55,7 +55,7 @@ import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import { calculateESReviewCost } from "@/lib/credits/cost";
 import type { Industry } from "@/lib/constants/industries";
 import { COMPANYLESS_EXPLICIT_TEMPLATE_TYPES } from "@/lib/es-review/companyless-templates";
-import { inferTemplateTypeFromQuestion } from "@/lib/es-review/infer-template-type";
+import { inferTemplateTypeDetailsFromQuestion } from "@/lib/es-review/infer-template-type";
 import {
   notifyOperationLocked,
   notifyReviewError,
@@ -67,6 +67,7 @@ import {
   getReviewValidationIssues,
   MIN_REVIEW_SECTION_BODY_CHARS,
 } from "./review-panel-validation";
+import { buildTemplateRecommendationCopy } from "./template-recommendation";
 import { ReviewEmptyState } from "./ReviewEmptyState";
 import { StreamingReviewResponse } from "./StreamingReviewResponse";
 
@@ -607,12 +608,14 @@ export function ReviewPanel({
     ];
   }, [hasSelectedCompany]);
 
-  const inferredTemplate = useMemo((): TemplateType => {
+  const inferredTemplateDetails = useMemo(() => {
     if (!sectionReviewRequest?.sectionTitle) {
-      return "basic";
+      return inferTemplateTypeDetailsFromQuestion("");
     }
-    return inferTemplateTypeFromQuestion(sectionReviewRequest.sectionTitle) as TemplateType;
+    return inferTemplateTypeDetailsFromQuestion(sectionReviewRequest.sectionTitle);
   }, [sectionReviewRequest?.sectionTitle]);
+
+  const inferredTemplate = inferredTemplateDetails.templateType as TemplateType;
 
   const effectiveTemplate: TemplateType = selectedTemplate ?? inferredTemplate;
   const selectedTemplateFields = TEMPLATE_EXTRA_FIELDS[effectiveTemplate] ?? [];
@@ -623,6 +626,10 @@ export function ReviewPanel({
   const selectedRoleName = roleName.trim();
   const selectedTemplateValue = selectedTemplate ?? "auto";
   const currentTemplateLabel = selectedTemplate ? TEMPLATE_LABELS[selectedTemplate] : "自動判定";
+  const templateRecommendationCopy = buildTemplateRecommendationCopy({
+    selectedTemplate,
+    details: inferredTemplateDetails,
+  });
   const currentReviewModeLabel = isFreeEsPlan
     ? "GPT-5.4 mini（Free 固定）"
     : getStandardESReviewModelLabel(selectedStandardModel);
@@ -1149,6 +1156,14 @@ export function ReviewPanel({
                       ? "選択した型に合わせて添削の観点を調整します。"
                       : "自動判定では設問文から最適な型を推定します。"}
                   </p>
+                  <div className="mt-3 rounded-2xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-2">
+                    <p className="text-xs font-semibold text-emerald-900">
+                      {templateRecommendationCopy.label}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-emerald-800">
+                      {templateRecommendationCopy.description}
+                    </p>
+                  </div>
                   <Select
                     value={selectedTemplateValue}
                     onValueChange={(value) => {

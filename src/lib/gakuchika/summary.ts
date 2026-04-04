@@ -25,6 +25,10 @@ export interface StructuredSummary {
   interview_supporting_details?: string[];
   future_outlook_notes?: string[];
   backstory_notes?: string[];
+  one_line_core_answer?: string;
+  likely_followup_questions?: string[];
+  weak_points_to_prepare?: string[];
+  two_minute_version_outline?: string[];
 }
 
 export interface LegacySummary {
@@ -154,6 +158,10 @@ export function parseGakuchikaSummary(summary: unknown): GakuchikaSummary | null
       interview_supporting_details: cleanStringList(summary.interview_supporting_details),
       future_outlook_notes: cleanStringList(summary.future_outlook_notes),
       backstory_notes: cleanStringList(summary.backstory_notes),
+      one_line_core_answer: cleanString(summary.one_line_core_answer),
+      likely_followup_questions: cleanStringList(summary.likely_followup_questions),
+      weak_points_to_prepare: cleanStringList(summary.weak_points_to_prepare),
+      two_minute_version_outline: cleanStringList(summary.two_minute_version_outline),
     };
   }
 
@@ -185,6 +193,7 @@ export function getGakuchikaSummaryPreview(
 
   const candidates = isStructuredSummary(parsed)
     ? [
+        parsed.one_line_core_answer || "",
         [parsed.action_text, parsed.result_text].filter(Boolean).join(" "),
         [parsed.task_text, parsed.action_text].filter(Boolean).join(" "),
         [parsed.situation_text, parsed.task_text].filter(Boolean).join(" "),

@@ -5,6 +5,15 @@ export type LiveAiConversationFeature = "gakuchika" | "motivation" | "interview"
 export type LiveAiConversationSuiteDepth = "smoke" | "extended";
 export type LiveAiConversationTargetEnv = "staging" | "production";
 export type LiveAiConversationSeverity = "passed" | "degraded" | "failed";
+export type LiveAiConversationFailureKind =
+  | "none"
+  | "infra"
+  | "auth"
+  | "state"
+  | "timeout"
+  | "cleanup"
+  | "quality"
+  | "unknown";
 
 export type LiveAiConversationTranscriptTurn = {
   role: "user" | "assistant";
@@ -33,6 +42,7 @@ export type LiveAiConversationReportRow = {
   title: string;
   status: "passed" | "failed" | "skipped";
   severity: LiveAiConversationSeverity;
+  failureKind: LiveAiConversationFailureKind;
   durationMs: number;
   transcript: LiveAiConversationTranscriptTurn[];
   outputs: {
@@ -40,6 +50,8 @@ export type LiveAiConversationReportRow = {
     generatedDocumentId: string | null;
   };
   deterministicFailReasons: string[];
+  representativeLog: string | null;
+  representativeError: string | null;
   checks: LiveAiConversationCheck[];
   judge: LiveAiConversationJudge | null;
   cleanup: { ok: boolean; removedIds: string[] };
@@ -65,6 +77,77 @@ export type LiveAiConversationReport = {
   rows: LiveAiConversationReportRow[];
 };
 
+export function classifyLiveAiConversationFailure(input: {
+  status: LiveAiConversationReportRow["status"];
+  cleanupOk: boolean;
+  deterministicFailReasons: string[];
+  judge: LiveAiConversationJudge | null;
+}): LiveAiConversationFailureKind {
+  if (input.status === "passed") {
+    if (input.judge && !input.judge.overallPass) {
+      return "quality";
+    }
+    return "none";
+  }
+
+  const haystack = input.deterministicFailReasons.map((reason) => reason.toLowerCase());
+  const includes = (pattern: RegExp | string) =>
+    haystack.some((reason) => (typeof pattern === "string" ? reason.includes(pattern) : pattern.test(reason)));
+
+  if (!input.cleanupOk || includes("cleanup")) {
+    return "cleanup";
+  }
+  if (includes("timeout") || includes("timed out")) {
+    return "timeout";
+  }
+  if (
+    includes("auth") ||
+    includes("unauthor") ||
+    includes("forbidden") ||
+    includes("permission denied") ||
+    includes("access denied") ||
+    includes("401") ||
+    includes("403")
+  ) {
+    return "auth";
+  }
+  if (
+    includes("state") ||
+    includes("conflict") ||
+    includes("already started") ||
+    includes("already exists") ||
+    includes("did not complete") ||
+    includes("did not reach") ||
+    includes("not ready") ||
+    includes("invalid session") ||
+    includes("missing_report") ||
+    includes("conversation")
+  ) {
+    return "state";
+  }
+  if (
+    includes("infra") ||
+    includes("network") ||
+    includes("connection") ||
+    includes("fetch") ||
+    includes("upstream") ||
+    includes("gateway") ||
+    includes("internal server error") ||
+    includes("service unavailable") ||
+    includes("socket") ||
+    includes("dns") ||
+    includes("unexpected response") ||
+    includes("503") ||
+    includes("500")
+  ) {
+    return "infra";
+  }
+  if (input.judge && !input.judge.overallPass) {
+    return "quality";
+  }
+  return "unknown";
+}
+
 const DISPLAY_NAMES: Record<LiveAiConversationFeature, string> = {
   gakuchika: "ガクチカ作成",
   motivation: "志望動機作成",
@@ -89,13 +172,37 @@ function incrementCounts(summary: LiveAiConversationSummaryCounts, row: LiveAiCo
   }
 }
 
+function markdownForField(label: string, value: string | null) {
+  if (!value) {
+    return `- ${label}: \`(none)\``;
+  }
+  return `- ${label}: \`${value}\``;
+}
+
 function markdownForRow(row: LiveAiConversationReportRow) {
+  const failureReasons =
+    row.deterministicFailReasons.length > 0
+      ? row.deterministicFailReasons.map((reason) => `\`${reason}\``).join(", ")
+      : "`none`";
+  const judgeReasons =
+    row.judge && row.judge.reasons.length > 0
+      ? row.judge.reasons.map((reason) => `\`${reason}\``).join(", ")
+      : "`none`";
+  const judgeWarnings =
+    row.judge && row.judge.warnings.length > 0
+      ? row.judge.warnings.map((warning) => `\`${warning}\``).join(", ")
+      : "`none`";
+
   const lines = [
     `### \`${row.feature}\` / \`${row.caseId}\` / \`${row.severity}\``,
     "",
     `- title: \`${row.title}\``,
     `- status: \`${row.status}\``,
     `- severity: \`${row.severity}\``,
+    `- failure_kind: \`${row.failureKind}\``,
+    `- failure_reasons: ${failureReasons}`,
+    markdownForField("representative_log", row.representativeLog),
+    markdownForField("representative_error", row.representativeError),
     `- duration_ms: \`${row.durationMs}\``,
     `- cleanup: \`${row.cleanup.ok ? "ok" : "failed"}\``,
     row.deterministicFailReasons.length > 0
@@ -109,12 +216,8 @@ function markdownForRow(row: LiveAiConversationReportRow) {
   if (row.judge) {
     lines.push(
       `- judge: model=\`${row.judge.model}\` overall_pass=\`${row.judge.overallPass}\` blocking=\`${row.judge.blocking}\``,
-      row.judge.reasons.length > 0
-        ? `- judge_reasons: ${row.judge.reasons.map((reason) => `\`${reason}\``).join(", ")}`
-        : "- judge_reasons: `none`",
-      row.judge.warnings.length > 0
-        ? `- judge_warnings: ${row.judge.warnings.map((warning) => `\`${warning}\``).join(", ")}`
-        : "- judge_warnings: `none`",
+      `- judge_reasons: ${judgeReasons}`,
+      `- judge_warnings: ${judgeWarnings}`,
     );
   } else {
     lines.push("- judge: `disabled`");

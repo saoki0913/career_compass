@@ -3,11 +3,71 @@ from __future__ import annotations
 import pytest
 
 from app.prompts.es_templates import (
+    TEMPLATE_DEFS,
     _format_target_char_window,
     build_template_fallback_rewrite_prompt,
     build_template_length_fix_prompt,
     build_template_rewrite_prompt,
 )
+
+
+@pytest.mark.parametrize("template_type", sorted(TEMPLATE_DEFS.keys()))
+def test_template_defs_expose_common_spec_fields(template_type: str) -> None:
+    template_def = TEMPLATE_DEFS[template_type]
+
+    for key in (
+        "purpose",
+        "required_elements",
+        "anti_patterns",
+        "recommended_structure",
+        "evaluation_checks",
+        "retry_guidance",
+        "company_usage",
+        "fact_priority",
+    ):
+        assert key in template_def
+
+    assert template_def["required_elements"]
+    assert template_def["anti_patterns"]
+    assert template_def["recommended_structure"]
+    assert template_def["evaluation_checks"]
+
+
+def test_rewrite_prompt_renders_required_elements_and_anti_patterns_from_template_spec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    company_spec = dict(TEMPLATE_DEFS["company_motivation"])
+    monkeypatch.setitem(
+        TEMPLATE_DEFS,
+        "company_motivation",
+        {
+            **company_spec,
+            "required_elements": ["検証用必須要素", *list(company_spec.get("required_elements", []))],
+            "anti_patterns": ["検証用禁止表現", *list(company_spec.get("anti_patterns", []))],
+        },
+    )
+
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="company_motivation",
+        company_name="三菱商事",
+        industry="総合商社",
+        question="三菱商事を志望する理由を教えてください。",
+        answer="研究で仮説検証を重ねた経験を、事業を動かす仕事で生かしたい。",
+        char_min=180,
+        char_max=260,
+        company_evidence_cards=[
+            {"theme": "事業理解", "claim": "成長領域への投資を進める", "excerpt": "新たな事業機会を広げる"}
+        ],
+        has_rag=True,
+        allowed_user_facts=[{"source": "current_answer", "text": "研究で仮説検証を重ねた。"}],
+        role_name="総合職",
+        grounding_mode="company_general",
+    )
+
+    assert "【設問で落としてはいけない要素】" in system_prompt
+    assert "- 検証用必須要素" in system_prompt
+    assert "【避けるパターン】" in system_prompt
+    assert "- 検証用禁止表現" in system_prompt
 
 
 @pytest.mark.parametrize(

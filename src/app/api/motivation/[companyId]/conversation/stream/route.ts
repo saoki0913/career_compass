@@ -24,7 +24,9 @@ import {
 } from "@/lib/ai/user-context";
 import {
   getMotivationConversationByCondition as getConversationByCondition,
+  type CausalGap as BaseCausalGap,
   mergeDraftReadyContext,
+  type MotivationProgress as BaseMotivationProgress,
   resolveDraftReadyState,
   safeParseConversationContext as parseConversationContext,
   type LastQuestionMeta as BaseLastQuestionMeta,
@@ -72,19 +74,11 @@ interface MotivationScores {
   differentiation: number;
 }
 
-interface SuggestionOption {
-  id: string;
-  label: string;
-  sourceType: "conversation" | "gakuchika" | "profile" | "safe_fallback";
-  intent: string;
-  evidenceSourceIds?: string[];
-  rationale?: string | null;
-  isTentative?: boolean;
-}
-
 type LastQuestionMeta = BaseLastQuestionMeta;
 
 type MotivationConversationContext = BaseMotivationConversationContext;
+type MotivationProgress = BaseMotivationProgress;
+type CausalGap = BaseCausalGap;
 
 interface CompanyData {
   id: string;
@@ -559,12 +553,17 @@ export async function POST(
                     evaluation?: { scores: MotivationScores; is_complete: boolean };
                     captured_context?: Partial<MotivationConversationContext>;
                     question_stage?: string;
-                    suggestion_options?: SuggestionOption[];
                     evidence_summary?: string | null;
                     evidence_cards?: unknown[];
                     coaching_focus?: string | null;
                     risk_flags?: string[];
                     stage_status?: unknown;
+                    conversation_mode?: "slot_fill" | "deepdive";
+                    current_slot?: string | null;
+                    current_intent?: string | null;
+                    next_advance_condition?: string | null;
+                    progress?: MotivationProgress | null;
+                    causal_gaps?: CausalGap[];
                   };
                 }).data;
 
@@ -621,7 +620,6 @@ export async function POST(
                     questionStage:
                       fastApiData.question_stage ??
                       nextConversationContext.questionStage,
-                    lastSuggestionOptions: JSON.stringify(fastApiData.suggestion_options || []),
                     lastEvidenceCards: JSON.stringify(fastApiData.evidence_cards || []),
                     stageStatus: JSON.stringify(
                       fastApiData.stage_status || {
@@ -660,7 +658,6 @@ export async function POST(
                   data: {
                     messages,
                     nextQuestion: fastApiData.question || null,
-                    suggestionOptions: (fastApiData.suggestion_options || []) as SuggestionOption[],
                     questionCount: newQuestionCount,
                     isDraftReady,
                     draftReadyJustUnlocked,
@@ -671,6 +668,12 @@ export async function POST(
                     riskFlags: Array.isArray(fastApiData.risk_flags) ? fastApiData.risk_flags : [],
                     questionStage: fastApiData.question_stage || resolvedAfterAnswer.conversationContext.questionStage,
                     stageStatus: fastApiData.stage_status || null,
+                    conversationMode: fastApiData.conversation_mode || nextConversationContext.conversationMode || "slot_fill",
+                    currentSlot: fastApiData.current_slot || null,
+                    currentIntent: fastApiData.current_intent || null,
+                    nextAdvanceCondition: fastApiData.next_advance_condition || null,
+                    progress: fastApiData.progress || null,
+                    causalGaps: Array.isArray(fastApiData.causal_gaps) ? fastApiData.causal_gaps : [],
                   },
                 };
                 controller.enqueue(

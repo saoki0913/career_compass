@@ -5,8 +5,11 @@ from app.routers.gakuchika import (
     ConversationStateInput,
     DEEPDIVE_FOCUS_FALLBACKS,
     NextQuestionRequest,
+    _build_draft_diagnostics,
     _build_deepdive_prompt,
     _build_es_prompt,
+    _classify_input_richness,
+    _evaluate_deepdive_completion,
     _normalize_deepdive_payload,
     _normalize_es_build_payload,
 )
@@ -27,7 +30,7 @@ def test_build_es_prompt_includes_readiness_guardrails() -> None:
     )
 
     assert "ready_for_draft=true" in prompt
-    assert "6要素があるだけではなく" in prompt
+    assert "4要素がそろい" in prompt
     assert "task と action が ES として読んで弱くない最低限の具体性" in prompt
     assert "抽象語だけで終わっていない" in prompt
     assert "自然な丁寧語" in prompt
@@ -98,7 +101,7 @@ def test_normalize_es_build_payload_keeps_building_until_quality_threshold() -> 
     assert state["stage"] == "es_building"
     assert state["focus_key"] == "task"
     assert state["ready_for_draft"] is False
-    assert state["missing_elements"] == ["task", "result", "learning"]
+    assert state["missing_elements"] == ["task", "result"]
 
 
 def test_normalize_es_build_payload_marks_draft_ready() -> None:
@@ -115,9 +118,32 @@ def test_normalize_es_build_payload_marks_draft_ready() -> None:
     assert question == ""
     assert source == "draft_ready"
     assert state["stage"] == "draft_ready"
-    assert state["progress_label"] == "ES作成可"
+    assert state["progress_label"] == "ESを作成できます"
     assert state["ready_for_draft"] is True
     assert state["draft_text"] == "既存の下書き"
+
+
+def test_normalize_es_build_payload_allows_draft_ready_without_learning_when_core_four_are_clear() -> None:
+    _, state, source = _normalize_es_build_payload(
+        {
+            "focus_key": "result",
+            "missing_elements": [],
+            "ready_for_draft": False,
+        },
+        fallback_state=None,
+        conversation_text=(
+            "大学3年の学園祭実行委員として模擬店エリアの導線改善に取り組んだ。"
+            "昼のピーク時に列が交差して売上機会を逃していたため、"
+            "私は会場図を見直して待機列の配置と案内役の立ち位置を変更した。"
+            "その結果、混雑の偏りが減り、参加団体から回遊しやすくなったと言われた。"
+        ),
+        input_richness_mode="almost_draftable",
+    )
+
+    assert source == "draft_ready"
+    assert state["stage"] == "draft_ready"
+    assert state["ready_for_draft"] is True
+    assert state["focus_key"] == "result"
 
 
 def test_normalize_deepdive_payload_marks_interview_ready() -> None:
@@ -140,6 +166,63 @@ def test_normalize_deepdive_payload_marks_interview_ready() -> None:
     assert state["progress_label"] == "面接準備完了"
     assert state["focus_key"] == "future"
     assert state["draft_text"] == "下書き本文"
+
+
+def test_classify_input_richness_distinguishes_sparse_and_dense_inputs() -> None:
+    assert _classify_input_richness("学園祭実行委員") == "seed_only"
+    assert _classify_input_richness("学園祭実行委員として参加率向上に取り組んだ。") == "rough_episode"
+    assert (
+        _classify_input_richness(
+            "学園祭実行委員として来場者導線の混雑改善に取り組んだ。"
+            "模擬店エリアで待機列が滞留し売上機会を逃していたため、"
+            "導線を再設計して当日の案内運営も見直した。"
+        )
+        == "almost_draftable"
+    )
+
+
+def test_build_draft_diagnostics_flags_issue_and_recommendation_tags() -> None:
+    diagnostics = _build_draft_diagnostics(
+        "サークルの新歓改善に取り組んだ。課題は参加者が少ないことだった。"
+        "私は工夫して頑張った。結果として雰囲気が良くなった。"
+        "学びは協力の大切さである。"
+    )
+
+    assert "action_specificity_weak" in diagnostics["issue_tags"]
+    assert "learning_generic" in diagnostics["issue_tags"]
+    assert "deepen_action_reason" in diagnostics["deepdive_recommendation_tags"]
+    assert "result_traceability_check" in diagnostics["deepdive_recommendation_tags"]
+
+
+def test_evaluate_deepdive_completion_requires_credibility_and_transfer() -> None:
+    incomplete = _evaluate_deepdive_completion(
+        conversation_text=(
+            "質問: その成果の中で、ご自身が担った部分はどこでしたか。\n"
+            "回答: 提案はしたが、実行は主に先輩が担当した。"
+        ),
+        draft_text="私は学園祭運営で導線改善に取り組んだ。",
+        focus_key="credibility",
+    )
+    complete = _evaluate_deepdive_completion(
+        conversation_text=(
+            "質問: その成果の中で、ご自身が担った部分はどこでしたか。\n"
+            "回答: 私は導線案の作成と当日の案内配置を主担当として担った。\n"
+            "質問: なぜその方法を選んだのですか。\n"
+            "回答: 来場者の詰まりが模擬店前に集中していたため、入口側で分散誘導する方が効果的だと判断した。\n"
+            "質問: その工夫が効いたと判断したのはなぜですか。\n"
+            "回答: 待機列が短くなり、参加者から移動しやすくなったという声も増えた。\n"
+            "質問: その学びは次にどう活かせますか。\n"
+            "回答: 現場観察を先に置いて打ち手を決める姿勢として次の企画運営でも再現したい。"
+        ),
+        draft_text="私は学園祭運営で導線改善に取り組んだ。",
+        focus_key="learning_transfer",
+    )
+
+    assert incomplete["complete"] is False
+    assert "learning_transfer_missing" in incomplete["missing_reasons"]
+    assert "credibility_risk" in incomplete["missing_reasons"]
+    assert complete["complete"] is True
+    assert complete["missing_reasons"] == []
 
 
 @pytest.mark.asyncio

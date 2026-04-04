@@ -105,10 +105,8 @@ jobs:
           retention-days: 90
 
   gakuchika-live:
-    needs:
-      - resolve-suite
-      - es-review-live
-    if: ${{ always() && (github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'gakuchika') && (needs.es-review-live.result == 'success' || needs.es-review-live.result == 'skipped') }}
+    needs: resolve-suite
+    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'gakuchika' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
@@ -223,10 +221,8 @@ jobs:
           retention-days: 90
 
   motivation-live:
-    needs:
-      - resolve-suite
-      - gakuchika-live
-    if: ${{ always() && (github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'motivation') && (needs.gakuchika-live.result == 'success' || needs.gakuchika-live.result == 'skipped') }}
+    needs: resolve-suite
+    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'motivation' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
@@ -265,10 +261,8 @@ jobs:
           retention-days: 90
 
   interview-live:
-    needs:
-      - resolve-suite
-      - motivation-live
-    if: ${{ always() && (github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'interview') && (needs.motivation-live.result == 'success' || needs.motivation-live.result == 'skipped') }}
+    needs: resolve-suite
+    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'interview' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
@@ -327,6 +321,7 @@ jobs:
         run: npm ci
       - name: Download ES review artifact
         if: ${{ needs.es-review-live.result != 'skipped' }}
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: ai-live-internal-es-review-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
@@ -347,18 +342,21 @@ jobs:
           path: backend/tests/output/downloads/selection-schedule
       - name: Download gakuchika artifact
         if: ${{ needs.gakuchika-live.result != 'skipped' }}
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: ai-live-internal-gakuchika-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
           path: backend/tests/output/downloads/gakuchika
       - name: Download motivation artifact
         if: ${{ needs.motivation-live.result != 'skipped' }}
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: ai-live-internal-motivation-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
           path: backend/tests/output/downloads/motivation
       - name: Download interview artifact
         if: ${{ needs.interview-live.result != 'skipped' }}
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: ai-live-internal-interview-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}

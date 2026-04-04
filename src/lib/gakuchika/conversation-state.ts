@@ -1,4 +1,5 @@
 export type BuildElement = "overview" | "context" | "task" | "action" | "result" | "learning";
+export type InputRichnessMode = "seed_only" | "rough_episode" | "almost_draftable";
 export type DeepDiveFocus =
   | "role"
   | "challenge"
@@ -10,17 +11,47 @@ export type DeepDiveFocus =
   | "backstory";
 export type FocusKey = BuildElement | DeepDiveFocus;
 export type ConversationStage = "es_building" | "draft_ready" | "deep_dive_active" | "interview_ready";
+export type GakuchikaNextAction =
+  | "ask"
+  | "show_generate_draft_cta"
+  | "continue_deep_dive"
+  | "show_interview_ready";
+
+export interface DraftQualityChecks {
+  task_clarity?: boolean;
+  action_ownership?: boolean;
+  role_required?: boolean;
+  role_clarity?: boolean;
+  result_traceability?: boolean;
+  learning_reusability?: boolean;
+}
 
 export interface ConversationState {
   stage: ConversationStage;
   focusKey: FocusKey | null;
   progressLabel: string | null;
   answerHint: string | null;
+  inputRichnessMode: InputRichnessMode | null;
   missingElements: BuildElement[];
+  draftQualityChecks: DraftQualityChecks;
+  causalGaps: string[];
+  completionChecks: Record<string, boolean>;
   readyForDraft: boolean;
   draftReadinessReason: string;
   draftText: string | null;
+  strengthTags: string[];
+  issueTags: string[];
+  deepdiveRecommendationTags: string[];
+  credibilityRiskTags: string[];
   deepdiveStage: string | null;
+  deepdiveComplete: boolean;
+  completionReasons: string[];
+  askedFocuses: FocusKey[];
+  resolvedFocuses: FocusKey[];
+  deferredFocuses: FocusKey[];
+  blockedFocuses: FocusKey[];
+  focusAttemptCounts: Partial<Record<FocusKey, number>>;
+  lastQuestionSignature: string | null;
 }
 
 export const BUILD_TRACK_KEYS: Array<Extract<BuildElement, "context" | "task" | "action" | "result">> = [
@@ -43,11 +74,27 @@ export function getDefaultConversationState(): ConversationState {
     focusKey: null,
     progressLabel: null,
     answerHint: null,
-    missingElements: ["context", "task", "action", "result", "learning"],
+    inputRichnessMode: null,
+    missingElements: ["context", "task", "action", "result"],
+    draftQualityChecks: {},
+    causalGaps: [],
+    completionChecks: {},
     readyForDraft: false,
     draftReadinessReason: "",
     draftText: null,
+    strengthTags: [],
+    issueTags: [],
+    deepdiveRecommendationTags: [],
+    credibilityRiskTags: [],
     deepdiveStage: null,
+    deepdiveComplete: false,
+    completionReasons: [],
+    askedFocuses: [],
+    resolvedFocuses: [],
+    deferredFocuses: [],
+    blockedFocuses: [],
+    focusAttemptCounts: {},
+    lastQuestionSignature: null,
   };
 }
 
@@ -62,6 +109,17 @@ export function isInterviewReady(state: ConversationState | null | undefined): b
 
 export function hasDraftText(state: ConversationState | null | undefined): boolean {
   return Boolean(state?.draftText);
+}
+
+export function getGakuchikaNextAction(
+  state: ConversationState | null | undefined,
+): GakuchikaNextAction {
+  if (!state) return "ask";
+  if (state.stage === "interview_ready") return "show_interview_ready";
+  if (state.stage === "draft_ready") {
+    return state.draftText ? "continue_deep_dive" : "show_generate_draft_cta";
+  }
+  return "ask";
 }
 
 export function getBuildItemStatus(

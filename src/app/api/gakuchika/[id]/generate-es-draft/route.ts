@@ -37,6 +37,12 @@ interface FastAPIDraftResponse {
   draft: string;
   char_count: number;
   followup_suggestion?: string;
+  draft_diagnostics?: {
+    strength_tags?: string[];
+    issue_tags?: string[];
+    deepdive_recommendation_tags?: string[];
+    credibility_risk_tags?: string[];
+  };
   internal_telemetry?: unknown;
 }
 
@@ -140,19 +146,6 @@ export async function POST(
     );
   }
 
-  // Parse structured summary if available
-  let structuredSummary = null;
-  if (gakuchika.summary) {
-    try {
-      const parsed = JSON.parse(gakuchika.summary);
-      if (parsed.situation_text) {
-        structuredSummary = parsed;
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  }
-
   // Reserve credits (6 credits for draft generation for logged-in users)
   let reservationId: string | null = null;
   if (userId) {
@@ -180,7 +173,6 @@ export async function POST(
       body: JSON.stringify({
         gakuchika_title: gakuchika.title,
         conversation_history: messages,
-        structured_summary: structuredSummary,
         char_limit: charLimit,
       }),
     });
@@ -221,15 +213,22 @@ export async function POST(
       ...conversationState,
       stage: "draft_ready" as const,
       readyForDraft: true,
-      progressLabel: "ES作成可",
+      progressLabel: "ESを作成できます",
       answerHint: "必要なら、この本文を起点に面接向けの深掘りを続けられます。",
       draftText: data.draft,
+      deferredFocuses: Array.from(new Set([...conversationState.deferredFocuses, "learning"])),
+      strengthTags: data.draft_diagnostics?.strength_tags ?? conversationState.strengthTags,
+      issueTags: data.draft_diagnostics?.issue_tags ?? conversationState.issueTags,
+      deepdiveRecommendationTags:
+        data.draft_diagnostics?.deepdive_recommendation_tags ?? conversationState.deepdiveRecommendationTags,
+      credibilityRiskTags:
+        data.draft_diagnostics?.credibility_risk_tags ?? conversationState.credibilityRiskTags,
     };
 
     await db
       .update(gakuchikaConversations)
       .set({
-        status: "completed",
+        status: "in_progress",
         starScores: serializeConversationState(updatedConversationState),
         updatedAt: new Date(),
       })

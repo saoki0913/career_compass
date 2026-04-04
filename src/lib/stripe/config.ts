@@ -1,3 +1,5 @@
+import managedConfig from "./managed-config.json";
+
 /**
  * Stripe Price Configuration
  *
@@ -20,12 +22,12 @@ export const STRIPE_PRICES: Record<
   Partial<Record<BillingPeriod, string>>
 > = {
   standard: {
-    monthly: process.env.STRIPE_PRICE_STANDARD_MONTHLY || "",
-    annual: process.env.STRIPE_PRICE_STANDARD_ANNUAL || "",
+    monthly: process.env[managedConfig.prices[0].envVar] || "",
+    annual: process.env[managedConfig.prices[1].envVar] || "",
   },
   pro: {
-    monthly: process.env.STRIPE_PRICE_PRO_MONTHLY || "",
-    annual: process.env.STRIPE_PRICE_PRO_ANNUAL || "",
+    monthly: process.env[managedConfig.prices[2].envVar] || "",
+    annual: process.env[managedConfig.prices[3].envVar] || "",
   },
 };
 
@@ -70,8 +72,8 @@ export const PLAN_METADATA = {
 
 export const ANNUAL_PLAN_PRICES: Record<Exclude<PlanType, "free">, number> = {
   /** Standard 年額 */
-  standard: 14980,
-  pro: 29800,
+  standard: managedConfig.prices[1].unitAmount,
+  pro: managedConfig.prices[3].unitAmount,
 };
 
 /**

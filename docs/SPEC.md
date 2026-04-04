@@ -30,8 +30,9 @@
 - 企業登録（公式採用ページ候補提示＋手動URL貼付フォールバック）
 - 企業情報抽出（根拠URLと信頼度表示、締切のみ承認必須）
 - カレンダー連携（Google/アプリ内、提案→承認→追加、freebusy空き時間計算）
-- クレジット（成功時のみ消費、企業更新の無料回数、月次付与、整数クレジット）
+- クレジット（成功時のみ消費、選考スケジュール取得の月次無料枠、月次付与、整数クレジット）
 - 高度なRAG（MVPは「取得・保存・上限管理・未取得分岐」まで）
+- **AI 利用**（ES 添削、志望動機・ガクチカ会話、面接講評、選考スケジュール取得、企業 RAG/コーポレート取込など）は **ログイン必須**（ゲストは手入力の ES 編集・進捗管理などに限定）
 
 ### 0.4 MVPから除外（明示）
 - 企業別攻略カード
@@ -47,7 +48,7 @@
 
 ### 1.2 成功時のみ消費（絶対条件）
 - 企業情報の取得/更新、ES添削、面接対策は **成功時のみ** クレジット消費する。
-- 企業更新の無料回数（ログインは1日3回/ゲストは2回）も **成功時のみ** カウントする（失敗は消費・カウント無し）。
+- **選考スケジュール取得**（採用ページからの抽出）は **ログインユーザーのみ**利用可能。月次無料枠（JST 暦月・`src/lib/company-info/pricing.ts` の `MONTHLY_SCHEDULE_FETCH_FREE_LIMITS`）を **成功時のみ** 消費し、枠超過後は成功時に **1 クレジット**。失敗時は消費・カウントなし。
 
 ### 1.3 非同期化（ユーザー向け挙動）
 - 外部I/O（企業ページ取得、LLM添削、Googleカレンダー書き込み）は「実行開始→結果通知」の非同期体験とする。
@@ -129,6 +130,7 @@
 ### 3.1 料金
 - Standard: 1,480円/月
 - Pro: 2,980円/月
+- **年額**の表示単価・Stripe price ID は `src/lib/stripe/managed-config.json` / 環境変数および `docs/features/CREDITS.md` §2.1 を正とする。
 
 ### 3.2 Free / 有料差分
 **Free:**
@@ -138,10 +140,9 @@
 
 **Guest（ログイン前）:**
 - 企業登録 最大3社
-- 月次クレジット 12
-- 選考スケジュール取得の無料回数はプラン別に月次（例: Standard 50回/月）。詳細は `docs/features/CREDITS.md`
-- ES添削リライト 1本
-- 添削スタイル 3種（バランス/堅め/個性強め）
+- 月次クレジットは **`PLAN_CREDITS.guest`（0）** 相当で表示（月次リセットなし）。詳細は `src/lib/credits/index.ts`・`/api/credits`
+- **選考スケジュール取得・企業 RAG/コーポレート取込・AI 添削・志望動機/ガクチカ AI・面接対策**は **ログイン必須**（ゲストは利用不可）
+- ES は **手入力編集**は可能（AI 添削は不可）
 
 **有料（Standard/Pro共通）:**
 - 企業登録 無制限
@@ -195,19 +196,20 @@
 - クレジットの繰り越しは無し（毎月リセット）
 - プラン変更時は付与起点を変更日にリセットする
 
-### 4.2 企業情報 取得/更新
-- 1日無料回数:
-  - Guest: 5回
-  - Free: 10回
-  - Standard: 20回
-  - Pro: 40回
-- 無料枠外: 成功時に 1クレジット消費
-- 失敗時: 消費0（無料回数も減らない）
+### 4.2 選考スケジュール取得（企業情報の採用ページ抽出）
+- **ログインユーザーのみ**（ゲストは API で拒否）。実装は `POST /api/companies/[id]/fetch-info`。
+- **月次無料枠**（JST 暦月、成功時のみカウント）:
+  - Free: 5回/月
+  - Standard: 50回/月
+  - Pro: 150回/月
+- 無料枠外: 成功時に **1 クレジット**消費
+- 失敗時: 消費0（無料枠も減らない）
 - 締切が抽出できなかったが他項目が抽出できた場合:
   - 部分成功でもクレジット消費は0
-  - 無料回数も消費しない
+  - 無料枠も消費しない
 - 部分成功時のUX: **部分成功も価値として伝える**
   - 「締切は取得できませんでしたが、以下の情報を取得しました」と表示
+- **企業 RAG（コーポレート URL/PDF 取込）**の課金・月次ページ枠は §3.3 および `docs/features/CREDITS.md`（`company_fetch` / RAG 経路）
 
 ### 4.3 ES添削
 - 見積:
@@ -221,12 +223,12 @@
 
 ### 4.4 面接対策
 - 企業特化模擬面接は `GPT-5.4 mini` 固定
-- 完了した 1 セッションごとに **5クレジット** 消費
+- 最終講評が成功した 1 セッションごとに **6クレジット** 消費
 - 月次無料枠は設けない
 - 失敗時・途中離脱時は消費しない
 
 ### 4.5 実行履歴（必須）
-企業更新・ES添削・面接対策は、実行結果を必ず通知欄に履歴として残す:
+選考スケジュール取得・企業 RAG 取込・ES添削・面接対策などは、実行結果を必ず通知欄に履歴として残す:
 - 成功/失敗
 - 消費クレジット（0含む）
 - 無料枠使用の有無
@@ -286,8 +288,8 @@
 ### 7.2 表示要素
 - 今日の最重要1タスク（ワンタップで開始）
 - 通知欄（最大5件＋「他◯件」）
-- クレジット残高（残量・次回付与日）
-- **今日の無料取得回数**: 「今日の無料取得: 残X回」を常時表示
+- クレジット残高（残量・次回付与日。`DashboardHeader` は `/api/credits` 経由）
+- **月次無料枠の可視化**: `/api/credits` の `monthlyFree.selectionSchedule`（選考スケジュール）および `monthlyFree.companyRagPages`（企業 RAG ページ合算）は、企業詳細の取得 UI 等で参照（例: 企業 RAG 残ページ、`FetchInfoButton` の無料枠使用表示）。ダッシュボード常時の「今日の無料取得」文言は採用しない
 - 締切が近い警告（3日以内/24時間以内）
 
 ### 7.3 ユーザー操作
@@ -345,7 +347,7 @@
 ### 9.3 候補提示のルール
 - 公式採用ページ候補を3件提示し、ユーザーが選択する
 - 低信頼度（LOW）は初期チェックOFF（誤登録防止）
-- 取得ページ上限はプランに従う（Free: 10 / Standard: 50 / Pro: 150）
+- 取得処理で扱うページ数のプラン別上限は **§3.3 と同一**（Free: 10 / Standard: 100 / Pro: 300）。正本は `src/lib/company-info/pricing.ts` の `getMonthlyRagFreeUnits`。選考スケジュール取得の **月次「回数」** 無料枠（§4.2）とは別指標
 - 上限超過時は自動で間引く
   - 優先度: 採用ページ配下 > 応募/エントリー関連 > その他公式ページ
 - 親会社/子会社のページは候補として残してよいが、表示上は `親会社` / `子会社` として扱い、`公式・高` にはしない
@@ -710,14 +712,13 @@
   - 言語自動判定は行わない（入力テキストから判断）
 
 ### 16.2 出力（共通）
-- スコア（5軸）:
-  - 論理/具体性/熱意/企業接続/読みやすさ
-- rewrite（Free/有料差分）
-- sources（必要時）
-- 添削の実行前にクレジット見積の確認は挟まない
+- ストリーミングの主表示は **rewrite（改善案）** → **sources（出典）** → **complete** の順（詳細は `docs/features/ES_REVIEW.md`）
+- **`review_meta`**: 設問分類（confidence / secondary / rationale / recommended_grounding 等）、企業接地の段階（`none / light / standard / deep`）、検証・リトライ・length-fix・fallback 診断・テレメトリなど。UI は推奨理由や注意の一部を表示しうる
+- 添削の実行前にクレジット見積の確認モーダルは挟まない（API 側で予約/402）
+- **モデル選択（ログインユーザー）**: UI は Claude / GPT / Gemini / クレジット消費を抑えた経路（内部は `gpt-5.4-mini` 系など）を選択可能。**Free プラン**は表示モデルが固定され、請求はプレミアム帯のクレジット表を用いる（`calculateESReviewCost`）
 - **AIコンテキスト範囲**: 対象範囲のみ
   - 添削対象のセクション/ブロックのみをAIに渡す
-  - 他設問やガクチカ素材は含めない
+  - 他設問やガクチカ素材は含めない（ログインユーザーはプロフィール・ガクチカ要約を別経路で付与しうる）
 
 ### 16.3 リライト（Free/有料）
 **Free**
@@ -814,7 +815,9 @@
 
 ### 17.2 MVPとして確定していること
 - 機能として搭載する（作成対話が可能）
-- 固定質問数は持たず、ES を書ける最低品質に達した時点で `draft_ready` にする
+- ES 作成前は `状況 / 課題 / 行動 / 結果` の 4 要素を主軸に集める
+- 質問数は `4〜6問` を基本目標とし、原則 `6問` で `draft_ready` 判定まで進める
+- 初回入力が極端に薄いケースだけ `7〜8問` まで救済する
 - 保存形式はQ&Aの会話ログ
 - 中断/再開が可能
 - 同じ素材に対して再実行できる
@@ -825,9 +828,20 @@
 - クレジット消費は5問回答ごとに3
 - 次質問生成のAI出力は `question` と `conversation_state` を主契約とする
 - ES 作成前は `overview / context / task / action / result / learning` の不足を埋める
-- `ready_for_draft=true` は、要素数だけでなく `task` と `action` に最低具体性があることを条件にする
+- 初回入力は `input_richness_mode = seed_only / rough_episode / almost_draftable` に分類して state に保持する
+- `ready_for_draft=true` は、4 要素の最低具体性と因果のつながりを満たした時だけ true にする
+- `learning` は ES 作成前の絶対必須にはしない
+- `draft_quality_checks / causal_gaps / completion_checks` を server-side で保持し、複数人活動や大きな成果が出るケースでは `role` を draft 前に優先確認する
+- 重複質問防止のため、`asked_focuses / resolved_focuses / deferred_focuses / blocked_focuses / focus_attempt_counts / last_question_signature` を会話 state に保持する
+- `draft_ready` 到達直後は自動質問を止め、入力欄を閉じて `ガクチカESを作成` CTA を主表示にする
+- `もう少し整える` を選んだ時だけ、同じセッションで会話を再開する
 - ES 生成後だけ、同じ画面・同じセッションで面接向け深掘りへ進める
 - 深掘りでは `future` と `backstory` を必要時の観点として扱う
+- 深掘り完了判定は LLM ではなく server-side orchestrator が行う
+- ES 生成直後に deterministic evaluator を走らせ、`strength_tags / issue_tags / deepdive_recommendation_tags / credibility_risk_tags` を state に保存する
+- `gakuchika_conversations.status=completed` は `interview_ready` の時だけ使い、`draft_ready` は `in_progress` のまま扱う
+- SSE は途中 chunk を表示用に流し、最終的な質問や CTA は complete payload の canonical 値を正とする
+- `interview_ready` 到達後は `one_line_core_answer` と `two_minute_version_outline` を主表示にした面接準備パックを出す
 - 回答送信時のUIは `質問の意図を整理中` → `次の質問を生成中...` → 次質問ストリーミング の順で表示する
 
 ### 17.3 ガクチカ素材の管理
@@ -853,7 +867,7 @@
 - `company.industry` が broad / 未設定の企業だけ setup で業界選択を必須にする
 - 初回質問は `industry_reason` から開始する
 - 会話骨格は `industry_reason → company_reason → self_connection → desired_work → value_contribution → differentiation`
-- 回答候補は canonical final question に対応する `2〜4件` の `suggestionOptions` を返し、質問への直接回答だけを表示する
+- 返答は自由入力のみで進める
 - 質問は LLM 生成後に server-side validator を通し、曖昧・複数論点・未確認前提・stage 不一致の質問は repair / fallback する
 - 志望職種は setup で先に確定し、その後の `desired_work` でやりたい仕事を具体化する
 - ログインユーザーは完了済みガクチカ要約を質問生成に利用する
@@ -890,10 +904,10 @@
 ### 17.5.5 クレジット消費
 | アクション | 消費量 | 条件 |
 |-----------|--------|------|
-| 5問回答 | 1クレジット | ログインユーザーのみ |
-| 下書き生成 | 1クレジット | 成功時のみ |
+| 5問回答ごと | 3クレジット | ログインユーザーのみ、成功時 |
+| ES下書き生成 | 6クレジット | ログインユーザーのみ、予約→成功確定（失敗時取消） |
 
-- ゲストユーザー: クレジット消費なし
+- ゲスト: 志望動機 AI は利用不可（ログイン必須）。詳細は `docs/features/CREDITS.md` §4.1
 
 ### 17.5.6 導線
 - 企業詳細ページから「志望動機を作成」ボタンで開始
@@ -918,25 +932,30 @@
 
 ### 17.6.2 基本仕様
 - ルートは `/companies/[id]/interview`
-- モデルは `MODEL_INTERVIEW=gpt-fast`（既定 `GPT-5.4 mini`）固定
+- 質問生成は `MODEL_INTERVIEW=gpt-fast`（既定 `GPT-5.4 mini`）。最終講評は `MODEL_INTERVIEW_FEEDBACK`（既定 Claude Sonnet 系。表示名は `docs/features/INTERVIEW.md` 参照）
 - 画面は `DashboardHeader` + `max-w-7xl` の 2 カラム product UI
 - 開始前、進行中、完了後は同一レイアウト上で切り替える
-- 固定 5 段階表示: `opening` → `company_understanding` → `experience` → `motivation_fit` → `feedback`
-- 質問数は固定 5 問ではなく **適応型 6〜10 問**
-- 最低到達条件は `opening=1`, `company_understanding=1`, `experience=2`, `motivation_fit=2`
-- 各ターンで直近回答を評価し、浅ければ同一段階を深掘りし、十分なら次段階へ進む
-- `motivation_fit` が十分で総質問数 6 問以上なら `feedback` へ進む
-- 10 問到達時は未充足でも `feedback` へ進み、不足は最終講評へ反映する
-- Next API は `GET /api/companies/[id]/interview` + `POST /api/companies/[id]/interview/start` + `POST /api/companies/[id]/interview/stream`
+- 開始前に `業界 / 職種 / 面接方式 / 選考種別 / 面接段階 / 面接官タイプ / 厳しさ` を確認する
+- `roleTrack` は UI で直接選ばせず、応募職種から内部自動分類する
+- 固定段階ではなく、`interview_plan` と `turn_state` に基づく論点管理で進める
+- `turn_state.coverageState` を deterministic coverage の正本にし、`coveredTopics` は read model とする
+- `turn_state.recentQuestionSummariesV2` に `intentKey / normalizedSummary / topic / followupStyle / turnId` を保持し、同義質問を抑止する
+- `strictnessMode` は covered 閾値だけを変え、`interviewStage` は required checklist の内容だけを変える
+- `formatPhase` は `opening / standard_main / case_main / case_closing / technical_main / discussion_main / presentation_main / feedback`
+- `case_main` 中は behavioral fallback を禁止し、`case_closing` でのみ motivation / personality 系を限定解禁する
+- 方式は `standard_behavioral / case / technical / discussion / presentation` をサポートする
+- 各ターンで `turn_meta.turnAction` と `turn_meta.shouldMoveNext` を返し、深掘り継続か論点移動かを決める
+- Next API は `GET /api/companies/[id]/interview` + `POST /api/companies/[id]/interview/start` + `POST /api/companies/[id]/interview/stream` + `POST /api/companies/[id]/interview/feedback` + `POST /api/companies/[id]/interview/continue` + `POST /api/companies/[id]/interview/reset` + `POST /api/companies/[id]/interview/feedback/satisfaction`
 - opening、各 follow-up、最終講評のすべてを SSE で streaming 表示する
 - SSE event は `progress / string_chunk / field_complete / array_item_complete / complete / error`
-- 右カラムに段階 tracker と `参考にする材料` を表示する
+- 会話上部と右カラムの両方で `現在の主論点 / covered までの残り checklist / follow-up 意図 / format phase` を表示する
 - `DashboardHeader` と `BottomTabBar` から `面接対策` を開くと `CompanySelectModal mode="interview"` を出し、企業選択後に対象 route へ遷移する
-- 最終講評では `企業適合 / 具体性 / 論理性 / 説得力` の4軸評価、良かった点、改善点、改善回答例、追加準備論点を返す
+- 最終講評では `企業適合 / 職種適合 / 具体性 / 論理性 / 説得力 / 一貫性 / 信頼性` の 7 軸評価、良かった点、改善点、一貫性リスク、最弱設問、最弱回答、改善回答例、追加準備論点、満足度を返す
 - 最終講評 card は先に表示し、`overall_comment`・スコア・箇条書き・改善回答例を段階的に埋める
 - LLM の質問文・講評文に合わせて会話欄を自動スクロールし、講評 complete 後は success snackbar を表示する
-- 会話の永続化は今回も client-side `sessionStorage` を使い、DB テーブルは追加しない
-- セッション完了時にのみ 5 クレジット消費する
+- 会話の永続化は `interview_conversations`、`interview_turn_events`、`interview_feedback_histories` を使う
+- 既存進行中セッションは start 時にリセットし、講評履歴だけ保持する
+- 最終講評成功時にのみ 6 クレジット消費する
 
 ---
 
@@ -985,9 +1004,8 @@
 ## 20. 受入観点（ユーザー目線のDone定義）
 
 ### 20.1 クレジット/無料枠
-- 企業更新は1日3回まで無料（成功時のみカウント）
-- 無料回数が尽きた後は、成功時のみ1クレジット消費
-- ES添削は文字数見積で消費、上限5を超えると全文実行不可（分割導線）
+- 選考スケジュール取得はログインユーザーのみ。月次無料枠（§4.2）を成功時のみ消費し、尽きた後は成功時のみ1クレジット消費
+- ES添削は文字数帯とモデル（プレミアム/低コスト）で見積。1回あたり最大 **20 クレジット**（`src/lib/credits/cost.ts`）。長文は分割導線（セクション/ブロック添削）
 - 更新/添削の結果が必ず通知欄に残る
 
 ### 20.2 締切/提出済み

@@ -22,12 +22,13 @@ import { getGuestUser } from "@/lib/auth/guest";
 import { logError } from "@/lib/logger";
 import {
   getMotivationConversationByCondition as getConversationByCondition,
+  type CausalGap,
+  type MotivationProgress,
   safeParseConversationContext as parseConversationContext,
   safeParseEvidenceCards as parseEvidenceCards,
   safeParseMessages as parseMessages,
   safeParseScores as parseScores,
   safeParseStageStatus as parseStageStatus,
-  safeParseSuggestionOptions as parseSuggestionOptions,
   resolveDraftReadyState,
   type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
@@ -54,23 +55,6 @@ async function getIdentity(request: NextRequest): Promise<{
   }
 
   return null;
-}
-
-interface SuggestionOption {
-  id: string;
-  label: string;
-  sourceType: "conversation" | "gakuchika" | "profile" | "safe_fallback";
-  intent:
-    | "industry_reason"
-    | "company_reason"
-    | "desired_work"
-    | "self_connection"
-    | "value_contribution"
-    | "differentiation"
-    | "closing";
-  evidenceSourceIds?: string[];
-  rationale?: string | null;
-  isTentative?: boolean;
 }
 
 interface EvidenceCard {
@@ -280,7 +264,6 @@ export async function GET(
       initialConversationContext,
       conversation.status as "in_progress" | "completed" | null,
     );
-    const suggestionOptionsFromDb = parseSuggestionOptions(conversation.lastSuggestionOptions);
     const evidenceCardsFromDb = parseEvidenceCards(conversation.lastEvidenceCards);
     let applicationJobCandidates: string[] = [];
     try {
@@ -312,12 +295,28 @@ export async function GET(
 
     // Get next question if not completed
     let nextQuestion: string | null = null;
-    let suggestionOptions: SuggestionOption[] = [];
     let evidenceSummary: string | null = buildEvidenceSummaryFromCards(evidenceCardsFromDb);
     let evidenceCards: EvidenceCard[] = evidenceCardsFromDb;
     const coachingFocus: string | null = null;
     const riskFlags: string[] = [];
     const stageStatus: StageStatus | null = stageStatusFromDb;
+    const conversationMode = conversationContext.conversationMode ?? "slot_fill";
+    const currentSlot = (conversation.questionStage as MotivationConversationContext["questionStage"] | null) || null;
+    const currentIntent = conversationContext.currentIntent ?? null;
+    const nextAdvanceCondition = conversationContext.nextAdvanceCondition ?? null;
+    const progress: MotivationProgress | null =
+      conversationContext.slotStates
+        ? {
+            completed: Object.values(conversationContext.slotStates).filter((state) => state === "locked").length,
+            total: 6,
+            current_slot: currentSlot === "closing" ? null : currentSlot,
+            current_slot_label: null,
+            current_intent: currentIntent,
+            next_advance_condition: nextAdvanceCondition,
+            mode: conversationMode,
+          }
+        : null;
+    const causalGaps: CausalGap[] = conversationContext.causalGaps ?? [];
     const initError: string | null = null;
 
     if (messages.length > 0) {
@@ -326,7 +325,6 @@ export async function GET(
         ((messages[messages.length - 1]?.role === "assistant"
           ? messages[messages.length - 1]?.content
           : null) ?? null);
-      suggestionOptions = suggestionOptionsFromDb;
       evidenceCards = evidenceCardsFromDb;
       evidenceSummary = buildEvidenceSummaryFromCards(evidenceCardsFromDb);
     }
@@ -339,7 +337,6 @@ export async function GET(
       },
       messages,
       nextQuestion,
-      suggestionOptions,
       questionCount: conversation.questionCount ?? 0,
       isDraftReady,
       scores,
@@ -349,6 +346,12 @@ export async function GET(
       riskFlags,
       generatedDraft: conversation.generatedDraft,
       conversationContext,
+      conversationMode,
+      currentSlot,
+      currentIntent,
+      nextAdvanceCondition,
+      progress,
+      causalGaps,
       setup: {
         selectedIndustry: conversationContext.selectedIndustry || resolvedInputs.company.industry,
         selectedRole: conversationContext.selectedRole || null,
@@ -409,8 +412,6 @@ export async function DELETE(
       selectedRoleSource: null,
       desiredWork: null,
       questionStage: null,
-      lastSuggestions: null,
-      lastSuggestionOptions: null,
       lastEvidenceCards: null,
       stageStatus: null,
       updatedAt: new Date(),

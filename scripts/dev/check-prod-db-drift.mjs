@@ -36,6 +36,20 @@ if (placeholderUrl(url)) {
 const journal = JSON.parse(fs.readFileSync(journalPath, "utf8"));
 const expectedMigrations = journal.entries?.length ?? 0;
 const requiredInterviewTables = ["interview_conversations", "interview_feedback_histories"];
+const requiredInterviewColumns = {
+  interview_conversations: [
+    "role_track",
+    "interview_format",
+    "selection_type",
+    "interview_stage",
+    "interviewer_type",
+    "strictness_mode",
+    "interview_plan_json",
+    "turn_state_json",
+    "turn_meta_json",
+  ],
+  interview_feedback_histories: ["consistency_risks", "weakest_question_type"],
+};
 
 const sql = postgres(url, { max: 1, ssl: "require" });
 
@@ -64,6 +78,43 @@ try {
   console.log(
     "[check-prod-db-drift] interview persistence tables:",
     missingInterviewTables.length === 0 ? "OK" : `MISSING (${missingInterviewTables.join(", ")})`
+  );
+
+  const interviewColumns = await sql`
+    SELECT table_name, column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND (
+        (table_name = 'interview_conversations' AND column_name IN (
+          'role_track',
+          'interview_format',
+          'selection_type',
+          'interview_stage',
+          'interviewer_type',
+          'strictness_mode',
+          'interview_plan_json',
+          'turn_state_json',
+          'turn_meta_json'
+        ))
+        OR
+        (table_name = 'interview_feedback_histories' AND column_name IN (
+          'consistency_risks',
+          'weakest_question_type'
+        ))
+      )
+  `;
+  const presentInterviewColumns = new Set(
+    interviewColumns.map((row) => `${row.table_name}.${row.column_name}`),
+  );
+  const missingInterviewColumns = Object.entries(requiredInterviewColumns).flatMap(
+    ([tableName, columns]) =>
+      columns
+        .map((columnName) => `${tableName}.${columnName}`)
+        .filter((qualifiedName) => !presentInterviewColumns.has(qualifiedName)),
+  );
+  console.log(
+    "[check-prod-db-drift] interview v2 columns:",
+    missingInterviewColumns.length === 0 ? "OK" : `MISSING (${missingInterviewColumns.join(", ")})`
   );
 
   const metaSchemas = await sql`
@@ -113,6 +164,13 @@ try {
   if (missingInterviewTables.length > 0) {
     console.error(
       `[check-prod-db-drift] interview session tables がありません (${missingInterviewTables.join(", ")})。面接対策は 500 / 503 になり得ます。make deploy-migrate を実行してください。`
+    );
+    process.exitCode = 1;
+  }
+
+  if (missingInterviewColumns.length > 0) {
+    console.error(
+      `[check-prod-db-drift] interview v2 必須カラムが不足しています (${missingInterviewColumns.join(", ")})。面接対策は 503 になり得ます。make deploy-migrate を実行してください。`
     );
     process.exitCode = 1;
   }

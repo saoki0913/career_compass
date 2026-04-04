@@ -745,8 +745,6 @@ export const motivationConversations = pgTable(
     selectedRoleSource: text("selected_role_source"),
     desiredWork: text("desired_work"),
     questionStage: text("question_stage"),
-    lastSuggestions: text("last_suggestions"),
-    lastSuggestionOptions: text("last_suggestion_options"),
     lastEvidenceCards: text("last_evidence_cards"),
     stageStatus: text("stage_status"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
@@ -784,6 +782,15 @@ export const interviewConversations = pgTable(
     selectedIndustry: text("selected_industry"),
     selectedRole: text("selected_role"),
     selectedRoleSource: text("selected_role_source"),
+    roleTrack: text("role_track"),
+    interviewFormat: text("interview_format"),
+    selectionType: text("selection_type"),
+    interviewStage: text("interview_stage"),
+    interviewerType: text("interviewer_type"),
+    strictnessMode: text("strictness_mode"),
+    interviewPlanJson: text("interview_plan_json"),
+    turnStateJson: text("turn_state_json"),
+    turnMetaJson: text("turn_meta_json"),
     activeFeedbackDraft: text("active_feedback_draft"),
     currentFeedbackId: text("current_feedback_id"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
@@ -813,9 +820,15 @@ export const interviewFeedbackHistories = pgTable(
     scores: text("scores").notNull().default("{}"),
     strengths: text("strengths").notNull().default("[]"),
     improvements: text("improvements").notNull().default("[]"),
+    consistencyRisks: text("consistency_risks").notNull().default("[]"),
+    weakestQuestionType: text("weakest_question_type"),
+    weakestTurnId: text("weakest_turn_id"),
+    weakestQuestionSnapshot: text("weakest_question_snapshot"),
+    weakestAnswerSnapshot: text("weakest_answer_snapshot"),
     improvedAnswer: text("improved_answer").notNull().default(""),
     preparationPoints: text("preparation_points").notNull().default("[]"),
     premiseConsistency: integer("premise_consistency").notNull().default(0),
+    satisfactionScore: integer("satisfaction_score"),
     sourceQuestionCount: integer("source_question_count").notNull().default(0),
     sourceMessagesSnapshot: text("source_messages_snapshot").notNull().default("[]"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
@@ -824,6 +837,41 @@ export const interviewFeedbackHistories = pgTable(
     check("interview_feedback_histories_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("interview_feedback_histories_company_idx").on(t.companyId, t.createdAt),
     index("interview_feedback_histories_conversation_idx").on(t.conversationId, t.createdAt),
+  ]
+);
+
+export const interviewTurnEvents = pgTable(
+  "interview_turn_events",
+  {
+    id: text("id").primaryKey(),
+    turnId: text("turn_id").notNull(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => interviewConversations.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    guestId: text("guest_id").references(() => guestUsers.id, { onDelete: "cascade" }),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    question: text("question").notNull().default(""),
+    answer: text("answer").notNull().default(""),
+    topic: text("topic"),
+    questionType: text("question_type"),
+    turnAction: text("turn_action"),
+    followupStyle: text("followup_style"),
+    intentKey: text("intent_key"),
+    coverageChecklistSnapshot: text("coverage_checklist_snapshot").notNull().default("{}"),
+    deterministicCoveragePassed: boolean("deterministic_coverage_passed").notNull().default(false),
+    llmCoverageHint: text("llm_coverage_hint"),
+    formatPhase: text("format_phase"),
+    formatGuardApplied: text("format_guard_applied"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    check("interview_turn_events_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
+    index("interview_turn_events_conversation_idx").on(t.conversationId, t.createdAt),
+    index("interview_turn_events_company_idx").on(t.companyId, t.createdAt),
+    index("interview_turn_events_turn_id_idx").on(t.turnId),
   ]
 );
 

@@ -63,4 +63,51 @@ describe("api-errors", () => {
     expect(error.developerMessage).toBeUndefined();
     expect(error.details).toBeUndefined();
   });
+
+  it("normalizes structured 401 errors to the shared login prompt", async () => {
+    const response = new Response(
+      JSON.stringify({
+        error: {
+          code: "INTERVIEW_AUTH_REQUIRED",
+          userMessage: "面接対策を利用するには認証が必要です。",
+          action: "ログイン、またはゲスト状態を確認してから、もう一度お試しください。",
+        },
+      }),
+      { status: 401, headers: { "Content-Type": "application/json" } },
+    );
+
+    const error = await parseApiErrorResponse(
+      response,
+      {
+        code: "FALLBACK",
+        userMessage: "失敗しました。",
+      },
+      "api-errors:test",
+    );
+
+    expect(error.code).toBe("INTERVIEW_AUTH_REQUIRED");
+    expect(error.message).toBe("ログインが必要です。");
+    expect(error.action).toBe("ログインしてから、もう一度お試しください。");
+  });
+
+  it("normalizes legacy 401 errors to the shared login prompt", async () => {
+    const response = new Response(JSON.stringify({ error: "Authentication required" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const error = await parseApiErrorResponse(
+      response,
+      {
+        code: "FALLBACK",
+        userMessage: "失敗しました。",
+        authMessage: "カスタム認証文言",
+      },
+      "api-errors:test",
+    );
+
+    expect(error.code).toBe("AUTH_REQUIRED");
+    expect(error.message).toBe("ログインが必要です。");
+    expect(error.action).toBe("ログインしてから、もう一度お試しください。");
+  });
 });

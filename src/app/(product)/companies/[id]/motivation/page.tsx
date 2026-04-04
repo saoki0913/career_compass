@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -112,21 +112,32 @@ interface MotivationSetupSnapshot {
   hasSavedConversation: boolean;
 }
 
-interface SuggestionOption {
+type MotivationStageKey =
+  | "industry_reason"
+  | "company_reason"
+  | "self_connection"
+  | "desired_work"
+  | "value_contribution"
+  | "differentiation"
+  | "closing";
+
+type ConversationMode = "slot_fill" | "deepdive";
+
+interface MotivationProgress {
+  completed: number;
+  total: number;
+  current_slot: Exclude<MotivationStageKey, "closing"> | null;
+  current_slot_label: string | null;
+  current_intent: string | null;
+  next_advance_condition: string | null;
+  mode: ConversationMode;
+}
+
+interface CausalGap {
   id: string;
-  label: string;
-  sourceType: string;
-  intent:
-    | "industry_reason"
-    | "company_reason"
-    | "self_connection"
-    | "desired_work"
-    | "value_contribution"
-    | "differentiation"
-    | "closing";
-  evidenceSourceIds?: string[];
-  rationale?: string | null;
-  isTentative?: boolean;
+  slot: Exclude<MotivationStageKey, "closing">;
+  reason: string;
+  promptHint: string;
 }
 
 interface EvidenceCard {
@@ -139,12 +150,12 @@ interface EvidenceCard {
 }
 
 interface StageStatus {
-  current: SuggestionOption["intent"];
-  completed: SuggestionOption["intent"][];
-  pending: SuggestionOption["intent"][];
+  current: MotivationStageKey;
+  completed: MotivationStageKey[];
+  pending: MotivationStageKey[];
 }
 
-const STAGE_LABELS: Record<SuggestionOption["intent"], string> = {
+const STAGE_LABELS: Record<MotivationStageKey, string> = {
   industry_reason: "業界志望理由を整理中",
   company_reason: "企業志望理由を整理中",
   self_connection: "自分との接続を整理中",
@@ -154,7 +165,7 @@ const STAGE_LABELS: Record<SuggestionOption["intent"], string> = {
   closing: "仕上げを整理中",
 };
 
-const STAGE_ORDER: SuggestionOption["intent"][] = [
+const STAGE_ORDER: MotivationStageKey[] = [
   "industry_reason",
   "company_reason",
   "self_connection",
@@ -164,7 +175,7 @@ const STAGE_ORDER: SuggestionOption["intent"][] = [
   "closing",
 ];
 
-const STAGE_ANSWER_GUIDE: Record<SuggestionOption["intent"], string> = {
+const STAGE_ANSWER_GUIDE: Record<MotivationStageKey, string> = {
   industry_reason: "その業界を志望する理由を1文で答える",
   company_reason: "この企業のどこに惹かれたかを1文で答える",
   self_connection: "自分の経験や価値観がどうつながるかを1文で答える",
@@ -172,6 +183,24 @@ const STAGE_ANSWER_GUIDE: Record<SuggestionOption["intent"], string> = {
   value_contribution: "入社後にどう価値を出したいかを1文で答える",
   differentiation: "他社ではなくこの企業を選ぶ理由を1文で答える",
   closing: "最後に伝えたい目標を短くまとめる",
+};
+
+const CONVERSATION_MODE_LABELS: Record<ConversationMode, string> = {
+  slot_fill: "材料を集めています",
+  deepdive: "弱い部分を補強しています",
+};
+
+const INTENT_LABELS: Record<string, string> = {
+  initial_capture: "まず要点を回収します",
+  clarify_axis: "志望軸を明確にします",
+  specificity_check: "抽象さを具体化します",
+  company_unique_point: "その企業ならではを確認します",
+  experience_anchor: "経験とのつながりを補います",
+  value_anchor: "価値観との接続を補います",
+  role_reason_capture: "なぜその職種かを補います",
+  work_image_clarify: "仕事のイメージを明確にします",
+  contribution_shape: "貢献の形を明確にします",
+  compare_or_unique_point: "他社との差分を確認します",
 };
 
 function buildHeaders(): Record<string, string> {
@@ -183,62 +212,6 @@ function buildHeaders(): Record<string, string> {
 function findRoleOption(roleGroups: RoleGroup[], value: string | null | undefined) {
   if (!value) return null;
   return roleGroups.flatMap((group) => group.options).find((option) => option.value === value) || null;
-}
-
-function SuggestionChips({
-  suggestionOptions,
-  stage,
-  onSelect,
-  disabled = false,
-}: {
-  suggestionOptions: SuggestionOption[];
-  stage?: SuggestionOption["intent"] | null;
-  onSelect: (text: string) => void;
-  disabled?: boolean;
-}) {
-  if (suggestionOptions.length === 0) return null;
-
-  const isWorkStage = stage === "desired_work";
-  const isReasonStage = stage === "company_reason";
-
-  return (
-    <div className="mt-3">
-      <div className="mb-2 space-y-1">
-        <p className="text-xs font-medium text-foreground/80">
-          {stage ? STAGE_ANSWER_GUIDE[stage] : "候補を選ぶか、そのまま入力"}
-        </p>
-        <p className="text-xs text-muted-foreground">候補を選ぶか、そのまま入力してください</p>
-      </div>
-      <div className={cn("gap-2", isWorkStage || isReasonStage ? "grid grid-cols-1" : "flex flex-wrap")}>
-        {suggestionOptions.map((option, index) => (
-          <button
-            key={`${option.id}-${index}`}
-            type="button"
-            onClick={() => !disabled && onSelect(option.label)}
-            disabled={disabled}
-            className={cn(
-              "rounded-xl border text-left transition-all duration-200 cursor-pointer",
-              isWorkStage || isReasonStage ? "w-full px-4 py-3" : "inline-flex items-center px-3 py-2 text-sm",
-              "border-border/70 bg-background text-foreground shadow-sm",
-              "hover:border-primary/40 hover:bg-primary/5",
-              "dark:hover:border-primary/40 dark:hover:bg-primary/10",
-              "active:scale-[0.97]",
-              "opacity-0 animate-fade-up",
-              index === 0 && "delay-100",
-              index === 1 && "delay-200",
-              index === 2 && "delay-300",
-              index === 3 && "delay-400",
-              disabled && "opacity-50 cursor-not-allowed pointer-events-none"
-            )}
-          >
-            <span className="block text-sm font-medium leading-6 [display:-webkit-box] [-webkit-line-clamp:3] [-webkit-box-orient:vertical] overflow-hidden">
-              {option.label}
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function MotivationEvidenceCards({
@@ -438,7 +411,6 @@ function MotivationDraftActionBar({
 
 function MotivationConversationContent() {
   const params = useParams();
-  const router = useRouter();
   const companyId = params.id as string;
   const { isLocked, activeOperationLabel, acquireLock, releaseLock } = useOperationLock();
 
@@ -453,10 +425,10 @@ function MotivationConversationContent() {
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [conversationLoadError, setConversationLoadError] = useState<string | null>(null);
-  const [suggestionOptions, setSuggestionOptions] = useState<SuggestionOption[]>([]);
   const [evidenceSummary, setEvidenceSummary] = useState<string | null>(null);
   const [evidenceCards, setEvidenceCards] = useState<EvidenceCard[]>([]);
-  const [, setGeneratedDraft] = useState<string | null>(null);
+  const [generatedDraft, setGeneratedDraft] = useState<string | null>(null);
+  const [generatedDocumentId, setGeneratedDocumentId] = useState<string | null>(null);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isStartingConversation, setIsStartingConversation] = useState(false);
@@ -465,9 +437,15 @@ function MotivationConversationContent() {
   const [streamingTargetText, setStreamingTargetText] = useState("");
   const [isTextStreaming, setIsTextStreaming] = useState(false);
   const [streamingSessionId, setStreamingSessionId] = useState(0);
-  const [questionStage, setQuestionStage] = useState<SuggestionOption["intent"] | null>(null);
+  const [questionStage, setQuestionStage] = useState<MotivationStageKey | null>(null);
   const [stageStatus, setStageStatus] = useState<StageStatus | null>(null);
   const [coachingFocus, setCoachingFocus] = useState<string | null>(null);
+  const [conversationMode, setConversationMode] = useState<ConversationMode>("slot_fill");
+  const [currentSlot, setCurrentSlot] = useState<Exclude<MotivationStageKey, "closing"> | null>(null);
+  const [currentIntent, setCurrentIntent] = useState<string | null>(null);
+  const [nextAdvanceCondition, setNextAdvanceCondition] = useState<string | null>(null);
+  const [progress, setProgress] = useState<MotivationProgress | null>(null);
+  const [causalGaps, setCausalGaps] = useState<CausalGap[]>([]);
   const [roleOptionsData, setRoleOptionsData] = useState<RoleOptionsResponse | null>(null);
   const [isRoleOptionsLoading, setIsRoleOptionsLoading] = useState(false);
   const [roleOptionsError, setRoleOptionsError] = useState<string | null>(null);
@@ -482,12 +460,17 @@ function MotivationConversationContent() {
     questionCount: number;
     isDraftReady: boolean;
     draftReadyJustUnlocked: boolean;
-    suggestionOptions: SuggestionOption[];
     evidenceSummary: string | null;
     evidenceCards: EvidenceCard[];
-    questionStage: SuggestionOption["intent"] | null;
+    questionStage: MotivationStageKey | null;
     stageStatus: StageStatus | null;
     coachingFocus: string | null;
+    conversationMode: ConversationMode;
+    currentSlot: Exclude<MotivationStageKey, "closing"> | null;
+    currentIntent: string | null;
+    nextAdvanceCondition: string | null;
+    progress: MotivationProgress | null;
+    causalGaps: CausalGap[];
   } | null>(null);
 
   const { displayedText: streamingText, isPlaybackComplete } = useStreamingTextPlayback(
@@ -514,12 +497,17 @@ function MotivationConversationContent() {
         setNextQuestion(pendingCompleteData.nextQuestion);
         setQuestionCount(pendingCompleteData.questionCount || 0);
         setIsDraftReady(pendingCompleteData.isDraftReady || false);
-        setSuggestionOptions(pendingCompleteData.suggestionOptions || []);
         setEvidenceSummary(pendingCompleteData.evidenceSummary || null);
         setEvidenceCards(pendingCompleteData.evidenceCards || []);
         setQuestionStage(pendingCompleteData.questionStage || null);
         setStageStatus(pendingCompleteData.stageStatus || null);
         setCoachingFocus(pendingCompleteData.coachingFocus || null);
+        setConversationMode(pendingCompleteData.conversationMode || "slot_fill");
+        setCurrentSlot(pendingCompleteData.currentSlot || null);
+        setCurrentIntent(pendingCompleteData.currentIntent || null);
+        setNextAdvanceCondition(pendingCompleteData.nextAdvanceCondition || null);
+        setProgress(pendingCompleteData.progress || null);
+        setCausalGaps(pendingCompleteData.causalGaps || []);
         setPendingCompleteData(null);
         setIsTextStreaming(false);
         setStreamingTargetText("");
@@ -570,13 +558,18 @@ function MotivationConversationContent() {
     nextQuestion?: string | null;
     questionCount?: number;
     isDraftReady?: boolean;
-    suggestionOptions?: SuggestionOption[];
     evidenceSummary?: string | null;
     evidenceCards?: EvidenceCard[];
     generatedDraft?: string | null;
-    questionStage?: SuggestionOption["intent"] | null;
+    questionStage?: MotivationStageKey | null;
     stageStatus?: StageStatus | null;
     coachingFocus?: string | null;
+    conversationMode?: ConversationMode;
+    currentSlot?: Exclude<MotivationStageKey, "closing"> | null;
+    currentIntent?: string | null;
+    nextAdvanceCondition?: string | null;
+    progress?: MotivationProgress | null;
+    causalGaps?: CausalGap[];
     conversationContext?: {
       selectedIndustry?: string | null;
       selectedRole?: string | null;
@@ -596,13 +589,18 @@ function MotivationConversationContent() {
     setNextQuestion(convData.nextQuestion ?? null);
     setQuestionCount(convData.questionCount || 0);
     setIsDraftReady(convData.isDraftReady || false);
-    setSuggestionOptions(convData.suggestionOptions || []);
     setEvidenceSummary(convData.evidenceSummary || null);
     setEvidenceCards(convData.evidenceCards || []);
     setGeneratedDraft(convData.generatedDraft || null);
     setQuestionStage(convData.questionStage || null);
     setStageStatus(convData.stageStatus || null);
     setCoachingFocus(convData.coachingFocus || null);
+    setConversationMode(convData.conversationMode || "slot_fill");
+    setCurrentSlot(convData.currentSlot || null);
+    setCurrentIntent(convData.currentIntent || null);
+    setNextAdvanceCondition(convData.nextAdvanceCondition || null);
+    setProgress(convData.progress || null);
+    setCausalGaps(convData.causalGaps || []);
     applySetupSelection(convData.setup, roleOptions, convData.conversationContext);
     setConversationLoadError(convData.error || null);
   }, [applySetupSelection]);
@@ -731,13 +729,18 @@ function MotivationConversationContent() {
         nextQuestion: null,
         questionCount: 0,
         isDraftReady: false,
-        suggestionOptions: [],
         evidenceSummary: null,
         evidenceCards: [],
         generatedDraft: null,
         questionStage: null,
         stageStatus: null,
         coachingFocus: null,
+        conversationMode: "slot_fill",
+        currentSlot: null,
+        currentIntent: null,
+        nextAdvanceCondition: null,
+        progress: null,
+        causalGaps: [],
         conversationContext: {
           selectedIndustry: roleData?.industry || companyData.company.industry,
           selectedRole: null,
@@ -782,13 +785,19 @@ function MotivationConversationContent() {
       setQuestionCount(0);
       setIsDraftReady(false);
       setAnswer("");
-      setSuggestionOptions([]);
       setEvidenceSummary(null);
       setEvidenceCards([]);
       setGeneratedDraft(null);
+      setGeneratedDocumentId(null);
       setQuestionStage(null);
       setStageStatus(null);
       setCoachingFocus(null);
+      setConversationMode("slot_fill");
+      setCurrentSlot(null);
+      setCurrentIntent(null);
+      setNextAdvanceCondition(null);
+      setProgress(null);
+      setCausalGaps([]);
       setConversationLoadError(null);
       setSetupSnapshot(null);
       setSelectedIndustry("");
@@ -902,9 +911,8 @@ function MotivationConversationContent() {
     setupSnapshot?.resolvedIndustry,
   ]);
 
-  // Send answer (from chip click or free-text input)
-  const handleSend = async (chipText?: string) => {
-    const textToSend = chipText || answer.trim();
+  const handleSend = async () => {
+    const textToSend = answer.trim();
     if (!textToSend || isSending) return;
     if (!acquireLock("AIに送信中")) {
       setError(`${activeOperationLabel || "別の操作"}が進行中です。完了までお待ちください。`);
@@ -921,7 +929,6 @@ function MotivationConversationContent() {
 
     setMessages((prev) => [...prev, optimisticMessage]);
     setAnswer("");
-    setSuggestionOptions([]);
     setIsSending(true);
     setIsWaitingForResponse(true);
     setError(null);
@@ -1001,12 +1008,17 @@ function MotivationConversationContent() {
               questionCount: data.questionCount || 0,
               isDraftReady: data.isDraftReady || false,
               draftReadyJustUnlocked: data.draftReadyJustUnlocked || false,
-              suggestionOptions: data.suggestionOptions || [],
               evidenceSummary: data.evidenceSummary || null,
               evidenceCards: data.evidenceCards || [],
               questionStage: data.questionStage || null,
               stageStatus: data.stageStatus || null,
               coachingFocus: data.coachingFocus || null,
+              conversationMode: data.conversationMode || "slot_fill",
+              currentSlot: data.currentSlot || null,
+              currentIntent: data.currentIntent || null,
+              nextAdvanceCondition: data.nextAdvanceCondition || null,
+              progress: data.progress || null,
+              causalGaps: data.causalGaps || [],
             };
             const questionForPlayback =
               typeof nextData.nextQuestion === "string"
@@ -1029,12 +1041,17 @@ function MotivationConversationContent() {
               setNextQuestion(nextData.nextQuestion);
               setQuestionCount(nextData.questionCount);
               setIsDraftReady(nextData.isDraftReady);
-              setSuggestionOptions(nextData.suggestionOptions);
               setEvidenceSummary(nextData.evidenceSummary);
               setEvidenceCards(nextData.evidenceCards);
               setQuestionStage(nextData.questionStage);
               setStageStatus(nextData.stageStatus);
               setCoachingFocus(nextData.coachingFocus || null);
+              setConversationMode(nextData.conversationMode || "slot_fill");
+              setCurrentSlot(nextData.currentSlot || null);
+              setCurrentIntent(nextData.currentIntent || null);
+              setNextAdvanceCondition(nextData.nextAdvanceCondition || null);
+              setProgress(nextData.progress || null);
+              setCausalGaps(nextData.causalGaps || []);
               if (nextData.draftReadyJustUnlocked) {
                 notifyMotivationDraftReady();
               }
@@ -1084,7 +1101,7 @@ function MotivationConversationContent() {
     }
   };
 
-  // Generate ES draft and redirect to ES editor
+  // Generate ES draft and continue with optional post-draft deepdive on the same screen.
   const handleGenerateDraft = async () => {
     if (isGeneratingDraft || messages.length === 0 || !isDraftReady || isStartingConversation) return;
     if (!acquireLock("志望動機を生成中")) return;
@@ -1115,11 +1132,8 @@ function MotivationConversationContent() {
 
       const data = await response.json();
       setGeneratedDraft(data.draft);
-
-      // Redirect to ES editor if document was created
-      if (data.documentId) {
-        router.push(`/es/${data.documentId}`);
-      }
+      setGeneratedDocumentId(typeof data.documentId === "string" ? data.documentId : null);
+      await fetchData();
     } catch (err) {
       setError(
         getUserFacingErrorMessage(
@@ -1260,17 +1274,26 @@ function MotivationConversationContent() {
   const showSetupScreen = !hasStartedConversation;
   const disableSetupEditing = hasStartedConversation;
   const isCustomRoleActive = roleSelectionSource === "custom" && customRoleInput.trim().length > 0;
+  const isPostDraftMode = Boolean(generatedDraft?.trim()) && isDraftReady;
+  const motivationModeLabel = CONVERSATION_MODE_LABELS[conversationMode];
   const canGenerateDraft =
     isDraftReady &&
     messages.length >= 2 &&
     !showSetupScreen;
+  const activeStage = currentSlot || (questionStage !== "closing" ? questionStage : null);
+  const answerGuide = activeStage ? STAGE_ANSWER_GUIDE[activeStage] : "1〜2文で答えてください。";
+  const currentIntentLabel = currentIntent ? (INTENT_LABELS[currentIntent] || currentIntent) : null;
+  const currentSlotLabel = progress?.current_slot_label || (activeStage ? STAGE_LABELS[activeStage] : null);
+  const progressCompleted = progress?.completed ?? 0;
+  const progressTotal = progress?.total ?? 6;
 
   const draftHelperText = (() => {
     if (isGeneratingDraft) return "会話内容をもとに志望動機ESを生成しています。";
     if (showSetupScreen) return "質問開始後に、会話内容をもとに志望動機ESを作成できます。";
+    if (isPostDraftMode) return "ES作成後の補足深掘りです。必要な材料だけを追加で整理できます。";
     if (!isDraftReady) return "十分な材料が揃うと作成できます。会話は途中でも続けられます。";
     if (isLocked) return "進行中の処理が終わると、志望動機ESを作成できます。";
-    return "会話内容から志望動機ESを自動生成して、編集画面へ移動します。";
+    return "会話内容から志望動機ESを生成できます。必要なら生成後に追加で深掘りできます。";
   })();
 
   return (
@@ -1292,6 +1315,11 @@ function MotivationConversationContent() {
                 <h1 className="text-xl font-bold">志望動機を作成</h1>
                 <div className="hidden h-1.5 w-1.5 rounded-full bg-muted-foreground/30 lg:block" />
                 <p className="text-sm text-muted-foreground">{company.name}</p>
+                {!showSetupScreen ? (
+                  <Badge variant={isPostDraftMode ? "soft-info" : "outline"} className="px-3 py-1 text-[11px]">
+                    {motivationModeLabel}
+                  </Badge>
+                ) : null}
               </div>
             </div>
           </div>
@@ -1314,10 +1342,10 @@ function MotivationConversationContent() {
           <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-card">
             <div className="border-b border-border/50 px-3 py-3 sm:px-4 lg:hidden">
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                {questionStage ? (
-                  <span className="text-sm font-medium text-muted-foreground">{STAGE_LABELS[questionStage]}</span>
+                {activeStage ? (
+                  <span className="text-sm font-medium text-muted-foreground">{STAGE_LABELS[activeStage]}</span>
                 ) : (
-                  <span className="text-sm font-medium text-muted-foreground">深掘りを進行中</span>
+                  <span className="text-sm font-medium text-muted-foreground">{motivationModeLabel}</span>
                 )}
                 {hasSavedConversation ? (
                   <Button
@@ -1535,22 +1563,25 @@ function MotivationConversationContent() {
                     <ThinkingIndicator text={streamingLabel || "次の質問を考え中"} />
                   ) : showStandaloneQuestion ? (
                     <div className="space-y-3">
-                      {coachingFocus && (
+                      <div className="flex flex-wrap gap-2">
                         <div className="inline-flex items-center rounded-full border border-border/60 bg-background px-3 py-1 text-[11px] text-muted-foreground">
-                          今回の狙い: <span className="ml-1 font-medium text-foreground/80">{coachingFocus}</span>
+                          {motivationModeLabel}
                         </div>
-                      )}
+                        {coachingFocus && (
+                          <div className="inline-flex items-center rounded-full border border-border/60 bg-background px-3 py-1 text-[11px] text-muted-foreground">
+                            今回の狙い: <span className="ml-1 font-medium text-foreground/80">{coachingFocus}</span>
+                          </div>
+                        )}
+                      </div>
+                      {(currentSlotLabel || nextAdvanceCondition || currentIntentLabel) ? (
+                        <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-3 text-xs leading-6 text-muted-foreground">
+                          {currentSlotLabel ? <p>今確認していること: <span className="font-medium text-foreground/80">{currentSlotLabel}</span></p> : null}
+                          {currentIntentLabel ? <p>今回知りたいこと: <span className="font-medium text-foreground/80">{currentIntentLabel}</span></p> : null}
+                          {nextAdvanceCondition ? <p>次に進む条件: <span className="font-medium text-foreground/80">{nextAdvanceCondition}</span></p> : null}
+                          <p>回答の目安: <span className="font-medium text-foreground/80">{answerGuide}</span></p>
+                        </div>
+                      ) : null}
                       <ChatMessage role="assistant" content={nextQuestion} />
-                      {!isWaitingForResponse && suggestionOptions.length > 0 && (
-                        <div className="-mt-1 pl-2">
-                          <SuggestionChips
-                            suggestionOptions={suggestionOptions}
-                            stage={questionStage}
-                            onSelect={(text) => handleSend(text)}
-                            disabled={isSending || isLocked}
-                          />
-                        </div>
-                      )}
                       {(evidenceCards.length > 0 || evidenceSummary) && (
                         <div className="lg:hidden">
                           <MotivationEvidenceSection
@@ -1563,17 +1594,6 @@ function MotivationConversationContent() {
                       )}
                     </div>
                   ) : null}
-
-                  {!isWaitingForResponse && !isTextStreaming && !showStandaloneQuestion && suggestionOptions.length > 0 && (
-                    <div className="pl-2">
-                      <SuggestionChips
-                        suggestionOptions={suggestionOptions}
-                        stage={questionStage}
-                        onSelect={(text) => handleSend(text)}
-                        disabled={isSending || isLocked}
-                      />
-                    </div>
-                  )}
 
                   {!isWaitingForResponse && !isTextStreaming && !showStandaloneQuestion && (evidenceCards.length > 0 || evidenceSummary) && (
                     <div className="lg:hidden">
@@ -1652,7 +1672,7 @@ function MotivationConversationContent() {
                   onChange={setAnswer}
                   onSend={() => handleSend()}
                   disabled={isSending || !nextQuestion || isLocked || showSetupScreen}
-                  placeholder="回答を入力..."
+                  placeholder={answerGuide}
                   className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0"
                 />
               )}
@@ -1714,8 +1734,38 @@ function MotivationConversationContent() {
                     </div>
                   ) : (
                     <>
-                      {questionStage && (
-                        <p className="mb-2 text-xs text-center text-muted-foreground">{STAGE_LABELS[questionStage]}</p>
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        <Badge variant={isPostDraftMode ? "soft-info" : "outline"} className="px-3 py-1 text-[11px]">
+                          {motivationModeLabel}
+                        </Badge>
+                        {generatedDraft ? (
+                          <Badge variant="soft-success" className="px-3 py-1 text-[11px]">
+                            ES下書き生成済み
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+                        <p className="text-xs text-muted-foreground">
+                          進捗: <span className="font-medium text-foreground/80">{progressCompleted}項目 / {progressTotal}項目</span>
+                        </p>
+                        {currentSlotLabel ? (
+                          <p className="text-xs text-muted-foreground">
+                            今確認していること: <span className="font-medium text-foreground/80">{currentSlotLabel}</span>
+                          </p>
+                        ) : null}
+                        {currentIntentLabel ? (
+                          <p className="text-xs text-muted-foreground">
+                            今回知りたいこと: <span className="font-medium text-foreground/80">{currentIntentLabel}</span>
+                          </p>
+                        ) : null}
+                        {nextAdvanceCondition ? (
+                          <p className="text-xs text-muted-foreground">
+                            次に進む条件: <span className="font-medium text-foreground/80">{nextAdvanceCondition}</span>
+                          </p>
+                        ) : null}
+                      </div>
+                      {activeStage && (
+                        <p className="mb-2 pt-2 text-xs text-center text-muted-foreground">{STAGE_LABELS[activeStage]}</p>
                       )}
                       {coachingFocus && (
                         <p className="mb-2 text-xs text-center text-muted-foreground">
@@ -1725,6 +1775,18 @@ function MotivationConversationContent() {
                       <div className="mt-3">
                         <MotivationStageTracker stageStatus={stageStatus} />
                       </div>
+                      {conversationMode === "deepdive" && causalGaps.length > 0 ? (
+                        <div className="mt-3 rounded-xl border border-border/60 bg-background px-4 py-3">
+                          <p className="text-xs font-medium text-foreground">補強対象</p>
+                          <div className="mt-2 space-y-2">
+                            {causalGaps.slice(0, 2).map((gap) => (
+                              <p key={gap.id} className="text-xs leading-5 text-muted-foreground">
+                                {gap.reason}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                     </>
                   )}
                 </CardContent>
@@ -1749,6 +1811,27 @@ function MotivationConversationContent() {
                   )}
                 </CardContent>
               </Card>
+
+              {generatedDraft ? (
+                <Card className="border-border/50">
+                  <CardHeader className="px-3.5 py-2.5">
+                    <CardTitle className="text-sm font-medium">生成した下書き</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 px-3.5 pb-3.5 pt-0">
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      志望動機 ES の下書きは保存済みです。必要ならこのまま補足質問に答えて、企業理由や原体験を強められます。
+                    </p>
+                    {generatedDocumentId ? (
+                      <Button asChild variant="outline" className="w-full">
+                        <Link href={`/es/${generatedDocumentId}`}>ESを編集する</Link>
+                      </Button>
+                    ) : null}
+                    <Button asChild className="w-full">
+                      <Link href={`/companies/${companyId}/interview`}>この志望動機をもとに面接対策へ進む</Link>
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : null}
             </div>
           </div>
         </div>

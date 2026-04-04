@@ -3,10 +3,17 @@ import { NextRequest } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import { DEFAULT_INTERVIEW_SESSION_CREDIT_COST } from "@/lib/credits";
+import {
+  normalizeInterviewTurnMeta,
+  type InterviewPlan,
+  type InterviewTurnMeta,
+} from "@/lib/interview/session";
 
 import {
   buildInterviewContext,
+  normalizeInterviewPlanValue,
   saveInterviewConversationProgress,
+  saveInterviewTurnEvent,
   validateInterviewTurnState,
 } from "../shared";
 import {
@@ -27,12 +34,12 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const identity = await getRequestIdentity(request);
-  if (!identity) {
+  if (!identity?.userId) {
     return createApiErrorResponse(request, {
       status: 401,
       code: "INTERVIEW_AUTH_REQUIRED",
-      userMessage: "面接対策を利用するには認証が必要です。",
-      action: "ログイン、またはゲスト状態を確認してから、もう一度お試しください。",
+      userMessage: "ログインが必要です。",
+      action: "ログインしてから、もう一度お試しください。",
     });
   }
 
@@ -77,20 +84,35 @@ export async function POST(
       company_summary: context.companySummary,
       motivation_summary: context.motivationSummary,
       gakuchika_summary: context.gakuchikaSummary,
+      academic_summary: context.academicSummary,
+      research_summary: context.researchSummary,
       es_summary: context.esSummary,
       conversation_history: context.conversation.messages,
       turn_state: context.conversation.turnState,
       selected_industry: context.setup.selectedIndustry,
       selected_role: context.setup.selectedRole,
       selected_role_source: context.setup.selectedRoleSource,
+      role_track: context.setup.roleTrack,
+      interview_format: context.setup.interviewFormat,
+      selection_type: context.setup.selectionType,
+      interview_stage: context.setup.interviewStage,
+      interviewer_type: context.setup.interviewerType,
+      strictness_mode: context.setup.strictnessMode,
+      interview_plan: context.conversation.plan,
       latest_feedback: {
         overall_comment: latestFeedback.overallComment,
         scores: latestFeedback.scores,
         strengths: latestFeedback.strengths,
         improvements: latestFeedback.improvements,
         improved_answer: latestFeedback.improvedAnswer,
-        preparation_points: latestFeedback.preparationPoints,
+        next_preparation: latestFeedback.nextPreparation,
+        consistency_risks: latestFeedback.consistencyRisks,
+        weakest_question_type: latestFeedback.weakestQuestionType,
+        weakest_turn_id: latestFeedback.weakestTurnId,
+        weakest_question_snapshot: latestFeedback.weakestQuestionSnapshot,
+        weakest_answer_snapshot: latestFeedback.weakestAnswerSnapshot,
         premise_consistency: latestFeedback.premiseConsistency,
+        satisfaction_score: latestFeedback.satisfactionScore,
       },
       seed_summary: buildSeedSummary(context.materials),
     },
@@ -109,6 +131,9 @@ export async function POST(
       const turnState =
         validateInterviewTurnState(upstreamData.turn_state ?? null) ??
         context.conversation!.turnState;
+      const turnMeta: InterviewTurnMeta | null = normalizeInterviewTurnMeta(upstreamData.turn_meta ?? null);
+      const plan: InterviewPlan | null =
+        normalizeInterviewPlanValue(upstreamData.interview_plan ?? null) ?? context.conversation!.plan ?? null;
 
       await saveInterviewConversationProgress({
         conversationId: context.conversation!.id,
@@ -116,24 +141,49 @@ export async function POST(
         messages,
         turnState,
         status: "in_progress",
+        turnMeta,
+        plan,
+      });
+      await saveInterviewTurnEvent({
+        conversationId: context.conversation!.id,
+        companyId,
+        identity,
+        turnId:
+          turnState.recentQuestionSummariesV2.at(-1)?.turnId ??
+          `turn-${turnState.turnCount || context.conversation!.questionCount + 1}`,
+        question,
+        answer: "",
+        questionType:
+          typeof upstreamData.question_stage === "string"
+            ? upstreamData.question_stage
+            : turnState.currentTopic,
+        turnState,
+        turnMeta,
       });
 
       return {
         messages,
-        questionCount: turnState.totalQuestionCount,
-        stageStatus: upstreamData.stage_status ?? context.conversation!.stageStatus,
+        questionCount: turnState.turnCount,
+        stageStatus:
+          upstreamData.stage_status ?? {
+            currentTopicLabel: turnMeta?.interviewSetupNote ?? turnState.currentTopic,
+            coveredTopics: turnState.coveredTopics,
+            remainingTopics: turnState.remainingTopics,
+          },
         questionStage:
           typeof upstreamData.question_stage === "string"
             ? upstreamData.question_stage
-            : turnState.currentStage,
+            : turnState.currentTopic,
         focus:
           typeof upstreamData.focus === "string" && upstreamData.focus.trim().length > 0
             ? upstreamData.focus.trim()
-            : turnState.lastQuestionFocus,
+            : turnMeta?.topic ?? turnState.currentTopic,
         feedback: null,
         questionFlowCompleted: false,
         creditCost: DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
         turnState,
+        turnMeta,
+        plan,
         transitionLine,
         feedbackHistories: context.feedbackHistories,
       };

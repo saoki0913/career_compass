@@ -45,6 +45,9 @@ def test_summarize_review_meta_records_reports_retry_quality_and_token_usage() -
                 "length_policy": "soft_ok",
                 "weak_evidence_notice": True,
                 "rewrite_validation_status": "soft_ok",
+                "fallback_triggered": True,
+                "fallback_reason": "under_min",
+                "misclassification_recovery_applied": True,
                 "token_usage": {
                     "input_tokens": 90,
                     "output_tokens": 35,
@@ -76,7 +79,10 @@ def test_summarize_review_meta_records_reports_retry_quality_and_token_usage() -
         "weak_evidence_notice": 1,
         "soft_ok": 1,
         "soft_recovered": 1,
+        "fallback_triggered": 1,
+        "misclassification_recovery_applied": 1,
     }
+    assert summary["fallback_reasons"] == {"under_min": 1}
     assert summary["token_usage_totals"] == {
         "input_tokens": 210,
         "output_tokens": 75,

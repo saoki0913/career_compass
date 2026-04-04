@@ -1,4 +1,8 @@
-from app.prompts.es_templates import get_template_company_grounding_policy
+from app.prompts.es_templates import (
+    get_template_company_grounding_policy,
+    get_template_default_grounding_level,
+)
+from app.utils.es_template_classifier import classify_es_question
 from app.routers.es_review import (
     _assess_company_evidence_coverage,
     _build_template_content_type_boosts,
@@ -35,6 +39,24 @@ def test_company_grounding_policy_matches_template_family() -> None:
     assert get_template_company_grounding_policy("company_motivation") == "required"
     assert get_template_company_grounding_policy("gakuchika") == "assistive"
     assert get_template_company_grounding_policy("self_pr") == "assistive"
+
+
+def test_template_grounding_level_defaults_match_template_family() -> None:
+    assert get_template_default_grounding_level("company_motivation") == "deep"
+    assert get_template_default_grounding_level("role_course_reason") == "deep"
+    assert get_template_default_grounding_level("self_pr") == "light"
+    assert get_template_default_grounding_level("gakuchika") == "none"
+
+
+def test_classifier_returns_secondary_candidates_and_grounding_recommendation() -> None:
+    result = classify_es_question("デジタル企画コースを志望する理由を教えてください。")
+
+    assert result.predicted_template_type == "role_course_reason"
+    assert result.confidence == "high"
+    assert result.secondary_candidates == ["company_motivation"]
+    assert result.requires_company_rag is True
+    assert result.recommended_grounding_level == "deep"
+    assert "職種" in result.rationale or "コース" in result.rationale
 
 
 def test_build_company_evidence_cards_keeps_single_card_for_assistive_templates() -> None:

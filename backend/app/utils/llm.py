@@ -724,7 +724,7 @@ def _build_chat_response_format(
 class LLMError:
     """LLMエラーの詳細情報。"""
 
-    error_type: str  # "no_api_key", "billing", "rate_limit", "invalid_key", "network", "parse", "unknown"
+    error_type: str  # "no_api_key", "billing", "rate_limit", "invalid_key", "network", "parse", "refusal", "unknown"
     message: str  # ユーザー向けメッセージ（日本語）
     detail: str  # ログ用の技術的詳細
     provider: str  # "anthropic" または "openai"
@@ -751,6 +751,10 @@ class LLMResult:
     usage: dict[str, int] | None = None
     # API に渡した実モデル ID（ログ・コスト集計用）
     resolved_model: str | None = None
+
+
+class OpenAIResponsesRefusalError(RuntimeError):
+    """Structured Outputs refusal surfaced by the Responses API."""
 
 
 def merge_llm_usage_tokens(
@@ -1186,6 +1190,7 @@ def _create_error(
         "invalid_key": f"{provider_name}のAPIキーが無効です。正しいAPIキーを設定してください。",
         "network": f"{provider_name}への接続に失敗しました。ネットワーク接続を確認してください。",
         "parse": "AIからの応答を解析できませんでした。もう一度お試しください。",
+        "refusal": "AIが安全上の理由で応答を返せませんでした。入力内容や条件を見直して、もう一度お試しください。",
         "unknown": f"{feature_name}の処理中にエラーが発生しました。しばらくしてから再度お試しください。",
     }
 
@@ -1851,6 +1856,11 @@ async def call_llm_with_error(
         _log(feature, "応答の解析に失敗しました", ERROR)
         return LLMResult(success=False, error=error, raw_text=raw_response)
 
+    except OpenAIResponsesRefusalError as e:
+        error = _create_error("refusal", target.provider, feature, str(e))
+        _log(feature, f"{_provider_display_name(target.provider)} refusal: {e}", WARNING)
+        return LLMResult(success=False, error=error)
+
     except (AnthropicAPIError, OpenAIAPIError, httpx.HTTPError) as e:
         error_type, detail = _classify_error_for_provider(target.provider, e)
         fallback_model = None
@@ -2325,6 +2335,9 @@ async def call_llm_streaming_fields(
     feature: str | None = None,
     schema_hints: dict[str, str] | None = None,
     stream_string_fields: list[str] | None = None,
+    response_format: ResponseFormat = "json_object",
+    json_schema: dict | None = None,
+    use_responses_api: bool = False,
     attempt_repair_on_parse_failure: bool = True,
     partial_required_fields: tuple[str, ...] | None = None,
 ) -> AsyncGenerator["StreamFieldEvent", None]:
@@ -2360,6 +2373,9 @@ async def call_llm_streaming_fields(
             temperature=temperature,
             model=model,
             feature=feature,
+            response_format=response_format,
+            json_schema=json_schema,
+            use_responses_api=use_responses_api,
         )
         yield StreamFieldEvent(type="complete", result=result)
         return
@@ -2643,7 +2659,7 @@ def _should_use_openai_responses_api(
 ) -> bool:
     if provider != "openai":
         return False
-    return use_responses_api or feature == "es_review"
+    return use_responses_api or feature in {"es_review", "interview", "interview_feedback"}
 
 
 def _extract_openai_chat_usage_summary(response: Any) -> dict[str, int]:
@@ -2704,6 +2720,16 @@ def _openai_incomplete_due_to_max_output(response: Any) -> bool:
     if reason is None and isinstance(details, dict):
         reason = details.get("reason")
     return reason == "max_output_tokens"
+
+
+def _openai_structured_retry_max_output(feature: str, current_max: int) -> int:
+    if feature == "es_review":
+        return min(max(current_max * 4, 2048), 16384)
+    if feature == "interview_feedback":
+        return min(max(current_max * 2, 2000), 2400)
+    if feature == "interview":
+        return min(max(current_max * 2, 1400), 2400)
+    return current_max
 
 
 def _extract_openai_visible_text(response: Any) -> str:
@@ -2788,6 +2814,9 @@ def _parse_openai_responses_json_payload(
 
             for item in content_items:
                 if isinstance(item, dict):
+                    parsed_payload = item.get("parsed")
+                    if isinstance(parsed_payload, dict):
+                        return parsed_payload, candidates
                     json_payload = item.get("json")
                     if json_payload is not None:
                         if isinstance(json_payload, dict):
@@ -2800,6 +2829,9 @@ def _parse_openai_responses_json_payload(
                     if isinstance(text_payload, str) and text_payload:
                         candidates.append(text_payload)
                 else:
+                    parsed_payload = getattr(item, "parsed", None)
+                    if isinstance(parsed_payload, dict):
+                        return parsed_payload, candidates
                     json_payload = getattr(item, "json", None)
                     if json_payload is not None:
                         if isinstance(json_payload, dict):
@@ -2829,6 +2861,49 @@ def _parse_openai_responses_json_payload(
         _log(feature, f"Responses API JSON抽出エラー: {e}", ERROR)
 
     return None, candidates
+
+
+def _extract_openai_responses_refusal(response: Any) -> str | None:
+    refusal = getattr(response, "refusal", None)
+    if isinstance(refusal, str) and refusal.strip():
+        return refusal.strip()
+
+    for output in getattr(response, "output", None) or []:
+        block_refusal = getattr(output, "refusal", None)
+        if isinstance(block_refusal, str) and block_refusal.strip():
+            return block_refusal.strip()
+        if isinstance(output, dict):
+            dict_refusal = output.get("refusal")
+            if isinstance(dict_refusal, str) and dict_refusal.strip():
+                return dict_refusal.strip()
+
+        content_items = getattr(output, "content", None)
+        if content_items is None and isinstance(output, dict):
+            content_items = output.get("content")
+        if not content_items:
+            continue
+
+        for item in content_items:
+            if isinstance(item, dict):
+                item_refusal = item.get("refusal")
+                if isinstance(item_refusal, str) and item_refusal.strip():
+                    return item_refusal.strip()
+                if item.get("type") == "refusal":
+                    text = item.get("text") or item.get("output_text")
+                    if isinstance(text, str) and text.strip():
+                        return text.strip()
+                    return "refusal"
+            else:
+                item_refusal = getattr(item, "refusal", None)
+                if isinstance(item_refusal, str) and item_refusal.strip():
+                    return item_refusal.strip()
+                if getattr(item, "type", None) == "refusal":
+                    text = getattr(item, "text", None) or getattr(item, "output_text", None)
+                    if isinstance(text, str) and text.strip():
+                        return text.strip()
+                    return "refusal"
+
+    return None
 
 
 def _log_openai_empty_json_attempt(
@@ -2938,6 +3013,10 @@ async def _call_openai_responses(
                 f"OpenAI Responses API summary: output_text_len={output_text_len}",
             )
 
+        refusal = _extract_openai_responses_refusal(response)
+        if refusal:
+            raise OpenAIResponsesRefusalError(refusal)
+
         parsed, last_candidates = _parse_openai_responses_json_payload(response, feature)
         if parsed is not None:
             return parsed, usage_summary
@@ -2951,9 +3030,9 @@ async def _call_openai_responses(
         if (
             attempt == 0
             and _openai_incomplete_due_to_max_output(response)
-            and feature == "es_review"
+            and feature in {"es_review", "interview", "interview_feedback"}
         ):
-            boosted = min(max(effective_max * 4, 2048), 16384)
+            boosted = _openai_structured_retry_max_output(feature, effective_max)
             if boosted > effective_max:
                 _log(
                     feature,

@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 import app.routers.es_review as es_review_module
+from app.prompts.es_templates import TEMPLATE_DEFS
 from app.routers.es_review import (
     _coerce_degraded_rewrite_dearu_style,
     DocumentContext,
@@ -34,6 +35,7 @@ from app.routers.es_review import (
     _resolve_rewrite_focus_mode,
     _resolve_rewrite_focus_modes,
     _select_retry_codes,
+    _retry_hints_from_codes,
     _select_rewrite_prompt_context,
     _should_short_circuit_to_length_fix,
     _select_prompt_user_facts,
@@ -323,6 +325,87 @@ def test_validate_rewrite_candidate_accepts_soft_style_and_grounding_on_final_at
     assert retry_code == "soft_ok"
     assert retry_meta["soft_validation_applied"] is True
     assert set(retry_meta["soft_validation_codes"]) == {"grounding"}
+
+
+def test_validate_rewrite_candidate_uses_negative_self_eval_patterns_from_template_spec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    self_pr_spec = dict(TEMPLATE_DEFS["self_pr"])
+    evaluation_checks = dict(self_pr_spec.get("evaluation_checks", {}))
+    monkeypatch.setitem(
+        TEMPLATE_DEFS,
+        "self_pr",
+        {
+            **self_pr_spec,
+            "evaluation_checks": {
+                **evaluation_checks,
+                "negative_self_eval_patterns": ["準備不足"],
+            },
+        },
+    )
+
+    validated, retry_code, _, retry_meta = _validate_rewrite_candidate(
+        "私の強みは、準備不足を自覚した場面でも検証を重ねてやり切る点だ。",
+        template_type="self_pr",
+        question="自己PRを200字以内で教えてください。",
+        company_name=None,
+        char_min=20,
+        char_max=200,
+        issues=[],
+        role_name=None,
+        grounding_mode="none",
+        review_variant="standard",
+    )
+
+    assert validated is None
+    assert retry_code == "negative_self_eval"
+    assert "negative_self_eval" in retry_meta["failure_codes"]
+
+
+def test_retry_hints_use_template_spec_under_min_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    self_pr_spec = dict(TEMPLATE_DEFS["self_pr"])
+    retry_guidance = dict(self_pr_spec.get("retry_guidance", {}))
+    monkeypatch.setitem(
+        TEMPLATE_DEFS,
+        "self_pr",
+        {
+            **self_pr_spec,
+            "retry_guidance": {
+                **retry_guidance,
+                "under_min": "検証用の橋渡しを入れて不足字数を埋める",
+            },
+        },
+    )
+
+    hints = _retry_hints_from_codes(
+        retry_code="under_min",
+        failure_codes=["under_min"],
+        char_min=150,
+        char_max=220,
+        current_length=118,
+        length_control_mode="default",
+        template_type="self_pr",
+    )
+
+    assert hints == ["検証用の橋渡しを入れて不足字数を埋める"]
+
+
+def test_retry_hints_keep_dynamic_under_min_recovery_details_for_required_templates() -> None:
+    hints = _retry_hints_from_codes(
+        retry_code="under_min",
+        failure_codes=["under_min"],
+        char_min=150,
+        char_max=220,
+        current_length=118,
+        length_control_mode="under_min_recovery",
+        template_type="company_motivation",
+    )
+
+    assert len(hints) == 1
+    assert "新事実を足さず" in hints[0]
+    assert "既にある経験から企業接点と貢献への橋渡し" in hints[0]
 
 
 def test_es_review_temperature_uses_provider_defaultish_setting_for_gemini() -> None:
@@ -1362,7 +1445,7 @@ async def test_review_section_with_template_deterministically_expands_best_non_c
     responses = iter([
         _make_text(351),
         _make_text(351),
-        _make_text(394),
+        _make_role_course_pad(394),
     ])
 
     async def fake_call_llm_with_error(*args, **kwargs):
@@ -1934,14 +2017,72 @@ async def test_review_section_with_template_returns_generic_error_after_fallback
         progress_queue=None,
     )
 
-    assert rewrite_calls == 4
+    assert rewrite_calls == 5
     assert result.rewrites and result.rewrites[0].strip()
     assert result.review_meta is not None
+    assert result.review_meta.fallback_triggered is True
     assert result.review_meta.rewrite_validation_status == "degraded"
     assert result.review_meta.rewrite_validation_codes
     hint = result.review_meta.rewrite_validation_user_hint or ""
     assert "品質チェック" in hint
     assert "最小字数" in hint
+
+
+@pytest.mark.asyncio
+async def test_review_section_with_template_records_fallback_trigger_when_safe_rewrite_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rewrite_calls = 0
+
+    async def fake_call_llm_with_error(*args, **kwargs):
+        return FakeJsonResult(
+            {
+                "top3": [
+                    {
+                        "category": "設問適合",
+                        "issue": "設問の主眼がぶれている",
+                        "suggestion": "主張を一つに絞る",
+                    }
+                ]
+            }
+        )
+
+    async def fake_call_llm_text_with_error(*args, **kwargs):
+        nonlocal rewrite_calls
+        rewrite_calls += 1
+        system_prompt = kwargs.get("system_prompt") or ""
+        if "日本語のES編集者" in system_prompt:
+            return FakeTextResult(_make_role_course_pad(394))
+        return FakeTextResult(_make_text(350))
+
+    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
+    monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
+
+    request = ReviewRequest(
+        content="私は研究と開発経験を生かし、デジタル企画として価値を出したいです。",
+        section_title="デジタル企画を選択した理由を教えてください。",
+        template_request=TemplateRequest(
+            template_type="role_course_reason",
+            question="デジタル企画を選択した理由を教えてください。",
+            answer="私は研究と開発経験を生かし、デジタル企画として価値を出したいです。",
+            role_name="デジタル企画",
+            char_min=390,
+            char_max=400,
+        ),
+    )
+
+    result = await review_section_with_template(
+        request=request,
+        rag_sources=[],
+        company_rag_available=False,
+        progress_queue=None,
+    )
+
+    assert rewrite_calls >= 4
+    assert result.review_meta is not None
+    assert result.review_meta.fallback_triggered is True
+    assert result.review_meta.fallback_reason in {"under_min", "answer_focus"}
+    assert result.review_meta.rewrite_validation_status == "strict_ok"
 
 
 @pytest.mark.asyncio

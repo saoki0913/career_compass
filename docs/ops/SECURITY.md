@@ -47,22 +47,26 @@
 - `source-compliance/check` は 1 request あたり最大 10 URL に制限しています。
 - 429 は `RATE_LIMITED` の構造化 API error と `Retry-After` ヘッダを返し、`userMessage` は `しばらく待ってから再試行してください。` に統一します。
 
-## 法令・問い合わせ先（環境変数）
+## 法令・問い合わせ先（現行実装メモ）
 
-特商法ページや問い合わせ表示で使う文言は [`getCommerceDisclosure`](../../src/lib/legal/commerce-disclosure.ts) が `process.env` から組み立てます。
+就活Pass の本番方針は [`docs/release/INDIVIDUAL_BUSINESS_COMPLIANCE.md`](../release/INDIVIDUAL_BUSINESS_COMPLIANCE.md) を正本とし、`/legal` の公開文面はページ本文に直接記載します。
 
-**本番では次を明示的に設定することを推奨**します（未設定時はコード内デフォルトにフォールバックします）。
+一方、現行コードでは [`getCommerceDisclosure`](../../src/lib/legal/commerce-disclosure.ts) が `process.env` から文言を組み立てる実装も残っています。以下の `LEGAL_*` は、現行実装やフォーク環境で使うためのメモであり、就活Pass 本番公開方針の正本ではありません。
 
 | 変数 | 用途 |
 |------|------|
 | `LEGAL_SUPPORT_EMAIL` | サポート・表記用メール |
 | `LEGAL_SUPPORT_URL` | 問い合わせ URL（省略時はサイト内 `/contact`） |
 | `LEGAL_REFUND_POLICY_URL` | 返金ポリシーへのリンク |
+| `LEGAL_BUSINESS_NAME` | Stripe の Commerce Disclosure で表示する販売事業者名 |
+| `LEGAL_REPRESENTATIVE_NAME` | Stripe の Commerce Disclosure で表示する運営責任者名 |
+| `LEGAL_BUSINESS_ADDRESS` | Stripe の Commerce Disclosure で表示する所在地 |
+| `LEGAL_PHONE_NUMBER` | Stripe の Commerce Disclosure で表示する電話番号 |
 | `LEGAL_DISCLOSURE_REQUEST_EMAIL` | 開示請求受付メール（省略時はサポートメールと同じ） |
 | `LEGAL_DISCLOSURE_REQUEST_NOTICE` | 販売事業者・運営責任者・所在地・電話番号を「請求時に開示」とする注記文 |
 | `LEGAL_SALES_URL` | 特商法ページの販売 URL（省略時は `https://www.shupass.jp`） |
 
-テンプレートは [`.env.example`](../../.env.example) を参照。フォークやステージングでは、誤って本番の連絡先が載らないよう必ず上書きしてください。
+テンプレートは [`.env.example`](../../.env.example) を参照。就活Pass 本番の特商法ページ文言を確定させるときは、環境変数ではなく `/legal` の本文を更新してください。
 
 ## 公開マーケ素材と PII
 

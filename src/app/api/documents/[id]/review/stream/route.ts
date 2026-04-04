@@ -372,6 +372,7 @@ export async function handleReviewStream(
       }
     }
 
+    const inferredTemplateDetails = inferTemplateTypeDetailsFromQuestion(sectionTitle || "");
     let effectiveTemplateType: TemplateType;
     if (!companyId) {
       const resolved = resolveEffectiveTemplateTypeWithoutCompany(templateType, sectionTitle || "");
@@ -490,6 +491,11 @@ export async function handleReviewStream(
               char_max: sectionCharLimit || null,
               intern_name: internName || null,
               role_name: resolvedRoleContext.primary_role || null,
+              inferred_template_type: inferredTemplateDetails.templateType,
+              inferred_confidence: inferredTemplateDetails.confidence,
+              secondary_template_types: inferredTemplateDetails.secondaryCandidates,
+              classification_rationale: inferredTemplateDetails.rationale,
+              recommended_grounding_level: inferredTemplateDetails.recommendedGroundingLevel,
             }
           : null,
         role_context: resolvedRoleContext,

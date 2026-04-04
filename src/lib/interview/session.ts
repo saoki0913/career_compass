@@ -1,108 +1,240 @@
-export const DEFAULT_INTERVIEW_QUESTION_COUNT = 10;
-export const INTERVIEW_MIN_QUESTION_COUNT = 10;
-export const INTERVIEW_MAX_QUESTION_COUNT = 15;
-
-export const INTERVIEW_STAGE_ORDER = [
-  "industry_reason",
-  "role_reason",
-  "opening",
-  "experience",
-  "company_understanding",
-  "motivation_fit",
-  "feedback",
+export const ROLE_TRACK_OPTIONS = [
+  "biz_general",
+  "it_product",
+  "consulting",
+  "research_specialist",
+  "quant_finance",
 ] as const;
 
-export type InterviewStage = (typeof INTERVIEW_STAGE_ORDER)[number];
-export type InterviewQuestionStage = Exclude<InterviewStage, "feedback">;
+export const INTERVIEW_FORMAT_OPTIONS = [
+  "standard_behavioral",
+  "case",
+  "technical",
+  "discussion",
+  "presentation",
+] as const;
+
+export const SELECTION_TYPE_OPTIONS = ["internship", "fulltime"] as const;
+export const INTERVIEW_STAGE_OPTIONS = ["early", "mid", "final"] as const;
+export const INTERVIEWER_TYPE_OPTIONS = ["hr", "line_manager", "executive", "mixed_panel"] as const;
+export const STRICTNESS_MODE_OPTIONS = ["supportive", "standard", "strict"] as const;
+
+export type InterviewRoleTrack = (typeof ROLE_TRACK_OPTIONS)[number];
+export type InterviewFormat = (typeof INTERVIEW_FORMAT_OPTIONS)[number];
+export type InterviewSelectionType = (typeof SELECTION_TYPE_OPTIONS)[number];
+export type InterviewRoundStage = (typeof INTERVIEW_STAGE_OPTIONS)[number];
+export type InterviewerType = (typeof INTERVIEWER_TYPE_OPTIONS)[number];
+export type InterviewStrictnessMode = (typeof STRICTNESS_MODE_OPTIONS)[number];
+
+export type InterviewPlan = {
+  interviewType: string;
+  priorityTopics: string[];
+  openingTopic: string | null;
+  mustCoverTopics: string[];
+  riskTopics: string[];
+  suggestedTimeflow: string[];
+};
+
+export type InterviewCoverageStatus = "pending" | "active" | "covered" | "exhausted";
+
+export type InterviewCoverageState = {
+  topic: string;
+  status: InterviewCoverageStatus;
+  requiredChecklist: string[];
+  passedChecklistKeys: string[];
+  deterministicCoveragePassed: boolean;
+  llmCoverageHint: string | null;
+  deepeningCount: number;
+  lastCoveredTurnId: string | null;
+};
+
+export type InterviewRecentQuestionSummaryV2 = {
+  intentKey: string;
+  normalizedSummary: string;
+  topic: string | null;
+  followupStyle: string | null;
+  turnId: string | null;
+};
+
+export type InterviewFormatPhase =
+  | "opening"
+  | "standard_main"
+  | "case_main"
+  | "case_closing"
+  | "technical_main"
+  | "discussion_main"
+  | "presentation_main"
+  | "feedback";
 
 export type InterviewStageStatus = {
-  current: InterviewStage;
-  completed: InterviewStage[];
-  pending: InterviewStage[];
+  currentTopicLabel: string | null;
+  coveredTopics: string[];
+  remainingTopics: string[];
+};
+
+export type InterviewTurnMeta = {
+  topic: string | null;
+  turnAction: "ask" | "deepen" | "shift";
+  focusReason: string | null;
+  depthFocus: string | null;
+  followupStyle: string | null;
+  shouldMoveNext: boolean;
+  interviewSetupNote?: string | null;
+  intentKey?: string | null;
+  formatGuardApplied?: string | null;
+  coverageDecision?: string | null;
+  checklistDelta?: string[] | null;
 };
 
 export type InterviewTurnState = {
-  currentStage: InterviewStage;
-  totalQuestionCount: number;
-  stageQuestionCounts: Record<InterviewQuestionStage, number>;
-  completedStages: InterviewQuestionStage[];
-  lastQuestionFocus: string | null;
+  turnCount: number;
+  currentTopic: string | null;
+  coverageState: InterviewCoverageState[];
+  coveredTopics: string[];
+  remainingTopics: string[];
+  recentQuestionSummariesV2: InterviewRecentQuestionSummaryV2[];
+  formatPhase: InterviewFormatPhase;
+  lastQuestion: string | null;
+  lastAnswer: string | null;
+  lastTopic: string | null;
+  currentTurnMeta: InterviewTurnMeta | null;
   nextAction: "ask" | "feedback";
 };
 
-const QUESTION_STAGE_ORDER: InterviewQuestionStage[] = [
-  "industry_reason",
-  "role_reason",
-  "opening",
-  "experience",
-  "company_understanding",
-  "motivation_fit",
-];
+export function classifyInterviewRoleTrack(role: string | null | undefined): InterviewRoleTrack {
+  const text = (role || "").trim();
+  if (!text) return "biz_general";
+  if (/クオンツ|数理|アクチュアリ|トレーディング/i.test(text)) return "quant_finance";
+  if (/研究|研究員|R&D|シンクタンク|リサーチ/i.test(text)) return "research_specialist";
+  if (/コンサル|consult/i.test(text)) return "consulting";
+  if (/IT|DX|プロダクト|PdM|PM|エンジニア|開発|データ|SRE|アプリ/i.test(text)) return "it_product";
+  return "biz_general";
+}
 
-const STAGE_LABELS: Record<InterviewQuestionStage, string> = {
-  industry_reason: "業界志望理由",
-  role_reason: "職種志望理由",
-  opening: "導入・人物把握",
-  experience: "経験・ガクチカ",
-  company_understanding: "企業理解",
-  motivation_fit: "志望動機・適合",
-};
+function normalizeStringArray(value: unknown, maxItems = 16) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function normalizeOptionalString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeCoverageState(value: unknown): InterviewCoverageState[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+    .map((item) => ({
+      topic: normalizeOptionalString(item.topic) ?? "unknown_topic",
+      status: (
+        item.status === "active" || item.status === "covered" || item.status === "exhausted"
+          ? item.status
+          : "pending"
+      ) as InterviewCoverageStatus,
+      requiredChecklist: normalizeStringArray(item.requiredChecklist),
+      passedChecklistKeys: normalizeStringArray(item.passedChecklistKeys),
+      deterministicCoveragePassed: item.deterministicCoveragePassed === true,
+      llmCoverageHint: normalizeOptionalString(item.llmCoverageHint),
+      deepeningCount:
+        typeof item.deepeningCount === "number" && Number.isFinite(item.deepeningCount) && item.deepeningCount >= 0
+          ? Math.floor(item.deepeningCount)
+          : 0,
+      lastCoveredTurnId: normalizeOptionalString(item.lastCoveredTurnId),
+    }))
+    .slice(0, 24);
+}
+
+function normalizeRecentQuestionSummariesV2(value: unknown): InterviewRecentQuestionSummaryV2[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+    .map((item) => ({
+      intentKey: normalizeOptionalString(item.intentKey) ?? "unknown_intent",
+      normalizedSummary: normalizeOptionalString(item.normalizedSummary) ?? "",
+      topic: normalizeOptionalString(item.topic),
+      followupStyle: normalizeOptionalString(item.followupStyle),
+      turnId: normalizeOptionalString(item.turnId),
+    }))
+    .filter((item) => item.normalizedSummary.length > 0)
+    .slice(0, 8);
+}
+
+function normalizeFormatPhase(value: unknown): InterviewFormatPhase {
+  switch (value) {
+    case "standard_main":
+    case "case_main":
+    case "case_closing":
+    case "technical_main":
+    case "discussion_main":
+    case "presentation_main":
+    case "feedback":
+      return value;
+    default:
+      return "opening";
+  }
+}
+
+export function normalizeInterviewTurnMeta(
+  value: Partial<InterviewTurnMeta> | null | undefined,
+): InterviewTurnMeta | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const raw = value as Partial<InterviewTurnMeta> & {
+    turn_action?: unknown;
+    focus_reason?: unknown;
+    depth_focus?: unknown;
+    followup_style?: unknown;
+    should_move_next?: unknown;
+    interview_setup_note?: unknown;
+    intent_key?: unknown;
+    format_guard_applied?: unknown;
+    coverage_decision?: unknown;
+    checklist_delta?: unknown;
+  };
+
+  return {
+    topic: normalizeOptionalString(raw.topic),
+    turnAction:
+      raw.turnAction === "shift" || raw.turn_action === "shift"
+        ? "shift"
+        : raw.turnAction === "ask" || raw.turn_action === "ask"
+          ? "ask"
+          : "deepen",
+    focusReason: normalizeOptionalString(raw.focusReason ?? raw.focus_reason),
+    depthFocus: normalizeOptionalString(raw.depthFocus ?? raw.depth_focus),
+    followupStyle: normalizeOptionalString(raw.followupStyle ?? raw.followup_style),
+    shouldMoveNext: raw.shouldMoveNext === true || raw.should_move_next === true,
+    interviewSetupNote: normalizeOptionalString(raw.interviewSetupNote ?? raw.interview_setup_note),
+    intentKey: normalizeOptionalString(raw.intentKey ?? raw.intent_key),
+    formatGuardApplied: normalizeOptionalString(raw.formatGuardApplied ?? raw.format_guard_applied),
+    coverageDecision: normalizeOptionalString(raw.coverageDecision ?? raw.coverage_decision),
+    checklistDelta: Array.isArray(raw.checklistDelta ?? raw.checklist_delta)
+      ? normalizeStringArray((raw.checklistDelta ?? raw.checklist_delta) as unknown[], 16)
+      : null,
+  };
+}
 
 export function createInitialInterviewTurnState(): InterviewTurnState {
   return {
-    currentStage: "industry_reason",
-    totalQuestionCount: 0,
-    stageQuestionCounts: {
-      industry_reason: 0,
-      role_reason: 0,
-      opening: 0,
-      experience: 0,
-      company_understanding: 0,
-      motivation_fit: 0,
-    },
-    completedStages: [],
-    lastQuestionFocus: null,
+    turnCount: 0,
+    currentTopic: null,
+    coverageState: [],
+    coveredTopics: [],
+    remainingTopics: [],
+    recentQuestionSummariesV2: [],
+    formatPhase: "opening",
+    lastQuestion: null,
+    lastAnswer: null,
+    lastTopic: null,
+    currentTurnMeta: null,
     nextAction: "ask",
   };
-}
-
-export function getInterviewStageStatus(current: InterviewStage): InterviewStageStatus {
-  const currentIndex = INTERVIEW_STAGE_ORDER.indexOf(current);
-  return {
-    current,
-    completed: INTERVIEW_STAGE_ORDER.slice(0, currentIndex),
-    pending: INTERVIEW_STAGE_ORDER.slice(currentIndex + 1),
-  };
-}
-
-export function getInterviewTrackerStatus(input: {
-  totalQuestionCount: number;
-  currentStage: InterviewStage;
-  currentStageQuestionCount?: number;
-}) {
-  const headline = `${Math.min(input.totalQuestionCount, INTERVIEW_MAX_QUESTION_COUNT)} / ${INTERVIEW_MAX_QUESTION_COUNT}問`;
-
-  if (input.currentStage === "feedback") {
-    return {
-      headline,
-      detail: "最終講評を表示中",
-    };
-  }
-
-  const stageLabel = STAGE_LABELS[input.currentStage];
-  const stageCount = Math.max(1, input.currentStageQuestionCount ?? 1);
-
-  return {
-    headline,
-    detail: `${stageLabel}を深掘り中 ${stageCount}問目`,
-  };
-}
-
-export function getCurrentStageQuestionCount(turnState: InterviewTurnState | null | undefined) {
-  if (!turnState || turnState.currentStage === "feedback") {
-    return 0;
-  }
-  return turnState.stageQuestionCounts[turnState.currentStage] ?? 0;
 }
 
 export function normalizeInterviewTurnState(
@@ -113,48 +245,81 @@ export function normalizeInterviewTurnState(
     return initial;
   }
 
-  const currentStage = INTERVIEW_STAGE_ORDER.includes(value.currentStage as InterviewStage)
-    ? (value.currentStage as InterviewStage)
-    : initial.currentStage;
-
-  const stageQuestionCounts = QUESTION_STAGE_ORDER.reduce<Record<InterviewQuestionStage, number>>(
-    (acc, stage) => {
-      const raw = value.stageQuestionCounts?.[stage];
-      acc[stage] = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
-      return acc;
-    },
-    {
-      industry_reason: 0,
-      role_reason: 0,
-      opening: 0,
-      experience: 0,
-      company_understanding: 0,
-      motivation_fit: 0,
-    },
-  );
-
-  const completedStages = Array.isArray(value.completedStages)
-    ? value.completedStages.filter((stage): stage is InterviewQuestionStage =>
-        QUESTION_STAGE_ORDER.includes(stage as InterviewQuestionStage),
-      )
-    : [];
+  const raw = value as Partial<InterviewTurnState> & {
+    currentStage?: unknown;
+    questionCount?: unknown;
+    turnMeta?: unknown;
+    turn_meta?: unknown;
+  };
+  const meta = raw.currentTurnMeta ?? raw.turnMeta ?? raw.turn_meta;
+  const currentTurnMeta: InterviewTurnMeta | null =
+    meta && typeof meta === "object" ? normalizeInterviewTurnMeta(meta) : null;
+  const coverageState = normalizeCoverageState(value.coverageState);
+  const coveredTopics =
+    normalizeStringArray(value.coveredTopics).length > 0
+      ? normalizeStringArray(value.coveredTopics)
+      : coverageState
+          .filter((item) => item.deterministicCoveragePassed)
+          .map((item) => item.topic);
+  const recentQuestionSummariesV2 =
+    normalizeRecentQuestionSummariesV2(value.recentQuestionSummariesV2).length > 0
+      ? normalizeRecentQuestionSummariesV2(value.recentQuestionSummariesV2)
+      : normalizeStringArray((value as { recentQuestionSummaries?: unknown }).recentQuestionSummaries, 8).map(
+          (summary, index) => ({
+            intentKey: `legacy-summary-${index + 1}`,
+            normalizedSummary: summary,
+            topic: null,
+            followupStyle: null,
+            turnId: null,
+          }),
+        );
 
   return {
-    currentStage,
-    totalQuestionCount:
-      typeof value.totalQuestionCount === "number" &&
-      Number.isFinite(value.totalQuestionCount) &&
-      value.totalQuestionCount >= 0
-        ? Math.floor(value.totalQuestionCount)
-        : Object.values(stageQuestionCounts).reduce((sum, count) => sum + count, 0),
-    stageQuestionCounts,
-    completedStages,
-    lastQuestionFocus:
-      typeof value.lastQuestionFocus === "string" && value.lastQuestionFocus.trim().length > 0
-        ? value.lastQuestionFocus.trim()
-        : null,
+    turnCount:
+      typeof raw.turnCount === "number" && Number.isFinite(raw.turnCount) && raw.turnCount >= 0
+        ? Math.floor(raw.turnCount)
+        : typeof raw.questionCount === "number" && Number.isFinite(raw.questionCount) && raw.questionCount >= 0
+          ? Math.floor(raw.questionCount)
+        : 0,
+    currentTopic: normalizeOptionalString(raw.currentTopic ?? raw.currentStage),
+    coverageState,
+    coveredTopics,
+    remainingTopics: normalizeStringArray(value.remainingTopics),
+    recentQuestionSummariesV2,
+    formatPhase: normalizeFormatPhase(value.formatPhase),
+    lastQuestion: normalizeOptionalString(value.lastQuestion),
+    lastAnswer: normalizeOptionalString(value.lastAnswer),
+    lastTopic: normalizeOptionalString(value.lastTopic),
+    currentTurnMeta,
     nextAction: value.nextAction === "feedback" ? "feedback" : "ask",
   };
+}
+
+export function getInterviewStageStatus(input: {
+  currentTopicLabel?: string | null;
+  coveredTopics?: string[];
+  remainingTopics?: string[];
+}): InterviewStageStatus {
+  return {
+    currentTopicLabel: normalizeOptionalString(input.currentTopicLabel),
+    coveredTopics: normalizeStringArray(input.coveredTopics),
+    remainingTopics: normalizeStringArray(input.remainingTopics),
+  };
+}
+
+export function getInterviewTrackerStatus(input: {
+  turnCount: number;
+  currentTopicLabel: string | null;
+  remainingTopicCount: number;
+}) {
+  return {
+    headline: `${Math.max(0, Math.floor(input.turnCount))}問`,
+    detail: `現在: ${input.currentTopicLabel || "初回質問"} / 残り論点 ${Math.max(0, Math.floor(input.remainingTopicCount))}件`,
+  };
+}
+
+export function getCurrentStageQuestionCount() {
+  return 0;
 }
 
 export function shouldChargeInterviewSession(isCompleted: boolean): boolean {

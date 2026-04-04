@@ -19,6 +19,8 @@ import {
   mergeDraftReadyContext,
   resolveDraftReadyState,
   safeParseConversationContext as parseConversationContext,
+  type CausalGap,
+  type MotivationProgress,
   type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
 import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
@@ -102,23 +104,6 @@ interface MotivationEvaluation {
   risk_flags?: string[];
 }
 
-interface SuggestionOption {
-  id: string;
-  label: string;
-  sourceType: "conversation" | "gakuchika" | "profile" | "safe_fallback";
-  intent:
-    | "industry_reason"
-    | "company_reason"
-    | "self_connection"
-    | "desired_work"
-    | "value_contribution"
-    | "differentiation"
-    | "closing";
-  evidenceSourceIds?: string[];
-  rationale?: string | null;
-  isTentative?: boolean;
-}
-
 interface EvidenceCard {
   sourceId: string;
   title: string;
@@ -162,7 +147,6 @@ interface FastAPIQuestionResponse {
   answer_contract?: Record<string, unknown>;
   target_element?: string;
   company_insight?: string;
-  suggestion_options?: SuggestionOption[];
   evidence_summary?: string;
   evidence_cards?: EvidenceCard[];
   coaching_focus?: string;
@@ -173,6 +157,12 @@ interface FastAPIQuestionResponse {
   question_difficulty_level?: number;
   candidate_validation_summary?: Record<string, unknown>;
   weakness_tag?: string;
+  conversation_mode?: "slot_fill" | "deepdive";
+  current_slot?: MotivationConversationContext["questionStage"] | null;
+  current_intent?: string | null;
+  next_advance_condition?: string | null;
+  progress?: MotivationProgress | null;
+  causal_gaps?: CausalGap[];
   stage_status?: StageStatus;
   captured_context?: Partial<MotivationConversationContext>;
   internal_telemetry?: unknown;
@@ -313,13 +303,18 @@ async function getQuestionFromFastAPI(
   error: string | null;
   evaluation: MotivationEvaluation | null;
   draftReady: boolean;
-  suggestionOptions: SuggestionOption[];
   evidenceSummary: string | null;
   evidenceCards: EvidenceCard[];
   coachingFocus: string | null;
   riskFlags: string[];
   questionStage: MotivationConversationContext["questionStage"] | null;
   stageStatus: StageStatus | null;
+  conversationMode: "slot_fill" | "deepdive" | null;
+  currentSlot: MotivationConversationContext["questionStage"] | null;
+  currentIntent: string | null;
+  nextAdvanceCondition: string | null;
+  progress: MotivationProgress | null;
+  causalGaps: CausalGap[];
   capturedContext: Partial<MotivationConversationContext> | null;
   telemetry: InternalCostTelemetry | null;
 }> {
@@ -362,13 +357,18 @@ async function getQuestionFromFastAPI(
         error: errorData.detail?.error || "AIサービスに接続できませんでした",
         evaluation: null,
         draftReady: false,
-        suggestionOptions: [],
         evidenceSummary: null,
         evidenceCards: [],
         coachingFocus: null,
         riskFlags: [],
         questionStage: null,
         stageStatus: null,
+        conversationMode: null,
+        currentSlot: null,
+        currentIntent: null,
+        nextAdvanceCondition: null,
+        progress: null,
+        causalGaps: [],
         capturedContext: null,
         telemetry: null,
       };
@@ -382,13 +382,18 @@ async function getQuestionFromFastAPI(
       error: null,
       evaluation: data.evaluation || null,
       draftReady: Boolean(data.draft_ready),
-      suggestionOptions: data.suggestion_options || [],
       evidenceSummary: data.evidence_summary || null,
       evidenceCards: data.evidence_cards || [],
       coachingFocus: data.coaching_focus || null,
       riskFlags: Array.isArray(data.risk_flags) ? data.risk_flags : [],
       questionStage: data.question_stage || null,
       stageStatus: data.stage_status || null,
+      conversationMode: data.conversation_mode || null,
+      currentSlot: data.current_slot || null,
+      currentIntent: data.current_intent || null,
+      nextAdvanceCondition: data.next_advance_condition || null,
+      progress: data.progress || null,
+      causalGaps: Array.isArray(data.causal_gaps) ? data.causal_gaps : [],
       capturedContext: data.captured_context || null,
       telemetry,
     };
@@ -401,13 +406,18 @@ async function getQuestionFromFastAPI(
         : "AIサービスに接続できませんでした",
       evaluation: null,
       draftReady: false,
-      suggestionOptions: [],
       evidenceSummary: null,
       evidenceCards: [],
       coachingFocus: null,
       riskFlags: [],
       questionStage: null,
       stageStatus: null,
+      conversationMode: null,
+      currentSlot: null,
+      currentIntent: null,
+      nextAdvanceCondition: null,
+      progress: null,
+      causalGaps: [],
       capturedContext: null,
       telemetry: null,
     };
@@ -608,7 +618,6 @@ export async function POST(
         selectedRoleSource: nextContext.selectedRoleSource ?? null,
         desiredWork: nextContext.desiredWork ?? null,
         questionStage: result.questionStage ?? nextContext.questionStage,
-        lastSuggestionOptions: JSON.stringify(result.suggestionOptions || []),
         lastEvidenceCards: JSON.stringify(result.evidenceCards || []),
         stageStatus: JSON.stringify(result.stageStatus || null),
         updatedAt: new Date(),
@@ -638,7 +647,6 @@ export async function POST(
       },
       messages,
       nextQuestion: result.question,
-      suggestionOptions: result.suggestionOptions,
       questionCount: 0,
       isDraftReady,
       scores: result.evaluation?.scores || null,
@@ -648,6 +656,12 @@ export async function POST(
       riskFlags: result.riskFlags,
       questionStage: result.questionStage || nextContext.questionStage,
       stageStatus: result.stageStatus,
+      conversationMode: result.conversationMode ?? nextContext.conversationMode ?? "slot_fill",
+      currentSlot: result.currentSlot,
+      currentIntent: result.currentIntent,
+      nextAdvanceCondition: result.nextAdvanceCondition,
+      progress: result.progress,
+      causalGaps: result.causalGaps,
       conversationContext: nextContext,
       setup: {
         selectedIndustry: nextContext.selectedIndustry || resolvedInputs.company.industry,

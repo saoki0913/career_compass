@@ -12,7 +12,6 @@ from app.prompts.notion_registry import get_managed_prompt_content
 from app.utils.llm import (
     PromptSafetyError,
     call_llm_streaming_fields,
-    call_llm_with_error,
     sanitize_prompt_input,
     sanitize_user_prompt_text,
 )
@@ -22,16 +21,36 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/interview", tags=["interview"])
 
-QUESTION_STAGE_ORDER = [
+ROLE_TRACKS = {
+    "biz_general",
+    "it_product",
+    "consulting",
+    "research_specialist",
+    "quant_finance",
+}
+INTERVIEW_FORMATS = {
+    "standard_behavioral",
+    "case",
+    "technical",
+    "discussion",
+    "presentation",
+}
+SELECTION_TYPES = {"internship", "fulltime"}
+INTERVIEW_STAGES = {"early", "mid", "final"}
+INTERVIEWER_TYPES = {"hr", "line_manager", "executive", "mixed_panel"}
+STRICTNESS_MODES = {"supportive", "standard", "strict"}
+
+LEGACY_STAGE_ORDER = [
     "industry_reason",
     "role_reason",
     "opening",
     "experience",
     "company_understanding",
     "motivation_fit",
+    "feedback",
 ]
-STAGE_ORDER = [*QUESTION_STAGE_ORDER, "feedback"]
-STAGE_LABELS = {
+QUESTION_STAGE_ORDER = LEGACY_STAGE_ORDER[:-1]
+LEGACY_STAGE_LABELS = {
     "industry_reason": "業界志望理由",
     "role_reason": "職種志望理由",
     "opening": "導入・人物把握",
@@ -40,275 +59,552 @@ STAGE_LABELS = {
     "motivation_fit": "志望動機・適合",
     "feedback": "最終講評",
 }
-STAGE_GOALS = {
-    "industry_reason": "業界を志望する理由が本人の言葉で短く明確に語れる状態にする。",
-    "role_reason": "その職種を志望する理由と、自分の強みとの接続を確認する。",
-    "opening": "自己紹介・価値観・人物像を把握し、核となる経験を定める。",
-    "experience": "経験の課題、役割、判断、成果、再現性を深掘りする。",
-    "company_understanding": "なぜこの会社か、なぜこの事業・配属・制度理解かを別観点で確認する。",
-    "motivation_fit": "入社後の役割、初期貢献、適合理由まで接続する。",
-    "feedback": "面接全体を振り返り、改善点と次の論点を整理する。",
-}
-STAGE_MIN_COUNTS = {
-    "industry_reason": 1,
-    "role_reason": 1,
-    "opening": 1,
-    "experience": 2,
-    "company_understanding": 2,
-    "motivation_fit": 2,
-}
-STAGE_MAX_COUNTS = {
-    "industry_reason": 1,
-    "role_reason": 1,
-    "opening": 2,
-    "experience": 4,
-    "company_understanding": 4,
-    "motivation_fit": 4,
-}
-TOTAL_MIN_QUESTIONS = 10
-TOTAL_MAX_QUESTIONS = 15
-DEFAULT_STAGE_COUNTS = {
-    "industry_reason": 0,
-    "role_reason": 0,
-    "opening": 0,
-    "experience": 0,
-    "company_understanding": 0,
-    "motivation_fit": 0,
-}
-STAGE_FOCUS_OPTIONS = {
-    "industry_reason": [
-        "業界志望の核",
-        "業界を選ぶ背景",
-        "他業界との差分",
-    ],
-    "role_reason": [
-        "職種志望の根拠",
-        "強みとの接続",
-        "業務理解の深さ",
-    ],
-    "opening": [
-        "自己紹介の軸",
-        "価値観の源泉",
-        "人物像が出る経験",
-    ],
-    "experience": [
-        "課題設定の具体性",
-        "役割と責任範囲",
-        "意思決定の理由",
-        "成果の根拠",
-        "再現性",
-    ],
-    "company_understanding": [
-        "なぜこの会社か",
-        "事業理解の根拠",
-        "他社との差分",
-        "配属・制度理解",
-    ],
-    "motivation_fit": [
-        "入社後の役割像",
-        "初期貢献の解像度",
-        "活かす強み",
-        "中長期の適合",
-    ],
+ROLE_TRACK_KEYWORDS = {
+    "biz_general": ["総合職", "営業", "企画", "コーポレート", "事務"],
+    "it_product": ["IT", "エンジニア", "PM", "PdM", "DX", "プロダクト"],
+    "consulting": ["コンサル", "戦略", "業務", "ITコンサル"],
+    "research_specialist": ["研究", "リサーチ", "シンクタンク", "専門職"],
+    "quant_finance": ["クオンツ", "数理", "アクチュアリー", "金融工学"],
 }
 
-_INTERVIEW_TURN_EVALUATION_PROMPT_FALLBACK = """あなたは新卒採用の面接官です。企業特化模擬面接の直近回答を評価し、同じ段階を深掘りするか次に進むかを決めてください。
+_PLAN_FALLBACK = """あなたは新卒採用の面接設計担当です。応募者情報と企業情報を読み、この模擬面接で確認すべき論点の優先順位を決めてください。
+
+## 面接前提
+- 応募職種: {selected_role_line}
+- 職種分類: {role_track}
+- 面接方式: {interview_format}
+- 選考種別: {selection_type}
+- 面接段階: {interview_stage}
+- 面接官タイプ: {interviewer_type}
+- 厳しさ: {strictness_mode}
+- role_track: {role_track}
+- interview_format: {interview_format}
+- selection_type: {selection_type}
+- interview_stage: {interview_stage}
+- interviewer_type: {interviewer_type}
+- strictness_mode: {strictness_mode}
+- academic_summary: {academic_summary}
+- research_summary: {research_summary}
+- academic_summary: {academic_summary}
+- research_summary: {research_summary}
 
 ## 企業
 - 企業名: {company_name}
-- 企業情報:
-{company_summary}
+- 企業情報: {company_summary}
 
-## 前提
-- 志望業界: {selected_industry}
-- 志望職種: {selected_role}
-- seed_summary:
-{seed_summary}
+## 志望動機
+{motivation_summary}
 
-## 参考材料
+## ガクチカ
+{gakuchika_summary}
+
+## academic_summary
+{academic_summary}
+
+## 学業 / ゼミ / 卒論
+{academic_summary}
+
+## 研究
+{research_summary}
+
+## ES
+{es_summary}
+
+## 補足
 {materials_section}
 
-## 現在段階
-- current_stage: {current_stage}
-- stage_label: {stage_label}
-- stage_goal: {stage_goal}
-- stage_question_count: {stage_question_count}
-- total_question_count: {total_question_count}
-- minimum_questions_for_stage: {stage_min_count}
-- maximum_questions_for_stage: {stage_max_count}
-- last_focus: {last_focus}
-
-## 会話履歴
-{conversation_text}
-
-## 直近の応募者回答
-{latest_answer}
-
-## 評価観点
-- その段階で聞くべき論点が十分に語れているか
-- 抽象論ではなく、具体的な事実・役割・理由・成果があるか
-- 確認済みの業界/職種前提とズレていないか
-- 業界共通論点と企業固有論点に未解消ギャップが残っていないか
-
-## ルール
-- `decision` は `stay` / `advance` / `complete` のいずれか
-- 現在段階の不足があるなら `stay`
-- 次段階へ進んだほうが自然なら `advance`
-- `motivation_fit` が十分で、総質問数が 10 問以上に達しているなら `complete`
-- `recommended_focus` は次に聞くべき論点を 20 文字以内で 1 つ
-- `missing_points` と `interviewer_concerns` は最大 3 件
-- JSON 以外は禁止
+## タスク
+- この会社・この職種・この面接方式の新卒面接として、最初に確認すべき論点を決める
+- 面接全体で必ず触れるべき論点を整理する
+- generic な志望理由、職種理解不足、経験との接続不足、一貫性の弱さ、誇張リスクなどの懸念論点も抽出する
+- academic_summary が強い候補者なら academic_application を優先論点に含めてよい
+- research_summary が強い候補者なら research_application を優先論点に含めてよい
+- interview_format=case の場合は、通常面接の論点だけで埋めず、case_fit / structured_thinking を優先論点に含めてよい
+- 出力は面接進行計画のみで、質問文は作らない
 
 ## 出力形式
 {{
-  "decision": "stay|advance|complete",
-  "recommended_focus": "次に聞く論点",
-  "reason": "判定理由を1文",
-  "stage_assessment": {{
-    "coverage": 0,
-    "specificity": 0,
-    "logic": 0,
-    "company_fit": 0,
-    "premise_consistency": 0
-  }},
-  "missing_points": ["不足点"],
-  "interviewer_concerns": ["懸念点"]
+  "interview_type": "new_grad_behavioral|new_grad_case|new_grad_technical|new_grad_final",
+  "priority_topics": ["..."],
+  "opening_topic": "...",
+  "must_cover_topics": ["..."],
+  "risk_topics": ["..."],
+  "suggested_timeflow": ["導入", "論点1", "論点2", "締め"]
 }}"""
 
-_INTERVIEW_QUESTION_PROMPT_FALLBACK = """あなたは新卒採用の面接官です。企業特化模擬面接の次の質問を1つだけ作ってください。
+_OPENING_FALLBACK = """あなたは新卒採用の面接官です。面接計画に従って、最初の面接質問を 1 問だけ作ってください。
+
+## 面接前提
+- 応募職種: {selected_role_line}
+- 職種分類: {role_track}
+- 面接方式: {interview_format}
+- 選考種別: {selection_type}
+- 面接段階: {interview_stage}
+- 面接官タイプ: {interviewer_type}
+- 厳しさ: {strictness_mode}
+- role_track: {role_track}
+- interview_format: {interview_format}
+- selection_type: {selection_type}
+- interview_stage: {interview_stage}
+- interviewer_type: {interviewer_type}
+- strictness_mode: {strictness_mode}
 
 ## 企業
 - 企業名: {company_name}
-- 企業情報:
-{company_summary}
+- 企業情報: {company_summary}
 
-## 前提
-- 志望業界: {selected_industry}
-- 志望職種: {selected_role}
-- seed_summary:
-{seed_summary}
+## interview_plan
+{interview_plan}
+## interview_plan: {interview_plan}
+- priority_topics: {priority_topics}
+- opening_topic: {opening_topic}
 
-## 参考材料
+## 志望動機
+{motivation_summary}
+
+## ガクチカ
+{gakuchika_summary}
+
+## 学業 / ゼミ / 卒論
+{academic_summary}
+
+## 研究
+{research_summary}
+
+## ES
+{es_summary}
+
+## 補足
 {materials_section}
 
-## 現在段階
-- current_stage: {current_stage}
-- stage_label: {stage_label}
-- stage_goal: {stage_goal}
-- stage_question_count: {stage_question_count}
-- total_question_count: {total_question_count}
-- recommended_focus: {recommended_focus}
-- focus_options: {focus_options}
-- recent_gap_summary: {gap_summary}
+## ルール
+- opening_topic に対応する質問を 1 問だけ返す
+- interview_format=standard_behavioral の場合は、1〜2分で答えやすい導入質問にする
+- interview_format=case の場合は、ケース前提の最初の問いにする
+- interview_format=technical の場合は、専門性確認の導入質問にする
+- 最初から細かく深掘りしすぎない
+- 実際の面接導入として自然な 1 文にする
+- interview_setup_note には、今回の面接の見どころや主題を一言で示す
+- `question` は空文字にしない
+- `focus` は今回の確認意図を短く表す
+- `turn_meta` は topic / turn_action / focus_reason / depth_focus / followup_style / should_move_next を必ず埋める
+
+## 出力形式
+{{
+  "question": "最初の面接質問",
+  "question_stage": "opening",
+  "focus": "志望理由の核",
+  "interview_setup_note": "今回は志望理由の核と、職種理解を中心に見ます",
+  "turn_meta": {{
+    "topic": "motivation_fit",
+    "turn_action": "ask",
+    "focus_reason": "初回導入",
+    "depth_focus": "company_fit",
+    "followup_style": "industry_reason_check",
+    "should_move_next": false
+  }}
+}}"""
+
+_TURN_FALLBACK = """あなたは新卒採用の面接官です。会話履歴を読み、次の面接質問を 1 問だけ作ってください。
+
+## 面接前提
+- 応募職種: {selected_role_line}
+- 職種分類: {role_track}
+- 面接方式: {interview_format}
+- 選考種別: {selection_type}
+- 面接段階: {interview_stage}
+- 面接官タイプ: {interviewer_type}
+- 厳しさ: {strictness_mode}
+- role_track: {role_track}
+- interview_format: {interview_format}
+- selection_type: {selection_type}
+- interview_stage: {interview_stage}
+- interviewer_type: {interviewer_type}
+- strictness_mode: {strictness_mode}
+
+## 企業
+- 企業名: {company_name}
+- 企業情報: {company_summary}
+
+## interview_plan
+{interview_plan}
+## priority_topics
+{priority_topics}
+## interview_plan: {interview_plan}
 
 ## 会話履歴
 {conversation_text}
 
+## 直近の要点
+- 前回質問: {last_question}
+- 前回回答: {last_answer}
+- 直前論点: {last_topic}
+
+## coveredTopics
+{coveredTopics}
+
+## remainingTopics
+{remainingTopics}
+
+## coverage_state
+{coverage_state}
+
+## recent_question_summaries_v2
+{recent_question_summaries_v2}
+
+## format_phase
+{format_phase}
+
+## turn_events
+{turn_events}
+
 ## ルール
-- 質問は1つだけ
-- その段階の論点だけを深掘りする
-- 直前と同じ言い方を繰り返さない
-- 汎用的な「詳しく教えてください」だけの聞き方は禁止
-- 企業情報・参考材料に根拠がない固有情報を足さない
-- 学生が 1〜3 文で答えやすい自然な日本語にする
-- 段階が切り替わる場合だけ `transition_line` に「次は○○について伺います。」の形で入れる
-- JSON 以外は禁止
+- 直前回答を深掘りするか、次の論点へ移るかを判断する
+- 質問は 1 問だけ
+- 同じ意味の質問を繰り返さない
+- `intent_key` は topic + followup_style 単位で安定させる
+- 1ターンで深める観点は 1 つだけにする
+- interview_format=case の場合は、ケースの構造化を崩す問いを避ける
+- `question` は空文字にしない
+- `focus` は今回の深掘り意図を短く表す
+- `plan_progress` には今回までに確認済みの論点と残り論点を配列で入れる
+- `turn_meta` は topic / turn_action / focus_reason / depth_focus / followup_style / should_move_next / intent_key を必ず埋める
 
 ## 出力形式
 {{
   "question": "次の面接質問",
-  "focus": "今回の狙いを20字以内で",
-  "question_stage": "{current_stage}",
-  "transition_line": "{transition_hint}"
+  "question_stage": "opening|experience|company_understanding|motivation_fit",
+  "focus": "今回の狙い",
+  "turn_meta": {{
+    "topic": "motivation_fit",
+    "turn_action": "deepen|shift",
+    "focus_reason": "なぜこの質問をするか",
+    "depth_focus": "company_fit|role_fit|specificity|logic|persuasiveness|consistency|credibility",
+    "followup_style": "position_check|obstacle_check|reason_check|alternative_check|evidence_check|involvement_check|conflict_check|strength_check|reflection_check|transfer_check|theme_choice_check|issue_awareness_check|evidence_reading_check|academic_value_check|social_value_check|technical_difficulty_check|method_reason_check|future_research_check|business_application_check|industry_reason_check|company_reason_check|company_compare_check|role_reason_check|future_check|gap_check|why_now_check|strength_origin_check|weakness_control_check|setback_check|conflict_style_check|stress_check|value_change_check",
+    "intent_key": "motivation_fit:company_reason_check",
+    "should_move_next": false
+  }}
 }}"""
 
-_INTERVIEW_CONTINUE_PROMPT_FALLBACK = """あなたは新卒採用の面接官です。前回の最終講評を踏まえて、面接対策を続けるための次の質問を1つだけ作ってください。
+_CONTINUE_FALLBACK = """あなたは新卒採用の面接官です。前回の最終講評を踏まえて、面接対策を続けるための次の質問を 1 問だけ作ってください。
+
+## 面接前提
+- 応募職種: {selected_role_line}
+- 職種分類: {role_track}
+- 面接方式: {interview_format}
+- 選考種別: {selection_type}
+- 面接段階: {interview_stage}
+- 面接官タイプ: {interviewer_type}
+- 厳しさ: {strictness_mode}
+- role_track: {role_track}
+- interview_format: {interview_format}
+- selection_type: {selection_type}
+- interview_stage: {interview_stage}
+- interviewer_type: {interviewer_type}
+- strictness_mode: {strictness_mode}
 
 ## 企業
 - 企業名: {company_name}
-- 企業情報:
-{company_summary}
+- 企業情報: {company_summary}
 
-## 前提
-- 志望業界: {selected_industry}
-- 志望職種: {selected_role}
-- seed_summary:
-{seed_summary}
+## 面接計画
+{interview_plan}
 
-## 参考材料
-{materials_section}
-
-## これまでの会話
+## 会話履歴
 {conversation_text}
 
 ## 直近の最終講評
 {latest_feedback_summary}
 
 ## ルール
-- 講評の `preparation_points` と `improvements` のうち優先度が高いものから 1 つ選んで深掘りする
+- 講評の `next_preparation` と `improvements` のうち優先度が高いものから 1 つ選んで深掘りする
 - `question_stage` は `experience` / `company_understanding` / `motivation_fit` のいずれか
 - `transition_line` は「最終講評を踏まえて、次は○○についてさらに伺います。」の形で返す
-- 質問は1つだけ、学生が答えやすい自然な日本語にする
-- JSON 以外は禁止
+- 質問は 1 問だけ、学生が答えやすい自然な日本語にする
+- `question` は空文字にしない
+- `transition_line` は自然な再開文にする
+- `turn_meta` は topic / turn_action / focus_reason / depth_focus / followup_style / should_move_next を必ず埋める
 
 ## 出力形式
 {{
   "question": "次の面接質問",
-  "focus": "今回の狙いを20字以内で",
+  "focus": "今回の狙い",
   "question_stage": "experience|company_understanding|motivation_fit",
-  "transition_line": "最終講評を踏まえて、次は○○についてさらに伺います。"
+  "transition_line": "最終講評を踏まえて、次は○○についてさらに伺います。",
+  "turn_meta": {{
+    "topic": "motivation_fit",
+    "turn_action": "shift",
+    "focus_reason": "講評の改善点に基づく",
+    "depth_focus": "logic",
+    "followup_style": "future_check",
+    "should_move_next": false
+  }}
 }}"""
 
-_INTERVIEW_FEEDBACK_PROMPT_FALLBACK = """あなたは新卒採用の面接官です。会話履歴を読み、企業特化模擬面接の最終講評を構造化して返してください。
+_FEEDBACK_FALLBACK = """あなたは新卒採用の面接官です。会話履歴を読み、企業特化模擬面接の最終講評を構造化して返してください。
+
+## 面接前提
+- 応募職種: {selected_role_line}
+- 職種分類: {role_track}
+- 面接方式: {interview_format}
+- 選考種別: {selection_type}
+- 面接段階: {interview_stage}
+- 面接官タイプ: {interviewer_type}
+- 厳しさ: {strictness_mode}
+- role_track: {role_track}
+- interview_format: {interview_format}
+- selection_type: {selection_type}
+- interview_stage: {interview_stage}
+- interviewer_type: {interviewer_type}
+- strictness_mode: {strictness_mode}
 
 ## 企業
 - 企業名: {company_name}
-- 企業情報:
-{company_summary}
+- 企業情報: {company_summary}
 
-## 前提
-- 志望業界: {selected_industry}
-- 志望職種: {selected_role}
-- seed_summary:
-{seed_summary}
-
-## 参考材料
-{materials_section}
+## 面接計画
+{interview_plan}
 
 ## 会話履歴
 {conversation_text}
 
+## turn_events
+{turn_events}
+
 ## 評価観点
-- 企業適合
-- 具体性
-- 論理性
-- 説得力
-- 前提一致度（確認済みの業界/職種理由と、その後の回答の整合）
+- company_fit
+- role_fit
+- specificity
+- logic
+- persuasiveness
+- consistency
+- credibility
 
 ## ルール
 - `overall_comment` は自然な日本語で総評にする
 - 良かった点は最大 3 件
 - 改善点は最大 3 件
-- improved_answer は応募者がそのまま言いやすい 120〜220 字
-- preparation_points は次に準備すべき論点を最大 3 件
+- `consistency_risks` は最大 3 件
+- `improved_answer` は応募者がそのまま言いやすい 120〜220 字
+- `next_preparation` は次に準備すべき論点を最大 3 件
 - `premise_consistency` は 0〜100
-- JSON 以外は禁止
+- `overall_comment` は総評を1段落でまとめる
+- `scores` は 7 軸すべてを 0〜5 で埋める
+- `strengths` / `improvements` / `consistency_risks` / `next_preparation` は空配列可だが key 自体は必ず返す
+- `weakest_question_type` は最も弱い設問タイプを 1 つ返す
+- `weakest_turn_id`, `weakest_question_snapshot`, `weakest_answer_snapshot` を必ず返す
+- 最弱設問には「未充足 checklist」が何だったかを踏まえて講評を書く
+- `improved_answer` は空文字可だが key 自体は必ず返す
 
 ## 出力形式
 {{
   "overall_comment": "総評",
   "scores": {{
     "company_fit": 0,
+    "role_fit": 0,
     "specificity": 0,
     "logic": 0,
-    "persuasiveness": 0
+    "persuasiveness": 0,
+    "consistency": 0,
+    "credibility": 0
   }},
   "strengths": ["良かった点"],
   "improvements": ["改善点"],
+  "consistency_risks": ["一貫性の弱い点"],
+  "weakest_question_type": "motivation|gakuchika|academic|research|personal|career|case",
+  "weakest_turn_id": "turn-3",
+  "weakest_question_snapshot": "なぜ当社なのですか。",
+  "weakest_answer_snapshot": "事業に魅力を感じたからです。",
   "improved_answer": "改善回答例",
-  "preparation_points": ["次に準備すべき論点"],
+  "next_preparation": ["次に準備すべき論点"],
   "premise_consistency": 0
 }}"""
+
+INTERVIEW_TURN_META_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "topic": {"type": "string", "description": "このターンで扱う論点名"},
+        "turn_action": {
+            "type": "string",
+            "enum": ["ask", "deepen", "shift"],
+            "description": "新規質問、深掘り、次論点への移動",
+        },
+        "focus_reason": {"type": "string", "description": "なぜこの質問を行うか"},
+        "depth_focus": {
+            "type": "string",
+            "enum": [
+                "company_fit",
+                "role_fit",
+                "specificity",
+                "logic",
+                "persuasiveness",
+                "consistency",
+                "credibility",
+            ],
+        },
+        "followup_style": {"type": "string", "description": "追質問スタイル"},
+        "intent_key": {"type": "string", "description": "同義質問抑止に使う安定キー"},
+        "should_move_next": {"type": "boolean"},
+    },
+    "required": [
+        "topic",
+        "turn_action",
+        "focus_reason",
+        "depth_focus",
+        "followup_style",
+        "intent_key",
+        "should_move_next",
+    ],
+}
+
+INTERVIEW_PLAN_PROGRESS_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "covered_topics": {"type": "array", "items": {"type": "string"}},
+        "remaining_topics": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["covered_topics", "remaining_topics"],
+}
+
+INTERVIEW_SCORE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "company_fit": {"type": "integer", "minimum": 0, "maximum": 5},
+        "role_fit": {"type": "integer", "minimum": 0, "maximum": 5},
+        "specificity": {"type": "integer", "minimum": 0, "maximum": 5},
+        "logic": {"type": "integer", "minimum": 0, "maximum": 5},
+        "persuasiveness": {"type": "integer", "minimum": 0, "maximum": 5},
+        "consistency": {"type": "integer", "minimum": 0, "maximum": 5},
+        "credibility": {"type": "integer", "minimum": 0, "maximum": 5},
+    },
+    "required": [
+        "company_fit",
+        "role_fit",
+        "specificity",
+        "logic",
+        "persuasiveness",
+        "consistency",
+        "credibility",
+    ],
+}
+
+INTERVIEW_PLAN_SCHEMA = {
+    "name": "interview_plan",
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "interview_type": {"type": "string", "description": "面接タイプ識別子"},
+            "priority_topics": {"type": "array", "items": {"type": "string"}},
+            "opening_topic": {"type": "string", "description": "最初に扱う論点"},
+            "must_cover_topics": {"type": "array", "items": {"type": "string"}},
+            "risk_topics": {"type": "array", "items": {"type": "string"}},
+            "suggested_timeflow": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": [
+            "interview_type",
+            "priority_topics",
+            "opening_topic",
+            "must_cover_topics",
+            "risk_topics",
+            "suggested_timeflow",
+        ],
+    },
+}
+
+INTERVIEW_OPENING_SCHEMA = {
+    "name": "interview_opening",
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "question": {"type": "string", "description": "最初の面接質問"},
+            "question_stage": {"type": "string", "enum": ["opening"]},
+            "focus": {"type": "string", "description": "この質問の狙い"},
+            "interview_setup_note": {"type": "string", "description": "今回の面接の見どころ"},
+            "turn_meta": INTERVIEW_TURN_META_SCHEMA,
+        },
+        "required": ["question", "question_stage", "focus", "interview_setup_note", "turn_meta"],
+    },
+}
+
+INTERVIEW_TURN_SCHEMA = {
+    "name": "interview_turn",
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "question": {"type": "string"},
+            "question_stage": {
+                "type": "string",
+                "enum": ["opening", "turn", "experience", "company_understanding", "motivation_fit"],
+            },
+            "focus": {"type": "string"},
+            "turn_meta": INTERVIEW_TURN_META_SCHEMA,
+            "plan_progress": INTERVIEW_PLAN_PROGRESS_SCHEMA,
+        },
+        "required": ["question", "question_stage", "focus", "turn_meta", "plan_progress"],
+    },
+}
+
+INTERVIEW_CONTINUE_SCHEMA = {
+    "name": "interview_continue",
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "question": {"type": "string"},
+            "question_stage": {
+                "type": "string",
+                "enum": ["experience", "company_understanding", "motivation_fit"],
+            },
+            "focus": {"type": "string"},
+            "transition_line": {"type": "string"},
+            "turn_meta": INTERVIEW_TURN_META_SCHEMA,
+        },
+        "required": ["question", "question_stage", "focus", "transition_line", "turn_meta"],
+    },
+}
+
+INTERVIEW_FEEDBACK_SCHEMA = {
+    "name": "interview_feedback",
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "overall_comment": {"type": "string"},
+            "scores": INTERVIEW_SCORE_SCHEMA,
+            "strengths": {"type": "array", "items": {"type": "string"}},
+            "improvements": {"type": "array", "items": {"type": "string"}},
+            "consistency_risks": {"type": "array", "items": {"type": "string"}},
+            "weakest_question_type": {"type": "string"},
+            "weakest_turn_id": {"type": "string"},
+            "weakest_question_snapshot": {"type": "string"},
+            "weakest_answer_snapshot": {"type": "string"},
+            "improved_answer": {"type": "string"},
+            "next_preparation": {"type": "array", "items": {"type": "string"}},
+            "premise_consistency": {"type": "integer", "minimum": 0, "maximum": 100},
+            "satisfaction_score": {"type": "integer", "minimum": 1, "maximum": 5},
+        },
+        "required": [
+            "overall_comment",
+            "scores",
+            "strengths",
+            "improvements",
+            "consistency_risks",
+            "weakest_question_type",
+            "weakest_turn_id",
+            "weakest_question_snapshot",
+            "weakest_answer_snapshot",
+            "improved_answer",
+            "next_preparation",
+            "premise_consistency",
+        ],
+    },
+}
 
 
 class Message(BaseModel):
@@ -321,10 +617,18 @@ class InterviewBaseRequest(BaseModel):
     company_summary: str = Field(max_length=4000)
     motivation_summary: Optional[str] = Field(default=None, max_length=4000)
     gakuchika_summary: Optional[str] = Field(default=None, max_length=4000)
+    academic_summary: Optional[str] = Field(default=None, max_length=4000)
+    research_summary: Optional[str] = Field(default=None, max_length=4000)
     es_summary: Optional[str] = Field(default=None, max_length=4000)
     selected_industry: Optional[str] = Field(default=None, max_length=120)
     selected_role: Optional[str] = Field(default=None, max_length=200)
     selected_role_source: Optional[str] = Field(default=None, max_length=120)
+    role_track: Optional[str] = Field(default=None, max_length=40)
+    interview_format: Optional[str] = Field(default=None, max_length=40)
+    selection_type: Optional[str] = Field(default=None, max_length=20)
+    interview_stage: Optional[str] = Field(default=None, max_length=20)
+    interviewer_type: Optional[str] = Field(default=None, max_length=20)
+    strictness_mode: Optional[str] = Field(default=None, max_length=20)
     seed_summary: Optional[str] = Field(default=None, max_length=4000)
 
 
@@ -335,11 +639,13 @@ class InterviewStartRequest(InterviewBaseRequest):
 class InterviewTurnRequest(InterviewBaseRequest):
     conversation_history: list[Message]
     turn_state: Optional[dict[str, Any]] = None
+    turn_events: Optional[list[dict[str, Any]]] = None
 
 
 class InterviewFeedbackRequest(InterviewBaseRequest):
     conversation_history: list[Message]
     turn_state: Optional[dict[str, Any]] = None
+    turn_events: Optional[list[dict[str, Any]]] = None
 
 
 class InterviewContinueRequest(InterviewBaseRequest):
@@ -356,9 +662,7 @@ def _sanitize_optional_text(value: Optional[str], max_length: int) -> Optional[s
 
 def _sanitize_messages(messages: list[Message]) -> None:
     for message in messages:
-        message.content = sanitize_user_prompt_text(
-            message.content, max_length=3000, rich_text=True
-        )
+        message.content = sanitize_user_prompt_text(message.content, max_length=3000, rich_text=True)
 
 
 def _sanitize_base_request(payload: InterviewBaseRequest) -> None:
@@ -368,68 +672,61 @@ def _sanitize_base_request(payload: InterviewBaseRequest) -> None:
     )
     payload.motivation_summary = _sanitize_optional_text(payload.motivation_summary, 4000)
     payload.gakuchika_summary = _sanitize_optional_text(payload.gakuchika_summary, 4000)
+    payload.academic_summary = _sanitize_optional_text(payload.academic_summary, 4000)
+    payload.research_summary = _sanitize_optional_text(payload.research_summary, 4000)
     payload.es_summary = _sanitize_optional_text(payload.es_summary, 4000)
     payload.selected_industry = _sanitize_optional_text(payload.selected_industry, 120)
     payload.selected_role = _sanitize_optional_text(payload.selected_role, 200)
     payload.selected_role_source = _sanitize_optional_text(payload.selected_role_source, 120)
+    payload.role_track = _sanitize_optional_text(payload.role_track, 40)
+    payload.interview_format = _sanitize_optional_text(payload.interview_format, 40)
+    payload.selection_type = _sanitize_optional_text(payload.selection_type, 20)
+    payload.interview_stage = _sanitize_optional_text(payload.interview_stage, 20)
+    payload.interviewer_type = _sanitize_optional_text(payload.interviewer_type, 20)
+    payload.strictness_mode = _sanitize_optional_text(payload.strictness_mode, 20)
     payload.seed_summary = _sanitize_optional_text(payload.seed_summary, 4000)
 
 
-def _default_turn_state() -> dict[str, Any]:
+def _normalize_choice(value: Optional[str], allowed: set[str], default: str) -> str:
+    if isinstance(value, str):
+        trimmed = value.strip()
+        if trimmed in allowed:
+            return trimmed
+    return default
+
+
+def _infer_role_track(selected_role: Optional[str], company_summary: Optional[str], selected_industry: Optional[str]) -> str:
+    haystack = " ".join([selected_role or "", company_summary or "", selected_industry or ""])
+    for role_track, keywords in ROLE_TRACK_KEYWORDS.items():
+        if any(keyword in haystack for keyword in keywords):
+            return role_track
+    return "biz_general"
+
+
+def _build_setup(payload: InterviewBaseRequest) -> dict[str, Any]:
+    role_track = _normalize_choice(
+        payload.role_track or _infer_role_track(payload.selected_role, payload.company_summary, payload.selected_industry),
+        ROLE_TRACKS,
+        "biz_general",
+    )
+    interview_format = _normalize_choice(payload.interview_format, INTERVIEW_FORMATS, "standard_behavioral")
+    selection_type = _normalize_choice(payload.selection_type, SELECTION_TYPES, "fulltime")
+    interview_stage = _normalize_choice(payload.interview_stage, INTERVIEW_STAGES, "mid")
+    interviewer_type = _normalize_choice(payload.interviewer_type, INTERVIEWER_TYPES, "hr")
+    strictness_mode = _normalize_choice(payload.strictness_mode, STRICTNESS_MODES, "standard")
+    selected_role_line = (payload.selected_role or "").strip() or "未設定"
+
     return {
-        "currentStage": "industry_reason",
-        "totalQuestionCount": 0,
-        "stageQuestionCounts": dict(DEFAULT_STAGE_COUNTS),
-        "completedStages": [],
-        "lastQuestionFocus": None,
-        "nextAction": "ask",
-    }
-
-
-def _normalize_turn_state(
-    raw: Optional[dict[str, Any]], conversation_history: Optional[list[Message]] = None
-) -> dict[str, Any]:
-    state = _default_turn_state()
-    if raw and isinstance(raw, dict):
-        current_stage = raw.get("currentStage")
-        if current_stage in STAGE_ORDER:
-            state["currentStage"] = current_stage
-        total_question_count = raw.get("totalQuestionCount")
-        if isinstance(total_question_count, int) and total_question_count >= 0:
-            state["totalQuestionCount"] = total_question_count
-        stage_counts = raw.get("stageQuestionCounts")
-        if isinstance(stage_counts, dict):
-            state["stageQuestionCounts"] = {
-                stage: int(stage_counts.get(stage, 0))
-                if isinstance(stage_counts.get(stage, 0), int) and int(stage_counts.get(stage, 0)) >= 0
-                else 0
-                for stage in QUESTION_STAGE_ORDER
-            }
-        completed = raw.get("completedStages")
-        if isinstance(completed, list):
-            state["completedStages"] = [
-                stage for stage in completed if stage in QUESTION_STAGE_ORDER
-            ]
-        last_focus = raw.get("lastQuestionFocus")
-        if isinstance(last_focus, str) and last_focus.strip():
-            state["lastQuestionFocus"] = last_focus.strip()
-        next_action = raw.get("nextAction")
-        if next_action in {"ask", "feedback"}:
-            state["nextAction"] = next_action
-
-    if conversation_history and state["totalQuestionCount"] == 0:
-        assistant_count = len([m for m in conversation_history if m.role == "assistant"])
-        if assistant_count > 0:
-            state["totalQuestionCount"] = assistant_count
-    return state
-
-
-def _build_stage_status(current: str) -> dict[str, list[str] | str]:
-    current_index = STAGE_ORDER.index(current)
-    return {
-        "current": current,
-        "completed": STAGE_ORDER[:current_index],
-        "pending": STAGE_ORDER[current_index + 1 :],
+        "selected_industry": (payload.selected_industry or "").strip() or None,
+        "selected_role_line": selected_role_line,
+        "selected_role_source": (payload.selected_role_source or "").strip() or None,
+        "role_track": role_track,
+        "interview_format": interview_format,
+        "selection_type": selection_type,
+        "interview_stage": interview_stage,
+        "interviewer_type": interviewer_type,
+        "strictness_mode": strictness_mode,
+        "selected_role": selected_role_line,
     }
 
 
@@ -438,6 +735,8 @@ def _format_materials_section(payload: InterviewBaseRequest) -> str:
         [
             f"## 志望動機\n{payload.motivation_summary or 'なし'}",
             f"## ガクチカ\n{payload.gakuchika_summary or 'なし'}",
+            f"## 学業 / ゼミ / 卒論\n{payload.academic_summary or 'なし'}",
+            f"## 研究\n{payload.research_summary or 'なし'}",
             f"## ES\n{payload.es_summary or 'なし'}",
             f"## seed\n{payload.seed_summary or 'なし'}",
         ]
@@ -453,238 +752,768 @@ def _format_conversation(conversation_history: list[Message]) -> str:
     )
 
 
-def _normalize_question_text(question: str, company_name: str) -> str:
-    normalized = re.sub(r"\s+", " ", question).strip()
-    patterns = [
-        rf"^{re.escape(company_name)}の面接に臨むにあたり、?",
-        rf"^{re.escape(company_name)}を受けるにあたって、?",
-        rf"^{re.escape(company_name)}を志望するうえで、?",
-        r"^この企業の面接に臨むにあたり、?",
-        r"^今回の面接に臨むにあたり、?",
-    ]
-    for pattern in patterns:
-        normalized = re.sub(pattern, "", normalized).strip()
-    return normalized or question.strip()
+def _legacy_stage_for_topic(topic: Optional[str], question_stage: Optional[str] = None) -> str:
+    if isinstance(question_stage, str) and question_stage in LEGACY_STAGE_ORDER:
+        return question_stage
+
+    normalized = (topic or "").lower()
+    if any(key in normalized for key in ["company", "industry", "compare", "fit"]):
+        return "company_understanding"
+    if any(key in normalized for key in ["role", "skill", "technical"]):
+        return "role_reason"
+    if any(key in normalized for key in ["experience", "gakuchika", "project"]):
+        return "experience"
+    if any(key in normalized for key in ["motivation", "career", "future", "why"]):
+        return "motivation_fit"
+    if normalized in {"opening", "intro", "self_intro"}:
+        return "opening"
+    return "opening"
 
 
-def _sanitize_focus(value: Any, stage: str) -> str:
-    if isinstance(value, str) and value.strip():
-        return value.strip()[:40]
-    return STAGE_FOCUS_OPTIONS[stage][0]
-
-
-def _sanitize_transition_line(value: Any) -> Optional[str]:
-    if isinstance(value, str) and value.strip():
-        return value.strip()[:120]
-    return None
-
-
-def _advance_stage(current_stage: str) -> str:
-    try:
-        index = QUESTION_STAGE_ORDER.index(current_stage)
-    except ValueError:
-        return "feedback"
-    if index >= len(QUESTION_STAGE_ORDER) - 1:
-        return "feedback"
-    return QUESTION_STAGE_ORDER[index + 1]
-
-
-def _derive_completed_stages(current_stage: str, explicit_completed: list[str]) -> list[str]:
-    current_index = STAGE_ORDER.index(current_stage)
-    auto_completed = [stage for stage in QUESTION_STAGE_ORDER if STAGE_ORDER.index(stage) < current_index]
-    return [stage for stage in QUESTION_STAGE_ORDER if stage in set(explicit_completed + auto_completed)]
-
-
-def _pick_focus(stage: str, recommended_focus: Optional[str], last_focus: Optional[str]) -> str:
-    options = STAGE_FOCUS_OPTIONS[stage]
-    if isinstance(recommended_focus, str) and recommended_focus.strip():
-        normalized = recommended_focus.strip()
-        if normalized != last_focus:
-            return normalized[:40]
-    for option in options:
-        if option != last_focus:
-            return option
-    return options[0]
-
-
-async def _evaluate_turn(
-    payload: InterviewTurnRequest,
-    turn_state: dict[str, Any],
-) -> dict[str, Any]:
-    current_stage = turn_state["currentStage"]
-    stage_counts = turn_state["stageQuestionCounts"]
-    latest_answer = next(
-        (message.content for message in reversed(payload.conversation_history) if message.role == "user"),
-        "",
-    )
-    prompt = get_managed_prompt_content(
-        "interview.turn_evaluation",
-        fallback=_INTERVIEW_TURN_EVALUATION_PROMPT_FALLBACK,
-    ).format(
-        company_name=payload.company_name,
-        company_summary=payload.company_summary,
-        selected_industry=payload.selected_industry or "未設定",
-        selected_role=payload.selected_role or "未設定",
-        seed_summary=payload.seed_summary or "なし",
-        materials_section=_format_materials_section(payload),
-        current_stage=current_stage,
-        stage_label=STAGE_LABELS[current_stage],
-        stage_goal=STAGE_GOALS[current_stage],
-        stage_question_count=stage_counts[current_stage],
-        total_question_count=turn_state["totalQuestionCount"],
-        stage_min_count=STAGE_MIN_COUNTS[current_stage],
-        stage_max_count=STAGE_MAX_COUNTS[current_stage],
-        last_focus=turn_state["lastQuestionFocus"] or "なし",
-        conversation_text=_format_conversation(payload.conversation_history),
-        latest_answer=latest_answer or "なし",
-    )
-    result = await call_llm_with_error(
-        system_prompt=prompt,
-        user_message="このターンの評価と遷移判定を返してください。",
-        max_tokens=700,
-        temperature=0.2,
-        feature="interview",
-    )
-    if not result.success or not isinstance(result.data, dict):
-        logger.warning("[Interview] evaluation fallback used: %s", result.error.message if result.error else "unknown")
-        return {
-            "decision": "stay",
-            "recommended_focus": _pick_focus(
-                current_stage,
-                None,
-                turn_state.get("lastQuestionFocus"),
-            ),
-            "reason": "追加の具体性が必要です。",
-            "stage_assessment": {
-                "coverage": 45,
-                "specificity": 45,
-                "logic": 50,
-                "company_fit": 45,
-                "premise_consistency": 55,
-            },
-            "missing_points": ["具体例の不足", "根拠の不足"],
-            "interviewer_concerns": ["抽象的に見える"],
-        }
-    return result.data
-
-
-def _decide_next_state(turn_state: dict[str, Any], evaluation: dict[str, Any]) -> tuple[dict[str, Any], bool, str]:
-    current_stage = turn_state["currentStage"]
-    total_question_count = int(turn_state["totalQuestionCount"])
-    stage_counts = dict(turn_state["stageQuestionCounts"])
-    current_stage_count = int(stage_counts.get(current_stage, 0))
-
-    decision = str(evaluation.get("decision") or "stay")
-    force_feedback = total_question_count >= TOTAL_MAX_QUESTIONS
-    reached_stage_min = current_stage_count >= STAGE_MIN_COUNTS[current_stage]
-    reached_stage_max = current_stage_count >= STAGE_MAX_COUNTS[current_stage]
-
-    next_action: Literal["ask", "feedback"] = "ask"
-    next_stage = current_stage
-
-    if force_feedback:
-        next_action = "feedback"
-        next_stage = "feedback"
-    elif current_stage == "motivation_fit":
-        if (decision == "complete" or decision == "advance") and reached_stage_min and total_question_count >= TOTAL_MIN_QUESTIONS:
-            next_action = "feedback"
-            next_stage = "feedback"
-        elif reached_stage_max and total_question_count >= TOTAL_MIN_QUESTIONS:
-            next_action = "feedback"
-            next_stage = "feedback"
-    else:
-        if reached_stage_max:
-            next_stage = _advance_stage(current_stage)
-        elif decision == "advance" and reached_stage_min:
-            next_stage = _advance_stage(current_stage)
-
-    question_flow_completed = next_action == "feedback" or next_stage == "feedback"
-    completed_stages = _derive_completed_stages(
-        next_stage,
-        turn_state.get("completedStages", []),
-    )
-
-    updated = {
-        **turn_state,
-        "currentStage": next_stage,
-        "stageQuestionCounts": stage_counts,
-        "completedStages": completed_stages,
-        "nextAction": "feedback" if question_flow_completed else "ask",
+def _legacy_stage_status(current: str) -> dict[str, list[str] | str]:
+    if current not in LEGACY_STAGE_ORDER:
+        current = "opening"
+    current_index = LEGACY_STAGE_ORDER.index(current)
+    return {
+        "current": current,
+        "completed": LEGACY_STAGE_ORDER[:current_index],
+        "pending": LEGACY_STAGE_ORDER[current_index + 1 :],
     }
-    if question_flow_completed:
-        updated["currentStage"] = "feedback"
-
-    return updated, question_flow_completed, current_stage
 
 
-def _build_question_prompt(
-    payload: InterviewBaseRequest,
-    stage: str,
-    turn_state: dict[str, Any],
-    focus: str,
-    transition_hint: str,
-    conversation_text: str,
-    evaluation: Optional[dict[str, Any]] = None,
-) -> str:
-    gap_items: list[str] = []
-    if evaluation:
-        missing_points = evaluation.get("missing_points") or []
-        interviewer_concerns = evaluation.get("interviewer_concerns") or []
-        if isinstance(missing_points, list):
-            gap_items.extend(str(item) for item in missing_points if str(item).strip())
-        if isinstance(interviewer_concerns, list):
-            gap_items.extend(str(item) for item in interviewer_concerns if str(item).strip())
-    gap_summary = " / ".join(gap_items[:4]) or "不足点なし"
-    return get_managed_prompt_content(
-        "interview.question",
-        fallback=_INTERVIEW_QUESTION_PROMPT_FALLBACK,
-    ).format(
+def _default_stage_question_counts() -> dict[str, int]:
+    return {stage: 0 for stage in QUESTION_STAGE_ORDER}
+
+
+def _default_turn_state(setup: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    setup = setup or {}
+    return {
+        "phase": "opening",
+        "formatPhase": "opening",
+        "currentStage": "opening",
+        "questionCount": 0,
+        "totalQuestionCount": 0,
+        "turnCount": 0,
+        "stageQuestionCounts": _default_stage_question_counts(),
+        "completedStages": [],
+        "coverageState": [],
+        "coveredTopics": [],
+        "remainingTopics": [],
+        "recentQuestionSummaries": [],
+        "recentQuestionSummariesV2": [],
+        "lastQuestion": None,
+        "lastAnswer": None,
+        "lastTopic": None,
+        "lastQuestionFocus": None,
+        "nextAction": "ask",
+        "interviewPlan": None,
+        "turnMeta": None,
+        "roleTrack": setup.get("role_track"),
+        "interviewFormat": setup.get("interview_format"),
+        "selectionType": setup.get("selection_type"),
+        "interviewStage": setup.get("interview_stage"),
+        "interviewerType": setup.get("interviewer_type"),
+        "strictnessMode": setup.get("strictness_mode"),
+        "selectedIndustry": setup.get("selected_industry"),
+        "selectedRoleLine": setup.get("selected_role_line"),
+        "selectedRoleSource": setup.get("selected_role_source"),
+    }
+
+
+def _normalize_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _checklist_for_topic(topic: str, setup: dict[str, Any]) -> list[str]:
+    normalized = topic.lower()
+    if setup.get("interview_format") == "case" or "case" in normalized or "structured" in normalized:
+        checklist = ["structure", "hypothesis", "prioritization"]
+    elif setup.get("interview_format") == "technical" or "technical" in normalized:
+        checklist = ["decision_reason", "tradeoff", "reproducibility"]
+    elif setup.get("interview_format") == "presentation" or "presentation" in normalized:
+        checklist = ["summary", "evidence", "structure"]
+    elif any(key in normalized for key in ["motivation", "company", "compare", "career"]):
+        checklist = ["core_reason", "company_reason", "experience_link"]
+    elif any(key in normalized for key in ["role", "skill"]):
+        checklist = ["role_reason", "evidence", "transfer"]
+    else:
+        checklist = ["situation", "action", "result", "reproducibility"]
+
+    if setup.get("interview_stage") == "final":
+        if "company_compare" not in checklist and any(key in normalized for key in ["motivation", "company", "career"]):
+            checklist.extend(["company_compare", "decision_axis", "commitment"])
+
+    return checklist
+
+
+def _format_phase_for_setup(setup: dict[str, Any]) -> str:
+    interview_format = str(setup.get("interview_format") or "standard_behavioral")
+    if interview_format == "case":
+        return "case_main"
+    if interview_format == "technical":
+        return "technical_main"
+    if interview_format == "discussion":
+        return "discussion_main"
+    if interview_format == "presentation":
+        return "presentation_main"
+    return "standard_main"
+
+
+def _build_initial_coverage_state(interview_plan: dict[str, Any], setup: dict[str, Any]) -> list[dict[str, Any]]:
+    topics = _normalize_string_list(interview_plan.get("must_cover_topics")) or [
+        str(interview_plan.get("opening_topic") or "motivation_fit")
+    ]
+    return [
+        {
+            "topic": topic,
+            "status": "active" if index == 0 else "pending",
+            "requiredChecklist": _checklist_for_topic(topic, setup),
+            "passedChecklistKeys": [],
+            "deterministicCoveragePassed": False,
+            "llmCoverageHint": None,
+            "deepeningCount": 0,
+            "lastCoveredTurnId": None,
+        }
+        for index, topic in enumerate(topics)
+    ]
+
+
+def _normalize_recent_question_summaries_v2(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    items: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        normalized_summary = str(item.get("normalizedSummary") or "").strip()
+        if not normalized_summary:
+            continue
+        items.append(
+            {
+                "intentKey": str(item.get("intentKey") or "unknown_intent").strip() or "unknown_intent",
+                "normalizedSummary": normalized_summary,
+                "topic": str(item.get("topic") or "").strip() or None,
+                "followupStyle": str(item.get("followupStyle") or "").strip() or None,
+                "turnId": str(item.get("turnId") or "").strip() or None,
+            }
+        )
+    return items[-8:]
+
+
+def _normalize_coverage_state(value: Any, interview_plan: dict[str, Any], setup: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return _build_initial_coverage_state(interview_plan, setup)
+
+    fallback_by_topic = {
+        item["topic"]: item for item in _build_initial_coverage_state(interview_plan, setup)
+    }
+    normalized: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        topic = str(item.get("topic") or "").strip()
+        if not topic:
+            continue
+        fallback = fallback_by_topic.get(topic, {
+            "requiredChecklist": _checklist_for_topic(topic, setup),
+        })
+        status = str(item.get("status") or "pending").strip()
+        if status not in {"pending", "active", "covered", "exhausted"}:
+            status = "pending"
+        normalized.append(
+            {
+                "topic": topic,
+                "status": status,
+                "requiredChecklist": _normalize_string_list(item.get("requiredChecklist")) or fallback["requiredChecklist"],
+                "passedChecklistKeys": _normalize_string_list(item.get("passedChecklistKeys")),
+                "deterministicCoveragePassed": bool(item.get("deterministicCoveragePassed", False)),
+                "llmCoverageHint": str(item.get("llmCoverageHint") or "").strip() or None,
+                "deepeningCount": int(item.get("deepeningCount", 0) or 0),
+                "lastCoveredTurnId": str(item.get("lastCoveredTurnId") or "").strip() or None,
+            }
+        )
+
+    if not normalized:
+        return _build_initial_coverage_state(interview_plan, setup)
+    return normalized
+
+
+def _covered_topics_from_coverage_state(coverage_state: list[dict[str, Any]]) -> list[str]:
+    return [
+        item["topic"]
+        for item in coverage_state
+        if item.get("deterministicCoveragePassed") is True
+    ]
+
+
+def _build_recent_question_summary_v2(turn_meta: dict[str, Any], fallback: str, turn_id: str) -> dict[str, Any]:
+    return {
+        "intentKey": str(turn_meta.get("intent_key") or f"{turn_meta.get('topic') or 'unknown'}:{turn_meta.get('followup_style') or 'reason_check'}"),
+        "normalizedSummary": _build_question_summary(turn_meta.get("focus_reason"), fallback),
+        "topic": str(turn_meta.get("topic") or "").strip() or None,
+        "followupStyle": str(turn_meta.get("followup_style") or "").strip() or None,
+        "turnId": turn_id,
+    }
+
+
+def _normalize_interview_plan(value: Any) -> dict[str, Any]:
+    data = value if isinstance(value, dict) else {}
+    interview_type = str(data.get("interview_type") or "new_grad_behavioral").strip()
+    priority_topics = _normalize_string_list(data.get("priority_topics"))
+    if isinstance(data.get("opening_topic"), str) and data["opening_topic"].strip():
+        opening_topic = data["opening_topic"].strip()
+    else:
+        opening_topic = priority_topics[0] if priority_topics else "motivation_fit"
+    must_cover_topics = _normalize_string_list(data.get("must_cover_topics")) or [opening_topic]
+    risk_topics = _normalize_string_list(data.get("risk_topics"))
+    suggested_timeflow = _normalize_string_list(data.get("suggested_timeflow")) or ["導入", "論点1", "論点2", "締め"]
+    return {
+        "interview_type": interview_type,
+        "priority_topics": priority_topics or [opening_topic],
+        "opening_topic": opening_topic,
+        "must_cover_topics": must_cover_topics,
+        "risk_topics": risk_topics,
+        "suggested_timeflow": suggested_timeflow,
+    }
+
+
+def _normalize_turn_meta(value: Any, fallback_topic: str = "motivation_fit") -> dict[str, Any]:
+    data = value if isinstance(value, dict) else {}
+    topic = str(data.get("topic") or fallback_topic).strip() or fallback_topic
+    turn_action = str(data.get("turn_action") or "ask").strip()
+    if turn_action not in {"ask", "deepen", "shift"}:
+        turn_action = "ask"
+    depth_focus = str(data.get("depth_focus") or "logic").strip()
+    if depth_focus not in {"company_fit", "role_fit", "specificity", "logic", "persuasiveness", "consistency", "credibility"}:
+        depth_focus = "logic"
+    followup_style = str(data.get("followup_style") or "reason_check").strip()
+    if not followup_style:
+        followup_style = "reason_check"
+    return {
+        "topic": topic,
+        "turn_action": turn_action,
+        "focus_reason": str(data.get("focus_reason") or "").strip(),
+        "depth_focus": depth_focus,
+        "followup_style": followup_style,
+        "intent_key": str(data.get("intent_key") or f"{topic}:{followup_style}").strip() or f"{topic}:{followup_style}",
+        "should_move_next": bool(data.get("should_move_next", False)),
+    }
+
+
+def _normalize_feedback(value: Any) -> dict[str, Any]:
+    data = value if isinstance(value, dict) else {}
+    scores = data.get("scores") if isinstance(data.get("scores"), dict) else {}
+    normalized_scores = {
+        "company_fit": int(scores.get("company_fit", 0) or 0),
+        "role_fit": int(scores.get("role_fit", 0) or 0),
+        "specificity": int(scores.get("specificity", 0) or 0),
+        "logic": int(scores.get("logic", 0) or 0),
+        "persuasiveness": int(scores.get("persuasiveness", 0) or 0),
+        "consistency": int(scores.get("consistency", 0) or 0),
+        "credibility": int(scores.get("credibility", 0) or 0),
+    }
+    return {
+        "overall_comment": str(data.get("overall_comment") or "").strip(),
+        "scores": normalized_scores,
+        "strengths": _normalize_string_list(data.get("strengths")),
+        "improvements": _normalize_string_list(data.get("improvements")),
+        "consistency_risks": _normalize_string_list(data.get("consistency_risks")),
+        "weakest_question_type": str(data.get("weakest_question_type") or "motivation").strip() or "motivation",
+        "weakest_turn_id": str(data.get("weakest_turn_id") or "").strip() or None,
+        "weakest_question_snapshot": str(data.get("weakest_question_snapshot") or "").strip() or None,
+        "weakest_answer_snapshot": str(data.get("weakest_answer_snapshot") or "").strip() or None,
+        "improved_answer": str(data.get("improved_answer") or "").strip(),
+        "next_preparation": _normalize_string_list(data.get("next_preparation")),
+        "premise_consistency": int(data.get("premise_consistency", 0) or 0),
+        "satisfaction_score": int(data.get("satisfaction_score", 0) or 0)
+        if data.get("satisfaction_score") is not None
+        else None,
+    }
+
+
+def _build_fallback_opening_payload(
+    payload: InterviewStartRequest,
+    interview_plan: dict[str, Any],
+    setup: dict[str, Any],
+) -> dict[str, Any]:
+    company_name = payload.company_name
+    selected_role_line = setup["selected_role_line"]
+    interview_format = setup["interview_format"]
+    opening_topic = str(interview_plan.get("opening_topic") or "motivation_fit")
+
+    if interview_format == "case":
+        return {
+            "question": "ケース面接として、ある小売チェーンの売上が前年同期比で10%下がっているとします。まず何をどう切り分けて考えますか。",
+            "question_stage": "opening",
+            "focus": "構造化と仮説の置き方",
+            "interview_setup_note": "今回は論点分解と仮説の置き方を中心に見ます",
+            "turn_meta": {
+                "topic": opening_topic if opening_topic != "motivation_fit" else "structured_thinking",
+                "turn_action": "shift",
+                "focus_reason": "ケース面接の基本である論点分解を確認するため",
+                "depth_focus": "logic",
+                "followup_style": "theme_choice_check",
+                "should_move_next": False,
+            },
+        }
+
+    if interview_format == "technical":
+        return {
+            "question": f"これまでの開発経験の中で、{selected_role_line}として設計判断が難しかった題材を1つ選び、何をどう設計したかを順に説明してください。",
+            "question_stage": "opening",
+            "focus": "設計判断の理由",
+            "interview_setup_note": "今回は専門性と設計判断の説明力を中心に見ます",
+            "turn_meta": {
+                "topic": opening_topic if opening_topic != "motivation_fit" else "technical_depth",
+                "turn_action": "shift",
+                "focus_reason": "技術面接として設計判断の背景と責務を確認するため",
+                "depth_focus": "logic",
+                "followup_style": "technical_difficulty_check",
+                "should_move_next": False,
+            },
+        }
+
+    if interview_format == "discussion":
+        return {
+            "question": f"{selected_role_line}を想定して、立場の異なる関係者の意見がぶつかった場面では、まず何を整理し、どう合意形成を進めますか。",
+            "question_stage": "opening",
+            "focus": "論点整理と合意形成",
+            "interview_setup_note": "今回は論点整理と周囲の巻き込み方を中心に見ます",
+            "turn_meta": {
+                "topic": opening_topic if opening_topic != "motivation_fit" else "stakeholder_alignment",
+                "turn_action": "shift",
+                "focus_reason": "ディスカッション面接として論点整理の型を確認するため",
+                "depth_focus": "logic",
+                "followup_style": "conflict_check",
+                "should_move_next": False,
+            },
+        }
+
+    if interview_format == "presentation":
+        return {
+            "question": f"まず、{company_name}の{selected_role_line}を想定して、研究や発表内容の目的・工夫・結果を2分程度で要約して説明してください。",
+            "question_stage": "opening",
+            "focus": "発表内容の要約力",
+            "interview_setup_note": "今回は研究内容の説明力と事業への接続を中心に見ます",
+            "turn_meta": {
+                "topic": opening_topic if opening_topic != "motivation_fit" else "presentation_summary",
+                "turn_action": "shift",
+                "focus_reason": "発表面接として要点整理と伝達力を確認するため",
+                "depth_focus": "specificity",
+                "followup_style": "evidence_reading_check",
+                "should_move_next": False,
+            },
+        }
+
+    return {
+        "question": f"まず、なぜ{company_name}の{selected_role_line}を志望しているのか、これまでの経験とのつながりも含めて教えてください。",
+        "question_stage": "opening",
+        "focus": "志望理由の核",
+        "interview_setup_note": "今回は志望理由の核と職種理解を中心に見ます",
+        "turn_meta": {
+            "topic": opening_topic,
+            "turn_action": "shift",
+            "focus_reason": "初回導入として志望理由の核を確認するため",
+            "depth_focus": "company_fit",
+            "followup_style": "company_reason_check",
+            "should_move_next": False,
+        },
+    }
+
+
+def _opening_question_matches_format(question: str, interview_format: str) -> bool:
+    normalized = question.strip()
+    if not normalized:
+        return False
+    if interview_format == "case":
+        return any(keyword in normalized for keyword in ["ケース", "構造化", "仮説", "切り分け", "売上", "要因"])
+    if interview_format == "technical":
+        return any(keyword in normalized for keyword in ["設計", "実装", "開発", "技術", "アーキテクチャ", "システム"])
+    if interview_format == "discussion":
+        return any(keyword in normalized for keyword in ["関係者", "合意", "論点", "整理", "対立", "意思決定"])
+    if interview_format == "presentation":
+        return any(keyword in normalized for keyword in ["発表", "要約", "実験", "結果", "目的", "研究内容"])
+    return True
+
+
+def _fallback_improvement_for_score(score_key: str) -> str:
+    mapping = {
+        "company_fit": "なぜこの会社なのかを他社比較まで含めて一言で言えるようにする",
+        "role_fit": "志望職種で求められる役割と、自分の経験のつながりを具体化する",
+        "specificity": "経験を話すときは状況・役割・行動・結果を数値や固有名詞で補強する",
+        "logic": "結論から話し、理由と具体例を分けて説明する",
+        "persuasiveness": "相手が納得しやすい根拠を先に置き、主張とのつながりを明示する",
+        "consistency": "志望理由・経験・将来像のつながりを同じ軸で説明できるようにする",
+        "credibility": "自分の関与範囲と再現性を必要以上に大きく見せずに説明する",
+    }
+    return mapping.get(score_key, "回答の根拠を具体化する")
+
+
+def _fallback_preparation_for_score(score_key: str, weakest_question_type: str) -> str:
+    mapping = {
+        "company_fit": "『なぜこの会社か』を競合比較込みで30秒で言えるように整理する",
+        "role_fit": "応募職種の役割と必要能力を、自分の経験に引きつけて説明できるようにする",
+        "specificity": "代表エピソードを1つ選び、STARで60秒版と120秒版を作る",
+        "logic": "結論→理由→具体例の順で話す練習をする",
+        "persuasiveness": "主張ごとに根拠を1つずつ添えて話す練習をする",
+        "consistency": "志望理由・ガクチカ・将来像の接続を1本のストーリーにまとめる",
+        "credibility": "自分の役割・意思決定・成果を誇張なく説明できるよう事実を整理する",
+    }
+    if weakest_question_type == "case":
+        return "ケース面接の基本として、論点分解と優先順位付けの型を3題ほど練習する"
+    return mapping.get(score_key, "想定質問への回答を1分で言えるように整理する")
+
+
+def _enrich_feedback_defaults(
+    feedback: dict[str, Any],
+    *,
+    setup: dict[str, Any],
+) -> dict[str, Any]:
+    scores = feedback["scores"]
+    ordered_score_keys = sorted(scores.keys(), key=lambda key: (scores[key], key))
+    weakest_score_key = ordered_score_keys[0] if ordered_score_keys else "logic"
+
+    if not feedback["overall_comment"]:
+        feedback["overall_comment"] = (
+            f"{setup['interview_format']} 面接として見ると、全体の方向性は大きく外していませんが、"
+            f"{weakest_score_key} の観点で説明をもう一段具体化すると通過率を上げやすい状態です。"
+        )
+
+    if not feedback["improvements"]:
+        feedback["improvements"] = [
+            _fallback_improvement_for_score(score_key)
+            for score_key in ordered_score_keys[:2]
+        ]
+
+    if not feedback["next_preparation"]:
+        weakest_question_type = str(feedback.get("weakest_question_type") or "motivation")
+        feedback["next_preparation"] = [
+            _fallback_preparation_for_score(score_key, weakest_question_type)
+            for score_key in ordered_score_keys[:2]
+        ]
+
+    if not feedback["consistency_risks"] and scores.get("consistency", 0) <= 4:
+        feedback["consistency_risks"] = [
+            "志望理由と経験のつながりが弱く見えるため、経験から志望理由への接続を一言で補強してください。"
+        ]
+
+    if not feedback["improved_answer"]:
+        weakest_question = str(feedback.get("weakest_question_snapshot") or "").strip()
+        weakest_answer = str(feedback.get("weakest_answer_snapshot") or "").strip()
+        if weakest_question and weakest_answer:
+            feedback["improved_answer"] = (
+                f"{weakest_question} への回答は、結論を先に示したうえで、"
+                "その会社・職種との接点、根拠になる経験、入社後に出したい価値を一文ずつつないで答える。"
+            )
+        else:
+            feedback["improved_answer"] = ""
+
+    feedback["improvements"] = feedback["improvements"][:3]
+    feedback["next_preparation"] = feedback["next_preparation"][:3]
+    feedback["consistency_risks"] = feedback["consistency_risks"][:3]
+    return feedback
+
+
+def _backfill_feedback_linkage_from_conversation(
+    feedback: dict[str, Any],
+    conversation_history: list[Message],
+) -> dict[str, Any]:
+    if (
+        feedback.get("weakest_turn_id")
+        and feedback.get("weakest_question_snapshot")
+        and feedback.get("weakest_answer_snapshot")
+    ):
+        return feedback
+
+    last_question = next(
+        (message.content for message in reversed(conversation_history) if message.role == "assistant"),
+        None,
+    )
+    last_answer = next(
+        (message.content for message in reversed(conversation_history) if message.role == "user"),
+        None,
+    )
+    assistant_count = sum(1 for message in conversation_history if message.role == "assistant")
+
+    return {
+        **feedback,
+        "weakest_turn_id": feedback.get("weakest_turn_id") or (f"turn-{assistant_count}" if assistant_count > 0 else None),
+        "weakest_question_snapshot": feedback.get("weakest_question_snapshot") or last_question,
+        "weakest_answer_snapshot": feedback.get("weakest_answer_snapshot") or last_answer,
+    }
+
+
+def _normalize_turn_state(value: Optional[dict[str, Any]], setup: dict[str, Any]) -> dict[str, Any]:
+    state = _default_turn_state(setup)
+    if not isinstance(value, dict):
+        state["formatPhase"] = "opening"
+        return state
+
+    phase = str(value.get("phase") or "opening").strip()
+    if phase not in {"plan", "opening", "turn", "feedback"}:
+        phase = "opening"
+    state["phase"] = phase
+    format_phase = str(value.get("formatPhase") or "").strip()
+    if format_phase not in {
+        "opening",
+        "standard_main",
+        "case_main",
+        "case_closing",
+        "technical_main",
+        "discussion_main",
+        "presentation_main",
+        "feedback",
+    }:
+        format_phase = "opening" if phase == "opening" else _format_phase_for_setup(setup)
+    state["formatPhase"] = format_phase
+
+    current_stage = str(value.get("currentStage") or value.get("question_stage") or "opening").strip()
+    if current_stage not in LEGACY_STAGE_ORDER:
+        current_stage = _legacy_stage_for_topic(value.get("lastTopic"), current_stage)
+    state["currentStage"] = current_stage
+
+    for key in ("questionCount", "totalQuestionCount", "turnCount"):
+        raw = value.get(key)
+        if isinstance(raw, int) and raw >= 0:
+            state[key] = raw
+
+    if isinstance(value.get("stageQuestionCounts"), dict):
+        counts: dict[str, int] = {}
+        for stage in QUESTION_STAGE_ORDER:
+            raw = value["stageQuestionCounts"].get(stage, 0)
+            counts[stage] = raw if isinstance(raw, int) and raw >= 0 else 0
+        state["stageQuestionCounts"] = counts
+
+    state["completedStages"] = [stage for stage in _normalize_string_list(value.get("completedStages")) if stage in QUESTION_STAGE_ORDER]
+    state["coverageState"] = _normalize_coverage_state(
+        value.get("coverageState"),
+        _normalize_interview_plan(value.get("interviewPlan") or value.get("plan")),
+        setup,
+    )
+    state["coveredTopics"] = _normalize_string_list(value.get("coveredTopics")) or _covered_topics_from_coverage_state(state["coverageState"])
+    state["remainingTopics"] = _normalize_string_list(value.get("remainingTopics")) or [
+        item["topic"] for item in state["coverageState"] if item["topic"] not in state["coveredTopics"]
+    ]
+    state["recentQuestionSummaries"] = _normalize_string_list(value.get("recentQuestionSummaries"))[-5:]
+    state["recentQuestionSummariesV2"] = _normalize_recent_question_summaries_v2(value.get("recentQuestionSummariesV2")) or [
+        {
+            "intentKey": f"legacy-summary-{index + 1}",
+            "normalizedSummary": summary,
+            "topic": None,
+            "followupStyle": None,
+            "turnId": None,
+        }
+        for index, summary in enumerate(state["recentQuestionSummaries"])
+    ]
+    state["lastQuestion"] = str(value.get("lastQuestion")).strip() if isinstance(value.get("lastQuestion"), str) and value.get("lastQuestion").strip() else None
+    state["lastAnswer"] = str(value.get("lastAnswer")).strip() if isinstance(value.get("lastAnswer"), str) and value.get("lastAnswer").strip() else None
+    state["lastTopic"] = str(value.get("lastTopic")).strip() if isinstance(value.get("lastTopic"), str) and value.get("lastTopic").strip() else None
+    state["lastQuestionFocus"] = str(value.get("lastQuestionFocus")).strip() if isinstance(value.get("lastQuestionFocus"), str) and value.get("lastQuestionFocus").strip() else None
+    next_action = str(value.get("nextAction") or "ask").strip()
+    state["nextAction"] = next_action if next_action in {"ask", "feedback"} else "ask"
+    state["interviewPlan"] = _normalize_interview_plan(value.get("interviewPlan") or value.get("plan"))
+    state["turnMeta"] = _normalize_turn_meta(value.get("turnMeta") or value.get("turn_meta"), state["lastTopic"] or state["interviewPlan"]["opening_topic"])
+    return state
+
+
+def _question_stage_from_turn_meta(turn_meta: dict[str, Any]) -> str:
+    topic = turn_meta.get("topic")
+    if isinstance(topic, str):
+        normalized = topic.lower()
+        if any(key in normalized for key in ["company", "industry", "compare"]):
+            return "company_understanding"
+        if any(key in normalized for key in ["role", "skill", "technical"]):
+            return "role_reason"
+        if any(key in normalized for key in ["experience", "gakuchika", "project"]):
+            return "experience"
+        if any(key in normalized for key in ["motivation", "career", "future", "why"]):
+            return "motivation_fit"
+    return "opening"
+
+
+def _derive_turn_state_for_question(base: dict[str, Any], turn_meta: dict[str, Any], *, phase: str) -> dict[str, Any]:
+    state = {**base}
+    legacy_stage = "feedback" if phase == "feedback" else _question_stage_from_turn_meta(turn_meta)
+    state["phase"] = phase
+    state["formatPhase"] = "feedback" if phase == "feedback" else state.get("formatPhase") or _format_phase_for_setup(state)
+    state["currentStage"] = legacy_stage
+    state["lastTopic"] = turn_meta.get("topic")
+    state["turnMeta"] = turn_meta
+    state["lastQuestionFocus"] = turn_meta.get("focus_reason") or state.get("lastQuestionFocus")
+    state["nextAction"] = "feedback" if phase == "feedback" else "ask"
+    state["turnCount"] = int(state.get("turnCount", 0) or 0) + (0 if phase == "feedback" else 1)
+    state["questionCount"] = int(state.get("questionCount", 0) or 0) + (0 if phase == "feedback" else 1)
+    state["totalQuestionCount"] = int(state.get("totalQuestionCount", 0) or 0) + (0 if phase == "feedback" else 1)
+    if phase != "feedback":
+        counts = dict(state.get("stageQuestionCounts") or _default_stage_question_counts())
+        counts[legacy_stage] = int(counts.get(legacy_stage, 0) or 0) + 1
+        state["stageQuestionCounts"] = counts
+    state["completedStages"] = [stage for stage in LEGACY_STAGE_ORDER if stage in LEGACY_STAGE_ORDER[: LEGACY_STAGE_ORDER.index(legacy_stage)]]
+    state["stageStatus"] = _legacy_stage_status(legacy_stage)
+    return state
+
+
+def _build_question_summary(text: Optional[str], fallback: str) -> str:
+    if not text:
+        return fallback
+    compact = re.sub(r"\s+", " ", text).strip()
+    return compact[:60] if compact else fallback
+
+
+def _build_plan_prompt(payload: InterviewBaseRequest) -> str:
+    setup = _build_setup(payload)
+    return get_managed_prompt_content("interview.plan", fallback=_PLAN_FALLBACK).format(
         company_name=payload.company_name,
         company_summary=payload.company_summary,
-        selected_industry=payload.selected_industry or "未設定",
-        selected_role=payload.selected_role or "未設定",
-        seed_summary=payload.seed_summary or "なし",
+        motivation_summary=payload.motivation_summary or "なし",
+        gakuchika_summary=payload.gakuchika_summary or "なし",
+        academic_summary=payload.academic_summary or "なし",
+        research_summary=payload.research_summary or "なし",
+        es_summary=payload.es_summary or "なし",
+        selected_role_line=setup["selected_role_line"],
+        role_track=setup["role_track"],
+        interview_format=setup["interview_format"],
+        selection_type=setup["selection_type"],
+        interview_stage=setup["interview_stage"],
+        interviewer_type=setup["interviewer_type"],
+        strictness_mode=setup["strictness_mode"],
         materials_section=_format_materials_section(payload),
-        current_stage=stage,
-        stage_label=STAGE_LABELS[stage],
-        stage_goal=STAGE_GOALS[stage],
-        stage_question_count=turn_state["stageQuestionCounts"].get(stage, 0),
-        total_question_count=turn_state["totalQuestionCount"],
-        recommended_focus=focus,
-        focus_options=" / ".join(STAGE_FOCUS_OPTIONS[stage]),
-        gap_summary=gap_summary,
-        conversation_text=conversation_text,
-        transition_hint=transition_hint,
+    )
+
+
+def _build_opening_prompt(payload: InterviewBaseRequest, interview_plan: dict[str, Any]) -> str:
+    setup = _build_setup(payload)
+    prompt = get_managed_prompt_content("interview.opening", fallback=_OPENING_FALLBACK).format(
+        company_name=payload.company_name,
+        company_summary=payload.company_summary,
+        motivation_summary=payload.motivation_summary or "なし",
+        gakuchika_summary=payload.gakuchika_summary or "なし",
+        academic_summary=payload.academic_summary or "なし",
+        research_summary=payload.research_summary or "なし",
+        es_summary=payload.es_summary or "なし",
+        selected_role_line=setup["selected_role_line"],
+        role_track=setup["role_track"],
+        interview_format=setup["interview_format"],
+        selection_type=setup["selection_type"],
+        interview_stage=setup["interview_stage"],
+        interviewer_type=setup["interviewer_type"],
+        strictness_mode=setup["strictness_mode"],
+        interview_plan=json.dumps(interview_plan, ensure_ascii=False),
+        priority_topics=json.dumps(interview_plan.get("priority_topics", []), ensure_ascii=False),
+        opening_topic=str(interview_plan.get("opening_topic") or "motivation_fit"),
+        materials_section=_format_materials_section(payload),
+    )
+    return (
+        f"{prompt}\n\n## academic_summary\n{payload.academic_summary or 'なし'}\n"
+        f"## opening_topic\n{str(interview_plan.get('opening_topic') or 'motivation_fit')}"
+    )
+
+
+def _build_turn_prompt(
+    payload: InterviewBaseRequest,
+    interview_plan: dict[str, Any],
+    turn_state: dict[str, Any],
+    turn_meta: dict[str, Any],
+) -> str:
+    setup = _build_setup(payload)
+    return get_managed_prompt_content("interview.turn", fallback=_TURN_FALLBACK).format(
+        company_name=payload.company_name,
+        company_summary=payload.company_summary,
+        motivation_summary=payload.motivation_summary or "なし",
+        gakuchika_summary=payload.gakuchika_summary or "なし",
+        academic_summary=payload.academic_summary or "なし",
+        research_summary=payload.research_summary or "なし",
+        es_summary=payload.es_summary or "なし",
+        selected_role_line=setup["selected_role_line"],
+        role_track=setup["role_track"],
+        interview_format=setup["interview_format"],
+        selection_type=setup["selection_type"],
+        interview_stage=setup["interview_stage"],
+        interviewer_type=setup["interviewer_type"],
+        strictness_mode=setup["strictness_mode"],
+        interview_plan=json.dumps(interview_plan, ensure_ascii=False),
+        priority_topics=json.dumps(interview_plan.get("priority_topics", []), ensure_ascii=False),
+        conversation_text=_format_conversation(payload.conversation_history if isinstance(payload, InterviewTurnRequest) else []),
+        last_question=str(turn_state.get("lastQuestion") or ""),
+        last_answer=str(turn_state.get("lastAnswer") or ""),
+        last_topic=str(turn_state.get("lastTopic") or ""),
+        coveredTopics=json.dumps(turn_state.get("coveredTopics") or [], ensure_ascii=False),
+        remainingTopics=json.dumps(turn_state.get("remainingTopics") or [], ensure_ascii=False),
+        coverage_state=json.dumps(turn_state.get("coverageState") or [], ensure_ascii=False),
+        recent_question_summaries_v2=json.dumps(turn_state.get("recentQuestionSummariesV2") or [], ensure_ascii=False),
+        format_phase=str(turn_state.get("formatPhase") or "opening"),
+        turn_events=json.dumps(
+            (payload.turn_events if isinstance(payload, InterviewTurnRequest) else None) or [],
+            ensure_ascii=False,
+        ),
     )
 
 
 def _build_feedback_prompt(payload: InterviewFeedbackRequest) -> str:
-    return get_managed_prompt_content(
-        "interview.feedback",
-        fallback=_INTERVIEW_FEEDBACK_PROMPT_FALLBACK,
-    ).format(
+    setup = _build_setup(payload)
+    interview_plan = payload.turn_state.get("interviewPlan") if isinstance(payload.turn_state, dict) else None
+    if not isinstance(interview_plan, dict):
+        interview_plan = {
+            "interview_type": f"new_grad_{setup['interview_format']}",
+            "priority_topics": [setup["role_track"]],
+            "opening_topic": "motivation_fit",
+            "must_cover_topics": ["motivation_fit", "role_understanding"],
+            "risk_topics": ["credibility_check"],
+            "suggested_timeflow": ["導入", "論点1", "論点2", "締め"],
+        }
+    return get_managed_prompt_content("interview.feedback", fallback=_FEEDBACK_FALLBACK).format(
         company_name=payload.company_name,
         company_summary=payload.company_summary,
-        selected_industry=payload.selected_industry or "未設定",
-        selected_role=payload.selected_role or "未設定",
-        seed_summary=payload.seed_summary or "なし",
-        materials_section=_format_materials_section(payload),
+        motivation_summary=payload.motivation_summary or "なし",
+        gakuchika_summary=payload.gakuchika_summary or "なし",
+        academic_summary=payload.academic_summary or "なし",
+        research_summary=payload.research_summary or "なし",
+        es_summary=payload.es_summary or "なし",
+        selected_role_line=setup["selected_role_line"],
+        role_track=setup["role_track"],
+        interview_format=setup["interview_format"],
+        selection_type=setup["selection_type"],
+        interview_stage=setup["interview_stage"],
+        interviewer_type=setup["interviewer_type"],
+        strictness_mode=setup["strictness_mode"],
+        interview_plan=json.dumps(interview_plan, ensure_ascii=False),
         conversation_text=_format_conversation(payload.conversation_history),
+        turn_events=json.dumps(payload.turn_events or [], ensure_ascii=False),
     )
 
 
 def _build_continue_prompt(payload: InterviewContinueRequest) -> str:
+    setup = _build_setup(payload)
+    interview_plan = payload.turn_state.get("interviewPlan") if isinstance(payload.turn_state, dict) else None
+    if not isinstance(interview_plan, dict):
+        interview_plan = {
+            "interview_type": f"new_grad_{setup['interview_format']}",
+            "priority_topics": [setup["role_track"]],
+            "opening_topic": "motivation_fit",
+            "must_cover_topics": ["motivation_fit", "role_understanding"],
+            "risk_topics": ["credibility_check"],
+            "suggested_timeflow": ["導入", "論点1", "論点2", "締め"],
+        }
     latest_feedback_summary = json.dumps(payload.latest_feedback or {}, ensure_ascii=False)
-    return get_managed_prompt_content(
-        "interview.continue",
-        fallback=_INTERVIEW_CONTINUE_PROMPT_FALLBACK,
-    ).format(
+    return get_managed_prompt_content("interview.continue", fallback=_CONTINUE_FALLBACK).format(
         company_name=payload.company_name,
         company_summary=payload.company_summary,
-        selected_industry=payload.selected_industry or "未設定",
-        selected_role=payload.selected_role or "未設定",
-        seed_summary=payload.seed_summary or "なし",
-        materials_section=_format_materials_section(payload),
+        motivation_summary=payload.motivation_summary or "なし",
+        gakuchika_summary=payload.gakuchika_summary or "なし",
+        academic_summary=payload.academic_summary or "なし",
+        research_summary=payload.research_summary or "なし",
+        es_summary=payload.es_summary or "なし",
+        selected_role_line=setup["selected_role_line"],
+        role_track=setup["role_track"],
+        interview_format=setup["interview_format"],
+        selection_type=setup["selection_type"],
+        interview_stage=setup["interview_stage"],
+        interviewer_type=setup["interviewer_type"],
+        strictness_mode=setup["strictness_mode"],
+        interview_plan=json.dumps(interview_plan, ensure_ascii=False),
+        priority_topics=json.dumps(interview_plan.get("priority_topics", []), ensure_ascii=False),
         conversation_text=_format_conversation(payload.conversation_history),
         latest_feedback_summary=latest_feedback_summary,
     )
@@ -695,92 +1524,233 @@ def _sse_event(event_type: str, payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(body, ensure_ascii=False)}\n\n"
 
 
-async def _stream_question_fields(prompt: str) -> AsyncGenerator[Any, None]:
+async def _collect_llm_completion(
+    *,
+    prompt: str,
+    user_message: str,
+    stream_string_fields: list[str],
+    schema_hints: dict[str, Any],
+    max_tokens: int,
+    temperature: float,
+    feature: str,
+    json_schema: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
+    final_data: dict[str, Any] | None = None
+    string_chunks: list[dict[str, str]] = []
     async for event in call_llm_streaming_fields(
         system_prompt=prompt,
-        user_message="次の面接質問を生成してください。",
-        max_tokens=550,
-        temperature=0.45,
-        feature="interview",
-        schema_hints={
-            "question": "string",
-            "focus": "string",
-            "question_stage": "string",
-            "transition_line": "string",
-        },
-        stream_string_fields=["question"],
-        partial_required_fields=("question",),
+        user_message=user_message,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        feature=feature,
+        schema_hints=schema_hints,
+        stream_string_fields=stream_string_fields,
+        response_format="json_schema" if json_schema else "json_object",
+        json_schema=json_schema,
+        partial_required_fields=tuple(stream_string_fields[:1]),
     ):
-        yield event
+        if event.type == "string_chunk" and event.path in stream_string_fields:
+            string_chunks.append({"path": event.path, "text": event.text})
+        elif event.type == "error":
+            error = event.result.error if event.result else None
+            raise RuntimeError(error.message if error else "LLM request failed")
+        elif event.type == "complete":
+            result = event.result
+            if result and result.success and isinstance(result.data, dict):
+                final_data = result.data
+            else:
+                error = result.error if result else None
+                raise RuntimeError(error.message if error else "LLM request failed")
+    return final_data, string_chunks
 
 
-async def _stream_feedback_fields(prompt: str) -> AsyncGenerator[Any, None]:
-    async for event in call_llm_streaming_fields(
-        system_prompt=prompt,
-        user_message="最終講評を生成してください。",
-        max_tokens=1000,
-        temperature=0.3,
-        feature="interview_feedback",
-        schema_hints={
-            "overall_comment": "string",
-            "scores": "object",
-            "strengths": "array",
-            "improvements": "array",
-            "improved_answer": "string",
-            "preparation_points": "array",
-            "premise_consistency": "number",
-        },
-        stream_string_fields=["overall_comment", "improved_answer"],
-        partial_required_fields=("overall_comment",),
-    ):
-        yield event
+def _fallback_plan(payload: InterviewBaseRequest, setup: dict[str, Any]) -> dict[str, Any]:
+    opening_topic = "case_fit" if setup["interview_format"] == "case" else "motivation_fit"
+    interview_type_map = {
+        "case": "new_grad_case",
+        "technical": "new_grad_technical",
+        "discussion": "new_grad_discussion",
+        "presentation": "new_grad_presentation",
+    }
+    interview_type = interview_type_map.get(setup["interview_format"], "new_grad_behavioral")
+    must_cover = [opening_topic, "role_understanding", "company_fit"]
+    if setup["interview_stage"] == "final":
+        must_cover.extend(["company_compare_check", "career_alignment"])
+    if setup["selection_type"] == "internship":
+        must_cover.append("learning_motivation")
+    if setup["role_track"] == "research_specialist":
+        must_cover.append("research_application")
+    if setup["role_track"] == "it_product":
+        must_cover.append("work_understanding")
+    return {
+        "interview_type": interview_type,
+        "priority_topics": must_cover[:4],
+        "opening_topic": opening_topic,
+        "must_cover_topics": must_cover,
+        "risk_topics": ["credibility_check", "consistency_check"],
+        "suggested_timeflow": ["導入", "志望動機", "具体例", "締め"],
+    }
+
+
+def _fallback_turn_meta(turn_state: dict[str, Any], interview_plan: dict[str, Any]) -> dict[str, Any]:
+    remaining = _normalize_string_list(turn_state.get("remainingTopics"))
+    topic = remaining[0] if remaining else str(interview_plan.get("opening_topic") or "motivation_fit")
+    topic = str(topic or interview_plan.get("opening_topic") or "motivation_fit")
+    turn_action = "deepen" if topic in turn_state.get("coveredTopics", []) else "shift"
+    depth_focus = "logic"
+    if "company" in topic:
+        depth_focus = "company_fit"
+    elif "role" in topic:
+        depth_focus = "role_fit"
+    elif "credibility" in topic or "consistency" in topic:
+        depth_focus = "credibility"
+    return {
+        "topic": topic,
+        "turn_action": turn_action,
+        "focus_reason": "面接計画の優先論点に沿って確認するため",
+        "depth_focus": depth_focus,
+        "followup_style": "reason_check",
+        "should_move_next": False,
+    }
+
+
+def _merge_plan_progress(turn_state: dict[str, Any], data: dict[str, Any], turn_meta: dict[str, Any]) -> dict[str, Any]:
+    llm_covered = _normalize_string_list(data.get("plan_progress", {}).get("covered_topics") if isinstance(data.get("plan_progress"), dict) else None)
+    remaining = _normalize_string_list(data.get("plan_progress", {}).get("remaining_topics") if isinstance(data.get("plan_progress"), dict) else None)
+    topic = str(turn_meta.get("topic") or "motivation_fit")
+    covered = list(turn_state.get("coveredTopics") or [])
+    coverage_state = list(turn_state.get("coverageState") or [])
+    if coverage_state:
+        updated_coverage_state: list[dict[str, Any]] = []
+        next_turn_id = f"turn-{int(turn_state.get('turnCount', 0) or 0) + 1}"
+        for item in coverage_state:
+            item_topic = str(item.get("topic") or "").strip()
+            required_checklist = _normalize_string_list(item.get("requiredChecklist"))
+            passed_checklist = _normalize_string_list(item.get("passedChecklistKeys"))
+            deterministic_passed = bool(item.get("deterministicCoveragePassed")) or (
+                bool(required_checklist) and all(key in passed_checklist for key in required_checklist)
+            )
+            llm_hint = "covered" if item_topic in llm_covered else (str(item.get("llmCoverageHint") or "").strip() or None)
+            status = str(item.get("status") or "pending").strip()
+            if deterministic_passed:
+                status = "covered"
+            elif item_topic == topic:
+                status = "active"
+            elif status not in {"pending", "active", "covered", "exhausted"}:
+                status = "pending"
+            updated_coverage_state.append(
+                {
+                    **item,
+                    "status": status,
+                    "passedChecklistKeys": passed_checklist,
+                    "deterministicCoveragePassed": deterministic_passed,
+                    "llmCoverageHint": llm_hint,
+                    "deepeningCount": int(item.get("deepeningCount", 0) or 0) + (1 if item_topic == topic else 0),
+                    "lastCoveredTurnId": next_turn_id if deterministic_passed and item_topic == topic else item.get("lastCoveredTurnId"),
+                }
+            )
+        coverage_state = updated_coverage_state
+        covered = _covered_topics_from_coverage_state(coverage_state)
+    if not remaining:
+        interview_plan = turn_state.get("interviewPlan") or {}
+        must_cover = _normalize_string_list(interview_plan.get("must_cover_topics"))
+        remaining = [topic for topic in must_cover if topic not in covered]
+    return {
+        **turn_state,
+        "coverageState": coverage_state,
+        "coveredTopics": covered,
+        "remainingTopics": remaining,
+    }
 
 
 async def _generate_start_progress(payload: InterviewStartRequest) -> AsyncGenerator[str, None]:
     try:
-        turn_state = _default_turn_state()
-        stage = "industry_reason"
-        focus = STAGE_FOCUS_OPTIONS[stage][0]
-        working_state = {
-            **turn_state,
-            "totalQuestionCount": 1,
-            "stageQuestionCounts": {**turn_state["stageQuestionCounts"], stage: 1},
-            "lastQuestionFocus": focus,
-        }
+        setup = _build_setup(payload)
+        yield _sse_event("progress", {"step": "plan", "progress": 12, "label": "面接計画を整理中..."})
+        plan_prompt = _build_plan_prompt(payload)
+        try:
+            plan_data, _ = await _collect_llm_completion(
+                prompt=plan_prompt,
+                user_message="面接計画をJSONで生成してください。",
+                stream_string_fields=[],
+                schema_hints={
+                    "interview_type": "string",
+                    "priority_topics": "array",
+                    "opening_topic": "string",
+                    "must_cover_topics": "array",
+                    "risk_topics": "array",
+                    "suggested_timeflow": "array",
+                },
+                max_tokens=700,
+                temperature=0.2,
+                feature="interview",
+                json_schema=INTERVIEW_PLAN_SCHEMA,
+            )
+        except Exception:
+            logger.warning("[Interview] plan generation failed; using deterministic fallback", exc_info=True)
+            plan_data = None
+        interview_plan = _normalize_interview_plan(plan_data or _fallback_plan(payload, setup))
+        yield _sse_event("field_complete", {"path": "interview_plan", "value": interview_plan})
 
-        yield _sse_event("progress", {"step": "prepare", "progress": 20, "label": "面接の初回質問を準備中..."})
-        await asyncio.sleep(0.03)
-        yield _sse_event("field_complete", {"path": "focus", "value": focus})
-        yield _sse_event("field_complete", {"path": "question_stage", "value": stage})
-        yield _sse_event("field_complete", {"path": "stage_status", "value": _build_stage_status(stage)})
+        yield _sse_event("progress", {"step": "opening", "progress": 42, "label": "最初の質問を準備中..."})
+        opening_prompt = _build_opening_prompt(payload, interview_plan)
+        try:
+            opening_data, string_chunks = await _collect_llm_completion(
+                prompt=opening_prompt,
+                user_message="最初の面接質問をJSONで生成してください。",
+                stream_string_fields=["question", "interview_setup_note"],
+                schema_hints={
+                    "question": "string",
+                    "question_stage": "string",
+                    "focus": "string",
+                    "interview_setup_note": "string",
+                    "turn_meta": "object",
+                },
+                max_tokens=700,
+                temperature=0.35,
+                feature="interview",
+                json_schema=INTERVIEW_OPENING_SCHEMA,
+            )
+        except Exception:
+            logger.warning("[Interview] opening generation failed; using deterministic fallback", exc_info=True)
+            opening_data = _build_fallback_opening_payload(payload, interview_plan, setup)
+            string_chunks = []
+        for chunk in string_chunks:
+            yield _sse_event("string_chunk", chunk)
 
-        prompt = _build_question_prompt(
-            payload,
-            stage,
-            working_state,
-            focus,
-            "",
-            "まだ会話なし",
+        opening_data = opening_data or _build_fallback_opening_payload(payload, interview_plan, setup)
+        question = _normalize_question_text(str(opening_data.get("question") or "").strip(), payload.company_name)
+        if not question:
+            opening_data = _build_fallback_opening_payload(payload, interview_plan, setup)
+            question = _normalize_question_text(str(opening_data.get("question") or "").strip(), payload.company_name)
+        elif not _opening_question_matches_format(question, setup["interview_format"]):
+            opening_data = _build_fallback_opening_payload(payload, interview_plan, setup)
+            question = _normalize_question_text(str(opening_data.get("question") or "").strip(), payload.company_name)
+        turn_meta = _normalize_turn_meta(opening_data.get("turn_meta"), interview_plan["opening_topic"])
+        if not turn_meta.get("focus_reason"):
+            turn_meta["focus_reason"] = "初回導入"
+        turn_state = _derive_turn_state_for_question(
+            _default_turn_state(setup),
+            turn_meta,
+            phase="opening",
         )
-        llm_result = None
-        async for event in _stream_question_fields(prompt):
-            if event.type == "string_chunk" and event.path == "question":
-                yield _sse_event("string_chunk", {"path": "question", "text": event.text})
-            elif event.type == "error":
-                error = event.result.error if event.result else None
-                yield _sse_event("error", {"message": error.message if error else "面接対策の応答生成に失敗しました。"})
-                return
-            elif event.type == "complete":
-                llm_result = event.result
-
-        if llm_result is None or not llm_result.success or not isinstance(llm_result.data, dict):
-            error = llm_result.error if llm_result else None
-            yield _sse_event("error", {"message": error.message if error else "面接質問を生成できませんでした。"})
-            return
-
-        question = _normalize_question_text(str(llm_result.data.get("question", "")).strip(), payload.company_name)
-        resolved_focus = _sanitize_focus(llm_result.data.get("focus") or focus, stage)
-        working_state["lastQuestionFocus"] = resolved_focus
+        turn_state["formatPhase"] = "opening"
+        turn_state["interviewPlan"] = interview_plan
+        turn_state["plan"] = interview_plan
+        turn_state["turnMeta"] = turn_meta
+        turn_state["turn_meta"] = turn_meta
+        turn_state["interview_plan"] = interview_plan
+        turn_state["lastQuestion"] = question
+        turn_state["coverageState"] = _build_initial_coverage_state(interview_plan, setup)
+        turn_state["recentQuestionSummaries"] = [
+            _build_question_summary(str(opening_data.get("interview_setup_note") or ""), "初回導入"),
+        ]
+        turn_state["recentQuestionSummariesV2"] = [
+            _build_recent_question_summary_v2(turn_meta, "初回導入", "turn-1"),
+        ]
+        turn_state["remainingTopics"] = interview_plan["must_cover_topics"]
+        turn_state["coveredTopics"] = []
+        turn_state["lastQuestionFocus"] = turn_meta.get("focus_reason") or "初回導入"
 
         yield _sse_event(
             "complete",
@@ -788,11 +1758,13 @@ async def _generate_start_progress(payload: InterviewStartRequest) -> AsyncGener
                 "data": {
                     "question": question,
                     "transition_line": None,
-                    "focus": resolved_focus,
-                    "question_stage": stage,
-                    "stage_status": _build_stage_status(stage),
+                    "focus": str(opening_data.get("focus") or turn_meta.get("focus_reason") or "志望理由の核").strip(),
+                    "question_stage": "opening",
+                    "interview_plan": interview_plan,
+                    "turn_meta": turn_meta,
+                    "stage_status": _legacy_stage_status("opening"),
                     "question_flow_completed": False,
-                    "turn_state": working_state,
+                    "turn_state": turn_state,
                 }
             },
         )
@@ -803,119 +1775,85 @@ async def _generate_start_progress(payload: InterviewStartRequest) -> AsyncGener
 
 async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerator[str, None]:
     try:
-        turn_state = _normalize_turn_state(payload.turn_state, payload.conversation_history)
-        current_stage = turn_state["currentStage"]
-        if current_stage == "feedback":
-            yield _sse_event(
-                "complete",
-                {
-                    "data": {
-                        "focus": None,
-                        "question_stage": "feedback",
-                        "stage_status": _build_stage_status("feedback"),
-                        "question_flow_completed": True,
-                        "turn_state": {**turn_state, "nextAction": "feedback"},
-                    }
-                },
-            )
-            return
+        setup = _build_setup(payload)
+        turn_state = _normalize_turn_state(payload.turn_state, setup)
+        interview_plan = turn_state.get("interviewPlan") or _fallback_plan(payload, setup)
+        turn_state["interviewPlan"] = interview_plan
+        yield _sse_event("progress", {"step": "turn", "progress": 18, "label": "直近の回答を分析中..."})
 
-        yield _sse_event("progress", {"step": "evaluation", "progress": 25, "label": "直近の回答を分析中..."})
-        evaluation = await _evaluate_turn(payload, turn_state)
-        yield _sse_event("field_complete", {"path": "evaluation", "value": evaluation})
-
-        next_state, question_flow_completed, evaluated_stage = _decide_next_state(turn_state, evaluation)
-        if question_flow_completed:
-            yield _sse_event(
-                "complete",
-                {
-                    "data": {
-                        "focus": None,
-                        "transition_line": None,
-                        "question_stage": "feedback",
-                        "stage_status": _build_stage_status("feedback"),
-                        "question_flow_completed": True,
-                        "turn_state": next_state,
-                    }
-                },
-            )
-            return
-
-        next_stage = next_state["currentStage"]
-        focus = _pick_focus(next_stage, evaluation.get("recommended_focus"), turn_state.get("lastQuestionFocus"))
-        next_state["stageQuestionCounts"] = {
-            **next_state["stageQuestionCounts"],
-            next_stage: int(next_state["stageQuestionCounts"].get(next_stage, 0)) + 1,
-        }
-        next_state["totalQuestionCount"] = int(next_state["totalQuestionCount"]) + 1
-        next_state["lastQuestionFocus"] = focus
-        transition_hint = (
-            f"次は{STAGE_LABELS[next_stage]}について伺います。"
-            if next_stage != evaluated_stage
-            else ""
-        )
-
-        yield _sse_event(
-            "progress",
-            {
-                "step": "question",
-                "progress": 68,
-                "label": f"{STAGE_LABELS[next_stage]}の質問を考え中...",
+        turn_prompt = _build_turn_prompt(payload, interview_plan, turn_state, turn_state.get("turnMeta") or {})
+        turn_data, string_chunks = await _collect_llm_completion(
+            prompt=turn_prompt,
+            user_message="次の面接質問をJSONで生成してください。",
+            stream_string_fields=["question"],
+            schema_hints={
+                "question": "string",
+                "question_stage": "string",
+                "focus": "string",
+                "turn_meta": "object",
+                "plan_progress": "object",
             },
+            max_tokens=700,
+            temperature=0.35,
+            feature="interview",
+            json_schema=INTERVIEW_TURN_SCHEMA,
         )
-        yield _sse_event("field_complete", {"path": "focus", "value": focus})
-        yield _sse_event("field_complete", {"path": "question_stage", "value": next_stage})
-        yield _sse_event("field_complete", {"path": "stage_status", "value": _build_stage_status(next_stage)})
+        for chunk in string_chunks:
+            yield _sse_event("string_chunk", chunk)
+        turn_data = turn_data or {}
+        turn_meta = _normalize_turn_meta(turn_data.get("turn_meta"), interview_plan["opening_topic"])
+        if not turn_meta.get("focus_reason"):
+            turn_meta["focus_reason"] = "計画に沿って深掘りするため"
+        question_stage = str(turn_data.get("question_stage") or _question_stage_from_turn_meta(turn_meta)).strip()
+        if question_stage not in {"opening", "turn", "experience", "company_understanding", "motivation_fit"}:
+            question_stage = "turn"
+        question = _normalize_question_text(str(turn_data.get("question") or "").strip(), payload.company_name)
 
-        prompt = _build_question_prompt(
-            payload,
-            next_stage,
-            next_state,
-            focus,
-            transition_hint,
-            _format_conversation(payload.conversation_history),
-            evaluation,
+        merged_state = _merge_plan_progress(turn_state, turn_data, turn_meta)
+        merged_state = _derive_turn_state_for_question(merged_state, turn_meta, phase="turn")
+        merged_state["interviewPlan"] = interview_plan
+        merged_state["plan"] = interview_plan
+        merged_state["turnMeta"] = turn_meta
+        merged_state["turn_meta"] = turn_meta
+        merged_state["interview_plan"] = interview_plan
+        merged_state["lastQuestion"] = question
+        merged_state["lastAnswer"] = next(
+            (message.content for message in reversed(payload.conversation_history) if message.role == "user"),
+            merged_state.get("lastAnswer"),
         )
-        llm_result = None
-        async for event in _stream_question_fields(prompt):
-            if event.type == "string_chunk" and event.path == "question":
-                yield _sse_event("string_chunk", {"path": "question", "text": event.text})
-            elif event.type == "error":
-                error = event.result.error if event.result else None
-                yield _sse_event("error", {"message": error.message if error else "面接対策の応答生成に失敗しました。"})
-                return
-            elif event.type == "complete":
-                llm_result = event.result
-
-        if llm_result is None or not llm_result.success or not isinstance(llm_result.data, dict):
-            error = llm_result.error if llm_result else None
-            yield _sse_event("error", {"message": error.message if error else "面接質問を生成できませんでした。"})
-            return
-
-        question = _normalize_question_text(str(llm_result.data.get("question", "")).strip(), payload.company_name)
-        resolved_focus = _sanitize_focus(llm_result.data.get("focus") or focus, next_stage)
-        next_state["lastQuestionFocus"] = resolved_focus
-        transition_line = _sanitize_transition_line(llm_result.data.get("transition_line") or transition_hint)
-
-        logger.info(
-            "[Interview] next question stage=%s evaluated_stage=%s total=%s focus=%s",
-            next_stage,
-            evaluated_stage,
-            next_state["totalQuestionCount"],
-            resolved_focus,
+        merged_state["lastTopic"] = turn_meta.get("topic")
+        merged_state["recentQuestionSummaries"] = (merged_state.get("recentQuestionSummaries") or [])[-4:]
+        merged_state["recentQuestionSummaries"].append(_build_question_summary(turn_meta.get("focus_reason"), "次の論点"))
+        merged_state["recentQuestionSummaries"] = merged_state["recentQuestionSummaries"][-5:]
+        merged_state["recentQuestionSummariesV2"] = (merged_state.get("recentQuestionSummariesV2") or [])[-7:]
+        merged_state["recentQuestionSummariesV2"].append(
+            _build_recent_question_summary_v2(
+                turn_meta,
+                "次の論点",
+                f"turn-{int(merged_state.get('turnCount', 1) or 1)}",
+            )
         )
+        merged_state["phase"] = "turn"
+        merged_state["question_stage"] = question_stage
+        merged_state["currentStage"] = _question_stage_from_turn_meta(turn_meta)
+        merged_state["stageStatus"] = _legacy_stage_status(merged_state["currentStage"])
+        merged_state["remainingTopics"] = [
+            topic for topic in _normalize_string_list(interview_plan.get("must_cover_topics")) if topic not in merged_state.get("coveredTopics", [])
+        ]
 
         yield _sse_event(
             "complete",
             {
                 "data": {
                     "question": question,
-                    "transition_line": transition_line,
-                    "focus": resolved_focus,
-                    "question_stage": next_stage,
-                    "stage_status": _build_stage_status(next_stage),
+                    "transition_line": None,
+                    "focus": str(turn_data.get("focus") or turn_meta.get("focus_reason") or "次の論点").strip(),
+                    "question_stage": question_stage,
+                    "interview_plan": interview_plan,
+                    "turn_meta": turn_meta,
+                    "stage_status": _legacy_stage_status(merged_state["currentStage"]),
                     "question_flow_completed": False,
-                    "turn_state": next_state,
+                    "turn_state": merged_state,
                 }
             },
         )
@@ -926,60 +1864,75 @@ async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerat
 
 async def _generate_continue_progress(payload: InterviewContinueRequest) -> AsyncGenerator[str, None]:
     try:
-        turn_state = _normalize_turn_state(payload.turn_state, payload.conversation_history)
-        next_state = {
-            **turn_state,
-            "nextAction": "ask",
-        }
+        setup = _build_setup(payload)
+        turn_state = _normalize_turn_state(payload.turn_state, setup)
+        interview_plan = turn_state.get("interviewPlan") or _fallback_plan(payload, setup)
+        turn_state["interviewPlan"] = interview_plan
+        yield _sse_event("progress", {"step": "continue", "progress": 20, "label": "講評を踏まえて再開しています..."})
+        continue_prompt = _build_continue_prompt(payload)
+        data, string_chunks = await _collect_llm_completion(
+            prompt=continue_prompt,
+            user_message="次の面接質問をJSONで生成してください。",
+            stream_string_fields=["question"],
+            schema_hints={
+                "question": "string",
+                "question_stage": "string",
+                "focus": "string",
+                "transition_line": "string",
+                "turn_meta": "object",
+            },
+            max_tokens=700,
+            temperature=0.35,
+            feature="interview",
+            json_schema=INTERVIEW_CONTINUE_SCHEMA,
+        )
+        for chunk in string_chunks:
+            yield _sse_event("string_chunk", chunk)
+        data = data or {}
+        question = _normalize_question_text(str(data.get("question") or "").strip(), payload.company_name)
+        turn_meta = _normalize_turn_meta(data.get("turn_meta"), interview_plan["opening_topic"])
+        if not turn_meta.get("focus_reason"):
+            turn_meta["focus_reason"] = "講評を踏まえて再開するため"
+        question_stage = str(data.get("question_stage") or _question_stage_from_turn_meta(turn_meta)).strip()
+        if question_stage not in {"experience", "company_understanding", "motivation_fit"}:
+            question_stage = "motivation_fit"
 
-        yield _sse_event("progress", {"step": "continue", "progress": 25, "label": "最終講評を踏まえて次の質問を整理中..."})
-        await asyncio.sleep(0.03)
+        merged_state = _derive_turn_state_for_question(turn_state, turn_meta, phase="turn")
+        merged_state["interviewPlan"] = interview_plan
+        merged_state["turnMeta"] = turn_meta
+        merged_state["turn_meta"] = turn_meta
+        merged_state["interview_plan"] = interview_plan
+        merged_state["lastQuestion"] = question
+        merged_state["lastAnswer"] = next(
+            (message.content for message in reversed(payload.conversation_history) if message.role == "user"),
+            merged_state.get("lastAnswer"),
+        )
+        merged_state["phase"] = "turn"
+        merged_state["recentQuestionSummariesV2"] = (merged_state.get("recentQuestionSummariesV2") or [])[-7:]
+        merged_state["recentQuestionSummariesV2"].append(
+            _build_recent_question_summary_v2(
+                turn_meta,
+                "再開",
+                f"turn-{int(merged_state.get('turnCount', 1) or 1)}",
+            )
+        )
+        merged_state["remainingTopics"] = [
+            topic for topic in _normalize_string_list(interview_plan.get("must_cover_topics")) if topic not in merged_state.get("coveredTopics", [])
+        ]
 
-        llm_result = None
-        async for event in _stream_question_fields(_build_continue_prompt(payload)):
-            if event.type == "string_chunk" and event.path == "question":
-                yield _sse_event("string_chunk", {"path": "question", "text": event.text})
-            elif event.type == "error":
-                error = event.result.error if event.result else None
-                yield _sse_event("error", {"message": error.message if error else "追加の面接質問を生成できませんでした。"})
-                return
-            elif event.type == "complete":
-                llm_result = event.result
-
-        if llm_result is None or not llm_result.success or not isinstance(llm_result.data, dict):
-            error = llm_result.error if llm_result else None
-            yield _sse_event("error", {"message": error.message if error else "追加の面接質問を生成できませんでした。"})
-            return
-
-        next_stage = str(llm_result.data.get("question_stage") or "motivation_fit")
-        if next_stage not in {"experience", "company_understanding", "motivation_fit"}:
-            next_stage = "motivation_fit"
-        focus = _sanitize_focus(llm_result.data.get("focus"), next_stage)
-        next_state["currentStage"] = next_stage
-        next_state["stageQuestionCounts"] = {
-            **next_state["stageQuestionCounts"],
-            next_stage: int(next_state["stageQuestionCounts"].get(next_stage, 0)) + 1,
-        }
-        next_state["totalQuestionCount"] = int(next_state["totalQuestionCount"]) + 1
-        next_state["lastQuestionFocus"] = focus
-
-        transition_line = _sanitize_transition_line(llm_result.data.get("transition_line"))
-        question = _normalize_question_text(str(llm_result.data.get("question", "")).strip(), payload.company_name)
-
-        yield _sse_event("field_complete", {"path": "focus", "value": focus})
-        yield _sse_event("field_complete", {"path": "question_stage", "value": next_stage})
-        yield _sse_event("field_complete", {"path": "stage_status", "value": _build_stage_status(next_stage)})
         yield _sse_event(
             "complete",
             {
                 "data": {
                     "question": question,
-                    "transition_line": transition_line,
-                    "focus": focus,
-                    "question_stage": next_stage,
-                    "stage_status": _build_stage_status(next_stage),
+                    "transition_line": data.get("transition_line"),
+                    "focus": str(data.get("focus") or turn_meta.get("focus_reason") or "再開").strip(),
+                    "question_stage": question_stage,
+                    "interview_plan": interview_plan,
+                    "turn_meta": turn_meta,
+                    "stage_status": _legacy_stage_status(_question_stage_from_turn_meta(turn_meta)),
                     "question_flow_completed": False,
-                    "turn_state": next_state,
+                    "turn_state": merged_state,
                 }
             },
         )
@@ -990,68 +1943,67 @@ async def _generate_continue_progress(payload: InterviewContinueRequest) -> Asyn
 
 async def _generate_feedback_progress(payload: InterviewFeedbackRequest) -> AsyncGenerator[str, None]:
     try:
-        turn_state = _normalize_turn_state(payload.turn_state, payload.conversation_history)
-        final_turn_state = {
-            **turn_state,
-            "currentStage": "feedback",
-            "completedStages": list(QUESTION_STAGE_ORDER),
-            "nextAction": "feedback",
-        }
+        setup = _build_setup(payload)
+        turn_state = _normalize_turn_state(payload.turn_state, setup)
+        interview_plan = turn_state.get("interviewPlan") or _fallback_plan(payload, setup)
+        turn_state["interviewPlan"] = interview_plan
         yield _sse_event("progress", {"step": "feedback", "progress": 30, "label": "最終講評を整理中..."})
-        await asyncio.sleep(0.03)
-        prompt = _build_feedback_prompt(payload)
-        llm_result = None
+        feedback_prompt = _build_feedback_prompt(payload)
+        data, string_chunks = await _collect_llm_completion(
+            prompt=feedback_prompt,
+            user_message="最終講評をJSONで生成してください。",
+            stream_string_fields=["overall_comment", "improved_answer"],
+            schema_hints={
+                "overall_comment": "string",
+                "scores": "object",
+                "strengths": "array",
+                "improvements": "array",
+                "consistency_risks": "array",
+                "weakest_question_type": "string",
+                "improved_answer": "string",
+                "next_preparation": "array",
+                "premise_consistency": "number",
+            },
+            max_tokens=1600,
+            temperature=0.25,
+            feature="interview_feedback",
+            json_schema=INTERVIEW_FEEDBACK_SCHEMA,
+        )
+        for chunk in string_chunks:
+            yield _sse_event("string_chunk", chunk)
+        feedback = _backfill_feedback_linkage_from_conversation(
+            _normalize_feedback(data or {}),
+            payload.conversation_history,
+        )
+        feedback = _enrich_feedback_defaults(feedback, setup=setup)
+        final_state = {
+            **turn_state,
+            "phase": "feedback",
+            "formatPhase": "feedback",
+            "currentStage": "feedback",
+            "nextAction": "feedback",
+            "question_stage": "feedback",
+            "turnMeta": turn_state.get("turnMeta") or _fallback_turn_meta(turn_state, interview_plan),
+            "turn_meta": turn_state.get("turnMeta") or _fallback_turn_meta(turn_state, interview_plan),
+            "interviewPlan": interview_plan,
+            "plan": interview_plan,
+            "interview_plan": interview_plan,
+            "stageStatus": _legacy_stage_status("feedback"),
+        }
 
-        async for event in _stream_feedback_fields(prompt):
-            if event.type == "string_chunk" and event.path in {"overall_comment", "improved_answer"}:
-                yield _sse_event("string_chunk", {"path": event.path, "text": event.text})
-            elif event.type == "field_complete":
-                if event.path in {"scores", "premise_consistency"}:
-                    yield _sse_event("field_complete", {"path": event.path, "value": event.value})
-            elif event.type == "array_item_complete":
-                if isinstance(event.path, str) and event.path.split(".")[0] in {
-                    "strengths",
-                    "improvements",
-                    "preparation_points",
-                }:
-                    yield _sse_event("array_item_complete", {"path": event.path, "value": event.value})
-            elif event.type == "error":
-                error = event.result.error if event.result else None
-                yield _sse_event("error", {"message": error.message if error else "最終講評の生成に失敗しました。"})
-                return
-            elif event.type == "complete":
-                llm_result = event.result
-
-        if llm_result is None or not llm_result.success or not isinstance(llm_result.data, dict):
-            error = llm_result.error if llm_result else None
-            yield _sse_event("error", {"message": error.message if error else "最終講評の生成に失敗しました。"})
-            return
-
-        data = llm_result.data
-        yield _sse_event("field_complete", {"path": "scores", "value": data.get("scores", {})})
-        yield _sse_event("field_complete", {"path": "premise_consistency", "value": data.get("premise_consistency", 0)})
-        for key in ("strengths", "improvements", "preparation_points"):
-            items = data.get(key, [])
-            if isinstance(items, list):
-                for index, item in enumerate(items):
-                    yield _sse_event("array_item_complete", {"path": f"{key}.{index}", "value": item})
-        yield _sse_event("field_complete", {"path": "stage_status", "value": _build_stage_status("feedback")})
-
+        yield _sse_event("field_complete", {"path": "scores", "value": feedback["scores"]})
+        yield _sse_event("field_complete", {"path": "premise_consistency", "value": feedback["premise_consistency"]})
         yield _sse_event(
             "complete",
             {
                 "data": {
-                    "overall_comment": str(data.get("overall_comment", "")).strip(),
-                    "scores": data.get("scores", {}),
-                    "strengths": data.get("strengths", []),
-                    "improvements": data.get("improvements", []),
-                    "improved_answer": str(data.get("improved_answer", "")).strip(),
-                    "preparation_points": data.get("preparation_points", []),
-                    "premise_consistency": int(data.get("premise_consistency", 0) or 0),
-                    "question_flow_completed": True,
+                    **feedback,
                     "question_stage": "feedback",
-                    "stage_status": _build_stage_status("feedback"),
-                    "turn_state": final_turn_state,
+                    "interview_plan": interview_plan,
+                    "turn_meta": final_state["turnMeta"],
+                    "stage_status": _legacy_stage_status("feedback"),
+                    "question_flow_completed": True,
+                    "turn_state": final_state,
                 }
             },
         )
@@ -1072,6 +2024,20 @@ def _stream_response(generator: AsyncGenerator[str, None]) -> StreamingResponse:
     )
 
 
+def _normalize_question_text(question: str, company_name: str) -> str:
+    normalized = re.sub(r"\s+", " ", question).strip()
+    patterns = [
+        rf"^{re.escape(company_name)}の面接に臨むにあたり、?",
+        rf"^{re.escape(company_name)}を受けるにあたって、?",
+        rf"^{re.escape(company_name)}を志望するうえで、?",
+        r"^この企業の面接に臨むにあたり、?",
+        r"^今回の面接に臨むにあたり、?",
+    ]
+    for pattern in patterns:
+        normalized = re.sub(pattern, "", normalized).strip()
+    return normalized or question.strip()
+
+
 @router.post("/start")
 @limiter.limit("60/minute")
 async def start_interview(payload: InterviewStartRequest, request: Request):
@@ -1081,11 +2047,13 @@ async def start_interview(payload: InterviewStartRequest, request: Request):
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
 
     payload.company_name = sanitize_prompt_input(payload.company_name, max_length=200)
-    payload.company_summary = sanitize_prompt_input(payload.company_summary, max_length=2000)
-    payload.motivation_summary = sanitize_prompt_input(payload.motivation_summary or "なし", max_length=2000)
-    payload.gakuchika_summary = sanitize_prompt_input(payload.gakuchika_summary or "なし", max_length=2000)
-    payload.es_summary = sanitize_prompt_input(payload.es_summary or "なし", max_length=2000)
-    payload.seed_summary = sanitize_prompt_input(payload.seed_summary or "なし", max_length=2000)
+    payload.company_summary = sanitize_prompt_input(payload.company_summary, max_length=4000)
+    payload.motivation_summary = sanitize_prompt_input(payload.motivation_summary or "なし", max_length=4000)
+    payload.gakuchika_summary = sanitize_prompt_input(payload.gakuchika_summary or "なし", max_length=4000)
+    payload.academic_summary = sanitize_prompt_input(payload.academic_summary or "なし", max_length=4000)
+    payload.research_summary = sanitize_prompt_input(payload.research_summary or "なし", max_length=4000)
+    payload.es_summary = sanitize_prompt_input(payload.es_summary or "なし", max_length=4000)
+    payload.seed_summary = sanitize_prompt_input(payload.seed_summary or "なし", max_length=4000)
     payload.selected_industry = sanitize_prompt_input(payload.selected_industry or "未設定", max_length=120)
     payload.selected_role = sanitize_prompt_input(payload.selected_role or "未設定", max_length=200)
     return _stream_response(_generate_start_progress(payload))
@@ -1101,11 +2069,13 @@ async def next_interview_turn(payload: InterviewTurnRequest, request: Request):
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
 
     payload.company_name = sanitize_prompt_input(payload.company_name, max_length=200)
-    payload.company_summary = sanitize_prompt_input(payload.company_summary, max_length=2000)
-    payload.motivation_summary = sanitize_prompt_input(payload.motivation_summary or "なし", max_length=2000)
-    payload.gakuchika_summary = sanitize_prompt_input(payload.gakuchika_summary or "なし", max_length=2000)
-    payload.es_summary = sanitize_prompt_input(payload.es_summary or "なし", max_length=2000)
-    payload.seed_summary = sanitize_prompt_input(payload.seed_summary or "なし", max_length=2000)
+    payload.company_summary = sanitize_prompt_input(payload.company_summary, max_length=4000)
+    payload.motivation_summary = sanitize_prompt_input(payload.motivation_summary or "なし", max_length=4000)
+    payload.gakuchika_summary = sanitize_prompt_input(payload.gakuchika_summary or "なし", max_length=4000)
+    payload.academic_summary = sanitize_prompt_input(payload.academic_summary or "なし", max_length=4000)
+    payload.research_summary = sanitize_prompt_input(payload.research_summary or "なし", max_length=4000)
+    payload.es_summary = sanitize_prompt_input(payload.es_summary or "なし", max_length=4000)
+    payload.seed_summary = sanitize_prompt_input(payload.seed_summary or "なし", max_length=4000)
     payload.selected_industry = sanitize_prompt_input(payload.selected_industry or "未設定", max_length=120)
     payload.selected_role = sanitize_prompt_input(payload.selected_role or "未設定", max_length=200)
     return _stream_response(_generate_turn_progress(payload))
@@ -1121,11 +2091,13 @@ async def continue_interview(payload: InterviewContinueRequest, request: Request
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
 
     payload.company_name = sanitize_prompt_input(payload.company_name, max_length=200)
-    payload.company_summary = sanitize_prompt_input(payload.company_summary, max_length=2000)
-    payload.motivation_summary = sanitize_prompt_input(payload.motivation_summary or "なし", max_length=2000)
-    payload.gakuchika_summary = sanitize_prompt_input(payload.gakuchika_summary or "なし", max_length=2000)
-    payload.es_summary = sanitize_prompt_input(payload.es_summary or "なし", max_length=2000)
-    payload.seed_summary = sanitize_prompt_input(payload.seed_summary or "なし", max_length=2000)
+    payload.company_summary = sanitize_prompt_input(payload.company_summary, max_length=4000)
+    payload.motivation_summary = sanitize_prompt_input(payload.motivation_summary or "なし", max_length=4000)
+    payload.gakuchika_summary = sanitize_prompt_input(payload.gakuchika_summary or "なし", max_length=4000)
+    payload.academic_summary = sanitize_prompt_input(payload.academic_summary or "なし", max_length=4000)
+    payload.research_summary = sanitize_prompt_input(payload.research_summary or "なし", max_length=4000)
+    payload.es_summary = sanitize_prompt_input(payload.es_summary or "なし", max_length=4000)
+    payload.seed_summary = sanitize_prompt_input(payload.seed_summary or "なし", max_length=4000)
     payload.selected_industry = sanitize_prompt_input(payload.selected_industry or "未設定", max_length=120)
     payload.selected_role = sanitize_prompt_input(payload.selected_role or "未設定", max_length=200)
     return _stream_response(_generate_continue_progress(payload))
@@ -1141,11 +2113,13 @@ async def interview_feedback(payload: InterviewFeedbackRequest, request: Request
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
 
     payload.company_name = sanitize_prompt_input(payload.company_name, max_length=200)
-    payload.company_summary = sanitize_prompt_input(payload.company_summary, max_length=2000)
-    payload.motivation_summary = sanitize_prompt_input(payload.motivation_summary or "なし", max_length=2000)
-    payload.gakuchika_summary = sanitize_prompt_input(payload.gakuchika_summary or "なし", max_length=2000)
-    payload.es_summary = sanitize_prompt_input(payload.es_summary or "なし", max_length=2000)
-    payload.seed_summary = sanitize_prompt_input(payload.seed_summary or "なし", max_length=2000)
+    payload.company_summary = sanitize_prompt_input(payload.company_summary, max_length=4000)
+    payload.motivation_summary = sanitize_prompt_input(payload.motivation_summary or "なし", max_length=4000)
+    payload.gakuchika_summary = sanitize_prompt_input(payload.gakuchika_summary or "なし", max_length=4000)
+    payload.academic_summary = sanitize_prompt_input(payload.academic_summary or "なし", max_length=4000)
+    payload.research_summary = sanitize_prompt_input(payload.research_summary or "なし", max_length=4000)
+    payload.es_summary = sanitize_prompt_input(payload.es_summary or "なし", max_length=4000)
+    payload.seed_summary = sanitize_prompt_input(payload.seed_summary or "なし", max_length=4000)
     payload.selected_industry = sanitize_prompt_input(payload.selected_industry or "未設定", max_length=120)
     payload.selected_role = sanitize_prompt_input(payload.selected_role or "未設定", max_length=200)
     return _stream_response(_generate_feedback_progress(payload))

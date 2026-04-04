@@ -41,7 +41,12 @@ from app.prompts.es_templates import (
     TEMPLATE_DEFS,
     build_template_length_fix_prompt,
     build_template_rewrite_prompt,
+    build_template_fallback_rewrite_prompt,
+    get_template_evaluation_checks,
+    get_template_default_grounding_level,
     get_template_company_grounding_policy,
+    get_template_retry_guidance,
+    grounding_level_to_policy,
     get_template_rag_profile,
     resolve_length_control_profile,
 )
@@ -51,6 +56,7 @@ from app.prompts.reference_es import (
     load_reference_examples,
 )
 from app.limiter import limiter
+from app.utils.es_template_classifier import classify_es_question
 
 router = APIRouter(prefix="/api/es", tags=["es-review"])
 
@@ -168,6 +174,11 @@ class TemplateRequest(BaseModel):
     role_name: Optional[str] = (
         None  # Role/course name (for role_course_reason template)
     )
+    inferred_template_type: Optional[str] = None
+    inferred_confidence: Optional[str] = None
+    secondary_template_types: list[str] = Field(default_factory=list)
+    classification_rationale: Optional[str] = None
+    recommended_grounding_level: Optional[str] = None
 
 
 class TemplateVariant(BaseModel):
@@ -257,6 +268,8 @@ class ReviewMeta(BaseModel):
     reference_profile_variance: Optional[str] = None
     company_grounding_policy: str = "assistive"
     effective_company_grounding_policy: str = "assistive"
+    recommended_grounding_level: str = "none"
+    effective_grounding_level: str = "none"
     company_evidence_count: int = 0
     company_evidence_verified_count: int = 0
     company_evidence_rejected_count: int = 0
@@ -268,6 +281,10 @@ class ReviewMeta(BaseModel):
     user_context_sources: list[str] = Field(default_factory=list)
     hallucination_guard_mode: str = "strict"
     rewrite_generation_mode: str = "normal"
+    classification_confidence: str = "low"
+    classification_secondary_candidates: list[str] = Field(default_factory=list)
+    classification_rationale: Optional[str] = None
+    misclassification_recovery_applied: bool = False
     rewrite_attempt_count: int = 0
     length_policy: str = "strict"
     length_shortfall: int = 0
@@ -278,6 +295,9 @@ class ReviewMeta(BaseModel):
     rewrite_validation_status: str = "strict_ok"
     rewrite_validation_codes: list[str] = Field(default_factory=list)
     rewrite_validation_user_hint: Optional[str] = None
+    fallback_triggered: bool = False
+    fallback_reason: Optional[str] = None
+    grounding_repair_applied: bool = False
     length_profile_id: Optional[str] = None
     target_window_lower: Optional[int] = None
     target_window_upper: Optional[int] = None
@@ -352,12 +372,45 @@ def _get_company_grounding_policy(template_type: str) -> str:
     return get_template_company_grounding_policy(template_type)
 
 
+def _get_default_grounding_level(template_type: str) -> str:
+    return get_template_default_grounding_level(template_type)
+
+
 def _company_grounding_is_required(template_type: str) -> bool:
     return _get_company_grounding_policy(template_type) == "required"
 
 
 def _company_grounding_is_assistive(template_type: str) -> bool:
     return _get_company_grounding_policy(template_type) == "assistive"
+
+
+def _resolve_effective_grounding_level(
+    *,
+    template_type: str,
+    classifier_grounding_level: str | None,
+    char_max: int | None,
+    evidence_coverage_level: str,
+    has_company_rag: bool,
+) -> str:
+    level = classifier_grounding_level or _get_default_grounding_level(template_type)
+    ordered = ["none", "light", "standard", "deep"]
+
+    def lower(current: str) -> str:
+        try:
+            index = ordered.index(current)
+        except ValueError:
+            return "light"
+        return ordered[max(0, index - 1)]
+
+    if template_type == "basic" and char_max and char_max <= SHORT_ANSWER_CHAR_MAX and level in {"standard", "deep"}:
+        level = "light"
+    if not has_company_rag and level in {"standard", "deep"}:
+        level = lower(level)
+    if evidence_coverage_level == "weak" and level in {"standard", "deep"}:
+        level = lower(level)
+    if evidence_coverage_level == "none" and level in {"standard", "deep"}:
+        level = "light"
+    return level
 
 
 def _iter_string_leaves(field_name: str, value: Any) -> list[tuple[str, str]]:
@@ -1048,49 +1101,10 @@ def _is_short_answer_mode(char_max: Optional[int]) -> bool:
 COMPANY_HONORIFIC_TOKENS = ("貴社", "貴行", "貴庫", "貴所", "貴校", "貴院")
 # 学生側の企業指称（社名が無くても「なぜこの会社か」が立つ表現）
 COMPANY_REFERENCE_TOKENS = ("当社", "御社", "同社", "本社", "こちらの企業")
-REPEATED_OPENING_PATTERNS: dict[str, str] = {
-    "company_motivation": r"(志望する理由|志望理由)は",
-    "intern_reason": r"(参加理由|志望理由)は",
-    "intern_goals": r"(学びたいこと|やりたいこと)は",
-    "gakuchika": r"(学生時代に力を入れたこと|学生時代に頑張ったこと)は",
-    "role_course_reason": r"(選んだ理由|選択した理由|志望理由)は",
-    "work_values": r"(大切にしている価値観|働くうえで大切にしていること)は",
-    # 例: 「自己PRとして〜」「私の強みは〜」の設問言い換え開始
-    "self_pr": r"(自己PR|自己ＰＲ)(?:として|で|は)|私の強みは|アピールしたいことは|自己紹介としては",
-}
 
-# 先頭ウィンドウで「答えの核」があるか（自然な言い出しを落とさないため広めに）
-_SELF_PR_HEAD_FOCUS = (
-    r"強み|長所|得意|アピール|特徴|資質|性格|スキル|信念|指針|軸|他者と(?:の)?違い|"
-    r"差別化|強みとして|スキルとして|自分(?:自身)?(?:の)?|私(?:自身)?(?:の)?|"
-    r"一つ(?:の)?|まず|最も"
-)
-_POST_JOIN_HEAD_FOCUS = (
-    r"入社後|将来|キャリア|仕事|業務|職場|携わりたい|挑戦したい|担いたい|実現したい|貢献したい|"
-    r"目標|手掛け|ビジネス|投資|事業機会|価値創出|獲得したい|極めたい|従事|取り組みたい|"
-    r"身を置き|発揮したい|成し遂げ|やりたい|務めたい"
-)
-_WORK_VALUES_HEAD_FOCUS = (
-    r"大切|重視|価値観|信念|軸|譲れない|譲りたくない|姿勢|こだわり|大事にしている|"
-    r"考え方|モットー|指針|プライド|根底|念頭|秉|大切にしたい|尊重"
-)
-_GAKUCHIKA_HEAD_FOCUS = (
-    r"力を入れ|頑張っ|取り組ん|経験|課題|行動|成果|学び|リーダー|役割|担当|主担当|"
-    r"工夫|改善|達成|PDCA|チーム|サークル|ゼミ|研究|活動|最も"
-)
-_INTERN_REASON_HEAD_FOCUS = (
-    r"参加|志望|理由|惹|魅力|学びたい|学びたく|身につけたい|得たい|挑戦したい|試したい|試し(?:ながら|て)|"
-    r"実践したい|実践的|期待|関心|魅力を感|惹か|ふさわしい|最適|身を置きたい|触れたい|体感|機会|鍛え"
-)
-_INTERN_GOALS_HEAD_FOCUS = (
-    r"学びたい|身につけたい|やりたい|獲得したい|高めたい|磨きたい|確かめたい|得たい|"
-    r"習得したい|鍛えたい|深めたい|試したい|経験したい|積みたい|培いたい|伸ばしたい"
-)
-_NEGATIVE_SELF_EVAL_PATTERNS = (
-    r"経験不足",
-    r"自信がない",
-    r"自信はない",
-)
+
+def _template_checks(template_type: str) -> dict[str, Any]:
+    return get_template_evaluation_checks(template_type)
 
 
 def _role_name_appears_in_text(role_name: str | None, haystack: str) -> bool:
@@ -1121,9 +1135,10 @@ def _has_unfinished_tail(text: str) -> bool:
 
 
 def _contains_negative_self_eval(text: str, *, template_type: str) -> bool:
-    if template_type != "self_pr":
+    patterns = [str(pattern).strip() for pattern in _template_checks(template_type).get("negative_self_eval_patterns", []) if str(pattern).strip()]
+    if not patterns:
         return False
-    return any(re.search(pattern, text or "") for pattern in _NEGATIVE_SELF_EVAL_PATTERNS)
+    return any(re.search(pattern, text or "") for pattern in patterns)
 
 
 def _validate_standard_conclusion_focus(
@@ -1134,6 +1149,7 @@ def _validate_standard_conclusion_focus(
     role_name: str | None,
     intern_name: str | None,
 ) -> tuple[str | None, str | None]:
+    checks = _template_checks(template_type)
     sentences = _split_candidate_sentences(text)
     if not sentences:
         return "fragment", "本文が断片的です。文を最後まで言い切ってください。"
@@ -1146,95 +1162,53 @@ def _validate_standard_conclusion_focus(
             return None, None
 
     # 1文に圧縮した長文では「理由は…」が先頭に来るのが自然なため、verbose 検知は複数文に限定する
-    repeated_pattern = REPEATED_OPENING_PATTERNS.get(template_type)
+    repeated_pattern = str(checks.get("repeated_opening_pattern") or "").strip()
     if (
         len(sentences) > 1
         and repeated_pattern
         and re.search(repeated_pattern, first_sentence)
     ):
         return "verbose_opening", "設問の冒頭表現を繰り返さず、1文目で答えを短く言い切ってください。"
+    head_sentence_window = max(1, int(checks.get("head_sentence_window") or 1))
+    head = "".join(sentences[:head_sentence_window])
+    anchor_type = str(checks.get("anchor_type") or "").strip()
+    focus_pattern = str(checks.get("head_focus_pattern") or "").strip()
+    answer_focus_message = str(checks.get("answer_focus_message") or "冒頭で設問への答えを短く示してください。").strip()
 
-    if template_type == "company_motivation":
-        # 先頭3文までで企業名/貴社と志望の軸を確認（研究・経験から入り3文目で企業に接続する出力を許容）
-        head = "".join(sentences[:3])
+    if anchor_type == "company":
         company_anchor_head = bool(
             (company_name and company_name in head)
             or any(token in head for token in COMPANY_HONORIFIC_TOKENS)
             or any(token in head for token in COMPANY_REFERENCE_TOKENS)
         )
-        if not company_anchor_head or not re.search(
-            r"志望|惹|魅力|理由|価値|からだ|ためだ|関心|期待|共感|惹か",
-            head,
-        ):
-            return "answer_focus", "冒頭でなぜこの会社かを短く言い切ってください（企業名または貴社と志望の核を含む）。"
-    elif template_type == "role_course_reason":
-        head = "".join(sentences[:2])
+        if not company_anchor_head or (focus_pattern and not re.search(focus_pattern, head)):
+            return "answer_focus", answer_focus_message
+    elif anchor_type == "role":
+        role_anchor_pattern = str(checks.get("anchor_pattern") or "").strip()
         role_anchor_head = bool(
             _role_name_appears_in_text(role_name, head)
-            or re.search(r"職種|コース|業務|役割|ポジション|ジョブ", head)
+            or (role_anchor_pattern and re.search(role_anchor_pattern, head))
         )
-        if not role_anchor_head or not re.search(
-            r"志望|選ぶ|理由|関心|担いたい|携わりたい|適性|適合|惹か|魅力|期待|共感",
-            head,
-        ):
-            return "answer_focus", "冒頭でなぜその職種・コースかを短く言い切ってください。"
-    elif template_type == "intern_reason":
-        head = "".join(sentences[:2])
+        if not role_anchor_head or (focus_pattern and not re.search(focus_pattern, head)):
+            return "answer_focus", answer_focus_message
+    elif anchor_type == "intern":
+        anchor_pattern = str(checks.get("anchor_pattern") or "").strip()
+        practice_context_pattern = str(checks.get("practice_context_pattern") or "").strip()
         internship_named = bool(
             intern_name
             and re.search(r"インターン|internship", intern_name, re.IGNORECASE)
         )
-        # 英語プログラム名だけの設問では「インターン」と書かず実務・課題に寄せる出力が多い
         has_intern_context = bool(
             (intern_name and intern_name in text)
-            or re.search(r"インターン|プログラム|インターンシップ", head)
-            or re.search(r"インターン|プログラム|インターンシップ", text)
-            or (
-                internship_named
-                and re.search(r"実務|現場|課題|就業|体験", text)
-            )
+            or (anchor_pattern and re.search(anchor_pattern, head))
+            or (anchor_pattern and re.search(anchor_pattern, text))
+            or (internship_named and practice_context_pattern and re.search(practice_context_pattern, text))
+            or (internship_named and practice_context_pattern and re.search(practice_context_pattern, head))
         )
-        if not has_intern_context or not re.search(_INTERN_REASON_HEAD_FOCUS, head):
-            return "answer_focus", "冒頭でなぜそのインターンに参加したいかを短く言い切ってください。"
-    elif template_type == "intern_goals":
-        # 英語プログラム名のみの設問では「インターン」が後段に出る／学習目的が3文目にまとまる出力もある
-        head = "".join(sentences[:3])
-        internship_named = bool(
-            intern_name
-            and re.search(r"インターン|internship", intern_name, re.IGNORECASE)
-        )
-        intern_anchor_head = bool(
-            (intern_name and intern_name in head)
-            or re.search(r"インターン|プログラム|インターンシップ", head)
-            or (
-                internship_named
-                and re.search(
-                    r"実務|現場|分析|学び|意思決定|優先|仮説|課題|顧客|価値",
-                    head,
-                )
-            )
-        )
-        if not intern_anchor_head or not re.search(_INTERN_GOALS_HEAD_FOCUS, head):
-            return "answer_focus", "冒頭でインターンで何を学びたいかを短く言い切ってください。"
-    elif template_type == "post_join_goals":
-        # 長文設問では経験→本題の2文目以降に「入社後」が出る出力も多いため先頭3文まで見る
-        head = "".join(sentences[:3])
-        if not re.search(_POST_JOIN_HEAD_FOCUS, head):
-            return "answer_focus", "冒頭で入社後にやりたいことや手掛けたいことを短く言い切ってください。"
-    elif template_type == "self_pr":
-        # 経験→強みの導入や多様な言い出しを先頭2文までで許容（例:「サークルで〜。この経験から強みは〜」）
-        head = "".join(sentences[:2])
-        if not re.search(_SELF_PR_HEAD_FOCUS, head):
-            return "answer_focus", "冒頭で自分の強みやアピールの核を短く示してください。"
-    elif template_type == "work_values":
-        head = "".join(sentences[:2])
-        if not re.search(_WORK_VALUES_HEAD_FOCUS, head):
-            return "answer_focus", "冒頭で大切にしている価値観や姿勢の核を短く示してください。"
-    elif template_type == "gakuchika":
-        # 行動・成果の核を先頭3文までで確認（verbose_opening は上で処理済み）
-        head = "".join(sentences[:3])
-        if not re.search(_GAKUCHIKA_HEAD_FOCUS, head):
-            return "answer_focus", "冒頭で学生時代に力を入れた取り組みの核を短く示してください。"
+        if not has_intern_context or (focus_pattern and not re.search(focus_pattern, head)):
+            return "answer_focus", answer_focus_message
+    elif focus_pattern and not re.search(focus_pattern, head):
+        return "answer_focus", answer_focus_message
 
     return None, None
 
@@ -1711,6 +1685,7 @@ def _build_company_evidence_cards(
                 "theme": theme,
                 "claim": claim,
                 "excerpt": excerpt,
+                "normalized_axis": _normalize_company_evidence_axis(theme),
                 "source_url": str(source.get("source_url") or ""),
                 "content_type": content_type,
                 "title": title,
@@ -1736,6 +1711,7 @@ def _build_company_evidence_cards(
                     "theme": secondary_theme,
                     "claim": excerpt,
                     "excerpt": title if title and title != excerpt else "",
+                    "normalized_axis": _normalize_company_evidence_axis(secondary_theme),
                     "source_url": str(source.get("source_url") or ""),
                     "content_type": content_type,
                     "title": title,
@@ -1768,6 +1744,7 @@ def _build_company_evidence_cards(
                     break
 
     for candidate in candidates:
+        candidate["normalized_summary"] = _normalize_company_evidence_summary(candidate)
         theme = candidate["theme"]
         if theme in seen_themes:
             continue
@@ -1790,6 +1767,36 @@ def _build_company_evidence_cards(
         append_candidate(candidate)
 
     return cards
+
+
+def _normalize_company_evidence_axis(theme: str) -> str:
+    mapping = {
+        "価値観": "value_orientation",
+        "採用方針": "value_orientation",
+        "企業理解": "business_characteristics",
+        "事業理解": "business_characteristics",
+        "将来接続": "business_characteristics",
+        "成長領域": "business_characteristics",
+        "現場期待": "work_environment",
+        "成長機会": "work_environment",
+        "役割理解": "role_expectation",
+        "インターン機会": "role_expectation",
+    }
+    return mapping.get(theme, "business_characteristics")
+
+
+def _normalize_company_evidence_summary(card: dict[str, Any]) -> str:
+    claim = str(card.get("claim") or "").strip()
+    excerpt = str(card.get("excerpt") or "").strip()
+    axis = str(card.get("normalized_axis") or "").strip()
+
+    if axis == "value_orientation":
+        return "価値観・重視姿勢としては、" + (claim or excerpt)
+    if axis == "work_environment":
+        return "働く環境や期待行動としては、" + (claim or excerpt)
+    if axis == "role_expectation":
+        return "役割期待としては、" + (claim or excerpt)
+    return "事業や提供価値の特徴としては、" + (claim or excerpt)
 
 
 def _assess_company_evidence_coverage(
@@ -2042,6 +2049,8 @@ def _build_review_meta(
     reference_profile_variance: str | None = None,
     company_grounding_policy: str = "assistive",
     effective_company_grounding_policy: str = "assistive",
+    recommended_grounding_level: str = "none",
+    effective_grounding_level: str = "none",
     company_evidence_count: int = 0,
     company_evidence_verified_count: int = 0,
     company_evidence_rejected_count: int = 0,
@@ -2059,6 +2068,13 @@ def _build_review_meta(
     rewrite_validation_status: str = "strict_ok",
     rewrite_validation_codes: list[str] | None = None,
     rewrite_validation_user_hint: str | None = None,
+    classification_confidence: str = "low",
+    classification_secondary_candidates: list[str] | None = None,
+    classification_rationale: str | None = None,
+    misclassification_recovery_applied: bool = False,
+    fallback_triggered: bool = False,
+    fallback_reason: str | None = None,
+    grounding_repair_applied: bool = False,
     length_profile_id: str | None = None,
     target_window_lower: int | None = None,
     target_window_upper: int | None = None,
@@ -2095,6 +2111,8 @@ def _build_review_meta(
         reference_profile_variance=reference_profile_variance,
         company_grounding_policy=company_grounding_policy,
         effective_company_grounding_policy=effective_company_grounding_policy,
+        recommended_grounding_level=recommended_grounding_level,
+        effective_grounding_level=effective_grounding_level,
         company_evidence_count=company_evidence_count,
         company_evidence_verified_count=company_evidence_verified_count,
         company_evidence_rejected_count=company_evidence_rejected_count,
@@ -2106,6 +2124,10 @@ def _build_review_meta(
         user_context_sources=_collect_user_context_sources(request),
         hallucination_guard_mode="strict",
         rewrite_generation_mode=rewrite_generation_mode,
+        classification_confidence=classification_confidence,
+        classification_secondary_candidates=list(classification_secondary_candidates or []),
+        classification_rationale=classification_rationale,
+        misclassification_recovery_applied=misclassification_recovery_applied,
         rewrite_attempt_count=rewrite_attempt_count,
         length_policy=length_policy,
         length_shortfall=length_shortfall,
@@ -2116,6 +2138,9 @@ def _build_review_meta(
         rewrite_validation_status=rewrite_validation_status,
         rewrite_validation_codes=list(rewrite_validation_codes or []),
         rewrite_validation_user_hint=rewrite_validation_user_hint,
+        fallback_triggered=fallback_triggered,
+        fallback_reason=fallback_reason,
+        grounding_repair_applied=grounding_repair_applied,
         length_profile_id=length_profile_id,
         target_window_lower=target_window_lower,
         target_window_upper=target_window_upper,
@@ -3314,27 +3339,63 @@ def _retry_hint_from_code(
     char_max: int | None,
     current_length: int | None = None,
     length_control_mode: str = "default",
+    template_type: str | None = None,
 ) -> str:
     target_stage = (
         "under_min_recovery" if length_control_mode == "under_min_recovery" else "default"
     )
     target_hint = _format_target_char_hint(char_min, char_max, stage=target_stage)
     shortfall = max(0, (char_min or 0) - (current_length or 0)) if char_min and current_length else 0
+    template_def = TEMPLATE_DEFS.get(template_type or "basic", TEMPLATE_DEFS["basic"])
+    template_usage = str(template_def.get("company_usage") or "assistive")
+    template_guidance = get_template_retry_guidance(template_type or "basic")
+    spec_hint = str(template_guidance.get(code) or "").strip()
+    formatted_spec_hint = (
+        spec_hint.format(
+            target_hint=target_hint,
+            char_min=char_min or 0,
+            char_max=char_max or 0,
+            current_length=current_length or 0,
+            shortfall=shortfall,
+        )
+        if spec_hint
+        else ""
+    )
+    if code != "under_min" and formatted_spec_hint:
+        return formatted_spec_hint
     if code == "under_min":
         if length_control_mode == "under_min_recovery":
             if shortfall >= 30:
-                return (
+                base_hint = (
                     f"新事実を足さず、経験→職種→企業接点をつなぐ1文を補い、"
                     f"{target_hint} を狙う"
                 )
-            return f"最後に役割や企業との接点を補う1文を足し、{target_hint} を狙う"
+            else:
+                base_hint = f"最後に役割や企業との接点を補う1文を足し、{target_hint} を狙う"
+            if formatted_spec_hint and template_usage == "required":
+                return f"{base_hint}。{formatted_spec_hint}"
+            if formatted_spec_hint:
+                return formatted_spec_hint
+            return base_hint
         if length_control_mode == "tight_length":
-            return f"短くまとめすぎず、根拠経験と企業接点を残して {target_hint} を狙う"
+            base_hint = f"短くまとめすぎず、根拠経験と企業接点を残して {target_hint} を狙う"
+            if formatted_spec_hint and template_usage == "required":
+                return f"{base_hint}。{formatted_spec_hint}"
+            if formatted_spec_hint:
+                return formatted_spec_hint
+            return base_hint
         if char_min and current_length:
-            return (
+            base_hint = (
                 f"現状{current_length}字。最低{char_min}字まであと{shortfall}字以上足す。"
                 f"新事実は足さず、元回答の経験・接続を1〜2文で補い {target_hint} を満たす"
             )
+            if formatted_spec_hint and template_usage == "required":
+                return f"{base_hint}。{formatted_spec_hint}"
+            if formatted_spec_hint:
+                return formatted_spec_hint
+            return base_hint
+        if formatted_spec_hint:
+            return formatted_spec_hint
     mapping = {
         "empty": "改善案本文を必ず1件だけ返す",
         "under_min": f"内容を薄めず {target_hint} を狙う",
@@ -3386,6 +3447,7 @@ def _retry_hints_from_codes(
     char_max: int | None,
     current_length: int | None = None,
     length_control_mode: str = "default",
+    template_type: str | None = None,
 ) -> list[str]:
     return [
         _retry_hint_from_code(
@@ -3394,6 +3456,7 @@ def _retry_hints_from_codes(
             char_max=char_max,
             current_length=current_length,
             length_control_mode=length_control_mode,
+            template_type=template_type,
         )
         for code in _select_retry_codes(
             retry_code=retry_code,
@@ -3867,6 +3930,42 @@ async def review_section_with_template(
             detail=f"Unknown template type: {template_type}. Available: {list(TEMPLATE_DEFS.keys())}",
         )
 
+    classification = classify_es_question(template_request.question)
+    classification_confidence = (
+        template_request.inferred_confidence or classification.confidence
+    )
+    classification_secondary_candidates = (
+        template_request.secondary_template_types or classification.secondary_candidates
+    )
+    classification_rationale = (
+        template_request.classification_rationale or classification.rationale
+    )
+    recommended_grounding_level = (
+        template_request.recommended_grounding_level
+        or classification.recommended_grounding_level
+        or _get_default_grounding_level(template_type)
+    )
+    classification_hints: list[str] = []
+    if classification.predicted_template_type != template_type:
+        predicted_label = TEMPLATE_DEFS.get(classification.predicted_template_type, {}).get(
+            "label", classification.predicted_template_type
+        )
+        current_label = TEMPLATE_DEFS.get(template_type, {}).get("label", template_type)
+        classification_hints.append(
+            f"この設問は {predicted_label} とも読まれやすいが、今回は {current_label} として正面から答える"
+        )
+    if classification_secondary_candidates:
+        secondary_labels = [
+            str(TEMPLATE_DEFS.get(candidate, {}).get("label") or candidate)
+            for candidate in classification_secondary_candidates[:2]
+        ]
+        classification_hints.append(
+            f"近接しやすい観点（{' / '.join(secondary_labels)}）と混線しない"
+        )
+    if classification_confidence != "high":
+        classification_hints.append("設問の主眼を1つに絞り、別種の設問要素を混ぜすぎない")
+    misclassification_recovery_applied = bool(classification_hints)
+
     company_grounding = _get_company_grounding_policy(template_type)
     effective_role_name = (
         request.role_context.primary_role if request.role_context else None
@@ -3901,9 +4000,17 @@ async def review_section_with_template(
     )
     effective_company_rag_available = company_rag_available and bool(verified_rag_sources)
     effective_grounding_mode = grounding_mode
-    effective_company_grounding = company_grounding
+    effective_grounding_level = _resolve_effective_grounding_level(
+        template_type=template_type,
+        classifier_grounding_level=recommended_grounding_level,
+        char_max=char_max,
+        evidence_coverage_level="none",
+        has_company_rag=effective_company_rag_available,
+    )
+    effective_company_grounding = grounding_level_to_policy(effective_grounding_level)
     if has_mismatched_company_sources:
-        effective_company_grounding = "assistive"
+        effective_grounding_level = "light"
+        effective_company_grounding = grounding_level_to_policy(effective_grounding_level)
         effective_grounding_mode = "company_general" if verified_rag_sources else "none"
     company_evidence_cards = _build_company_evidence_cards(
         verified_rag_sources,
@@ -3922,6 +4029,17 @@ async def review_section_with_template(
         company_evidence_cards=company_evidence_cards,
         grounding_mode=effective_grounding_mode,
     )
+    effective_grounding_level = _resolve_effective_grounding_level(
+        template_type=template_type,
+        classifier_grounding_level=recommended_grounding_level,
+        char_max=char_max,
+        evidence_coverage_level=evidence_coverage_level,
+        has_company_rag=effective_company_rag_available,
+    )
+    if has_mismatched_company_sources:
+        effective_grounding_level = "light"
+    effective_company_grounding = grounding_level_to_policy(effective_grounding_level)
+    grounding_repair_applied = effective_grounding_level != recommended_grounding_level or has_mismatched_company_sources
     prompt_company_evidence_cards = company_evidence_cards
     reference_examples = load_reference_examples(
         template_type,
@@ -3989,6 +4107,8 @@ async def review_section_with_template(
         for source in verified_rag_sources
         if str(source.get("source_url") or "") in user_priority_urls
     )
+    fallback_triggered = False
+    fallback_reason: str | None = None
     length_fix_attempted = False
     length_fix_result = "not_needed"
     best_rejected_candidate = ""
@@ -4028,7 +4148,10 @@ async def review_section_with_template(
             char_max=char_max,
             current_length=best_rejected_length or None,
             length_control_mode=length_control_mode,
+            template_type=template_type,
         )
+        if classification_hints:
+            retry_hints = [*classification_hints, *retry_hints]
         length_shortfall = (
             max(0, char_min - best_rejected_length)
             if char_min and best_rejected_length and best_rejected_length < char_min
@@ -4080,6 +4203,7 @@ async def review_section_with_template(
             focus_mode=focus_mode,
             focus_modes=focus_modes,
             company_grounding_override=effective_company_grounding,
+            grounding_level_override=effective_grounding_level,
             llm_model=llm_model,
         )
 
@@ -4244,6 +4368,114 @@ async def review_section_with_template(
     if (
         not final_rewrite
         and best_rejected_candidate
+        and any(code not in {"under_min", "over_max"} for code in best_failure_codes)
+    ):
+        fallback_triggered = True
+        fallback_reason = best_retry_code or "generic"
+        fallback_hints = [*classification_hints, *attempt_failures[-2:]]
+        system_prompt, user_prompt = build_template_fallback_rewrite_prompt(
+            template_type=template_type,
+            company_name=template_request.company_name,
+            industry=template_request.industry,
+            question=template_request.question,
+            answer=best_rejected_candidate,
+            char_min=char_min,
+            char_max=char_max,
+            company_evidence_cards=prompt_company_evidence_cards,
+            has_rag=effective_company_rag_available,
+            allowed_user_facts=prompt_user_facts,
+            intern_name=template_request.intern_name,
+            role_name=effective_role_name,
+            grounding_mode=effective_grounding_mode,
+            retry_hints=fallback_hints,
+            reference_quality_block=reference_quality_block,
+            generic_role_mode=generic_role_mode,
+            evidence_coverage_level=evidence_coverage_level,
+            length_control_mode="under_min_recovery" if best_retry_code == "under_min" else "default",
+            length_shortfall=max(0, (char_min or 0) - len(best_rejected_candidate)) if char_min else None,
+            focus_modes=_resolve_rewrite_focus_modes(
+                retry_code=best_retry_code,
+                failure_codes=best_failure_codes,
+            ),
+            company_grounding_override=effective_company_grounding,
+            grounding_level_override=effective_grounding_level,
+            llm_model=llm_model,
+        )
+        fallback_result = await text_caller(
+            system_prompt=system_prompt,
+            user_message=user_prompt,
+            max_tokens=_rewrite_max_tokens(
+                char_max,
+                review_variant=review_variant,
+                llm_model=llm_model,
+            ),
+            temperature=_es_review_temperature(llm_model, stage="rewrite", focus_mode="normal"),
+            model=llm_model,
+            feature=review_feature,
+            disable_fallback=True,
+        )
+        _accumulate_review_token_usage(review_token_usage, fallback_result, call_kind="text")
+        fallback_candidate = (
+            fallback_result.data.get("text", "")
+            if fallback_result.success and isinstance(fallback_result.data, dict)
+            else str(fallback_result.data) if fallback_result.success and fallback_result.data else ""
+        )
+        validated_candidate, retry_code, retry_reason, retry_meta = _validate_rewrite_candidate(
+            fallback_candidate,
+            template_type=template_type,
+            question=template_request.question,
+            company_name=template_request.company_name,
+            char_min=char_min,
+            char_max=char_max,
+            issues=[],
+            role_name=effective_role_name,
+            intern_name=template_request.intern_name,
+            grounding_mode=effective_grounding_mode,
+            effective_company_grounding_policy=effective_company_grounding,
+            company_evidence_cards=prompt_company_evidence_cards,
+            review_variant=review_variant,
+            soft_validation_mode="strict",
+        )
+        _append_rewrite_attempt_trace(
+            rewrite_attempt_trace,
+            stage="fallback",
+            text=fallback_candidate,
+            accepted=bool(validated_candidate),
+            retry_reason="" if validated_candidate else retry_reason,
+            attempt_index=total_attempts + 1,
+            total_rewrite_attempts=total_attempts + 1,
+            prompt_mode="fallback",
+            failure_codes=[] if validated_candidate else list(retry_meta.get("failure_codes") or [retry_code]),
+        )
+        if validated_candidate:
+            final_rewrite = validated_candidate
+            accepted_attempt = total_attempts + 1
+            accepted_length_policy = str(retry_meta.get("length_policy") or "strict")
+            accepted_length_shortfall = int(retry_meta.get("length_shortfall") or 0)
+            accepted_soft_min_floor_ratio = retry_meta.get("soft_min_floor_ratio")
+            fallback_profile = resolve_length_control_profile(
+                char_min,
+                char_max,
+                stage="under_min_recovery" if best_retry_code == "under_min" else "default",
+                original_len=len(best_rejected_candidate),
+                llm_model=llm_model,
+                latest_failed_len=len(best_rejected_candidate),
+            )
+            accepted_length_profile_id = fallback_profile.profile_id
+            accepted_target_window_lower = fallback_profile.target_lower
+            accepted_target_window_upper = fallback_profile.target_upper
+            accepted_source_fill_ratio = fallback_profile.source_fill_ratio
+            accepted_required_growth = fallback_profile.required_growth
+            accepted_latest_failed_length = fallback_profile.latest_failed_length
+            accepted_length_failure_code = None
+            rewrite_generation_mode = "fallback_safe_rewrite"
+        else:
+            attempt_failures.append(retry_reason)
+
+    if (
+        not final_rewrite
+        and best_rejected_candidate
+        and best_retry_code in {"under_min", "over_max", "style", "grounding"}
         and _should_attempt_length_fix(
             best_rejected_candidate,
             char_min=char_min,
@@ -4525,6 +4757,8 @@ async def review_section_with_template(
             reference_profile_variance=(reference_quality_profile or {}).get("variance_band"),
             company_grounding_policy=company_grounding,
             effective_company_grounding_policy=effective_company_grounding,
+            recommended_grounding_level=recommended_grounding_level,
+            effective_grounding_level=effective_grounding_level,
             company_evidence_count=len(prompt_company_evidence_cards),
             company_evidence_verified_count=len(verified_rag_sources),
             company_evidence_rejected_count=len(rejected_rag_sources),
@@ -4549,6 +4783,13 @@ async def review_section_with_template(
             rewrite_validation_status=rewrite_validation_status,
             rewrite_validation_codes=rewrite_validation_codes,
             rewrite_validation_user_hint=rewrite_validation_user_hint,
+            classification_confidence=classification_confidence,
+            classification_secondary_candidates=classification_secondary_candidates,
+            classification_rationale=classification_rationale,
+            misclassification_recovery_applied=misclassification_recovery_applied,
+            fallback_triggered=fallback_triggered,
+            fallback_reason=fallback_reason,
+            grounding_repair_applied=grounding_repair_applied,
             length_profile_id=accepted_length_profile_id,
             target_window_lower=accepted_target_window_lower,
             target_window_upper=accepted_target_window_upper,

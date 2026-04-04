@@ -21,6 +21,7 @@ import {
   CREDITS_PER_QUESTION_BATCH,
   buildHintPayload,
   buildConversationStatePatch,
+  getGakuchikaNextAction,
   getIdentity,
   isInterviewReady,
   iterateGakuchikaFastApiSseEvents,
@@ -209,11 +210,27 @@ export async function POST(
                 focus_key: currentConversationState.focusKey,
                 progress_label: currentConversationState.progressLabel,
                 answer_hint: currentConversationState.answerHint,
+                input_richness_mode: currentConversationState.inputRichnessMode,
                 missing_elements: currentConversationState.missingElements,
+                draft_quality_checks: currentConversationState.draftQualityChecks,
+                causal_gaps: currentConversationState.causalGaps,
+                completion_checks: currentConversationState.completionChecks,
                 ready_for_draft: currentConversationState.readyForDraft,
                 draft_readiness_reason: currentConversationState.draftReadinessReason,
                 draft_text: currentConversationState.draftText,
-                deepdive_stage: currentConversationState.deepdiveStage,
+                  strength_tags: currentConversationState.strengthTags,
+                  issue_tags: currentConversationState.issueTags,
+                  deepdive_recommendation_tags: currentConversationState.deepdiveRecommendationTags,
+                  credibility_risk_tags: currentConversationState.credibilityRiskTags,
+                  deepdive_stage: currentConversationState.deepdiveStage,
+                  deepdive_complete: currentConversationState.deepdiveComplete,
+                  completion_reasons: currentConversationState.completionReasons,
+                  asked_focuses: currentConversationState.askedFocuses,
+                  resolved_focuses: currentConversationState.resolvedFocuses,
+                  deferred_focuses: currentConversationState.deferredFocuses,
+                  blocked_focuses: currentConversationState.blockedFocuses,
+                  focus_attempt_counts: currentConversationState.focusAttemptCounts,
+                  last_question_signature: currentConversationState.lastQuestionSignature,
               }
             : null,
         }),
@@ -355,6 +372,7 @@ export async function POST(
                 data: {
                   question?: string;
                   conversation_state?: Record<string, unknown>;
+                  next_action?: string;
                 };
               }).data;
 
@@ -367,7 +385,18 @@ export async function POST(
                   ? fastApiData.question
                   : streamedQuestionText;
 
-              if (nextQuestionText) {
+              const nextConversationState = fastApiData.conversation_state
+                ? safeParseConversationState(JSON.stringify(fastApiData.conversation_state))
+                : buildConversationStatePatch(currentConversationState, partialState);
+              const nextAction =
+                typeof fastApiData.next_action === "string"
+                  ? fastApiData.next_action
+                  : getGakuchikaNextAction(nextConversationState);
+              const shouldAskNext = nextAction === "ask";
+              const isCompleted = nextConversationState.stage === "interview_ready";
+              const status = isCompleted ? "completed" : "in_progress";
+
+              if (shouldAskNext && nextQuestionText) {
                 const aiMessage: Message = {
                   id: crypto.randomUUID(),
                   role: "assistant",
@@ -375,14 +404,6 @@ export async function POST(
                 };
                 messages.push(aiMessage);
               }
-
-              const nextConversationState = fastApiData.conversation_state
-                ? safeParseConversationState(JSON.stringify(fastApiData.conversation_state))
-                : buildConversationStatePatch(currentConversationState, partialState);
-              const isCompleted =
-                nextConversationState.stage === "draft_ready" ||
-                nextConversationState.stage === "interview_ready";
-              const status = isCompleted ? "completed" : "in_progress";
 
               await db
                 .update(gakuchikaConversations)
@@ -411,10 +432,11 @@ export async function POST(
                 type: "complete",
                 data: {
                   messages,
-                  nextQuestion: isCompleted ? null : nextQuestionText,
+                  nextQuestion: shouldAskNext ? nextQuestionText : null,
                   questionCount: newQuestionCount,
                   isCompleted,
                   conversationState: nextConversationState,
+                  nextAction,
                   isInterviewReady: isInterviewReady(nextConversationState),
                   isAIPowered: true,
                   summaryPending: nextConversationState.stage === "interview_ready",

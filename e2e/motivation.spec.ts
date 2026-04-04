@@ -74,24 +74,20 @@ async function mockMotivationPage(page: Page) {
           career_vision: 28,
           differentiation: 33,
         },
-        suggestionOptions: [
-          {
-            id: "option-1",
-            label: "業務改革を通じて顧客課題を解決できる点に惹かれたため",
-            sourceType: "company",
-            intent: "company_reason",
-            rationale: "企業固有の特徴に直接触れる候補",
-            isTentative: false,
-          },
-          {
-            id: "option-2",
-            label: "企画職として業務改革に関わり、価値を出せると感じたため",
-            sourceType: "application_job_type",
-            intent: "company_reason",
-            rationale: "応募職種から企業志望理由へつなぐ候補",
-            isTentative: false,
-          },
-        ],
+        conversationMode: "slot_fill",
+        progress: {
+          completed: 1,
+          total: 6,
+          current_slot: "company_reason",
+          current_slot_label: "企業志望理由",
+          current_intent: "initial_capture",
+          next_advance_condition: "この企業を選ぶ理由が1つ言えればOK",
+          mode: "slot_fill",
+        },
+        currentSlot: "company_reason",
+        currentIntent: "initial_capture",
+        nextAdvanceCondition: "この企業を選ぶ理由が1つ言えればOK",
+        causalGaps: [],
         evidenceSummary: "新卒採用ページ: 業務改革とDX支援を推進",
         evidenceCards: [
           {
@@ -107,7 +103,7 @@ async function mockMotivationPage(page: Page) {
         stageStatus: {
           current: "company_reason",
           completed: [],
-          pending: ["desired_work", "fit_connection", "differentiation", "closing"],
+          pending: ["self_connection", "desired_work", "value_contribution", "differentiation"],
         },
         coachingFocus: "企業志望理由",
         conversationContext: {
@@ -144,6 +140,8 @@ test.describe("Motivation page (guest)", () => {
   test.beforeEach(async ({ page }) => {
     await loginAsGuest(page);
     await ensureGuestSession(page);
+    await mockMotivationPage(page);
+    await mockMotivationShellApis(page);
   });
 
   test("shows login required for AI features", async ({ page }) => {
@@ -168,7 +166,7 @@ test.describe("Motivation page (mock authenticated)", () => {
     await mockMotivationShellApis(page);
   });
 
-  test("desktop shows a single header CTA, visible restart button, and direct-answer options", async ({
+  test("desktop shows a single header CTA, visible restart button, and progress state", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 960 });
@@ -183,9 +181,10 @@ test.describe("Motivation page (mock authenticated)", () => {
     await expect(page.getByRole("button", { name: "志望動機ESを作成" })).toHaveCount(1);
     await expect(page.getByRole("button", { name: "志望動機ESを作成" })).toBeVisible();
     await expect(page.getByRole("button", { name: "会話をやり直す" }).first()).toBeVisible();
-    await expect(page.getByText("この企業のどこに惹かれたかを1文で答える")).toBeVisible();
-    await expect(page.getByText("企業固有の特徴に直接触れる候補")).toHaveCount(0);
-    await expect(page.getByText("仮置き候補")).toHaveCount(0);
+    await expect(page.getByText("今確認していること")).toBeVisible();
+    await expect(page.getByText("今回知りたいこと")).toBeVisible();
+    await expect(page.getByText("次に進む条件")).toBeVisible();
+    await expect(page.getByText("1項目 / 6項目")).toBeVisible();
     await expect(page.getByRole("link", { name: /新卒採用ページ/ }).first()).toBeVisible();
   });
 
@@ -194,11 +193,12 @@ test.describe("Motivation page (mock authenticated)", () => {
     await page.goto(`/companies/${COMPANY_ID}/motivation`);
 
     await expect(page.getByRole("button", { name: "志望動機ESを作成" }).first()).toBeVisible();
-    await expect(page.getByPlaceholder("回答を入力...")).toBeVisible();
+    await expect(page.getByRole("textbox")).toBeVisible();
     await expect(page.getByRole("button", { name: "会話をやり直す" }).first()).toBeVisible();
+    await expect(page.getByText("1項目 / 6項目")).toBeVisible();
   });
 
-  test("refetches conversation after stream failure instead of restoring stale chips", async ({
+  test("refetches conversation after stream failure instead of restoring stale state", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 960 });
@@ -235,23 +235,27 @@ test.describe("Motivation page (mock authenticated)", () => {
                 career_vision: 28,
                 differentiation: 33,
               },
-              suggestionOptions: [
-                {
-                  id: "option-stale",
-                  label: "業務改革を通じて顧客課題を解決できる点に惹かれたため",
-                  sourceType: "company",
-                  intent: "company_reason",
-                  rationale: "企業固有の特徴に直接触れる候補",
-                  isTentative: false,
-                },
-              ],
+              conversationMode: "slot_fill",
+              progress: {
+                completed: 1,
+                total: 6,
+                current_slot: "company_reason",
+                current_slot_label: "企業志望理由",
+                current_intent: "initial_capture",
+                next_advance_condition: "この企業を選ぶ理由が1つ言えればOK",
+                mode: "slot_fill",
+              },
+              currentSlot: "company_reason",
+              currentIntent: "initial_capture",
+              nextAdvanceCondition: "この企業を選ぶ理由が1つ言えればOK",
+              causalGaps: [],
               evidenceSummary: "新卒採用ページ: 業務改革とDX支援を推進",
               evidenceCards: [],
               questionStage: "company_reason",
               stageStatus: {
                 current: "company_reason",
                 completed: [],
-                pending: ["desired_work", "fit_connection", "differentiation", "closing"],
+                pending: ["self_connection", "desired_work", "value_contribution", "differentiation"],
               },
               coachingFocus: "企業志望理由",
               conversationContext: {
@@ -297,23 +301,27 @@ test.describe("Motivation page (mock authenticated)", () => {
                 career_vision: 34,
                 differentiation: 41,
               },
-              suggestionOptions: [
-                {
-                  id: "option-fresh",
-                  label: "入社後は企画職として顧客の業務改善に挑戦したいです。",
-                  sourceType: "application_job_type",
-                  intent: "desired_work",
-                  rationale: "応募職種から自然に導いた候補",
-                  isTentative: true,
-                },
-              ],
+              conversationMode: "slot_fill",
+              progress: {
+                completed: 2,
+                total: 6,
+                current_slot: "desired_work",
+                current_slot_label: "やりたい仕事",
+                current_intent: "initial_capture",
+                next_advance_condition: "入社後にやりたい仕事が1つ言えればOK",
+                mode: "slot_fill",
+              },
+              currentSlot: "desired_work",
+              currentIntent: "initial_capture",
+              nextAdvanceCondition: "入社後にやりたい仕事が1つ言えればOK",
+              causalGaps: [],
               evidenceSummary: "新卒採用ページ: 業務改善の提案を担う",
               evidenceCards: [],
               questionStage: "desired_work",
               stageStatus: {
                 current: "desired_work",
                 completed: ["company_reason"],
-                pending: ["origin_experience", "fit_connection", "differentiation", "closing"],
+                pending: ["industry_reason", "self_connection", "value_contribution", "differentiation"],
               },
               coachingFocus: "やりたい仕事",
               conversationContext: {
@@ -351,12 +359,13 @@ test.describe("Motivation page (mock authenticated)", () => {
     });
 
     await page.goto(`/companies/${COMPANY_ID}/motivation`);
-    await expect(page.getByText("業務改革を通じて顧客課題を解決できる点に惹かれたため")).toBeVisible();
+    await expect(page.getByText("1項目 / 6項目")).toBeVisible();
+    await expect(page.getByText("今確認していること")).toBeVisible();
 
-    await page.getByRole("button", { name: "業務改革を通じて顧客課題を解決できる点に惹かれたため" }).click();
+    await page.getByRole("textbox").fill("顧客課題を解決できる点に惹かれます。");
+    await page.getByRole("textbox").press("Enter");
 
-    await expect(page.getByText("業務改革を通じて顧客課題を解決できる点に惹かれたため")).toHaveCount(0);
-    await expect(page.getByText("入社後は企画職として顧客の業務改善に挑戦したいです。")).toBeVisible();
+    await expect(page.getByText("2項目 / 6項目")).toBeVisible();
     await expect(page.getByText("入社後にどんな仕事へ挑戦したいですか？")).toBeVisible();
   });
 });

@@ -16,6 +16,7 @@ import {
 } from "./fixtures/auth";
 import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
 import {
+  classifyLiveAiConversationFailure,
   generateLiveAiConversationReport,
   writeLiveAiConversationReport,
   type LiveAiConversationCheck,
@@ -243,10 +244,13 @@ function buildMissingFeatureRow(feature: LiveAiConversationFeature): LiveAiConve
     title: `${feature} live suite failed before report rows were recorded`,
     status: "failed",
     severity: "failed",
+    failureKind: "infra",
     durationMs: 0,
     transcript: [],
     outputs: { finalText: "", generatedDocumentId: null },
     deterministicFailReasons: ["missing_report", "suite_failed_before_report_rows"],
+    representativeLog: "no feature rows were captured before afterAll",
+    representativeError: null,
     checks: [
       {
         name: "report-generated",
@@ -513,6 +517,8 @@ async function runGakuchikaCase(
   let finalText = "";
   let generatedDocumentId: string | null = null;
   let cleanupOk = true;
+  let representativeLog: string | null = null;
+  let representativeError: string | null = null;
   let status: LiveAiConversationReportRow["status"] = "passed";
   let checks: LiveAiConversationCheck[] = [];
   let judge: LiveAiConversationJudge | null = null;
@@ -570,7 +576,10 @@ async function runGakuchikaCase(
     );
   } catch (error) {
     status = "failed";
-    deterministicFailReasons.push(error instanceof Error ? error.message : "unknown_error");
+    const errorMessage = error instanceof Error ? error.message : "unknown_error";
+    deterministicFailReasons.push(errorMessage);
+    representativeError = errorMessage;
+    representativeLog = "gakuchika setup failed before ES draft generation";
   } finally {
     try {
       if (generatedDocumentId) {
@@ -598,9 +607,24 @@ async function runGakuchikaCase(
   if (!cleanupOk) {
     status = "failed";
     deterministicFailReasons.push("cleanup_failed");
+    representativeLog = representativeLog ?? "cleanup failed while deleting gakuchika artifacts";
   }
   const severity: LiveAiConversationReportRow["severity"] =
     status === "failed" ? "failed" : judge && !judge.overallPass ? "degraded" : "passed";
+  const failureKind = classifyLiveAiConversationFailure({
+    status,
+    cleanupOk,
+    deterministicFailReasons,
+    judge,
+  });
+  if (failureKind === "quality" && judge?.warnings.length) {
+    representativeLog = representativeLog ?? judge.warnings[0];
+  }
+  representativeError = representativeError ?? deterministicFailReasons.find((reason) => reason !== "cleanup_failed") ?? null;
+  if (failureKind === "none") {
+    representativeLog = null;
+    representativeError = null;
+  }
 
   return {
     feature: "gakuchika",
@@ -608,10 +632,13 @@ async function runGakuchikaCase(
     title: input.title,
     status,
     severity,
+    failureKind,
     durationMs: Date.now() - startedAt,
     transcript,
     outputs: { finalText, generatedDocumentId },
     deterministicFailReasons,
+    representativeLog,
+    representativeError,
     checks,
     judge,
     cleanup: { ok: cleanupOk, removedIds },
@@ -639,6 +666,8 @@ async function runMotivationCase(
   let finalText = "";
   let generatedDocumentId: string | null = null;
   let cleanupOk = true;
+  let representativeLog: string | null = null;
+  let representativeError: string | null = null;
   let status: LiveAiConversationReportRow["status"] = "passed";
   let checks: LiveAiConversationCheck[] = [];
   let judge: LiveAiConversationJudge | null = null;
@@ -706,7 +735,10 @@ async function runMotivationCase(
     );
   } catch (error) {
     status = "failed";
-    deterministicFailReasons.push(error instanceof Error ? error.message : "unknown_error");
+    const errorMessage = error instanceof Error ? error.message : "unknown_error";
+    deterministicFailReasons.push(errorMessage);
+    representativeError = errorMessage;
+    representativeLog = "motivation setup failed before draft generation";
   } finally {
     try {
       if (generatedDocumentId) {
@@ -734,9 +766,24 @@ async function runMotivationCase(
   if (!cleanupOk) {
     status = "failed";
     deterministicFailReasons.push("cleanup_failed");
+    representativeLog = representativeLog ?? "cleanup failed while deleting motivation artifacts";
   }
   const severity: LiveAiConversationReportRow["severity"] =
     status === "failed" ? "failed" : judge && !judge.overallPass ? "degraded" : "passed";
+  const failureKind = classifyLiveAiConversationFailure({
+    status,
+    cleanupOk,
+    deterministicFailReasons,
+    judge,
+  });
+  if (failureKind === "quality" && judge?.warnings.length) {
+    representativeLog = representativeLog ?? judge.warnings[0];
+  }
+  representativeError = representativeError ?? deterministicFailReasons.find((reason) => reason !== "cleanup_failed") ?? null;
+  if (failureKind === "none") {
+    representativeLog = null;
+    representativeError = null;
+  }
 
   return {
     feature: "motivation",
@@ -744,10 +791,13 @@ async function runMotivationCase(
     title: input.title,
     status,
     severity,
+    failureKind,
     durationMs: Date.now() - startedAt,
     transcript,
     outputs: { finalText, generatedDocumentId },
     deterministicFailReasons,
+    representativeLog,
+    representativeError,
     checks,
     judge,
     cleanup: { ok: cleanupOk, removedIds },
@@ -776,6 +826,8 @@ async function runInterviewCase(
   let createdGakuchikaId: string | null = null;
   let finalText = "";
   let cleanupOk = true;
+  let representativeLog: string | null = null;
+  let representativeError: string | null = null;
   let status: LiveAiConversationReportRow["status"] = "passed";
   let checks: LiveAiConversationCheck[] = [];
   let judge: LiveAiConversationJudge | null = null;
@@ -921,7 +973,10 @@ async function runInterviewCase(
     finalText = feedback?.overall_comment || finalText;
   } catch (error) {
     status = "failed";
-    deterministicFailReasons.push(error instanceof Error ? error.message : "unknown_error");
+    const errorMessage = error instanceof Error ? error.message : "unknown_error";
+    deterministicFailReasons.push(errorMessage);
+    representativeError = errorMessage;
+    representativeLog = "interview setup failed before feedback generation";
   } finally {
     for (const documentId of createdDocumentIds) {
       try {
@@ -958,9 +1013,24 @@ async function runInterviewCase(
   if (!cleanupOk) {
     status = "failed";
     deterministicFailReasons.push("cleanup_failed");
+    representativeLog = representativeLog ?? "cleanup failed while deleting interview artifacts";
   }
   const severity: LiveAiConversationReportRow["severity"] =
     status === "failed" ? "failed" : judge && !judge.overallPass ? "degraded" : "passed";
+  const failureKind = classifyLiveAiConversationFailure({
+    status,
+    cleanupOk,
+    deterministicFailReasons,
+    judge,
+  });
+  if (failureKind === "quality" && judge?.warnings.length) {
+    representativeLog = representativeLog ?? judge.warnings[0];
+  }
+  representativeError = representativeError ?? deterministicFailReasons.find((reason) => reason !== "cleanup_failed") ?? null;
+  if (failureKind === "none") {
+    representativeLog = null;
+    representativeError = null;
+  }
 
   return {
     feature: "interview",
@@ -968,10 +1038,13 @@ async function runInterviewCase(
     title: input.title,
     status,
     severity,
+    failureKind,
     durationMs: Date.now() - startedAt,
     transcript,
     outputs: { finalText, generatedDocumentId: null },
     deterministicFailReasons,
+    representativeLog,
+    representativeError,
     checks,
     judge,
     cleanup: { ok: cleanupOk, removedIds },

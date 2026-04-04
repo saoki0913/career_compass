@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
 import {
+  getGakuchikaNextAction,
   getIdentity,
   getQuestionFromFastAPI,
   safeParseMessages,
@@ -73,15 +74,9 @@ export async function POST(
     const questionCount = conversation.questionCount || 0;
     let conversationState = safeParseConversationState(conversation.starScores, conversation.status);
     let status = conversation.status;
+    let nextAction = getGakuchikaNextAction(conversationState);
 
-    if (conversationState.stage === "draft_ready" && !conversationState.draftText) {
-      return NextResponse.json(
-        { error: "先にガクチカESを作成してから深掘りを再開してください。" },
-        { status: 409 },
-      );
-    }
-
-    if (conversation.status === "completed" && conversationState.stage === "draft_ready") {
+    if (conversationState.stage === "draft_ready") {
       const result = await getQuestionFromFastAPI(
         {
           title: gakuchika.title,
@@ -94,7 +89,8 @@ export async function POST(
         requestId,
       );
 
-      if (result.error || !result.question) {
+      const resolvedNextAction = result.nextAction ?? getGakuchikaNextAction(result.conversationState ?? conversationState);
+      if (result.error || (resolvedNextAction === "ask" && !result.question)) {
         logAiCreditCostSummary({
           feature: "gakuchika_resume",
           requestId,
@@ -108,16 +104,19 @@ export async function POST(
         );
       }
 
-      messages = [
-        ...messages,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: result.question,
-        },
-      ];
+      if (result.question) {
+        messages = [
+          ...messages,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: result.question,
+          },
+        ];
+      }
       conversationState = result.conversationState ?? conversationState;
-      status = "in_progress";
+      nextAction = resolvedNextAction;
+      status = conversationState.stage === "interview_ready" ? "completed" : "in_progress";
 
       await db
         .update(gakuchikaConversations)
@@ -161,6 +160,7 @@ export async function POST(
       }));
 
     const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
+    nextAction = getGakuchikaNextAction(conversationState);
 
     return NextResponse.json({
       conversation: {
@@ -169,10 +169,11 @@ export async function POST(
         status,
       },
       messages,
-      nextQuestion: lastAssistantMessage?.content || null,
+      nextQuestion: nextAction === "ask" ? lastAssistantMessage?.content || null : null,
       questionCount,
-      isCompleted: status === "completed",
+      isCompleted: conversationState.stage === "interview_ready",
       conversationState,
+      nextAction,
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,

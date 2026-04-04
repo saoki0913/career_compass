@@ -16,12 +16,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const identity = await getRequestIdentity(request);
-  if (!identity) {
+  if (!identity?.userId) {
     return createApiErrorResponse(request, {
       status: 401,
       code: "INTERVIEW_AUTH_REQUIRED",
-      userMessage: "面接対策を利用するには認証が必要です。",
-      action: "ログイン、またはゲスト状態を確認してから、もう一度お試しください。",
+      userMessage: "ログインが必要です。",
+      action: "ログインしてから、もう一度お試しください。",
     });
   }
 
@@ -68,17 +68,35 @@ export async function GET(
         status: "setup_pending",
         messages: [],
         feedback: null,
+        plan: null,
+        turnMeta: null,
         questionCount: 0,
-        questionStage: "industry_reason",
+        questionStage: null,
         questionFlowCompleted: false,
-        stageStatus: getInterviewStageStatus("industry_reason"),
+        stageStatus: getInterviewStageStatus({
+          currentTopicLabel: null,
+          coveredTopics: [],
+          remainingTopics: [],
+        }),
         turnState: createInitialInterviewTurnState(),
         selectedIndustry: context.setup.selectedIndustry,
         selectedRole: context.setup.selectedRole,
         selectedRoleSource: context.setup.selectedRoleSource,
+        roleTrack: context.setup.roleTrack,
+        interviewFormat: context.setup.interviewFormat,
+        selectionType: context.setup.selectionType,
+        interviewStage: context.setup.interviewStage,
+        interviewerType: context.setup.interviewerType,
+        strictnessMode: context.setup.strictnessMode,
+        isLegacySession: false,
       },
     stageStatus:
-      context.conversation?.stageStatus ?? getInterviewStageStatus("industry_reason"),
+      context.conversation?.stageStatus ??
+      getInterviewStageStatus({
+        currentTopicLabel: null,
+        coveredTopics: [],
+        remainingTopics: [],
+      }),
     turnState: context.conversation?.turnState ?? createInitialInterviewTurnState(),
   });
 }

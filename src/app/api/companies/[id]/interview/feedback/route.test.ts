@@ -4,8 +4,11 @@ import { NextRequest } from "next/server";
 const {
   getRequestIdentityMock,
   buildInterviewContextMock,
+  listInterviewTurnEventsMock,
+  normalizeInterviewPlanValueMock,
   saveInterviewConversationProgressMock,
   saveInterviewFeedbackHistoryMock,
+  validateInterviewTurnStateMock,
   createInterviewUpstreamStreamMock,
   reserveCreditsMock,
   confirmReservationMock,
@@ -15,8 +18,11 @@ const {
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   buildInterviewContextMock: vi.fn(),
+  listInterviewTurnEventsMock: vi.fn(),
+  normalizeInterviewPlanValueMock: vi.fn(),
   saveInterviewConversationProgressMock: vi.fn(),
   saveInterviewFeedbackHistoryMock: vi.fn(),
+  validateInterviewTurnStateMock: vi.fn(),
   createInterviewUpstreamStreamMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
   confirmReservationMock: vi.fn(),
@@ -31,8 +37,11 @@ vi.mock("@/app/api/_shared/request-identity", () => ({
 
 vi.mock("../shared", () => ({
   buildInterviewContext: buildInterviewContextMock,
+  listInterviewTurnEvents: listInterviewTurnEventsMock,
+  normalizeInterviewPlanValue: normalizeInterviewPlanValueMock,
   saveInterviewConversationProgress: saveInterviewConversationProgressMock,
   saveInterviewFeedbackHistory: saveInterviewFeedbackHistoryMock,
+  validateInterviewTurnState: validateInterviewTurnStateMock,
 }));
 
 vi.mock("../stream-utils", () => ({
@@ -56,8 +65,11 @@ describe("api/companies/[id]/interview/feedback", () => {
   beforeEach(() => {
     getRequestIdentityMock.mockReset();
     buildInterviewContextMock.mockReset();
+    listInterviewTurnEventsMock.mockReset();
+    normalizeInterviewPlanValueMock.mockReset();
     saveInterviewConversationProgressMock.mockReset();
     saveInterviewFeedbackHistoryMock.mockReset();
+    validateInterviewTurnStateMock.mockReset();
     createInterviewUpstreamStreamMock.mockReset();
     reserveCreditsMock.mockReset();
     confirmReservationMock.mockReset();
@@ -70,43 +82,62 @@ describe("api/companies/[id]/interview/feedback", () => {
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
       Response.json({ error: { code: "INTERVIEW_PERSISTENCE_UNAVAILABLE" } }, { status: 503 }),
     );
+    listInterviewTurnEventsMock.mockResolvedValue([
+      {
+        id: "event-1",
+        turnId: "turn-8",
+        question: "なぜ当社なのですか。",
+        answer: "事業投資を通じて社会実装まで担いたいからです。",
+        topic: "motivation_fit",
+        questionType: "motivation_fit",
+        turnAction: "deepen",
+        followupStyle: "company_reason_check",
+        intentKey: "motivation_fit:company_reason_check",
+        coverageChecklistSnapshot: {},
+        deterministicCoveragePassed: false,
+        llmCoverageHint: "partial",
+        formatPhase: "standard_main",
+        formatGuardApplied: null,
+        createdAt: "2026-04-02T00:00:00.000Z",
+      },
+    ]);
+    normalizeInterviewPlanValueMock.mockImplementation((value: unknown) => value);
+    validateInterviewTurnStateMock.mockImplementation((value: unknown) => value);
     buildInterviewContextMock.mockResolvedValue({
       company: { id: "company-1", name: "テスト株式会社" },
       companySummary: "企業情報",
       motivationSummary: "志望動機",
       gakuchikaSummary: "ガクチカ",
+      academicSummary: "ゼミで産業政策を研究。",
+      researchSummary: null,
       esSummary: "ES",
       materials: [],
       setup: {
         selectedIndustry: "商社",
-        selectedRole: "総合職",
+        selectedRole: "事業企画",
         selectedRoleSource: "company_override",
+        roleTrack: "biz_general",
+        interviewFormat: "standard_behavioral",
+        selectionType: "fulltime",
+        interviewStage: "final",
+        interviewerType: "executive",
+        strictnessMode: "strict",
       },
       feedbackHistories: [],
       conversation: {
         id: "conv-1",
         questionCount: 10,
-        stageStatus: { current: "feedback", completed: [], pending: [] },
+        stageStatus: { currentTopicLabel: "志望度", coveredTopics: ["motivation_fit"], remainingTopics: [] },
         turnState: {
-          currentStage: "feedback",
-          totalQuestionCount: 10,
-          stageQuestionCounts: {
-            industry_reason: 1,
-            role_reason: 1,
-            opening: 1,
-            experience: 3,
-            company_understanding: 2,
-            motivation_fit: 2,
-          },
-          completedStages: [
-            "industry_reason",
-            "role_reason",
-            "opening",
-            "experience",
-            "company_understanding",
-            "motivation_fit",
-          ],
-          lastQuestionFocus: "初期貢献",
+          turnCount: 10,
+          currentTopic: "motivation_fit",
+          coveredTopics: ["motivation_fit"],
+          remainingTopics: [],
+          recentQuestionSummaries: ["志望度の深掘り"],
+          lastQuestion: "なぜ当社なのですか。",
+          lastAnswer: "事業投資を通じて社会実装まで担いたいからです。",
+          lastTopic: "motivation_fit",
+          currentTurnMeta: null,
           nextAction: "feedback",
         },
         messages: [
@@ -138,7 +169,15 @@ describe("api/companies/[id]/interview/feedback", () => {
         upstreamPath: "/api/interview/feedback",
         upstreamPayload: expect.objectContaining({
           selected_industry: "商社",
-          selected_role: "総合職",
+          selected_role: "事業企画",
+          role_track: "biz_general",
+          interview_format: "standard_behavioral",
+          selection_type: "fulltime",
+          interview_stage: "final",
+          interviewer_type: "executive",
+          strictness_mode: "strict",
+          academic_summary: "ゼミで産業政策を研究。",
+          turn_events: expect.any(Array),
         }),
       }),
     );
@@ -166,6 +205,25 @@ describe("api/companies/[id]/interview/feedback", () => {
     expect(createInterviewPersistenceUnavailableResponseMock).toHaveBeenCalled();
   });
 
+  it("rejects guest users before reserving credits", async () => {
+    const { POST } = await import("./route");
+    getRequestIdentityMock.mockResolvedValue({ userId: null, guestId: "guest-1" });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/companies/company-1/interview/feedback", {
+        method: "POST",
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(data.error.code).toBe("INTERVIEW_AUTH_REQUIRED");
+    expect(data.error.userMessage).toBe("ログインが必要です。");
+    expect(data.error.action).toBe("ログインしてから、もう一度お試しください。");
+    expect(reserveCreditsMock).not.toHaveBeenCalled();
+  });
+
   it("confirms credits only after interview feedback persistence succeeds", async () => {
     const { POST } = await import("./route");
 
@@ -181,16 +239,31 @@ describe("api/companies/[id]/interview/feedback", () => {
     saveInterviewFeedbackHistoryMock.mockResolvedValue([{ id: "history-1" }]);
 
     await onComplete({
-      overallComment: "講評",
+      overall_comment: "講評",
       strengths: ["深掘り"],
       improvements: ["具体性"],
-      improvedAnswer: "改善回答",
-      preparationPoints: ["準備"],
-      scores: { logic: 4 },
+      weakest_turn_id: "turn-4",
+      weakest_question_snapshot: "なぜ当社なのですか。",
+      weakest_answer_snapshot: "事業に魅力を感じたからです。",
+      improved_answer: "改善回答",
+      next_preparation: ["準備"],
+      consistency_risks: ["他社比較が薄い"],
+      weakest_question_type: "motivation",
+      scores: { logic: 4, credibility: 3, role_fit: 4, consistency: 3 },
+      satisfaction_score: 4,
     });
 
     expect(saveInterviewConversationProgressMock).toHaveBeenCalled();
-    expect(saveInterviewFeedbackHistoryMock).toHaveBeenCalled();
+    expect(saveInterviewFeedbackHistoryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        feedback: expect.objectContaining({
+          weakest_turn_id: "turn-4",
+          weakest_question_snapshot: "なぜ当社なのですか。",
+          weakest_answer_snapshot: "事業に魅力を感じたからです。",
+          satisfaction_score: 4,
+        }),
+      }),
+    );
     expect(confirmReservationMock).toHaveBeenCalledWith("res-1");
     expect(confirmReservationMock.mock.invocationCallOrder[0]).toBeGreaterThan(
       saveInterviewFeedbackHistoryMock.mock.invocationCallOrder[0],
@@ -213,11 +286,13 @@ describe("api/companies/[id]/interview/feedback", () => {
 
     await expect(
       onComplete({
-        overallComment: "講評",
+        overall_comment: "講評",
         strengths: [],
         improvements: [],
-        improvedAnswer: "",
-        preparationPoints: [],
+        improved_answer: "",
+        next_preparation: [],
+        consistency_risks: [],
+        weakest_question_type: "motivation",
         scores: {},
       }),
     ).rejects.toThrow("write failed");

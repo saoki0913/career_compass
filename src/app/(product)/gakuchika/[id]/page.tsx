@@ -29,6 +29,8 @@ import { GakuchikaDeepDiveSkeleton } from "@/components/skeletons/GakuchikaDeepD
 import { getUserFacingErrorMessage, parseApiErrorResponse } from "@/lib/api-errors";
 import {
   getDefaultConversationState,
+  getConversationBadgeLabel,
+  getGakuchikaNextAction,
   hasDraftText,
   isDraftReady,
   isInterviewReady,
@@ -101,12 +103,25 @@ function getProcessingPhase(step?: string): AssistantProcessingPhase {
 
 function DraftReadyPanel({
   state,
+  onGenerateDraft,
+  onContinueRefining,
   onResumeSession,
 }: {
   state: ConversationState | null;
+  onGenerateDraft?: () => void;
+  onContinueRefining?: () => void;
   onResumeSession?: () => void;
 }) {
   const hasDraft = hasDraftText(state);
+  const recommendations = (state?.deepdiveRecommendationTags ?? []).slice(0, 3);
+  const recommendationLabels: Record<string, string> = {
+    deepen_action_reason: "行動の判断理由を補う",
+    result_traceability_check: "成果とのつながりを補う",
+    collect_result_evidence: "成果の根拠を補う",
+    clarify_role_scope: "役割範囲を明確にする",
+    learning_transfer: "学びの再現性を補う",
+    deepen_learning_transfer: "学びを次の行動につなげる",
+  };
   return (
     <Card className="border-border/60 bg-background shadow-sm">
       <CardContent className="space-y-4 p-5 sm:p-6">
@@ -122,6 +137,28 @@ function DraftReadyPanel({
               ? "作成済みの ES を見ながら、同じ会話の続きとして面接向けの深掘りを進められます。"
               : state?.draftReadinessReason || "ES本文を書ける最低限の材料が揃っています。"}
           </p>
+        </div>
+
+        {recommendations.length > 0 ? (
+          <div className="space-y-2 rounded-2xl border border-border bg-muted/20 p-4">
+            <p className="text-xs font-medium text-foreground">次に深掘りするとよい点</p>
+            <ul className="space-y-1 text-sm text-muted-foreground">
+              {recommendations.map((tag) => (
+                <li key={tag}>{recommendationLabels[tag] || tag}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap gap-3">
+          {!hasDraft && onGenerateDraft ? (
+            <Button onClick={onGenerateDraft}>ガクチカESを作成</Button>
+          ) : null}
+          {!hasDraft && onContinueRefining ? (
+            <Button variant="outline" onClick={onContinueRefining}>
+              もう少し整える
+            </Button>
+          ) : null}
         </div>
 
         {hasDraft && onResumeSession ? (
@@ -659,6 +696,8 @@ function GakuchikaConversationContent() {
   const draftReady = isDraftReady(conversationState);
   const interviewReady = isInterviewReady(conversationState) || isInterviewReadyState;
   const generatedDraft = hasDraftText(conversationState);
+  const nextAction = getGakuchikaNextAction(conversationState);
+  const shouldPauseConversation = nextAction !== "ask";
   const gakuchikaDraftHelperText = interviewReady
     ? "面接で使う補足まで整理済みです。必要なら一覧やESへ戻れます。"
     : generatedDraft
@@ -856,7 +895,7 @@ function GakuchikaConversationContent() {
           ) : null}
 
           {nextQuestion &&
-          !isCompleted &&
+          !shouldPauseConversation &&
           !isWaitingForResponse &&
           !(messages.length > 0 && messages[messages.length - 1].role === "assistant" && messages[messages.length - 1].content === nextQuestion) ? (
             <ChatMessage role="assistant" content={nextQuestion} />
@@ -872,13 +911,18 @@ function GakuchikaConversationContent() {
               onResumeSession={undefined}
               hideGenerateAction
             />
-          ) : isCompleted ? (
-            <DraftReadyPanel state={conversationState} onResumeSession={generatedDraft ? handleResumeSession : undefined} />
+          ) : shouldPauseConversation ? (
+            <DraftReadyPanel
+              state={conversationState}
+              onGenerateDraft={!generatedDraft ? handleGenerateDraft : undefined}
+              onContinueRefining={!generatedDraft ? handleResumeSession : undefined}
+              onResumeSession={generatedDraft ? handleResumeSession : undefined}
+            />
           ) : null}
         </div>
       }
       composer={
-        !isCompleted ? (
+        !interviewReady && !shouldPauseConversation ? (
           <div className="space-y-3">
             {conversationState?.answerHint ? (
               <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
@@ -937,6 +981,17 @@ function GakuchikaConversationContent() {
                 >
                   会話をやり直す
                 </Button>
+                {!generatedDraft && draftReady ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResumeSession}
+                    disabled={isStarting || isSending || isGeneratingDraft}
+                    className="h-9 rounded-xl px-3 text-xs shadow-sm"
+                  >
+                    もう少し整える
+                  </Button>
+                ) : null}
               </div>
             }
           >
@@ -973,12 +1028,12 @@ function GakuchikaConversationContent() {
                         ? "border-primary/40 bg-primary/5 text-foreground"
                         : "border-border/60 bg-background text-muted-foreground hover:text-foreground",
                     )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium">#{sessions.length - index}</span>
-                      <span>{session.status === "completed" ? "完了" : `${session.questionCount}問`}</span>
-                    </div>
-                  </button>
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">#{sessions.length - index}</span>
+                        <span>{getConversationBadgeLabel(session.status, session.conversationState)}</span>
+                      </div>
+                    </button>
                 ))}
               </div>
             </ConversationSidebarCard>

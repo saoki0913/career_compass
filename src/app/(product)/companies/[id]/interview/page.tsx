@@ -33,17 +33,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { parseApiErrorResponse, toAppUiError, type AppUiError } from "@/lib/api-errors";
 import {
-  INTERVIEW_STAGE_ORDER,
-  getCurrentStageQuestionCount,
+  classifyInterviewRoleTrack,
+  INTERVIEW_FORMAT_OPTIONS,
+  INTERVIEW_STAGE_OPTIONS,
+  INTERVIEWER_TYPE_OPTIONS,
+  SELECTION_TYPE_OPTIONS,
+  STRICTNESS_MODE_OPTIONS,
   getInterviewTrackerStatus,
-  type InterviewStage,
+  type InterviewFormat,
+  type InterviewPlan,
+  type InterviewRoleTrack,
+  type InterviewRoundStage,
+  type InterviewSelectionType,
   type InterviewStageStatus,
+  type InterviewStrictnessMode,
+  type InterviewTurnMeta,
   type InterviewTurnState,
+  type InterviewerType,
 } from "@/lib/interview/session";
 import { notifySuccess } from "@/lib/notifications";
-import { cn } from "@/lib/utils";
 
 const INDUSTRY_SELECT_UNSET = "__interview_industry_unset__";
 const ROLE_SELECT_UNSET = "__interview_role_unset__";
@@ -57,22 +67,31 @@ type Message = {
 type MaterialCard = {
   label: string;
   text: string;
-  kind?: "motivation" | "gakuchika" | "es" | "industry_seed" | "company_seed";
+  kind?: "motivation" | "gakuchika" | "academic" | "research" | "es" | "industry_seed" | "company_seed";
 };
 
 type Feedback = {
   overall_comment: string;
   scores: {
     company_fit?: number;
+    role_fit?: number;
     specificity?: number;
     logic?: number;
     persuasiveness?: number;
+    consistency?: number;
+    credibility?: number;
   };
   strengths: string[];
   improvements: string[];
+  consistency_risks: string[];
+  weakest_question_type?: string | null;
+  weakest_turn_id?: string | null;
+  weakest_question_snapshot?: string | null;
+  weakest_answer_snapshot?: string | null;
   improved_answer: string;
-  preparation_points: string[];
+  next_preparation: string[];
   premise_consistency?: number;
+  satisfaction_score?: number;
 };
 
 type FeedbackHistoryItem = {
@@ -81,9 +100,15 @@ type FeedbackHistoryItem = {
   scores: Feedback["scores"];
   strengths: string[];
   improvements: string[];
+  consistencyRisks: string[];
+  weakestQuestionType: string | null;
+  weakestTurnId: string | null;
+  weakestQuestionSnapshot: string | null;
+  weakestAnswerSnapshot: string | null;
   improvedAnswer: string;
-  preparationPoints: string[];
+  nextPreparation: string[];
   premiseConsistency: number;
+  satisfactionScore: number | null;
   sourceQuestionCount: number;
   createdAt: string;
 };
@@ -124,33 +149,50 @@ type SetupState = {
   resolvedIndustry: string | null;
   requiresIndustrySelection: boolean;
   industryOptions: string[];
+  roleTrack: InterviewRoleTrack;
+  interviewFormat: InterviewFormat;
+  selectionType: InterviewSelectionType;
+  interviewStage: InterviewRoundStage;
+  interviewerType: InterviewerType;
+  strictnessMode: InterviewStrictnessMode;
 };
 
 type HydratedConversation = {
   id: string | null;
   status: "setup_pending" | "in_progress" | "question_flow_completed" | "feedback_completed";
   messages: Message[];
+  plan: InterviewPlan | null;
+  turnMeta: InterviewTurnMeta | null;
   turnState: InterviewTurnState;
   stageStatus: InterviewStageStatus;
   questionCount: number;
-  questionStage: InterviewStage;
+  questionStage: string | null;
   questionFlowCompleted: boolean;
   feedback: Feedback | null;
   selectedIndustry: string | null;
   selectedRole: string | null;
   selectedRoleSource: string | null;
+  roleTrack: InterviewRoleTrack | null;
+  interviewFormat: InterviewFormat | null;
+  selectionType: InterviewSelectionType | null;
+  interviewStage: InterviewRoundStage | null;
+  interviewerType: InterviewerType | null;
+  strictnessMode: InterviewStrictnessMode | null;
+  isLegacySession?: boolean;
 };
 
 type PendingCompleteData = {
   messages: Message[];
   questionCount: number;
   stageStatus: InterviewStageStatus | null;
-  questionStage: InterviewStage | null;
+  questionStage: string | null;
   focus: string | null;
   feedback: Feedback | null;
   questionFlowCompleted: boolean;
   creditCost: number;
   turnState: InterviewTurnState | null;
+  turnMeta?: InterviewTurnMeta | null;
+  plan?: InterviewPlan | null;
   feedbackHistories?: FeedbackHistoryItem[];
 };
 
@@ -160,42 +202,159 @@ function createEmptyFeedback(): Feedback {
     scores: {},
     strengths: [],
     improvements: [],
+    consistency_risks: [],
+    weakest_question_type: null,
+    weakest_turn_id: null,
+    weakest_question_snapshot: null,
+    weakest_answer_snapshot: null,
     improved_answer: "",
-    preparation_points: [],
+    next_preparation: [],
     premise_consistency: undefined,
+    satisfaction_score: undefined,
   };
 }
 
-const STAGE_LABELS: Record<InterviewStage, string> = {
-  industry_reason: "業界志望理由",
-  role_reason: "職種志望理由",
-  opening: "導入・人物把握",
-  experience: "経験・ガクチカ",
-  company_understanding: "企業理解",
-  motivation_fit: "志望動機・適合",
-  feedback: "最終講評",
+const INTERVIEW_FORMAT_LABELS: Record<InterviewFormat, string> = {
+  standard_behavioral: "通常面接",
+  case: "ケース面接",
+  technical: "技術 / 専門面接",
+  discussion: "ディスカッション",
+  presentation: "発表 / プレゼン面接",
 };
+
+const SELECTION_TYPE_LABELS: Record<InterviewSelectionType, string> = {
+  internship: "インターン",
+  fulltime: "本選考",
+};
+
+const INTERVIEW_STAGE_LABELS: Record<InterviewRoundStage, string> = {
+  early: "一次 / 序盤",
+  mid: "二次 / 中盤",
+  final: "最終",
+};
+
+const INTERVIEWER_TYPE_LABELS: Record<InterviewerType, string> = {
+  hr: "人事",
+  line_manager: "現場",
+  executive: "役員",
+  mixed_panel: "複数面接官",
+};
+
+const STRICTNESS_MODE_LABELS: Record<InterviewStrictnessMode, string> = {
+  supportive: "やさしめ",
+  standard: "標準",
+  strict: "厳しめ",
+};
+
+const ROLE_TRACK_LABELS: Record<InterviewRoleTrack, string> = {
+  biz_general: "文系総合職 / 営業 / 企画",
+  it_product: "IT / プロダクト",
+  consulting: "コンサル",
+  research_specialist: "研究 / 専門職",
+  quant_finance: "クオンツ / 数理",
+};
+
+const FORMAT_PHASE_LABELS: Record<string, string> = {
+  opening: "導入",
+  standard_main: "本編",
+  case_main: "ケース本編",
+  case_closing: "ケース締め",
+  technical_main: "技術本編",
+  discussion_main: "議論本編",
+  presentation_main: "発表本編",
+  feedback: "講評",
+};
+
+function getActiveCoverage(turnState: InterviewTurnState | null) {
+  if (!turnState) return null;
+  return (
+    turnState.coverageState.find((item) => item.topic === turnState.currentTopic) ??
+    turnState.coverageState.find((item) => !item.deterministicCoveragePassed) ??
+    turnState.coverageState[0] ??
+    null
+  );
+}
+
+function getMissingChecklist(turnState: InterviewTurnState | null) {
+  const coverage = getActiveCoverage(turnState);
+  if (!coverage) return [];
+  return coverage.requiredChecklist.filter((item) => !coverage.passedChecklistKeys.includes(item));
+}
+
+function getCurrentFollowupIntent(turnMeta: InterviewTurnMeta | null) {
+  if (!turnMeta) return null;
+  return turnMeta.focusReason || turnMeta.followupStyle || turnMeta.intentKey || null;
+}
 
 function scoreEntries(feedback: Feedback | null) {
   if (!feedback) return [];
   return [
     ["企業適合", feedback.scores.company_fit ?? 0],
+    ["職種適合", feedback.scores.role_fit ?? 0],
     ["具体性", feedback.scores.specificity ?? 0],
     ["論理性", feedback.scores.logic ?? 0],
     ["説得力", feedback.scores.persuasiveness ?? 0],
+    ["一貫性", feedback.scores.consistency ?? 0],
+    ["信頼性", feedback.scores.credibility ?? 0],
   ] as const;
 }
 
-function InterviewStageTracker({
+function InterviewPlanCard({ plan }: { plan: InterviewPlan | null }) {
+  if (!plan) return null;
+  const priorityTopics = Array.isArray(plan.priorityTopics) ? plan.priorityTopics : [];
+  const riskTopics = Array.isArray(plan.riskTopics) ? plan.riskTopics : [];
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 px-4 py-4">
+      <div>
+        <p className="text-[11px] text-muted-foreground">面接タイプ</p>
+        <p className="mt-1 text-sm font-medium text-foreground">{plan.interviewType}</p>
+      </div>
+      <div>
+        <p className="text-[11px] text-muted-foreground">優先論点</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {priorityTopics.map((topic) => (
+            <span key={topic} className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-[11px] text-foreground/80">
+              {topic}
+            </span>
+          ))}
+        </div>
+      </div>
+      {riskTopics.length > 0 ? (
+        <div>
+          <p className="text-[11px] text-muted-foreground">注意論点</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {riskTopics.map((topic) => (
+              <span key={topic} className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] text-amber-900">
+                {topic}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function InterviewProgressCard({
   stageStatus,
   trackerHeadline,
   trackerDetail,
+  turnState,
+  turnMeta,
 }: {
   stageStatus: InterviewStageStatus | null;
   trackerHeadline: string;
   trackerDetail: string;
+  turnState: InterviewTurnState | null;
+  turnMeta: InterviewTurnMeta | null;
 }) {
   if (!stageStatus) return null;
+  const coveredTopics = Array.isArray(stageStatus.coveredTopics) ? stageStatus.coveredTopics : [];
+  const remainingTopics = Array.isArray(stageStatus.remainingTopics) ? stageStatus.remainingTopics : [];
+  const missingChecklist = getMissingChecklist(turnState);
+  const activeCoverage = getActiveCoverage(turnState);
+  const followupIntent = getCurrentFollowupIntent(turnMeta);
 
   return (
     <div className="space-y-2.5">
@@ -203,27 +362,120 @@ function InterviewStageTracker({
         <p className="text-xs text-muted-foreground">{trackerHeadline}</p>
         <p className="text-[11px] text-muted-foreground">{trackerDetail}</p>
       </div>
-      <div className="space-y-2">
-        {INTERVIEW_STAGE_ORDER.map((stage) => {
-          const isCurrent = stageStatus.current === stage;
-          const isCompleted = stageStatus.completed.includes(stage);
-          return (
-            <div
-              key={stage}
-              className={cn(
-                "rounded-[18px] border px-3.5 py-2.5 text-xs shadow-sm transition-colors",
-                isCurrent && "border-sky-300 bg-sky-50 text-slate-900",
-                isCompleted && "border-emerald-200 bg-emerald-50 text-emerald-900",
-                !isCurrent && !isCompleted && "border-border/60 bg-muted/20 text-muted-foreground",
+      <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-[11px] text-foreground/80">
+            {FORMAT_PHASE_LABELS[turnState?.formatPhase ?? "opening"] ?? "本編"}
+          </span>
+          {followupIntent ? (
+            <span className="rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-[11px] text-primary">
+              follow-up 意図: {followupIntent}
+            </span>
+          ) : null}
+        </div>
+        <p className="text-[11px] text-muted-foreground">現在の論点</p>
+        <p className="mt-1 text-sm font-medium text-foreground">
+          {stageStatus.currentTopicLabel || "初回質問を準備中"}
+        </p>
+        {activeCoverage ? (
+          <div className="mt-4 rounded-xl border border-border/60 bg-background px-3 py-3">
+            <p className="text-[11px] text-muted-foreground">covered までの残り checklist</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {missingChecklist.length === 0 ? (
+                <span className="text-xs text-muted-foreground">この論点の必須 checklist は満たしています</span>
+              ) : (
+                missingChecklist.map((item) => (
+                  <span key={item} className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] text-amber-900">
+                    {item}
+                  </span>
+                ))
               )}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">{STAGE_LABELS[stage]}</span>
-                <span>{isCompleted ? "完了" : isCurrent ? "進行中" : "未着手"}</span>
-              </div>
             </div>
-          );
-        })}
+          </div>
+        ) : null}
+        <div className="mt-4 space-y-3">
+          <div>
+            <p className="text-[11px] text-muted-foreground">確認済み</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {coveredTopics.length === 0 ? (
+                <span className="text-xs text-muted-foreground">まだありません</span>
+              ) : (
+                coveredTopics.map((topic) => (
+                  <span key={topic} className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] text-emerald-900">
+                    {topic}
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
+          <div>
+            <p className="text-[11px] text-muted-foreground">残り論点</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {remainingTopics.length === 0 ? (
+                <span className="text-xs text-muted-foreground">面接全体の論点はほぼ確認済みです</span>
+              ) : (
+                remainingTopics.map((topic) => (
+                  <span key={topic} className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-[11px] text-foreground/80">
+                    {topic}
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InterviewCoverageCard({
+  turnState,
+  turnMeta,
+}: {
+  turnState: InterviewTurnState | null;
+  turnMeta: InterviewTurnMeta | null;
+}) {
+  const activeCoverage = getActiveCoverage(turnState);
+  const missingChecklist = getMissingChecklist(turnState);
+  const followupIntent = getCurrentFollowupIntent(turnMeta);
+
+  if (!turnState || !activeCoverage) {
+    return <p className="text-xs text-muted-foreground">会話開始後に論点の詳細を表示します。</p>;
+  }
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 px-4 py-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-[11px] text-foreground/80">
+          {FORMAT_PHASE_LABELS[turnState.formatPhase] ?? turnState.formatPhase}
+        </span>
+        <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] text-emerald-900">
+          passed {activeCoverage.passedChecklistKeys.length}/{activeCoverage.requiredChecklist.length}
+        </span>
+      </div>
+      <div>
+        <p className="text-[11px] text-muted-foreground">主論点</p>
+        <p className="mt-1 text-sm font-medium text-foreground">{activeCoverage.topic}</p>
+      </div>
+      {followupIntent ? (
+        <div>
+          <p className="text-[11px] text-muted-foreground">今回の follow-up 意図</p>
+          <p className="mt-1 text-sm text-foreground/90">{followupIntent}</p>
+        </div>
+      ) : null}
+      <div>
+        <p className="text-[11px] text-muted-foreground">未充足 checklist</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {missingChecklist.length === 0 ? (
+            <span className="text-xs text-muted-foreground">この論点は covered 扱いです</span>
+          ) : (
+            missingChecklist.map((item) => (
+              <span key={item} className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] text-amber-900">
+                {item}
+              </span>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
@@ -311,11 +563,18 @@ function FeedbackHistoryList({
 function InterviewFeedbackCard({
   feedback,
   isStreaming = false,
+  currentHistory,
+  onSaveSatisfaction,
+  isSavingSatisfaction,
 }: {
   feedback: Feedback;
   isStreaming?: boolean;
+  currentHistory?: FeedbackHistoryItem | null;
+  onSaveSatisfaction?: (score: number) => void;
+  isSavingSatisfaction?: boolean;
 }) {
   const scoreRows = scoreEntries(feedback);
+  const currentSatisfaction = currentHistory?.satisfactionScore ?? feedback.satisfaction_score ?? null;
 
   return (
     <Card className="border-border/50">
@@ -357,6 +616,17 @@ function InterviewFeedbackCard({
           </ul>
         </div>
 
+        {feedback.consistency_risks.length > 0 ? (
+          <div>
+            <p className="text-sm font-medium">一貫性リスク</p>
+            <ul className="mt-2 space-y-2 text-sm text-muted-foreground">
+              {feedback.consistency_risks.map((item) => (
+                <li key={item}>• {item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         <div>
           <p className="text-sm font-medium">言い換え例</p>
           <p className="mt-2 rounded-xl bg-muted px-4 py-3 text-sm leading-6">
@@ -364,17 +634,59 @@ function InterviewFeedbackCard({
           </p>
         </div>
 
+        {feedback.weakest_question_snapshot || feedback.weakest_answer_snapshot ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
+              <p className="text-xs text-muted-foreground">最弱設問</p>
+              <p className="mt-2 text-sm leading-6 text-foreground/90">
+                {feedback.weakest_question_snapshot || "記録がありません"}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
+              <p className="text-xs text-muted-foreground">そのときの回答</p>
+              <p className="mt-2 text-sm leading-6 text-foreground/90">
+                {feedback.weakest_answer_snapshot || "記録がありません"}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
         <div>
           <p className="text-sm font-medium">次に準備すべき論点</p>
           <ul className="mt-2 space-y-2 text-sm text-muted-foreground">
-            {feedback.preparation_points.map((item) => (
+            {feedback.next_preparation.map((item) => (
               <li key={item}>• {item}</li>
             ))}
           </ul>
         </div>
 
+        {feedback.weakest_question_type ? (
+          <p className="text-xs text-muted-foreground">最も弱かった設問タイプ: {feedback.weakest_question_type}</p>
+        ) : null}
         {typeof feedback.premise_consistency === "number" ? (
           <p className="text-xs text-muted-foreground">前提一致度: {feedback.premise_consistency} / 100</p>
+        ) : null}
+        {!isStreaming && currentHistory ? (
+          <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
+            <p className="text-sm font-medium">今回の面接の満足度</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[1, 2, 3, 4, 5].map((score) => (
+                <Button
+                  key={score}
+                  type="button"
+                  variant={currentSatisfaction === score ? "default" : "outline"}
+                  size="sm"
+                  disabled={isSavingSatisfaction}
+                  onClick={() => onSaveSatisfaction?.(score)}
+                >
+                  {score}
+                </Button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {currentSatisfaction ? `保存済み: ${currentSatisfaction} / 5` : "1〜5 で回答すると改善指標に反映されます。"}
+            </p>
+          </div>
         ) : null}
       </CardContent>
     </Card>
@@ -396,19 +708,24 @@ export default function CompanyInterviewPage() {
   const [selectedHistory, setSelectedHistory] = useState<FeedbackHistoryItem | null>(null);
   const [creditCost, setCreditCost] = useState(6);
   const [questionCount, setQuestionCount] = useState(0);
-  const [questionStage, setQuestionStage] = useState<InterviewStage | null>(null);
+  const [questionStage, setQuestionStage] = useState<string | null>(null);
   const [stageStatus, setStageStatus] = useState<InterviewStageStatus | null>(null);
   const [turnState, setTurnState] = useState<InterviewTurnState | null>(null);
+  const [turnMeta, setTurnMeta] = useState<InterviewTurnMeta | null>(null);
+  const [interviewPlan, setInterviewPlan] = useState<InterviewPlan | null>(null);
   const [streamingLabel, setStreamingLabel] = useState<string | null>(null);
   const [pendingAssistantMessage, setPendingAssistantMessage] = useState<Message | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false);
   const [isContinuing, setIsContinuing] = useState(false);
+  const [isSavingSatisfaction, setIsSavingSatisfaction] = useState(false);
   const [questionFlowCompleted, setQuestionFlowCompleted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorAction, setErrorAction] = useState<string | null>(null);
   const [persistenceUnavailable, setPersistenceUnavailable] = useState(false);
+  const [persistenceDeveloperHint, setPersistenceDeveloperHint] = useState<string | null>(null);
+  const [legacySessionDetected, setLegacySessionDetected] = useState(false);
 
   const [setupState, setSetupState] = useState<SetupState>({
     selectedIndustry: null,
@@ -417,6 +734,12 @@ export default function CompanyInterviewPage() {
     resolvedIndustry: null,
     requiresIndustrySelection: false,
     industryOptions: [],
+    roleTrack: "biz_general",
+    interviewFormat: "standard_behavioral",
+    selectionType: "fulltime",
+    interviewStage: "early",
+    interviewerType: "hr",
+    strictnessMode: "standard",
   });
   const [roleOptionsData, setRoleOptionsData] = useState<RoleOptionsResponse | null>(null);
   const [selectedRoleName, setSelectedRoleName] = useState("");
@@ -441,22 +764,39 @@ export default function CompanyInterviewPage() {
     "";
   const resolvedSelectedRole = customRoleName.trim() || selectedRoleName.trim();
   const setupComplete = Boolean(resolvedSelectedRole) && (!setupState.requiresIndustrySelection || Boolean(effectiveIndustry));
-  const hasStarted = messages.length > 0 || feedback !== null || questionFlowCompleted;
+  const hasStarted = !legacySessionDetected && (messages.length > 0 || feedback !== null || questionFlowCompleted);
   const isBusy = isSending || isGeneratingFeedback || isContinuing;
   const isComplete = feedback !== null;
   const visibleFeedback = feedback ?? streamingFeedback;
-  const currentStageQuestionCount = getCurrentStageQuestionCount(turnState);
   const trackerStatus = getInterviewTrackerStatus({
-    totalQuestionCount: questionCount,
-    currentStage: questionStage ?? "industry_reason",
-    currentStageQuestionCount,
+    turnCount: questionCount,
+    currentTopicLabel: turnMeta?.interviewSetupNote || stageStatus?.currentTopicLabel || questionStage,
+    remainingTopicCount: stageStatus?.remainingTopics?.length ?? turnState?.remainingTopics?.length ?? 0,
   });
   const canSend = answer.trim().length > 0 && !isBusy && !isComplete && !questionFlowCompleted && hasStarted;
   const canGenerateFeedback = questionFlowCompleted && !isComplete && !isBusy;
   const canContinue = Boolean(feedback) && !isBusy;
+  const latestFeedbackHistory = feedbackHistories[0] ?? null;
   const feedbackHelperText = questionFlowCompleted
     ? `${questionCount}問の回答をもとに最終講評を作成します。成功時のみ ${creditCost} credits 消費です。`
     : "面接完了後に最終講評を作成できます。";
+
+  const applyPersistenceDiagnosticState = (uiError: AppUiError) => {
+    const isPersistenceError = uiError.code === INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE;
+    setPersistenceUnavailable(isPersistenceError);
+    setPersistenceDeveloperHint(
+      isPersistenceError && process.env.NODE_ENV === "development"
+        ? uiError.details ??
+            uiError.developerMessage ??
+            "Interview persistence schema or migration is missing."
+        : null,
+    );
+  };
+
+  useEffect(() => {
+    const classified = classifyInterviewRoleTrack(resolvedSelectedRole);
+    setSetupState((prev) => (prev.roleTrack === classified ? prev : { ...prev, roleTrack: classified }));
+  }, [resolvedSelectedRole]);
 
   useEffect(() => {
     if (!isReady || !isAuthenticated) return;
@@ -468,6 +808,7 @@ export default function CompanyInterviewPage() {
       setError(null);
       setErrorAction(null);
       setPersistenceUnavailable(false);
+      setPersistenceDeveloperHint(null);
       try {
         const [interviewResponse, roleResponse] = await Promise.all([
           fetch(`/api/companies/${companyId}/interview`, { credentials: "include" }),
@@ -492,6 +833,7 @@ export default function CompanyInterviewPage() {
         if (!isMounted) return;
 
         const conversation = interviewData.conversation as HydratedConversation;
+        const isLegacy = Boolean(conversation?.isLegacySession);
         setCompanyName(interviewData.company?.name || "");
         setMaterials(Array.isArray(interviewData.materials) ? interviewData.materials : []);
         setCreditCost(typeof interviewData.creditCost === "number" ? interviewData.creditCost : 6);
@@ -499,13 +841,17 @@ export default function CompanyInterviewPage() {
         setRoleOptionsData(roleData);
         setSetupState(interviewData.setup);
         setPersistenceUnavailable(false);
-        setMessages(Array.isArray(conversation?.messages) ? conversation.messages : []);
-        setFeedback(conversation?.feedback ?? null);
-        setQuestionCount(typeof conversation?.questionCount === "number" ? conversation.questionCount : 0);
-        setQuestionStage(conversation?.questionStage ?? null);
-        setStageStatus(conversation?.stageStatus ?? interviewData.stageStatus ?? null);
-        setTurnState(conversation?.turnState ?? interviewData.turnState ?? null);
-        setQuestionFlowCompleted(Boolean(conversation?.questionFlowCompleted));
+        setPersistenceDeveloperHint(null);
+        setLegacySessionDetected(isLegacy);
+        setMessages(!isLegacy && Array.isArray(conversation?.messages) ? conversation.messages : []);
+        setFeedback(!isLegacy ? conversation?.feedback ?? null : null);
+        setQuestionCount(!isLegacy && typeof conversation?.questionCount === "number" ? conversation.questionCount : 0);
+        setQuestionStage(!isLegacy ? conversation?.questionStage ?? null : null);
+        setStageStatus(!isLegacy ? conversation?.stageStatus ?? interviewData.stageStatus ?? null : null);
+        setTurnState(!isLegacy ? conversation?.turnState ?? interviewData.turnState ?? null : null);
+        setTurnMeta(!isLegacy ? conversation?.turnMeta ?? null : null);
+        setInterviewPlan(!isLegacy ? conversation?.plan ?? null : null);
+        setQuestionFlowCompleted(!isLegacy && Boolean(conversation?.questionFlowCompleted));
 
         const resolvedRole = conversation?.selectedRole || interviewData.setup?.selectedRole || "";
         const matchedRole = roleData?.roleGroups
@@ -521,6 +867,7 @@ export default function CompanyInterviewPage() {
               ? "custom"
               : (conversation?.selectedRoleSource as RoleSelectionSource | null) ?? null,
         );
+
       } catch (fetchError) {
         if (!isMounted) return;
         const uiError = toAppUiError(
@@ -534,7 +881,7 @@ export default function CompanyInterviewPage() {
         );
         setError(uiError.message);
         setErrorAction(uiError.action ?? null);
-        setPersistenceUnavailable(uiError.code === INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE);
+        applyPersistenceDiagnosticState(uiError);
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -573,7 +920,8 @@ export default function CompanyInterviewPage() {
     streamingFeedback?.improved_answer,
     streamingFeedback?.strengths.length,
     streamingFeedback?.improvements.length,
-    streamingFeedback?.preparation_points.length,
+    streamingFeedback?.next_preparation.length,
+    streamingFeedback?.consistency_risks.length,
   ]);
 
   useEffect(() => {
@@ -685,6 +1033,13 @@ export default function CompanyInterviewPage() {
                   typeof event.value === "number" ? event.value : undefined,
               }));
             }
+            if (event.path === "weakest_question_type") {
+              setStreamingFeedback((prev) => ({
+                ...(prev ?? createEmptyFeedback()),
+                weakest_question_type:
+                  typeof event.value === "string" ? event.value : null,
+              }));
+            }
             continue;
           }
 
@@ -693,12 +1048,15 @@ export default function CompanyInterviewPage() {
             const [field, indexText] = event.path.split(".");
             const index = Number(indexText);
             if (!Number.isFinite(index)) continue;
-            if (!["strengths", "improvements", "preparation_points"].includes(field)) {
+            if (!["strengths", "improvements", "next_preparation", "consistency_risks", "preparation_points"].includes(field)) {
               continue;
             }
             setStreamingFeedback((prev) => {
               const next = prev ?? createEmptyFeedback();
-              const key = field as "strengths" | "improvements" | "preparation_points";
+              const key =
+                field === "preparation_points"
+                  ? "next_preparation"
+                  : (field as "strengths" | "improvements" | "next_preparation" | "consistency_risks");
               const currentItems = [...next[key]];
               currentItems[index] = typeof event.value === "string" ? event.value : String(event.value ?? "");
               return { ...next, [key]: currentItems };
@@ -751,6 +1109,8 @@ export default function CompanyInterviewPage() {
                 Boolean(data.questionFlowCompleted) || Boolean(data.feedback),
               creditCost: typeof data.creditCost === "number" ? data.creditCost : creditCost,
               turnState: data.turnState || null,
+              turnMeta: data.turnMeta || null,
+              plan: data.plan || null,
               feedbackHistories: Array.isArray(data.feedbackHistories) ? data.feedbackHistories : undefined,
             };
           }
@@ -769,6 +1129,8 @@ export default function CompanyInterviewPage() {
         setQuestionStage(completeData.questionStage);
         setFeedback(completeData.feedback);
         setTurnState(completeData.turnState);
+        setTurnMeta(completeData.turnMeta ?? null);
+        setInterviewPlan(completeData.plan ?? null);
         setQuestionFlowCompleted(completeData.questionFlowCompleted);
         setCreditCost(completeData.creditCost);
         if (completeData.feedbackHistories) {
@@ -797,6 +1159,12 @@ export default function CompanyInterviewPage() {
         selectedRole: resolvedSelectedRole,
         selectedRoleSource:
           roleSelectionSource === "custom" ? "custom" : roleSelectionSource,
+        roleTrack: setupState.roleTrack,
+        interviewFormat: setupState.interviewFormat,
+        selectionType: setupState.selectionType,
+        interviewStage: setupState.interviewStage,
+        interviewerType: setupState.interviewerType,
+        strictnessMode: setupState.strictnessMode,
       });
     } catch (streamError) {
       const uiError = toAppUiError(
@@ -810,7 +1178,7 @@ export default function CompanyInterviewPage() {
       );
       setError(uiError.message);
       setErrorAction(uiError.action ?? null);
-      setPersistenceUnavailable(uiError.code === INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE);
+      applyPersistenceDiagnosticState(uiError);
     } finally {
       setIsSending(false);
     }
@@ -840,7 +1208,7 @@ export default function CompanyInterviewPage() {
       );
       setError(uiError.message);
       setErrorAction(uiError.action ?? null);
-      setPersistenceUnavailable(uiError.code === INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE);
+      applyPersistenceDiagnosticState(uiError);
     } finally {
       setIsSending(false);
     }
@@ -869,7 +1237,7 @@ export default function CompanyInterviewPage() {
       );
       setError(uiError.message);
       setErrorAction(uiError.action ?? null);
-      setPersistenceUnavailable(uiError.code === INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE);
+      applyPersistenceDiagnosticState(uiError);
     } finally {
       setIsGeneratingFeedback(false);
     }
@@ -899,7 +1267,7 @@ export default function CompanyInterviewPage() {
       );
       setError(uiError.message);
       setErrorAction(uiError.action ?? null);
-      setPersistenceUnavailable(uiError.code === INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE);
+      applyPersistenceDiagnosticState(uiError);
     } finally {
       setIsContinuing(false);
     }
@@ -934,7 +1302,10 @@ export default function CompanyInterviewPage() {
       setQuestionStage(data.conversation?.questionStage ?? null);
       setStageStatus(data.conversation?.stageStatus ?? null);
       setTurnState(data.conversation?.turnState ?? null);
+      setTurnMeta(data.conversation?.turnMeta ?? null);
+      setInterviewPlan(data.conversation?.plan ?? null);
       setQuestionFlowCompleted(false);
+      setLegacySessionDetected(false);
       setFeedbackHistories(Array.isArray(data.feedbackHistories) ? data.feedbackHistories : []);
     } catch (resetError) {
       const uiError = toAppUiError(
@@ -948,7 +1319,57 @@ export default function CompanyInterviewPage() {
       );
       setError(uiError.message);
       setErrorAction(uiError.action ?? null);
-      setPersistenceUnavailable(uiError.code === INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE);
+      applyPersistenceDiagnosticState(uiError);
+    }
+  };
+
+  const handleSaveSatisfaction = async (score: number) => {
+    if (!latestFeedbackHistory || isSavingSatisfaction) return;
+    setIsSavingSatisfaction(true);
+    setError(null);
+    setErrorAction(null);
+    try {
+      const response = await fetch(`/api/companies/${companyId}/interview/feedback/satisfaction`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          historyId: latestFeedbackHistory.id,
+          satisfactionScore: score,
+        }),
+      });
+
+      if (!response.ok) {
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "INTERVIEW_SATISFACTION_FAILED",
+            userMessage: "満足度の保存に失敗しました。",
+            action: "少し時間をおいて、もう一度お試しください。",
+          },
+          "interview:satisfaction",
+        );
+      }
+
+      setFeedbackHistories((prev) =>
+        prev.map((item) => (item.id === latestFeedbackHistory.id ? { ...item, satisfactionScore: score } : item)),
+      );
+      setFeedback((prev) => (prev ? { ...prev, satisfaction_score: score } : prev));
+    } catch (saveError) {
+      const uiError = toAppUiError(
+        saveError,
+        {
+          code: "INTERVIEW_SATISFACTION_FAILED",
+          userMessage: "満足度の保存に失敗しました。",
+          action: "少し時間をおいて、もう一度お試しください。",
+        },
+        "interview:satisfaction",
+      );
+      setError(uiError.message);
+      setErrorAction(uiError.action ?? null);
+      applyPersistenceDiagnosticState(uiError);
+    } finally {
+      setIsSavingSatisfaction(false);
     }
   };
 
@@ -985,7 +1406,7 @@ export default function CompanyInterviewPage() {
         }
         mobileStatus={
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            <span>{questionStage ? STAGE_LABELS[questionStage] : "開始前"}</span>
+            <span>{turnMeta?.interviewSetupNote || stageStatus?.currentTopicLabel || "開始前"}</span>
             <span>{questionCount > 0 ? trackerStatus.headline : "開始前"}</span>
           </div>
         }
@@ -994,7 +1415,7 @@ export default function CompanyInterviewPage() {
             <div className="space-y-6 px-3 py-2 sm:px-4">
               <div className="rounded-2xl border border-border/60 bg-muted/30 px-5 py-4">
                 <p className="text-sm leading-7 text-foreground/90">
-                  最初に業界と職種を確定し、その後に「業界を志望する理由」「その職種を志望する理由」を短く確認します。そこから人物・経験・企業理解・適合を 10〜15 問の範囲で深掘りします。
+                  開始前に応募職種、面接方式、選考種別、面接段階、面接官タイプ、厳しさを確認します。その前提で面接計画を作り、1問ずつ深掘りしながら企業に刺さる回答へ整えます。
                 </p>
               </div>
 
@@ -1084,10 +1505,138 @@ export default function CompanyInterviewPage() {
                     />
                   </div>
 
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">面接方式</p>
+                      <Select
+                        value={setupState.interviewFormat}
+                        onValueChange={(value) =>
+                          setSetupState((prev) => ({
+                            ...prev,
+                            interviewFormat: value as InterviewFormat,
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="面接方式を選択" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {INTERVIEW_FORMAT_OPTIONS.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {INTERVIEW_FORMAT_LABELS[option]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">選考種別</p>
+                      <Select
+                        value={setupState.selectionType}
+                        onValueChange={(value) =>
+                          setSetupState((prev) => ({
+                            ...prev,
+                            selectionType: value as InterviewSelectionType,
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="選考種別を選択" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SELECTION_TYPE_OPTIONS.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {SELECTION_TYPE_LABELS[option]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">面接段階</p>
+                      <Select
+                        value={setupState.interviewStage}
+                        onValueChange={(value) =>
+                          setSetupState((prev) => ({
+                            ...prev,
+                            interviewStage: value as InterviewRoundStage,
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="面接段階を選択" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {INTERVIEW_STAGE_OPTIONS.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {INTERVIEW_STAGE_LABELS[option]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">面接官タイプ</p>
+                      <Select
+                        value={setupState.interviewerType}
+                        onValueChange={(value) =>
+                          setSetupState((prev) => ({
+                            ...prev,
+                            interviewerType: value as InterviewerType,
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="面接官タイプを選択" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {INTERVIEWER_TYPE_OPTIONS.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {INTERVIEWER_TYPE_LABELS[option]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2 md:col-span-2">
+                      <p className="text-sm font-medium">厳しさ</p>
+                      <Select
+                        value={setupState.strictnessMode}
+                        onValueChange={(value) =>
+                          setSetupState((prev) => ({
+                            ...prev,
+                            strictnessMode: value as InterviewStrictnessMode,
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="厳しさを選択" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {STRICTNESS_MODE_OPTIONS.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {STRICTNESS_MODE_LABELS[option]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
                   {(effectiveIndustry || resolvedSelectedRole) && (
                     <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
                       <p>業界: {effectiveIndustry || "未設定"}</p>
                       <p>職種: {resolvedSelectedRole || "未設定"}</p>
+                      <p>職種分類: {ROLE_TRACK_LABELS[setupState.roleTrack]}</p>
+                      <p>面接方式: {INTERVIEW_FORMAT_LABELS[setupState.interviewFormat]}</p>
+                      <p>選考種別: {SELECTION_TYPE_LABELS[setupState.selectionType]}</p>
+                      <p>段階: {INTERVIEW_STAGE_LABELS[setupState.interviewStage]}</p>
+                      <p>面接官: {INTERVIEWER_TYPE_LABELS[setupState.interviewerType]}</p>
+                      <p>厳しさ: {STRICTNESS_MODE_LABELS[setupState.strictnessMode]}</p>
                     </div>
                   )}
 
@@ -1100,6 +1649,11 @@ export default function CompanyInterviewPage() {
                     {persistenceUnavailable ? (
                       <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
                         現在、面接対策の保存機能を一時的に利用できません。しばらくしてから再度お試しください。
+                        {persistenceDeveloperHint ? (
+                          <p className="mt-2 text-xs text-destructive/80">
+                            開発用メモ: {persistenceDeveloperHint}
+                          </p>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -1108,6 +1662,20 @@ export default function CompanyInterviewPage() {
             </div>
           ) : (
             <div ref={conversationRef} className="space-y-4">
+              <div className="rounded-2xl border border-border/60 bg-muted/15 px-4 py-4 text-sm text-muted-foreground">
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  <span>職種: {resolvedSelectedRole || setupState.selectedRole || "未設定"}</span>
+                  <span>職種分類: {ROLE_TRACK_LABELS[setupState.roleTrack]}</span>
+                  <span>方式: {INTERVIEW_FORMAT_LABELS[setupState.interviewFormat]}</span>
+                  <span>段階: {INTERVIEW_STAGE_LABELS[setupState.interviewStage]}</span>
+                  <span>面接官: {INTERVIEWER_TYPE_LABELS[setupState.interviewerType]}</span>
+                  <span>厳しさ: {STRICTNESS_MODE_LABELS[setupState.strictnessMode]}</span>
+                </div>
+                {turnMeta?.interviewSetupNote ? (
+                  <p className="mt-3 text-foreground/90">{turnMeta.interviewSetupNote}</p>
+                ) : null}
+              </div>
+
               {messages.map((message, index) => (
                 <ChatMessage
                   key={`${message.role}-${index}-${message.content.slice(0, 20)}`}
@@ -1131,13 +1699,19 @@ export default function CompanyInterviewPage() {
 
               {questionFlowCompleted && !feedback ? (
                 <div className="rounded-2xl border border-border/60 bg-muted/20 px-5 py-4 text-sm text-muted-foreground">
-                  {questionCount}問の回答が完了しました。内容を振り返ったうえで、上部の「最終講評を作成」から講評を生成できます。
+                  {questionCount}問の回答が完了しました。内容を振り返ったうえで、上部の「最終講評を作成」から企業別の講評を生成できます。
                 </div>
               ) : null}
 
               {visibleFeedback ? (
                 <div ref={feedbackCardRef} className="space-y-3">
-                  <InterviewFeedbackCard feedback={visibleFeedback} isStreaming={!feedback} />
+                  <InterviewFeedbackCard
+                    feedback={visibleFeedback}
+                    isStreaming={!feedback}
+                    currentHistory={feedback ? latestFeedbackHistory : null}
+                    onSaveSatisfaction={feedback ? handleSaveSatisfaction : undefined}
+                    isSavingSatisfaction={isSavingSatisfaction}
+                  />
                   {feedback ? (
                     <div className="flex flex-wrap gap-3">
                       <Button onClick={handleContinue} disabled={!canContinue || persistenceUnavailable}>
@@ -1188,11 +1762,31 @@ export default function CompanyInterviewPage() {
                 ) : null
               }
             >
-              <InterviewStageTracker
+              <InterviewProgressCard
                 stageStatus={stageStatus}
                 trackerHeadline={trackerStatus.headline}
                 trackerDetail={trackerStatus.detail}
+                turnState={turnState}
+                turnMeta={turnMeta}
               />
+            </ConversationSidebarCard>
+            <ConversationSidebarCard title="面接設定">
+              <div className="space-y-2 text-xs text-muted-foreground">
+                <p>業界: {effectiveIndustry || "未設定"}</p>
+                <p>職種: {resolvedSelectedRole || setupState.selectedRole || "未設定"}</p>
+                <p>職種分類: {ROLE_TRACK_LABELS[setupState.roleTrack]}</p>
+                <p>面接方式: {INTERVIEW_FORMAT_LABELS[setupState.interviewFormat]}</p>
+                <p>選考種別: {SELECTION_TYPE_LABELS[setupState.selectionType]}</p>
+                <p>面接段階: {INTERVIEW_STAGE_LABELS[setupState.interviewStage]}</p>
+                <p>面接官: {INTERVIEWER_TYPE_LABELS[setupState.interviewerType]}</p>
+                <p>厳しさ: {STRICTNESS_MODE_LABELS[setupState.strictnessMode]}</p>
+              </div>
+            </ConversationSidebarCard>
+            <ConversationSidebarCard title="面接計画">
+              <InterviewPlanCard plan={interviewPlan} />
+            </ConversationSidebarCard>
+            <ConversationSidebarCard title="見られている論点">
+              <InterviewCoverageCard turnState={turnState} turnMeta={turnMeta} />
             </ConversationSidebarCard>
             <ConversationSidebarCard title="参考にする材料">
               <InterviewMaterialsCard materials={materials} />
@@ -1231,18 +1825,50 @@ export default function CompanyInterviewPage() {
                   ))}
                 </ul>
               </div>
+              {selectedHistory.consistencyRisks.length > 0 ? (
+                <div>
+                  <p className="font-medium">一貫性リスク</p>
+                  <ul className="mt-2 space-y-2 text-muted-foreground">
+                    {selectedHistory.consistencyRisks.map((item) => (
+                      <li key={item}>• {item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               <div>
                 <p className="font-medium">言い換え例</p>
                 <p className="mt-2 rounded-xl bg-muted px-4 py-3 leading-7">{selectedHistory.improvedAnswer}</p>
               </div>
+              {selectedHistory.weakestQuestionSnapshot || selectedHistory.weakestAnswerSnapshot ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <p className="font-medium">最弱設問</p>
+                    <p className="mt-2 rounded-xl bg-muted px-4 py-3 leading-7">
+                      {selectedHistory.weakestQuestionSnapshot || "記録がありません"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-medium">そのときの回答</p>
+                    <p className="mt-2 rounded-xl bg-muted px-4 py-3 leading-7">
+                      {selectedHistory.weakestAnswerSnapshot || "記録がありません"}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
               <div>
                 <p className="font-medium">次に準備すべき論点</p>
                 <ul className="mt-2 space-y-2 text-muted-foreground">
-                  {selectedHistory.preparationPoints.map((item) => (
+                  {selectedHistory.nextPreparation.map((item) => (
                     <li key={item}>• {item}</li>
                   ))}
                 </ul>
               </div>
+              {selectedHistory.weakestQuestionType ? (
+                <p className="text-xs text-muted-foreground">最も弱かった設問タイプ: {selectedHistory.weakestQuestionType}</p>
+              ) : null}
+              {selectedHistory.satisfactionScore ? (
+                <p className="text-xs text-muted-foreground">満足度: {selectedHistory.satisfactionScore} / 5</p>
+              ) : null}
               <p className="text-xs text-muted-foreground">前提一致度: {selectedHistory.premiseConsistency} / 100</p>
             </div>
           ) : null}

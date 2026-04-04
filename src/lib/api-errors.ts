@@ -2,6 +2,9 @@
 
 import { logError } from "@/lib/logger";
 
+const DEFAULT_AUTH_REQUIRED_USER_MESSAGE = "ログインが必要です。";
+const DEFAULT_AUTH_REQUIRED_ACTION = "ログインしてから、もう一度お試しください。";
+
 export interface AppUiErrorOptions {
   code: string;
   requestId?: string;
@@ -95,7 +98,7 @@ function resolveLegacyMessage(
 
   if (status === 401) {
     return {
-      message: fallback.authMessage ?? "ログイン状態を確認して、もう一度お試しください。",
+      message: DEFAULT_AUTH_REQUIRED_USER_MESSAGE,
       code: "AUTH_REQUIRED",
     };
   }
@@ -177,12 +180,20 @@ export async function parseApiErrorResponse(
   const requestId = payload?.requestId || response.headers.get("X-Request-Id") || undefined;
 
   if (payload?.error && typeof payload.error === "object") {
+    const message =
+      response.status === 401
+        ? DEFAULT_AUTH_REQUIRED_USER_MESSAGE
+        : payload.error.userMessage || fallback.userMessage;
+    const action =
+      response.status === 401
+        ? DEFAULT_AUTH_REQUIRED_ACTION
+        : payload.error.action || fallback.action;
     const error = new AppUiError(
-      payload.error.userMessage || fallback.userMessage,
+      message,
       {
         code: payload.error.code || payload.code || fallback.code,
         requestId,
-        action: payload.error.action || fallback.action,
+        action,
         retryable: payload.error.retryable ?? fallback.retryable ?? false,
         status: response.status,
         developerMessage: payload.debug?.developerMessage,
@@ -201,7 +212,7 @@ export async function parseApiErrorResponse(
   const error = new AppUiError(legacy.message, {
     code: legacy.code,
     requestId,
-    action: fallback.action,
+    action: response.status === 401 ? DEFAULT_AUTH_REQUIRED_ACTION : fallback.action,
     retryable: fallback.retryable ?? false,
     status: response.status,
     developerMessage: rawMessage || undefined,

@@ -221,8 +221,6 @@ export async function resetCiE2ELiveState(userId: string): Promise<CiE2ELiveStat
               selectedRoleSource: null,
               desiredWork: null,
               questionStage: null,
-              lastSuggestions: null,
-              lastSuggestionOptions: null,
               lastEvidenceCards: null,
               stageStatus: null,
               updatedAt: now,

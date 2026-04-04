@@ -304,7 +304,12 @@ function normalizeReports(reports) {
       for (const warning of collectWarnings(row)) {
         warningCounts.set(warning, (warningCounts.get(warning) || 0) + 1);
       }
-      const failureKind = typeof row.failure_kind === "string" ? row.failure_kind : "";
+      const failureKind =
+        typeof row.failure_kind === "string"
+          ? row.failure_kind
+          : typeof row.failureKind === "string"
+            ? row.failureKind
+            : "";
       if (failureKind) {
         failureKindCounts.set(failureKind, (failureKindCounts.get(failureKind) || 0) + 1);
       }
@@ -417,21 +422,6 @@ function workflowImpactForReport(report, suite) {
   return "blocking";
 }
 
-function buildTodayActions(features) {
-  return features
-    .filter((feature) => feature.priority !== "low")
-    .sort((a, b) => {
-      const order = { high: 0, medium: 1, low: 2 };
-      return order[a.priority] - order[b.priority] || b.counts.failed - a.counts.failed;
-    })
-    .flatMap((feature) =>
-      feature.recommendations.slice(0, 2).map((item) =>
-        `- [${feature.displayName}] ${item.title}: ${item.nextStep}`,
-      ),
-    )
-    .slice(0, 6);
-}
-
 export function buildAiLiveSummaryMarkdown(reports) {
   return buildAiLiveArtifacts(reports).summaryMarkdown;
 }
@@ -509,7 +499,7 @@ export function buildAiLiveArtifacts(reports, options = {}) {
   for (const feature of features) {
     summaryLines.push(`## ${feature.displayName}`, "");
     summaryLines.push(
-      `- report: \`${feature.reportFile}\``,
+      `- report artifact: \`${feature.reportFile}\``,
       `- total=${feature.counts.total} passed=${feature.counts.passed} degraded=${feature.counts.degraded} failed=${feature.counts.failed} skipped=${feature.counts.skipped}`,
       `- priority: \`${feature.priority}\``,
       `- status: \`${feature.status}\``,
@@ -522,12 +512,16 @@ export function buildAiLiveArtifacts(reports, options = {}) {
       continue;
     }
 
-    if (feature.recommendations.length > 0) {
-      summaryLines.push("### Recommendations", "");
-      for (const item of feature.recommendations) {
-        summaryLines.push(`- ${item.title}: ${item.nextStep}`);
-      }
-      summaryLines.push("");
+    if (feature.topFailureKinds.length > 0) {
+      summaryLines.push("### Failure kinds", "", ...feature.topFailureKinds.map((item) => `- \`${item.value}\` x ${item.count}`), "");
+    }
+
+    if (feature.topReasons.length > 0) {
+      summaryLines.push("### Reasons", "", ...feature.topReasons.map((item) => `- \`${item.value}\` x ${item.count}`), "");
+    }
+
+    if (feature.topFailureKinds.length === 0 && feature.topReasons.length === 0) {
+      summaryLines.push("_No failure kinds or reasons were captured in the latest report._", "");
     }
 
     if (feature.degradedLines.length > 0) {
@@ -543,17 +537,12 @@ export function buildAiLiveArtifacts(reports, options = {}) {
     }
   }
 
-  const todayActions = buildTodayActions(features);
   const issueLines = [
     `# AI Live Daily Report ${aggregate.dateJst}`,
     "",
     ...(runUrl ? [`- Run: ${runUrl}`] : []),
     ...(suite ? [`- Suite: \`${suite}\``] : []),
     `- Overall: total=${overall.total}, passed=${overall.passed}, degraded=${overall.degraded}, failed=${overall.failed}, skipped=${overall.skipped}`,
-    "",
-    "## 今日やること",
-    "",
-    ...(todayActions.length > 0 ? todayActions : ["- 重大な failed / degraded はありません。"]),
     "",
   ];
 
@@ -562,13 +551,13 @@ export function buildAiLiveArtifacts(reports, options = {}) {
     issueLines.push(
       `- 状態: passed=${feature.counts.passed} degraded=${feature.counts.degraded} failed=${feature.counts.failed}`,
       `- 優先度: \`${feature.priority}\``,
-      `- report: \`${feature.reportFile}\``,
+      `- report artifact: \`${feature.reportFile}\``,
       `- report_status: \`${feature.status}\``,
       `- workflow_impact: \`${feature.workflowImpact}\``,
       "",
     );
 
-    if (feature.workflowImpact === "report_only") {
+    if (suite === "extended" && feature.status !== "missing_report" && feature.workflowImpact === "report_only") {
       issueLines.push(
         "_extended suite のため、この feature の quality failure は report-only です。infra/config failure ではない限り workflow の blocking 対象にしません。_",
         "",
@@ -577,32 +566,29 @@ export function buildAiLiveArtifacts(reports, options = {}) {
 
     if (feature.status === "missing_report") {
       issueLines.push(
-        "### 主な原因",
+        "### artifact 状態",
         "",
         "- `missing_report` x 1",
+        `- artifact: \`${feature.reportFile}\``,
         "",
-        "### 改善提案",
-        "",
-        "- **report 未生成の原因を確認**: feature report が生成されておらず、失敗内容を朝の issue だけでは追えない。対象 job log と artifact の回収経路を確認し、report 出力失敗を先に直す。",
-        "",
-        "_この機能は report 未生成のため、まず job log と artifact の回収経路を確認してください。_",
+        "_この機能は report 未生成です。まず artifact と job log の回収経路を確認してください。_",
         "",
       );
       continue;
     }
 
-    if (feature.topReasons.length > 0) {
-      issueLines.push("### 主な原因", "");
-      for (const item of feature.topReasons.slice(0, 3)) {
+    if (feature.topFailureKinds.length > 0) {
+      issueLines.push("### 主な failure kind", "");
+      for (const item of feature.topFailureKinds.slice(0, 3)) {
         issueLines.push(`- \`${item.value}\` x ${item.count}`);
       }
       issueLines.push("");
     }
 
-    if (feature.recommendations.length > 0) {
-      issueLines.push("### 改善提案", "");
-      for (const item of feature.recommendations) {
-        issueLines.push(`- **${item.title}**: ${item.description} ${item.nextStep}`);
+    if (feature.topReasons.length > 0) {
+      issueLines.push("### 主な reason", "");
+      for (const item of feature.topReasons.slice(0, 3)) {
+        issueLines.push(`- \`${item.value}\` x ${item.count}`);
       }
       issueLines.push("");
     }
