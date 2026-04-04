@@ -304,4 +304,41 @@ describe("e2e auth fixtures", () => {
       }),
     );
   });
+
+  it("strips guest cookies from authenticated requests even when they exist in the browser context", async () => {
+    const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
+    const cookies = vi.fn().mockResolvedValue([
+      { name: "better-auth.session_token", value: "session-cookie" },
+      { name: "guest_device_token", value: "guest-device-token" },
+      { name: "csrf_token", value: "csrf-cookie" },
+      { name: "other_cookie", value: "other-value" },
+    ]);
+
+    const page = {
+      context: () => ({
+        cookies,
+        request: {
+          fetch: contextFetch,
+        },
+      }),
+    };
+
+    await apiRequestAsAuthenticatedUser(
+      page as never,
+      "POST",
+      "/api/companies",
+      { name: "認証済み会社" },
+    );
+
+    expect(contextFetch).toHaveBeenCalledWith(
+      "http://localhost:3000/api/companies",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          cookie: "better-auth.session_token=session-cookie; csrf_token=csrf-cookie; other_cookie=other-value",
+        }),
+      }),
+    );
+    expect(contextFetch.mock.calls[0]?.[1]?.headers).not.toHaveProperty("x-device-token");
+    expect(String(contextFetch.mock.calls[0]?.[1]?.headers?.cookie || "")).not.toContain("guest_device_token=");
+  });
 });

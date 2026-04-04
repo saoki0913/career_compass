@@ -150,6 +150,16 @@ function buildCookieHeader(
   return pairs.length > 0 ? pairs.join("; ") : null;
 }
 
+function filterCookiesForRequest(
+  cookies: Array<{ name: string; value: string }>,
+  includeGuestToken: boolean,
+) {
+  if (includeGuestToken) {
+    return cookies;
+  }
+  return cookies.filter((cookie) => cookie.name !== GUEST_COOKIE_NAME);
+}
+
 async function ensureCsrfToken(page: Page, baseURL: string): Promise<string | null> {
   const existingToken = await getCookieValue(page, baseURL, CSRF_COOKIE_NAME);
   if (existingToken) {
@@ -379,7 +389,7 @@ async function buildApiRequestHeaders(
     }
   }
 
-  const cookieHeader = buildCookieHeader(cookies);
+  const cookieHeader = buildCookieHeader(filterCookiesForRequest(cookies, includeGuestToken));
   if (cookieHeader) {
     headers.cookie = cookieHeader;
   }
