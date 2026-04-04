@@ -16,6 +16,10 @@ from tests.company_info.integration.live_feature_report import (
 )
 
 
+def _unwrap_route(fn: Any) -> Any:
+    return getattr(fn, "__wrapped__", fn)
+
+
 @dataclass(frozen=True)
 class LiveRagIngestCase:
     case_id: str
@@ -101,6 +105,8 @@ async def test_live_rag_ingest_report() -> None:
         pytest.skip("No embedding backend is configured for live RAG ingest.")
 
     rows: list[dict[str, Any]] = []
+    search_corporate_pages_impl = _unwrap_route(search_corporate_pages)
+    crawl_corporate_pages_impl = _unwrap_route(crawl_corporate_pages)
 
     for case in _selected_cases():
         started = perf_counter()
@@ -111,7 +117,7 @@ async def test_live_rag_ingest_report() -> None:
         candidate_url: str | None = None
 
         try:
-            candidates_payload = await search_corporate_pages(
+            candidates_payload = await search_corporate_pages_impl(
                 SearchCorporatePagesRequest(
                     company_name=case.company_name,
                     content_type=case.content_type,
@@ -142,7 +148,7 @@ async def test_live_rag_ingest_report() -> None:
                 )
                 continue
 
-            crawl_response = await crawl_corporate_pages(
+            crawl_response = await crawl_corporate_pages_impl(
                 CrawlCorporateRequest(
                     company_id=company_id,
                     company_name=case.company_name,

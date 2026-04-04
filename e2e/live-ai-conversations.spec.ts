@@ -327,10 +327,21 @@ async function runMotivationSetup(
   };
 
   const sessionId = startBody.conversation.id;
-  pushAssistantIfPresent(transcript ?? [], startBody.nextQuestion || startBody.messages[0]?.content || "");
+  let nextQuestionText = startBody.nextQuestion || startBody.messages[0]?.content || "";
+  pushAssistantIfPresent(transcript ?? [], nextQuestionText);
 
   let latestComplete: Record<string, unknown> | null = null;
-  for (const answer of answers) {
+  const totalAttempts = Math.max(answers.length + MOTIVATION_FALLBACK_ANSWERS.length, 6);
+
+  for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
+    const answer =
+      attempt < answers.length
+        ? answers[attempt]
+        : buildDeterministicMotivationFollowupAnswer({
+            nextQuestion: nextQuestionText,
+            attemptIndex: attempt - answers.length,
+            transcript,
+          });
     transcript?.push({ role: "user", content: answer });
     const streamResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/motivation/${companyId}/conversation/stream`, {
       answer,
@@ -338,11 +349,41 @@ async function runMotivationSetup(
     });
     const events = parseSseEvents(await expectOkResponse(streamResponse, `motivation setup stream ${companyId}`));
     const nextQuestion = collectChunks(events, "question");
-    pushAssistantIfPresent(transcript ?? [], nextQuestion);
     latestComplete = parseCompleteData(events);
+    nextQuestionText = String(latestComplete?.nextQuestion || nextQuestion || "");
+    pushAssistantIfPresent(transcript ?? [], nextQuestionText);
+    if (latestComplete?.isDraftReady === true) {
+      return latestComplete;
+    }
   }
 
-  return latestComplete;
+  throw new Error("motivation conversation did not reach draft_ready");
+}
+
+const MOTIVATION_FALLBACK_ANSWERS = [
+  "原体験として、課題を整理して関係者を巻き込みながら前に進めた経験があります。",
+  "その経験から、事業と現場の両方を理解し、価値につなげる仕事に魅力を感じています。",
+  "入社後は、顧客課題を構造化して周囲と連携しながら改善を進めたいです。",
+  "他社ではなくこの会社を選ぶ理由として、事業の広がりと挑戦機会の大きさを重視しています。",
+];
+
+function buildDeterministicMotivationFollowupAnswer(input: {
+  nextQuestion: string;
+  attemptIndex: number;
+  transcript?: LiveAiConversationTranscriptTurn[];
+}) {
+  const fallback =
+    MOTIVATION_FALLBACK_ANSWERS[
+      Math.min(input.attemptIndex, MOTIVATION_FALLBACK_ANSWERS.length - 1)
+    ];
+  const latestUserAnswer =
+    [...(input.transcript ?? [])]
+      .reverse()
+      .find((turn) => turn.role === "user" && turn.content.trim())
+      ?.content.trim() || "";
+  const question = input.nextQuestion.trim();
+  const prefix = latestUserAnswer ? `直前の回答「${latestUserAnswer}」を補足すると、` : "";
+  return question ? `${prefix}${fallback} 追加で「${question}」にも答える形で整理します。` : `${prefix}${fallback}`;
 }
 
 const GAKUCHIKA_FALLBACK_ANSWERS = [

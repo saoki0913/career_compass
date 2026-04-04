@@ -9,7 +9,7 @@ import pytest
 from app.routers.company_info import (
     FetchRequest,
     SearchPagesRequest,
-    fetch_selection_schedule,
+    _fetch_schedule_response,
     search_company_pages,
 )
 from app.utils.web_search import HAS_DDGS
@@ -17,6 +17,10 @@ from tests.company_info.integration.live_feature_report import (
     selected_case_set,
     write_live_feature_report,
 )
+
+
+def _unwrap_route(fn):
+    return getattr(fn, "__wrapped__", fn)
 
 
 @dataclass(frozen=True)
@@ -81,9 +85,10 @@ async def _evaluate_case(case: LiveSelectionScheduleCase) -> dict[str, object]:
     search_candidate_count = 0
     source_type = ""
     year_matched = None
+    search_company_pages_impl = _unwrap_route(search_company_pages)
 
     try:
-        candidates_payload = await search_company_pages(
+        candidates_payload = await search_company_pages_impl(
             SearchPagesRequest(
                 company_name=case.company_name,
                 graduation_year=case.graduation_year,
@@ -115,14 +120,14 @@ async def _evaluate_case(case: LiveSelectionScheduleCase) -> dict[str, object]:
         source_url = candidate.url
         search_confidence = candidate.confidence
 
-        response = await fetch_selection_schedule(
+        response = await _fetch_schedule_response(
             FetchRequest(
                 url=source_url,
                 company_name=case.company_name,
                 graduation_year=case.graduation_year,
                 selection_type=case.selection_type,
             ),
-            None,  # type: ignore[arg-type]
+            feature="selection_schedule",
         )
         response_success = response.success
         partial_success = response.partial_success

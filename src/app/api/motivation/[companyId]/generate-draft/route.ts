@@ -5,12 +5,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { motivationConversations, companies, documents } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
 import { reserveCredits, confirmReservation, cancelReservation } from "@/lib/credits";
 import { randomUUID } from "crypto";
 import {
@@ -19,6 +16,7 @@ import {
   safeParseConversationContext,
 } from "@/lib/motivation/conversation";
 import { DRAFT_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import { getRequestIdentity, type RequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   getRequestId,
   logAiCreditCostSummary,
@@ -26,27 +24,25 @@ import {
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+async function getOwnedCompanyData(
+  companyId: string,
+  identity: RequestIdentity,
+): Promise<{ id: string; name: string; industry: string | null } | null> {
+  const [company] = await db
+    .select({
+      id: companies.id,
+      name: companies.name,
+      industry: companies.industry,
+    })
+    .from(companies)
+    .where(
+      identity.userId
+        ? and(eq(companies.id, companyId), eq(companies.userId, identity.userId))
+        : and(eq(companies.id, companyId), eq(companies.guestId, identity.guestId!)),
+    )
+    .limit(1);
 
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
+  return company ?? null;
 }
 
 interface Message {
@@ -81,13 +77,43 @@ interface FastAPIDraftResponse {
   internal_telemetry?: unknown;
 }
 
+interface SuggestionOption {
+  id: string;
+  label: string;
+  sourceType: "conversation" | "gakuchika" | "profile" | "safe_fallback";
+  intent: string;
+  evidenceSourceIds?: string[];
+  rationale?: string | null;
+  isTentative?: boolean;
+}
+
+interface EvidenceCard {
+  sourceId: string;
+  title: string;
+  contentType: string;
+  excerpt: string;
+  sourceUrl: string;
+  relevanceLabel: string;
+}
+
+interface FollowUpQuestionResponse {
+  question: string;
+  suggestion_options?: SuggestionOption[];
+  evidence_summary?: string | null;
+  evidence_cards?: EvidenceCard[];
+  coaching_focus?: string | null;
+  question_stage?: string | null;
+  stage_status?: unknown;
+  captured_context?: Record<string, unknown> | null;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ companyId: string }> }
 ) {
   const { companyId } = await params;
   const requestId = getRequestId(request);
-  const identity = await getIdentity(request);
+  const identity = await getRequestIdentity(request);
   if (!identity) {
     return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
   }
@@ -120,11 +146,7 @@ export async function POST(
   }
 
   // Get company
-  const [company] = await db
-    .select()
-    .from(companies)
-    .where(eq(companies.id, companyId))
-    .limit(1);
+  const company = await getOwnedCompanyData(companyId, identity);
 
   if (!company) {
     return NextResponse.json({ error: "企業が見つかりません" }, { status: 404 });
@@ -213,16 +235,6 @@ export async function POST(
       telemetry,
     });
 
-    // Save draft to database
-    await db
-      .update(motivationConversations)
-      .set({
-        generatedDraft: data.draft,
-        charLimitType: String(charLimit) as "300" | "400" | "500",
-        updatedAt: new Date(),
-      })
-      .where(eq(motivationConversations.id, conversation.id));
-
     // Create ES document with the generated draft
     const documentId = randomUUID();
     const documentBlocks = [
@@ -252,12 +264,98 @@ export async function POST(
       updatedAt: new Date(),
     });
 
+    let nextQuestion: string | null = null;
+    let suggestionOptions: SuggestionOption[] = [];
+    let evidenceSummary: string | null = null;
+    let evidenceCards: EvidenceCard[] = [];
+    let coachingFocus: string | null = null;
+    let questionStage: string | null = null;
+    let stageStatus: unknown = null;
+    let updatedMessages = messages;
+
+    const followUpResponse = await fetchFastApiInternal("/api/motivation/next-question", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
+      body: JSON.stringify({
+        company_id: company.id,
+        company_name: company.name,
+        industry: company.industry,
+        generated_draft: data.draft,
+        conversation_history: messages,
+        question_count: conversation.questionCount ?? 0,
+        conversation_context: {
+          ...conversationContext,
+          draftReady: true,
+        },
+      }),
+    }).catch(() => null);
+
+    if (followUpResponse?.ok) {
+      const rawFollowUp = await followUpResponse.json().catch(() => null);
+      const followUpPayload =
+        rawFollowUp && typeof rawFollowUp === "object"
+          ? splitInternalTelemetry(rawFollowUp).payload
+          : null;
+      const followUp = followUpPayload as FollowUpQuestionResponse | null;
+
+      if (followUp?.question) {
+        nextQuestion = followUp.question;
+        suggestionOptions = Array.isArray(followUp.suggestion_options) ? followUp.suggestion_options : [];
+        evidenceSummary = typeof followUp.evidence_summary === "string" ? followUp.evidence_summary : null;
+        evidenceCards = Array.isArray(followUp.evidence_cards) ? followUp.evidence_cards : [];
+        coachingFocus = typeof followUp.coaching_focus === "string" ? followUp.coaching_focus : null;
+        questionStage = typeof followUp.question_stage === "string" ? followUp.question_stage : null;
+        stageStatus = followUp.stage_status ?? null;
+        updatedMessages = [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: followUp.question,
+          },
+        ];
+      }
+    }
+
+    await db
+      .update(motivationConversations)
+      .set({
+        generatedDraft: data.draft,
+        charLimitType: String(charLimit) as "300" | "400" | "500",
+        messages: JSON.stringify(updatedMessages),
+        conversationContext: JSON.stringify({
+          ...conversationContext,
+          draftReady: true,
+          questionStage: questionStage || conversationContext.questionStage,
+          lastQuestionMeta: nextQuestion
+            ? {
+                ...(conversationContext.lastQuestionMeta || {}),
+                questionText: nextQuestion,
+                question_stage: questionStage || conversationContext.questionStage,
+              }
+            : conversationContext.lastQuestionMeta || null,
+        }),
+        questionStage: questionStage || conversation.questionStage,
+        lastSuggestionOptions: JSON.stringify(suggestionOptions),
+        lastEvidenceCards: JSON.stringify(evidenceCards),
+        stageStatus: JSON.stringify(stageStatus),
+        updatedAt: new Date(),
+      })
+      .where(eq(motivationConversations.id, conversation.id));
+
     return NextResponse.json({
       draft: data.draft,
       charCount: data.char_count,
       keyPoints: data.key_points,
       companyKeywords: data.company_keywords,
       documentId: documentId,
+      nextQuestion,
+      suggestionOptions,
+      evidenceSummary,
+      evidenceCards,
+      coachingFocus,
+      questionStage,
+      stageStatus,
+      messages: updatedMessages,
     });
   } catch (error) {
     if (reservationId) await cancelReservation(reservationId);

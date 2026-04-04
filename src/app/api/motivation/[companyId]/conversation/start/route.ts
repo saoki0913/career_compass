@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { headers } from "next/headers";
 import { and, eq } from "drizzle-orm";
-import { auth } from "@/lib/auth";
-import { getGuestUser } from "@/lib/auth/guest";
 import { db } from "@/lib/db";
 import {
   applications,
@@ -26,6 +23,7 @@ import {
 } from "@/lib/motivation/conversation";
 import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import { getRequestIdentity, type RequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   getRequestId,
   logAiCreditCostSummary,
@@ -56,27 +54,22 @@ function resolveSafeMotivationStartError(raw: string | null | undefined): {
   };
 }
 
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+async function getOwnedCompanyData(companyId: string, identity: RequestIdentity): Promise<CompanyData | null> {
+  const [company] = await db
+    .select({
+      id: companies.id,
+      name: companies.name,
+      industry: companies.industry,
+    })
+    .from(companies)
+    .where(
+      identity.userId
+        ? and(eq(companies.id, companyId), eq(companies.userId, identity.userId))
+        : and(eq(companies.id, companyId), eq(companies.guestId, identity.guestId!)),
+    )
+    .limit(1);
 
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
+  return company ?? null;
 }
 
 interface Message {
@@ -98,8 +91,12 @@ interface MotivationEvaluation {
   is_complete: boolean;
   ready_for_draft?: boolean;
   slot_status?: Record<string, string>;
+  slot_status_v2?: Record<string, "filled_strong" | "filled_weak" | "partial" | "missing">;
   missing_slots?: string[];
+  weak_slots?: string[];
+  do_not_ask_slots?: string[];
   draft_readiness_reason?: string;
+  draft_blockers?: string[];
   missing_aspects?: Record<string, string[]>;
   hidden_eval?: Record<string, number>;
   risk_flags?: string[];
@@ -162,6 +159,7 @@ interface FastAPIQuestionResponse {
   evaluation?: MotivationEvaluation;
   target_slot?: MotivationConversationContext["questionStage"];
   question_intent?: string;
+  answer_contract?: Record<string, unknown>;
   target_element?: string;
   company_insight?: string;
   suggestion_options?: SuggestionOption[];
@@ -171,6 +169,10 @@ interface FastAPIQuestionResponse {
   risk_flags?: string[];
   question_stage?: MotivationConversationContext["questionStage"];
   question_focus?: string;
+  semantic_question_signature?: string;
+  question_difficulty_level?: number;
+  candidate_validation_summary?: Record<string, unknown>;
+  weakness_tag?: string;
   stage_status?: StageStatus;
   captured_context?: Partial<MotivationConversationContext>;
   internal_telemetry?: unknown;
@@ -421,7 +423,7 @@ export async function POST(
   try {
     const { companyId } = await params;
     const requestId = getRequestId(request);
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
     }
@@ -455,11 +457,7 @@ export async function POST(
       return NextResponse.json({ error: "志望職種を選択してください" }, { status: 400 });
     }
 
-    const [company] = await db
-      .select()
-      .from(companies)
-      .where(eq(companies.id, companyId))
-      .limit(1);
+    const company = await getOwnedCompanyData(companyId, identity);
 
     if (!company) {
       return NextResponse.json({ error: "企業が見つかりません" }, { status: 404 });

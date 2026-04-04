@@ -9,7 +9,6 @@
  */
 
 import { NextRequest } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   motivationConversations,
@@ -18,8 +17,6 @@ import {
   jobTypes,
 } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
 import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
 import {
   fetchGakuchikaContext,
@@ -35,6 +32,7 @@ import {
 } from "@/lib/motivation/conversation";
 import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import { getRequestIdentity, type RequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   getRequestId,
   logAiCreditCostSummary,
@@ -43,27 +41,22 @@ import {
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+async function getOwnedCompanyData(companyId: string, identity: RequestIdentity): Promise<CompanyData | null> {
+  const [company] = await db
+    .select({
+      id: companies.id,
+      name: companies.name,
+      industry: companies.industry,
+    })
+    .from(companies)
+    .where(
+      identity.userId
+        ? and(eq(companies.id, companyId), eq(companies.userId, identity.userId))
+        : and(eq(companies.id, companyId), eq(companies.guestId, identity.guestId!)),
+    )
+    .limit(1);
 
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
+  return company ?? null;
 }
 
 interface Message {
@@ -273,7 +266,7 @@ export async function POST(
   try {
     const { companyId } = await params;
     const requestId = getRequestId(request);
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return new Response(
         JSON.stringify({ error: "認証が必要です" }),
@@ -312,11 +305,7 @@ export async function POST(
     }
 
     // Get company
-    const [company] = await db
-      .select()
-      .from(companies)
-      .where(eq(companies.id, companyId))
-      .limit(1);
+    const company = await getOwnedCompanyData(companyId, identity);
 
     if (!company) {
       return new Response(
@@ -412,6 +401,7 @@ export async function POST(
           company_id: company.id,
           company_name: company.name,
           industry: resolvedAfterAnswer.company.industry,
+          generated_draft: conversation.generatedDraft ?? null,
           conversation_history: messages.map(m => ({
             role: m.role,
             content: m.content,

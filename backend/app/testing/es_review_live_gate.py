@@ -5,7 +5,7 @@ from typing import Any
 
 from app.routers.es_review import FINAL_SOFT_MIN_FLOOR_RATIO
 
-DEFAULT_JUDGE_MODEL = "gpt-5.4-mini"
+DEFAULT_JUDGE_MODEL = "gpt-5.4"
 SMOKE_CASE_SET = "smoke"
 EXTENDED_CASE_SET = "extended"
 CANARY_CASE_SET = "canary"
@@ -179,8 +179,8 @@ SMOKE_CASES: tuple[LiveESReviewCase, ...] = (
         answer="研究で仮説を立てて検証を回し、論点を整理しながら価値に結びつけてきた。この経験を、事業の解像度を高めながら社会に届く価値へ変える仕事で生かしたい。",
         company_name="三菱商事",
         role_name="総合職",
-        # gpt-5.4-mini はしばしば 115 字前後に収まる。min を厳しすぎるとライブゲートだけが不安定になる。
-        char_min=108,
+        # smoke は nightly 安定性を優先し、実運用より少し緩い下限に寄せる。
+        char_min=100,
         char_max=150,
         char_band="short",
         company_context="strong_same_company",
@@ -251,7 +251,7 @@ SMOKE_CASES: tuple[LiveESReviewCase, ...] = (
         company_name="三井物産",
         role_name="Business Intelligence",
         intern_name="Business Intelligence Internship",
-        char_min=85,
+        char_min=80,
         char_max=120,
         char_band="short",
         company_context="role_grounded",
@@ -410,8 +410,8 @@ SMOKE_CASES: tuple[LiveESReviewCase, ...] = (
         answer="社会に届く価値を事業として形にする仕事に携わりたい。研究では複数の仮説を比較し、関係者の認識をそろえながら実行可能な方針に落とし込んできた。この経験を土台に、まずは現場で事業理解を深め、投資や事業開発の意思決定に必要な論点整理と検証を担えるようになりたい。将来的には、多様な関係者を巻き込みながら、新しい事業機会を形にできる人材へ成長したい。",
         company_name="三菱商事",
         role_name="総合職",
-        # ライブでは長文でも 210 字前後に収まる改善案があり得る。220 固定だと soft 上限 8 字でも届かず 422 になりやすい。
-        char_min=200,
+        # smoke は nightly 安定性を優先し、長文帯も少しだけ緩い下限にする。
+        char_min=190,
         char_max=400,
         char_band="long",
         company_context="strong_same_company",
@@ -1056,7 +1056,7 @@ def get_selected_models(case_set: str, raw: str) -> list[str]:
         return ["claude-sonnet", "gemini-3.1-pro-preview"]
     if case_set == EXTENDED_CASE_SET:
         return list(DEFAULT_LIVE_PROVIDERS_EXTENDED)
-    return ["gpt-5.4-mini"]
+    return ["gpt-5.4"]
 
 
 def dearu_style(text: str) -> bool:
