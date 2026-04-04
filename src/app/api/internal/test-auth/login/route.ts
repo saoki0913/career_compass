@@ -1,8 +1,7 @@
-import { randomBytes, randomUUID } from "crypto";
-import { eq } from "drizzle-orm";
 import { serializeSignedCookie } from "better-call";
 import { NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { auth } from "@/lib/auth";
 import {
   getBetterAuthSessionCookieAttributes,
   getBetterAuthSessionCookieName,
@@ -11,10 +10,11 @@ import {
 import { db } from "@/lib/db";
 import { sessions } from "@/lib/db/schema";
 import {
-  ensureCiE2ETestUserWithTx,
+  ensureCiE2ETestUser,
   hasMatchingSecret,
   parseBearerSecret,
 } from "@/app/api/internal/test-auth/shared";
+import { eq } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
   const authSecret = process.env.CI_E2E_AUTH_SECRET?.trim();
@@ -39,42 +39,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const ensuredUser = await ensureCiE2ETestUser();
+    await db.delete(sessions).where(eq(sessions.userId, ensuredUser.userId));
 
-    const { userId, sessionToken, email } = await db.transaction(async (tx) => {
-      const ensuredUser = await ensureCiE2ETestUserWithTx(tx);
-
-      await tx.delete(sessions).where(eq(sessions.userId, ensuredUser.userId));
-
-      const token = randomBytes(32).toString("hex");
-
-      await tx.insert(sessions).values({
-        id: randomUUID(),
-        userId: ensuredUser.userId,
-        token,
-        expiresAt,
-        ipAddress:
-          request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-          request.headers.get("x-real-ip")?.trim() ??
-          "127.0.0.1",
-        userAgent: request.headers.get("user-agent") ?? "ci-e2e-auth",
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      return {
-        userId: ensuredUser.userId,
-        email: ensuredUser.email,
-        sessionToken: token,
-      };
-    });
+    const authContext = await auth.$context;
+    const session = await authContext.internalAdapter.createSession(ensuredUser.userId);
+    if (!session) {
+      throw new Error("Better Auth failed to create a session for the CI E2E user");
+    }
 
     const response = NextResponse.json({
       success: true,
       user: {
-        id: userId,
-        email,
+        id: ensuredUser.userId,
+        email: ensuredUser.email,
       },
     });
 
@@ -82,7 +60,7 @@ export async function POST(request: NextRequest) {
       "set-cookie",
       await serializeSignedCookie(
         getBetterAuthSessionCookieName(),
-        sessionToken,
+        session.token,
         betterAuthSecret,
         getBetterAuthSessionCookieAttributes()
       )

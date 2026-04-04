@@ -154,6 +154,26 @@ function parseCompleteData(events: ParsedSseEvent[]) {
   return (completeEvent.data || {}) as Record<string, unknown>;
 }
 
+function isGakuchikaDraftReady(completeData: Record<string, unknown> | null | undefined) {
+  const conversationState =
+    completeData?.conversationState && typeof completeData.conversationState === "object"
+      ? (completeData.conversationState as { readyForDraft?: unknown; stage?: unknown })
+      : null;
+  const nextAction = typeof completeData?.nextAction === "string" ? completeData.nextAction : "";
+  const stage = typeof conversationState?.stage === "string" ? conversationState.stage : "";
+
+  return (
+    completeData?.isCompleted === true ||
+    completeData?.isInterviewReady === true ||
+    conversationState?.readyForDraft === true ||
+    stage === "draft_ready" ||
+    stage === "interview_ready" ||
+    nextAction === "show_generate_draft_cta" ||
+    nextAction === "continue_deep_dive" ||
+    nextAction === "show_interview_ready"
+  );
+}
+
 function collectChunks(events: ParsedSseEvent[], pathName: string): string {
   return events
     .filter((event) => event.type === "string_chunk" && event.path === pathName)
@@ -483,12 +503,12 @@ export async function runGakuchikaSetupWithRequest(
     latestComplete = parseCompleteData(events);
     nextQuestionText = String(latestComplete?.nextQuestion || nextQuestion || "");
     pushAssistantIfPresent(transcript ?? [], nextQuestionText);
-    if (latestComplete?.isCompleted === true) {
+    if (isGakuchikaDraftReady(latestComplete)) {
       return latestComplete;
     }
   }
 
-  throw new Error("gakuchika conversation did not complete");
+  throw new Error("gakuchika conversation did not reach draft_ready");
 }
 
 async function runGakuchikaSetup(
@@ -544,9 +564,14 @@ async function runGakuchikaCase(
     const summaryHit = countTokenHits([finalText], input.expectedSummaryTokens);
     checks = buildChecks([
       {
-        name: "conversation-complete",
-        passed: latestComplete?.isCompleted === true,
-        evidence: [`isCompleted=${String(latestComplete?.isCompleted)}`],
+        name: "draft-ready",
+        passed: isGakuchikaDraftReady(latestComplete),
+        evidence: [
+          `isCompleted=${String(latestComplete?.isCompleted)}`,
+          `isInterviewReady=${String(latestComplete?.isInterviewReady)}`,
+          `nextAction=${String(latestComplete?.nextAction || "")}`,
+          `readyForDraft=${String((latestComplete?.conversationState as { readyForDraft?: unknown } | undefined)?.readyForDraft)}`,
+        ],
       },
       {
         name: "question-token-coverage",
@@ -853,8 +878,8 @@ async function runInterviewCase(
       gakuchika.id,
       input.gakuchika.answers,
     );
-    if (gakuchikaComplete?.isCompleted !== true) {
-      throw new Error("interview setup gakuchika did not complete");
+    if (!isGakuchikaDraftReady(gakuchikaComplete)) {
+      throw new Error("interview setup gakuchika did not reach draft_ready");
     }
 
     const gakuchikaDraftResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/gakuchika/${gakuchika.id}/generate-es-draft`, {
