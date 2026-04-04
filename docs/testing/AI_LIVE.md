@@ -1,26 +1,28 @@
 # AI Live
 
-実 API を使って `ES添削` `ガクチカ作成` `志望動機作成` `面接対策` を定時実行で検証し、翌朝に GitHub Issue を見れば改善着手できる状態を作る運用の説明です。
+実 API を使って `ES添削` `企業RAG取り込み` `選考スケジュール取得` `ガクチカ作成` `志望動機作成` `面接対策` を定時実行で検証し、夜間の workflow 完了時点で GitHub Issue を更新して、翌朝すぐ改善着手できる状態を作る運用の説明です。
 
 - workflow 名: `AI Live`
 - 正本環境: `staging`
-- 毎日 23:00 JST: `smoke`
-- 毎週日曜 23:30 JST: `extended`
+- 毎日 23:07 JST: `smoke`
+- 毎週日曜 23:37 JST: `extended`
 - 朝の確認先: GitHub Issue `AI Live Daily Report YYYY-MM-DD`
 
 ## 1. Job 構成
 
 - `es-review-live`: live ES review の `pytest` と ES review stream の Playwright
+- `rag-ingest-live`: 企業RAG取り込みの backend live eval
+- `selection-schedule-live`: 選考スケジュール取得の backend live eval
 - `gakuchika-live`: ガクチカ作成の live conversation
 - `motivation-live`: 志望動機作成の live conversation
 - `interview-live`: 面接対策の live conversation
 - `compile-live-report`: 上記の内部 artifact から公開用 report artifact を 1 本に再パッケージする
-- `publish-live-report`: 朝に見る GitHub Issue を create/update する
+- `publish-live-report`: 翌朝に見る GitHub Issue を create/update する
 
 ## 2. 判定
 
 - `failed`: API 失敗、stream 不完走、必須トークン未達、生成物未作成、cleanup 失敗
-- `degraded`: judge が「深掘り不足」「要点反映不足」などを検知したが hard failure ではない
+- `degraded`: judge や heuristic が「深掘り不足」「要点反映不足」「confidence が低い」などを検知したが hard failure ではない
 - `passed`: hard fail も degraded もない
 
 conversation 系では `status` と `severity` を分ける。
@@ -30,15 +32,18 @@ conversation 系では `status` と `severity` を分ける。
 
 suite ごとの blocking 方針:
 
-- `smoke`: 4 feature とも failed を blocking
+- `smoke`: `ES添削` と conversation 3機能の failed は blocking
 - `extended`: conversation 系の実行障害は blocking、`ES添削` の quality failure は report-only
+- `企業RAG取り込み` と `選考スケジュール取得`: suite を問わず report-only
 
 ## 3. Report
 
-公開用 artifact は 1 本で、その中身は `4 JSON + 1 Markdown` の 5 ファイルのみ。
+公開用 artifact は 1 本で、その中身は `6 JSON + 1 Markdown` の 7 ファイルのみ。
 
 - `ai-live-summary.md`
 - `live_es_review_*.json`
+- `live_rag_ingest_*.json`
+- `live_selection_schedule_*.json`
 - `live_gakuchika_*.json`
 - `live_motivation_*.json`
 - `live_interview_*.json`
@@ -50,6 +55,8 @@ job 間受け渡しには internal artifact を使うが、朝に見る対象は
 Issue と summary では必ず次を分けて表示する。
 
 - ES添削
+- 企業RAG取り込み
+- 選考スケジュール取得
 - ガクチカ作成
 - 志望動機作成
 - 面接対策
@@ -65,10 +72,12 @@ bash scripts/ci/run-ai-live.sh --suite smoke --feature all
 機能単位:
 
 ```bash
+bash scripts/ci/run-ai-live.sh --suite smoke --feature es-review
+bash scripts/ci/run-ai-live.sh --suite smoke --feature rag-ingest
+bash scripts/ci/run-ai-live.sh --suite smoke --feature selection-schedule
 bash scripts/ci/run-ai-live.sh --suite smoke --feature gakuchika
 bash scripts/ci/run-ai-live.sh --suite smoke --feature motivation
 bash scripts/ci/run-ai-live.sh --suite smoke --feature interview
-bash scripts/ci/run-ai-live.sh --suite smoke --feature es-review
 ```
 
 ## 5. 朝の確認手順
@@ -77,7 +86,7 @@ bash scripts/ci/run-ai-live.sh --suite smoke --feature es-review
 2. `今日やること` を見て、優先度が高い feature から着手する
 3. feature セクションで `主な原因` `改善提案` `failed/degraded case` を確認する
 4. 必要なら Issue 内の run URL から GitHub Actions に入り、artifact を開く
-5. 公開 artifact 内の `ai-live-summary.md` と 4 feature JSON を確認し、feature report の transcript 抜粋、deterministic fail、judge reason、cleanup 状態を追う
+5. 公開 artifact 内の `ai-live-summary.md` と 6 feature JSON を確認し、feature report の deterministic fail、judge reason、cleanup 状態を追う
 
 ## 6. staging auth preflight
 
@@ -95,11 +104,21 @@ conversation 系と ES review の Playwright 実行前に `scripts/ci/check-ai-l
   - `NEXT_PUBLIC_APP_URL`
   - `BETTER_AUTH_URL`
 
+company_info 系 nightly の secret は `github-actions.env` を正本にする。
+
+- `OPENAI_API_KEY`
+- `GOOGLE_API_KEY`
+- `ANTHROPIC_API_KEY`
+- `FIRECRAWL_API_KEY`
+- GitHub 反映は `zsh scripts/release/sync-career-compass-secrets.sh --apply --target github` を使う
+
 ## 7. 改善提案の考え方
 
 Issue には feature ごとに自動の改善提案を入れる。
 
 - `ES添削`: 文字数制御、grounding、judge 低評価
+- `企業RAG取り込み`: crawl 失敗、embedding/store 失敗、cleanup 失敗
+- `選考スケジュール取得`: deadline 未抽出、date parse、confidence/source follow
 - `ガクチカ作成`: 深掘り不足、要約/ES draft 反映不足
 - `志望動機作成`: 企業理解不足、経験接続不足、差別化不足
 - `面接対策`: 追質問不足、feedback の具体性不足

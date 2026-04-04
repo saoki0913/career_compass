@@ -51,7 +51,7 @@ case "$suite" in
 esac
 
 case "$feature" in
-  all|es-review|gakuchika|motivation|interview) ;;
+  all|es-review|rag-ingest|selection-schedule|gakuchika|motivation|interview) ;;
   *)
     echo "Unsupported feature: $feature" >&2
     exit 2
@@ -85,6 +85,8 @@ export LIVE_AI_CONVERSATION_CASE_SET="$suite"
 export LIVE_AI_CONVERSATION_TARGET_ENV="${LIVE_AI_CONVERSATION_TARGET_ENV:-staging}"
 export LIVE_ES_REVIEW_OUTPUT_DIR="$run_dir"
 export LIVE_ES_REVIEW_CASE_SET="$suite"
+export LIVE_COMPANY_INFO_CASE_SET="$suite"
+export LIVE_COMPANY_INFO_TARGET_ENV="${LIVE_COMPANY_INFO_TARGET_ENV:-staging}"
 export RUN_LIVE_ES_REVIEW=1
 if [[ "$suite" == "extended" ]]; then
   export LIVE_ES_REVIEW_ENABLE_JUDGE="${LIVE_ES_REVIEW_ENABLE_JUDGE:-1}"
@@ -126,15 +128,50 @@ run_conversation_feature() {
     npx playwright test -c playwright.live.config.ts e2e/live-ai-conversations.spec.ts
 }
 
+run_company_info_feature() {
+  local company_feature="$1"
+  local env_flag=""
+  local pytest_target=""
+
+  case "$company_feature" in
+    rag-ingest)
+      env_flag="RUN_LIVE_RAG_INGEST=1"
+      pytest_target="backend/tests/company_info/integration/test_live_rag_ingest_report.py"
+      ;;
+    selection-schedule)
+      env_flag="RUN_LIVE_SELECTION_SCHEDULE=1"
+      pytest_target="backend/tests/company_info/integration/test_live_selection_schedule_report.py"
+      ;;
+    *)
+      echo "Unsupported company info feature: $company_feature" >&2
+      exit 2
+      ;;
+  esac
+
+  run_logged \
+    "${company_feature}-pytest" \
+    env \
+    AI_LIVE_OUTPUT_DIR="$run_dir" \
+    LIVE_COMPANY_INFO_CASE_SET="$suite" \
+    LIVE_COMPANY_INFO_TARGET_ENV="${LIVE_COMPANY_INFO_TARGET_ENV:-staging}" \
+    ${env_flag} \
+    python -m pytest "$pytest_target" -v -s -m integration
+}
+
 case "$feature" in
   all)
     run_es_review
+    run_company_info_feature "rag-ingest"
+    run_company_info_feature "selection-schedule"
     run_conversation_feature "gakuchika"
     run_conversation_feature "motivation"
     run_conversation_feature "interview"
     ;;
   es-review)
     run_es_review
+    ;;
+  rag-ingest|selection-schedule)
+    run_company_info_feature "$feature"
     ;;
   gakuchika|motivation|interview)
     run_conversation_feature "$feature"

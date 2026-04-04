@@ -6,11 +6,20 @@ import path from "node:path";
 const REPORT_NAME_RE = /^(live_[^/]+?)_(\d{8}T\d{6}Z)\.json$/;
 const FEATURE_DISPLAY = {
   es_review: "ES添削",
+  rag_ingest: "企業RAG取り込み",
+  selection_schedule: "選考スケジュール取得",
   gakuchika: "ガクチカ作成",
   motivation: "志望動機作成",
   interview: "面接対策",
 };
-const FEATURE_ORDER = ["es_review", "gakuchika", "motivation", "interview"];
+const FEATURE_ORDER = [
+  "es_review",
+  "rag_ingest",
+  "selection_schedule",
+  "gakuchika",
+  "motivation",
+  "interview",
+];
 
 const FEATURE_RECOMMENDATIONS = {
   es_review: [
@@ -34,6 +43,58 @@ const FEATURE_RECOMMENDATIONS = {
       title: "judge 低評価ケースを精査",
       description: "deterministic は通っても、自然さや設問適合で評価を落としている。",
       nextStep: "低評価 case の生成文を見て prompt と model routing を見直す。",
+    },
+  ],
+  rag_ingest: [
+    {
+      id: "crawl",
+      match: (reason) =>
+        reason.includes("crawl_failure") ||
+        reason.includes("fetch_failure") ||
+        reason.includes("http_error"),
+      title: "クロール経路を確認",
+      description: "公開ページ取得に失敗し、nightly の入口でつまずいている。",
+      nextStep: "対象 URL の疎通、fetcher、許可ドメイン条件を確認する。",
+    },
+    {
+      id: "storage",
+      match: (reason) =>
+        reason.includes("chunks_stored_zero") ||
+        reason.includes("embedding_failure") ||
+        reason.includes("store_failure"),
+      title: "埋め込み保存を確認",
+      description: "取得はできても RAG 保存まで完了していない可能性がある。",
+      nextStep: "embedding backend、chunking、vector store 保存結果を確認する。",
+    },
+    {
+      id: "cleanup",
+      match: (reason) => reason.includes("cleanup"),
+      title: "cleanup 失敗を確認",
+      description: "nightly 実行後の RAG データ削除に失敗している。",
+      nextStep: "delete-by-urls と company 単位 cleanup の実行ログを確認する。",
+    },
+  ],
+  selection_schedule: [
+    {
+      id: "deadline-missing",
+      match: (reason) => reason.includes("deadline_missing") || reason.includes("deadlines_found_false"),
+      title: "締切抽出の入口を確認",
+      description: "対象ページから締切候補を拾えていない。",
+      nextStep: "schedule source、follow link、抽出対象本文の圧縮結果を確認する。",
+    },
+    {
+      id: "date-parse",
+      match: (reason) => reason.includes("date_parse_failed") || reason.includes("year_mismatch"),
+      title: "日付解釈を確認",
+      description: "締切候補は見つかっても、年度や日付の解釈で崩れている。",
+      nextStep: "graduation year、date parser、year match 判定を確認する。",
+    },
+    {
+      id: "source-follow",
+      match: (reason) => reason.includes("source_follow_failed") || reason.includes("confidence_low_only"),
+      title: "根拠 source と confidence を確認",
+      description: "抽出できても confidence が低いか、follow link が弱い。",
+      nextStep: "trusted source 判定、follow-up fetch、confidence downgrade 条件を確認する。",
     },
   ],
   gakuchika: [
@@ -126,6 +187,8 @@ function inferReportType(report) {
   if (report.payload?.reportType) return String(report.payload.reportType);
   const base = path.basename(report.path);
   if (base.startsWith("live_es_review_")) return "es_review";
+  if (base.startsWith("live_rag_ingest_")) return "rag_ingest";
+  if (base.startsWith("live_selection_schedule_")) return "selection_schedule";
   if (base.startsWith("live_gakuchika_")) return "gakuchika";
   if (base.startsWith("live_motivation_")) return "motivation";
   if (base.startsWith("live_interview_")) return "interview";
@@ -262,6 +325,7 @@ function normalizeReports(reports) {
 }
 
 function createMissingFeature(reportType) {
+  const workflowImpact = isAlwaysReportOnlyFeature(reportType) ? "report_only" : "blocking";
   return {
     reportType,
     displayName: FEATURE_DISPLAY[reportType] || reportType,
@@ -283,7 +347,7 @@ function createMissingFeature(reportType) {
     ],
     reportFile: "(missing)",
     status: "missing_report",
-    workflowImpact: "blocking",
+    workflowImpact,
   };
 }
 
@@ -331,6 +395,10 @@ function statusForReport(report) {
   return "ok";
 }
 
+function isAlwaysReportOnlyFeature(reportType) {
+  return reportType === "rag_ingest" || reportType === "selection_schedule";
+}
+
 function isExtendedEsQualityReportOnly(report, suite) {
   if (suite !== "extended" || report.reportType !== "es_review" || report.counts.failed === 0) {
     return false;
@@ -342,6 +410,7 @@ function isExtendedEsQualityReportOnly(report, suite) {
 }
 
 function workflowImpactForReport(report, suite) {
+  if (isAlwaysReportOnlyFeature(report.reportType)) return "report_only";
   if (report.status === "missing_report") return "blocking";
   if (report.counts.failed === 0) return "none";
   if (isExtendedEsQualityReportOnly(report, suite)) return "report_only";

@@ -271,7 +271,15 @@ if should_run_target "github" && [[ -f "${secret_dir}/github-actions.env" ]]; th
   validate_env_file "$github_file"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying GitHub Actions env"
-    run_real gh secret set -R "$repo_slug" -f "$github_file" >/dev/null
+    gh_bin="$(find_real_binary gh)"
+    [[ -n "$gh_bin" ]] || release_die "Missing command: gh"
+    while IFS= read -r key; do
+      [[ -n "$key" ]] || continue
+      is_meta_key "$key" && continue
+      value="$(get_env_value "$github_file" "$key")"
+      release_log "exec: gh secret set ${key} -R ${repo_slug} --body [REDACTED]"
+      "$gh_bin" secret set "$key" -R "$repo_slug" --body "$value" >/dev/null
+    done < <(iter_env_keys "$github_file")
   else
     release_log "Checked GitHub Actions env"
   fi

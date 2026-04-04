@@ -122,7 +122,7 @@
 | `vercel-production.env` | production frontend env sync |
 | `railway-staging.env` | staging backend env sync |
 | `railway-production.env` | production backend env sync |
-| `github-actions.env` | GitHub Actions の `Dependency Review` / `CodeQL` / `Main Release Gate` 用 secrets（`CI_E2E_AUTH_SECRET`, LLM keys など） |
+| `github-actions.env` | GitHub Actions secrets の正本。`Dependency Review` / `CodeQL` / `Main Release Gate` / `AI Live` で使う secrets をここに集約する（`CI_E2E_AUTH_SECRET`, LLM keys, `FIRECRAWL_API_KEY` など） |
 | `supabase.env` | Supabase bootstrap inputs |
 | `cloudflare.env` | `stg-api.shupass.jp` を含む zone bootstrap inputs |
 | `<secrets root>/google-oauth/career_compass.env` | Google OAuth inventory（バンドルと兄弟） |
