@@ -50,6 +50,7 @@ describe("e2e auth fixtures", () => {
     const cookies = vi
       .fn()
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         { name: "csrf_token", value: "csrf-cookie" },
       ]);
@@ -131,6 +132,7 @@ describe("e2e auth fixtures", () => {
   it("keeps owned company and document helpers off the guest token path", async () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
     const cookies = vi.fn().mockResolvedValue([
+      { name: "better-auth.session_token", value: "session-cookie" },
       { name: "csrf_token", value: "csrf-cookie" },
     ]);
 
@@ -160,6 +162,7 @@ describe("e2e auth fixtures", () => {
       expect(call[1]?.headers).toMatchObject({
         "Content-Type": "application/json",
         "x-csrf-token": "csrf-cookie",
+        cookie: "better-auth.session_token=session-cookie; csrf_token=csrf-cookie",
       });
       expect(call[1]?.headers).not.toHaveProperty("x-device-token");
     }
@@ -219,6 +222,7 @@ describe("e2e auth fixtures", () => {
   it("keeps owned application, task, notification, and gakuchika helpers off the guest token path", async () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
     const cookies = vi.fn().mockResolvedValue([
+      { name: "better-auth.session_token", value: "session-cookie" },
       { name: "csrf_token", value: "csrf-cookie" },
     ]);
 
@@ -261,8 +265,43 @@ describe("e2e auth fixtures", () => {
       expect(call[1]?.headers).toMatchObject({
         "Content-Type": "application/json",
         "x-csrf-token": "csrf-cookie",
+        cookie: "better-auth.session_token=session-cookie; csrf_token=csrf-cookie",
       });
       expect(call[1]?.headers).not.toHaveProperty("x-device-token");
     }
+  });
+
+  it("for authenticated requests, forwards browser cookies as a cookie header", async () => {
+    const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
+    const cookies = vi.fn().mockResolvedValue([
+      { name: "better-auth.session_token", value: "session-cookie" },
+      { name: "csrf_token", value: "csrf-cookie" },
+      { name: "other_cookie", value: "other-value" },
+    ]);
+
+    const page = {
+      context: () => ({
+        cookies,
+        request: {
+          fetch: contextFetch,
+        },
+      }),
+    };
+
+    await apiRequestAsAuthenticatedUser(
+      page as never,
+      "POST",
+      "/api/companies",
+      { name: "認証済み会社" },
+    );
+
+    expect(contextFetch).toHaveBeenCalledWith(
+      "http://localhost:3000/api/companies",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          cookie: "better-auth.session_token=session-cookie; csrf_token=csrf-cookie; other_cookie=other-value",
+        }),
+      }),
+    );
   });
 });

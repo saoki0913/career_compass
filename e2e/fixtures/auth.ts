@@ -136,6 +136,15 @@ async function getCookieValue(
   return cookies.find((cookie) => cookie.name === name)?.value ?? null;
 }
 
+function buildCookieHeader(
+  cookies: Array<{ name: string; value: string }>,
+): string | null {
+  const pairs = cookies
+    .filter((cookie) => cookie.name && cookie.value)
+    .map((cookie) => `${cookie.name}=${cookie.value}`);
+  return pairs.length > 0 ? pairs.join("; ") : null;
+}
+
 async function ensureCsrfToken(page: Page, baseURL: string): Promise<string | null> {
   const existingToken = await getCookieValue(page, baseURL, CSRF_COOKIE_NAME);
   if (existingToken) {
@@ -342,22 +351,32 @@ async function buildApiRequestHeaders(
   includeGuestToken: boolean,
   method: string,
 ) {
+  let cookies = (await page.context().cookies(baseURL)) ?? [];
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
 
   if (includeGuestToken) {
-    const token = await getCookieValue(page, baseURL, GUEST_COOKIE_NAME);
+    const token = cookies.find((cookie) => cookie.name === GUEST_COOKIE_NAME)?.value ?? null;
     if (token) {
       headers["x-device-token"] = token;
     }
   }
 
   if (STATE_CHANGING_METHODS.has(method.toUpperCase())) {
-    const csrfToken = await ensureCsrfToken(page, baseURL);
+    let csrfToken = cookies.find((cookie) => cookie.name === CSRF_COOKIE_NAME)?.value ?? null;
+    if (!csrfToken) {
+      csrfToken = await ensureCsrfToken(page, baseURL);
+      cookies = (await page.context().cookies(baseURL)) ?? [];
+    }
     if (csrfToken) {
       headers[CSRF_HEADER_NAME] = csrfToken;
     }
+  }
+
+  const cookieHeader = buildCookieHeader(cookies);
+  if (cookieHeader) {
+    headers.cookie = cookieHeader;
   }
 
   return headers;
