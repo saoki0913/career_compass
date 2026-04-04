@@ -6,12 +6,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { applications, companies, deadlines } from "@/lib/db/schema";
 import { eq, and, desc, count } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 
 // Default phases by type
 const DEFAULT_PHASES: Record<string, string[]> = {
@@ -27,31 +25,7 @@ async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;
   guestId: string | null;
 } | null> {
-  // Try authenticated session first
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return {
-      userId: session.user.id,
-      guestId: null,
-    };
-  }
-
-  // Try guest token
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return {
-        userId: null,
-        guestId: guest.id,
-      };
-    }
-  }
-
-  return null;
+  return getRequestIdentity(request);
 }
 
 async function verifyCompanyAccess(

@@ -1,10 +1,8 @@
 import { NextRequest } from "next/server";
-import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
-import { auth } from "@/lib/auth";
-import { getGuestUser } from "@/lib/auth/guest";
 import { db } from "@/lib/db";
 import { gakuchikaContents } from "@/lib/db/schema";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
@@ -561,25 +559,7 @@ export async function consumeGakuchikaNextQuestionSse(
 }
 
 export async function getIdentity(request: NextRequest): Promise<Identity | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (!deviceToken) {
-    return null;
-  }
-
-  const guest = await getGuestUser(deviceToken);
-  if (!guest) {
-    return null;
-  }
-
-  return { userId: null, guestId: guest.id };
+  return getRequestIdentity(request);
 }
 
 export async function verifyGakuchikaAccess(

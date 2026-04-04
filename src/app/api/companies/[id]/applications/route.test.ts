@@ -2,31 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const {
-  authGetSessionMock,
-  getGuestUserMock,
+  getRequestIdentityMock,
   dbSelectMock,
   dbInsertMock,
 } = vi.hoisted(() => ({
-  authGetSessionMock: vi.fn(),
-  getGuestUserMock: vi.fn(),
+  getRequestIdentityMock: vi.fn(),
   dbSelectMock: vi.fn(),
   dbInsertMock: vi.fn(),
-}));
-
-vi.mock("next/headers", () => ({
-  headers: vi.fn(async () => new Headers()),
-}));
-
-vi.mock("@/lib/auth", () => ({
-  auth: {
-    api: {
-      getSession: authGetSessionMock,
-    },
-  },
-}));
-
-vi.mock("@/lib/auth/guest", () => ({
-  getGuestUser: getGuestUserMock,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -34,6 +16,10 @@ vi.mock("@/lib/db", () => ({
     select: dbSelectMock,
     insert: dbInsertMock,
   },
+}));
+
+vi.mock("@/app/api/_shared/request-identity", () => ({
+  getRequestIdentity: getRequestIdentityMock,
 }));
 
 function makeThenableQuery(result: unknown) {
@@ -59,13 +45,11 @@ function makeThenableQuery(result: unknown) {
 
 describe("api/companies/[id]/applications GET", () => {
   beforeEach(() => {
-    authGetSessionMock.mockReset();
-    getGuestUserMock.mockReset();
+    getRequestIdentityMock.mockReset();
     dbSelectMock.mockReset();
     dbInsertMock.mockReset();
 
-    authGetSessionMock.mockResolvedValue({ user: { id: "user-1" } });
-    getGuestUserMock.mockResolvedValue(null);
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
   });
 
   it("aggregates deadlines in one joined query per request", async () => {

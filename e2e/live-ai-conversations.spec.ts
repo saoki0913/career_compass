@@ -406,10 +406,11 @@ async function runMotivationSetup(
 }
 
 const MOTIVATION_FALLBACK_ANSWERS = [
-  "原体験として、課題を整理して関係者を巻き込みながら前に進めた経験があります。",
-  "その経験から、事業と現場の両方を理解し、価値につなげる仕事に魅力を感じています。",
-  "入社後は、顧客課題を構造化して周囲と連携しながら改善を進めたいです。",
-  "他社ではなくこの会社を選ぶ理由として、事業の広がりと挑戦機会の大きさを重視しています。",
+  "大学の企画運営で非効率な進行を立て直した経験から、仕組みで顧客課題を減らせる仕事に関心を持ちました。",
+  "株式会社テストDXはDX推進を通じて現場課題を整理し改善まで伴走できる点が魅力です。",
+  "大学では関係者の意見を整理し、優先順位を決めて改善を進めたため、企画職でもその強みを活かせます。",
+  "入社後は現場に近い位置で課題を構造化し、提案から実行までやり切る企画として価値を出したいです。",
+  "他社よりも御社を志望するのは、若手でも仮説を持って改善提案できる環境があると感じているからです。",
 ];
 
 function buildDeterministicMotivationFollowupAnswer(input: {
@@ -417,18 +418,62 @@ function buildDeterministicMotivationFollowupAnswer(input: {
   attemptIndex: number;
   transcript?: LiveAiConversationTranscriptTurn[];
 }) {
-  const fallback =
-    MOTIVATION_FALLBACK_ANSWERS[
+  const question = input.nextQuestion.trim();
+  const normalizedQuestion = question.replace(/\s+/g, "");
+
+  const targetedAnswer = (() => {
+    if (
+      normalizedQuestion.includes("他社") ||
+      normalizedQuestion.includes("御社") ||
+      normalizedQuestion.includes("この会社") ||
+      normalizedQuestion.includes("選ぶ理由") ||
+      normalizedQuestion.includes("志望理由")
+    ) {
+      return "他社よりも御社を志望するのは、DX推進で現場課題を構造化し、若手でも改善提案まで担える環境に魅力を感じているからです。";
+    }
+
+    if (
+      normalizedQuestion.includes("原体験") ||
+      normalizedQuestion.includes("きっかけ") ||
+      normalizedQuestion.includes("経験") ||
+      normalizedQuestion.includes("関心を持った")
+    ) {
+      return "大学の企画運営で非効率な進行を立て直した経験から、課題を整理して関係者を動かす仕事にやりがいを感じ、IT・通信業界で顧客課題を減らす仕事を志望しています。";
+    }
+
+    if (
+      normalizedQuestion.includes("企画職") ||
+      normalizedQuestion.includes("活かせる") ||
+      normalizedQuestion.includes("強み") ||
+      normalizedQuestion.includes("再現")
+    ) {
+      return "大学では関係者の意見を整理し、優先順位を決めて改善を進めてきたため、企画職でも論点整理と巻き込み力を活かして貢献できます。";
+    }
+
+    if (
+      normalizedQuestion.includes("入社後") ||
+      normalizedQuestion.includes("挑戦") ||
+      normalizedQuestion.includes("やりたい") ||
+      normalizedQuestion.includes("貢献")
+    ) {
+      return "入社後は現場に近い位置で課題を構造化し、関係者を巻き込みながら提案から実行までやり切る企画として価値を出したいです。";
+    }
+
+    if (
+      normalizedQuestion.includes("IT・通信") ||
+      normalizedQuestion.includes("業界") ||
+      normalizedQuestion.includes("顧客課題") ||
+      normalizedQuestion.includes("業務改革")
+    ) {
+      return "IT・通信業界を志望するのは、仕組みや業務改革によって顧客課題を継続的に減らせる点に魅力を感じているからです。";
+    }
+
+    return MOTIVATION_FALLBACK_ANSWERS[
       Math.min(input.attemptIndex, MOTIVATION_FALLBACK_ANSWERS.length - 1)
     ];
-  const latestUserAnswer =
-    [...(input.transcript ?? [])]
-      .reverse()
-      .find((turn) => turn.role === "user" && turn.content.trim())
-      ?.content.trim() || "";
-  const question = input.nextQuestion.trim();
-  const prefix = latestUserAnswer ? `直前の回答「${latestUserAnswer}」を補足すると、` : "";
-  return question ? `${prefix}${fallback} 追加で「${question}」にも答える形で整理します。` : `${prefix}${fallback}`;
+  })();
+
+  return question ? `${targetedAnswer} 特に「${question}」への回答として整理しています。` : targetedAnswer;
 }
 
 const GAKUCHIKA_FALLBACK_ANSWERS = [
