@@ -8,13 +8,11 @@ import {
   gakuchikaContents,
   interviewConversations,
   interviewFeedbackHistories,
-  interviewTurnEvents,
   motivationConversations,
   userProfiles,
   users,
 } from "@/lib/db/schema";
 import type { PlanType } from "@/lib/stripe/config";
-import { createInitialInterviewTurnState } from "@/lib/interview/session";
 
 const DEFAULT_TEST_EMAIL = "ci-e2e-user@shupass.jp";
 const DEFAULT_TEST_NAME = "CI E2E User";
@@ -251,19 +249,6 @@ export async function resetCiE2ELiveState(userId: string): Promise<CiE2ELiveStat
             .returning({ id: interviewFeedbackHistories.id })
         : [];
 
-    const deletedInterviewTurnEvents =
-      allInterviewIds.length > 0
-        ? await tx
-            .delete(interviewTurnEvents)
-            .where(
-              and(
-                eq(interviewTurnEvents.userId, userId),
-                inArray(interviewTurnEvents.conversationId, allInterviewIds),
-              ),
-            )
-            .returning({ id: interviewTurnEvents.id })
-        : [];
-
     const deletedInterviewConversations =
       liveInterviewIds.length > 0
         ? await tx
@@ -290,9 +275,9 @@ export async function resetCiE2ELiveState(userId: string): Promise<CiE2ELiveStat
               completedStages: JSON.stringify([]),
               lastQuestionFocus: null,
               questionFlowCompleted: false,
-              interviewPlanJson: null,
-              turnStateJson: JSON.stringify(createInitialInterviewTurnState()),
-              turnMetaJson: null,
+              selectedIndustry: null,
+              selectedRole: null,
+              selectedRoleSource: null,
               activeFeedbackDraft: null,
               currentFeedbackId: null,
               updatedAt: now,
@@ -356,7 +341,7 @@ export async function resetCiE2ELiveState(userId: string): Promise<CiE2ELiveStat
         interviewConversationsDeleted: deletedInterviewConversations.length,
         interviewConversationsReset: resetInterviewConversations.length,
         interviewFeedbackHistories: deletedInterviewFeedbackHistories.length,
-        interviewTurnEvents: deletedInterviewTurnEvents.length,
+        interviewTurnEvents: 0,
         creditTransactionsDeleted: deletedCreditTransactions.length,
       },
     };
