@@ -66,6 +66,7 @@ jobs:
       PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
       PLAYWRIGHT_SKIP_WEBSERVER: "1"
       CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      CI_E2E_SCOPE: ai-live-${{ github.run_id }}-es-review
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -114,6 +115,7 @@ jobs:
       PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
       PLAYWRIGHT_SKIP_WEBSERVER: "1"
       CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      CI_E2E_SCOPE: ai-live-${{ github.run_id }}-gakuchika
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -230,6 +232,7 @@ jobs:
       PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
       PLAYWRIGHT_SKIP_WEBSERVER: "1"
       CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      CI_E2E_SCOPE: ai-live-${{ github.run_id }}-motivation
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -270,6 +273,7 @@ jobs:
       PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
       PLAYWRIGHT_SKIP_WEBSERVER: "1"
       CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      CI_E2E_SCOPE: ai-live-${{ github.run_id }}-interview
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4

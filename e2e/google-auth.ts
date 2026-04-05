@@ -2,6 +2,7 @@ import { expect, type Page } from "@playwright/test";
 import { getBetterAuthSessionCookieCandidates } from "../src/lib/auth/ci-e2e";
 
 const ciE2EAuthSecret = process.env.CI_E2E_AUTH_SECRET?.trim();
+const ciE2EScope = process.env.CI_E2E_SCOPE?.trim();
 export const hasGoogleAuthState = Boolean(process.env.PLAYWRIGHT_AUTH_STATE);
 export const hasCiE2EAuth = Boolean(ciE2EAuthSecret);
 export const hasAuthenticatedUserAccess = hasCiE2EAuth || hasGoogleAuthState;
@@ -193,6 +194,7 @@ export async function ensureCiE2EAuthSession(page: Page) {
   const response = await page.context().request.post(`${baseUrl}/api/internal/test-auth/login`, {
     headers: {
       Authorization: `Bearer ${ciE2EAuthSecret}`,
+      ...(ciE2EScope ? { "x-ci-e2e-scope": ciE2EScope } : {}),
     },
   });
 

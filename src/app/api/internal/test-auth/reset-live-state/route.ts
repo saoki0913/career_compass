@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { isCiE2EAuthEnabled } from "@/lib/auth/ci-e2e";
 import {
+  CI_E2E_SCOPE_HEADER,
   ensureCiE2ETestUser,
   hasMatchingSecret,
   parseBearerSecret,
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const ensuredUser = await ensureCiE2ETestUser();
+    const ensuredUser = await ensureCiE2ETestUser(request.headers.get(CI_E2E_SCOPE_HEADER));
     const result = await resetCiE2ELiveState(ensuredUser.userId);
 
     return NextResponse.json({

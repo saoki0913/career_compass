@@ -15,6 +15,7 @@ vi.mock("@playwright/test", () => ({
 
 import {
   buildDeterministicGakuchikaFollowupAnswer,
+  buildDeterministicMotivationFollowupAnswer,
   runMotivationSetupWithRequest,
   runGakuchikaSetupWithRequest,
 } from "../../../e2e/live-ai-conversations.spec";
@@ -73,6 +74,21 @@ describe("live ai conversation helpers", () => {
     expect(result?.isDraftReady).toBe(true);
     expect(transcript.at(-1)?.content).toContain("顧客課題");
     expect(transcript.at(-1)?.content).not.toContain("特に「");
+  });
+
+  it("rotates concrete motivation origin answers on repeated experience prompts", () => {
+    const first = buildDeterministicMotivationFollowupAnswer({
+      nextQuestion: "その関心を持った原体験は何ですか？",
+      attemptIndex: 0,
+    });
+    const second = buildDeterministicMotivationFollowupAnswer({
+      nextQuestion: "その関心を持った原体験は何ですか？",
+      attemptIndex: 1,
+    });
+
+    expect(first).toContain("原体験");
+    expect(second).not.toBe(first);
+    expect(second).toContain("仕組み");
   });
 
   it("continues gakuchika setup with fallback answers until completion", async () => {

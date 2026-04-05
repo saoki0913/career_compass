@@ -133,6 +133,7 @@ describe("api/documents/[id]", () => {
       jobTypeId: null,
     };
 
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     authGetSessionMock.mockResolvedValue({ user: { id: "user-1" } });
     dbSelectMock
       .mockReturnValueOnce(makeDocumentQuery([document]))

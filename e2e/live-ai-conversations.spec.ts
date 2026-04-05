@@ -413,7 +413,13 @@ const MOTIVATION_FALLBACK_ANSWERS = [
   "他社よりも御社を志望するのは、若手でも仮説を持って改善提案できる環境があると感じているからです。",
 ];
 
-function buildDeterministicMotivationFollowupAnswer(input: {
+const MOTIVATION_EXPERIENCE_FALLBACKS = [
+  "学園祭運営で申請漏れが重なり、確認フローを整理して混乱を減らした経験が原体験です。",
+  "ゼミの共同発表で情報共有の型を作った結果、準備の抜け漏れが減り、仕組みで現場を楽にできると実感しました。",
+  "大学の企画運営で現場の負荷を下げる改善を続けた経験から、課題整理を仕事にしたいと考えるようになりました。",
+];
+
+export function buildDeterministicMotivationFollowupAnswer(input: {
   nextQuestion: string;
   attemptIndex: number;
   latestComplete?: Record<string, unknown> | null;
@@ -468,7 +474,17 @@ function buildDeterministicMotivationFollowupAnswer(input: {
       normalizedQuestion.includes("経験") ||
       normalizedQuestion.includes("関心を持った")
     ) {
-      return "大学の企画運営で非効率な進行を立て直した経験から、課題を整理して関係者を動かす仕事にやりがいを感じ、IT・通信業界で顧客課題を減らす仕事を志望しています。";
+      return MOTIVATION_EXPERIENCE_FALLBACKS[
+        input.attemptIndex % MOTIVATION_EXPERIENCE_FALLBACKS.length
+      ];
+    }
+
+    if (
+      normalizedQuestion.includes("印象に残っている場面") ||
+      normalizedQuestion.includes("どの場面") ||
+      normalizedQuestion.includes("最初のきっかけ")
+    ) {
+      return "学園祭準備で申請状況の共有が曖昧で当日対応が遅れた場面があり、関係者一覧と確認フローを作って改善したことが印象に残っています。";
     }
 
     if (

@@ -5,7 +5,6 @@
  */
 
 import { NextRequest } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { documents, companies, userProfiles } from "@/lib/db/schema";
 import {
@@ -19,8 +18,6 @@ import type {
   ProfileContext,
 } from "@/lib/ai/user-context";
 import { eq } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
 import { reserveCredits, confirmReservation, cancelReservation, calculateESReviewCost } from "@/lib/credits";
 import { enforceRateLimitLayers, REVIEW_RATE_LAYERS } from "@/lib/rate-limit-spike";
 import type { TemplateType } from "@/hooks/useESReview";
@@ -37,6 +34,7 @@ import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 function deriveCharMin(charLimit?: number | null) {
@@ -162,27 +160,8 @@ function parseCorporateInfoUrls(raw: string | null): CorporateInfoUrlEntry[] {
   return parseCorporateInfoSources(raw) as CorporateInfoUrlEntry[];
 }
 
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
+async function getIdentity(request: NextRequest) {
+  return getRequestIdentity(request);
 }
 
 async function verifyDocumentAccess(

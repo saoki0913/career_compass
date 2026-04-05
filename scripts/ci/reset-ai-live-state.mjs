@@ -58,6 +58,7 @@ function buildFailureMessage(result) {
 export async function resetAiLiveState({
   baseUrl,
   authSecret = process.env.CI_E2E_AUTH_SECRET,
+  scope = process.env.CI_E2E_SCOPE,
   fetchImpl = fetch,
 } = {}) {
   const endpoint = buildEndpoint(baseUrl || process.env.PLAYWRIGHT_BASE_URL);
@@ -65,6 +66,7 @@ export async function resetAiLiveState({
     method: "POST",
     headers: {
       Authorization: `Bearer ${authSecret || ""}`,
+      ...(scope ? { "x-ci-e2e-scope": scope } : {}),
     },
   });
   const { body, rawText } = await parseJsonSafely(response);
@@ -95,12 +97,18 @@ export async function resetAiLiveState({
 function parseArgs(argv) {
   const out = {
     baseUrl: process.env.PLAYWRIGHT_BASE_URL || "",
+    scope: process.env.CI_E2E_SCOPE || "",
   };
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--base-url") {
       out.baseUrl = argv[i + 1] || out.baseUrl;
+      i += 1;
+      continue;
+    }
+    if (arg === "--scope") {
+      out.scope = argv[i + 1] || out.scope;
       i += 1;
     }
   }

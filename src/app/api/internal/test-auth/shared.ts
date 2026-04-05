@@ -18,6 +18,7 @@ const DEFAULT_TEST_EMAIL = "ci-e2e-user@shupass.jp";
 const DEFAULT_TEST_NAME = "CI E2E User";
 const DEFAULT_TEST_PLAN: PlanType = "standard";
 export const CI_E2E_LIVE_SEED_CREDITS = 1000;
+export const CI_E2E_SCOPE_HEADER = "x-ci-e2e-scope";
 
 type DatabaseTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -44,16 +45,46 @@ export type CiE2ELiveStateResetResult = {
   };
 };
 
-function resolveTestUserConfig(): Omit<CiE2ETestUser, "userId"> {
-  const email = process.env.CI_E2E_TEST_EMAIL?.trim() || DEFAULT_TEST_EMAIL;
-  const name = process.env.CI_E2E_TEST_NAME?.trim() || DEFAULT_TEST_NAME;
+function normalizeScope(rawScope: string | null | undefined) {
+  const normalized = String(rawScope || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return normalized.slice(0, 48);
+}
+
+function scopeEmail(baseEmail: string, scope: string) {
+  if (!scope) return baseEmail;
+  const atIndex = baseEmail.indexOf("@");
+  if (atIndex <= 0) return baseEmail;
+  const local = baseEmail.slice(0, atIndex);
+  const domain = baseEmail.slice(atIndex + 1);
+  return `${local}+${scope}@${domain}`;
+}
+
+function scopeName(baseName: string, scope: string) {
+  if (!scope) return baseName;
+  return `${baseName} (${scope})`;
+}
+
+function resolveTestUserConfig(scopeInput?: string | null): Omit<CiE2ETestUser, "userId"> {
+  const baseEmail = process.env.CI_E2E_TEST_EMAIL?.trim() || DEFAULT_TEST_EMAIL;
+  const baseName = process.env.CI_E2E_TEST_NAME?.trim() || DEFAULT_TEST_NAME;
   const requestedPlan = process.env.CI_E2E_TEST_PLAN?.trim();
+  const scope = normalizeScope(scopeInput);
   const plan: PlanType =
     requestedPlan === "free" || requestedPlan === "standard" || requestedPlan === "pro"
       ? requestedPlan
       : DEFAULT_TEST_PLAN;
 
-  return { email, name, plan };
+  return {
+    email: scopeEmail(baseEmail, scope),
+    name: scopeName(baseName, scope),
+    plan,
+  };
 }
 
 export function parseBearerSecret(headerValue: string | null | undefined) {
@@ -77,12 +108,15 @@ export function hasMatchingSecret(expected: string, actual: string | null) {
   return timingSafeEqual(expectedBuffer, actualBuffer);
 }
 
-export async function ensureCiE2ETestUser() {
-  return db.transaction(async (tx) => ensureCiE2ETestUserWithTx(tx));
+export async function ensureCiE2ETestUser(scopeInput?: string | null) {
+  return db.transaction(async (tx) => ensureCiE2ETestUserWithTx(tx, scopeInput));
 }
 
-export async function ensureCiE2ETestUserWithTx(tx: DatabaseTransaction): Promise<CiE2ETestUser> {
-  const { email, name, plan } = resolveTestUserConfig();
+export async function ensureCiE2ETestUserWithTx(
+  tx: DatabaseTransaction,
+  scopeInput?: string | null,
+): Promise<CiE2ETestUser> {
+  const { email, name, plan } = resolveTestUserConfig(scopeInput);
   const now = new Date();
 
   const [existingUser] = await tx.select().from(users).where(eq(users.email, email)).limit(1);

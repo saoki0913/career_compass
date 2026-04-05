@@ -116,4 +116,21 @@ describe("api/internal/test-auth/reset-live-state", () => {
     expect(ensureCiE2ETestUserMock).toHaveBeenCalledOnce();
     expect(resetCiE2ELiveStateMock).toHaveBeenCalledWith("user-1");
   });
+
+  it("passes the CI scope header to test user resolution", async () => {
+    const { POST } = await import("@/app/api/internal/test-auth/reset-live-state/route");
+
+    const response = await POST(
+      new NextRequest("http://localhost:3000/api/internal/test-auth/reset-live-state", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer top-secret",
+          "x-ci-e2e-scope": "ai-live-123-gakuchika",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(ensureCiE2ETestUserMock).toHaveBeenCalledWith("ai-live-123-gakuchika");
+  });
 });

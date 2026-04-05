@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   apiRequest,
+  apiRequestAsAuthenticatedUser,
   createOwnedCompany,
   createOwnedDocument,
   deleteOwnedCompany,
@@ -89,7 +90,7 @@ test.describe("Live AI major flow", () => {
       documentId = document.id;
 
       const reviewStreamBody = await expectOkResponse(
-        await apiRequest(page, "POST", `/api/documents/${documentId}/review/stream`, {
+        await apiRequestAsAuthenticatedUser(page, "POST", `/api/documents/${documentId}/review/stream`, {
           content:
             "私が貴社を志望する理由は、顧客課題に近い場所で改善提案を繰り返し、事業成長に貢献できる環境だと感じているためです。",
           companyId,

@@ -10,6 +10,7 @@ import {
 import { db } from "@/lib/db";
 import { sessions } from "@/lib/db/schema";
 import {
+  CI_E2E_SCOPE_HEADER,
   ensureCiE2ETestUser,
   hasMatchingSecret,
   parseBearerSecret,
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const ensuredUser = await ensureCiE2ETestUser();
+    const ensuredUser = await ensureCiE2ETestUser(request.headers.get(CI_E2E_SCOPE_HEADER));
     await db.delete(sessions).where(eq(sessions.userId, ensuredUser.userId));
 
     const authContext = await auth.$context;
