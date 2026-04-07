@@ -11,11 +11,12 @@ Convert the shared understanding into an implementation-ready PRD.
 
 ## Workflow
 
-1. Re-read the latest design decisions and inspect the codebase where claims need validation.
+1. Re-read the latest design decisions, the latest `architecture-gate` result, and inspect the codebase where claims need validation.
 2. Run a short Grill Me loop again if important ambiguity remains.
-3. Sketch the modules, surfaces, or workflows that will likely change.
-4. Write the PRD in Japanese using `private/agent-pipeline/templates/prd-template.md`.
-5. Save it to `docs/prd/YYYY-MM-DD-<slug>.md`.
+3. Preserve any `PASS_WITH_REFACTOR` or `BLOCK` conclusions from the architecture gate as explicit prerequisites.
+4. Sketch the modules, surfaces, or workflows that will likely change.
+5. Write the PRD in Japanese using `private/agent-pipeline/templates/prd-template.md`.
+6. Save it to `docs/prd/YYYY-MM-DD-<slug>.md`.
 
 ## PRD requirements
 

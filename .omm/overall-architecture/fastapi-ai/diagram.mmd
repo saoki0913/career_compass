@@ -1,0 +1,9 @@
+graph LR
+    routers["Routers\nbackend/app/routers/"]
+    rag-utils["RAG Utilities\nbackend/app/utils/vector_store.py + hybrid_search.py + reranker.py"]
+    prompt-assets["Prompt Assets\nbackend/app/prompts/"]
+    security-runtime["Security Runtime\nbackend/app/main.py + security/ + limiter.py"]
+
+    security-runtime -->|"applies middleware and internal-service protection"| routers
+    routers -->|"use retrieval and enrichment helpers"| rag-utils
+    routers -->|"load managed prompts and templates"| prompt-assets

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DEADLINE_TYPE_LABELS } from "@/hooks/useCompanyDeadlines";
 import type { Deadline, DeadlineType } from "@/hooks/useCompanyDeadlines";
 import { notifySuccess } from "@/lib/notifications";
-import { getUserFacingErrorMessage } from "@/lib/api-errors";
+import { reportUserFacingError } from "@/lib/client-error-ui";
 
 interface DeadlineApprovalModalProps {
   isOpen: boolean;
@@ -124,7 +124,7 @@ export function DeadlineApprovalModal({
       });
       onClose();
     } catch (err) {
-      setError(getUserFacingErrorMessage(err, {
+      setError(reportUserFacingError(err, {
         code: "DEADLINE_APPROVAL_FAILED",
         userMessage: "締切を承認できませんでした。",
       }, "DeadlineApprovalModal:confirm"));

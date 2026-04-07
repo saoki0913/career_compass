@@ -5,6 +5,21 @@ import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from "@/lib/csrf";
 
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/** Aligns with fetch(input, init): init.method wins when non-empty; else Request.method; else GET. */
+function resolveFetchMethod(input: RequestInfo | URL, init?: RequestInit): string {
+  const explicit = init?.method;
+  if (typeof explicit === "string") {
+    const trimmed = explicit.trim();
+    if (trimmed !== "") {
+      return trimmed.toUpperCase();
+    }
+  }
+  if (typeof Request !== "undefined" && input instanceof Request) {
+    return input.method.toUpperCase();
+  }
+  return "GET";
+}
+
 function readCookie(name: string): string | null {
   const prefix = `${name}=`;
   for (const part of document.cookie.split(";")) {
@@ -65,12 +80,13 @@ export function CsrfFetchBootstrap() {
     void ensureCsrfToken();
 
     window.fetch = async (input, init) => {
-      const method = (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
+      const method = resolveFetchMethod(input, init);
+      const targetUrl = resolveUrl(input);
+
       if (!STATE_CHANGING_METHODS.has(method)) {
         return originalFetch(input, init);
       }
 
-      const targetUrl = resolveUrl(input);
       if (!targetUrl || targetUrl.origin !== window.location.origin) {
         return originalFetch(input, init);
       }

@@ -1283,6 +1283,160 @@ def get_template_rag_profile(template_type: str) -> dict:
     return TEMPLATE_RAG_PROFILES.get(template_type, TEMPLATE_RAG_PROFILES["basic"]).copy()
 
 
+# Synthetic questions for draft generation (align with ES review template types).
+DRAFT_SYNTHETIC_QUESTION_GAKUCHIKA = (
+    "学生時代に力を入れたことについて、設問に答える形で具体的に述べなさい。"
+)
+
+
+def draft_synthetic_question_company_motivation(honorific: str) -> str:
+    return f"{honorific}を志望する理由を述べなさい。"
+
+
+def _draft_generation_output_contract_json(*, kind: str, char_min: Optional[int], char_max: Optional[int]) -> str:
+    band = f"{char_min}〜{char_max}字" if char_min and char_max else "指定範囲の字数"
+    if kind == "gakuchika":
+        return f"""- 出力は有効な JSON のみ（説明文・マークダウン・コードフェンス禁止）
+- キーは次のとおり:
+  - "draft": ガクチカ本文（だ・である調、改行・箇条書き・空行を入れず1段落の連続した文章）
+  - "followup_suggestion": 短い次アクション文言（省略可。省略時は「更に深掘りする」相当でよい）
+- "draft" の文字数は厳守: {band}
+- JSON 以外を出力しない"""
+    if kind == "motivation":
+        return f"""- 出力は有効な JSON のみ（説明文・マークダウン・コードフェンス禁止）
+- キーは次のとおり:
+  - "draft": 志望動機本文（だ・である調、改行・箇条書き・空行を入れず1段落の連続した文章）
+  - "key_points": 本文で強調した論点の文字列配列（3件程度）
+  - "company_keywords": 企業理解に使った観点の短い語の文字列配列（空可）
+- "draft" の文字数は厳守: {band}
+- 会話・材料にない企業固有事実・職種・数字を捏造しない
+- JSON 以外を出力しない"""
+    raise ValueError(f"Unknown draft JSON kind: {kind}")
+
+
+def build_template_draft_generation_prompt(
+    template_type: str,
+    *,
+    company_name: Optional[str],
+    industry: Optional[str],
+    question: str,
+    char_min: Optional[int],
+    char_max: Optional[int],
+    primary_material_heading: str,
+    primary_material_body: str,
+    company_reference_heading: Optional[str] = None,
+    company_reference_body: Optional[str] = None,
+    output_json_kind: str,
+    role_name: Optional[str] = None,
+    company_evidence_cards: Optional[list[dict]] = None,
+    has_rag: bool = False,
+    grounding_mode: str = "none",
+    llm_model: Optional[str] = None,
+) -> tuple[str, str]:
+    """Build system+user prompts for one-shot ES draft generation using TEMPLATE_DEFS (same source as ES review).
+
+    Company context for motivation should appear in ``company_reference_body`` when RAG evidence cards are empty.
+    """
+    template_def = TEMPLATE_DEFS.get(template_type)
+    if not template_def:
+        raise ValueError(f"Unknown template type: {template_type}")
+    if output_json_kind not in {"gakuchika", "motivation"}:
+        raise ValueError(f"output_json_kind must be gakuchika or motivation, got {output_json_kind}")
+
+    template_role = TEMPLATE_ROLES.get(template_type, TEMPLATE_ROLES["basic"])
+    honorific = get_company_honorific(industry)
+    original_len = 0
+    target_stage = "default"
+
+    effective_grounding_level = get_template_default_grounding_level(template_type)
+    effective_company_grounding = grounding_level_to_policy(effective_grounding_level)
+
+    system_prompt = f"""あなたは{template_role}である。
+
+<task>
+会話・与えられた材料のみを根拠に、提出用のES本文を新規に書く。
+材料に書かれていない経験・役割・成果・数字・企業固有情報を捏造・推測で足さない。
+企業や職種について材料にない断定をしない。
+</task>
+
+<output_contract>
+{_draft_generation_output_contract_json(kind=output_json_kind, char_min=char_min, char_max=char_max)}
+</output_contract>
+
+<constraints>
+- 設問に正面から答える
+- だ・である調で統一（です・ますは使わない）
+- 本文で企業に言及するときは企業名ではなく「{honorific}」を使う（ガクチカで企業に触れない場合は省略してよい）
+- 設問の冒頭表現をそのまま繰り返して始めない
+- 末尾で同じ文末表現を2文連続で使わない
+- 最終文は具体的な行動・成果・貢献イメージで締め、抽象意気込みの羅列にしない
+</constraints>
+
+{_format_length_policy_block(char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
+
+<core_style>
+{_GLOBAL_CONCLUSION_FIRST_RULES}
+</core_style>
+
+<template_focus>
+{template_def["description"]}
+</template_focus>
+{_format_template_required_elements(template_type)}
+{_format_template_anti_patterns(template_type)}
+{_format_focus_mode_guidance("normal")}
+{_format_short_answer_guidance(template_type, char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
+{_format_midrange_length_guidance(
+    template_type,
+    char_min,
+    char_max,
+    length_control_mode="default",
+    length_shortfall=None,
+    original_len=original_len,
+    llm_model=llm_model,
+)}
+{_format_question_specific_guidance(template_type, question)}
+{_format_negative_reframe_guidance(template_type)}
+{_format_company_guidance(
+    company_evidence_cards=company_evidence_cards,
+    has_rag=has_rag,
+    grounding_mode=grounding_mode,
+    requires_company_rag=bool(template_def.get("requires_company_rag")),
+    company_grounding=effective_company_grounding,
+    generic_role_mode=False,
+    evidence_coverage_level="none",
+    template_type=template_type,
+)}
+{_format_required_template_playbook(
+    template_type,
+    char_min,
+    char_max,
+    honorific=honorific,
+    role_name=role_name,
+    intern_name=None,
+    original_len=original_len,
+    llm_model=llm_model,
+)}
+"""
+
+    meta_lines = [f"【設問】\n{question.strip()}"]
+    if company_name:
+        meta_lines.append(f"【企業名】\n{company_name}")
+    if industry:
+        meta_lines.append(f"【業界】\n{industry}")
+    if role_name:
+        meta_lines.append(f"【志望職種・コース】\n{role_name.strip()}")
+    meta_lines.append(f"【字数】\n{_format_char_condition(char_min, char_max)}")
+
+    blocks: list[str] = ["\n\n".join(meta_lines), f"{primary_material_heading}\n{primary_material_body.strip()}"]
+    if company_reference_body and str(company_reference_body).strip():
+        heading = company_reference_heading or "【企業参考情報（要約）】"
+        blocks.append(f"{heading}\n{company_reference_body.strip()}")
+
+    user_prompt = "\n\n".join(blocks) + "\n\n上記のみを根拠にJSONを出力してください。"
+
+    return system_prompt.strip(), user_prompt
+
+
 def build_template_rewrite_prompt(
     template_type: str,
     company_name: Optional[str],

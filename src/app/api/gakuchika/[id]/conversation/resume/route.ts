@@ -6,10 +6,12 @@ import {
   getGakuchikaNextAction,
   getIdentity,
   getQuestionFromFastAPI,
+  isInterviewReady,
   safeParseMessages,
   safeParseConversationState,
   serializeConversationState,
   verifyGakuchikaAccess,
+  type ConversationState,
 } from "@/app/api/gakuchika/shared";
 import {
   getRequestId,
@@ -76,7 +78,22 @@ export async function POST(
     let status = conversation.status;
     let nextAction = getGakuchikaNextAction(conversationState);
 
-    if (conversationState.stage === "draft_ready") {
+    const shouldFetchNextQuestion =
+      conversationState.stage === "draft_ready" || conversationState.stage === "interview_ready";
+
+    if (shouldFetchNextQuestion) {
+      const stateForApi: ConversationState =
+        conversationState.stage === "interview_ready"
+          ? {
+              ...conversationState,
+              stage: "deep_dive_active",
+              deepdiveComplete: false,
+              deepdiveStage: "es_aftercare",
+              progressLabel: "さらに深掘り中",
+              extendedDeepDiveRound: (conversationState.extendedDeepDiveRound ?? 0) + 1,
+            }
+          : conversationState;
+
       const result = await getQuestionFromFastAPI(
         {
           title: gakuchika.title,
@@ -85,11 +102,12 @@ export async function POST(
         },
         messages,
         questionCount,
-        conversationState,
+        stateForApi,
         requestId,
       );
 
-      const resolvedNextAction = result.nextAction ?? getGakuchikaNextAction(result.conversationState ?? conversationState);
+      const resolvedNextAction =
+        result.nextAction ?? getGakuchikaNextAction(result.conversationState ?? stateForApi);
       if (result.error || (resolvedNextAction === "ask" && !result.question)) {
         logAiCreditCostSummary({
           feature: "gakuchika_resume",
@@ -114,9 +132,16 @@ export async function POST(
           },
         ];
       }
-      conversationState = result.conversationState ?? conversationState;
+      conversationState = result.conversationState
+        ? {
+            ...stateForApi,
+            ...result.conversationState,
+            extendedDeepDiveRound:
+              result.conversationState.extendedDeepDiveRound ?? stateForApi.extendedDeepDiveRound,
+          }
+        : stateForApi;
       nextAction = resolvedNextAction;
-      status = conversationState.stage === "interview_ready" ? "completed" : "in_progress";
+      status = isInterviewReady(conversationState) ? "completed" : "in_progress";
 
       await db
         .update(gakuchikaConversations)
@@ -171,7 +196,8 @@ export async function POST(
       messages,
       nextQuestion: nextAction === "ask" ? lastAssistantMessage?.content || null : null,
       questionCount,
-      isCompleted: conversationState.stage === "interview_ready",
+      isCompleted: isInterviewReady(conversationState),
+      isInterviewReady: isInterviewReady(conversationState),
       conversationState,
       nextAction,
       isAIPowered: true,

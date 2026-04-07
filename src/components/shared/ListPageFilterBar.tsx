@@ -50,10 +50,10 @@ export function ListPageFilterBar({
   viewToggle,
 }: ListPageFilterBarProps) {
   return (
-    <div className="mb-8 rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(244,247,251,0.94))] p-4 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.28)] backdrop-blur-xl">
-      <div className="pb-1">
-        <div className="flex min-w-full flex-wrap items-center gap-2.5">
-          <div className="relative w-full sm:w-[22rem] sm:shrink-0">
+    <div className="mb-8 min-w-0 rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(244,247,251,0.94))] p-4 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+      <div className="min-w-0 pb-1">
+        <div className="flex w-full min-w-0 max-w-full flex-nowrap items-center gap-2.5 overflow-x-auto overscroll-x-contain pb-0.5 [-ms-overflow-style:none] [scrollbar-gutter:stable] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/80">
+          <div className="relative min-w-[10rem] max-w-[22rem] flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
@@ -65,7 +65,7 @@ export function ListPageFilterBar({
           </div>
 
           <Select value={sortBy} onValueChange={onSortChange}>
-            <SelectTrigger className="h-10 w-full sm:w-[160px] sm:shrink-0">
+            <SelectTrigger className="h-10 w-[160px] shrink-0">
               <SelectValue placeholder="並び順" />
             </SelectTrigger>
             <SelectContent>
@@ -78,12 +78,12 @@ export function ListPageFilterBar({
           </Select>
 
           {extraFilter ? (
-            <div className="flex w-full flex-wrap items-center gap-2.5 sm:inline-flex sm:w-auto sm:shrink-0 [&>*]:min-w-0 sm:[&>*]:shrink-0">
+            <div className="flex shrink-0 items-center gap-2.5 [&>*]:min-w-0 [&>*]:shrink-0">
               {extraFilter}
             </div>
           ) : null}
 
-          {viewToggle ? <div className="w-full sm:w-auto sm:shrink-0">{viewToggle}</div> : null}
+          {viewToggle ? <div className="shrink-0">{viewToggle}</div> : null}
 
           {filterTabs.map((tab) => {
             const tabCount = tabCounts[tab.key] ?? 0;

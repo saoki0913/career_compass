@@ -9,7 +9,6 @@ import { db } from "@/lib/db";
 import {
   applications,
   companies,
-  deadlines,
   documents,
   gakuchikaContents,
   guestUsers,
@@ -194,7 +193,6 @@ export async function migrateGuestToUser(deviceToken: string, userId: string) {
       table:
         | typeof companies
         | typeof applications
-        | typeof deadlines
         | typeof documents
         | typeof tasks
         | typeof notifications
@@ -219,7 +217,6 @@ export async function migrateGuestToUser(deviceToken: string, userId: string) {
     await Promise.all([
       migrateOwner(companies),
       migrateOwner(applications),
-      migrateOwner(deadlines),
       migrateOwner(documents),
       migrateOwner(tasks),
       migrateOwner(notifications),

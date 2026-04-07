@@ -1,6 +1,6 @@
 # 実装進捗ドキュメント
 
-**最終更新**: 2026-04-02
+**最終更新**: 2026-04-05
 
 ## 人向け要約（読み始めに）
 
@@ -12,9 +12,14 @@
 
 ## 最近の更新
 
+- 2026-04-05: ガクチカ・志望動機の ES 下書き生成を ES 添削と同一の `TEMPLATE_DEFS` 由来に統一。`build_template_draft_generation_prompt`（`gakuchika` / `company_motivation`）、旧 `GAKUCHIKA_DRAFT_PROMPT`・`DRAFT_GENERATION_PROMPT`・`DRAFT_FROM_PROFILE_PROMPT` 削除、Notion 必須キーから `gakuchika.draft_generation` / `motivation.draft_generation` 除外。`tests/prompts/test_es_draft_generation_prompt.py` 追加。`SPEC` 17・17.5、`GAKUCHIKA_DEEP_DIVE`、`MOTIVATION`、`ES_REVIEW`、本ファイルを同期。
+- 2026-04-05: ガクチカ一覧・詳細・進捗（MEMO 追加分）。`GET /api/gakuchika` で最新会話行を素材単位に集約し `conversationStatus` を正規化、`questionCount` フォールバックを追加。一覧は `getGakuchikaListStatusKey` と `visibilitychange` 再取得。詳細は次質問を `useStreamingTextPlayback` + `StreamingChatMessage` で再生。FastAPI `_build_core_missing_elements` の `context` を状況語ヒントで緩和。Vitest / pytest 更新。`docs/SPEC.md` 17・`GAKUCHIKA_DEEP_DIVE`・本ファイルを同期。
+- 2026-04-05: ガクチカ作成（MEMO 77–86）。`会話をやり直す` を確認モーダル経由に、STAR 進捗の楽観更新削除と `getBuildItemStatus` 保守化、FastAPI で ES 構築中の `focus_key` を `missing_elements` 先頭 STAR に正規化、プロンプトに STAR 順の明示、ES 下書き 300/400/500 字の UI 選択と `charLimit` 連携。`docs/SPEC.md` 17 / `docs/features/GAKUCHIKA_DEEP_DIVE.md` を同期。
+- 2026-04-05: 志望動機（MEMO 48–64 相当）。setup UI をビューポート内に収める、`会話せずに下書き` ルート（`generate-draft-direct` + FastAPI `generate-draft-from-profile`）、志望動機・ガクチカ ES 本文の 1 段落正規化、FastAPI `detail` のユーザー向け正規化、`closing` /「仕上げを整理中」の非表示とプロンプト・遷移の整理、質問の反復抑止・`ready_for_draft` 緩和の継続。`docs/features/MOTIVATION.md` / `SPEC` 17.5 / `CREDITS` を同期。
 - 2026-04-02: ES添削の品質基盤を更新。設問分類を `confidence / secondary_candidates / rationale / recommended_grounding_level` 付きへ拡張し、company grounding を `none / light / standard / deep` の段階制へ移行。company evidence card は `value_orientation / business_characteristics / work_environment / role_expectation` の中間表現へ正規化し、非 length 主因の複合失敗では safe fallback rewrite を使うようにした。`review_meta` と telemetry に classification / grounding / fallback / misclassification recovery 診断を追加し、ReviewPanel に自動判定の推奨理由表示を追加。
 - 2026-04-02: 企業特化模擬面接を v2.1 に更新。`coverageState` を deterministic coverage の正本にし、`recentQuestionSummariesV2 + intentKey` による同義質問抑止、`formatPhase` による方式別制御、`interview_turn_events` による各ターンの canonical log 保存、`weakest_turn_id` に紐づく `improved_answer`、完了後の `satisfactionScore` 保存を追加。開始時は既存進行中セッションを reset し、講評履歴のみ保持する形に統一。`docs/features/INTERVIEW.md` と `docs/SPEC.md` を最新の state / API / UI に同期。
 - 2026-04-02: 企業特化模擬面接を v2 に移行。開始前設定を `業界 / 職種 / 面接方式 / 選考種別 / 面接段階 / 面接官タイプ / 厳しさ` の確認型に再編し、`roleTrack` は内部自動分類へ変更。FastAPI / Next API / product UI を固定段階フローから `interview_plan + turn_state + turn_meta` ベースの進行へ置換し、`standard_behavioral / case / technical / discussion / presentation` を同一機能で扱えるよう更新。最終講評は 7 軸評価、一貫性リスク、弱い設問タイプ、次の準備論点を返す形へ拡張し、旧版セッションは reset 扱いに統一。`docs/features/INTERVIEW.md`、`docs/SPEC.md`、`docs/features/CREDITS.md`、pricing 表記を同期。
+- 2026-04-05: 面接方式を 4 種（`life_history` 追加、旧 `discussion` / `presentation` は `life_history` へ正規化）、`formatPhase` に `life_history_main`、FastAPI の LLM 文字列フィールドを真ストリーミング SSE 化、講評履歴モーダルを `max-height` + 内部スクロール化。関連ドキュメント同期。
 - 2026-03-29: 面接対策を motivation 準拠の 2 カラム product UI に刷新。`DashboardHeader` / `BottomTabBar` に `面接対策` 導線を追加し、`CompanySelectModal mode="interview"` で企業選択後に `/companies/[id]/interview` へ遷移する形へ統一。interview 専用 skeleton、mock UI review route を追加。
 - 2026-03-29: ガクチカを `深掘り` から `作成` に寄せて UI 文言を整理。`/gakuchika` 一覧・詳細・完了画面の主要文言を更新し、未使用の `STAROnboarding` / `STARHintBanner` を削除。FastAPI に `interview` feature と `MODEL_INTERVIEW` を追加し、Next/FastAPI 間で企業特化模擬面接を実装。
 - 2026-03-27: 通知と profile の初回描画を frontend 側で集約。`/notifications` は page で 50 件の通知を server preload し、`DashboardHeader` には 5 件のプレビューのみを渡して page と header の重複 fetch を解消。`/profile` は profile / companies / ES / 通知 / credits を server preload し、header の通知・クレジットも初回から初期データで描画するよう整理。`useNotifications` / `useCredits` は SWR の `initialData` を受け取れるようにして mount fetch を抑制。関連文書を `docs/architecture/ARCHITECTURE.md` に同期。
@@ -310,8 +315,10 @@
 | クレジット消費（5問ごと3） | ✅ 完了 | |
 | Q&A保存 | ✅ 完了 | `gakuchikaConversations` |
 | 再実行時の履歴保持（17.2） | ✅ 完了 | 別セッション開始と同一セッション再開の両方に対応 |
+| 面接準備完了後の継続深掘り | ✅ 完了 | `resume` + `extended_deep_dive_round`、完了カードから「もっと深掘る」 |
 | 素材の企業紐づけ | ⚪︎ スキーマ残存 | 現行の作成 UI / API では未使用 |
 | サマリー生成 | ✅ 完了 | 完了時は `/structured-summary` のみ（失敗時は回答連結フォールバック） |
+| 完了カードの空表示 | ✅ 完了 | structured 全空時の案内と要約再取得ボタン |
 
 ---
 

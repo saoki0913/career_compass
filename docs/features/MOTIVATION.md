@@ -4,13 +4,17 @@
 
 ## 概要
 
-- 目的は、その企業・その職種に合った志望動機 ES の材料を、会話で段階的に揃えること
-- 会話開始前に `企業確認 / 業界確定 / 職種確定` の setup を行う
+- 目的は、その企業・その職種に合った志望動機 ES の材料を、会話で段階的に揃えること（または setup 直後に会話なしで下書きのみ生成すること）
+- 会話開始前に `企業確認 / 業界確定 / 職種確定` の setup を行う。setup エリアはヘッダー固定＋フォーム部分のみスクロールし、画面内に収めやすくする
+- **二ルート**: (A) setup 完了後「会話せずに下書きを作成」→ 企業 RAG・プロフィール・ガクチカ要約のみで FastAPI `POST /api/motivation/generate-draft-from-profile` 経由で ES 生成（会話履歴が空のときのみ）。 (B) 「質問を始める」→ 従来どおり `conversation/start` → `stream` → 十分なら `generate-draft`
 - 会話は `slot_fill` と `deepdive` の 2 モードで進む
 - `slot_fill` では 6 要素を 1 回ずつ回収し、6〜7 問で ES 解放する
 - `draft_ready` 到達後はスナックバーで通知し、`志望動機ESを作成` CTA を有効化する
 - `deepdive` では ES 解放後に最大 10 問まで弱点補強を行う
 - 返答は自由入力のみ
+- ステージ名 `closing` が API に残る場合でも、UI では「仕上げを整理中」等のラベルは出さず、直前スロットやモードにフォールバックする
+- 志望動機・ガクチカの ES 本文は **改行なしの 1 段落**（プロンプト指示＋Next の `generate-draft` / `generate-draft-direct` / ガクチカ `generate-es-draft`、および FastAPI 側の正規化で保存直前に統一）
+- **ES 下書き（会話あり・`generate-draft-from-profile` あり）**: FastAPI は ES 添削と同じ `backend/app/prompts/es_templates.py` の `TEMPLATE_DEFS` から組み立てた **`build_template_draft_generation_prompt`（テンプレ種別 `company_motivation`）** で 1 回の LLM 呼び出しを行う。企業 RAG の要約テキストはユーザープロンプト側の「企業参考情報」に載せる（添削の evidence card 形式は下書きでは未使用）
 
 ## 会話骨格
 
@@ -54,7 +58,10 @@
 - `POST /api/motivation/[companyId]/conversation/stream`
   - 回答送信の唯一の経路。FastAPI SSE を consume-and-re-emit し、保存とクレジット消費もここで行う
 - `POST /api/motivation/[companyId]/generate-draft`
-  - 300/400/500 字の ES 下書きを生成し、`documents` に保存する
+  - 300/400/500 字の ES 下書きを生成し、`documents` に保存する（会話が draft ready かつ十分な履歴があること）
+- `POST /api/motivation/[companyId]/generate-draft-direct`
+  - ルート A。会話メッセージが空のときのみ。FastAPI `generate-draft-from-profile` を呼び、同じく `documents` に保存し、可能なら `next-question` で深掘り用の初回質問を 1 件付与する
+- FastAPI のエラー `detail` が文字列以外でも、Next 側で `messageFromFastApiDetail` によりユーザー向け短文に正規化する
 
 ## 会話状態
 
@@ -89,5 +96,5 @@
 ## クレジット
 
 - 応答 5 回ごとに 3 クレジット消費
-- 下書き生成は成功時のみ所定クレジットを消費
+- 下書き生成（対話後 `generate-draft` と会話なし `generate-draft-direct` の両方）は **同一 feature キー `motivation_draft`**。6 credits 予約 → 成功確定 / 失敗取消
 - 失敗時は消費しない

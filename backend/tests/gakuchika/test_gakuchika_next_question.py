@@ -10,10 +10,44 @@ from app.routers.gakuchika import (
     _build_es_prompt,
     _classify_input_richness,
     _evaluate_deepdive_completion,
+    _is_deepdive_request,
     _normalize_deepdive_payload,
     _normalize_es_build_payload,
 )
 from app.utils.llm import call_llm_streaming_fields
+
+
+def test_is_deepdive_request_true_for_draft_ready_without_draft_text() -> None:
+    """Resume「もう少し整える」で draft_text が無くても深掘り分岐に入ること。"""
+    req = NextQuestionRequest(
+        gakuchika_title="テーマ",
+        gakuchika_content="内容",
+        conversation_history=[
+            {"role": "assistant", "content": "質問"},
+            {"role": "user", "content": "回答"},
+        ],
+        question_count=3,
+        conversation_state=ConversationStateInput(
+            stage="draft_ready",
+            ready_for_draft=True,
+            draft_text=None,
+        ),
+    )
+    assert _is_deepdive_request(req) is True
+
+
+def test_is_deepdive_request_false_for_es_building() -> None:
+    req = NextQuestionRequest(
+        gakuchika_title="テーマ",
+        gakuchika_content="内容",
+        conversation_history=[
+            {"role": "assistant", "content": "質問"},
+            {"role": "user", "content": "回答"},
+        ],
+        question_count=1,
+        conversation_state=ConversationStateInput(stage="es_building"),
+    )
+    assert _is_deepdive_request(req) is False
 
 
 def test_build_es_prompt_includes_readiness_guardrails() -> None:
@@ -82,6 +116,20 @@ def test_fallback_questions_avoid_prohibited_phrases() -> None:
                     assert fragment not in text, (fragment, text)
 
 
+def test_normalize_es_build_payload_aligns_focus_to_first_missing_star() -> None:
+    """LLM が後段だけ focus にしても、missing の先頭（STAR 順）に寄せる。"""
+    _question, state, _source = _normalize_es_build_payload(
+        {
+            "question": "どのような行動をしましたか。",
+            "focus_key": "action",
+            "missing_elements": ["task", "action"],
+            "ready_for_draft": False,
+        },
+        fallback_state=None,
+    )
+    assert state["focus_key"] == "task"
+
+
 def test_normalize_es_build_payload_keeps_building_until_quality_threshold() -> None:
     question, state, source = _normalize_es_build_payload(
         {
@@ -123,6 +171,34 @@ def test_normalize_es_build_payload_marks_draft_ready() -> None:
     assert state["draft_text"] == "既存の下書き"
 
 
+def test_normalize_es_build_payload_drops_context_when_short_but_situational() -> None:
+    """12文字未満でも状況語があれば context を欠落扱いにしない（進捗が「状況」で止まる回帰防止）。"""
+    text = "大学のサークルで広報を担当した。"
+    _, state, _ = _normalize_es_build_payload(
+        {
+            "question": "課題は何でしたか。",
+            "focus_key": "context",
+            "ready_for_draft": False,
+        },
+        fallback_state=None,
+        conversation_text=text,
+    )
+    assert "context" not in state["missing_elements"]
+
+
+def test_normalize_es_build_payload_keeps_context_when_tiny_and_vague() -> None:
+    _, state, _ = _normalize_es_build_payload(
+        {
+            "question": "もう少し教えてください。",
+            "focus_key": "context",
+            "ready_for_draft": False,
+        },
+        fallback_state=None,
+        conversation_text="がんばった",
+    )
+    assert "context" in state["missing_elements"]
+
+
 def test_normalize_es_build_payload_allows_draft_ready_without_learning_when_core_four_are_clear() -> None:
     _, state, source = _normalize_es_build_payload(
         {
@@ -131,6 +207,7 @@ def test_normalize_es_build_payload_allows_draft_ready_without_learning_when_cor
             "ready_for_draft": False,
         },
         fallback_state=None,
+        question_count=4,
         conversation_text=(
             "大学3年の学園祭実行委員として模擬店エリアの導線改善に取り組んだ。"
             "昼のピーク時に列が交差して売上機会を逃していたため、"
@@ -158,6 +235,7 @@ def test_normalize_deepdive_payload_marks_interview_ready() -> None:
             draft_readiness_reason="ES本文の材料は十分です。",
             draft_text="下書き本文",
         ),
+        question_count=8,
     )
 
     assert question == ""

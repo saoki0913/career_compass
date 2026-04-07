@@ -14,8 +14,9 @@ import { useCalendarEvents, useGoogleCalendar, GoogleCalendarEvent, WorkBlockSug
 import { CalendarSidebar } from "@/components/calendar/CalendarSidebar";
 import { WorkBlockFAB } from "@/components/calendar/WorkBlockFAB";
 import { EventDetailModal, type DisplayEvent } from "@/components/calendar/EventDetailModal";
-import { notifyCalendarEventCreated, notifyCalendarEventDeleted, notifyError } from "@/lib/notifications";
-import { getUserFacingErrorMessage } from "@/lib/api-errors";
+import { notifyCalendarEventCreated, notifyCalendarEventDeleted } from "@/lib/notifications";
+import { toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 
 // Icons
 const ChevronLeftIcon = () => (
@@ -229,10 +230,16 @@ function AddEventModal({ isOpen, selectedDate, onClose, onCreate }: AddEventModa
       });
       onClose();
     } catch (err) {
-      setError(getUserFacingErrorMessage(err, {
-        code: "CALENDAR_EVENT_SUBMIT_FAILED",
-        userMessage: "イベントを保存できませんでした。",
-      }, "CalendarPage:submitEvent"));
+      setError(
+        toAppUiError(
+          err,
+          {
+            code: "CALENDAR_EVENT_SUBMIT_FAILED",
+            userMessage: "イベントを保存できませんでした。",
+          },
+          "CalendarPage:submitEvent",
+        ).message,
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -482,12 +489,15 @@ export default function CalendarPage() {
       setShowSuggestionsModal(false);
       setSelectedDate(null);
       setWorkBlockSuggestions([]);
-      notifyError({
-        title: getUserFacingErrorMessage(error, {
+      const ui = toAppUiError(
+        error,
+        {
           code: "CALENDAR_WORK_BLOCK_SUGGESTIONS_FAILED",
           userMessage: "作業ブロックの提案を取得できませんでした。",
-        }, "CalendarPage:suggestWorkBlocks"),
-      });
+        },
+        "CalendarPage:suggestWorkBlocks",
+      );
+      notifyUserFacingAppError(ui);
     }
   };
 
@@ -501,12 +511,15 @@ export default function CalendarPage() {
       await createEvent(data);
       notifyCalendarEventCreated("manual");
     } catch (error) {
-      notifyError({
-        title: getUserFacingErrorMessage(error, {
+      const ui = toAppUiError(
+        error,
+        {
           code: "CALENDAR_EVENT_CREATE_FAILED",
           userMessage: "イベントを作成できませんでした。",
-        }, "CalendarPage:createEvent"),
-      });
+        },
+        "CalendarPage:createEvent",
+      );
+      notifyUserFacingAppError(ui);
       throw error;
     }
   };
@@ -521,12 +534,15 @@ export default function CalendarPage() {
       });
       notifyCalendarEventCreated("work_block");
     } catch (error) {
-      notifyError({
-        title: getUserFacingErrorMessage(error, {
+      const ui = toAppUiError(
+        error,
+        {
           code: "CALENDAR_WORK_BLOCK_CREATE_FAILED",
           userMessage: "作業ブロックを作成できませんでした。",
-        }, "CalendarPage:createWorkBlock"),
-      });
+        },
+        "CalendarPage:createWorkBlock",
+      );
+      notifyUserFacingAppError(ui);
       throw error;
     }
   };
@@ -535,18 +551,21 @@ export default function CalendarPage() {
     <div className="h-screen flex flex-col overflow-hidden bg-background">
       <DashboardHeader />
 
-      <main className="flex-1 overflow-hidden max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col">
+      <main className="flex max-w-7xl flex-1 flex-col overflow-hidden px-4 pt-4 max-lg:pb-[calc(1rem+var(--mobile-bottom-nav-offset))] sm:px-6 lg:px-8 lg:pb-4">
         {/* Header */}
-        <div className="flex items-center justify-between mb-4 shrink-0">
-          <div>
-            <h1 className="text-2xl font-bold">カレンダー</h1>
-            <p className="text-muted-foreground mt-1">締切とタスクを管理</p>
+        <div className="mb-4 flex shrink-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold sm:text-2xl">カレンダー</h1>
+            <p className="mt-1 text-muted-foreground">締切とタスクを管理</p>
           </div>
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" asChild>
-              <Link href="/dashboard">ホームに戻る</Link>
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end sm:gap-3">
+            <Button variant="ghost" asChild className="shrink-0">
+              <Link href="/dashboard">
+                <span className="sm:hidden">ホーム</span>
+                <span className="hidden sm:inline">ホームに戻る</span>
+              </Link>
             </Button>
-            <Button variant="outline" asChild>
+            <Button variant="outline" asChild className="shrink-0">
               <Link href="/calendar/settings">
                 <SettingsIcon />
                 <span className="ml-1.5">{connectionStatus?.needsReconnect ? "再連携" : "設定"}</span>
@@ -600,7 +619,7 @@ export default function CalendarPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+              <CardContent className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-mobile-tab">
                 {isLoading ? (
                   <div className="flex flex-1 items-center justify-center">
                     <LoadingSpinner />
@@ -776,7 +795,10 @@ export default function CalendarPage() {
                 </svg>
               </button>
             </SheetTrigger>
-            <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <SheetContent
+              side="bottom"
+              className="max-h-[80vh] overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom,0px),var(--mobile-bottom-nav-offset))]"
+            >
               <SheetHeader>
                 <SheetTitle>カレンダー情報</SheetTitle>
               </SheetHeader>
@@ -835,20 +857,10 @@ export default function CalendarPage() {
             setSelectedEvent(null);
           }}
           onDelete={async (eventId) => {
-            try {
-              await deleteEvent(eventId);
-              notifyCalendarEventDeleted();
-              setShowDetailModal(false);
-              setSelectedEvent(null);
-            } catch (error) {
-              notifyError({
-                title: getUserFacingErrorMessage(error, {
-                  code: "CALENDAR_EVENT_DELETE_FAILED",
-                  userMessage: "イベントを削除できませんでした。",
-                }, "CalendarPage:deleteEvent"),
-              });
-              throw error;
-            }
+            await deleteEvent(eventId);
+            notifyCalendarEventDeleted();
+            setShowDetailModal(false);
+            setSelectedEvent(null);
           }}
         />
 

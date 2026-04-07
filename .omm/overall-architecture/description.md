@@ -1,0 +1,1 @@
+Top-level architecture of Career Compass. It separates the public/product Next.js experience, App Router APIs, shared TypeScript domain libraries, a FastAPI AI service for retrieval and generation, Postgres-backed state, and provider-facing background jobs.

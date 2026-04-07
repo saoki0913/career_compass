@@ -1,0 +1,1 @@
+Ownership must support either userId or guestId for many records, but not both. Daily behavior and deadlines are JST-based. AI credits are consumed only after successful completion, and extracted deadlines require explicit user confirmation before persistence.

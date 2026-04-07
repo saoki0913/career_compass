@@ -28,7 +28,7 @@ import {
 } from "@/lib/marketing/pricing-plans";
 import { ANNUAL_PLAN_PRICES, type BillingPeriod } from "@/lib/stripe/config";
 import { cn } from "@/lib/utils";
-import { getUserFacingErrorMessage } from "@/lib/api-errors";
+import { reportUserFacingError } from "@/lib/client-error-ui";
 
 type PlanType = "free" | "standard" | "pro";
 
@@ -319,7 +319,7 @@ function PricingPageContent() {
       }
     } catch (checkoutError) {
       console.error("Checkout error:", checkoutError);
-      setError(getUserFacingErrorMessage(checkoutError, {
+      setError(reportUserFacingError(checkoutError, {
         code: "STRIPE_CHECKOUT_CREATE_FAILED",
         userMessage: "プラン変更を開始できませんでした。",
       }, "PricingPage:checkout"));
@@ -344,7 +344,7 @@ function PricingPageContent() {
       trackEvent("portal_opened", { source: "pricing", currentPlan: currentPlan ?? "unknown" });
       window.location.href = data.url;
     } catch (portalError) {
-      setError(getUserFacingErrorMessage(portalError, {
+      setError(reportUserFacingError(portalError, {
         code: "STRIPE_PORTAL_CREATE_FAILED",
         userMessage: "請求管理ページを開けませんでした。",
       }, "PricingPage:openBillingPortal"));
@@ -646,7 +646,7 @@ function PricingPageContent() {
                 迷ったら Free で始めて、必要になった時に切り替えてください。
               </h2>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                Free は月30クレジット・企業5社まで・ES添削3種・ガクチカ3件・面接対策は GPT-5.4 mini 固定で最終講評成功時 6 クレジット。Standard（¥1,480/月・100CR）は1クレジット約15円、Pro（¥2,980/月・300CR）は約10円の目安です。
+                Free は月30クレジット・企業5社まで・ES添削3種・ガクチカ3件・面接対策は GPT-5.4 mini 固定で最終講評成功時 6 クレジット。Standard（¥1,490/月・100CR）は1クレジット約15円、Pro（¥2,980/月・300CR）は約10円の目安です。
               </p>
             </div>
             <Button

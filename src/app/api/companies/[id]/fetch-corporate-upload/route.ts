@@ -14,7 +14,7 @@ import {
 } from "@/lib/company-info/sources";
 import {
   applyCompanyRagUsage,
-  getRemainingCompanyRagFreeUnits,
+  getRemainingCompanyRagPdfFreeUnits,
 } from "@/lib/company-info/usage";
 import {
   getCompanyRagSourceLimit,
@@ -42,6 +42,7 @@ interface UploadPdfResult {
   ingest_truncated?: boolean;
   ocr_truncated?: boolean;
   processing_notice_ja?: string | null;
+  page_routing_summary?: Record<string, unknown> | null;
 }
 
 interface BatchUploadItem {
@@ -63,6 +64,7 @@ interface BatchUploadItem {
   ingestTruncated?: boolean;
   ocrTruncated?: boolean;
   processingNoticeJa?: string | null;
+  pageRoutingSummary?: Record<string, unknown> | null;
 }
 
 const VALID_PDF_CONTENT_TYPES = new Set<NonNullable<CorporateInfoSource["contentType"]>>([
@@ -330,6 +332,7 @@ export async function POST(
           ingestTruncated: Boolean(uploadResult.ingest_truncated),
           ocrTruncated: Boolean(uploadResult.ocr_truncated),
           processingNoticeJa: uploadResult.processing_notice_ja ?? null,
+          pageRoutingSummary: uploadResult.page_routing_summary ?? null,
         });
       } catch (error) {
         console.error("Completed PDF metadata update error:", error);
@@ -351,7 +354,7 @@ export async function POST(
       skippedLimit: items.filter((item) => item.status === "skipped_limit").length,
     };
     const totalUnits = items.reduce((total, item) => total + (item.ingestUnits || 0), 0);
-    const remainingFreeUnits = await getRemainingCompanyRagFreeUnits(
+    const remainingFreeUnits = await getRemainingCompanyRagPdfFreeUnits(
       authUser.userId,
       authUser.plan,
     );

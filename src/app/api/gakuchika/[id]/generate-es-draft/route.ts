@@ -32,6 +32,9 @@ import {
   serializeConversationState,
 } from "@/app/api/gakuchika/shared";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { normalizeEsDraftSingleParagraph } from "@/lib/server/es-draft-normalize";
+import { messageFromFastApiDetail } from "@/lib/server/fastapi-detail-message";
+import { buildGakuchikaEsSectionTitle } from "@/lib/es-review/es-document-section-titles";
 
 interface FastAPIDraftResponse {
   draft: string;
@@ -165,9 +168,9 @@ export async function POST(
     reservationId = reservation.reservationId;
   }
 
-  // Call FastAPI for draft generation
+  // Call FastAPI for draft generation (retry transient 502/503 from upstream LLM/timeouts)
   try {
-    const response = await fetchFastApiInternal("/api/gakuchika/generate-es-draft", {
+    let response = await fetchFastApiInternal("/api/gakuchika/generate-es-draft", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
       body: JSON.stringify({
@@ -176,6 +179,22 @@ export async function POST(
         char_limit: charLimit,
       }),
     });
+
+    const retryDelaysMs = [2500, 5000, 8000];
+    for (let r = 0; r < retryDelaysMs.length; r++) {
+      if (response.ok) break;
+      if (response.status !== 502 && response.status !== 503) break;
+      await new Promise((resolve) => setTimeout(resolve, retryDelaysMs[r]));
+      response = await fetchFastApiInternal("/api/gakuchika/generate-es-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
+        body: JSON.stringify({
+          gakuchika_title: gakuchika.title,
+          conversation_history: messages,
+          char_limit: charLimit,
+        }),
+      });
+    }
 
     if (!response.ok) {
       if (reservationId) await cancelReservation(reservationId);
@@ -187,8 +206,9 @@ export async function POST(
         creditsUsed: 0,
         telemetry: null,
       });
+      const detailMsg = messageFromFastApiDetail((errorData as { detail?: unknown }).detail);
       return NextResponse.json(
-        { error: errorData.detail?.error || "ES生成に失敗しました" },
+        { error: detailMsg || "ES生成に失敗しました" },
         { status: 503 }
       );
     }
@@ -196,6 +216,7 @@ export async function POST(
     const rawData = await response.json();
     const { payload, telemetry } = splitInternalTelemetry(rawData);
     const data = payload as FastAPIDraftResponse;
+    const draftNormalized = normalizeEsDraftSingleParagraph(data.draft);
 
     // Confirm credit reservation on success
     if (reservationId) {
@@ -215,8 +236,8 @@ export async function POST(
       readyForDraft: true,
       progressLabel: "ESを作成できます",
       answerHint: "必要なら、この本文を起点に面接向けの深掘りを続けられます。",
-      draftText: data.draft,
-      deferredFocuses: Array.from(new Set([...conversationState.deferredFocuses, "learning"])),
+      draftText: draftNormalized,
+      deferredFocuses: Array.from(new Set([...conversationState.deferredFocuses, "learning"])) as typeof conversationState.deferredFocuses,
       strengthTags: data.draft_diagnostics?.strength_tags ?? conversationState.strengthTags,
       issueTags: data.draft_diagnostics?.issue_tags ?? conversationState.issueTags,
       deepdiveRecommendationTags:
@@ -240,13 +261,13 @@ export async function POST(
       {
         id: randomUUID(),
         type: "h2",
-        content: gakuchika.title,
+        content: buildGakuchikaEsSectionTitle(gakuchika.title),
         charLimit: charLimit,
       },
       {
         id: randomUUID(),
         type: "paragraph",
-        content: data.draft,
+        content: draftNormalized,
       },
     ];
 
@@ -263,7 +284,7 @@ export async function POST(
     });
 
     return NextResponse.json({
-      draft: data.draft,
+      draft: draftNormalized,
       charCount: data.char_count,
       followupSuggestion: data.followup_suggestion ?? "更に深掘りする",
       documentId: documentId,

@@ -54,9 +54,9 @@ import {
   notifyDocumentPermanentlyDeleted,
   notifyDocumentRestored,
   notifyDocumentStatusChanged,
-  notifyError,
 } from "@/lib/notifications";
-import { getUserFacingErrorMessage } from "@/lib/api-errors";
+import { toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 
 const filterTabs = [
   { key: "all", label: "すべて" },
@@ -134,10 +134,16 @@ function NewDocumentModal({
       });
       onClose();
     } catch (submitError) {
-      setError(getUserFacingErrorMessage(submitError, {
-        code: "DOCUMENT_CREATE_FAILED",
-        userMessage: "ドキュメントを作成できませんでした。",
-      }, "ESListPageClient:createDocument"));
+      setError(
+        toAppUiError(
+          submitError,
+          {
+            code: "DOCUMENT_CREATE_FAILED",
+            userMessage: "ドキュメントを作成できませんでした。",
+          },
+          "ESListPageClient:createDocument",
+        ).message,
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -386,12 +392,15 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
       notifyDocumentCreated();
       router.push(`/es/${document.id}`);
     } catch (error) {
-      notifyError({
-        title: getUserFacingErrorMessage(error, {
+      const ui = toAppUiError(
+        error,
+        {
           code: "DOCUMENT_CREATE_FAILED",
           userMessage: "ドキュメントを作成できませんでした。",
-        }, "ESListPageClient:createDocumentToast"),
-      });
+        },
+        "ESListPageClient:createDocumentToast",
+      );
+      notifyUserFacingAppError(ui);
       throw error;
     }
   };
@@ -402,12 +411,15 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
         await restoreDocument(documentId);
         notifyDocumentRestored();
       } catch (error) {
-        notifyError({
-          title: getUserFacingErrorMessage(error, {
+        const ui = toAppUiError(
+          error,
+          {
             code: "DOCUMENT_RESTORE_FAILED",
             userMessage: "ドキュメントを復元できませんでした。",
-          }, "ESListPageClient:restoreDocument"),
-        });
+          },
+          "ESListPageClient:restoreDocument",
+        );
+        notifyUserFacingAppError(ui);
       }
     }
   };
@@ -418,12 +430,15 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
         await permanentlyDeleteDocument(documentId);
         notifyDocumentPermanentlyDeleted();
       } catch (error) {
-        notifyError({
-          title: getUserFacingErrorMessage(error, {
+        const ui = toAppUiError(
+          error,
+          {
             code: "DOCUMENT_PERMANENT_DELETE_FAILED",
             userMessage: "ドキュメントを完全削除できませんでした。",
-          }, "ESListPageClient:permanentDeleteDocument"),
-        });
+          },
+          "ESListPageClient:permanentDeleteDocument",
+        );
+        notifyUserFacingAppError(ui);
       }
     }
   };
@@ -436,12 +451,15 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
       await updateDocument(documentId, { status: nextStatus });
       notifyDocumentStatusChanged(nextStatus === "published");
     } catch (error) {
-      notifyError({
-        title: getUserFacingErrorMessage(error, {
+      const ui = toAppUiError(
+        error,
+        {
           code: "DOCUMENT_UPDATE_FAILED",
           userMessage: "ドキュメントを更新できませんでした。",
-        }, "ESListPageClient:updateDocument"),
-      });
+        },
+        "ESListPageClient:updateDocument",
+      );
+      notifyUserFacingAppError(ui);
     } finally {
       setStatusUpdatingId(null);
     }
@@ -465,12 +483,15 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
       notifyDocumentDeleted();
       setDeleteTarget(null);
     } catch (error) {
-      notifyError({
-        title: getUserFacingErrorMessage(error, {
+      const ui = toAppUiError(
+        error,
+        {
           code: "DOCUMENT_DELETE_FAILED",
           userMessage: "ドキュメントを削除できませんでした。",
-        }, "ESListPageClient:deleteDocument"),
-      });
+        },
+        "ESListPageClient:deleteDocument",
+      );
+      notifyUserFacingAppError(ui);
     } finally {
       setIsDeletingDocument(false);
     }

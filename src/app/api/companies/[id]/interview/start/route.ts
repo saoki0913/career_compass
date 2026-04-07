@@ -5,8 +5,8 @@ import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import { DEFAULT_INTERVIEW_SESSION_CREDIT_COST } from "@/lib/credits";
 import {
   classifyInterviewRoleTrack,
-  INTERVIEW_FORMAT_OPTIONS,
   INTERVIEW_STAGE_OPTIONS,
+  parseInterviewFormatParam,
   INTERVIEWER_TYPE_OPTIONS,
   SELECTION_TYPE_OPTIONS,
   STRICTNESS_MODE_OPTIONS,
@@ -41,10 +41,24 @@ function buildSeedSummary(materials: Array<{ kind?: string; label: string; text:
     .join("\n");
 }
 
+export function GET(request: NextRequest) {
+  const res = createApiErrorResponse(request, {
+    status: 405,
+    code: "METHOD_NOT_ALLOWED",
+    userMessage: "この操作は POST で送信してください。",
+    action: "ページを再読み込みしてから、もう一度お試しください。",
+    developerMessage: "GET is not supported for /api/companies/[id]/interview/start",
+  });
+  res.headers.set("Allow", "POST");
+  return res;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id: companyId } = await params;
+
   const identity = await getRequestIdentity(request);
   if (!identity?.userId) {
     return createApiErrorResponse(request, {
@@ -55,7 +69,6 @@ export async function POST(
     });
   }
 
-  const { id: companyId } = await params;
   let context;
   try {
     context = await buildInterviewContext(companyId, identity);
@@ -98,11 +111,7 @@ export async function POST(
       ? body.selectedRoleSource.trim()
       : context.setup.selectedRoleSource;
   const roleTrack = classifyInterviewRoleTrack(selectedRole);
-  const interviewFormat =
-    typeof (body as { interviewFormat?: string | null }).interviewFormat === "string" &&
-    INTERVIEW_FORMAT_OPTIONS.includes((body as { interviewFormat?: string | null }).interviewFormat!.trim() as (typeof INTERVIEW_FORMAT_OPTIONS)[number])
-      ? ((body as { interviewFormat?: string | null }).interviewFormat!.trim() as (typeof INTERVIEW_FORMAT_OPTIONS)[number])
-      : null;
+  const interviewFormat = parseInterviewFormatParam((body as { interviewFormat?: string | null }).interviewFormat);
   const selectionType =
     typeof (body as { selectionType?: string | null }).selectionType === "string" &&
     SELECTION_TYPE_OPTIONS.includes((body as { selectionType?: string | null }).selectionType!.trim() as (typeof SELECTION_TYPE_OPTIONS)[number])

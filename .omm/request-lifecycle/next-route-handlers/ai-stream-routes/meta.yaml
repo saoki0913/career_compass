@@ -1,0 +1,9 @@
+created: 2026-04-05T11:30:05.889Z
+updated: 2026-04-05T11:30:05.891Z
+update_count: 1
+last_field: description
+kind: nested-class
+title: ai-stream-routes
+children: []
+parentPath:
+  - next-route-handlers

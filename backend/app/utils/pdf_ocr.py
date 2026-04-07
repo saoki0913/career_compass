@@ -26,6 +26,7 @@ class PdfOcrResult:
     quality_score: float | None = None
     processed_pages: int | None = None
     estimated_cost_usd: float | None = None
+    page_texts: list[str] = field(default_factory=list)
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -77,6 +78,11 @@ def normalize_pdf_ocr_result(value: PdfOcrResult | dict[str, Any] | None) -> Pdf
             quality_score=_to_optional_float(value.get("quality_score")),
             processed_pages=_to_optional_int(value.get("processed_pages")),
             estimated_cost_usd=_to_optional_float(value.get("estimated_cost_usd")),
+            page_texts=[
+                str(item).strip()
+                for item in list(value.get("page_texts") or [])
+                if str(item).strip()
+            ],
             diagnostics=dict(value.get("diagnostics") or {}),
         )
     return PdfOcrResult(text="")
@@ -98,6 +104,26 @@ def _to_optional_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _extract_google_document_page_texts(document: dict[str, Any]) -> list[str]:
+    full_text = str(document.get("text") or "")
+    page_texts: list[str] = []
+    for page in document.get("pages") or []:
+        text_anchor = page.get("layout", {}).get("textAnchor") or {}
+        segments = text_anchor.get("textSegments") or []
+        parts: list[str] = []
+        for segment in segments:
+            try:
+                start = int(segment.get("startIndex") or 0)
+                end = int(segment.get("endIndex") or 0)
+            except (TypeError, ValueError):
+                continue
+            if end <= start:
+                continue
+            parts.append(full_text[start:end])
+        page_texts.append("".join(parts).strip())
+    return page_texts
 
 
 async def _extract_text_from_pdf_with_google_document_ai(
@@ -168,6 +194,7 @@ async def _extract_text_from_pdf_with_google_document_ai(
     ]
     quality_scores = [score for score in quality_scores if score is not None]
     avg_quality = sum(quality_scores) / len(quality_scores) if quality_scores else None
+    page_texts = _extract_google_document_page_texts(document)
 
     return PdfOcrResult(
         text=str(document.get("text") or ""),
@@ -175,6 +202,7 @@ async def _extract_text_from_pdf_with_google_document_ai(
         quality_score=avg_quality,
         processed_pages=len(pages) or page_count,
         estimated_cost_usd=_estimate_cost(len(pages) or page_count, GOOGLE_DOCUMENT_AI_PRICE_PER_PAGE_USD),
+        page_texts=page_texts,
         diagnostics={
             "route_hint": "default",
             "page_count": len(pages) or page_count,
@@ -240,16 +268,22 @@ async def _extract_text_from_pdf_with_mistral(
     data = response.json()
     pages = data.get("pages") or []
     text_parts: list[str] = []
+    page_texts: list[str] = []
     for page in pages:
         markdown = page.get("markdown")
         if isinstance(markdown, str) and markdown.strip():
-            text_parts.append(markdown.strip())
+            stripped = markdown.strip()
+            text_parts.append(stripped)
+            page_texts.append(stripped)
+        else:
+            page_texts.append("")
 
     return PdfOcrResult(
         text="\n\n".join(text_parts).strip(),
         provider="mistral_ocr",
         processed_pages=len(pages) or page_count,
         estimated_cost_usd=_estimate_cost(len(pages) or page_count, MISTRAL_OCR_PRICE_PER_PAGE_USD),
+        page_texts=page_texts,
         diagnostics={
             "route_hint": "high_accuracy",
             "page_count": len(pages) or page_count,

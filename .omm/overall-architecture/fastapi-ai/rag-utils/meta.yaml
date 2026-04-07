@@ -1,0 +1,9 @@
+created: 2026-04-05T11:28:10.507Z
+updated: 2026-04-05T11:28:10.509Z
+update_count: 1
+last_field: description
+kind: nested-class
+title: rag-utils
+children: []
+parentPath:
+  - fastapi-ai

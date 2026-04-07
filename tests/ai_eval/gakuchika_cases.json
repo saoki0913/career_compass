@@ -9,7 +9,8 @@
     "answers": [
       "私は、担当生徒のつまずきを可視化して授業外の声かけを増やし、学習継続率を上げる役割を担っていました。",
       "一方で、講師ごとに対応粒度がばらついていたため、共有フォーマットを作り、改善提案を毎週回せるようにしました。",
-      "数字だけでなく、保護者からの相談件数や生徒の宿題提出率も見ながら運用を調整しました。"
+      "数字だけでなく、保護者からの相談件数や生徒の宿題提出率も見ながら運用を調整しました。",
+      "共有フォーマット導入後は宿題提出率が前月比で上向きになり、保護者相談の初回返信までの日数も短縮され、講師間の対応差も小さくなりました。"
     ],
     "expectedQuestionTokens": ["役割", "分担", "改善"],
     "expectedSummaryTokens": ["共有", "継続", "提案"]
@@ -27,6 +28,81 @@
       "結果として、直前の修正が減り、全体の進行が安定しました。"
     ],
     "expectedQuestionTokens": ["手順", "判断", "再現"],
-    "expectedSummaryTokens": ["仕組み", "安定", "共有"]
+    "expectedSummaryTokens": ["仕組み", "安定", "共有"],
+    "expectedForbiddenTokens": ["お答えできません", "I cannot"],
+    "requiredQuestionTokenGroups": [["課題", "状況"], ["役割", "担当"]],
+    "minDraftCharCount": 40
+  },
+  {
+    "id": "gakuchika_retail_shift_coordination",
+    "suiteDepth": "extended",
+    "title": "小売アルバイトでシフトと在庫の連携を改善",
+    "gakuchikaTitle": "コンビニエンスストアのアルバイト",
+    "gakuchikaContent": "コンビニのアルバイトで、繁忙時間帯のシフトと発注タイミングが噛み合わず欠品が出る課題に対し、店長と相談して共有ルールを作った。",
+    "charLimitType": "300",
+    "answers": [
+      "欠品が出る時間帯とシフトの穴を一覧にし、優先して埋める枠を決めました。",
+      "発注担当とレジ担当で情報が分断されていたため、短い引き継ぎメモを残す運用に変えました。",
+      "欠品率と接客クレーム件数の両方を週次で見て、ルールを微調整しました。"
+    ],
+    "expectedQuestionTokens": ["欠品", "共有", "ルール"],
+    "expectedSummaryTokens": ["在庫", "連携", "改善"],
+    "expectedForbiddenTokens": ["can't assist", "cannot comply"],
+    "requiredQuestionTokenGroups": [["課題", "きっかけ"], ["役割", "行動"]],
+    "minDraftCharCount": 40
+  },
+  {
+    "id": "gakuchika_engineering_team_latency",
+    "suiteDepth": "extended",
+    "title": "開発サークルでレビュー遅延を減らした経験",
+    "gakuchikaTitle": "学生開発チームでのWebアプリ開発",
+    "gakuchikaContent": "学内サークルでWebアプリを作る際、PRレビューが滞留しリリースが遅れる問題があり、レビュー観点と期限の型を整えた。",
+    "charLimitType": "400",
+    "answers": [
+      "レビュー待ちのPR数と平均待ち時間を可視化し、ボトルネックになっていた曜日を特定しました。",
+      "観点テンプレと最小合格ラインを決め、軽微な指摘は次イテレーションに回す運用にしました。",
+      "結果として、マージまでの日数が短くなり、リリース頻度も上がりました。"
+    ],
+    "expectedQuestionTokens": ["レビュー", "遅延", "改善"],
+    "expectedSummaryTokens": ["可視化", "テンプレ", "リリース"],
+    "expectedForbiddenTokens": ["お答えできません"],
+    "requiredQuestionTokenGroups": [["課題", "背景"], ["結果", "変化"]],
+    "minDraftCharCount": 40
+  },
+  {
+    "id": "gakuchika_volunteer_outreach",
+    "suiteDepth": "extended",
+    "title": "地域ボランティアで参加者獲得を改善",
+    "gakuchikaTitle": "地域清掃ボランティアの運営補助",
+    "gakuchikaContent": "地域清掃イベントの運営補助として、参加者が定着せず毎回集客に苦労していたため、告知チャネルと当日導線を整理した。",
+    "charLimitType": "500",
+    "answers": [
+      "前回の参加者アンケートから、日程よりも集合場所の分かりにくさが離脱要因だと分かりました。",
+      "地図リンクと写真付き案内、当日の役割分担表をテンプレ化して毎回使い回せるようにしました。",
+      "継続参加者が少しずつ増え、運営側の連絡コストも下がりました。"
+    ],
+    "expectedQuestionTokens": ["参加者", "告知", "導線"],
+    "expectedSummaryTokens": ["アンケート", "テンプレ", "定着"],
+    "expectedForbiddenTokens": ["I cannot"],
+    "requiredQuestionTokenGroups": [["課題", "要因"], ["学び", "改善"]],
+    "minDraftCharCount": 40
+  },
+  {
+    "id": "gakuchika_research_lab_reproducibility",
+    "suiteDepth": "extended",
+    "title": "研究室で再現実験の手順を整備した経験",
+    "gakuchikaTitle": "大学研究室のアシスタント",
+    "gakuchikaContent": "研究室で後輩の再現実験が毎回パラメータ違いで失敗する問題があり、手順書とチェックリストを整備して引き継ぎを安定させた。",
+    "charLimitType": "400",
+    "answers": [
+      "失敗ログを集めると、前処理の温度管理とデータ分割の再現性がボトルネックでした。",
+      "手順書に分岐条件と注意書きを追記し、実施前チェックリストをSlackに固定しました。",
+      "後輩チームでも同じ結果が得られるようになり、教員の説明コストも減りました。"
+    ],
+    "expectedQuestionTokens": ["再現", "手順", "チェック"],
+    "expectedSummaryTokens": ["ログ", "引き継ぎ", "安定"],
+    "expectedForbiddenTokens": ["cannot assist"],
+    "requiredQuestionTokenGroups": [["課題", "原因"], ["行動", "対応"]],
+    "minDraftCharCount": 40
   }
 ]

@@ -6,15 +6,19 @@ interface BuildTemplateRecommendationCopyInput {
   details: Pick<InferredESReviewTemplateDetails, "templateType" | "confidence" | "rationale">;
 }
 
-export function buildTemplateRecommendationCopy(input: BuildTemplateRecommendationCopyInput): {
+export type TemplateRecommendationCopy = {
   label: string;
   description: string;
-} {
+  selectionDiffersFromInference: boolean;
+};
+
+export function buildTemplateRecommendationCopy(input: BuildTemplateRecommendationCopyInput): TemplateRecommendationCopy {
   const recommendedLabel = TEMPLATE_LABELS[input.details.templateType];
   if (input.selectedTemplate && input.selectedTemplate !== input.details.templateType) {
     return {
       label: `推奨: ${recommendedLabel}`,
       description: `現在は${TEMPLATE_LABELS[input.selectedTemplate]}を選択中です。${input.details.rationale}`,
+      selectionDiffersFromInference: true,
     };
   }
 
@@ -24,5 +28,6 @@ export function buildTemplateRecommendationCopy(input: BuildTemplateRecommendati
       input.details.confidence === "low"
         ? `${input.details.rationale}必要なら変更してください。`
         : input.details.rationale,
+    selectionDiffersFromInference: false,
   };
 }

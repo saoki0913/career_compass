@@ -1,0 +1,1 @@
+Public-facing pages for landing, pricing, templates, tools, legal content, and SEO-oriented entry pages under src/app/(marketing). It is optimized for discovery and conversion rather than authenticated workflow depth.

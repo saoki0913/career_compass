@@ -47,6 +47,6 @@
 | [testing/](./testing/) | テストの種類と手順（pytest、RAG評価、Playwright など） |
 | [release/](./release/) | 本番デプロイ、Stripe、ドメイン、各クラウドの手順 |
 | [marketing/](./marketing/) | マーケ・LP・SEO・分析のメモ（統合ファイルあり） |
-| [ops/](./ops/) | CLI 安全運用、セキュリティ関連 |
+| [ops/](./ops/) | CLI 安全運用、AI 開発 pipeline、設計原則、セキュリティ関連 |
 
 詳細な一覧は [INDEX.md](./INDEX.md) へ。

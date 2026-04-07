@@ -31,7 +31,7 @@
 - `coveredTopics` は `coverageState` から派生させる read model とし、coverage 判定の正本には使わない
 - `recentQuestionSummariesV2` は `intentKey / normalizedSummary / topic / followupStyle / turnId` を保持し、同義質問抑止に使う
 - `strictnessMode` は covered 判定の閾値だけを変え、`interviewStage` は required checklist 自体を変える
-- `formatPhase` は `opening / standard_main / case_main / case_closing / technical_main / discussion_main / presentation_main / feedback`
+- `formatPhase` は `opening / standard_main / case_main / case_closing / technical_main / life_history_main / feedback`（旧 `discussion_main` / `presentation_main` は読み取り時に `life_history_main` に正規化）
 - `case_main` では behavioral fallback を禁止し、`case_closing` でのみ motivation / personality 系 topic を限定解禁する
 - `improved_answer` は generic fallback を廃止し、`weakest_turn_id` に紐づく最弱 1 問専用で返す
 
@@ -56,21 +56,21 @@
 
 ## 面接方式
 
-同一機能内で次の 5 方式を扱う。
+同一機能内で次の 4 方式を扱う（方式定義・論点の一次参照: [Notion 面接関連](https://www.notion.so/1d44da9ec68881f0b665c3fe5b391510?v=1d44da9ec688813096b4000ce931e6f2&source=copy_link)。ローカル補助: `references/interview` があればプロンプト整合の参照に使う）。
 
 - `standard_behavioral`
 - `case`
 - `technical`
-- `discussion`
-- `presentation`
+- `life_history`
 
 方式ごとの原則:
 
 - `standard_behavioral`: 1 問 1 論点で STAR 互換の深掘りを行う
 - `case`: 構造化、仮説、打ち手の優先順位を確認する
-- `technical`: 専門知識、設計判断、再現性を確認する
-- `discussion`: 立場整理、論点分解、合意形成を確認する
-- `presentation`: 発表内容の要旨、根拠、質疑応答を確認する
+- `technical`: 専門知識、設計判断、前提・トレードオフ・再現性を確認する
+- `life_history`: 転機、価値観、行動の一貫性と自己理解の深さを確認する（旧 `discussion` / `presentation` の DB 値は `life_history` に正規化）
+
+FastAPI の質問・計画・講評は `string_chunk` を逐次 SSE で返し、Next BFF は中継のみ（バッファで一括しない）。
 
 ## 会社別上乗せ
 

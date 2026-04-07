@@ -396,6 +396,10 @@ export const companyInfoMonthlyUsage = pgTable(
     monthKey: text("month_key").notNull(), // YYYY-MM in JST
     /** 当月に月次無料枠として消費したページ数（URL クロール＋PDF の合算。列名は後方互換のため rag_ingest_units のまま） */
     ragIngestUnits: integer("rag_ingest_units").notNull().default(0),
+    /** 当月に URL/HTML 取り込みで消費した無料ページ数 */
+    ragHtmlFreeUnits: integer("rag_html_free_units").notNull().default(0),
+    /** 当月に PDF 取り込みで消費した無料ページ数 */
+    ragPdfFreeUnits: integer("rag_pdf_free_units").notNull().default(0),
     /** 旧 RAG overflow 繰越用。現行ロジックでは常に 0 にリセットする */
     ragOverflowUnits: integer("rag_overflow_units").notNull().default(0),
     /** 当月の選考スケジュール取得で消費した月次無料枠の回数 */

@@ -1,0 +1,9 @@
+graph LR
+    scrape-ingest["Scrape And Ingest\ncompany_info router + firecrawl/http/pdf utilities"]
+    retrieval-ranking["Retrieval And Ranking\nvector_store + bm25 + hybrid_search + reranker"]
+    llm-generation["LLM Generation\nllm.py + prompts/ + streaming routes"]
+    usage-accounting["Usage Accounting\nrequest cost summary and success-only commit rules"]
+
+    scrape-ingest -->|"produces normalized source content"| retrieval-ranking
+    retrieval-ranking -->|"supplies grounded context for model calls"| llm-generation
+    llm-generation -->|"reports token and model usage"| usage-accounting

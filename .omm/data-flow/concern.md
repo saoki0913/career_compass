@@ -1,0 +1,1 @@
+Several flows mix synchronous user requests with asynchronous enrichment or sync. If the canonical record, AI side effects, and provider status updates drift out of order, the UI can present stale or contradictory state.

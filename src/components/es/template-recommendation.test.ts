@@ -16,6 +16,7 @@ describe("template recommendation copy", () => {
     ).toEqual({
       label: "自動判定: 志望理由",
       description: "志望理由を示す語が明確です。",
+      selectionDiffersFromInference: false,
     });
   });
 
@@ -32,6 +33,7 @@ describe("template recommendation copy", () => {
     ).toEqual({
       label: "推奨: 志望理由",
       description: "現在は自己PRを選択中です。志望理由と強み訴求の両方が含まれています。",
+      selectionDiffersFromInference: true,
     });
   });
 
@@ -48,6 +50,7 @@ describe("template recommendation copy", () => {
     ).toEqual({
       label: "自動判定: 汎用ES添削",
       description: "設問タイプが曖昧なため、汎用添削として扱います。必要なら変更してください。",
+      selectionDiffersFromInference: false,
     });
   });
 });

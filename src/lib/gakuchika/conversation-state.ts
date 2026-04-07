@@ -52,6 +52,8 @@ export interface ConversationState {
   blockedFocuses: FocusKey[];
   focusAttemptCounts: Partial<Record<FocusKey, number>>;
   lastQuestionSignature: string | null;
+  /** 面接準備完了後の「もっと深掘る」回数（サーバー・FastAPI と同期） */
+  extendedDeepDiveRound: number;
 }
 
 export const BUILD_TRACK_KEYS: Array<Extract<BuildElement, "context" | "task" | "action" | "result">> = [
@@ -95,6 +97,7 @@ export function getDefaultConversationState(): ConversationState {
     blockedFocuses: [],
     focusAttemptCounts: {},
     lastQuestionSignature: null,
+    extendedDeepDiveRound: 0,
   };
 }
 
@@ -130,11 +133,30 @@ export function getBuildItemStatus(
   if (state.stage !== "es_building" && isDraftReady(state)) {
     return "done";
   }
+  // ES 材料フェーズで missing が空なのにまだ es_building のとき、サーバーは「揃った」とみなすが
+  // ユーザーは直近の AI 質問に未回答のことがある。全面「完了」にしない。
+  if (state.stage === "es_building" && state.missingElements.length === 0) {
+    const fk = state.focusKey;
+    if (fk && (BUILD_TRACK_KEYS as readonly string[]).includes(fk)) {
+      if (key === fk) return "current";
+      return "done";
+    }
+    // focusKey が無い間（送信中の一瞬など）は誤って「状況まで完了」と出さない
+    return "pending";
+  }
   if (!state.missingElements.includes(key)) {
     return "done";
   }
   if (state.focusKey === key) {
     return "current";
+  }
+  const fk = state.focusKey;
+  const focusIsStar = fk !== null && (BUILD_TRACK_KEYS as readonly string[]).includes(fk);
+  if (!focusIsStar) {
+    const firstMissing = BUILD_TRACK_KEYS.find((k) => state.missingElements.includes(k));
+    if (firstMissing === key) {
+      return "current";
+    }
   }
   return "pending";
 }

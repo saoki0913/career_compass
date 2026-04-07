@@ -17,8 +17,14 @@ import { useCompanies, type Company } from "@/hooks/useCompanies";
 import { useDeadlines, type Deadline } from "@/hooks/useDeadlines";
 import { useEsStats } from "@/hooks/useDocuments";
 import { type IncompleteItemsData } from "@/hooks/useIncompleteItems";
-import { useTodayTask, TASK_TYPE_LABELS, type TodayTask } from "@/hooks/useTasks";
-import { getStatusConfig, type CompanyStatus } from "@/lib/constants/status";
+import {
+  useTasks,
+  useTodayTask,
+  TASK_TYPE_LABELS,
+  type Task,
+  type TaskType,
+  type TodayTask,
+} from "@/hooks/useTasks";
 import { cn } from "@/lib/utils";
 import { DashboardSkeleton } from "@/components/skeletons/DashboardSkeleton";
 
@@ -88,13 +94,13 @@ const ClockIcon = () => (
   </svg>
 );
 
-const EmptyCompanyIcon = () => (
+const EmptyTasksIcon = () => (
   <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path
       strokeLinecap="round"
       strokeLinejoin="round"
       strokeWidth={1.5}
-      d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+      d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
     />
   </svg>
 );
@@ -116,27 +122,30 @@ const ChevronRightIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-function getStatusBarColor(status: CompanyStatus): string {
-  const config = getStatusConfig(status);
-  switch (config.category) {
-    case "not_started":
-      return "bg-slate-400";
-    case "in_progress":
-      if (status.includes("interview") || status === "final_interview") {
-        return "bg-purple-500";
-      }
-      return "bg-blue-500";
-    case "completed":
-      if (status === "offer" || status.includes("pass")) {
-        return "bg-emerald-500";
-      }
-      if (status.includes("rejected")) {
-        return "bg-red-400";
-      }
-      return "bg-gray-400";
-    default:
-      return "bg-slate-400";
-  }
+const taskTypeBarColors: Record<TaskType, string> = {
+  es: "bg-blue-500",
+  web_test: "bg-purple-500",
+  self_analysis: "bg-emerald-500",
+  gakuchika: "bg-amber-500",
+  video: "bg-pink-500",
+  other: "bg-slate-400",
+};
+
+const taskTypeBadgeStyles: Record<TaskType, { bg: string; text: string }> = {
+  es: { bg: "bg-blue-100", text: "text-blue-700" },
+  web_test: { bg: "bg-purple-100", text: "text-purple-700" },
+  self_analysis: { bg: "bg-emerald-100", text: "text-emerald-700" },
+  gakuchika: { bg: "bg-amber-100", text: "text-amber-700" },
+  video: { bg: "bg-pink-100", text: "text-pink-700" },
+  other: { bg: "bg-gray-100", text: "text-gray-700" },
+};
+
+function getOpenTaskDueDaysLeft(task: Task): number | null {
+  const raw = task.dueDate ?? task.deadline?.dueDate ?? null;
+  if (!raw) return null;
+  const due = new Date(raw);
+  const now = new Date();
+  return Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 const baseQuickActions = [
@@ -218,6 +227,8 @@ type DashboardPageClientProps = {
   initialTodayTask?: TodayTask;
   initialActivationData?: ActivationProgress | null;
   initialIncompleteItems?: IncompleteItemsData | null;
+  /** 認証済みダッシュボードではサーバーから常に配列で渡す（空配列可） */
+  initialOpenTasks?: Task[];
 };
 
 export function DashboardPageClient({
@@ -228,10 +239,11 @@ export function DashboardPageClient({
   initialTodayTask,
   initialActivationData,
   initialIncompleteItems,
+  initialOpenTasks,
 }: DashboardPageClientProps) {
   const [showCompanySelect, setShowCompanySelect] = useState(false);
   const [showInterviewCompanySelect, setShowInterviewCompanySelect] = useState(false);
-  const { companies, count: companyCount, isLoading: companiesLoading } = useCompanies(
+  const { count: companyCount, isLoading: companiesLoading } = useCompanies(
     initialCompanies ? { initialData: initialCompanies } : {}
   );
   const { draftCount, publishedCount, total: esTotal, isLoading: esStatsLoading } = useEsStats(
@@ -245,8 +257,23 @@ export function DashboardPageClient({
   const { data: activationData, isLoading: activationLoading } = useActivation(
     initialActivationData !== undefined ? { initialData: initialActivationData } : {}
   );
+  const {
+    tasks: openTasks,
+    isLoading: openTasksLoading,
+  } = useTasks(
+    initialOpenTasks !== undefined ? { status: "open", initialData: initialOpenTasks } : { status: "open" }
+  );
+  const openTaskCount = openTasks.length;
 
-  if (!initialCompanies && companiesLoading && esStatsLoading && deadlinesLoading && todayTask.isLoading && activationLoading) {
+  if (
+    !initialCompanies &&
+    companiesLoading &&
+    esStatsLoading &&
+    deadlinesLoading &&
+    todayTask.isLoading &&
+    activationLoading &&
+    (initialOpenTasks === undefined ? openTasksLoading : false)
+  ) {
     return (
       <DashboardSkeleton showTodayTaskSkeleton={Boolean(initialTodayTask?.task)} />
     );
@@ -410,67 +437,77 @@ export function DashboardPageClient({
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
           <Card className="border-border/50">
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">登録企業</CardTitle>
+              <CardTitle className="text-lg">タスク一覧</CardTitle>
               <Button variant="outline" size="sm" asChild>
-                <Link href="/companies">すべて見る</Link>
+                <Link href="/tasks">すべて見る</Link>
               </Button>
             </CardHeader>
             <CardContent>
-              {companyCount > 0 ? (
+              {openTaskCount > 0 ? (
                 <div className="space-y-2">
-                  {companies.slice(0, 3).map((company) => {
-                    const statusConfig = getStatusConfig(company.status);
+                  {openTasks.slice(0, 3).map((task) => {
+                    const badge = taskTypeBadgeStyles[task.type];
+                    const daysLeft = getOpenTaskDueDaysLeft(task);
+                    const contextLabel = task.company?.name ?? task.application?.name ?? null;
                     return (
                       <Link
-                        key={company.id}
-                        href={`/companies/${company.id}`}
+                        key={task.id}
+                        href="/tasks"
                         className="group flex items-center gap-3 rounded-lg border border-transparent p-3 transition-all hover:border-border hover:bg-muted/30"
                       >
-                        <div className={cn("h-10 w-1 shrink-0 rounded-full", getStatusBarColor(company.status))} />
+                        <div
+                          className={cn("h-10 w-1 shrink-0 rounded-full", taskTypeBarColors[task.type])}
+                        />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <p className="truncate font-medium">{company.name}</p>
-                            <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-xs", statusConfig.bgColor, statusConfig.color)}>
-                              {statusConfig.label}
+                            <p className="truncate font-medium">{task.title}</p>
+                            <span
+                              className={cn(
+                                "shrink-0 rounded px-1.5 py-0.5 text-xs",
+                                badge.bg,
+                                badge.text
+                              )}
+                            >
+                              {TASK_TYPE_LABELS[task.type]}
                             </span>
                           </div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            {company.industry && <span className="truncate">{company.industry}</span>}
-                            {company.nearestDeadline && (
+                          <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                            {contextLabel ? <span className="truncate">{contextLabel}</span> : null}
+                            {daysLeft !== null ? (
                               <>
-                                {company.industry && <span>•</span>}
+                                {contextLabel ? <span className="shrink-0">•</span> : null}
                                 <span
                                   className={cn(
                                     "shrink-0",
-                                    company.nearestDeadline.daysLeft <= 3 && "font-medium text-red-500"
+                                    (daysLeft <= 3 || daysLeft < 0) && "font-medium text-red-500"
                                   )}
                                 >
-                                  {company.nearestDeadline.daysLeft}日後 締切
+                                  {daysLeft}日後 締切
                                 </span>
                               </>
-                            )}
+                            ) : null}
                           </div>
                         </div>
                         <ChevronRightIcon className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </Link>
                     );
                   })}
-                  {companyCount > 3 && (
+                  {openTaskCount > 3 && (
                     <Link
-                      href="/companies"
+                      href="/tasks"
                       className="flex items-center justify-center gap-1 pt-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
                     >
-                      <span>他 {companyCount - 3} 社を見る</span>
+                      <span>他 {openTaskCount - 3} 件を見る</span>
                       <ChevronRightIcon className="w-3 h-3" />
                     </Link>
                   )}
                 </div>
               ) : (
                 <EmptyState
-                  icon={<EmptyCompanyIcon />}
-                  title="まだ企業が登録されていません"
-                  description="志望企業を登録して、ES提出や面接の締切を管理しましょう"
-                  action={{ label: "企業を追加する", href: "/companies/new" }}
+                  icon={<EmptyTasksIcon />}
+                  title="未完了のタスクはありません"
+                  description="タスク一覧で追加すると、ここに表示されます"
+                  action={{ label: "タスク一覧を開く", href: "/tasks" }}
                 />
               )}
             </CardContent>

@@ -64,6 +64,7 @@
   - `src/app/**/page.tsx` を触る
   - レイアウト、操作導線、ローディング、レスポンシブ対応を改善する
 - UI タスクでは `docs/architecture/FRONTEND_UI_GUIDELINES.md` を参照する。
+- マーケ LP（`src/components/landing/*` 等）のビジュアル改修では、ルートの `DESIGN.md` と `docs/marketing/LP.md` を参照する。
 - `src/components/**`, `src/app/**/page.tsx`, `src/app/**/layout.tsx`, `src/app/**/loading.tsx`, `src/components/skeletons/**` を変更する前に、必ず `npm run ui:preflight -- <route> --surface=marketing|product [--auth=none|guest]` を実行する。
 - `ui:preflight` の Markdown 出力を会話、PR 本文、作業ログのいずれかに残してから UI 実装を始める。
 - UI 変更前後で `npm run lint:ui:guardrails` を通し、marketing の accent color 逸脱や `loading.tsx` の spinner-only 化を止める。
@@ -101,6 +102,19 @@
 - secrets 正本は codex-company 配下の `.secrets/career_compass`（解決ルールは `scripts/release/career-compass-secrets-root.sh` と同じ。環境変数は `docs/release/ENV_REFERENCE.md` の Release Automation Inputs を参照）
 - **エージェントは** `codex-company/.secrets/` 以下の実ファイル（`*.env`）を**読み取らない**。インベントリ確認・検証は `zsh scripts/release/sync-career-compass-secrets.sh --check` のみ。リポジトリにはプロバイダ用 env テンプレを置かない（`.env.example` はローカル開発用として従来どおり）
 - provider CLI の直接操作ではなく、repo 内 scripts を優先する
+
+### 9. Architecture Gate / OMM Review
+- Skills / commands: `architecture-gate`, `improve-architecture`, `omm-view`
+- Auto-invoke when:
+  - 新機能追加で `src/app/api/**`、`backend/app/**`、`src/lib/db/schema.ts` のいずれかを触る
+  - auth、billing、calendar、AI、RAG、guest/user 境界を変更する
+  - page / component / hook / loader / API / backend をまたぐ変更を行う
+  - 既存の大きいファイルへさらに責務を追加する
+- `write-prd` の前に `architecture-gate` を実行し、`.omm/` とコードを根拠に `PASS` / `PASS_WITH_REFACTOR` / `BLOCK` を判定する。
+- `architecture-gate` の重点確認対象は `overall-architecture`、`request-lifecycle`、`data-flow`、`external-integrations`、`route-page-map`。
+- `PASS_WITH_REFACTOR` の場合は、最小リファクタを機能実装より前に置く。
+- `BLOCK` の場合は、実装や PRD を先に進めず `improve-architecture` で RFC を作る。
+- docs-only、test-only、局所的な文言修正、明らかな局所バグ修正では省略できる。
 
 ---
 

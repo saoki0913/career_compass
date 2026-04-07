@@ -128,7 +128,7 @@
 ## 3. 料金・プラン・制限（確定）
 
 ### 3.1 料金
-- Standard: 1,480円/月
+- Standard: 1,490円/月
 - Pro: 2,980円/月
 - **年額**の表示単価・Stripe price ID は `src/lib/stripe/managed-config.json` / 環境変数および `docs/features/CREDITS.md` §2.1 を正とする。
 
@@ -825,6 +825,7 @@
   - 前回の作成結果は履歴として保持
   - 初回の再実行は別セッション追加で開始できる
   - ES 生成後は `更に深掘りする` で同じセッションを再開できる
+- **会話をやり直す**: 確認モーダル（キャンセル / 新しい会話を始める）のあとで `POST .../conversation/new` により新規セッションを開始する（`window.confirm` は使わない）
 - クレジット消費は5問回答ごとに3
 - 次質問生成のAI出力は `question` と `conversation_state` を主契約とする
 - ES 作成前は `overview / context / task / action / result / learning` の不足を埋める
@@ -834,6 +835,10 @@
 - `draft_quality_checks / causal_gaps / completion_checks` を server-side で保持し、複数人活動や大きな成果が出るケースでは `role` を draft 前に優先確認する
 - 重複質問防止のため、`asked_focuses / resolved_focuses / deferred_focuses / blocked_focuses / focus_attempt_counts / last_question_signature` を会話 state に保持する
 - `draft_ready` 到達直後は自動質問を止め、入力欄を閉じて `ガクチカESを作成` CTA を主表示にする
+- **ガクチカ ES 下書きの文字数**: UI で **300 / 400 / 500** 字のいずれかを選び、`POST /api/gakuchika/[id]/generate-es-draft` の `charLimit` に渡す。初期選択は素材 `charLimitType`（一覧・詳細 GET）に合わせる
+- **ガクチカ ES 下書きのプロンプト**: FastAPI は ES 添削と同一の `TEMPLATE_DEFS` を正とする `backend/app/prompts/es_templates.py` の **`build_template_draft_generation_prompt`（`gakuchika`）** で単一 LLM 生成する（旧 `gakuchika.draft_generation` 管理プロンプトは廃止。Notion 必須キーからも除外）
+- **進捗バー（状況・課題・行動・結果）**: `conversation_state` の `missing_elements` と `focus_key` を正として表示する。回答送信中に `focus_key` を楽観的に消してバーを壊さない。`focus_key` が STAR 以外のときは `missing_elements` の先頭（context→task→action→result 順）を進行中としてよい
+- **質問順序（ES 構築）**: 原則 **状況 → 課題 → 行動 → 結果**。サーバーは骨格が未充足のとき、LLM 出力の `focus_key` を `missing_elements` の STAR 先頭欠落に正規化して進捗表示と質問の軸を一致させる
 - `もう少し整える` を選んだ時だけ、同じセッションで会話を再開する
 - ES 生成後だけ、同じ画面・同じセッションで面接向け深掘りへ進める
 - 深掘りでは `future` と `backstory` を必要時の観点として扱う
@@ -843,6 +848,12 @@
 - SSE は途中 chunk を表示用に流し、最終的な質問や CTA は complete payload の canonical 値を正とする
 - `interview_ready` 到達後は `one_line_core_answer` と `two_minute_version_outline` を主表示にした面接準備パックを出す
 - 回答送信時のUIは `質問の意図を整理中` → `次の質問を生成中...` → 次質問ストリーミング の順で表示する
+- `interview_ready` 後もユーザーが **「もっと深掘る」** を選べる。再開時は会話 `stage` を `deep_dive_active` に戻し `gakuchika_conversations.status` を `in_progress` に戻して SSE 送信を再度許可する（要約 `gakuchika_contents.summary` は保持）。継続のたび `extended_deep_dive_round` を増やし、より細かい観点の質問を促す
+- 一覧の会話ステータスバッジは、同一セッションで継続深掘りに戻した場合 **進行中** を優先してよい（完了は `interview_ready` かつ `completed` のスナップショット時）
+- **`GET /api/gakuchika`（一覧）**: 各素材の会話ステータスは DB の最新 `gakuchika_conversations` 行から集約する。レスポンスの `conversationStatus` は `in_progress` / `completed` のみに正規化し、**`questionCount > 0` なのにステータスが取れない・不正な過去データ**は **`in_progress` にフォールバック**する
+- **一覧クライアント**: `conversationStatus` の `null` / `undefined` / 空文字 / 不正値はいずれも **未開始** としてフィルタ・グルーピングする（`getGakuchikaListStatusKey`）。**ブラウザタブが再度 visible になったとき**に `/gakuchika` 上では一覧を silent 再取得し、詳細操作後の表示ズレを減らす
+- **詳細の次質問表示**: SSE の `string_chunk` は毎レンダーで直描画せず complete まで蓄え、確定文は **`useStreamingTextPlayback` + `StreamingChatMessage`** で文字送り表示し、再生完了後に `conversation_state` を一括反映する（志望動機画面と同型）
+- **STAR の「状況」（`context`）充足**: サーバー `_build_core_missing_elements` は全文が短くても、**状況を示す語**（インターン・配属・サークル・部署 等）が含まれるコーパスを `context` 欠落から外す（極端に曖昧な短文は従来どおり `context` 不足のまま）
 
 ### 17.3 ガクチカ素材の管理
 - 素材は複数登録可能
@@ -860,6 +871,7 @@
 企業特化の志望動機を対話形式で深掘りし、ES用の下書きを生成する。ESテンプレート共有/ギャラリー機能の代替として実装。
 
 ### 17.5.2 基本仕様
+- setup 完了後、ユーザーは **対話で進める**か **会話なしで ES 下書きのみ先に生成**するかを選べる（後者は会話履歴が空のときのみ。企業 RAG・プロフィール・ガクチカ要約を材料にする）
 - 会話形式で質問に回答し、志望動機の 6 要素を深掘りする
 - 固定質問数は持たず、ES 下書きに十分な品質へ達した時点で draft ready とする
 - 企業RAGと連携し、企業情報を質問に反映
@@ -873,7 +885,8 @@
 - ログインユーザーは完了済みガクチカ要約を質問生成に利用する
 - `company_reason / differentiation / closing` では対象企業以外の社名を reject し、未確認の職種や仕事内容を前提にしない
 - `conversation/start` / `conversation` / `conversation/stream` は `updatedAt` compare-and-set で同時更新 race を防ぐ
-- `isDraftReady` は「会話終了」ではなく「志望動機ESを作成できる品質に達した」ことを意味し、到達後も会話は継続できる
+- `isDraftReady` は「会話終了」ではなく「志望動機ESを作成できる品質に達した」ことを意味し、到達後も会話は継続できる（会話なし下書きのあとも `deepdive` で継続可能）
+- UI ではステージ `closing` をそのまま見せず、「仕上げを整理中」等の文言は出さない
 - `draft_ready` 到達直後は自動質問を止め、CTA 有効化と通知だけを行う
 - 追加深掘りは draft ready 後にユーザーが会話を続けた時だけ行い、ES を強める補足に限定する
 - 中断/再開が可能
@@ -898,7 +911,10 @@
 
 ### 17.5.4 ES下書き生成
 - 文字数指定: 300字 / 400字 / 500字から選択
-- 会話内容を元に志望動機の下書きを生成
+- 対話ルート: 会話内容を元に志望動機の下書きを生成
+- 会話なしルート: 同一文字数で、会話履歴なしに下書きを生成（事実は材料に根ざした範囲に限定するプロンプト）
+- **プロンプト**: FastAPI は **`build_template_draft_generation_prompt`（`TEMPLATE_DEFS` の `company_motivation`）** で単一 LLM 生成する。企業 RAG の要約はユーザープロンプトの参考ブロックに載せる（旧 `motivation.draft_generation` / `motivation.draft_from_profile` 管理プロンプトは廃止）
+- 本文は改行なしの 1 段落として保存する（API 層で正規化）
 - 生成後はESドキュメントとして保存し、ESエディタで編集可能
 
 ### 17.5.5 クレジット消費
@@ -941,9 +957,9 @@
 - `turn_state.coverageState` を deterministic coverage の正本にし、`coveredTopics` は read model とする
 - `turn_state.recentQuestionSummariesV2` に `intentKey / normalizedSummary / topic / followupStyle / turnId` を保持し、同義質問を抑止する
 - `strictnessMode` は covered 閾値だけを変え、`interviewStage` は required checklist の内容だけを変える
-- `formatPhase` は `opening / standard_main / case_main / case_closing / technical_main / discussion_main / presentation_main / feedback`
+- `formatPhase` は `opening / standard_main / case_main / case_closing / technical_main / life_history_main / feedback`（旧 `discussion_main` / `presentation_main` は `life_history_main` に正規化）
 - `case_main` 中は behavioral fallback を禁止し、`case_closing` でのみ motivation / personality 系を限定解禁する
-- 方式は `standard_behavioral / case / technical / discussion / presentation` をサポートする
+- 方式は `standard_behavioral / case / technical / life_history` をサポートする（旧 `discussion` / `presentation` は `life_history` に正規化）
 - 各ターンで `turn_meta.turnAction` と `turn_meta.shouldMoveNext` を返し、深掘り継続か論点移動かを決める
 - Next API は `GET /api/companies/[id]/interview` + `POST /api/companies/[id]/interview/start` + `POST /api/companies/[id]/interview/stream` + `POST /api/companies/[id]/interview/feedback` + `POST /api/companies/[id]/interview/continue` + `POST /api/companies/[id]/interview/reset` + `POST /api/companies/[id]/interview/feedback/satisfaction`
 - opening、各 follow-up、最終講評のすべてを SSE で streaming 表示する

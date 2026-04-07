@@ -26,7 +26,7 @@ If a question can be answered by exploring the codebase, inspect the repo instea
 3. Prefer concrete options and a recommendation when tradeoffs are involved.
 4. Push past vague answers until goal, scope, interfaces, constraints, edge cases, and tests are explicit.
 5. Summarize locked decisions every few questions so the shared model stays aligned.
-6. When the design is stable, hand off to `write-prd`.
+6. When the design is stable, hand off to `architecture-gate`.
 
 ## Rules
 

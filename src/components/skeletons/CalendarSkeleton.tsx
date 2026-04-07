@@ -12,14 +12,14 @@ export function CalendarSkeleton() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden px-4 py-4 sm:px-6 lg:px-8">
-        <div className="mb-4 flex shrink-0 items-center justify-between">
-          <div>
-            <Skeleton className="h-8 w-40 rounded-xl" />
+        <div className="mb-4 flex shrink-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <Skeleton className="h-7 w-36 rounded-xl sm:h-8 sm:w-40" />
             <SkeletonText className="mt-2" lines={1} widths={["12rem"]} />
           </div>
-          <div className="flex items-center gap-3">
-            <SkeletonButton className="h-9 w-28" />
-            <SkeletonButton className="h-9 w-32" />
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end sm:gap-3">
+            <SkeletonButton className="h-9 w-24 sm:w-28" />
+            <SkeletonButton className="h-9 w-28 sm:w-32" />
           </div>
         </div>
 
@@ -35,7 +35,7 @@ export function CalendarSkeleton() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+              <CardContent className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-mobile-tab">
                 <div className="sticky top-0 z-[1] mb-1 grid shrink-0 grid-cols-7 gap-1 border-b border-border/40 bg-card pb-1">
                   {Array.from({ length: 7 }).map((_, i) => (
                     <SkeletonPill key={i} className="h-8 w-full rounded-lg" />

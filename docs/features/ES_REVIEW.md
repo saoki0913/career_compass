@@ -17,6 +17,7 @@ ES添削は、設問ごとに改善案と出典を段階的に流し、最後の
 
 - 設問知識は `backend/app/prompts/es_templates.py` の `TEMPLATE_DEFS` に集約する。全テンプレートが少なくとも `purpose / required_elements / anti_patterns / recommended_structure / evaluation_checks / retry_guidance / company_usage / fact_priority` を持つ。
 - rewrite prompt・fallback prompt・validator・retry hint は同じ `TEMPLATE_DEFS` を参照する。新設問やルール修正時に prompt と validator の二重修正を避ける。
+- **ガクチカ・志望動機の ES 下書き生成**も `build_template_draft_generation_prompt` 経由で同じ `TEMPLATE_DEFS`（`gakuchika` / `company_motivation`）を参照する。詳細は `docs/features/GAKUCHIKA_DEEP_DIVE.md`・`docs/features/MOTIVATION.md`。
 - `basic` を含む既存 9 テンプレートが同じ粒度の spec を持つ。required 系だけに知識を寄せるのではなく、差分は spec の値で表現する。
 - 設問タイプ分類は単一ラベルだけでなく、`confidence`・`secondary_candidates`・`rationale`・`recommended_grounding_level` を返す。
 - 企業接地は内部的に `none / light / standard / deep` の段階制で扱う。互換のため `company_grounding_policy`（`required / assistive`）も `review_meta` に残すが、prompt 制御は grounding level を主に使う。

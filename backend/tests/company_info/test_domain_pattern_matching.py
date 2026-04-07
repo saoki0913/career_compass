@@ -342,6 +342,24 @@ class TestOfficialAndRelationClassification:
             is True
         )
 
+    def test_sagawa_express_domain_is_official_not_subsidiary(self):
+        """sagawa-exp is the operating company domain; must not match sagawa-* subsidiary heuristic."""
+        assert (
+            is_registered_official_domain(
+                "https://www.sagawa-exp.co.jp/recruit/fresh/",
+                "佐川急便",
+            )
+            is True
+        )
+        relation = classify_company_domain_relation(
+            "https://www.sagawa-exp.co.jp/recruit/fresh/",
+            "佐川急便",
+            "new_grad_recruitment",
+        )
+        assert relation["source_type"] == "official"
+        assert relation["is_official"] is True
+        assert relation["is_subsidiary"] is False
+
     def test_parent_domain_is_classified_for_subsidiary_search(self):
         relation = classify_company_domain_relation(
             "https://career.mitsui.com/recruit/",

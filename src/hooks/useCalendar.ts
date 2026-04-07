@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 
 export interface CalendarEvent {
   id: string;
@@ -125,6 +126,7 @@ export function useCalendarEvents(options: {
         "useCalendarEvents.fetch"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }
@@ -243,6 +245,7 @@ export function useCalendarSettings() {
         "useCalendarSettings.fetch"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }

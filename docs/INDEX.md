@@ -52,6 +52,7 @@
 | [features/COMPANY_INFO_FETCH.md](./features/COMPANY_INFO_FETCH.md) | 企業情報取得（採用ページ等） |
 | [features/COMPANY_INFO_SEARCH.md](./features/COMPANY_INFO_SEARCH.md) | 企業情報の検索ロジック仕様 |
 | [features/COMPANY_RAG.md](./features/COMPANY_RAG.md) | 企業 RAG・ハイブリッド検索 |
+| [features/AI_PROMPTS.md](./features/AI_PROMPTS.md) | LLM の system/user 連結順の追跡（コード対応） |
 | [features/ES_REVIEW.md](./features/ES_REVIEW.md) | ES 添削 |
 | [features/GAKUCHIKA_DEEP_DIVE.md](./features/GAKUCHIKA_DEEP_DIVE.md) | ガクチカ深掘り |
 | [features/MOTIVATION.md](./features/MOTIVATION.md) | 志望動機 |
@@ -104,6 +105,8 @@
 
 | 文書 | 説明 |
 |------|------|
+| [ops/AI_AGENT_PIPELINE.md](./ops/AI_AGENT_PIPELINE.md) | Codex / Claude / Cursor 共通の AI 開発 pipeline |
+| [ops/AI_DEVELOPMENT_PRINCIPLES.md](./ops/AI_DEVELOPMENT_PRINCIPLES.md) | AI 継続開発で負債を増やさないための設計原則 |
 | [ops/CLI_GUARDRAILS.md](./ops/CLI_GUARDRAILS.md) | CLI の安全な使い方 |
 | [ops/SECURITY.md](./ops/SECURITY.md) | セキュリティの注意事項 |
 | [ops/DOMAIN_AND_HOSTING_AUDIT.md](./ops/DOMAIN_AND_HOSTING_AUDIT.md) | 旧分割文書の案内。ops から `release/DOMAIN_OPERATIONS.md` へ辿るための入口 |

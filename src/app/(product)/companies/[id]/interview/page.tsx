@@ -1,6 +1,7 @@
 "use client";
 
-import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
@@ -33,9 +34,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { parseApiErrorResponse, toAppUiError, type AppUiError } from "@/lib/api-errors";
+import { useInterviewConversationController } from "@/hooks/useInterviewConversationController";
 import {
-  classifyInterviewRoleTrack,
   INTERVIEW_FORMAT_OPTIONS,
   INTERVIEW_STAGE_OPTIONS,
   INTERVIEWER_TYPE_OPTIONS,
@@ -44,7 +44,6 @@ import {
   getInterviewTrackerStatus,
   type InterviewFormat,
   type InterviewPlan,
-  type InterviewRoleTrack,
   type InterviewRoundStage,
   type InterviewSelectionType,
   type InterviewStageStatus,
@@ -54,249 +53,32 @@ import {
   type InterviewerType,
 } from "@/lib/interview/session";
 import { notifySuccess } from "@/lib/notifications";
+import {
+  FORMAT_PHASE_LABELS,
+  INDUSTRY_SELECT_UNSET,
+  INTERVIEWER_TYPE_LABELS,
+  INTERVIEW_FORMAT_LABELS,
+  INTERVIEW_STAGE_LABELS,
+  ROLE_SELECT_UNSET,
+  ROLE_TRACK_LABELS,
+  SELECTION_TYPE_LABELS,
+  STRICTNESS_MODE_LABELS,
+  getActiveCoverage,
+  getCurrentFollowupIntent,
+  getMissingChecklist,
+  scoreEntries,
+  type Feedback,
+  type FeedbackHistoryItem,
+  type MaterialCard,
+} from "@/lib/interview/ui";
 
-const INDUSTRY_SELECT_UNSET = "__interview_industry_unset__";
-const ROLE_SELECT_UNSET = "__interview_role_unset__";
-const INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE = "INTERVIEW_PERSISTENCE_UNAVAILABLE";
-
-type Message = {
-  role: "user" | "assistant";
-  content: string;
-};
-
-type MaterialCard = {
-  label: string;
-  text: string;
-  kind?: "motivation" | "gakuchika" | "academic" | "research" | "es" | "industry_seed" | "company_seed";
-};
-
-type Feedback = {
-  overall_comment: string;
-  scores: {
-    company_fit?: number;
-    role_fit?: number;
-    specificity?: number;
-    logic?: number;
-    persuasiveness?: number;
-    consistency?: number;
-    credibility?: number;
-  };
-  strengths: string[];
-  improvements: string[];
-  consistency_risks: string[];
-  weakest_question_type?: string | null;
-  weakest_turn_id?: string | null;
-  weakest_question_snapshot?: string | null;
-  weakest_answer_snapshot?: string | null;
-  improved_answer: string;
-  next_preparation: string[];
-  premise_consistency?: number;
-  satisfaction_score?: number;
-};
-
-type FeedbackHistoryItem = {
-  id: string;
-  overallComment: string;
-  scores: Feedback["scores"];
-  strengths: string[];
-  improvements: string[];
-  consistencyRisks: string[];
-  weakestQuestionType: string | null;
-  weakestTurnId: string | null;
-  weakestQuestionSnapshot: string | null;
-  weakestAnswerSnapshot: string | null;
-  improvedAnswer: string;
-  nextPreparation: string[];
-  premiseConsistency: number;
-  satisfactionScore: number | null;
-  sourceQuestionCount: number;
-  createdAt: string;
-};
-
-type RoleOptionSource =
-  | "industry_default"
-  | "company_override"
-  | "application_job_type"
-  | "document_job_type";
-
-type RoleSelectionSource = RoleOptionSource | "custom";
-
-type RoleOptionItem = {
-  value: string;
-  label: string;
-  source: RoleOptionSource;
-};
-
-type RoleGroup = {
-  id: string;
-  label: string;
-  options: RoleOptionItem[];
-};
-
-type RoleOptionsResponse = {
-  companyId: string;
-  companyName: string;
-  industry: string | null;
-  requiresIndustrySelection: boolean;
-  industryOptions: string[];
-  roleGroups: RoleGroup[];
-};
-
-type SetupState = {
-  selectedIndustry: string | null;
-  selectedRole: string | null;
-  selectedRoleSource: string | null;
-  resolvedIndustry: string | null;
-  requiresIndustrySelection: boolean;
-  industryOptions: string[];
-  roleTrack: InterviewRoleTrack;
-  interviewFormat: InterviewFormat;
-  selectionType: InterviewSelectionType;
-  interviewStage: InterviewRoundStage;
-  interviewerType: InterviewerType;
-  strictnessMode: InterviewStrictnessMode;
-};
-
-type HydratedConversation = {
-  id: string | null;
-  status: "setup_pending" | "in_progress" | "question_flow_completed" | "feedback_completed";
-  messages: Message[];
-  plan: InterviewPlan | null;
-  turnMeta: InterviewTurnMeta | null;
-  turnState: InterviewTurnState;
-  stageStatus: InterviewStageStatus;
-  questionCount: number;
-  questionStage: string | null;
-  questionFlowCompleted: boolean;
-  feedback: Feedback | null;
-  selectedIndustry: string | null;
-  selectedRole: string | null;
-  selectedRoleSource: string | null;
-  roleTrack: InterviewRoleTrack | null;
-  interviewFormat: InterviewFormat | null;
-  selectionType: InterviewSelectionType | null;
-  interviewStage: InterviewRoundStage | null;
-  interviewerType: InterviewerType | null;
-  strictnessMode: InterviewStrictnessMode | null;
-  isLegacySession?: boolean;
-};
-
-type PendingCompleteData = {
-  messages: Message[];
-  questionCount: number;
-  stageStatus: InterviewStageStatus | null;
-  questionStage: string | null;
-  focus: string | null;
-  feedback: Feedback | null;
-  questionFlowCompleted: boolean;
-  creditCost: number;
-  turnState: InterviewTurnState | null;
-  turnMeta?: InterviewTurnMeta | null;
-  plan?: InterviewPlan | null;
-  feedbackHistories?: FeedbackHistoryItem[];
-};
-
-function createEmptyFeedback(): Feedback {
-  return {
-    overall_comment: "",
-    scores: {},
-    strengths: [],
-    improvements: [],
-    consistency_risks: [],
-    weakest_question_type: null,
-    weakest_turn_id: null,
-    weakest_question_snapshot: null,
-    weakest_answer_snapshot: null,
-    improved_answer: "",
-    next_preparation: [],
-    premise_consistency: undefined,
-    satisfaction_score: undefined,
-  };
-}
-
-const INTERVIEW_FORMAT_LABELS: Record<InterviewFormat, string> = {
-  standard_behavioral: "通常面接",
-  case: "ケース面接",
-  technical: "技術 / 専門面接",
-  discussion: "ディスカッション",
-  presentation: "発表 / プレゼン面接",
-};
-
-const SELECTION_TYPE_LABELS: Record<InterviewSelectionType, string> = {
-  internship: "インターン",
-  fulltime: "本選考",
-};
-
-const INTERVIEW_STAGE_LABELS: Record<InterviewRoundStage, string> = {
-  early: "一次 / 序盤",
-  mid: "二次 / 中盤",
-  final: "最終",
-};
-
-const INTERVIEWER_TYPE_LABELS: Record<InterviewerType, string> = {
-  hr: "人事",
-  line_manager: "現場",
-  executive: "役員",
-  mixed_panel: "複数面接官",
-};
-
-const STRICTNESS_MODE_LABELS: Record<InterviewStrictnessMode, string> = {
-  supportive: "やさしめ",
-  standard: "標準",
-  strict: "厳しめ",
-};
-
-const ROLE_TRACK_LABELS: Record<InterviewRoleTrack, string> = {
-  biz_general: "文系総合職 / 営業 / 企画",
-  it_product: "IT / プロダクト",
-  consulting: "コンサル",
-  research_specialist: "研究 / 専門職",
-  quant_finance: "クオンツ / 数理",
-};
-
-const FORMAT_PHASE_LABELS: Record<string, string> = {
-  opening: "導入",
-  standard_main: "本編",
-  case_main: "ケース本編",
-  case_closing: "ケース締め",
-  technical_main: "技術本編",
-  discussion_main: "議論本編",
-  presentation_main: "発表本編",
-  feedback: "講評",
-};
-
-function getActiveCoverage(turnState: InterviewTurnState | null) {
-  if (!turnState) return null;
-  return (
-    turnState.coverageState.find((item) => item.topic === turnState.currentTopic) ??
-    turnState.coverageState.find((item) => !item.deterministicCoveragePassed) ??
-    turnState.coverageState[0] ??
-    null
-  );
-}
-
-function getMissingChecklist(turnState: InterviewTurnState | null) {
-  const coverage = getActiveCoverage(turnState);
-  if (!coverage) return [];
-  return coverage.requiredChecklist.filter((item) => !coverage.passedChecklistKeys.includes(item));
-}
-
-function getCurrentFollowupIntent(turnMeta: InterviewTurnMeta | null) {
-  if (!turnMeta) return null;
-  return turnMeta.focusReason || turnMeta.followupStyle || turnMeta.intentKey || null;
-}
-
-function scoreEntries(feedback: Feedback | null) {
-  if (!feedback) return [];
-  return [
-    ["企業適合", feedback.scores.company_fit ?? 0],
-    ["職種適合", feedback.scores.role_fit ?? 0],
-    ["具体性", feedback.scores.specificity ?? 0],
-    ["論理性", feedback.scores.logic ?? 0],
-    ["説得力", feedback.scores.persuasiveness ?? 0],
-    ["一貫性", feedback.scores.consistency ?? 0],
-    ["信頼性", feedback.scores.credibility ?? 0],
-  ] as const;
+/** Avoid `/api/companies//...` which redirects to `/api/companies/...` and returns HTML 404 (no `[id]` route). */
+function normalizeAppDynamicParam(value: string | string[] | undefined): string | null {
+  if (value === undefined) return null;
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function InterviewPlanCard({ plan }: { plan: InterviewPlan | null }) {
@@ -695,205 +477,81 @@ function InterviewFeedbackCard({
 
 export default function CompanyInterviewPage() {
   const params = useParams();
-  const companyId = params.id as string;
+  const companyId = normalizeAppDynamicParam(params.id);
   const { isReady, isAuthenticated } = useAuth();
-
-  const [companyName, setCompanyName] = useState("");
-  const [materials, setMaterials] = useState<MaterialCard[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [answer, setAnswer] = useState("");
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
-  const [streamingFeedback, setStreamingFeedback] = useState<Feedback | null>(null);
-  const [feedbackHistories, setFeedbackHistories] = useState<FeedbackHistoryItem[]>([]);
-  const [selectedHistory, setSelectedHistory] = useState<FeedbackHistoryItem | null>(null);
-  const [creditCost, setCreditCost] = useState(6);
-  const [questionCount, setQuestionCount] = useState(0);
-  const [questionStage, setQuestionStage] = useState<string | null>(null);
-  const [stageStatus, setStageStatus] = useState<InterviewStageStatus | null>(null);
-  const [turnState, setTurnState] = useState<InterviewTurnState | null>(null);
-  const [turnMeta, setTurnMeta] = useState<InterviewTurnMeta | null>(null);
-  const [interviewPlan, setInterviewPlan] = useState<InterviewPlan | null>(null);
-  const [streamingLabel, setStreamingLabel] = useState<string | null>(null);
-  const [pendingAssistantMessage, setPendingAssistantMessage] = useState<Message | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSending, setIsSending] = useState(false);
-  const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false);
-  const [isContinuing, setIsContinuing] = useState(false);
-  const [isSavingSatisfaction, setIsSavingSatisfaction] = useState(false);
-  const [questionFlowCompleted, setQuestionFlowCompleted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [errorAction, setErrorAction] = useState<string | null>(null);
-  const [persistenceUnavailable, setPersistenceUnavailable] = useState(false);
-  const [persistenceDeveloperHint, setPersistenceDeveloperHint] = useState<string | null>(null);
-  const [legacySessionDetected, setLegacySessionDetected] = useState(false);
-
-  const [setupState, setSetupState] = useState<SetupState>({
-    selectedIndustry: null,
-    selectedRole: null,
-    selectedRoleSource: null,
-    resolvedIndustry: null,
-    requiresIndustrySelection: false,
-    industryOptions: [],
-    roleTrack: "biz_general",
-    interviewFormat: "standard_behavioral",
-    selectionType: "fulltime",
-    interviewStage: "early",
-    interviewerType: "hr",
-    strictnessMode: "standard",
-  });
-  const [roleOptionsData, setRoleOptionsData] = useState<RoleOptionsResponse | null>(null);
-  const [selectedRoleName, setSelectedRoleName] = useState("");
-  const [customRoleName, setCustomRoleName] = useState("");
-  const [roleSelectionSource, setRoleSelectionSource] = useState<RoleSelectionSource | null>(null);
 
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
   const feedbackCardRef = useRef<HTMLDivElement | null>(null);
   const autoScrollEnabledRef = useRef(true);
-  const shouldAnnounceFeedbackSuccessRef = useRef(false);
+  const lastAnnouncedFeedbackCompletionCountRef = useRef(0);
 
-  const flattenedRoleOptions = useMemo(
-    () => roleOptionsData?.roleGroups.flatMap((group) => group.options) ?? [],
-    [roleOptionsData],
-  );
+  const { state, actions } = useInterviewConversationController({
+    companyId,
+    enabled: isReady && isAuthenticated && Boolean(companyId),
+  });
+  const {
+    companyName,
+    materials,
+    messages,
+    answer,
+    feedback,
+    streamingFeedback,
+    feedbackHistories,
+    selectedHistory,
+    questionCount,
+    stageStatus,
+    turnState,
+    turnMeta,
+    interviewPlan,
+    streamingLabel,
+    pendingAssistantMessage,
+    isLoading,
+    isGeneratingFeedback,
+    isSavingSatisfaction,
+    questionFlowCompleted,
+    error,
+    errorAction,
+    persistenceUnavailable,
+    persistenceDeveloperHint,
+    setupState,
+    roleOptionsData,
+    selectedRoleName,
+    customRoleName,
+    roleSelectionSource,
+    effectiveIndustry,
+    resolvedSelectedRole,
+    setupComplete,
+    hasStarted,
+    isBusy,
+    isComplete,
+    visibleFeedback,
+    canSend,
+    canGenerateFeedback,
+    canContinue,
+    latestFeedbackHistory,
+    feedbackHelperText,
+    feedbackCompletionCount,
+  } = state;
+  const {
+    setAnswer,
+    setSetupState,
+    setSelectedHistory,
+    selectRole,
+    setCustomRoleName,
+    start: handleStart,
+    send: handleSend,
+    generateFeedback: handleGenerateFeedback,
+    continueInterview: handleContinue,
+    reset: handleReset,
+    saveSatisfaction: handleSaveSatisfaction,
+  } = actions;
 
-  const effectiveIndustry =
-    setupState.selectedIndustry ||
-    roleOptionsData?.industry ||
-    setupState.resolvedIndustry ||
-    "";
-  const resolvedSelectedRole = customRoleName.trim() || selectedRoleName.trim();
-  const setupComplete = Boolean(resolvedSelectedRole) && (!setupState.requiresIndustrySelection || Boolean(effectiveIndustry));
-  const hasStarted = !legacySessionDetected && (messages.length > 0 || feedback !== null || questionFlowCompleted);
-  const isBusy = isSending || isGeneratingFeedback || isContinuing;
-  const isComplete = feedback !== null;
-  const visibleFeedback = feedback ?? streamingFeedback;
   const trackerStatus = getInterviewTrackerStatus({
     turnCount: questionCount,
-    currentTopicLabel: turnMeta?.interviewSetupNote || stageStatus?.currentTopicLabel || questionStage,
+    currentTopicLabel: turnMeta?.interviewSetupNote || stageStatus?.currentTopicLabel || state.questionStage,
     remainingTopicCount: stageStatus?.remainingTopics?.length ?? turnState?.remainingTopics?.length ?? 0,
   });
-  const canSend = answer.trim().length > 0 && !isBusy && !isComplete && !questionFlowCompleted && hasStarted;
-  const canGenerateFeedback = questionFlowCompleted && !isComplete && !isBusy;
-  const canContinue = Boolean(feedback) && !isBusy;
-  const latestFeedbackHistory = feedbackHistories[0] ?? null;
-  const feedbackHelperText = questionFlowCompleted
-    ? `${questionCount}問の回答をもとに最終講評を作成します。成功時のみ ${creditCost} credits 消費です。`
-    : "面接完了後に最終講評を作成できます。";
-
-  const applyPersistenceDiagnosticState = (uiError: AppUiError) => {
-    const isPersistenceError = uiError.code === INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE;
-    setPersistenceUnavailable(isPersistenceError);
-    setPersistenceDeveloperHint(
-      isPersistenceError && process.env.NODE_ENV === "development"
-        ? uiError.details ??
-            uiError.developerMessage ??
-            "Interview persistence schema or migration is missing."
-        : null,
-    );
-  };
-
-  useEffect(() => {
-    const classified = classifyInterviewRoleTrack(resolvedSelectedRole);
-    setSetupState((prev) => (prev.roleTrack === classified ? prev : { ...prev, roleTrack: classified }));
-  }, [resolvedSelectedRole]);
-
-  useEffect(() => {
-    if (!isReady || !isAuthenticated) return;
-
-    let isMounted = true;
-
-    const hydrate = async () => {
-      setIsLoading(true);
-      setError(null);
-      setErrorAction(null);
-      setPersistenceUnavailable(false);
-      setPersistenceDeveloperHint(null);
-      try {
-        const [interviewResponse, roleResponse] = await Promise.all([
-          fetch(`/api/companies/${companyId}/interview`, { credentials: "include" }),
-          fetch(`/api/companies/${companyId}/es-role-options`, { credentials: "include" }),
-        ]);
-        if (!interviewResponse.ok) {
-          throw await parseApiErrorResponse(
-            interviewResponse,
-            {
-              code: "INTERVIEW_HYDRATE_FAILED",
-              userMessage: "面接対策の準備に失敗しました。",
-              action: "時間をおいて、もう一度お試しください。",
-              authMessage: "ログイン後に面接対策を利用してください。",
-              notFoundMessage: "対象の企業が見つかりません。",
-            },
-            "interview:hydrate",
-          );
-        }
-
-        const interviewData = await interviewResponse.json();
-        const roleData = roleResponse.ok ? ((await roleResponse.json()) as RoleOptionsResponse) : null;
-        if (!isMounted) return;
-
-        const conversation = interviewData.conversation as HydratedConversation;
-        const isLegacy = Boolean(conversation?.isLegacySession);
-        setCompanyName(interviewData.company?.name || "");
-        setMaterials(Array.isArray(interviewData.materials) ? interviewData.materials : []);
-        setCreditCost(typeof interviewData.creditCost === "number" ? interviewData.creditCost : 6);
-        setFeedbackHistories(Array.isArray(interviewData.feedbackHistories) ? interviewData.feedbackHistories : []);
-        setRoleOptionsData(roleData);
-        setSetupState(interviewData.setup);
-        setPersistenceUnavailable(false);
-        setPersistenceDeveloperHint(null);
-        setLegacySessionDetected(isLegacy);
-        setMessages(!isLegacy && Array.isArray(conversation?.messages) ? conversation.messages : []);
-        setFeedback(!isLegacy ? conversation?.feedback ?? null : null);
-        setQuestionCount(!isLegacy && typeof conversation?.questionCount === "number" ? conversation.questionCount : 0);
-        setQuestionStage(!isLegacy ? conversation?.questionStage ?? null : null);
-        setStageStatus(!isLegacy ? conversation?.stageStatus ?? interviewData.stageStatus ?? null : null);
-        setTurnState(!isLegacy ? conversation?.turnState ?? interviewData.turnState ?? null : null);
-        setTurnMeta(!isLegacy ? conversation?.turnMeta ?? null : null);
-        setInterviewPlan(!isLegacy ? conversation?.plan ?? null : null);
-        setQuestionFlowCompleted(!isLegacy && Boolean(conversation?.questionFlowCompleted));
-
-        const resolvedRole = conversation?.selectedRole || interviewData.setup?.selectedRole || "";
-        const matchedRole = roleData?.roleGroups
-          ?.flatMap((group) => group.options)
-          .find((option) => option.value === resolvedRole);
-
-        setSelectedRoleName(matchedRole ? matchedRole.value : "");
-        setCustomRoleName(matchedRole ? "" : resolvedRole);
-        setRoleSelectionSource(
-          matchedRole
-            ? matchedRole.source
-            : resolvedRole
-              ? "custom"
-              : (conversation?.selectedRoleSource as RoleSelectionSource | null) ?? null,
-        );
-
-      } catch (fetchError) {
-        if (!isMounted) return;
-        const uiError = toAppUiError(
-          fetchError,
-          {
-            code: "INTERVIEW_HYDRATE_FAILED",
-            userMessage: "面接対策の準備に失敗しました。",
-            action: "時間をおいて、もう一度お試しください。",
-          },
-          "interview:hydrate",
-        );
-        setError(uiError.message);
-        setErrorAction(uiError.action ?? null);
-        applyPersistenceDiagnosticState(uiError);
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    void hydrate();
-    return () => {
-      isMounted = false;
-    };
-  }, [companyId, isAuthenticated, isReady]);
 
   useEffect(() => {
     const viewport = conversationRef.current?.parentElement;
@@ -925,8 +583,8 @@ export default function CompanyInterviewPage() {
   ]);
 
   useEffect(() => {
-    if (!feedback || !shouldAnnounceFeedbackSuccessRef.current) return;
-    shouldAnnounceFeedbackSuccessRef.current = false;
+    if (!feedback || feedbackCompletionCount <= lastAnnouncedFeedbackCompletionCountRef.current) return;
+    lastAnnouncedFeedbackCompletionCountRef.current = feedbackCompletionCount;
     notifySuccess({
       title: "最終講評を生成しました",
       description: "講評カードを表示しました。内容を確認しながら振り返れます。",
@@ -935,443 +593,7 @@ export default function CompanyInterviewPage() {
     requestAnimationFrame(() => {
       feedbackCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-  }, [feedback]);
-
-  async function runStream(
-    path:
-      | "/api/companies/[id]/interview/start"
-      | "/api/companies/[id]/interview/stream"
-      | "/api/companies/[id]/interview/feedback"
-      | "/api/companies/[id]/interview/continue",
-    body?: Record<string, unknown>,
-  ) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90_000);
-    let pendingCompleteData: PendingCompleteData | null = null;
-
-    try {
-      const resolvedPath =
-        path === "/api/companies/[id]/interview/start"
-          ? `/api/companies/${companyId}/interview/start`
-          : path === "/api/companies/[id]/interview/feedback"
-            ? `/api/companies/${companyId}/interview/feedback`
-            : path === "/api/companies/[id]/interview/continue"
-              ? `/api/companies/${companyId}/interview/continue`
-              : `/api/companies/${companyId}/interview/stream`;
-      const response = await fetch(resolvedPath, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(body ?? {}),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "INTERVIEW_STREAM_FAILED",
-            userMessage: "面接対策の送信に失敗しました。",
-            action: "少し時間をおいて、もう一度お試しください。",
-            authMessage: "ログイン後に面接対策を利用してください。",
-          },
-          "interview:stream",
-        );
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("ストリームが取得できませんでした。");
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let completed = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const jsonStr = line.slice(6).trim();
-          if (!jsonStr) continue;
-
-          let event;
-          try {
-            event = JSON.parse(jsonStr);
-          } catch {
-            continue;
-          }
-
-          if (event.type === "progress") {
-            setStreamingLabel(event.label || null);
-            continue;
-          }
-
-          if (event.type === "field_complete") {
-            if (event.path === "question_stage") {
-              setQuestionStage(event.value || null);
-            }
-            if (event.path === "stage_status") {
-              setStageStatus(event.value || null);
-            }
-            if (event.path === "scores") {
-              setStreamingFeedback((prev) => ({
-                ...(prev ?? createEmptyFeedback()),
-                scores: typeof event.value === "object" && event.value ? event.value : {},
-              }));
-            }
-            if (event.path === "premise_consistency") {
-              setStreamingFeedback((prev) => ({
-                ...(prev ?? createEmptyFeedback()),
-                premise_consistency:
-                  typeof event.value === "number" ? event.value : undefined,
-              }));
-            }
-            if (event.path === "weakest_question_type") {
-              setStreamingFeedback((prev) => ({
-                ...(prev ?? createEmptyFeedback()),
-                weakest_question_type:
-                  typeof event.value === "string" ? event.value : null,
-              }));
-            }
-            continue;
-          }
-
-          if (event.type === "array_item_complete") {
-            if (typeof event.path !== "string") continue;
-            const [field, indexText] = event.path.split(".");
-            const index = Number(indexText);
-            if (!Number.isFinite(index)) continue;
-            if (!["strengths", "improvements", "next_preparation", "consistency_risks", "preparation_points"].includes(field)) {
-              continue;
-            }
-            setStreamingFeedback((prev) => {
-              const next = prev ?? createEmptyFeedback();
-              const key =
-                field === "preparation_points"
-                  ? "next_preparation"
-                  : (field as "strengths" | "improvements" | "next_preparation" | "consistency_risks");
-              const currentItems = [...next[key]];
-              currentItems[index] = typeof event.value === "string" ? event.value : String(event.value ?? "");
-              return { ...next, [key]: currentItems };
-            });
-            continue;
-          }
-
-          if (event.type === "string_chunk") {
-            if (event.path === "question") {
-              setPendingAssistantMessage((prev) => ({
-                role: "assistant",
-                content: `${prev?.content ?? ""}${event.text || ""}`,
-              }));
-            }
-            if (event.path === "overall_comment" || event.path === "improved_answer") {
-              setStreamingFeedback((prev) => {
-                const next = prev ?? createEmptyFeedback();
-                const chunk = event.text || "";
-                return {
-                  ...next,
-                  overall_comment:
-                    event.path === "overall_comment"
-                      ? `${next.overall_comment}${chunk}`
-                      : next.overall_comment,
-                  improved_answer:
-                    event.path === "improved_answer"
-                      ? `${next.improved_answer}${chunk}`
-                      : next.improved_answer,
-                };
-              });
-            }
-            continue;
-          }
-
-          if (event.type === "error") {
-            throw new Error(event.message || "AIサービスでエラーが発生しました。");
-          }
-
-          if (event.type === "complete") {
-            completed = true;
-            const data = event.data || {};
-            pendingCompleteData = {
-              messages: Array.isArray(data.messages) ? data.messages : [],
-              questionCount: typeof data.questionCount === "number" ? data.questionCount : 0,
-              stageStatus: data.stageStatus || null,
-              questionStage: data.questionStage || null,
-              focus: data.focus || null,
-              feedback: data.feedback || null,
-              questionFlowCompleted:
-                Boolean(data.questionFlowCompleted) || Boolean(data.feedback),
-              creditCost: typeof data.creditCost === "number" ? data.creditCost : creditCost,
-              turnState: data.turnState || null,
-              turnMeta: data.turnMeta || null,
-              plan: data.plan || null,
-              feedbackHistories: Array.isArray(data.feedbackHistories) ? data.feedbackHistories : undefined,
-            };
-          }
-        }
-      }
-
-      if (!completed || !pendingCompleteData) {
-        throw new Error("ストリームが途中で切断されました。");
-      }
-
-      const completeData = pendingCompleteData;
-      startTransition(() => {
-        setMessages(completeData.messages);
-        setQuestionCount(completeData.questionCount);
-        setStageStatus(completeData.stageStatus);
-        setQuestionStage(completeData.questionStage);
-        setFeedback(completeData.feedback);
-        setTurnState(completeData.turnState);
-        setTurnMeta(completeData.turnMeta ?? null);
-        setInterviewPlan(completeData.plan ?? null);
-        setQuestionFlowCompleted(completeData.questionFlowCompleted);
-        setCreditCost(completeData.creditCost);
-        if (completeData.feedbackHistories) {
-          setFeedbackHistories(completeData.feedbackHistories);
-        }
-        setPendingAssistantMessage(null);
-      });
-    } finally {
-      clearTimeout(timeoutId);
-      setStreamingLabel(null);
-      setPendingAssistantMessage(null);
-      if (path !== "/api/companies/[id]/interview/feedback") {
-        setStreamingFeedback(null);
-      }
-    }
-  }
-
-  const handleStart = async () => {
-    if (!setupComplete || isBusy || hasStarted || persistenceUnavailable) return;
-    setIsSending(true);
-    setError(null);
-    setErrorAction(null);
-    try {
-      await runStream("/api/companies/[id]/interview/start", {
-        selectedIndustry: effectiveIndustry || null,
-        selectedRole: resolvedSelectedRole,
-        selectedRoleSource:
-          roleSelectionSource === "custom" ? "custom" : roleSelectionSource,
-        roleTrack: setupState.roleTrack,
-        interviewFormat: setupState.interviewFormat,
-        selectionType: setupState.selectionType,
-        interviewStage: setupState.interviewStage,
-        interviewerType: setupState.interviewerType,
-        strictnessMode: setupState.strictnessMode,
-      });
-    } catch (streamError) {
-      const uiError = toAppUiError(
-        streamError,
-        {
-          code: "INTERVIEW_START_FAILED",
-          userMessage: "面接対策の開始に失敗しました。",
-          action: "少し時間をおいて、もう一度お試しください。",
-        },
-        "interview:start",
-      );
-      setError(uiError.message);
-      setErrorAction(uiError.action ?? null);
-      applyPersistenceDiagnosticState(uiError);
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  const handleSend = async () => {
-    if (!canSend) return;
-    const optimisticMessages = [...messages, { role: "user" as const, content: answer.trim() }];
-    setMessages(optimisticMessages);
-    setAnswer("");
-    setIsSending(true);
-    setError(null);
-    setErrorAction(null);
-
-    try {
-      await runStream("/api/companies/[id]/interview/stream", { answer: optimisticMessages.at(-1)?.content });
-    } catch (streamError) {
-      setMessages(messages);
-      const uiError = toAppUiError(
-        streamError,
-        {
-          code: "INTERVIEW_SEND_FAILED",
-          userMessage: "面接対策の送信に失敗しました。",
-          action: "少し時間をおいて、もう一度お試しください。",
-        },
-        "interview:send",
-      );
-      setError(uiError.message);
-      setErrorAction(uiError.action ?? null);
-      applyPersistenceDiagnosticState(uiError);
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  const handleGenerateFeedback = async () => {
-    if (!canGenerateFeedback) return;
-    setIsGeneratingFeedback(true);
-    setStreamingFeedback(createEmptyFeedback());
-    setError(null);
-    setErrorAction(null);
-    shouldAnnounceFeedbackSuccessRef.current = true;
-    try {
-      await runStream("/api/companies/[id]/interview/feedback");
-    } catch (streamError) {
-      shouldAnnounceFeedbackSuccessRef.current = false;
-      setStreamingFeedback(null);
-      const uiError = toAppUiError(
-        streamError,
-        {
-          code: "INTERVIEW_FEEDBACK_FAILED",
-          userMessage: "最終講評の作成に失敗しました。",
-          action: "少し時間をおいて、もう一度お試しください。",
-        },
-        "interview:feedback",
-      );
-      setError(uiError.message);
-      setErrorAction(uiError.action ?? null);
-      applyPersistenceDiagnosticState(uiError);
-    } finally {
-      setIsGeneratingFeedback(false);
-    }
-  };
-
-  const handleContinue = async () => {
-    if (!canContinue || persistenceUnavailable) return;
-    const previousFeedback = feedback;
-    setIsContinuing(true);
-    setError(null);
-    setErrorAction(null);
-    setFeedback(null);
-    setStreamingFeedback(null);
-    setQuestionFlowCompleted(false);
-    try {
-      await runStream("/api/companies/[id]/interview/continue");
-    } catch (streamError) {
-      setFeedback(previousFeedback);
-      const uiError = toAppUiError(
-        streamError,
-        {
-          code: "INTERVIEW_CONTINUE_FAILED",
-          userMessage: "続きの面接対策を開始できませんでした。",
-          action: "少し時間をおいて、もう一度お試しください。",
-        },
-        "interview:continue",
-      );
-      setError(uiError.message);
-      setErrorAction(uiError.action ?? null);
-      applyPersistenceDiagnosticState(uiError);
-    } finally {
-      setIsContinuing(false);
-    }
-  };
-
-  const handleReset = async () => {
-    if (isBusy || persistenceUnavailable) return;
-    setError(null);
-    setErrorAction(null);
-    try {
-      const response = await fetch(`/api/companies/${companyId}/interview/reset`, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "INTERVIEW_RESET_FAILED",
-            userMessage: "会話のリセットに失敗しました。",
-            action: "少し時間をおいて、もう一度お試しください。",
-          },
-          "interview:reset",
-        );
-      }
-      const data = await response.json();
-      setMessages([]);
-      setFeedback(null);
-      setStreamingFeedback(null);
-      setAnswer("");
-      setQuestionCount(0);
-      setQuestionStage(data.conversation?.questionStage ?? null);
-      setStageStatus(data.conversation?.stageStatus ?? null);
-      setTurnState(data.conversation?.turnState ?? null);
-      setTurnMeta(data.conversation?.turnMeta ?? null);
-      setInterviewPlan(data.conversation?.plan ?? null);
-      setQuestionFlowCompleted(false);
-      setLegacySessionDetected(false);
-      setFeedbackHistories(Array.isArray(data.feedbackHistories) ? data.feedbackHistories : []);
-    } catch (resetError) {
-      const uiError = toAppUiError(
-        resetError,
-        {
-          code: "INTERVIEW_RESET_FAILED",
-          userMessage: "会話のリセットに失敗しました。",
-          action: "少し時間をおいて、もう一度お試しください。",
-        },
-        "interview:reset",
-      );
-      setError(uiError.message);
-      setErrorAction(uiError.action ?? null);
-      applyPersistenceDiagnosticState(uiError);
-    }
-  };
-
-  const handleSaveSatisfaction = async (score: number) => {
-    if (!latestFeedbackHistory || isSavingSatisfaction) return;
-    setIsSavingSatisfaction(true);
-    setError(null);
-    setErrorAction(null);
-    try {
-      const response = await fetch(`/api/companies/${companyId}/interview/feedback/satisfaction`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          historyId: latestFeedbackHistory.id,
-          satisfactionScore: score,
-        }),
-      });
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "INTERVIEW_SATISFACTION_FAILED",
-            userMessage: "満足度の保存に失敗しました。",
-            action: "少し時間をおいて、もう一度お試しください。",
-          },
-          "interview:satisfaction",
-        );
-      }
-
-      setFeedbackHistories((prev) =>
-        prev.map((item) => (item.id === latestFeedbackHistory.id ? { ...item, satisfactionScore: score } : item)),
-      );
-      setFeedback((prev) => (prev ? { ...prev, satisfaction_score: score } : prev));
-    } catch (saveError) {
-      const uiError = toAppUiError(
-        saveError,
-        {
-          code: "INTERVIEW_SATISFACTION_FAILED",
-          userMessage: "満足度の保存に失敗しました。",
-          action: "少し時間をおいて、もう一度お試しください。",
-        },
-        "interview:satisfaction",
-      );
-      setError(uiError.message);
-      setErrorAction(uiError.action ?? null);
-      applyPersistenceDiagnosticState(uiError);
-    } finally {
-      setIsSavingSatisfaction(false);
-    }
-  };
+  }, [feedback, feedbackCompletionCount]);
 
   if (!isReady || isLoading) {
     return (
@@ -1386,6 +608,29 @@ export default function CompanyInterviewPage() {
 
   if (!isAuthenticated) {
     return <LoginRequiredForAi title="面接対策はログイン後に利用できます" />;
+  }
+
+  if (!companyId) {
+    return (
+      <div className="min-h-screen bg-background">
+        <DashboardHeader />
+        <main className="mx-auto max-w-2xl px-4 py-10 sm:px-6">
+          <Card className="border-border/60">
+            <CardHeader>
+              <CardTitle className="text-base">企業を特定できません</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                URLが不完全な可能性があります。企業一覧から対象の企業を開き直してください。
+              </p>
+              <Button asChild className="w-full sm:w-auto">
+                <Link href="/companies">企業一覧へ</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    );
   }
 
   return (
@@ -1464,15 +709,7 @@ export default function CompanyInterviewPage() {
                           : (selectedRoleName || ROLE_SELECT_UNSET)
                       }
                       onValueChange={(value) => {
-                        if (value === ROLE_SELECT_UNSET) {
-                          setSelectedRoleName("");
-                          setRoleSelectionSource(null);
-                          return;
-                        }
-                        const option = flattenedRoleOptions.find((item) => item.value === value);
-                        setSelectedRoleName(value);
-                        setCustomRoleName("");
-                        setRoleSelectionSource(option?.source ?? null);
+                        selectRole(value, ROLE_SELECT_UNSET);
                       }}
                     >
                       <SelectTrigger className="w-full">
@@ -1494,13 +731,7 @@ export default function CompanyInterviewPage() {
                     </Select>
                     <Input
                       value={customRoleName}
-                      onChange={(event) => {
-                        setCustomRoleName(event.target.value);
-                        if (event.target.value.trim()) {
-                          setSelectedRoleName("");
-                          setRoleSelectionSource("custom");
-                        }
-                      }}
+                      onChange={(event) => setCustomRoleName(event.target.value)}
                       placeholder="候補にない場合は自由入力"
                     />
                   </div>
@@ -1799,15 +1030,15 @@ export default function CompanyInterviewPage() {
       />
 
       <Dialog open={Boolean(selectedHistory)} onOpenChange={(open) => !open && setSelectedHistory(null)}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[90dvh] max-w-3xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b px-6 py-4">
             <DialogTitle>過去の最終講評</DialogTitle>
             <DialogDescription>
               直近の講評を全文表示しています。面接対策を続ける前の振り返りに使えます。
             </DialogDescription>
           </DialogHeader>
           {selectedHistory ? (
-            <div className="space-y-5 text-sm">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4 text-sm">
               <p className="leading-7 text-foreground/90">{selectedHistory.overallComment}</p>
               <div>
                 <p className="font-medium">良かった点</p>

@@ -8,9 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { notifyError } from "@/lib/notifications";
+import { AppUiError, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 import { cn } from "@/lib/utils";
-import { getUserFacingErrorMessage } from "@/lib/api-errors";
 import {
   useTasks,
   useTodayTask,
@@ -124,10 +124,16 @@ function TaskModal({ isOpen, task, onClose, onSubmit, onDelete }: TaskModalProps
       });
       onClose();
     } catch (err) {
-      setError(getUserFacingErrorMessage(err, {
-        code: "TASKS_MODAL_SUBMIT_FAILED",
-        userMessage: "タスクを保存できませんでした。",
-      }, "TasksPageClient:submitTask"));
+      setError(
+        toAppUiError(
+          err,
+          {
+            code: "TASKS_MODAL_SUBMIT_FAILED",
+            userMessage: "タスクを保存できませんでした。",
+          },
+          "TasksPageClient:submitTask",
+        ).message,
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -140,10 +146,16 @@ function TaskModal({ isOpen, task, onClose, onSubmit, onDelete }: TaskModalProps
       await onDelete();
       onClose();
     } catch (err) {
-      setError(getUserFacingErrorMessage(err, {
-        code: "TASKS_MODAL_DELETE_FAILED",
-        userMessage: "タスクを削除できませんでした。",
-      }, "TasksPageClient:deleteTask"));
+      setError(
+        toAppUiError(
+          err,
+          {
+            code: "TASKS_MODAL_DELETE_FAILED",
+            userMessage: "タスクを削除できませんでした。",
+          },
+          "TasksPageClient:deleteTask",
+        ).message,
+      );
     } finally {
       setIsDeleting(false);
     }
@@ -305,10 +317,12 @@ export function TasksPageClient({
       anchor.click();
       URL.revokeObjectURL(url);
     } catch {
-      notifyError({
-        title: "締切CSVを出力できませんでした。",
-        description: "時間を置いて、もう一度お試しください。",
-      });
+      notifyUserFacingAppError(
+        new AppUiError("締切CSVを出力できませんでした。", {
+          code: "DEADLINES_EXPORT_FAILED",
+          action: "時間を置いて、もう一度お試しください。",
+        }),
+      );
     } finally {
       setExportingDeadlines(false);
     }

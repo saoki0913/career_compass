@@ -14,14 +14,19 @@ import type { CreditsInfo } from "@/hooks/useCredits";
 import { getCreditsInfo, getRemainingFreeFetches } from "@/lib/credits";
 import {
   getMonthlyScheduleFetchFreeLimit,
-  getMonthlyRagFreeUnits,
+  getMonthlyRagHtmlFreeUnits,
+  getMonthlyRagPdfFreeUnits,
 } from "@/lib/company-info/pricing";
 import {
   getRagPdfIngestPolicySummaryJa,
   getRagPdfMaxIngestPages,
-  getRagPdfMaxOcrPages,
+  getRagPdfMaxGoogleOcrPages,
+  getRagPdfMaxMistralOcrPages,
 } from "@/lib/company-info/pdf-ingest-limits";
-import { getRemainingCompanyRagFreeUnitsSafe } from "@/lib/company-info/usage";
+import {
+  getRemainingCompanyRagHtmlFreeUnitsSafe,
+  getRemainingCompanyRagPdfFreeUnitsSafe,
+} from "@/lib/company-info/usage";
 
 function parseStringArray(value: string | null): string[] {
   if (!value) {
@@ -215,10 +220,11 @@ export async function getProfilePageData(userId: string) {
       .then((rows) => rows[0]),
   ]);
   const plan = (profile.plan || "free") as "free" | "standard" | "pro";
-  const [creditsInfo, remainingFreeFetches, remainingRagFreeUnits] = await Promise.all([
+  const [creditsInfo, remainingFreeFetches, remainingRagHtmlFreeUnits, remainingRagPdfFreeUnits] = await Promise.all([
     getCreditsInfo(userId),
     getRemainingFreeFetches(userId, null, plan),
-    getRemainingCompanyRagFreeUnitsSafe(userId, plan),
+    getRemainingCompanyRagHtmlFreeUnitsSafe(userId, plan),
+    getRemainingCompanyRagPdfFreeUnitsSafe(userId, plan),
   ]);
 
   const draftCount = Number(esStatsRow?.draftCount ?? 0);
@@ -239,9 +245,13 @@ export async function getProfilePageData(userId: string) {
       monthlyAllocation: creditsInfo.monthlyAllocation,
       nextResetAt: creditsInfo.nextResetAt.toISOString(),
       monthlyFree: {
-        companyRagPages: {
-          remaining: remainingRagFreeUnits,
-          limit: getMonthlyRagFreeUnits(plan),
+        companyRagHtmlPages: {
+          remaining: remainingRagHtmlFreeUnits,
+          limit: getMonthlyRagHtmlFreeUnits(plan),
+        },
+        companyRagPdfPages: {
+          remaining: remainingRagPdfFreeUnits,
+          limit: getMonthlyRagPdfFreeUnits(plan),
         },
         selectionSchedule: {
           remaining: remainingFreeFetches,
@@ -250,7 +260,8 @@ export async function getProfilePageData(userId: string) {
       },
       ragPdfLimits: {
         maxPagesIngest: getRagPdfMaxIngestPages(plan),
-        maxPagesOcr: getRagPdfMaxOcrPages(plan),
+        maxPagesGoogleOcr: getRagPdfMaxGoogleOcrPages(plan),
+        maxPagesMistralOcr: getRagPdfMaxMistralOcrPages(plan),
         summaryJa: getRagPdfIngestPolicySummaryJa(plan),
       },
     } satisfies CreditsInfo,

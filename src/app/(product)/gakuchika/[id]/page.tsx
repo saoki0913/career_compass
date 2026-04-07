@@ -9,15 +9,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
+import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
 import {
   ConversationSidebarCard,
   ConversationWorkspaceShell,
 } from "@/components/chat/ConversationWorkspaceShell";
 import { OperationLockProvider, useOperationLock } from "@/hooks/useOperationLock";
+import { useStreamingTextPlayback } from "@/hooks/useStreamingTextPlayback";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
 import {
   CompletionSummary,
+  GakuchikaRestartConfirmDialog,
   STAR_EXPLANATIONS,
   STARProgressBar,
   type ConversationState,
@@ -26,7 +29,8 @@ import { parseGakuchikaSummary } from "@/lib/gakuchika/summary";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
 import { GakuchikaDeepDiveSkeleton } from "@/components/skeletons/GakuchikaDeepDiveSkeleton";
-import { getUserFacingErrorMessage, parseApiErrorResponse } from "@/lib/api-errors";
+import { parseApiErrorResponse } from "@/lib/api-errors";
+import { reportUserFacingError } from "@/lib/client-error-ui";
 import {
   getDefaultConversationState,
   getConversationBadgeLabel,
@@ -42,7 +46,14 @@ const PROCESSING_LABELS = {
 } as const;
 const SUMMARY_POLL_INTERVAL_MS = 1500;
 const SUMMARY_POLL_MAX_ATTEMPTS = 8;
-const GAKUCHIKA_ES_DRAFT_CHAR_LIMIT = 400;
+
+type GakuchikaDraftCharLimit = 300 | 400 | 500;
+
+function parseGakuchikaCharLimitType(value: unknown): GakuchikaDraftCharLimit {
+  const n = Number(value);
+  if (n === 300 || n === 400 || n === 500) return n;
+  return 400;
+}
 
 type AssistantProcessingPhase = "idle" | "organizing_intent" | "generating_question";
 
@@ -56,6 +67,8 @@ interface ConversationUpdate {
   isAIPowered: boolean;
   summaryPending: boolean;
 }
+
+type PendingGakuchikaCompleteData = ConversationUpdate;
 
 interface Session {
   id: string;
@@ -103,11 +116,15 @@ function getProcessingPhase(step?: string): AssistantProcessingPhase {
 
 function DraftReadyPanel({
   state,
+  draftCharLimit,
+  onDraftCharLimitChange,
   onGenerateDraft,
   onContinueRefining,
   onResumeSession,
 }: {
   state: ConversationState | null;
+  draftCharLimit: GakuchikaDraftCharLimit;
+  onDraftCharLimitChange: (n: GakuchikaDraftCharLimit) => void;
   onGenerateDraft?: () => void;
   onContinueRefining?: () => void;
   onResumeSession?: () => void;
@@ -147,6 +164,26 @@ function DraftReadyPanel({
                 <li key={tag}>{recommendationLabels[tag] || tag}</li>
               ))}
             </ul>
+          </div>
+        ) : null}
+
+        {!hasDraft && onGenerateDraft ? (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-foreground">ES の目安文字数</p>
+            <div className="flex flex-wrap gap-2">
+              {([300, 400, 500] as const).map((n) => (
+                <Button
+                  key={n}
+                  type="button"
+                  variant={draftCharLimit === n ? "default" : "outline"}
+                  size="sm"
+                  className="h-9 rounded-xl px-3 text-xs"
+                  onClick={() => onDraftCharLimitChange(n)}
+                >
+                  {n} 字
+                </Button>
+              ))}
+            </div>
           </div>
         ) : null}
 
@@ -202,15 +239,26 @@ function GakuchikaConversationContent() {
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [assistantPhase, setAssistantPhase] = useState<AssistantProcessingPhase>("idle");
-  const [streamingAssistantText, setStreamingAssistantText] = useState("");
+  const [streamingTargetText, setStreamingTargetText] = useState("");
+  const [isTextStreaming, setIsTextStreaming] = useState(false);
+  const [streamingSessionId, setStreamingSessionId] = useState(0);
+  const [pendingCompleteData, setPendingCompleteData] = useState<PendingGakuchikaCompleteData | null>(null);
+  const [isBufferingQuestionChunks, setIsBufferingQuestionChunks] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
+  const [restartDialogOpen, setRestartDialogOpen] = useState(false);
+  const [draftCharLimit, setDraftCharLimit] = useState<GakuchikaDraftCharLimit>(400);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const { displayedText: streamingText, isPlaybackComplete } = useStreamingTextPlayback(
+    streamingTargetText,
+    { isActive: isTextStreaming, resetKey: streamingSessionId },
+  );
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [assistantPhase, messages, nextQuestion, streamingAssistantText]);
+  }, [assistantPhase, messages, nextQuestion, streamingText, isTextStreaming]);
 
   const applyConversationUpdate = useCallback((update: ConversationUpdate) => {
     startTransition(() => {
@@ -231,6 +279,23 @@ function GakuchikaConversationContent() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    if (!pendingCompleteData || !isTextStreaming) return;
+    if (!isPlaybackComplete) return;
+
+    const timer = window.setTimeout(() => {
+      startTransition(() => {
+        applyConversationUpdate(pendingCompleteData);
+        setPendingCompleteData(null);
+        setIsTextStreaming(false);
+        setStreamingTargetText("");
+        setIsBufferingQuestionChunks(false);
+      });
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [applyConversationUpdate, isPlaybackComplete, isTextStreaming, pendingCompleteData]);
 
   const fetchSummaryIfAvailable = useCallback(async (): Promise<boolean> => {
     try {
@@ -253,6 +318,14 @@ function GakuchikaConversationContent() {
       return false;
     }
   }, [gakuchikaId]);
+
+  const handleRetrySummary = useCallback(async () => {
+    setIsSummaryLoading(true);
+    const ok = await fetchSummaryIfAvailable();
+    if (!ok) {
+      setIsSummaryLoading(false);
+    }
+  }, [fetchSummaryIfAvailable]);
 
   const fetchConversation = useCallback(async (sessionId?: string) => {
     try {
@@ -309,6 +382,7 @@ function GakuchikaConversationContent() {
         const gakuchikaData = await gakuchikaRes.json();
         setGakuchikaTitle(gakuchikaData.gakuchika?.title || "");
         setGakuchikaContent(gakuchikaData.gakuchika?.content || null);
+        setDraftCharLimit(parseGakuchikaCharLimitType(gakuchikaData.gakuchika?.charLimitType));
         const parsedSummary = parseGakuchikaSummary(gakuchikaData.gakuchika?.summary ?? null);
         if (parsedSummary) {
           setSummary(parsedSummary);
@@ -323,7 +397,7 @@ function GakuchikaConversationContent() {
       }
     } catch (err) {
       setError(
-        getUserFacingErrorMessage(
+        reportUserFacingError(
           err,
           {
             code: "GAKUCHIKA_CONVERSATION_FETCH_FAILED",
@@ -400,7 +474,7 @@ function GakuchikaConversationContent() {
       await fetchConversation(data.conversation?.id);
     } catch (err) {
       setError(
-        getUserFacingErrorMessage(
+        reportUserFacingError(
           err,
           {
             code: "GAKUCHIKA_CONVERSATION_START_FAILED",
@@ -429,22 +503,17 @@ function GakuchikaConversationContent() {
     setIsWaitingForResponse(true);
     setError(null);
     setAssistantPhase("organizing_intent");
-    setStreamingAssistantText("");
+    setPendingCompleteData(null);
+    setStreamingTargetText("");
+    setIsTextStreaming(false);
+    setStreamingSessionId((prev) => prev + 1);
+    setIsBufferingQuestionChunks(false);
     setNextQuestion(null);
-    setConversationState((prev) =>
-      prev
-        ? {
-            ...prev,
-            answerHint: null,
-            progressLabel: null,
-            focusKey: null,
-          }
-        : prev,
-    );
 
     let receivedComplete = false;
     let hasReceivedQuestionStream = false;
     let streamedQuestionText = "";
+    let startedQuestionPlayback = false;
 
     try {
       const response = await fetch(`/api/gakuchika/${gakuchikaId}/conversation/stream`, {
@@ -513,8 +582,7 @@ function GakuchikaConversationContent() {
           ) {
             hasReceivedQuestionStream = true;
             streamedQuestionText += event.text;
-            setAssistantPhase("idle");
-            setStreamingAssistantText(streamedQuestionText);
+            setIsBufferingQuestionChunks(true);
           } else if (event.type === "complete") {
             const data = event.data;
             const messagesWithIds = (data.messages || []).map(
@@ -524,33 +592,60 @@ function GakuchikaConversationContent() {
               }),
             );
             receivedComplete = true;
-            setStreamingAssistantText("");
-            applyConversationUpdate({
+            const nextData: PendingGakuchikaCompleteData = {
               messages: messagesWithIds,
-              nextQuestion: data.nextQuestion,
+              nextQuestion: data.nextQuestion ?? null,
               questionCount: data.questionCount || 0,
               isCompleted: data.isCompleted || false,
               isInterviewReady: Boolean(data.isInterviewReady),
               conversationState: data.conversationState || getDefaultConversationState(),
               isAIPowered: data.isAIPowered ?? true,
               summaryPending: Boolean(data.summaryPending),
-            });
-            setIsWaitingForResponse(false);
-            setAssistantPhase("idle");
+            };
+            const fromComplete =
+              typeof nextData.nextQuestion === "string" ? nextData.nextQuestion.trim() : "";
+            const questionForPlayback = fromComplete || streamedQuestionText.trim();
+
+            if (startedQuestionPlayback) {
+              if (questionForPlayback) {
+                setStreamingTargetText(questionForPlayback);
+              }
+              setPendingCompleteData(nextData);
+            } else if (questionForPlayback) {
+              setStreamingTargetText(questionForPlayback);
+              setIsTextStreaming(true);
+              setIsWaitingForResponse(false);
+              setIsBufferingQuestionChunks(false);
+              setPendingCompleteData(nextData);
+              setAssistantPhase("idle");
+              startedQuestionPlayback = true;
+            } else {
+              applyConversationUpdate(nextData);
+              setIsWaitingForResponse(false);
+              setIsBufferingQuestionChunks(false);
+              setAssistantPhase("idle");
+            }
           } else if (event.type === "error") {
             throw new Error(event.message || "AIエラーが発生しました");
           }
         }
       }
+
+      if (!receivedComplete) {
+        throw new Error("ストリームが途中で切断されました");
+      }
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       setAnswer(trimmedAnswer);
       setNextQuestion(null);
-      setStreamingAssistantText("");
+      setPendingCompleteData(null);
+      setStreamingTargetText("");
+      setIsTextStreaming(false);
+      setIsBufferingQuestionChunks(false);
       setAssistantPhase("idle");
       setIsWaitingForResponse(false);
       setError(
-        getUserFacingErrorMessage(
+        reportUserFacingError(
           err,
           {
             code: "GAKUCHIKA_CONVERSATION_STREAM_FAILED",
@@ -563,9 +658,11 @@ function GakuchikaConversationContent() {
       );
     } finally {
       setIsSending(false);
-      if (!receivedComplete) {
-        setStreamingAssistantText("");
-        setIsWaitingForResponse(false);
+      setIsWaitingForResponse(false);
+      if (!startedQuestionPlayback) {
+        setStreamingTargetText("");
+        setIsTextStreaming(false);
+        setIsBufferingQuestionChunks(false);
         setAssistantPhase("idle");
       }
       releaseLock();
@@ -618,12 +715,10 @@ function GakuchikaConversationContent() {
       setConversationState(data.conversationState || getDefaultConversationState());
       setSessions(data.sessions || []);
       setIsAIPowered(data.isAIPowered ?? true);
-      setSummary(null);
-      setIsSummaryLoading(false);
       setError(null);
     } catch (err) {
       setError(
-        getUserFacingErrorMessage(
+        reportUserFacingError(
           err,
           {
             code: "GAKUCHIKA_CONVERSATION_RESUME_FAILED",
@@ -649,7 +744,7 @@ function GakuchikaConversationContent() {
         method: "POST",
         headers: buildHeaders(),
         credentials: "include",
-        body: JSON.stringify({ charLimit: GAKUCHIKA_ES_DRAFT_CHAR_LIMIT }),
+        body: JSON.stringify({ charLimit: draftCharLimit }),
       });
 
       if (!response.ok) {
@@ -671,7 +766,7 @@ function GakuchikaConversationContent() {
       }
     } catch (err) {
       setError(
-        getUserFacingErrorMessage(
+        reportUserFacingError(
           err,
           {
             code: "GAKUCHIKA_DRAFT_GENERATE_FAILED",
@@ -686,7 +781,7 @@ function GakuchikaConversationContent() {
       setIsGeneratingDraft(false);
       releaseLock();
     }
-  }, [acquireLock, conversationState, gakuchikaId, isGeneratingDraft, releaseLock, router]);
+  }, [acquireLock, conversationState, draftCharLimit, gakuchikaId, isGeneratingDraft, releaseLock, router]);
 
   const processingText =
     assistantPhase === "organizing_intent" || assistantPhase === "generating_question"
@@ -703,16 +798,22 @@ function GakuchikaConversationContent() {
     : generatedDraft
     ? "ES を起点に、この画面から更に深掘りできます。"
     : draftReady
-    ? "ここまででガクチカESを 400 字前後で作成できます。成功時のみクレジット消費です。"
+    ? `ここまででガクチカESを約 ${draftCharLimit} 字で作成できます。成功時のみクレジット消費です。`
     : "材料が揃うとガクチカESを作成できます。";
   const currentSessionIndex = currentSessionId
     ? sessions.findIndex((session) => session.id === currentSessionId)
     : -1;
   const currentSessionLabel = currentSessionIndex >= 0 ? `#${sessions.length - currentSessionIndex}` : null;
 
-  const handleRestartConversation = useCallback(async () => {
+  const handleRestartConversation = useCallback(() => {
+    if (isStarting || isSending || isGeneratingDraft) return;
+    setRestartDialogOpen(true);
+  }, [isGeneratingDraft, isSending, isStarting]);
+
+  const handleConfirmRestartConversation = useCallback(async () => {
     if (isStarting || isSending || isGeneratingDraft) return;
     await handleStartDeepDive();
+    setRestartDialogOpen(false);
   }, [handleStartDeepDive, isGeneratingDraft, isSending, isStarting]);
 
   if (isLoading) {
@@ -823,6 +924,7 @@ function GakuchikaConversationContent() {
   }
 
   return (
+    <>
     <ConversationWorkspaceShell
       backHref="/gakuchika"
       title="ガクチカを作成"
@@ -886,17 +988,23 @@ function GakuchikaConversationContent() {
             />
           ))}
 
-          {isWaitingForResponse && !streamingAssistantText && processingText ? (
-            <ThinkingIndicator text={processingText} />
+          {isWaitingForResponse && !isTextStreaming && (processingText || isBufferingQuestionChunks) ? (
+            <ThinkingIndicator
+              text={
+                processingText ||
+                (isBufferingQuestionChunks ? PROCESSING_LABELS.generating_question : "次の質問を準備しています")
+              }
+            />
           ) : null}
 
-          {isWaitingForResponse && streamingAssistantText ? (
-            <ChatMessage role="assistant" content={streamingAssistantText} isStreaming />
+          {isTextStreaming ? (
+            <StreamingChatMessage streamingText={streamingText} isStreaming={true} />
           ) : null}
 
           {nextQuestion &&
           !shouldPauseConversation &&
           !isWaitingForResponse &&
+          !isTextStreaming &&
           !(messages.length > 0 && messages[messages.length - 1].role === "assistant" && messages[messages.length - 1].content === nextQuestion) ? (
             <ChatMessage role="assistant" content={nextQuestion} />
           ) : null}
@@ -908,12 +1016,16 @@ function GakuchikaConversationContent() {
               summary={summary}
               isLoading={isSummaryLoading}
               gakuchikaId={gakuchikaId}
-              onResumeSession={undefined}
+              onResumeSession={handleResumeSession}
+              resumeFromInterviewLabel="もっと深掘る"
+              onRetrySummary={handleRetrySummary}
               hideGenerateAction
             />
           ) : shouldPauseConversation ? (
             <DraftReadyPanel
               state={conversationState}
+              draftCharLimit={draftCharLimit}
+              onDraftCharLimitChange={setDraftCharLimit}
               onGenerateDraft={!generatedDraft ? handleGenerateDraft : undefined}
               onContinueRefining={!generatedDraft ? handleResumeSession : undefined}
               onResumeSession={generatedDraft ? handleResumeSession : undefined}
@@ -936,7 +1048,7 @@ function GakuchikaConversationContent() {
               onSend={handleSend}
               placeholder="回答を入力..."
               disabled={false}
-              disableSend={assistantPhase !== "idle"}
+              disableSend={assistantPhase !== "idle" || isTextStreaming || isBufferingQuestionChunks}
               isSending={isSending}
               className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0 [&>p]:hidden"
             />
@@ -1006,7 +1118,10 @@ function GakuchikaConversationContent() {
                   </Badge>
                 ) : null}
               </div>
-              <STARProgressBar state={conversationState} status={isCompleted ? "completed" : "in_progress"} />
+              <STARProgressBar
+                state={conversationState}
+                status={interviewReady || isCompleted ? "completed" : "in_progress"}
+              />
               <p className="text-xs leading-5 text-muted-foreground">
                 {conversationState?.progressLabel
                   ? `${conversationState.progressLabel}。`
@@ -1050,6 +1165,13 @@ function GakuchikaConversationContent() {
         </>
       }
     />
+    <GakuchikaRestartConfirmDialog
+      isOpen={restartDialogOpen}
+      onCancel={() => setRestartDialogOpen(false)}
+      onConfirm={handleConfirmRestartConversation}
+      isConfirming={isStarting && restartDialogOpen}
+    />
+    </>
   );
 }
 

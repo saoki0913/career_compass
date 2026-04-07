@@ -6,43 +6,35 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { motivationConversations, companies, documents } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { motivationConversations } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { reserveCredits, confirmReservation, cancelReservation } from "@/lib/credits";
-import { randomUUID } from "crypto";
 import {
   getMotivationConversationByCondition as getConversationByCondition,
   resolveDraftReadyState,
   safeParseConversationContext,
 } from "@/lib/motivation/conversation";
 import { DRAFT_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
-import { getRequestIdentity, type RequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   getRequestId,
   logAiCreditCostSummary,
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { normalizeEsDraftSingleParagraph } from "@/lib/server/es-draft-normalize";
+import { messageFromFastApiDetail } from "@/lib/server/fastapi-detail-message";
+import {
+  buildMotivationOwnerCondition,
+  getOwnedMotivationCompanyData,
+} from "@/lib/motivation/server";
 
-async function getOwnedCompanyData(
-  companyId: string,
-  identity: RequestIdentity,
-): Promise<{ id: string; name: string; industry: string | null } | null> {
-  const [company] = await db
-    .select({
-      id: companies.id,
-      name: companies.name,
-      industry: companies.industry,
-    })
-    .from(companies)
-    .where(
-      identity.userId
-        ? and(eq(companies.id, companyId), eq(companies.userId, identity.userId))
-        : and(eq(companies.id, companyId), eq(companies.guestId, identity.guestId!)),
-    )
-    .limit(1);
-
-  return company ?? null;
+interface FastAPIDraftResponse {
+  draft: string;
+  char_count: number;
+  key_points: string[];
+  company_keywords: string[];
+  internal_telemetry?: unknown;
 }
 
 interface Message {
@@ -55,26 +47,21 @@ function safeParseMessages(json: string): Message[] {
     const parsed = JSON.parse(json);
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .filter((m): m is { role: string; content: string } =>
-        m && typeof m === "object" &&
-        (m.role === "user" || m.role === "assistant") &&
-        typeof m.content === "string"
+      .filter((message): message is { role: string; content: string } =>
+        Boolean(
+          message &&
+          typeof message === "object" &&
+          (message.role === "user" || message.role === "assistant") &&
+          typeof message.content === "string",
+        ),
       )
-      .map(m => ({
-        role: m.role as "user" | "assistant",
-        content: m.content
+      .map((message) => ({
+        role: message.role as "user" | "assistant",
+        content: message.content,
       }));
   } catch {
     return [];
   }
-}
-
-interface FastAPIDraftResponse {
-  draft: string;
-  char_count: number;
-  key_points: string[];
-  company_keywords: string[];
-  internal_telemetry?: unknown;
 }
 
 interface EvidenceCard {
@@ -141,7 +128,7 @@ export async function POST(
   }
 
   // Get company
-  const company = await getOwnedCompanyData(companyId, identity);
+  const company = await getOwnedMotivationCompanyData(companyId, identity);
 
   if (!company) {
     return NextResponse.json({ error: "企業が見つかりません" }, { status: 404 });
@@ -149,9 +136,7 @@ export async function POST(
 
   // Get conversation
   const conversation = await getConversationByCondition(
-    userId
-      ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
-      : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
+    buildMotivationOwnerCondition(companyId, userId, guestId),
   );
 
   if (!conversation) {
@@ -184,19 +169,33 @@ export async function POST(
     reservationId = reservation.reservationId;
   }
 
-  // Call FastAPI for draft generation
+  // Call FastAPI for draft generation (retry transient 502/503 from upstream LLM/timeouts)
   try {
-    const response = await fetchFastApiInternal("/api/motivation/generate-draft", {
+    const fastApiBody = JSON.stringify({
+      company_id: company.id,
+      company_name: company.name,
+      industry: company.industry,
+      conversation_history: messages,
+      char_limit: charLimit,
+    });
+
+    let response = await fetchFastApiInternal("/api/motivation/generate-draft", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
-      body: JSON.stringify({
-        company_id: company.id,
-        company_name: company.name,
-        industry: company.industry,
-        conversation_history: messages,
-        char_limit: charLimit,
-      }),
+      body: fastApiBody,
     });
+
+    const retryDelaysMs = [2500, 5000, 8000];
+    for (let r = 0; r < retryDelaysMs.length; r++) {
+      if (response.ok) break;
+      if (response.status !== 502 && response.status !== 503) break;
+      await new Promise((resolve) => setTimeout(resolve, retryDelaysMs[r]));
+      response = await fetchFastApiInternal("/api/motivation/generate-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
+        body: fastApiBody,
+      });
+    }
 
     if (!response.ok) {
       if (reservationId) await cancelReservation(reservationId);
@@ -208,8 +207,9 @@ export async function POST(
         creditsUsed: 0,
         telemetry: null,
       });
+      const detailMsg = messageFromFastApiDetail((errorData as { detail?: unknown }).detail);
       return NextResponse.json(
-        { error: errorData.detail?.error || "ES生成に失敗しました" },
+        { error: detailMsg || "ES生成に失敗しました" },
         { status: 503 }
       );
     }
@@ -217,6 +217,7 @@ export async function POST(
     const rawData = await response.json();
     const { payload, telemetry } = splitInternalTelemetry(rawData);
     const data = payload as FastAPIDraftResponse;
+    const draftNormalized = normalizeEsDraftSingleParagraph(data.draft);
 
     // Confirm credit reservation on success
     if (reservationId) {
@@ -228,35 +229,6 @@ export async function POST(
       status: "success",
       creditsUsed: reservationId ? 2 : 0,
       telemetry,
-    });
-
-    // Create ES document with the generated draft
-    const documentId = randomUUID();
-    const documentBlocks = [
-      {
-        id: randomUUID(),
-        type: "h2",
-        content: "志望動機",
-        charLimit: charLimit,
-      },
-      {
-        id: randomUUID(),
-        type: "paragraph",
-        content: data.draft,
-      },
-    ];
-
-    await db.insert(documents).values({
-      id: documentId,
-      userId: userId || undefined,
-      guestId: guestId || undefined,
-      companyId: companyId,
-      type: "es",
-      title: `${company.name} 志望動機`,
-      content: JSON.stringify(documentBlocks),
-      status: "draft",
-      createdAt: new Date(),
-      updatedAt: new Date(),
     });
 
     let nextQuestion: string | null = null;
@@ -280,7 +252,7 @@ export async function POST(
         company_id: company.id,
         company_name: company.name,
         industry: company.industry,
-        generated_draft: data.draft,
+        generated_draft: draftNormalized,
         conversation_history: messages,
         question_count: conversation.questionCount ?? 0,
         conversation_context: {
@@ -324,7 +296,7 @@ export async function POST(
     await db
       .update(motivationConversations)
       .set({
-        generatedDraft: data.draft,
+        generatedDraft: draftNormalized,
         charLimitType: String(charLimit) as "300" | "400" | "500",
         messages: JSON.stringify(updatedMessages),
         conversationContext: JSON.stringify({
@@ -352,11 +324,11 @@ export async function POST(
       .where(eq(motivationConversations.id, conversation.id));
 
     return NextResponse.json({
-      draft: data.draft,
+      draft: draftNormalized,
       charCount: data.char_count,
       keyPoints: data.key_points,
       companyKeywords: data.company_keywords,
-      documentId: documentId,
+      documentId: null,
       nextQuestion,
       evidenceSummary,
       evidenceCards,

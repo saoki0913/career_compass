@@ -39,6 +39,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id: companyId } = await params;
+
   const identity = await getRequestIdentity(request);
   if (!identity?.userId) {
     return createApiErrorResponse(request, {
@@ -49,7 +51,6 @@ export async function POST(
     });
   }
 
-  const { id: companyId } = await params;
   let context;
   try {
     context = await buildInterviewContext(companyId, identity);

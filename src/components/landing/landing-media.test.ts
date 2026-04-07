@@ -2,16 +2,15 @@ import { describe, expect, it } from "vitest";
 import { landingMedia } from "./landing-media";
 
 describe("landingMedia", () => {
-  it("LP 用メディアは public/marketing/placeholders の SVG を参照する", () => {
-    expect(landingMedia.heroDashboard.src).toBe("/marketing/placeholders/hero-dashboard.svg");
-    expect(landingMedia.esReview.src).toBe("/marketing/placeholders/es-review-placeholder.svg");
-    expect(landingMedia.gakuchika.src).toBe("/marketing/placeholders/gakuchika-placeholder.svg");
-    expect(landingMedia.companies.src).toBe("/marketing/placeholders/companies-placeholder.svg");
-    expect(landingMedia.motivation.src).toBe("/marketing/placeholders/motivation-placeholder.svg");
+  it("LP 用メディアは public/marketing/screenshots の PNG を参照する", () => {
+    expect(landingMedia.heroDashboard.src).toBe("/marketing/screenshots/hero-dashboard.png");
+    expect(landingMedia.esReview.src).toBe("/marketing/screenshots/es-review.png");
+    expect(landingMedia.calendar.src).toBe("/marketing/screenshots/calendar.png");
+    expect(landingMedia.motivation.src).toBe("/marketing/screenshots/motivation.png");
+    expect(landingMedia.logoIcon.src).toBe("/marketing/screenshots/logo-icon.png");
 
     for (const media of Object.values(landingMedia)) {
-      expect(media.src.startsWith("/marketing/placeholders/")).toBe(true);
-      expect(media.src.endsWith(".svg")).toBe(true);
+      expect(media.src.startsWith("/marketing/screenshots/")).toBe(true);
       expect(media.alt.length).toBeGreaterThan(0);
     }
   });

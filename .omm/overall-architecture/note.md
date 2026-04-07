@@ -1,0 +1,1 @@
+This perspective is the entry point for the others. Use request-lifecycle for end-to-end handling, data-flow for persistence and enrichment movement, route-page-map for user-visible navigation, and external-integrations for provider boundaries.

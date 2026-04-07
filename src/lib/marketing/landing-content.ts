@@ -52,7 +52,7 @@ export const detailSections = [
       "締切の見落としを防止",
       "次にやることが見えるダッシュボード",
     ],
-    image: landingMedia.companies,
+    image: landingMedia.heroDashboard,
     imageClassName:
       "scale-[1.04] object-top translate-y-[-20px] sm:translate-y-[-34px]",
   },

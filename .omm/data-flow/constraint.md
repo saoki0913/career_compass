@@ -1,0 +1,1 @@
+Deadline extraction cannot auto-commit, success-only credit rules affect when usage is finalized, and guest versus authenticated ownership must remain coherent for every persisted record involved in a flow.

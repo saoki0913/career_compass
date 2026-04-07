@@ -15,7 +15,7 @@ export type MarketingPricingPlan = {
 };
 
 /** JSON-LD・料金表示の単一ソース（月額・税込み想定のマーケ表記） */
-export const MARKETING_STANDARD_MONTHLY_JPY = 1_480;
+export const MARKETING_STANDARD_MONTHLY_JPY = 1_490;
 export const MARKETING_PRO_MONTHLY_JPY = 2_980;
 
 export function getMarketingPricingPlans(

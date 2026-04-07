@@ -1,0 +1,11 @@
+graph TD
+    dashboard-workspace["Dashboard Workspace\nsrc/app/(product)/dashboard/"]
+    company-workspace["Company Workspace\nsrc/app/(product)/companies/"]
+    writing-workflows["Writing Workflows\nsrc/app/(product)/es/ + gakuchika/"]
+    planning-workflows["Planning Workflows\nsrc/app/(product)/tasks/ + calendar/ + notifications/"]
+    account-space["Account Space\nsrc/app/(product)/profile/ + settings/ + search/"]
+
+    dashboard-workspace -->|"links users into active companies and due items"| company-workspace
+    company-workspace -->|"opens motivation and application-writing paths"| writing-workflows
+    planning-workflows -->|"feeds urgency and reminders back to the dashboard"| dashboard-workspace
+    account-space -->|"configures how workflow data is surfaced"| planning-workflows

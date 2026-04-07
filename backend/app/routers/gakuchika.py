@@ -9,6 +9,7 @@ The authoring flow is split into:
 from __future__ import annotations
 
 import json
+import os
 import random
 import re
 from typing import Any, AsyncGenerator, Optional
@@ -22,13 +23,16 @@ from app.prompts.gakuchika_prompts import (
     DEEPDIVE_QUESTION_PRINCIPLES,
     ES_BUILD_AND_QUESTION_PROMPT,
     ES_BUILD_QUESTION_PRINCIPLES,
-    GAKUCHIKA_DRAFT_PROMPT,
     INITIAL_QUESTION_PROMPT,
     PROHIBITED_EXPRESSIONS as _PROHIBITED_EXPRESSIONS,
     QUESTION_TONE_AND_ALIGNMENT_RULES,
     REFERENCE_GUIDE_RUBRIC,
     STAR_EVALUATE_AND_QUESTION_PROMPT,
     STRUCTURED_SUMMARY_PROMPT,
+)
+from app.prompts.es_templates import (
+    DRAFT_SYNTHETIC_QUESTION_GAKUCHIKA,
+    build_template_draft_generation_prompt,
 )
 from app.utils.llm import (
     _parse_json_response,
@@ -39,6 +43,7 @@ from app.utils.llm import (
     sanitize_prompt_input,
     sanitize_user_prompt_text,
 )
+from app.utils.es_draft_text import normalize_es_draft_single_paragraph
 from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)
@@ -47,6 +52,23 @@ router = APIRouter(prefix="/api/gakuchika", tags=["gakuchika"])
 
 INITIAL_QUESTION_MAX_TOKENS = 220
 NEXT_QUESTION_MAX_TOKENS = 420
+# ユーザー回答数（question_count）の目安: ES 材料 4〜6 問、面接準備完了はそれ以上の往復を想定
+MIN_USER_ANSWERS_FOR_ES_DRAFT_READY = 4
+MIN_USER_ANSWERS_FOR_INTERVIEW_READY = 8
+
+
+def _min_user_answers_for_es_draft_ready() -> int:
+    raw = os.getenv("GAKUCHIKA_MIN_USER_ANSWERS_FOR_ES_DRAFT_READY", "").strip()
+    if raw.isdigit():
+        return max(1, min(10, int(raw)))
+    return MIN_USER_ANSWERS_FOR_ES_DRAFT_READY
+
+
+def _es_build_question_cap_threshold() -> int:
+    """Lower cap for local ai-live E2E when AI_LIVE_LOCAL_RELAX_GAKUCHIKA_GATES=1."""
+    if os.getenv("AI_LIVE_LOCAL_RELAX_GAKUCHIKA_GATES", "").strip() == "1":
+        return 5
+    return 6
 BUILD_ELEMENTS = ("overview", "context", "task", "action", "result", "learning")
 CORE_BUILD_ELEMENTS = ("context", "task", "action", "result")
 DRAFT_QUALITY_CHECK_KEYS = (
@@ -204,6 +226,7 @@ class ConversationStateInput(BaseModel):
     blocked_focuses: list[str] = Field(default_factory=list)
     focus_attempt_counts: dict[str, int] = Field(default_factory=dict)
     last_question_signature: str | None = Field(default=None, max_length=120)
+    extended_deep_dive_round: int = Field(default=0, ge=0, le=100)
 
     model_config = {"extra": "ignore"}
 
@@ -452,21 +475,33 @@ def _choose_build_focus(missing_elements: list[str], quality_checks: dict[str, b
     return "result"
 
 
+_LABEL_FOR_MISSING_ELEMENT = {
+    "context": "状況",
+    "task": "課題",
+    "action": "行動",
+    "result": "結果",
+    "learning": "学び",
+}
+
+
 def _build_readiness_reason(quality_checks: dict[str, bool], causal_gaps: list[str], missing_elements: list[str]) -> str:
     if missing_elements:
-        return f"{'・'.join(missing_elements[:3])}の材料がまだ不足しています。"
+        jp = [_LABEL_FOR_MISSING_ELEMENT.get(m, m) for m in missing_elements[:3]]
+        return f"「{'・'.join(jp)}」について、まだ書き足すとよい点があります。"
     reasons: list[str] = []
     if not quality_checks.get("task_clarity"):
-        reasons.append("課題をなぜ重要と見たかがまだ弱い")
+        reasons.append("課題をなぜ重要と見たかを、もう一文補うと伝わりやすくなります")
     if not quality_checks.get("action_ownership"):
-        reasons.append("自分が担った行動がまだ抽象的")
+        reasons.append("ご自身の役割と行動を、もう少し具体的にするとよいです")
     if quality_checks.get("role_required") and not quality_checks.get("role_clarity"):
-        reasons.append("役割範囲がまだ曖昧")
+        reasons.append("担当範囲をはっきりさせると、話の信頼感が上がります")
     if not quality_checks.get("result_traceability"):
-        reasons.append("行動と成果のつながりがまだ弱い")
+        reasons.append("行動のあとにどう変わったかを、もう一歩具体的にするとよいです")
     if not reasons and causal_gaps:
-        reasons.append("因果の流れをもう少し補いたい")
-    return "。".join(reasons[:2]) + ("。" if reasons else "")
+        reasons.append("状況から成果までのつながりを、もう一段補うとまとまります")
+    if not reasons:
+        return "あと少し補うと、ES 本文が書きやすくなります。"
+    return "。".join(reasons[:2]) + "。"
 
 
 def _build_draft_diagnostics(draft_text: str) -> dict[str, list[str]]:
@@ -600,6 +635,7 @@ def _default_state(stage: str = "es_building", **kwargs: Any) -> dict[str, Any]:
         "blocked_focuses": kwargs.get("blocked_focuses", []),
         "focus_attempt_counts": kwargs.get("focus_attempt_counts", {}),
         "last_question_signature": kwargs.get("last_question_signature"),
+        "extended_deep_dive_round": int(kwargs.get("extended_deep_dive_round", 0) or 0),
     }
 
 
@@ -686,10 +722,45 @@ def _normalize_focus_attempt_counts(value: object) -> dict[str, int]:
     return counts
 
 
+# Situation/setup hints: short answers can still satisfy "context" without hitting a raw char threshold.
+_CONTEXT_HINT_PATTERNS: tuple[str, ...] = (
+    "インターン",
+    "配属",
+    "アルバイト",
+    "バイト",
+    "サークル",
+    "ゼミ",
+    "研究室",
+    "部活",
+    "チーム",
+    "部署",
+    "職場",
+    "現場",
+    "プロジェクト",
+    "会社",
+    "当時",
+    "背景",
+    "環境",
+    "所属",
+    "学年",
+    "大学",
+    "高校",
+    "役割",
+)
+
+
+def _context_core_satisfied(normalized: str) -> bool:
+    if len(normalized) >= 12:
+        return True
+    if len(normalized) >= 6 and _contains_any(normalized, _CONTEXT_HINT_PATTERNS):
+        return True
+    return False
+
+
 def _build_core_missing_elements(text: str, quality_checks: dict[str, bool]) -> list[str]:
     normalized = _normalize_text(text)
     missing: list[str] = []
-    if len(normalized) < 12:
+    if not _context_core_satisfied(normalized):
         missing.append("context")
     if not quality_checks.get("task_clarity"):
         missing.append("task")
@@ -778,6 +849,7 @@ def _normalize_es_build_payload(
     question_count: int = 0,
 ) -> tuple[str, dict[str, Any], str]:
     data = payload if isinstance(payload, dict) else {}
+    _ext_dr = int(fallback_state.extended_deep_dive_round) if fallback_state else 0
     missing_elements = _normalize_missing_elements(data.get("missing_elements"))
     quality_checks = _build_draft_quality_checks(conversation_text) if conversation_text else _clean_bool_map(
         data.get("draft_quality_checks"), DRAFT_QUALITY_CHECK_KEYS
@@ -798,6 +870,11 @@ def _normalize_es_build_payload(
             quality_checks,
             [gap for gap in causal_gaps if gap not in {"learning_too_generic"}],
         )
+    # STAR 進捗と質問の論点を一致させる: 骨格が未充足のときは常に先頭欠落要素へ寄せる
+    if missing_elements and focus_key in CORE_BUILD_ELEMENTS:
+        aligned = _detect_es_focus_from_missing(missing_elements)
+        if focus_key != aligned:
+            focus_key = aligned
     meta = _build_focus_meta(focus_key)
     question = _clean_string(data.get("question"))
     answer_hint = _clean_string(data.get("answer_hint")) or meta["answer_hint"]
@@ -807,7 +884,13 @@ def _normalize_es_build_payload(
         critical_gaps = _critical_causal_gaps(causal_gaps)
         core_ready = len(missing_elements) == 0
         role_gap = quality_checks.get("role_required", False) and not quality_checks.get("role_clarity", False)
-        question_cap_ready = question_count >= 6 and core_ready and not role_gap and "causal_gap_action_result" not in critical_gaps
+        cap_threshold = _es_build_question_cap_threshold()
+        question_cap_ready = (
+            question_count >= cap_threshold
+            and core_ready
+            and not role_gap
+            and "causal_gap_action_result" not in critical_gaps
+        )
         server_ready = (
             ((core_ready and quality_checks.get("task_clarity", False)) or question_cap_ready)
             and quality_checks.get("action_ownership", False)
@@ -818,6 +901,8 @@ def _normalize_es_build_payload(
             and (not quality_checks.get("role_required", False) or quality_checks.get("role_clarity", False))
             and not critical_gaps
         )
+        if server_ready and question_count < _min_user_answers_for_es_draft_ready():
+            server_ready = False
         if not readiness_reason:
             readiness_reason = _build_readiness_reason(quality_checks, causal_gaps, missing_elements)
 
@@ -854,6 +939,7 @@ def _normalize_es_build_payload(
             blocked_focuses=blocked_focuses,
             focus_attempt_counts=focus_attempt_counts,
             last_question_signature=last_question_signature,
+            extended_deep_dive_round=_ext_dr,
         )
         return "", state, "draft_ready"
 
@@ -885,6 +971,7 @@ def _normalize_es_build_payload(
         blocked_focuses=blocked_focuses,
         focus_attempt_counts=focus_attempt_counts,
         last_question_signature=last_question_signature,
+        extended_deep_dive_round=_ext_dr,
     )
     return question, state, source
 
@@ -895,8 +982,10 @@ def _normalize_deepdive_payload(
     *,
     conversation_text: str = "",
     draft_text: str = "",
+    question_count: int = 0,
 ) -> tuple[str, dict[str, Any], str]:
     data = payload if isinstance(payload, dict) else {}
+    _ext_dr = int(fallback_state.extended_deep_dive_round) if fallback_state else 0
     focus_key = _clean_string(data.get("focus_key")) or "challenge"
     if focus_key not in DEEPDIVE_FOCUSES:
         focus_key = "challenge"
@@ -911,8 +1000,11 @@ def _normalize_deepdive_payload(
         else None
     )
     explicit_interview_ready = deepdive_stage == "interview_ready"
-    deepdive_complete = explicit_interview_ready or bool(completion and completion["complete"])
-    completion_reasons = [] if explicit_interview_ready else list(completion["completion_reasons"]) if completion else []
+    raw_complete = explicit_interview_ready or bool(completion and completion["complete"])
+    deepdive_complete = raw_complete and question_count >= MIN_USER_ANSWERS_FOR_INTERVIEW_READY
+    completion_reasons = (
+        [] if deepdive_complete and explicit_interview_ready else list(completion["completion_reasons"]) if completion else []
+    )
     asked_focuses, resolved_focuses, deferred_focuses, blocked_focuses, focus_attempt_counts, _ = _derive_focus_tracking(
         fallback_state,
         stage="interview_ready" if deepdive_complete else "deep_dive_active",
@@ -950,6 +1042,7 @@ def _normalize_deepdive_payload(
             blocked_focuses=blocked_focuses,
             focus_attempt_counts=focus_attempt_counts,
             last_question_signature=last_question_signature,
+            extended_deep_dive_round=_ext_dr,
         )
         return "", state, "interview_ready"
 
@@ -985,6 +1078,7 @@ def _normalize_deepdive_payload(
         blocked_focuses=blocked_focuses,
         focus_attempt_counts=focus_attempt_counts,
         last_question_signature=last_question_signature,
+        extended_deep_dive_round=_ext_dr,
     )
     return question, state, source
 
@@ -993,7 +1087,12 @@ def _is_deepdive_request(request: NextQuestionRequest) -> bool:
     state = request.conversation_state
     if not state:
         return False
-    return bool(state.draft_text) or state.stage in {"deep_dive_active", "interview_ready"}
+    # draft_ready: 「もう少し整える」等で ES 下書き本文がまだ無い段階でも深掘りプロンプトに乗せる（es_building ではない限り衝突しない）
+    return bool(state.draft_text) or state.stage in {
+        "draft_ready",
+        "deep_dive_active",
+        "interview_ready",
+    }
 
 
 def _build_es_prompt(request: NextQuestionRequest) -> str:
@@ -1017,6 +1116,14 @@ def _build_es_prompt(request: NextQuestionRequest) -> str:
 def _build_deepdive_prompt(request: NextQuestionRequest) -> str:
     phase_name, phase_description, preferred_focuses = _determine_deepdive_phase(request.question_count)
     draft_text = request.conversation_state.draft_text if request.conversation_state else ""
+    ext_round = int(request.conversation_state.extended_deep_dive_round or 0) if request.conversation_state else 0
+    continuation_depth_note = ""
+    if ext_round > 0:
+        continuation_depth_note = (
+            f"## 継続深掘り（{ext_round} 回目）\n"
+            "- ユーザーは面接準備完了のあとも、さらに細かく詰めたいと依頼している。\n"
+            "- 仮説の裏取り・数値の分解・逆質問に備えた答え・一段狭い論点に絞った 1 問にする。\n"
+        )
     draft_diagnostics_json = json.dumps(
         {
             "strength_tags": request.conversation_state.strength_tags if request.conversation_state else [],
@@ -1030,7 +1137,7 @@ def _build_deepdive_prompt(request: NextQuestionRequest) -> str:
         },
         ensure_ascii=False,
     )
-    return STAR_EVALUATE_AND_QUESTION_PROMPT.format(
+    body = STAR_EVALUATE_AND_QUESTION_PROMPT.format(
         gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
         draft_text=sanitize_prompt_input(draft_text or "記載なし", max_length=1800),
         conversation=_format_conversation(request.conversation_history),
@@ -1043,6 +1150,9 @@ def _build_deepdive_prompt(request: NextQuestionRequest) -> str:
         reference_guide_rubric=REFERENCE_GUIDE_RUBRIC,
         prohibited_expressions=_PROHIBITED_EXPRESSIONS,
     )
+    if continuation_depth_note:
+        body = f"{body}\n\n{continuation_depth_note}"
+    return body
 
 
 async def _generate_initial_question(request: NextQuestionRequest) -> tuple[str, dict[str, Any]]:
@@ -1181,7 +1291,7 @@ async def _generate_next_question_progress(request: NextQuestionRequest) -> Asyn
             schema_hints=_stream_schema_hints(is_deepdive),
             stream_string_fields=["question"],
             attempt_repair_on_parse_failure=False,
-            partial_required_fields=(),
+            partial_required_fields=("question",),
         ):
             if event.type == "string_chunk":
                 yield _sse_event("string_chunk", {"path": event.path, "text": event.text})
@@ -1217,6 +1327,7 @@ async def _generate_next_question_progress(request: NextQuestionRequest) -> Asyn
                     draft_text=request.conversation_state.draft_text if request.conversation_state else None,
                 ),
                 draft_text=request.conversation_state.draft_text if request.conversation_state else "",
+                question_count=request.question_count,
             )
         else:
             question, state, source = _normalize_es_build_payload(
@@ -1309,6 +1420,7 @@ async def get_next_question(payload: NextQuestionRequest, request: Request):
                 draft_text=request.conversation_state.draft_text if request.conversation_state else None,
             ),
             draft_text=request.conversation_state.draft_text if request.conversation_state else "",
+            question_count=request.question_count,
         )
     else:
         question, state, _ = _normalize_es_build_payload(
@@ -1440,16 +1552,27 @@ async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
 
     conversation_text = _format_conversation(request.conversation_history)
     char_min = int(request.char_limit * 0.9)
-    prompt = GAKUCHIKA_DRAFT_PROMPT.format(
-        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
-        conversation=conversation_text,
-        char_limit=request.char_limit,
+    title = sanitize_prompt_input(request.gakuchika_title, max_length=200)
+    primary_body = f"テーマ: {title}\n\n{conversation_text}"
+    system_prompt, user_prompt = build_template_draft_generation_prompt(
+        "gakuchika",
+        company_name=None,
+        industry=None,
+        question=DRAFT_SYNTHETIC_QUESTION_GAKUCHIKA,
         char_min=char_min,
+        char_max=request.char_limit,
+        primary_material_heading="【テーマと会話】",
+        primary_material_body=primary_body,
+        output_json_kind="gakuchika",
+        role_name=None,
+        company_evidence_cards=None,
+        has_rag=False,
+        grounding_mode="none",
     )
     llm_result = await call_llm_with_error(
-        system_prompt=prompt,
-        user_message="ガクチカのESを作成してください。",
-        max_tokens=1200,
+        system_prompt=system_prompt,
+        user_message=user_prompt,
+        max_tokens=1400,
         temperature=0.3,
         feature="gakuchika_draft",
         retry_on_parse=True,
@@ -1466,6 +1589,7 @@ async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
                     if last_period > len(draft_text) * 0.5:
                         draft_text = draft_text[: last_period + 1]
                 if len(draft_text) >= 100:
+                    draft_text = normalize_es_draft_single_paragraph(draft_text)
                     return GakuchikaESDraftResponse(
                         draft=draft_text,
                         char_count=len(draft_text),
@@ -1480,7 +1604,7 @@ async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
         )
 
     data = llm_result.data
-    draft = _clean_string(data.get("draft"))
+    draft = normalize_es_draft_single_paragraph(_clean_string(data.get("draft")))
     followup_suggestion = _clean_string(data.get("followup_suggestion")) or "更に深掘りする"
     draft_diagnostics = _build_draft_diagnostics(draft)
     return GakuchikaESDraftResponse(

@@ -132,12 +132,14 @@ test("always renders all feature sections and flags missing reports", () => {
   });
 
   assert.equal(artifacts.aggregate.features.es_review.status, "failed");
+  assert.equal(artifacts.aggregate.features.company_info_search.status, "missing_report");
   assert.equal(artifacts.aggregate.features.rag_ingest.status, "missing_report");
   assert.equal(artifacts.aggregate.features.selection_schedule.status, "missing_report");
   assert.equal(artifacts.aggregate.features.gakuchika.status, "missing_report");
   assert.equal(artifacts.aggregate.features.motivation.status, "missing_report");
   assert.equal(artifacts.aggregate.features.interview.status, "missing_report");
   assert.match(artifacts.issueBody, /## ES添削/);
+  assert.match(artifacts.issueBody, /## 企業情報検索/);
   assert.match(artifacts.issueBody, /## 企業RAG取り込み/);
   assert.match(artifacts.issueBody, /## 選考スケジュール取得/);
   assert.match(artifacts.issueBody, /## ガクチカ作成/);
@@ -162,6 +164,7 @@ test("always includes all four feature sections and missing-report guidance", ()
   });
 
   assert.match(artifacts.issueBody, /## ES添削/);
+  assert.match(artifacts.issueBody, /## 企業情報検索/);
   assert.match(artifacts.issueBody, /## 企業RAG取り込み/);
   assert.match(artifacts.issueBody, /## 選考スケジュール取得/);
   assert.match(artifacts.issueBody, /## ガクチカ作成/);
@@ -170,11 +173,35 @@ test("always includes all four feature sections and missing-report guidance", ()
   assert.match(artifacts.issueBody, /report 未生成/);
   assert.match(artifacts.issueBody, /artifact: `\(missing\)`/);
   assert.doesNotMatch(artifacts.issueBody, /改善提案|Recommendations|今日やること/);
+  assert.equal(artifacts.aggregate.features.company_info_search.status, "missing_report");
   assert.equal(artifacts.aggregate.features.rag_ingest.status, "missing_report");
   assert.equal(artifacts.aggregate.features.selection_schedule.status, "missing_report");
   assert.equal(artifacts.aggregate.features.gakuchika.status, "missing_report");
   assert.equal(artifacts.aggregate.features.motivation.status, "missing_report");
   assert.equal(artifacts.aggregate.features.interview.status, "missing_report");
+});
+
+test("limits missing-report expansion to expected features when explicitly provided", () => {
+  const artifacts = buildAiLiveArtifacts([
+    {
+      path: "/tmp/live_es_review_extended_20260329T140000Z.json",
+      payload: { displayName: "ES添削", reportType: "es_review" },
+      rows: [{ case_id: "es-1", status: "passed" }],
+    },
+  ], {
+    generatedAt: "2026-03-29T14:30:00.000Z",
+    suite: "extended",
+    expectedFeatures: ["es_review", "rag_ingest", "selection_schedule", "gakuchika", "motivation", "interview"],
+  });
+
+  assert.equal(artifacts.aggregate.features.es_review.status, "ok");
+  assert.equal("company_info_search" in artifacts.aggregate.features, false);
+  assert.equal(artifacts.aggregate.features.rag_ingest.status, "missing_report");
+  assert.equal(artifacts.aggregate.features.selection_schedule.status, "missing_report");
+  assert.equal(artifacts.aggregate.features.gakuchika.status, "missing_report");
+  assert.equal(artifacts.aggregate.features.motivation.status, "missing_report");
+  assert.equal(artifacts.aggregate.features.interview.status, "missing_report");
+  assert.doesNotMatch(artifacts.issueBody, /## 企業情報検索/);
 });
 
 test("writes summary markdown plus local helper files while keeping feature json reports as the public artifact source of truth", () => {
@@ -225,9 +252,41 @@ test("writes summary markdown plus local helper files while keeping feature json
 
     const summary = JSON.parse(readFileSync(path.join(root, "ai-live-summary.json"), "utf8"));
     assert.equal(summary.features.es_review.reportFile, "live_es_review_smoke_20260329T140000Z.json");
+    assert.equal(summary.features.company_info_search.status, "missing_report");
     assert.equal(summary.features.rag_ingest.reportFile, "live_rag_ingest_smoke_20260329T140000Z.json");
     assert.equal(summary.features.selection_schedule.reportFile, "live_selection_schedule_smoke_20260329T140001Z.json");
     assert.equal(summary.features.gakuchika.status, "failed");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("writes summary using expected features without flagging excluded reports as missing", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ai-live-write-summary-expected-"));
+  try {
+    writeFileSync(
+      path.join(root, "live_es_review_extended_20260329T140000Z.json"),
+      JSON.stringify([{ case_id: "es-1", status: "passed" }], null, 2),
+      "utf8",
+    );
+
+    writeAiLiveSummary({
+      outputDir: root,
+      suite: "extended",
+      expectedFeatures: ["es_review", "rag_ingest", "selection_schedule", "gakuchika", "motivation", "interview"],
+    });
+
+    const summary = JSON.parse(readFileSync(path.join(root, "ai-live-summary.json"), "utf8"));
+    assert.equal(summary.features.es_review.reportFile, "live_es_review_extended_20260329T140000Z.json");
+    assert.equal("company_info_search" in summary.features, false);
+    assert.equal(summary.features.rag_ingest.status, "missing_report");
+    assert.equal(summary.features.selection_schedule.status, "missing_report");
+    assert.equal(summary.features.gakuchika.status, "missing_report");
+    assert.equal(summary.features.motivation.status, "missing_report");
+    assert.equal(summary.features.interview.status, "missing_report");
+
+    const markdown = readFileSync(path.join(root, "ai-live-summary.md"), "utf8");
+    assert.doesNotMatch(markdown, /企業情報検索/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

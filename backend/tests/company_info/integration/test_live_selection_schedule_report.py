@@ -14,6 +14,7 @@ from app.routers.company_info import (
 )
 from app.utils.web_search import HAS_DDGS
 from tests.company_info.integration.live_feature_report import (
+    _append_check,
     selected_case_set,
     write_live_feature_report,
 )
@@ -59,6 +60,42 @@ EXTENDED_CASES: tuple[LiveSelectionScheduleCase, ...] = SMOKE_CASES + (
         graduation_year=2027,
         selection_type="main_selection",
     ),
+    LiveSelectionScheduleCase(
+        case_id="deloitte_main_2027",
+        company_name="デロイトトーマツ",
+        graduation_year=2027,
+        selection_type="main_selection",
+    ),
+    LiveSelectionScheduleCase(
+        case_id="hitachi_main_2027",
+        company_name="日立製作所",
+        graduation_year=2027,
+        selection_type="main_selection",
+    ),
+    LiveSelectionScheduleCase(
+        case_id="sumitomo_corp_main_2026",
+        company_name="住友商事",
+        graduation_year=2026,
+        selection_type="main_selection",
+    ),
+    LiveSelectionScheduleCase(
+        case_id="mizuho_fg_main_2027",
+        company_name="みずほフィナンシャルグループ",
+        graduation_year=2027,
+        selection_type="main_selection",
+    ),
+    LiveSelectionScheduleCase(
+        case_id="recruit_internship_2027",
+        company_name="リクルートホールディングス",
+        graduation_year=2027,
+        selection_type="internship",
+    ),
+    LiveSelectionScheduleCase(
+        case_id="toyota_internship_2027",
+        company_name="トヨタ自動車",
+        graduation_year=2027,
+        selection_type="internship",
+    ),
 )
 
 
@@ -66,10 +103,19 @@ def _cases_for(case_set: str) -> tuple[LiveSelectionScheduleCase, ...]:
     return EXTENDED_CASES if case_set == "extended" else SMOKE_CASES
 
 
-def _row_status(reasons: list[str]) -> tuple[str, str]:
-    if reasons:
-        return "failed", "failed"
-    return "passed", "passed"
+def _selection_schedule_outcome(reasons: list[str]) -> tuple[str, str, str]:
+    """Return (status, severity, failureKind) aligned with company_info_search / conversation reports."""
+    if not reasons:
+        return "passed", "passed", "none"
+    reason_set = set(reasons)
+    if reason_set <= {"confidence_low_only"}:
+        return "passed", "degraded", "quality"
+    has_infra = bool(reason_set & {"search_candidate_missing", "schedule_fetch_failed"}) or any(
+        r.startswith("exception:") for r in reasons
+    )
+    if has_infra:
+        return "failed", "failed", "infra"
+    return "failed", "failed", "quality"
 
 
 async def _evaluate_case(case: LiveSelectionScheduleCase) -> dict[str, object]:
@@ -102,17 +148,19 @@ async def _evaluate_case(case: LiveSelectionScheduleCase) -> dict[str, object]:
         search_candidate_count = len(candidates)
         if not candidates:
             reasons.append("search_candidate_missing")
-            status, severity = _row_status(reasons)
+            status, severity, failure_kind = _selection_schedule_outcome(reasons)
+            checks: list[dict[str, object]] = []
+            _append_check(checks, name="search_candidates_found", passed=False)
             return {
                 "caseId": case.case_id,
                 "title": f"{case.company_name} / {case.graduation_year}",
                 "status": status,
                 "severity": severity,
+                "failureKind": failure_kind,
                 "candidateCount": search_candidate_count,
                 "deterministicFailReasons": reasons,
-                "checks": {
-                    "search_candidates_found": False,
-                },
+                "checks": checks,
+                "cleanup": {"ok": True, "removedIds": []},
                 "durationMs": round((time.perf_counter() - started) * 1000),
             }
 
@@ -158,12 +206,19 @@ async def _evaluate_case(case: LiveSelectionScheduleCase) -> dict[str, object]:
         reasons.append("schedule_fetch_failed")
         reasons.append(f"exception:{type(exc).__name__}")
 
-    status, severity = _row_status(reasons)
+    status, severity, failure_kind = _selection_schedule_outcome(reasons)
+    checks_out: list[dict[str, object]] = []
+    _append_check(checks_out, name="search_candidates_found", passed=search_candidate_count > 0)
+    _append_check(checks_out, name="response_success", passed=response_success or partial_success)
+    _append_check(checks_out, name="deadlines_found", passed=deadline_count > 0)
+    _append_check(checks_out, name="due_date_present", passed=parsed_deadlines > 0)
+    _append_check(checks_out, name="year_matched", passed=year_matched is not False)
     return {
         "caseId": case.case_id,
         "title": f"{case.company_name} / {case.graduation_year}",
         "status": status,
         "severity": severity,
+        "failureKind": failure_kind,
         "companyName": case.company_name,
         "graduationYear": case.graduation_year,
         "selectionType": case.selection_type,
@@ -178,13 +233,8 @@ async def _evaluate_case(case: LiveSelectionScheduleCase) -> dict[str, object]:
         "yearMatched": year_matched,
         "maxDeadlineConfidence": max_confidence,
         "deterministicFailReasons": reasons,
-        "checks": {
-            "search_candidates_found": search_candidate_count > 0,
-            "response_success": response_success or partial_success,
-            "deadlines_found": deadline_count > 0,
-            "due_date_present": parsed_deadlines > 0,
-            "year_matched": year_matched is not False,
-        },
+        "checks": checks_out,
+        "cleanup": {"ok": True, "removedIds": []},
         "durationMs": round((time.perf_counter() - started) * 1000),
     }
 

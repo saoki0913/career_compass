@@ -27,6 +27,7 @@ on:
         options:
           - all
           - es-review
+          - company-info-search
           - rag-ingest
           - selection-schedule
           - gakuchika
@@ -184,6 +185,45 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
+  company-info-search-live:
+    needs: resolve-suite
+    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'company-info-search' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 60
+    environment: staging
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+      - name: Run company info search live
+        continue-on-error: true
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
+        run: bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature company-info-search
+      - name: Upload company info search internal artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-live-internal-company-info-search-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_company_info_search_*/live_company_info_search_*.json
+            backend/tests/output/ai_live_company_info_search_*/live_company_info_search_*.md
+            backend/tests/output/ai_live_company_info_search_*/*.log
+            backend/evals/company_info_search/output/live_company_info_search_*.json
+            backend/evals/company_info_search/output/live_company_info_search_*.md
+          if-no-files-found: warn
+          retention-days: 90
+
   selection-schedule-live:
     needs: resolve-suite
     if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'selection-schedule' }}
@@ -308,6 +348,7 @@ jobs:
     needs:
       - resolve-suite
       - es-review-live
+      - company-info-search-live
       - rag-ingest-live
       - selection-schedule-live
       - gakuchika-live
@@ -330,6 +371,13 @@ jobs:
         with:
           name: ai-live-internal-es-review-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
           path: backend/tests/output/downloads/es-review
+      - name: Download company info search artifact
+        if: ${{ needs.company-info-search-live.result != 'skipped' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-live-internal-company-info-search-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: backend/tests/output/downloads/company-info-search
       - name: Download RAG ingest artifact
         if: ${{ needs.rag-ingest-live.result != 'skipped' }}
         continue-on-error: true
@@ -380,6 +428,7 @@ jobs:
           path: |
             backend/tests/output/public/ai-live-summary.md
             backend/tests/output/public/live_es_review_*.json
+            backend/tests/output/public/live_company_info_search_${{ needs.resolve-suite.outputs.suite }}_*.json
             backend/tests/output/public/live_rag_ingest_*.json
             backend/tests/output/public/live_selection_schedule_*.json
             backend/tests/output/public/live_gakuchika_*.json

@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useState, useEffect, useCallback, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { DashboardHeader } from "@/components/dashboard";
@@ -21,15 +21,24 @@ import { cn } from "@/lib/utils";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
 import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
-import { OperationLockProvider, useOperationLock } from "@/hooks/useOperationLock";
+import { OperationLockProvider } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
-import { useStreamingTextPlayback } from "@/hooks/useStreamingTextPlayback";
 import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
 import { ConversationPageSkeleton } from "@/components/skeletons/ConversationPageSkeleton";
-import { notifyMotivationDraftReady } from "@/lib/notifications";
-import { getUserFacingErrorMessage, parseApiErrorResponse } from "@/lib/api-errors";
+import { useMotivationConversationController } from "@/hooks/useMotivationConversationController";
+import {
+  CONVERSATION_MODE_LABELS,
+  type EvidenceCard,
+  findRoleOption,
+  INTENT_LABELS,
+  type MotivationStageKey,
+  STAGE_ANSWER_GUIDE,
+  STAGE_LABELS,
+  STAGE_ORDER,
+  type StageStatus,
+} from "@/lib/motivation/ui";
 
 // Icons
 const ArrowLeftIcon = () => (
@@ -59,160 +68,6 @@ const ResetIcon = () => (
     />
   </svg>
 );
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  isOptimistic?: boolean;
-}
-
-interface Company {
-  id: string;
-  name: string;
-  industry: string | null;
-}
-
-type RoleOptionSource =
-  | "industry_default"
-  | "company_override"
-  | "application_job_type"
-  | "document_job_type";
-
-type RoleSelectionSource = RoleOptionSource | "custom";
-
-interface RoleOptionItem {
-  value: string;
-  label: string;
-  source: RoleOptionSource;
-}
-
-interface RoleGroup {
-  id: string;
-  label: string;
-  options: RoleOptionItem[];
-}
-
-interface RoleOptionsResponse {
-  companyId: string;
-  companyName: string;
-  industry: string | null;
-  requiresIndustrySelection: boolean;
-  industryOptions: string[];
-  roleGroups: RoleGroup[];
-}
-
-interface MotivationSetupSnapshot {
-  selectedIndustry: string | null;
-  selectedRole: string | null;
-  selectedRoleSource: string | null;
-  requiresIndustrySelection: boolean;
-  resolvedIndustry: string | null;
-  isComplete: boolean;
-  hasSavedConversation: boolean;
-}
-
-type MotivationStageKey =
-  | "industry_reason"
-  | "company_reason"
-  | "self_connection"
-  | "desired_work"
-  | "value_contribution"
-  | "differentiation"
-  | "closing";
-
-type ConversationMode = "slot_fill" | "deepdive";
-
-interface MotivationProgress {
-  completed: number;
-  total: number;
-  current_slot: Exclude<MotivationStageKey, "closing"> | null;
-  current_slot_label: string | null;
-  current_intent: string | null;
-  next_advance_condition: string | null;
-  mode: ConversationMode;
-}
-
-interface CausalGap {
-  id: string;
-  slot: Exclude<MotivationStageKey, "closing">;
-  reason: string;
-  promptHint: string;
-}
-
-interface EvidenceCard {
-  sourceId: string;
-  title: string;
-  contentType: string;
-  excerpt: string;
-  sourceUrl: string;
-  relevanceLabel: string;
-}
-
-interface StageStatus {
-  current: MotivationStageKey;
-  completed: MotivationStageKey[];
-  pending: MotivationStageKey[];
-}
-
-const STAGE_LABELS: Record<MotivationStageKey, string> = {
-  industry_reason: "業界志望理由を整理中",
-  company_reason: "企業志望理由を整理中",
-  self_connection: "自分との接続を整理中",
-  desired_work: "やりたい仕事を確認中",
-  value_contribution: "価値発揮を整理中",
-  differentiation: "他社との差を整理中",
-  closing: "仕上げを整理中",
-};
-
-const STAGE_ORDER: MotivationStageKey[] = [
-  "industry_reason",
-  "company_reason",
-  "self_connection",
-  "desired_work",
-  "value_contribution",
-  "differentiation",
-  "closing",
-];
-
-const STAGE_ANSWER_GUIDE: Record<MotivationStageKey, string> = {
-  industry_reason: "その業界を志望する理由を1文で答える",
-  company_reason: "この企業のどこに惹かれたかを1文で答える",
-  self_connection: "自分の経験や価値観がどうつながるかを1文で答える",
-  desired_work: "入社後に挑戦したい仕事を1文で答える",
-  value_contribution: "入社後にどう価値を出したいかを1文で答える",
-  differentiation: "他社ではなくこの企業を選ぶ理由を1文で答える",
-  closing: "最後に伝えたい目標を短くまとめる",
-};
-
-const CONVERSATION_MODE_LABELS: Record<ConversationMode, string> = {
-  slot_fill: "材料を集めています",
-  deepdive: "弱い部分を補強しています",
-};
-
-const INTENT_LABELS: Record<string, string> = {
-  initial_capture: "まず要点を回収します",
-  clarify_axis: "志望軸を明確にします",
-  specificity_check: "抽象さを具体化します",
-  company_unique_point: "その企業ならではを確認します",
-  experience_anchor: "経験とのつながりを補います",
-  value_anchor: "価値観との接続を補います",
-  role_reason_capture: "なぜその職種かを補います",
-  work_image_clarify: "仕事のイメージを明確にします",
-  contribution_shape: "貢献の形を明確にします",
-  compare_or_unique_point: "他社との差分を確認します",
-};
-
-function buildHeaders(): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-  };
-}
-
-function findRoleOption(roleGroups: RoleGroup[], value: string | null | undefined) {
-  if (!value) return null;
-  return roleGroups.flatMap((group) => group.options).find((option) => option.value === value) || null;
-}
 
 function MotivationEvidenceCards({
   evidenceCards,
@@ -282,14 +137,22 @@ function MotivationEvidenceSection({
   );
 }
 
+function normalizeTrackerStage(stage: MotivationStageKey): Exclude<MotivationStageKey, "closing"> {
+  return stage === "closing" ? "differentiation" : stage;
+}
+
 function MotivationStageTracker({ stageStatus }: { stageStatus: StageStatus | null }) {
   if (!stageStatus) return null;
+
+  const currentForUi = normalizeTrackerStage(stageStatus.current);
 
   return (
     <div className="space-y-2">
       {STAGE_ORDER.map((stage) => {
-        const isCurrent = stageStatus.current === stage;
-        const isCompleted = stageStatus.completed.includes(stage);
+        const isCurrent = currentForUi === stage;
+        const isCompleted =
+          stageStatus.completed.includes(stage) ||
+          (stage === "differentiation" && stageStatus.completed.includes("closing"));
         return (
           <div
             key={stage}
@@ -412,817 +275,71 @@ function MotivationDraftActionBar({
 function MotivationConversationContent() {
   const params = useParams();
   const companyId = params.id as string;
-  const { isLocked, activeOperationLabel, acquireLock, releaseLock } = useOperationLock();
-
-  const [company, setCompany] = useState<Company | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [nextQuestion, setNextQuestion] = useState<string | null>(null);
-  const [questionCount, setQuestionCount] = useState(0);
-  const [isDraftReady, setIsDraftReady] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSending, setIsSending] = useState(false);
-  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
-  const [answer, setAnswer] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [conversationLoadError, setConversationLoadError] = useState<string | null>(null);
-  const [evidenceSummary, setEvidenceSummary] = useState<string | null>(null);
-  const [evidenceCards, setEvidenceCards] = useState<EvidenceCard[]>([]);
-  const [generatedDraft, setGeneratedDraft] = useState<string | null>(null);
-  const [generatedDocumentId, setGeneratedDocumentId] = useState<string | null>(null);
-  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
-  const [isResetting, setIsResetting] = useState(false);
-  const [isStartingConversation, setIsStartingConversation] = useState(false);
-  const [charLimit, setCharLimit] = useState<300 | 400 | 500>(400);
-  const [streamingLabel, setStreamingLabel] = useState<string | null>(null);
-  const [streamingTargetText, setStreamingTargetText] = useState("");
-  const [isTextStreaming, setIsTextStreaming] = useState(false);
-  const [streamingSessionId, setStreamingSessionId] = useState(0);
-  const [questionStage, setQuestionStage] = useState<MotivationStageKey | null>(null);
-  const [stageStatus, setStageStatus] = useState<StageStatus | null>(null);
-  const [coachingFocus, setCoachingFocus] = useState<string | null>(null);
-  const [conversationMode, setConversationMode] = useState<ConversationMode>("slot_fill");
-  const [currentSlot, setCurrentSlot] = useState<Exclude<MotivationStageKey, "closing"> | null>(null);
-  const [currentIntent, setCurrentIntent] = useState<string | null>(null);
-  const [nextAdvanceCondition, setNextAdvanceCondition] = useState<string | null>(null);
-  const [progress, setProgress] = useState<MotivationProgress | null>(null);
-  const [causalGaps, setCausalGaps] = useState<CausalGap[]>([]);
-  const [roleOptionsData, setRoleOptionsData] = useState<RoleOptionsResponse | null>(null);
-  const [isRoleOptionsLoading, setIsRoleOptionsLoading] = useState(false);
-  const [roleOptionsError, setRoleOptionsError] = useState<string | null>(null);
-  const [setupSnapshot, setSetupSnapshot] = useState<MotivationSetupSnapshot | null>(null);
-  const [selectedIndustry, setSelectedIndustry] = useState("");
-  const [selectedRoleName, setSelectedRoleName] = useState("");
-  const [roleSelectionSource, setRoleSelectionSource] = useState<RoleSelectionSource | null>(null);
-  const [customRoleInput, setCustomRoleInput] = useState("");
-  const [pendingCompleteData, setPendingCompleteData] = useState<{
-    messages: Message[];
-    nextQuestion: string | null;
-    questionCount: number;
-    isDraftReady: boolean;
-    draftReadyJustUnlocked: boolean;
-    evidenceSummary: string | null;
-    evidenceCards: EvidenceCard[];
-    questionStage: MotivationStageKey | null;
-    stageStatus: StageStatus | null;
-    coachingFocus: string | null;
-    conversationMode: ConversationMode;
-    currentSlot: Exclude<MotivationStageKey, "closing"> | null;
-    currentIntent: string | null;
-    nextAdvanceCondition: string | null;
-    progress: MotivationProgress | null;
-    causalGaps: CausalGap[];
-  } | null>(null);
-
-  const { displayedText: streamingText, isPlaybackComplete } = useStreamingTextPlayback(
-    streamingTargetText,
-    { isActive: isTextStreaming, resetKey: streamingSessionId }
-  );
-
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const roleOptionsRequestIdRef = useRef(0);
-  const fetchDataRequestIdRef = useRef(0);
-
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, nextQuestion]);
-
-  useEffect(() => {
-    if (!pendingCompleteData || !isTextStreaming) return;
-    if (!isPlaybackComplete) return;
-
-    const timer = window.setTimeout(() => {
-      startTransition(() => {
-        setMessages(pendingCompleteData.messages);
-        setNextQuestion(pendingCompleteData.nextQuestion);
-        setQuestionCount(pendingCompleteData.questionCount || 0);
-        setIsDraftReady(pendingCompleteData.isDraftReady || false);
-        setEvidenceSummary(pendingCompleteData.evidenceSummary || null);
-        setEvidenceCards(pendingCompleteData.evidenceCards || []);
-        setQuestionStage(pendingCompleteData.questionStage || null);
-        setStageStatus(pendingCompleteData.stageStatus || null);
-        setCoachingFocus(pendingCompleteData.coachingFocus || null);
-        setConversationMode(pendingCompleteData.conversationMode || "slot_fill");
-        setCurrentSlot(pendingCompleteData.currentSlot || null);
-        setCurrentIntent(pendingCompleteData.currentIntent || null);
-        setNextAdvanceCondition(pendingCompleteData.nextAdvanceCondition || null);
-        setProgress(pendingCompleteData.progress || null);
-        setCausalGaps(pendingCompleteData.causalGaps || []);
-        setPendingCompleteData(null);
-        setIsTextStreaming(false);
-        setStreamingTargetText("");
-      });
-      if (pendingCompleteData.draftReadyJustUnlocked) {
-        notifyMotivationDraftReady();
-      }
-    }, 180);
-
-    return () => window.clearTimeout(timer);
-  }, [isPlaybackComplete, isTextStreaming, pendingCompleteData]);
-
-  const applySetupSelection = useCallback((
-    setup: MotivationSetupSnapshot | null | undefined,
-    roleOptions: RoleOptionsResponse | null,
-    conversationContext: {
-      selectedIndustry?: string | null;
-      selectedRole?: string | null;
-      selectedRoleSource?: string | null;
-    } | null | undefined,
-  ) => {
-    const resolvedIndustry =
-      setup?.selectedIndustry ||
-      setup?.resolvedIndustry ||
-      conversationContext?.selectedIndustry ||
-      roleOptions?.industry ||
-      "";
-    const resolvedRole = setup?.selectedRole || conversationContext?.selectedRole || "";
-    const selectedOption = roleOptions ? findRoleOption(roleOptions.roleGroups, resolvedRole) : null;
-    const resolvedSource = setup?.selectedRoleSource || conversationContext?.selectedRoleSource || selectedOption?.source || null;
-
-    setSetupSnapshot(setup || null);
-    setSelectedIndustry(resolvedIndustry);
-    setSelectedRoleName(resolvedRole);
-
-    if (resolvedSource === "user_free_text") {
-      setRoleSelectionSource("custom");
-      setCustomRoleInput(resolvedRole);
-      return;
-    }
-
-    setRoleSelectionSource((selectedOption?.source || resolvedSource) as RoleSelectionSource | null);
-    setCustomRoleInput("");
-  }, []);
-
-  const applyConversationPayload = useCallback((convData: {
-    messages?: Array<{ role: "user" | "assistant"; content: string; id?: string }>;
-    nextQuestion?: string | null;
-    questionCount?: number;
-    isDraftReady?: boolean;
-    evidenceSummary?: string | null;
-    evidenceCards?: EvidenceCard[];
-    generatedDraft?: string | null;
-    questionStage?: MotivationStageKey | null;
-    stageStatus?: StageStatus | null;
-    coachingFocus?: string | null;
-    conversationMode?: ConversationMode;
-    currentSlot?: Exclude<MotivationStageKey, "closing"> | null;
-    currentIntent?: string | null;
-    nextAdvanceCondition?: string | null;
-    progress?: MotivationProgress | null;
-    causalGaps?: CausalGap[];
-    conversationContext?: {
-      selectedIndustry?: string | null;
-      selectedRole?: string | null;
-      selectedRoleSource?: string | null;
-    } | null;
-    setup?: MotivationSetupSnapshot | null;
-    error?: string | null;
-  }, roleOptions: RoleOptionsResponse | null) => {
-    const messagesWithIds = (convData.messages || []).map(
-      (msg, idx) => ({
-        ...msg,
-        id: msg.id || `msg-${idx}`,
-      }),
-    );
-
-    setMessages(messagesWithIds);
-    setNextQuestion(convData.nextQuestion ?? null);
-    setQuestionCount(convData.questionCount || 0);
-    setIsDraftReady(convData.isDraftReady || false);
-    setEvidenceSummary(convData.evidenceSummary || null);
-    setEvidenceCards(convData.evidenceCards || []);
-    setGeneratedDraft(convData.generatedDraft || null);
-    setQuestionStage(convData.questionStage || null);
-    setStageStatus(convData.stageStatus || null);
-    setCoachingFocus(convData.coachingFocus || null);
-    setConversationMode(convData.conversationMode || "slot_fill");
-    setCurrentSlot(convData.currentSlot || null);
-    setCurrentIntent(convData.currentIntent || null);
-    setNextAdvanceCondition(convData.nextAdvanceCondition || null);
-    setProgress(convData.progress || null);
-    setCausalGaps(convData.causalGaps || []);
-    applySetupSelection(convData.setup, roleOptions, convData.conversationContext);
-    setConversationLoadError(convData.error || null);
-  }, [applySetupSelection]);
-
-  const fetchRoleOptions = useCallback(async (
-    industryOverride?: string | null,
-  ): Promise<RoleOptionsResponse | null> => {
-    const requestId = ++roleOptionsRequestIdRef.current;
-    setIsRoleOptionsLoading(true);
-    setRoleOptionsError(null);
-
-    try {
-      const params = new URLSearchParams();
-      if (industryOverride) {
-        params.set("industry", industryOverride);
-      }
-
-      const response = await fetch(
-        `/api/companies/${companyId}/es-role-options${params.toString() ? `?${params.toString()}` : ""}`,
-        {
-          headers: buildHeaders(),
-          credentials: "include",
-        },
-      );
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "MOTIVATION_ROLE_OPTIONS_FETCH_FAILED",
-            userMessage: "職種候補の取得に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.fetchRoleOptions"
-        );
-      }
-
-      const data = await response.json();
-      if (requestId !== roleOptionsRequestIdRef.current) {
-        return null;
-      }
-      setRoleOptionsData(data);
-      return data;
-    } catch (err) {
-      if (requestId !== roleOptionsRequestIdRef.current) {
-        return null;
-      }
-      setRoleOptionsData(null);
-      setRoleOptionsError(
-        getUserFacingErrorMessage(
-          err,
-          {
-            code: "MOTIVATION_ROLE_OPTIONS_FETCH_FAILED",
-            userMessage: "職種候補の取得に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.fetchRoleOptions"
-        )
-      );
-      return null;
-    } finally {
-      if (requestId === roleOptionsRequestIdRef.current) {
-        setIsRoleOptionsLoading(false);
-      }
-    }
-  }, [companyId]);
-
-  const fetchData = useCallback(async () => {
-    const requestId = ++fetchDataRequestIdRef.current;
-    setError(null);
-    setConversationLoadError(null);
-
-    try {
-      const headers = buildHeaders();
-      const [companyRes, convRes] = await Promise.all([
-        fetch(`/api/companies/${companyId}`, {
-          headers,
-          credentials: "include",
-        }),
-        fetch(`/api/motivation/${companyId}/conversation`, {
-          headers,
-          credentials: "include",
-        }),
-      ]);
-
-      if (!companyRes.ok) {
-        throw await parseApiErrorResponse(
-          companyRes,
-          {
-            code: "MOTIVATION_COMPANY_FETCH_FAILED",
-            userMessage: "企業情報の取得に失敗しました。",
-            action: "ページを再読み込みして、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.fetchData.company"
-        );
-      }
-      const companyData = await companyRes.json();
-      if (requestId !== fetchDataRequestIdRef.current) return;
-      setCompany(companyData.company);
-
-      const convData = convRes.ok ? await convRes.json() : null;
-      const setupIndustry =
-        convData?.setup?.selectedIndustry ||
-        convData?.setup?.resolvedIndustry ||
-        convData?.conversationContext?.selectedIndustry ||
-        companyData.company.industry ||
-        null;
-      const roleData = await fetchRoleOptions(setupIndustry);
-      if (requestId !== fetchDataRequestIdRef.current) return;
-      if (convData) {
-        applyConversationPayload(convData, roleData);
-        return;
-      }
-
-      const errorData = await convRes.json().catch(() => null);
-      const message =
-        typeof errorData?.error === "string"
-          ? errorData.error
-          : "保存済みの会話は復元できませんでした。業界と職種を選び直して再開できます。";
-
-      applyConversationPayload({
-        messages: [],
-        nextQuestion: null,
-        questionCount: 0,
-        isDraftReady: false,
-        evidenceSummary: null,
-        evidenceCards: [],
-        generatedDraft: null,
-        questionStage: null,
-        stageStatus: null,
-        coachingFocus: null,
-        conversationMode: "slot_fill",
-        currentSlot: null,
-        currentIntent: null,
-        nextAdvanceCondition: null,
-        progress: null,
-        causalGaps: [],
-        conversationContext: {
-          selectedIndustry: roleData?.industry || companyData.company.industry,
-          selectedRole: null,
-          selectedRoleSource: null,
-        },
-        setup: {
-          selectedIndustry: roleData?.industry || companyData.company.industry,
-          selectedRole: null,
-          selectedRoleSource: null,
-          requiresIndustrySelection: Boolean(roleData?.requiresIndustrySelection),
-          resolvedIndustry: roleData?.industry || companyData.company.industry,
-          isComplete: false,
-          hasSavedConversation: false,
-        },
-      }, roleData);
-      setConversationLoadError(message);
-    } catch (err) {
-      if (requestId !== fetchDataRequestIdRef.current) return;
-      setError(
-        getUserFacingErrorMessage(
-          err,
-          {
-            code: "MOTIVATION_DATA_FETCH_FAILED",
-            userMessage: "データの取得に失敗しました。",
-            action: "ページを再読み込みして、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.fetchData"
-        )
-      );
-    } finally {
-      if (requestId === fetchDataRequestIdRef.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [applyConversationPayload, companyId, fetchRoleOptions]);
-
-  const resetConversationState = useCallback(() => {
-    startTransition(() => {
-      setMessages([]);
-      setNextQuestion(null);
-      setQuestionCount(0);
-      setIsDraftReady(false);
-      setAnswer("");
-      setEvidenceSummary(null);
-      setEvidenceCards([]);
-      setGeneratedDraft(null);
-      setGeneratedDocumentId(null);
-      setQuestionStage(null);
-      setStageStatus(null);
-      setCoachingFocus(null);
-      setConversationMode("slot_fill");
-      setCurrentSlot(null);
-      setCurrentIntent(null);
-      setNextAdvanceCondition(null);
-      setProgress(null);
-      setCausalGaps([]);
-      setConversationLoadError(null);
-      setSetupSnapshot(null);
-      setSelectedIndustry("");
-      setSelectedRoleName("");
-      setRoleSelectionSource(null);
-      setCustomRoleInput("");
-      setPendingCompleteData(null);
-      setStreamingTargetText("");
-      setIsTextStreaming(false);
-      setStreamingSessionId((prev) => prev + 1);
-    });
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  const handleIndustryChange = useCallback(async (value: string) => {
-    setSelectedIndustry(value);
-    setSelectedRoleName("");
-    setRoleSelectionSource(null);
-    setCustomRoleInput("");
-
-    const nextRoleOptions = await fetchRoleOptions(value);
-    if (!nextRoleOptions) return;
-
-    setSelectedIndustry(value || nextRoleOptions.industry || "");
-  }, [fetchRoleOptions]);
-
-  const handleStartConversation = useCallback(async () => {
-    if (isStartingConversation || isSending || isLocked) return;
-
-    const trimmedRole = selectedRoleName.trim();
-    const requiresIndustrySelection = Boolean(roleOptionsData?.requiresIndustrySelection);
-    const resolvedIndustry = selectedIndustry || roleOptionsData?.industry || setupSnapshot?.resolvedIndustry || "";
-
-    if (!trimmedRole || (requiresIndustrySelection && !resolvedIndustry)) {
-      setError("先に業界と職種の設定を完了してください");
-      return;
-    }
-
-    if (!acquireLock("質問を準備中")) {
-      setError(`${activeOperationLabel || "別の操作"}が進行中です。完了までお待ちください。`);
-      return;
-    }
-
-    setIsStartingConversation(true);
-    setError(null);
-    setConversationLoadError(null);
-
-    try {
-      const response = await fetch(`/api/motivation/${companyId}/conversation/start`, {
-        method: "POST",
-        headers: buildHeaders(),
-        credentials: "include",
-        body: JSON.stringify({
-          selectedIndustry: requiresIndustrySelection ? resolvedIndustry : null,
-          selectedRole: trimmedRole,
-          roleSelectionSource:
-            roleSelectionSource === "custom"
-              ? "user_free_text"
-              : roleSelectionSource,
-        }),
-      });
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "MOTIVATION_CONVERSATION_START_FAILED",
-            userMessage: "会話の開始に失敗しました。",
-            action: "入力内容を確認して、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.handleStartConversation"
-        );
-      }
-
-      const data = await response.json();
-      applyConversationPayload(data, roleOptionsData);
-    } catch (err) {
-      setError(
-        getUserFacingErrorMessage(
-          err,
-          {
-            code: "MOTIVATION_CONVERSATION_START_FAILED",
-            userMessage: "会話の開始に失敗しました。",
-            action: "入力内容を確認して、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.handleStartConversation"
-        )
-      );
-    } finally {
-      setIsStartingConversation(false);
-      releaseLock();
-    }
-  }, [
-    acquireLock,
-    activeOperationLabel,
-    applyConversationPayload,
-    companyId,
-    isLocked,
-    isSending,
-    isStartingConversation,
-    releaseLock,
-    roleOptionsData,
-    roleSelectionSource,
-    selectedIndustry,
-    selectedRoleName,
-    setupSnapshot?.resolvedIndustry,
-  ]);
-
-  const handleSend = async () => {
-    const textToSend = answer.trim();
-    if (!textToSend || isSending) return;
-    if (!acquireLock("AIに送信中")) {
-      setError(`${activeOperationLabel || "別の操作"}が進行中です。完了までお待ちください。`);
-      return;
-    }
-
-    const optimisticId = `optimistic-${Date.now()}`;
-    const optimisticMessage: Message = {
-      id: optimisticId,
-      role: "user",
-      content: textToSend,
-      isOptimistic: true,
-    };
-
-    setMessages((prev) => [...prev, optimisticMessage]);
-    setAnswer("");
-    setIsSending(true);
-    setIsWaitingForResponse(true);
-    setError(null);
-    setPendingCompleteData(null);
-    setStreamingTargetText("");
-    setIsTextStreaming(false);
-    setStreamingSessionId((prev) => prev + 1);
-    setStreamingLabel(null);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90_000);
-    let startedQuestionPlayback = false;
-
-    try {
-      const response = await fetch(`/api/motivation/${companyId}/conversation/stream`, {
-        method: "POST",
-        headers: buildHeaders(),
-        credentials: "include",
-        body: JSON.stringify({ answer: textToSend }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "MOTIVATION_CONVERSATION_STREAM_FAILED",
-            userMessage: "送信に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.handleSend"
-        );
-      }
-
-      // Process SSE stream
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("ストリームが取得できませんでした");
-
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let completed = false;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const jsonStr = line.slice(6).trim();
-          if (!jsonStr) continue;
-
-          let event;
-          try {
-            event = JSON.parse(jsonStr);
-          } catch {
-            continue;
-          }
-
-          if (event.type === "progress") {
-            setStreamingLabel(event.label || null);
-          } else if (event.type === "complete") {
-            completed = true;
-            const data = event.data;
-            const messagesWithIds = (data.messages || []).map(
-              (msg: { role: "user" | "assistant"; content: string; id?: string }, idx: number) => ({
-                ...msg,
-                id: msg.id || `msg-${idx}`,
-              })
-            );
-            const nextData = {
-              messages: messagesWithIds,
-              nextQuestion: data.nextQuestion,
-              questionCount: data.questionCount || 0,
-              isDraftReady: data.isDraftReady || false,
-              draftReadyJustUnlocked: data.draftReadyJustUnlocked || false,
-              evidenceSummary: data.evidenceSummary || null,
-              evidenceCards: data.evidenceCards || [],
-              questionStage: data.questionStage || null,
-              stageStatus: data.stageStatus || null,
-              coachingFocus: data.coachingFocus || null,
-              conversationMode: data.conversationMode || "slot_fill",
-              currentSlot: data.currentSlot || null,
-              currentIntent: data.currentIntent || null,
-              nextAdvanceCondition: data.nextAdvanceCondition || null,
-              progress: data.progress || null,
-              causalGaps: data.causalGaps || [],
-            };
-            const questionForPlayback =
-              typeof nextData.nextQuestion === "string"
-                ? nextData.nextQuestion.trim()
-                : "";
-
-            if (startedQuestionPlayback) {
-              if (questionForPlayback) {
-                setStreamingTargetText(questionForPlayback);
-              }
-              setPendingCompleteData(nextData);
-            } else if (questionForPlayback) {
-              setStreamingTargetText(questionForPlayback);
-              setIsTextStreaming(true);
-              setIsWaitingForResponse(false);
-              setPendingCompleteData(nextData);
-              startedQuestionPlayback = true;
-            } else {
-              setMessages(nextData.messages);
-              setNextQuestion(nextData.nextQuestion);
-              setQuestionCount(nextData.questionCount);
-              setIsDraftReady(nextData.isDraftReady);
-              setEvidenceSummary(nextData.evidenceSummary);
-              setEvidenceCards(nextData.evidenceCards);
-              setQuestionStage(nextData.questionStage);
-              setStageStatus(nextData.stageStatus);
-              setCoachingFocus(nextData.coachingFocus || null);
-              setConversationMode(nextData.conversationMode || "slot_fill");
-              setCurrentSlot(nextData.currentSlot || null);
-              setCurrentIntent(nextData.currentIntent || null);
-              setNextAdvanceCondition(nextData.nextAdvanceCondition || null);
-              setProgress(nextData.progress || null);
-              setCausalGaps(nextData.causalGaps || []);
-              if (nextData.draftReadyJustUnlocked) {
-                notifyMotivationDraftReady();
-              }
-            }
-          } else if (event.type === "error") {
-            throw new Error(event.message || "AIサービスでエラーが発生しました");
-          }
-        }
-      }
-
-      if (!completed) {
-        throw new Error("ストリームが途中で切断されました");
-      }
-    } catch (err) {
-      // Remove optimistic message, then refresh from the server to avoid restoring stale chips.
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
-      setPendingCompleteData(null);
-      setStreamingTargetText("");
-      setIsTextStreaming(false);
-      if (err instanceof Error && err.name === "AbortError") {
-        setError("AIの応答に時間がかかりすぎています。再度お試しください。");
-      } else {
-        setError(
-          getUserFacingErrorMessage(
-            err,
-            {
-              code: "MOTIVATION_CONVERSATION_STREAM_FAILED",
-              userMessage: "送信に失敗しました。",
-              action: "時間を置いて、もう一度お試しください。",
-              retryable: true,
-            },
-            "MotivationPage.handleSend"
-          )
-        );
-      }
-      await fetchData();
-    } finally {
-      clearTimeout(timeoutId);
-      setIsSending(false);
-      setIsWaitingForResponse(false);
-      setStreamingLabel(null);
-      if (!startedQuestionPlayback) {
-        setStreamingTargetText("");
-        setIsTextStreaming(false);
-      }
-      releaseLock();
-    }
-  };
-
-  // Generate ES draft and continue with optional post-draft deepdive on the same screen.
-  const handleGenerateDraft = async () => {
-    if (isGeneratingDraft || messages.length === 0 || !isDraftReady || isStartingConversation) return;
-    if (!acquireLock("志望動機を生成中")) return;
-
-    setIsGeneratingDraft(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`/api/motivation/${companyId}/generate-draft`, {
-        method: "POST",
-        headers: buildHeaders(),
-        credentials: "include",
-        body: JSON.stringify({ charLimit }),
-      });
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "MOTIVATION_DRAFT_GENERATE_FAILED",
-            userMessage: "ES生成に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.handleGenerateDraft"
-        );
-      }
-
-      const data = await response.json();
-      setGeneratedDraft(data.draft);
-      setGeneratedDocumentId(typeof data.documentId === "string" ? data.documentId : null);
-      await fetchData();
-    } catch (err) {
-      setError(
-        getUserFacingErrorMessage(
-          err,
-          {
-            code: "MOTIVATION_DRAFT_GENERATE_FAILED",
-            userMessage: "ES生成に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.handleGenerateDraft"
-        )
-      );
-    } finally {
-      setIsGeneratingDraft(false);
-      releaseLock();
-    }
-  };
-
-  const handleResetConversation = useCallback(async () => {
-    if (isSending || isGeneratingDraft || isResetting || isWaitingForResponse || isTextStreaming || isStartingConversation) {
-      return;
-    }
-
-    if (!window.confirm("保存済みの志望動機会話を初期化して、会話をやり直します。よろしいですか？")) {
-      return;
-    }
-
-    if (!acquireLock("会話を初期化中")) {
-      setError(`${activeOperationLabel || "別の操作"}が進行中です。完了までお待ちください。`);
-      return;
-    }
-
-    setIsResetting(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`/api/motivation/${companyId}/conversation`, {
-        method: "DELETE",
-        headers: buildHeaders(),
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "MOTIVATION_CONVERSATION_RESET_FAILED",
-            userMessage: "会話の初期化に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.handleResetConversation"
-        );
-      }
-
-      resetConversationState();
-      await fetchData();
-    } catch (err) {
-      setError(
-        getUserFacingErrorMessage(
-          err,
-          {
-            code: "MOTIVATION_CONVERSATION_RESET_FAILED",
-            userMessage: "会話の初期化に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.handleResetConversation"
-        )
-      );
-    } finally {
-      setIsResetting(false);
-      releaseLock();
-    }
-  }, [
-    acquireLock,
-    activeOperationLabel,
-    companyId,
+  const {
+    answer,
+    causalGaps,
+    charLimit,
+    coachingFocus,
+    company,
+    conversationLoadError,
+    conversationMode,
+    currentIntent,
+    currentSlot,
+    customRoleInput,
+    error,
+    evidenceCards,
+    evidenceSummary,
     fetchData,
+    generatedDocumentId,
+    generatedDraft,
+    handleGenerateDraft,
+    handleGenerateDraftDirect,
+    handleIndustryChange,
+    handleResetConversation,
+    handleSaveGeneratedDraft,
+    handleSend,
+    handleStartConversation,
+    isDraftReady,
     isGeneratingDraft,
+    isLoading,
+    isLocked,
     isResetting,
+    isRoleOptionsLoading,
+    isSavingDraft,
     isSending,
     isStartingConversation,
     isTextStreaming,
     isWaitingForResponse,
+    messages,
+    nextAdvanceCondition,
+    nextQuestion,
+    progress,
+    questionCount,
+    questionStage,
     releaseLock,
-    resetConversationState,
-  ]);
+    roleOptionsData,
+    roleOptionsError,
+    roleSelectionSource,
+    selectedIndustry,
+    selectedRoleName,
+    setAnswer,
+    setCharLimit,
+    setConversationLoadError,
+    setCustomRoleInput,
+    setError,
+    setRoleSelectionSource,
+    setSelectedRoleName,
+    stageStatus,
+    streamingLabel,
+    streamingText,
+    setupSnapshot,
+  } = useMotivationConversationController({ companyId });
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, nextQuestion]);
 
   if (isLoading) {
     return (
@@ -1283,7 +400,10 @@ function MotivationConversationContent() {
   const activeStage = currentSlot || (questionStage !== "closing" ? questionStage : null);
   const answerGuide = activeStage ? STAGE_ANSWER_GUIDE[activeStage] : "1〜2文で答えてください。";
   const currentIntentLabel = currentIntent ? (INTENT_LABELS[currentIntent] || currentIntent) : null;
-  const currentSlotLabel = progress?.current_slot_label || (activeStage ? STAGE_LABELS[activeStage] : null);
+  const currentSlotLabel =
+    questionStage === "closing"
+      ? CONVERSATION_MODE_LABELS[conversationMode]
+      : progress?.current_slot_label || (activeStage ? STAGE_LABELS[activeStage] : null);
   const progressCompleted = progress?.completed ?? 0;
   const progressTotal = progress?.total ?? 6;
 
@@ -1362,26 +482,30 @@ function MotivationConversationContent() {
               </div>
             </div>
 
-            {/* Messages - scrollable */}
-            <div className="flex-1 space-y-4 overflow-y-auto p-3 sm:p-4">
+            {/* Messages: setup fits viewport (inner scroll); conversation scrolls here */}
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {showSetupScreen ? (
-                <div className="mx-auto max-w-2xl space-y-4">
-                  <div className="rounded-[26px] border border-border/70 bg-background/95 p-5 shadow-sm">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">最初に業界と職種を確定します</p>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                          企業情報、ガクチカ、プロフィール、志望職種を踏まえた質問にするため、チャット前に前提を揃えます。
-                        </p>
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-3 sm:px-4 sm:py-4">
+                  <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col overflow-hidden">
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[26px] border border-border/70 bg-background/95 shadow-sm">
+                      <div className="shrink-0 border-b border-border/50 p-4 sm:p-5">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">最初に業界と職種を確定します</p>
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                              企業情報、ガクチカ、プロフィール、志望職種を踏まえた質問にするため、チャット前に前提を揃えます。
+                            </p>
+                          </div>
+                          {isSetupComplete ? (
+                            <Badge variant="soft-success" className="px-3 py-1 text-[11px]">
+                              準備完了
+                            </Badge>
+                          ) : null}
+                        </div>
                       </div>
-                      {isSetupComplete ? (
-                        <Badge variant="soft-success" className="px-3 py-1 text-[11px]">
-                          準備完了
-                        </Badge>
-                      ) : null}
-                    </div>
 
-                    <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 sm:pt-4">
+                    <div className="grid gap-4 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
                       <div className="space-y-3 rounded-[22px] border border-border/60 bg-background/85 p-4">
                         <div>
                           <p className="text-sm font-semibold text-foreground">企業</p>
@@ -1535,17 +659,12 @@ function MotivationConversationContent() {
                         </div>
                       )}
                     </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
-                    <p className="text-sm font-medium text-foreground">開始後の流れ</p>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      最初に業界を志望する理由を確認し、その後にこの企業の志望理由、入社後にやりたい仕事、自分との接続、価値発揮、他社との差を順番に整理します。
-                    </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               ) : (
-                <>
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-3 sm:p-4">
                   {messages.map((msg) => (
                     <ChatMessage
                       key={msg.id}
@@ -1605,10 +724,9 @@ function MotivationConversationContent() {
                       />
                     </div>
                   )}
-                </>
+                  <div ref={messagesEndRef} />
+                </div>
               )}
-
-              <div ref={messagesEndRef} />
             </div>
 
             {/* Error message */}
@@ -1645,26 +763,59 @@ function MotivationConversationContent() {
             )}
 
             {/* Bottom fixed area: input */}
-            <div className="shrink-0 space-y-4 border-t border-border/50 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4">
+            <div className="shrink-0 space-y-4 border-t border-border/50 p-3 sm:px-4 sm:pt-4 max-lg:pb-[calc(0.75rem+var(--mobile-bottom-nav-offset))] lg:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
               {showSetupScreen ? (
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-3">
                   <p className="text-sm text-muted-foreground">
-                    設定を確定すると、最初に業界志望理由から質問を始めます。
+                    設定を確定すると、対話で材料を集めるか、会話なしで下書きだけ先に作れます。
                   </p>
-                  <Button
-                    onClick={handleStartConversation}
-                    disabled={!isSetupComplete || isRoleOptionsLoading || isStartingConversation || isLocked}
-                    className="sm:min-w-40"
-                  >
-                    {isStartingConversation ? (
-                      <>
-                        <LoadingSpinner />
-                        <span className="ml-2">開始中...</span>
-                      </>
-                    ) : (
-                      "質問を始める"
-                    )}
-                  </Button>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    会話なしの下書きは、プロフィール・ガクチカ・公開情報に根ざした範囲に留めます。具体性が足りない場合は「質問を始める」で深掘りしてください。
+                  </p>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleGenerateDraftDirect}
+                      disabled={
+                        !isSetupComplete ||
+                        isRoleOptionsLoading ||
+                        isStartingConversation ||
+                        isLocked ||
+                        isGeneratingDraft
+                      }
+                      className="sm:min-w-44"
+                    >
+                      {isGeneratingDraft && !isStartingConversation ? (
+                        <>
+                          <LoadingSpinner />
+                          <span className="ml-2">生成中...</span>
+                        </>
+                      ) : (
+                        "会話せずに下書きを作成"
+                      )}
+                    </Button>
+                    <Button
+                      onClick={handleStartConversation}
+                      disabled={
+                        !isSetupComplete ||
+                        isRoleOptionsLoading ||
+                        isStartingConversation ||
+                        isLocked ||
+                        isGeneratingDraft
+                      }
+                      className="sm:min-w-40"
+                    >
+                      {isStartingConversation ? (
+                        <>
+                          <LoadingSpinner />
+                          <span className="ml-2">開始中...</span>
+                        </>
+                      ) : (
+                        "質問を始める"
+                      )}
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <ChatInput
@@ -1721,15 +872,10 @@ function MotivationConversationContent() {
                   </div>
 
                   {showSetupScreen ? (
-                    <div className="space-y-2.5">
-                      <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
-                        <p className="text-sm font-medium text-foreground">開始前の設定</p>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                          業界と職種を確定すると、この企業向けに質問が始まります。
-                        </p>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        最初に業界志望理由、その後に企業志望理由、自分との接続、やりたい仕事、価値発揮、他社との差を順番に深掘りします。
+                    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+                      <p className="text-sm font-medium text-foreground">開始前の設定</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        業界と職種を確定すると、この企業向けに質問が始まります。
                       </p>
                     </div>
                   ) : (
@@ -1819,8 +965,26 @@ function MotivationConversationContent() {
                   </CardHeader>
                   <CardContent className="space-y-3 px-3.5 pb-3.5 pt-0">
                     <p className="text-xs leading-5 text-muted-foreground">
-                      志望動機 ES の下書きは保存済みです。必要ならこのまま補足質問に答えて、企業理由や原体験を強められます。
+                      {generatedDocumentId
+                        ? "志望動機 ES の下書きは保存済みです。必要ならこのまま補足質問に答えて、企業理由や原体験を強められます。"
+                        : "生成直後の下書きはまだ ES 一覧に保存していません。内容を残したい場合は先に保存してください。"}
                     </p>
+                    {!generatedDocumentId ? (
+                      <Button
+                        className="w-full"
+                        onClick={handleSaveGeneratedDraft}
+                        disabled={isSavingDraft || isGeneratingDraft}
+                      >
+                        {isSavingDraft ? (
+                          <>
+                            <LoadingSpinner />
+                            <span className="ml-2">保存中...</span>
+                          </>
+                        ) : (
+                          "ESとして保存する"
+                        )}
+                      </Button>
+                    ) : null}
                     {generatedDocumentId ? (
                       <Button asChild variant="outline" className="w-full">
                         <Link href={`/es/${generatedDocumentId}`}>ESを編集する</Link>

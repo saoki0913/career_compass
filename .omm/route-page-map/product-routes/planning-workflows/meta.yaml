@@ -1,0 +1,9 @@
+created: 2026-04-05T11:28:54.340Z
+updated: 2026-04-05T11:28:54.348Z
+update_count: 1
+last_field: description
+kind: nested-class
+title: planning-workflows
+children: []
+parentPath:
+  - product-routes

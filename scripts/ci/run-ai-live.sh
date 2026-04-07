@@ -51,7 +51,7 @@ case "$suite" in
 esac
 
 case "$feature" in
-  all|es-review|rag-ingest|selection-schedule|gakuchika|motivation|interview) ;;
+  all|es-review|company-info-search|rag-ingest|selection-schedule|gakuchika|motivation|interview) ;;
   *)
     echo "Unsupported feature: $feature" >&2
     exit 2
@@ -90,6 +90,12 @@ export LIVE_COMPANY_INFO_TARGET_ENV="${LIVE_COMPANY_INFO_TARGET_ENV:-staging}"
 export RUN_LIVE_ES_REVIEW=1
 if [[ "$suite" == "extended" ]]; then
   export LIVE_ES_REVIEW_ENABLE_JUDGE="${LIVE_ES_REVIEW_ENABLE_JUDGE:-1}"
+  if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+    case "${LIVE_AI_CONVERSATION_LLM_JUDGE-__unset__}" in
+      "0" | "false" | "FALSE") ;;
+      *) export LIVE_AI_CONVERSATION_LLM_JUDGE=1 ;;
+    esac
+  fi
 fi
 
 run_es_review() {
@@ -107,13 +113,17 @@ run_es_review() {
     LIVE_ES_REVIEW_BLOCKING_FAILURES="$blocking_failures" \
     python -m pytest backend/tests/es_review/integration/test_live_es_review_provider_report.py -v -s -m integration
 
-  run_logged \
-    "es-review-playwright" \
-    env \
-    PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-https://stg.shupass.jp}" \
-    PLAYWRIGHT_SKIP_WEBSERVER=1 \
-    CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
-    npx playwright test -c playwright.live.config.ts e2e/live-ai-major.spec.ts
+  if [[ "${AI_LIVE_SKIP_ES_REVIEW_PLAYWRIGHT:-}" == "1" ]]; then
+    echo "[ai-live] skipping es-review-playwright (AI_LIVE_SKIP_ES_REVIEW_PLAYWRIGHT=1)"
+  else
+    run_logged \
+      "es-review-playwright" \
+      env \
+      PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-https://stg.shupass.jp}" \
+      PLAYWRIGHT_SKIP_WEBSERVER=1 \
+      CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
+      npx playwright test -c playwright.live.config.ts e2e/live-ai-major.spec.ts
+  fi
 }
 
 run_conversation_feature() {
@@ -158,9 +168,36 @@ run_company_info_feature() {
     python -m pytest "$pytest_target" -v -s -m integration
 }
 
+run_company_info_search_feature() {
+  local sample_size="30"
+  local per_industry_min="1"
+
+  if [[ "$suite" == "extended" ]]; then
+    sample_size="120"
+    per_industry_min="2"
+  fi
+
+  run_logged \
+    "company-info-search-pytest" \
+    env \
+    AI_LIVE_OUTPUT_DIR="$run_dir" \
+    LIVE_COMPANY_INFO_CASE_SET="$suite" \
+    LIVE_COMPANY_INFO_TARGET_ENV="${LIVE_COMPANY_INFO_TARGET_ENV:-staging}" \
+    RUN_LIVE_SEARCH=1 \
+    LIVE_SEARCH_USE_CURATED=1 \
+    LIVE_SEARCH_SAMPLE_SIZE="$sample_size" \
+    LIVE_SEARCH_PER_INDUSTRY_MIN="$per_industry_min" \
+    LIVE_SEARCH_FAIL_ON_REGRESSION=0 \
+    LIVE_SEARCH_FAIL_ON_LOW_RATE=0 \
+    BASELINE_SAVE=0 \
+    BASELINE_AUTO_PROMOTE=0 \
+    python -m pytest backend/tests/company_info/integration/test_live_company_info_search_report.py -v -s -m integration
+}
+
 case "$feature" in
   all)
     run_es_review
+    run_company_info_search_feature
     run_company_info_feature "rag-ingest"
     run_company_info_feature "selection-schedule"
     run_conversation_feature "gakuchika"
@@ -169,6 +206,9 @@ case "$feature" in
     ;;
   es-review)
     run_es_review
+    ;;
+  company-info-search)
+    run_company_info_search_feature
     ;;
   rag-ingest|selection-schedule)
     run_company_info_feature "$feature"

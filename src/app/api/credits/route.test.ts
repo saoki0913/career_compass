@@ -7,14 +7,16 @@ const {
   getCreditsInfoMock,
   getRemainingFreeFetchesMock,
   getGuestUserMock,
-  getRemainingCompanyRagFreeUnitsSafeMock,
+  getRemainingCompanyRagHtmlFreeUnitsSafeMock,
+  getRemainingCompanyRagPdfFreeUnitsSafeMock,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
   dbSelectMock: vi.fn(),
   getCreditsInfoMock: vi.fn(),
   getRemainingFreeFetchesMock: vi.fn(),
   getGuestUserMock: vi.fn(),
-  getRemainingCompanyRagFreeUnitsSafeMock: vi.fn(),
+  getRemainingCompanyRagHtmlFreeUnitsSafeMock: vi.fn(),
+  getRemainingCompanyRagPdfFreeUnitsSafeMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -55,14 +57,19 @@ vi.mock("@/lib/company-info/pricing", () => ({
     const limits: Record<string, number> = { guest: 0, free: 5, standard: 50, pro: 150 };
     return limits[plan] ?? 0;
   }),
-  getMonthlyRagFreeUnits: vi.fn((plan: string) => {
+  getMonthlyRagHtmlFreeUnits: vi.fn((plan: string) => {
     const limits: Record<string, number> = { free: 10, standard: 100, pro: 300 };
+    return limits[plan] ?? 0;
+  }),
+  getMonthlyRagPdfFreeUnits: vi.fn((plan: string) => {
+    const limits: Record<string, number> = { free: 40, standard: 200, pro: 600 };
     return limits[plan] ?? 0;
   }),
 }));
 
 vi.mock("@/lib/company-info/usage", () => ({
-  getRemainingCompanyRagFreeUnitsSafe: getRemainingCompanyRagFreeUnitsSafeMock,
+  getRemainingCompanyRagHtmlFreeUnitsSafe: getRemainingCompanyRagHtmlFreeUnitsSafeMock,
+  getRemainingCompanyRagPdfFreeUnitsSafe: getRemainingCompanyRagPdfFreeUnitsSafeMock,
 }));
 
 function makeProfileQuery(plan: "free" | "standard" | "pro") {
@@ -82,7 +89,8 @@ describe("api/credits", () => {
     getCreditsInfoMock.mockReset();
     getRemainingFreeFetchesMock.mockReset();
     getGuestUserMock.mockReset();
-    getRemainingCompanyRagFreeUnitsSafeMock.mockReset();
+    getRemainingCompanyRagHtmlFreeUnitsSafeMock.mockReset();
+    getRemainingCompanyRagPdfFreeUnitsSafeMock.mockReset();
   });
 
   it("returns user credits including safe monthly RAG units", async () => {
@@ -95,7 +103,8 @@ describe("api/credits", () => {
       nextResetAt: new Date("2026-04-01T00:00:00.000Z"),
     });
     getRemainingFreeFetchesMock.mockResolvedValue(18);
-    getRemainingCompanyRagFreeUnitsSafeMock.mockResolvedValue(512);
+    getRemainingCompanyRagHtmlFreeUnitsSafeMock.mockResolvedValue(84);
+    getRemainingCompanyRagPdfFreeUnitsSafeMock.mockResolvedValue(176);
 
     const response = await GET(new NextRequest("http://localhost:3000/api/credits"));
     const data = await response.json();
@@ -106,8 +115,10 @@ describe("api/credits", () => {
     expect(data.balance).toBe(120);
     expect(data.monthlyFree.selectionSchedule.remaining).toBe(18);
     expect(data.monthlyFree.selectionSchedule.limit).toBe(50);
-    expect(data.monthlyFree.companyRagPages.remaining).toBe(512);
-    expect(data.monthlyFree.companyRagPages.limit).toBe(100);
+    expect(data.monthlyFree.companyRagHtmlPages.remaining).toBe(84);
+    expect(data.monthlyFree.companyRagHtmlPages.limit).toBe(100);
+    expect(data.monthlyFree.companyRagPdfPages.remaining).toBe(176);
+    expect(data.monthlyFree.companyRagPdfPages.limit).toBe(200);
   });
 
   it("returns guest credits without monthly RAG allowance", async () => {
@@ -126,7 +137,8 @@ describe("api/credits", () => {
     expect(data.type).toBe("guest");
     expect(data.balance).toBe(0);
     expect(data.monthlyAllocation).toBe(0);
-    expect(data.monthlyFree.companyRagPages).toEqual({ remaining: 0, limit: 0 });
+    expect(data.monthlyFree.companyRagHtmlPages).toEqual({ remaining: 0, limit: 0 });
+    expect(data.monthlyFree.companyRagPdfPages).toEqual({ remaining: 0, limit: 0 });
     expect(data.monthlyFree.selectionSchedule).toEqual({ remaining: 0, limit: 0 });
   });
 });

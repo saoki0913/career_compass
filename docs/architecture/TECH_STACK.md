@@ -54,8 +54,7 @@
 
 | 技術 | バージョン | 用途 |
 |-----|----------|------|
-| **Stripe** | 20.x | サブスクリプション決済 |
-| **@stripe/stripe-js** | 8.x | フロントエンド SDK |
+| **Stripe** | 20.x | サブスクリプション決済（サーバー SDK。Checkout/Portal は API セッション URL リダイレクト） |
 
 ---
 
@@ -209,7 +208,7 @@ RAG（Retrieval-Augmented Generation）のための検索システム。
 | **Stripe** | サブスクリプション管理 |
 
 **プラン:**
-- Standard: ¥1,480/月
+- Standard: ¥1,490/月
 - Pro: ¥2,980/月
 
 ### AI
@@ -233,7 +232,6 @@ RAG（Retrieval-Augmented Generation）のための検索システム。
   "@radix-ui/react-select": "^2.2.6",
   "@radix-ui/react-slot": "^1.2.4",
   "@radix-ui/react-switch": "^1.2.6",
-  "@stripe/stripe-js": "^8.6.4",
   "better-auth": "^1.4.17",
   "class-variance-authority": "^0.7.1",
   "clsx": "^2.1.1",

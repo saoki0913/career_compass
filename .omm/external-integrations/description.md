@@ -1,0 +1,1 @@
+Provider boundaries and their responsibilities. This perspective shows which parts of the codebase rely on external services for identity, persistence, billing, calendar sync, scraping, search, and model execution.

@@ -1,0 +1,1 @@
+Lifecycle complexity is uneven across domains: some routes are direct CRUD, while AI routes add streaming, background ingest, and provider retries. This makes regressions likely if ownership and side-effect ordering drift.

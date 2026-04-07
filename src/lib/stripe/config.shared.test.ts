@@ -9,7 +9,7 @@ describe("managed stripe config", () => {
     expect(annualPrices).toEqual([
       expect.objectContaining({
         envVar: "STRIPE_PRICE_STANDARD_ANNUAL",
-        unitAmount: 14980,
+        unitAmount: 14900,
       }),
       expect.objectContaining({
         envVar: "STRIPE_PRICE_PRO_ANNUAL",

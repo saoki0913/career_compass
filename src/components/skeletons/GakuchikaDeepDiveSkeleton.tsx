@@ -41,8 +41,8 @@ export function GakuchikaDeepDiveSkeleton({
           </div>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3.5 lg:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.75fr)]">
-          <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-card">
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3.5 overflow-hidden lg:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.75fr)]">
+          <div className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-card">
             <div className="border-b border-border/50 px-3 py-3 sm:px-4 lg:hidden">
               <div className="flex flex-wrap items-center gap-2">
                 <SkeletonPill className="h-5 w-16" />
@@ -72,7 +72,7 @@ export function GakuchikaDeepDiveSkeleton({
               </div>
             </div>
 
-            <div className="shrink-0 border-t border-border/50 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4">
+            <div className="shrink-0 border-t border-border/50 p-3 sm:px-4 sm:pt-4 max-lg:pb-[calc(0.75rem+var(--mobile-bottom-nav-offset))] lg:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
               <div className="space-y-3">
                 <Skeleton className="h-3 w-full max-w-md rounded-md" />
                 <div className="flex items-end gap-2 rounded-xl border border-border/70 bg-card p-3">

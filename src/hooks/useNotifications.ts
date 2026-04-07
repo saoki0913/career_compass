@@ -6,7 +6,16 @@
 
 import { useCallback } from "react";
 import useSWR from "swr";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifySwrUserFacingFailure } from "@/lib/client-error-ui";
 import { buildAuthFetchHeaders, notificationsListUrl } from "@/lib/swr-fetcher";
+
+const NOTIFICATIONS_FETCH_FALLBACK = {
+  code: "NOTIFICATIONS_FETCH_FAILED",
+  userMessage: "通知を読み込めませんでした。",
+  action: "ページを再読み込みして、もう一度お試しください。",
+  retryable: true,
+} as const;
 
 export type NotificationType =
   | "deadline_reminder"
@@ -64,7 +73,7 @@ async function fetchNotificationsList(url: string): Promise<NotificationsRespons
     credentials: "include",
   });
   if (!response.ok) {
-    throw new Error("Failed to fetch notifications");
+    throw await parseApiErrorResponse(response, NOTIFICATIONS_FETCH_FALLBACK, "useNotifications.fetch");
   }
   const data = await response.json();
   return {
@@ -113,6 +122,10 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     dedupingInterval: 3000,
     fallbackData: options.initialData,
     revalidateOnMount: !options.initialData,
+    onError(err, key) {
+      const ui = toAppUiError(err, NOTIFICATIONS_FETCH_FALLBACK, "useNotifications.swr");
+      notifySwrUserFacingFailure(ui, typeof key === "string" ? key : JSON.stringify(key));
+    },
   });
 
   const notifications = data?.notifications ?? [];

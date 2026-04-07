@@ -1,15 +1,25 @@
 # ガクチカ作成
 
-最終更新: 2026-04-04
+最終更新: 2026-04-05
 
 ## 概要
 
 ガクチカ作成は、短い初期入力からまず ES に載せられる水準の本文を作り、その後に同じ会話の続きとして面接向けの深掘りへ進める機能です。会話生成の既定モデルは `MODEL_GAKUCHIKA=gpt-fast`、ES 下書き生成は `MODEL_GAKUCHIKA_DRAFT=claude-sonnet` です。
 
+### 想定ユーザーフロー（プロダクト正）
+
+1. **ES 材料フェーズ**: おおむね **4〜6 問**の対話で、ES に載せられる水準の材料が揃う（`draft_ready` / `ready_for_draft`）。
+2. **ES 作成**: ユーザーがガクチカ ES を生成する。先に詰めたい場合は **「もう少し整える」** で同じセッション内で材料を増やしてから ES 作成へ（`draft_ready` かつ下書き未生成でも深掘り系プロンプトで再開する）。
+3. **深掘りフェーズ**: ES 作成後（または下書き生成済みの文脈）で、面接に耐える粒度まで深掘り（`deep_dive_active`）。
+4. **面接準備完了**: 講評・整理（structured summary 等）を **面接準備完了** として提示（`interview_ready`）。このとき `gakuchika_conversations.status=completed`。
+5. **継続深掘り**: **「もっと深掘る」** で会話を再開する。`status` は `in_progress` に戻り、ストリーム送信が再度可能。`extended_deep_dive_round` が増えるほどプロンプト上でより細かい論点（具体・仮説・数値の裏取り等）を要求する。
+
+**会話をやり直す** は、進捗カードから開く確認モーダルで続行可否を選んだうえで新規セッション（`conversation/new`）を開始する。
+
 この機能は次の順序で進みます。
 
 1. ES 作成前は深掘りしすぎず、`状況 / 課題 / 行動 / 結果` の 4 要素を短い会話で揃える
-2. `ready_for_draft=true` に達したら `GAKUCHIKA_DRAFT_PROMPT` で ES 下書きを作る
+2. `ready_for_draft=true` に達したら FastAPI `POST /api/gakuchika/generate-es-draft` が **`build_template_draft_generation_prompt`（`TEMPLATE_DEFS` の `gakuchika` と同一ソース）** で ES 下書きを 1 回の LLM 呼び出しで生成する
 3. その後は同一セッションを再開して面接向けに深掘りする
 4. 十分に進んだら `STRUCTURED_SUMMARY_PROMPT` で STAR と面接メモへ整理する
 
@@ -52,7 +62,8 @@
   "credibility_risk_tags": [],
   "deepdive_stage": null,
   "deepdive_complete": false,
-  "completion_reasons": []
+  "completion_reasons": [],
+  "extended_deep_dive_round": 0
 }
 ```
 
@@ -63,6 +74,7 @@
 - 初回入力はサーバー側 classifier で `seed_only / rough_episode / almost_draftable` に分類し、`input_richness_mode` として state に保持する
 - LLM の質問文は必ず丁寧語
 - `question / answer_hint / progress_label / focus_key` は同じ焦点を指す
+- 実装上、ES 構築中に `missing_elements` に STAR の前段が残る限り、`focus_key` はその先頭欠落（context→task→action→result）へサーバー側で寄せ、進捗バーと質問の軸をずらさない
 - 質問数は `4〜6問` を基本目標とし、原則 `6問` で `ready_for_draft` 判定まで進める。初期入力が極端に薄い時だけ `7〜8問` まで救済する
 - `ready_for_draft=true` の条件は「4要素が全部埋まっている」だけではない
 - 最低基準は次で固定する
@@ -87,10 +99,11 @@
 - `progress_label` は `ESを作成できます`
 - この段階では follow-up question を出さず、会話入力欄を閉じる
 - 主 CTA は `ガクチカESを作成`、副 CTA は `もう少し整える`
+- **文字数**: 作成前に UI で **300 / 400 / 500** 字を選べる。`POST /api/gakuchika/[id]/generate-es-draft` の JSON ボディ `charLimit`（300 / 400 / 500）に対応。初期値は `gakuchika_contents.charLimitType` に追従
 - `POST /api/gakuchika/[id]/generate-es-draft` は `completed` セッション限定ではなく、`ready_for_draft=true` を条件に実行する
 - DB 上の `gakuchika_conversations.status` はまだ `in_progress` のまま保つ
 - ES 生成成功時は draft を ES ドキュメントへ保存し、同じセッションの `draft_text` にも保持する
-- `GAKUCHIKA_DRAFT_PROMPT` 成功直後に deterministic evaluator を走らせ、`strength_tags / issue_tags / deepdive_recommendation_tags / credibility_risk_tags` を state に保存する
+- ES 下書き生成成功直後に deterministic evaluator を走らせ、`strength_tags / issue_tags / deepdive_recommendation_tags / credibility_risk_tags` を state に保存する
 
 ### 深掘りフェーズ
 
@@ -160,7 +173,7 @@
 
 - `next_action=ask` の時だけ canonical question を表示する
 - `draft_ready` 到達時は `question=""` を許容し、UI は `next_action=show_generate_draft_cta` を正として CTA 表示へ切り替える
-- SSE の途中 `string_chunk` は表示用であり、最終的な質問や CTA 判定は complete payload を正とする
+- SSE の `string_chunk` は complete までバッファし、**確定した次質問文**は complete payload を正とする。UI は chunk の逐次 `setState` ではなく、**`useStreamingTextPlayback` + `StreamingChatMessage`** で文字送り再生し、再生終了後にメッセージ・`nextQuestion`・`conversation_state` を一括反映する（CTA 判定も complete を正とする）
 
 ### FastAPI `/api/gakuchika/structured-summary`
 
@@ -202,6 +215,7 @@
 - 旧 0-100 STAR 採点は表示しない
 - カード状態は `未開始 / 作成中 / ES作成可 / 深掘り中 / 面接準備完了` で見せる
 - 進捗バーは ES 作成前は 4 要素、ES 作成後は `ES作成可 -> 深掘り中 -> 面接準備完了` へ切り替える
+- API の `conversationStatus` は `in_progress` / `completed` に正規化され、`questionCount > 0` かつステータス欠落時は `in_progress` にフォールバックする。クライアントは `getGakuchikaListStatusKey`（`src/lib/gakuchika/list-status.ts`）で JSON のゆれを未開始にまとめ、**タブが visible に戻ったとき** `/gakuchika` で silent 再取得する
 
 ## クレジット
 
@@ -213,9 +227,14 @@
 ## 関連ファイル
 
 - `backend/app/prompts/gakuchika_prompts.py`
+- `backend/app/prompts/es_templates.py`（`build_template_draft_generation_prompt`・`DRAFT_SYNTHETIC_QUESTION_GAKUCHIKA`）
 - `backend/app/routers/gakuchika.py`
 - `backend/tests/gakuchika/test_gakuchika_next_question.py`
 - `src/app/api/gakuchika/shared.ts`
+- `src/app/api/gakuchika/route.ts`（一覧 GET・`normalizeGakuchikaListConversationStatus`）
+- `src/lib/gakuchika/list-status.ts`
+- `src/hooks/useStreamingTextPlayback.ts`
+- `src/components/chat/StreamingChatMessage.tsx`
 - `src/app/api/gakuchika/[id]/conversation/new/route.ts`
 - `src/app/api/gakuchika/[id]/conversation/stream/route.ts`
 - `src/app/api/gakuchika/[id]/conversation/resume/route.ts`

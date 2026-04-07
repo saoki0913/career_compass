@@ -3,7 +3,7 @@ import path from "node:path";
 
 export type LiveAiConversationFeature = "gakuchika" | "motivation" | "interview";
 export type LiveAiConversationSuiteDepth = "smoke" | "extended";
-export type LiveAiConversationTargetEnv = "staging" | "production";
+export type LiveAiConversationTargetEnv = "local" | "staging" | "production";
 export type LiveAiConversationSeverity = "passed" | "degraded" | "failed";
 export type LiveAiConversationFailureKind =
   | "none"
@@ -179,6 +179,57 @@ function markdownForField(label: string, value: string | null) {
   return `- ${label}: \`${value}\``;
 }
 
+function markdownTranscriptEnv(): { enabled: boolean; maxTurns: number; maxChars: number } {
+  const enabled = process.env.LIVE_AI_CONVERSATION_MD_INCLUDE_TRANSCRIPT?.trim() === "1";
+  const maxTurnsRaw = Number(process.env.LIVE_AI_CONVERSATION_MD_TRANSCRIPT_MAX_TURNS ?? "8");
+  const maxCharsRaw = Number(process.env.LIVE_AI_CONVERSATION_MD_TRANSCRIPT_MAX_CHARS ?? "12000");
+  const maxTurns =
+    Number.isFinite(maxTurnsRaw) && maxTurnsRaw > 0 ? Math.min(50, Math.floor(maxTurnsRaw)) : 8;
+  const maxChars =
+    Number.isFinite(maxCharsRaw) && maxCharsRaw > 0 ? Math.min(100_000, Math.floor(maxCharsRaw)) : 12_000;
+  return { enabled, maxTurns, maxChars };
+}
+
+/** Avoid breaking fenced code blocks in Markdown when embedding user/assistant text. */
+function escapeMarkdownFence(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/```/g, "'''");
+}
+
+/** Optional: last N turns for failed rows when `LIVE_AI_CONVERSATION_MD_INCLUDE_TRANSCRIPT=1`. */
+function transcriptAppendixLines(row: LiveAiConversationReportRow): string[] {
+  const { enabled, maxTurns, maxChars } = markdownTranscriptEnv();
+  if (!enabled || row.severity !== "failed" || row.transcript.length === 0) {
+    return [];
+  }
+  const tail = row.transcript.slice(-maxTurns);
+  const lines: string[] = ["", "#### transcript_tail", ""];
+  let used = 0;
+  let truncated = false;
+  for (const turn of tail) {
+    if (used >= maxChars) {
+      truncated = true;
+      break;
+    }
+    const header = `- **${turn.role}**`;
+    const room = maxChars - used - header.length - 40;
+    if (room < 20) {
+      truncated = true;
+      break;
+    }
+    let body = escapeMarkdownFence((turn.content ?? "").trim());
+    if (body.length > room) {
+      body = `${body.slice(0, room)}…`;
+      truncated = true;
+    }
+    lines.push(header, "", "```", body, "```", "");
+    used += body.length + header.length + 40;
+  }
+  if (truncated) {
+    lines.push("_…truncated (`LIVE_AI_CONVERSATION_MD_TRANSCRIPT_MAX_CHARS` / max turns)_", "");
+  }
+  return lines;
+}
+
 function markdownForRow(row: LiveAiConversationReportRow) {
   const failureReasons =
     row.deterministicFailReasons.length > 0
@@ -227,6 +278,8 @@ function markdownForRow(row: LiveAiConversationReportRow) {
     row.outputs.finalText ? `- final_text: \`${row.outputs.finalText}\`` : "- final_text: `(empty)`",
     "",
   );
+
+  lines.push(...transcriptAppendixLines(row));
 
   return lines;
 }

@@ -26,10 +26,16 @@ describe("marketing home page regressions", () => {
     const source = readSource("src/app/(marketing)/page.tsx");
 
     expect(source).toContain("<HeroSection />");
-    expect(source).toContain("<ProductShowcase />");
-    expect(source).toContain("<HowItWorksSection />");
+    expect(source).toContain("<TrustStripSection />");
+    expect(source).toContain("<PainPointsSection />");
+    expect(source).toContain("<BeforeAfterSection />");
+    expect(source).toContain("<FeatureESSection />");
+    expect(source).toContain("<FeatureManagementSection />");
+    expect(source).toContain("<FeatureInterviewSection />");
+    expect(source).toContain("<ComparisonSection />");
     expect(source).toContain("<PricingSection />");
     expect(source).toContain("<FAQSection />");
-    expect(source).toContain("<CTASectionVariant />");
+    expect(source).toContain("<FinalCTASection />");
+    expect(source).toContain("<StickyCTABar />");
   });
 });

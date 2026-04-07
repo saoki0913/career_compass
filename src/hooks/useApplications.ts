@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 
 export type ApplicationType =
   | "summer_intern"
@@ -121,6 +122,7 @@ export function useApplications(companyId: string, options: UseApplicationsOptio
         "useApplications.fetchApplications"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }
@@ -180,6 +182,7 @@ export function useApplications(companyId: string, options: UseApplicationsOptio
           "useApplications.createApplication"
         );
         setError(uiError.message);
+        notifyUserFacingAppError(uiError);
         return null;
       }
     },
@@ -229,6 +232,7 @@ export function useApplications(companyId: string, options: UseApplicationsOptio
           "useApplications.updateApplication"
         );
         setError(uiError.message);
+        notifyUserFacingAppError(uiError);
         return false;
       }
     },
@@ -271,6 +275,7 @@ export function useApplications(companyId: string, options: UseApplicationsOptio
           "useApplications.deleteApplication"
         );
         setError(uiError.message);
+        notifyUserFacingAppError(uiError);
         return false;
       }
     },
@@ -334,6 +339,7 @@ export function useApplicationDetail(applicationId: string) {
         "useApplicationDetail.fetchApplication"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }
@@ -381,6 +387,7 @@ export function useApplicationDetail(applicationId: string) {
           "useApplicationDetail.addJobType"
         );
         setError(uiError.message);
+        notifyUserFacingAppError(uiError);
         return null;
       }
     },

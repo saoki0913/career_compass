@@ -32,8 +32,12 @@ INTERVIEW_FORMATS = {
     "standard_behavioral",
     "case",
     "technical",
-    "discussion",
-    "presentation",
+    "life_history",
+}
+# 旧保存値・旧API → 正規化（UIは4方式のみ）
+_LEGACY_INTERVIEW_FORMAT_MAP = {
+    "discussion": "life_history",
+    "presentation": "life_history",
 }
 SELECTION_TYPES = {"internship", "fulltime"}
 INTERVIEW_STAGES = {"early", "mid", "final"}
@@ -120,6 +124,8 @@ _PLAN_FALLBACK = """あなたは新卒採用の面接設計担当です。応募
 - academic_summary が強い候補者なら academic_application を優先論点に含めてよい
 - research_summary が強い候補者なら research_application を優先論点に含めてよい
 - interview_format=case の場合は、通常面接の論点だけで埋めず、case_fit / structured_thinking を優先論点に含めてよい
+- interview_format=technical の場合は、technical_depth / tradeoff / reproducibility を優先論点に含め、数字当てや暗記確認に寄せない
+- interview_format=life_history の場合は、life_narrative_core / turning_point_values / motivation_bridge（自己理解と一貫性）を優先論点に含め、ケース式の構造化論点だけで埋めない
 - 出力は面接進行計画のみで、質問文は作らない
 
 ## 出力形式
@@ -181,7 +187,8 @@ _OPENING_FALLBACK = """あなたは新卒採用の面接官です。面接計画
 - opening_topic に対応する質問を 1 問だけ返す
 - interview_format=standard_behavioral の場合は、1〜2分で答えやすい導入質問にする
 - interview_format=case の場合は、ケース前提の最初の問いにする
-- interview_format=technical の場合は、専門性確認の導入質問にする
+- interview_format=technical の場合は、専門性確認の導入質問にする（設計判断・前提・トレードオフが話せる題材を選ばせる）
+- interview_format=life_history の場合は、転機・価値観・行動の一貫性を見る導入質問にする（プレゼン発表の要約に限定しない）
 - 最初から細かく深掘りしすぎない
 - 実際の面接導入として自然な 1 文にする
 - interview_setup_note には、今回の面接の見どころや主題を一言で示す
@@ -264,7 +271,9 @@ _TURN_FALLBACK = """あなたは新卒採用の面接官です。会話履歴を
 - 同じ意味の質問を繰り返さない
 - `intent_key` は topic + followup_style 単位で安定させる
 - 1ターンで深める観点は 1 つだけにする
-- interview_format=case の場合は、ケースの構造化を崩す問いを避ける
+- interview_format=case の場合は、ケースの構造化を崩す問いを避け、仮説の更新と優先順位を確認する深掘りを優先する
+- interview_format=technical の場合は、正確性・前提確認・説明の段階化を崩さず、暗記丸暗記や数字当てを避ける
+- interview_format=life_history の場合は、ストーリーの一貫性・自己理解の深さを確認し、志望動機の丸写しやケース論点へのすり替えを避ける
 - `question` は空文字にしない
 - `focus` は今回の深掘り意図を短く表す
 - `plan_progress` には今回までに確認済みの論点と残り論点を配列で入れる
@@ -380,6 +389,12 @@ _FEEDBACK_FALLBACK = """あなたは新卒採用の面接官です。会話履�
 - consistency
 - credibility
 
+## 方式別の評価の重み（7軸は共通だが、講評で触れる観点の優先を変える）
+- interview_format=standard_behavioral: company_fit / consistency / specificity を重視
+- interview_format=case: logic / persuasiveness（仮説と根拠）を重視
+- interview_format=technical: specificity / credibility（前提・再現性）を重視
+- interview_format=life_history: consistency / persuasiveness（価値観と行動のつながり）を重視
+
 ## ルール
 - `overall_comment` は自然な日本語で総評にする
 - 良かった点は最大 3 件
@@ -411,7 +426,7 @@ _FEEDBACK_FALLBACK = """あなたは新卒採用の面接官です。会話履�
   "strengths": ["良かった点"],
   "improvements": ["改善点"],
   "consistency_risks": ["一貫性の弱い点"],
-  "weakest_question_type": "motivation|gakuchika|academic|research|personal|career|case",
+  "weakest_question_type": "motivation|gakuchika|academic|research|personal|career|case|life_history",
   "weakest_turn_id": "turn-3",
   "weakest_question_snapshot": "なぜ当社なのですか。",
   "weakest_answer_snapshot": "事業に魅力を感じたからです。",
@@ -695,6 +710,15 @@ def _normalize_choice(value: Optional[str], allowed: set[str], default: str) -> 
     return default
 
 
+def _canonical_interview_format(value: Optional[str]) -> str:
+    """Normalize legacy discussion/presentation to life_history for 4-format product."""
+    if not isinstance(value, str):
+        return "standard_behavioral"
+    trimmed = value.strip()
+    trimmed = _LEGACY_INTERVIEW_FORMAT_MAP.get(trimmed, trimmed)
+    return _normalize_choice(trimmed, INTERVIEW_FORMATS, "standard_behavioral")
+
+
 def _infer_role_track(selected_role: Optional[str], company_summary: Optional[str], selected_industry: Optional[str]) -> str:
     haystack = " ".join([selected_role or "", company_summary or "", selected_industry or ""])
     for role_track, keywords in ROLE_TRACK_KEYWORDS.items():
@@ -709,7 +733,7 @@ def _build_setup(payload: InterviewBaseRequest) -> dict[str, Any]:
         ROLE_TRACKS,
         "biz_general",
     )
-    interview_format = _normalize_choice(payload.interview_format, INTERVIEW_FORMATS, "standard_behavioral")
+    interview_format = _canonical_interview_format(payload.interview_format)
     selection_type = _normalize_choice(payload.selection_type, SELECTION_TYPES, "fulltime")
     interview_stage = _normalize_choice(payload.interview_stage, INTERVIEW_STAGES, "mid")
     interviewer_type = _normalize_choice(payload.interviewer_type, INTERVIEWER_TYPES, "hr")
@@ -832,8 +856,10 @@ def _checklist_for_topic(topic: str, setup: dict[str, Any]) -> list[str]:
         checklist = ["structure", "hypothesis", "prioritization"]
     elif setup.get("interview_format") == "technical" or "technical" in normalized:
         checklist = ["decision_reason", "tradeoff", "reproducibility"]
-    elif setup.get("interview_format") == "presentation" or "presentation" in normalized:
-        checklist = ["summary", "evidence", "structure"]
+    elif setup.get("interview_format") == "life_history" or any(
+        key in normalized for key in ["narrative", "life_story", "turning", "jisekishi", "自分史"]
+    ):
+        checklist = ["turning_point", "values", "action_result_link"]
     elif any(key in normalized for key in ["motivation", "company", "compare", "career"]):
         checklist = ["core_reason", "company_reason", "experience_link"]
     elif any(key in normalized for key in ["role", "skill"]):
@@ -849,16 +875,20 @@ def _checklist_for_topic(topic: str, setup: dict[str, Any]) -> list[str]:
 
 
 def _format_phase_for_setup(setup: dict[str, Any]) -> str:
-    interview_format = str(setup.get("interview_format") or "standard_behavioral")
+    interview_format = _canonical_interview_format(str(setup.get("interview_format") or "standard_behavioral"))
     if interview_format == "case":
         return "case_main"
     if interview_format == "technical":
         return "technical_main"
-    if interview_format == "discussion":
-        return "discussion_main"
-    if interview_format == "presentation":
-        return "presentation_main"
+    if interview_format == "life_history":
+        return "life_history_main"
     return "standard_main"
+
+
+_LEGACY_FORMAT_PHASE_MAP = {
+    "discussion_main": "life_history_main",
+    "presentation_main": "life_history_main",
+}
 
 
 def _build_initial_coverage_state(interview_plan: dict[str, Any], setup: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1075,34 +1105,21 @@ def _build_fallback_opening_payload(
             },
         }
 
-    if interview_format == "discussion":
+    if interview_format == "life_history":
         return {
-            "question": f"{selected_role_line}を想定して、立場の異なる関係者の意見がぶつかった場面では、まず何を整理し、どう合意形成を進めますか。",
+            "question": (
+                "これまでの学生生活の中で、自分の価値観や行動のクセがはっきり見えた転機となった出来事を一つ選び、"
+                "そのとき何が起き、あなたはどう考えどう動いたかを時系列で教えてください。"
+            ),
             "question_stage": "opening",
-            "focus": "論点整理と合意形成",
-            "interview_setup_note": "今回は論点整理と周囲の巻き込み方を中心に見ます",
+            "focus": "転機と価値観の一貫性",
+            "interview_setup_note": "今回は自分史として、転機・価値観・行動のつながりを中心に見ます",
             "turn_meta": {
-                "topic": opening_topic if opening_topic != "motivation_fit" else "stakeholder_alignment",
+                "topic": opening_topic if opening_topic != "motivation_fit" else "life_narrative_core",
                 "turn_action": "shift",
-                "focus_reason": "ディスカッション面接として論点整理の型を確認するため",
-                "depth_focus": "logic",
-                "followup_style": "conflict_check",
-                "should_move_next": False,
-            },
-        }
-
-    if interview_format == "presentation":
-        return {
-            "question": f"まず、{company_name}の{selected_role_line}を想定して、研究や発表内容の目的・工夫・結果を2分程度で要約して説明してください。",
-            "question_stage": "opening",
-            "focus": "発表内容の要約力",
-            "interview_setup_note": "今回は研究内容の説明力と事業への接続を中心に見ます",
-            "turn_meta": {
-                "topic": opening_topic if opening_topic != "motivation_fit" else "presentation_summary",
-                "turn_action": "shift",
-                "focus_reason": "発表面接として要点整理と伝達力を確認するため",
-                "depth_focus": "specificity",
-                "followup_style": "evidence_reading_check",
+                "focus_reason": "自分史面接として、自己理解の核となるエピソードを確認するため",
+                "depth_focus": "consistency",
+                "followup_style": "value_change_check",
                 "should_move_next": False,
             },
         }
@@ -1131,10 +1148,11 @@ def _opening_question_matches_format(question: str, interview_format: str) -> bo
         return any(keyword in normalized for keyword in ["ケース", "構造化", "仮説", "切り分け", "売上", "要因"])
     if interview_format == "technical":
         return any(keyword in normalized for keyword in ["設計", "実装", "開発", "技術", "アーキテクチャ", "システム"])
-    if interview_format == "discussion":
-        return any(keyword in normalized for keyword in ["関係者", "合意", "論点", "整理", "対立", "意思決定"])
-    if interview_format == "presentation":
-        return any(keyword in normalized for keyword in ["発表", "要約", "実験", "結果", "目的", "研究内容"])
+    if interview_format == "life_history":
+        return any(
+            keyword in normalized
+            for keyword in ["転機", "価値観", "エピソード", "きっかけ", "自分史", "一貫", "行動", "学生生活"]
+        )
     return True
 
 
@@ -1163,6 +1181,8 @@ def _fallback_preparation_for_score(score_key: str, weakest_question_type: str) 
     }
     if weakest_question_type == "case":
         return "ケース面接の基本として、論点分解と優先順位付けの型を3題ほど練習する"
+    if weakest_question_type == "life_history":
+        return "転機・価値観・具体行動を一本の線でつなぐ60秒版と120秒版の自分史を用意する"
     return mapping.get(score_key, "想定質問への回答を1分で言えるように整理する")
 
 
@@ -1256,14 +1276,14 @@ def _normalize_turn_state(value: Optional[dict[str, Any]], setup: dict[str, Any]
         phase = "opening"
     state["phase"] = phase
     format_phase = str(value.get("formatPhase") or "").strip()
+    format_phase = _LEGACY_FORMAT_PHASE_MAP.get(format_phase, format_phase)
     if format_phase not in {
         "opening",
         "standard_main",
         "case_main",
         "case_closing",
         "technical_main",
-        "discussion_main",
-        "presentation_main",
+        "life_history_main",
         "feedback",
     }:
         format_phase = "opening" if phase == "opening" else _format_phase_for_setup(setup)
@@ -1524,7 +1544,7 @@ def _sse_event(event_type: str, payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(body, ensure_ascii=False)}\n\n"
 
 
-async def _collect_llm_completion(
+async def _stream_llm_json_completion(
     *,
     prompt: str,
     user_message: str,
@@ -1534,9 +1554,14 @@ async def _collect_llm_completion(
     temperature: float,
     feature: str,
     json_schema: dict[str, Any] | None = None,
-) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
+) -> AsyncGenerator[
+    tuple[Literal["chunk"], dict[str, str]] | tuple[Literal["done"], dict[str, Any] | None],
+    None,
+]:
+    """Stream string fields to the client as they arrive; finish with parsed JSON dict."""
     final_data: dict[str, Any] | None = None
-    string_chunks: list[dict[str, str]] = []
+    allowed = frozenset(stream_string_fields)
+    partial_required = tuple(stream_string_fields[:1]) if stream_string_fields else ()
     async for event in call_llm_streaming_fields(
         system_prompt=prompt,
         user_message=user_message,
@@ -1547,10 +1572,10 @@ async def _collect_llm_completion(
         stream_string_fields=stream_string_fields,
         response_format="json_schema" if json_schema else "json_object",
         json_schema=json_schema,
-        partial_required_fields=tuple(stream_string_fields[:1]),
+        partial_required_fields=partial_required,
     ):
-        if event.type == "string_chunk" and event.path in stream_string_fields:
-            string_chunks.append({"path": event.path, "text": event.text})
+        if event.type == "string_chunk" and event.path in allowed:
+            yield ("chunk", {"path": event.path, "text": event.text})
         elif event.type == "error":
             error = event.result.error if event.result else None
             raise RuntimeError(error.message if error else "LLM request failed")
@@ -1561,19 +1586,31 @@ async def _collect_llm_completion(
             else:
                 error = result.error if result else None
                 raise RuntimeError(error.message if error else "LLM request failed")
-    return final_data, string_chunks
+    yield ("done", final_data)
 
 
 def _fallback_plan(payload: InterviewBaseRequest, setup: dict[str, Any]) -> dict[str, Any]:
-    opening_topic = "case_fit" if setup["interview_format"] == "case" else "motivation_fit"
+    fmt = setup["interview_format"]
+    if fmt == "case":
+        opening_topic = "case_fit"
+    elif fmt == "life_history":
+        opening_topic = "life_narrative_core"
+    else:
+        opening_topic = "motivation_fit"
     interview_type_map = {
         "case": "new_grad_case",
         "technical": "new_grad_technical",
-        "discussion": "new_grad_discussion",
-        "presentation": "new_grad_presentation",
+        "life_history": "new_grad_life_history",
     }
-    interview_type = interview_type_map.get(setup["interview_format"], "new_grad_behavioral")
+    interview_type = interview_type_map.get(fmt, "new_grad_behavioral")
     must_cover = [opening_topic, "role_understanding", "company_fit"]
+    if fmt == "life_history":
+        must_cover = [
+            "life_narrative_core",
+            "turning_point_values",
+            "motivation_bridge",
+            "role_understanding",
+        ]
     if setup["interview_stage"] == "final":
         must_cover.extend(["company_compare_check", "career_alignment"])
     if setup["selection_type"] == "internship":
@@ -1588,7 +1625,15 @@ def _fallback_plan(payload: InterviewBaseRequest, setup: dict[str, Any]) -> dict
         "opening_topic": opening_topic,
         "must_cover_topics": must_cover,
         "risk_topics": ["credibility_check", "consistency_check"],
-        "suggested_timeflow": ["導入", "志望動機", "具体例", "締め"],
+        "suggested_timeflow": (
+            ["導入", "ケース設定", "仮説と検証", "締め"]
+            if fmt == "case"
+            else ["導入", "転機と価値観", "行動の根拠", "締め"]
+            if fmt == "life_history"
+            else ["導入", "技術判断", "前提とトレードオフ", "締め"]
+            if fmt == "technical"
+            else ["導入", "志望動機", "具体例", "締め"]
+        ),
     }
 
 
@@ -1669,7 +1714,8 @@ async def _generate_start_progress(payload: InterviewStartRequest) -> AsyncGener
         yield _sse_event("progress", {"step": "plan", "progress": 12, "label": "面接計画を整理中..."})
         plan_prompt = _build_plan_prompt(payload)
         try:
-            plan_data, _ = await _collect_llm_completion(
+            plan_data = None
+            async for kind, payload in _stream_llm_json_completion(
                 prompt=plan_prompt,
                 user_message="面接計画をJSONで生成してください。",
                 stream_string_fields=[],
@@ -1685,7 +1731,9 @@ async def _generate_start_progress(payload: InterviewStartRequest) -> AsyncGener
                 temperature=0.2,
                 feature="interview",
                 json_schema=INTERVIEW_PLAN_SCHEMA,
-            )
+            ):
+                if kind == "done":
+                    plan_data = payload
         except Exception:
             logger.warning("[Interview] plan generation failed; using deterministic fallback", exc_info=True)
             plan_data = None
@@ -1695,7 +1743,8 @@ async def _generate_start_progress(payload: InterviewStartRequest) -> AsyncGener
         yield _sse_event("progress", {"step": "opening", "progress": 42, "label": "最初の質問を準備中..."})
         opening_prompt = _build_opening_prompt(payload, interview_plan)
         try:
-            opening_data, string_chunks = await _collect_llm_completion(
+            opening_data = None
+            async for kind, payload in _stream_llm_json_completion(
                 prompt=opening_prompt,
                 user_message="最初の面接質問をJSONで生成してください。",
                 stream_string_fields=["question", "interview_setup_note"],
@@ -1710,13 +1759,14 @@ async def _generate_start_progress(payload: InterviewStartRequest) -> AsyncGener
                 temperature=0.35,
                 feature="interview",
                 json_schema=INTERVIEW_OPENING_SCHEMA,
-            )
+            ):
+                if kind == "chunk":
+                    yield _sse_event("string_chunk", payload)
+                else:
+                    opening_data = payload
         except Exception:
             logger.warning("[Interview] opening generation failed; using deterministic fallback", exc_info=True)
             opening_data = _build_fallback_opening_payload(payload, interview_plan, setup)
-            string_chunks = []
-        for chunk in string_chunks:
-            yield _sse_event("string_chunk", chunk)
 
         opening_data = opening_data or _build_fallback_opening_payload(payload, interview_plan, setup)
         question = _normalize_question_text(str(opening_data.get("question") or "").strip(), payload.company_name)
@@ -1782,7 +1832,8 @@ async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerat
         yield _sse_event("progress", {"step": "turn", "progress": 18, "label": "直近の回答を分析中..."})
 
         turn_prompt = _build_turn_prompt(payload, interview_plan, turn_state, turn_state.get("turnMeta") or {})
-        turn_data, string_chunks = await _collect_llm_completion(
+        turn_data = None
+        async for kind, payload in _stream_llm_json_completion(
             prompt=turn_prompt,
             user_message="次の面接質問をJSONで生成してください。",
             stream_string_fields=["question"],
@@ -1797,9 +1848,11 @@ async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerat
             temperature=0.35,
             feature="interview",
             json_schema=INTERVIEW_TURN_SCHEMA,
-        )
-        for chunk in string_chunks:
-            yield _sse_event("string_chunk", chunk)
+        ):
+            if kind == "chunk":
+                yield _sse_event("string_chunk", payload)
+            else:
+                turn_data = payload
         turn_data = turn_data or {}
         turn_meta = _normalize_turn_meta(turn_data.get("turn_meta"), interview_plan["opening_topic"])
         if not turn_meta.get("focus_reason"):
@@ -1870,7 +1923,8 @@ async def _generate_continue_progress(payload: InterviewContinueRequest) -> Asyn
         turn_state["interviewPlan"] = interview_plan
         yield _sse_event("progress", {"step": "continue", "progress": 20, "label": "講評を踏まえて再開しています..."})
         continue_prompt = _build_continue_prompt(payload)
-        data, string_chunks = await _collect_llm_completion(
+        data = None
+        async for kind, payload in _stream_llm_json_completion(
             prompt=continue_prompt,
             user_message="次の面接質問をJSONで生成してください。",
             stream_string_fields=["question"],
@@ -1885,9 +1939,11 @@ async def _generate_continue_progress(payload: InterviewContinueRequest) -> Asyn
             temperature=0.35,
             feature="interview",
             json_schema=INTERVIEW_CONTINUE_SCHEMA,
-        )
-        for chunk in string_chunks:
-            yield _sse_event("string_chunk", chunk)
+        ):
+            if kind == "chunk":
+                yield _sse_event("string_chunk", payload)
+            else:
+                data = payload
         data = data or {}
         question = _normalize_question_text(str(data.get("question") or "").strip(), payload.company_name)
         turn_meta = _normalize_turn_meta(data.get("turn_meta"), interview_plan["opening_topic"])
@@ -1949,7 +2005,8 @@ async def _generate_feedback_progress(payload: InterviewFeedbackRequest) -> Asyn
         turn_state["interviewPlan"] = interview_plan
         yield _sse_event("progress", {"step": "feedback", "progress": 30, "label": "最終講評を整理中..."})
         feedback_prompt = _build_feedback_prompt(payload)
-        data, string_chunks = await _collect_llm_completion(
+        data = None
+        async for kind, payload in _stream_llm_json_completion(
             prompt=feedback_prompt,
             user_message="最終講評をJSONで生成してください。",
             stream_string_fields=["overall_comment", "improved_answer"],
@@ -1968,9 +2025,11 @@ async def _generate_feedback_progress(payload: InterviewFeedbackRequest) -> Asyn
             temperature=0.25,
             feature="interview_feedback",
             json_schema=INTERVIEW_FEEDBACK_SCHEMA,
-        )
-        for chunk in string_chunks:
-            yield _sse_event("string_chunk", chunk)
+        ):
+            if kind == "chunk":
+                yield _sse_event("string_chunk", payload)
+            else:
+                data = payload
         feedback = _backfill_feedback_linkage_from_conversation(
             _normalize_feedback(data or {}),
             payload.conversation_history,

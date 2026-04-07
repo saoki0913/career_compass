@@ -1,0 +1,1 @@
+End-to-end handling path for requests initiated by the browser. It shows how App Router APIs resolve identity, mutate Postgres state, delegate AI workflows to FastAPI, and trigger follow-up synchronization.

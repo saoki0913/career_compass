@@ -1,14 +1,33 @@
 # AI Agent Pipeline
 
-Matt Pocock 氏の 5-step pipeline を、この repo では `Codex` `Claude Code` `Cursor` で共通運用できるようにそろえる。
+Matt Pocock 氏の pipeline を、この repo では `Codex` `Claude Code` `Cursor` で共通運用できるようにそろえる。
+就活Pass では AI 継ぎ足し開発の負債を防ぐため、`write-prd` の前に `architecture-gate` を挟む。
 
 ## 使う順番
 
 1. `grill-me`
-2. `write-prd`
-3. `prd-to-issues`
-4. `tdd`
-5. `improve-architecture`
+2. `architecture-gate`
+3. `write-prd`
+4. `prd-to-issues`
+5. `tdd`
+6. `improve-architecture`
+
+## 各ステップの役割
+
+- `grill-me`
+  - 要件、制約、成功条件を詰める。
+- `architecture-gate`
+  - `.omm/` とコードを使って、次の変更が安全に追加できるか判定する。
+  - 重点確認対象は `overall-architecture`、`request-lifecycle`、`data-flow`、`external-integrations`、`route-page-map`。
+  - 判定は `PASS` / `PASS_WITH_REFACTOR` / `BLOCK` の 3 値で終える。
+- `write-prd`
+  - gate 判定を前提に PRD を書く。`PASS_WITH_REFACTOR` の場合は最小リファクタを step 0 に含める。
+- `prd-to-issues`
+  - 実装順に薄い issue へ分解する。
+- `tdd`
+  - 実装前にテスト観点を固定する。
+- `improve-architecture`
+  - `architecture-gate` が `BLOCK` を返したときの昇格先。RFC を先に書く。
 
 ## 正本
 
@@ -34,3 +53,6 @@ Matt Pocock 氏の 5-step pipeline を、この repo では `Codex` `Claude Code
 - canonical source を編集したら `node scripts/agent-pipeline/sync-pipeline.mjs` を実行する。
 - 生成済み adapter は直接編集しない。
 - 命令文は英語、生成される PRD / issue / RFC は日本語を基本にする。
+- 高リスク変更では `architecture-gate` を省略しない。
+- `architecture-gate` が `BLOCK` のときは、実装や PRD を先に進めず `improve-architecture` を回す。
+- `architecture-gate` が `PASS_WITH_REFACTOR` のときは、その最小リファクタを PRD / issue の先頭へ固定する。

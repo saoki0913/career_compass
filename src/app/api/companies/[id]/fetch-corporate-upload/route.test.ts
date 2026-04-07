@@ -43,7 +43,7 @@ vi.mock("@/lib/company-info/sources", () => ({
 
 vi.mock("@/lib/company-info/usage", () => ({
   applyCompanyRagUsage: vi.fn(),
-  getRemainingCompanyRagFreeUnits: vi.fn(),
+  getRemainingCompanyRagPdfFreeUnits: vi.fn(async () => 40),
 }));
 
 vi.mock("@/lib/company-info/pricing", () => ({
@@ -178,7 +178,7 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
       creditsActuallyDeducted: 1,
       remainingFreeUnits: 6,
     });
-    vi.mocked(applyCompanyRagUsage.getRemainingCompanyRagFreeUnits).mockResolvedValue(6);
+    vi.mocked(applyCompanyRagUsage.getRemainingCompanyRagPdfFreeUnits).mockResolvedValue(6);
 
     const companyInfoSources = await import("@/lib/company-info/sources");
     vi.mocked(companyInfoSources.upsertCorporateInfoSource).mockImplementation((sources) => sources);
@@ -201,5 +201,61 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
     const backendForm = fetchInit?.body as FormData;
     expect(backendForm.get("content_type")).toBe("ir_materials");
     expect(backendForm.get("billing_plan")).toBe("free");
+  });
+
+  it("estimates via the dedicated pdf endpoint and forwards billing_plan", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          company_id: "company-1",
+          source_url: "upload://corporate-pdf/company-1/test",
+          page_count: 4,
+          source_total_pages: 4,
+          estimated_free_pdf_pages: 4,
+          estimated_credits: 0,
+          estimated_google_ocr_pages: 0,
+          estimated_mistral_ocr_pages: 0,
+          will_truncate: false,
+          requires_confirmation: false,
+          processing_notice_ja: "summary",
+          page_routing_summary: {
+            total_pages: 4,
+            ingest_pages: 4,
+            local_pages: 4,
+            google_ocr_pages: 0,
+            mistral_ocr_pages: 0,
+            truncated_pages: 0,
+            planned_route: ["local"],
+            actual_route: ["local"],
+          },
+          errors: [],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const formData = new FormData();
+    formData.append("file", new File(["pdf"], "company.pdf", { type: "application/pdf" }));
+    formData.append("contentType", "ir_materials");
+
+    const { POST } = await import("@/app/api/companies/[id]/fetch-corporate-upload/estimate/route");
+    const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate-upload/estimate", {
+      method: "POST",
+      body: formData,
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, backendInit] = fetchSpy.mock.calls[0];
+    const backendForm = backendInit?.body as FormData;
+    expect(backendForm.get("billing_plan")).toBe("free");
+    expect(backendForm.get("remaining_free_pdf_pages")).toBe("6");
+    expect(backendForm.get("source_url")).toContain("upload://corporate-pdf/company-1/");
   });
 });

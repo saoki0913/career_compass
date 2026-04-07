@@ -28,13 +28,13 @@ const expectedConfig = {
     {
       envVar: "STRIPE_PRICE_STANDARD_MONTHLY",
       lookupKey: "standard_monthly",
-      unitAmount: 1480,
+      unitAmount: 1490,
       interval: "month",
     },
     {
       envVar: "STRIPE_PRICE_STANDARD_ANNUAL",
       lookupKey: "standard_annual",
-      unitAmount: 14980,
+      unitAmount: 14900,
       interval: "year",
     },
     {

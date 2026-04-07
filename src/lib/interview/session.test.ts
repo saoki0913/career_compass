@@ -7,9 +7,11 @@ import {
   ROLE_TRACK_OPTIONS,
   SELECTION_TYPE_OPTIONS,
   STRICTNESS_MODE_OPTIONS,
+  canonicalizeInterviewFormat,
   createInitialInterviewTurnState,
   getInterviewTrackerStatus,
   normalizeInterviewTurnState,
+  parseInterviewFormatParam,
   shouldChargeInterviewSession,
 } from "./session";
 
@@ -21,8 +23,7 @@ describe("interview session helpers", () => {
       "standard_behavioral",
       "case",
       "technical",
-      "discussion",
-      "presentation",
+      "life_history",
     ]);
     expect(SELECTION_TYPE_OPTIONS).toEqual(["internship", "fulltime"]);
     expect(INTERVIEW_STAGE_OPTIONS).toEqual(["early", "mid", "final"]);
@@ -128,5 +129,21 @@ describe("interview session helpers", () => {
   it("charges only after final feedback completes", () => {
     expect(shouldChargeInterviewSession(false)).toBe(false);
     expect(shouldChargeInterviewSession(true)).toBe(true);
+  });
+
+  it("maps legacy discussion/presentation to life_history", () => {
+    expect(canonicalizeInterviewFormat("discussion")).toBe("life_history");
+    expect(canonicalizeInterviewFormat("presentation")).toBe("life_history");
+    expect(parseInterviewFormatParam("discussion")).toBe("life_history");
+    expect(parseInterviewFormatParam("bogus")).toBe(null);
+  });
+
+  it("normalizes legacy formatPhase to life_history_main", () => {
+    expect(
+      normalizeInterviewTurnState({
+        formatPhase: "discussion_main",
+        nextAction: "ask",
+      }),
+    ).toMatchObject({ formatPhase: "life_history_main" });
   });
 });

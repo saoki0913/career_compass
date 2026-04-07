@@ -1,0 +1,1 @@
+The combined session and guest-device resolution path. It uses Better Auth for logged-in users and guest cookie lookup for anonymous persistence, returning a unified ownership shape for downstream access checks.

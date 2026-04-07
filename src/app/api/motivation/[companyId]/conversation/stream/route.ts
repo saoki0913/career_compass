@@ -10,12 +10,7 @@
 
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import {
-  motivationConversations,
-  companies,
-  applications,
-  jobTypes,
-} from "@/lib/db/schema";
+import { motivationConversations } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
 import {
@@ -26,15 +21,17 @@ import {
   getMotivationConversationByCondition as getConversationByCondition,
   type CausalGap as BaseCausalGap,
   mergeDraftReadyContext,
+  type Message,
   type MotivationProgress as BaseMotivationProgress,
   resolveDraftReadyState,
   safeParseConversationContext as parseConversationContext,
+  safeParseMessages,
+  safeParseScores,
   type LastQuestionMeta as BaseLastQuestionMeta,
   type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
-import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
-import { getRequestIdentity, type RequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   getRequestId,
   logAiCreditCostSummary,
@@ -42,30 +39,13 @@ import {
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
-
-async function getOwnedCompanyData(companyId: string, identity: RequestIdentity): Promise<CompanyData | null> {
-  const [company] = await db
-    .select({
-      id: companies.id,
-      name: companies.name,
-      industry: companies.industry,
-    })
-    .from(companies)
-    .where(
-      identity.userId
-        ? and(eq(companies.id, companyId), eq(companies.userId, identity.userId))
-        : and(eq(companies.id, companyId), eq(companies.guestId, identity.guestId!)),
-    )
-    .limit(1);
-
-  return company ?? null;
-}
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
+import {
+  buildMotivationOwnerCondition,
+  fetchMotivationApplicationJobCandidates,
+  getOwnedMotivationCompanyData,
+  isMotivationSetupComplete,
+  resolveMotivationInputs,
+} from "@/lib/motivation/server";
 
 interface MotivationScores {
   company_understanding: number;
@@ -79,144 +59,6 @@ type LastQuestionMeta = BaseLastQuestionMeta;
 type MotivationConversationContext = BaseMotivationConversationContext;
 type MotivationProgress = BaseMotivationProgress;
 type CausalGap = BaseCausalGap;
-
-interface CompanyData {
-  id: string;
-  name: string;
-  industry: string | null;
-}
-
-interface ResolvedMotivationInputs {
-  company: CompanyData;
-  conversationContext: MotivationConversationContext;
-  requiresIndustrySelection: boolean;
-  industryOptions: string[];
-  companyRoleCandidates: string[];
-}
-
-function isSetupComplete(
-  conversationContext: MotivationConversationContext,
-  requiresIndustrySelection: boolean,
-): boolean {
-  const hasIndustry = !requiresIndustrySelection || Boolean(conversationContext.selectedIndustry);
-  return hasIndustry && Boolean(conversationContext.selectedRole);
-}
-
-function safeParseMessages(json: string): Message[] {
-  try {
-    const parsed = JSON.parse(json);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((m): m is { role: string; content: string; id?: string } =>
-        m && typeof m === "object" &&
-        (m.role === "user" || m.role === "assistant") &&
-        typeof m.content === "string"
-      )
-      .map(m => ({
-        id: m.id || crypto.randomUUID(),
-        role: m.role as "user" | "assistant",
-        content: m.content
-      }));
-  } catch {
-    return [];
-  }
-}
-
-function safeParseScores(json: string | null): MotivationScores | null {
-  if (!json) return null;
-  try {
-    const parsed = JSON.parse(json);
-    return {
-      company_understanding: parsed.company_understanding ?? 0,
-      self_analysis: parsed.self_analysis ?? 0,
-      career_vision: parsed.career_vision ?? 0,
-      differentiation: parsed.differentiation ?? 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function safeParseConversationContext(json: string | null): MotivationConversationContext {
-  return parseConversationContext(json);
-}
-
-async function fetchApplicationJobCandidates(
-  companyId: string,
-  userId: string | null,
-  guestId: string | null,
-): Promise<string[]> {
-  const rows = await db
-    .select({
-      jobTypeName: jobTypes.name,
-    })
-    .from(applications)
-    .leftJoin(jobTypes, eq(jobTypes.applicationId, applications.id))
-    .where(
-      userId
-        ? and(eq(applications.companyId, companyId), eq(applications.userId, userId))
-        : and(eq(applications.companyId, companyId), eq(applications.guestId, guestId!))
-    );
-
-  const candidates: string[] = [];
-  for (const row of rows) {
-    const value = row.jobTypeName?.trim();
-    if (value && !candidates.includes(value)) {
-      candidates.push(value);
-    }
-  }
-  return candidates.slice(0, 6);
-}
-
-function uniqueStrings(values: Array<string | null | undefined>, maxItems = 8): string[] {
-  const seen = new Set<string>();
-  const output: string[] = [];
-  for (const value of values) {
-    const normalized = value?.trim();
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    output.push(normalized);
-    if (output.length >= maxItems) break;
-  }
-  return output;
-}
-
-function resolveMotivationInputs(
-  company: CompanyData,
-  conversationContext: MotivationConversationContext,
-  applicationJobCandidates: string[],
-): ResolvedMotivationInputs {
-  const resolution = resolveMotivationRoleContext({
-    companyName: company.name,
-    companyIndustry: company.industry,
-    selectedIndustry: conversationContext.selectedIndustry,
-    applicationRoles: applicationJobCandidates,
-  });
-
-  const nextContext: MotivationConversationContext = {
-    ...conversationContext,
-    selectedIndustry: conversationContext.selectedIndustry || resolution.resolvedIndustry || undefined,
-    selectedIndustrySource:
-      conversationContext.selectedIndustrySource ||
-      resolution.industrySource ||
-      undefined,
-    companyRoleCandidates: uniqueStrings([
-      ...conversationContext.companyRoleCandidates,
-      ...resolution.roleCandidates,
-    ]),
-  };
-
-  return {
-    company: {
-      ...company,
-      industry: resolution.resolvedIndustry,
-    },
-    conversationContext: nextContext,
-    requiresIndustrySelection: resolution.requiresIndustrySelection,
-    industryOptions: [...resolution.industryOptions],
-    companyRoleCandidates: resolution.roleCandidates,
-  };
-}
 
 function applyAnswerToConversationContext(
   context: MotivationConversationContext,
@@ -299,7 +141,7 @@ export async function POST(
     }
 
     // Get company
-    const company = await getOwnedCompanyData(companyId, identity);
+    const company = await getOwnedMotivationCompanyData(companyId, identity);
 
     if (!company) {
       return new Response(
@@ -310,9 +152,7 @@ export async function POST(
 
     // Get conversation
     const conversation = await getConversationByCondition(
-      userId
-        ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
-        : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
+      buildMotivationOwnerCondition(companyId, userId, guestId),
     );
 
     if (!conversation) {
@@ -326,14 +166,14 @@ export async function POST(
     const currentQuestionCount = conversation.questionCount ?? 0;
     const newQuestionCount = currentQuestionCount + 1;
     const profileContext = await fetchProfileContext(userId);
-    const applicationJobCandidates = await fetchApplicationJobCandidates(companyId, userId, guestId);
+    const applicationJobCandidates = await fetchMotivationApplicationJobCandidates(companyId, userId, guestId);
     const resolvedBeforeAnswer = resolveMotivationInputs(
       { id: company.id, name: company.name, industry: company.industry },
-      safeParseConversationContext(conversation.conversationContext),
+      parseConversationContext(conversation.conversationContext),
       applicationJobCandidates,
     );
 
-    if (!isSetupComplete(resolvedBeforeAnswer.conversationContext, resolvedBeforeAnswer.requiresIndustrySelection)) {
+    if (!isMotivationSetupComplete(resolvedBeforeAnswer.conversationContext, resolvedBeforeAnswer.requiresIndustrySelection)) {
       return new Response(
         JSON.stringify({ error: "先に業界・職種の設定を完了してください" }),
         { status: 400, headers: { "Content-Type": "application/json" } }

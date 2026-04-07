@@ -1,0 +1,9 @@
+created: 2026-04-05T11:27:37.409Z
+updated: 2026-04-05T11:27:37.412Z
+update_count: 1
+last_field: description
+kind: nested-class
+title: billing-webhooks
+children: []
+parentPath:
+  - next-api

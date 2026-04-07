@@ -1,0 +1,1 @@
+The repository serves a Japanese job-hunting support product with guest and authenticated user flows. The frontend, server routes, and data model live in one Next.js codebase, while AI-heavy enrichment and drafting logic live in backend/app.

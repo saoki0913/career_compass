@@ -1,0 +1,9 @@
+created: 2026-04-05T11:27:53.962Z
+updated: 2026-04-05T11:27:53.963Z
+update_count: 1
+last_field: description
+kind: nested-class
+title: storage-and-security
+children: []
+parentPath:
+  - shared-domain-libs

@@ -255,6 +255,12 @@ export async function POST(req: Request) {
 
     // Event already recorded at claim time (before processing)
   } catch (error) {
+    await db
+      .delete(processedStripeEvents)
+      .where(eq(processedStripeEvents.eventId, event.id))
+      .catch((cleanupError) => {
+        logError("stripe-webhook-cleanup", cleanupError, { eventId: event.id, eventType: event.type });
+      });
     logError("stripe-webhook-process", error, { eventId: event.id, eventType: event.type });
     return NextResponse.json(
       { error: "Webhook processing failed" },

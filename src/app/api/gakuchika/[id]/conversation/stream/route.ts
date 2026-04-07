@@ -231,6 +231,7 @@ export async function POST(
                   blocked_focuses: currentConversationState.blockedFocuses,
                   focus_attempt_counts: currentConversationState.focusAttemptCounts,
                   last_question_signature: currentConversationState.lastQuestionSignature,
+                  extended_deep_dive_round: currentConversationState.extendedDeepDiveRound,
               }
             : null,
         }),

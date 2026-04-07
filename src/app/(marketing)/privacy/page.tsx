@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { LandingHeader } from "@/components/landing/LandingHeader";
+import { LandingFooter } from "@/components/landing/LandingFooter";
 import { createMarketingMetadata } from "@/lib/marketing-metadata";
 import { getLegalSupportEmail } from "@/lib/legal/commerce-disclosure";
 
@@ -15,8 +17,9 @@ export const metadata: Metadata = createMarketingMetadata({
 
 export default function PrivacyPage() {
   return (
-    <main className="min-h-screen bg-background">
-      <div className="max-w-3xl mx-auto px-4 py-10">
+    <div className="flex min-h-screen flex-col bg-background">
+      <LandingHeader />
+      <main className="mx-auto w-full max-w-3xl px-4 py-12 flex-1">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">
           プライバシーポリシー
         </h1>
@@ -95,7 +98,8 @@ export default function PrivacyPage() {
             </p>
           </section>
         </div>
-      </div>
-    </main>
+      </main>
+      <LandingFooter />
+    </div>
   );
 }

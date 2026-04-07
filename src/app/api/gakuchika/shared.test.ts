@@ -58,6 +58,7 @@ describe("api/gakuchika/shared conversation state", () => {
         role: 2,
       },
       lastQuestionSignature: "action_reason:v2",
+      extendedDeepDiveRound: 2,
     };
 
     const parsed = safeParseConversationState(serializeConversationState(state));
@@ -73,6 +74,7 @@ describe("api/gakuchika/shared conversation state", () => {
     expect(parsed.blockedFocuses).toEqual(["role"]);
     expect(parsed.focusAttemptCounts.action).toBe(2);
     expect(parsed.lastQuestionSignature).toBe("action_reason:v2");
+    expect(parsed.extendedDeepDiveRound).toBe(2);
   });
 
   it("derives the next action from the current conversation state", () => {

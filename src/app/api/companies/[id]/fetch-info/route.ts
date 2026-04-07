@@ -11,12 +11,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { auth } from "@/lib/auth";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getOwnedCompanyRecord } from "@/app/api/_shared/owner-access";
 import { db } from "@/lib/db";
 import { companies, deadlines, userProfiles } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
 import { getRemainingFreeFetches, hasEnoughCredits, consumeCredits } from "@/lib/credits";
 import { getMonthlyScheduleFetchFreeLimit } from "@/lib/company-info/pricing";
 import { incrementMonthlyScheduleFreeUse } from "@/lib/company-info/usage";
@@ -108,68 +107,35 @@ interface FetchResult {
 type FetchInfoResultStatus = "success" | "duplicates_only" | "no_deadlines" | "error";
 type DeadlineType = typeof deadlines.$inferInsert.type;
 
-async function getIdentity(request: NextRequest): Promise<{
+async function resolveFetchInfoIdentity(request: NextRequest): Promise<{
   userId: string | null;
   guestId: string | null;
   plan: "guest" | "free" | "standard" | "pro";
 } | null> {
-  // Try authenticated session first
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  const identity = await getRequestIdentity(request);
+  if (!identity) {
+    return null;
+  }
 
-  if (session?.user?.id) {
+  if (identity.userId) {
     const [profile] = await db
       .select()
       .from(userProfiles)
-      .where(eq(userProfiles.userId, session.user.id))
+      .where(eq(userProfiles.userId, identity.userId))
       .limit(1);
 
     return {
-      userId: session.user.id,
+      userId: identity.userId,
       guestId: null,
       plan: (profile?.plan || "free") as "free" | "standard" | "pro",
     };
   }
 
-  // Try guest token
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return {
-        userId: null,
-        guestId: guest.id,
-        plan: "guest",
-      };
-    }
-  }
-
-  return null;
-}
-
-async function verifyCompanyAccess(
-  companyId: string,
-  userId: string | null,
-  guestId: string | null
-): Promise<{ valid: boolean; company?: typeof companies.$inferSelect }> {
-  const whereClause = userId
-    ? and(eq(companies.id, companyId), eq(companies.userId, userId))
-    : guestId
-    ? and(eq(companies.id, companyId), eq(companies.guestId, guestId))
-    : null;
-
-  if (!whereClause) {
-    return { valid: false };
-  }
-
-  const [company] = await db.select().from(companies).where(whereClause).limit(1);
-
-  if (!company) {
-    return { valid: false };
-  }
-
-  return { valid: true, company };
+  return {
+    userId: null,
+    guestId: identity.guestId,
+    plan: "guest",
+  };
 }
 
 /**
@@ -248,7 +214,7 @@ export async function POST(
     const graduationYear = body.graduationYear as number | undefined;
 
     // Get identity
-    const identity = await getIdentity(request);
+    const identity = await resolveFetchInfoIdentity(request);
     if (!identity) {
       return createApiErrorResponse(request, {
         status: 401,
@@ -280,9 +246,8 @@ export async function POST(
       return rateLimited;
     }
 
-    // Verify company access
-    const access = await verifyCompanyAccess(companyId, userId, guestId);
-    if (!access.valid || !access.company) {
+    const company = await getOwnedCompanyRecord(companyId, { userId, guestId });
+    if (!company) {
       return createApiErrorResponse(request, {
         status: 404,
         code: "COMPANY_NOT_FOUND",
@@ -290,8 +255,6 @@ export async function POST(
         action: "一覧から企業を選び直してください。",
       });
     }
-
-    const company = access.company;
 
     // Use provided URL or fall back to company's recruitment URL
     const urlToFetch = requestUrl || company.recruitmentUrl;

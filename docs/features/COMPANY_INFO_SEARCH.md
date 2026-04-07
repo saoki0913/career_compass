@@ -35,6 +35,11 @@
                            └─→ 共通ソート処理 → 結果返却
 ```
 
+補足:
+
+- この文書は**検索候補生成**の仕様を扱う。
+- 検索結果には PDF URL が含まれることがあるが、HTML / PDF / unsupported の最終判定、PDF のページ単位 OCR routing、無料枠・credits の計上は `docs/features/COMPANY_INFO_FETCH.md` と `docs/features/COMPANY_RAG.md` を正とする。
+
 ### 検索モード判定条件
 
 | モード | 条件 |
@@ -109,6 +114,13 @@
 ```
 
 **注意:** Hybrid検索の aggregator は `job_site` として扱われる
+
+### 4.1 検索結果と取込の責務分離
+
+- 検索は「候補 URL を返す」までが責務。
+- 実際に保存する段階で、`fetch-corporate` 側が HTML / PDF / unsupported binary を分岐する。
+- したがって、検索段階では PDF を完全に排除しない。IR や中計では PDF 候補を残してよい。
+- 文字化け source や binary 誤取得の防止は、検索ではなく fetch 側の compliance / content-type 判定で吸収する。
 
 ### 5. `employee_interviews` のページ種別ゲート
 
@@ -449,7 +461,13 @@ custom_query 指定あり?
 
 ## デバッグログ
 
-`WEB_SEARCH_DEBUG=1` を設定すると、Hybrid検索の詳細ログを出力します。`WEB_SEARCH_FAST_MAX_QUERIES` を変えながら fast path / deep path の発火率を比較できます。
+`WEB_SEARCH_DEBUG=1`（またはバックエンド設定の `web_search_debug` / `company_search_debug`）を有効にすると、Hybrid 検索の**詳細トレース**が Python の **`logger.debug`** に出ます（標準の INFO ログだけでは表示されません）。詳細を見るときは uvicorn / アプリのログレベルを **DEBUG** にしてください。
+
+通常の **INFO** では、1 リクエストあたり `[WebSearch] hybrid_search company=... results=... deep_path=... site_rescue=... top_combined=...` の**1行サマリー**のみを出します。ターミナルが読みにくい場合は、`WEB_SEARCH_DEBUG` をオフのまま INFO にすると十分なことが多いです。
+
+標準出力へも同じ詳細を出したい場合のみ `WEB_SEARCH_DEBUG_PRINT=1` を追加します（二重出力防止のため、既定では `print` しません）。
+
+`WEB_SEARCH_FAST_MAX_QUERIES` を変えながら fast path / deep path の発火率を比較できます。
 
 ### 出力内容（例）
 
@@ -457,12 +475,14 @@ custom_query 指定あり?
 - RRF統合の入力件数 / ユニーク件数 / 重複件数
 - Prefilter除外理由の内訳と代表URL
 - site救済の発火条件、対象ドメイン、救済後件数
-- combined_score の min / max / avg と上位N件の内訳
+- combined_score の min / max / avg と上位N件の内訳（rerank / combined の一覧は DEBUG）
 
 ### 使い方
 
 ```
 WEB_SEARCH_DEBUG=1
+# 任意: ターミナルに print も出す
+WEB_SEARCH_DEBUG_PRINT=1
 ```
 
 開発用の `.env.local` に設定済みであれば自動的に有効になります。
@@ -505,9 +525,10 @@ backend/
 │   │   └── company_info.py          # エンドポイント実装
 │   └── utils/
 │       └── web_search.py            # 検索ロジック実装
-└── docs/
-    └── features/
-        └── COMPANY_INFO_FETCH.md    # 機能ドキュメント
+docs/
+└── features/
+    ├── COMPANY_INFO_FETCH.md        # 取込・課金・PDF routing
+    └── COMPANY_RAG.md               # 保存・検索・RAG 全体
 ```
 
 ---

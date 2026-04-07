@@ -1,0 +1,1 @@
+App Router route handlers under src/app/api. This layer resolves identity, validates ownership, applies structured error handling, mutates database state, proxies AI calls to FastAPI, and exposes webhook or cron entry points.

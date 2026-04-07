@@ -1,4 +1,4 @@
-.PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression db-push db-generate db-studio clean \
+.PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression ai-live-local db-push db-generate db-studio clean \
 	up down restart backend-test backend-test-search backend-lint backend-format logs check deps reset-db seed \
 	db-migrate db-status db-check db-drop db-introspect db-fresh backend-install \
 	backend-test-mappings backend-test-subsidiary backend-test-company \
@@ -72,6 +72,11 @@ test-major-user:
 ## FastAPI を含む AI live major の Playwright テスト
 test-major-live:
 	npm run test:e2e:major:live
+
+## localhost を対象に 6機能の AI Live を一括実行（既定: SUITE=extended）
+SUITE ?= extended
+ai-live-local:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) bash scripts/dev/run-ai-live-local.sh
 
 ## 認証・制限契約の Playwright テスト
 test-auth:

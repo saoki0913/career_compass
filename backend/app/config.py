@@ -279,11 +279,11 @@ class Settings(BaseSettings):
 
     # 企業RAG PDF アップロード上限（ページ）。Free 厳しめ / Standard・Pro は緩め。超過分は先頭ページのみ処理。
     rag_pdf_max_pages_free: int = Field(
-        default=24,
+        default=20,
         validation_alias=AliasChoices("RAG_PDF_MAX_PAGES_FREE"),
     )
     rag_pdf_max_pages_standard: int = Field(
-        default=72,
+        default=60,
         validation_alias=AliasChoices("RAG_PDF_MAX_PAGES_STANDARD"),
     )
     rag_pdf_max_pages_pro: int = Field(
@@ -291,17 +291,29 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("RAG_PDF_MAX_PAGES_PRO"),
     )
     # OpenAI PDF OCR 時に送る最大ページ数（≤ 上記取込上限）。OCR 負荷抑制用。
-    rag_pdf_ocr_max_pages_free: int = Field(
+    rag_pdf_google_ocr_max_pages_free: int = Field(
+        default=5,
+        validation_alias=AliasChoices("RAG_PDF_GOOGLE_OCR_MAX_PAGES_FREE", "RAG_PDF_OCR_MAX_PAGES_FREE"),
+    )
+    rag_pdf_google_ocr_max_pages_standard: int = Field(
+        default=30,
+        validation_alias=AliasChoices("RAG_PDF_GOOGLE_OCR_MAX_PAGES_STANDARD", "RAG_PDF_OCR_MAX_PAGES_STANDARD"),
+    )
+    rag_pdf_google_ocr_max_pages_pro: int = Field(
+        default=60,
+        validation_alias=AliasChoices("RAG_PDF_GOOGLE_OCR_MAX_PAGES_PRO", "RAG_PDF_OCR_MAX_PAGES_PRO"),
+    )
+    rag_pdf_mistral_ocr_max_pages_free: int = Field(
+        default=0,
+        validation_alias=AliasChoices("RAG_PDF_MISTRAL_OCR_MAX_PAGES_FREE"),
+    )
+    rag_pdf_mistral_ocr_max_pages_standard: int = Field(
         default=10,
-        validation_alias=AliasChoices("RAG_PDF_OCR_MAX_PAGES_FREE"),
+        validation_alias=AliasChoices("RAG_PDF_MISTRAL_OCR_MAX_PAGES_STANDARD"),
     )
-    rag_pdf_ocr_max_pages_standard: int = Field(
-        default=32,
-        validation_alias=AliasChoices("RAG_PDF_OCR_MAX_PAGES_STANDARD"),
-    )
-    rag_pdf_ocr_max_pages_pro: int = Field(
-        default=48,
-        validation_alias=AliasChoices("RAG_PDF_OCR_MAX_PAGES_PRO"),
+    rag_pdf_mistral_ocr_max_pages_pro: int = Field(
+        default=20,
+        validation_alias=AliasChoices("RAG_PDF_MISTRAL_OCR_MAX_PAGES_PRO"),
     )
     rag_pdf_ocr_timeout_seconds: int = Field(
         default=120,

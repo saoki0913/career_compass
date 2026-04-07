@@ -9,12 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import {
-  motivationConversations,
-  companies,
-  applications,
-  jobTypes,
-} from "@/lib/db/schema";
+import { motivationConversations } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { logError } from "@/lib/logger";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
@@ -30,16 +25,16 @@ import {
   resolveDraftReadyState,
   type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
-import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
-
-interface EvidenceCard {
-  sourceId: string;
-  title: string;
-  contentType: string;
-  excerpt: string;
-  sourceUrl: string;
-  relevanceLabel: string;
-}
+import {
+  buildMotivationEvidenceSummaryFromCards,
+  buildMotivationOwnerCondition,
+  ensureMotivationConversation,
+  fetchMotivationApplicationJobCandidates,
+  getOwnedMotivationCompanyData,
+  isMotivationSetupComplete,
+  resolveMotivationInputs,
+  type MotivationEvidenceCard as EvidenceCard,
+} from "@/lib/motivation/server";
 
 interface StageStatus {
   current: MotivationConversationContext["questionStage"];
@@ -49,113 +44,6 @@ interface StageStatus {
 
 type MotivationConversationContext = BaseMotivationConversationContext;
 
-function buildEvidenceSummaryFromCards(cards: EvidenceCard[]): string | null {
-  if (cards.length === 0) return null;
-  return cards
-    .slice(0, 2)
-    .map((card) => `${card.sourceId} ${card.title}: ${card.excerpt}`)
-    .join(" / ");
-}
-
-interface CompanyData {
-  id: string;
-  name: string;
-  industry: string | null;
-}
-
-interface ResolvedMotivationInputs {
-  company: CompanyData;
-  conversationContext: MotivationConversationContext;
-  requiresIndustrySelection: boolean;
-  industryOptions: string[];
-  companyRoleCandidates: string[];
-}
-
-function isSetupComplete(
-  conversationContext: MotivationConversationContext,
-  requiresIndustrySelection: boolean,
-): boolean {
-  const hasIndustry = !requiresIndustrySelection || Boolean(conversationContext.selectedIndustry);
-  return hasIndustry && Boolean(conversationContext.selectedRole);
-}
-
-function uniqueStrings(values: Array<string | null | undefined>, maxItems = 8): string[] {
-  const seen = new Set<string>();
-  const output: string[] = [];
-  for (const value of values) {
-    const normalized = value?.trim();
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    output.push(normalized);
-    if (output.length >= maxItems) break;
-  }
-  return output;
-}
-
-function resolveMotivationInputs(
-  company: CompanyData,
-  conversationContext: MotivationConversationContext,
-  applicationJobCandidates: string[],
-): ResolvedMotivationInputs {
-  const resolution = resolveMotivationRoleContext({
-    companyName: company.name,
-    companyIndustry: company.industry,
-    selectedIndustry: conversationContext.selectedIndustry,
-    applicationRoles: applicationJobCandidates,
-  });
-
-  const nextContext: MotivationConversationContext = {
-    ...conversationContext,
-    selectedIndustry: conversationContext.selectedIndustry || resolution.resolvedIndustry || undefined,
-    selectedIndustrySource:
-      conversationContext.selectedIndustrySource ||
-      resolution.industrySource ||
-      undefined,
-    companyRoleCandidates: uniqueStrings([
-      ...conversationContext.companyRoleCandidates,
-      ...resolution.roleCandidates,
-    ]),
-  };
-
-  return {
-    company: {
-      ...company,
-      industry: resolution.resolvedIndustry,
-    },
-    conversationContext: nextContext,
-    requiresIndustrySelection: resolution.requiresIndustrySelection,
-    industryOptions: [...resolution.industryOptions],
-    companyRoleCandidates: resolution.roleCandidates,
-  };
-}
-
-async function fetchApplicationJobCandidates(
-  companyId: string,
-  userId: string | null,
-  guestId: string | null,
-): Promise<string[]> {
-  const rows = await db
-    .select({
-      jobTypeName: jobTypes.name,
-    })
-    .from(applications)
-    .leftJoin(jobTypes, eq(jobTypes.applicationId, applications.id))
-    .where(
-      userId
-        ? and(eq(applications.companyId, companyId), eq(applications.userId, userId))
-        : and(eq(applications.companyId, companyId), eq(applications.guestId, guestId!))
-    );
-
-  const candidates: string[] = [];
-  for (const row of rows) {
-    const value = row.jobTypeName?.trim();
-    if (value && !candidates.includes(value)) {
-      candidates.push(value);
-    }
-  }
-  return candidates.slice(0, 6);
-}
-
 // GET: Fetch conversation
 export async function GET(
   request: NextRequest,
@@ -163,7 +51,7 @@ export async function GET(
 ) {
   try {
     const { companyId } = await params;
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
     }
@@ -176,57 +64,16 @@ export async function GET(
     }
 
     const { userId, guestId } = identity;
-    const ownerCondition = userId
-      ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
-      : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!));
-
-    // Get company
-    const [company] = await db
-      .select()
-      .from(companies)
-      .where(eq(companies.id, companyId))
-      .limit(1);
+    const ownerCondition = buildMotivationOwnerCondition(companyId, userId, guestId);
+    const company = await getOwnedMotivationCompanyData(companyId, identity);
 
     if (!company) {
       return NextResponse.json({ error: "企業が見つかりません" }, { status: 404 });
     }
 
-    // Find or create conversation
-    let conversation = await getConversationByCondition(ownerCondition);
-
-    if (!conversation) {
-      const newId = crypto.randomUUID();
-      const now = new Date();
-      const baseConversation = {
-        id: newId,
-        userId,
-        guestId,
-        companyId,
-        messages: "[]",
-        questionCount: 0,
-        status: "in_progress" as const,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      if (userId) {
-        await db
-          .insert(motivationConversations)
-          .values(baseConversation)
-          .onConflictDoNothing({
-            target: [motivationConversations.companyId, motivationConversations.userId],
-          });
-      } else {
-        await db
-          .insert(motivationConversations)
-          .values(baseConversation)
-          .onConflictDoNothing({
-            target: [motivationConversations.companyId, motivationConversations.guestId],
-          });
-      }
-
-      conversation = await getConversationByCondition(ownerCondition);
-    }
+    const conversation =
+      await ensureMotivationConversation(companyId, userId, guestId)
+      ?? await getConversationByCondition(ownerCondition);
 
     if (!conversation) {
       return NextResponse.json({ error: "会話の作成に失敗しました" }, { status: 500 });
@@ -242,7 +89,7 @@ export async function GET(
     const evidenceCardsFromDb = parseEvidenceCards(conversation.lastEvidenceCards);
     let applicationJobCandidates: string[] = [];
     try {
-      applicationJobCandidates = await fetchApplicationJobCandidates(companyId, userId, guestId);
+      applicationJobCandidates = await fetchMotivationApplicationJobCandidates(companyId, userId, guestId);
     } catch (error) {
       logError("get-motivation-conversation:application-job-candidates", error, {
         companyId,
@@ -256,7 +103,7 @@ export async function GET(
       applicationJobCandidates,
     );
     const conversationContext = resolvedInputs.conversationContext;
-    const setupComplete = isSetupComplete(
+    const setupComplete = isMotivationSetupComplete(
       conversationContext,
       resolvedInputs.requiresIndustrySelection,
     );
@@ -270,7 +117,7 @@ export async function GET(
 
     // Get next question if not completed
     let nextQuestion: string | null = null;
-    let evidenceSummary: string | null = buildEvidenceSummaryFromCards(evidenceCardsFromDb);
+    let evidenceSummary: string | null = buildMotivationEvidenceSummaryFromCards(evidenceCardsFromDb);
     let evidenceCards: EvidenceCard[] = evidenceCardsFromDb;
     const coachingFocus: string | null = null;
     const riskFlags: string[] = [];
@@ -301,7 +148,7 @@ export async function GET(
           ? messages[messages.length - 1]?.content
           : null) ?? null);
       evidenceCards = evidenceCardsFromDb;
-      evidenceSummary = buildEvidenceSummaryFromCards(evidenceCardsFromDb);
+      evidenceSummary = buildMotivationEvidenceSummaryFromCards(evidenceCardsFromDb);
     }
 
     return NextResponse.json({
@@ -356,7 +203,7 @@ export async function DELETE(
   { params }: { params: Promise<{ companyId: string }> }
 ) {
   const { companyId } = await params;
-  const identity = await getIdentity(request);
+  const identity = await getRequestIdentity(request);
   if (!identity) {
     return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
   }

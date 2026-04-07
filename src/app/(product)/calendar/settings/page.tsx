@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useCalendarSettings } from "@/hooks/useCalendar";
-import { getUserFacingErrorMessage, parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError, reportUserFacingError } from "@/lib/client-error-ui";
 import { notifySuccess } from "@/lib/notifications";
 
 interface GoogleCalendar {
@@ -96,6 +97,7 @@ export default function CalendarSettingsPage() {
         "calendarSettings.fetchCalendars"
       );
       setSaveError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setCalendarsLoading(false);
     }
@@ -166,10 +168,16 @@ export default function CalendarSettingsPage() {
       await updateSettings(payload);
       notifySuccess({ title: "カレンダー設定を保存しました" });
     } catch (err) {
-      setSaveError(getUserFacingErrorMessage(err, {
-        code: "CALENDAR_SETTINGS_SAVE_FAILED",
-        userMessage: "設定を保存できませんでした。",
-      }, "CalendarSettingsPage:save"));
+      setSaveError(
+        reportUserFacingError(
+          err,
+          {
+            code: "CALENDAR_SETTINGS_SAVE_FAILED",
+            userMessage: "設定を保存できませんでした。",
+          },
+          "CalendarSettingsPage:save",
+        ),
+      );
     } finally {
       setIsSaving(false);
     }
@@ -195,10 +203,16 @@ export default function CalendarSettingsPage() {
       });
       notifySuccess({ title: "Googleカレンダー設定を保存しました" });
     } catch (err) {
-      setSaveError(getUserFacingErrorMessage(err, {
-        code: "CALENDAR_SETTINGS_GOOGLE_SAVE_FAILED",
-        userMessage: "Googleカレンダー設定を保存できませんでした。",
-      }, "CalendarSettingsPage:saveGoogleSettings"));
+      setSaveError(
+        reportUserFacingError(
+          err,
+          {
+            code: "CALENDAR_SETTINGS_GOOGLE_SAVE_FAILED",
+            userMessage: "Googleカレンダー設定を保存できませんでした。",
+          },
+          "CalendarSettingsPage:saveGoogleSettings",
+        ),
+      );
     } finally {
       setIsSaving(false);
     }
@@ -250,6 +264,7 @@ export default function CalendarSettingsPage() {
         "calendarSettings.createCalendar"
       );
       setSaveError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsCreating(false);
     }
@@ -292,6 +307,7 @@ export default function CalendarSettingsPage() {
         "calendarSettings.disconnect"
       );
       setSaveError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsDisconnecting(false);
     }

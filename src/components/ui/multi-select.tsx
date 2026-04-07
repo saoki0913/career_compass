@@ -60,6 +60,14 @@ export function MultiSelect({
     onChange([]);
   };
 
+  const rowKeyDown =
+    (action: () => void) => (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        action();
+      }
+    };
+
   // Display text
   const displayText = React.useMemo(() => {
     if (selected.length === 0) {
@@ -100,32 +108,38 @@ export function MultiSelect({
       </PopoverTrigger>
       <PopoverContent className="w-[200px] p-0" align="start">
         <div className="p-2 border-b">
-          <button
+          <div
+            role="button"
+            tabIndex={0}
             onClick={handleSelectAll}
-            className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md hover:bg-muted transition-colors"
+            onKeyDown={rowKeyDown(handleSelectAll)}
+            className="flex cursor-pointer items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md hover:bg-muted transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <Checkbox
               checked={selected.length === options.length}
               className="pointer-events-none"
             />
             <span>すべて選択</span>
-          </button>
+          </div>
         </div>
         <div className="max-h-[300px] overflow-y-auto p-2">
           {options.map((option) => {
             const isSelected = selected.includes(option.value);
             return (
-              <button
+              <div
                 key={option.value}
+                role="button"
+                tabIndex={0}
                 onClick={() => handleToggle(option.value)}
+                onKeyDown={rowKeyDown(() => handleToggle(option.value))}
                 className={cn(
-                  "flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md transition-colors",
+                  "flex cursor-pointer items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   isSelected ? "bg-primary/10" : "hover:bg-muted"
                 )}
               >
                 <Checkbox checked={isSelected} className="pointer-events-none" />
                 <span className="truncate">{option.label}</span>
-              </button>
+              </div>
             );
           })}
         </div>

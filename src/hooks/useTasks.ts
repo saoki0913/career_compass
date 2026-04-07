@@ -7,8 +7,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 import {
-  notifyError,
   notifyTaskCreated,
   notifyTaskDeleted,
   notifyTaskSaved,
@@ -160,6 +160,7 @@ export function useTasks(options: UseTasksOptions = {}) {
         "useTasks.fetch"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }
@@ -217,10 +218,7 @@ export function useTasks(options: UseTasksOptions = {}) {
           "useTasks.create"
         );
         setError(uiError.message);
-        notifyError({
-          title: uiError.message,
-          description: uiError.action ?? undefined,
-        });
+        notifyUserFacingAppError(uiError);
         return null;
       }
     },
@@ -294,10 +292,7 @@ export function useTasks(options: UseTasksOptions = {}) {
           "useTasks.update"
         );
         setError(uiError.message);
-        notifyError({
-          title: uiError.message,
-          description: uiError.action ?? undefined,
-        });
+        notifyUserFacingAppError(uiError);
         return false;
       }
     },
@@ -347,10 +342,7 @@ export function useTasks(options: UseTasksOptions = {}) {
           "useTasks.delete"
         );
         setError(uiError.message);
-        notifyError({
-          title: uiError.message,
-          description: uiError.action ?? undefined,
-        });
+        notifyUserFacingAppError(uiError);
         return false;
       }
     },
@@ -432,6 +424,7 @@ export function useTodayTask(options: UseTodayTaskOptions = {}) {
         "useTodayTask.fetch"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }
@@ -486,10 +479,7 @@ export function useTodayTask(options: UseTodayTaskOptions = {}) {
         "useTodayTask.markComplete"
       );
       setError(uiError.message);
-      notifyError({
-        title: uiError.message,
-        description: uiError.action ?? undefined,
-      });
+      notifyUserFacingAppError(uiError);
       return false;
     }
   }, [data.task]);

@@ -40,8 +40,13 @@ from app.prompts.motivation_prompts import (
     MOTIVATION_EVALUATION_PROMPT,
     MOTIVATION_DEEPDIVE_QUESTION_PROMPT,
     MOTIVATION_QUESTION_PROMPT,
-    DRAFT_GENERATION_PROMPT,
 )
+from app.prompts.es_templates import (
+    build_template_draft_generation_prompt,
+    draft_synthetic_question_company_motivation,
+    get_company_honorific,
+)
+from app.utils.es_draft_text import normalize_es_draft_single_paragraph
 from app.limiter import limiter
 
 logger = get_logger(__name__)
@@ -172,6 +177,16 @@ class GenerateDraftResponse(BaseModel):
     internal_telemetry: Optional[dict[str, Any]] = None
 
 
+class GenerateDraftFromProfileRequest(BaseModel):
+    company_id: str = Field(max_length=100)
+    company_name: str = Field(max_length=200)
+    industry: Optional[str] = Field(default=None, max_length=100)
+    selected_role: str = Field(max_length=200)
+    char_limit: int = Field(default=400, ge=300, le=500)
+    gakuchika_context: Optional[list[dict]] = None
+    profile_context: Optional[dict[str, Any]] = None
+
+
 def _format_conversation(messages: list[Message]) -> str:
     """Format conversation history for prompts."""
     formatted = []
@@ -213,6 +228,12 @@ def _sanitize_generate_draft_request(request: GenerateDraftRequest) -> None:
     request.company_name = _sanitize_request_text(request.company_name, max_length=200) or request.company_name
     request.industry = _sanitize_request_text(request.industry, max_length=100)
     _sanitize_request_messages(request.conversation_history)
+
+
+def _sanitize_generate_draft_from_profile_request(request: GenerateDraftFromProfileRequest) -> None:
+    request.company_name = _sanitize_request_text(request.company_name, max_length=200) or request.company_name
+    request.industry = _sanitize_request_text(request.industry, max_length=100)
+    request.selected_role = _sanitize_request_text(request.selected_role, max_length=200) or request.selected_role
 
 
 def _trim_conversation_for_evaluation(
@@ -2217,9 +2238,6 @@ def _ensure_distinct_question(
         signature = str(last_question_meta.get("question_signature") or "").strip()
         if signature:
             assistant_signatures.add(signature)
-        previous_semantic_signature = str(last_question_meta.get("semantic_question_signature") or "").strip()
-        if previous_semantic_signature and semantic_signature and previous_semantic_signature == semantic_signature:
-            assistant_signatures.add(_question_signature(candidate))
 
     if assistant_signatures and _question_signature(candidate) in assistant_signatures:
         return _build_question_fallback(
@@ -2451,6 +2469,10 @@ def _self_connection_has_causal_link(
     return True
 
 
+def _slot_meets_draft_minimum(state: str | None) -> bool:
+    return _normalize_slot_state(state or "") in {"filled_strong", "filled_weak"}
+
+
 def _compute_draft_gate(
     *,
     slot_status_v2: dict[str, str],
@@ -2459,7 +2481,7 @@ def _compute_draft_gate(
     context = _normalize_conversation_context(conversation_context)
     blockers: list[str] = []
     for stage in ("company_reason", "desired_work", "differentiation"):
-        if slot_status_v2.get(stage) != "filled_strong":
+        if not _slot_meets_draft_minimum(slot_status_v2.get(stage)):
             blockers.append(stage)
     self_connection_state = slot_status_v2.get("self_connection")
     self_connection_text = context.get("selfConnection")
@@ -2472,6 +2494,13 @@ def _compute_draft_gate(
     ):
         blockers.append("self_connection")
     return len(blockers) == 0, blockers
+
+
+def _coerce_motivation_stage_for_ui(stage: str | None) -> str:
+    raw = str(stage or "").strip() or "industry_reason"
+    if raw == "closing":
+        return "differentiation"
+    return raw
 
 
 def _build_adaptive_rag_query(
@@ -2562,7 +2591,7 @@ def _build_element_guidance_for_question_prompt(
     return (
         "## 評価に基づく補助指針\n"
         "- いまは **質問段階の論点だけ** を扱う。4要素スコアや「最も弱い要素」の深掘り指示は "
-        "**このターンでは参照しない**（後続の self_connection / value_contribution / differentiation / closing で反映する）。\n"
+        "**このターンでは参照しない**（後続の self_connection / value_contribution / differentiation で反映する）。\n"
         "- スコア欄は参考情報であり、段階を飛ばす理由にならない。"
     )
 
@@ -2723,7 +2752,8 @@ async def _evaluate_motivation_internal(
         "- missing_slots には missing と partial の slot だけを入れる\n"
         "- weak_slots には filled_weak の slot を入れる\n"
         "- do_not_ask_slots には filled_strong の slot を入れる\n"
-        "- self_connection が strong でも、経験・価値観・強みが志望理由ややりたい仕事と因果でつながらない場合は draft_ready を true にしない"
+        "- self_connection が strong でも、経験・価値観・強みが志望理由ややりたい仕事と因果でつながらない場合は draft_ready を true にしない\n"
+        "- 会話が十分進み、骨格がおおむね揃っていれば ready_for_draft を true にしてよい（完璧な言語化は不要）"
     )
     if settings.debug:
         logger.debug(
@@ -2972,7 +3002,9 @@ async def _prepare_motivation_next_question(
         weakest_element=weakest_element,
         is_complete=is_complete,
         missing_slots=missing_slots,
-        stage=current_slot or conversation_context.get("questionStage") or "industry_reason",
+        stage=_coerce_motivation_stage_for_ui(
+            current_slot or conversation_context.get("questionStage") or "industry_reason"
+        ),
         was_draft_ready=was_draft_ready,
         has_generated_draft=bool(generated_draft),
         conversation_mode=conversation_mode,
@@ -3176,7 +3208,7 @@ async def _assemble_regular_next_question_response(
     prep: _MotivationQuestionPrep,
     data: dict[str, Any],
 ) -> NextQuestionResponse:
-    stage = prep.current_slot or prep.stage
+    stage = _coerce_motivation_stage_for_ui(prep.current_slot or prep.stage)
     weakness_tag = _deepdive_area_to_weakness_tag(data.get("target_area")) if _should_use_deepdive_mode(prep) else None
     wording_level = _question_difficulty_level(int(prep.conversation_context.get("stageAttemptCount") or 0))
     company_anchor = prep.company_features[0] if prep.company_features else None
@@ -3680,14 +3712,26 @@ async def generate_draft(payload: GenerateDraftRequest, request: Request):
 
     conversation_text = _format_conversation(request.conversation_history)
     char_min = int(request.char_limit * 0.9)
-
-    prompt = DRAFT_GENERATION_PROMPT.format(
+    industry_s = sanitize_prompt_input(request.industry or "不明", max_length=100)
+    honorific = get_company_honorific(industry_s)
+    synthetic_q = draft_synthetic_question_company_motivation(honorific)
+    ref_body = (company_context or "").strip() or None
+    system_prompt, user_prompt = build_template_draft_generation_prompt(
+        "company_motivation",
         company_name=sanitize_prompt_input(request.company_name, max_length=200),
-        industry=sanitize_prompt_input(request.industry or "不明", max_length=100),
-        company_context=company_context or "（企業情報なし）",
-        conversation=conversation_text,
-        char_limit=request.char_limit,
+        industry=industry_s,
+        question=synthetic_q,
         char_min=char_min,
+        char_max=request.char_limit,
+        primary_material_heading="【会話ログ】",
+        primary_material_body=conversation_text,
+        company_reference_heading="【企業参考情報（要約）】",
+        company_reference_body=ref_body,
+        output_json_kind="motivation",
+        role_name=None,
+        company_evidence_cards=None,
+        has_rag=False,
+        grounding_mode="none",
     )
     if settings.debug:
         logger.debug(
@@ -3697,15 +3741,36 @@ async def generate_draft(payload: GenerateDraftRequest, request: Request):
             f"char_limit={request.char_limit}"
         )
 
-    llm_result = await call_llm_with_error(
-        system_prompt=prompt,
-        user_message="志望動機のESを作成してください。",
-        max_tokens=1200,  # Draft: ~300-500 chars + key_points + company_keywords + JSON
-        temperature=0.3,
-        feature="motivation_draft",
-        retry_on_parse=True,
-        disable_fallback=True,
-    )
+    llm_result = None
+    max_draft_attempts = 5
+    for attempt in range(max_draft_attempts):
+        llm_result = await call_llm_with_error(
+            system_prompt=system_prompt,
+            user_message=user_prompt,
+            max_tokens=1800,  # Draft JSON can truncate below 1200 when key_points/keywords are long
+            temperature=0.3,
+            feature="motivation_draft",
+            retry_on_parse=True,
+            disable_fallback=True,
+        )
+        if llm_result.success and llm_result.data is not None:
+            break
+        if attempt < max_draft_attempts - 1:
+            backoff = min(8.0, 1.5 * (2**attempt))
+            logger.warning(
+                "[Motivation] generate_draft LLM call failed (attempt %s/%s): %s; retrying in %.1fs",
+                attempt + 1,
+                max_draft_attempts,
+                llm_result.error.message if llm_result.error else "unknown",
+                backoff,
+            )
+            await asyncio.sleep(backoff)
+
+    if llm_result is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "ES生成中にエラーが発生しました。"},
+        )
 
     if not llm_result.success or llm_result.data is None:
         # Fallback: extract draft text from raw_text if JSON parse failed (truncation)
@@ -3723,6 +3788,7 @@ async def generate_draft(payload: GenerateDraftRequest, request: Request):
                         draft_text = draft_text[: last_period + 1]
                 if len(draft_text) >= 100:
                     logger.warning(f"[志望動機作成] ⚠️ raw_textフォールバック: {len(draft_text)}字のドラフトを抽出")
+                    draft_text = normalize_es_draft_single_paragraph(draft_text)
                     return GenerateDraftResponse(
                         draft=draft_text,
                         char_count=len(draft_text),
@@ -3740,12 +3806,98 @@ async def generate_draft(payload: GenerateDraftRequest, request: Request):
         )
 
     data = llm_result.data
-    draft = data.get("draft", "")
+    draft = normalize_es_draft_single_paragraph(str(data.get("draft", "")))
 
     return GenerateDraftResponse(
         draft=draft,
         char_count=len(draft),
         key_points=data.get("key_points", []),
         company_keywords=data.get("company_keywords", []),
+        internal_telemetry=consume_request_llm_cost_summary("motivation_draft"),
+    )
+
+
+@router.post("/generate-draft-from-profile", response_model=GenerateDraftResponse)
+@limiter.limit("60/minute")
+async def generate_draft_from_profile(payload: GenerateDraftFromProfileRequest, request: Request):
+    """
+    Generate motivation ES from company RAG + profile + gakuchika only (no conversation).
+    """
+    request = payload
+    role = (request.selected_role or "").strip()
+    if not role:
+        raise HTTPException(status_code=400, detail="志望職種が指定されていません")
+    if request.char_limit not in [300, 400, 500]:
+        raise HTTPException(status_code=400, detail="文字数は300, 400, 500のいずれかを指定してください")
+    try:
+        _sanitize_generate_draft_from_profile_request(request)
+    except PromptSafetyError:
+        raise _prompt_safety_http_error()
+
+    company_context, _ = await _get_company_context(request.company_id)
+    char_min = int(request.char_limit * 0.9)
+    profile_section = _format_profile_for_prompt(request.profile_context)
+    gakuchika_section = _format_gakuchika_for_prompt(request.gakuchika_context)
+    industry_s = sanitize_prompt_input(request.industry or "不明", max_length=100)
+    honorific = get_company_honorific(industry_s)
+    synthetic_q = draft_synthetic_question_company_motivation(honorific)
+    material_parts = [
+        p.strip()
+        for p in (
+            profile_section.strip() if profile_section else "",
+            gakuchika_section.strip() if gakuchika_section else "",
+        )
+        if p and str(p).strip()
+    ]
+    primary_material = "\n\n".join(material_parts) if material_parts else "（追加材料なし）"
+    ref_body = (company_context or "").strip() or None
+    system_prompt, user_prompt = build_template_draft_generation_prompt(
+        "company_motivation",
+        company_name=sanitize_prompt_input(request.company_name, max_length=200),
+        industry=industry_s,
+        question=synthetic_q,
+        char_min=char_min,
+        char_max=request.char_limit,
+        primary_material_heading="【材料（職種・プロフィール・ガクチカ要約）】",
+        primary_material_body=primary_material,
+        company_reference_heading="【企業参考情報（要約）】",
+        company_reference_body=ref_body,
+        output_json_kind="motivation",
+        role_name=request.selected_role.strip(),
+        company_evidence_cards=None,
+        has_rag=False,
+        grounding_mode="none",
+    )
+
+    llm_result = None
+    for attempt in range(3):
+        llm_result = await call_llm_with_error(
+            system_prompt=system_prompt,
+            user_message=user_prompt,
+            max_tokens=1200,
+            temperature=0.3,
+            feature="motivation_draft",
+            retry_on_parse=True,
+            disable_fallback=True,
+        )
+        if llm_result.success and llm_result.data is not None:
+            break
+        if attempt < 2:
+            await asyncio.sleep(1.5 * (attempt + 1))
+
+    if llm_result is None or not llm_result.success or llm_result.data is None:
+        err = llm_result.error if llm_result else None
+        raise HTTPException(
+            status_code=503,
+            detail={"error": err.message if err else "ES生成中にエラーが発生しました。"},
+        )
+
+    data = llm_result.data
+    draft = normalize_es_draft_single_paragraph(str(data.get("draft", "")))
+    return GenerateDraftResponse(
+        draft=draft,
+        char_count=len(draft),
+        key_points=data.get("key_points", []) or [],
+        company_keywords=data.get("company_keywords", []) or [],
         internal_telemetry=consume_request_llm_cost_summary("motivation_draft"),
     )

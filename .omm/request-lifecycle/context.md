@@ -1,0 +1,1 @@
+Most product behavior is implemented as server-side route handlers rather than a separate Node service. FastAPI is reserved for retrieval, generation, and enrichment paths that would otherwise overload the Next.js runtime.

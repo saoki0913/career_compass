@@ -24,6 +24,9 @@ from evals.company_info_search.judge import ResultJudge
 from evals.company_info_search.metrics import MetricsComputer
 from evals.company_info_search.baseline import BaselineManager
 from evals.company_info_search.report import ReportGenerator
+from tests.company_info.integration.live_feature_report import (
+    write_company_info_search_live_report,
+)
 
 
 def _collect_gate_failures(
@@ -135,6 +138,7 @@ async def test_live_company_info_search_report(monkeypatch: pytest.MonkeyPatch) 
         company_source=company_source,
         curated_version=curated_version,
     )
+    ai_live_json_path, ai_live_md_path = write_company_info_search_live_report(run_records)
 
     # -------------------------------------------------------------------------
     # 7. Optionally save baseline
@@ -163,6 +167,8 @@ async def test_live_company_info_search_report(monkeypatch: pytest.MonkeyPatch) 
     # -------------------------------------------------------------------------
     assert json_path.exists()
     assert md_path.exists()
+    assert ai_live_json_path.exists()
+    assert ai_live_md_path.exists()
 
     # Fail on critical regression
     if config.fail_on_regression and regression.has_regression:

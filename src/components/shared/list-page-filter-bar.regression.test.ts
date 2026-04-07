@@ -20,7 +20,7 @@ describe("ListPageFilterBar regressions", () => {
   it("keeps controls and tabs inside a single horizontal scroll row", () => {
     const source = readSource("src/components/shared/ListPageFilterBar.tsx");
 
-    expect(source).toContain("flex min-w-full flex-wrap items-center gap-2.5");
+    expect(source).toContain("flex w-full min-w-0 max-w-full flex-nowrap items-center gap-2.5 overflow-x-auto");
     expect(source).not.toContain("overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]");
     expect(source).not.toContain("space-y-3");
   });
@@ -30,6 +30,6 @@ describe("ListPageFilterBar regressions", () => {
 
     expect(source).not.toContain("sm:hidden");
     expect(source).not.toContain("hidden h-9 shrink-0 rounded-xl sm:block");
-    expect(source).toContain("flex min-w-full flex-wrap items-center gap-2.5");
+    expect(source).toContain("flex w-full min-w-0 max-w-full flex-nowrap items-center gap-2.5 overflow-x-auto");
   });
 });

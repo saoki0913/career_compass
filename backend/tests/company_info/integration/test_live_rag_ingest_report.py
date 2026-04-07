@@ -26,6 +26,10 @@ class LiveRagIngestCase:
     company_name: str
     content_type: str
     content_channel: str
+    strict_company_match: bool = True
+    allow_aggregators: bool = False
+    post_ingest_query: str | None = None
+    post_ingest_min_candidates: int = 1
 
 
 SMOKE_CASES = [
@@ -50,6 +54,53 @@ EXTENDED_CASES = [
         company_name="NTTデータグループ",
         content_type="midterm_plan",
         content_channel="corporate_ir",
+        post_ingest_query="中期経営計画",
+    ),
+    LiveRagIngestCase(
+        case_id="panasonic-corporate-site",
+        company_name="パナソニックホールディングス",
+        content_type="corporate_site",
+        content_channel="corporate_general",
+        post_ingest_query="グループ",
+    ),
+    LiveRagIngestCase(
+        case_id="keyence-ir",
+        company_name="キーエンス",
+        content_type="ir_materials",
+        content_channel="corporate_ir",
+        post_ingest_query="有価証券報告書",
+    ),
+    LiveRagIngestCase(
+        case_id="aeon-recruitment",
+        company_name="イオン",
+        content_type="new_grad_recruitment",
+        content_channel="corporate_general",
+        post_ingest_query="新卒採用",
+    ),
+    LiveRagIngestCase(
+        case_id="mitsubishi-heavy-corporate",
+        company_name="三菱重工業",
+        content_type="corporate_site",
+        content_channel="corporate_general",
+        strict_company_match=True,
+        allow_aggregators=False,
+        post_ingest_query="事業",
+    ),
+    LiveRagIngestCase(
+        case_id="softbank-group-ir",
+        company_name="ソフトバンクグループ",
+        content_type="ir_materials",
+        content_channel="corporate_ir",
+        post_ingest_query="決算",
+    ),
+    LiveRagIngestCase(
+        case_id="toyota-corporate-aggregators-on",
+        company_name="トヨタ自動車",
+        content_type="corporate_site",
+        content_channel="corporate_general",
+        strict_company_match=True,
+        allow_aggregators=True,
+        post_ingest_query="サステナビリティ",
     ),
 ]
 
@@ -73,6 +124,29 @@ def _append_check(checks: list[dict[str, Any]], name: str, passed: bool, *eviden
             "evidence": [str(item) for item in evidence if item is not None and str(item) != ""],
         }
     )
+
+
+def _rag_row_outcome(deterministic_fail_reasons: list[str]) -> tuple[str, str, str]:
+    """Return (status, severity, failureKind)."""
+    if not deterministic_fail_reasons:
+        return "passed", "passed", "none"
+    rs = set(deterministic_fail_reasons)
+    if rs <= {"retrieval_weak"}:
+        return "passed", "degraded", "quality"
+    if "cleanup_failed" in rs:
+        return "failed", "failed", "cleanup"
+    if rs & {"crawl_failure", "chunks_stored_zero", "store_failure"}:
+        return "failed", "failed", "infra"
+    return "failed", "failed", "quality"
+
+
+def _finalize_rag_row_fields(row: dict[str, Any]) -> dict[str, Any]:
+    reasons = list(row.get("deterministicFailReasons") or [])
+    status, severity, failure_kind = _rag_row_outcome(reasons)
+    row["status"] = status
+    row["severity"] = severity
+    row["failureKind"] = failure_kind
+    return row
 
 
 @pytest.mark.integration
@@ -122,8 +196,8 @@ async def test_live_rag_ingest_report() -> None:
                     company_name=case.company_name,
                     content_type=case.content_type,
                     max_results=3,
-                    strict_company_match=True,
-                    allow_aggregators=False,
+                    strict_company_match=case.strict_company_match,
+                    allow_aggregators=case.allow_aggregators,
                     cache_mode="refresh",
                 ),
                 request=None,
@@ -135,16 +209,16 @@ async def test_live_rag_ingest_report() -> None:
             if not candidates or candidate_url is None:
                 deterministic_fail_reasons.append("crawl_failure")
                 rows.append(
-                    {
-                        "caseId": case.case_id,
-                        "title": f"{case.company_name} {case.content_type}",
-                        "status": "failed",
-                        "severity": "failed",
-                        "durationMs": int((perf_counter() - started) * 1000),
-                        "deterministicFailReasons": deterministic_fail_reasons,
-                        "checks": checks,
-                        "cleanup": cleanup,
-                    }
+                    _finalize_rag_row_fields(
+                        {
+                            "caseId": case.case_id,
+                            "title": f"{case.company_name} {case.content_type}",
+                            "durationMs": int((perf_counter() - started) * 1000),
+                            "deterministicFailReasons": deterministic_fail_reasons,
+                            "checks": checks,
+                            "cleanup": cleanup,
+                        }
+                    )
                 )
                 continue
 
@@ -181,6 +255,32 @@ async def test_live_rag_ingest_report() -> None:
             if not status_response.has_rag or status_response.total_chunks <= 0:
                 deterministic_fail_reasons.append("store_failure")
 
+            if case.post_ingest_query:
+                verify_payload = await search_corporate_pages_impl(
+                    SearchCorporatePagesRequest(
+                        company_name=case.company_name,
+                        content_type=case.content_type,
+                        custom_query=case.post_ingest_query,
+                        max_results=5,
+                        strict_company_match=case.strict_company_match,
+                        allow_aggregators=case.allow_aggregators,
+                        cache_mode="refresh",
+                    ),
+                    request=None,
+                )
+                verify_candidates = list(verify_payload.get("candidates") or [])
+                n_verify = len(verify_candidates)
+                ok_verify = n_verify >= case.post_ingest_min_candidates
+                _append_check(
+                    checks,
+                    "post_ingest_search_recall",
+                    ok_verify,
+                    f"query={case.post_ingest_query}",
+                    f"count={n_verify}",
+                )
+                if not ok_verify:
+                    deterministic_fail_reasons.append("retrieval_weak")
+
             url_cleanup = await delete_rag_by_urls(
                 company_id,
                 DeleteByUrlsRequest(urls=[candidate_url]),
@@ -205,17 +305,17 @@ async def test_live_rag_ingest_report() -> None:
                 deterministic_fail_reasons.append("cleanup_failed")
 
             rows.append(
-                {
-                    "caseId": case.case_id,
-                    "title": f"{case.company_name} {case.content_type}",
-                    "status": "passed" if crawl_response.success else "failed",
-                    "severity": "passed" if not deterministic_fail_reasons else "failed",
-                    "durationMs": int((perf_counter() - started) * 1000),
-                    "sourceUrl": candidate_url,
-                    "deterministicFailReasons": deterministic_fail_reasons,
-                    "checks": checks,
-                    "cleanup": cleanup,
-                }
+                _finalize_rag_row_fields(
+                    {
+                        "caseId": case.case_id,
+                        "title": f"{case.company_name} {case.content_type}",
+                        "durationMs": int((perf_counter() - started) * 1000),
+                        "sourceUrl": candidate_url,
+                        "deterministicFailReasons": deterministic_fail_reasons,
+                        "checks": checks,
+                        "cleanup": cleanup,
+                    }
+                )
             )
         except Exception as exc:
             try:
@@ -225,18 +325,19 @@ async def test_live_rag_ingest_report() -> None:
             except Exception:
                 cleanup = _cleanup_payload(ok=False, removed_ids=[candidate_url] if candidate_url else [])
             rows.append(
-                {
-                    "caseId": case.case_id,
-                    "title": f"{case.company_name} {case.content_type}",
-                    "status": "failed",
-                    "severity": "failed",
-                    "durationMs": int((perf_counter() - started) * 1000),
-                    "sourceUrl": candidate_url,
-                    "deterministicFailReasons": ["crawl_failure"],
-                    "checks": checks,
-                    "cleanup": cleanup,
-                    "error": str(exc),
-                }
+                _finalize_rag_row_fields(
+                    {
+                        "caseId": case.case_id,
+                        "title": f"{case.company_name} {case.content_type}",
+                        "durationMs": int((perf_counter() - started) * 1000),
+                        "sourceUrl": candidate_url,
+                        "deterministicFailReasons": ["crawl_failure"],
+                        "checks": checks,
+                        "cleanup": cleanup,
+                        "error": str(exc),
+                        "representativeError": str(exc),
+                    }
+                )
             )
 
     json_path, md_path = write_live_feature_report(

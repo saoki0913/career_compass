@@ -6,13 +6,22 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { isStructuredSummary, type GakuchikaSummary } from "@/lib/gakuchika/summary";
+import {
+  isStructuredSummary,
+  legacySummaryHasVisibleContent,
+  structuredSummaryHasVisibleContent,
+  type GakuchikaSummary,
+} from "@/lib/gakuchika/summary";
 
 interface CompletionSummaryProps {
   summary: GakuchikaSummary | null;
   isLoading: boolean;
   gakuchikaId: string;
   onResumeSession?: () => void;
+  /** Label for the outline button when resuming deep dive after interview-ready (default: 更に深掘りする). */
+  resumeFromInterviewLabel?: string;
+  /** Refetch summary from API (e.g. when structured JSON was empty or parse failed). */
+  onRetrySummary?: () => void | Promise<void>;
   hideGenerateAction?: boolean;
 }
 
@@ -41,10 +50,15 @@ export function CompletionSummary({
   isLoading,
   gakuchikaId,
   onResumeSession,
+  resumeFromInterviewLabel = "更に深掘りする",
+  onRetrySummary,
   hideGenerateAction = false,
 }: CompletionSummaryProps) {
   const structured = summary && isStructuredSummary(summary) ? summary : null;
   const legacy = summary && !isStructuredSummary(summary) ? summary : null;
+  const structuredVisible = Boolean(structured && structuredSummaryHasVisibleContent(structured));
+  const legacyVisible = Boolean(legacy && legacySummaryHasVisibleContent(legacy));
+  const hasVisibleBody = isLoading || structuredVisible || legacyVisible;
   const leadText = isLoading
     ? "ここまでで面接で話せる材料はかなり揃いました。要点を整理しています。"
     : "ここまでで面接で話せる材料はかなり揃いました。まずはそのまま話せる核と2分骨子を前に出して整理します。";
@@ -74,9 +88,19 @@ export function CompletionSummary({
                 作成完了
               </div>
               <div className="space-y-1">
-                <h2 className="text-xl font-semibold text-foreground">面接用の補足まで整理できました</h2>
+                <h2
+                  className={
+                    hasVisibleBody
+                      ? "text-xl font-semibold text-foreground"
+                      : "text-lg font-semibold text-muted-foreground"
+                  }
+                >
+                  {hasVisibleBody ? "面接用の補足まで整理できました" : "面接準備の要点"}
+                </h2>
                 <p className="text-sm text-muted-foreground">
-                  ES の本文に加えて、面接でそのまま話す核と次に備える論点まで見やすく整理しています。
+                  {hasVisibleBody
+                    ? "ES の本文に加えて、面接でそのまま話す核と次に備える論点まで見やすく整理しています。"
+                    : "要点の表示に必要な情報がまだ取り込めていない可能性があります。再取得するか、会話を続けてから再度お試しください。"}
                 </p>
               </div>
             </div>
@@ -103,7 +127,7 @@ export function CompletionSummary({
                 ))}
               </div>
             </div>
-          ) : structured ? (
+          ) : structuredVisible && structured ? (
             <>
               {(structured.one_line_core_answer ||
                 structured.two_minute_version_outline?.length ||
@@ -315,7 +339,7 @@ export function CompletionSummary({
                 </div>
               )}
             </>
-          ) : legacy ? (
+          ) : legacyVisible && legacy ? (
             <section className="space-y-4 rounded-2xl border border-border bg-muted/20 p-4">
               <SectionTitle>要約</SectionTitle>
               <p className="text-sm leading-6 text-foreground/90">{legacy.summary}</p>
@@ -330,6 +354,15 @@ export function CompletionSummary({
                 </div>
               )}
             </section>
+          ) : !isLoading ? (
+            <div className="rounded-2xl border border-dashed border-border/80 bg-muted/15 px-4 py-6 text-center text-sm text-muted-foreground">
+              <p>要点の本文を表示できませんでした。保存済みの要約が空か、まだ反映されていない可能性があります。</p>
+              {onRetrySummary ? (
+                <Button variant="outline" className="mt-4 h-10" type="button" onClick={() => void onRetrySummary()}>
+                  要約を再取得
+                </Button>
+              ) : null}
+            </div>
           ) : null}
 
           <div className="flex flex-col gap-3 border-t border-border/70 pt-5 sm:flex-row">
@@ -346,7 +379,7 @@ export function CompletionSummary({
 
             {onResumeSession && (
               <Button variant="outline" className="h-11 sm:min-w-[140px]" onClick={onResumeSession}>
-                更に深掘りする
+                {resumeFromInterviewLabel}
               </Button>
             )}
 

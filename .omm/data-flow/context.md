@@ -1,0 +1,1 @@
+Career Compass combines traditional application tracking with retrieval-augmented AI drafting and external calendar or billing synchronization. Data is not purely transactional, because some flows produce suggestions that require confirmation before becoming canonical.

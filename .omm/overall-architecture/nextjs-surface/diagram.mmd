@@ -1,0 +1,12 @@
+graph LR
+    marketing-surface["Marketing Surface\nsrc/app/(marketing)/ + src/components/landing/"]
+    auth-onboarding["Auth And Onboarding\nsrc/app/(auth)/ + src/components/auth/"]
+    product-surface["Product Surface\nsrc/app/(product)/"]
+    shared-ui["Shared UI Blocks\nsrc/components/, src/hooks/"]
+
+    marketing-surface -->|"reuses shared visual primitives and SEO components"| shared-ui
+    auth-onboarding -->|"uses shared forms and identity-aware components"| shared-ui
+    product-surface -->|"composes workflow screens from feature components"| shared-ui
+
+    classDef entry fill:#89b4fa,stroke:#89b4fa,color:#1e1e2e
+    class marketing-surface,auth-onboarding,product-surface entry

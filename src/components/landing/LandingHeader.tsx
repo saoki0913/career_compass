@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/AuthProvider";
 import Link from "next/link";
 import Image from "next/image";
@@ -9,10 +8,10 @@ import { ArrowRight, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navLinks = [
-  { label: "機能", href: "#features" },
-  { label: "使い方", href: "#how-it-works" },
-  { label: "料金", href: "#pricing" },
-  { label: "FAQ", href: "#faq" },
+  { label: "機能紹介", href: "/#features" },
+  { label: "他社比較", href: "/#comparison" },
+  { label: "料金プラン", href: "/#pricing" },
+  { label: "FAQ", href: "/#faq" },
 ] as const;
 
 export function LandingHeader() {
@@ -22,9 +21,8 @@ export function LandingHeader() {
 
   useEffect(() => {
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20);
+      setIsScrolled(window.scrollY > 8);
     };
-
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
@@ -49,81 +47,92 @@ export function LandingHeader() {
   };
 
   return (
-    <header
+    <nav
       className={cn(
-        "fixed left-0 right-0 top-0 z-50 transition-all duration-300",
-        "border-b bg-white/78 backdrop-blur-2xl",
-        isScrolled
-          ? "border-slate-200/80 shadow-[0_18px_50px_-38px_rgba(15,23,42,0.18)]"
-          : "border-transparent"
+        "fixed top-0 z-50 w-full bg-white/90 backdrop-blur-md transition-all duration-200",
+        isScrolled ? "shadow-sm" : ""
       )}
+      style={{
+        borderBottom: `1px solid ${
+          isScrolled ? "var(--lp-border-default)" : "transparent"
+        }`,
+      }}
     >
-      <div className="mx-auto max-w-6xl px-4">
-        <div className="flex h-16 items-center justify-between">
-          <Link href="/" className="flex shrink-0 items-center gap-3">
-            <Image
-              src="/icon.png"
-              alt="就活Pass"
-              width={34}
-              height={34}
-              className="rounded-xl"
-              priority
-            />
-            <span className="block text-lg font-semibold tracking-[-0.04em] text-slate-950">
-              就活Pass
-            </span>
-          </Link>
-
-          <nav className="hidden items-center gap-1 rounded-full border border-slate-200/80 bg-white/70 p-1 shadow-[0_16px_40px_-32px_rgba(15,23,42,0.3)] md:flex">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="rounded-full px-4 py-2 text-sm font-medium text-slate-500 transition-colors duration-200 hover:bg-slate-50 hover:text-slate-950"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-
-          <div className="hidden items-center gap-3 md:flex">
-            {isLoading ? (
-              <Button size="sm" disabled className="h-9">
-                読み込み中...
-              </Button>
-            ) : isAuthenticated ? (
-              <Button size="sm" asChild className="h-9">
-                <Link href="/dashboard">
-                  ダッシュボード
-                  <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                </Link>
-              </Button>
-            ) : (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  asChild
-                  className="h-9 rounded-full px-4 text-muted-foreground"
-                >
-                  <Link href="/login">ログイン</Link>
-                </Button>
-                <Button size="sm" asChild className="landing-cta-primary h-10 rounded-full px-5">
-                  <Link href="/login">
-                    無料で始める
-                    <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                  </Link>
-                </Button>
-              </>
-            )}
-          </div>
-
-          <button
-            onClick={() => setIsMobileMenuOpen((prev) => !prev)}
-            className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white/92 transition-colors duration-200 hover:bg-slate-50 md:hidden"
-            aria-label={isMobileMenuOpen ? "メニューを閉じる" : "メニューを開く"}
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6 md:h-16 md:px-8">
+        <Link href="/" className="flex items-center gap-2.5">
+          <Image
+            src="/icon.png"
+            alt="就活Pass"
+            width={32}
+            height={32}
+            className="h-8 w-8 rounded-md"
+            priority
+          />
+          <span
+            className="text-[1.0625rem] tracking-tight text-[var(--lp-navy)]"
+            style={{ fontWeight: 600 }}
           >
-            {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            就活Pass
+          </span>
+        </Link>
+
+        <div className="hidden items-center gap-10 md:flex">
+          {navLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="text-sm text-[var(--lp-body-muted)] transition-colors hover:text-[var(--lp-navy)]"
+              style={{ fontWeight: 500 }}
+            >
+              {link.label}
+            </Link>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3 md:gap-4">
+          {isLoading ? null : isAuthenticated ? (
+            <Link
+              href="/dashboard"
+              className="hidden items-center gap-1.5 rounded-md bg-[var(--lp-cta)] px-4 py-2 text-sm text-white transition hover:opacity-90 sm:inline-flex"
+              style={{ fontWeight: 600 }}
+            >
+              ダッシュボード
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="hidden rounded-md border px-4 py-2 text-sm text-[var(--lp-navy)] transition hover:bg-[var(--lp-surface-muted)] sm:inline-block"
+                style={{
+                  fontWeight: 500,
+                  borderColor: "var(--lp-border-default)",
+                }}
+              >
+                ログイン
+              </Link>
+              <Link
+                href="/login"
+                className="rounded-md bg-[var(--lp-cta)] px-4 py-2 text-sm text-white transition hover:opacity-90"
+                style={{ fontWeight: 600 }}
+              >
+                無料で始める
+              </Link>
+            </>
+          )}
+          <button
+            type="button"
+            className="rounded-md p-2 text-[var(--lp-navy)] md:hidden"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            aria-label={
+              isMobileMenuOpen ? "メニューを閉じる" : "メニューを開く"
+            }
+          >
+            {isMobileMenuOpen ? (
+              <X className="h-6 w-6" />
+            ) : (
+              <Menu className="h-6 w-6" />
+            )}
           </button>
         </div>
       </div>
@@ -133,46 +142,61 @@ export function LandingHeader() {
           <button
             type="button"
             aria-label="メニューを閉じる"
-            className="fixed inset-0 top-16 z-40 bg-slate-950/20 backdrop-blur-[2px] md:hidden"
+            className="fixed inset-0 top-14 z-40 bg-black/20 backdrop-blur-[1px] md:hidden"
             onClick={() => setIsMobileMenuOpen(false)}
           />
-          <div className="fixed inset-x-0 bottom-0 top-16 z-50 border-b border-slate-200/80 bg-white/96 backdrop-blur-xl md:hidden">
-            <div className="mx-auto flex h-full max-w-6xl flex-col overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
-              <div className="space-y-2">
+          <div
+            className="fixed inset-x-0 bottom-0 top-14 z-50 overflow-y-auto bg-white md:hidden"
+            style={{ borderTop: "1px solid var(--lp-border-default)" }}
+          >
+            <div className="mx-auto max-w-7xl px-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
+              <div className="space-y-1">
                 {navLinks.map((link) => (
                   <Link
                     key={link.href}
                     href={link.href}
                     onClick={handleNavClick}
-                    className="block rounded-2xl px-4 py-3 text-sm font-medium text-slate-600 transition-colors duration-200 hover:bg-slate-50 hover:text-slate-950"
+                    className="block rounded-md px-3 py-3 text-[var(--lp-navy)] transition-colors hover:bg-[var(--lp-surface-muted)]"
+                    style={{ fontWeight: 500 }}
                   >
                     {link.label}
                   </Link>
                 ))}
               </div>
-              <div className="mt-4 space-y-2 border-t border-slate-200/80 pt-4">
+              <div
+                className="mt-4 space-y-2 border-t pt-4"
+                style={{ borderColor: "var(--lp-border-default)" }}
+              >
                 {isLoading ? null : isAuthenticated ? (
-                  <Button asChild className="h-11 w-full">
-                    <Link href="/dashboard" onClick={handleNavClick}>
-                      ダッシュボード
-                    </Link>
-                  </Button>
+                  <Link
+                    href="/dashboard"
+                    onClick={handleNavClick}
+                    className="block w-full rounded-md bg-[var(--lp-cta)] py-3 text-center text-white"
+                    style={{ fontWeight: 600 }}
+                  >
+                    ダッシュボード
+                  </Link>
                 ) : (
                   <>
-                    <Button asChild className="landing-cta-primary h-11 w-full rounded-full">
-                      <Link href="/login" onClick={handleNavClick}>
-                        無料で始める
-                      </Link>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      asChild
-                      className="landing-cta-secondary h-11 w-full rounded-full"
+                    <Link
+                      href="/login"
+                      onClick={handleNavClick}
+                      className="block w-full rounded-md bg-[var(--lp-cta)] py-3 text-center text-white"
+                      style={{ fontWeight: 600 }}
                     >
-                      <Link href="/login" onClick={handleNavClick}>
-                        ログイン
-                      </Link>
-                    </Button>
+                      無料で始める
+                    </Link>
+                    <Link
+                      href="/login"
+                      onClick={handleNavClick}
+                      className="block w-full rounded-md border py-3 text-center text-[var(--lp-navy)]"
+                      style={{
+                        fontWeight: 500,
+                        borderColor: "var(--lp-border-default)",
+                      }}
+                    >
+                      ログイン
+                    </Link>
                   </>
                 )}
               </div>
@@ -180,6 +204,6 @@ export function LandingHeader() {
           </div>
         </>
       ) : null}
-    </header>
+    </nav>
   );
 }

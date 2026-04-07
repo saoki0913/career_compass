@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   constructEventMock,
   dbInsertValuesMock,
+  dbDeleteWhereMock,
   dbSelectLimitMock,
   dbUpdateWhereMock,
   updatePlanAllocationMock,
 } = vi.hoisted(() => ({
   constructEventMock: vi.fn(),
   dbInsertValuesMock: vi.fn(),
+  dbDeleteWhereMock: vi.fn(),
   dbSelectLimitMock: vi.fn(),
   dbUpdateWhereMock: vi.fn(),
   updatePlanAllocationMock: vi.fn(),
@@ -34,6 +36,9 @@ vi.mock("@/lib/db", () => ({
   db: {
     insert: vi.fn(() => ({
       values: dbInsertValuesMock,
+    })),
+    delete: vi.fn(() => ({
+      where: dbDeleteWhereMock,
     })),
     select: vi.fn(() => ({
       from: vi.fn(() => ({
@@ -63,11 +68,13 @@ describe("api/webhooks/stripe subscription.updated", () => {
     vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
     constructEventMock.mockReset();
     dbInsertValuesMock.mockReset();
+    dbDeleteWhereMock.mockReset();
     dbSelectLimitMock.mockReset();
     dbUpdateWhereMock.mockReset();
     updatePlanAllocationMock.mockReset();
 
     dbInsertValuesMock.mockResolvedValue(undefined);
+    dbDeleteWhereMock.mockResolvedValue(undefined);
     dbSelectLimitMock.mockResolvedValue([
       {
         userId: "user-1",
@@ -106,5 +113,37 @@ describe("api/webhooks/stripe subscription.updated", () => {
 
     expect(response.status).toBe(200);
     expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+  });
+
+  it("releases the claimed event when processing fails so Stripe can retry", async () => {
+    constructEventMock.mockReturnValue({
+      id: "evt_retryable",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_retryable",
+          status: "active",
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                current_period_end: 1777561200,
+                price: { id: "price_pro_month" },
+              },
+            ],
+          },
+        },
+      },
+    });
+    updatePlanAllocationMock.mockRejectedValueOnce(new Error("credits unavailable"));
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(500);
+    expect(dbDeleteWhereMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -10,8 +10,7 @@ export const INTERVIEW_FORMAT_OPTIONS = [
   "standard_behavioral",
   "case",
   "technical",
-  "discussion",
-  "presentation",
+  "life_history",
 ] as const;
 
 export const SELECTION_TYPE_OPTIONS = ["internship", "fulltime"] as const;
@@ -25,6 +24,31 @@ export type InterviewSelectionType = (typeof SELECTION_TYPE_OPTIONS)[number];
 export type InterviewRoundStage = (typeof INTERVIEW_STAGE_OPTIONS)[number];
 export type InterviewerType = (typeof INTERVIEWER_TYPE_OPTIONS)[number];
 export type InterviewStrictnessMode = (typeof STRICTNESS_MODE_OPTIONS)[number];
+
+/** DB/API の旧値 discussion / presentation → life_history（4 方式に整合） */
+const LEGACY_INTERVIEW_FORMAT_MAP: Record<string, InterviewFormat> = {
+  discussion: "life_history",
+  presentation: "life_history",
+};
+
+export function canonicalizeInterviewFormat(value: string | null | undefined): InterviewFormat {
+  const raw = typeof value === "string" ? value.trim() : "";
+  const mapped = LEGACY_INTERVIEW_FORMAT_MAP[raw] ?? raw;
+  return (INTERVIEW_FORMAT_OPTIONS as readonly string[]).includes(mapped) ? (mapped as InterviewFormat) : "standard_behavioral";
+}
+
+const KNOWN_INTERVIEW_FORMAT_SLUGS = new Set<string>([
+  ...INTERVIEW_FORMAT_OPTIONS,
+  "discussion",
+  "presentation",
+]);
+
+/** POST ボディ等: 未対応スラッグは null（デフォルトは呼び出し側でコンテキストから決める） */
+export function parseInterviewFormatParam(value: string | null | undefined): InterviewFormat | null {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw || !KNOWN_INTERVIEW_FORMAT_SLUGS.has(raw)) return null;
+  return canonicalizeInterviewFormat(raw);
+}
 
 export type InterviewPlan = {
   interviewType: string;
@@ -62,8 +86,7 @@ export type InterviewFormatPhase =
   | "case_main"
   | "case_closing"
   | "technical_main"
-  | "discussion_main"
-  | "presentation_main"
+  | "life_history_main"
   | "feedback";
 
 export type InterviewStageStatus = {
@@ -164,15 +187,16 @@ function normalizeRecentQuestionSummariesV2(value: unknown): InterviewRecentQues
 }
 
 function normalizeFormatPhase(value: unknown): InterviewFormatPhase {
-  switch (value) {
+  const mapped =
+    value === "discussion_main" || value === "presentation_main" ? "life_history_main" : value;
+  switch (mapped) {
     case "standard_main":
     case "case_main":
     case "case_closing":
     case "technical_main":
-    case "discussion_main":
-    case "presentation_main":
+    case "life_history_main":
     case "feedback":
-      return value;
+      return mapped;
     default:
       return "opening";
   }

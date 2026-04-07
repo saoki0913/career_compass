@@ -12,6 +12,7 @@ import {
   getTodayTaskData,
   getViewerPlan,
 } from "@/lib/server/app-loaders";
+import { getTasksPageData } from "@/lib/server/task-loaders";
 import { DashboardPageClient } from "@/components/dashboard/DashboardPageClient";
 import { DashboardSkeleton } from "@/components/skeletons/DashboardSkeleton";
 
@@ -61,7 +62,7 @@ async function DashboardAuthenticatedContent({
   isGuest: boolean;
 }) {
   const plan = await getViewerPlan(identity);
-  const [companiesData, esStats, deadlinesData, todayTaskData, activationData, incompleteItems] =
+  const [companiesData, esStats, deadlinesData, todayTaskData, activationData, incompleteItems, openTasksPage] =
     await Promise.all([
       getCompaniesPageData(identity),
       getEsStats(identity),
@@ -69,6 +70,7 @@ async function DashboardAuthenticatedContent({
       getTodayTaskData(identity),
       getActivationData(identity),
       getDashboardIncompleteData(identity),
+      getTasksPageData(identity, { status: "open" }),
     ]);
 
   return (
@@ -84,6 +86,7 @@ async function DashboardAuthenticatedContent({
       initialTodayTask={todayTaskData}
       initialActivationData={activationData}
       initialIncompleteItems={incompleteItems}
+      initialOpenTasks={openTasksPage.tasks}
     />
   );
 }

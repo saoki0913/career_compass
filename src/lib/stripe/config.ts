@@ -54,7 +54,7 @@ export const PLAN_METADATA = {
   },
   standard: {
     name: "Standard",
-    price: 1480,
+    price: 1490,
     credits: 100,
     companies: -1, // unlimited
     esReviews: 10, // display-only hint

@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { notifySuccess } from "@/lib/notifications";
 import { SettingsPageSkeleton } from "@/components/skeletons/SettingsPageSkeleton";
-import { getUserFacingErrorMessage } from "@/lib/api-errors";
+import { reportUserFacingError } from "@/lib/client-error-ui";
 
 const LoadingSpinner = () => (
   <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -118,7 +118,7 @@ export default function SettingsPage() {
         setSelectedIndustries(data.profile.targetIndustries || []);
         setSelectedJobTypes(data.profile.targetJobTypes || []);
       } catch (err) {
-        setError(getUserFacingErrorMessage(err, {
+        setError(reportUserFacingError(err, {
           code: "SETTINGS_PROFILE_FETCH_FAILED",
           userMessage: "プロフィールの取得に失敗しました。",
         }, "SettingsPage:fetchProfile"));
@@ -188,7 +188,7 @@ export default function SettingsPage() {
       setProfile(data.profile);
       notifySuccess({ title: "プロフィールを保存しました" });
     } catch (err) {
-      setError(getUserFacingErrorMessage(err, {
+      setError(reportUserFacingError(err, {
         code: "SETTINGS_PROFILE_UPDATE_FAILED",
         userMessage: "プロフィールを保存できませんでした。",
       }, "SettingsPage:saveProfile"));
@@ -238,7 +238,7 @@ export default function SettingsPage() {
       setNotificationSettings(data.settings);
       notifySuccess({ title: "通知設定を保存しました" });
     } catch (err) {
-      setError(getUserFacingErrorMessage(err, {
+      setError(reportUserFacingError(err, {
         code: "SETTINGS_NOTIFICATIONS_UPDATE_FAILED",
         userMessage: "通知設定を保存できませんでした。",
       }, "SettingsPage:saveNotifications"));
@@ -291,7 +291,7 @@ export default function SettingsPage() {
         return;
       }
     } catch (err) {
-      setError(getUserFacingErrorMessage(err, {
+      setError(reportUserFacingError(err, {
         code: "STRIPE_CHECKOUT_CREATE_FAILED",
         userMessage: "プラン変更を開始できませんでした。",
       }, "SettingsPage:startCheckout"));
@@ -318,7 +318,7 @@ export default function SettingsPage() {
       const { url } = await response.json();
       window.location.href = url;
     } catch (err) {
-      setError(getUserFacingErrorMessage(err, {
+      setError(reportUserFacingError(err, {
         code: "STRIPE_PORTAL_CREATE_FAILED",
         userMessage: "請求管理ページを開けませんでした。",
       }, "SettingsPage:openBillingPortal"));
@@ -359,7 +359,7 @@ export default function SettingsPage() {
       setShowPlanModal(false);
       notifySuccess({ title: "プラン変更を反映しました" });
     } catch (err) {
-      setError(getUserFacingErrorMessage(err, {
+      setError(reportUserFacingError(err, {
         code: "STRIPE_CHECKOUT_CREATE_FAILED",
         userMessage: "プラン変更を開始できませんでした。",
       }, "SettingsPage:changePlan"));
@@ -391,7 +391,7 @@ export default function SettingsPage() {
       // Redirect to login page after successful deletion
       router.push("/login");
     } catch (err) {
-      setError(getUserFacingErrorMessage(err, {
+      setError(reportUserFacingError(err, {
         code: "SETTINGS_ACCOUNT_DELETE_FAILED",
         userMessage: "アカウント削除に失敗しました。",
       }, "SettingsPage:deleteAccount"));
@@ -670,7 +670,7 @@ export default function SettingsPage() {
                 profile?.plan === "standard" ? "border-primary bg-primary/5" : "border-border"
               )}>
                 <h3 className="font-bold mb-1">Standard</h3>
-                <p className="text-2xl font-bold mb-2">¥1,480<span className="text-sm font-normal">/月</span></p>
+                <p className="text-2xl font-bold mb-2">¥1,490<span className="text-sm font-normal">/月</span></p>
                 <ul className="space-y-2 text-sm mb-4">
                   <li className="flex items-center gap-2">
                     <CheckIcon />

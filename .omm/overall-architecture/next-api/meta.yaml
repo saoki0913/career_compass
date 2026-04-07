@@ -1,0 +1,10 @@
+created: 2026-04-05T11:26:59.476Z
+updated: 2026-04-05T11:27:26.703Z
+update_count: 2
+last_field: diagram
+kind: nested-class
+title: next-api
+children:
+  - ai-proxy-routes
+parentPath: []
+

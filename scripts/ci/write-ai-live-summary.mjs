@@ -6,6 +6,7 @@ import path from "node:path";
 const REPORT_NAME_RE = /^(live_[^/]+?)_(\d{8}T\d{6}Z)\.json$/;
 const FEATURE_DISPLAY = {
   es_review: "ES添削",
+  company_info_search: "企業情報検索",
   rag_ingest: "企業RAG取り込み",
   selection_schedule: "選考スケジュール取得",
   gakuchika: "ガクチカ作成",
@@ -14,12 +15,39 @@ const FEATURE_DISPLAY = {
 };
 const FEATURE_ORDER = [
   "es_review",
+  "company_info_search",
   "rag_ingest",
   "selection_schedule",
   "gakuchika",
   "motivation",
   "interview",
 ];
+
+function normalizeExpectedFeatures(expectedFeatures) {
+  const raw =
+    Array.isArray(expectedFeatures)
+      ? expectedFeatures
+      : typeof expectedFeatures === "string"
+        ? expectedFeatures.split(",")
+        : FEATURE_ORDER;
+
+  const requested = new Set(
+    raw
+      .map((feature) => String(feature || "").trim())
+      .filter(Boolean),
+  );
+
+  if (requested.size === 0) {
+    return [...FEATURE_ORDER];
+  }
+
+  const unknown = [...requested].filter((feature) => !FEATURE_ORDER.includes(feature));
+  if (unknown.length > 0) {
+    throw new Error(`Unknown expected feature(s): ${unknown.join(", ")}`);
+  }
+
+  return FEATURE_ORDER.filter((feature) => requested.has(feature));
+}
 
 const FEATURE_RECOMMENDATIONS = {
   es_review: [
@@ -43,6 +71,34 @@ const FEATURE_RECOMMENDATIONS = {
       title: "judge 低評価ケースを精査",
       description: "deterministic は通っても、自然さや設問適合で評価を落としている。",
       nextStep: "低評価 case の生成文を見て prompt と model routing を見直す。",
+    },
+  ],
+  company_info_search: [
+    {
+      id: "official-rank",
+      match: (reason) =>
+        reason.includes("no_official_in_top_n") ||
+        reason.includes("company_name_mismatch"),
+      title: "公式サイト到達率を確認",
+      description: "公式サイトに十分到達できず、企業名一致の判定でも落としている。",
+      nextStep: "query expansion、domain pattern、official 判定のログを確認する。",
+    },
+    {
+      id: "metadata",
+      match: (reason) =>
+        reason.includes("wrong_source_type") ||
+        reason.includes("url_pattern_mismatch") ||
+        reason.includes("year_mismatch"),
+      title: "metadata 精度を確認",
+      description: "source type や URL pattern、年度一致の判定で品質を落としている。",
+      nextStep: "judge metadata score と result normalization を確認する。",
+    },
+    {
+      id: "search-errors",
+      match: (reason) => reason.includes("search_error") || reason.includes("error"),
+      title: "検索実行エラーを確認",
+      description: "検索または評価実行時のエラーで nightly が不安定になっている。",
+      nextStep: "runner error、rate limit、search backend のログを確認する。",
     },
   ],
   rag_ingest: [
@@ -73,8 +129,29 @@ const FEATURE_RECOMMENDATIONS = {
       description: "nightly 実行後の RAG データ削除に失敗している。",
       nextStep: "delete-by-urls と company 単位 cleanup の実行ログを確認する。",
     },
+    {
+      id: "retrieval-weak",
+      match: (reason) => reason.includes("retrieval_weak"),
+      title: "取り込み後の検索再現を確認",
+      description: "クロール後の追検索で候補件数が足りず、クエリ拡張や検索ゲートが弱い可能性がある。",
+      nextStep: "post_ingest_query の語、strict_company_match / allow_aggregators、検索 runner のログを確認する。",
+    },
   ],
   selection_schedule: [
+    {
+      id: "search-candidates-missing",
+      match: (reason) => reason.includes("search_candidate_missing"),
+      title: "採用ページ探索の入口を確認",
+      description: "Web 検索で候補 URL が取れておらず、スケジュール抽出の前段で止まっている。",
+      nextStep: "SearchPagesRequest の query 生成、DDGS、会社名正規化を確認する。",
+    },
+    {
+      id: "schedule-fetch",
+      match: (reason) => reason.includes("schedule_fetch_failed"),
+      title: "ページ取得と抽出パイプラインを確認",
+      description: "候補 URL はあるが本文取得または LLM 抽出で失敗している。",
+      nextStep: "fetch timeout、HTML→text、selection_type 別プロンプトを確認する。",
+    },
     {
       id: "deadline-missing",
       match: (reason) => reason.includes("deadline_missing") || reason.includes("deadlines_found_false"),
@@ -99,6 +176,23 @@ const FEATURE_RECOMMENDATIONS = {
   ],
   gakuchika: [
     {
+      id: "draft-ready-gate",
+      match: (reason) =>
+        reason.includes("draft_ready") ||
+        reason.includes("did not reach") ||
+        reason.includes("DraftReady"),
+      title: "draft_ready までの会話完走を確認",
+      description: "ES 下書き準備状態に到達する前に会話が止まっている。",
+      nextStep: "FastAPI の gakuchika ステージ遷移、`GAKUCHIKA_MIN_USER_ANSWERS_FOR_ES_DRAFT_READY`、tests/ai_eval/gakuchika_cases.json の回答シナリオを確認する。",
+    },
+    {
+      id: "llm-judge-blocking",
+      match: (reason) => reason.includes("llm_judge_blocking_fail"),
+      title: "LLM judge の blocking 失敗を精査",
+      description: "決定論チェックは通過したが judge が不合格とした。",
+      nextStep: "LIVE_AI_CONVERSATION_LLM_JUDGE と judge プロンプト、ケース期待を突き合わせる。",
+    },
+    {
       id: "question-depth",
       match: (reason) => reason.includes("question-depth"),
       title: "会話の深掘りを強化",
@@ -112,8 +206,42 @@ const FEATURE_RECOMMENDATIONS = {
       description: "会話で得た要点が最終生成文に十分残っていない。",
       nextStep: "summary 生成と draft prompt の入力マッピングを確認する。",
     },
+    {
+      id: "forbidden-token",
+      match: (reason) => reason.includes("forbidden_token:"),
+      title: "禁止フレーズ混入を確認",
+      description: "ドラフトまたは会話に含めたくない定型句が出ている。",
+      nextStep: "tests/ai_eval の expectedForbiddenTokens とプロンプト安全化を確認する。",
+    },
+    {
+      id: "required-groups",
+      match: (reason) => reason.includes("required_question_group_miss"),
+      title: "質問側の網羅性を確認",
+      description: "期待した観点の質問トークン群が揃っていない。",
+      nextStep: "requiredQuestionTokenGroups と質問ステージ遷移を突き合わせる。",
+    },
+    {
+      id: "draft-length",
+      match: (reason) =>
+        reason.includes("draft_too_short") || reason.includes("draft_too_long"),
+      title: "ドラフト文字数レンジを確認",
+      description: "生成ドラフトが短すぎる/長すぎる。",
+      nextStep: "charLimit、repair ループ、要約圧縮の挙動を確認する。",
+    },
   ],
   motivation: [
+    {
+      id: "generate-draft-http",
+      match: (reason) =>
+        reason.includes("503") ||
+        reason.includes("500") ||
+        reason.includes("Service Unavailable") ||
+        reason.includes("generate-draft") ||
+        reason.includes("ES生成"),
+      title: "generate-draft / ES 生成 API を確認",
+      description: "会話後ドラフト生成で upstream エラーや 5xx が返っている。",
+      nextStep: "Next の `/api/motivation/.../generate-draft`、FastAPI 連携、レート制限と `fastapi.log` を確認する。",
+    },
     {
       id: "question-depth",
       match: (reason) => reason.includes("question-depth"),
@@ -128,14 +256,68 @@ const FEATURE_RECOMMENDATIONS = {
       description: "企業理解や本人経験との接続が draft に残り切っていない。",
       nextStep: "draft 生成の入力 context と evidence summary を確認する。",
     },
+    {
+      id: "forbidden-token",
+      match: (reason) => reason.includes("forbidden_token:"),
+      title: "禁止フレーズ混入を確認",
+      description: "志望動機ドラフトに含めたくない定型句が出ている。",
+      nextStep: "expectedForbiddenTokens と refusal/安全系プロンプトを確認する。",
+    },
+    {
+      id: "required-groups",
+      match: (reason) => reason.includes("required_question_group_miss"),
+      title: "質問トピックの網羅を確認",
+      description: "業界・企業・経験など、期待した観点の質問が揃っていない。",
+      nextStep: "requiredQuestionTokenGroups と slot 設計を確認する。",
+    },
+    {
+      id: "draft-length",
+      match: (reason) =>
+        reason.includes("draft_too_short") || reason.includes("draft_too_long"),
+      title: "ドラフト文字数を確認",
+      description: "draftCharLimit と実出力の乖離。",
+      nextStep: "generate-draft の charLimit と本文圧縮を確認する。",
+    },
   ],
   interview: [
+    {
+      id: "prerequisite-gakuchika",
+      match: (reason) =>
+        reason.includes("draft_ready") ||
+        reason.includes("gakuchika conversation") ||
+        reason.includes("did not reach"),
+      title: "面接ケースの前提（ガクチカ側）完走を確認",
+      description: "面接フローの前段でガクチカ会話が draft_ready に至っていない。",
+      nextStep: "interview_cases.json の依存と gakuchika シナリオを成套で見直し、必要なら面接専用の下準備パスを分離する。",
+    },
     {
       id: "question-depth",
       match: (reason) => reason.includes("question-depth"),
       title: "追質問の深さを改善",
       description: "初手質問や follow-up が浅く、面接らしい掘り下げになっていない。",
       nextStep: "質問生成条件と会話履歴の参照量を確認する。",
+    },
+    {
+      id: "forbidden-feedback",
+      match: (reason) => reason.includes("forbidden_token:"),
+      title: "フィードバック文の品質を確認",
+      description: "面接フィードバックに含めたくない定型句が混入している。",
+      nextStep: "interview.expectedForbiddenTokens と feedback 生成プロンプトを確認する。",
+    },
+    {
+      id: "required-groups",
+      match: (reason) => reason.includes("required_question_group_miss"),
+      title: "面接質問の観点網羅を確認",
+      description: "志望動機・ガクチカ・企業理解など、期待した観点の質問が揃っていない。",
+      nextStep: "requiredQuestionTokenGroups と interview flow を確認する。",
+    },
+    {
+      id: "feedback-length",
+      match: (reason) =>
+        reason.includes("feedback_too_short") || reason.includes("feedback_too_long"),
+      title: "フィードバック量を確認",
+      description: "フィードバック本文が短すぎる/長すぎる。",
+      nextStep: "minFeedbackCharCount 設定と feedback API の出力制約を確認する。",
     },
     {
       id: "output-grounding",
@@ -187,6 +369,7 @@ function inferReportType(report) {
   if (report.payload?.reportType) return String(report.payload.reportType);
   const base = path.basename(report.path);
   if (base.startsWith("live_es_review_")) return "es_review";
+  if (base.startsWith("live_company_info_search_")) return "company_info_search";
   if (base.startsWith("live_rag_ingest_")) return "rag_ingest";
   if (base.startsWith("live_selection_schedule_")) return "selection_schedule";
   if (base.startsWith("live_gakuchika_")) return "gakuchika";
@@ -217,6 +400,18 @@ function collectReasons(row) {
   if (Array.isArray(row.judge_blocking_reasons)) reasons.push(...row.judge_blocking_reasons);
   if (Array.isArray(row.judgeFailReasons)) reasons.push(...row.judgeFailReasons);
   if (Array.isArray(row.judge?.reasons)) reasons.push(...row.judge.reasons);
+  if (typeof row.representative_error === "string" && row.representative_error.trim()) {
+    reasons.push(row.representative_error);
+  }
+  if (typeof row.representativeError === "string" && row.representativeError.trim()) {
+    reasons.push(row.representativeError);
+  }
+  if (typeof row.representative_log === "string" && row.representative_log.trim()) {
+    reasons.push(row.representative_log);
+  }
+  if (typeof row.representativeLog === "string" && row.representativeLog.trim()) {
+    reasons.push(row.representativeLog);
+  }
   return reasons.map((reason) => String(reason));
 }
 
@@ -401,7 +596,7 @@ function statusForReport(report) {
 }
 
 function isAlwaysReportOnlyFeature(reportType) {
-  return reportType === "rag_ingest" || reportType === "selection_schedule";
+  return reportType === "company_info_search" || reportType === "rag_ingest" || reportType === "selection_schedule";
 }
 
 function isExtendedEsQualityReportOnly(report, suite) {
@@ -422,14 +617,15 @@ function workflowImpactForReport(report, suite) {
   return "blocking";
 }
 
-export function buildAiLiveSummaryMarkdown(reports) {
-  return buildAiLiveArtifacts(reports).summaryMarkdown;
+export function buildAiLiveSummaryMarkdown(reports, options = {}) {
+  return buildAiLiveArtifacts(reports, options).summaryMarkdown;
 }
 
 export function buildAiLiveArtifacts(reports, options = {}) {
   const generatedAt = options.generatedAt || new Date().toISOString();
   const runUrl = options.runUrl || "";
   const suite = options.suite || "";
+  const expectedFeatures = normalizeExpectedFeatures(options.expectedFeatures);
   const normalizedReports = normalizeReports(reports);
   const overall = normalizedReports.reduce(
     (acc, report) => {
@@ -467,7 +663,7 @@ export function buildAiLiveArtifacts(reports, options = {}) {
     ),
   }));
   const featureMap = new Map(existingFeatures.map((feature) => [feature.reportType, feature]));
-  const features = FEATURE_ORDER.map((reportType) => featureMap.get(reportType) || createMissingFeature(reportType));
+  const features = expectedFeatures.map((reportType) => featureMap.get(reportType) || createMissingFeature(reportType));
 
   const aggregate = {
     generatedAt,
@@ -617,7 +813,7 @@ export function buildAiLiveArtifacts(reports, options = {}) {
   };
 }
 
-export function writeAiLiveSummary({ outputDir, summaryFile, runUrl, suite } = {}) {
+export function writeAiLiveSummary({ outputDir, summaryFile, runUrl, suite, expectedFeatures } = {}) {
   const resolvedOutputDir = outputDir || process.env.AI_LIVE_OUTPUT_DIR || path.resolve("backend/tests/output");
   const resolvedSummaryFile = summaryFile || process.env.GITHUB_STEP_SUMMARY || "";
   const defaultRunUrl =
@@ -626,6 +822,7 @@ export function writeAiLiveSummary({ outputDir, summaryFile, runUrl, suite } = {
       : "";
   const resolvedRunUrl = runUrl || defaultRunUrl;
   const resolvedSuite = suite || process.env.AI_LIVE_SUITE || "";
+  const resolvedExpectedFeatures = expectedFeatures || process.env.AI_LIVE_EXPECTED_FEATURES || "";
 
   const reports = collectLatestAiLiveReports(resolvedOutputDir);
   mkdirSync(resolvedOutputDir, { recursive: true });
@@ -634,6 +831,7 @@ export function writeAiLiveSummary({ outputDir, summaryFile, runUrl, suite } = {
     generatedAt: new Date().toISOString(),
     runUrl: resolvedRunUrl,
     suite: resolvedSuite,
+    expectedFeatures: resolvedExpectedFeatures,
   });
 
   writeFileSync(path.join(resolvedOutputDir, "ai-live-summary.json"), JSON.stringify(artifacts.aggregate, null, 2), "utf8");
@@ -654,6 +852,7 @@ function parseArgs(argv) {
     summaryFile: process.env.GITHUB_STEP_SUMMARY || "",
     runUrl: "",
     suite: "",
+    expectedFeatures: process.env.AI_LIVE_EXPECTED_FEATURES || "",
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -675,6 +874,11 @@ function parseArgs(argv) {
     }
     if (arg === "--suite") {
       out.suite = argv[i + 1] || out.suite;
+      i += 1;
+      continue;
+    }
+    if (arg === "--expected-features") {
+      out.expectedFeatures = argv[i + 1] || out.expectedFeatures;
       i += 1;
       continue;
     }

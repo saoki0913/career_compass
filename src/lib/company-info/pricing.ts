@@ -11,11 +11,18 @@ export const MONTHLY_SCHEDULE_FETCH_FREE_LIMITS: Record<CompanyInfoEligiblePlan,
   pro: 150,
 };
 
-/** 企業RAGの月次無料枠（URL クロール + PDF の合算ページ数）。`rag_ingest_units` の意味と一致。 */
-const MONTHLY_RAG_FREE_PAGES: Record<PaidPlan, number> = {
+/** 企業RAG URL の月次無料枠（ページ）。 */
+const MONTHLY_RAG_HTML_FREE_PAGES: Record<PaidPlan, number> = {
   free: 10,
   standard: 100,
   pro: 300,
+};
+
+/** 企業RAG PDF の月次無料枠（ページ）。 */
+const MONTHLY_RAG_PDF_FREE_PAGES: Record<PaidPlan, number> = {
+  free: 40,
+  standard: 200,
+  pro: 600,
 };
 
 export const COMPANY_RAG_SOURCE_LIMITS: Record<PaidPlan, number> = {
@@ -28,8 +35,19 @@ export function getMonthlyScheduleFetchFreeLimit(plan: CompanyInfoEligiblePlan):
   return MONTHLY_SCHEDULE_FETCH_FREE_LIMITS[plan];
 }
 
+export function getMonthlyRagHtmlFreeUnits(plan: PaidPlan): number {
+  return MONTHLY_RAG_HTML_FREE_PAGES[plan];
+}
+
+export function getMonthlyRagPdfFreeUnits(plan: PaidPlan): number {
+  return MONTHLY_RAG_PDF_FREE_PAGES[plan];
+}
+
+/**
+ * @deprecated URL/PDF 分離前の互換 API。新実装は HTML/PDF 別 helper を使う。
+ */
 export function getMonthlyRagFreeUnits(plan: PaidPlan): number {
-  return MONTHLY_RAG_FREE_PAGES[plan];
+  return getMonthlyRagHtmlFreeUnits(plan);
 }
 
 export function getCompanyRagSourceLimit(plan: PaidPlan): number {
@@ -44,21 +62,16 @@ export function normalizePdfPageCount(pageCount: number | null | undefined): num
 }
 
 /**
- * PDF 1 取込あたりの固定クレジット（文書ページ数の上限帯で決定）。
- * 月次無料枠でページを充当しても、このティア額は減らない（`applyCompanyRagUsage` の PDF 経路）。
+ * PDF 無料枠超過時の軽量クレジット。
+ * 超過ページ数に対して 1-20p=2, 21-60p=6, 61p+=12 を返す。
  */
 export function calculatePdfIngestCredits(pageCount: number | null | undefined): number {
-  const n = normalizePdfPageCount(pageCount);
-  if (n <= 1) return 1;
-  if (n <= 2) return 2;
-  if (n <= 5) return 3;
-  if (n <= 10) return 6;
-  if (n <= 20) return 12;
-  if (n <= 40) return 24;
-  if (n <= 60) return 36;
-  if (n <= 80) return 48;
-  if (n <= 100) return 60;
-  return 72;
+  const raw = Math.floor(Number(pageCount));
+  const n = Number.isFinite(raw) ? raw : 0;
+  if (n <= 0) return 0;
+  if (n <= 20) return 2;
+  if (n <= 60) return 6;
+  return 12;
 }
 
 export function calculateCorporateCrawlUnits(pagesCrawled: number): number {

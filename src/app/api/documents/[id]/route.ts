@@ -16,6 +16,7 @@ import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   getOwnedApplication,
   getOwnedCompany,
+  getOwnedDocument,
   hasOwnedApplication,
   hasOwnedCompany,
   hasOwnedJobType,
@@ -24,35 +25,6 @@ import { getDocumentDetailPageData } from "@/lib/server/app-loaders";
 import { esDocumentCategorySchema } from "@/lib/es-document-category";
 
 type DocumentRow = typeof documents.$inferSelect;
-
-async function getIdentity(request: NextRequest) {
-  return getRequestIdentity(request);
-}
-
-async function verifyDocumentAccess(
-  documentId: string,
-  userId: string | null,
-  guestId: string | null
-): Promise<{ valid: boolean; document?: typeof documents.$inferSelect }> {
-  const [doc] = await db
-    .select()
-    .from(documents)
-    .where(eq(documents.id, documentId))
-    .limit(1);
-
-  if (!doc) {
-    return { valid: false };
-  }
-
-  if (userId && doc.userId === userId) {
-    return { valid: true, document: doc };
-  }
-  if (guestId && doc.guestId === guestId) {
-    return { valid: true, document: doc };
-  }
-
-  return { valid: false };
-}
 
 async function buildDocumentResponse(
   doc: DocumentRow,
@@ -136,7 +108,7 @@ export async function PUT(
   try {
     const { id: documentId } = await params;
 
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return createApiErrorResponse(request, {
         status: 401,
@@ -149,8 +121,8 @@ export async function PUT(
       });
     }
 
-    const access = await verifyDocumentAccess(documentId, identity.userId, identity.guestId);
-    if (!access.valid || !access.document) {
+    const docRow = await getOwnedDocument(documentId, identity);
+    if (!docRow) {
       return createApiErrorResponse(request, {
         status: 404,
         code: "DOCUMENT_UPDATE_NOT_FOUND",
@@ -195,7 +167,7 @@ export async function PUT(
 
     if (content !== undefined) {
       // Save version before updating (if content changed significantly)
-      const oldContent = access.document.content;
+      const oldContent = docRow.content;
       if (oldContent && oldContent !== JSON.stringify(content)) {
         await db.insert(documentVersions).values({
           id: crypto.randomUUID(),
@@ -292,7 +264,7 @@ export async function PUT(
     }
 
     if (rawEsCategory !== undefined) {
-      if (access.document.type !== "es") {
+      if (docRow.type !== "es") {
         return createApiErrorResponse(request, {
           status: 400,
           code: "DOCUMENT_ES_CATEGORY_NOT_APPLICABLE",
@@ -346,7 +318,7 @@ export async function DELETE(
   try {
     const { id: documentId } = await params;
 
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return createApiErrorResponse(request, {
         status: 401,
@@ -359,8 +331,8 @@ export async function DELETE(
       });
     }
 
-    const access = await verifyDocumentAccess(documentId, identity.userId, identity.guestId);
-    if (!access.valid) {
+    const docForDelete = await getOwnedDocument(documentId, identity);
+    if (!docForDelete) {
       return createApiErrorResponse(request, {
         status: 404,
         code: "DOCUMENT_DELETE_NOT_FOUND",

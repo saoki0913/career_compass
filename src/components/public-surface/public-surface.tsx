@@ -16,13 +16,13 @@ export type PublicAction = {
 };
 
 const frameClassName =
-  "relative isolate min-h-screen overflow-hidden bg-[linear-gradient(180deg,#f7fbff_0%,#ffffff_40%,#f3f8fc_100%)] text-slate-950";
+  "relative isolate min-h-screen overflow-hidden bg-[#F8FAFC] text-slate-900 pt-20";
 
 const containerClassName = "mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8";
 
 const buttonClassNames: Record<NonNullable<PublicAction["variant"]>, string> = {
   primary:
-    "inline-flex h-11 items-center justify-center gap-2 rounded-full bg-slate-950 px-5 text-sm font-semibold text-white shadow-[0_14px_32px_rgba(15,23,42,0.16)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
+    "inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[#B7131A] px-5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#8e0f14] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B7131A] focus-visible:ring-offset-2",
   secondary:
     "inline-flex h-11 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 shadow-sm transition-colors duration-200 hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
   subtle:
@@ -38,8 +38,6 @@ export function PublicSurfaceFrame({
 }) {
   return (
     <div className={cn(frameClassName, className)}>
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[22rem] bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.16),transparent_42%),radial-gradient(circle_at_top_left,rgba(148,163,184,0.12),transparent_32%)]" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[18rem] bg-[radial-gradient(circle_at_bottom_left,rgba(148,163,184,0.10),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.08),transparent_34%)]" />
       {children}
     </div>
   );
@@ -112,7 +110,11 @@ export function PublicSurfaceButton({
   className?: string;
 }) {
   return (
-    <Link href={href} className={cn(buttonClassNames[variant], className)}>
+    <Link 
+      href={href} 
+      className={cn(buttonClassNames[variant], className)}
+      style={variant === "primary" ? { backgroundColor: "#B7131A", fontWeight: 700 } : undefined}
+    >
       {children}
       {variant === "primary" ? (
         <ArrowRight className="size-4 shrink-0" aria-hidden />
@@ -149,9 +151,10 @@ export function PublicSurfaceHero({
           ) : null}
           <h1
             className={cn(
-              "max-w-3xl text-balance text-[clamp(2.7rem,5vw,5rem)] font-semibold leading-[0.95] tracking-[-0.05em] text-slate-950",
+              "max-w-3xl text-balance text-[clamp(2.7rem,5vw,5rem)] leading-[0.95] tracking-[-0.05em]",
               eyebrow ? "mt-5" : "mt-0",
             )}
+            style={{ fontWeight: 900, color: "#000666" }}
           >
             {title}
           </h1>
@@ -214,7 +217,10 @@ export function PublicSurfaceSection({
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">
             {eyebrow}
           </p>
-          <h2 className="mt-3 text-balance text-2xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-3xl">
+          <h2 
+            className="mt-3 text-balance text-2xl tracking-[-0.04em] sm:text-3xl"
+            style={{ fontWeight: 900, color: "#000666" }}
+          >
             {title}
           </h2>
           <p className="mt-4 max-w-xl text-sm leading-7 text-slate-600 sm:text-base">
@@ -258,7 +264,10 @@ export function PublicSurfacePanel({
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">
+          <h3 
+            className="text-lg tracking-[-0.03em]"
+            style={{ fontWeight: 900, color: "#000666" }}
+          >
             {title}
           </h3>
           {description ? (

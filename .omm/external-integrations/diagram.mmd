@@ -1,0 +1,16 @@
+graph LR
+    better-auth-google["Better Auth And Google OAuth\nsrc/lib/auth/ + src/app/api/auth/"]
+    supabase-postgres-storage["Supabase Postgres And Storage\nsrc/lib/db/ + src/lib/storage/"]
+    stripe-billing["Stripe Billing\nsrc/lib/stripe/ + src/app/api/webhooks/stripe/"]
+    google-calendar["Google Calendar\nsrc/lib/calendar/ + src/app/api/calendar/"]
+    firecrawl-web["Web Scraping And Search\nbackend/app/utils/firecrawl.py + web_search.py"]
+    llm-runtime["LLM And Embedding Runtime\nbackend/app/utils/llm.py + embeddings.py"]
+
+    better-auth-google -->|"creates sessions and account links stored in"| supabase-postgres-storage
+    stripe-billing -->|"updates subscriptions and plan state in"| supabase-postgres-storage
+    google-calendar -->|"reads and writes synced calendar records in"| supabase-postgres-storage
+    firecrawl-web -->|"acquires source material for"| llm-runtime
+    llm-runtime -->|"persists RAG and generation metadata in"| supabase-postgres-storage
+
+    classDef external fill:#585b70,stroke:#585b70,color:#cdd6f4
+    class better-auth-google,supabase-postgres-storage,stripe-billing,google-calendar,firecrawl-web,llm-runtime external

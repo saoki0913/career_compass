@@ -1,0 +1,1 @@
+Third-party systems that the app depends on: Better Auth with Google OAuth, Supabase Postgres and storage, Stripe, Google Calendar APIs, scraping and search providers, and the LLM/embedding stack used by FastAPI.

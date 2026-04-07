@@ -49,7 +49,7 @@ export function ESEditorSkeleton() {
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden print:hidden">
-        <div className="min-h-0 w-full flex-1 overflow-y-auto transition-all duration-300 lg:w-[55%]">
+        <div className="min-h-0 w-full flex-1 overflow-y-auto pb-mobile-tab transition-all duration-300 print:pb-0 lg:w-[55%]">
           <div className="es-print-body mx-auto max-w-4xl px-4 py-4 sm:px-6 lg:px-8">
             <Card className="border-border/50 shadow-sm">
               <CardContent className="p-6">

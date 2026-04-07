@@ -2,12 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import {
-  applications,
-  companies,
-  jobTypes,
-  motivationConversations,
-} from "@/lib/db/schema";
+import { motivationConversations } from "@/lib/db/schema";
 import {
   fetchGakuchikaContext,
   fetchProfileContext,
@@ -15,7 +10,6 @@ import {
   type ProfileContext,
 } from "@/lib/ai/user-context";
 import {
-  getMotivationConversationByCondition as getConversationByCondition,
   mergeDraftReadyContext,
   resolveDraftReadyState,
   safeParseConversationContext as parseConversationContext,
@@ -23,9 +17,8 @@ import {
   type MotivationProgress,
   type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
-import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
-import { getRequestIdentity, type RequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   getRequestId,
   logAiCreditCostSummary,
@@ -33,6 +26,17 @@ import {
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import {
+  buildMotivationEvidenceSummaryFromCards,
+  ensureMotivationConversation,
+  fetchMotivationApplicationJobCandidates,
+  getOwnedMotivationCompanyData,
+  isMotivationSetupComplete,
+  resolveMotivationInputs,
+  resolveMotivationRoleSelectionSource,
+  type MotivationCompanyData as CompanyData,
+  type MotivationEvidenceCard as EvidenceCard,
+} from "@/lib/motivation/server";
 
 function resolveSafeMotivationStartError(raw: string | null | undefined): {
   userMessage: string;
@@ -54,24 +58,6 @@ function resolveSafeMotivationStartError(raw: string | null | undefined): {
     status: 503,
     code: "MOTIVATION_START_FAILED",
   };
-}
-
-async function getOwnedCompanyData(companyId: string, identity: RequestIdentity): Promise<CompanyData | null> {
-  const [company] = await db
-    .select({
-      id: companies.id,
-      name: companies.name,
-      industry: companies.industry,
-    })
-    .from(companies)
-    .where(
-      identity.userId
-        ? and(eq(companies.id, companyId), eq(companies.userId, identity.userId))
-        : and(eq(companies.id, companyId), eq(companies.guestId, identity.guestId!)),
-    )
-    .limit(1);
-
-  return company ?? null;
 }
 
 interface Message {
@@ -104,15 +90,6 @@ interface MotivationEvaluation {
   risk_flags?: string[];
 }
 
-interface EvidenceCard {
-  sourceId: string;
-  title: string;
-  contentType: string;
-  excerpt: string;
-  sourceUrl: string;
-  relevanceLabel: string;
-}
-
 interface StageStatus {
   current: MotivationConversationContext["questionStage"];
   completed: MotivationConversationContext["questionStage"][];
@@ -120,20 +97,6 @@ interface StageStatus {
 }
 
 type MotivationConversationContext = BaseMotivationConversationContext;
-
-interface CompanyData {
-  id: string;
-  name: string;
-  industry: string | null;
-}
-
-interface ResolvedMotivationInputs {
-  company: CompanyData;
-  conversationContext: MotivationConversationContext;
-  requiresIndustrySelection: boolean;
-  industryOptions: string[];
-  companyRoleCandidates: string[];
-}
 
 interface FastAPIQuestionResponse {
   question: string;
@@ -166,125 +129,6 @@ interface FastAPIQuestionResponse {
   stage_status?: StageStatus;
   captured_context?: Partial<MotivationConversationContext>;
   internal_telemetry?: unknown;
-}
-
-function safeParseConversationContext(json: string | null): MotivationConversationContext {
-  return parseConversationContext(json);
-}
-
-function uniqueStrings(values: Array<string | null | undefined>, maxItems = 8): string[] {
-  const seen = new Set<string>();
-  const output: string[] = [];
-  for (const value of values) {
-    const normalized = value?.trim();
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    output.push(normalized);
-    if (output.length >= maxItems) break;
-  }
-  return output;
-}
-
-function buildEvidenceSummaryFromCards(cards: EvidenceCard[]): string | null {
-  if (cards.length === 0) return null;
-  return cards
-    .slice(0, 2)
-    .map((card) => `${card.sourceId} ${card.title}: ${card.excerpt}`)
-    .join(" / ");
-}
-
-function resolveMotivationInputs(
-  company: CompanyData,
-  conversationContext: MotivationConversationContext,
-  applicationJobCandidates: string[],
-): ResolvedMotivationInputs {
-  const resolution = resolveMotivationRoleContext({
-    companyName: company.name,
-    companyIndustry: company.industry,
-    selectedIndustry: conversationContext.selectedIndustry,
-    applicationRoles: applicationJobCandidates,
-  });
-
-  const nextContext: MotivationConversationContext = {
-    ...conversationContext,
-    selectedIndustry: conversationContext.selectedIndustry || resolution.resolvedIndustry || undefined,
-    selectedIndustrySource:
-      conversationContext.selectedIndustrySource ||
-      resolution.industrySource ||
-      undefined,
-    companyRoleCandidates: uniqueStrings([
-      ...conversationContext.companyRoleCandidates,
-      ...resolution.roleCandidates,
-    ]),
-  };
-
-  return {
-    company: {
-      ...company,
-      industry: resolution.resolvedIndustry,
-    },
-    conversationContext: nextContext,
-    requiresIndustrySelection: resolution.requiresIndustrySelection,
-    industryOptions: [...resolution.industryOptions],
-    companyRoleCandidates: resolution.roleCandidates,
-  };
-}
-
-function isSetupComplete(
-  conversationContext: MotivationConversationContext,
-  requiresIndustrySelection: boolean,
-): boolean {
-  const hasIndustry = !requiresIndustrySelection || Boolean(conversationContext.selectedIndustry);
-  return hasIndustry && Boolean(conversationContext.selectedRole);
-}
-
-async function fetchApplicationJobCandidates(
-  companyId: string,
-  userId: string | null,
-  guestId: string | null,
-): Promise<string[]> {
-  const rows = await db
-    .select({
-      jobTypeName: jobTypes.name,
-    })
-    .from(applications)
-    .leftJoin(jobTypes, eq(jobTypes.applicationId, applications.id))
-    .where(
-      userId
-        ? and(eq(applications.companyId, companyId), eq(applications.userId, userId))
-        : and(eq(applications.companyId, companyId), eq(applications.guestId, guestId!))
-    );
-
-  const candidates: string[] = [];
-  for (const row of rows) {
-    const value = row.jobTypeName?.trim();
-    if (value && !candidates.includes(value)) {
-      candidates.push(value);
-    }
-  }
-  return candidates.slice(0, 6);
-}
-
-function resolveRoleSelectionSource(
-  selectedRole: string,
-  profileContext: ProfileContext | null,
-  applicationJobCandidates: string[],
-  companyRoleCandidates: string[],
-  explicitSource?: string | null,
-): MotivationConversationContext["selectedRoleSource"] {
-  if (explicitSource === "profile" || explicitSource === "company_doc" || explicitSource === "application_job_type" || explicitSource === "user_free_text") {
-    return explicitSource;
-  }
-  if (applicationJobCandidates.includes(selectedRole)) {
-    return "application_job_type";
-  }
-  if (profileContext?.target_job_types.includes(selectedRole)) {
-    return "profile";
-  }
-  if (companyRoleCandidates.includes(selectedRole)) {
-    return "company_doc";
-  }
-  return "user_free_text";
 }
 
 async function getQuestionFromFastAPI(
@@ -467,44 +311,13 @@ export async function POST(
       return NextResponse.json({ error: "志望職種を選択してください" }, { status: 400 });
     }
 
-    const company = await getOwnedCompanyData(companyId, identity);
+    const company = await getOwnedMotivationCompanyData(companyId, identity);
 
     if (!company) {
       return NextResponse.json({ error: "企業が見つかりません" }, { status: 404 });
     }
 
-    const ownerCondition = userId
-      ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
-      : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!));
-
-    let conversation = await getConversationByCondition(ownerCondition);
-    if (!conversation) {
-      const newId = crypto.randomUUID();
-      const now = new Date();
-      const baseConversation = {
-        id: newId,
-        userId,
-        guestId,
-        companyId,
-        messages: "[]",
-        questionCount: 0,
-        status: "in_progress" as const,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      if (userId) {
-        await db.insert(motivationConversations).values(baseConversation).onConflictDoNothing({
-          target: [motivationConversations.companyId, motivationConversations.userId],
-        });
-      } else {
-        await db.insert(motivationConversations).values(baseConversation).onConflictDoNothing({
-          target: [motivationConversations.companyId, motivationConversations.guestId],
-        });
-      }
-
-      conversation = await getConversationByCondition(ownerCondition);
-    }
+    const conversation = await ensureMotivationConversation(companyId, userId, guestId);
 
     if (!conversation) {
       return NextResponse.json({ error: "会話の作成に失敗しました" }, { status: 500 });
@@ -516,8 +329,8 @@ export async function POST(
 
     const profileContext = await fetchProfileContext(userId);
     const gakuchikaContext = userId ? await fetchGakuchikaContext(userId) : [];
-    const applicationJobCandidates = await fetchApplicationJobCandidates(companyId, userId, guestId);
-    const existingContext = safeParseConversationContext(conversation.conversationContext);
+    const applicationJobCandidates = await fetchMotivationApplicationJobCandidates(companyId, userId, guestId);
+    const existingContext = parseConversationContext(conversation.conversationContext);
     const setupContext: MotivationConversationContext = {
       ...existingContext,
       selectedIndustry: selectedIndustry || existingContext.selectedIndustry,
@@ -535,7 +348,7 @@ export async function POST(
       setupContext,
       applicationJobCandidates,
     );
-    resolvedInputs.conversationContext.selectedRoleSource = resolveRoleSelectionSource(
+    resolvedInputs.conversationContext.selectedRoleSource = resolveMotivationRoleSelectionSource(
       selectedRole,
       profileContext,
       applicationJobCandidates,
@@ -543,7 +356,7 @@ export async function POST(
       roleSelectionSource,
     );
 
-    if (!isSetupComplete(resolvedInputs.conversationContext, resolvedInputs.requiresIndustrySelection)) {
+    if (!isMotivationSetupComplete(resolvedInputs.conversationContext, resolvedInputs.requiresIndustrySelection)) {
       return NextResponse.json({ error: "先に業界・職種の設定を完了してください" }, { status: 400 });
     }
 
@@ -650,7 +463,7 @@ export async function POST(
       questionCount: 0,
       isDraftReady,
       scores: result.evaluation?.scores || null,
-      evidenceSummary: result.evidenceSummary || buildEvidenceSummaryFromCards(result.evidenceCards),
+      evidenceSummary: result.evidenceSummary || buildMotivationEvidenceSummaryFromCards(result.evidenceCards),
       evidenceCards: result.evidenceCards,
       coachingFocus: result.coachingFocus,
       riskFlags: result.riskFlags,

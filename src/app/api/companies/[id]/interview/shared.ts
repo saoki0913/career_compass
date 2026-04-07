@@ -18,8 +18,8 @@ import {
   getInterviewIndustrySeed,
 } from "@/lib/interview/company-seeds";
 import {
+  canonicalizeInterviewFormat,
   classifyInterviewRoleTrack,
-  INTERVIEW_FORMAT_OPTIONS,
   INTERVIEW_STAGE_OPTIONS,
   INTERVIEWER_TYPE_OPTIONS,
   ROLE_TRACK_OPTIONS,
@@ -401,11 +401,7 @@ function buildSetupState(input: {
       ROLE_TRACK_OPTIONS,
       classifyInterviewRoleTrack(selectedRole),
     ),
-    interviewFormat: parseEnumValue(
-      input.persisted?.interviewFormat,
-      INTERVIEW_FORMAT_OPTIONS,
-      "standard_behavioral",
-    ),
+    interviewFormat: canonicalizeInterviewFormat(input.persisted?.interviewFormat),
     selectionType: parseEnumValue(
       input.persisted?.selectionType,
       SELECTION_TYPE_OPTIONS,
@@ -677,11 +673,7 @@ export async function buildInterviewContext(companyId: string, identity: Request
         selectedRole: activeConversation.selectedRole,
         selectedRoleSource: activeConversation.selectedRoleSource,
         roleTrack: parseEnumValue(activeConversation.roleTrack, ROLE_TRACK_OPTIONS, setup.roleTrack),
-        interviewFormat: parseEnumValue(
-          activeConversation.interviewFormat,
-          INTERVIEW_FORMAT_OPTIONS,
-          setup.interviewFormat,
-        ),
+        interviewFormat: canonicalizeInterviewFormat(activeConversation.interviewFormat ?? setup.interviewFormat),
         selectionType: parseEnumValue(
           activeConversation.selectionType,
           SELECTION_TYPE_OPTIONS,

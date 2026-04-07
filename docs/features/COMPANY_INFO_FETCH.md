@@ -1,405 +1,317 @@
-# 企業情報検索機能
+# 企業情報取得機能
 
-採用ページから選考情報を抽出する機能と、コーポレートページをクロールして **RAG 用に蓄積する**機能を扱う。**選考スケジュール取得では RAG を構築しない**（抽出結果は締切等の DB 保存に用いるのみ）。
+採用ページから選考情報を抽出する機能と、企業の公開ページや PDF を取り込んで企業 RAG を構築する機能を扱う。選考スケジュール取得と企業 RAG 取り込みは別機能であり、**選考スケジュール取得では RAG を構築しない**。
 
-**参照実装**: `backend/app/routers/company_info.py`, `src/app/api/companies/[id]/fetch-info/route.ts`
+正本:
 
----
+- FastAPI: `backend/app/routers/company_info.py`
+- Next API:
+  - `src/app/api/companies/[id]/fetch-info/route.ts`
+  - `src/app/api/companies/[id]/fetch-corporate/route.ts`
+  - `src/app/api/companies/[id]/fetch-corporate/estimate/route.ts`
+  - `src/app/api/companies/[id]/fetch-corporate-upload/route.ts`
+  - `src/app/api/companies/[id]/fetch-corporate-upload/estimate/route.ts`
 
 ## 1. 概要
 
 | 項目 | 内容 |
 |------|------|
-| **選考スケジュール取得** | 採用ページから締切・選考情報を抽出 |
-| **コーポレート情報取得** | ユーザーが選択した公開ページをクロールしてRAG保存 |
-| **LLM** | 選考スケジュール抽出は `MODEL_SELECTION_SCHEDULE`（既定 `gpt-nano` → **GPT-5.4 nano**）、企業情報抽出は `MODEL_COMPANY_INFO`（既定 `gpt-fast`） |
-
-### クレジット消費（選考スケジュール取得）
-
-| 結果 | 条件 | 消費 |
-|------|------|------|
-| 完全成功 | 締切情報あり、**月次無料枠内** | 0クレジット（無料枠 1 回消費） |
-| 完全成功 | 締切情報あり、無料枠外 | 1クレジット |
-| 部分成功 | 締切なし、他データあり | 0クレジット |
-| 失敗 | データなし | 0クレジット |
+| 選考スケジュール取得 | 採用ページ 1 URL から締切・提出物・選考フローを抽出する |
+| コーポレート情報取得 | ユーザーが選んだ公開 URL / PDF を取り込み、RAG 用に保存する |
+| LLM | 選考スケジュール抽出は `MODEL_SELECTION_SCHEDULE`、企業情報関連は `MODEL_COMPANY_INFO` を使う |
+| ログイン要件 | 選考スケジュール取得、企業 RAG 取込ともにログイン必須 |
 
 ### プラン別制限
 
-| プラン | 選考スケジュール | コーポレートページ |
-|--------|-----------------|-------------------|
-| guest | 利用不可（ログイン必須） | 利用不可 |
-| free | 5回/月 | 3ソース + 月10ページ無料 |
-| standard | 50回/月 | 100ソース + 月100ページ無料 |
-| pro | 150回/月 | 500ソース + 月300ページ無料 |
+| プラン | 選考スケジュール無料回数 | RAG URL/HTML 無料ページ | RAG PDF 無料ページ | 1社あたり source 上限 | PDF ingest 上限 | Google OCR 上限 | Mistral OCR 上限 |
+|------|------:|------:|------:|------:|------:|------:|------:|
+| guest | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| free | 5 | 10 | 40 | 3 | 20 | 5 | 0 |
+| standard | 50 | 100 | 200 | 100 | 60 | 30 | 10 |
+| pro | 150 | 300 | 600 | 500 | 120 | 60 | 20 |
 
-### コーポレートRAG課金
+### 企業 RAG の課金ルール
 
-- 月次無料枠は **URL クロールのページ数 + PDF のページ数**を合算してカウントする。
-- 無料枠を先にページ数ぶん消費する。
-- **URL**: 無料に載らなかった超過分は **1ページ = 1クレジット**。
-- **PDF**: 文書ページ数の帯ごとに **固定クレジット**（無料枠で一部を消費してもティア額はフル課金）。ティアは `docs/features/CREDITS.md` §3.5。取込・課金に使うページ数は **実際に処理したページ**（プラン別上限で切り詰めた後）。上限は `docs/features/COMPANY_RAG.md` の表。
-- API レスポンスは `actualUnits`（ページ）, `freeUnitsApplied`, `remainingFreeUnits`, `creditsConsumed`, `actualCreditsDeducted` を返す。
+- URL/HTML と PDF は**無料枠を分離**して管理する。
+- URL/HTML は無料枠を超えたページだけ `1 page = 1 credit`。
+- PDF は無料枠内なら `0 credits`。
+- PDF は無料枠超過時のみ次の tier を課金する。
 
----
+| PDF 超過ページ数 | credits |
+|------|------:|
+| 1-20 | 2 |
+| 21-60 | 6 |
+| 61-120 | 12 |
 
-## 2. コンテンツタイプ（9種類）
+- PDF の価値指標は OCR provider ごとの内部原価ではなく、**最終的に処理したページ数**。
+- provider ごとの実コストは telemetry に残すが、ユーザー課金は `src/lib/company-info/pricing.ts` を正とする。
 
-企業情報を9つのカテゴリに分類。RAG検索時のブースト係数や、UI上の表示に使用。
+## 2. 共通ルール
 
-| タイプ | 日本語ラベル | 典型的な内容 |
-|-------|-------------|-------------|
-| `new_grad_recruitment` | 新卒採用HP | 募集要項、選考フロー、エントリー情報 |
-| `midcareer_recruitment` | 中途採用HP | 経験者向け職種、転職者向け情報 |
-| `corporate_site` | 企業HP | 会社概要、沿革、事業内容、製品/サービス |
-| `ir_materials` | IR資料 | 有価証券報告書、決算説明資料、統合報告書 |
-| `ceo_message` | 社長メッセージ | トップメッセージ、社長挨拶 |
-| `employee_interviews` | 社員インタビュー | 社員紹介、カルチャー記事、職種紹介 |
-| `press_release` | プレスリリース | リリース本文、提携、受賞情報 |
-| `csr_sustainability` | CSR/サステナ | サステナビリティ方針、ESGデータ |
-| `midterm_plan` | 中期経営計画 | 中計資料、経営方針、KPI |
+### 2.1 成功時のみ消費
 
-### コンテンツタイプの自動分類
+- 選考スケジュール取得は、成功時のみ無料回数または credits を消費する。
+- 企業 RAG 取込も、FastAPI で保存成功したものだけ `applyCompanyRagUsage()` を通して計上する。
+- 見積 API は無料枠や credits を**消費しない**。
 
-`content_type`が指定されない場合、以下の順序で自動推定：
+### 2.2 締切は承認必須
 
-1. **URLパターン**: `/shinsotsu` → new_grad_recruitment, `/ir` → ir_materials 等
-2. **キーワード**: 「新卒採用」「決算短信」等のテキストマッチング
-3. **LLMフォールバック**: 上記で判定不可の場合、LLMで分類
+- `fetch-info` の抽出結果はそのまま本確定しない。
+- 締切は `isConfirmed: false` で扱い、ユーザー承認後に確定する。
 
-**参照実装**: `backend/app/utils/content_classifier.py`
+### 2.3 source 数の制御
 
----
+- 企業 RAG は 1 社ごとに source 上限を持つ。
+- 新しい URL や PDF を追加する時だけ上限にカウントする。
+- 同じ URL の再取得は既存 source を安全に置換する。
+
+### 2.4 確認ダイアログ
+
+実行前見積は常に表示するが、確認ダイアログを出すのは次の時だけ。
+
+- credits 見積が 0 を超える
+- Mistral OCR を使う見込みがある
+- 上限の都合で一部ページが切り捨てられる
 
 ## 3. 選考スケジュール取得
 
-### 処理フロー
+### 3.1 処理フロー
 
-```
-1. 採用ページ検索
-   POST /company-info/search-pages
-   Hybrid検索を優先し、まず軽量な fast path（少ない query budget / rescue なし / deep verify なし）で候補を返す
-   - プロフィールの卒業年度を初期値に使用
-   - 公式候補 → trusted job site の順で優先
-   - 親会社 / 子会社候補は表示するが、自動選択しない
-   - 候補不足や official 不足のときだけ deep path（追加 query / site rescue / rerank / light verification）へ進む
-         ↓
-2. ユーザーがURL選択
-         ↓
-3. 情報抽出（選択した 1 URL のみ）
-   POST /company-info/fetch-schedule
-   ユーザーが選んだ URL の本文から構造化抽出（**別ページへの自動フォローは行わない**）
-   - 取得元URLの relation / trusted job site / 年度一致を metadata 化
-   - parent / subsidiary は confidence を low 上限に補正
-   - trusted job site は medium 上限に補正
-   - PDF の本文抽出に失敗した場合は OCR fallback のみ（同一リクエスト内）
-         ↓
-4. DB保存（非同期）
-   - 締切 → deadlinesテーブル
-   - 選考情報 → 検索・通知で使う構造化データ
-         ↓
-5. UI更新
-   - 成功時はモーダルを閉じ、snackbar で完了通知
-   - 企業詳細ページ全体は再ローディングせず、締切一覧など必要なセクションだけ更新
-         ↓
-6. Google Calendar連携（オプション）
-```
+1. `POST /api/companies/[id]/search-pages` 相当で採用ページ候補を探す
+2. ユーザーが 1 URL を選ぶ
+3. `POST /api/companies/[id]/fetch-info` で本文抽出と構造化抽出を行う
+4. 締切・提出物・選考フローを保存候補として返す
+5. ユーザー承認後に deadline などへ反映する
 
-### 選考スケジュール取得の実行経路
-
-- 通常の採用ページ HTML は **`Firecrawl`** を優先利用して、締切・提出物・応募方法・選考フローを抽出する。
-- `Firecrawl` で情報が弱く、かつ **PDF / OCR 必要** と判断された場合のみ、**`Google Document AI (Enterprise Document OCR)`** を **1 回だけ**追加で利用する。
-- `Google Layout Parser` は使わない。
-- `Firecrawl` が失敗した場合は、既存の `extract_text_from_html() + extract_schedule_with_llm()` へフォールバックする。
-
-### LLM 失敗時の挙動（選考スケジュール・企業情報抽出）
-
-- JSON がパースできない場合、`call_llm_with_error`（`backend/app/utils/llm.py`）は **同一モデルでの `max_tokens` 段階リトライは行わず**、**OpenAI キーがあるときは JSON 修復を 1 回**試す。選考スケジュール（`selection_schedule`）は **`gpt-nano`（GPT‑5.4 nano）**、それ以外は **`gpt-fast`（mini 相当）**（`REPAIR_JSON_OPENAI_MAX_TOKENS`、既定 1500）。OpenAI キーが無いときは従来どおり Claude（Sonnet）または同一プロバイダーで修復。解析理由だけで主経路を別プロバイダーへ自動フォールバックはしない。
-- **課金不足（billing）・レート制限（rate_limit）・ネットワーク系（network）** のときは **別プロバイダーに自動切り替えしない**。
-- **いずれの主プロバイダーでも**、API エラー時に **別プロバイダーへ自動切り替えしない**（`_feature_cross_fallback_model` は常に無効。エラーを返して UI の再試行に委ねる）。
-- Next の [`fetch-info`](src/app/api/companies/[id]/fetch-info/route.ts) が FastAPI の `error_type` を解釈し、構造化エラーで返す（UI ではエラー用スナックバーで再試行を促す想定）。
-- **API キー未設定（no_api_key）** もフォールバックせず、「管理者にお問い合わせください」系のメッセージを返す。
-- 選考スケジュール抽出および企業情報一括抽出の初回 `max_tokens` はいずれも **1500**（選考は `SCHEDULE_LLM_MAX_OUTPUT_TOKENS`、フル抽出は `extract_info_with_llm` 呼び出し）。スキーマ上で締切・書類件数と文字列長を制限し、出力肥大を抑える。
-- **極端に長い HTML 本文**（`SCHEDULE_EXTREME_PAGE_CHARS` 超）では、`_compress_schedule_page_text_for_llm` がキーワード行・日付らしい行・末尾付近だけをルールで切り出してから LLM に渡し、入力を通常 **≤4000 文字**に抑える（長大ページの先頭だけを送るフォールバックは使わない）。
-
-### レート制限と abuse guard
-
-- `search-pages` / `search-corporate-pages` / `source-compliance/check` は company search 系 limiter を使う。
-- `fetch-info` は既存の `FETCH_INFO_RATE_LAYERS` を継続利用する。
-- `fetch-corporate` / `fetch-corporate-upload` は corporate mutate limiter を使う。
-- `delete-corporate-urls` は delete 専用 limiter を使う。
-- `fetch-corporate` GET と `es-review-status` GET は polling limiter を使う。
-- `source-compliance/check` は一度に 10 URL まで。超える場合は 400 を返す。
-- 429 は `RATE_LIMITED` の構造化エラーで返し、`Retry-After` を付け、`userMessage` は `しばらく待ってから再試行してください。` に統一する。
-
-### 開発者向け: LLM トークン・概算コストログ
-
-- **ユーザー向け UI や API レスポンスには含めない**（プロダクト上はクレジット／無料枠のみ表示）。
-- FastAPI（`backend/app/utils/llm.py`）で `LLM_USAGE_COST_LOG=true` のとき、チャット系 LLM 呼び出しごとに `logger.info` で **1 行の開発者向けログ**を出す。共通キーは `event=llm_cost`。
-  - 通常の 1 回呼び出し: `scope=call`（例: 構造化、テキスト、ストリーム、JSON 修復 `call_kind=json_repair`、PDF OCR `call_kind=pdf_ocr`）。
-  - 選考スケジュール 1 リクエストの集計: `scope=request`・`call_kind=selection_schedule_request`（行頭に `[選考スケジュール抽出]`、`source_url` は先頭 120 文字程度）。
-- **`ENVIRONMENT` によらず**、`LLM_USAGE_COST_LOG` のみで有効化できる。本番で ON にするとログ量が増えるため注意。
-- 概算 **USD** はデフォルト単価カタログ（`gpt-5.4-mini` は公式 Standard / Short context: Input $0.75 / Cached $0.075 / Output $4.50 per 1M 等）と任意の `LLM_PRICE_OVERRIDES_JSON` で算出。カタログに無いモデルは `usage_status=unavailable_price` になりやすい。
-- OpenAI mini の単価を環境変数で上書きする場合は **USD / 1M tokens** で次を設定（いずれか未設定ならカタログ値にフォールバック）:
-  - `OPENAI_PRICE_GPT_5_4_MINI_INPUT_PER_MTOK_USD`
-  - `OPENAI_PRICE_GPT_5_4_MINI_CACHED_INPUT_PER_MTOK_USD`（省略時は input 単価と同じ扱い）
-  - `OPENAI_PRICE_GPT_5_4_MINI_OUTPUT_PER_MTOK_USD`
-- ログに **概算円（`est_jpy`）** を付けるには `LLM_COST_USD_TO_JPY_RATE`（例: `155`）を **正の値で** 設定する。`est_usd` が算出できたときだけ `est_jpy=` が付く。実請求・為替とは一致しない。
-- 単価の出典・改定: [OpenAI API Pricing](https://openai.com/api/pricing/)、[Anthropic Pricing](https://www.anthropic.com/pricing) 等。改定時はカタログまたは `LLM_PRICE_OVERRIDES_JSON` を更新する。
-
-### 抽出項目
-
-#### 3.1 締切情報（deadlines）
-
-| フィールド | 説明 |
-|-----------|------|
-| type | es_submission, web_test, interview_1 等 |
-| title | 「本エントリー締切」等 |
-| due_date | 2024-06-01 |
-| confidence | high / medium / low |
-
-**締切タイプ一覧**:
-- `es_submission` - ES提出
-- `web_test` - Webテスト
-- `aptitude_test` - 適性検査
-- `interview_1/2/3/final` - 各面接
-- `briefing` - 説明会
-- `internship` - インターンシップ
-- `offer_response` - 内定承諾
-- `other` - その他
-
-#### 3.2 その他の抽出項目
+### 3.2 抽出対象
 
 | 項目 | 内容 |
 |------|------|
-| required_documents | 提出物（ES、成績証明書等） |
-| application_method | 応募方法（マイページからエントリー等） |
-| selection_process | 選考フロー（ES → Webテスト → 面接等） |
+| deadlines | ES 提出、Web テスト、面接、説明会など |
+| required_documents | ES、成績証明書、ポートフォリオなど |
+| application_method | マイページ登録、エントリー方法など |
+| selection_process | ES -> Web テスト -> 面接、など |
 
-### 日付推論ロジック
+### 3.3 抽出経路
 
-| 入力 | 出力 |
+- 通常の HTML は `Firecrawl` を優先して読む。
+- PDF や OCR 必要ページでは `Google Document AI` を補助的に使う。
+- `Google Layout Parser` は使わない。
+- HTML 取得や LLM 抽出に失敗した時は、既存の本文抽出フォールバックを使う。
+
+### 3.4 クレジット消費
+
+| 結果 | 条件 | 消費 |
+|------|------|------|
+| 完全成功 | 月次無料回数内 | 0 credits、無料回数を 1 消費 |
+| 完全成功 | 月次無料回数外 | 1 credit |
+| 部分成功 | 締切なし、他データあり | 0 credits |
+| 失敗 | データなし | 0 credits |
+
+## 4. コーポレート情報取得
+
+### 4.1 処理フロー
+
+1. `POST /api/companies/[id]/search-corporate-pages` で候補 URL を探す
+2. ユーザーが URL を選ぶ、または PDF をアップロードする
+3. 実行前に estimate API を呼ぶ
+4. 必要時だけ確認ダイアログを表示する
+5. 実行 API で HTML / PDF を取り込む
+6. chunk / embedding / BM25 更新まで行い、企業 RAG に保存する
+
+### 4.2 Next API
+
+| エンドポイント | 用途 |
 |------|------|
-| 「6月上旬」 | 2024-06-01 |
-| 「6月中旬」 | 2024-06-15 |
-| 「6月下旬」 | 2024-06-25 |
-| 「6月末」 | 2024-06-30 |
-| 「随時」 | null |
+| `POST /api/companies/[id]/fetch-corporate/estimate` | URL 取込の実行前見積 |
+| `POST /api/companies/[id]/fetch-corporate` | URL 取込の実行 |
+| `POST /api/companies/[id]/fetch-corporate-upload/estimate` | PDF upload の実行前見積 |
+| `POST /api/companies/[id]/fetch-corporate-upload` | PDF upload の実行 |
 
-### URL候補のスコアリング
+### 4.3 FastAPI 内部エンドポイント
 
-| 要素 | スコア |
-|------|--------|
-| 企業名一致 | +10 |
-| 採用キーワード（recruit, saiyo等） | +5 |
-| 公式ドメイン | +3 |
-| 卒業年度（2025, 2026等） | +2 |
+| エンドポイント | 用途 |
+|------|------|
+| `POST /company-info/rag/estimate-crawl-corporate` | URL 取込の backend preflight |
+| `POST /company-info/rag/crawl-corporate` | URL 取込の backend 実行 |
+| `POST /company-info/rag/estimate-upload-pdf` | PDF の backend preflight |
+| `POST /company-info/rag/upload-pdf` | PDF の backend 実行 |
 
-**信頼度判定**:
-- `high`: 対象企業の direct official ドメイン かつ 年度一致
-- `medium`: direct official だが年度不一致、または trusted job site（マイナビ / リクナビ / ONE CAREER）
-- `low`: 親会社 / 子会社 / その他
+### 4.4 URL crawl の分岐
 
-**補足**:
-- 選考スケジュール抽出の confidence はバックエンドが最終決定し、Next.js 側では再補正しない
-- 保存される `source_url` は、実際に締切を見つけたページ/PDF の URL
+`crawl-corporate` は source ごとに次を判定する。
 
----
+- `Content-Type`
+- response bytes の先頭 signature
+- 抽出本文の健全性
 
-## 4. コーポレート情報検索
+判定結果:
 
-### 処理フロー
+- HTML: そのまま本文抽出して chunk 化
+- PDF: 手動 upload と同じ共通 PDF ingest へ渡す
+- unsupported binary: skip する
 
-```
-1. コンテンツタイプ選択（9種類から）
-         ↓
-2. ページ検索
-   POST /company-info/search-corporate-pages
-   まず軽量な fast path で候補を返し、不十分な場合だけ deep path に進む
-         ↓
-3. 段階的検索戦略
-   ① fast path: 少ない query variation で検索し、候補が十分なら即返す
-   ② deep path: 候補不足 / official 不足のときだけ追加 query, site rescue, rerank, light verification
-   ③ Legacy fallback: Hybrid で十分な候補が得られない場合だけ旧検索へフォールバック
-         ↓
-4. ユーザーがURL選択
-         ↓
-5. クロール & RAG保存
-   POST /company-info/rag/crawl-corporate
-   1秒間隔でページ取得 → チャンキング → ベクトル化
-         ↓
-6. UI更新
-   - RAG 保存と状態同期が完了したらモーダルを閉じ、snackbar で完了通知
-   - 背景の企業詳細ページ全体は skeleton に戻さず、RAG 状態セクションだけ同期
-```
+このため、**PDF URL は手動 upload と同じ品質・同じ上限・同じ課金ルール**になる。
 
-### 再取得時の保存ルール
+### 4.5 PDF ingest のページ単位 routing
 
-- 新しい URL を追加で取得した場合は、既存 URL の RAG を消さずに蓄積する
-- 既に保存済みの URL をもう一度取得した場合は、その URL の既存チャンクだけを新しい取得結果で置き換える
-- 同じ URL の分類結果が変わった場合は、旧 `content_type` 側のその URL のチャンクを消し、新しい分類へ移す
-- 再取得失敗時は旧データを残す
+PDF は資料単位で一律 OCR せず、**ページ単位で route を混在**させる。
 
-### コンテンツタイプと検索タイプの対応
+1. 全ページを軽量 local 抽出する
+2. 各ページの text layer quality を判定する
+3. ページごとに route を決める
 
-| ContentType | SearchType | 検索クエリ例 |
-|-------------|------------|-------------|
-| new_grad_recruitment | about | 「NTTデータ 新卒採用HP」 |
-| midcareer_recruitment | about | 「NTTデータ 中途採用HP」 |
-| corporate_site | about | 「NTTデータ 会社概要」 |
-| ir_materials | ir | 「NTTデータ IR資料」 |
-| ceo_message | about | 「NTTデータ 社長メッセージ」 |
-| employee_interviews | about | 「NTTデータ 社員インタビュー」 |
-| press_release | about | 「NTTデータ プレスリリース」 |
-| csr_sustainability | about | 「NTTデータ CSR」 |
-| midterm_plan | ir | 「NTTデータ 中期経営計画」 |
+| route | 条件 |
+|------|------|
+| `local` | text layer が十分読める |
+| `google` | local では読みにくい |
+| `mistral` | `ir_materials` / `midterm_plan` かつ画像中心で、Google でも弱そうな難ページ |
 
-### スコアリングアルゴリズム
+補足:
 
-| 項目 | スコア |
-|------|--------|
-| 企業名タイトル一致 | +3.0 |
-| 企業名スニペット一致 | +2.0 |
-| ドメインパターン一致 | +4.0 |
-| TLD品質（.co.jp） | +1.5 |
-| TLD品質（.jp） | +1.0 |
-| 企業名不一致ペナルティ | -4.0 |
+- Free は `Mistral OCR` を使わない。
+- OCR 対象ページだけ provider に送る。
+- 元のページ順で再構成して、1 本の本文として chunk / 保存する。
+- ingest 上限を超えるページは先頭から切り詰める。
+- Google OCR 上限と Mistral OCR 上限は、**OCR 対象ページ数**として効く。
 
-**除外対象**:
-- ショッピングサイト、PDFビューア
-- アグリゲーターサイト（設定による）
-- Wikipedia、金融情報サイト等
+### 4.6 見積レスポンス
 
-**親会社/子会社ドメインの扱い**:
-- 親会社/子会社ページは候補として残す
-- ただし `sourceType` は `parent` / `subsidiary` のままで、`official` へ昇格させない
-- `confidence` は `low` 上限。`official && high` の自動選択対象にはならない
+#### URL 取込見積
 
-### 短ドメイン許可リスト
+`POST /api/companies/[id]/fetch-corporate/estimate`
 
-3文字未満のドメインパターンは通常無視されるが、以下の企業は例外として許可:
+FastAPI 由来の field:
 
-```json
-{
-  "EY": ["ey"],
-  "P&G": ["pg"],
-  "エムスリー": ["m3"],
-  "スタンダードチャータード銀行": ["sc"],
-  "ドイツ銀行": ["db"],
-  "日本HP": ["hp"]
-}
-```
+- `estimated_pages_crawled`
+- `estimated_html_pages`
+- `estimated_pdf_pages`
+- `estimated_google_ocr_pages`
+- `estimated_mistral_ocr_pages`
+- `will_truncate`
+- `page_routing_summaries`
 
-**参照実装**: `backend/data/company_mappings.json` の `short_domain_allowlist`
+Next 側で追加する field:
 
-### クエリエイリアス
+- `estimatedFreeHtmlPages`
+- `estimatedFreePdfPages`
+- `estimatedCredits`
+- `remainingHtmlFreeUnits`
+- `remainingPdfFreeUnits`
+- `requiresConfirmation`
 
-英語名・ブランド名で検索精度を向上:
+#### PDF upload 見積
 
-```python
-COMPANY_QUERY_ALIASES = {
-    "BCG": ["BCG", "Boston Consulting Group"],
-    "PwC": ["PwC", "PricewaterhouseCoopers"],
-    "P&G": ["P&G", "P&G Japan", "Procter & Gamble"],
-    "NTTデータ": ["NTT DATA", "NTTData"],
-    "三越伊勢丹": ["IMHDS", "IMHD"],
-    ...
-}
-```
+`POST /api/companies/[id]/fetch-corporate-upload/estimate`
 
-**参照実装**: `backend/app/utils/web_search.py` の `COMPANY_QUERY_ALIASES`
+- `estimated_free_pdf_pages`
+- `estimated_credits`
+- `estimated_google_ocr_pages`
+- `estimated_mistral_ocr_pages`
+- `will_truncate`
+- `requires_confirmation`
+- `page_routing_summary`
+- `processing_notice_ja`
 
-**参照実装**: `backend/app/routers/company_info.py` - `_score_corporate_candidate_with_breakdown()`
+見積は常に表示するが、source ごとの詳細 route は通常 UI に常設しない。詳細は debug / log で追う。
 
-### 「該当するページが見つかりません」の対処
+### 4.7 実行レスポンス
 
-| 原因 | 対処法 |
-|------|--------|
-| 企業名フィルタ | 「条件を緩和して再検索」ボタン |
-| スコア不足 | カスタム検索を使用 |
-| グループ会社 | 関連会社候補として表示されるため、`親会社` / `子会社` ラベルを確認して選択 |
+#### URL 取込
 
----
+`POST /api/companies/[id]/fetch-corporate`
 
-## 5. APIエンドポイント一覧
+- `pagesCrawled`
+- `actualUnits`
+- `freeUnitsApplied`
+- `remainingFreeUnits`
+- `remainingHtmlFreeUnits`
+- `remainingPdfFreeUnits`
+- `creditsConsumed`
+- `actualCreditsDeducted`
+- `chunksStored`
+- `pageRoutingSummaries`
 
-### 選考スケジュール取得
+#### PDF upload
 
-| エンドポイント | 説明 |
-|---------------|------|
-| `POST /company-info/search-pages` | 採用ページ候補を検索 |
-| `POST /company-info/fetch-schedule` | URLから選考情報を抽出 |
+`POST /api/companies/[id]/fetch-corporate-upload`
 
-### コーポレート情報取得
+- `summary`
+- `items[]`
+- `totalUnits`
+- `remainingFreeUnits`
+- `actualCreditsDeducted`
+- `estimatedCostBand`
 
-| エンドポイント | 説明 |
-|---------------|------|
-| `POST /company-info/search-corporate-pages` | コーポレートページ候補を検索 |
-| `POST /company-info/rag/crawl-corporate` | ユーザーが選択したページをクロールしてRAG保存 |
-| `POST /company-info/rag/{company_id}/delete-by-urls` | 登録済みURLを削除（指定URLのRAGだけ削除） |
+`items[]` の各要素には次が入る。
 
-### RAG管理
+- `ingestUnits`
+- `freeUnitsApplied`
+- `creditsConsumed`
+- `actualCreditsDeducted`
+- `sourceTotalPages`
+- `ingestTruncated`
+- `ocrTruncated`
+- `processingNoticeJa`
+- `pageRoutingSummary`
 
-| エンドポイント | 説明 |
-|---------------|------|
-| `GET /company-info/rag/status/{company_id}` | 簡易ステータス |
-| `GET /company-info/rag/status-detailed/{company_id}` | 詳細ステータス（タイプ別チャンク数） |
-| `DELETE /company-info/rag/{company_id}` | RAGデータ全削除 |
-| `DELETE /company-info/rag/{company_id}/{content_type}` | 特定タイプのみ削除 |
+### 4.8 page routing summary
 
----
+PDF 系処理では `page_routing_summary` を内部的に持ち、Next 側では `pageRoutingSummary` / `pageRoutingSummaries` として返す。主な項目は次のとおり。
 
-## 6. UI コンポーネント
+- `total_pages`
+- `ingest_pages`
+- `local_pages`
+- `google_ocr_pages`
+- `mistral_ocr_pages`
+- `truncated_pages`
+- `planned_route`
+- `actual_route`
 
-### FetchInfoButton.tsx（選考スケジュール取得）
+## 5. コンテンツタイプ
 
-- モーダルは step を切り替えても同じ shell 幅を維持
-- 卒業年度はプロフィール値を初期選択し、その場で変更可能
-- URL候補リストから選択
-- 信頼度バッジ（high=緑、medium=黄、low=灰）
-- 親会社 / 子会社候補には relation ラベルを表示し、自動選択しない
-- カスタムURL入力
-- 進捗表示（「2/3 処理中...」）
-- Google Calendar 追加失敗は「未連携 / 再連携必要 / 追加先未設定 / 一部失敗」を分けて表示
+企業情報は 9 種類に分類し、検索や retrieval boost に使う。
 
-### CorporateInfoSection.tsx（コーポレート情報）
+| タイプ | 日本語ラベル |
+|------|------|
+| `new_grad_recruitment` | 新卒採用 HP |
+| `midcareer_recruitment` | 中途採用 HP |
+| `corporate_site` | 企業 HP |
+| `ir_materials` | IR 資料 |
+| `ceo_message` | 社長メッセージ |
+| `employee_interviews` | 社員インタビュー |
+| `press_release` | プレスリリース |
+| `csr_sustainability` | CSR / サステナ |
+| `midterm_plan` | 中期経営計画 |
 
-- コンテンツタイプ別の統計カード（9種類）
-- URL検索・選択
-- 登録済みURL一覧表示・削除
+`content_type` が未指定の時は、URL pattern、keyword、LLM fallback の順で推定する。
 
-### DeadlineApprovalModal.tsx
+## 6. 保存ルール
 
-- 抽出された締切一覧
-- 信頼度「低」は初期チェックOFF
-- 一括承認ボタン
+- 新しい URL を追加取得した時は既存 URL の RAG を消さずに蓄積する。
+- 既存 URL を再取得した時は、その URL に紐づくチャンクだけを置き換える。
+- 同じ URL の分類結果が変わった場合は、旧 `content_type` 側のチャンクを消して新しい分類へ移す。
+- 再取得失敗時は旧データを残す。
+- PDF upload も URL crawl も、保存 metadata は `corporateInfoUrls` に寄せて管理する。
 
----
+## 7. UI
 
-## 7. 重要な仕様
+### FetchInfoButton.tsx
 
-1. **締切は未確認状態で保存**: `isConfirmed: false`、ユーザー承認が必要
-2. **信頼度「低」は初期チェックOFF**: UI上で初期選択されない
-3. **選考スケジュール取得では RAG を構築しない**: RAG はコーポレート情報取得でのみ保存する
-4. **部分成功**: 締切なしでも他データがあれば0クレジットで保存する
-5. **コーポレート取得の複数 URL**: ユーザーが選んだ URL を順次クロールし進捗を表示（選考スケジュールは 1 URL のみ）
-6. **親子会社のラベルは relation-first**: `classify_company_domain_relation()` を source of truth とし、関連会社ページは `official` にしない
-7. **URL自動選択は strict**: `official + high` だけを自動選択し、parent / subsidiary / job_site は手動選択のみ
+- 採用ページ候補を表示する
+- relation / confidence を明示する
+- 締切の承認導線を持つ
+- 選考スケジュール取得では企業 RAG を作らない
 
----
+### CorporateInfoSection.tsx
 
-## 8. 関連ファイル
+- コンテンツタイプ別に source を管理する
+- URL 検索、URL 取込、PDF upload を扱う
+- 実行前見積を表示する
+- `credits > 0` / `Mistral 使用` / `truncation` の時だけ確認を出す
 
-| ファイル | 役割 |
-|---------|------|
-| `backend/app/routers/company_info.py` | FastAPIエンドポイント |
-| `backend/app/utils/web_search.py` | 検索クエリ生成・スコアリング |
-| `backend/app/utils/company_names.py` | ドメインパターンマッチング |
-| `backend/app/utils/content_classifier.py` | コンテンツ自動分類 |
-| `backend/app/utils/content_types.py` | コンテンツタイプ定義 |
-| `backend/data/company_mappings.json` | ドメインパターン・許可リスト |
-| `src/app/api/companies/[id]/fetch-info/route.ts` | Next.js API（選考スケジュール） |
-| `src/app/api/companies/[id]/fetch-corporate/route.ts` | Next.js API（コーポレート情報） |
-| `src/components/companies/FetchInfoButton.tsx` | 選考スケジュール取得UI |
-| `src/components/companies/CorporateInfoSection.tsx` | コーポレート情報UI |
+## 8. 関連ドキュメント
 
-**RAG詳細**: `docs/features/COMPANY_RAG.md` を参照
+- `docs/features/COMPANY_INFO_SEARCH.md`
+- `docs/features/COMPANY_RAG.md`
+- `docs/features/CREDITS.md`

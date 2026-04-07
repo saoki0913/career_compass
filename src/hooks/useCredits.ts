@@ -6,7 +6,16 @@
  */
 
 import useSWR from "swr";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifySwrUserFacingFailure } from "@/lib/client-error-ui";
 import { buildAuthFetchHeaders } from "@/lib/swr-fetcher";
+
+const CREDITS_FETCH_FALLBACK = {
+  code: "CREDITS_FETCH_FAILED",
+  userMessage: "クレジット情報を取得できませんでした。",
+  action: "ページを再読み込みして、もう一度お試しください。",
+  retryable: true,
+} as const;
 
 export interface CreditsInfo {
   type: "user" | "guest";
@@ -17,15 +26,20 @@ export interface CreditsInfo {
   /** ログインユーザーのみ。企業RAG PDF 取込のページ上限（取込前表示用） */
   ragPdfLimits?: {
     maxPagesIngest: number;
-    maxPagesOcr: number;
+    maxPagesGoogleOcr: number;
+    maxPagesMistralOcr: number;
     summaryJa: string;
   };
   monthlyFree: {
-    companyRagPages?: {
+    companyRagHtmlPages?: {
       remaining: number;
       limit: number;
     };
-    /** @deprecated API は companyRagPages を返す */
+    companyRagPdfPages?: {
+      remaining: number;
+      limit: number;
+    };
+    /** @deprecated API は companyRagHtmlPages / companyRagPdfPages を返す */
     companyRagUnits?: {
       remaining: number;
       limit: number;
@@ -45,7 +59,8 @@ const GUEST_DEFAULTS: CreditsInfo = {
   monthlyAllocation: 12,
   nextResetAt: null,
   monthlyFree: {
-    companyRagPages: { remaining: 0, limit: 0 },
+    companyRagHtmlPages: { remaining: 0, limit: 0 },
+    companyRagPdfPages: { remaining: 0, limit: 0 },
     selectionSchedule: { remaining: 0, limit: 0 },
   },
 };
@@ -78,12 +93,12 @@ async function fetchCreditsData(key: CreditsSwrKey): Promise<CreditsInfo> {
       if (response.ok) {
         return response.json() as Promise<CreditsInfo>;
       }
-      throw new Error("クレジット情報を取得できませんでした");
+      throw await parseApiErrorResponse(response, CREDITS_FETCH_FALLBACK, "useCredits.fetchRetry");
     }
     return GUEST_DEFAULTS;
   }
 
-  throw new Error("Failed to fetch credits");
+  throw await parseApiErrorResponse(response, CREDITS_FETCH_FALLBACK, "useCredits.fetch");
 }
 
 interface UseCreditsOptions {
@@ -120,6 +135,10 @@ export function useCredits(opts: UseCreditsOptions = {}) {
       revalidateOnFocus: false,
       dedupingInterval: 3000,
       revalidateOnMount: !initialData,
+      onError(err, key) {
+        const ui = toAppUiError(err, CREDITS_FETCH_FALLBACK, "useCredits.swr");
+        notifySwrUserFacingFailure(ui, JSON.stringify(key));
+      },
     }
   );
 
@@ -140,13 +159,15 @@ export function useCredits(opts: UseCreditsOptions = {}) {
     selectionScheduleRemaining,
     selectionScheduleLimit,
     companyRagUnitsRemaining:
-      credits?.monthlyFree.companyRagPages?.remaining ??
+      credits?.monthlyFree.companyRagHtmlPages?.remaining ??
       credits?.monthlyFree.companyRagUnits?.remaining ??
       0,
     companyRagUnitsLimit:
-      credits?.monthlyFree.companyRagPages?.limit ??
+      credits?.monthlyFree.companyRagHtmlPages?.limit ??
       credits?.monthlyFree.companyRagUnits?.limit ??
       0,
+    companyRagPdfPagesRemaining: credits?.monthlyFree.companyRagPdfPages?.remaining ?? 0,
+    companyRagPdfPagesLimit: credits?.monthlyFree.companyRagPdfPages?.limit ?? 0,
     plan: credits?.plan ?? "guest",
     ragPdfLimits: credits?.ragPdfLimits,
     isLoading,

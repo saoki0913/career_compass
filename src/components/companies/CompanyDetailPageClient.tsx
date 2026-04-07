@@ -36,7 +36,8 @@ import { CompanyEditModal, UpdateCompanyData } from "@/components/companies/Comp
 import { OperationLockProvider } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
 import { CompanyDetailSkeleton } from "@/components/skeletons/CompanyDetailSkeleton";
-import { getUserFacingErrorMessage, parseApiErrorResponse } from "@/lib/api-errors";
+import { parseApiErrorResponse } from "@/lib/api-errors";
+import { reportUserFacingError } from "@/lib/client-error-ui";
 
 interface Company {
   id: string;
@@ -260,7 +261,7 @@ function PasswordDisplay({ companyId }: { companyId: string }) {
       setFetched(true);
     } catch (err) {
       setError(
-        getUserFacingErrorMessage(
+        reportUserFacingError(
           err,
           {
             code: "COMPANY_CREDENTIALS_FETCH_FAILED",
@@ -433,7 +434,7 @@ export default function CompanyDetailPageClient({
       setCompany(data.company);
     } catch (err) {
       setError(
-        getUserFacingErrorMessage(
+        reportUserFacingError(
           err,
           {
             code: "COMPANY_FETCH_FAILED",
@@ -531,7 +532,7 @@ export default function CompanyDetailPageClient({
       router.push("/companies");
     } catch (err) {
       setError(
-        getUserFacingErrorMessage(
+        reportUserFacingError(
           err,
           {
             code: "COMPANY_DELETE_FAILED",

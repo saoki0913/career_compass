@@ -285,14 +285,16 @@ function coerceQuestionStage(value: unknown): MotivationStage {
   if (value === "origin_experience" || value === "fit_connection") {
     return "self_connection";
   }
+  if (value === "closing") {
+    return "differentiation";
+  }
   if (
     value === "industry_reason" ||
     value === "company_reason" ||
     value === "self_connection" ||
     value === "desired_work" ||
     value === "value_contribution" ||
-    value === "differentiation" ||
-    value === "closing"
+    value === "differentiation"
   ) {
     return value;
   }

@@ -31,9 +31,9 @@ describe("getMarketingPricingPlans", () => {
     const standard = plans.find((plan) => plan.id === "standard");
     const pro = plans.find((plan) => plan.id === "pro");
 
-    expect(standard?.price).toBe("¥14,980");
+    expect(standard?.price).toBe("¥14,900");
     expect(standard?.period).toBe("年");
-    expect(standard?.savingsNote).toBe("¥2,780お得");
+    expect(standard?.savingsNote).toBe("¥2,980お得");
     expect(pro?.price).toBe("¥29,800");
     expect(pro?.period).toBe("年");
     expect(pro?.savingsNote).toBe("¥5,960お得");

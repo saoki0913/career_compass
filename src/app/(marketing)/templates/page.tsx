@@ -8,6 +8,9 @@ import {
   FileText,
   ListChecks,
 } from "lucide-react";
+import { LandingHeader } from "@/components/landing/LandingHeader";
+import { LandingFooter } from "@/components/landing/LandingFooter";
+import { StickyCTABar } from "@/components/landing/StickyCTABar";
 import {
   PublicSurfaceButton,
   PublicSurfaceFrame,
@@ -30,18 +33,10 @@ const mainClass = "mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8";
 
 export default function TemplatesPage() {
   return (
-    <PublicSurfaceFrame>
-      <PublicSurfaceHeader
-        navLinks={[
-          { href: "/tools", label: "ツール" },
-          { href: "/pricing", label: "料金" },
-          { href: "/login", label: "ログイン" },
-        ]}
-        primaryAction={{ href: "/login", label: "アプリで続ける" }}
-        secondaryAction={{ href: "/tools/es-counter", label: "文字数カウント" }}
-      />
-
-      <main>
+    <>
+      <LandingHeader />
+      <PublicSurfaceFrame>
+        <main>
         <PublicSurfaceHero
           title="テンプレ集"
           description="志望動機とガクチカ（STAR）の書き出し用テンプレです。"
@@ -187,5 +182,8 @@ export default function TemplatesPage() {
         </section>
       </main>
     </PublicSurfaceFrame>
+    <LandingFooter />
+    <StickyCTABar />
+    </>
   );
 }

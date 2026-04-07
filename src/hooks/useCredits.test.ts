@@ -36,7 +36,8 @@ describe("useCredits auth gating", () => {
       monthlyAllocation: 60,
       nextResetAt: "2026-04-01T00:00:00.000Z",
       monthlyFree: {
-        companyRagPages: { remaining: 3, limit: 10 },
+        companyRagHtmlPages: { remaining: 3, limit: 10 },
+        companyRagPdfPages: { remaining: 12, limit: 40 },
         selectionSchedule: { remaining: 2, limit: 5 },
       },
     };

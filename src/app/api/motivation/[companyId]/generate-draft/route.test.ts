@@ -13,6 +13,7 @@ const {
   getMotivationConversationByConditionMock,
   resolveDraftReadyStateMock,
   safeParseConversationContextMock,
+  safeParseMessagesMock,
   fetchFastApiInternalMock,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
@@ -26,6 +27,7 @@ const {
   getMotivationConversationByConditionMock: vi.fn(),
   resolveDraftReadyStateMock: vi.fn(),
   safeParseConversationContextMock: vi.fn(),
+  safeParseMessagesMock: vi.fn(),
   fetchFastApiInternalMock: vi.fn(),
 }));
 
@@ -63,6 +65,7 @@ vi.mock("@/lib/motivation/conversation", () => ({
   getMotivationConversationByCondition: getMotivationConversationByConditionMock,
   resolveDraftReadyState: resolveDraftReadyStateMock,
   safeParseConversationContext: safeParseConversationContextMock,
+  safeParseMessages: safeParseMessagesMock,
 }));
 
 vi.mock("@/lib/rate-limit-spike", () => ({
@@ -103,6 +106,7 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     getMotivationConversationByConditionMock.mockReset();
     resolveDraftReadyStateMock.mockReset();
     safeParseConversationContextMock.mockReset();
+    safeParseMessagesMock.mockReset();
     fetchFastApiInternalMock.mockReset();
     vi.restoreAllMocks();
 
@@ -133,6 +137,10 @@ describe("api/motivation/[companyId]/generate-draft", () => {
       selectedRole: "企画職",
       questionStage: "differentiation",
     });
+    safeParseMessagesMock.mockReturnValue([
+      { role: "user", content: "a" },
+      { role: "assistant", content: "b" },
+    ]);
     resolveDraftReadyStateMock.mockReturnValue({ isDraftReady: true, unlockedAt: null });
   });
 
@@ -238,5 +246,43 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     expect(payload.conversationMode).toBe("deepdive");
     expect(payload.currentSlot).toBe("self_connection");
     expect(payload.coachingFocus).toBe("補足深掘り");
+  });
+
+  it("keeps the generated draft as conversation state without creating an ES document immediately", async () => {
+    fetchFastApiInternalMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            draft: "志望動機の下書きです。",
+            char_count: 120,
+            key_points: ["企業理解"],
+            company_keywords: ["DX支援"],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            question: "次に補強したい点はどこですか？",
+            evidence_cards: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft/route");
+    const request = new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft", {
+      method: "POST",
+      body: JSON.stringify({ charLimit: 400 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ companyId: "company-1" }) });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.documentId).toBeNull();
+    expect(dbInsertMock).not.toHaveBeenCalled();
   });
 });

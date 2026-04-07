@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+/* ルートの DESIGN.md 等、src 外の Markdown を走査しない（誤ったユーティリティ生成を防ぐ） */
+@source "../**/*.{js,ts,jsx,tsx}";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -158,6 +160,30 @@
   --sidebar-accent-foreground: oklch(0.25 0.02 235);
   --sidebar-border: oklch(0.92 0.008 235);
   --sidebar-ring: oklch(0.50 0.18 235);
+
+  /* Landing page tokens — Stripe-oriented, see /DESIGN.md */
+  --lp-navy: #000666;
+  --lp-cta: #b7131a;
+  --lp-cta-hover: #951119;
+  --lp-surface-page: #f6f9fc;
+  --lp-surface-section: #ffffff;
+  --lp-surface-muted: #f6f9fc;
+  --lp-border-default: #e5edf5;
+  --lp-border-hairline: rgba(0, 0, 0, 0.08);
+  --lp-border-tint: rgba(0, 6, 102, 0.12);
+  --lp-muted-text: #64748d;
+  --lp-body-muted: #64748d;
+  --lp-badge-bg: #eef2ff;
+  --lp-tint-navy-soft: #e8eef9;
+  --lp-tint-cta-soft: #fceaea;
+  --lp-success: #168542;
+  --lp-on-dark-muted: rgba(255, 255, 255, 0.78);
+  --lp-on-dark-fine: rgba(255, 255, 255, 0.55);
+  --lp-hero-gradient-top: #f6f9fc;
+  --lp-hero-gradient-mid: #ffffff;
+  --lp-shadow-card: 0 0 0 1px rgba(0, 0, 0, 0.03), 0 2px 4px rgba(50, 50, 93, 0.08),
+    0 8px 16px rgba(0, 0, 0, 0.06);
+  --lp-shadow-screenshot: 0 15px 35px rgba(50, 50, 93, 0.25), 0 5px 15px rgba(0, 0, 0, 0.1);
 }
 
 .dark {
@@ -285,6 +311,15 @@
   /* Selection color */
   ::selection {
     @apply bg-primary/20 text-foreground;
+  }
+}
+
+/* Product: scroll inside h-screen shells — body padding does not inset inner overflow-y areas */
+@layer utilities {
+  @media (max-width: 1023px) {
+    .pb-mobile-tab {
+      padding-bottom: var(--mobile-bottom-nav-offset);
+    }
   }
 }
 

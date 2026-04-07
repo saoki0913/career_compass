@@ -1,26 +1,27 @@
-import type { Metadata, ReactNode } from "next";
+import type { Metadata } from "next";
 import Link from "next/link";
+import { LandingHeader } from "@/components/landing/LandingHeader";
+import { LandingFooter } from "@/components/landing/LandingFooter";
 import { createMarketingMetadata } from "@/lib/marketing-metadata";
 import { getMarketingPricingPlans } from "@/lib/marketing/pricing-plans";
-import {
-  getLegalBusinessAddress,
-  getLegalBusinessName,
-  getLegalPhoneNumber,
-  getLegalRefundPolicyUrl,
-  getLegalRepresentativeName,
-  getLegalSalesUrl,
-  getLegalSupportEmail,
-  getLegalSupportUrl,
-} from "@/lib/legal/commerce-disclosure";
 
-const salesUrl = getLegalSalesUrl();
-const supportEmail = getLegalSupportEmail();
-const supportUrl = getLegalSupportUrl();
-const refundPolicyUrl = getLegalRefundPolicyUrl();
-const businessName = getLegalBusinessName();
-const representativeName = getLegalRepresentativeName();
-const businessAddress = getLegalBusinessAddress();
-const phoneNumber = getLegalPhoneNumber();
+// ---------------------------------------------------------------------------
+// 特商法ページの値は環境変数ではなく直接記載する方針。
+// 根拠: docs/release/INDIVIDUAL_BUSINESS_COMPLIANCE.md §5-1
+// ---------------------------------------------------------------------------
+
+const SALES_URL = "https://www.shupass.jp";
+const SUPPORT_EMAIL = "support@shupass.jp";
+const SUPPORT_URL = "/contact";
+const REFUND_POLICY_URL = "/terms#billing";
+
+const BUSINESS_NAME = "Harbor Works";
+const REPRESENTATIVE_NAME =
+  "請求があった場合、遅滞なく開示いたします。開示をご希望の方は support@shupass.jp までご連絡ください。";
+const BUSINESS_ADDRESS = "〒133-0061 東京都江戸川区篠崎町１−３０−３";
+const PHONE_NUMBER =
+  "請求があった場合、遅滞なく開示いたします。開示をご希望の方は support@shupass.jp までご連絡ください。";
+
 const monthlyPlans = getMarketingPricingPlans("monthly");
 const annualPlans = getMarketingPricingPlans("annual");
 const standardMonthly = monthlyPlans.find((plan) => plan.id === "standard");
@@ -38,31 +39,31 @@ export const metadata: Metadata = createMarketingMetadata({
 
 type DisclosureRow = {
   label: string;
-  value: ReactNode;
+  value: React.ReactNode;
 };
 
 const disclosureRows: DisclosureRow[] = [
   {
     label: "販売事業者",
-    value: <span className="whitespace-pre-wrap">{businessName}</span>,
+    value: BUSINESS_NAME,
   },
   {
     label: "運営責任者",
-    value: <span className="whitespace-pre-wrap">{representativeName}</span>,
+    value: <span className="whitespace-pre-wrap">{REPRESENTATIVE_NAME}</span>,
   },
   {
     label: "所在地",
-    value: <span className="whitespace-pre-wrap">{businessAddress}</span>,
+    value: BUSINESS_ADDRESS,
   },
   {
     label: "電話番号",
-    value: <span className="whitespace-pre-wrap">{phoneNumber}</span>,
+    value: <span className="whitespace-pre-wrap">{PHONE_NUMBER}</span>,
   },
   {
     label: "メールアドレス",
     value: (
-      <a href={`mailto:${supportEmail}`} className="text-primary hover:underline">
-        {supportEmail}
+      <a href={`mailto:${SUPPORT_EMAIL}`} className="text-primary hover:underline">
+        {SUPPORT_EMAIL}
       </a>
     ),
   },
@@ -70,12 +71,12 @@ const disclosureRows: DisclosureRow[] = [
     label: "販売URL",
     value: (
       <a
-        href={salesUrl}
+        href={SALES_URL}
         className="text-primary hover:underline"
         target="_blank"
         rel="noopener noreferrer"
       >
-        {salesUrl}
+        {SALES_URL}
       </a>
     ),
   },
@@ -90,7 +91,7 @@ const disclosureRows: DisclosureRow[] = [
       <>
         Free: ¥0
         <br />
-        Standard: {standardMonthly?.price ?? "¥1,480"}/月、{standardAnnual?.price ?? "¥14,980"}/年
+        Standard: {standardMonthly?.price ?? "¥1,490"}/月、{standardAnnual?.price ?? "¥14,900"}/年
         <br />
         Pro: {proMonthly?.price ?? "¥2,980"}/月、{proAnnual?.price ?? "¥29,800"}/年
         <br />
@@ -128,7 +129,7 @@ const disclosureRows: DisclosureRow[] = [
         顧客ポータルからお手続きください。解約後も次回更新日までは利用可能です。
         <br />
         デジタルサービスの性質上、法令上必要な場合を除き、支払済み料金の返金は行っていません。詳細は
-        <a href={refundPolicyUrl} className="ml-1 text-primary hover:underline">
+        <a href={REFUND_POLICY_URL} className="ml-1 text-primary hover:underline">
           料金・返金ポリシー
         </a>
         をご確認ください。
@@ -142,12 +143,12 @@ const disclosureRows: DisclosureRow[] = [
         本サービスに重大な不具合があり、当社が合理的期間内に復旧できず、購入済み機能を提供できなかった場合は、状況確認のうえ返金その他の適切な対応を行います。
         <br />
         不具合のご連絡は
-        <a href={supportUrl} className="ml-1 text-primary hover:underline">
+        <a href={SUPPORT_URL} className="ml-1 text-primary hover:underline">
           お問い合わせページ
         </a>
         または
-        <a href={`mailto:${supportEmail}`} className="ml-1 text-primary hover:underline">
-          {supportEmail}
+        <a href={`mailto:${SUPPORT_EMAIL}`} className="ml-1 text-primary hover:underline">
+          {SUPPORT_EMAIL}
         </a>
         までお願いします。
       </>
@@ -157,12 +158,12 @@ const disclosureRows: DisclosureRow[] = [
     label: "問い合わせ窓口",
     value: (
       <>
-        <a href={supportUrl} className="text-primary hover:underline">
+        <a href={SUPPORT_URL} className="text-primary hover:underline">
           お問い合わせページ
         </a>
         {" "}または{" "}
-        <a href={`mailto:${supportEmail}`} className="text-primary hover:underline">
-          {supportEmail}
+        <a href={`mailto:${SUPPORT_EMAIL}`} className="text-primary hover:underline">
+          {SUPPORT_EMAIL}
         </a>
       </>
     ),
@@ -176,16 +177,10 @@ const disclosureRows: DisclosureRow[] = [
 
 export default function LegalPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-sm">
-        <div className="mx-auto flex h-16 max-w-3xl items-center px-4">
-          <Link href="/" className="text-xl font-bold">
-            就活Pass
-          </Link>
-        </div>
-      </header>
+    <div className="flex min-h-screen flex-col bg-background">
+      <LandingHeader />
 
-      <main className="mx-auto max-w-3xl px-4 py-12">
+      <main className="mx-auto w-full max-w-3xl px-4 py-12 flex-1">
         <h1 className="mb-8 text-2xl font-bold">特定商取引法に基づく表記</h1>
 
         <div className="rounded-2xl border bg-card/70 p-5 text-sm leading-7 text-muted-foreground">
@@ -204,9 +199,6 @@ export default function LegalPage() {
             </Link>
             をご確認ください。
           </p>
-          <p className="mt-3">
-            Stripe の Commerce Disclosure 要件に合わせ、通常キャンセル時と不具合時の対応を分けて掲載しています。販売事業者、運営責任者、所在地、電話番号は本番環境の `LEGAL_*` 変数を設定した内容を表示します。
-          </p>
         </div>
 
         <dl className="mt-8 divide-y divide-border rounded-2xl border bg-background px-5 text-sm leading-relaxed text-muted-foreground">
@@ -221,12 +213,8 @@ export default function LegalPage() {
           ))}
         </dl>
 
-        <div className="mt-12 border-t pt-6 text-sm text-muted-foreground">
-          <Link href="/" className="text-primary hover:underline">
-            トップページに戻る
-          </Link>
-        </div>
       </main>
+      <LandingFooter />
     </div>
   );
 }

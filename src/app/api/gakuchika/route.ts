@@ -9,13 +9,30 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations, userProfiles } from "@/lib/db/schema";
-import { eq, desc, isNull, asc, count, sql, getTableColumns } from "drizzle-orm";
+import { eq, desc, isNull, asc, count, inArray, getTableColumns } from "drizzle-orm";
 import { PLAN_METADATA, type PlanTypeWithGuest } from "@/lib/stripe/config";
 import {
   getGakuchikaSummaryKind,
   getGakuchikaSummaryPreview,
 } from "@/lib/gakuchika/summary";
 import { safeParseConversationState } from "@/app/api/gakuchika/shared";
+
+export type GakuchikaListConversationStatus = "in_progress" | "completed" | null;
+
+/** DB 由来の生値を一覧 API 用に正規化。質問済みなのに status が取れない行は in_progress に寄せる。 */
+export function normalizeGakuchikaListConversationStatus(
+  raw: unknown,
+  questionCount: number,
+): GakuchikaListConversationStatus {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (s === "in_progress" || s === "completed") {
+    return s;
+  }
+  if (questionCount > 0) {
+    return "in_progress";
+  }
+  return null;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -40,33 +57,9 @@ export async function GET(request: NextRequest) {
       plan = (profile?.plan || "free") as PlanTypeWithGuest;
     }
 
-    // Fetch latest conversation fields inside the contents query to avoid a second pass.
     const gakuchikaContentColumns = getTableColumns(gakuchikaContents);
     const contents = await db
-      .select({
-        ...gakuchikaContentColumns,
-        conversationStatus: sql<string | null>`(
-          SELECT ${gakuchikaConversations.status}
-          FROM ${gakuchikaConversations}
-          WHERE ${gakuchikaConversations.gakuchikaId} = ${gakuchikaContents.id}
-          ORDER BY ${gakuchikaConversations.updatedAt} DESC
-          LIMIT 1
-        )`,
-        conversationStarScores: sql<string | null>`(
-          SELECT ${gakuchikaConversations.starScores}
-          FROM ${gakuchikaConversations}
-          WHERE ${gakuchikaConversations.gakuchikaId} = ${gakuchikaContents.id}
-          ORDER BY ${gakuchikaConversations.updatedAt} DESC
-          LIMIT 1
-        )`,
-        conversationQuestionCount: sql<number | null>`(
-          SELECT ${gakuchikaConversations.questionCount}
-          FROM ${gakuchikaConversations}
-          WHERE ${gakuchikaConversations.gakuchikaId} = ${gakuchikaContents.id}
-          ORDER BY ${gakuchikaConversations.updatedAt} DESC
-          LIMIT 1
-        )`,
-      })
+      .select(gakuchikaContentColumns)
       .from(gakuchikaContents)
       .where(
         userId
@@ -77,15 +70,51 @@ export async function GET(request: NextRequest) {
       )
       .orderBy(asc(gakuchikaContents.sortOrder), desc(gakuchikaContents.updatedAt));
 
+    const contentIds = contents.map((row) => row.id);
+    const latestConvByGakuchikaId = new Map<
+      string,
+      { status: string | null; starScores: string | null; questionCount: number; updatedAt: Date }
+    >();
+
+    if (contentIds.length > 0) {
+      const convRows = await db
+        .select({
+          gakuchikaId: gakuchikaConversations.gakuchikaId,
+          status: gakuchikaConversations.status,
+          starScores: gakuchikaConversations.starScores,
+          questionCount: gakuchikaConversations.questionCount,
+          updatedAt: gakuchikaConversations.updatedAt,
+        })
+        .from(gakuchikaConversations)
+        .where(inArray(gakuchikaConversations.gakuchikaId, contentIds));
+
+      for (const row of convRows) {
+        const prev = latestConvByGakuchikaId.get(row.gakuchikaId);
+        if (!prev || row.updatedAt > prev.updatedAt) {
+          latestConvByGakuchikaId.set(row.gakuchikaId, {
+            status: row.status,
+            starScores: row.starScores,
+            questionCount: row.questionCount,
+            updatedAt: row.updatedAt,
+          });
+        }
+      }
+    }
+
     const gakuchikasWithConversation = contents.map((gakuchika) => {
+      const latest = latestConvByGakuchikaId.get(gakuchika.id);
+      const rawStatus = latest?.status ?? null;
+      const qCount = Number(latest?.questionCount ?? 0);
+      const conversationStatus = normalizeGakuchikaListConversationStatus(rawStatus, qCount);
+
       return {
         ...gakuchika,
-        conversationStatus: gakuchika.conversationStatus || null,
+        conversationStatus,
         conversationState: safeParseConversationState(
-          gakuchika.conversationStarScores || null,
-          gakuchika.conversationStatus || null,
+          latest?.starScores ?? null,
+          conversationStatus,
         ),
-        questionCount: Number(gakuchika.conversationQuestionCount ?? 0),
+        questionCount: qCount,
         summaryKind: getGakuchikaSummaryKind(gakuchika.summary),
         summaryPreview: getGakuchikaSummaryPreview(gakuchika.summary),
       };

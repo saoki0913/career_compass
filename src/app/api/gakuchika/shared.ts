@@ -74,6 +74,7 @@ export interface ConversationState {
   blockedFocuses: FocusKey[];
   focusAttemptCounts: Partial<Record<FocusKey, number>>;
   lastQuestionSignature: string | null;
+  extendedDeepDiveRound: number;
 }
 
 export interface GakuchikaData {
@@ -141,6 +142,7 @@ function defaultConversationState(): ConversationState {
     blockedFocuses: [],
     focusAttemptCounts: {},
     lastQuestionSignature: null,
+    extendedDeepDiveRound: 0,
   };
 }
 
@@ -202,6 +204,11 @@ function normalizeFocusList(value: unknown): FocusKey[] {
     }
   }
   return normalized;
+}
+
+function normalizeExtendedDeepDiveRound(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.min(100, Math.max(0, Math.floor(value)));
 }
 
 function normalizeFocusAttemptCounts(value: unknown): Partial<Record<FocusKey, number>> {
@@ -268,6 +275,7 @@ function parseLegacyState(value: Record<string, unknown>, status: string | null 
     blockedFocuses: [],
     focusAttemptCounts: {},
     lastQuestionSignature: null,
+    extendedDeepDiveRound: 0,
   };
 }
 
@@ -328,6 +336,9 @@ export function safeParseConversationState(
       blockedFocuses: normalizeFocusList(parsed.blocked_focuses ?? parsed.blockedFocuses),
       focusAttemptCounts: normalizeFocusAttemptCounts(parsed.focus_attempt_counts ?? parsed.focusAttemptCounts),
       lastQuestionSignature: normalizeString(parsed.last_question_signature ?? parsed.lastQuestionSignature),
+      extendedDeepDiveRound: normalizeExtendedDeepDiveRound(
+        parsed.extended_deep_dive_round ?? parsed.extendedDeepDiveRound,
+      ),
     };
   } catch {
     return defaultConversationState();
@@ -361,6 +372,7 @@ export function serializeConversationState(state: ConversationState): string {
     blocked_focuses: state.blockedFocuses,
     focus_attempt_counts: state.focusAttemptCounts,
     last_question_signature: state.lastQuestionSignature,
+    extended_deep_dive_round: state.extendedDeepDiveRound,
   });
 }
 
@@ -405,6 +417,7 @@ export function buildConversationStatePatch(
     blockedFocuses: patch.blockedFocuses ?? current.blockedFocuses,
     focusAttemptCounts: patch.focusAttemptCounts ?? current.focusAttemptCounts,
     lastQuestionSignature: patch.lastQuestionSignature ?? current.lastQuestionSignature,
+    extendedDeepDiveRound: patch.extendedDeepDiveRound ?? current.extendedDeepDiveRound,
   };
 }
 
@@ -650,6 +663,7 @@ export async function getQuestionFromFastAPI(
               blocked_focuses: conversationState.blockedFocuses,
               focus_attempt_counts: conversationState.focusAttemptCounts,
               last_question_signature: conversationState.lastQuestionSignature,
+              extended_deep_dive_round: conversationState.extendedDeepDiveRound,
             }
           : null,
       }),

@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 
 export type ActivationStepId = "company" | "motivation" | "profile";
 
@@ -79,6 +80,7 @@ export function useActivation(options: UseActivationOptions = {}) {
         "useActivation.fetch"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }

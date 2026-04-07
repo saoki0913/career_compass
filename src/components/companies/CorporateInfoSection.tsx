@@ -11,8 +11,6 @@ import { notifyMessage, notifySuccess } from "@/lib/notifications";
 import {
   isUploadSource,
   type ContentType,
-  type CorporateInfoSource as CorporateInfoUrl,
-  type CorporateInfoSourceStatus,
 } from "@/lib/company-info/sources";
 import {
   CONFIDENCE_META,
@@ -23,50 +21,60 @@ import { calculatePdfIngestCredits } from "@/lib/company-info/pricing";
 import { getPdfPageCountFromFile } from "@/lib/company-info/pdf-page-count";
 import {
   getRagPdfIngestPolicySummaryJa,
-  getRagPdfMaxIngestPages,
 } from "@/lib/company-info/pdf-ingest-limits";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 import { shouldCloseCorporateFetchModalOnSuccess } from "@/lib/company-info/fetch-ui";
-
-interface RagStatus {
-  hasRag: boolean;
-  totalChunks: number;
-  // Content type counts (9 categories)
-  newGradRecruitmentChunks: number;
-  midcareerRecruitmentChunks: number;
-  corporateSiteChunks: number;
-  irMaterialsChunks: number;
-  ceoMessageChunks: number;
-  employeeInterviewsChunks: number;
-  pressReleaseChunks: number;
-  csrSustainabilityChunks: number;
-  midtermPlanChunks: number;
-  lastUpdated: string | null;
-}
-
-interface CorporateInfoStatus {
-  companyId: string;
-  corporateInfoUrls: CorporateInfoUrl[];
-  corporateInfoFetchedAt: string | null;
-  ragStatus: RagStatus;
-  pageLimit: number;
-}
-
-interface SearchCandidate {
-  url: string;
-  title: string;
-  snippet?: string;
-  confidence: "high" | "medium" | "low";
-  sourceType?: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
-  relationCompanyName?: string | null;
-  complianceStatus?: "allowed" | "warning" | "blocked";
-  complianceReasons?: string[];
-}
-
-interface ComplianceCheckResponse {
-  blockedResults: Array<{ url: string; reasons: string[] }>;
-  warningResults: Array<{ url: string; reasons: string[] }>;
-}
+import {
+  checkSourceCompliance,
+  deleteCorporateUrls,
+  estimateCorporateFetch,
+  estimateCorporatePdfUpload,
+  fetchCorporateInfo,
+  fetchCorporateInfoStatus,
+  searchCorporatePages,
+  uploadCorporatePdf,
+} from "./corporate-info-section/client-api";
+import {
+  formatCandidateUrl,
+  formatEstimateSummary,
+  formatTimestamp,
+  getBatchItemStatusMeta,
+  getExtractionMethodLabel,
+  getHostLabel,
+  getPdfFileStatusMeta,
+  getPdfUploadContentTypeLabel,
+  getSourceStatusMeta,
+  isRecommendedCandidate,
+  mergePdfDraftFiles,
+  parseUrlListInput,
+  pdfFileKey,
+  removePdfDraftFile,
+} from "./corporate-info-section/workflow-helpers";
+import {
+  type BatchUploadItem,
+  CONTENT_TYPE_OPTIONS,
+  CONTENT_TYPE_TO_CHANNEL,
+  type CrawlEstimateResult,
+  createInitialPdfDraft,
+  createInitialUrlDraft,
+  createInitialWebDraft,
+  DEFAULT_PDF_UPLOAD_CONTENT_TYPE,
+  type FetchResult,
+  mapLegacyToNew,
+  PDF_UPLOAD_CONTENT_TYPE_OPTIONS,
+  type ComplianceCheckResponse,
+  type CorporateInfoStatus,
+  type InputMode,
+  type ModalStep,
+  type PdfDraft,
+  type PdfEstimateResult,
+  type PdfFileProgress,
+  type PdfUploadContentType,
+  type SearchCandidate,
+  type UrlDraft,
+  type WebDraft,
+} from "./corporate-info-section/workflow-config";
 
 const SURFACE_CLASS = "rounded-xl border border-border/60 bg-background";
 const FIELD_CLASS =
@@ -75,174 +83,10 @@ const FIELD_CLASS =
 /** モーダル段階切り替えアニメ（200ms）の直後にスナックバーを出して、画面の急な切り替わりを和らげる */
 const RAG_SUCCESS_SNACKBAR_DELAY_MS = 230;
 
-const CONTENT_TYPE_TO_CHANNEL: Record<ContentType, "corporate_ir" | "corporate_general"> = {
-  new_grad_recruitment: "corporate_general",
-  midcareer_recruitment: "corporate_general",
-  corporate_site: "corporate_general",
-  ir_materials: "corporate_ir",
-  ceo_message: "corporate_general",
-  employee_interviews: "corporate_general",
-  press_release: "corporate_general",
-  csr_sustainability: "corporate_general",
-  midterm_plan: "corporate_ir",
-};
-
-type PdfUploadContentType =
-  | "new_grad_recruitment"
-  | "midcareer_recruitment"
-  | "corporate_site"
-  | "ir_materials"
-  | "employee_interviews"
-  | "csr_sustainability"
-  | "midterm_plan";
-
-const PDF_UPLOAD_CONTENT_TYPE_OPTIONS: Array<{ value: PdfUploadContentType; label: string }> = [
-  { value: "ir_materials", label: "IR資料・決算資料" },
-  { value: "midterm_plan", label: "中期経営計画・経営方針" },
-  { value: "new_grad_recruitment", label: "採用資料・会社説明会資料" },
-  { value: "employee_interviews", label: "社員紹介・カルチャー資料" },
-  { value: "csr_sustainability", label: "サステナ・CSR資料" },
-  { value: "corporate_site", label: "会社概要・その他" },
-];
-
-const DEFAULT_PDF_UPLOAD_CONTENT_TYPE: PdfUploadContentType = "corporate_site";
-
-// Mapping from legacy type to new ContentType
-const LEGACY_TO_NEW_TYPE: Record<string, ContentType> = {
-  ir: "ir_materials",
-  business: "corporate_site",
-  about: "corporate_site",
-  general: "corporate_site",
-  recruitment_homepage: "new_grad_recruitment",  // Map legacy recruitment_homepage to new_grad
-};
-
-function mapLegacyToNew(legacyType: string): ContentType {
-  return LEGACY_TO_NEW_TYPE[legacyType] || "corporate_site";
-}
-
-// Dropdown options for content types (9 categories)
-const CONTENT_TYPE_OPTIONS: Array<{ value: ContentType; label: string }> = [
-  { value: "new_grad_recruitment", label: "新卒採用ホームページ" },
-  { value: "midcareer_recruitment", label: "中途採用ホームページ" },
-  { value: "corporate_site", label: "企業HP（会社概要、事業内容、ニュース）" },
-  { value: "ir_materials", label: "IR資料（有価証券報告書、決算説明資料）" },
-  { value: "ceo_message", label: "社長メッセージ・挨拶" },
-  { value: "employee_interviews", label: "社員インタビュー・ブログ記事" },
-  { value: "press_release", label: "プレスリリース" },
-  { value: "csr_sustainability", label: "CSR・サステナビリティレポート" },
-  { value: "midterm_plan", label: "中期経営計画" },
-];
-
 interface CorporateInfoSectionProps {
   companyId: string;
   companyName: string;
   onUpdate?: () => void;
-}
-
-type InputMode = "web" | "url" | "pdf";
-type ModalStep = "configure" | "review" | "result";
-type WebModalStep = Exclude<ModalStep, "result">;
-type WebSearchKind = "type" | "custom";
-type BatchUploadItem = {
-  fileName: string;
-  status: "completed" | "pending" | "failed" | "skipped_limit";
-  sourceUrl?: string;
-  chunksStored?: number;
-  extractedChars?: number;
-  pageCount?: number | null;
-  ingestUnits?: number;
-  freeUnitsApplied?: number;
-  creditsConsumed?: number;
-  actualCreditsDeducted?: number;
-  extractionMethod?: string;
-  contentType?: ContentType | null;
-  secondaryContentTypes?: ContentType[];
-  error?: string;
-  sourceTotalPages?: number | null;
-  ingestTruncated?: boolean;
-  ocrTruncated?: boolean;
-  processingNoticeJa?: string | null;
-};
-type PdfFileStatus = "waiting" | "uploading" | "completed" | "failed";
-
-interface PdfFileProgress {
-  file: File;
-  status: PdfFileStatus;
-  error?: string;
-  result?: BatchUploadItem;
-}
-
-interface FetchResult {
-  success: boolean;
-  pagesCrawled: number;
-  chunksStored: number;
-  errors: string[];
-  actualUnits?: number;
-  freeUnitsApplied?: number;
-  remainingFreeUnits?: number;
-  creditsConsumed?: number;
-  actualCreditsDeducted?: number;
-  estimatedCostBand?: string;
-  totalUnits?: number;
-  sourceLabel?: string;
-  extractionMethod?: string;
-  extractedChars?: number;
-  summary?: {
-    total: number;
-    completed: number;
-    pending: number;
-    failed: number;
-    skippedLimit: number;
-  };
-  items?: BatchUploadItem[];
-}
-
-interface WebDraft {
-  selectedContentType: ContentType | null;
-  lastContentType: ContentType | null;
-  searchQuery: string;
-  candidates: SearchCandidate[];
-  selectedUrls: string[];
-  hasSearched: boolean;
-  isRelaxedSearch: boolean;
-  lastWebSearchKind: WebSearchKind | null;
-  step: WebModalStep;
-}
-
-interface UrlDraft {
-  customUrlInput: string;
-}
-
-interface PdfDraft {
-  uploadFiles: File[];
-  uploadFileContentTypes: Record<string, PdfUploadContentType>;
-}
-
-function createInitialWebDraft(): WebDraft {
-  return {
-    selectedContentType: null,
-    lastContentType: null,
-    searchQuery: "",
-    candidates: [],
-    selectedUrls: [],
-    hasSearched: false,
-    isRelaxedSearch: false,
-    lastWebSearchKind: null,
-    step: "configure",
-  };
-}
-
-function createInitialUrlDraft(): UrlDraft {
-  return {
-    customUrlInput: "",
-  };
-}
-
-function createInitialPdfDraft(): PdfDraft {
-  return {
-    uploadFiles: [],
-    uploadFileContentTypes: {},
-  };
 }
 
 // Icons
@@ -455,264 +299,24 @@ const BUSINESS_SEARCH_KEYWORDS = [
   "product",
 ];
 
-function buildHeaders(): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-  };
-}
-
-function mergePdfFiles(nextFiles: FileList | File[] | null | undefined, currentFiles: File[]) {
-  if (!nextFiles) return currentFiles;
-  const merged = [...currentFiles];
-  const files = Array.from(nextFiles);
-  for (const file of files) {
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      continue;
-    }
-    const exists = merged.some(
-      (current) =>
-        current.name === file.name &&
-        current.size === file.size &&
-        current.lastModified === file.lastModified
-    );
-    if (!exists) {
-      merged.push(file);
-    }
-  }
-  return merged;
-}
-
-function removePdfFile(files: File[], target: File) {
-  return files.filter(
-    (file) =>
-      !(
-        file.name === target.name &&
-        file.size === target.size &&
-        file.lastModified === target.lastModified
-      )
-  );
-}
-
-function pdfFileKey(file: File) {
-  return `${file.name}:${file.size}:${file.lastModified}`;
-}
-
-export function getExtractionMethodLabel(method?: string) {
-  switch (method) {
-    case "pypdf":
-      return "PDF内の埋め込みテキストを抽出";
-    case "ocr":
-    case "openai_pdf_ocr":
-      return "OCRで本文を抽出";
-    case "ocr_high_accuracy":
-      return "高精度OCRで本文を抽出";
-    case "deferred_ocr":
-      return "遅延OCR（廃止・旧データ）";
-    default:
-      return method || "不明";
-  }
-}
-
-function getPdfUploadContentTypeLabel(value: PdfUploadContentType) {
-  const option = PDF_UPLOAD_CONTENT_TYPE_OPTIONS.find((entry) => entry.value === value);
-  return option?.label || "会社概要・その他";
-}
-
-function mergePdfDraftFiles(prev: PdfDraft, nextFiles: FileList | File[] | null | undefined): PdfDraft {
-  if (!nextFiles) return prev;
-  const mergedFiles = mergePdfFiles(nextFiles, prev.uploadFiles);
-  const nextContentTypes = { ...prev.uploadFileContentTypes };
-  const mergedKeys = new Set(mergedFiles.map(pdfFileKey));
-
-  for (const file of mergedFiles) {
-    const key = pdfFileKey(file);
-    if (!nextContentTypes[key]) {
-      nextContentTypes[key] = DEFAULT_PDF_UPLOAD_CONTENT_TYPE;
-    }
-  }
-
-  for (const key of Object.keys(nextContentTypes)) {
-    if (!mergedKeys.has(key)) {
-      delete nextContentTypes[key];
-    }
-  }
-
-  return {
-    uploadFiles: mergedFiles,
-    uploadFileContentTypes: nextContentTypes,
-  };
-}
-
-function removePdfDraftFile(prev: PdfDraft, target: File): PdfDraft {
-  const nextContentTypes = { ...prev.uploadFileContentTypes };
-  delete nextContentTypes[pdfFileKey(target)];
-
-  return {
-    uploadFiles: removePdfFile(prev.uploadFiles, target),
-    uploadFileContentTypes: nextContentTypes,
-  };
-}
-
-function getSourceStatusMeta(status?: CorporateInfoSourceStatus) {
-  switch (status) {
-    case "pending":
-      return {
-        label: "OCR保留",
-        className: "border-amber-200/80 bg-amber-50 text-amber-700",
-      };
-    case "processing":
-      return {
-        label: "処理中",
-        className: "border-sky-200/80 bg-sky-50 text-sky-700",
-      };
-    case "failed":
-      return {
-        label: "失敗",
-        className: "border-destructive/20 bg-destructive/5 text-destructive",
-      };
-    default:
-      return {
-        label: "完了",
-        className: "border-emerald-200/80 bg-emerald-50 text-emerald-700",
-      };
-  }
-}
-
-function getBatchItemStatusMeta(status: NonNullable<FetchResult["items"]>[number]["status"]) {
-  switch (status) {
-    case "pending":
-      return {
-        label: "OCR保留",
-        className: "border-amber-200/80 bg-amber-50 text-amber-700",
-      };
-    case "failed":
-      return {
-        label: "失敗",
-        className: "border-destructive/20 bg-destructive/5 text-destructive",
-      };
-    case "skipped_limit":
-      return {
-        label: "上限超過",
-        className: "border-zinc-200/80 bg-zinc-50 text-zinc-700",
-      };
-    default:
-      return {
-        label: "完了",
-        className: "border-emerald-200/80 bg-emerald-50 text-emerald-700",
-      };
-  }
-}
-
-function getPdfFileStatusMeta(status: PdfFileStatus) {
-  switch (status) {
-    case "uploading":
-      return { label: "取り込み中...", className: "text-sky-700" };
-    case "completed":
-      return { label: "完了", className: "text-emerald-700" };
-    case "failed":
-      return { label: "失敗", className: "text-destructive" };
-    default:
-      return { label: "待機中", className: "text-muted-foreground" };
-  }
-}
-
-function formatTimestamp(
-  value?: string | null,
-  options?: Intl.DateTimeFormatOptions
-) {
-  if (!value) return null;
-  return new Date(value).toLocaleDateString(
-    "ja-JP",
-    options || {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }
-  );
-}
-
-function getHostLabel(url: string) {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
-}
-
-function truncateText(text?: string, maxLength = 140) {
-  if (!text) return null;
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (!normalized) return null;
-  return normalized.length > maxLength
-    ? `${normalized.slice(0, maxLength)}…`
-    : normalized;
-}
-
-function parseUrlListInput(input: string) {
-  const rawLines = input
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const uniqueUrls: string[] = [];
-  const seen = new Set<string>();
-  const invalidLines: Array<{ lineNumber: number; value: string }> = [];
-
-  rawLines.forEach((value, index) => {
-    try {
-      const parsed = new URL(value);
-      if (!["http:", "https:"].includes(parsed.protocol)) {
-        throw new Error("invalid protocol");
-      }
-      const normalized = parsed.toString();
-      if (!seen.has(normalized)) {
-        seen.add(normalized);
-        uniqueUrls.push(normalized);
-      }
-    } catch {
-      invalidLines.push({ lineNumber: index + 1, value });
-    }
-  });
-
-  return {
-    urls: uniqueUrls,
-    invalidLines,
-    totalLines: rawLines.length,
-  };
-}
-
-function formatCandidateUrl(url: string, maxLength = 56) {
-  try {
-    const parsed = new URL(url);
-    const path = `${parsed.pathname}${parsed.search}` || "/";
-    const compact = `${parsed.hostname}${path === "/" ? "" : path}`;
-    return compact.length > maxLength
-      ? `${compact.slice(0, maxLength)}…`
-      : compact;
-  } catch {
-    return truncateText(url, maxLength) || url;
-  }
-}
-
-function isRecommendedCandidate(candidate: SearchCandidate) {
-  return candidate.sourceType === "official" && candidate.confidence === "high";
-}
-
 export function CorporateInfoSection({
   companyId,
   companyName,
   onUpdate,
 }: CorporateInfoSectionProps) {
   const { isAuthenticated, isReady: isAuthReady } = useAuth();
-  const { companyRagUnitsLimit, companyRagUnitsRemaining, plan, ragPdfLimits } = useCredits({
+  const {
+    companyRagUnitsLimit: companyRagHtmlPagesLimit,
+    companyRagUnitsRemaining: companyRagHtmlPagesRemaining,
+    companyRagPdfPagesLimit,
+    companyRagPdfPagesRemaining,
+    plan,
+    ragPdfLimits,
+  } = useCredits({
     isAuthenticated,
     isAuthReady,
   });
   const paidPdfPlan = plan === "standard" || plan === "pro" ? plan : "free";
-  const maxPdfIngestPages =
-    ragPdfLimits?.maxPagesIngest ?? getRagPdfMaxIngestPages(paidPdfPlan);
   const ragPdfPolicySummaryJa =
     ragPdfLimits?.summaryJa ?? getRagPdfIngestPolicySummaryJa(paidPdfPlan);
   const { isLocked, acquireLock, releaseLock } = useOperationLock();
@@ -733,7 +337,8 @@ export function CorporateInfoSection({
   const [isUploading, setIsUploading] = useState(false);
   const [pdfUploadProgress, setPdfUploadProgress] = useState<PdfFileProgress[] | null>(null);
   const [pdfPageEstimates, setPdfPageEstimates] = useState<Record<string, number | null>>({});
-  const [pdfPageEstimatesPending, setPdfPageEstimatesPending] = useState(false);
+  const [pdfEstimate, setPdfEstimate] = useState<PdfEstimateResult | null>(null);
+  const [pdfEstimateLoading, setPdfEstimateLoading] = useState(false);
   const [displayedStep, setDisplayedStep] = useState<ModalStep>("configure");
   const [isStepTransitioning, setIsStepTransitioning] = useState(false);
 
@@ -807,11 +412,9 @@ export function CorporateInfoSection({
     const files = pdfDraft.uploadFiles;
     if (files.length === 0) {
       setPdfPageEstimates({});
-      setPdfPageEstimatesPending(false);
       return;
     }
     let cancelled = false;
-    setPdfPageEstimatesPending(true);
     void (async () => {
       const results = await Promise.all(
         files.map(async (file) => {
@@ -822,7 +425,6 @@ export function CorporateInfoSection({
       );
       if (cancelled) return;
       setPdfPageEstimates(Object.fromEntries(results));
-      setPdfPageEstimatesPending(false);
     })();
     return () => {
       cancelled = true;
@@ -831,48 +433,93 @@ export function CorporateInfoSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- pdfUploadFileSignature が uploadFiles の内容を表す
   }, [pdfUploadFileSignature]);
 
-  const pdfCreditPreview = useMemo(() => {
+  useEffect(() => {
     const files = pdfDraft.uploadFiles;
-    if (files.length === 0) return null;
-    const keys = files.map(pdfFileKey);
-    if (pdfPageEstimatesPending || keys.some((k) => pdfPageEstimates[k] === undefined)) {
-      return { kind: "loading" as const };
+    if (files.length === 0) {
+      setPdfEstimate(null);
+      setPdfEstimateLoading(false);
+      return;
     }
-    const counts = keys.map((k) => pdfPageEstimates[k] as number | null);
-    if (counts.some((c) => c === null)) {
-      return { kind: "partial" as const };
-    }
-    const nums = counts as number[];
-    const totalPages = nums.reduce((a, b) => a + b, 0);
-    const effectivePages = nums.map((p) => Math.min(p, maxPdfIngestPages));
-    let remainingFree = Math.max(0, companyRagUnitsRemaining ?? 0);
-    let totalFreeFromQuota = 0;
-    for (const p of effectivePages) {
-      const applied = Math.min(p, remainingFree);
-      totalFreeFromQuota += applied;
-      remainingFree -= applied;
-    }
-    const effectiveTotal = effectivePages.reduce((a, b) => a + b, 0);
-    const totalCredits = effectivePages.reduce(
-      (sum, p) => sum + calculatePdfIngestCredits(p),
-      0,
-    );
-    const willTruncateIngest = nums.some((p) => p > maxPdfIngestPages);
-    return {
-      kind: "ready" as const,
-      totalPages,
-      effectiveTotalPages: effectiveTotal,
-      totalFreeFromQuota,
-      totalCredits,
-      willTruncateIngest,
-      maxPdfIngestPages,
+
+    let cancelled = false;
+    setPdfEstimateLoading(true);
+
+    void (async () => {
+      try {
+        let remaining = Math.max(0, companyRagPdfPagesRemaining ?? 0);
+        const aggregate: PdfEstimateResult = {
+          success: true,
+          estimated_free_pdf_pages: 0,
+          estimated_credits: 0,
+          estimated_google_ocr_pages: 0,
+          estimated_mistral_ocr_pages: 0,
+          will_truncate: false,
+          requires_confirmation: false,
+          errors: [],
+        };
+
+        for (const file of files) {
+          const key = pdfFileKey(file);
+          const pageCount = pdfPageEstimates[key];
+          if (pageCount === undefined || pageCount === null) {
+            setPdfEstimate(null);
+            setPdfEstimateLoading(false);
+            return;
+          }
+
+          const formData = new FormData();
+          formData.set("company_id", companyId);
+          formData.set("source_url", `upload://corporate-pdf/${companyId}/estimate/${key}`);
+          formData.set("content_type", pdfDraft.uploadFileContentTypes[key] || DEFAULT_PDF_UPLOAD_CONTENT_TYPE);
+          formData.set("remaining_free_pdf_pages", String(remaining));
+          formData.set("file", file, file.name);
+
+          const response = await estimateCorporatePdfUpload(companyId, formData);
+          const data = (await response.json().catch(() => ({}))) as PdfEstimateResult;
+          if (!response.ok) {
+            throw new Error(data.errors?.[0] || "PDFの見積に失敗しました。");
+          }
+
+          aggregate.estimated_free_pdf_pages += data.estimated_free_pdf_pages || 0;
+          aggregate.estimated_credits += data.estimated_credits || 0;
+          aggregate.estimated_google_ocr_pages += data.estimated_google_ocr_pages || 0;
+          aggregate.estimated_mistral_ocr_pages += data.estimated_mistral_ocr_pages || 0;
+          aggregate.will_truncate = aggregate.will_truncate || Boolean(data.will_truncate);
+          aggregate.requires_confirmation =
+            aggregate.requires_confirmation || Boolean(data.requires_confirmation);
+          if (data.processing_notice_ja) {
+            aggregate.processing_notice_ja = data.processing_notice_ja;
+          }
+          if (data.page_routing_summary) {
+            aggregate.page_routing_summary = data.page_routing_summary;
+          }
+          remaining = Math.max(0, remaining - (data.estimated_free_pdf_pages || 0));
+        }
+
+        if (!cancelled) {
+          setPdfEstimate(aggregate);
+        }
+      } catch {
+        if (!cancelled) {
+          setPdfEstimate(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setPdfEstimateLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
     };
   }, [
+    companyId,
+    companyRagPdfPagesRemaining,
     pdfDraft.uploadFiles,
+    pdfDraft.uploadFileContentTypes,
     pdfPageEstimates,
-    pdfPageEstimatesPending,
-    companyRagUnitsRemaining,
-    maxPdfIngestPages,
+    pdfUploadFileSignature,
   ]);
 
   const orderedCandidates = useMemo(
@@ -953,10 +600,7 @@ export function CorporateInfoSection({
       if (!background) {
         setIsLoading(true);
       }
-      const response = await fetch(`/api/companies/${companyId}/fetch-corporate`, {
-        headers: buildHeaders(),
-        credentials: "include",
-      });
+      const response = await fetchCorporateInfoStatus(companyId);
 
       if (!response.ok) {
         throw await parseApiErrorResponse(
@@ -985,6 +629,7 @@ export function CorporateInfoSection({
         "CorporateInfoSection.fetchStatus"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       if (!background) {
         setIsLoading(false);
@@ -1084,14 +729,9 @@ export function CorporateInfoSection({
     }));
 
     try {
-      const response = await fetch(`/api/companies/${companyId}/search-corporate-pages`, {
-        method: "POST",
-        headers: buildHeaders(),
-        credentials: "include",
-        body: JSON.stringify({
-          contentType: selectedContentType,  // Pass ContentType for optimized search
-          allowSnippetMatch,
-        }),
+      const response = await searchCorporatePages(companyId, {
+        contentType: selectedContentType,  // Pass ContentType for optimized search
+        allowSnippetMatch,
       });
 
       if (!response.ok) {
@@ -1132,6 +772,7 @@ export function CorporateInfoSection({
         "CorporateInfoSection.handleTypeSearch"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsSearching(false);
       releaseLock();
@@ -1162,15 +803,10 @@ export function CorporateInfoSection({
     }));
 
     try {
-      const response = await fetch(`/api/companies/${companyId}/search-corporate-pages`, {
-        method: "POST",
-        headers: buildHeaders(),
-        credentials: "include",
-        body: JSON.stringify({
-          customQuery: query,
-          contentType: resolvedContentType,
-          allowSnippetMatch,
-        }),
+      const response = await searchCorporatePages(companyId, {
+        customQuery: query,
+        contentType: resolvedContentType,
+        allowSnippetMatch,
       });
 
       if (!response.ok) {
@@ -1212,6 +848,7 @@ export function CorporateInfoSection({
         "CorporateInfoSection.handleCustomSearch"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsSearching(false);
       releaseLock();
@@ -1236,12 +873,7 @@ export function CorporateInfoSection({
 
     if (inputMode === "url") {
       try {
-        const complianceResponse = await fetch(`/api/companies/${companyId}/source-compliance/check`, {
-          method: "POST",
-          headers: buildHeaders(),
-          credentials: "include",
-          body: JSON.stringify({ urls: urlsToFetch }),
-        });
+        const complianceResponse = await checkSourceCompliance(companyId, urlsToFetch);
         if (complianceResponse.ok) {
           const complianceData: ComplianceCheckResponse = await complianceResponse.json();
           if (complianceData.blockedResults.length > 0) {
@@ -1259,6 +891,87 @@ export function CorporateInfoSection({
         // Fall through to server-side validation.
       }
     }
+    let estimateResult: CrawlEstimateResult | null = null;
+    try {
+      const estimateResponse = await estimateCorporateFetch(companyId, {
+        urls: urlsToFetch,
+        contentType: resolvedWebContentType,
+        contentChannel: resolveContentChannel(resolvedWebContentType),
+      });
+      const data = (await estimateResponse.json().catch(() => ({}))) as CrawlEstimateResult;
+      if (!estimateResponse.ok) {
+        const message =
+          data.errors?.[0] ?? data.error ?? "企業情報の実行前見積に失敗しました。";
+        throw new Error(message);
+      }
+
+      let remainingHtml = Math.max(0, companyRagHtmlPagesRemaining ?? 0);
+      let remainingPdf = Math.max(0, companyRagPdfPagesRemaining ?? 0);
+      let estimatedFreeHtmlPages = 0;
+      let estimatedFreePdfPages = 0;
+      let estimatedCredits = 0;
+      for (const url of urlsToFetch) {
+        const summary = data.page_routing_summaries?.[url];
+        const ingestPages = summary && typeof summary.ingest_pages === "number" ? Math.max(0, Math.floor(summary.ingest_pages)) : 1;
+        if (summary && typeof summary.ingest_pages === "number") {
+          const freeApplied = Math.min(ingestPages, remainingPdf);
+          estimatedFreePdfPages += freeApplied;
+          remainingPdf -= freeApplied;
+          estimatedCredits += calculatePdfIngestCredits(ingestPages - freeApplied);
+        } else {
+          const freeApplied = Math.min(1, remainingHtml);
+          estimatedFreeHtmlPages += freeApplied;
+          remainingHtml -= freeApplied;
+          estimatedCredits += Math.max(0, 1 - freeApplied);
+        }
+      }
+
+      estimateResult = {
+        ...data,
+        estimated_free_html_pages: estimatedFreeHtmlPages,
+        estimated_free_pdf_pages: estimatedFreePdfPages,
+        estimated_credits: estimatedCredits,
+        requires_confirmation:
+          estimatedCredits > 0 || (data.estimated_mistral_ocr_pages ?? 0) > 0 || data.will_truncate,
+      };
+      if (estimateResult.requires_confirmation) {
+        const confirmText = [
+          "企業情報の取得を実行します。",
+          formatEstimateSummary({
+            totalPages: estimateResult.estimated_pages_crawled,
+            localPages: Math.max(
+              0,
+              estimateResult.estimated_pages_crawled -
+                estimateResult.estimated_google_ocr_pages -
+                estimateResult.estimated_mistral_ocr_pages,
+            ),
+            googlePages: estimateResult.estimated_google_ocr_pages,
+            mistralPages: estimateResult.estimated_mistral_ocr_pages,
+            freePages: estimateResult.estimated_free_html_pages + estimateResult.estimated_free_pdf_pages,
+            credits: estimateResult.estimated_credits,
+            willTruncate: estimateResult.will_truncate,
+          }),
+          "続行しますか？",
+        ].join("\n");
+        if (!window.confirm(confirmText)) {
+          return;
+        }
+      }
+    } catch (err) {
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CORPORATE_FETCH_FAILED",
+          userMessage: "企業情報の見積を取得できませんでした。",
+          action: "しばらく待ってから、もう一度お試しください。",
+          retryable: true,
+        },
+        "CorporateInfoSection.handleFetchCorporateInfo"
+      );
+      setError(uiError.message);
+      notifyUserFacingAppError(uiError);
+      return;
+    }
     if (!acquireLock("企業情報ページを取得中")) return;
 
     setIsFetching(true);
@@ -1268,15 +981,10 @@ export function CorporateInfoSection({
     try {
       const contentChannel = resolveContentChannel(resolvedWebContentType);
       const contentType = resolvedWebContentType;
-      const response = await fetch(`/api/companies/${companyId}/fetch-corporate`, {
-        method: "POST",
-        headers: buildHeaders(),
-        credentials: "include",
-        body: JSON.stringify({
-          urls: urlsToFetch,
-          contentChannel, // legacy 3-category channel
-          contentType, // 9-category content type for proper RAG counts
-        }),
+      const response = await fetchCorporateInfo(companyId, {
+        urls: urlsToFetch,
+        contentChannel, // legacy 3-category channel
+        contentType, // 9-category content type for proper RAG counts
       });
 
       if (response.status === 402) {
@@ -1290,6 +998,7 @@ export function CorporateInfoSection({
           "CorporateInfoSection.handleFetchCorporateInfo"
         );
         setError(uiError.message);
+        notifyUserFacingAppError(uiError);
         return;
       }
 
@@ -1347,6 +1056,7 @@ export function CorporateInfoSection({
         "CorporateInfoSection.handleFetchCorporateInfo"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsFetching(false);
       releaseLock();
@@ -1358,6 +1068,36 @@ export function CorporateInfoSection({
       setError("PDFファイルを選択してください");
       return;
     }
+    if (pdfEstimateLoading || !pdfEstimate) {
+      setError("PDFの実行前見積を取得中です。しばらく待ってからもう一度お試しください。");
+      return;
+    }
+    if (pdfEstimate.requires_confirmation) {
+      const totalPages = pdfDraft.uploadFiles.reduce((sum, file) => {
+        const key = pdfFileKey(file);
+        return sum + Math.max(pdfPageEstimates[key] ?? 0, 0);
+      }, 0);
+      const routing = pdfEstimate.page_routing_summary;
+      const confirmText = [
+        "PDFの取り込みを実行します。",
+        formatEstimateSummary({
+          totalPages,
+          localPages: routing?.local_pages ?? 0,
+          googlePages: pdfEstimate.estimated_google_ocr_pages,
+          mistralPages: pdfEstimate.estimated_mistral_ocr_pages,
+          freePages: pdfEstimate.estimated_free_pdf_pages,
+          credits: pdfEstimate.estimated_credits,
+          willTruncate: pdfEstimate.will_truncate,
+        }),
+        pdfEstimate.processing_notice_ja || "",
+        "続行しますか？",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      if (!window.confirm(confirmText)) {
+        return;
+      }
+    }
     if (!acquireLock("企業情報PDFを取り込み中")) return;
 
     setIsUploading(true);
@@ -1366,12 +1106,7 @@ export function CorporateInfoSection({
     setModalStep("configure");
     setDisplayedStep("configure");
     setIsStepTransitioning(false);
-    setPdfUploadProgress(
-      pdfDraft.uploadFiles.map((file) => ({
-        file,
-        status: "waiting",
-      }))
-    );
+    setPdfUploadProgress(pdfDraft.uploadFiles.map((file) => ({ file, status: "waiting" })));
 
     try {
       const allItems: BatchUploadItem[] = [];
@@ -1396,11 +1131,7 @@ export function CorporateInfoSection({
             pdfDraft.uploadFileContentTypes[pdfFileKey(file)] || DEFAULT_PDF_UPLOAD_CONTENT_TYPE;
           formData.append("contentType", contentType);
 
-          const response = await fetch(`/api/companies/${companyId}/fetch-corporate-upload`, {
-            method: "POST",
-            credentials: "include",
-            body: formData,
-          });
+          const response = await uploadCorporatePdf(companyId, formData);
 
           if (!response.ok) {
             throw await parseApiErrorResponse(
@@ -1548,6 +1279,7 @@ export function CorporateInfoSection({
         "CorporateInfoSection.handleUploadPdf"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsUploading(false);
       releaseLock();
@@ -1711,17 +1443,7 @@ export function CorporateInfoSection({
     setDeleteError(null);
 
     try {
-      const response = await fetch(
-        `/api/companies/${companyId}/delete-corporate-urls`,
-        {
-          method: "POST",
-          headers: buildHeaders(),
-          credentials: "include",
-          body: JSON.stringify({
-            urls: Array.from(selectedUrlsForDelete),
-          }),
-        }
-      );
+      const response = await deleteCorporateUrls(companyId, Array.from(selectedUrlsForDelete));
 
       if (!response.ok) {
         throw await parseApiErrorResponse(
@@ -1755,6 +1477,7 @@ export function CorporateInfoSection({
         "CorporateInfoSection.handleDeleteUrls"
       );
       setDeleteError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsDeleting(false);
       releaseLock();
@@ -1805,9 +1528,9 @@ export function CorporateInfoSection({
   const sourceUsagePercent = Math.min((totalSources / Math.max(pageLimit, 1)) * 100, 100);
   const shouldShowRagAllowance = isAuthenticated && plan !== "guest";
   const ragUnitUsagePercent =
-    shouldShowRagAllowance && companyRagUnitsLimit > 0
+    shouldShowRagAllowance && companyRagHtmlPagesLimit > 0
       ? Math.min(
-          ((companyRagUnitsLimit - Math.max(companyRagUnitsRemaining, 0)) / Math.max(companyRagUnitsLimit, 1)) * 100,
+          ((companyRagHtmlPagesLimit - Math.max(companyRagHtmlPagesRemaining, 0)) / Math.max(companyRagHtmlPagesLimit, 1)) * 100,
           100,
         )
       : 0;
@@ -1847,7 +1570,7 @@ export function CorporateInfoSection({
                 <div>
                   <p className="font-medium">今月の企業RAG無料枠</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {`残り ${companyRagUnitsRemaining.toLocaleString("ja-JP")} / ${companyRagUnitsLimit.toLocaleString("ja-JP")} ページ（月次・URL＋PDF合算）`}
+                    {`URL ${companyRagHtmlPagesRemaining.toLocaleString("ja-JP")} / ${companyRagHtmlPagesLimit.toLocaleString("ja-JP")} ページ、PDF ${companyRagPdfPagesRemaining.toLocaleString("ja-JP")} / ${companyRagPdfPagesLimit.toLocaleString("ja-JP")} ページ`}
                   </p>
                 </div>
                 <span className="rounded-full border border-border/60 bg-background px-2.5 py-1 text-xs text-muted-foreground">
@@ -2755,95 +2478,83 @@ export function CorporateInfoSection({
                               <p className="text-center text-[11px] text-muted-foreground">
                                 OCRが必要なPDFがある場合、通常より時間がかかることがあります（1ファイルあたり5〜15秒）
                               </p>
-                              {pdfCreditPreview ? (
+                              {pdfEstimateLoading ? (
+                                <div className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5 text-left text-[11px] leading-relaxed text-muted-foreground">
+                                  PDF の実行前見積を取得しています…
+                                </div>
+                              ) : pdfEstimate ? (
                                 <div className="max-h-44 overflow-y-auto overscroll-contain rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5 text-left text-[11px] leading-relaxed text-muted-foreground sm:max-h-52">
-                                  {pdfCreditPreview.kind === "loading" ? (
-                                    <p>PDF のページ数を確認しています…</p>
-                                  ) : pdfCreditPreview.kind === "partial" ? (
-                                    <div className="space-y-2">
-                                      <p className="font-medium text-foreground">ページ数が一部だけ分かりません</p>
-                                      <p>
-                                        取り込みが完了した時点で、実際に使ったページ数とクレジットが確定します。
-                                      </p>
-                                      <p>
-                                        月次の無料枠の残り:{" "}
-                                        <span className="font-medium text-foreground">
-                                          {(companyRagUnitsRemaining ?? 0).toLocaleString("ja-JP")} ページ
-                                        </span>
-                                        （URL と PDF を合算）
-                                      </p>
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-2">
-                                      <p className="font-medium text-foreground">取り込みと消費の目安</p>
-                                      <dl className="space-y-1.5">
-                                        <div>
-                                          <dt className="text-[10px] font-medium text-muted-foreground">
-                                            PDFのページ数（端末での目安）
-                                          </dt>
-                                          <dd className="mt-0.5 text-foreground">
-                                            合計{" "}
-                                            <span className="font-semibold">
-                                              {pdfCreditPreview.totalPages.toLocaleString("ja-JP")}
-                                            </span>{" "}
-                                            ページ（{pdfDraft.uploadFiles.length} ファイル）
-                                          </dd>
+                                  <div className="space-y-2">
+                                    <p className="font-medium text-foreground">取り込みと消費の目安</p>
+                                    <dl className="space-y-1.5">
+                                      <div>
+                                        <dt className="text-[10px] font-medium text-muted-foreground">
+                                          PDFのページ数（端末での目安）
+                                        </dt>
+                                        <dd className="mt-0.5 text-foreground">
+                                          合計{" "}
+                                          <span className="font-semibold">
+                                            {pdfDraft.uploadFiles.reduce((sum, file) => {
+                                              const key = pdfFileKey(file);
+                                              return sum + Math.max(pdfPageEstimates[key] ?? 0, 0);
+                                            }, 0).toLocaleString("ja-JP")}
+                                          </span>{" "}
+                                          ページ（{pdfDraft.uploadFiles.length} ファイル）
+                                        </dd>
+                                      </div>
+                                      <div>
+                                        <dt className="text-[10px] font-medium text-muted-foreground">
+                                          処理するページの見込み
+                                        </dt>
+                                        <dd className="mt-0.5 text-foreground">
+                                          Google OCR {" "}
+                                          <span className="font-semibold">
+                                            {pdfEstimate.estimated_google_ocr_pages.toLocaleString("ja-JP")}
+                                          </span>{" "}
+                                          ページ、Mistral OCR {" "}
+                                          <span className="font-semibold">
+                                            {pdfEstimate.estimated_mistral_ocr_pages.toLocaleString("ja-JP")}
+                                          </span>{" "}
+                                          ページ
+                                        </dd>
+                                      </div>
+                                      {pdfEstimate.will_truncate ? (
+                                        <div className="rounded-md border border-amber-200/80 bg-amber-50/90 px-2 py-1.5 text-amber-950">
+                                          元のページ数が上限を超えているため、先頭から切り詰めて取り込みます。
                                         </div>
-                                        <div>
-                                          <dt className="text-[10px] font-medium text-muted-foreground">
-                                            処理するページの見込み
-                                          </dt>
-                                          <dd className="mt-0.5 text-foreground">
-                                            最大{" "}
-                                            <span className="font-semibold">
-                                              {pdfCreditPreview.effectiveTotalPages.toLocaleString("ja-JP")}
-                                            </span>{" "}
-                                            ページ
-                                            <span className="text-muted-foreground">
-                                              （1ファイルあたり先頭から最大{" "}
-                                              {pdfCreditPreview.maxPdfIngestPages.toLocaleString("ja-JP")}{" "}
-                                              ページまで）
-                                            </span>
-                                          </dd>
-                                        </div>
-                                        {pdfCreditPreview.willTruncateIngest ? (
-                                          <div className="rounded-md border border-amber-200/80 bg-amber-50/90 px-2 py-1.5 text-amber-950">
-                                            元のページ数が上限を超えているため、先頭から切り詰めて取り込みます。
-                                          </div>
-                                        ) : null}
-                                        <div>
-                                          <dt className="text-[10px] font-medium text-muted-foreground">
-                                            無料枠の充当見込み
-                                          </dt>
-                                          <dd className="mt-0.5 text-foreground">
-                                            約{" "}
-                                            <span className="font-semibold">
-                                              {pdfCreditPreview.totalFreeFromQuota.toLocaleString("ja-JP")}
-                                            </span>{" "}
-                                            ページ
-                                            <span className="text-muted-foreground">
-                                              （URL と PDF の月次枠を合算して先に充当）
-                                            </span>
-                                          </dd>
-                                        </div>
-                                        <div>
-                                          <dt className="text-[10px] font-medium text-muted-foreground">
-                                            クレジットの見込み
-                                          </dt>
-                                          <dd className="mt-0.5 text-foreground">
-                                            約{" "}
-                                            <span className="font-semibold">
-                                              {pdfCreditPreview.totalCredits.toLocaleString("ja-JP")}
-                                            </span>
-                                            <span className="text-muted-foreground">
-                                              {" "}
-                                              （上記の処理ページ数から換算。確定は取り込み完了時）
-                                            </span>
-                                          </dd>
-                                        </div>
-                                      </dl>
-                                    </div>
-                                  )}
+                                      ) : null}
+                                      <div>
+                                        <dt className="text-[10px] font-medium text-muted-foreground">
+                                          無料枠の充当見込み
+                                        </dt>
+                                        <dd className="mt-0.5 text-foreground">
+                                          約{" "}
+                                          <span className="font-semibold">
+                                            {pdfEstimate.estimated_free_pdf_pages.toLocaleString("ja-JP")}
+                                          </span>{" "}
+                                          ページ
+                                          <span className="text-muted-foreground">
+                                            （PDF月次無料枠から先に充当）
+                                          </span>
+                                        </dd>
+                                      </div>
+                                      <div>
+                                        <dt className="text-[10px] font-medium text-muted-foreground">
+                                          クレジットの見込み
+                                        </dt>
+                                        <dd className="mt-0.5 text-foreground">
+                                          約{" "}
+                                          <span className="font-semibold">
+                                            {pdfEstimate.estimated_credits.toLocaleString("ja-JP")}
+                                          </span>
+                                          <span className="text-muted-foreground">
+                                            {" "}
+                                            （確定は取り込み完了時）
+                                          </span>
+                                        </dd>
+                                      </div>
+                                    </dl>
+                                  </div>
                                 </div>
                               ) : null}
                             </div>

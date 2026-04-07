@@ -165,4 +165,87 @@ describe("live AI conversation report", () => {
     expect(json.summary.total).toBe(3);
     expect(markdown).toMatch(/Interview Live AI Report/);
   });
+
+  it("renders local target env in markdown output", () => {
+    const report = generateLiveAiConversationReport({
+      reportType: "gakuchika",
+      runId: "run-local",
+      generatedAt: "2026-03-29T14:00:00.000Z",
+      generatedAtStamp: "20260329T140000Z",
+      suiteDepth: "extended",
+      targetEnv: "local",
+      rows,
+    });
+
+    expect(report.targetEnv).toBe("local");
+    expect(report.markdown).toMatch(/target_env: `local`/);
+  });
+
+  it("appends transcript_tail for failed rows when LIVE_AI_CONVERSATION_MD_INCLUDE_TRANSCRIPT=1", () => {
+    const prev = process.env.LIVE_AI_CONVERSATION_MD_INCLUDE_TRANSCRIPT;
+    process.env.LIVE_AI_CONVERSATION_MD_INCLUDE_TRANSCRIPT = "1";
+    try {
+      const failedRow: LiveAiConversationReportRow = {
+        feature: "gakuchika",
+        caseId: "case-transcript",
+        title: "transcript case",
+        status: "failed",
+        severity: "failed",
+        failureKind: "state",
+        durationMs: 100,
+        transcript: [
+          { role: "assistant", content: "最初の質問" },
+          { role: "user", content: "ユーザ回答A" },
+          { role: "assistant", content: "続きの質問" },
+        ],
+        outputs: { finalText: "", generatedDocumentId: null },
+        deterministicFailReasons: ["draft_ready missing"],
+        representativeLog: null,
+        representativeError: null,
+        checks: [],
+        judge: null,
+        cleanup: { ok: true, removedIds: [] },
+      };
+      const report = generateLiveAiConversationReport({
+        reportType: "gakuchika",
+        runId: "run-tx",
+        generatedAt: "2026-03-29T14:00:00.000Z",
+        generatedAtStamp: "20260329T140000Z",
+        suiteDepth: "extended",
+        targetEnv: "local",
+        rows: [failedRow],
+      });
+      expect(report.markdown).toMatch(/#### transcript_tail/);
+      expect(report.markdown).toMatch(/ユーザ回答A/);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.LIVE_AI_CONVERSATION_MD_INCLUDE_TRANSCRIPT;
+      } else {
+        process.env.LIVE_AI_CONVERSATION_MD_INCLUDE_TRANSCRIPT = prev;
+      }
+    }
+  });
+
+  it("does not append transcript_tail for passed rows when env is set", () => {
+    const prev = process.env.LIVE_AI_CONVERSATION_MD_INCLUDE_TRANSCRIPT;
+    process.env.LIVE_AI_CONVERSATION_MD_INCLUDE_TRANSCRIPT = "1";
+    try {
+      const report = generateLiveAiConversationReport({
+        reportType: "motivation",
+        runId: "run-pass",
+        generatedAt: "2026-03-29T14:00:00.000Z",
+        generatedAtStamp: "20260329T140000Z",
+        suiteDepth: "smoke",
+        targetEnv: "local",
+        rows: [rows[0]],
+      });
+      expect(report.markdown).not.toMatch(/#### transcript_tail/);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.LIVE_AI_CONVERSATION_MD_INCLUDE_TRANSCRIPT;
+      } else {
+        process.env.LIVE_AI_CONVERSATION_MD_INCLUDE_TRANSCRIPT = prev;
+      }
+    }
+  });
 });

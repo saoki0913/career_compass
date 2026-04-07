@@ -47,15 +47,19 @@ WEB_SEARCH_DEBUG = bool(
     or settings.company_search_debug
 )
 
+WEB_SEARCH_DEBUG_PRINT = _env_flag("WEB_SEARCH_DEBUG_PRINT")
+
 
 def _debug_log(message: str, *args: object) -> None:
-    if WEB_SEARCH_DEBUG:
-        try:
-            text = message % args if args else message
-        except Exception:
-            text = f"{message} {args}"
+    if not WEB_SEARCH_DEBUG:
+        return
+    try:
+        text = message % args if args else message
+    except Exception:
+        text = f"{message} {args}"
+    logger.debug(text)
+    if WEB_SEARCH_DEBUG_PRINT:
         print(text)
-        logger.info(text)
 
 # Try to import DuckDuckGo search (ddgs is the new package name)
 try:
@@ -1988,7 +1992,7 @@ async def hybrid_web_search(
         if cached:
             return cached[:max_results]
 
-    logger.info(f"[WebSearch] Starting hybrid search for '{company_name}'")
+    logger.debug("[WebSearch] Starting hybrid search for %r", company_name)
     _debug_log(
         "[WebSearch] Params intent=%s content_type=%s graduation_year=%s "
         "selection_type=%s preferred_domain=%s strict_company_match=%s "
@@ -2082,6 +2086,7 @@ async def hybrid_web_search(
         should_rescue,
     )
 
+    site_rescue_used = False
     if should_rescue:
         site_domains = _resolve_site_domains(
             domain_profile=domain_profile,
@@ -2094,10 +2099,13 @@ async def hybrid_web_search(
                 site_domains,
                 len(site_queries),
             )
-            logger.info(
-                f"[WebSearch] Site rescue triggered (domains={site_domains}, "
-                f"initial_count={len(results)}, official_count={official_count})"
+            logger.debug(
+                "[WebSearch] Site rescue triggered domains=%s initial=%d official=%d",
+                site_domains,
+                len(results),
+                official_count,
             )
+            site_rescue_used = True
             site_results, site_raw = await search_with_rrf_fusion(
                 queries=site_queries,
                 max_results_per_query=WEB_SEARCH_RESULTS_PER_QUERY,
@@ -2126,8 +2134,8 @@ async def hybrid_web_search(
                     len(results),
                 )
         else:
-            logger.info(
-                f"[WebSearch] Site rescue skipped (no dotted official domains)"
+            logger.debug(
+                "[WebSearch] Site rescue skipped (no dotted official domains)"
             )
 
     if not results:
@@ -2160,6 +2168,16 @@ async def hybrid_web_search(
         results = results[:max_results]
         if write_cache and results and cache_key:
             _set_cache(cache_key, results)
+        top_score = results[0].combined_score if results else 0.0
+        logger.info(
+            "[WebSearch] hybrid_search company=%r results=%d deep_path=%s "
+            "site_rescue=%s top_combined=%.3f",
+            company_name,
+            len(results),
+            False,
+            site_rescue_used,
+            top_score,
+        )
         return results
 
     if len(fast_queries) < len(queries):
@@ -2205,7 +2223,7 @@ async def hybrid_web_search(
     )
 
     if results:
-        logger.info(
+        logger.debug(
             "[WebSearch] Rerank top=%s",
             [
                 {
@@ -2240,7 +2258,7 @@ async def hybrid_web_search(
             max(combined_scores),
             sum(combined_scores) / len(combined_scores),
         )
-        logger.info(
+        logger.debug(
             "[WebSearch] Combined top=%s",
             [
                 {
@@ -2269,11 +2287,15 @@ async def hybrid_web_search(
     # Limit to max_results
     results = results[:max_results]
 
+    top_score = results[0].combined_score if results else 0.0
     logger.info(
-        f"[WebSearch] Completed: {len(results)} results for '{company_name}' "
-        f"(top score: {results[0].combined_score:.3f})"
-        if results
-        else ""
+        "[WebSearch] hybrid_search company=%r results=%d deep_path=%s "
+        "site_rescue=%s top_combined=%.3f",
+        company_name,
+        len(results),
+        True,
+        site_rescue_used,
+        top_score,
     )
 
     # Cache results

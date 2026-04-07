@@ -4711,6 +4711,7 @@ class CrawlCorporateRequest(BaseModel):
         None  # corporate_ir, corporate_business, corporate_general
     )
     content_type: Optional[str] = None  # 9-category content type for RAG counts
+    billing_plan: Optional[str] = None
 
 
 class CrawlCorporateResponse(BaseModel):
@@ -4722,6 +4723,7 @@ class CrawlCorporateResponse(BaseModel):
     chunks_stored: int
     errors: list[str]
     url_content_types: dict[str, str] = {}  # URL -> classified content_type
+    page_routing_summaries: dict[str, dict[str, object]] = {}
 
 
 class UploadCorporatePdfResponse(BaseModel):
@@ -4743,6 +4745,41 @@ class UploadCorporatePdfResponse(BaseModel):
     ocr_truncated: bool = False
     # UI 向け短文（取込前説明と整合）
     processing_notice_ja: str | None = None
+    page_routing_summary: dict[str, object] | None = None
+
+
+class EstimateCorporatePdfResponse(BaseModel):
+    success: bool
+    company_id: str
+    source_url: str
+    page_count: int | None = None
+    source_total_pages: int | None = None
+    estimated_free_pdf_pages: int = 0
+    estimated_credits: int = 0
+    estimated_google_ocr_pages: int = 0
+    estimated_mistral_ocr_pages: int = 0
+    will_truncate: bool = False
+    requires_confirmation: bool = False
+    processing_notice_ja: str | None = None
+    page_routing_summary: dict[str, object] | None = None
+    errors: list[str] = []
+
+
+class CrawlCorporateEstimateResponse(BaseModel):
+    success: bool
+    company_id: str
+    estimated_pages_crawled: int
+    estimated_html_pages: int = 0
+    estimated_pdf_pages: int = 0
+    estimated_free_html_pages: int = 0
+    estimated_free_pdf_pages: int = 0
+    estimated_credits: int = 0
+    estimated_google_ocr_pages: int = 0
+    estimated_mistral_ocr_pages: int = 0
+    will_truncate: bool = False
+    requires_confirmation: bool = False
+    errors: list[str] = []
+    page_routing_summaries: dict[str, dict[str, object]] = {}
 
 
 class SearchCorporatePagesRequest(BaseModel):
@@ -4778,17 +4815,17 @@ class CorporatePageCandidate(BaseModel):
 MAX_UPLOAD_PDF_BYTES = 20 * 1024 * 1024
 
 
-def _extract_text_from_pdf_locally(pdf_bytes: bytes) -> str:
-    """Best-effort embedded-text extraction from a PDF."""
+def _extract_text_pages_from_pdf_locally(pdf_bytes: bytes) -> list[str]:
+    """Best-effort embedded-text extraction from a PDF, preserving page boundaries."""
     try:
         from pypdf import PdfReader
     except Exception:
-        return ""
+        return []
 
     try:
         reader = PdfReader(io.BytesIO(pdf_bytes))
     except Exception:
-        return ""
+        return []
 
     pages: list[str] = []
     for page in reader.pages:
@@ -4796,10 +4833,13 @@ def _extract_text_from_pdf_locally(pdf_bytes: bytes) -> str:
             text = page.extract_text() or ""
         except Exception:
             text = ""
-        if text.strip():
-            pages.append(text.strip())
+        pages.append(text.strip())
 
-    return "\n\n".join(pages).strip()
+    return pages
+
+
+def _extract_text_from_pdf_locally(pdf_bytes: bytes) -> str:
+    return "\n\n".join(text for text in _extract_text_pages_from_pdf_locally(pdf_bytes) if text).strip()
 
 
 def _get_pdf_page_count(pdf_bytes: bytes) -> int | None:
@@ -4830,12 +4870,20 @@ def _rag_pdf_max_ingest_pages(plan: str) -> int:
     return int(settings.rag_pdf_max_pages_free)
 
 
-def _rag_pdf_max_ocr_pages(plan: str) -> int:
+def _rag_pdf_max_google_ocr_pages(plan: str) -> int:
     if plan == "pro":
-        return int(settings.rag_pdf_ocr_max_pages_pro)
+        return int(settings.rag_pdf_google_ocr_max_pages_pro)
     if plan == "standard":
-        return int(settings.rag_pdf_ocr_max_pages_standard)
-    return int(settings.rag_pdf_ocr_max_pages_free)
+        return int(settings.rag_pdf_google_ocr_max_pages_standard)
+    return int(settings.rag_pdf_google_ocr_max_pages_free)
+
+
+def _rag_pdf_max_mistral_ocr_pages(plan: str) -> int:
+    if plan == "pro":
+        return int(settings.rag_pdf_mistral_ocr_max_pages_pro)
+    if plan == "standard":
+        return int(settings.rag_pdf_mistral_ocr_max_pages_standard)
+    return int(settings.rag_pdf_mistral_ocr_max_pages_free)
 
 
 def _slice_pdf_bytes_to_first_n_pages(pdf_bytes: bytes, max_pages: int) -> tuple[bytes, bool]:
@@ -4858,9 +4906,46 @@ def _slice_pdf_bytes_to_first_n_pages(pdf_bytes: bytes, max_pages: int) -> tuple
         return pdf_bytes, False
 
 
+def _slice_pdf_bytes_to_page_indexes(pdf_bytes: bytes, page_indexes: list[int]) -> bytes:
+    if not pdf_bytes or not page_indexes:
+        return b""
+
+    try:
+        from pypdf import PdfReader, PdfWriter
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        writer = PdfWriter()
+        total_pages = len(reader.pages)
+        for page_index in page_indexes:
+            if 0 <= page_index < total_pages:
+                writer.add_page(reader.pages[page_index])
+        out = io.BytesIO()
+        writer.write(out)
+        return out.getvalue()
+    except Exception:
+        return b""
+
+
 def _chars_per_page(text: str, page_count: int | None) -> float:
     pages = max(page_count or 1, 1)
     return len((text or "").strip()) / pages
+
+
+def _is_garbled_text(text: str) -> bool:
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    replacement_ratio = stripped.count("\ufffd") / max(len(stripped), 1)
+    return replacement_ratio > 0.05
+
+
+def _is_local_pdf_page_readable(text: str) -> bool:
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    if _is_garbled_text(stripped):
+        return False
+    return len(stripped) >= int(settings.pdf_ocr_min_chars_per_page)
 
 
 def _should_run_pdf_ocr(text: str, page_count: int | None) -> bool:
@@ -4896,18 +4981,251 @@ def _should_run_high_accuracy_pdf_ocr(
     )
 
 
-def _pick_better_pdf_text(
+def _should_route_page_to_mistral(
+    *,
+    billing_plan: str,
+    content_type: str | None,
+    page_text: str,
+) -> bool:
+    if billing_plan not in {"standard", "pro"}:
+        return False
+    if content_type not in {"ir_materials", "midterm_plan"}:
+        return False
+    stripped = (page_text or "").strip()
+    if stripped and not _is_garbled_text(stripped):
+        return False
+    return True
+
+
+def _build_page_routing_summary(
+    *,
+    source_total_pages: int | None,
+    processed_pages: int,
+    planned_route: list[str],
+    actual_route: list[str],
+) -> dict[str, object]:
+    return {
+        "total_pages": source_total_pages or processed_pages,
+        "ingest_pages": processed_pages,
+        "local_pages": actual_route.count("local"),
+        "google_ocr_pages": actual_route.count("google"),
+        "mistral_ocr_pages": actual_route.count("mistral"),
+        "truncated_pages": max((source_total_pages or processed_pages) - processed_pages, 0),
+        "planned_route": planned_route,
+        "actual_route": actual_route,
+    }
+
+
+def _build_pdf_processing_notice_ja(
+    *,
+    source_total_pages: int | None,
+    processed_pages: int,
+    page_routing_summary: dict[str, object],
+) -> str | None:
+    parts: list[str] = []
+    truncated_pages = int(page_routing_summary.get("truncated_pages") or 0)
+    if truncated_pages > 0 and source_total_pages is not None:
+        parts.append(f"全{source_total_pages}ページのうち先頭{processed_pages}ページのみを取り込みました。")
+    google_pages = int(page_routing_summary.get("google_ocr_pages") or 0)
+    mistral_pages = int(page_routing_summary.get("mistral_ocr_pages") or 0)
+    if google_pages > 0 or mistral_pages > 0:
+        parts.append(
+            f"ページごとに本文抽出経路を分岐し、Google OCR {google_pages}ページ・Mistral OCR {mistral_pages}ページを使いました。"
+        )
+    return " ".join(parts).strip() or None
+
+
+def _plan_pdf_page_routes(
+    *,
+    page_texts: list[str],
+    billing_plan: str,
+    content_type: str | None,
+) -> list[str]:
+    planned: list[str] = []
+    google_budget = _rag_pdf_max_google_ocr_pages(billing_plan)
+    mistral_budget = _rag_pdf_max_mistral_ocr_pages(billing_plan)
+
+    for page_text in page_texts:
+        if _is_local_pdf_page_readable(page_text):
+            planned.append("local")
+            continue
+        if (
+            mistral_budget > 0
+            and _should_route_page_to_mistral(
+                billing_plan=billing_plan,
+                content_type=content_type,
+                page_text=page_text,
+            )
+        ):
+            planned.append("mistral")
+            mistral_budget -= 1
+            continue
+        if google_budget > 0:
+            planned.append("google")
+            google_budget -= 1
+            continue
+        planned.append("local")
+
+    return planned
+
+
+async def _ocr_selected_pdf_pages(
+    *,
+    pdf_bytes: bytes,
+    filename: str,
+    page_indexes: list[int],
+    source_kind: str,
+    billing_plan: str,
+    content_type: str | None,
+    feature: str,
+    route_hint: str,
     local_text: str,
-    default_text: str,
-    high_accuracy_text: str,
-) -> tuple[str, str]:
-    candidates = [
-        ("pypdf", (local_text or "").strip()),
-        ("ocr", (default_text or "").strip()),
-        ("ocr_high_accuracy", (high_accuracy_text or "").strip()),
-    ]
-    best_method, best_text = max(candidates, key=lambda item: len(item[1]))
-    return best_method, best_text
+):
+    if not page_indexes:
+        return normalize_pdf_ocr_result(None)
+
+    selected_pdf = _slice_pdf_bytes_to_page_indexes(pdf_bytes, page_indexes)
+    if not selected_pdf:
+        return normalize_pdf_ocr_result(None)
+
+    return normalize_pdf_ocr_result(
+        await extract_text_from_pdf_with_ocr(
+            selected_pdf,
+            filename,
+            source_kind=source_kind,
+            billing_plan=billing_plan,
+            content_type=content_type,
+            page_count=len(page_indexes),
+            local_text=local_text,
+            feature=feature,
+            route_hint=route_hint,  # type: ignore[arg-type]
+        )
+    )
+
+
+async def _extract_text_from_pdf_with_page_routing(
+    *,
+    pdf_bytes: bytes,
+    filename: str,
+    billing_plan: str,
+    content_type: str | None,
+    source_kind: str,
+    feature: str,
+) -> dict[str, object]:
+    source_total_pages = _get_pdf_page_count(pdf_bytes)
+    max_ingest = _rag_pdf_max_ingest_pages(billing_plan)
+    working_pdf, ingest_truncated = _slice_pdf_bytes_to_first_n_pages(pdf_bytes, max_ingest)
+    page_texts = _extract_text_pages_from_pdf_locally(working_pdf)
+    processed_pages = len(page_texts) or _get_pdf_page_count(working_pdf) or 1
+    if not page_texts:
+        page_texts = [""] * processed_pages
+
+    planned_route = _plan_pdf_page_routes(
+        page_texts=page_texts,
+        billing_plan=billing_plan,
+        content_type=content_type,
+    )
+    actual_route = list(planned_route)
+    merged_page_texts = list(page_texts)
+
+    google_indexes = [i for i, route in enumerate(planned_route) if route == "google"]
+    mistral_indexes = [i for i, route in enumerate(planned_route) if route == "mistral"]
+
+    est_cost_usd = 0.0
+    ocr_ran = False
+    ocr_provider: str | None = None
+    ocr_route: str | None = None
+    quality_score: float | None = None
+    fallback_count = 0
+
+    if google_indexes:
+        google_result = await _ocr_selected_pdf_pages(
+            pdf_bytes=working_pdf,
+            filename=filename,
+            page_indexes=google_indexes,
+            source_kind=source_kind,
+            billing_plan=billing_plan,
+            content_type=content_type,
+            feature=feature,
+            route_hint="default",
+            local_text="\n\n".join(page_texts[i] for i in google_indexes if page_texts[i]).strip(),
+        )
+        ocr_ran = True
+        fallback_count += 1
+        ocr_provider = google_result.provider or ocr_provider
+        ocr_route = "default"
+        quality_score = google_result.quality_score
+        est_cost_usd += float(google_result.estimated_cost_usd or 0.0)
+        for offset, page_index in enumerate(google_indexes):
+            page_text = google_result.page_texts[offset] if offset < len(google_result.page_texts) else ""
+            if page_text.strip():
+                merged_page_texts[page_index] = page_text.strip()
+                actual_route[page_index] = "google"
+            else:
+                actual_route[page_index] = "local"
+
+    if mistral_indexes:
+        mistral_result = await _ocr_selected_pdf_pages(
+            pdf_bytes=working_pdf,
+            filename=filename,
+            page_indexes=mistral_indexes,
+            source_kind=source_kind,
+            billing_plan=billing_plan,
+            content_type=content_type,
+            feature=feature,
+            route_hint="high_accuracy",
+            local_text="\n\n".join(page_texts[i] for i in mistral_indexes if page_texts[i]).strip(),
+        )
+        ocr_ran = True
+        fallback_count += 1
+        ocr_provider = mistral_result.provider or ocr_provider
+        ocr_route = "high_accuracy"
+        quality_score = mistral_result.quality_score or quality_score
+        est_cost_usd += float(mistral_result.estimated_cost_usd or 0.0)
+        for offset, page_index in enumerate(mistral_indexes):
+            page_text = mistral_result.page_texts[offset] if offset < len(mistral_result.page_texts) else ""
+            if page_text.strip():
+                merged_page_texts[page_index] = page_text.strip()
+                actual_route[page_index] = "mistral"
+            else:
+                actual_route[page_index] = "local"
+
+    merged_text = "\n\n".join(text for text in merged_page_texts if text.strip()).strip()
+    page_routing_summary = _build_page_routing_summary(
+        source_total_pages=source_total_pages,
+        processed_pages=processed_pages,
+        planned_route=planned_route,
+        actual_route=actual_route,
+    )
+    processing_notice_ja = _build_pdf_processing_notice_ja(
+        source_total_pages=source_total_pages,
+        processed_pages=processed_pages,
+        page_routing_summary=page_routing_summary,
+    )
+    extraction_method = (
+        "ocr_high_accuracy"
+        if page_routing_summary["mistral_ocr_pages"]
+        else "ocr"
+        if page_routing_summary["google_ocr_pages"]
+        else "pypdf"
+    )
+
+    return {
+        "text": merged_text,
+        "extraction_method": extraction_method,
+        "source_total_pages": source_total_pages,
+        "processed_pages": processed_pages,
+        "ingest_truncated": ingest_truncated,
+        "ocr_truncated": False,
+        "page_routing_summary": page_routing_summary,
+        "processing_notice_ja": processing_notice_ja,
+        "ocr_ran": ocr_ran,
+        "ocr_est_usd": est_cost_usd or None,
+        "ocr_provider": ocr_provider,
+        "ocr_route": ocr_route,
+        "ocr_quality_score": quality_score,
+        "ocr_fallback_count": fallback_count,
+    }
 
 
 def _pdf_ingest_telemetry_line(
@@ -4947,6 +5265,83 @@ def _pdf_ingest_telemetry_line(
     logger.info("[pdf_ingest_telemetry] " + json.dumps(payload, ensure_ascii=False))
 
 
+def _build_pdf_estimate_response(
+    *,
+    company_id: str,
+    source_url: str,
+    source_total_pages: int | None,
+    processed_pages: int,
+    page_routing_summary: dict[str, object],
+    processing_notice_ja: str | None,
+    remaining_free_pdf_pages: int,
+) -> EstimateCorporatePdfResponse:
+    estimated_free_pdf_pages = min(max(remaining_free_pdf_pages, 0), processed_pages)
+    overflow_pages = max(0, processed_pages - estimated_free_pdf_pages)
+    estimated_credits = 0 if overflow_pages <= 0 else (2 if overflow_pages <= 20 else 6 if overflow_pages <= 60 else 12)
+    estimated_mistral_ocr_pages = int(page_routing_summary.get("planned_route", []).count("mistral"))
+    return EstimateCorporatePdfResponse(
+        success=True,
+        company_id=company_id,
+        source_url=source_url,
+        page_count=processed_pages,
+        source_total_pages=source_total_pages,
+        estimated_free_pdf_pages=estimated_free_pdf_pages,
+        estimated_credits=estimated_credits,
+        estimated_google_ocr_pages=int(page_routing_summary.get("planned_route", []).count("google")),
+        estimated_mistral_ocr_pages=estimated_mistral_ocr_pages,
+        will_truncate=bool(page_routing_summary.get("truncated_pages")),
+        requires_confirmation=estimated_credits > 0
+        or estimated_mistral_ocr_pages > 0
+        or bool(page_routing_summary.get("truncated_pages")),
+        processing_notice_ja=processing_notice_ja,
+        page_routing_summary=page_routing_summary,
+        errors=[],
+    )
+
+
+@router.post("/rag/estimate-upload-pdf", response_model=EstimateCorporatePdfResponse)
+@limiter.limit("60/minute")
+async def estimate_corporate_pdf_upload(
+    request: Request,
+    company_id: str = Form(...),
+    source_url: str = Form(...),
+    content_type: Optional[str] = Form(None),
+    billing_plan: str = Form("free"),
+    remaining_free_pdf_pages: int = Form(0),
+    file: UploadFile = File(...),
+):
+    filename = file.filename or "document.pdf"
+    mime_type = (file.content_type or "").lower()
+    if not filename.lower().endswith(".pdf") and mime_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="PDFファイルを指定してください。")
+
+    pdf_bytes = await file.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="PDFファイルが空です。")
+    if len(pdf_bytes) > MAX_UPLOAD_PDF_BYTES:
+        raise HTTPException(status_code=400, detail="PDFファイルが大きすぎます。20MB以下にしてください。")
+
+    plan = _normalize_rag_pdf_billing_plan(billing_plan)
+    routing = await _extract_text_from_pdf_with_page_routing(
+        pdf_bytes=pdf_bytes,
+        filename=filename,
+        billing_plan=plan,
+        content_type=content_type,
+        source_kind="upload",
+        feature="company_info",
+    )
+
+    return _build_pdf_estimate_response(
+        company_id=company_id,
+        source_url=source_url,
+        source_total_pages=routing["source_total_pages"],
+        processed_pages=int(routing["processed_pages"]),
+        page_routing_summary=dict(routing["page_routing_summary"]),
+        processing_notice_ja=routing["processing_notice_ja"],
+        remaining_free_pdf_pages=max(0, int(remaining_free_pdf_pages)),
+    )
+
+
 @router.post("/rag/upload-pdf", response_model=UploadCorporatePdfResponse)
 @limiter.limit("60/minute")
 async def upload_corporate_pdf(
@@ -4961,16 +5356,6 @@ async def upload_corporate_pdf(
 ):
     """Extract text from an uploaded PDF and store it in company RAG."""
     t0 = time.monotonic()
-    ocr_ran = False
-    ocr_est_usd: float | None = None
-    ocr_provider: str | None = None
-    ocr_route: str | None = None
-    ocr_quality_score: float | None = None
-    ocr_fallback_count = 0
-    source_total_pages: int | None = None
-    processed_pages: int | None = None
-    ingest_truncated = False
-    ocr_truncated = False
 
     filename = file.filename or "document.pdf"
     mime_type = (file.content_type or "").lower()
@@ -4987,8 +5372,6 @@ async def upload_corporate_pdf(
         )
 
     plan = _normalize_rag_pdf_billing_plan(billing_plan)
-    max_ingest = _rag_pdf_max_ingest_pages(plan)
-    max_ocr = min(_rag_pdf_max_ocr_pages(plan), max_ingest)
 
     backend = resolve_embedding_backend()
     if backend is None:
@@ -5020,97 +5403,29 @@ async def upload_corporate_pdf(
             ],
         )
 
-    source_total_pages = _get_pdf_page_count(pdf_bytes)
-    working_pdf, ingest_truncated = _slice_pdf_bytes_to_first_n_pages(pdf_bytes, max_ingest)
-    processed_pages = _get_pdf_page_count(working_pdf)
-    if processed_pages is None:
-        processed_pages = source_total_pages
-    if processed_pages is None:
-        processed_pages = 1
+    routing = await _extract_text_from_pdf_with_page_routing(
+        pdf_bytes=pdf_bytes,
+        filename=filename,
+        billing_plan=plan,
+        content_type=content_type,
+        source_kind="upload",
+        feature="company_info",
+    )
 
-    max_ingest_i = max_ingest
-    max_ocr_i = max_ocr
-
-    extracted_text = _extract_text_from_pdf_locally(working_pdf)
-    extraction_method = "pypdf"
-
-    if _should_run_pdf_ocr(extracted_text, processed_pages):
-        ocr_pdf = working_pdf
-        ocr_pages = _get_pdf_page_count(working_pdf) or processed_pages
-        if ocr_pages > max_ocr:
-            ocr_pdf, ocr_truncated = _slice_pdf_bytes_to_first_n_pages(working_pdf, max_ocr)
-            ocr_pages = _get_pdf_page_count(ocr_pdf) or max_ocr
-        default_ocr_text = ""
-        high_accuracy_ocr_text = ""
-        try:
-            ocr_result = normalize_pdf_ocr_result(
-                await extract_text_from_pdf_with_ocr(
-                    ocr_pdf,
-                    filename,
-                    source_kind="upload",
-                    billing_plan=plan,
-                    content_type=content_type,
-                    page_count=ocr_pages,
-                    local_text=extracted_text,
-                    feature="company_info",
-                    route_hint="default",
-                )
-            )
-            ocr_ran = True
-            ocr_fallback_count = 1
-            default_ocr_text = (ocr_result.text or "").strip()
-            ocr_provider = ocr_result.provider
-            ocr_route = "default"
-            ocr_quality_score = ocr_result.quality_score
-            ocr_est_usd = ocr_result.estimated_cost_usd
-            if _should_run_high_accuracy_pdf_ocr(
-                billing_plan=plan,
-                content_type=content_type,
-                page_count=ocr_pages,
-                google_result_text=default_ocr_text,
-                google_quality_score=ocr_result.quality_score,
-            ):
-                high_accuracy_result = normalize_pdf_ocr_result(
-                    await extract_text_from_pdf_with_ocr(
-                        ocr_pdf,
-                        filename,
-                        source_kind="upload",
-                        billing_plan=plan,
-                        content_type=content_type,
-                        page_count=ocr_pages,
-                        local_text=default_ocr_text or extracted_text,
-                        feature="company_info",
-                        route_hint="high_accuracy",
-                    )
-                )
-                high_accuracy_ocr_text = (high_accuracy_result.text or "").strip()
-                ocr_provider = high_accuracy_result.provider or ocr_provider
-                ocr_route = "high_accuracy"
-                ocr_quality_score = high_accuracy_result.quality_score
-                ocr_est_usd = (ocr_est_usd or 0.0) + (high_accuracy_result.estimated_cost_usd or 0.0)
-                ocr_fallback_count = 2
-        except Exception as e:
-            logger.warning(f"[PDF取込] OCR fallback failed: {e}")
-            default_ocr_text = ""
-            high_accuracy_ocr_text = ""
-        extraction_method, best_text = _pick_better_pdf_text(
-            extracted_text,
-            default_ocr_text,
-            high_accuracy_ocr_text,
-        )
-        if best_text:
-            extracted_text = best_text
-
-    processing_notice_parts: list[str] = []
-    if ingest_truncated and source_total_pages is not None:
-        processing_notice_parts.append(
-            f"全{source_total_pages}ページのうち先頭{processed_pages}ページのみを取り込みました。"
-        )
-    elif ingest_truncated:
-        processing_notice_parts.append("ページ上限により先頭のみを取り込みました。")
-    if ocr_truncated:
-        processing_notice_parts.append(f"OCRは先頭{max_ocr_i}ページのみ実行しました。")
-    processing_notice_ja = " ".join(processing_notice_parts).strip() or None
+    extracted_text = str(routing["text"] or "")
+    extraction_method = str(routing["extraction_method"])
+    source_total_pages = routing["source_total_pages"]
+    processed_pages = int(routing["processed_pages"])
+    ingest_truncated = bool(routing["ingest_truncated"])
+    ocr_truncated = bool(routing["ocr_truncated"])
+    processing_notice_ja = routing["processing_notice_ja"]
+    page_routing_summary = dict(routing["page_routing_summary"])
+    ocr_ran = bool(routing["ocr_ran"])
+    ocr_est_usd = routing["ocr_est_usd"]
+    ocr_provider = routing["ocr_provider"]
+    ocr_route = routing["ocr_route"]
+    ocr_quality_score = routing["ocr_quality_score"]
+    ocr_fallback_count = int(routing["ocr_fallback_count"])
 
     if len(extracted_text.strip()) < 100:
         _pdf_ingest_telemetry_line(
@@ -5143,6 +5458,7 @@ async def upload_corporate_pdf(
             ingest_truncated=ingest_truncated,
             ocr_truncated=ocr_truncated,
             processing_notice_ja=processing_notice_ja,
+            page_routing_summary=page_routing_summary,
         )
 
     channel = content_channel or (
@@ -5193,6 +5509,7 @@ async def upload_corporate_pdf(
             ingest_truncated=ingest_truncated,
             ocr_truncated=ocr_truncated,
             processing_notice_ja=processing_notice_ja,
+            page_routing_summary=page_routing_summary,
         )
 
     from app.utils.text_chunker import JapaneseTextChunker, get_chunk_settings
@@ -5233,6 +5550,211 @@ async def upload_corporate_pdf(
         ingest_truncated=ingest_truncated,
         ocr_truncated=ocr_truncated,
         processing_notice_ja=processing_notice_ja,
+        page_routing_summary=page_routing_summary,
+    )
+
+
+def _looks_like_pdf_payload(url: str, payload: bytes) -> bool:
+    return url.lower().endswith(".pdf") or payload[:5] == b"%PDF-"
+
+
+def _looks_like_html_payload(payload: bytes) -> bool:
+    sample = payload[:512].lower()
+    return b"<html" in sample or b"<!doctype html" in sample or b"<body" in sample
+
+
+async def _process_crawl_source(
+    *,
+    company_id: str,
+    company_name: str,
+    url: str,
+    content_type: str | None,
+    content_channel: str,
+    backend,
+    billing_plan: str,
+    store_result: bool,
+) -> dict[str, object]:
+    payload = await fetch_page_content(url)
+
+    if _looks_like_pdf_payload(url, payload):
+        routing = await _extract_text_from_pdf_with_page_routing(
+            pdf_bytes=payload,
+            filename=urlparse(url).path.split("/")[-1] or "document.pdf",
+            billing_plan=billing_plan,
+            content_type=content_type,
+            source_kind="crawl",
+            feature="company_info",
+        )
+        page_routing_summary = dict(routing["page_routing_summary"])
+        text = str(routing["text"] or "").strip()
+        if len(text) < 100:
+            return {
+                "success": False,
+                "kind": "pdf",
+                "error": "PDFから十分な本文テキストを抽出できませんでした",
+                "page_routing_summary": page_routing_summary,
+                "pages_crawled": 0,
+                "chunks_stored": 0,
+            }
+
+        if not store_result:
+            return {
+                "success": True,
+                "kind": "pdf",
+                "pages_crawled": 1,
+                "chunks_stored": 0,
+                "page_routing_summary": page_routing_summary,
+            }
+
+        result = await store_full_text_content(
+            company_id=company_id,
+            company_name=company_name,
+            raw_text=text,
+            source_url=url,
+            content_type=content_type,
+            content_channel=content_channel,
+            backend=backend,
+            raw_format="text",
+        )
+        if not result["success"]:
+            return {
+                "success": False,
+                "kind": "pdf",
+                "error": "PDFのRAG保存に失敗しました",
+                "page_routing_summary": page_routing_summary,
+                "pages_crawled": 0,
+                "chunks_stored": 0,
+            }
+
+        from app.utils.text_chunker import JapaneseTextChunker, get_chunk_settings
+
+        effective_type = result.get("dominant_content_type") or content_type or "corporate_site"
+        chunk_size, chunk_overlap = get_chunk_settings(effective_type)
+        chunker = JapaneseTextChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        chunks = chunker.chunk(text)
+        return {
+            "success": True,
+            "kind": "pdf",
+            "pages_crawled": 1,
+            "chunks_stored": len(chunks),
+            "page_routing_summary": page_routing_summary,
+            "dominant_content_type": result.get("dominant_content_type"),
+        }
+
+    if not _looks_like_html_payload(payload):
+        return {
+            "success": False,
+            "kind": "unsupported",
+            "error": "HTML/PDF 以外のバイナリを検出したためスキップしました",
+            "pages_crawled": 0,
+            "chunks_stored": 0,
+        }
+
+    text = extract_text_from_html(payload)
+    if not text or len(text) < 100 or _is_garbled_text(text):
+        return {
+            "success": False,
+            "kind": "html",
+            "error": "ページ本文が不足しているか文字化けしているためスキップしました",
+            "pages_crawled": 0,
+            "chunks_stored": 0,
+        }
+
+    if not store_result:
+        return {
+            "success": True,
+            "kind": "html",
+            "pages_crawled": 1,
+            "chunks_stored": 0,
+        }
+
+    result = await store_full_text_content(
+        company_id=company_id,
+        company_name=company_name,
+        raw_text=payload,
+        source_url=url,
+        content_type=content_type,
+        content_channel=content_channel,
+        backend=backend,
+        raw_format="html",
+    )
+    if not result["success"]:
+        return {
+            "success": False,
+            "kind": "html",
+            "error": "ベクトル保存に失敗しました",
+            "pages_crawled": 0,
+            "chunks_stored": 0,
+        }
+
+    from app.utils.text_chunker import JapaneseTextChunker
+
+    chunker = JapaneseTextChunker(chunk_size=500, chunk_overlap=100)
+    chunks = chunker.chunk(text)
+    return {
+        "success": True,
+        "kind": "html",
+        "pages_crawled": 1,
+        "chunks_stored": len(chunks),
+        "dominant_content_type": result.get("dominant_content_type"),
+    }
+
+
+@router.post("/rag/estimate-crawl-corporate", response_model=CrawlCorporateEstimateResponse)
+@limiter.limit("60/minute")
+async def estimate_crawl_corporate_pages(payload: CrawlCorporateRequest, request: Request):
+    request = payload
+    billing_plan = _normalize_rag_pdf_billing_plan(request.billing_plan)
+    errors: list[str] = []
+    estimated_html_pages = 0
+    estimated_pdf_pages = 0
+    estimated_google_ocr_pages = 0
+    estimated_mistral_ocr_pages = 0
+    will_truncate = False
+    page_routing_summaries: dict[str, dict[str, object]] = {}
+
+    for url in request.urls:
+        try:
+            source_result = await _process_crawl_source(
+                company_id=request.company_id,
+                company_name=request.company_name,
+                url=url,
+                content_type=request.content_type,
+                content_channel=request.content_channel or "corporate_general",
+                backend=None,
+                billing_plan=billing_plan,
+                store_result=False,
+            )
+            if not source_result["success"]:
+                errors.append(f"{url}: {source_result['error']}")
+                continue
+            if source_result["kind"] == "html":
+                estimated_html_pages += 1
+            elif source_result["kind"] == "pdf":
+                estimated_pdf_pages += 1
+                summary = dict(source_result.get("page_routing_summary") or {})
+                page_routing_summaries[url] = summary
+                estimated_google_ocr_pages += int(summary.get("planned_route", []).count("google"))
+                estimated_mistral_ocr_pages += int(summary.get("planned_route", []).count("mistral"))
+                will_truncate = will_truncate or bool(summary.get("truncated_pages"))
+        except Exception as exc:
+            errors.append(f"{url}: {str(exc)[:100]}")
+
+    return CrawlCorporateEstimateResponse(
+        success=(estimated_html_pages + estimated_pdf_pages) > 0,
+        company_id=request.company_id,
+        estimated_pages_crawled=estimated_html_pages + estimated_pdf_pages,
+        estimated_html_pages=estimated_html_pages,
+        estimated_pdf_pages=estimated_pdf_pages,
+        estimated_free_html_pages=0,
+        estimated_free_pdf_pages=0,
+        estimated_credits=0,
+        estimated_google_ocr_pages=estimated_google_ocr_pages,
+        estimated_mistral_ocr_pages=estimated_mistral_ocr_pages,
+        will_truncate=will_truncate,
+        requires_confirmation=estimated_mistral_ocr_pages > 0 or will_truncate,
+        errors=errors,
+        page_routing_summaries=page_routing_summaries,
     )
 
 
@@ -5254,6 +5776,7 @@ async def crawl_corporate_pages(payload: CrawlCorporateRequest, request: Request
     - Storing URLs in company record
     """
     request = payload
+    billing_plan = _normalize_rag_pdf_billing_plan(request.billing_plan)
     valid_channels = ["corporate_ir", "corporate_business", "corporate_general"]
     channel = request.content_channel or "corporate_general"
     if channel not in valid_channels:
@@ -5266,6 +5789,7 @@ async def crawl_corporate_pages(payload: CrawlCorporateRequest, request: Request
     chunks_stored = 0
     errors = []
     url_content_types: dict[str, str] = {}
+    page_routing_summaries: dict[str, dict[str, object]] = {}
 
     backend = resolve_embedding_backend()
     if backend is None:
@@ -5283,41 +5807,27 @@ async def crawl_corporate_pages(payload: CrawlCorporateRequest, request: Request
 
     for url in request.urls:
         try:
-            # Fetch page content
-            html = await fetch_page_content(url)
-
-            # Extract text
-            text = extract_text_from_html(html)
-
-            if not text or len(text) < 100:
-                errors.append(f"{url}: ページ内容が取得できませんでした")
-                continue
-
-            # Store full text content (HTML-aware chunking)
-            # Pass content_type for proper 9-category classification in RAG counts
-            result = await store_full_text_content(
+            source_result = await _process_crawl_source(
                 company_id=request.company_id,
                 company_name=request.company_name,
-                raw_text=html,
-                source_url=url,
-                content_type=request.content_type,  # 9-category type for counts
+                url=url,
+                content_type=request.content_type,
                 content_channel=channel,
                 backend=backend,
-                raw_format="html",
+                billing_plan=billing_plan,
+                store_result=True,
             )
 
-            if result["success"]:
-                pages_crawled += 1
-                if result.get("dominant_content_type"):
-                    url_content_types[url] = result["dominant_content_type"]
-                # Estimate chunk count
-                from app.utils.text_chunker import JapaneseTextChunker
+            if not source_result["success"]:
+                errors.append(f"{url}: {source_result['error']}")
+                continue
 
-                chunker = JapaneseTextChunker(chunk_size=500, chunk_overlap=100)
-                chunks = chunker.chunk(text)
-                chunks_stored += len(chunks)
-            else:
-                errors.append(f"{url}: ベクトル保存に失敗しました")
+            pages_crawled += int(source_result.get("pages_crawled") or 0)
+            chunks_stored += int(source_result.get("chunks_stored") or 0)
+            if source_result.get("dominant_content_type"):
+                url_content_types[url] = str(source_result["dominant_content_type"])
+            if source_result.get("page_routing_summary"):
+                page_routing_summaries[url] = dict(source_result["page_routing_summary"])
 
             # Rate limiting: wait 1 second between requests
             await asyncio.sleep(1)
@@ -5334,6 +5844,7 @@ async def crawl_corporate_pages(payload: CrawlCorporateRequest, request: Request
         chunks_stored=chunks_stored,
         errors=errors,
         url_content_types=url_content_types,
+        page_routing_summaries=page_routing_summaries,
     )
 
 

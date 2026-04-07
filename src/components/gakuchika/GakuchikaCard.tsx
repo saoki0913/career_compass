@@ -21,7 +21,7 @@ interface Gakuchika {
   summaryKind?: "structured" | "legacy" | "none";
   createdAt: string;
   updatedAt: string;
-  conversationStatus: "in_progress" | "completed" | null;
+  conversationStatus: "in_progress" | "completed" | null | undefined;
   conversationState: ConversationState | null;
   questionCount: number;
 }

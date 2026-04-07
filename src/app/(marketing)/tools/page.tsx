@@ -9,6 +9,9 @@ import {
   FileText,
   ListChecks,
 } from "lucide-react";
+import { LandingHeader } from "@/components/landing/LandingHeader";
+import { LandingFooter } from "@/components/landing/LandingFooter";
+import { StickyCTABar } from "@/components/landing/StickyCTABar";
 import {
   PublicSurfaceButton,
   PublicSurfaceFrame,
@@ -34,18 +37,10 @@ const mainClass = "mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8";
 
 export default function ToolsPage() {
   return (
-    <PublicSurfaceFrame>
-      <PublicSurfaceHeader
-        navLinks={[
-          { href: "/templates", label: "テンプレ集" },
-          { href: "/pricing", label: "料金" },
-          { href: "/shukatsu-ai", label: "就活AI" },
-        ]}
-        primaryAction={{ href: "/login", label: "アプリで続ける" }}
-        secondaryAction={{ href: "/pricing", label: "料金を見る" }}
-      />
-
-      <main>
+    <>
+      <LandingHeader />
+      <PublicSurfaceFrame>
+        <main>
         <PublicSurfaceHero
           title="無料ツール"
           description="ESの文字数カウントと、志望動機のテンプレがあります。"
@@ -205,5 +200,8 @@ export default function ToolsPage() {
         </section>
       </main>
     </PublicSurfaceFrame>
+    <LandingFooter />
+    <StickyCTABar />
+    </>
   );
 }

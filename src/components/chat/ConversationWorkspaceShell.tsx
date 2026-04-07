@@ -131,9 +131,11 @@ export function ConversationWorkspaceShell({
             {mobileStatus ? (
               <div className="border-b border-border/50 px-3 py-3 sm:px-4 lg:hidden">{mobileStatus}</div>
             ) : null}
-            <div className="flex-1 overflow-y-auto p-3 sm:p-4">{conversation}</div>
+            <div className="flex-1 overflow-y-auto px-3 pt-3 sm:px-4 sm:pt-4 lg:pb-4">
+              {conversation}
+            </div>
             {composer ? (
-              <div className="shrink-0 border-t border-border/50 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4">
+              <div className="shrink-0 border-t border-border/50 p-3 sm:px-4 sm:pt-4 max-lg:pb-[calc(0.75rem+var(--mobile-bottom-nav-offset))] lg:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
                 {composer}
               </div>
             ) : null}

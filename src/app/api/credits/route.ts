@@ -18,14 +18,19 @@ import { userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import {
   getMonthlyScheduleFetchFreeLimit,
-  getMonthlyRagFreeUnits,
+  getMonthlyRagHtmlFreeUnits,
+  getMonthlyRagPdfFreeUnits,
 } from "@/lib/company-info/pricing";
 import {
   getRagPdfIngestPolicySummaryJa,
   getRagPdfMaxIngestPages,
-  getRagPdfMaxOcrPages,
+  getRagPdfMaxGoogleOcrPages,
+  getRagPdfMaxMistralOcrPages,
 } from "@/lib/company-info/pdf-ingest-limits";
-import { getRemainingCompanyRagFreeUnitsSafe } from "@/lib/company-info/usage";
+import {
+  getRemainingCompanyRagHtmlFreeUnitsSafe,
+  getRemainingCompanyRagPdfFreeUnitsSafe,
+} from "@/lib/company-info/usage";
 
 export async function GET(request: NextRequest) {
   try {
@@ -51,7 +56,10 @@ export async function GET(request: NextRequest) {
 
       // Get remaining free fetches
       const remainingFreeFetches = await getRemainingFreeFetches(userId, null, plan);
-      const remainingRagFreeUnits = await getRemainingCompanyRagFreeUnitsSafe(userId, plan);
+      const [remainingRagHtmlFreeUnits, remainingRagPdfFreeUnits] = await Promise.all([
+        getRemainingCompanyRagHtmlFreeUnitsSafe(userId, plan),
+        getRemainingCompanyRagPdfFreeUnitsSafe(userId, plan),
+      ]);
 
       return NextResponse.json({
         type: "user",
@@ -60,9 +68,13 @@ export async function GET(request: NextRequest) {
         monthlyAllocation: creditsInfo.monthlyAllocation,
         nextResetAt: creditsInfo.nextResetAt.toISOString(),
         monthlyFree: {
-          companyRagPages: {
-            remaining: remainingRagFreeUnits,
-            limit: getMonthlyRagFreeUnits(plan),
+          companyRagHtmlPages: {
+            remaining: remainingRagHtmlFreeUnits,
+            limit: getMonthlyRagHtmlFreeUnits(plan),
+          },
+          companyRagPdfPages: {
+            remaining: remainingRagPdfFreeUnits,
+            limit: getMonthlyRagPdfFreeUnits(plan),
           },
           selectionSchedule: {
             remaining: remainingFreeFetches,
@@ -71,7 +83,8 @@ export async function GET(request: NextRequest) {
         },
         ragPdfLimits: {
           maxPagesIngest: getRagPdfMaxIngestPages(plan),
-          maxPagesOcr: getRagPdfMaxOcrPages(plan),
+          maxPagesGoogleOcr: getRagPdfMaxGoogleOcrPages(plan),
+          maxPagesMistralOcr: getRagPdfMaxMistralOcrPages(plan),
           summaryJa: getRagPdfIngestPolicySummaryJa(plan),
         },
       });
@@ -92,7 +105,11 @@ export async function GET(request: NextRequest) {
           monthlyAllocation: PLAN_CREDITS.guest,
           nextResetAt: null, // Guests don't have monthly reset
           monthlyFree: {
-            companyRagPages: {
+            companyRagHtmlPages: {
+              remaining: 0,
+              limit: 0,
+            },
+            companyRagPdfPages: {
               remaining: 0,
               limit: 0,
             },
