@@ -1,0 +1,60 @@
+---
+name: payment-integration
+description: Stripe連携の強化。Webhook処理、サブスクリプション管理、クレジット消費の整合性を担う。
+command_description: Stripe決済連携・Webhook・クレジット管理の開発を行う。
+cursor_description: Stripe決済連携・Webhook・クレジット管理の開発を行う。
+---
+
+# Payment Integration
+
+就活Pass の Stripe 決済連携・クレジットシステムの専門スキル。
+
+## 対象ファイル・コンポーネント
+
+- `src/app/api/webhooks/stripe/route.ts` — Stripe Webhook ハンドラー
+- `src/app/api/credits/route.ts` — クレジット残高API
+- `src/lib/stripe/config.ts` — Stripe 設定
+- `src/lib/stripe/managed-config.json` — 商品・価格ID管理
+- `src/lib/company-info/pricing.ts` — 企業情報取得の価格計算
+- `src/lib/company-info/usage.ts` — 利用量管理
+- `src/hooks/useCredits.ts` — クレジット残高フック
+- `src/app/(marketing)/pricing/page.tsx` — 料金ページ
+- `scripts/stripe/core.test.mjs` — Stripe スクリプトテスト
+
+## ワークフロー
+
+1. 既存の Stripe 連携（Webhook、サブスクリプション、クレジット）を把握する。
+2. `managed-config.json` で商品・価格IDの管理状況を確認する。
+3. 変更が Webhook の冪等性とイベント処理順序を壊さないことを確認する。
+4. テスト（`route.test.ts`、`pricing.test.ts`、`core.test.mjs`）がパスすることを確認する。
+
+## 就活Pass 固有ルール
+
+### 成功時のみ消費（最重要ビジネスルール）
+- クレジットや無料回数は、対象処理が成功したときだけ消費する。
+- ES添削: LLM呼び出しが成功し、バリデーションを通った場合のみ。
+- 企業情報取得: 情報取得が成功した場合のみ。
+- 失敗時はクレジット予約をキャンセルする。
+
+### サブスクリプション管理
+- Stripe Customer Portal 経由でのプラン変更・解約。
+- Webhook で `customer.subscription.*` イベントを処理。
+
+### ゲスト対応
+- ゲストユーザーは無料枠のみ（クレジット購入不可）。
+- ログインユーザーに移行時にゲストデータを引き継ぐ。
+
+### セキュリティ
+- Webhook 署名検証は Stripe SDK 標準の `constructEvent()` を使用。
+- シークレットは環境変数管理。コードにハードコードしない。
+
+## 品質基準
+
+- Webhook の冪等性が保たれること。
+- トランザクション成功率 99.9% 以上を維持。
+- クレジット残高の整合性（二重消費・消費漏れがないこと）。
+- テストスイートがパスすること。
+
+## 出力
+
+- 日本語で記述。Stripe API名・イベント名は英語。

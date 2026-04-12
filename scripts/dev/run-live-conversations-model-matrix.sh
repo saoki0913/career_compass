@@ -6,7 +6,7 @@
 #   bash scripts/dev/run-live-conversations-model-matrix.sh
 #
 # Optional env:
-#   MODEL_MATRIX_MODELS="gpt-fast claude-sonnet gemini gpt-nano"   # space-separated aliases (backend/app/utils/llm.py)
+#   MODEL_MATRIX_MODELS="gpt-mini claude-sonnet gemini gpt-nano"   # space-separated aliases (backend/app/utils/llm.py)
 #   PLAYWRIGHT_BASE_URL  LIVE_AI_CONVERSATION_CASE_SET  etc.
 
 set -euo pipefail
@@ -15,7 +15,7 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
 cd "$repo_root"
 
-models_raw="${MODEL_MATRIX_MODELS:-gpt-fast claude-sonnet gemini gpt-nano}"
+models_raw="${MODEL_MATRIX_MODELS:-gpt-mini claude-sonnet gemini gpt-nano}"
 read -r -a models <<< "${models_raw}"
 
 stamp_base="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -47,4 +47,4 @@ for m in "${models[@]}"; do
 done
 
 log "Done. Merge reports with:"
-log "  node scripts/ci/merge-live-conversation-reports.mjs ${out_root}/merged_gakuchika.json gpt-fast=${out_root}/gpt-fast/live_gakuchika_*.json"
+log "  node scripts/ci/merge-live-conversation-reports.mjs ${out_root}/merged_gakuchika.json gpt-mini=${out_root}/gpt-mini/live_gakuchika_*.json"

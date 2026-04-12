@@ -1,0 +1,39 @@
+---
+name: supabase-ops
+description: 就活Pass の Supabase shared project 運用。bootstrap check と secret sync を扱う。
+command_description: 就活Pass の Supabase shared project を運用する。
+cursor_description: Operate the Career Compass Supabase shared project.
+---
+
+# Supabase Ops
+
+就活Pass は Supabase の shared production project 上で動く。DB スキーマは Drizzle ORM（`src/lib/db/schema.ts`）で管理し、migration は Drizzle で発行する。
+
+## よく使う操作
+
+### bootstrap check
+```bash
+scripts/bootstrap-career-compass-supabase.sh --check
+```
+Supabase project の状態が期待通りか確認する。差分があれば報告だけして修正はしない。
+
+### secrets / env sync
+```bash
+scripts/release/sync-career-compass-secrets.sh --target supabase --check
+scripts/release/sync-career-compass-secrets.sh --target supabase
+```
+`--check` で差分確認、無指定で反映。エージェントは通常 `--check` のみ。
+
+### DB migration
+Drizzle を使う:
+```bash
+npm run db:generate   # schema.ts から migration SQL 生成
+npm run db:push       # shared project に反映
+npm run db:studio     # GUI で確認
+```
+
+## ガードレール
+
+- `supabase` CLI の変更系（`db reset`, `db push`, `migration up` 等）は原則使わない。`npm run db:*` に統一する。
+- shared production project を前提にする。production DB への破壊的変更は避け、必ず staging で検証する。
+- secrets 正本は `codex-company/.secrets/career_compass` 以下。直接読まない。

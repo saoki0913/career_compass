@@ -75,12 +75,17 @@ test("syncPipeline renders codex, claude, and cursor artifacts from canonical so
     );
     assert.match(claudeSkill, /language: ja/);
 
-    const claudeCommand = readFileSync(
-      path.join(repoRoot, ".claude/commands/grill-me.md"),
-      "utf8",
+    // .claude/commands/ is intentionally not generated — Claude skills take precedence
+    // over same-named commands, so we only emit SKILL.md under .claude/skills/.
+    assert.throws(
+      () =>
+        readFileSync(
+          path.join(repoRoot, ".claude/commands/grill-me.md"),
+          "utf8",
+        ),
+      /ENOENT/,
+      ".claude/commands/ must not be generated",
     );
-    assert.match(claudeCommand, /# Grill Me/);
-    assert.doesNotMatch(claudeCommand, /<instructions>/);
 
     const cursorRule = readFileSync(
       path.join(repoRoot, ".cursor/rules/grill-me.mdc"),

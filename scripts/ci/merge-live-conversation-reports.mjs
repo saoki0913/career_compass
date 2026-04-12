@@ -4,7 +4,7 @@
  *
  * Usage:
  *   node scripts/ci/merge-live-conversation-reports.mjs out.json \
- *     gpt-fast=backend/tests/output/a/live_gakuchika_extended_*.json \
+ *     gpt-mini=backend/tests/output/a/live_gakuchika_extended_*.json \
  *     claude=backend/tests/output/b/live_gakuchika_extended_*.json
  *
  * Each argument after out.json is tag=path (path must exist; expand globs in shell).

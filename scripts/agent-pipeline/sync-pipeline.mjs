@@ -116,23 +116,6 @@ function renderCodexCommand({ commandDescription, name, body }) {
   ].join("\n");
 }
 
-function renderClaudeCommand({ commandDescription, name, body }) {
-  return [
-    renderFrontmatter([
-      ["description", commandDescription],
-      ["user-invocable", "true"],
-    ]),
-    "",
-    GENERATED_BANNER,
-    "",
-    `Use the canonical pipeline skill \`${name}\` as the source of truth.`,
-    `If the user does not specify an output path, keep generated artifacts under \`docs/prd\`, \`docs/issues\`, or \`docs/rfc\` as appropriate.`,
-    "",
-    body.trim(),
-    "",
-  ].join("\n");
-}
-
 function renderCursorRule({ cursorDescription, name, body }) {
   const promptTemplatePath = `private/agent-pipeline/cursor-prompts/${name}.md`;
 
@@ -208,10 +191,6 @@ export async function syncPipeline({ repoRoot = process.cwd() } = {}) {
     await writeGeneratedFile(
       path.join(repoRoot, ".codex/commands", `${definition.name}.md`),
       renderCodexCommand(definition),
-    );
-    await writeGeneratedFile(
-      path.join(repoRoot, ".claude/commands", `${definition.name}.md`),
-      renderClaudeCommand(definition),
     );
     await writeGeneratedFile(
       path.join(repoRoot, ".cursor/rules", `${definition.name}.mdc`),

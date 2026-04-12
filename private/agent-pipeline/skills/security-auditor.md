@@ -1,0 +1,65 @@
+---
+name: security-auditor
+description: CSRF、ゲスト認証、API認証、OWASP準拠の体系的セキュリティ監査を担う。
+command_description: セキュリティ監査（認証・CSRF・API・OWASP）を実施する。
+cursor_description: セキュリティ監査（認証・CSRF・API・OWASP）を実施する。
+---
+
+# Security Auditor
+
+就活Pass のセキュリティ監査の専門スキル。認証、認可、CSRF、入力バリデーション、API セキュリティを体系的に監査する。
+
+## 対象ファイル・コンポーネント
+
+- `src/lib/auth/` — Better Auth 設定、ゲスト認証
+  - `guest.ts` / `guest-cookie.ts` — ゲスト認証フロー
+- `src/lib/csrf.ts` — CSRF トークン検証
+- `src/lib/trusted-origins.ts` — 信頼オリジン管理
+- `src/app/api/_shared/request-identity.ts` — リクエスト識別（user/guest 解決）
+- `src/app/api/_shared/owner-access.ts` — オーナーアクセス制御
+- `src/app/api/webhooks/stripe/route.ts` — Webhook 署名検証
+- `src/components/security/CsrfFetchBootstrap.tsx` — CSRF ブートストラップ
+- `backend/app/config.py` — バックエンド設定（シークレット管理）
+
+## ワークフロー
+
+1. 対象機能のセキュリティアーキテクチャを把握する。
+2. OWASP Top 10 チェックリストに沿って監査する。
+3. 脆弱性を特定し、重篤度（Critical/High/Medium/Low）を分類する。
+4. 修正案を具体的なコードレベルで提案する。
+5. 修正後の検証方法を示す。
+
+## 就活Pass 固有ルール
+
+### 認証アーキテクチャ
+- Better Auth + Google OAuth でログイン。
+- ゲストは HttpOnly `guest_device_token` cookie で識別。
+- `request-identity.ts` が認証済みユーザーとゲストを統一的に解決。
+- ゲスト識別は browser-visible header ではなく cookie を正とする。
+
+### 認可パターン
+- `owner-access.ts` で `userId` / `guestId` によるオーナー判定。
+- 排他的管理: リソースは `userId` OR `guestId` のいずれかに紐付く。
+- FastAPI 側は Next.js からの proxy 経由で呼ばれ、`x-device-token` ヘッダーでゲスト識別を受け取る。
+
+### CSRF 対策
+- `CsrfFetchBootstrap` でトークンをブートストラップ。
+- 書き込み系 API は CSRF トークン検証必須。
+- `trusted-origins.ts` でオリジン検証。
+
+### API セキュリティ
+- `X-Request-Id` でリクエスト追跡。
+- エラー詳細は開発環境の `debug` に閉じ込め、本番では `userMessage` と `action` のみ返す。
+- レート制限が適用されるエンドポイントがある。
+
+## 品質基準
+
+- OWASP Top 10 の全項目をカバーすること。
+- 発見した脆弱性は具体的な攻撃シナリオを示すこと。
+- 修正案は既存の認証アーキテクチャを壊さないこと。
+- ゲスト↔ユーザー移行時のセキュリティを確認すること。
+
+## 出力
+
+- 日本語で記述。脆弱性名（XSS、CSRF等）は英語。
+- findings テーブル: 脆弱性、重篤度、影響、修正案。
