@@ -127,6 +127,20 @@
       "when": 1775097600000,
       "tag": "0017_interview_v21",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1775559301000,
+      "tag": "0018_conversation_jsonb",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1776105600000,
+      "tag": "0019_calendar_deadline_improvements",
+      "breakpoints": true
     }
   ]
 }
