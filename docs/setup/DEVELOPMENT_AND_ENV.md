@@ -610,17 +610,17 @@ LOCAL_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
 
 ```env
 MODEL_ES_REVIEW=claude-sonnet        # ES添削（例: gpt-5.4 / gemini-3.1-pro-preview / low-cost）
-MODEL_GAKUCHIKA=gpt-fast             # ガクチカ深掘り（GPT-5.4 mini）
-MODEL_MOTIVATION=gpt-fast            # 志望動機（GPT-5.4 mini）
+MODEL_GAKUCHIKA=gpt-mini             # ガクチカ深掘り（GPT-5.4 mini）
+MODEL_MOTIVATION=gpt-mini            # 志望動機（GPT-5.4 mini）
 MODEL_COMPANY_INFO=openai            # 企業情報抽出
-MODEL_RAG_QUERY_EXPANSION=gpt-fast   # クエリ拡張（mini）
-MODEL_RAG_HYDE=gpt-fast              # HyDE（mini）
+MODEL_RAG_QUERY_EXPANSION=gpt-mini   # クエリ拡張（mini）
+MODEL_RAG_HYDE=gpt-mini              # HyDE（mini）
 MODEL_RAG_CLASSIFY=gpt-nano          # コンテンツ分類（RAG 補助 LLM で唯一 nano 既定）
 
 # Optional commercial API providers
 # GOOGLE_API_KEY=...
 # GOOGLE_MODEL=gemini-3.1-pro-preview
-MODEL_SELECTION_SCHEDULE=gpt-nano # 選考スケジュール（既定: GPT-5.4 nano。精度優先なら gpt-fast）
+MODEL_SELECTION_SCHEDULE=gpt-mini # 選考スケジュール（既定: GPT-5.4 mini）
 ```
 
 ### 選考スケジュール取得の LLM コストログ（開発者向け）

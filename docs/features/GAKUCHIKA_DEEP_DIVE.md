@@ -1,10 +1,20 @@
 # ガクチカ作成
 
-最終更新: 2026-04-05
+会話ベースでガクチカ素材を揃え、ES 下書き生成と面接向け深掘りまで行う機能。
+
+## 入口
+
+| 項目 | パス |
+|------|------|
+| FastAPI | `backend/app/routers/gakuchika.py` |
+| ページ | `src/app/(product)/gakuchika/[id]/page.tsx` |
+| Next API | `src/app/api/gakuchika/` |
+| 会話状態 | `src/app/api/gakuchika/state.ts` |
+| 一覧ステータス | `src/lib/gakuchika/list-status.ts` |
 
 ## 概要
 
-ガクチカ作成は、短い初期入力からまず ES に載せられる水準の本文を作り、その後に同じ会話の続きとして面接向けの深掘りへ進める機能です。会話生成の既定モデルは `MODEL_GAKUCHIKA=gpt-fast`、ES 下書き生成は `MODEL_GAKUCHIKA_DRAFT=claude-sonnet` です。
+ガクチカ作成は、短い初期入力からまず ES に載せられる水準の本文を作り、その後に同じ会話の続きとして面接向けの深掘りへ進める機能です。会話生成の既定モデルは `MODEL_GAKUCHIKA=gpt-mini`、ES 下書き生成は `MODEL_GAKUCHIKA_DRAFT=claude-sonnet` です。
 
 ### 想定ユーザーフロー（プロダクト正）
 
@@ -19,7 +29,7 @@
 この機能は次の順序で進みます。
 
 1. ES 作成前は深掘りしすぎず、`状況 / 課題 / 行動 / 結果` の 4 要素を短い会話で揃える
-2. `ready_for_draft=true` に達したら FastAPI `POST /api/gakuchika/generate-es-draft` が **`build_template_draft_generation_prompt`（`TEMPLATE_DEFS` の `gakuchika` と同一ソース）** で ES 下書きを 1 回の LLM 呼び出しで生成する
+2. `ready_for_draft=true` に達したら FastAPI `POST /api/gakuchika/generate-es-draft` が **`build_template_draft_generation_prompt`（`TEMPLATE_DEFS` の `gakuchika` と同一ソース）** を使って ES 下書きを生成する。入力は会話全文だけでなく `known_facts` と `draft_material` を含み、短すぎる・浅すぎる draft には 1 回だけ品質 retry を入れる
 3. その後は同一セッションを再開して面接向けに深掘りする
 4. 十分に進んだら `STRUCTURED_SUMMARY_PROMPT` で STAR と面接メモへ整理する
 
@@ -75,7 +85,8 @@
 - LLM の質問文は必ず丁寧語
 - `question / answer_hint / progress_label / focus_key` は同じ焦点を指す
 - 実装上、ES 構築中に `missing_elements` に STAR の前段が残る限り、`focus_key` はその先頭欠落（context→task→action→result）へサーバー側で寄せ、進捗バーと質問の軸をずらさない
-- 質問数は `4〜6問` を基本目標とし、原則 `6問` で `ready_for_draft` 判定まで進める。初期入力が極端に薄い時だけ `7〜8問` まで救済する
+- 質問数は `4〜6問` を基本目標とし、通常運用では原則 `6問` を上限目安に `ready_for_draft` 判定まで進める
+- `AI_LIVE_LOCAL_RELAX_GAKUCHIKA_GATES=1` のローカル検証時のみ、draft-ready gate を `5問` まで緩和できる
 - `ready_for_draft=true` の条件は「4要素が全部埋まっている」だけではない
 - 最低基準は次で固定する
   - `context`: 取り組みの場面や状況が 1 文で言える
@@ -91,6 +102,7 @@
 - `role` は全件必須ではない。複数人活動、組織改善、役職あり、大きな成果、自分の寄与が見えにくいケースで優先確認する
 - 重複質問は prompt 任せにせず、`asked_focuses / resolved_focuses / deferred_focuses / blocked_focuses / focus_attempt_counts / last_question_signature` を state に持って抑制する
 - fallback 質問は focus ごとの canonical 文面を使い、同じ論点の言い換え連打を避ける
+- ES build prompt に渡す `known_facts` は、直近回答だけでなく序盤の context/task と終盤の result/learning を混ぜた最大 6 件の bullet を使う
 
 ### ES 作成可
 
@@ -104,6 +116,7 @@
 - DB 上の `gakuchika_conversations.status` はまだ `in_progress` のまま保つ
 - ES 生成成功時は draft を ES ドキュメントへ保存し、同じセッションの `draft_text` にも保持する
 - ES 下書き生成成功直後に deterministic evaluator を走らせ、`strength_tags / issue_tags / deepdive_recommendation_tags / credibility_risk_tags` を state に保存する
+- Next API から FastAPI へは `known_facts` に加えて `draft_material` を渡し、`input_richness_mode / missing_elements / draft_quality_checks / causal_gaps / deferred_focuses / issue_tags / draft_readiness_reason` を prompt material に含める
 
 ### 深掘りフェーズ
 
@@ -113,6 +126,7 @@
 - `draft_ready` かつ `draft_text` ありの状態で、ユーザーが明示的に `更に深掘りする` を選んだ時だけ入る
 - prompt は次質問の論点と質問文を返し、`deepdive_complete` の判定はサーバー側 orchestrator が行う
 - `role / challenge / action_reason / result_evidence / learning_transfer / credibility` が揃うと `interview_ready` に遷移する
+- `extended_deep_dive_round` が増えると、補助指示は `役割境界` → `数値の裏取り` → `再現原則` の順に狭くなる
 
 ### 面接準備完了
 

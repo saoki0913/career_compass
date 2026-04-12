@@ -167,7 +167,7 @@ wrapper は必要なときだけ `npm run dev` と FastAPI（`tools/start-fastap
 - **`make ai-live-local` + `SUITE=extended` のときだけ**付与されるローカル用の会話フラグ（`run-ai-live.sh --suite extended` では judge 既定のみ共通で、下記 2 つはローカル wrapper 専用）:
   - `LIVE_AI_CONVERSATION_BLOCKING_FAILURES=0` … `failureKind` が `auth` / `cleanup` / `timeout` / `infra` のときだけ Playwright を失敗扱いにし、それ以外（`state` / `quality` など）は JSON/MD に記録のみ。
   - `LIVE_AI_CONVERSATION_MD_INCLUDE_TRANSCRIPT=1` … **severity が `failed` の行**に、会話ログ末尾を Markdown レポートへ追記（長さは `LIVE_AI_CONVERSATION_MD_TRANSCRIPT_MAX_TURNS` 既定 8、`LIVE_AI_CONVERSATION_MD_TRANSCRIPT_MAX_CHARS` 既定 12000 で上限）。
-- FastAPI の会話系モデルは **プロセス起動時**に読み込まれる。ES 添削の多モデル行列に寄せるには、エイリアス（例: `gpt-fast`, `claude-sonnet`, `gemini`, `gpt-nano`）ごとに **FastAPI を再起動**し、同じ Playwright スイートを繰り返す。
+- FastAPI の会話系モデルは **プロセス起動時**に読み込まれる。ES 添削の多モデル行列に寄せるには、エイリアス（例: `gpt-mini`, `claude-sonnet`, `gemini`, `gpt-nano`）ごとに **FastAPI を再起動**し、同じ Playwright スイートを繰り返す。
 
 ```bash
 # Next + FastAPI が既に起動している前提（PLAYWRIGHT_SKIP_WEBSERVER=1）
@@ -178,7 +178,7 @@ bash scripts/dev/run-live-conversations-model-matrix.sh
 
 ```bash
 node scripts/ci/merge-live-conversation-reports.mjs /tmp/merged_gakuchika.json \
-  runA=gpt-fast/backend/tests/output/.../live_gakuchika_extended_20260101T000000Z.json \
+  runA=gpt-mini/backend/tests/output/.../live_gakuchika_extended_20260101T000000Z.json \
   runB=claude/backend/tests/output/.../live_gakuchika_extended_20260101T010000Z.json
 ```
 

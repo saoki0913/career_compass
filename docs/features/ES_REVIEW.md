@@ -13,18 +13,18 @@ ES添削は、設問ごとに改善案と出典を段階的に流し、最後の
 | FastAPI API | `POST /api/es/review/stream`                            |
 | 出力          | `progress`, `string_chunk`, `array_item_complete`, `complete`（`review_meta` を含む） |
 
-## 今回の品質基盤
+## 品質基盤
 
-- 設問知識は `backend/app/prompts/es_templates.py` の `TEMPLATE_DEFS` に集約する。全テンプレートが少なくとも `purpose / required_elements / anti_patterns / recommended_structure / evaluation_checks / retry_guidance / company_usage / fact_priority` を持つ。
-- rewrite prompt・fallback prompt・validator・retry hint は同じ `TEMPLATE_DEFS` を参照する。新設問やルール修正時に prompt と validator の二重修正を避ける。
-- **ガクチカ・志望動機の ES 下書き生成**も `build_template_draft_generation_prompt` 経由で同じ `TEMPLATE_DEFS`（`gakuchika` / `company_motivation`）を参照する。詳細は `docs/features/GAKUCHIKA_DEEP_DIVE.md`・`docs/features/MOTIVATION.md`。
-- `basic` を含む既存 9 テンプレートが同じ粒度の spec を持つ。required 系だけに知識を寄せるのではなく、差分は spec の値で表現する。
-- 設問タイプ分類は単一ラベルだけでなく、`confidence`・`secondary_candidates`・`rationale`・`recommended_grounding_level` を返す。
-- 企業接地は内部的に `none / light / standard / deep` の段階制で扱う。互換のため `company_grounding_policy`（`required / assistive`）も `review_meta` に残すが、prompt 制御は grounding level を主に使う。
-- `company_evidence_cards` は raw claim をそのまま使わず、`value_orientation / business_characteristics / work_environment / role_expectation` に正規化して prompt へ渡す。
-- fallback rewrite は未使用の定義ではなく、非 length 主因の複合失敗でだけ使う safety path として組み込んだ。`fallback_triggered` / `fallback_reason` を `review_meta` と telemetry に残す。
-- `self_pr` / `gakuchika` / `work_values` では、事実保持に加えて個別性保持を prompt 制約として明示する。
-- 今回の共通 spec 化の対象は `prompt + validator + retry hint` までであり、`classifier` と `TEMPLATE_RAG_PROFILES` は現状維持とする。
+| 設計方針 | 内容 |
+|---------|------|
+| **設問知識の集約** | `TEMPLATE_DEFS`（`es_templates.py`）に全 9 テンプレートの `purpose / required_elements / anti_patterns / evaluation_checks / retry_guidance` 等を集約。prompt・validator・retry hint が同じ定義を参照する |
+| **下書き生成の共通化** | ガクチカ・志望動機の ES 下書きも `build_template_draft_generation_prompt` 経由で同じ `TEMPLATE_DEFS` を使用（→ [GAKUCHIKA_DEEP_DIVE.md](./GAKUCHIKA_DEEP_DIVE.md), [MOTIVATION.md](./MOTIVATION.md)） |
+| **設問タイプ分類** | 単一ラベルに加え `confidence / secondary_candidates / rationale / recommended_grounding_level` を返す |
+| **企業接地（grounding）** | `none / light / standard / deep` の 4 段階。互換のため `company_grounding_policy` も `review_meta` に残すが、prompt 制御は grounding level が主 |
+| **エビデンスカード** | raw claim をそのまま使わず `value_orientation / business_characteristics / work_environment / role_expectation` に正規化 |
+| **fallback rewrite** | 非 length 主因の複合失敗でのみ発動する safety path。`fallback_triggered / fallback_reason` を `review_meta` に記録 |
+| **個別性保持** | `self_pr / gakuchika / work_values` では事実保持に加え個別性保持を prompt 制約として明示 |
+| **spec 化の範囲** | `prompt + validator + retry hint` まで。`classifier` と `TEMPLATE_RAG_PROFILES` は現状維持 |
 
 
 ### リクエストがサーバに届いてから返るまで

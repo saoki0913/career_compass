@@ -948,7 +948,7 @@
 
 ### 17.6.2 基本仕様
 - ルートは `/companies/[id]/interview`
-- 質問生成は `MODEL_INTERVIEW=gpt-fast`（既定 `GPT-5.4 mini`）。最終講評は `MODEL_INTERVIEW_FEEDBACK`（既定 Claude Sonnet 系。表示名は `docs/features/INTERVIEW.md` 参照）
+- 質問生成は `MODEL_INTERVIEW=gpt-mini`（既定 `GPT-5.4 mini`）。最終講評は `MODEL_INTERVIEW_FEEDBACK`（既定 Claude Sonnet 系。表示名は `docs/features/INTERVIEW.md` 参照）
 - 画面は `DashboardHeader` + `max-w-7xl` の 2 カラム product UI
 - 開始前、進行中、完了後は同一レイアウト上で切り替える
 - 開始前に `業界 / 職種 / 面接方式 / 選考種別 / 面接段階 / 面接官タイプ / 厳しさ` を確認する

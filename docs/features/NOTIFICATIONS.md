@@ -2,13 +2,16 @@
 
 締切リマインド、ES添削完了通知、デイリーサマリーなどのアプリ内通知機能。
 
-**参照実装**:
-- `src/hooks/useNotifications.ts` — 通知管理フック
-- `src/app/notifications/page.tsx` — 通知一覧ページ
-- `src/app/api/notifications/` — 通知API
-- `src/app/api/cron/daily-notifications/route.ts` — 日次Cron（締切リマインド・90日クリーンアップ）
-- `src/app/api/cron/hourly-daily-summary/route.ts` — 毎時Cron（デイリーサマリー。ユーザー設定の JST 時刻と一致したときのみ生成）
-- `src/lib/datetime/jst.ts` — JST 日付・時刻ヘルパー
+## 入口
+
+| 項目 | パス |
+|------|------|
+| 通知管理 hook | `src/hooks/useNotifications.ts` |
+| 通知一覧 | `src/app/notifications/page.tsx` |
+| API | `src/app/api/notifications/` |
+| 日次 Cron | `src/app/api/cron/daily-notifications/route.ts`（締切リマインド・90日クリーンアップ） |
+| 毎時 Cron | `src/app/api/cron/hourly-daily-summary/route.ts`（デイリーサマリー。JST 時刻一致時のみ） |
+| JST ヘルパー | `src/lib/datetime/jst.ts` |
 
 ---
 
@@ -28,11 +31,11 @@
 
 | ID | 日本語名 | アイコン | トリガー |
 |----|---------|---------|---------|
-| `deadline_reminder` | 締切リマインド | ⏰ | 定期Cronジョブ（締切前日等） |
-| `deadline_near` | 締切が近づいています | 🔔 | 締切24〜48時間前 |
-| `company_fetch` | 企業情報取得 | 🏢 | 企業情報フェッチ完了時 |
-| `es_review` | ES添削完了 | ✨ | ES添削処理完了時 |
-| `daily_summary` | デイリーサマリー | 📋 | 日次Cronジョブ |
+| `deadline_reminder` | 締切リマインド | - | 4段階スマートリマインダー (7d/3d/1d/0d) |
+| `deadline_near` | 締切が近づいています | - | 締切24〜48時間前 |
+| `company_fetch` | 企業情報取得 | - | 企業情報フェッチ完了時 |
+| `es_review` | ES添削完了 | - | ES添削処理完了時 |
+| `daily_summary` | デイリーサマリー | - | 日次Cronジョブ |
 
 ---
 
@@ -56,7 +59,7 @@ notifications テーブルに通知レコード作成
 ```
 /api/cron/daily-notifications (UTC 0:00 = JST 9:00 付近・日次)
   ↓
-1. 締切リマインド（deadline_reminders バッチ）
+1. 締切リマインド（deadline_reminders バッチ — 4段階スマートリマインダー）
 2. 90日超の通知削除（cleanup）
 
 /api/cron/hourly-daily-summary (毎時 UTC)
@@ -66,6 +69,29 @@ POST /api/notifications/batch { type: "daily_summary" }
   → 同一 JST 日に daily_summary 未送信なら1件作成
   → 締切件数は当該ユーザーの企業に紐づく締切のみ集計
 ```
+
+### 3.3 スマートリマインダー (4段階)
+
+締切タイプに応じた重要度レベルで、適切なタイミングにリマインドを送信する。
+
+| 重要度 | 対象タイプ | ティア |
+|--------|-----------|--------|
+| aggressive | ES提出, 面接全般, WEBテスト, 適性検査, 内定返答 | 7d, 3d, 1d, 0d |
+| standard | 説明会, インターン | 3d, 1d, 0d |
+| light | その他 | 1d, 0d |
+
+**ティア判定基準** (締切までの残り時間):
+
+| ティア | 時間範囲 | メッセージ例 |
+|--------|---------|-------------|
+| 0d | ≤12h | 「今日が締切です」 |
+| 1d | 12-36h | 「締切が明日です」 |
+| 3d | 36-84h | 「締切が3日以内です」 |
+| 7d | 84-180h | 「締切まで1週間です」 |
+
+**重複排除**: dedup key は `${ownerKey}:${deadlineId}:${tier}` — 各締切×各ティアで最大1通知。
+**フラッド防止**: ユーザーあたり1回のバッチ処理で最大5通知。
+**ユーザーカスタマイズ**: `deadlineReminderOverrides` で締切タイプ別にティアを変更可能。
 
 ---
 
@@ -83,6 +109,13 @@ POST /api/notifications/batch { type: "daily_summary" }
 | `es_review` | ON | ES添削完了通知 |
 | `daily_summary` | ON | デイリーサマリー通知 |
 | `daily_summary_hour_jst` | `9` | デイリーサマリーの送信時刻（JST の時。許可: 7, 9, 12, 18） |
+| `deadline_reminder_overrides` | `null` | 締切タイプ別リマインダーティア上書き (JSON text) |
+
+`deadline_reminder_overrides` の形式:
+```json
+{ "es_submission": ["7d","3d","1d","0d"], "briefing": ["1d","0d"] }
+```
+`null` の場合はデフォルトの重要度マッピングを適用する。
 
 ---
 
@@ -182,4 +215,5 @@ POST /api/notifications/batch { type: "daily_summary" }
 | `src/app/api/notifications/read-all/route.ts` | 全件既読API |
 | `src/app/api/notifications/batch/route.ts` | バッチ操作API |
 | `src/app/api/cron/daily-notifications/route.ts` | 日次Cronジョブ |
+| `src/lib/notifications/deadline-importance.ts` | 締切タイプ別重要度マッピング + ティア判定 |
 | `src/lib/db/schema.ts` | DBスキーマ（`notifications`, `notificationSettings`） |

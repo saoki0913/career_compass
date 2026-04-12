@@ -56,21 +56,21 @@
 | `CLAUDE_SONNET_MODEL` | No | Claude Sonnet モデル名 (デフォルト: `claude-sonnet-4-6`) |
 | `CLAUDE_HAIKU_MODEL` | No | Claude Haiku モデル名 (デフォルト: `claude-haiku-4-5-20251001`) |
 | `GPT_MODEL` | No | OpenAI 標準モデル名 (デフォルト: `gpt-5.4`) |
-| `GPT_FAST_MODEL` | No | OpenAI 高速モデル名 (デフォルト: `gpt-5.4-mini`) |
+| `GPT_MINI_MODEL` | No | OpenAI mini モデル名 (デフォルト: `gpt-5.4-mini`、旧名 `GPT_FAST_MODEL` も後方互換で有効) |
 | `GPT_NANO_MODEL` | No | OpenAI 最廉価系モデル名 (デフォルト: `gpt-5.4-nano`、選考スケジュール既定で使用) |
 | `LOW_COST_REVIEW_MODEL` | No | ES添削の専用 low-cost repair model (デフォルト: `gpt-5.4-mini`) |
 | `GOOGLE_MODEL` | No | Gemini モデル名 (デフォルト: `gemini-3.1-pro-preview`) |
 | `GOOGLE_BASE_URL` | No | Gemini API ベースURL (デフォルト: `https://generativelanguage.googleapis.com/v1beta`) |
 | `MODEL_ES_REVIEW` | No | ES添削モデルエイリアスまたは明示モデルID。例: `claude-sonnet`, `gpt`, `gemini`, `low-cost`, `gpt-5.4` |
-| `MODEL_GAKUCHIKA` | No | ガクチカ作成モデルティア (デフォルト: `gpt-fast` → GPT-5.4 mini) |
+| `MODEL_GAKUCHIKA` | No | ガクチカ作成モデルティア (デフォルト: `gpt-mini` → GPT-5.4 mini) |
 | `MODEL_GAKUCHIKA_DRAFT` | No | ガクチカ ES 下書き生成 (デフォルト: `claude-sonnet` → Sonnet 4.6) |
-| `MODEL_MOTIVATION` | No | 志望動機作成モデルティア (デフォルト: `gpt-fast` → GPT-5.4 mini) |
+| `MODEL_MOTIVATION` | No | 志望動機作成モデルティア (デフォルト: `gpt-mini` → GPT-5.4 mini) |
 | `MODEL_MOTIVATION_DRAFT` | No | 志望動機 ES 下書き生成 (デフォルト: `claude-sonnet` → Sonnet 4.6) |
-| `MODEL_INTERVIEW` | No | 企業特化模擬面接モデルティア (デフォルト: `gpt-fast` → GPT-5.4 mini) |
-| `MODEL_SELECTION_SCHEDULE` | No | 選考スケジュール抽出モデルティア (デフォルト: `gpt-nano` → GPT-5.4 nano) |
+| `MODEL_INTERVIEW` | No | 企業特化模擬面接モデルティア (デフォルト: `gpt-mini` → GPT-5.4 mini) |
+| `MODEL_SELECTION_SCHEDULE` | No | 選考スケジュール抽出モデルティア (デフォルト: `gpt-mini` → GPT-5.4 mini) |
 | `MODEL_COMPANY_INFO` | No | 企業情報抽出モデルエイリアスまたは明示モデルID (デフォルト: `openai`) |
-| `MODEL_RAG_QUERY_EXPANSION` | No | RAGクエリ拡張 (デフォルト: `gpt-fast` = GPT-5.4 mini) |
-| `MODEL_RAG_HYDE` | No | RAG HyDE (デフォルト: `gpt-fast`) |
+| `MODEL_RAG_QUERY_EXPANSION` | No | RAGクエリ拡張 (デフォルト: `gpt-mini` = GPT-5.4 mini) |
+| `MODEL_RAG_HYDE` | No | RAG HyDE (デフォルト: `gpt-mini`) |
 | `MODEL_RAG_CLASSIFY` | No | RAGコンテンツ分類のみ nano 既定 (デフォルト: `gpt-nano`) |
 | `LLM_USAGE_COST_LOG` | No | `true` で選考スケジュール取得などの LLM トークン集計を FastAPI ログに出す（ユーザー向け UI には出さない） |
 | `OPENAI_PRICE_GPT_5_4_MINI_INPUT_PER_MTOK_USD` | No | ログ用概算 USD: 入力 $/1M tokens（未設定なら est_usd なし） |

@@ -1,6 +1,6 @@
 # ドキュメント一覧（地図）
 
-**最終更新**: 2026-03-30
+**最終更新**: 2026-04-09
 
 **この文書の目的**: `docs/` 配下の全ファイルへの入口です。初めての方は先に [OVERVIEW.md](./OVERVIEW.md) を読んでください。
 
@@ -24,7 +24,7 @@
 |------|------|
 | [setup/DEVELOPMENT_AND_ENV.md](./setup/DEVELOPMENT_AND_ENV.md) | Quick Start、コマンド、環境変数・外部サービス（旧 DEVELOPMENT + ENV_SETUP） |
 | [setup/DB_SUPABASE.md](./setup/DB_SUPABASE.md) | Supabase / PostgreSQL、マイグレーション、RLS、ローカル・本番（旧 SUPABASE_SETUP + DB_OPERATIONS） |
-| [setup/MCP_SETUP.md](./setup/MCP_SETUP.md) | MCP サーバー（Stripe / GitHub 等）の設定 |
+| [setup/MCP_SETUP.md](./setup/MCP_SETUP.md) | 現在有効な MCP サーバー（playwright / notion / context7）と Notion 参考 ES / Prompt Registry の取り込み手順 |
 
 **統合・廃止したファイル**: `DEVELOPMENT.md` → `DEVELOPMENT_AND_ENV.md`。`ENV_SETUP.md` → 同ファイル後半。`SUPABASE_SETUP.md` / `DB_OPERATIONS.md` → `DB_SUPABASE.md`。
 
@@ -45,19 +45,22 @@
 
 ## 機能 (features/)
 
+各ファイルは `## 入口`（参照実装テーブル）→ `## 仕様` → `## 技術メモ` → `## 関連ドキュメント` の統一フォーマット。
+
 | 文書 | 説明 |
 |------|------|
 | [features/AUTH.md](./features/AUTH.md) | 認証・ゲスト |
-| [features/CREDITS.md](./features/CREDITS.md) | クレジット消費 |
-| [features/COMPANY_INFO_FETCH.md](./features/COMPANY_INFO_FETCH.md) | 企業情報取得（採用ページ等） |
-| [features/COMPANY_INFO_SEARCH.md](./features/COMPANY_INFO_SEARCH.md) | 企業情報の検索ロジック仕様 |
-| [features/COMPANY_RAG.md](./features/COMPANY_RAG.md) | 企業 RAG・ハイブリッド検索 |
-| [features/AI_PROMPTS.md](./features/AI_PROMPTS.md) | LLM の system/user 連結順の追跡（コード対応） |
+| [features/CREDITS.md](./features/CREDITS.md) | クレジット・課金・プラン |
+| [features/COMPANY_INFO_FETCH.md](./features/COMPANY_INFO_FETCH.md) | 企業情報取得（選考スケジュール・RAG 取込） |
+| [features/COMPANY_INFO_SEARCH.md](./features/COMPANY_INFO_SEARCH.md) | 企業情報の Web 検索（Hybrid / Legacy） |
+| [features/COMPANY_RAG.md](./features/COMPANY_RAG.md) | 企業 RAG・ハイブリッド検索パイプライン |
+| [features/AI_PROMPTS.md](./features/AI_PROMPTS.md) | LLM プロンプト集（system/user 連結順の追跡） |
 | [features/ES_REVIEW.md](./features/ES_REVIEW.md) | ES 添削 |
-| [features/GAKUCHIKA_DEEP_DIVE.md](./features/GAKUCHIKA_DEEP_DIVE.md) | ガクチカ深掘り |
-| [features/MOTIVATION.md](./features/MOTIVATION.md) | 志望動機 |
-| [features/DEADLINES.md](./features/DEADLINES.md) | 締切 |
-| [features/TASKS.md](./features/TASKS.md) | タスク |
+| [features/GAKUCHIKA_DEEP_DIVE.md](./features/GAKUCHIKA_DEEP_DIVE.md) | ガクチカ作成・深掘り |
+| [features/MOTIVATION.md](./features/MOTIVATION.md) | 志望動機作成 |
+| [features/INTERVIEW.md](./features/INTERVIEW.md) | 面接対策（企業特化模擬面接） |
+| [features/DEADLINES.md](./features/DEADLINES.md) | 締切管理 |
+| [features/TASKS.md](./features/TASKS.md) | タスク管理 |
 | [features/NOTIFICATIONS.md](./features/NOTIFICATIONS.md) | 通知 |
 | [features/CALENDAR.md](./features/CALENDAR.md) | Google カレンダー連携 |
 
@@ -105,6 +108,7 @@
 
 | 文書 | 説明 |
 |------|------|
+| [ops/AI_HARNESS.md](./ops/AI_HARNESS.md) | Claude Code ハーネス（agents / skills / hooks / MCP / commands）の詳細リファレンスと運用ガイド |
 | [ops/AI_AGENT_PIPELINE.md](./ops/AI_AGENT_PIPELINE.md) | Codex / Claude / Cursor 共通の AI 開発 pipeline |
 | [ops/AI_DEVELOPMENT_PRINCIPLES.md](./ops/AI_DEVELOPMENT_PRINCIPLES.md) | AI 継続開発で負債を増やさないための設計原則 |
 | [ops/CLI_GUARDRAILS.md](./ops/CLI_GUARDRAILS.md) | CLI の安全な使い方 |

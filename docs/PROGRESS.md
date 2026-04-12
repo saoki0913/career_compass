@@ -352,7 +352,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 企業別模擬面接UI | ✅ 更新 | motivation 準拠の 2 カラム UI + setup-first + 論点ベース進捗 + 自動スクロール |
 | 面接対策 API | ✅ 更新 | `GET /interview` + `POST /interview/start` + `POST /interview/stream` + `POST /interview/feedback` |
 | FastAPI interview router | ✅ 更新 | adaptive 6〜10 問 + opening / turn / feedback SSE |
-| モデル固定 | ✅ 完了 | `MODEL_INTERVIEW=gpt-fast` → `GPT-5.4 mini` |
+| モデル固定 | ✅ 完了 | `MODEL_INTERVIEW=gpt-mini` → `GPT-5.4 mini` |
 | セッション課金 | ✅ 完了 | 最終講評成功時のみ `6 credits` |
 | 月次無料枠 | ✅ 完了 | なし |
 | 4軸講評 | ✅ 完了 | 企業適合 / 具体性 / 論理性 / 説得力 + card 逐次更新 |

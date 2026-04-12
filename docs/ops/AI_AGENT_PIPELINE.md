@@ -35,6 +35,7 @@ Matt Pocock 氏の pipeline を、この repo では `Codex` `Claude Code` `Curs
 - テンプレート: `private/agent-pipeline/templates/*.md`
 - Cursor prompt template: `private/agent-pipeline/cursor-prompts/*.md`
 - 生成スクリプト: `scripts/agent-pipeline/sync-pipeline.mjs`
+- mirror 上書き対象 path の一覧は [`docs/ops/AI_HARNESS.md`](./AI_HARNESS.md) 3.5 節を参照
 
 ## 生成物の保存先
 
@@ -45,7 +46,7 @@ Matt Pocock 氏の pipeline を、この repo では `Codex` `Claude Code` `Curs
 ## ツール別の呼び出し方
 
 - Codex: `.codex/commands/<name>.md` または `.codex/skills/<name>/SKILL.md`
-- Claude Code: `.claude/commands/<name>.md` または `.claude/skills/<name>/SKILL.md`
+- Claude Code: `.claude/skills/<name>/SKILL.md`（description マッチで自律起動）。`.claude/commands/` には pipeline 系は存在せず、`deploy-production` / `reset-changes` / `update-docs` の 3 種のみ。詳細は [`docs/ops/AI_HARNESS.md`](./AI_HARNESS.md) 3-4 章を参照。
 - Cursor: `.cursor/rules/<name>.mdc` を参照し、`private/agent-pipeline/cursor-prompts/<name>.md` を prompt template として使う
 
 ## 運用ルール

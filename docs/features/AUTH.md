@@ -2,11 +2,14 @@
 
 Better Auth + Google OAuth による認証と、ゲストユーザーシステムを含むユーザー管理機能。
 
-**参照実装**:
-- `src/lib/auth/` — 認証設定（クライアント・サーバー・ゲスト）
-- `src/app/(auth)/` — ログイン・オンボーディングページ
-- `src/app/api/auth/` — 認証API
-- `src/components/auth/` — 認証UIコンポーネント
+## 入口
+
+| 項目 | パス |
+|------|------|
+| 認証設定 | `src/lib/auth/`（クライアント・サーバー・ゲスト） |
+| ページ | `src/app/(auth)/`（ログイン・オンボーディング） |
+| API | `src/app/api/auth/` |
+| UI | `src/components/auth/` |
 
 ---
 

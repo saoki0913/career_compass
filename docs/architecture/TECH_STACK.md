@@ -80,12 +80,12 @@
 | 機能 | デフォルトモデル | 環境変数 |
 |------|----------------|----------|
 | ES添削 | Claude Sonnet 4.6 / GPT-5.4 / Gemini 3.1 Pro Preview | `MODEL_ES_REVIEW` |
-| ガクチカ深掘り | GPT-5.4 mini（`gpt-fast`） | `MODEL_GAKUCHIKA` |
-| 志望動機 | GPT-5.4 mini（`gpt-fast`） | `MODEL_MOTIVATION` |
-| 選考スケジュール抽出 | GPT-5.4 nano（`gpt-nano`） | `MODEL_SELECTION_SCHEDULE` |
+| ガクチカ深掘り | GPT-5.4 mini（`gpt-mini`） | `MODEL_GAKUCHIKA` |
+| 志望動機 | GPT-5.4 mini（`gpt-mini`） | `MODEL_MOTIVATION` |
+| 選考スケジュール抽出 | GPT-5.4 mini（`gpt-mini`） | `MODEL_SELECTION_SCHEDULE` |
 | 企業情報抽出 | GPT-5.4-mini | `MODEL_COMPANY_INFO` |
-| RAGクエリ拡張 | GPT-5.4 mini（`gpt-fast`） | `MODEL_RAG_QUERY_EXPANSION` |
-| RAG HyDE | GPT-5.4 mini（`gpt-fast`） | `MODEL_RAG_HYDE` |
+| RAGクエリ拡張 | GPT-5.4 mini（`gpt-mini`） | `MODEL_RAG_QUERY_EXPANSION` |
+| RAG HyDE | GPT-5.4 mini（`gpt-mini`） | `MODEL_RAG_HYDE` |
 | RAG再ランキング | ローカル CrossEncoder（LLM 不使用） | — |
 | RAG分類 | GPT-5.4 nano（`gpt-nano`） | `MODEL_RAG_CLASSIFY` |
 

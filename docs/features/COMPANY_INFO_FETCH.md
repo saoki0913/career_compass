@@ -175,98 +175,18 @@ PDF は資料単位で一律 OCR せず、**ページ単位で route を混在**
 - ingest 上限を超えるページは先頭から切り詰める。
 - Google OCR 上限と Mistral OCR 上限は、**OCR 対象ページ数**として効く。
 
-### 4.6 見積レスポンス
+### 4.6 見積・実行レスポンス
 
-#### URL 取込見積
+見積（estimate）と実行の両方が、ページ数・無料枠消化・クレジット消費・OCR route 内訳・切り詰め有無を返す。
 
-`POST /api/companies/[id]/fetch-corporate/estimate`
+| API | 主な返却フィールド |
+|-----|------------------|
+| URL estimate | `estimatedFreeHtmlPages`, `estimatedFreePdfPages`, `estimatedCredits`, `requiresConfirmation`, `page_routing_summaries` |
+| URL 実行 | `pagesCrawled`, `freeUnitsApplied`, `actualCreditsDeducted`, `chunksStored`, `pageRoutingSummaries` |
+| PDF estimate | `estimated_free_pdf_pages`, `estimated_credits`, `estimated_google_ocr_pages`, `estimated_mistral_ocr_pages`, `requires_confirmation` |
+| PDF 実行 | `items[]`（各 source の `ingestUnits`, `freeUnitsApplied`, `actualCreditsDeducted`, `pageRoutingSummary`）, `totalUnits` |
 
-FastAPI 由来の field:
-
-- `estimated_pages_crawled`
-- `estimated_html_pages`
-- `estimated_pdf_pages`
-- `estimated_google_ocr_pages`
-- `estimated_mistral_ocr_pages`
-- `will_truncate`
-- `page_routing_summaries`
-
-Next 側で追加する field:
-
-- `estimatedFreeHtmlPages`
-- `estimatedFreePdfPages`
-- `estimatedCredits`
-- `remainingHtmlFreeUnits`
-- `remainingPdfFreeUnits`
-- `requiresConfirmation`
-
-#### PDF upload 見積
-
-`POST /api/companies/[id]/fetch-corporate-upload/estimate`
-
-- `estimated_free_pdf_pages`
-- `estimated_credits`
-- `estimated_google_ocr_pages`
-- `estimated_mistral_ocr_pages`
-- `will_truncate`
-- `requires_confirmation`
-- `page_routing_summary`
-- `processing_notice_ja`
-
-見積は常に表示するが、source ごとの詳細 route は通常 UI に常設しない。詳細は debug / log で追う。
-
-### 4.7 実行レスポンス
-
-#### URL 取込
-
-`POST /api/companies/[id]/fetch-corporate`
-
-- `pagesCrawled`
-- `actualUnits`
-- `freeUnitsApplied`
-- `remainingFreeUnits`
-- `remainingHtmlFreeUnits`
-- `remainingPdfFreeUnits`
-- `creditsConsumed`
-- `actualCreditsDeducted`
-- `chunksStored`
-- `pageRoutingSummaries`
-
-#### PDF upload
-
-`POST /api/companies/[id]/fetch-corporate-upload`
-
-- `summary`
-- `items[]`
-- `totalUnits`
-- `remainingFreeUnits`
-- `actualCreditsDeducted`
-- `estimatedCostBand`
-
-`items[]` の各要素には次が入る。
-
-- `ingestUnits`
-- `freeUnitsApplied`
-- `creditsConsumed`
-- `actualCreditsDeducted`
-- `sourceTotalPages`
-- `ingestTruncated`
-- `ocrTruncated`
-- `processingNoticeJa`
-- `pageRoutingSummary`
-
-### 4.8 page routing summary
-
-PDF 系処理では `page_routing_summary` を内部的に持ち、Next 側では `pageRoutingSummary` / `pageRoutingSummaries` として返す。主な項目は次のとおり。
-
-- `total_pages`
-- `ingest_pages`
-- `local_pages`
-- `google_ocr_pages`
-- `mistral_ocr_pages`
-- `truncated_pages`
-- `planned_route`
-- `actual_route`
+`pageRoutingSummary` は `total_pages / ingest_pages / local_pages / google_ocr_pages / mistral_ocr_pages / truncated_pages` を含む。source ごとの詳細 route は通常 UI に常設せず、debug / log で追う。
 
 ## 5. コンテンツタイプ
 

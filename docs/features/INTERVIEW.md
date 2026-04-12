@@ -1,13 +1,23 @@
 # 面接対策（企業特化模擬面接）
 
-参照実装: `backend/app/routers/interview.py`, `src/app/api/companies/[id]/interview/route.ts`, `src/app/api/companies/[id]/interview/start/route.ts`, `src/app/api/companies/[id]/interview/stream/route.ts`, `src/app/api/companies/[id]/interview/feedback/route.ts`, `src/app/api/companies/[id]/interview/continue/route.ts`, `src/app/api/companies/[id]/interview/reset/route.ts`, `src/app/api/companies/[id]/interview/shared.ts`, `src/lib/interview/session.ts`, `src/lib/interview/conversation.ts`, `src/app/(product)/companies/[id]/interview/page.tsx`
+企業・職種に特化した模擬面接を行い、最終講評を生成する機能。
+
+## 入口
+
+| 項目 | パス |
+|------|------|
+| FastAPI | `backend/app/routers/interview.py` |
+| ページ | `src/app/(product)/companies/[id]/interview/page.tsx` |
+| Next API | `src/app/api/companies/[id]/interview/`（start, stream, feedback, continue, reset） |
+| セッション管理 | `src/lib/interview/session.ts`, `src/lib/interview/conversation.ts` |
+| 共通ロジック | `src/app/api/companies/[id]/interview/shared.ts` |
 
 ## 概要
 
 - ルートは `/companies/[id]/interview`
 - 開始前に `業界 / 職種 / 面接方式 / 選考種別 / 面接段階 / 面接官タイプ / 厳しさ` を確認する `setup-first` UI を使う
 - `roleTrack` は UI で直接選ばせず、応募職種から内部自動分類する
-- 質問生成モデルは `MODEL_INTERVIEW=gpt-fast`（既定 `GPT-5.4 mini`）
+- 質問生成モデルは `MODEL_INTERVIEW=gpt-mini`（既定 `GPT-5.4 mini`）
 - 最終講評は `MODEL_INTERVIEW_FEEDBACK=claude-sonnet`（表示名 `Claude Sonnet 4.6`）
 - 面接対策はログイン必須。guest は開始・進行・講評・満足度保存のいずれも利用しない
 - 会話は `interview_conversations`、講評履歴は `interview_feedback_histories` に保存する

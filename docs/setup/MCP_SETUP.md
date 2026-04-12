@@ -1,226 +1,80 @@
-# MCPサーバー設定ガイド
+# MCP サーバー設定ガイド
 
-このプロジェクトで使用する各種サービスのMCP（Model Context Protocol）サーバーの導入ガイドです。
+このプロジェクトで現在有効な MCP（Model Context Protocol）サーバーの設定と、Notion ベースの参考 ES / Prompt Registry の取り込み手順をまとめます。
+
+> Claude Code ハーネス全体（agents / skills / hooks / MCP / commands）の詳細リファレンスと運用ガイドは [`docs/ops/AI_HARNESS.md`](../ops/AI_HARNESS.md) を参照してください。本ドキュメントは MCP と Notion 取り込み手順のみを扱います。
 
 ## 目次
-1. [Stripe MCP Server](#stripe-mcp-server)
-2. [Google Calendar MCP Server](#google-calendar-mcp-server)
-3. [Database MCP Server](#database-mcp-server)
-4. [GitHub MCP Server](#github-mcp-server)
-5. [Web Scraping MCP Server](#web-scraping-mcp-server)
-6. [Notion参考ESの取り込み](#notion参考esの取り込み)
+1. [現在有効な MCP サーバー](#現在有効な-mcp-サーバー)
+2. [Database（Supabase/PostgreSQL）](#database-supabasepostgresql)
+3. [Notion 参考 ES の取り込み](#notion-参考-es-の取り込み)
+4. [Notion Prompt Registry の同期](#notion-prompt-registry-の同期)
+5. [トラブルシューティング](#トラブルシューティング)
+6. [参考リンク](#参考リンク)
 
 ---
 
-## Stripe MCP Server
+## 現在有効な MCP サーバー
 
-Stripe決済機能の開発・デバッグに使用します。
+### Project scope: `.mcp.json`
 
-### インストール
-
-Claude Codeのプラグインとして既に利用可能です。
-
-### 設定
-
-`~/.claude/settings.json` または プロジェクトの `.mcp.json`:
+リポジトリに commit されている MCP は **playwright** と **notion** の 2 つです。
 
 ```json
 {
   "mcpServers": {
-    "stripe": {
+    "playwright": {
+      "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@anthropic/claude-code-stripe-mcp"],
-      "env": {
-        "STRIPE_SECRET_KEY": "sk_test_..."
-      }
+      "args": ["-y", "@playwright/mcp", "--headless"],
+      "env": {}
+    },
+    "notion": {
+      "type": "http",
+      "url": "https://mcp.notion.com/mcp"
     }
   }
 }
 ```
 
-### 利用可能なツール
-- `search_stripe_documentation` - Stripeドキュメント検索
-- `list_customers` - 顧客一覧
-- `list_products` - 商品一覧
-- `list_prices` - 価格一覧
-- `list_subscriptions` - サブスクリプション一覧
-- `retrieve_balance` - 残高確認
-- `stripe_integration_recommender` - 実装ガイド
+- **playwright**: `ui-designer` / `test-automator` からの interactive な browser 操作（`mcp__playwright__*` ツール群）。初回に MCP 承認プロンプトが出るので承認する。関連: [`docs/testing/UI_PLAYWRIGHT_VERIFICATION.md`](../testing/UI_PLAYWRIGHT_VERIFICATION.md)
+- **notion**: Notion Prompt Registry と参考 ES Database の取得に使う HTTP 型 MCP。初回接続時に Notion OAuth フローで承認する。後段の「Notion 参考 ES の取り込み」「Notion Prompt Registry の同期」節の手順で raw JSON 取得に使う
 
-### 使用例
-```
-# ドキュメント検索
-/stripe:search_stripe_documentation "webhook signature verification"
+### User scope: `~/.claude/settings.json`（リポジトリ外）
 
-# 顧客確認
-/stripe:list_customers limit=10
-```
+個人環境の user scope には **context7 MCP** を設定しています。
 
----
+- **用途**: Claude / OpenAI / FastAPI / Next.js / Drizzle などライブラリ・フレームワークの最新ドキュメントを全プロジェクト共通で注入（`mcp__context7__*` ツール群）
+- **管理**: 個人の `~/.claude/settings.json` が正本。リポジトリでは設定 JSON を管理しない
+- **導入**: 各自の環境で `~/.claude/settings.json` を編集。公式手順は https://code.claude.com/docs/en/mcp を参照
 
-## Google Calendar MCP Server
+### 導入していない MCP と理由
 
-カレンダー連携機能の開発に使用します。
-
-### インストール
-
-```bash
-# 公式MCPサーバー
-npm install -g @anthropic/mcp-server-google-calendar
-```
-
-### Google Cloud Console 設定
-
-1. [Google Cloud Console](https://console.cloud.google.com/) にアクセス
-2. 新しいプロジェクトを作成（または既存を選択）
-3. Google Calendar API を有効化:
-   - APIs & Services > Library
-   - "Google Calendar API" を検索して有効化
-4. OAuth 2.0 認証情報を作成:
-   - APIs & Services > Credentials
-   - Create Credentials > OAuth client ID
-   - Application type: Desktop app
-   - `client_secret.json` をダウンロード
-
-### MCP設定
-
-```json
-{
-  "mcpServers": {
-    "google-calendar": {
-      "command": "mcp-server-google-calendar",
-      "env": {
-        "GOOGLE_CLIENT_ID": "your-client-id",
-        "GOOGLE_CLIENT_SECRET": "your-client-secret",
-        "GOOGLE_REDIRECT_URI": "http://localhost:3000/api/auth/callback/google"
-      }
-    }
-  }
-}
-```
-
-### スコープ設定（最小権限）
-
-アプリケーションで必要なスコープ:
-```
-https://www.googleapis.com/auth/calendar.readonly    # カレンダー一覧取得
-https://www.googleapis.com/auth/calendar.freebusy    # 空き時間参照
-https://www.googleapis.com/auth/calendar.events      # 予定作成/更新/削除
-```
-
-### 利用可能なツール
-- `list_calendars` - カレンダー一覧
-- `get_freebusy` - 空き時間取得
-- `create_event` - 予定作成
-- `update_event` - 予定更新
-- `delete_event` - 予定削除
+Supabase / Railway / Vercel / GitHub / Stripe は MCP を導入せず、CLI を直接利用する方針です。理由と許可 / 禁止操作は [`docs/ops/CLI_GUARDRAILS.md`](../ops/CLI_GUARDRAILS.md) を、全体方針は [`docs/ops/AI_HARNESS.md`](../ops/AI_HARNESS.md) 6.3 節を参照してください。
 
 ---
 
 ## Database (Supabase/PostgreSQL)
 
-このプロジェクトのメインDBは Supabase (PostgreSQL) です。
+このプロジェクトのメイン DB は Supabase (PostgreSQL) です。
 
 開発・デバッグは以下で行えます:
 - Supabase Dashboard の SQL Editor
 - ローカルから `psql "$DIRECT_URL"`（Direct connection 推奨）
 
-MCP 経由で DB を操作したい場合は、PostgreSQL 対応の MCP Server を利用し、接続情報として `DIRECT_URL` を渡してください。
+MCP 経由で DB を操作したい場合は、PostgreSQL 対応の MCP Server を利用し、接続情報として `DIRECT_URL` を渡してください。現状はリポジトリレベルでの MCP 設定は行っていません。
 
 ---
 
-## GitHub MCP Server
+## Notion 参考 ES の取り込み
 
-GitHub連携（Issue、PR管理）に使用します。
-
-### インストール
-
-```bash
-npm install -g @anthropic/mcp-server-github
-```
-
-### GitHub Personal Access Token 作成
-
-1. [GitHub Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens)
-2. Generate new token (classic)
-3. 必要なスコープを選択:
-   - `repo` - リポジトリアクセス
-   - `read:org` - 組織読み取り
-
-### 設定
-
-```json
-{
-  "mcpServers": {
-    "github": {
-      "command": "mcp-server-github",
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..."
-      }
-    }
-  }
-}
-```
-
-### 利用可能なツール
-- `create_issue` - Issue作成
-- `list_issues` - Issue一覧
-- `create_pull_request` - PR作成
-- `list_pull_requests` - PR一覧
-
----
-
-## Web Scraping MCP Server
-
-企業情報取得（公式採用ページスクレイピング）に使用します。
-
-### インストール
-
-```bash
-npm install -g @anthropic/mcp-server-puppeteer
-```
-
-### 設定
-
-```json
-{
-  "mcpServers": {
-    "puppeteer": {
-      "command": "mcp-server-puppeteer",
-      "args": ["--headless"]
-    }
-  }
-}
-```
-
-### 利用可能なツール
-- `navigate` - ページ移動
-- `screenshot` - スクリーンショット
-- `get_content` - ページコンテンツ取得
-- `click` - クリック操作
-- `type` - テキスト入力
-
-### 企業情報取得での使用
-
-```python
-# backend/app/services/scraper.py での使用想定
-async def fetch_company_info(url: str):
-    # MCPサーバー経由でページを取得
-    # LLMで構造化データに変換
-    pass
-```
-
----
-
-## Notion参考ESの取り込み
-
-ES添削の benchmark に使う参考ESは、Notion Database を正本として管理し、必要時にローカル JSON へ一括取り込みします。
+ES 添削の benchmark に使う参考 ES は、Notion Database を正本として管理し、必要時にローカル JSON へ一括取り込みします。
 
 詳細手順は [NOTION_REFERENCE_ES.md](./NOTION_REFERENCE_ES.md) を参照してください。
 
 要点:
 
-1. Notion Database に参考ESを保存する
+1. Notion Database に参考 ES を保存する
 2. Notion MCP で Database query 結果 JSON を取得する
 3. 正規化が必要な場合は `backend/app/prompts/reference_es_importer.py` の処理を使って one-off で取り込む
 
@@ -259,58 +113,32 @@ npm run prompts:sync -- --input /tmp/notion-prompt-registry.json --apply
 
 ---
 
-## 全体設定ファイル例
-
-プロジェクトルートに `.mcp.json` を作成:
-
-```json
-{
-	"mcpServers": {
-	  "stripe": {
-	    "command": "npx",
-	    "args": ["-y", "@anthropic/claude-code-stripe-mcp"],
-	    "env": {
-	      "STRIPE_SECRET_KEY": "${STRIPE_SECRET_KEY}"
-	    }
-	  },
-	  "github": {
-	    "command": "mcp-server-github",
-	    "env": {
-	      "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
-	    }
-	  }
-	}
-}
-```
-
----
-
 ## トラブルシューティング
 
 ### MCP サーバーが起動しない
 
-1. Node.js バージョン確認: `node -v` (18以上推奨)
-2. パッケージ再インストール: `npm install -g @anthropic/mcp-server-xxx`
-3. 権限確認: `chmod +x $(which mcp-server-xxx)`
+1. Node.js バージョン確認: `node -v`（18 以上推奨）
+2. `.mcp.json` の JSON 構文エラー確認
+3. Claude Code を再起動して MCP 承認プロンプトが出るか確認
 
-### 認証エラー
+### playwright MCP のツールが見えない
 
-1. 環境変数が正しく設定されているか確認
-2. トークンの有効期限を確認
-3. 必要なスコープ/権限が付与されているか確認
+1. Claude Code の MCP 承認プロンプトを承認済みか確認
+2. `@playwright/mcp` の初回 `npx` ダウンロードが完了しているか確認
+3. プロジェクトルートに `.mcp.json` が存在するか確認
 
-### 接続タイムアウト
+### context7 MCP が動かない
 
-1. ネットワーク接続を確認
-2. ファイアウォール設定を確認
-3. MCPサーバーのログを確認: `DEBUG=* mcp-server-xxx`
+1. user scope の `~/.claude/settings.json` に context7 の設定が入っているか確認
+2. 公式 docs（https://code.claude.com/docs/en/mcp）の最新手順と照合
+3. 他プロジェクトでも同様に動かないなら user scope 側の問題
 
 ---
 
 ## 参考リンク
 
-- [MCP公式ドキュメント](https://modelcontextprotocol.io/)
-- [Claude Code MCP設定](https://docs.anthropic.com/claude-code/mcp)
-- [Stripe API ドキュメント](https://stripe.com/docs/api)
-- [Google Calendar API](https://developers.google.com/calendar/api)
+- [MCP 公式ドキュメント](https://modelcontextprotocol.io/)
+- [Claude Code MCP 設定](https://code.claude.com/docs/en/mcp)
 - [Supabase Docs](https://supabase.com/docs)
+- [`docs/ops/AI_HARNESS.md`](../ops/AI_HARNESS.md) — Claude Code ハーネス全体のリファレンス
+- [`docs/ops/CLI_GUARDRAILS.md`](../ops/CLI_GUARDRAILS.md) — CLI ガードレール（MCP を導入しない CLI の運用ルール）

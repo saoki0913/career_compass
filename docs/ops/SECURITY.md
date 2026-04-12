@@ -33,6 +33,7 @@
 
 - [`src/lib/logger.ts`](../../src/lib/logger.ts) の `logError` は、API キー・Bearer・メール形式などをパターンで `[REDACTED]` に置換してから出力します。
 - 本番ではスタックトレースは開発環境のみに限定する実装です。
+- Claude Code での `codex-company/.secrets/` 配下への直接 Read / cat / grep などは `.claude/hooks/secrets-guard.sh` が PreToolUse で block します。インベントリ確認は `zsh scripts/release/sync-career-compass-secrets.sh --check` のみ許可です。詳細は [`docs/ops/AI_HARNESS.md`](./AI_HARNESS.md) 5.3 節を参照してください。
 
 ## レート制限
 
