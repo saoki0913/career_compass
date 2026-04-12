@@ -4,6 +4,7 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState } fr
 
 import { parseApiErrorResponse, toAppUiError, type AppUiError } from "@/lib/api-errors";
 import { notifyUserFacingAppError } from "@/lib/client-error-ui";
+import { resolveRoleSelection } from "@/hooks/conversation/role-selection";
 import {
   continueInterviewStream,
   fetchInterviewData,
@@ -251,19 +252,15 @@ export function useInterviewConversationController({
         setQuestionFlowCompleted(!isLegacy && Boolean(conversation?.questionFlowCompleted));
 
         const resolvedRole = conversation?.selectedRole || interviewData.setup?.selectedRole || "";
-        const matchedRole = roleData?.roleGroups
-          ?.flatMap((group) => group.options)
-          .find((option) => option.value === resolvedRole);
+        const nextRoleSelection = resolveRoleSelection({
+          resolvedRole,
+          resolvedSource: (conversation?.selectedRoleSource as string | null) ?? null,
+          availableOptions: roleData?.roleGroups?.flatMap((group) => group.options) ?? [],
+        });
 
-        setSelectedRoleName(matchedRole ? matchedRole.value : "");
-        setCustomRoleNameState(matchedRole ? "" : resolvedRole);
-        setRoleSelectionSource(
-          matchedRole
-            ? matchedRole.source
-            : resolvedRole
-              ? "custom"
-              : (conversation?.selectedRoleSource as RoleSelectionSource | null) ?? null,
-        );
+        setSelectedRoleName(nextRoleSelection.selectedRoleName);
+        setCustomRoleNameState(nextRoleSelection.customRoleInput);
+        setRoleSelectionSource(nextRoleSelection.roleSelectionSource as RoleSelectionSource | null);
       } catch (fetchError) {
         if (!isMounted) return;
         reportError(

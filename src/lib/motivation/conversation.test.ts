@@ -70,4 +70,14 @@ describe("motivation conversation draft readiness", () => {
       pending: ["value_contribution", "differentiation"],
     });
   });
+
+  it("accepts structured jsonb values without stringifying first", () => {
+    const context = safeParseConversationContext({
+      questionStage: "desired_work",
+      draftReady: true,
+    });
+
+    expect(context.questionStage).toBe("desired_work");
+    expect(context.draftReady).toBe(true);
+  });
 });

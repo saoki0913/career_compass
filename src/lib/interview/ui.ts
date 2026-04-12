@@ -204,6 +204,11 @@ export const STRICTNESS_MODE_LABELS: Record<InterviewStrictnessMode, string> = {
 export const ROLE_TRACK_LABELS: Record<InterviewRoleTrack, string> = {
   biz_general: "文系総合職 / 営業 / 企画",
   it_product: "IT / プロダクト",
+  frontend_engineer: "フロントエンド",
+  backend_engineer: "バックエンド",
+  data_ai: "データ / AI",
+  infra_platform: "インフラ / Platform / SRE",
+  product_manager: "プロダクトマネージャー",
   consulting: "コンサル",
   research_specialist: "研究 / 専門職",
   quant_finance: "クオンツ / 数理",
@@ -218,6 +223,9 @@ export const FORMAT_PHASE_LABELS: Record<string, string> = {
   life_history_main: "自分史本編",
   feedback: "講評",
 };
+
+export const PREMISE_CONSISTENCY_HELP =
+  "前提一致度は、回答全体で志望理由・経験・将来像の前提がどれだけ矛盾せずにつながっていたかを見る目安です。";
 
 export function getActiveCoverage(turnState: InterviewTurnState | null) {
   if (!turnState) return null;

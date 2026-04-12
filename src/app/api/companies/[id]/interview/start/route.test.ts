@@ -31,7 +31,7 @@ vi.mock("@/app/api/_shared/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
 
-vi.mock("../shared", () => ({
+vi.mock("..", () => ({
   buildInterviewContext: buildInterviewContextMock,
   ensureInterviewConversation: ensureInterviewConversationMock,
   normalizeInterviewPlanValue: normalizeInterviewPlanValueMock,
@@ -48,6 +48,13 @@ vi.mock("../stream-utils", () => ({
 vi.mock("../persistence-errors", () => ({
   normalizeInterviewPersistenceError: normalizeInterviewPersistenceErrorMock,
   createInterviewPersistenceUnavailableResponse: createInterviewPersistenceUnavailableResponseMock,
+}));
+
+vi.mock("@/lib/credits", () => ({
+  CONVERSATION_CREDITS_PER_TURN: 1,
+  DEFAULT_INTERVIEW_SESSION_CREDIT_COST: 6,
+  hasEnoughCredits: vi.fn(async () => true),
+  consumeCredits: vi.fn(async () => undefined),
 }));
 
 describe("api/companies/[id]/interview/start", () => {

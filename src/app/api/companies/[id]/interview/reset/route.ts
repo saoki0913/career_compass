@@ -8,7 +8,7 @@ import {
   createInterviewPersistenceUnavailableResponse,
   normalizeInterviewPersistenceError,
 } from "../persistence-errors";
-import { buildInterviewContext, resetInterviewConversation } from "../shared";
+import { buildInterviewContext, resetInterviewConversation } from "..";
 
 export async function POST(
   request: NextRequest,

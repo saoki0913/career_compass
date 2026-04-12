@@ -30,7 +30,7 @@ import {
   safeParseConversationState,
   safeParseMessages,
   serializeConversationState,
-} from "@/app/api/gakuchika/shared";
+} from "@/app/api/gakuchika";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 import { normalizeEsDraftSingleParagraph } from "@/lib/server/es-draft-normalize";
 import { messageFromFastApiDetail } from "@/lib/server/fastapi-detail-message";
@@ -47,6 +47,62 @@ interface FastAPIDraftResponse {
     credibility_risk_tags?: string[];
   };
   internal_telemetry?: unknown;
+}
+
+type DraftMaterialPayload = {
+  input_richness_mode: string | null;
+  missing_elements: string[];
+  draft_quality_checks: Record<string, boolean | undefined>;
+  causal_gaps: string[];
+  strength_tags: string[];
+  issue_tags: string[];
+  deepdive_recommendation_tags: string[];
+  credibility_risk_tags: string[];
+  deferred_focuses: string[];
+  resolved_focuses: string[];
+  draft_readiness_reason: string;
+  user_fact_summary: string | null;
+};
+
+function buildKnownFacts(messages: Array<{ role: "user" | "assistant"; content: string }>): string | null {
+  const answers = messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content.trim())
+    .filter(Boolean);
+  if (answers.length === 0) return null;
+
+  const selected: string[] = [];
+  for (const answer of answers.slice(0, 2)) {
+    if (!selected.includes(answer)) selected.push(answer);
+  }
+  for (const answer of answers.slice(2, -2)) {
+    if (selected.length >= 4) break;
+    if (!selected.includes(answer)) selected.push(answer);
+  }
+  for (const answer of answers.slice(-2)) {
+    if (!selected.includes(answer)) selected.push(answer);
+  }
+  return selected.slice(0, 6).map((answer) => `- ${answer}`).join("\n");
+}
+
+function buildDraftMaterial(
+  conversationState: ReturnType<typeof safeParseConversationState>,
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+): DraftMaterialPayload {
+  return {
+    input_richness_mode: conversationState.inputRichnessMode,
+    missing_elements: conversationState.missingElements,
+    draft_quality_checks: conversationState.draftQualityChecks,
+    causal_gaps: conversationState.causalGaps,
+    strength_tags: conversationState.strengthTags,
+    issue_tags: conversationState.issueTags,
+    deepdive_recommendation_tags: conversationState.deepdiveRecommendationTags,
+    credibility_risk_tags: conversationState.credibilityRiskTags,
+    deferred_focuses: conversationState.deferredFocuses,
+    resolved_focuses: conversationState.resolvedFocuses,
+    draft_readiness_reason: conversationState.draftReadinessReason,
+    user_fact_summary: buildKnownFacts(messages),
+  };
 }
 
 export async function POST(
@@ -148,6 +204,8 @@ export async function POST(
       { status: 400 }
     );
   }
+  const knownFacts = buildKnownFacts(messages);
+  const draftMaterial = buildDraftMaterial(conversationState, messages);
 
   // Reserve credits (6 credits for draft generation for logged-in users)
   let reservationId: string | null = null;
@@ -177,6 +235,8 @@ export async function POST(
         gakuchika_title: gakuchika.title,
         conversation_history: messages,
         char_limit: charLimit,
+        known_facts: knownFacts,
+        draft_material: draftMaterial,
       }),
     });
 
@@ -192,6 +252,8 @@ export async function POST(
           gakuchika_title: gakuchika.title,
           conversation_history: messages,
           char_limit: charLimit,
+          known_facts: knownFacts,
+          draft_material: draftMaterial,
         }),
       });
     }

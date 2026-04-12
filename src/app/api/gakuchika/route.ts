@@ -15,7 +15,7 @@ import {
   getGakuchikaSummaryKind,
   getGakuchikaSummaryPreview,
 } from "@/lib/gakuchika/summary";
-import { safeParseConversationState } from "@/app/api/gakuchika/shared";
+import { safeParseConversationState } from "@/app/api/gakuchika";
 
 export type GakuchikaListConversationStatus = "in_progress" | "completed" | null;
 

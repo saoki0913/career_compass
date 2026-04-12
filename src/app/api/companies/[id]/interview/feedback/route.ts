@@ -21,7 +21,7 @@ import {
   saveInterviewConversationProgress,
   saveInterviewFeedbackHistory,
   validateInterviewTurnState,
-} from "../shared";
+} from "..";
 import {
   createInterviewPersistenceUnavailableResponse,
   normalizeInterviewPersistenceError,

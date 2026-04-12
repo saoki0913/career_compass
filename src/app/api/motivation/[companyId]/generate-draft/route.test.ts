@@ -2,29 +2,31 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const {
-  getSessionMock,
-  dbSelectMock,
   dbUpdateMock,
   dbInsertMock,
   reserveCreditsMock,
   confirmReservationMock,
   cancelReservationMock,
   enforceRateLimitLayersMock,
+  getRequestIdentityMock,
   getMotivationConversationByConditionMock,
+  getOwnedMotivationCompanyDataMock,
+  buildMotivationOwnerConditionMock,
   resolveDraftReadyStateMock,
   safeParseConversationContextMock,
   safeParseMessagesMock,
   fetchFastApiInternalMock,
 } = vi.hoisted(() => ({
-  getSessionMock: vi.fn(),
-  dbSelectMock: vi.fn(),
   dbUpdateMock: vi.fn(),
   dbInsertMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
   confirmReservationMock: vi.fn(),
   cancelReservationMock: vi.fn(),
   enforceRateLimitLayersMock: vi.fn(),
+  getRequestIdentityMock: vi.fn(),
   getMotivationConversationByConditionMock: vi.fn(),
+  getOwnedMotivationCompanyDataMock: vi.fn(),
+  buildMotivationOwnerConditionMock: vi.fn(),
   resolveDraftReadyStateMock: vi.fn(),
   safeParseConversationContextMock: vi.fn(),
   safeParseMessagesMock: vi.fn(),
@@ -35,17 +37,8 @@ vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers()),
 }));
 
-vi.mock("@/lib/auth", () => ({
-  auth: {
-    api: {
-      getSession: getSessionMock,
-    },
-  },
-}));
-
 vi.mock("@/lib/db", () => ({
   db: {
-    select: dbSelectMock,
     update: dbUpdateMock,
     insert: dbInsertMock,
   },
@@ -62,10 +55,13 @@ vi.mock("@/lib/credits", () => ({
 }));
 
 vi.mock("@/lib/motivation/conversation", () => ({
-  getMotivationConversationByCondition: getMotivationConversationByConditionMock,
   resolveDraftReadyState: resolveDraftReadyStateMock,
   safeParseConversationContext: safeParseConversationContextMock,
   safeParseMessages: safeParseMessagesMock,
+}));
+
+vi.mock("@/lib/motivation/conversation-store", () => ({
+  getMotivationConversationByCondition: getMotivationConversationByConditionMock,
 }));
 
 vi.mock("@/lib/rate-limit-spike", () => ({
@@ -73,45 +69,37 @@ vi.mock("@/lib/rate-limit-spike", () => ({
   DRAFT_RATE_LAYERS: [],
 }));
 
+vi.mock("@/app/api/_shared/request-identity", () => ({
+  getRequestIdentity: getRequestIdentityMock,
+}));
+
 vi.mock("@/lib/fastapi/client", () => ({
   fetchFastApiInternal: fetchFastApiInternalMock,
 }));
-
-function makeCompanyQuery() {
-  return {
-    from: vi.fn(() => ({
-      where: vi.fn(() => ({
-        limit: vi.fn().mockResolvedValue([
-          {
-            id: "company-1",
-            name: "テスト株式会社",
-            industry: "IT",
-          },
-        ]),
-      })),
-    })),
-  };
-}
+vi.mock("@/lib/motivation/motivation-input-resolver", () => ({
+  buildMotivationOwnerCondition: buildMotivationOwnerConditionMock,
+  getOwnedMotivationCompanyData: getOwnedMotivationCompanyDataMock,
+}));
 
 describe("api/motivation/[companyId]/generate-draft", () => {
   beforeEach(() => {
-    getSessionMock.mockReset();
-    dbSelectMock.mockReset();
     dbUpdateMock.mockReset();
     dbInsertMock.mockReset();
     reserveCreditsMock.mockReset();
     confirmReservationMock.mockReset();
     cancelReservationMock.mockReset();
     enforceRateLimitLayersMock.mockReset();
+    getRequestIdentityMock.mockReset();
     getMotivationConversationByConditionMock.mockReset();
+    getOwnedMotivationCompanyDataMock.mockReset();
+    buildMotivationOwnerConditionMock.mockReset();
     resolveDraftReadyStateMock.mockReset();
     safeParseConversationContextMock.mockReset();
     safeParseMessagesMock.mockReset();
     fetchFastApiInternalMock.mockReset();
     vi.restoreAllMocks();
 
-    getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
-    dbSelectMock.mockReturnValue(makeCompanyQuery());
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     dbUpdateMock.mockReturnValue({
       set: vi.fn(() => ({
         where: vi.fn().mockResolvedValue(undefined),
@@ -122,6 +110,12 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     });
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-1" });
     enforceRateLimitLayersMock.mockResolvedValue(null);
+    getOwnedMotivationCompanyDataMock.mockResolvedValue({
+      id: "company-1",
+      name: "テスト株式会社",
+      industry: "IT",
+    });
+    buildMotivationOwnerConditionMock.mockReturnValue({ owner: "condition" });
     getMotivationConversationByConditionMock.mockResolvedValue({
       id: "conversation-1",
       status: "completed",
@@ -136,6 +130,12 @@ describe("api/motivation/[companyId]/generate-draft", () => {
       selectedIndustry: "IT",
       selectedRole: "企画職",
       questionStage: "differentiation",
+      slotSummaries: {
+        company_reason: "DX支援を通じて顧客課題に向き合える点に惹かれています。",
+      },
+      slotEvidenceSentences: {
+        company_reason: ["DX支援を通じて顧客課題に向き合える点に惹かれています。"],
+      },
     });
     safeParseMessagesMock.mockReturnValue([
       { role: "user", content: "a" },
@@ -246,6 +246,20 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     expect(payload.conversationMode).toBe("deepdive");
     expect(payload.currentSlot).toBe("self_connection");
     expect(payload.coachingFocus).toBe("補足深掘り");
+    expect(fetchFastApiInternalMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/motivation/generate-draft",
+      expect.objectContaining({
+        body: expect.any(String),
+      }),
+    );
+    const firstCallBody = JSON.parse(fetchFastApiInternalMock.mock.calls[0][1].body as string);
+    expect(firstCallBody.slot_summaries).toEqual({
+      company_reason: "DX支援を通じて顧客課題に向き合える点に惹かれています。",
+    });
+    expect(firstCallBody.slot_evidence_sentences).toEqual({
+      company_reason: ["DX支援を通じて顧客課題に向き合える点に惹かれています。"],
+    });
   });
 
   it("keeps the generated draft as conversation state without creating an ES document immediately", async () => {

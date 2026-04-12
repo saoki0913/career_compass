@@ -5,7 +5,7 @@ import {
   safeParseConversationState,
   serializeConversationState,
   type ConversationState,
-} from "./shared";
+} from ".";
 
 describe("api/gakuchika/shared conversation state", () => {
   it("does not infer interview_ready from completed status alone", () => {

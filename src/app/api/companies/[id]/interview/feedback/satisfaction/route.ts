@@ -6,7 +6,7 @@ import {
   createInterviewPersistenceUnavailableResponse,
   normalizeInterviewPersistenceError,
 } from "../../persistence-errors";
-import { saveInterviewFeedbackSatisfaction } from "../../shared";
+import { saveInterviewFeedbackSatisfaction } from "../..";
 
 export async function POST(
   request: NextRequest,

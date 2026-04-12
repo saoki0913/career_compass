@@ -8,8 +8,10 @@ import {
   SELECTION_TYPE_OPTIONS,
   STRICTNESS_MODE_OPTIONS,
   canonicalizeInterviewFormat,
+  classifyInterviewRoleTrack,
   createInitialInterviewTurnState,
   getInterviewTrackerStatus,
+  normalizeInterviewPlanValue,
   normalizeInterviewTurnState,
   parseInterviewFormatParam,
   shouldChargeInterviewSession,
@@ -18,6 +20,7 @@ import {
 describe("interview session helpers", () => {
   it("exposes the v2 interview setup option catalogs", () => {
     expect(ROLE_TRACK_OPTIONS).toContain("biz_general");
+    expect(ROLE_TRACK_OPTIONS).toContain("frontend_engineer");
     expect(ROLE_TRACK_OPTIONS).toContain("quant_finance");
     expect(INTERVIEW_FORMAT_OPTIONS).toEqual([
       "standard_behavioral",
@@ -139,11 +142,41 @@ describe("interview session helpers", () => {
   });
 
   it("normalizes legacy formatPhase to life_history_main", () => {
+    const legacyTurnState = {
+      formatPhase: "discussion_main",
+      nextAction: "ask",
+    } as unknown as Parameters<typeof normalizeInterviewTurnState>[0];
+
     expect(
-      normalizeInterviewTurnState({
-        formatPhase: "discussion_main",
-        nextAction: "ask",
-      }),
+      normalizeInterviewTurnState(legacyTurnState),
     ).toMatchObject({ formatPhase: "life_history_main" });
+  });
+
+  it("normalizes interview plans from legacy snake_case payloads", () => {
+    expect(
+      normalizeInterviewPlanValue({
+        interview_type: "case",
+        priority_topics: ["structured_thinking"],
+        opening_topic: "structured_thinking",
+        must_cover_topics: ["structured_thinking", "prioritization"],
+        risk_topics: ["logic"],
+        suggested_timeflow: ["導入", "構造化", "優先順位"],
+      }),
+    ).toEqual({
+      interviewType: "case",
+      priorityTopics: ["structured_thinking"],
+      openingTopic: "structured_thinking",
+      mustCoverTopics: ["structured_thinking", "prioritization"],
+      riskTopics: ["logic"],
+      suggestedTimeflow: ["導入", "構造化", "優先順位"],
+    });
+  });
+
+  it("classifies technical roles with finer-grained internal tracks", () => {
+    expect(classifyInterviewRoleTrack("フロントエンドエンジニア")).toBe("frontend_engineer");
+    expect(classifyInterviewRoleTrack("Backend Engineer")).toBe("backend_engineer");
+    expect(classifyInterviewRoleTrack("データサイエンティスト")).toBe("data_ai");
+    expect(classifyInterviewRoleTrack("SRE")).toBe("infra_platform");
+    expect(classifyInterviewRoleTrack("Product Manager")).toBe("product_manager");
   });
 });

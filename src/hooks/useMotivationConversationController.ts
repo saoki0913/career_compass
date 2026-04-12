@@ -19,7 +19,6 @@ import {
   type CausalGap,
   type ConversationMode,
   type EvidenceCard,
-  findRoleOption,
   type MotivationCompany,
   type MotivationMessage,
   type MotivationProgress,
@@ -29,34 +28,28 @@ import {
   type RoleSelectionSource,
   type StageStatus,
 } from "@/lib/motivation/ui";
+import type { MotivationConversationPayload } from "@/lib/motivation/conversation-payload";
 import { notifyMotivationDraftReady } from "@/lib/notifications";
+import { appendOptimisticUserMessage, rollbackOptimisticMessageById } from "@/hooks/conversation/optimistic-message";
+import { resolveRoleSelection } from "@/hooks/conversation/role-selection";
 import { useStreamingTextPlayback } from "@/hooks/useStreamingTextPlayback";
 import { useOperationLock } from "@/hooks/useOperationLock";
 
-type ConversationPayload = {
-  messages?: Array<{ role: "user" | "assistant"; content: string; id?: string }>;
-  nextQuestion?: string | null;
-  questionCount?: number;
-  isDraftReady?: boolean;
-  evidenceSummary?: string | null;
-  evidenceCards?: EvidenceCard[];
-  generatedDraft?: string | null;
+type ConversationPayload = Partial<
+  Omit<
+    MotivationConversationPayload,
+    "questionStage" | "conversationMode" | "currentSlot" | "conversationContext" | "setup"
+  >
+> & {
   questionStage?: MotivationStageKey | null;
-  stageStatus?: StageStatus | null;
-  coachingFocus?: string | null;
-  conversationMode?: ConversationMode;
+  conversationMode?: ConversationMode | null;
   currentSlot?: Exclude<MotivationStageKey, "closing"> | null;
-  currentIntent?: string | null;
-  nextAdvanceCondition?: string | null;
-  progress?: MotivationProgress | null;
-  causalGaps?: CausalGap[];
   conversationContext?: {
     selectedIndustry?: string | null;
     selectedRole?: string | null;
     selectedRoleSource?: string | null;
   } | null;
   setup?: MotivationSetupSnapshot | null;
-  error?: string | null;
 };
 
 type PendingCompleteData = {
@@ -157,21 +150,18 @@ export function useMotivationConversationController({ companyId }: { companyId: 
       roleOptions?.industry ||
       "";
     const resolvedRole = setup?.selectedRole || conversationContext?.selectedRole || "";
-    const selectedOption = roleOptions ? findRoleOption(roleOptions.roleGroups, resolvedRole) : null;
-    const resolvedSource = setup?.selectedRoleSource || conversationContext?.selectedRoleSource || selectedOption?.source || null;
+    const resolvedSource = setup?.selectedRoleSource || conversationContext?.selectedRoleSource || null;
+    const nextRoleSelection = resolveRoleSelection({
+      resolvedRole,
+      resolvedSource,
+      availableOptions: roleOptions?.roleGroups.flatMap((group) => group.options) ?? [],
+    });
 
     setSetupSnapshot(setup || null);
     setSelectedIndustry(resolvedIndustry);
-    setSelectedRoleName(resolvedRole);
-
-    if (resolvedSource === "user_free_text") {
-      setRoleSelectionSource("custom");
-      setCustomRoleInput(resolvedRole);
-      return;
-    }
-
-    setRoleSelectionSource((selectedOption?.source || resolvedSource) as RoleSelectionSource | null);
-    setCustomRoleInput("");
+    setSelectedRoleName(nextRoleSelection.selectedRoleName);
+    setRoleSelectionSource(nextRoleSelection.roleSelectionSource as RoleSelectionSource | null);
+    setCustomRoleInput(nextRoleSelection.customRoleInput);
   }, []);
 
   const applyConversationPayload = useCallback((conversation: ConversationPayload, roleOptions: RoleOptionsResponse | null) => {
@@ -361,6 +351,7 @@ export function useMotivationConversationController({ companyId }: { companyId: 
           requiresIndustrySelection: Boolean(roleData?.requiresIndustrySelection),
           resolvedIndustry: roleData?.industry || companyData.company.industry,
           isComplete: false,
+          requiresRestart: false,
           hasSavedConversation: false,
         },
       }, roleData);
@@ -612,15 +603,15 @@ export function useMotivationConversationController({ companyId }: { companyId: 
       return;
     }
 
-    const optimisticId = `optimistic-${Date.now()}`;
-    const optimisticMessage: MotivationMessage = {
+    const optimisticUpdate = appendOptimisticUserMessage(messages, "optimistic", (optimisticId) => ({
       id: optimisticId,
       role: "user",
       content: textToSend,
       isOptimistic: true,
-    };
+    }));
+    const optimisticId = optimisticUpdate.optimisticId;
 
-    setMessages((prev) => [...prev, optimisticMessage]);
+    setMessages(optimisticUpdate.messages);
     setAnswer("");
     setIsSending(true);
     setIsWaitingForResponse(true);
@@ -753,7 +744,7 @@ export function useMotivationConversationController({ companyId }: { companyId: 
         throw new Error("ストリームが途中で切断されました");
       }
     } catch (err) {
-      setMessages((prev) => prev.filter((message) => message.id !== optimisticId));
+      setMessages((prev) => rollbackOptimisticMessageById(prev, optimisticId));
       setPendingCompleteData(null);
       setStreamingTargetText("");
       setIsTextStreaming(false);

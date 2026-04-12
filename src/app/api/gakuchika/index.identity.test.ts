@@ -19,7 +19,7 @@ describe("api/gakuchika/shared getIdentity", () => {
     const identity = { userId: "user-1", guestId: null };
     getRequestIdentityMock.mockResolvedValue(identity);
 
-    const { getIdentity } = await import("./shared");
+    const { getIdentity } = await import(".");
     const request = new NextRequest("http://localhost:3000/api/gakuchika/test-id/conversation/stream", {
       method: "POST",
     });

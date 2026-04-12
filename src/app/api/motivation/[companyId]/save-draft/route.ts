@@ -5,7 +5,7 @@ import { getRequestIdentity, type RequestIdentity } from "@/app/api/_shared/requ
 import { db } from "@/lib/db";
 import { companies, documents, motivationConversations } from "@/lib/db/schema";
 import { buildCompanyMotivationEsSectionTitle } from "@/lib/es-review/es-document-section-titles";
-import { getMotivationConversationByCondition } from "@/lib/motivation/conversation";
+import { getMotivationConversationByCondition } from "@/lib/motivation/conversation-store";
 
 async function getOwnedCompanyData(
   companyId: string,

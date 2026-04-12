@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { DEFAULT_INTERVIEW_SESSION_CREDIT_COST } from "@/lib/credits";
+import { CONVERSATION_CREDITS_PER_TURN, consumeCredits, DEFAULT_INTERVIEW_SESSION_CREDIT_COST, hasEnoughCredits } from "@/lib/credits";
 import {
   normalizeInterviewTurnMeta,
   type InterviewPlan,
@@ -15,7 +15,7 @@ import {
   saveInterviewConversationProgress,
   saveInterviewTurnEvent,
   validateInterviewTurnState,
-} from "../shared";
+} from "..";
 import {
   createInterviewPersistenceUnavailableResponse,
   normalizeInterviewPersistenceError,
@@ -73,6 +73,16 @@ export async function POST(
       code: "INTERVIEW_FEEDBACK_REQUIRED",
       userMessage: "続きから深掘りするには、先に最終講評を作成してください。",
       action: "最終講評を作成してから、もう一度お試しください。",
+    });
+  }
+
+  const canPay = await hasEnoughCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN);
+  if (!canPay) {
+    return createApiErrorResponse(request, {
+      status: 402,
+      code: "INTERVIEW_INSUFFICIENT_CREDITS",
+      userMessage: "クレジットが不足しています。",
+      action: "プランをアップグレードするか、クレジットが補充されるまでお待ちください。",
     });
   }
 
@@ -160,6 +170,8 @@ export async function POST(
         turnState,
         turnMeta,
       });
+
+      await consumeCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN, "interview", companyId);
 
       return {
         messages,

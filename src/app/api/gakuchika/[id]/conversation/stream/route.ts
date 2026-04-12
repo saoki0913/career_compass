@@ -12,13 +12,12 @@ import { after, NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
+import { CONVERSATION_CREDITS_PER_TURN } from "@/lib/credits";
+import { gakuchikaStreamPolicy } from "@/lib/api-route/billing/gakuchika-stream-policy";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { persistGakuchikaSummary } from "@/app/api/gakuchika/summary-server";
 import {
   FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS,
-  QUESTIONS_PER_CREDIT,
-  CREDITS_PER_QUESTION_BATCH,
   buildHintPayload,
   buildConversationStatePatch,
   getGakuchikaNextAction,
@@ -30,7 +29,7 @@ import {
   serializeConversationState,
   type ConversationState,
   type Message,
-} from "@/app/api/gakuchika/shared";
+} from "@/app/api/gakuchika";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 import {
   getRequestId,
@@ -171,15 +170,16 @@ export async function POST(
 
     const newQuestionCount = currentQuestionCount + 1;
 
-    // Credit check (every QUESTIONS_PER_CREDIT questions for logged-in users)
-    const shouldConsumeCredit = newQuestionCount > 0 && newQuestionCount % QUESTIONS_PER_CREDIT === 0 && !!userId;
+    // Credit check (1 credit per turn for logged-in users)
+    const shouldConsumeCredit = !!userId;
     if (shouldConsumeCredit) {
-      const canPay = await hasEnoughCredits(userId!, CREDITS_PER_QUESTION_BATCH);
-      if (!canPay) {
-        return new Response(
-          JSON.stringify({ error: "クレジットが不足しています" }),
-          { status: 402, headers: { "Content-Type": "application/json" } }
-        );
+      const precheckResult = await gakuchikaStreamPolicy.precheck({
+        userId: userId!,
+        gakuchikaId,
+        newQuestionCount,
+      });
+      if (!precheckResult.ok) {
+        return precheckResult.errorResponse!;
       }
     }
 
@@ -377,10 +377,6 @@ export async function POST(
                 };
               }).data;
 
-              if (shouldConsumeCredit) {
-                await consumeCredits(userId!, CREDITS_PER_QUESTION_BATCH, "gakuchika", gakuchikaId);
-              }
-
               const nextQuestionText =
                 typeof fastApiData.question === "string" && fastApiData.question
                   ? fastApiData.question
@@ -417,6 +413,26 @@ export async function POST(
                 })
                 .where(eq(gakuchikaConversations.id, conversation.id));
 
+              if (shouldConsumeCredit) {
+                try {
+                  await gakuchikaStreamPolicy.confirm(
+                    {
+                      userId: userId!,
+                      gakuchikaId,
+                      newQuestionCount,
+                    },
+                    {
+                      kind: "billable_success",
+                      creditsConsumed: CONVERSATION_CREDITS_PER_TURN,
+                      freeQuotaUsed: false,
+                    },
+                    null,
+                  );
+                } catch (billingError) {
+                  console.error("[Gakuchika Stream] Credit confirmation failed after save:", billingError);
+                }
+              }
+
               if (nextConversationState.stage === "interview_ready" && nextConversationState.draftText) {
                 const summaryMessages = messages.map((message) => ({ ...message }));
                 after(async () => {
@@ -445,7 +461,7 @@ export async function POST(
               };
               logSummaryOnce({
                 status: "success",
-                creditsUsed: shouldConsumeCredit ? CREDITS_PER_QUESTION_BATCH : 0,
+                creditsUsed: shouldConsumeCredit ? CONVERSATION_CREDITS_PER_TURN : 0,
               });
               controller.enqueue(
                 encoder.encode(`data: ${JSON.stringify(enrichedEvent)}\n\n`)

@@ -24,7 +24,7 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-vi.mock("@/lib/motivation/conversation", () => ({
+vi.mock("@/lib/motivation/conversation-store", () => ({
   getMotivationConversationByCondition: getMotivationConversationByConditionMock,
 }));
 

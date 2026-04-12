@@ -17,6 +17,7 @@ import type {
   UseESReviewReturn,
 } from "./es-review/types";
 import { createSSESteps } from "./es-review/sse-steps";
+import { consumeESReviewStream } from "./es-review/transport";
 import {
   createVisibleSource,
   derivePlaybackPhase,
@@ -97,19 +98,6 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
       abortControllerRef.current.abort();
     }
   }, [isLoading]);
-
-  const parseSSEEvent = useCallback((text: string): SSEEvent | null => {
-    try {
-      const dataMatch = text.match(/^data:\s*(.+)$/m);
-      if (!dataMatch) {
-        return null;
-      }
-      return JSON.parse(dataMatch[1]) as SSEEvent;
-    } catch {
-      console.warn("Failed to parse SSE event:", text);
-      return null;
-    }
-  }, []);
 
   const resetStreamingState = useCallback(() => {
     setReceivedReview(EMPTY_RECEIVED_REVIEW);
@@ -273,40 +261,11 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
           return false;
         }
 
-        const reader = response.body?.getReader();
-        if (!reader) {
-          setError("ストリーミングがサポートされていません");
-          setErrorAction(null);
-          return false;
-        }
-
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let receivedComplete = false;
-
-        while (true) {
-          const { done, value } = await reader.read();
-
-          if (!isActiveRequest()) {
-            return false;
-          }
-
-          if (done) {
-            break;
-          }
-
-          buffer += decoder.decode(value, { stream: true });
-          const events = buffer.split("\n\n");
-          buffer = events.pop() || "";
-
-          for (const eventText of events) {
-            if (!eventText.trim()) {
-              continue;
-            }
-
-            const event = parseSSEEvent(eventText);
-            if (!event || !isActiveRequest()) {
-              continue;
+        const streamResult = await consumeESReviewStream({
+          response,
+          onEvent(event: SSEEvent) {
+            if (!isActiveRequest()) {
+              return;
             }
 
             switch (event.type) {
@@ -331,9 +290,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
                   setReceivedReview((prev) => ({
                     ...prev,
                     rewriteText:
-                      rewriteText.length > prev.rewriteText.length
-                        ? rewriteText
-                        : prev.rewriteText,
+                      rewriteText.length > prev.rewriteText.length ? rewriteText : prev.rewriteText,
                   }));
                 }
                 break;
@@ -342,11 +299,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
                 if (event.path.startsWith("keyword_sources.")) {
                   setReceivedReview((prev) => ({
                     ...prev,
-                    keywordSources: upsertStreamItem(
-                      prev.keywordSources,
-                      event.path,
-                      event.value as TemplateSource,
-                    ),
+                    keywordSources: upsertStreamItem(prev.keywordSources, event.path, event.value as TemplateSource),
                   }));
                 }
                 break;
@@ -360,62 +313,62 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
                 }
                 break;
 
-              case "complete":
-                receivedComplete = true;
-                setReview(event.result);
-                setCreditCost(event.creditCost ?? expectedCreditCost);
-                setReceivedReview((prev) => {
-                  const finalRewrite = event.result.rewrites[0] ?? prev.rewriteText;
-                  const finalSources = event.result.template_review?.keyword_sources ?? [];
-                  return {
-                    keywordSources: mergeStreamedItems(prev.keywordSources, finalSources),
-                    rewriteText:
-                      finalRewrite.length > prev.rewriteText.length
-                        ? finalRewrite
-                        : prev.rewriteText,
-                  };
-                });
-                trackEvent("ai_review_complete", {
-                  templateType: params.templateType ?? null,
-                  creditCost: event.creditCost ?? expectedCreditCost,
-                  reviewMode: effectiveReviewMode,
-                });
-                setSSEProgress((prev) => ({
-                  ...prev,
-                  progress: 100,
-                  isStreaming: false,
-                }));
-                return true;
-
-              case "error": {
-                const streamUiError = toAppUiError(
-                  new Error(event.message),
-                  {
-                    code: "ES_REVIEW_STREAM_FAILED",
-                    userMessage: "添削処理を完了できませんでした。",
-                    action: "時間を置いて、もう一度お試しください。",
-                    retryable: true,
-                  },
-                  "useESReview.sseError"
-                );
-                setError(streamUiError.message);
-                setErrorAction(streamUiError.action ?? null);
-                trackEvent("ai_review_error", { reviewMode: effectiveReviewMode });
-                return false;
-              }
-
               case "chunk":
+              case "complete":
+              case "error":
                 break;
             }
-          }
+          },
+        });
+
+        if (!isActiveRequest()) {
+          return false;
         }
 
-        if (!receivedComplete) {
-          setError("添削結果を受信できませんでした");
+        if (!streamResult.ok) {
+          if (streamResult.reason === "stream_error") {
+            const streamUiError = toAppUiError(
+              new Error(streamResult.message),
+              {
+                code: "ES_REVIEW_STREAM_FAILED",
+                userMessage: "添削処理を完了できませんでした。",
+                action: "時間を置いて、もう一度お試しください。",
+                retryable: true,
+              },
+              "useESReview.sseError",
+            );
+            setError(streamUiError.message);
+            setErrorAction(streamUiError.action ?? null);
+            trackEvent("ai_review_error", { reviewMode: effectiveReviewMode });
+            return false;
+          }
+
+          setError(streamResult.message);
           setErrorAction(null);
           return false;
         }
 
+        setReview(streamResult.result);
+        setCreditCost(streamResult.creditCost ?? expectedCreditCost);
+        setReceivedReview((prev) => {
+          const finalRewrite = streamResult.result.rewrites[0] ?? prev.rewriteText;
+          const finalSources = streamResult.result.template_review?.keyword_sources ?? [];
+          return {
+            keywordSources: mergeStreamedItems(prev.keywordSources, finalSources),
+            rewriteText:
+              finalRewrite.length > prev.rewriteText.length ? finalRewrite : prev.rewriteText,
+          };
+        });
+        trackEvent("ai_review_complete", {
+          templateType: params.templateType ?? null,
+          creditCost: streamResult.creditCost ?? expectedCreditCost,
+          reviewMode: effectiveReviewMode,
+        });
+        setSSEProgress((prev) => ({
+          ...prev,
+          progress: 100,
+          isStreaming: false,
+        }));
         return true;
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {
@@ -458,7 +411,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
         abortControllerRef.current = null;
       }
     },
-    [clearTimer, documentId, esReviewBillingPlan, parseSSEEvent],
+    [clearTimer, documentId, esReviewBillingPlan],
   );
 
   useEffect(() => {

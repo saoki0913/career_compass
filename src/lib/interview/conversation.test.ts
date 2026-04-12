@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  safeParseInterviewMessages,
   safeParseInterviewFeedback,
   serializeInterviewTurnState,
 } from "./conversation";
@@ -73,7 +74,19 @@ describe("interview conversation helpers", () => {
       currentStage: "motivation_fit",
       questionCount: 4,
       questionFlowCompleted: true,
-      turnStateJson: expect.any(String),
+      turnStateJson: expect.any(Object),
     });
+  });
+
+  it("parses jsonb-backed message arrays directly", () => {
+    expect(
+      safeParseInterviewMessages([
+        { role: "user", content: "回答" },
+        { role: "assistant", content: "質問" },
+      ]),
+    ).toEqual([
+      { role: "user", content: "回答" },
+      { role: "assistant", content: "質問" },
+    ]);
   });
 });

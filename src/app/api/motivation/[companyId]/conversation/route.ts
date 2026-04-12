@@ -10,39 +10,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { motivationConversations } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { logError } from "@/lib/logger";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
-  getMotivationConversationByCondition as getConversationByCondition,
-  type CausalGap,
-  type MotivationProgress,
   safeParseConversationContext as parseConversationContext,
   safeParseEvidenceCards as parseEvidenceCards,
   safeParseMessages as parseMessages,
   safeParseScores as parseScores,
-  safeParseStageStatus as parseStageStatus,
   resolveDraftReadyState,
-  type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
+import { getMotivationConversationByCondition as getConversationByCondition } from "@/lib/motivation/conversation-store";
+import { buildMotivationConversationPayload } from "@/lib/motivation/conversation-payload";
 import {
-  buildMotivationEvidenceSummaryFromCards,
   buildMotivationOwnerCondition,
   ensureMotivationConversation,
   fetchMotivationApplicationJobCandidates,
   getOwnedMotivationCompanyData,
   isMotivationSetupComplete,
   resolveMotivationInputs,
-  type MotivationEvidenceCard as EvidenceCard,
-} from "@/lib/motivation/server";
-
-interface StageStatus {
-  current: MotivationConversationContext["questionStage"];
-  completed: MotivationConversationContext["questionStage"][];
-  pending: MotivationConversationContext["questionStage"][];
-}
-
-type MotivationConversationContext = BaseMotivationConversationContext;
+} from "@/lib/motivation/motivation-input-resolver";
 
 // GET: Fetch conversation
 export async function GET(
@@ -107,49 +94,22 @@ export async function GET(
       conversationContext,
       resolvedInputs.requiresIndustrySelection,
     );
-    const stageStatusFromDb = parseStageStatus(
-      conversation.stageStatus,
-      {
-        ...conversationContext,
-        questionStage: (conversation.questionStage as MotivationConversationContext["questionStage"] | null) || conversationContext.questionStage,
-      },
-    );
-
-    // Get next question if not completed
-    let nextQuestion: string | null = null;
-    let evidenceSummary: string | null = buildMotivationEvidenceSummaryFromCards(evidenceCardsFromDb);
-    let evidenceCards: EvidenceCard[] = evidenceCardsFromDb;
-    const coachingFocus: string | null = null;
-    const riskFlags: string[] = [];
-    const stageStatus: StageStatus | null = stageStatusFromDb;
-    const conversationMode = conversationContext.conversationMode ?? "slot_fill";
-    const currentSlot = (conversation.questionStage as MotivationConversationContext["questionStage"] | null) || null;
-    const currentIntent = conversationContext.currentIntent ?? null;
-    const nextAdvanceCondition = conversationContext.nextAdvanceCondition ?? null;
-    const progress: MotivationProgress | null =
-      conversationContext.slotStates
-        ? {
-            completed: Object.values(conversationContext.slotStates).filter((state) => state === "locked").length,
-            total: 6,
-            current_slot: currentSlot === "closing" ? null : currentSlot,
-            current_slot_label: null,
-            current_intent: currentIntent,
-            next_advance_condition: nextAdvanceCondition,
-            mode: conversationMode,
-          }
-        : null;
-    const causalGaps: CausalGap[] = conversationContext.causalGaps ?? [];
-    const initError: string | null = null;
-
-    if (messages.length > 0) {
-      nextQuestion =
-        conversationContext.lastQuestionMeta?.questionText ||
-        ((messages[messages.length - 1]?.role === "assistant"
-          ? messages[messages.length - 1]?.content
-          : null) ?? null);
-      evidenceCards = evidenceCardsFromDb;
-      evidenceSummary = buildMotivationEvidenceSummaryFromCards(evidenceCardsFromDb);
-    }
+    const payload = buildMotivationConversationPayload({
+      messages,
+      questionCount: conversation.questionCount ?? 0,
+      isDraftReady,
+      generatedDraft: conversation.generatedDraft,
+      scores,
+      conversationContext,
+      persistedQuestionStage: (conversation.questionStage as typeof conversationContext.questionStage | null) ?? null,
+      stageStatusValue: conversation.stageStatus,
+      evidenceCards: evidenceCardsFromDb,
+      coachingFocus: null,
+      riskFlags: [],
+      resolvedIndustry: resolvedInputs.company.industry,
+      requiresIndustrySelection: resolvedInputs.requiresIndustrySelection,
+      isSetupComplete: setupComplete,
+    });
 
     return NextResponse.json({
       conversation: {
@@ -157,36 +117,7 @@ export async function GET(
         questionCount: conversation.questionCount,
         status: conversation.status,
       },
-      messages,
-      nextQuestion,
-      questionCount: conversation.questionCount ?? 0,
-      isDraftReady,
-      scores,
-      evidenceSummary,
-      evidenceCards,
-      coachingFocus,
-      riskFlags,
-      generatedDraft: conversation.generatedDraft,
-      conversationContext,
-      conversationMode,
-      currentSlot,
-      currentIntent,
-      nextAdvanceCondition,
-      progress,
-      causalGaps,
-      setup: {
-        selectedIndustry: conversationContext.selectedIndustry || resolvedInputs.company.industry,
-        selectedRole: conversationContext.selectedRole || null,
-        selectedRoleSource: conversationContext.selectedRoleSource || null,
-        requiresIndustrySelection: resolvedInputs.requiresIndustrySelection,
-        resolvedIndustry: resolvedInputs.company.industry,
-        isComplete: setupComplete,
-        requiresRestart: false,
-        hasSavedConversation: (conversation.questionCount ?? 0) > 0 || messages.length > 0 || isDraftReady,
-      },
-      questionStage: conversation.questionStage || conversationContext.questionStage,
-      stageStatus,
-      error: initError,
+      ...payload,
     });
   } catch (error) {
     logError("get-motivation-conversation", error);
@@ -211,9 +142,7 @@ export async function DELETE(
   const { userId, guestId } = identity;
 
   const conversation = await getConversationByCondition(
-    userId
-      ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
-      : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))
+    buildMotivationOwnerCondition(companyId, userId, guestId)
   );
 
   if (!conversation) {
@@ -223,7 +152,7 @@ export async function DELETE(
   await db
     .update(motivationConversations)
     .set({
-      messages: "[]",
+      messages: [] as unknown[],
       questionCount: 0,
       status: "in_progress" as const,
       motivationScores: null,

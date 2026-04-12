@@ -34,9 +34,9 @@ export interface Company {
   status: CompanyStatus;
   isPinned: boolean;
   sortOrder: number;
-  infoFetchedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
+  infoFetchedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
   // Aggregate fields
   nearestDeadline: NearestDeadline | null;
   applicationCount: number;

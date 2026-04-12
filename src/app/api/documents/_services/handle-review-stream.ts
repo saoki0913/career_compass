@@ -17,7 +17,9 @@ import type {
   ProfileContext,
 } from "@/lib/ai/user-context";
 import { eq } from "drizzle-orm";
-import { reserveCredits, confirmReservation, cancelReservation, calculateESReviewCost } from "@/lib/credits";
+import { calculateESReviewCost } from "@/lib/credits";
+import { esReviewStreamPolicy } from "@/lib/api-route/billing/es-review-stream-policy";
+import { createSSEProxyStream } from "@/lib/fastapi/sse-proxy";
 import { enforceRateLimitLayers, REVIEW_RATE_LAYERS } from "@/lib/rate-limit-spike";
 import type { TemplateType } from "@/hooks/useESReview";
 import { FREE_PLAN_ES_REVIEW_MODEL, isStandardESReviewModel } from "@/lib/ai/es-review-models";
@@ -396,77 +398,83 @@ export async function handleReviewStream(
 
     // Reserve credits upfront (only for logged-in users)
     // Credits are deducted now and refunded if the stream fails.
-    let reservationId: string | null = null;
-    if (userId) {
-      const reservation = await reserveCredits(userId, creditCost, "es_review", documentId, `ES添削: ${documentId}`);
-      if (!reservation.success) {
-        return new Response(
-          JSON.stringify({ error: "クレジットが不足しています", creditCost }),
-          { status: 402, headers: { "Content-Type": "application/json" } }
-        );
-      }
-      reservationId = reservation.reservationId;
-    } else {
-      // Guests can't use AI review - require login
-      return new Response(
-        JSON.stringify({ error: "AI添削機能を使用するにはログインが必要です" }),
-        { status: 401, headers: { "Content-Type": "application/json" } }
-      );
+    const billingContext = {
+      userId,
+      guestId,
+      documentId,
+      creditCost,
+    };
+    const precheckResult = await esReviewStreamPolicy.precheck(billingContext);
+    if (!precheckResult.ok) {
+      return precheckResult.errorResponse!;
     }
+    const reserveResult = await esReviewStreamPolicy.reserve!(billingContext, creditCost);
+    if (reserveResult.errorResponse) {
+      return reserveResult.errorResponse;
+    }
+    const reservationId: string | null = reserveResult.reservationId;
 
     const userProvidedCorporateUrls = collectUserProvidedCorporateUrls(companyInfo.corporateInfoUrls);
 
     // Call FastAPI SSE streaming endpoint
-    const aiResponse = await fetchFastApiInternal(backendPath, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Request-Id": requestId,
-      },
-      body: JSON.stringify({
-        content,
-        section_id: sectionId,
-        has_company_rag: hasCompanyRag,
-        company_id: companyId || null,
-        section_title: sectionTitle || null,
-        section_char_limit: sectionCharLimit || null,
-        template_request: effectiveTemplateType
-          ? {
-              template_type: effectiveTemplateType,
-              company_name: companyInfo.name,
-              industry: resolvedIndustry,
-              question: sectionTitle || "",
-              answer: content,
-              char_min: deriveCharMin(sectionCharLimit),
-              char_max: sectionCharLimit || null,
-              intern_name: internName || null,
-              role_name: resolvedRoleContext.primary_role || null,
-              inferred_template_type: inferredTemplateDetails.templateType,
-              inferred_confidence: inferredTemplateDetails.confidence,
-              secondary_template_types: inferredTemplateDetails.secondaryCandidates,
-              classification_rationale: inferredTemplateDetails.rationale,
-              recommended_grounding_level: inferredTemplateDetails.recommendedGroundingLevel,
-            }
-          : null,
-        role_context: resolvedRoleContext,
-        retrieval_query: retrievalQuery,
-        profile_context: profileContext,
-        gakuchika_context: gakuchikaContext,
-        document_context: otherSections.length > 0 ? { other_sections: otherSections } : null,
-        llm_model: resolvedLLMModel,
-        // SSE specific: include document_id for credit consumption on completion
-        document_id: documentId,
-        user_id: userId,
-        credit_cost: creditCost,
-        user_provided_corporate_urls: userProvidedCorporateUrls,
-      }),
-    });
+    let aiResponse: Response;
+    try {
+      aiResponse = await fetchFastApiInternal(backendPath, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-Id": requestId,
+        },
+        body: JSON.stringify({
+          content,
+          section_id: sectionId,
+          has_company_rag: hasCompanyRag,
+          company_id: companyId || null,
+          section_title: sectionTitle || null,
+          section_char_limit: sectionCharLimit || null,
+          template_request: effectiveTemplateType
+            ? {
+                template_type: effectiveTemplateType,
+                company_name: companyInfo.name,
+                industry: resolvedIndustry,
+                question: sectionTitle || "",
+                answer: content,
+                char_min: deriveCharMin(sectionCharLimit),
+                char_max: sectionCharLimit || null,
+                intern_name: internName || null,
+                role_name: resolvedRoleContext.primary_role || null,
+                inferred_template_type: inferredTemplateDetails.templateType,
+                inferred_confidence: inferredTemplateDetails.confidence,
+                secondary_template_types: inferredTemplateDetails.secondaryCandidates,
+                classification_rationale: inferredTemplateDetails.rationale,
+                recommended_grounding_level: inferredTemplateDetails.recommendedGroundingLevel,
+              }
+            : null,
+          role_context: resolvedRoleContext,
+          retrieval_query: retrievalQuery,
+          profile_context: profileContext,
+          gakuchika_context: gakuchikaContext,
+          document_context: otherSections.length > 0 ? { other_sections: otherSections } : null,
+          llm_model: resolvedLLMModel,
+          // SSE specific: include document_id for credit consumption on completion
+          document_id: documentId,
+          user_id: userId,
+          credit_cost: creditCost,
+          user_provided_corporate_urls: userProvidedCorporateUrls,
+        }),
+      });
+    } catch (fetchError) {
+      await esReviewStreamPolicy.cancel(billingContext, reservationId, "fastapi_fetch_exception");
+      throw fetchError;
+    }
 
     if (!aiResponse.ok) {
       // FastAPI rejected the request — refund reserved credits
-      if (reservationId) {
-        await cancelReservation(reservationId).catch(console.error);
-      }
+      await esReviewStreamPolicy.cancel(
+        billingContext,
+        reservationId,
+        "fastapi_not_ok",
+      );
       const rawErrorBody = await aiResponse.json().catch(() => null);
       const { payload: errorBody, telemetry } =
         rawErrorBody && typeof rawErrorBody === "object"
@@ -490,11 +498,8 @@ export async function handleReviewStream(
 
     // Consume and re-emit individual SSE events so the browser receives
     // stable event boundaries even when upstream chunks are bursty.
-    const fastApiBody = aiResponse.body;
-    if (!fastApiBody) {
-      if (reservationId) {
-        await cancelReservation(reservationId).catch(console.error);
-      }
+    if (!aiResponse.body) {
+      await esReviewStreamPolicy.cancel(billingContext, reservationId, "empty_body");
       logAiCreditCostSummary({
         feature: "es_review",
         requestId,
@@ -511,9 +516,6 @@ export async function handleReviewStream(
     const capturedReservationId = reservationId;
     let creditConfirmed = false;
     let summaryLogged = false;
-    const reader = fastApiBody.getReader();
-    const decoder = new TextDecoder();
-    const forwardedChunks: string[] = [];
     let latestTelemetry: InternalCostTelemetry | null = null;
 
     const logSummaryOnce = (args: {
@@ -534,128 +536,49 @@ export async function handleReviewStream(
       });
     };
 
-    const confirmCreditsIfNeeded = async (eventType: unknown) => {
-      if (eventType !== "complete" || creditConfirmed || !capturedReservationId) {
-        return;
-      }
-      creditConfirmed = true;
-      await confirmReservation(capturedReservationId).catch(console.error);
-      logSummaryOnce({
-        status: "success",
-        creditsUsed: creditCost,
-      });
-    };
-
-    const stream = new ReadableStream({
-      async start(controller) {
-        const encoder = new TextEncoder();
-        let buffer = "";
-
-        const forwardEventBlock = async (eventBlock: string) => {
-          if (!eventBlock.trim()) {
-            return;
-          }
-
-          forwardedChunks.push(eventBlock);
-
-          const dataLine = eventBlock
-            .split("\n")
-            .find((line) => line.startsWith("data:"));
-
-          if (dataLine) {
-            const payload = dataLine.slice(5).trim();
-            try {
-              const rawEvent = JSON.parse(payload) as Record<string, unknown>;
-              const { payload: sanitizedEvent, telemetry } = splitInternalTelemetry(rawEvent);
-              latestTelemetry = telemetry ?? latestTelemetry;
-              const event = sanitizedEvent as { type?: string };
-              await confirmCreditsIfNeeded(event.type);
-              if (event.type === "error") {
-                logSummaryOnce({
-                  status: "failed",
-                  creditsUsed: 0,
-                  telemetry,
-                });
-              }
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(sanitizedEvent)}\n\n`));
-              return;
-            } catch {
-              // Forward raw payload even if parsing fails; rescan later.
-            }
-          }
-
-          controller.enqueue(encoder.encode(`${eventBlock}\n\n`));
-        };
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-              break;
-            }
-
-            buffer += decoder.decode(value, { stream: true });
-            const eventBlocks = buffer.split("\n\n");
-            buffer = eventBlocks.pop() || "";
-
-            for (const eventBlock of eventBlocks) {
-              await forwardEventBlock(eventBlock);
-            }
-          }
-
-          if (buffer.trim()) {
-            await forwardEventBlock(buffer);
-          }
-
-          if (!creditConfirmed && capturedReservationId) {
-            const fullStream = forwardedChunks.join("\n\n");
-            if (/"type"\s*:\s*"complete"/.test(fullStream)) {
-              creditConfirmed = true;
-              await confirmReservation(capturedReservationId).catch(console.error);
-              logSummaryOnce({
-                status: "success",
-                creditsUsed: creditCost,
-              });
-            }
-          }
-
-          controller.close();
-        } catch (streamError) {
-          console.error(`Error proxying ES review SSE stream (${backendPath}):`, streamError);
-          const errorEvent = {
-            type: "error",
-            message: "AIストリーム接続が途中で切れました。しばらくしてから再試行してください。",
-          };
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`)
-          );
-          logSummaryOnce({
-            status: "failed",
-            creditsUsed: 0,
-          });
-          controller.close();
-        } finally {
-          if (!creditConfirmed && capturedReservationId) {
-            await cancelReservation(capturedReservationId).catch(console.error);
-          }
-          if (!summaryLogged) {
-            logSummaryOnce({
-              status: "cancelled",
-              creditsUsed: 0,
-            });
-          }
-          reader.releaseLock();
-        }
+    const stream = createSSEProxyStream(aiResponse, {
+      feature: "es_review",
+      requestId,
+      onCostTelemetry: (telemetry) => {
+        latestTelemetry = telemetry ?? latestTelemetry;
       },
-      async cancel() {
-        await reader.cancel().catch(() => undefined);
-        if (!creditConfirmed && capturedReservationId) {
-          await cancelReservation(capturedReservationId).catch(console.error);
-        }
+      onComplete: async () => {
+        if (creditConfirmed) return;
+        await esReviewStreamPolicy.confirm(
+          billingContext,
+          {
+            kind: "billable_success",
+            creditsConsumed: creditCost,
+            freeQuotaUsed: false,
+          },
+          capturedReservationId,
+        );
+        creditConfirmed = true;
         logSummaryOnce({
-          status: "cancelled",
+          status: "success",
+          creditsUsed: creditCost,
+        });
+      },
+      onError: async () => {
+        logSummaryOnce({
+          status: "failed",
           creditsUsed: 0,
         });
+      },
+      onFinally: async () => {
+        if (!creditConfirmed && capturedReservationId) {
+          await esReviewStreamPolicy.cancel(
+            billingContext,
+            capturedReservationId,
+            "stream_ended_without_complete",
+          );
+        }
+        if (!summaryLogged) {
+          logSummaryOnce({
+            status: "cancelled",
+            creditsUsed: 0,
+          });
+        }
       },
     });
 

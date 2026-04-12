@@ -1,7 +1,3 @@
-import { type SQL } from "drizzle-orm";
-
-import { db } from "@/lib/db";
-import { interviewConversations, interviewFeedbackHistories } from "@/lib/db/schema";
 import {
   createInitialInterviewTurnState,
   normalizeInterviewTurnMeta,
@@ -9,6 +5,7 @@ import {
   type InterviewTurnMeta,
   type InterviewTurnState,
 } from "@/lib/interview/session";
+import { normalizeInterviewPlanValue, type InterviewPlan } from "@/lib/interview/plan";
 
 export type InterviewMessage = {
   role: "user" | "assistant";
@@ -51,68 +48,74 @@ function parseOptionalString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function safeParseJsonValue(value: unknown): unknown {
+  if (value == null) return null;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  return value;
+}
+
+export function safeParseStringArrayJson(value: unknown): string[] {
+  return parseStringArray(safeParseJsonValue(value));
+}
+
 function parseTurnMeta(value: unknown): InterviewTurnMeta | null {
   if (!value || typeof value !== "object") return null;
   return normalizeInterviewTurnMeta(value as Partial<InterviewTurnMeta>);
 }
 
-export function safeParseInterviewMessages(json: string | null | undefined): InterviewMessage[] {
-  if (!json) return [];
-  try {
-    const parsed = JSON.parse(json);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(
-        (message): message is InterviewMessage =>
-          !!message &&
-          typeof message === "object" &&
-          ((message as { role?: string }).role === "user" ||
-            (message as { role?: string }).role === "assistant") &&
-          typeof (message as { content?: unknown }).content === "string",
-      )
-      .map((message) => ({
-        role: message.role,
-        content: message.content.trim(),
-      }))
-      .filter((message) => message.content.length > 0);
-  } catch {
-    return [];
-  }
+export function safeParseInterviewMessages(value: unknown): InterviewMessage[] {
+  const parsed = safeParseJsonValue(value);
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter(
+      (message): message is InterviewMessage =>
+        !!message &&
+        typeof message === "object" &&
+        ((message as { role?: string }).role === "user" ||
+          (message as { role?: string }).role === "assistant") &&
+        typeof (message as { content?: unknown }).content === "string",
+    )
+    .map((message) => ({
+      role: message.role,
+      content: message.content.trim(),
+    }))
+    .filter((message) => message.content.length > 0);
 }
 
-export function safeParseInterviewFeedback(json: string | null | undefined): InterviewFeedback | null {
-  if (!json) return null;
-  try {
-    const parsed = JSON.parse(json) as Partial<InterviewFeedback>;
-    return {
-      overall_comment: typeof parsed.overall_comment === "string" ? parsed.overall_comment : "",
-      scores: parsed.scores ?? {},
-      strengths: parseStringArray(parsed.strengths),
-      improvements: parseStringArray(parsed.improvements),
-      consistency_risks: parseStringArray(parsed.consistency_risks),
-      weakest_question_type: parseOptionalString(parsed.weakest_question_type),
-      weakest_turn_id: parseOptionalString(parsed.weakest_turn_id),
-      weakest_question_snapshot: parseOptionalString(parsed.weakest_question_snapshot),
-      weakest_answer_snapshot: parseOptionalString(parsed.weakest_answer_snapshot),
-      improved_answer: typeof parsed.improved_answer === "string" ? parsed.improved_answer : "",
-      next_preparation: parseStringArray(parsed.next_preparation),
-      premise_consistency:
-        typeof parsed.premise_consistency === "number" ? parsed.premise_consistency : undefined,
-      satisfaction_score:
-        typeof parsed.satisfaction_score === "number" ? parsed.satisfaction_score : undefined,
-    };
-  } catch {
-    return null;
-  }
+export function safeParseInterviewFeedback(value: unknown): InterviewFeedback | null {
+  const parsed = safeParseJsonValue(value) as Partial<InterviewFeedback> | null;
+  if (!parsed || typeof parsed !== "object") return null;
+  return {
+    overall_comment: typeof parsed.overall_comment === "string" ? parsed.overall_comment : "",
+    scores: parsed.scores ?? {},
+    strengths: parseStringArray(parsed.strengths),
+    improvements: parseStringArray(parsed.improvements),
+    consistency_risks: parseStringArray(parsed.consistency_risks),
+    weakest_question_type: parseOptionalString(parsed.weakest_question_type),
+    weakest_turn_id: parseOptionalString(parsed.weakest_turn_id),
+    weakest_question_snapshot: parseOptionalString(parsed.weakest_question_snapshot),
+    weakest_answer_snapshot: parseOptionalString(parsed.weakest_answer_snapshot),
+    improved_answer: typeof parsed.improved_answer === "string" ? parsed.improved_answer : "",
+    next_preparation: parseStringArray(parsed.next_preparation),
+    premise_consistency:
+      typeof parsed.premise_consistency === "number" ? parsed.premise_consistency : undefined,
+    satisfaction_score: typeof parsed.satisfaction_score === "number" ? parsed.satisfaction_score : undefined,
+  };
 }
 
 export function hydrateInterviewTurnStateFromRow(
   row:
     | {
-        turnStateJson?: string | null;
+        turnStateJson?: unknown;
         currentStage?: string | null;
         questionCount?: number | null;
-        completedStages?: string | null;
+        completedStages?: unknown;
         lastQuestionFocus?: string | null;
         questionFlowCompleted?: boolean | null;
       }
@@ -124,19 +127,14 @@ export function hydrateInterviewTurnStateFromRow(
   }
 
   if (row.turnStateJson) {
-    try {
-      return normalizeInterviewTurnState(JSON.parse(row.turnStateJson));
-    } catch {
-      return createInitialInterviewTurnState();
+    const parsed = safeParseJsonValue(row.turnStateJson);
+    if (parsed) {
+      return normalizeInterviewTurnState(parsed);
     }
+    return createInitialInterviewTurnState();
   }
 
-  let coveredTopics: string[] | undefined;
-  try {
-    coveredTopics = JSON.parse(row.completedStages || "[]");
-  } catch {
-    coveredTopics = undefined;
-  }
+  const coveredTopics = safeParseStringArrayJson(row.completedStages);
 
   return normalizeInterviewTurnState({
     turnCount: row.questionCount ?? 0,
@@ -170,38 +168,37 @@ export function hydrateInterviewTurnStateFromRow(
 
 export function serializeInterviewTurnState(turnState: InterviewTurnState) {
   return {
-    currentStage: turnState.currentTopic,
+    currentStage: turnState.currentTopic ?? "opening",
     questionCount: turnState.turnCount,
-    completedStages: JSON.stringify(turnState.coveredTopics),
+    completedStages: turnState.coveredTopics,
     lastQuestionFocus: turnState.currentTurnMeta?.topic ?? turnState.currentTopic,
     questionFlowCompleted: turnState.nextAction === "feedback",
-    turnStateJson: JSON.stringify(turnState),
+    turnStateJson: turnState,
   };
 }
 
-export function parseInterviewTurnMeta(json: string | null | undefined): InterviewTurnMeta | null {
-  if (!json) return null;
-  try {
-    return parseTurnMeta(JSON.parse(json));
-  } catch {
-    return null;
-  }
+export function parseInterviewTurnMeta(value: unknown): InterviewTurnMeta | null {
+  return parseTurnMeta(safeParseJsonValue(value));
 }
 
-export async function getInterviewConversationByCondition(whereClause: SQL<unknown> | undefined) {
-  const [row] = await db
-    .select()
-    .from(interviewConversations)
-    .where(whereClause)
-    .limit(1);
-  return row ?? null;
+export function parseInterviewPlanJson(value: unknown): InterviewPlan | null {
+  const parsed = safeParseJsonValue(value);
+  return parsed ? normalizeInterviewPlanValue(parsed) : null;
 }
 
-export async function getInterviewFeedbackHistoryByCondition(
-  whereClause: SQL<unknown> | undefined,
-) {
-  return db
-    .select()
-    .from(interviewFeedbackHistories)
-    .where(whereClause);
+export function serializeInterviewMessages(messages: InterviewMessage[]): InterviewMessage[] {
+  return messages;
 }
+
+export function serializeInterviewPlan(plan: InterviewPlan | null | undefined): InterviewPlan | null | undefined {
+  return plan ?? null;
+}
+
+export function serializeInterviewTurnMeta(turnMeta: InterviewTurnMeta | null | undefined): InterviewTurnMeta | null {
+  return turnMeta ?? null;
+}
+
+export function serializeInterviewFeedback(feedback: InterviewFeedback | null | undefined): InterviewFeedback | null {
+  return feedback ?? null;
+}
+

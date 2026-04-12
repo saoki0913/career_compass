@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { DEFAULT_INTERVIEW_SESSION_CREDIT_COST } from "@/lib/credits";
+import { CONVERSATION_CREDITS_PER_TURN, consumeCredits, DEFAULT_INTERVIEW_SESSION_CREDIT_COST, hasEnoughCredits } from "@/lib/credits";
 import {
   classifyInterviewRoleTrack,
   INTERVIEW_STAGE_OPTIONS,
@@ -25,7 +25,7 @@ import {
   saveInterviewConversationProgress,
   saveInterviewTurnEvent,
   validateInterviewTurnState,
-} from "../shared";
+} from "..";
 import {
   createInterviewPersistenceUnavailableResponse,
   normalizeInterviewPersistenceError,
@@ -195,6 +195,16 @@ export async function POST(
     throw error;
   }
 
+  const canPay = await hasEnoughCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN);
+  if (!canPay) {
+    return createApiErrorResponse(request, {
+      status: 402,
+      code: "INTERVIEW_INSUFFICIENT_CREDITS",
+      userMessage: "クレジットが不足しています。",
+      action: "プランをアップグレードするか、クレジットが補充されるまでお待ちください。",
+    });
+  }
+
   return createInterviewUpstreamStream({
     request,
     upstreamPath: "/api/interview/start",
@@ -257,6 +267,8 @@ export async function POST(
         turnState: turnStateToPersist,
         turnMeta,
       });
+
+      await consumeCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN, "interview", companyId);
 
       return {
         messages,

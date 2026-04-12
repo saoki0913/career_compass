@@ -6,7 +6,7 @@ import {
   type LegacySummary,
   type StructuredSummary,
 } from "@/lib/gakuchika/summary";
-import { type Message } from "@/app/api/gakuchika/shared";
+import { type Message } from "@/app/api/gakuchika";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -244,7 +244,7 @@ export async function resetCiE2ELiveState(userId: string): Promise<CiE2ELiveStat
         ? await tx
             .update(motivationConversations)
             .set({
-              messages: "[]",
+              messages: [] as unknown[],
               questionCount: 0,
               status: "in_progress",
               motivationScores: null,
@@ -299,12 +299,12 @@ export async function resetCiE2ELiveState(userId: string): Promise<CiE2ELiveStat
         ? await tx
             .update(interviewConversations)
             .set({
-              messages: "[]",
+              messages: [] as unknown[],
               status: "setup_pending",
               currentStage: "setup",
               questionCount: 0,
-              stageQuestionCounts: JSON.stringify({}),
-              completedStages: JSON.stringify([]),
+              stageQuestionCounts: {},
+              completedStages: [],
               lastQuestionFocus: null,
               questionFlowCompleted: false,
               selectedIndustry: null,

@@ -16,7 +16,7 @@ import {
   safeParseMessages,
   verifyGakuchikaAccess,
   type Message,
-} from "@/app/api/gakuchika/shared";
+} from "@/app/api/gakuchika";
 
 export async function GET(
   request: NextRequest,

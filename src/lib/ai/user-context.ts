@@ -5,7 +5,7 @@ import {
   userProfiles,
 } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
-import { isInterviewReady, safeParseConversationState } from "@/app/api/gakuchika/shared";
+import { isInterviewReady, safeParseConversationState } from "@/app/api/gakuchika";
 
 export interface ProfileContext {
   university: string | null;

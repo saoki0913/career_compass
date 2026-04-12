@@ -12,7 +12,10 @@ import {
   DEFAULT_MOTIVATION_CONTEXT,
   mergeDraftReadyContext,
   safeParseConversationContext,
+  type CausalGap,
+  type StageStatus,
   type MotivationConversationContext,
+  type MotivationStage,
 } from "@/lib/motivation/conversation";
 import { DRAFT_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
@@ -22,7 +25,12 @@ import {
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
-import { fetchGakuchikaContext, fetchProfileContext } from "@/lib/ai/user-context";
+import {
+  fetchGakuchikaContext,
+  fetchProfileContext,
+  type GakuchikaContextItem,
+  type ProfileContext,
+} from "@/lib/ai/user-context";
 import { normalizeEsDraftSingleParagraph } from "@/lib/server/es-draft-normalize";
 import { messageFromFastApiDetail } from "@/lib/server/fastapi-detail-message";
 import {
@@ -31,7 +39,7 @@ import {
   getOwnedMotivationCompanyData,
   resolveMotivationInputs,
   resolveMotivationRoleSelectionSource,
-} from "@/lib/motivation/server";
+} from "@/lib/motivation/motivation-input-resolver";
 
 interface FastAPIDraftResponse {
   draft: string;
@@ -66,14 +74,43 @@ interface FollowUpQuestionResponse {
   captured_context?: Record<string, unknown> | null;
 }
 
-const ALL_SLOTS_FILLED: MotivationConversationContext["questionStage"][] = [
-  "industry_reason",
+const PROFILE_ONLY_PENDING_SLOTS: MotivationConversationContext["questionStage"][] = [
   "company_reason",
   "self_connection",
   "desired_work",
   "value_contribution",
   "differentiation",
 ];
+
+function hasDirectDraftMaterial(
+  profileContext: ProfileContext | null,
+  gakuchikaContext: GakuchikaContextItem[] | null,
+): boolean {
+  let signalCount = 0;
+
+  if (profileContext) {
+    if (profileContext.university || profileContext.faculty || profileContext.graduation_year) {
+      signalCount += 1;
+    }
+    if (Array.isArray(profileContext.target_industries) && profileContext.target_industries.length > 0) {
+      signalCount += 1;
+    }
+    if (Array.isArray(profileContext.target_job_types) && profileContext.target_job_types.length > 0) {
+      signalCount += 1;
+    }
+  }
+
+  if (Array.isArray(gakuchikaContext)) {
+    const hasAnyGakuchika = gakuchikaContext.some((item) =>
+      item.title || item.action_text || item.result_text || item.strengths || item.numbers
+    );
+    if (hasAnyGakuchika) {
+      signalCount += 1;
+    }
+  }
+
+  return signalCount >= 2;
+}
 
 export async function POST(
   request: NextRequest,
@@ -127,7 +164,11 @@ export async function POST(
     return NextResponse.json({ error: "会話の作成に失敗しました" }, { status: 500 });
   }
 
-  const existingMessages = JSON.parse(conversation.messages || "[]");
+  const existingMessages = Array.isArray(conversation.messages)
+    ? conversation.messages
+    : typeof conversation.messages === "string"
+      ? JSON.parse(conversation.messages || "[]")
+      : [];
   if (!Array.isArray(existingMessages) || existingMessages.length > 0) {
     return NextResponse.json(
       {
@@ -156,6 +197,15 @@ export async function POST(
 
   const profileContext = await fetchProfileContext(userId);
   const gakuchikaContext = await fetchGakuchikaContext(userId);
+  if (!hasDirectDraftMaterial(profileContext, gakuchikaContext)) {
+    return NextResponse.json(
+      {
+        error:
+          "プロフィールやガクチカの材料が不足しているため、会話なしの下書き生成はまだ使えません。志望業界・職種やガクチカを整えるか、対話ありで作成してください。",
+      },
+      { status: 409 },
+    );
+  }
   const selectedRoleSource = resolveMotivationRoleSelectionSource(
     selectedRole,
     profileContext,
@@ -230,22 +280,17 @@ export async function POST(
     const baseCtx: MotivationConversationContext = {
       ...DEFAULT_MOTIVATION_CONTEXT,
       ...prevCtx,
+      draftSource: "profile_only",
       selectedIndustry: effectiveIndustry || prevCtx.selectedIndustry,
       selectedIndustrySource: industrySource,
       selectedRole,
       selectedRoleSource,
       confirmedFacts: {
         ...DEFAULT_CONFIRMED_FACTS,
-        industry_reason_confirmed: true,
-        company_reason_confirmed: true,
-        self_connection_confirmed: true,
-        desired_work_confirmed: true,
-        value_contribution_confirmed: true,
-        differentiation_confirmed: true,
       },
-      closedSlots: [...ALL_SLOTS_FILLED],
-      openSlots: [],
-      questionStage: "differentiation",
+      closedSlots: [],
+      openSlots: [...DEFAULT_MOTIVATION_CONTEXT.openSlots],
+      questionStage: "company_reason",
       conversationMode: "deepdive",
     };
     const mergedForFollowUp = mergeDraftReadyContext(baseCtx, true);
@@ -254,17 +299,17 @@ export async function POST(
     let evidenceSummary: string | null = null;
     let evidenceCards: EvidenceCard[] = [];
     let coachingFocus: string | null = null;
-    let questionStage: string | null = "differentiation";
+    let questionStage: MotivationStage | null = "company_reason";
     let conversationMode: "slot_fill" | "deepdive" | null = "deepdive";
-    let currentSlot: string | null = "differentiation";
+    let currentSlot: MotivationStage | null = "company_reason";
     let currentIntent: string | null = null;
     let nextAdvanceCondition: string | null = null;
     let progress: Record<string, unknown> | null = null;
-    let causalGaps: unknown[] = [];
-    let stageStatus: unknown = {
-      current: "differentiation",
-      completed: [...ALL_SLOTS_FILLED],
-      pending: [],
+    let causalGaps: CausalGap[] = [];
+    let stageStatus: StageStatus | null = {
+      current: "company_reason",
+      completed: [],
+      pending: [...PROFILE_ONLY_PENDING_SLOTS],
     };
     let updatedMessages: { role: "user" | "assistant"; content: string }[] = [];
 
@@ -299,14 +344,16 @@ export async function POST(
         evidenceSummary = typeof followUp.evidence_summary === "string" ? followUp.evidence_summary : null;
         evidenceCards = Array.isArray(followUp.evidence_cards) ? followUp.evidence_cards : [];
         coachingFocus = typeof followUp.coaching_focus === "string" ? followUp.coaching_focus : null;
-        questionStage = typeof followUp.question_stage === "string" ? followUp.question_stage : null;
+        questionStage = typeof followUp.question_stage === "string"
+          ? (followUp.question_stage as MotivationStage)
+          : null;
         conversationMode = followUp.conversation_mode || null;
-        currentSlot = followUp.current_slot || null;
+        currentSlot = followUp.current_slot ? (followUp.current_slot as MotivationStage) : null;
         currentIntent = followUp.current_intent || null;
         nextAdvanceCondition = followUp.next_advance_condition || null;
         progress = followUp.progress || null;
-        causalGaps = Array.isArray(followUp.causal_gaps) ? followUp.causal_gaps : [];
-        stageStatus = followUp.stage_status ?? stageStatus;
+        causalGaps = Array.isArray(followUp.causal_gaps) ? (followUp.causal_gaps as CausalGap[]) : [];
+        stageStatus = (followUp.stage_status as StageStatus | null) ?? stageStatus;
         updatedMessages = [{ role: "assistant" as const, content: followUp.question }];
       }
     }
@@ -335,11 +382,11 @@ export async function POST(
       .set({
         generatedDraft: draftNormalized,
         charLimitType: String(charLimit) as "300" | "400" | "500",
-        messages: JSON.stringify(updatedMessages),
-        conversationContext: JSON.stringify(conversationContextPersisted),
+        messages: updatedMessages,
+        conversationContext: conversationContextPersisted,
         questionStage: questionStage || conversation.questionStage || "differentiation",
-        lastEvidenceCards: JSON.stringify(evidenceCards),
-        stageStatus: JSON.stringify(stageStatus),
+        lastEvidenceCards: evidenceCards,
+        stageStatus,
         selectedRole,
         selectedRoleSource,
         updatedAt: new Date(),

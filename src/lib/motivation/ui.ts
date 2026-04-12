@@ -1,7 +1,16 @@
-export interface MotivationMessage {
+import type {
+  CausalGap as BaseCausalGap,
+  EvidenceCard,
+  Message as BaseMessage,
+  MotivationConversationContext,
+  MotivationProgress,
+  MotivationStage,
+  StageStatus,
+} from "./conversation";
+export type { MotivationSetupSnapshot } from "./conversation-payload";
+
+export interface MotivationMessage extends BaseMessage {
   id: string;
-  role: "user" | "assistant";
-  content: string;
   isOptimistic?: boolean;
 }
 
@@ -40,58 +49,10 @@ export interface RoleOptionsResponse {
   roleGroups: RoleGroup[];
 }
 
-export interface MotivationSetupSnapshot {
-  selectedIndustry: string | null;
-  selectedRole: string | null;
-  selectedRoleSource: string | null;
-  requiresIndustrySelection: boolean;
-  resolvedIndustry: string | null;
-  isComplete: boolean;
-  hasSavedConversation: boolean;
-}
-
-export type MotivationStageKey =
-  | "industry_reason"
-  | "company_reason"
-  | "self_connection"
-  | "desired_work"
-  | "value_contribution"
-  | "differentiation"
-  | "closing";
-
-export type ConversationMode = "slot_fill" | "deepdive";
-
-export interface MotivationProgress {
-  completed: number;
-  total: number;
-  current_slot: Exclude<MotivationStageKey, "closing"> | null;
-  current_slot_label: string | null;
-  current_intent: string | null;
-  next_advance_condition: string | null;
-  mode: ConversationMode;
-}
-
-export interface CausalGap {
-  id: string;
-  slot: Exclude<MotivationStageKey, "closing">;
-  reason: string;
-  promptHint: string;
-}
-
-export interface EvidenceCard {
-  sourceId: string;
-  title: string;
-  contentType: string;
-  excerpt: string;
-  sourceUrl: string;
-  relevanceLabel: string;
-}
-
-export interface StageStatus {
-  current: MotivationStageKey;
-  completed: MotivationStageKey[];
-  pending: MotivationStageKey[];
-}
+export type MotivationStageKey = MotivationStage;
+export type ConversationMode = NonNullable<MotivationConversationContext["conversationMode"]>;
+export type CausalGap = BaseCausalGap;
+export type { EvidenceCard, MotivationProgress, StageStatus };
 
 export const STAGE_LABELS: Record<MotivationStageKey, string> = {
   industry_reason: "業界志望理由を整理中",

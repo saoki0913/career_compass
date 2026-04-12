@@ -1,6 +1,11 @@
 export const ROLE_TRACK_OPTIONS = [
   "biz_general",
   "it_product",
+  "frontend_engineer",
+  "backend_engineer",
+  "data_ai",
+  "infra_platform",
+  "product_manager",
   "consulting",
   "research_specialist",
   "quant_finance",
@@ -24,6 +29,8 @@ export type InterviewSelectionType = (typeof SELECTION_TYPE_OPTIONS)[number];
 export type InterviewRoundStage = (typeof INTERVIEW_STAGE_OPTIONS)[number];
 export type InterviewerType = (typeof INTERVIEWER_TYPE_OPTIONS)[number];
 export type InterviewStrictnessMode = (typeof STRICTNESS_MODE_OPTIONS)[number];
+
+export const MAX_RECENT_QUESTION_SUMMARIES = 16;
 
 /** DB/API の旧値 discussion / presentation → life_history（4 方式に整合） */
 const LEGACY_INTERVIEW_FORMAT_MAP: Record<string, InterviewFormat> = {
@@ -50,14 +57,8 @@ export function parseInterviewFormatParam(value: string | null | undefined): Int
   return canonicalizeInterviewFormat(raw);
 }
 
-export type InterviewPlan = {
-  interviewType: string;
-  priorityTopics: string[];
-  openingTopic: string | null;
-  mustCoverTopics: string[];
-  riskTopics: string[];
-  suggestedTimeflow: string[];
-};
+export type { InterviewPlan } from "./plan";
+export { normalizeInterviewPlanValue } from "./plan";
 
 export type InterviewCoverageStatus = "pending" | "active" | "covered" | "exhausted";
 
@@ -127,6 +128,12 @@ export type InterviewTurnState = {
 export function classifyInterviewRoleTrack(role: string | null | undefined): InterviewRoleTrack {
   const text = (role || "").trim();
   if (!text) return "biz_general";
+  if (/フロントエンド|frontend|front-end|ui|webフロント/i.test(text)) return "frontend_engineer";
+  if (/バックエンド|backend|back-end|api|server|サーバー/i.test(text)) return "backend_engineer";
+  if (/データサイエンティスト|データ分析|機械学習|ml|ai|llm|アナリティクス/i.test(text)) return "data_ai";
+  if (/インフラ|platform|プラットフォーム|sre|devops|クラウド|site reliability/i.test(text))
+    return "infra_platform";
+  if (/product manager|プロダクトマネージャー|pdm|pm\b/i.test(text)) return "product_manager";
   if (/クオンツ|数理|アクチュアリ|トレーディング/i.test(text)) return "quant_finance";
   if (/研究|研究員|R&D|シンクタンク|リサーチ/i.test(text)) return "research_specialist";
   if (/コンサル|consult/i.test(text)) return "consulting";
@@ -183,7 +190,7 @@ function normalizeRecentQuestionSummariesV2(value: unknown): InterviewRecentQues
       turnId: normalizeOptionalString(item.turnId),
     }))
     .filter((item) => item.normalizedSummary.length > 0)
-    .slice(0, 8);
+    .slice(-MAX_RECENT_QUESTION_SUMMARIES);
 }
 
 function normalizeFormatPhase(value: unknown): InterviewFormatPhase {
@@ -288,7 +295,10 @@ export function normalizeInterviewTurnState(
   const recentQuestionSummariesV2 =
     normalizeRecentQuestionSummariesV2(value.recentQuestionSummariesV2).length > 0
       ? normalizeRecentQuestionSummariesV2(value.recentQuestionSummariesV2)
-      : normalizeStringArray((value as { recentQuestionSummaries?: unknown }).recentQuestionSummaries, 8).map(
+      : normalizeStringArray(
+          (value as { recentQuestionSummaries?: unknown }).recentQuestionSummaries,
+          MAX_RECENT_QUESTION_SUMMARIES,
+        ).map(
           (summary, index) => ({
             intentKey: `legacy-summary-${index + 1}`,
             normalizedSummary: summary,

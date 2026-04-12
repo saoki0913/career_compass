@@ -12,7 +12,7 @@ import {
   serializeConversationState,
   verifyGakuchikaAccess,
   type ConversationState,
-} from "@/app/api/gakuchika/shared";
+} from "@/app/api/gakuchika";
 import {
   getRequestId,
   logAiCreditCostSummary,

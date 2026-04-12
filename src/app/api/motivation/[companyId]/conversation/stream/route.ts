@@ -12,14 +12,18 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { motivationConversations } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
 import {
   fetchGakuchikaContext,
   fetchProfileContext,
 } from "@/lib/ai/user-context";
 import {
-  getMotivationConversationByCondition as getConversationByCondition,
+  motivationStreamPolicy,
+} from "@/lib/api-route/billing/motivation-stream-policy";
+import { CONVERSATION_CREDITS_PER_TURN } from "@/lib/credits";
+import { createSSEProxyStream } from "@/lib/fastapi/sse-proxy";
+import {
   type CausalGap as BaseCausalGap,
+  type EvidenceCard,
   mergeDraftReadyContext,
   type Message,
   type MotivationProgress as BaseMotivationProgress,
@@ -27,9 +31,17 @@ import {
   safeParseConversationContext as parseConversationContext,
   safeParseMessages,
   safeParseScores,
+  serializeConversationContext,
+  serializeEvidenceCards,
+  serializeMessages,
+  serializeScores,
+  serializeStageStatus,
   type LastQuestionMeta as BaseLastQuestionMeta,
   type MotivationConversationContext as BaseMotivationConversationContext,
+  type StageStatus,
 } from "@/lib/motivation/conversation";
+import { getMotivationConversationByCondition as getConversationByCondition } from "@/lib/motivation/conversation-store";
+import { buildMotivationConversationPayload } from "@/lib/motivation/conversation-payload";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
@@ -45,7 +57,7 @@ import {
   getOwnedMotivationCompanyData,
   isMotivationSetupComplete,
   resolveMotivationInputs,
-} from "@/lib/motivation/server";
+} from "@/lib/motivation/motivation-input-resolver";
 
 interface MotivationScores {
   company_understanding: number;
@@ -60,41 +72,6 @@ type MotivationConversationContext = BaseMotivationConversationContext;
 type MotivationProgress = BaseMotivationProgress;
 type CausalGap = BaseCausalGap;
 
-function applyAnswerToConversationContext(
-  context: MotivationConversationContext,
-  answer: string,
-): MotivationConversationContext {
-  const next = { ...context };
-  const trimmed = answer.trim();
-  switch (context.questionStage) {
-    case "industry_reason":
-      next.industryReason = trimmed;
-      break;
-    case "company_reason":
-      next.companyReason = trimmed;
-      break;
-    case "self_connection":
-      next.selfConnection = trimmed;
-      next.fitConnection = trimmed;
-      break;
-    case "desired_work":
-      next.desiredWork = trimmed;
-      break;
-    case "value_contribution":
-      next.valueContribution = trimmed;
-      break;
-    case "differentiation":
-      next.differentiationReason = trimmed;
-      break;
-    default:
-      break;
-  }
-  return next;
-}
-
-// Configuration
-const QUESTIONS_PER_CREDIT = 5;
-const CREDITS_PER_QUESTION_BATCH = 3;
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ companyId: string }> }
@@ -167,13 +144,16 @@ export async function POST(
     const newQuestionCount = currentQuestionCount + 1;
     const profileContext = await fetchProfileContext(userId);
     const applicationJobCandidates = await fetchMotivationApplicationJobCandidates(companyId, userId, guestId);
-    const resolvedBeforeAnswer = resolveMotivationInputs(
+    // Python (motivation._capture_answer_into_context) owns answer capture and
+    // slot-state transitions. The TS side only builds a canonical context via
+    // resolveMotivationInputs (industry/role resolution) and forwards raw messages.
+    const resolvedInputs = resolveMotivationInputs(
       { id: company.id, name: company.name, industry: company.industry },
       parseConversationContext(conversation.conversationContext),
       applicationJobCandidates,
     );
 
-    if (!isMotivationSetupComplete(resolvedBeforeAnswer.conversationContext, resolvedBeforeAnswer.requiresIndustrySelection)) {
+    if (!isMotivationSetupComplete(resolvedInputs.conversationContext, resolvedInputs.requiresIndustrySelection)) {
       return new Response(
         JSON.stringify({ error: "先に業界・職種の設定を完了してください" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
@@ -187,26 +167,16 @@ export async function POST(
       );
     }
 
-    const conversationContext = applyAnswerToConversationContext(
-      resolvedBeforeAnswer.conversationContext,
-      answer.trim(),
-    );
-    const resolvedAfterAnswer = resolveMotivationInputs(
-      { id: company.id, name: company.name, industry: company.industry },
-      conversationContext,
-      applicationJobCandidates,
-    );
-
-    // Credit check (every QUESTIONS_PER_CREDIT questions for logged-in users)
-    const shouldConsumeCredit = newQuestionCount > 0 && newQuestionCount % QUESTIONS_PER_CREDIT === 0 && !!userId;
-    if (shouldConsumeCredit) {
-      const canPay = await hasEnoughCredits(userId!, CREDITS_PER_QUESTION_BATCH);
-      if (!canPay) {
-        return new Response(
-          JSON.stringify({ error: "クレジットが不足しています" }),
-          { status: 402, headers: { "Content-Type": "application/json" } }
-        );
-      }
+    // Credit check (1 credit per turn for logged-in users)
+    const shouldConsumeCredit = !!userId;
+    const billingContext = {
+      userId: userId!,
+      newQuestionCount,
+      companyId,
+    };
+    const precheckResult = await motivationStreamPolicy.precheck(billingContext);
+    if (!precheckResult.ok) {
+      return precheckResult.errorResponse!;
     }
 
     // Add user answer to messages
@@ -234,7 +204,7 @@ export async function POST(
         body: JSON.stringify({
           company_id: company.id,
           company_name: company.name,
-          industry: resolvedAfterAnswer.company.industry,
+          industry: resolvedInputs.company.industry,
           generated_draft: conversation.generatedDraft ?? null,
           conversation_history: messages.map(m => ({
             role: m.role,
@@ -243,15 +213,15 @@ export async function POST(
           question_count: newQuestionCount,
           scores,
           gakuchika_context: gakuchikaContext.length > 0 ? gakuchikaContext : null,
-          conversation_context: resolvedAfterAnswer.conversationContext,
+          conversation_context: resolvedInputs.conversationContext,
           profile_context: profileContext,
           application_job_candidates: applicationJobCandidates.length > 0 ? applicationJobCandidates : null,
-          company_role_candidates: resolvedAfterAnswer.companyRoleCandidates.length > 0 ? resolvedAfterAnswer.companyRoleCandidates : null,
-          company_work_candidates: resolvedAfterAnswer.conversationContext.companyWorkCandidates.length > 0
-            ? resolvedAfterAnswer.conversationContext.companyWorkCandidates
+          company_role_candidates: resolvedInputs.companyRoleCandidates.length > 0 ? resolvedInputs.companyRoleCandidates : null,
+          company_work_candidates: resolvedInputs.conversationContext.companyWorkCandidates.length > 0
+            ? resolvedInputs.conversationContext.companyWorkCandidates
             : null,
-          requires_industry_selection: resolvedAfterAnswer.requiresIndustrySelection,
-          industry_options: resolvedAfterAnswer.industryOptions.length > 0 ? resolvedAfterAnswer.industryOptions : null,
+          requires_industry_selection: resolvedInputs.requiresIndustrySelection,
+          industry_options: resolvedInputs.industryOptions.length > 0 ? resolvedInputs.industryOptions : null,
         }),
         signal: abortController.signal,
       });
@@ -308,35 +278,19 @@ export async function POST(
       );
     }
 
-    // Consume-and-re-emit: intercept SSE events, process complete event
-    const fastApiBody = aiResponse.body;
-    if (!fastApiBody) {
-      logAiCreditCostSummary({
-        feature: "motivation",
-        requestId,
-        status: "failed",
-        creditsUsed: 0,
-        telemetry: null,
-      });
-      return new Response(
-        JSON.stringify({ error: "AIレスポンスが空です" }),
-        { status: 502, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    const reader = fastApiBody.getReader();
-    const decoder = new TextDecoder();
+    // Consume-and-re-emit via shared SSE proxy. DB persistence and credit
+    // consumption happen inside the onComplete hook.
     let summaryLogged = false;
     let latestTelemetry: InternalCostTelemetry | null = null;
+    let billingOutcomeStatus: "success" | "failed" | "cancelled" | null = null;
+    let creditsAppliedForSummary = 0;
 
     const logSummaryOnce = (args: {
       status: "success" | "failed" | "cancelled";
       creditsUsed: number;
       telemetry?: InternalCostTelemetry | null;
     }) => {
-      if (summaryLogged) {
-        return;
-      }
+      if (summaryLogged) return;
       summaryLogged = true;
       logAiCreditCostSummary({
         feature: "motivation",
@@ -347,212 +301,185 @@ export async function POST(
       });
     };
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        const encoder = new TextEncoder();
-        let buffer = "";
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-
-            // Parse SSE events from buffer
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || ""; // Keep incomplete line in buffer
-
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-
-              const jsonStr = line.slice(6).trim();
-              if (!jsonStr) continue;
-
-              let event;
-              try {
-                const rawEvent = JSON.parse(jsonStr) as Record<string, unknown>;
-                const { payload, telemetry } = splitInternalTelemetry(rawEvent);
-                latestTelemetry = telemetry ?? latestTelemetry;
-                event = payload;
-              } catch {
-                // Forward unparseable lines as-is
-                controller.enqueue(encoder.encode(line + "\n\n"));
-                continue;
-              }
-
-              if (event.type === "progress") {
-                // Forward progress events immediately
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-              } else if (event.type === "complete") {
-                // Process complete event: DB save + credit consumption
-                const fastApiData = (event as {
-                  data: {
-                    question?: string;
-                    draft_ready?: boolean;
-                    evaluation?: { scores: MotivationScores; is_complete: boolean };
-                    captured_context?: Partial<MotivationConversationContext>;
-                    question_stage?: string;
-                    evidence_summary?: string | null;
-                    evidence_cards?: unknown[];
-                    coaching_focus?: string | null;
-                    risk_flags?: string[];
-                    stage_status?: unknown;
-                    conversation_mode?: "slot_fill" | "deepdive";
-                    current_slot?: string | null;
-                    current_intent?: string | null;
-                    next_advance_condition?: string | null;
-                    progress?: MotivationProgress | null;
-                    causal_gaps?: CausalGap[];
-                  };
-                }).data;
-
-                // Add AI question to messages
-                const currentDraftReadyState = resolveDraftReadyState(
-                  resolvedAfterAnswer.conversationContext,
-                  conversation.status as "in_progress" | "completed" | null,
-                );
-                const wasDraftReady = currentDraftReadyState.isDraftReady;
-                let isDraftReady = wasDraftReady;
-                let newScores = scores;
-
-                if (fastApiData.question) {
-                  const aiMessage: Message = {
-                    id: crypto.randomUUID(),
-                    role: "assistant",
-                    content: fastApiData.question,
-                  };
-                  messages.push(aiMessage);
-                }
-
-                if (fastApiData.evaluation) {
-                  newScores = fastApiData.evaluation.scores;
-                  isDraftReady = isDraftReady || fastApiData.evaluation.is_complete;
-                }
-                isDraftReady = isDraftReady || Boolean(fastApiData.draft_ready);
-                const draftReadyJustUnlocked = !wasDraftReady && isDraftReady;
-                const nextConversationContext = mergeDraftReadyContext(
-                  {
-                    ...resolvedAfterAnswer.conversationContext,
-                    ...(fastApiData.captured_context || {}),
-                    lastQuestionMeta: {
-                      ...(((resolvedAfterAnswer.conversationContext.lastQuestionMeta || {}) as LastQuestionMeta)),
-                      ...((((fastApiData.captured_context?.lastQuestionMeta as LastQuestionMeta | undefined) || {}))),
-                      questionText: fastApiData.question || null,
-                    },
-                  },
-                  isDraftReady,
-                  currentDraftReadyState.unlockedAt ?? undefined,
-                );
-
-                // Update database
-                const updatedRows = await db
-                  .update(motivationConversations)
-                  .set({
-                    messages: JSON.stringify(messages),
-                    questionCount: newQuestionCount,
-                    status: isDraftReady ? "completed" : "in_progress",
-                    motivationScores: newScores ? JSON.stringify(newScores) : null,
-                    conversationContext: JSON.stringify(nextConversationContext),
-                    selectedRole: nextConversationContext.selectedRole ?? null,
-                    selectedRoleSource: nextConversationContext.selectedRoleSource ?? null,
-                    desiredWork: nextConversationContext.desiredWork ?? null,
-                    questionStage:
-                      fastApiData.question_stage ??
-                      nextConversationContext.questionStage,
-                    lastEvidenceCards: JSON.stringify(fastApiData.evidence_cards || []),
-                    stageStatus: JSON.stringify(
-                      fastApiData.stage_status || {
-                        current: fastApiData.question_stage || resolvedAfterAnswer.conversationContext.questionStage,
-                        completed: [],
-                        pending: [],
-                      }
-                    ),
-                    updatedAt: new Date(),
-                  })
-                  .where(and(eq(motivationConversations.id, conversation.id), eq(motivationConversations.updatedAt, conversation.updatedAt)))
-                  .returning({ id: motivationConversations.id });
-
-                if (updatedRows.length === 0) {
-                  const conflictEvent = {
-                    type: "error",
-                    message: "別のタブまたは直前の操作で会話が更新されました。画面を再読み込みしてからやり直してください。",
-                  };
-                  controller.enqueue(
-                    encoder.encode(`data: ${JSON.stringify(conflictEvent)}\n\n`)
-                  );
-                  return;
-                }
-
-                if (shouldConsumeCredit) {
-                  await consumeCredits(userId!, CREDITS_PER_QUESTION_BATCH, "motivation", companyId);
-                }
-                logSummaryOnce({
-                  status: "success",
-                  creditsUsed: shouldConsumeCredit ? CREDITS_PER_QUESTION_BATCH : 0,
-                });
-
-                // Re-emit complete event with enriched data for frontend
-                const enrichedEvent = {
-                  type: "complete",
-                  data: {
-                    messages,
-                    nextQuestion: fastApiData.question || null,
-                    questionCount: newQuestionCount,
-                    isDraftReady,
-                    draftReadyJustUnlocked,
-                    scores: newScores,
-                    evidenceSummary: fastApiData.evidence_summary || null,
-                    evidenceCards: fastApiData.evidence_cards || [],
-                    coachingFocus: typeof fastApiData.coaching_focus === "string" ? fastApiData.coaching_focus : null,
-                    riskFlags: Array.isArray(fastApiData.risk_flags) ? fastApiData.risk_flags : [],
-                    questionStage: fastApiData.question_stage || resolvedAfterAnswer.conversationContext.questionStage,
-                    stageStatus: fastApiData.stage_status || null,
-                    conversationMode: fastApiData.conversation_mode || nextConversationContext.conversationMode || "slot_fill",
-                    currentSlot: fastApiData.current_slot || null,
-                    currentIntent: fastApiData.current_intent || null,
-                    nextAdvanceCondition: fastApiData.next_advance_condition || null,
-                    progress: fastApiData.progress || null,
-                    causalGaps: Array.isArray(fastApiData.causal_gaps) ? fastApiData.causal_gaps : [],
-                  },
-                };
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify(enrichedEvent)}\n\n`)
-                );
-              } else if (event.type === "error") {
-                // Forward error events (no credit consumed)
-                logSummaryOnce({
-                  status: "failed",
-                  creditsUsed: 0,
-                });
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-              } else {
-                // Forward unknown events
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-              }
-            }
-          }
-        } catch (err) {
-          console.error("[Motivation Stream] Error processing SSE:", err);
-          const errorEvent = {
-            type: "error",
-            message: "ストリーミング処理中にエラーが発生しました",
+    const stream = createSSEProxyStream(aiResponse, {
+      feature: "motivation",
+      requestId,
+      onCostTelemetry: (telemetry) => {
+        latestTelemetry = telemetry ?? latestTelemetry;
+      },
+      onComplete: async (event) => {
+        const fastApiData = (event as {
+          data: {
+            question?: string;
+            draft_ready?: boolean;
+            evaluation?: { scores: MotivationScores; is_complete: boolean };
+            captured_context?: Partial<MotivationConversationContext>;
+            question_stage?: string;
+            evidence_summary?: string | null;
+            evidence_cards?: unknown[];
+            coaching_focus?: string | null;
+            risk_flags?: string[];
+            stage_status?: unknown;
+            conversation_mode?: "slot_fill" | "deepdive";
+            current_slot?: string | null;
+            current_intent?: string | null;
+            next_advance_condition?: string | null;
+            progress?: MotivationProgress | null;
+            causal_gaps?: CausalGap[];
           };
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`)
+        }).data;
+
+        const currentDraftReadyState = resolveDraftReadyState(
+          resolvedInputs.conversationContext,
+          conversation.status as "in_progress" | "completed" | null,
+        );
+        const wasDraftReady = currentDraftReadyState.isDraftReady;
+        let isDraftReady = wasDraftReady;
+        let newScores = scores;
+
+        if (fastApiData.question) {
+          const aiMessage: Message = {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: fastApiData.question,
+          };
+          messages.push(aiMessage);
+        }
+
+        if (fastApiData.evaluation) {
+          newScores = fastApiData.evaluation.scores;
+          isDraftReady = isDraftReady || fastApiData.evaluation.is_complete;
+        }
+        isDraftReady = isDraftReady || Boolean(fastApiData.draft_ready);
+        const draftReadyJustUnlocked = !wasDraftReady && isDraftReady;
+        const nextConversationContext = mergeDraftReadyContext(
+          {
+            ...resolvedInputs.conversationContext,
+            ...(fastApiData.captured_context || {}),
+            lastQuestionMeta: {
+              ...(((resolvedInputs.conversationContext.lastQuestionMeta || {}) as LastQuestionMeta)),
+              ...((((fastApiData.captured_context?.lastQuestionMeta as LastQuestionMeta | undefined) || {}))),
+              questionText: fastApiData.question || null,
+            },
+          },
+          isDraftReady,
+          currentDraftReadyState.unlockedAt ?? undefined,
+        );
+
+        // Update database with optimistic concurrency on updatedAt.
+        const updatedRows = await db
+          .update(motivationConversations)
+          .set({
+            messages: serializeMessages(messages),
+            questionCount: newQuestionCount,
+            status: isDraftReady ? "completed" : "in_progress",
+            motivationScores: serializeScores(newScores ?? null),
+            conversationContext: serializeConversationContext(nextConversationContext),
+            selectedRole: nextConversationContext.selectedRole ?? null,
+            selectedRoleSource: nextConversationContext.selectedRoleSource ?? null,
+            desiredWork: nextConversationContext.desiredWork ?? null,
+            questionStage:
+              fastApiData.question_stage ??
+              nextConversationContext.questionStage,
+            lastEvidenceCards: serializeEvidenceCards(
+              (fastApiData.evidence_cards || []) as EvidenceCard[],
+            ),
+            stageStatus: serializeStageStatus(
+              ((fastApiData.stage_status as StageStatus | undefined) || {
+                current: fastApiData.question_stage || resolvedInputs.conversationContext.questionStage,
+                completed: [],
+                pending: [],
+              }) as StageStatus,
+            ),
+            updatedAt: new Date(),
+          })
+          .where(and(eq(motivationConversations.id, conversation.id), eq(motivationConversations.updatedAt, conversation.updatedAt)))
+          .returning({ id: motivationConversations.id });
+
+        if (updatedRows.length === 0) {
+          // Optimistic concurrency conflict — emit conflict error and cancel stream.
+          billingOutcomeStatus = "failed";
+          return {
+            replaceEvent: {
+              type: "error",
+              message: "別のタブまたは直前の操作で会話が更新されました。画面を再読み込みしてからやり直してください。",
+            },
+            cancel: true,
+          };
+        }
+
+        // Billing failures must not roll back a successfully saved conversation.
+        try {
+          await motivationStreamPolicy.confirm(
+            billingContext,
+            {
+              kind: "billable_success",
+              creditsConsumed: shouldConsumeCredit ? CONVERSATION_CREDITS_PER_TURN : 0,
+              freeQuotaUsed: false,
+            },
+            null,
           );
-          logSummaryOnce({
-            status: "failed",
-            creditsUsed: 0,
-          });
-        } finally {
-          if (!summaryLogged) {
-            logSummaryOnce({
-              status: "cancelled",
-              creditsUsed: 0,
-            });
-          }
-          controller.close();
+          billingOutcomeStatus = "success";
+          creditsAppliedForSummary = shouldConsumeCredit ? CONVERSATION_CREDITS_PER_TURN : 0;
+        } catch (billingError) {
+          console.error("[Motivation Stream] Credit confirmation failed after save:", billingError);
+          billingOutcomeStatus = "failed";
+          creditsAppliedForSummary = 0;
+        }
+
+        // Build enriched replacement event for frontend.
+        const payload = buildMotivationConversationPayload({
+          messages,
+          nextQuestion: fastApiData.question || null,
+          questionCount: newQuestionCount,
+          isDraftReady,
+          scores: newScores,
+          conversationContext: nextConversationContext,
+          persistedQuestionStage:
+            (fastApiData.question_stage as MotivationConversationContext["questionStage"] | null) ??
+            nextConversationContext.questionStage,
+          stageStatusValue: fastApiData.stage_status,
+          evidenceSummary:
+            typeof fastApiData.evidence_summary === "string"
+              ? fastApiData.evidence_summary
+              : null,
+          evidenceCards: (fastApiData.evidence_cards || []) as EvidenceCard[],
+          coachingFocus:
+            typeof fastApiData.coaching_focus === "string"
+              ? fastApiData.coaching_focus
+              : null,
+          riskFlags: Array.isArray(fastApiData.risk_flags) ? fastApiData.risk_flags : [],
+          conversationMode:
+            fastApiData.conversation_mode || nextConversationContext.conversationMode || "slot_fill",
+          currentIntent: fastApiData.current_intent || null,
+          nextAdvanceCondition: fastApiData.next_advance_condition || null,
+          progress: fastApiData.progress || null,
+          causalGaps: Array.isArray(fastApiData.causal_gaps) ? fastApiData.causal_gaps : [],
+          resolvedIndustry: resolvedInputs.company.industry,
+          requiresIndustrySelection: resolvedInputs.requiresIndustrySelection,
+          isSetupComplete: true,
+        });
+
+        return {
+          replaceEvent: {
+            type: "complete",
+            data: {
+              ...payload,
+              draftReadyJustUnlocked,
+            },
+          },
+        };
+      },
+      onError: async () => {
+        billingOutcomeStatus = "failed";
+      },
+      onFinally: () => {
+        if (billingOutcomeStatus === "success") {
+          logSummaryOnce({ status: "success", creditsUsed: creditsAppliedForSummary });
+        } else if (billingOutcomeStatus === "failed") {
+          logSummaryOnce({ status: "failed", creditsUsed: 0 });
+        } else {
+          logSummaryOnce({ status: "cancelled", creditsUsed: 0 });
         }
       },
     });

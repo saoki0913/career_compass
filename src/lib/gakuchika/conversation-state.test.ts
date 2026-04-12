@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { getBuildItemStatus, type ConversationState } from "./conversation-state";
+import {
+  buildConversationStatePatch,
+  getBuildItemStatus,
+  safeParseConversationState,
+  serializeConversationState,
+  type ConversationState,
+} from "./conversation-state";
 
 function baseState(overrides: Partial<ConversationState> = {}): ConversationState {
   return {
@@ -75,5 +81,36 @@ describe("getBuildItemStatus", () => {
     });
     expect(getBuildItemStatus(state, "task")).toBe("pending");
     expect(getBuildItemStatus(state, "action")).toBe("current");
+  });
+});
+
+describe("conversation-state adapters", () => {
+  it("round-trips canonical conversation state through serialize and parse", () => {
+    const state = baseState({
+      stage: "draft_ready",
+      focusKey: "result",
+      progressLabel: "ES作成可",
+      readyForDraft: true,
+      draftText: "私は...",
+    });
+
+    expect(safeParseConversationState(serializeConversationState(state), "completed")).toEqual(state);
+  });
+
+  it("merges partial patches without dropping array fields", () => {
+    const patched = buildConversationStatePatch(
+      baseState({
+        askedFocuses: ["context"],
+        blockedFocuses: ["future"],
+      }),
+      {
+        focusKey: "task",
+        askedFocuses: ["context", "task"],
+      },
+    );
+
+    expect(patched.focusKey).toBe("task");
+    expect(patched.askedFocuses).toEqual(["context", "task"]);
+    expect(patched.blockedFocuses).toEqual(["future"]);
   });
 });

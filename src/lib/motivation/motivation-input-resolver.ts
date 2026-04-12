@@ -11,9 +11,9 @@ import {
   motivationConversations,
 } from "@/lib/db/schema";
 import {
-  getMotivationConversationByCondition,
   type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
+import { getMotivationConversationByCondition } from "@/lib/motivation/conversation-store";
 
 export type MotivationConversationContext = BaseMotivationConversationContext;
 
@@ -65,8 +65,8 @@ export function buildMotivationOwnerCondition(
   guestId: string | null,
 ): SQL<unknown> {
   return userId
-    ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
-    : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!));
+    ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))!
+    : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!))!;
 }
 
 export async function ensureMotivationConversation(
@@ -84,7 +84,7 @@ export async function ensureMotivationConversation(
       userId,
       guestId: userId ? null : guestId,
       companyId,
-      messages: "[]",
+      messages: [] as unknown[],
       questionCount: 0,
       status: "in_progress" as const,
       createdAt: now,
@@ -226,16 +226,4 @@ export function resolveMotivationRoleSelectionSource(
     return "company_doc";
   }
   return "user_free_text";
-}
-
-export function buildMotivationEvidenceSummaryFromCards(
-  cards: MotivationEvidenceCard[],
-): string | null {
-  if (cards.length === 0) {
-    return null;
-  }
-  return cards
-    .slice(0, 2)
-    .map((card) => `${card.sourceId} ${card.title}: ${card.excerpt}`)
-    .join(" / ");
 }

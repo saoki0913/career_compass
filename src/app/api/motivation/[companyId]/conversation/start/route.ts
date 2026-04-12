@@ -13,8 +13,15 @@ import {
   mergeDraftReadyContext,
   resolveDraftReadyState,
   safeParseConversationContext as parseConversationContext,
+  safeParseMessages,
+  serializeConversationContext,
+  serializeEvidenceCards,
+  serializeMessages,
+  serializeScores,
+  serializeStageStatus,
   type CausalGap,
   type MotivationProgress,
+  type StageStatus,
   type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
@@ -27,7 +34,6 @@ import {
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 import {
-  buildMotivationEvidenceSummaryFromCards,
   ensureMotivationConversation,
   fetchMotivationApplicationJobCandidates,
   getOwnedMotivationCompanyData,
@@ -36,7 +42,8 @@ import {
   resolveMotivationRoleSelectionSource,
   type MotivationCompanyData as CompanyData,
   type MotivationEvidenceCard as EvidenceCard,
-} from "@/lib/motivation/server";
+} from "@/lib/motivation/motivation-input-resolver";
+import { buildMotivationConversationPayload } from "@/lib/motivation/conversation-payload";
 
 function resolveSafeMotivationStartError(raw: string | null | undefined): {
   userMessage: string;
@@ -88,12 +95,6 @@ interface MotivationEvaluation {
   missing_aspects?: Record<string, string[]>;
   hidden_eval?: Record<string, number>;
   risk_flags?: string[];
-}
-
-interface StageStatus {
-  current: MotivationConversationContext["questionStage"];
-  completed: MotivationConversationContext["questionStage"][];
-  pending: MotivationConversationContext["questionStage"][];
 }
 
 type MotivationConversationContext = BaseMotivationConversationContext;
@@ -323,7 +324,7 @@ export async function POST(
       return NextResponse.json({ error: "会話の作成に失敗しました" }, { status: 500 });
     }
 
-    if (conversation.messages !== "[]") {
+    if (safeParseMessages(conversation.messages).length > 0) {
       return NextResponse.json({ error: "この会話は既に開始されています" }, { status: 409 });
     }
 
@@ -422,17 +423,17 @@ export async function POST(
     const updatedRows = await db
       .update(motivationConversations)
       .set({
-        messages: JSON.stringify(messages),
+        messages: serializeMessages(messages),
         questionCount: 0,
         status: isDraftReady ? "completed" : "in_progress",
-        motivationScores: result.evaluation ? JSON.stringify(result.evaluation.scores) : null,
-        conversationContext: JSON.stringify(nextContext),
+        motivationScores: serializeScores(result.evaluation?.scores ?? null),
+        conversationContext: serializeConversationContext(nextContext),
         selectedRole: nextContext.selectedRole ?? null,
         selectedRoleSource: nextContext.selectedRoleSource ?? null,
         desiredWork: nextContext.desiredWork ?? null,
         questionStage: result.questionStage ?? nextContext.questionStage,
-        lastEvidenceCards: JSON.stringify(result.evidenceCards || []),
-        stageStatus: JSON.stringify(result.stageStatus || null),
+        lastEvidenceCards: serializeEvidenceCards(result.evidenceCards || []),
+        stageStatus: serializeStageStatus(result.stageStatus || null),
         updatedAt: new Date(),
       })
       .where(and(eq(motivationConversations.id, conversation.id), eq(motivationConversations.updatedAt, conversation.updatedAt)))
@@ -452,40 +453,36 @@ export async function POST(
       telemetry: result.telemetry,
     });
 
+    const payload = buildMotivationConversationPayload({
+      messages,
+      nextQuestion: result.question,
+      questionCount: 0,
+      isDraftReady,
+      scores: result.evaluation?.scores || null,
+      conversationContext: nextContext,
+      persistedQuestionStage: result.questionStage ?? nextContext.questionStage,
+      stageStatusValue: result.stageStatus,
+      evidenceSummary: result.evidenceSummary || null,
+      evidenceCards: result.evidenceCards,
+      coachingFocus: result.coachingFocus,
+      riskFlags: result.riskFlags,
+      conversationMode: result.conversationMode ?? nextContext.conversationMode ?? "slot_fill",
+      currentIntent: result.currentIntent,
+      nextAdvanceCondition: result.nextAdvanceCondition,
+      progress: result.progress,
+      causalGaps: result.causalGaps,
+      resolvedIndustry: resolvedInputs.company.industry,
+      requiresIndustrySelection: resolvedInputs.requiresIndustrySelection,
+      isSetupComplete: true,
+    });
+
     return NextResponse.json({
       conversation: {
         id: conversation.id,
         questionCount: 0,
         status: isDraftReady ? "completed" : "in_progress",
       },
-      messages,
-      nextQuestion: result.question,
-      questionCount: 0,
-      isDraftReady,
-      scores: result.evaluation?.scores || null,
-      evidenceSummary: result.evidenceSummary || buildMotivationEvidenceSummaryFromCards(result.evidenceCards),
-      evidenceCards: result.evidenceCards,
-      coachingFocus: result.coachingFocus,
-      riskFlags: result.riskFlags,
-      questionStage: result.questionStage || nextContext.questionStage,
-      stageStatus: result.stageStatus,
-      conversationMode: result.conversationMode ?? nextContext.conversationMode ?? "slot_fill",
-      currentSlot: result.currentSlot,
-      currentIntent: result.currentIntent,
-      nextAdvanceCondition: result.nextAdvanceCondition,
-      progress: result.progress,
-      causalGaps: result.causalGaps,
-      conversationContext: nextContext,
-      setup: {
-        selectedIndustry: nextContext.selectedIndustry || resolvedInputs.company.industry,
-        selectedRole: nextContext.selectedRole || null,
-        selectedRoleSource: nextContext.selectedRoleSource || null,
-        requiresIndustrySelection: resolvedInputs.requiresIndustrySelection,
-        resolvedIndustry: resolvedInputs.company.industry,
-        isComplete: true,
-        requiresRestart: false,
-        hasSavedConversation: true,
-      },
+      ...payload,
     });
   } catch (error) {
     console.error("[MotivationStart] Failed to start conversation:", error);

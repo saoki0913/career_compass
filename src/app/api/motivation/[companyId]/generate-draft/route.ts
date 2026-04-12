@@ -10,10 +10,16 @@ import { motivationConversations } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { reserveCredits, confirmReservation, cancelReservation } from "@/lib/credits";
 import {
-  getMotivationConversationByCondition as getConversationByCondition,
   resolveDraftReadyState,
   safeParseConversationContext,
+  safeParseMessages,
+  type CausalGap,
+  type LastQuestionMeta,
+  type MotivationConversationContext,
+  type MotivationStage,
+  type StageStatus,
 } from "@/lib/motivation/conversation";
+import { getMotivationConversationByCondition as getConversationByCondition } from "@/lib/motivation/conversation-store";
 import { DRAFT_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
@@ -27,7 +33,7 @@ import { messageFromFastApiDetail } from "@/lib/server/fastapi-detail-message";
 import {
   buildMotivationOwnerCondition,
   getOwnedMotivationCompanyData,
-} from "@/lib/motivation/server";
+} from "@/lib/motivation/motivation-input-resolver";
 
 interface FastAPIDraftResponse {
   draft: string;
@@ -35,33 +41,6 @@ interface FastAPIDraftResponse {
   key_points: string[];
   company_keywords: string[];
   internal_telemetry?: unknown;
-}
-
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-}
-
-function safeParseMessages(json: string): Message[] {
-  try {
-    const parsed = JSON.parse(json);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((message): message is { role: string; content: string } =>
-        Boolean(
-          message &&
-          typeof message === "object" &&
-          (message.role === "user" || message.role === "assistant") &&
-          typeof message.content === "string",
-        ),
-      )
-      .map((message) => ({
-        role: message.role as "user" | "assistant",
-        content: message.content,
-      }));
-  } catch {
-    return [];
-  }
 }
 
 interface EvidenceCard {
@@ -176,6 +155,8 @@ export async function POST(
       company_name: company.name,
       industry: company.industry,
       conversation_history: messages,
+      slot_summaries: conversationContext.slotSummaries ?? {},
+      slot_evidence_sentences: conversationContext.slotEvidenceSentences ?? {},
       char_limit: charLimit,
     });
 
@@ -235,14 +216,14 @@ export async function POST(
     let evidenceSummary: string | null = null;
     let evidenceCards: EvidenceCard[] = [];
     let coachingFocus: string | null = null;
-    let questionStage: string | null = null;
+    let questionStage: MotivationStage | null = null;
     let conversationMode: "slot_fill" | "deepdive" | null = null;
-    let currentSlot: string | null = null;
+    let currentSlot: MotivationStage | null = null;
     let currentIntent: string | null = null;
     let nextAdvanceCondition: string | null = null;
     let progress: Record<string, unknown> | null = null;
-    let causalGaps: unknown[] = [];
-    let stageStatus: unknown = null;
+    let causalGaps: CausalGap[] = [];
+    let stageStatus: StageStatus | null = null;
     let updatedMessages = messages;
 
     const followUpResponse = await fetchFastApiInternal("/api/motivation/next-question", {
@@ -275,14 +256,16 @@ export async function POST(
         evidenceSummary = typeof followUp.evidence_summary === "string" ? followUp.evidence_summary : null;
         evidenceCards = Array.isArray(followUp.evidence_cards) ? followUp.evidence_cards : [];
         coachingFocus = typeof followUp.coaching_focus === "string" ? followUp.coaching_focus : null;
-        questionStage = typeof followUp.question_stage === "string" ? followUp.question_stage : null;
+        questionStage = typeof followUp.question_stage === "string"
+          ? (followUp.question_stage as MotivationStage)
+          : null;
         conversationMode = followUp.conversation_mode || null;
-        currentSlot = followUp.current_slot || null;
+        currentSlot = followUp.current_slot ? (followUp.current_slot as MotivationStage) : null;
         currentIntent = followUp.current_intent || null;
         nextAdvanceCondition = followUp.next_advance_condition || null;
         progress = followUp.progress || null;
-        causalGaps = Array.isArray(followUp.causal_gaps) ? followUp.causal_gaps : [];
-        stageStatus = followUp.stage_status ?? null;
+        causalGaps = Array.isArray(followUp.causal_gaps) ? (followUp.causal_gaps as CausalGap[]) : [];
+        stageStatus = (followUp.stage_status as StageStatus | null) ?? null;
         updatedMessages = [
           ...messages,
           {
@@ -298,9 +281,10 @@ export async function POST(
       .set({
         generatedDraft: draftNormalized,
         charLimitType: String(charLimit) as "300" | "400" | "500",
-        messages: JSON.stringify(updatedMessages),
-        conversationContext: JSON.stringify({
+        messages: updatedMessages,
+        conversationContext: {
           ...conversationContext,
+          draftSource: "conversation",
           draftReady: true,
           conversationMode: conversationMode || conversationContext.conversationMode || "deepdive",
           currentIntent: currentIntent || conversationContext.currentIntent || null,
@@ -310,15 +294,15 @@ export async function POST(
           questionStage: questionStage || conversationContext.questionStage,
           lastQuestionMeta: nextQuestion
             ? {
-                ...(conversationContext.lastQuestionMeta || {}),
+                ...((conversationContext.lastQuestionMeta || {}) as LastQuestionMeta),
                 questionText: nextQuestion,
                 question_stage: questionStage || conversationContext.questionStage,
               }
-            : conversationContext.lastQuestionMeta || null,
-        }),
+            : (conversationContext.lastQuestionMeta as LastQuestionMeta | null) || null,
+        } satisfies MotivationConversationContext,
         questionStage: questionStage || conversation.questionStage,
-        lastEvidenceCards: JSON.stringify(evidenceCards),
-        stageStatus: JSON.stringify(stageStatus),
+        lastEvidenceCards: evidenceCards,
+        stageStatus,
         updatedAt: new Date(),
       })
       .where(eq(motivationConversations.id, conversation.id));

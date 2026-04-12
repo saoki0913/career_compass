@@ -9,7 +9,7 @@ import {
   createInterviewPersistenceUnavailableResponse,
   normalizeInterviewPersistenceError,
 } from "./persistence-errors";
-import { buildInterviewContext } from "./shared";
+import { buildInterviewContext } from ".";
 
 export async function GET(
   request: NextRequest,

@@ -5,7 +5,7 @@ import { DEFAULT_INTERVIEW_SESSION_CREDIT_COST } from "@/lib/credits";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 import type { InterviewFeedback, InterviewMessage } from "@/lib/interview/conversation";
 import type { InterviewPlan, InterviewStageStatus, InterviewTurnMeta, InterviewTurnState } from "@/lib/interview/session";
-import type { InterviewFeedbackHistoryItem } from "./shared";
+import type { InterviewFeedbackHistoryItem } from ".";
 
 type UpstreamCompleteData = {
   question?: string;

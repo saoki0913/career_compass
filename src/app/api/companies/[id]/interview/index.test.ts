@@ -128,7 +128,7 @@ describe("buildInterviewContext", () => {
       )
       .mockReturnValueOnce(makeLeftJoinWhereQuery([]));
 
-    const { buildInterviewContext } = await import("./shared");
+    const { buildInterviewContext } = await import(".");
 
     await expect(
       buildInterviewContext("company-1", { userId: "user-1", guestId: null }),
