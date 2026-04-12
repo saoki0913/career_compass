@@ -1,5 +1,6 @@
 .PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression ai-live-local db-push db-generate db-studio clean \
 	up down restart backend-test backend-test-search backend-lint backend-format logs check deps reset-db seed \
+	backend-deadcode frontend-deadcode deadcode \
 	db-migrate db-status db-check db-drop db-introspect db-fresh backend-install \
 	backend-test-mappings backend-test-subsidiary backend-test-company \
 	backend-test-comprehensive backend-test-comprehensive-quick backend-test-comprehensive-stats \
@@ -301,6 +302,17 @@ backend-test-live-es-review:
 ## Pythonコードをリント（ruff/flake8）
 backend-lint:
 	cd backend && python -m ruff check . || python -m flake8 .
+
+## dead code 検出（バックエンド: ruff F401/F841）
+backend-deadcode:
+	cd backend && python -m ruff check --select F401,F841 app/
+
+## dead code 検出（フロントエンド: knip）
+frontend-deadcode:
+	npm run deadcode
+
+## dead code 検出（全体）
+deadcode: backend-deadcode frontend-deadcode
 
 ## Pythonコードを自動フォーマット（black）
 backend-format:

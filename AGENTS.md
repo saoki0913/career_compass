@@ -21,288 +21,93 @@
 
 ---
 
-## Skill Auto-Trigger Rules
+## Subagent Routing
 
-タスク内容が次に当てはまるときは、対応する skill を自動で使う。
+タスクを始める前に、対象領域に合うサブエージェントへ自動委譲する。各 agent の詳細は `.claude/agents/<name>.md` を参照。
 
-### 1. RAG / Retrieval
-- Skills: `rag-implementation`, `rag-engineer`
-- Trigger keywords: RAG, retrieval, embedding, ベクトル検索, semantic search, chunking, indexing, HyDE, query expansion
-- Auto-invoke when:
-  - `backend/app/utils/vector_store.py` を触る
-  - `backend/app/utils/hybrid_search.py` を触る
-  - RAG パイプライン、取得戦略、チャンク分割、インデックス更新を変更する
+| 変更対象 / 作業内容 | 委譲先 subagent |
+|---|---|
+| `backend/app/prompts/**`, `backend/app/utils/llm.py`, プロンプト品質 / A/B | `prompt-engineer` |
+| `backend/app/utils/(vector_store\|hybrid_search\|embeddings\|text_chunker\|content_classifier).py` | `rag-engineer` |
+| `backend/app/utils/(bm25_store\|reranker\|japanese_tokenizer\|web_search).py`, `improve-search` | `search-quality-engineer` |
+| `backend/app/routers/**`, `backend/app/main.py`, `backend/app/utils/llm_streaming.py`, SSE ストリーミング | `fastapi-developer` |
+| `src/components/**`, `src/app/**/(page\|layout\|loading).tsx` のビジュアル, marketing LP | `ui-designer` |
+| `src/app/**/(page\|layout).tsx` のロジック, `src/app/api/**`, `src/hooks/`, SWR | `nextjs-developer` |
+| `src/lib/db/schema.ts`, `drizzle_pg/`, マイグレーション, インデックス | `database-engineer` |
+| `src/lib/auth/**`, `src/lib/csrf.ts`, `src/lib/trusted-origins.ts`, `src/app/api/webhooks/stripe/**`, `src/lib/stripe/`, `src/app/api/credits/` | `security-auditor` |
+| `scripts/release/**`, `Makefile` の release targets, `make deploy`, provider CLI 操作 | `release-engineer` |
+| `e2e/**`, `backend/tests/**`, `src/**/*.test.ts`, AI Live テスト | `test-automator` |
+| コードレビュー、500 行超ファイルへの追加、dead code 検出 | `code-reviewer` |
+| architecture gate, OMM review, PRD / RFC 作成, 大規模クロスカット | `architect` |
+| マーケ LP 改善, UX / 競合 / SEO / 無料ツール戦略 | `product-strategist` |
 
-### 2. Search Quality / Ranking
-- Skills: `hybrid-search-implementation`, `similarity-search-patterns`
-- Trigger keywords: BM25, rerank, RRF, MMR, recall, precision, ハイブリッド検索, リランキング
-- Auto-invoke when:
-  - `backend/app/utils/bm25_store.py` を触る
-  - `backend/app/utils/reranker.py` を触る
-  - 企業検索や RAG 検索の関連度改善を行う
+ユーザーが「本番にデプロイして」「公開して」「リリースして」「ship it」等の自然文で依頼した場合も `release-engineer` に委譲する。
 
-### 3. Prompt / LLM Output Quality
-- Skill: `prompt-engineer`
-- Trigger keywords: prompt, system message, JSON output, hallucination, few-shot, structured output, プロンプト
-- Auto-invoke when:
-  - `backend/app/prompts/` 配下を触る
-  - `backend/app/utils/llm.py` を触る
-  - LLM 出力形式や生成品質を改善する
-
-### 4. ML / Inference Pipeline
-- Skill: `senior-ml-engineer`
-- Trigger keywords: inference, evaluation, model routing, fine-tuning, batch processing, GPU, MLOps
-- Auto-invoke when:
-  - 推論基盤やモデル切替ロジックを変更する
-  - `backend/evals/` や `ml/` を扱う
-
-### 5. Frontend / UI
-- Skills: `frontend-design`, `ui-ux-pro-max`, `vercel-react-best-practices`, `component-refactoring`
-- Trigger keywords: UI, UX, responsive, loading state, accessibility, React, Next.js, component, モバイル
-- Auto-invoke when:
-  - `src/components/` 配下を触る
-  - `src/app/**/page.tsx` を触る
-  - レイアウト、操作導線、ローディング、レスポンシブ対応を改善する
-- UI タスクでは `docs/architecture/FRONTEND_UI_GUIDELINES.md` を参照する。
-- マーケ LP（`src/components/landing/*` 等）のビジュアル改修では、ルートの `DESIGN.md` と `docs/marketing/LP.md` を参照する。
-- `src/components/**`, `src/app/**/page.tsx`, `src/app/**/layout.tsx`, `src/app/**/loading.tsx`, `src/components/skeletons/**` を変更する前に、必ず `npm run ui:preflight -- <route> --surface=marketing|product [--auth=none|guest]` を実行する。
-- `ui:preflight` の Markdown 出力を会話、PR 本文、作業ログのいずれかに残してから UI 実装を始める。
-- UI 変更前後で `npm run lint:ui:guardrails` を通し、marketing の accent color 逸脱や `loading.tsx` の spinner-only 化を止める。
-- UI 変更後は `npm run test:ui:review -- <route>` で対象ページを Playwright 確認する。
-- PR では `.github/PULL_REQUEST_TEMPLATE.md` の `UI Review Routes` を埋め、shared UI 変更時は reviewer が route を追える状態にする。
-- 認証不要なら public route、プロダクト UI なら最も近い route を選び、guest 導線は `--auth=guest` を使う。
-- 新規 UI / 大きな UI 改修では同ガイドの hard rules を優先する。
-- 既存画面では既存のデザインシステム、構造、visual language を優先する。
-
-### 6. Security / Auth / Payments
-- Skill: `security-review`
-- Trigger keywords: auth, authorization, CSRF, XSS, secrets, API security, webhook, payment, セキュリティ
-- Auto-invoke when:
-  - `src/lib/auth/` を触る
-  - `src/lib/csrf.ts` や `src/lib/trusted-origins.ts` を触る
-  - `src/app/api/webhooks/stripe/route.ts` や課金導線を変更する
-
-### 7. Website / SEO Audit
-- Skills: `audit-website`, `seo-review`
-- Trigger keywords: SEO, audit, lighthouse, meta tags, indexing, structured data
-- Auto-invoke when:
-  - LP、公開ページ、テンプレ、無料ツールの改善や監査を行う
-
-### 8. Deployment / Release Ops
-- Skills: `release-automation`, `railway-ops`, `supabase-ops`, `deployment-automation`
-- Trigger keywords: deploy, release, staging, production, Railway, Supabase, Vercel, 本番デプロイ, staging反映, リリース, 本番にデプロイ, 本番反映, 公開して, リリースして, 本番に出して, push this live, ship it, deploy to production
-- Auto-invoke when:
-  - `scripts/release/` を触る
-  - `scripts/bootstrap/career-compass/` を触る
-  - `docs/release/` や `docs/ops/CLI_GUARDRAILS.md` を release 運用目的で更新する
-- 本番リリースの正本は `make deploy` と `scripts/release/release-career-compass.sh`
-- ユーザーが「本番にデプロイして」「本番反映して」「公開して」など同義の自然文で依頼した場合も、本番リリース依頼として扱う
-- 明示がなければ、ローカル変更を全部含める標準入口は `make ops-release-check` → `make deploy-stage-all`
-- ユーザーが staged-only を明示したときだけ `make deploy` を使う
-- secrets 正本は codex-company 配下の `.secrets/career_compass`（解決ルールは `scripts/release/career-compass-secrets-root.sh` と同じ。環境変数は `docs/release/ENV_REFERENCE.md` の Release Automation Inputs を参照）
-- **エージェントは** `codex-company/.secrets/` 以下の実ファイル（`*.env`）を**読み取らない**。インベントリ確認・検証は `zsh scripts/release/sync-career-compass-secrets.sh --check` のみ。リポジトリにはプロバイダ用 env テンプレを置かない（`.env.example` はローカル開発用として従来どおり）
-- provider CLI の直接操作ではなく、repo 内 scripts を優先する
-
-### 9. Architecture Gate / OMM Review
-- Skills / commands: `architecture-gate`, `improve-architecture`, `omm-view`
-- Auto-invoke when:
-  - 新機能追加で `src/app/api/**`、`backend/app/**`、`src/lib/db/schema.ts` のいずれかを触る
-  - auth、billing、calendar、AI、RAG、guest/user 境界を変更する
-  - page / component / hook / loader / API / backend をまたぐ変更を行う
-  - 既存の大きいファイルへさらに責務を追加する
-- `write-prd` の前に `architecture-gate` を実行し、`.omm/` とコードを根拠に `PASS` / `PASS_WITH_REFACTOR` / `BLOCK` を判定する。
-- `architecture-gate` の重点確認対象は `overall-architecture`、`request-lifecycle`、`data-flow`、`external-integrations`、`route-page-map`。
-- `PASS_WITH_REFACTOR` の場合は、最小リファクタを機能実装より前に置く。
-- `BLOCK` の場合は、実装や PRD を先に進めず `improve-architecture` で RFC を作る。
-- docs-only、test-only、局所的な文言修正、明らかな局所バグ修正では省略できる。
-
----
-
-## Current App Structure
-
-### 1. Public Marketing Surface
-- Landing page: `src/app/page.tsx`
-- Pricing: `src/app/pricing`
-- Contact / legal pages: `src/app/contact`, `src/app/terms`, `src/app/privacy`, `src/app/legal`
-- Free tools / templates: `src/app/tools`, `src/app/templates`
-
-### 2. Auth / Onboarding
-- Login and onboarding live under `src/app/(auth)/`
-- Better Auth handles session management
-- Guest mode is supported via HttpOnly guest cookie flow in `src/lib/auth/guest-cookie.ts`
-
-### 3. Core Product Areas
-- Dashboard: `src/app/dashboard`
-- Companies: `src/app/companies`, `src/app/api/companies`
-- Applications / deadlines / submissions: `src/app/api/applications`, `src/app/api/deadlines`, `src/app/api/submissions`
-- ES documents and review: `src/app/es`, `src/app/api/documents`
-- Motivation: `src/app/companies/[id]/motivation`, `src/app/api/motivation`
-- Gakuchika: `src/app/gakuchika`, `src/app/api/gakuchika`
-- Tasks / notifications / calendar / search:
-  - `src/app/tasks`
-  - `src/app/notifications`
-  - `src/app/calendar`
-  - `src/app/search`
-
-### 4. AI Backend
-- Entry point: `backend/app/main.py`
-- Routers:
-  - `backend/app/routers/company_info.py`
-  - `backend/app/routers/es_review.py`
-  - `backend/app/routers/gakuchika.py`
-  - `backend/app/routers/motivation.py`
-  - `backend/app/routers/health.py`
-- Search / RAG utilities live in `backend/app/utils/`
-
----
-
-## Core Architecture Notes
-
-### Company Data Flow
-- Next API validates auth / guest identity and ownership.
-- Company info fetch and corporate info enrichment proxy to FastAPI.
-- RAG source URLs, PDF ingestion jobs, and fetched timestamps are stored in Postgres.
-- Deadline extraction is not auto-applied; user approval is required before persistence.
-
-### ES Review Flow
-- Documents live in Postgres and are versioned through `src/app/api/documents`.
-- Review uses streaming endpoints under `src/app/api/documents/[id]/review/stream`.
-- Success-only credit consumption applies after successful completion.
-- Review UI and playback logic live in `src/components/es/` and `src/hooks/useESReview.ts`.
-
-### Motivation / Gakuchika Flow
-- Motivation uses conversation start, stream, and draft generation endpoints.
-- Gakuchika supports guided conversation, summaries, and ES draft generation.
-- Shared chat-like UI patterns live in `src/components/chat/`.
-
-### Calendar / Notifications / Tasks
-- Calendar sync is handled by Next API plus Google Calendar helpers in `src/lib/calendar/`.
-- Notifications and task recommendations are first-class product flows, not secondary utilities.
-- Cron routes exist under `src/app/api/cron/` for daily notifications, calendar sync など。
+docs-only、test-only、局所的な文言修正、明らかな局所バグ修正では委譲を省略してよい。
 
 ---
 
 ## Business Rules
 
-1. 成功時のみ消費
-- クレジットや無料回数は、対象処理が成功したときだけ消費する。
+1. **成功時のみ消費** — クレジットや無料回数は、対象処理が成功したときだけ消費する。
+2. **JST 基準** — 日次リセット、通知、締切関連の基準時刻は `Asia/Tokyo`。
+3. **締切は承認必須** — 自動抽出結果をそのまま締切として確定しない。
+4. **非同期 UX** — 外部 I/O や AI 実行は、処理中表示、完了通知、失敗通知まで含めて設計する。
+5. **guest / user の両対応** — 多くの API はログインユーザーとゲストの両方を扱う。owner 判定は `userId` と `guestId` の排他的管理を前提にする。ゲスト識別は browser-visible header ではなく `guest_device_token` cookie を正とする。
 
-2. JST 基準
-- 日次リセット、通知、締切関連の基準時刻は `Asia/Tokyo`。
+---
 
-3. 締切は承認必須
-- 自動抽出結果をそのまま締切として確定しない。
+## Core Architecture Notes
 
-4. 非同期 UX
-- 外部 I/O や AI 実行は、処理中表示、完了通知、失敗通知まで含めて設計する。
+非自明なフローのみ記載。詳細は `docs/features/` と `.omm/` を参照。
 
-5. guest / user の両対応
-- 多くの API はログインユーザーとゲストの両方を扱う。
-- owner 判定は `userId` と `guestId` の排他的管理を前提にする。
-- ゲスト識別は browser-visible header ではなく `guest_device_token` cookie を正とする。
+- **Company Data Flow** — Next API で auth / ゲスト identity と所有権を検証し、企業情報取得と corporate info enrichment は FastAPI へ proxy する。RAG ソース URL、PDF ingest ジョブ、取得時刻は Postgres に保存。締切抽出結果はユーザー承認を経て初めて確定する。
+- **ES Review Flow** — ドキュメントは Postgres に版管理され (`src/app/api/documents`)、レビューは `src/app/api/documents/[id]/review/stream` の SSE。成功時のみクレジット消費。
+- **Motivation / Gakuchika Flow** — 会話開始 / stream / draft 生成の 3 エンドポイント構成。共通 chat-like UI は `src/components/chat/`。
+- **Request Identity** — 認証済みユーザーは Better Auth session、ゲストは HttpOnly cookie から解決し、proxy が内部 `x-device-token` を再構成する。共通化済みロジックは `src/app/api/_shared/request-identity.ts`。
 
 ---
 
 ## API / Error Handling Rules
 
-### API Response Pattern
-- 主要な Next API は `createApiErrorResponse()` を使って構造化エラーを返す。
-- エラー応答では `userMessage` と `action` を返し、開発者向け詳細は開発環境の `debug` に閉じ込める。
-- `X-Request-Id` / `requestId` を付与し、ログと突合できる状態を保つ。
-
-### Frontend Error Pattern
-- フロントでは `parseApiErrorResponse()` と `AppUiError` を使う。
-- API の raw error や例外文字列を UI にそのまま出さない。
-- ユーザーには短い説明と次の行動だけを見せる。
-
-### Request Identity
-- 認証済みユーザーは Better Auth セッションから解決する。
-- ゲストは HttpOnly cookie から解決し、proxy が内部 `x-device-token` を再構成する。
-- 共通化済みロジックは `src/app/api/_shared/request-identity.ts` にある。
+- Next API は `createApiErrorResponse()` を使って構造化エラーを返す。`userMessage` と `action` を含め、開発者向け詳細は dev 環境の `debug` にのみ出す。`X-Request-Id` / `requestId` を付与する。
+- フロントでは `parseApiErrorResponse()` と `AppUiError` を使う。raw error や例外文字列を UI にそのまま出さない。
+- secrets 正本は `codex-company/.secrets/career_compass`。**実ファイル (`*.env`) を直接 Read しない**。インベントリ確認は `zsh scripts/release/sync-career-compass-secrets.sh --check` のみ。
 
 ---
 
-## Data Model Notes
+## UI Change Workflow (hard rules)
 
-主要スキーマは `src/lib/db/schema.ts`。
+`src/components/**`, `src/app/**/(page|layout|loading).tsx`, `src/components/skeletons/**` を変更する前後で必ず実行する:
 
-- Better Auth tables: `users`, `sessions`, `accounts`, `verifications`
-- Guest / profile: `guest_users`, `user_profiles`, `login_prompts`
-- Company domain: `companies`, `applications`, `job_types`, `deadlines`, `submissions`
-- Document domain: ES documents, review threads, versions
-- Product domain: `notifications`, `tasks`, credits, calendar settings, Stripe-related tables
-- AI ingest domain: `company_pdf_ingest_jobs`
+1. 事前: `npm run ui:preflight -- <route> --surface=marketing|product [--auth=none|guest]` → Markdown 出力を会話 / PR / 作業ログに残す
+2. 変更中: `npm run lint:ui:guardrails`
+3. 事後: `npm run test:ui:review -- <route>`
 
-スキーマ変更時は、既存の guest/user 両対応と cascade 設計を壊さないこと。
+参照: `docs/architecture/FRONTEND_UI_GUIDELINES.md`, `DESIGN.md`, `docs/marketing/LP.md`。PR の `UI Review Routes` (`.github/PULL_REQUEST_TEMPLATE.md`) は埋める。既存画面では既存のデザインシステムを優先する。
 
 ---
 
-## Development Commands
+## Key Commands
 
-### App
 ```bash
-npm run dev
-npm run build
-npm run lint
-```
+# tests (npm run test は存在しない)
+npm run test:unit           # Vitest
+npm run test:e2e            # Playwright
+npm run test:ui:review -- <route>   # UI 変更後の Playwright 確認
+npm run test:agent-pipeline # sync-pipeline のスナップショット
 
-### Tests
-```bash
-npm run test
-npm run test:e2e
-npm run test:unit
-```
-
-### Database
-```bash
-npm run db:push
-npm run db:generate
+# DB (Drizzle)
+npm run db:generate         # schema.ts → migration SQL
+npm run db:push             # 本番同期（慎重に）
 npm run db:migrate
 npm run db:studio
+
+# release
+make ops-release-check      # 全ローカル変更を含める標準入口
+make deploy-stage-all
+make deploy                 # staged-only 明示時のみ
 ```
-
-### FastAPI
-```bash
-cd backend
-uvicorn app.main:app --reload --port 8000
-```
-
----
-
-## Key File Locations
-
-### Next.js
-- Pages / layouts: `src/app/`（プロダクトの `DashboardHeader` は各ページ／`loading.tsx` が個別配置。`(product)/layout` は `children` のみ）
-- API routes: `src/app/api/`
-- Components: `src/components/`
-- Hooks: `src/hooks/`（通知・クレジットは SWR 共有。`src/lib/swr-fetcher.ts`）
-- Shared libs: `src/lib/`
-- DB schema: `src/lib/db/schema.ts`
-
-### FastAPI
-- Entry: `backend/app/main.py`
-- Routers: `backend/app/routers/`
-- Utils: `backend/app/utils/`
-- Prompts: `backend/app/prompts/`
-- Tests: `backend/tests/`
-- Eval scripts: `backend/evals/`
-
-### Documentation
-- Human-readable doc map: `docs/OVERVIEW.md`, `docs/INDEX.md`
-- Product spec: `docs/SPEC.md`
-- Progress tracker: `docs/PROGRESS.md`
-- Setup docs: `docs/setup/`（開発・環境は `DEVELOPMENT_AND_ENV.md`、DB は `DB_SUPABASE.md`）
-- Feature docs: `docs/features/`
-- Architecture docs: `docs/architecture/`
-- Frontend UI guide: `docs/architecture/FRONTEND_UI_GUIDELINES.md`
-- UI Playwright verification: `docs/testing/UI_PLAYWRIGHT_VERIFICATION.md`
-- Release docs: `docs/release/`
-- Operational guardrails: `docs/ops/CLI_GUARDRAILS.md`
-
-### Project Steering
-- `.kiro/steering/product.md`
-- `.kiro/steering/structure.md`
-- `.kiro/steering/tech.md`
 
 ---
 

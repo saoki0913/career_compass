@@ -1,0 +1,12 @@
+# Secrets
+.env
+.env.*
+*.pem
+
+# Private pipeline source
+private/
+
+# Generated skill mirrors (read-only, sync-pipeline が管理)
+.claude/skills/
+.codex/skills/
+.codex/commands/

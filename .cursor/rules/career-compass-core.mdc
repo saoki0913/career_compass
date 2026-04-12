@@ -1,0 +1,35 @@
+---
+description: Career Compass の必須ルール: routing, security, generated/manual 境界
+alwaysApply: true
+---
+
+# Career Compass Core Rule
+
+## Routing
+
+- 変更対象の責務が明確なときは `AGENTS.md` / `CLAUDE.md` の Subagent Routing 表を優先する
+- `backend/app/prompts/**` や `backend/app/utils/llm.py` は `prompt-engineer`
+- `src/lib/auth/**`, `src/lib/csrf.ts`, `src/app/api/webhooks/stripe/**`, `src/lib/stripe/**` は `security-auditor`
+- `src/components/**`, `src/app/(marketing)/**`, `src/app/**/(page|layout|loading).tsx` のビジュアル変更は `ui-designer`
+- `src/lib/db/schema.ts`, `drizzle_pg/**` は `database-engineer`
+- `e2e/**`, `backend/tests/**`, `src/**/*.test.ts` は `test-automator`
+- release / deploy / staging / production の依頼は `release-engineer`
+- 複数責務をまたぐ変更、新機能、境界変更は `architect`
+
+## Security
+
+- `codex-company/.secrets/` 配下を直接読まない
+- secrets は env / 既存スクリプト経由で扱い、値を出力しない
+- `git push --force` を提案しない
+
+## Generated And Manual Boundaries
+
+- `private/agent-pipeline/skills/*.md` が canonical source
+- `.claude/skills/`, `.codex/skills/`, `.codex/commands/`, generator 管轄の `.cursor/rules/*.mdc` は手編集しない
+- 例外は `docs/ops/AI_HARNESS.md` 1.2.1 に明記された non-canonical skill と、この `career-compass-core.mdc`
+
+## Working Style
+
+- 実在するファイル・コマンド・script を確認してから提案する
+- 仕様が不足する場合は推測で埋めずに必要ファイルを読む
+- 大きい変更は先に計画を立て、変更後は検証コマンドを実行する

@@ -1,0 +1,20 @@
+[setup]
+commands = [
+  "npm install",
+  "python3 -m pip install -r backend/requirements.txt",
+]
+
+[verification]
+commands = [
+  "npm run lint",
+  "npm run test:unit -- --run",
+  "npm run test:agent-pipeline",
+  "cd backend && pytest tests/es_review/test_es_review_prompt_structure.py -x",
+]
+
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp", "--headless"]
+
+[mcp_servers.notion]
+url = "https://mcp.notion.com/mcp"
