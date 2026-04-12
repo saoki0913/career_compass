@@ -11,10 +11,7 @@ LLMユーティリティモジュール
 
 import asyncio
 import base64
-import contextvars
 import httpx
-import os
-import re as _re
 from anthropic import AsyncAnthropic, APIError as AnthropicAPIError
 import openai
 from openai import APIError as OpenAIAPIError
@@ -27,197 +24,50 @@ logger = get_logger(__name__)
 from typing import Any, AsyncGenerator, Callable, Literal, Optional, TypeAlias
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from functools import lru_cache
 
-
-class PromptSafetyError(ValueError):
-    def __init__(self, reasons: list[str]):
-        super().__init__("unsafe_prompt_input")
-        self.reasons = reasons
-
-
-_request_llm_cost_summary_var: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
-    "request_llm_cost_summary",
-    default=None,
+# ===== Re-exports from extraction modules (backward compatibility) =====
+from app.utils.llm_prompt_safety import (
+    PromptSafetyError,
+    sanitize_prompt_input,
+    sanitize_es_content,
+    detect_es_injection_risk,
+    sanitize_user_prompt_text,
 )
+from app.utils.llm_usage_cost import (
+    _request_llm_cost_summary_var,
+    merge_llm_usage_tokens,
+    _normalize_usage_summary,
+    _canonical_price_model,
+    _resolve_price_entry,
+    estimate_llm_usage_cost_usd,
+    estimate_openai_usage_cost_usd,
+    reset_request_llm_cost_summary,
+    _merge_usage_status,
+    _record_request_llm_cost_summary,
+    _append_llm_cost_estimate_parts,
+    _format_llm_cost_kv_line,
+    _DEFAULT_LLM_PRICE_CATALOG,
+    _should_log_llm_cost,
+    _should_log_llm_cost_debug,
+)
+from app.utils.llm_client_registry import CircuitBreaker
+from app.utils.llm_model_routing import (
+    LLMProvider,
+    LLMModel,
+    ResponseFormat,
+    ResolvedModelTarget,
+    _build_model_config,
+    get_model_config,
+    get_model_display_name,
+    _resolve_openai_model,
+    _resolve_model_target,
+    resolve_feature_model_metadata,
+    _provider_has_api_key,
+    _feature_cross_fallback_model,
+)
+# ===== End re-exports =====
 
-
-def sanitize_prompt_input(text: str, max_length: int = 5000) -> str:
-    """Sanitize user input before embedding in LLM prompts.
-
-    Mitigates prompt injection by:
-    - Truncating to max_length
-    - Removing markdown heading markers that could override prompt structure
-    - Removing triple backticks (code block injection)
-    """
-    if not text:
-        return ""
-    text = text[:max_length]
-    # Remove markdown heading markers that could override prompt structure
-    text = _re.sub(r"^#{1,6}\s", "", text, flags=_re.MULTILINE)
-    # Remove triple backticks (code block injection)
-    text = text.replace("```", "")
-    return text
-
-
-def sanitize_es_content(text: str, max_length: int = 5000) -> str:
-    """Sanitize ES content before LLM processing.
-
-    Extends sanitize_prompt_input with additional security measures:
-    - Unicode control character removal (keeps \\n, \\r, \\t, space)
-    - Role injection pattern removal (system:, assistant:, human:, user: at start of lines)
-    - XML-like tag removal (<system>, <instructions>, </system>, etc.)
-    - Default max_length=5000
-
-    Args:
-        text: The ES content to sanitize
-        max_length: Maximum allowed length (default: 5000)
-
-    Returns:
-        Sanitized text safe for LLM processing
-    """
-    if not text:
-        return ""
-
-    # First apply basic sanitization
-    text = sanitize_prompt_input(text, max_length)
-
-    # Remove Unicode control characters (keep \n, \r, \t, space)
-    # Control characters are in ranges: U+0000-U+001F (except \t\n\r) and U+007F-U+009F
-    allowed_controls = {'\n', '\r', '\t', ' '}
-    text = ''.join(
-        char if char in allowed_controls or not (ord(char) < 32 or 127 <= ord(char) < 160)
-        else ''
-        for char in text
-    )
-
-    # Remove role injection patterns at start of lines
-    # Patterns: "system:", "assistant:", "human:", "user:" (case-insensitive)
-    text = _re.sub(
-        r"^\s*(system|assistant|human|user)\s*:\s*",
-        "",
-        text,
-        flags=_re.MULTILINE | _re.IGNORECASE
-    )
-
-    # Remove XML-like tags that could be used for instruction injection
-    # Matches: <system>, </system>, <instructions>, <prompt>, etc.
-    xml_tag_pattern = r"<\s*/?\s*(system|assistant|human|user|instructions|instruction|prompt|context|role)\s*>"
-    text = _re.sub(xml_tag_pattern, "", text, flags=_re.IGNORECASE)
-
-    return text
-
-
-def detect_es_injection_risk(text: str) -> tuple[str, list[str]]:
-    """Classify prompt-injection-like patterns in ES input.
-
-    Returns:
-        tuple[risk_level, reasons]
-        risk_level: "none" | "medium" | "high"
-    """
-    if not text:
-        return "none", []
-
-    normalized = text.lower()
-    reasons: list[str] = []
-    risk = "none"
-    
-    def _matches(patterns: list[str], haystack: str = text) -> bool:
-        return any(
-            _re.search(pattern, haystack, flags=_re.IGNORECASE | _re.MULTILINE)
-            for pattern in patterns
-        )
-
-    high_patterns = [
-        (r"ignore\s+(all|any|previous|above)\s+instructions", "英語で無視命令"),
-        (r"(system|developer)\s+prompt", "システム/開発者プロンプト要求"),
-        (r"(reveal|show|print).*(prompt|instruction|secret|api key|token)", "内部情報の開示要求"),
-        (r"(what|which).*(model|provider).*(are you|using)", "モデル/プロバイダ情報の要求"),
-        (r"(model name|provider name|deployment name)", "モデル名の要求"),
-        (r"これまでの指示を無視", "日本語の無視命令"),
-        (r"(システム|開発者).*(プロンプト|指示)", "内部プロンプトへの言及"),
-        (r"(内部|機密).*(表示|開示|出力)", "内部情報の開示要求"),
-        (r"(あなた|君).*(モデル|model|provider).*(教えて|表示|開示|出力)", "モデル情報の開示要求"),
-        (r"(モデル名|使用モデル|利用モデル|プロバイダ名).*(教えて|表示|開示|出力)", "モデル名の開示要求"),
-    ]
-    medium_patterns = [
-        (r"```", "コードブロック記法"),
-        (r"<\s*/?\s*(system|assistant|user|prompt|instructions?)\s*>", "XML風タグ"),
-        (r"^\s*(system|assistant|user|human)\s*:", "ロール接頭辞"),
-        (r"(step by step|chain of thought|cot)", "推論開示要求"),
-        (r"(前の命令|上記の指示).*(従わず|無視)", "命令上書きの試行"),
-    ]
-
-    for pattern, reason in high_patterns:
-        if _re.search(pattern, normalized, flags=_re.IGNORECASE | _re.MULTILINE):
-            reasons.append(reason)
-
-    reveal_verbs = [
-        r"(reveal|show|print|dump|display|extract|exfiltrate|leak)",
-        r"(表示|見せ|開示|出力|抜き出|取得|抽出|漏えい|教えて)",
-    ]
-    reference_targets = [
-        r"(reference\s*es|参考\s*es|参考文章|例文|模範解答|通過es)",
-    ]
-    prompt_targets = [
-        r"(prompt|instruction|secret|api key|token|password|credential)",
-        r"(プロンプト|指示|機密|秘密|apiキー|トークン|認証情報|ログイン情報)",
-    ]
-    pii_targets = [
-        r"(個人情報|氏名|名前|メールアドレス|email|住所|電話番号|phone number|password|パスワード|ログインid|login id)",
-    ]
-    sql_patterns = [
-        r"\bselect\b",
-        r"\bunion\b",
-        r"\binformation_schema\b",
-        r"\bsqlite_master\b",
-        r"\bpg_[a-z_]+\b",
-        r"\bfrom\b",
-        r"\bwhere\b",
-    ]
-    execution_targets = [
-        r"(function call|tool call|use tool|open.*browser|run.*terminal|run.*psql|run.*sql|use.*database|use.*shell|use.*cli)",
-        r"((ツール|ブラウザ|ターミナル|端末|データベース|sql\s*editor|シェル|コマンド).*(使って|実行して|叩いて|開いて)|psqlを実行)",
-    ]
-
-    if _matches(reference_targets) and _matches(reveal_verbs):
-        reasons.append("参考ESの開示要求")
-    if _matches(prompt_targets) and _matches(reveal_verbs):
-        reasons.append("内部情報の開示要求")
-    if _matches(execution_targets):
-        reasons.append("外部機能の実行誘導")
-    if _matches(sql_patterns) and (_matches(reveal_verbs) or _matches(pii_targets) or _matches([r"\busers?\b", r"会員", r"応募者"])):
-        reasons.append("SQLによる情報抽出要求")
-    if _matches(pii_targets) and (_matches(reveal_verbs) or _matches(sql_patterns)):
-        reasons.append("個人情報の抽出要求")
-
-    if reasons:
-        return "high", reasons
-
-    for pattern, reason in medium_patterns:
-        if _re.search(pattern, text, flags=_re.IGNORECASE | _re.MULTILINE):
-            reasons.append(reason)
-
-    if reasons:
-        risk = "medium"
-
-    return risk, reasons
-
-
-def sanitize_user_prompt_text(
-    text: str,
-    *,
-    max_length: int = 5000,
-    rich_text: bool = False,
-) -> str:
-    risk, reasons = detect_es_injection_risk(text)
-    if risk == "high":
-        raise PromptSafetyError(reasons)
-    if rich_text:
-        return sanitize_es_content(text, max_length=max_length)
-    return sanitize_prompt_input(text, max_length=max_length)
-
-# Global clients for connection pooling
+# Global clients for connection pooling (mutable state stays here)
 _anthropic_client: Optional[AsyncAnthropic] = None
 _anthropic_client_rag: Optional[AsyncAnthropic] = None
 _openai_client: Optional[openai.AsyncOpenAI] = None
@@ -228,56 +78,9 @@ _google_http_client_rag: Optional[httpx.AsyncClient] = None
 # Thread-safe lock for client initialization
 _client_lock = asyncio.Lock()
 
-
-@dataclass
-class CircuitBreaker:
-    """Circuit breaker to prevent cascading failures."""
-
-    failures: int = 0
-    last_failure: Optional[datetime] = None
-    threshold: int = 3
-    reset_timeout: timedelta = field(default_factory=lambda: timedelta(minutes=5))
-
-    def is_open(self) -> bool:
-        """Check if circuit is open (should skip this provider)."""
-        if self.failures < self.threshold:
-            return False
-        if (
-            self.last_failure
-            and datetime.now() - self.last_failure > self.reset_timeout
-        ):
-            self.reset()
-            return False
-        return True
-
-    def record_failure(self):
-        """Record a failure."""
-        self.failures += 1
-        self.last_failure = datetime.now()
-
-    def record_success(self):
-        """Record a success - reset circuit."""
-        self.reset()
-
-    def reset(self):
-        """Reset the circuit breaker."""
-        self.failures = 0
-        self.last_failure = None
-
-
 # Circuit breakers for each provider
 _anthropic_circuit = CircuitBreaker()
 _openai_circuit = CircuitBreaker()
-
-
-LLMProvider = Literal["anthropic", "openai", "google"]
-LLMModel: TypeAlias = str
-ResponseFormat = Literal["json_object", "json_schema", "text"]
-
-@dataclass(frozen=True)
-class ResolvedModelTarget:
-    provider: LLMProvider
-    actual_model: str
 
 
 async def get_anthropic_client(for_rag: bool = False) -> AsyncAnthropic:
@@ -335,35 +138,7 @@ async def get_google_http_client(for_rag: bool = False) -> httpx.AsyncClient:
             _google_http_client = httpx.AsyncClient(timeout=timeout)
         return _google_http_client
 
-# Feature-based model configuration (loaded from settings / .env.local)
-def _build_model_config() -> dict[str, LLMModel]:
-    """Build MODEL_CONFIG from environment-configurable settings."""
-    return {
-        "es_review": settings.model_es_review,
-        "gakuchika": settings.model_gakuchika,
-        "motivation": settings.model_motivation,
-        "interview": settings.model_interview,
-        "interview_feedback": settings.model_interview_feedback,
-        "gakuchika_draft": settings.model_gakuchika_draft,
-        "motivation_draft": settings.model_motivation_draft,
-        "selection_schedule": settings.model_selection_schedule,
-        "company_info": settings.model_company_info,
-        "rag_query_expansion": settings.model_rag_query_expansion,
-        "rag_hyde": settings.model_rag_hyde,
-        "rag_classify": settings.model_rag_classify,
-    }
-
-
-# Lazy-initialized singleton
-_model_config: dict[str, LLMModel] | None = None
-
-
-def get_model_config() -> dict[str, LLMModel]:
-    """Get MODEL_CONFIG (lazy-init on first access)."""
-    global _model_config
-    if _model_config is None:
-        _model_config = _build_model_config()
-    return _model_config
+# (model config functions moved to llm_model_routing; imported above)
 
 # Feature name mapping for error messages and logs
 FEATURE_NAMES = {
@@ -393,40 +168,7 @@ _DEBUG_ONLY_FEATURES = {
 }
 
 
-def get_model_display_name(model: str) -> str:
-    """モデルIDを読みやすい表示名に変換。"""
-    model_lower = model.lower()
-    if "claude" in model_lower:
-        if "haiku" in model_lower:
-            return "Claude Haiku 4.5"
-        elif "sonnet" in model_lower:
-            return "Claude Sonnet 4.6"
-        elif "opus" in model_lower:
-            return "Claude Opus 4"
-        return f"Claude ({model})"
-    if model_lower.startswith("gemini-3.1-pro-preview"):
-        return "Gemini 3 Pro Preview"
-    if model_lower.startswith("gemini"):
-        return f"Gemini ({model})"
-    if "gpt-5" in model_lower:
-        if model_lower.startswith("gpt-5.4"):
-            if "nano" in model_lower:
-                return "GPT-5.4 Nano"
-            if "mini" in model_lower:
-                return "GPT-5.4-mini"
-            return "GPT-5.4"
-        if "mini" in model_lower:
-            return "GPT-5.4-mini"
-        if "nano" in model_lower:
-            return "GPT-5.4 Nano"
-        return "GPT-5"
-    if "gpt-4o" in model_lower:
-        if "mini" in model_lower:
-            return "GPT-4o Mini"
-        return "GPT-4o"
-    if "gpt-4" in model_lower:
-        return f"GPT-4 ({model})"
-    return model
+# (get_model_display_name moved to llm_model_routing; imported above)
 
 
 def _log(feature: str, message: str, marker: str = ""):
@@ -455,88 +197,8 @@ def _provider_display_name(provider: str) -> str:
     }.get(provider, provider)
 
 
-def _resolve_openai_model(feature: str, model_hint: Optional[str] = None) -> str:
-    """機能とオプションのヒントに基づいてOpenAIモデル名を解決。"""
-    if model_hint in ("gpt-nano", "gpt-5-nano", "gpt-5.4-nano"):
-        return settings.gpt_nano_model
-    if model_hint and model_hint not in (
-        "openai",
-        "gpt",
-        "gpt-fast",
-        "low-cost",
-        "gpt-4o-mini",
-        "gpt-5.4-mini",
-    ):
-        return model_hint
-    if model_hint == "gpt":
-        return settings.gpt_model
-    if model_hint == "low-cost":
-        return settings.low_cost_review_model
-    return settings.gpt_fast_model
-
-
-def _resolve_model_target(
-    feature: str,
-    model_hint: Optional[LLMModel] = None,
-) -> ResolvedModelTarget:
-    """機能設定または明示モデルIDから呼び出し先 provider / model を解決する。"""
-    requested_model = model_hint or get_model_config().get(feature, "claude-sonnet")
-    model_lower = str(requested_model or "").strip().lower()
-
-    if requested_model == "claude-sonnet":
-        return ResolvedModelTarget("anthropic", settings.claude_sonnet_model)
-    if requested_model == "claude-haiku":
-        return ResolvedModelTarget("anthropic", settings.claude_haiku_model)
-    if requested_model == "gpt":
-        return ResolvedModelTarget("openai", settings.gpt_model)
-    if requested_model == "gpt-fast":
-        return ResolvedModelTarget("openai", settings.gpt_fast_model)
-    if requested_model == "gpt-nano":
-        return ResolvedModelTarget("openai", settings.gpt_nano_model)
-    if requested_model == "low-cost":
-        return ResolvedModelTarget("openai", settings.low_cost_review_model)
-    if requested_model == "gemini":
-        return ResolvedModelTarget("google", settings.gemini_model)
-    if requested_model == "openai":
-        return ResolvedModelTarget("openai", settings.gpt_fast_model)
-    if requested_model == "google":
-        return ResolvedModelTarget("google", settings.gemini_model)
-    if model_lower.startswith("claude"):
-        return ResolvedModelTarget("anthropic", str(requested_model))
-    if model_lower.startswith("gemini"):
-        return ResolvedModelTarget("google", str(requested_model))
-    if requested_model == "cohere" or model_lower.startswith("command-"):
-        raise ValueError(f"Unsupported model for this app: {requested_model}")
-
-    resolved_openai_model = _resolve_openai_model(feature, model_hint=str(requested_model))
-    return ResolvedModelTarget("openai", resolved_openai_model)
-
-
-def resolve_feature_model_metadata(
-    feature: str, requested_model: LLMModel | None = None
-) -> tuple[str, str]:
-    """現在の feature 設定から provider と model 名を返す。"""
-    target = _resolve_model_target(feature, requested_model)
-    provider = "claude" if target.provider == "anthropic" else target.provider
-    return provider, target.actual_model
-
-
-def _provider_has_api_key(provider: LLMProvider) -> bool:
-    return {
-        "anthropic": bool(settings.anthropic_api_key),
-        "openai": bool(settings.openai_api_key),
-        "google": bool(settings.google_api_key),
-    }[provider]
-
-
-def _feature_cross_fallback_model(feature: str, provider: LLMProvider) -> Optional[LLMModel]:
-    """互換のため残すが、常に None（別プロバイダーへの自動切替は行わない）。
-
-    各機能は同一プロバイダー内のリトライ・修復（例: ES 添削・JSON 修復）か、
-    クライアント側の再試行に委ねる。
-    """
-    _ = (feature, provider)
-    return None
+# (_resolve_openai_model, _resolve_model_target, resolve_feature_model_metadata,
+#  _provider_has_api_key, _feature_cross_fallback_model moved to llm_model_routing; imported above)
 
 
 def _requires_json_prompt_hint(provider: LLMProvider) -> bool:
@@ -757,239 +419,8 @@ class OpenAIResponsesRefusalError(RuntimeError):
     """Structured Outputs refusal surfaced by the Responses API."""
 
 
-def merge_llm_usage_tokens(
-    accumulator: dict[str, int], usage: dict[str, int] | None
-) -> None:
-    """Merge OpenAI-style usage dicts (input_tokens, output_tokens, etc.) in place."""
-    if not usage:
-        return
-    for key, value in usage.items():
-        accumulator[key] = accumulator.get(key, 0) + int(value)
-
-
-_DEFAULT_LLM_PRICE_CATALOG: dict[str, dict[str, float]] = {
-    "gpt-5.4": {
-        "input_per_mtok_usd": 2.5,
-        "cached_input_per_mtok_usd": 0.25,
-        "output_per_mtok_usd": 15.0,
-    },
-    # OpenAI GPT-5.4 mini — Standard / Short context（要: 公式改定時は要確認）
-    "gpt-5.4-mini": {
-        "input_per_mtok_usd": 0.75,
-        "cached_input_per_mtok_usd": 0.075,
-        "output_per_mtok_usd": 4.5,
-    },
-    # GPT-5.4 nano — 公式 Standard（改定時は要確認）
-    "gpt-5.4-nano": {
-        "input_per_mtok_usd": 0.20,
-        "cached_input_per_mtok_usd": 0.02,
-        "output_per_mtok_usd": 1.25,
-    },
-    "claude-sonnet-4-6": {
-        "input_per_mtok_usd": 3.0,
-        "cached_input_per_mtok_usd": 0.3,
-        "output_per_mtok_usd": 15.0,
-    },
-    # Anthropic Haiku 4.5 — 公式掲載の標準 I/O・cache read 相当（要: 公式改定時は要確認）
-    "claude-haiku-4-5": {
-        "input_per_mtok_usd": 1.0,
-        "cached_input_per_mtok_usd": 0.10,
-        "output_per_mtok_usd": 5.0,
-    },
-    "gemini-3.1-pro-preview": {
-        "input_per_mtok_usd": 2.0,
-        "cached_input_per_mtok_usd": 0.2,
-        "output_per_mtok_usd": 12.0,
-    },
-}
-
-
-def _normalize_usage_summary(usage: dict[str, Any] | None) -> dict[str, int] | None:
-    if not isinstance(usage, dict):
-        return None
-    return {
-        "input_tokens": int(usage.get("input_tokens") or 0),
-        "output_tokens": int(usage.get("output_tokens") or 0),
-        "reasoning_tokens": int(usage.get("reasoning_tokens") or 0),
-        "cached_input_tokens": int(usage.get("cached_input_tokens") or 0),
-    }
-
-
-def _canonical_price_model(model_id: str | None) -> str:
-    mid = (model_id or "").strip().lower()
-    if not mid:
-        return ""
-    nano_ref = str(settings.gpt_nano_model).strip().lower()
-    if mid == nano_ref or "gpt-5.4-nano" in mid or (
-        "nano" in mid and mid.startswith("gpt-5.4")
-    ):
-        return "gpt-5.4-nano"
-    if mid == str(settings.gpt_model).strip().lower() or (
-        mid.startswith("gpt-5.4") and "mini" not in mid and "nano" not in mid
-    ):
-        return "gpt-5.4"
-    if mid == str(settings.gpt_fast_model).strip().lower() or "gpt-5.4-mini" in mid:
-        return "gpt-5.4-mini"
-    if "claude-sonnet-4-6" in mid or mid == str(settings.claude_sonnet_model).strip().lower():
-        return "claude-sonnet-4-6"
-    if (
-        "haiku" in mid
-        or mid == "claude-haiku"
-        or mid == str(settings.claude_haiku_model).strip().lower()
-    ):
-        return "claude-haiku-4-5"
-    if "gemini-3.1-pro-preview" in mid or "gemini-3-pro-preview" in mid:
-        return "gemini-3.1-pro-preview"
-    return mid
-
-
-@lru_cache(maxsize=1)
-def _load_price_overrides() -> dict[str, dict[str, float]]:
-    raw = os.getenv("LLM_PRICE_OVERRIDES_JSON", "").strip()
-    if not raw:
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        logger.warning("event=llm_cost_config status=invalid_overrides_json")
-        return {}
-    if not isinstance(parsed, dict):
-        logger.warning("event=llm_cost_config status=invalid_overrides_type")
-        return {}
-
-    overrides: dict[str, dict[str, float]] = {}
-    for model_id, value in parsed.items():
-        if not isinstance(model_id, str) or not isinstance(value, dict):
-            continue
-        if "input_per_mtok_usd" not in value or "output_per_mtok_usd" not in value:
-            continue
-        try:
-            overrides[_canonical_price_model(model_id)] = {
-                "input_per_mtok_usd": float(value["input_per_mtok_usd"]),
-                "cached_input_per_mtok_usd": float(
-                    value.get("cached_input_per_mtok_usd", value["input_per_mtok_usd"])
-                ),
-                "output_per_mtok_usd": float(value["output_per_mtok_usd"]),
-            }
-        except (TypeError, ValueError):
-            continue
-    return overrides
-
-
-def _resolve_price_entry(model_id: str | None) -> dict[str, float] | None:
-    canonical = _canonical_price_model(model_id)
-    overrides = _load_price_overrides()
-    if canonical in overrides:
-        return overrides[canonical]
-    if canonical == "gpt-5.4-mini":
-        pin = settings.openai_price_gpt_5_4_mini_input_per_mtok_usd
-        pout = settings.openai_price_gpt_5_4_mini_output_per_mtok_usd
-        if pin is not None and pout is not None:
-            return {
-                "input_per_mtok_usd": pin,
-                "cached_input_per_mtok_usd": settings.openai_price_gpt_5_4_mini_cached_input_per_mtok_usd
-                if settings.openai_price_gpt_5_4_mini_cached_input_per_mtok_usd is not None
-                else pin,
-                "output_per_mtok_usd": pout,
-            }
-    if canonical == "gpt-5.4-nano":
-        pin = settings.openai_price_gpt_5_4_nano_input_per_mtok_usd
-        pout = settings.openai_price_gpt_5_4_nano_output_per_mtok_usd
-        if pin is not None and pout is not None:
-            return {
-                "input_per_mtok_usd": pin,
-                "cached_input_per_mtok_usd": settings.openai_price_gpt_5_4_nano_cached_input_per_mtok_usd
-                if settings.openai_price_gpt_5_4_nano_cached_input_per_mtok_usd is not None
-                else pin,
-                "output_per_mtok_usd": pout,
-            }
-    return _DEFAULT_LLM_PRICE_CATALOG.get(canonical)
-
-
-def estimate_llm_usage_cost_usd(model_id: str, usage: dict[str, int]) -> float | None:
-    entry = _resolve_price_entry(model_id)
-    normalized_usage = _normalize_usage_summary(usage)
-    if entry is None or normalized_usage is None:
-        return None
-    inp = normalized_usage["input_tokens"]
-    out = normalized_usage["output_tokens"]
-    cached = normalized_usage["cached_input_tokens"]
-    non_cached = max(0, inp - cached)
-    reasoning = normalized_usage["reasoning_tokens"]
-    pin = entry["input_per_mtok_usd"]
-    pout = entry["output_per_mtok_usd"]
-    pcached = entry.get("cached_input_per_mtok_usd", pin)
-    out_total = out + reasoning
-    return (
-        (non_cached / 1_000_000.0) * pin
-        + (cached / 1_000_000.0) * pcached
-        + (out_total / 1_000_000.0) * pout
-    )
-
-
-def estimate_openai_usage_cost_usd(model_id: str, usage: dict[str, int]) -> float | None:
-    return estimate_llm_usage_cost_usd(model_id, usage)
-
-
-def _should_log_llm_cost() -> bool:
-    return bool(settings.llm_usage_cost_log)
-
-
-def _should_log_llm_cost_debug() -> bool:
-    return bool(settings.llm_usage_cost_debug_log)
-
-
-def reset_request_llm_cost_summary() -> None:
-    _request_llm_cost_summary_var.set(None)
-
-
-def _merge_usage_status(current: str | None, incoming: str) -> str:
-    if current in {None, "", "ok"}:
-        return incoming
-    if incoming == "ok":
-        return current
-    if current == incoming:
-        return current
-    return "partial_unavailable"
-
-
-def _record_request_llm_cost_summary(
-    *,
-    feature: str,
-    resolved_model: str,
-    normalized_usage: dict[str, int],
-    usage_status: str,
-    est: float | None,
-) -> None:
-    summary = _request_llm_cost_summary_var.get()
-    if summary is None:
-        summary = {
-            "feature": feature,
-            "input_tokens_total": 0,
-            "output_tokens_total": 0,
-            "reasoning_tokens_total": 0,
-            "cached_input_tokens_total": 0,
-            "est_usd_total": 0.0,
-            "est_jpy_total": None,
-            "models_used": [],
-            "usage_status": "ok",
-        }
-
-    summary["feature"] = feature or summary.get("feature") or "unknown"
-    summary["input_tokens_total"] += int(normalized_usage.get("input_tokens") or 0)
-    summary["output_tokens_total"] += int(normalized_usage.get("output_tokens") or 0)
-    summary["reasoning_tokens_total"] += int(normalized_usage.get("reasoning_tokens") or 0)
-    summary["cached_input_tokens_total"] += int(normalized_usage.get("cached_input_tokens") or 0)
-    if est is not None:
-        summary["est_usd_total"] += float(est)
-        jpy_rate = settings.llm_cost_usd_to_jpy_rate
-        if jpy_rate is not None and jpy_rate > 0:
-            summary["est_jpy_total"] = (summary.get("est_jpy_total") or 0.0) + (float(est) * jpy_rate)
-    summary["usage_status"] = _merge_usage_status(str(summary.get("usage_status") or "ok"), usage_status)
-    models_used = summary.setdefault("models_used", [])
-    if resolved_model and resolved_model not in models_used:
-        models_used.append(resolved_model)
-    _request_llm_cost_summary_var.set(summary)
+# (most cost tracking functions moved to llm_usage_cost; imported above)
+# consume_request_llm_cost_summary is kept here (differs from extraction module)
 
 
 def consume_request_llm_cost_summary(feature: str | None = None) -> dict[str, Any] | None:
@@ -999,8 +430,9 @@ def consume_request_llm_cost_summary(feature: str | None = None) -> dict[str, An
         return None
     if feature:
         summary["feature"] = feature
+    resolved_feature = summary.get("feature") or feature or "unknown"
     result: dict[str, Any] = {
-        "feature": summary.get("feature") or "unknown",
+        "feature": resolved_feature,
         "input_tokens_total": int(summary.get("input_tokens_total") or 0),
         "output_tokens_total": int(summary.get("output_tokens_total") or 0),
         "reasoning_tokens_total": int(summary.get("reasoning_tokens_total") or 0),
@@ -1018,52 +450,6 @@ def consume_request_llm_cost_summary(feature: str | None = None) -> dict[str, An
     if settings.debug:
         return result
     return None
-
-
-def _append_llm_cost_estimate_parts(parts: list[str], est: float | None) -> None:
-    if est is None:
-        return
-    parts.append(f"est_usd={est:.6f}")
-    jpy_rate = settings.llm_cost_usd_to_jpy_rate
-    if jpy_rate is not None and jpy_rate > 0:
-        parts.append(f"est_jpy={est * jpy_rate:.2f}")
-
-
-def _format_llm_cost_kv_line(
-    *,
-    scope: Literal["call", "request"],
-    feature: str,
-    provider: str,
-    resolved_model: str,
-    call_kind: str,
-    normalized_usage: dict[str, int],
-    usage_status: str,
-    est: float | None,
-    trace_id: str | None = None,
-    source_url: str | None = None,
-) -> str:
-    parts: list[str] = [
-        "event=llm_cost",
-        f"scope={scope}",
-        f"feature={feature}",
-        f"provider={provider}",
-        f"resolved_model={resolved_model}",
-        f"call_kind={call_kind}",
-        f"input_tokens={normalized_usage['input_tokens']}",
-        f"output_tokens={normalized_usage['output_tokens']}",
-        f"reasoning_tokens={normalized_usage['reasoning_tokens']}",
-        f"cached_input_tokens={normalized_usage['cached_input_tokens']}",
-        f"usage_status={usage_status}",
-    ]
-    if source_url:
-        su = source_url.strip()
-        if len(su) > 120:
-            su = su[:120]
-        parts.append(f"source_url={su}")
-    _append_llm_cost_estimate_parts(parts, est)
-    if trace_id:
-        parts.append(f"trace_id={trace_id}")
-    return " ".join(parts)
 
 
 def log_llm_cost_event(
@@ -1453,7 +839,7 @@ async def _repair_json_with_same_model(
     )
 
 
-# JSON 修復は OpenAI の gpt-fast（mini）または gpt-nano へ集約。同一モデルでの max_tokens 段階リトライは行わない。
+# JSON 修復は OpenAI の gpt-mini へ集約。同一モデルでの max_tokens 段階リトライは行わない。
 REPAIR_JSON_OPENAI_MAX_TOKENS = 1500
 
 
@@ -1466,7 +852,7 @@ async def _repair_json_with_openai_model(
     use_responses_api: bool = False,
     parse_retry_instructions: Optional[str] = None,
 ) -> LLMResult | None:
-    """OpenAI の `gpt-fast` / `gpt-nano` 等で JSON を修復。キー未設定時は None。"""
+    """OpenAI の `gpt-mini` 等で JSON を修復。キー未設定時は None。"""
     if not settings.openai_api_key:
         return None
     repair_source = (raw_response or "").strip()
@@ -1639,7 +1025,7 @@ async def call_llm_with_error(
         feature: 自動モデル選択用の機能名
         disable_fallback: Trueの場合、別プロバイダーへのフォールバックを無効化
         retry_on_parse: True のとき、初回 JSON パース失敗後は同一モデルでの max_tokens 段階リトライは行わず、
-            OpenAI キーがあれば修復を試す（選考スケジュールは `gpt-nano`、それ以外は `gpt-fast`・`REPAIR_JSON_OPENAI_MAX_TOKENS`）。
+            OpenAI キーがあれば修復を試す（`gpt-mini`・`REPAIR_JSON_OPENAI_MAX_TOKENS`）。
 
     Returns:
         LLMResult: 成功ステータス、データ、オプションのエラー詳細を含む
@@ -1785,12 +1171,10 @@ async def call_llm_with_error(
             repair_source = raw_response or ""
             if repair_source:
                 if settings.openai_api_key:
-                    repair_llm: LLMModel = "gpt-nano" if feature == "selection_schedule" else "gpt-fast"
+                    repair_llm: LLMModel = "gpt-mini"
                     _log(
                         feature,
-                        "JSON解析失敗、GPT nano で修復を試行"
-                        if repair_llm == "gpt-nano"
-                        else "JSON解析失敗、GPT fast（mini）で修復を試行",
+                        "JSON解析失敗、GPT mini で修復を試行",
                         WARNING,
                     )
                     openai_repair = await _repair_json_with_openai_model(
@@ -2681,35 +2065,6 @@ def _extract_openai_chat_usage_summary(response: Any) -> dict[str, int]:
     }
 
 
-def _openai_reasoning_effort(
-    *,
-    feature: str,
-    response_format: ResponseFormat,
-    model: str | None = None,
-    plain_text_rewrite: bool = False,
-) -> str | None:
-    """Reasoning effort for OpenAI Responses API (es_review only).
-
-    Plain-text rewrites use ``none`` to avoid burning the output budget on
-    hidden reasoning tokens before any visible text (see OpenAI reasoning guide).
-
-    ``json_schema`` (Structured Outputs) では ``reasoning`` が unsupported になりやすいため付与しない。
-    従来は API エラー後に同パラメータなしで再試行していたが、無駄な往復を避ける。
-    """
-    if feature != "es_review":
-        return None
-    if plain_text_rewrite:
-        return "none"
-    if response_format == "json_schema":
-        return None
-    model_name = (model or "").strip().lower()
-    if "gpt-5.4-mini" in model_name:
-        return "minimal"
-    if response_format == "text":
-        return "minimal"
-    return "minimal"
-
-
 def _openai_incomplete_due_to_max_output(response: Any) -> bool:
     if getattr(response, "status", None) != "incomplete":
         return False
@@ -2964,14 +2319,6 @@ async def _call_openai_responses(
         "input": input_messages,
         "max_output_tokens": max_tokens,
     }
-    reasoning_effort = _openai_reasoning_effort(
-        feature=feature,
-        response_format=response_format,
-        model=model,
-        plain_text_rewrite=False,
-    )
-    if reasoning_effort:
-        request_kwargs["reasoning"] = {"effort": reasoning_effort}
     if _openai_supports_temperature(model):
         request_kwargs["temperature"] = temperature
     if text_format:
@@ -2984,24 +2331,7 @@ async def _call_openai_responses(
 
     for attempt in range(2):
         request_kwargs["max_output_tokens"] = effective_max
-        try:
-            response = await client.responses.create(**request_kwargs)
-        except OpenAIAPIError as e:
-            if (
-                reasoning_effort
-                and attempt == 0
-                and "reasoning" in str(e).lower()
-                and "unsupported" in str(e).lower()
-            ):
-                request_kwargs.pop("reasoning", None)
-                _log(
-                    feature,
-                    "OpenAI reasoning パラメータが拒否されたため省略して再試行します",
-                    WARNING,
-                )
-                response = await client.responses.create(**request_kwargs)
-            else:
-                raise
+        response = await client.responses.create(**request_kwargs)
         _log_openai_usage_summary(feature, response)
         usage_summary = _extract_openai_usage_summary(response)
 
@@ -3062,14 +2392,7 @@ async def _call_openai_responses_raw_text(
     normalized_messages, _ = _normalize_chat_messages(messages, user_message)
     input_messages = [{"role": "system", "content": system_prompt}] + normalized_messages
 
-    reasoning_effort = _openai_reasoning_effort(
-        feature=feature,
-        response_format="text",
-        model=model,
-        plain_text_rewrite=True,
-    )
-
-    async def _create(max_out: int, with_reasoning: bool) -> Any:
+    async def _create(max_out: int) -> Any:
         kwargs: dict[str, Any] = {
             "model": model,
             "input": input_messages,
@@ -3078,8 +2401,6 @@ async def _call_openai_responses_raw_text(
         }
         if feature == "es_review":
             kwargs["verbosity"] = "medium"
-        if with_reasoning and reasoning_effort:
-            kwargs["reasoning"] = {"effort": reasoning_effort}
         if _openai_supports_temperature(model):
             kwargs["temperature"] = temperature
         return await client.responses.create(**kwargs)
@@ -3087,27 +2408,9 @@ async def _call_openai_responses_raw_text(
     effective_max = max_tokens
     usage_summary: dict[str, int] | None = None
     response: Any = None
-    use_reasoning = bool(reasoning_effort)
 
     for attempt in range(2):
-        try:
-            response = await _create(effective_max, use_reasoning)
-        except OpenAIAPIError as e:
-            err = str(e).lower()
-            if use_reasoning and (
-                "reasoning" in err
-                or "unsupported" in err
-                or "invalid" in err
-            ):
-                use_reasoning = False
-                _log(
-                    feature,
-                    "OpenAI reasoning を省略してテキスト生成を再試行します",
-                    WARNING,
-                )
-                response = await _create(effective_max, False)
-            else:
-                raise
+        response = await _create(effective_max)
 
         _log_openai_usage_summary(feature, response)
         usage_summary = _extract_openai_usage_summary(response)

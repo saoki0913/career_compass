@@ -138,9 +138,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GPT_MODEL"),
     )
 
-    gpt_fast_model: str = Field(
+    gpt_mini_model: str = Field(
         default="gpt-5.4-mini",
-        validation_alias=AliasChoices("GPT_FAST_MODEL", "OPENAI_MODEL"),
+        validation_alias=AliasChoices("GPT_MINI_MODEL", "GPT_FAST_MODEL", "OPENAI_MODEL"),
     )
 
     gpt_nano_model: str = Field(
@@ -156,8 +156,9 @@ class Settings(BaseSettings):
     google_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
     # 低コスト添削モード。ユーザー向けにはモデル名を出さず、コスト重視モードとして扱う。
+    # v5: Claude Haiku 4.5 に変更（gpt-5.4-mini 比で under_min 解消・companyless 422 解消）
     low_cost_review_model: str = Field(
-        default="gpt-5.4-mini",
+        default="claude-haiku-4-5-20251001",
         validation_alias=AliasChoices("LOW_COST_REVIEW_MODEL"),
     )
 
@@ -165,14 +166,14 @@ class Settings(BaseSettings):
     # ここには基本的に stable alias だけを保存する。
     # 推奨 alias:
     #   - claude-sonnet / claude-haiku
-    #   - gpt / gpt-fast / gpt-nano
+    #   - gpt / gpt-mini / gpt-nano
     #   - gemini
     #   - low-cost
     # 直指定 model ID や旧 alias（openai / google）も後方互換で解決する。
     model_es_review: str = "claude-sonnet"           # MODEL_ES_REVIEW
-    model_gakuchika: str = "gpt-fast"                # MODEL_GAKUCHIKA
-    model_motivation: str = "gpt-fast"               # MODEL_MOTIVATION
-    model_interview: str = "gpt-fast"                # MODEL_INTERVIEW
+    model_gakuchika: str = "gpt-mini"                # MODEL_GAKUCHIKA
+    model_motivation: str = "gpt-mini"               # MODEL_MOTIVATION
+    model_interview: str = "gpt-mini"                # MODEL_INTERVIEW
     model_interview_feedback: str = Field(
         default="claude-sonnet",
         validation_alias=AliasChoices("MODEL_INTERVIEW_FEEDBACK"),
@@ -185,11 +186,11 @@ class Settings(BaseSettings):
         default="claude-sonnet",
         validation_alias=AliasChoices("MODEL_MOTIVATION_DRAFT"),
     )
-    # 選考スケジュール抽出は呼び出し回数が多いため、コスト優先で GPT-5.4 nano（gpt-nano）を既定にする。
-    model_selection_schedule: str = "gpt-nano"       # MODEL_SELECTION_SCHEDULE
-    model_company_info: str = "gpt-fast"             # MODEL_COMPANY_INFO
-    model_rag_query_expansion: str = "gpt-fast"      # MODEL_RAG_QUERY_EXPANSION（GPT-5.4 mini）
-    model_rag_hyde: str = "gpt-fast"                 # MODEL_RAG_HYDE（GPT-5.4 mini）
+    # 選考スケジュール抽出は成功率優先で GPT-5.4 mini（gpt-mini）を既定にする。
+    model_selection_schedule: str = "gpt-mini"       # MODEL_SELECTION_SCHEDULE
+    model_company_info: str = "gpt-mini"             # MODEL_COMPANY_INFO
+    model_rag_query_expansion: str = "gpt-mini"      # MODEL_RAG_QUERY_EXPANSION（GPT-5.4 mini）
+    model_rag_hyde: str = "gpt-mini"                 # MODEL_RAG_HYDE（GPT-5.4 mini）
     # RAG 補助 LLM で nano なのは分類のみ。チャンク content_type 推定（短い JSON）。再ランキングは cross-encoder（reranker.py）
     model_rag_classify: str = "gpt-nano"             # MODEL_RAG_CLASSIFY（GPT-5.4 nano）
 
@@ -283,11 +284,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("RAG_PDF_MAX_PAGES_FREE"),
     )
     rag_pdf_max_pages_standard: int = Field(
-        default=60,
+        default=100,
         validation_alias=AliasChoices("RAG_PDF_MAX_PAGES_STANDARD"),
     )
     rag_pdf_max_pages_pro: int = Field(
-        default=120,
+        default=200,
         validation_alias=AliasChoices("RAG_PDF_MAX_PAGES_PRO"),
     )
     # OpenAI PDF OCR 時に送る最大ページ数（≤ 上記取込上限）。OCR 負荷抑制用。
@@ -296,11 +297,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("RAG_PDF_GOOGLE_OCR_MAX_PAGES_FREE", "RAG_PDF_OCR_MAX_PAGES_FREE"),
     )
     rag_pdf_google_ocr_max_pages_standard: int = Field(
-        default=30,
+        default=50,
         validation_alias=AliasChoices("RAG_PDF_GOOGLE_OCR_MAX_PAGES_STANDARD", "RAG_PDF_OCR_MAX_PAGES_STANDARD"),
     )
     rag_pdf_google_ocr_max_pages_pro: int = Field(
-        default=60,
+        default=100,
         validation_alias=AliasChoices("RAG_PDF_GOOGLE_OCR_MAX_PAGES_PRO", "RAG_PDF_OCR_MAX_PAGES_PRO"),
     )
     rag_pdf_mistral_ocr_max_pages_free: int = Field(
@@ -308,11 +309,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("RAG_PDF_MISTRAL_OCR_MAX_PAGES_FREE"),
     )
     rag_pdf_mistral_ocr_max_pages_standard: int = Field(
-        default=10,
+        default=15,
         validation_alias=AliasChoices("RAG_PDF_MISTRAL_OCR_MAX_PAGES_STANDARD"),
     )
     rag_pdf_mistral_ocr_max_pages_pro: int = Field(
-        default=20,
+        default=30,
         validation_alias=AliasChoices("RAG_PDF_MISTRAL_OCR_MAX_PAGES_PRO"),
     )
     rag_pdf_ocr_timeout_seconds: int = Field(

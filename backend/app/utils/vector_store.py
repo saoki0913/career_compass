@@ -20,6 +20,7 @@ import hashlib
 from uuid import uuid4
 
 from app.config import settings
+from app.utils.secure_logger import get_logger
 from app.utils.embeddings import (
     EmbeddingBackend,
     generate_embedding,
@@ -32,6 +33,8 @@ from app.utils.content_types import CONTENT_TYPES, content_type_label, normalize
 from app.utils.content_classifier import classify_chunks
 from app.utils.cache import get_rag_cache, build_cache_key
 from app.utils.text_chunker import get_chunk_settings
+
+logger = get_logger(__name__)
 
 # ChromaDB persistent storage path
 CHROMA_PERSIST_DIR = Path(__file__).parent.parent.parent / "data" / "chroma"
@@ -182,7 +185,7 @@ def get_chroma_client() -> chromadb.PersistentClient:
                 allow_reset=True,
             ),
         )
-        print(f"[RAG保存] ✅ ChromaDB 初期化完了 ({CHROMA_PERSIST_DIR})")
+        logger.info("ChromaDB initialized (%s)", CHROMA_PERSIST_DIR)
 
     return _chroma_client
 
@@ -296,7 +299,7 @@ async def store_company_info(
     try:
         backend = _resolve_write_backend(backend)
         if backend is None:
-            print("[RAG保存] ❌ 埋め込みバックエンドが利用できません")
+            logger.error("No embedding backend available for store_company_info")
             return False
 
         # Delete existing entries for this company across related collections
@@ -309,8 +312,10 @@ async def store_company_info(
                 deletion_errors.append(f"{name}: {e}")
 
         if deletion_errors:
-            print(
-                f"[RAG保存] ⚠️ 削除エラー (会社ID: {company_id[:8]}...): {'; '.join(deletion_errors)}"
+            logger.warning(
+                "Deletion errors before insert (company_id: %s...): %s",
+                company_id[:8],
+                "; ".join(deletion_errors),
             )
 
         collection = get_company_collection(backend)
@@ -354,7 +359,7 @@ async def store_company_info(
             ids.append(doc_id)
 
         if not documents:
-            print(f"[RAG保存] ⚠️ 有効なチャンクなし (会社ID: {company_id[:8]}...)")
+            logger.warning("No valid chunks to store (company_id: %s...)", company_id[:8])
             return False
 
         # Generate embeddings
@@ -368,7 +373,7 @@ async def store_company_info(
         ]
 
         if not valid_items:
-            print(f"[RAG保存] ❌ 埋め込み生成失敗 (会社ID: {company_id[:8]}...)")
+            logger.error("Embedding generation failed (company_id: %s...)", company_id[:8])
             return False
 
         # Unpack valid items
@@ -382,8 +387,8 @@ async def store_company_info(
             embeddings=list(valid_embs),
         )
 
-        print(
-            f"[RAG保存] ✅ {len(valid_docs)}チャンク保存完了 (会社ID: {company_id[:8]}...)"
+        logger.info(
+            "Stored %d chunks (company_id: %s...)", len(valid_docs), company_id[:8]
         )
         schedule_bm25_update(company_id)
         cache = get_rag_cache()
@@ -392,7 +397,7 @@ async def store_company_info(
         return True
 
     except Exception as e:
-        print(f"[RAG保存] ❌ 企業情報保存エラー: {e}")
+        logger.error("store_company_info error: %s", e, exc_info=True)
         return False
 
 
@@ -423,7 +428,7 @@ async def search_company_context(
             backends=backends,
         )
     except Exception as e:
-        print(f"[RAG検索] ❌ 企業コンテキスト検索エラー: {e}")
+        logger.error("search_company_context error: %s", e, exc_info=True)
         return []
 
 
@@ -525,11 +530,11 @@ def delete_company_rag(
                 collection = _get_collection(name)
                 collection.delete(where={"company_id": company_id})
                 deleted_any = True
-        print(f"[RAG保存] ✅ RAGデータ削除完了 (会社ID: {company_id[:8]}...)")
+        logger.info("RAG data deleted (company_id: %s...)", company_id[:8])
         schedule_bm25_update(company_id)
         return deleted_any
     except Exception as e:
-        print(f"[RAG保存] ❌ RAGデータ削除エラー: {e}")
+        logger.error("delete_company_rag error: %s", e, exc_info=True)
         return False
 
 
@@ -578,7 +583,7 @@ async def store_full_text_content(
     _fail = {"success": False, "dominant_content_type": None, "secondary_content_types": []}
 
     if content_type and content_type not in CONTENT_TYPES:
-        print(f"[RAG保存] ⚠️ 無効なcontent_type: {content_type}")
+        logger.warning("Invalid content_type: %s", content_type)
         return _fail
 
     try:
@@ -587,7 +592,7 @@ async def store_full_text_content(
             raw_format = "text"
         backend = _resolve_write_backend(backend)
         if backend is None:
-            print("[RAG保存] ❌ フルテキスト保存用の埋め込みバックエンドなし")
+            logger.error("No embedding backend available for store_full_text_content")
             return _fail
         effective_type = content_type or content_channel or "corporate_site"
         chunk_size, chunk_overlap = get_chunk_settings(effective_type)
@@ -611,7 +616,7 @@ async def store_full_text_content(
             chunks = chunker.chunk_with_metadata(raw_text)
 
         if not chunks:
-            print(f"[RAG保存] ⚠️ チャンク生成なし (会社ID: {company_id[:8]}...)")
+            logger.warning("No chunks generated (company_id: %s...)", company_id[:8])
             return _fail
 
         # Add content_type and timestamp to each chunk's metadata
@@ -670,7 +675,7 @@ async def store_full_text_content(
         }
 
     except Exception as e:
-        print(f"[RAG保存] ❌ フルテキスト保存エラー: {e}")
+        logger.error("store_full_text_content error: %s", e, exc_info=True)
         return _fail
 
 
@@ -747,8 +752,8 @@ async def _store_content_by_source_url(
 
         if not documents:
             ct_ja = CONTENT_TYPE_JA.get(content_type, content_type)
-            print(
-                f"[RAG保存] ⚠️ 有効なチャンクなし: {ct_ja} (会社ID: {company_id[:8]}...)"
+            logger.warning(
+                "No valid chunks for %s (company_id: %s...)", ct_ja, company_id[:8]
             )
             return False
 
@@ -763,7 +768,7 @@ async def _store_content_by_source_url(
         ]
 
         if not valid_items:
-            print(f"[RAG保存] ❌ 埋め込み生成失敗 (会社ID: {company_id[:8]}...)")
+            logger.error("Embedding generation failed (company_id: %s...)", company_id[:8])
             return False
 
         valid_docs, valid_metas, valid_ids, valid_embs = zip(*valid_items)
@@ -782,9 +787,11 @@ async def _store_content_by_source_url(
             backend=backend,
             current_ingest_session_id=ingest_session_id,
         )
-        print(
-            f"[RAG保存] ✅ URL単位更新完了 {len(valid_docs)}チャンク保存 / "
-            f"旧{deleted_old}チャンク削除 (会社ID: {company_id[:8]}...)"
+        logger.info(
+            "URL-level update complete: %d chunks stored / %d old chunks deleted (company_id: %s...)",
+            len(valid_docs),
+            deleted_old,
+            company_id[:8],
         )
 
         return True
@@ -798,13 +805,14 @@ async def _store_content_by_source_url(
                 ingest_session_id=ingest_session_id,
             )
             if cleanup_deleted:
-                print(
-                    f"[RAG保存] ⚠️ 失敗後のURL cleanup 実行 {cleanup_deleted}チャンク削除 "
-                    f"(会社ID: {company_id[:8]}...)"
+                logger.warning(
+                    "Post-failure URL cleanup: %d chunks deleted (company_id: %s...)",
+                    cleanup_deleted,
+                    company_id[:8],
                 )
         except Exception:
             pass
-        print(f"[RAG保存] ❌ URL単位保存エラー: {e}")
+        logger.error("_store_content_by_source_url error: %s", e, exc_info=True)
         return False
 
 
@@ -835,7 +843,7 @@ async def search_company_context_by_type(
     try:
         search_backends = _resolve_read_backends(backends)
         if not search_backends:
-            print("[RAG検索] ⚠️ 検索用の埋め込みバックエンドなし")
+            logger.warning("No embedding backend available for search")
             return []
 
         # Single wide query by company_id, then Python-side filter for both
@@ -896,7 +904,7 @@ async def search_company_context_by_type(
                         include=include,
                     )
                 except Exception as e:
-                    print(f"[RAG検索] ⚠️ 検索失敗: {e}")
+                    logger.warning("Collection query failed: %s", e)
                     continue
 
                 if results["documents"] and results["documents"][0]:
@@ -935,7 +943,7 @@ async def search_company_context_by_type(
         return ordered[:n_results]
 
     except Exception as e:
-        print(f"[RAG検索] ❌ タイプ別検索エラー: {e}")
+        logger.error("search_company_context_by_type error: %s", e, exc_info=True)
         return []
 
 
@@ -1020,7 +1028,7 @@ def get_company_rag_status(
         }
 
     except Exception as e:
-        print(f"[RAG] ❌ ステータス取得エラー: {e}")
+        logger.error("get_company_rag_status error: %s", e, exc_info=True)
         return {
             "has_rag": False,
             "total_chunks": 0,
@@ -1068,11 +1076,13 @@ def delete_company_rag_by_type(
                 )
                 deleted_any = True
         ct_ja = CONTENT_TYPE_JA.get(content_type, content_type)
-        print(f"[RAG保存] ✅ {ct_ja} RAGデータ削除完了 (会社ID: {company_id[:8]}...)")
+        logger.info(
+            "RAG data deleted by type %s (company_id: %s...)", ct_ja, company_id[:8]
+        )
         schedule_bm25_update(company_id)
         return deleted_any
     except Exception as e:
-        print(f"[RAG保存] ❌ タイプ別RAGデータ削除エラー: {e}")
+        logger.error("delete_company_rag_by_type error: %s", e, exc_info=True)
         return False
 
 
@@ -1132,14 +1142,16 @@ def delete_company_rag_by_urls(
             result["per_url"][url] = url_deleted
             result["total_deleted"] += url_deleted
 
-        print(
-            f"[RAG保存] ✅ URL別RAGデータ削除完了: {result['total_deleted']}チャンク (会社ID: {company_id[:8]}...)"
+        logger.info(
+            "RAG data deleted by URL: %d chunks (company_id: %s...)",
+            result["total_deleted"],
+            company_id[:8],
         )
         schedule_bm25_update(company_id)
         return result
 
     except Exception as e:
-        print(f"[RAG保存] ❌ URL別RAGデータ削除エラー: {e}")
+        logger.error("delete_company_rag_by_urls error: %s", e, exc_info=True)
         return result
 
 
@@ -1183,7 +1195,7 @@ def update_bm25_index(company_id: str) -> bool:
             BM25Index,
         )
     except Exception as e:
-        print(f"[BM25] ⚠️ bm25s未設定のためスキップ: {e}")
+        logger.warning("bm25s not configured, skipping BM25 update: %s", e)
         return False
 
     try:
@@ -1214,7 +1226,7 @@ def update_bm25_index(company_id: str) -> bool:
         if not documents:
             BM25Index.delete(company_id)
             clear_index_cache(company_id)
-            print(f"[BM25] ℹ️ {company_id[:8]} のBM25インデックスを削除")
+            logger.debug("BM25 index deleted for company_id: %s...", company_id[:8])
             return False
 
         # Deduplicate
@@ -1231,13 +1243,13 @@ def update_bm25_index(company_id: str) -> bool:
         index.add_documents(list(deduped.values()))
         index.save()
         clear_index_cache(company_id)
-        print(
-            f"[BM25] ✅ {company_id[:8]} のBM25インデックス更新完了 ({len(deduped)} docs)"
+        logger.info(
+            "BM25 index updated for company_id: %s... (%d docs)", company_id[:8], len(deduped)
         )
         return True
 
     except Exception as e:
-        print(f"[BM25] ❌ インデックス更新失敗: {e}")
+        logger.error("update_bm25_index error: %s", e, exc_info=True)
         return False
 
 

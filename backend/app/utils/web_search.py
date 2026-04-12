@@ -18,7 +18,6 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Optional
 from urllib.parse import urlparse
 
 from app.config import settings
@@ -80,7 +79,6 @@ except ImportError:
 try:
     from app.utils.reranker import (
         get_reranker_with_variant,
-        CrossEncoderReranker,
     )
 
     HAS_RERANKER = True

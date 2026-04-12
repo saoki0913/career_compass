@@ -7,7 +7,6 @@ Uses multi-query + HyDE + RRF + MMR + optional cross-encoder rerank.
 
 import asyncio
 import hashlib
-import json
 import math
 import re
 import time
