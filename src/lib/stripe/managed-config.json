@@ -9,7 +9,7 @@
   },
   "product": {
     "name": "就活Pass Subscription",
-    "description": "就活Pass サブスクリプション（Standard / Pro、月額・年額）",
+    "description": "就活Pass サブスクリプション（Standard / Pro、月額・年額）。自動更新のサブスクリプションです。解約はアプリ内の設定画面または Stripe カスタマーポータルからいつでも可能で、次回更新日までは引き続きご利用いただけます。デジタルサービスの性質上、法令上必要な場合を除き返金はいたしません。",
     "metadataKey": "shupass_subscription",
     "metadataValue": "1"
   },

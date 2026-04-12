@@ -42,7 +42,8 @@
     "stripe:sync-portal": "dotenv -e .env.local -- node scripts/stripe/sync-portal.mjs",
     "stripe:check-live-readiness": "dotenv -e .env.local -- node scripts/stripe/check-live-readiness.mjs",
     "check:prod-db-drift": "NODE_OPTIONS=--dns-result-order=ipv4first dotenv -e .env.production -- node scripts/dev/check-prod-db-drift.mjs",
-    "db:studio": "dotenv -e .env.local -- drizzle-kit studio"
+    "db:studio": "dotenv -e .env.local -- drizzle-kit studio",
+    "deadcode": "knip --no-progress"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1016.0",
@@ -89,6 +90,7 @@
     "remotion": "^4.0.441",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "knip": "^5",
     "vitest": "^4.1.0"
   }
 }

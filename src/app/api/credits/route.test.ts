@@ -40,9 +40,9 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/credits", () => ({
   PLAN_CREDITS: {
     guest: 0,
-    free: 30,
-    standard: 100,
-    pro: 300,
+    free: 50,
+    standard: 350,
+    pro: 750,
   },
   getCreditsInfo: getCreditsInfoMock,
   getRemainingFreeFetches: getRemainingFreeFetchesMock,
@@ -54,15 +54,15 @@ vi.mock("@/lib/auth/guest", () => ({
 
 vi.mock("@/lib/company-info/pricing", () => ({
   getMonthlyScheduleFetchFreeLimit: vi.fn((plan: string) => {
-    const limits: Record<string, number> = { guest: 0, free: 5, standard: 50, pro: 150 };
+    const limits: Record<string, number> = { guest: 0, free: 10, standard: 100, pro: 200 };
     return limits[plan] ?? 0;
   }),
   getMonthlyRagHtmlFreeUnits: vi.fn((plan: string) => {
-    const limits: Record<string, number> = { free: 10, standard: 100, pro: 300 };
+    const limits: Record<string, number> = { free: 20, standard: 200, pro: 500 };
     return limits[plan] ?? 0;
   }),
   getMonthlyRagPdfFreeUnits: vi.fn((plan: string) => {
-    const limits: Record<string, number> = { free: 40, standard: 200, pro: 600 };
+    const limits: Record<string, number> = { free: 60, standard: 250, pro: 600 };
     return limits[plan] ?? 0;
   }),
 }));
@@ -98,13 +98,13 @@ describe("api/credits", () => {
     getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
     dbSelectMock.mockReturnValue(makeProfileQuery("standard"));
     getCreditsInfoMock.mockResolvedValue({
-      balance: 120,
-      monthlyAllocation: 100,
+      balance: 400,
+      monthlyAllocation: 350,
       nextResetAt: new Date("2026-04-01T00:00:00.000Z"),
     });
-    getRemainingFreeFetchesMock.mockResolvedValue(18);
-    getRemainingCompanyRagHtmlFreeUnitsSafeMock.mockResolvedValue(84);
-    getRemainingCompanyRagPdfFreeUnitsSafeMock.mockResolvedValue(176);
+    getRemainingFreeFetchesMock.mockResolvedValue(72);
+    getRemainingCompanyRagHtmlFreeUnitsSafeMock.mockResolvedValue(168);
+    getRemainingCompanyRagPdfFreeUnitsSafeMock.mockResolvedValue(220);
 
     const response = await GET(new NextRequest("http://localhost:3000/api/credits"));
     const data = await response.json();
@@ -112,13 +112,13 @@ describe("api/credits", () => {
     expect(response.status).toBe(200);
     expect(data.type).toBe("user");
     expect(data.plan).toBe("standard");
-    expect(data.balance).toBe(120);
-    expect(data.monthlyFree.selectionSchedule.remaining).toBe(18);
-    expect(data.monthlyFree.selectionSchedule.limit).toBe(50);
-    expect(data.monthlyFree.companyRagHtmlPages.remaining).toBe(84);
-    expect(data.monthlyFree.companyRagHtmlPages.limit).toBe(100);
-    expect(data.monthlyFree.companyRagPdfPages.remaining).toBe(176);
-    expect(data.monthlyFree.companyRagPdfPages.limit).toBe(200);
+    expect(data.balance).toBe(400);
+    expect(data.monthlyFree.selectionSchedule.remaining).toBe(72);
+    expect(data.monthlyFree.selectionSchedule.limit).toBe(100);
+    expect(data.monthlyFree.companyRagHtmlPages.remaining).toBe(168);
+    expect(data.monthlyFree.companyRagHtmlPages.limit).toBe(200);
+    expect(data.monthlyFree.companyRagPdfPages.remaining).toBe(220);
+    expect(data.monthlyFree.companyRagPdfPages.limit).toBe(250);
   });
 
   it("returns guest credits without monthly RAG allowance", async () => {

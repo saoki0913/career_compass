@@ -14,6 +14,8 @@ describe("credits/cost", () => {
     expect(resolveESReviewPricingModel("gpt-5.4")).toBe("gpt");
     expect(resolveESReviewPricingModel("gpt-5.4-mini")).toBe("low-cost");
     expect(resolveESReviewPricingModel("low-cost")).toBe("low-cost");
+    expect(resolveESReviewPricingModel("claude-haiku")).toBe("low-cost");
+    expect(resolveESReviewPricingModel("claude-haiku-4-5-20251001")).toBe("low-cost");
     expect(resolveESReviewPricingModel("gemini-3.1-pro-preview")).toBe("gemini");
   });
 

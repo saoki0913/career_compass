@@ -47,26 +47,26 @@ export const PLAN_METADATA = {
   free: {
     name: "Free",
     price: 0,
-    credits: 30,
+    credits: 50,
     companies: 5,
     esReviews: 3,
-    gakuchika: 3,
+    gakuchika: 5,
   },
   standard: {
     name: "Standard",
     price: 1490,
-    credits: 100,
+    credits: 350,
     companies: -1, // unlimited
     esReviews: 10, // display-only hint
-    gakuchika: 10,
+    gakuchika: 15,
   },
   pro: {
     name: "Pro",
     price: 2980,
-    credits: 300,
+    credits: 750,
     companies: -1, // unlimited
     esReviews: -1, // display-only hint
-    gakuchika: 20,
+    gakuchika: 30,
   },
 } as const;
 

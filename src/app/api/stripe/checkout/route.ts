@@ -83,9 +83,24 @@ export async function POST(req: NextRequest) {
     }
 
     // Create checkout session
+    //
+    // 改正特商法 12 条の 6（最終確認画面の表示義務）対応:
+    //   docs/release/INDIVIDUAL_BUSINESS_COMPLIANCE.md §6-2 に従い、
+    //   Stripe Checkout の最終確認画面で以下を明示する:
+    //     - 自動更新サブスクリプションである旨
+    //     - 解約方法と次回更新日までの利用可
+    //     - 返金ポリシーの要約
+    //     - 利用規約 / 特商法ページへの同意
+    //
+    // なお `consent_collection.terms_of_service: "required"` を有効にするには、
+    // Stripe Dashboard → Settings → Public details で Terms of service URL
+    // (https://www.shupass.jp/terms) を設定しておく必要がある。未設定のまま
+    // この API を呼ぶと Stripe 側で 400 エラーが返るため、本番デプロイ前に
+    // 必ず Dashboard 側の設定を完了させること。
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: stripeCustomerId,
+      locale: "ja",
       line_items: [
         {
           price: priceId,
@@ -100,6 +115,8 @@ export async function POST(req: NextRequest) {
         period: period,
       },
       subscription_data: {
+        description:
+          "就活Pass サブスクリプション（自動更新・いつでも解約可能）",
         metadata: {
           userId: session.user.id,
           plan: plan,
@@ -109,6 +126,23 @@ export async function POST(req: NextRequest) {
       allow_promotion_codes: true,
       // Billing address collection
       billing_address_collection: "auto",
+      // 改正特商法 12 条の 6: 最終確認画面で自動更新・解約・返金方針を明示
+      custom_text: {
+        submit: {
+          message:
+            "本サービスは自動更新のサブスクリプションです。解約はアプリ内の設定画面または Stripe カスタマーポータルからいつでも可能で、次回更新日までは引き続きご利用いただけます。デジタルサービスの性質上、法令上必要な場合を除き返金はいたしません。詳細は特定商取引法に基づく表記 (https://www.shupass.jp/legal) をご確認ください。",
+        },
+        terms_of_service_acceptance: {
+          message:
+            "お申込みにより[利用規約](https://www.shupass.jp/terms)および[特定商取引法に基づく表記](https://www.shupass.jp/legal)に同意したものとみなされます。",
+        },
+      },
+      // 利用規約への同意チェックボックスを必須化
+      // 前提: Stripe Dashboard → Settings → Public details で
+      //       Terms of service URL が設定されていること
+      consent_collection: {
+        terms_of_service: "required",
+      },
     });
 
     return NextResponse.json({
