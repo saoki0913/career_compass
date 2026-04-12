@@ -7,20 +7,17 @@ export function PricingSection() {
   const plans = getMarketingPricingPlans("monthly");
 
   return (
-    <section
-      className="bg-[var(--lp-surface-section)] px-6 py-24 md:py-28"
-      id="pricing"
-    >
-      <div className="mx-auto max-w-7xl">
+    <section className="bg-white px-6 py-24 md:py-32" id="pricing">
+      <div className="mx-auto max-w-[1100px]">
         <LandingSectionMotion>
           <div className="mb-14 text-center md:mb-16">
             <h2
-              className="mb-3 text-2xl tracking-tight text-[var(--lp-navy)] md:text-3xl"
-              style={{ fontWeight: 600 }}
+              className="mb-3 text-3xl tracking-tight text-[var(--lp-navy)] md:text-[2.5rem]"
+              style={{ fontWeight: 800, lineHeight: 1.3 }}
             >
               シンプルな料金プラン
             </h2>
-            <p className="mx-auto max-w-xl text-base text-[var(--lp-body-muted)]">
+            <p className="mx-auto max-w-xl text-slate-500" style={{ lineHeight: 1.7 }}>
               用途に合わせて選べる3プラン。いつでもアップグレード・ダウングレード可能です。
             </p>
           </div>
@@ -32,7 +29,7 @@ export function PricingSection() {
               return (
                 <div
                   key={plan.id}
-                  className={`relative flex flex-col rounded-xl border p-8 ${isHighlighted ? "text-white" : "bg-white"}`}
+                  className={`relative flex flex-col rounded-2xl border p-8 ${isHighlighted ? "text-white" : "bg-white"}`}
                   style={{
                     borderColor: isHighlighted
                       ? "var(--lp-navy)"
@@ -41,17 +38,14 @@ export function PricingSection() {
                       ? "var(--lp-navy)"
                       : "#ffffff",
                     boxShadow: isHighlighted
-                      ? "var(--lp-shadow-screenshot)"
-                      : "var(--lp-shadow-card)",
+                      ? "0 20px 80px rgba(10,15,92,0.08)"
+                      : undefined,
                   }}
                 >
                   {isHighlighted ? (
                     <div
-                      className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] uppercase tracking-widest text-white"
-                      style={{
-                        fontWeight: 700,
-                        backgroundColor: "var(--lp-cta)",
-                      }}
+                      className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-white px-3 py-1 text-[10px] uppercase tracking-widest text-[var(--lp-navy)]"
+                      style={{ fontWeight: 700 }}
                     >
                       Popular
                     </div>
@@ -59,7 +53,7 @@ export function PricingSection() {
 
                   <h3
                     className={`mb-2 text-lg ${isHighlighted ? "text-white" : "text-[var(--lp-navy)]"}`}
-                    style={{ fontWeight: 600 }}
+                    style={{ fontWeight: 700 }}
                   >
                     {plan.name}
                   </h3>
@@ -67,14 +61,14 @@ export function PricingSection() {
                   <div className="mb-1 flex items-baseline gap-1">
                     <span
                       className={`text-3xl tabular-nums ${isHighlighted ? "text-white" : "text-[var(--lp-navy)]"}`}
-                      style={{ fontWeight: 600 }}
+                      style={{ fontWeight: 700 }}
                     >
                       {plan.price}
                     </span>
                     {plan.period ? (
                       <span
                         className={
-                          isHighlighted ? "text-white/75" : "text-[var(--lp-body-muted)]"
+                          isHighlighted ? "text-white/75" : "text-slate-500"
                         }
                         style={{ fontSize: "0.875rem" }}
                       >
@@ -85,13 +79,13 @@ export function PricingSection() {
 
                   {plan.dailyPrice ? (
                     <p
-                      className={`mb-6 text-sm ${isHighlighted ? "text-white/65" : "text-[var(--lp-body-muted)]"}`}
+                      className={`mb-6 text-sm ${isHighlighted ? "text-white/65" : "text-slate-500"}`}
                     >
                       {plan.dailyPrice}
                     </p>
                   ) : (
                     <p
-                      className={`mb-6 text-sm ${isHighlighted ? "text-white/65" : "text-[var(--lp-body-muted)]"}`}
+                      className={`mb-6 text-sm ${isHighlighted ? "text-white/65" : "text-slate-500"}`}
                     >
                       {plan.description}
                     </p>
@@ -101,7 +95,7 @@ export function PricingSection() {
                     {plan.features.map((f) => (
                       <li
                         key={f}
-                        className={`flex items-start gap-2.5 text-sm ${isHighlighted ? "text-white/90" : "text-[var(--lp-body-muted)]"}`}
+                        className={`flex items-start gap-2.5 text-sm ${isHighlighted ? "text-white/90" : "text-slate-500"}`}
                       >
                         <Check
                           className={`mt-0.5 h-4 w-4 shrink-0 ${isHighlighted ? "text-white" : "text-[var(--lp-success)]"}`}
@@ -114,14 +108,8 @@ export function PricingSection() {
 
                   <Link
                     href={plan.id === "free" ? "/login" : "/pricing"}
-                    className={`mt-auto w-full rounded-md py-3 text-center text-sm transition ${isHighlighted ? "bg-[var(--lp-cta)] text-white hover:opacity-90" : "border text-[var(--lp-navy)] hover:bg-[var(--lp-surface-muted)]"}`}
-                    style={{
-                      fontWeight: 600,
-                      borderColor: isHighlighted ? undefined : "var(--lp-border-default)",
-                      ...(isHighlighted
-                        ? {}
-                        : { borderWidth: "1px", borderStyle: "solid" }),
-                    }}
+                    className={`mt-auto w-full rounded-xl py-3 text-center text-sm transition ${isHighlighted ? "bg-white text-[var(--lp-navy)] hover:bg-white/95" : "border border-slate-200 text-[var(--lp-navy)] hover:bg-slate-50"}`}
+                    style={{ fontWeight: 600 }}
                   >
                     {plan.ctaLabel}
                   </Link>

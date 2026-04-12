@@ -1,3 +1,4 @@
+import { Check, Minus } from "lucide-react";
 import { LandingSectionMotion } from "./LandingSectionMotion";
 
 const items = [
@@ -21,77 +22,47 @@ const items = [
 
 export function BeforeAfterSection() {
   return (
-    <section className="bg-[var(--lp-surface-page)] px-6 py-24 md:py-28">
-      <div className="mx-auto max-w-5xl">
-        <LandingSectionMotion>
-          <div className="mb-12 text-center md:mb-16">
-            <h2
-              className="mb-3 text-2xl tracking-tight text-[var(--lp-navy)] md:text-3xl"
-              style={{ fontWeight: 600 }}
-            >
-              就活Passを使うと、何が変わる？
-            </h2>
-            <p className="text-base text-[var(--lp-body-muted)]">
-              よくある「困った」を、具体的な体験の変化に置き換えます。
-            </p>
-          </div>
-
-          <div
-            className="overflow-hidden rounded-xl border bg-white"
-            style={{ borderColor: "var(--lp-border-default)" }}
+    <section className="bg-slate-50/60 px-6 py-24 md:py-32">
+      <div className="mx-auto max-w-[900px]">
+        <LandingSectionMotion className="mb-14 text-center md:mb-16">
+          <h2
+            className="text-3xl tracking-tight text-[var(--lp-navy)] md:text-[2.5rem]"
+            style={{ fontWeight: 800, lineHeight: 1.3 }}
           >
-            <div
-              className="grid grid-cols-12 gap-0 border-b text-xs uppercase tracking-wider text-[var(--lp-body-muted)] md:text-sm"
-              style={{
-                borderColor: "var(--lp-border-default)",
-                backgroundColor: "var(--lp-surface-muted)",
-                fontWeight: 600,
-              }}
-            >
-              <div className="col-span-12 border-b py-3 pl-4 pr-2 md:col-span-5 md:border-b-0 md:border-r md:py-4 md:pl-6">
-                これまで
+            就活Passを使うと、何が変わる？
+          </h2>
+          <p className="mx-auto mt-4 max-w-lg text-slate-500" style={{ lineHeight: 1.7 }}>
+            よくある「困った」を、具体的な体験の変化に置き換えます。
+          </p>
+        </LandingSectionMotion>
+
+        <LandingSectionMotion>
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="grid grid-cols-2">
+              <div className="border-b border-slate-100 px-6 py-4">
+                <span className="text-sm text-slate-400" style={{ fontWeight: 600 }}>これまで</span>
               </div>
-              <div className="col-span-12 py-3 pl-4 pr-2 md:col-span-7 md:py-4 md:pl-6">
-                就活Passで
+              <div className="border-b border-slate-100 bg-[var(--lp-tint-navy-soft)] px-6 py-4">
+                <span className="text-sm text-[var(--lp-navy)]" style={{ fontWeight: 600 }}>就活Passで</span>
               </div>
             </div>
+
             {items.map((item, i) => (
               <div
                 key={i}
-                className="grid grid-cols-12 border-b last:border-b-0"
-                style={{ borderColor: "var(--lp-border-default)" }}
+                className={`grid grid-cols-2 ${i < items.length - 1 ? "border-b border-slate-50" : ""}`}
               >
-                <div
-                  className="col-span-12 flex items-start gap-3 border-b py-5 pl-4 pr-4 md:col-span-5 md:border-b-0 md:border-r md:py-6 md:pl-6 md:pr-6"
-                  style={{ borderColor: "var(--lp-border-default)" }}
-                >
-                  <span
-                    className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] text-[var(--lp-cta)]"
-                    style={{
-                      fontWeight: 700,
-                      backgroundColor: "var(--lp-tint-cta-soft)",
-                    }}
-                  >
-                    —
+                <div className="flex items-start gap-3 px-6 py-5">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100">
+                    <Minus className="h-3 w-3 text-slate-400" strokeWidth={3} />
                   </span>
-                  <p className="text-sm leading-relaxed text-[var(--lp-body-muted)]">
-                    {item.before}
-                  </p>
+                  <p className="text-sm text-slate-400" style={{ lineHeight: 1.6 }}>{item.before}</p>
                 </div>
-                <div className="col-span-12 flex items-start gap-3 py-5 pl-4 pr-4 md:col-span-7 md:py-6 md:pl-6 md:pr-8">
-                  <span
-                    className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] text-[var(--lp-navy)]"
-                    style={{
-                      fontWeight: 700,
-                      backgroundColor: "var(--lp-tint-navy-soft)",
-                    }}
-                  >
-                    ✓
+                <div className="flex items-start gap-3 bg-[var(--lp-tint-navy-soft)]/70 px-6 py-5">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--lp-badge-bg)]">
+                    <Check className="h-3 w-3 text-[var(--lp-navy)]" strokeWidth={3} />
                   </span>
-                  <p
-                    className="text-sm leading-relaxed text-[var(--lp-navy)]"
-                    style={{ fontWeight: 600 }}
-                  >
+                  <p className="text-sm text-[var(--lp-navy)]" style={{ fontWeight: 600, lineHeight: 1.6 }}>
                     {item.after}
                   </p>
                 </div>

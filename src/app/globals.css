@@ -161,29 +161,29 @@
   --sidebar-border: oklch(0.92 0.008 235);
   --sidebar-ring: oklch(0.50 0.18 235);
 
-  /* Landing page tokens — Stripe-oriented, see /DESIGN.md */
-  --lp-navy: #000666;
-  --lp-cta: #b7131a;
-  --lp-cta-hover: #951119;
-  --lp-surface-page: #f6f9fc;
+  /* Landing page tokens — Figma-aligned navy-centric design */
+  --lp-navy: #0A0F5C;
+  --lp-cta: #0A0F5C;
+  --lp-cta-hover: rgba(10, 15, 92, 0.90);
+  --lp-surface-page: #f8fafc;
   --lp-surface-section: #ffffff;
-  --lp-surface-muted: #f6f9fc;
-  --lp-border-default: #e5edf5;
+  --lp-surface-muted: #f8fafc;
+  --lp-border-default: #e2e8f0;
   --lp-border-hairline: rgba(0, 0, 0, 0.08);
-  --lp-border-tint: rgba(0, 6, 102, 0.12);
-  --lp-muted-text: #64748d;
-  --lp-body-muted: #64748d;
+  --lp-border-tint: rgba(10, 15, 92, 0.12);
+  --lp-muted-text: #64748b;
+  --lp-body-muted: #64748b;
   --lp-badge-bg: #eef2ff;
-  --lp-tint-navy-soft: #e8eef9;
-  --lp-tint-cta-soft: #fceaea;
-  --lp-success: #168542;
-  --lp-on-dark-muted: rgba(255, 255, 255, 0.78);
-  --lp-on-dark-fine: rgba(255, 255, 255, 0.55);
-  --lp-hero-gradient-top: #f6f9fc;
+  --lp-tint-navy-soft: #eff1fb;
+  --lp-tint-cta-soft: #eff1fb;
+  --lp-success: #22c55e;
+  --lp-on-dark-muted: rgba(191, 219, 254, 0.70);
+  --lp-on-dark-fine: rgba(147, 197, 253, 0.50);
+  --lp-hero-gradient-top: #f8fafc;
   --lp-hero-gradient-mid: #ffffff;
   --lp-shadow-card: 0 0 0 1px rgba(0, 0, 0, 0.03), 0 2px 4px rgba(50, 50, 93, 0.08),
     0 8px 16px rgba(0, 0, 0, 0.06);
-  --lp-shadow-screenshot: 0 15px 35px rgba(50, 50, 93, 0.25), 0 5px 15px rgba(0, 0, 0, 0.1);
+  --lp-shadow-screenshot: 0 20px 80px rgba(10, 15, 92, 0.08);
 }
 
 .dark {

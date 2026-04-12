@@ -21,7 +21,7 @@ export function LandingHeader() {
 
   useEffect(() => {
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 8);
+      setIsScrolled(window.scrollY > 20);
     };
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
@@ -49,39 +49,36 @@ export function LandingHeader() {
   return (
     <nav
       className={cn(
-        "fixed top-0 z-50 w-full bg-white/90 backdrop-blur-md transition-all duration-200",
-        isScrolled ? "shadow-sm" : ""
+        "fixed top-0 z-50 w-full transition-all duration-300",
+        isScrolled
+          ? "bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.05)] backdrop-blur-xl"
+          : "bg-transparent"
       )}
-      style={{
-        borderBottom: `1px solid ${
-          isScrolled ? "var(--lp-border-default)" : "transparent"
-        }`,
-      }}
     >
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6 md:h-16 md:px-8">
+      <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between px-6 lg:px-12">
         <Link href="/" className="flex items-center gap-2.5">
           <Image
             src="/icon.png"
             alt="就活Pass"
-            width={32}
-            height={32}
-            className="h-8 w-8 rounded-md"
+            width={28}
+            height={28}
+            className="h-7 w-7"
             priority
           />
           <span
-            className="text-[1.0625rem] tracking-tight text-[var(--lp-navy)]"
-            style={{ fontWeight: 600 }}
+            className="text-lg tracking-tight text-[var(--lp-navy)]"
+            style={{ fontWeight: 800 }}
           >
             就活Pass
           </span>
         </Link>
 
-        <div className="hidden items-center gap-10 md:flex">
+        <div className="hidden items-center gap-1 md:flex">
           {navLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className="text-sm text-[var(--lp-body-muted)] transition-colors hover:text-[var(--lp-navy)]"
+              className="rounded-lg px-4 py-2 text-sm text-slate-500 transition-all hover:bg-slate-50 hover:text-slate-900"
               style={{ fontWeight: 500 }}
             >
               {link.label}
@@ -89,31 +86,27 @@ export function LandingHeader() {
           ))}
         </div>
 
-        <div className="flex items-center gap-3 md:gap-4">
+        <div className="flex items-center gap-3">
           {isLoading ? null : isAuthenticated ? (
             <Link
               href="/dashboard"
-              className="hidden items-center gap-1.5 rounded-md bg-[var(--lp-cta)] px-4 py-2 text-sm text-white transition hover:opacity-90 sm:inline-flex"
+              className="hidden items-center gap-1.5 rounded-lg bg-[var(--lp-cta)] px-5 py-2 text-sm text-white transition-all hover:bg-[var(--lp-cta)]/90 active:scale-[0.98] sm:inline-flex"
               style={{ fontWeight: 600 }}
             >
-              ダッシュボード
-              <ArrowRight className="h-3.5 w-3.5" />
+              ダッシュボード →
             </Link>
           ) : (
             <>
               <Link
                 href="/login"
-                className="hidden rounded-md border px-4 py-2 text-sm text-[var(--lp-navy)] transition hover:bg-[var(--lp-surface-muted)] sm:inline-block"
-                style={{
-                  fontWeight: 500,
-                  borderColor: "var(--lp-border-default)",
-                }}
+                className="hidden px-4 py-2 text-sm text-slate-500 transition-colors hover:text-slate-900 sm:inline-block"
+                style={{ fontWeight: 500 }}
               >
                 ログイン
               </Link>
               <Link
                 href="/login"
-                className="rounded-md bg-[var(--lp-cta)] px-4 py-2 text-sm text-white transition hover:opacity-90"
+                className="rounded-lg bg-[var(--lp-cta)] px-5 py-2 text-sm text-white transition-all hover:bg-[var(--lp-cta)]/90 active:scale-[0.98]"
                 style={{ fontWeight: 600 }}
               >
                 無料で始める
@@ -122,16 +115,16 @@ export function LandingHeader() {
           )}
           <button
             type="button"
-            className="rounded-md p-2 text-[var(--lp-navy)] md:hidden"
+            className="rounded-lg p-2 transition-colors hover:bg-slate-100 md:hidden"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             aria-label={
               isMobileMenuOpen ? "メニューを閉じる" : "メニューを開く"
             }
           >
             {isMobileMenuOpen ? (
-              <X className="h-6 w-6" />
+              <X className="h-5 w-5" />
             ) : (
-              <Menu className="h-6 w-6" />
+              <Menu className="h-5 w-5" />
             )}
           </button>
         </div>
@@ -142,62 +135,43 @@ export function LandingHeader() {
           <button
             type="button"
             aria-label="メニューを閉じる"
-            className="fixed inset-0 top-14 z-40 bg-black/20 backdrop-blur-[1px] md:hidden"
+            className="fixed inset-0 top-16 z-40 bg-black/20 backdrop-blur-[1px] md:hidden"
             onClick={() => setIsMobileMenuOpen(false)}
           />
-          <div
-            className="fixed inset-x-0 bottom-0 top-14 z-50 overflow-y-auto bg-white md:hidden"
-            style={{ borderTop: "1px solid var(--lp-border-default)" }}
-          >
-            <div className="mx-auto max-w-7xl px-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
+          <div className="fixed inset-x-0 bottom-0 top-16 z-50 overflow-y-auto border-t border-slate-100 bg-white md:hidden">
+            <div className="px-6 py-4">
               <div className="space-y-1">
                 {navLinks.map((link) => (
                   <Link
                     key={link.href}
                     href={link.href}
                     onClick={handleNavClick}
-                    className="block rounded-md px-3 py-3 text-[var(--lp-navy)] transition-colors hover:bg-[var(--lp-surface-muted)]"
+                    className="block rounded-lg px-4 py-3 text-slate-700 transition-colors hover:bg-slate-50"
                     style={{ fontWeight: 500 }}
                   >
                     {link.label}
                   </Link>
                 ))}
               </div>
-              <div
-                className="mt-4 space-y-2 border-t pt-4"
-                style={{ borderColor: "var(--lp-border-default)" }}
-              >
+              <div className="mt-3 border-t border-slate-100 pt-3">
                 {isLoading ? null : isAuthenticated ? (
                   <Link
                     href="/dashboard"
                     onClick={handleNavClick}
-                    className="block w-full rounded-md bg-[var(--lp-cta)] py-3 text-center text-white"
+                    className="block w-full rounded-lg bg-[var(--lp-cta)] py-3 text-center text-sm text-white"
                     style={{ fontWeight: 600 }}
                   >
                     ダッシュボード
                   </Link>
                 ) : (
-                  <>
-                    <Link
-                      href="/login"
-                      onClick={handleNavClick}
-                      className="block w-full rounded-md bg-[var(--lp-cta)] py-3 text-center text-white"
-                      style={{ fontWeight: 600 }}
-                    >
-                      無料で始める
-                    </Link>
-                    <Link
-                      href="/login"
-                      onClick={handleNavClick}
-                      className="block w-full rounded-md border py-3 text-center text-[var(--lp-navy)]"
-                      style={{
-                        fontWeight: 500,
-                        borderColor: "var(--lp-border-default)",
-                      }}
-                    >
-                      ログイン
-                    </Link>
-                  </>
+                  <Link
+                    href="/login"
+                    onClick={handleNavClick}
+                    className="block w-full rounded-lg bg-[var(--lp-cta)] py-3 text-center text-sm text-white"
+                    style={{ fontWeight: 600 }}
+                  >
+                    無料で始める
+                  </Link>
                 )}
               </div>
             </div>

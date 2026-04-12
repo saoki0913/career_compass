@@ -40,15 +40,15 @@ const comparisonRows: {
   standard: string | boolean;
   pro: string | boolean;
 }[] = [
-  { label: "月次クレジット", free: "30", standard: "100", pro: "300" },
+  { label: "月次クレジット", free: "50", standard: "350", pro: "750" },
   { label: "企業登録", free: "5社まで", standard: "無制限", pro: "無制限" },
   { label: "ES添削スタイル", free: "3種", standard: "全8種", pro: "全8種" },
   { label: "面接対策", free: "GPT-5.4 mini・最終講評成功時 6CR", standard: "GPT-5.4 mini・最終講評成功時 6CR", pro: "GPT-5.4 mini・最終講評成功時 6CR" },
-  { label: "ガクチカ素材", free: "3件", standard: "10件", pro: "20件" },
+  { label: "ガクチカ素材", free: "5件", standard: "15件", pro: "30件" },
   { label: "企業情報取得（日次無料枠）", free: "1回", standard: "5回", pro: "20回" },
-  { label: "選考スケジュール（月次無料）", free: "5回", standard: "50回", pro: "150回" },
-  { label: "企業RAG取込（月次無料枠・ページ）", free: "10", standard: "100", pro: "300" },
-  { label: "1社あたりRAGソース数", free: "3", standard: "100", pro: "500" },
+  { label: "選考スケジュール（月次無料）", free: "10回", standard: "100回", pro: "200回" },
+  { label: "企業RAG取込（月次無料枠・ページ）", free: "20", standard: "200", pro: "500" },
+  { label: "1社あたりRAGソース数", free: "3", standard: "200", pro: "500" },
   { label: "セクション添削", free: false, standard: true, pro: true },
   {
     label: "ES添削モデル",
@@ -646,7 +646,7 @@ function PricingPageContent() {
                 迷ったら Free で始めて、必要になった時に切り替えてください。
               </h2>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                Free は月30クレジット・企業5社まで・ES添削3種・ガクチカ3件・面接対策は GPT-5.4 mini 固定で最終講評成功時 6 クレジット。Standard（¥1,490/月・100CR）は1クレジット約15円、Pro（¥2,980/月・300CR）は約10円の目安です。
+                Free は月50クレジット・企業5社まで・ES添削3種・ガクチカ5件・面接対策は GPT-5.4 mini 固定で最終講評成功時 6 クレジット。Standard（¥1,490/月・350CR）は1クレジット約4円、Pro（¥2,980/月・750CR）は約4円の目安です。
               </p>
             </div>
             <Button

@@ -15,9 +15,9 @@ import { StickyCTABar } from "@/components/landing/StickyCTABar";
 import {
   PublicSurfaceButton,
   PublicSurfaceFrame,
-  PublicSurfaceHeader,
   PublicSurfaceHero,
   PublicSurfacePanel,
+  publicSurfaceFeatureIconClassName,
 } from "@/components/public-surface";
 import { landingMedia } from "@/components/landing/landing-media";
 import { createMarketingMetadata } from "@/lib/marketing-metadata";
@@ -74,7 +74,7 @@ export default function ToolsPage() {
 
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <div className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
+                  <span className={publicSurfaceFeatureIconClassName}>
                     <FileText className="size-[18px]" aria-hidden />
                   </span>
                   <div className="min-w-0">
@@ -85,7 +85,7 @@ export default function ToolsPage() {
                   </div>
                 </div>
                 <div className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
+                  <span className={publicSurfaceFeatureIconClassName}>
                     <BookText className="size-[18px]" aria-hidden />
                   </span>
                   <div className="min-w-0">
@@ -96,7 +96,7 @@ export default function ToolsPage() {
                   </div>
                 </div>
                 <div className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
+                  <span className={publicSurfaceFeatureIconClassName}>
                     <ListChecks className="size-[18px]" aria-hidden />
                   </span>
                   <div className="min-w-0">
@@ -123,7 +123,7 @@ export default function ToolsPage() {
                     空白・改行を除いた文字数でも数えられます。
                   </p>
                 </div>
-                <span className="hidden rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary shadow-sm sm:inline-flex">
+                <span className="hidden rounded-full bg-white px-3 py-1 text-xs font-semibold text-[var(--lp-navy)] shadow-sm sm:inline-flex">
                   無料
                 </span>
               </div>
@@ -143,7 +143,7 @@ export default function ToolsPage() {
                 <PublicSurfaceButton href="/tools/es-counter">ES文字数カウントを使う</PublicSurfaceButton>
                 <Link
                   href="/templates/shiboudouki"
-                  className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950"
+                  className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-[var(--lp-navy)]"
                 >
                   志望動機の型を見る
                   <ArrowUpRight className="size-4 shrink-0" aria-hidden />
@@ -178,7 +178,7 @@ export default function ToolsPage() {
               <div className="space-y-4">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
                   <div className="flex items-start gap-3">
-                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[var(--lp-navy)]" aria-hidden />
                     <p className="text-sm leading-7 text-slate-600">
                       企業登録、締切、ESの保存、AI添削をまとめて使えます。
                     </p>
@@ -188,7 +188,7 @@ export default function ToolsPage() {
                   <PublicSurfaceButton href="/login">アプリで続ける</PublicSurfaceButton>
                   <Link
                     href="/pricing"
-                    className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950"
+                    className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-[var(--lp-navy)]"
                   >
                     料金を見る
                     <ArrowRight className="size-4 shrink-0" aria-hidden />

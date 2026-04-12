@@ -1,84 +1,54 @@
+import { Check } from "lucide-react";
 import Image from "next/image";
 import { landingMedia } from "./landing-media";
 import { LandingSectionMotion } from "./LandingSectionMotion";
 
 export function FeatureManagementSection() {
   return (
-    <section className="bg-[var(--lp-surface-page)] px-6 py-24 md:py-28">
-      <div className="mx-auto max-w-7xl">
-        <LandingSectionMotion className="flex flex-col items-center gap-14 lg:flex-row-reverse lg:items-start lg:gap-20">
-          <div className="w-full max-w-xl lg:w-1/2 lg:max-w-none">
-            <span
-              className="mb-3 block text-xs uppercase tracking-[0.2em] text-[var(--lp-cta)]"
-              style={{ fontWeight: 600 }}
-            >
-              Feature 02
-            </span>
-            <h2
-              className="mb-5 text-2xl tracking-tight text-[var(--lp-navy)] md:text-3xl lg:text-[2rem] lg:leading-snug"
-              style={{ fontWeight: 600 }}
-            >
-              進捗と締切を、
-              <br />
-              一目で把握
-            </h2>
-            <p
-              className="mb-8 text-base leading-relaxed text-[var(--lp-body-muted)] md:text-lg"
-              style={{ fontWeight: 400 }}
-            >
-              企業一覧、締切、応募状況、Googleカレンダー連携までをひとつに。情報が散らばらず、やるべきことに集中できます。
+    <section className="bg-white px-6 py-24 md:py-32">
+      <div className="mx-auto max-w-[1200px]">
+        <div className="flex flex-col items-center gap-12 lg:flex-row-reverse lg:gap-20">
+          <LandingSectionMotion className="lg:w-1/2">
+            <p className="mb-3 text-sm text-slate-400" style={{ fontWeight: 600 }}>
+              進捗・スケジュール管理
             </p>
-            <div className="grid grid-cols-2 gap-4">
-              <div
-                className="rounded-lg border bg-white p-5"
-                style={{ borderColor: "var(--lp-border-default)" }}
-              >
-                <div
-                  className="mb-1 text-2xl tabular-nums text-[var(--lp-navy)]"
-                  style={{ fontWeight: 600 }}
-                >
-                  98%
-                </div>
-                <div
-                  className="text-xs text-[var(--lp-body-muted)] md:text-sm"
-                  style={{ fontWeight: 500 }}
-                >
-                  締切管理の満足度
-                </div>
-              </div>
-              <div
-                className="rounded-lg border bg-white p-5"
-                style={{ borderColor: "var(--lp-border-default)" }}
-              >
-                <div
-                  className="mb-1 text-2xl tabular-nums text-[var(--lp-navy)]"
-                  style={{ fontWeight: 600 }}
-                >
-                  60%
-                </div>
-                <div
-                  className="text-xs text-[var(--lp-body-muted)] md:text-sm"
-                  style={{ fontWeight: 500 }}
-                >
-                  管理作業の削減
-                </div>
-              </div>
+            <h3
+              className="mb-4 text-2xl tracking-tight text-[var(--lp-navy)] md:text-[2rem]"
+              style={{ fontWeight: 800, lineHeight: 1.3 }}
+            >
+              進捗と締切を、一目で把握。
+            </h3>
+            <p className="mb-8 text-slate-500" style={{ lineHeight: 1.8 }}>
+              企業一覧、締切、応募状況、Googleカレンダー連携まで。情報が散らばらないから、やるべきことに集中できます。
+            </p>
+            <ul className="space-y-3">
+              {[
+                "企業ごとの選考状況をカンバンで一覧管理",
+                "締切をカレンダーで可視化、通知でリマインド",
+                "Googleカレンダーとワンクリック同期",
+              ].map((text) => (
+                <li key={text} className="flex items-start gap-3">
+                  <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--lp-navy)]">
+                    <Check className="h-3 w-3 text-white" strokeWidth={3} />
+                  </span>
+                  <span className="text-sm text-slate-600" style={{ fontWeight: 500, lineHeight: 1.6 }}>{text}</span>
+                </li>
+              ))}
+            </ul>
+          </LandingSectionMotion>
+
+          <LandingSectionMotion className="lg:w-1/2">
+            <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_8px_40px_rgba(0,0,0,0.06)]">
+              <Image
+                src={landingMedia.calendar.src}
+                alt={landingMedia.calendar.alt}
+                width={800}
+                height={540}
+                className="block w-full"
+              />
             </div>
-          </div>
-          <div className="w-full lg:w-1/2">
-            <Image
-              src={landingMedia.calendar.src}
-              alt={landingMedia.calendar.alt}
-              width={800}
-              height={540}
-              className="w-full rounded-xl border bg-white"
-              style={{
-                borderColor: "var(--lp-border-default)",
-                boxShadow: "var(--lp-shadow-screenshot)",
-              }}
-            />
-          </div>
-        </LandingSectionMotion>
+          </LandingSectionMotion>
+        </div>
       </div>
     </section>
   );

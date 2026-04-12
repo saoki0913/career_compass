@@ -8,6 +8,7 @@ import { BeforeAfterSection } from "@/components/landing/BeforeAfterSection";
 import { FeatureESSection } from "@/components/landing/FeatureESSection";
 import { FeatureManagementSection } from "@/components/landing/FeatureManagementSection";
 import { FeatureInterviewSection } from "@/components/landing/FeatureInterviewSection";
+import { HowItWorksSection } from "@/components/landing/HowItWorksSection";
 import { ComparisonSection } from "@/components/landing/ComparisonSection";
 import { PricingSection } from "@/components/landing/PricingSection";
 import { FAQSection } from "@/components/landing/FAQSection";
@@ -18,12 +19,12 @@ import { StickyCTABar } from "@/components/landing/StickyCTABar";
 export default function Home() {
   return (
     <div
-      className="flex min-h-screen flex-col bg-[var(--lp-surface-section)] font-['Inter','Noto_Sans_JP',sans-serif] text-[var(--lp-navy)]"
+      className="font-['Inter','Noto_Sans_JP',sans-serif] text-slate-900 bg-white overflow-x-hidden"
       style={{ WebkitFontSmoothing: "antialiased" }}
     >
       <LandingHeader />
 
-      <main className="pb-24 pt-14 md:pb-0 md:pt-16">
+      <main>
         <FaqJsonLd faqs={LANDING_PAGE_FAQS} />
 
         <HeroSection />
@@ -39,6 +40,8 @@ export default function Home() {
         <FeatureManagementSection />
 
         <FeatureInterviewSection />
+
+        <HowItWorksSection />
 
         <ComparisonSection />
 

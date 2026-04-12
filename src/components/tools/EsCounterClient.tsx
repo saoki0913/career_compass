@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Sparkles, Target } from "lucide-react";
 import { trackEvent } from "@/lib/analytics/client";
+import {
+  publicSurfacePrimaryCtaClassName,
+  publicSurfaceSecondaryCtaClassName,
+} from "@/components/public-surface/public-surface";
 import { cn } from "@/lib/utils";
 
 function countChars(text: string): number {
@@ -30,7 +34,7 @@ function ProgressRow({
     <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
-          <Target className="size-4 shrink-0 text-sky-700" aria-hidden />
+          <Target className="size-4 shrink-0 text-[var(--lp-navy)]" aria-hidden />
           <p className="truncate text-sm font-medium text-slate-900">{label}</p>
         </div>
         <p
@@ -45,7 +49,7 @@ function ProgressRow({
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
         <div
-          className={cn("h-full rounded-full", over ? "bg-destructive" : "bg-primary")}
+          className={cn("h-full rounded-full", over ? "bg-destructive" : "bg-[var(--lp-navy)]")}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -84,7 +88,7 @@ export function EsCounterClient() {
               type="checkbox"
               checked={excludeWhitespace}
               onChange={(e) => setExcludeWhitespace(e.target.checked)}
-              className="size-4 accent-primary"
+              className="size-4 accent-[var(--lp-navy)]"
             />
             空白・改行を除く
           </label>
@@ -96,7 +100,7 @@ export function EsCounterClient() {
           placeholder="ここにES本文を貼り付けてください"
           className={cn(
             "mt-4 min-h-[260px] w-full rounded-xl border border-slate-200 bg-slate-50/40 px-4 py-3 text-sm leading-relaxed text-slate-900 placeholder:text-slate-400",
-            "focus-visible:border-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/30",
+            "focus-visible:border-[var(--lp-border-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lp-navy)]/15",
           )}
         />
 
@@ -121,7 +125,7 @@ export function EsCounterClient() {
 
         <div className="rounded-2xl border border-slate-200/90 bg-slate-50/80 p-6">
           <div className="flex items-start gap-3">
-            <Sparkles className="mt-0.5 size-4 shrink-0 text-sky-700" aria-hidden />
+            <Sparkles className="mt-0.5 size-4 shrink-0 text-[var(--lp-navy)]" aria-hidden />
             <div>
               <p className="font-medium text-slate-950">次にやること</p>
               <p className="mt-1 text-sm leading-relaxed text-slate-600">
@@ -132,14 +136,14 @@ export function EsCounterClient() {
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <Link
               href="/login"
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
+              className={cn(publicSurfacePrimaryCtaClassName, "px-4 sm:px-5")}
             >
               アプリで続ける
               <ArrowRight className="size-4 shrink-0" aria-hidden />
             </Link>
             <Link
               href="/templates/shiboudouki"
-              className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+              className={cn(publicSurfaceSecondaryCtaClassName, "px-4 sm:px-5")}
             >
               志望動機テンプレを見る
               <ArrowRight className="size-4 shrink-0" aria-hidden />
@@ -147,7 +151,10 @@ export function EsCounterClient() {
           </div>
           <p className="mt-4 text-xs text-slate-500">
             参考:
-            <Link href="/pricing" className="ml-1 font-medium text-sky-700 underline-offset-2 hover:underline">
+            <Link
+              href="/pricing"
+              className="ml-1 font-medium text-[var(--lp-navy)] underline-offset-2 hover:underline"
+            >
               プラン・クレジット
             </Link>
           </p>
@@ -156,4 +163,3 @@ export function EsCounterClient() {
     </div>
   );
 }
-

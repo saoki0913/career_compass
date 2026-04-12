@@ -18,7 +18,7 @@ const REFUND_POLICY_URL = "/terms#billing";
 const BUSINESS_NAME = "Harbor Works";
 const REPRESENTATIVE_NAME =
   "請求があった場合、遅滞なく開示いたします。開示をご希望の方は support@shupass.jp までご連絡ください。";
-const BUSINESS_ADDRESS = "〒133-0061 東京都江戸川区篠崎町１−３０−３";
+const BUSINESS_ADDRESS = "〒160-0023 東京都新宿区西新宿3丁目3番13号西新宿水間ビル2F";
 const PHONE_NUMBER =
   "請求があった場合、遅滞なく開示いたします。開示をご希望の方は support@shupass.jp までご連絡ください。";
 

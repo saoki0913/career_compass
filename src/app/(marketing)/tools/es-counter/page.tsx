@@ -16,6 +16,8 @@ import {
   PublicSurfaceHeader,
   PublicSurfaceHero,
   PublicSurfacePanel,
+  publicSurfaceFeatureIconClassName,
+  publicSurfaceStepIconClassName,
 } from "@/components/public-surface";
 import { EsCounterClient } from "@/components/tools/EsCounterClient";
 import { createMarketingMetadata } from "@/lib/marketing-metadata";
@@ -57,7 +59,7 @@ export default function EsCounterPage() {
           points={["300 / 400 / 500字", "空白・改行を除外可", "無料"]}
           visual={
             <div className="p-5 sm:p-6">
-              <div className="relative overflow-hidden rounded-[24px] border border-slate-200 bg-slate-50">
+              <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-[var(--lp-shadow-screenshot)]">
                 <div className="absolute inset-x-0 top-0 z-10 flex items-center border-b border-slate-200/70 bg-white/80 px-4 py-3 backdrop-blur">
                   <div>
                     <p className="text-xs font-medium tracking-[0.18em] text-slate-500 uppercase">
@@ -80,7 +82,7 @@ export default function EsCounterPage() {
 
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <div className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
+                  <span className={publicSurfaceFeatureIconClassName}>
                     <FileText className="size-[18px]" aria-hidden />
                   </span>
                   <div className="min-w-0">
@@ -89,7 +91,7 @@ export default function EsCounterPage() {
                   </div>
                 </div>
                 <div className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
+                  <span className={publicSurfaceFeatureIconClassName}>
                     <ClipboardList className="size-[18px]" aria-hidden />
                   </span>
                   <div className="min-w-0">
@@ -98,7 +100,7 @@ export default function EsCounterPage() {
                   </div>
                 </div>
                 <div className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
+                  <span className={publicSurfaceFeatureIconClassName}>
                     <CheckCircle2 className="size-[18px]" aria-hidden />
                   </span>
                   <div className="min-w-0">
@@ -126,7 +128,7 @@ export default function EsCounterPage() {
                     key={label}
                     className="flex gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4"
                   >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <span className={publicSurfaceStepIconClassName}>
                       <Icon className="size-4" aria-hidden />
                     </span>
                     <div className="min-w-0">
@@ -144,14 +146,14 @@ export default function EsCounterPage() {
               <div className="flex flex-wrap gap-4 border-t border-slate-200/80 pt-5">
                 <Link
                   href="/templates/shiboudouki"
-                  className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950"
+                  className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-[var(--lp-navy)]"
                 >
                   志望動機テンプレ
                   <ArrowRight className="size-4 shrink-0" aria-hidden />
                 </Link>
                 <Link
                   href="/checklists/deadline-management"
-                  className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950"
+                  className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-[var(--lp-navy)]"
                 >
                   締切管理チェックリスト
                   <ArrowRight className="size-4 shrink-0" aria-hidden />
