@@ -3560,8 +3560,11 @@ async def get_next_question_stream(payload: NextQuestionRequest, request: Reques
         _sanitize_next_question_request(request)
     except PromptSafetyError:
         raise _prompt_safety_http_error()
+    from app.routers.motivation_streaming import (
+        _generate_next_question_progress as _generate_next_question_progress_canonical,
+    )
     return StreamingResponse(
-        _generate_next_question_progress(request),
+        _generate_next_question_progress_canonical(request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

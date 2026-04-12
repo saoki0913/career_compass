@@ -3,7 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.routers.motivation import NextQuestionRequest, _generate_next_question_progress
+from app.routers.motivation import NextQuestionRequest
+from app.routers.motivation_streaming import _generate_next_question_progress
 
 
 @pytest.mark.asyncio
