@@ -8,6 +8,7 @@ const {
   dbUpdateMock,
   dbInsertMock,
   enqueueDeadlineSyncMock,
+  generateTasksForDeadlineMock,
 } = vi.hoisted(() => ({
   authGetSessionMock: vi.fn(),
   getGuestUserMock: vi.fn(),
@@ -15,6 +16,7 @@ const {
   dbUpdateMock: vi.fn(),
   dbInsertMock: vi.fn(),
   enqueueDeadlineSyncMock: vi.fn(),
+  generateTasksForDeadlineMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -46,6 +48,10 @@ vi.mock("@/lib/calendar/sync", () => ({
   enqueueDeadlineSync: enqueueDeadlineSyncMock,
 }));
 
+vi.mock("@/lib/server/task-generation", () => ({
+  generateTasksForDeadline: generateTasksForDeadlineMock,
+}));
+
 function makeThenableQuery(result: unknown) {
   type Query = {
     where: (...args: unknown[]) => Query;
@@ -71,6 +77,7 @@ describe("api/deadlines/[id] PUT", () => {
     dbUpdateMock.mockReset();
     dbInsertMock.mockReset();
     enqueueDeadlineSyncMock.mockReset();
+    generateTasksForDeadlineMock.mockReset();
 
     authGetSessionMock.mockResolvedValue({ user: { id: "user-1" } });
     getGuestUserMock.mockResolvedValue(null);
@@ -81,6 +88,7 @@ describe("api/deadlines/[id] PUT", () => {
       id: "deadline-1",
       companyId: "company-1",
       applicationId: "app-1",
+      type: "other",
       dueDate: new Date("2026-04-01T00:00:00.000Z"),
       isConfirmed: false,
       completedAt: null,
@@ -129,12 +137,15 @@ describe("api/deadlines/[id] PUT", () => {
     const response = await PUT(request, { params: Promise.resolve({ id: "deadline-1" }) });
 
     expect(response.status).toBe(200);
-    expect(dbInsertMock).toHaveBeenCalledTimes(1);
-    const insertValuesMock = dbInsertMock.mock.results[0]?.value.values as
-      | { mock: { calls: Array<[Array<{ title: string }>] > } }
-      | undefined;
-    const insertedRows = insertValuesMock?.mock.calls[0]?.[0];
-    expect(insertedRows).toHaveLength(3);
-    expect(insertedRows?.[0]?.title).toBe("ES作成");
+    expect(generateTasksForDeadlineMock).toHaveBeenCalledTimes(1);
+    expect(generateTasksForDeadlineMock).toHaveBeenCalledWith({
+      deadlineId: "deadline-1",
+      deadlineType: "other",
+      deadlineDueDate: deadline.dueDate,
+      companyId: "company-1",
+      applicationId: "app-1",
+      userId: "user-1",
+      guestId: null,
+    });
   });
 });

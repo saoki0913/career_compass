@@ -6,20 +6,20 @@ import type { PaidPlan } from "@/lib/company-info/pricing";
  */
 export const RAG_PDF_MAX_PAGES: Record<PaidPlan, number> = {
   free: 20,
-  standard: 60,
-  pro: 120,
+  standard: 100,
+  pro: 200,
 };
 
 export const RAG_PDF_GOOGLE_OCR_MAX_PAGES: Record<PaidPlan, number> = {
   free: 5,
-  standard: 30,
-  pro: 60,
+  standard: 50,
+  pro: 100,
 };
 
 export const RAG_PDF_MISTRAL_OCR_MAX_PAGES: Record<PaidPlan, number> = {
   free: 0,
-  standard: 10,
-  pro: 20,
+  standard: 15,
+  pro: 30,
 };
 
 export function getRagPdfMaxIngestPages(plan: PaidPlan): number {

@@ -13,21 +13,21 @@ describe("company-info/pricing", () => {
   it("uses monthly schedule free limits per plan", () => {
     expect(MONTHLY_SCHEDULE_FETCH_FREE_LIMITS).toMatchObject({
       guest: 0,
-      free: 5,
-      standard: 50,
-      pro: 150,
+      free: 10,
+      standard: 100,
+      pro: 200,
     });
   });
 
   it("sets monthly free HTML pages by plan", () => {
-    expect(getMonthlyRagHtmlFreeUnits("free")).toBe(10);
-    expect(getMonthlyRagHtmlFreeUnits("standard")).toBe(100);
-    expect(getMonthlyRagHtmlFreeUnits("pro")).toBe(300);
+    expect(getMonthlyRagHtmlFreeUnits("free")).toBe(20);
+    expect(getMonthlyRagHtmlFreeUnits("standard")).toBe(200);
+    expect(getMonthlyRagHtmlFreeUnits("pro")).toBe(500);
   });
 
   it("sets monthly free PDF pages by plan", () => {
-    expect(getMonthlyRagPdfFreeUnits("free")).toBe(40);
-    expect(getMonthlyRagPdfFreeUnits("standard")).toBe(200);
+    expect(getMonthlyRagPdfFreeUnits("free")).toBe(60);
+    expect(getMonthlyRagPdfFreeUnits("standard")).toBe(250);
     expect(getMonthlyRagPdfFreeUnits("pro")).toBe(600);
   });
 

@@ -1,3 +1,4 @@
+export type { ContentType } from "@/lib/company-info/sources";
 import type { ContentType, CorporateInfoSource as CorporateInfoUrl } from "@/lib/company-info/sources";
 
 export interface RagStatus {

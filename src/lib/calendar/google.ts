@@ -138,6 +138,90 @@ export async function createCalendarEvent(
 }
 
 /**
+ * Find an existing Google Calendar event by entityId (via extendedProperties).
+ * Returns the event if found, or null.
+ */
+export async function findEventByEntityId(
+  accessToken: string,
+  calendarId: string,
+  entityId: string,
+): Promise<GoogleCalendarEvent | null> {
+  const params = new URLSearchParams({
+    privateExtendedProperty: `entityId=${entityId}`,
+    maxResults: "1",
+    singleEvents: "false",
+  });
+
+  const response = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+
+  if (!response.ok) {
+    if (response.status === 404) return null;
+    throw new Error("Failed to find event by entity ID");
+  }
+
+  const data = await response.json();
+  const items: GoogleCalendarEvent[] = data.items || [];
+  return items[0] ?? null;
+}
+
+/**
+ * Update (PATCH) an existing Google Calendar event in-place.
+ * Preserves the event ID for stable external references.
+ */
+export async function updateCalendarEvent(
+  accessToken: string,
+  calendarId: string,
+  eventId: string,
+  event: {
+    kind: AppCalendarEventKind;
+    entityId: string;
+    title: string;
+    startAt: string;
+    endAt: string;
+    description?: string;
+  },
+): Promise<{ id: string }> {
+  const summary = buildAppCalendarSummary(event.kind, event.title);
+
+  const response = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        summary,
+        start: { dateTime: event.startAt },
+        end: { dateTime: event.endAt },
+        description: event.description || "就活Passで作成",
+        extendedProperties: {
+          private: {
+            managedBy: "shukatsu-pass",
+            entityType: event.kind,
+            entityId: event.entityId,
+          },
+        },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      // Event was deleted externally — caller should CREATE instead
+      return { id: "" };
+    }
+    throw new Error("Failed to update event");
+  }
+
+  return await response.json();
+}
+
+/**
  * Delete a calendar event (only app-managed events - replace mode)
  */
 export async function deleteCalendarEvent(

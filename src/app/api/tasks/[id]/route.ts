@@ -12,6 +12,7 @@ import { tasks } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { unblockSuccessor, reblockSuccessors } from "@/lib/server/task-dependency";
 
 async function verifyTaskAccess(
   taskId: string,
@@ -166,11 +167,19 @@ export async function PUT(
       updateData.completedAt = completedAt ? new Date(completedAt) : null;
     }
 
+    const wasCompleted = access.task?.status === "done";
     const updated = await db
       .update(tasks)
       .set(updateData)
       .where(eq(tasks.id, taskId))
       .returning();
+
+    // Handle dependency chain updates
+    if (status === "done" && !wasCompleted) {
+      await unblockSuccessor(taskId);
+    } else if (status === "open" && wasCompleted) {
+      await reblockSuccessors(taskId);
+    }
 
     return NextResponse.json({ task: updated[0] });
   } catch (error) {

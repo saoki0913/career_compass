@@ -10,6 +10,11 @@ import {
   pdfFileKey,
   removePdfDraftFile,
 } from "@/components/companies/corporate-info-section/workflow-helpers";
+import {
+  buildCorporateSearchQuery,
+  detectCorporateContentType,
+  resolveCorporateContentChannel,
+} from "@/components/companies/corporate-info-section/use-corporate-info-controller";
 import { DEFAULT_PDF_UPLOAD_CONTENT_TYPE, type PdfDraft } from "@/components/companies/corporate-info-section/workflow-config";
 
 describe("getExtractionMethodLabel", () => {
@@ -23,6 +28,19 @@ describe("getExtractionMethodLabel", () => {
 });
 
 describe("corporate info workflow helpers", () => {
+  it("builds corporate search queries predictably", () => {
+    expect(buildCorporateSearchQuery("Sample", "  IR資料  ")).toBe("Sample IR資料");
+    expect(buildCorporateSearchQuery("Sample", "Sample 採用情報")).toBe("Sample 採用情報");
+    expect(buildCorporateSearchQuery("Sample", "   ")).toBe("");
+  });
+
+  it("detects content types and channels from search text", () => {
+    expect(detectCorporateContentType("Sample", "有価証券報告書")).toBe("ir_materials");
+    expect(detectCorporateContentType("Sample", "事業内容")).toBe("corporate_site");
+    expect(resolveCorporateContentChannel("ir_materials")).toBe("corporate_ir");
+    expect(resolveCorporateContentChannel(null)).toBe("corporate_general");
+  });
+
   it("normalizes URL textarea input and reports invalid rows", () => {
     const parsed = parseUrlListInput([
       "https://example.com/recruit",

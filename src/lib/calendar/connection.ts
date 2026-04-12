@@ -111,6 +111,22 @@ export async function clearCalendarReconnectNeeded(userId: string) {
     .where(eq(calendarSettings.userId, userId));
 }
 
+function isTokenExpired(
+  accessToken: string | null,
+  expiresAt: Date | null,
+  now: Date,
+): boolean {
+  return !accessToken || (!!expiresAt && expiresAt.getTime() - now.getTime() < 5 * 60 * 1000);
+}
+
+/**
+ * Get a valid Google Calendar access token, refreshing if expired.
+ *
+ * Uses CAS (Compare-and-Swap) with `updatedAt` as the version key to prevent
+ * concurrent refresh races: if two sync jobs detect an expired token at the
+ * same time, only the first CAS-update succeeds; the loser re-reads the DB
+ * and returns the already-refreshed token.
+ */
 export async function getValidGoogleCalendarAccessToken(userId: string) {
   const settings = await getCalendarSettingsRecord(userId);
   const status = buildCalendarConnectionStatus(settings);
@@ -122,16 +138,19 @@ export async function getValidGoogleCalendarAccessToken(userId: string) {
   }
 
   const now = new Date();
-  const expiresAt = settings.googleTokenExpiresAt;
-  const isExpired = !accessToken || (expiresAt && expiresAt.getTime() - now.getTime() < 5 * 60 * 1000);
-
-  if (!isExpired) {
+  if (!isTokenExpired(accessToken, settings.googleTokenExpiresAt, now)) {
     return { accessToken, settings, status };
   }
 
+  // Token is expired — remember the current updatedAt for CAS
+  const oldUpdatedAt = settings.updatedAt;
+
   try {
+    // Refresh against Google (no DB lock held during external I/O)
     const refreshed = await refreshAccessToken(refreshToken);
-    await db
+
+    // CAS update: only succeeds if no other job refreshed in the meantime
+    const [updated] = await db
       .update(calendarSettings)
       .set({
         googleAccessToken: encrypt(refreshed.accessToken),
@@ -139,7 +158,24 @@ export async function getValidGoogleCalendarAccessToken(userId: string) {
         googleCalendarNeedsReconnect: false,
         updatedAt: now,
       })
-      .where(eq(calendarSettings.userId, userId));
+      .where(
+        and(
+          eq(calendarSettings.userId, userId),
+          eq(calendarSettings.updatedAt, oldUpdatedAt),
+        ),
+      )
+      .returning();
+
+    if (!updated) {
+      // CAS failed — another job refreshed first; re-read and return the latest token
+      const latest = await getCalendarSettingsRecord(userId);
+      const latestToken = decryptStoredToken(latest?.googleAccessToken ?? null);
+      return {
+        accessToken: latestToken,
+        settings: latest,
+        status: buildCalendarConnectionStatus(latest),
+      };
+    }
 
     const refreshedSettings = await getCalendarSettingsRecord(userId);
     return {
@@ -148,12 +184,25 @@ export async function getValidGoogleCalendarAccessToken(userId: string) {
       status: buildCalendarConnectionStatus(refreshedSettings),
     };
   } catch {
+    // Refresh failed — re-read to check if another job succeeded
+    const latest = await getCalendarSettingsRecord(userId);
+    const latestToken = decryptStoredToken(latest?.googleAccessToken ?? null);
+    if (latestToken && latest && !isTokenExpired(latestToken, latest.googleTokenExpiresAt, new Date())) {
+      // Another job refreshed successfully
+      return {
+        accessToken: latestToken,
+        settings: latest,
+        status: buildCalendarConnectionStatus(latest),
+      };
+    }
+
+    // Genuinely failed — mark for reconnect
     await markCalendarReconnectNeeded(userId);
-    const refreshedSettings = await getCalendarSettingsRecord(userId);
+    const finalSettings = await getCalendarSettingsRecord(userId);
     return {
       accessToken: null,
-      settings: refreshedSettings,
-      status: buildCalendarConnectionStatus(refreshedSettings),
+      settings: finalSettings,
+      status: buildCalendarConnectionStatus(finalSettings),
     };
   }
 }

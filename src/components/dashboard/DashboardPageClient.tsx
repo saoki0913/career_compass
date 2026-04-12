@@ -516,9 +516,14 @@ export function DashboardPageClient({
           <Card className="border-border/50">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">近日の締切</CardTitle>
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/calendar">カレンダー</Link>
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" asChild>
+                  <Link href="/deadlines">すべて見る</Link>
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/calendar">カレンダー</Link>
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {deadlineCount > 0 ? (

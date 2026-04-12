@@ -6,22 +6,22 @@ export type PaidPlan = Exclude<PlanTypeWithGuest, "guest">;
 /** 選考スケジュール取得の月次無料枠（JST 暦月）。Guest は API で拒否のため表示用 0。 */
 export const MONTHLY_SCHEDULE_FETCH_FREE_LIMITS: Record<CompanyInfoEligiblePlan, number> = {
   guest: 0,
-  free: 5,
-  standard: 50,
-  pro: 150,
+  free: 10,
+  standard: 100,
+  pro: 200,
 };
 
 /** 企業RAG URL の月次無料枠（ページ）。 */
 const MONTHLY_RAG_HTML_FREE_PAGES: Record<PaidPlan, number> = {
-  free: 10,
-  standard: 100,
-  pro: 300,
+  free: 20,
+  standard: 200,
+  pro: 500,
 };
 
 /** 企業RAG PDF の月次無料枠（ページ）。 */
 const MONTHLY_RAG_PDF_FREE_PAGES: Record<PaidPlan, number> = {
-  free: 40,
-  standard: 200,
+  free: 60,
+  standard: 250,
   pro: 600,
 };
 
