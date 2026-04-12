@@ -237,6 +237,7 @@ def test_validate_rewrite_candidate_accepts_soft_min_on_final_short_answer_attem
         "length_policy": "soft_ok",
         "length_shortfall": 20,
         "soft_min_floor_ratio": 0.9,
+        "ai_smell_warnings": [],
     }
 
 
@@ -263,6 +264,7 @@ def test_validate_rewrite_candidate_accepts_soft_min_on_final_long_answer_attemp
         "length_policy": "soft_ok",
         "length_shortfall": 30,
         "soft_min_floor_ratio": 0.9,
+        "ai_smell_warnings": [],
     }
 
 

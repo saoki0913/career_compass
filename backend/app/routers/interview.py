@@ -776,7 +776,7 @@ def _format_conversation(conversation_history: list[Message]) -> str:
     )
 
 
-def _legacy_stage_for_topic(topic: Optional[str], question_stage: Optional[str] = None) -> str:
+def _infer_stage_from_topic(topic: Optional[str], question_stage: Optional[str] = None) -> str:
     if isinstance(question_stage, str) and question_stage in LEGACY_STAGE_ORDER:
         return question_stage
 
@@ -793,16 +793,6 @@ def _legacy_stage_for_topic(topic: Optional[str], question_stage: Optional[str] 
         return "opening"
     return "opening"
 
-
-def _legacy_stage_status(current: str) -> dict[str, list[str] | str]:
-    if current not in LEGACY_STAGE_ORDER:
-        current = "opening"
-    current_index = LEGACY_STAGE_ORDER.index(current)
-    return {
-        "current": current,
-        "completed": LEGACY_STAGE_ORDER[:current_index],
-        "pending": LEGACY_STAGE_ORDER[current_index + 1 :],
-    }
 
 
 def _default_stage_question_counts() -> dict[str, int]:
@@ -1291,7 +1281,7 @@ def _normalize_turn_state(value: Optional[dict[str, Any]], setup: dict[str, Any]
 
     current_stage = str(value.get("currentStage") or value.get("question_stage") or "opening").strip()
     if current_stage not in LEGACY_STAGE_ORDER:
-        current_stage = _legacy_stage_for_topic(value.get("lastTopic"), current_stage)
+        current_stage = _infer_stage_from_topic(value.get("lastTopic"), current_stage)
     state["currentStage"] = current_stage
 
     for key in ("questionCount", "totalQuestionCount", "turnCount"):
@@ -1371,7 +1361,6 @@ def _derive_turn_state_for_question(base: dict[str, Any], turn_meta: dict[str, A
         counts[legacy_stage] = int(counts.get(legacy_stage, 0) or 0) + 1
         state["stageQuestionCounts"] = counts
     state["completedStages"] = [stage for stage in LEGACY_STAGE_ORDER if stage in LEGACY_STAGE_ORDER[: LEGACY_STAGE_ORDER.index(legacy_stage)]]
-    state["stageStatus"] = _legacy_stage_status(legacy_stage)
     return state
 
 
@@ -1812,7 +1801,7 @@ async def _generate_start_progress(payload: InterviewStartRequest) -> AsyncGener
                     "question_stage": "opening",
                     "interview_plan": interview_plan,
                     "turn_meta": turn_meta,
-                    "stage_status": _legacy_stage_status("opening"),
+                    "stage_status": None,
                     "question_flow_completed": False,
                     "turn_state": turn_state,
                 }
@@ -1889,7 +1878,6 @@ async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerat
         merged_state["phase"] = "turn"
         merged_state["question_stage"] = question_stage
         merged_state["currentStage"] = _question_stage_from_turn_meta(turn_meta)
-        merged_state["stageStatus"] = _legacy_stage_status(merged_state["currentStage"])
         merged_state["remainingTopics"] = [
             topic for topic in _normalize_string_list(interview_plan.get("must_cover_topics")) if topic not in merged_state.get("coveredTopics", [])
         ]
@@ -1904,7 +1892,7 @@ async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerat
                     "question_stage": question_stage,
                     "interview_plan": interview_plan,
                     "turn_meta": turn_meta,
-                    "stage_status": _legacy_stage_status(merged_state["currentStage"]),
+                    "stage_status": None,
                     "question_flow_completed": False,
                     "turn_state": merged_state,
                 }
@@ -1986,7 +1974,7 @@ async def _generate_continue_progress(payload: InterviewContinueRequest) -> Asyn
                     "question_stage": question_stage,
                     "interview_plan": interview_plan,
                     "turn_meta": turn_meta,
-                    "stage_status": _legacy_stage_status(_question_stage_from_turn_meta(turn_meta)),
+                    "stage_status": None,
                     "question_flow_completed": False,
                     "turn_state": merged_state,
                 }
@@ -2047,7 +2035,7 @@ async def _generate_feedback_progress(payload: InterviewFeedbackRequest) -> Asyn
             "interviewPlan": interview_plan,
             "plan": interview_plan,
             "interview_plan": interview_plan,
-            "stageStatus": _legacy_stage_status("feedback"),
+            "stageStatus": None,
         }
 
         yield _sse_event("field_complete", {"path": "scores", "value": feedback["scores"]})
@@ -2060,7 +2048,7 @@ async def _generate_feedback_progress(payload: InterviewFeedbackRequest) -> Asyn
                     "question_stage": "feedback",
                     "interview_plan": interview_plan,
                     "turn_meta": final_state["turnMeta"],
-                    "stage_status": _legacy_stage_status("feedback"),
+                    "stage_status": None,
                     "question_flow_completed": True,
                     "turn_state": final_state,
                 }

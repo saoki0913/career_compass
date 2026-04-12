@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.routers.es_review import FINAL_SOFT_MIN_FLOOR_RATIO
+from app.routers.es_review_grounding import COMPANY_HONORIFIC_TOKENS
 
 DEFAULT_JUDGE_MODEL = "gpt-5.4"
 SMOKE_CASE_SET = "smoke"
@@ -11,13 +12,15 @@ EXTENDED_CASE_SET = "extended"
 CANARY_CASE_SET = "canary"
 ALL_STANDARD_MODELS = [
     "claude-sonnet",
+    "claude-haiku",
     "gpt-5.4",
     "gpt-5.4-mini",
     "gemini-3.1-pro-preview",
     "low-cost",
 ]
-# extended / ローカル 5+5 スイープの既定（本番で使う主要 4 モデル）
+# extended / ローカル 5+5 スイープの既定（本番で使う主要 5 モデル）
 DEFAULT_LIVE_PROVIDERS_EXTENDED: tuple[str, ...] = (
+    "claude-haiku",
     "gpt-5.4-mini",
     "gpt-5.4",
     "claude-sonnet",
@@ -1169,7 +1172,10 @@ def evaluate_live_case(
         failures.append("user_fact_tokens:missing")
     if case.expected_company_tokens and not any(token in rewrite for token in case.expected_company_tokens):
         failures.append("company_tokens:missing")
-    if case.company_context == "companyless" and case.company_name and case.company_name in rewrite:
-        failures.append("companyless:company_name_present")
+    if case.company_context == "companyless":
+        if case.company_name and case.company_name in rewrite:
+            failures.append("companyless:company_name_present")
+        if any(token in rewrite for token in COMPANY_HONORIFIC_TOKENS):
+            failures.append("companyless:honorific_token_present")
 
     return failures

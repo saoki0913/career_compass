@@ -51,7 +51,7 @@ async def test_streaming_emits_only_final_canonical_question(
 
     monkeypatch.setattr("app.routers.motivation._get_company_context", fake_company_context)
     monkeypatch.setattr("app.routers.motivation._evaluate_motivation_internal", fake_evaluate)
-    monkeypatch.setattr("app.routers.motivation.call_llm_streaming_fields", fake_stream)
+    monkeypatch.setattr("app.routers.motivation_streaming.call_llm_streaming_fields", fake_stream)
 
     request = NextQuestionRequest(
         company_id="company_test",

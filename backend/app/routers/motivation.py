@@ -22,7 +22,6 @@ from typing import Any, AsyncGenerator, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
 
 from app.utils.llm import (
     PromptSafetyError,
@@ -30,7 +29,6 @@ from app.utils.llm import (
     call_llm_streaming_fields,
     consume_request_llm_cost_summary,
     sanitize_prompt_input,
-    sanitize_user_prompt_text,
 )
 from app.utils.vector_store import get_enhanced_context_for_review_with_sources
 from app.config import settings
@@ -49,191 +47,104 @@ from app.prompts.es_templates import (
 from app.utils.es_draft_text import normalize_es_draft_single_paragraph
 from app.limiter import limiter
 
+# Sub-module imports
+from app.routers.motivation_models import (
+    EvidenceCard,
+    GenerateDraftFromProfileRequest,
+    GenerateDraftRequest,
+    GenerateDraftResponse,
+    Message,
+    MotivationEvaluation,
+    MotivationScores,
+    MotivationScoresInput,
+    NextQuestionRequest,
+    NextQuestionResponse,
+    StageStatus,
+)
+from app.routers.motivation_context import (
+    COMPANY_GENERIC_PATTERNS,
+    COMPANY_TEXT_NOISE_KEYWORDS,
+    COMPANY_TEXT_NOISE_PATTERNS,
+    CONTRADICTION_PATTERNS,
+    CONTRIBUTION_ACTION_TOKENS,
+    CONTRIBUTION_TARGET_TOKENS,
+    CONTRIBUTION_VALUE_TOKENS,
+    CONVERSATION_MODE_DEEPDIVE,
+    CONVERSATION_MODE_SLOT_FILL,
+    MAX_WEAK_SLOT_REASKS,
+    REQUIRED_MOTIVATION_STAGES,
+    SLOT_FILL_INTENTS,
+    SLOT_STATE_ELIGIBLE_FOR_ASK,
+    SLOT_STATE_ORDER,
+    SLOT_STATE_VALUES,
+    STAGE_CONFIRMED_FACT_KEYS,
+    STAGE_LABELS,
+    UNRESOLVED_PATTERNS,
+    _answer_is_confirmed_for_stage,
+    _answer_signals_contradiction,
+    _answer_signals_unresolved,
+    _build_open_slots_from_confirmed_facts,
+    _capture_answer_into_context,
+    _classify_slot_state,
+    _clean_short_phrase,
+    _coerce_risk_flags,
+    _coerce_stage_list,
+    _coerce_string_list,
+    _confirmed_fact_key_for_stage,
+    _contains_any_token,
+    _count_matching_groups,
+    _default_confirmed_facts,
+    _default_reask_budget_by_slot,
+    _default_slot_evidence_sentences,
+    _default_slot_intents_asked,
+    _default_slot_states,
+    _default_slot_summaries,
+    _default_weak_slot_retries,
+    _has_company_specificity,
+    _is_noisy_company_text,
+    _legacy_slot_state,
+    _looks_like_role_reason,
+    _normalize_causal_gaps,
+    _normalize_confirmed_facts,
+    _normalize_conversation_context,
+    _normalize_forbidden_reasks,
+    _normalize_slot_state,
+    _normalize_slot_state_map,
+    _normalize_slot_status_v2,
+    _normalize_slot_summary_map,
+    _normalize_slot_evidence_map,
+    _normalize_slot_intents_map,
+    _normalize_weak_slot_retries,
+    _sanitize_existing_grounding_candidates,
+    _slot_priority,
+)
+from app.routers.motivation_planner import (
+    DEEPDIVE_INTENT_BY_GAP_ID,
+    NEXT_ADVANCE_CONDITION_BY_SLOT,
+    _build_progress_payload,
+    _compute_deterministic_causal_gaps,
+    _determine_next_turn,
+    _slot_label,
+)
+from app.routers.motivation_sanitizers import (
+    format_conversation as _format_conversation,
+    prompt_safety_http_error as _prompt_safety_http_error,
+    sanitize_generate_draft_from_profile_request as _sanitize_generate_draft_from_profile_request,
+    sanitize_generate_draft_request as _sanitize_generate_draft_request,
+    sanitize_next_question_request as _sanitize_next_question_request,
+    sanitize_request_messages as _sanitize_request_messages,
+    sanitize_request_text as _sanitize_request_text,
+)
+from app.routers.motivation_contract import (
+    build_stage_status as _build_stage_status,
+)
+
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/motivation", tags=["motivation"])
 
 # Configuration
 ELEMENT_COMPLETION_THRESHOLD = 70  # Each element needs 70%+ to be complete
-
-
-class Message(BaseModel):
-    role: str = Field(pattern=r"^(user|assistant)$")
-    content: str = Field(max_length=10000)
-
-
-class MotivationScores(BaseModel):
-    company_understanding: int = Field(default=0, ge=0, le=100)
-    self_analysis: int = Field(default=0, ge=0, le=100)
-    career_vision: int = Field(default=0, ge=0, le=100)
-    differentiation: int = Field(default=0, ge=0, le=100)
-
-
-class MotivationEvaluation(BaseModel):
-    slot_status: dict[str, str]
-    slot_status_v2: dict[str, str] = {}
-    missing_slots: list[str]
-    weak_slots: list[str] = []
-    do_not_ask_slots: list[str] = []
-    ready_for_draft: bool
-    draft_readiness_reason: str
-    draft_blockers: list[str] = []
-    risk_flags: list[str] = []
-    conversation_warnings: list[str] = []
-
-
-class MotivationScoresInput(BaseModel):
-    """Typed input for motivation scores from client."""
-    company_understanding: int = Field(default=0, ge=0, le=100)
-    self_analysis: int = Field(default=0, ge=0, le=100)
-    career_vision: int = Field(default=0, ge=0, le=100)
-    differentiation: int = Field(default=0, ge=0, le=100)
-
-    model_config = {"extra": "ignore"}
-
-
-class NextQuestionRequest(BaseModel):
-    company_id: str = Field(max_length=100)
-    company_name: str = Field(max_length=200)
-    industry: Optional[str] = Field(default=None, max_length=100)
-    generated_draft: Optional[str] = Field(default=None, max_length=8000)
-    requires_industry_selection: bool = False
-    industry_options: Optional[list[str]] = None
-    conversation_history: list[Message]
-    question_count: int = Field(default=0, ge=0)
-    scores: Optional[MotivationScoresInput] = None
-    gakuchika_context: Optional[list[dict]] = None
-    conversation_context: Optional[dict[str, Any]] = None
-    profile_context: Optional[dict[str, Any]] = None
-    application_job_candidates: Optional[list[str]] = None
-    company_role_candidates: Optional[list[str]] = None
-    company_work_candidates: Optional[list[str]] = None
-
-
-class EvidenceCard(BaseModel):
-    sourceId: str
-    title: str
-    contentType: str
-    excerpt: str
-    sourceUrl: str
-    relevanceLabel: str
-
-
-class StageStatus(BaseModel):
-    current: str
-    completed: list[str]
-    pending: list[str]
-
-
-class NextQuestionResponse(BaseModel):
-    question: str
-    reasoning: Optional[str] = None
-    should_continue: bool = True
-    suggested_end: bool = False
-    draft_ready: bool = False
-    evaluation: Optional[dict] = None
-    target_slot: Optional[str] = None
-    question_intent: Optional[str] = None
-    answer_contract: Optional[dict[str, Any]] = None
-    target_element: Optional[str] = None
-    company_insight: Optional[str] = None  # RAG-based company insight used
-    evidence_summary: Optional[str] = None  # RAG根拠の短い要約
-    evidence_cards: list[EvidenceCard] = []
-    question_stage: Optional[str] = None
-    question_focus: Optional[str] = None
-    stage_status: Optional[StageStatus] = None
-    captured_context: Optional[dict[str, Any]] = None
-    coaching_focus: Optional[str] = None
-    risk_flags: list[str] = []
-    question_signature: Optional[str] = None
-    semantic_question_signature: Optional[str] = None
-    stage_attempt_count: Optional[int] = None
-    question_difficulty_level: Optional[int] = None
-    candidate_validation_summary: Optional[dict[str, Any]] = None
-    weakness_tag: Optional[str] = None
-    premise_mode: Optional[str] = None
-    conversation_mode: Optional[str] = None
-    current_slot: Optional[str] = None
-    current_intent: Optional[str] = None
-    next_advance_condition: Optional[str] = None
-    progress: Optional[dict[str, Any]] = None
-    causal_gaps: list[dict[str, Any]] = []
-    internal_telemetry: Optional[dict[str, Any]] = None
-
-
-class GenerateDraftRequest(BaseModel):
-    company_id: str = Field(max_length=100)
-    company_name: str = Field(max_length=200)
-    industry: Optional[str] = Field(default=None, max_length=100)
-    conversation_history: list[Message]
-    char_limit: int = Field(default=400, ge=300, le=500)
-
-
-class GenerateDraftResponse(BaseModel):
-    draft: str
-    char_count: int
-    key_points: list[str]
-    company_keywords: list[str]
-    internal_telemetry: Optional[dict[str, Any]] = None
-
-
-class GenerateDraftFromProfileRequest(BaseModel):
-    company_id: str = Field(max_length=100)
-    company_name: str = Field(max_length=200)
-    industry: Optional[str] = Field(default=None, max_length=100)
-    selected_role: str = Field(max_length=200)
-    char_limit: int = Field(default=400, ge=300, le=500)
-    gakuchika_context: Optional[list[dict]] = None
-    profile_context: Optional[dict[str, Any]] = None
-
-
-def _format_conversation(messages: list[Message]) -> str:
-    """Format conversation history for prompts."""
-    formatted = []
-    for msg in messages:
-        role_label = "質問" if msg.role == "assistant" else "回答"
-        content = sanitize_user_prompt_text(msg.content, max_length=3000) if msg.role == "user" else msg.content
-        formatted.append(f"{role_label}: {content}")
-    return "\n\n".join(formatted)
-
-
-def _prompt_safety_http_error() -> HTTPException:
-    return HTTPException(
-        status_code=400,
-        detail="内部設定や秘匿情報に関する指示は受け付けられません。",
-    )
-
-
-def _sanitize_request_messages(messages: list[Message]) -> None:
-    for msg in messages:
-        if msg.role == "user":
-            msg.content = sanitize_user_prompt_text(msg.content, max_length=3000)
-
-
-def _sanitize_request_text(value: Optional[str], *, max_length: int = 200) -> Optional[str]:
-    if value is None:
-        return None
-    sanitized = sanitize_user_prompt_text(value, max_length=max_length)
-    return sanitized.strip() or None
-
-
-def _sanitize_next_question_request(request: NextQuestionRequest) -> None:
-    request.company_name = _sanitize_request_text(request.company_name, max_length=200) or request.company_name
-    request.industry = _sanitize_request_text(request.industry, max_length=100)
-    request.generated_draft = _sanitize_request_text(request.generated_draft, max_length=8000)
-    _sanitize_request_messages(request.conversation_history)
-
-
-def _sanitize_generate_draft_request(request: GenerateDraftRequest) -> None:
-    request.company_name = _sanitize_request_text(request.company_name, max_length=200) or request.company_name
-    request.industry = _sanitize_request_text(request.industry, max_length=100)
-    _sanitize_request_messages(request.conversation_history)
-
-
-def _sanitize_generate_draft_from_profile_request(request: GenerateDraftFromProfileRequest) -> None:
-    request.company_name = _sanitize_request_text(request.company_name, max_length=200) or request.company_name
-    request.industry = _sanitize_request_text(request.industry, max_length=100)
-    request.selected_role = _sanitize_request_text(request.selected_role, max_length=200) or request.selected_role
 
 
 def _trim_conversation_for_evaluation(
@@ -320,18 +231,6 @@ STAGE_ORDER = [
     "differentiation",
 ]
 
-STAGE_LABELS = {
-    "industry_reason": "業界志望理由",
-    "company_reason": "企業志望理由",
-    "self_connection": "自分との接続",
-    "desired_work": "やりたい仕事",
-    "value_contribution": "価値発揮",
-    "differentiation": "差別化",
-}
-
-SLOT_STATE_ORDER = ("missing", "partial", "filled_weak", "filled_strong")
-SLOT_STATE_ELIGIBLE_FOR_ASK = {"missing", "partial", "filled_weak"}
-MAX_WEAK_SLOT_REASKS = 1
 QUESTION_DIFFICULTY_MAX = 3
 
 WEAKNESS_TAG_TO_STAGE = {
@@ -442,25 +341,7 @@ ANSWER_CONTRACTS: dict[str, dict[str, Any]] = {
     },
 }
 
-REQUIRED_MOTIVATION_STAGES = (
-    "industry_reason",
-    "company_reason",
-    "self_connection",
-    "desired_work",
-    "value_contribution",
-    "differentiation",
-)
-
 MAX_STAGE_REASKS = 1
-
-STAGE_CONFIRMED_FACT_KEYS = {
-    "industry_reason": "industry_reason_confirmed",
-    "company_reason": "company_reason_confirmed",
-    "self_connection": "self_connection_confirmed",
-    "desired_work": "desired_work_confirmed",
-    "value_contribution": "value_contribution_confirmed",
-    "differentiation": "differentiation_confirmed",
-}
 
 PREMISE_ASSERTIVE_PATTERNS = (
     "志望して",

@@ -29,15 +29,58 @@ from app.utils.llm import call_llm_with_error
 
 MODEL_MATRIX = {
     "claude-sonnet": {"provider": "claude", "api_key_attr": "anthropic_api_key", "host": "api.anthropic.com"},
+    "claude-haiku": {"provider": "claude", "api_key_attr": "anthropic_api_key", "host": "api.anthropic.com"},
     "gpt-5.4": {"provider": "openai", "api_key_attr": "openai_api_key", "host": "api.openai.com"},
     "gpt-5.4-mini": {"provider": "openai", "api_key_attr": "openai_api_key", "host": "api.openai.com"},
-    "low-cost": {"provider": "openai", "api_key_attr": "openai_api_key", "host": "api.openai.com"},
+    "low-cost": {"provider": "claude", "api_key_attr": "anthropic_api_key", "host": "api.anthropic.com"},
     "gemini-3.1-pro-preview": {
         "provider": "google",
         "api_key_attr": "google_api_key",
         "host": "generativelanguage.googleapis.com",
     },
 }
+
+_JUDGE_SYSTEM_PROMPT = """\
+あなたは日本語ES添削の品質評価者です。
+与えられた設問・元回答・添削後回答を読み、以下5軸を5点満点で厳格に採点してください。
+
+## 採点軸と基準
+
+### question_fit（設問適合）
+- 5: 1文目で設問に直接回答している。設問が求める要素（志望理由、強み、取組み等）が過不足なく含まれる
+- 3: 回答しているが、設問の核からやや逸れている。冒頭が設問の言い換えで始まる
+- 2: 自己PRに終始して設問を無視、または設問と無関係な話題が半分以上
+
+### user_fact_use（ユーザー事実活用）
+- 5: 元回答の数値・固有名詞・具体エピソードが保持され、適切に再構成されている
+- 3: 主要な事実は残っているが、数値や固有名詞が一部脱落している
+- 2: 元回答の事実がほぼ無視され、一般論に置き換えられている
+
+### company_grounding（企業理解）
+- 5: 企業固有のキーワード（事業名、制度名、理念）が1つ以上適切に活用されている
+- 3: 企業名は出るが、どの企業でも通る汎用的な表現にとどまる
+- 2: 企業情報が全く反映されていない、または過剰に断定している
+- companyless（企業なし）設問の採点ルール:
+  - 明示的な企業敬称（「貴社」「御社」「貴行」等）が含まれていたら2点
+  - 「入社後」「事業に貢献」「業界で活かす」等のキャリア志向表現は減点しない（5点基準）
+  - 「商取引」「ビジネス環境」等の業界一般用語も減点しない
+  - companyless設問では company_grounding は原則5点。明示的企業敬称がある場合のみ2点
+
+### composition_quality（構成品質）
+- 5: 結論先行で、各文に役割があり、冗長な繰り返しがない
+- 3: 結論はあるが、中盤で同趣旨の言い換えが続く
+- 2: 結論が埋もれている、または箇条書き的で文章になっていない
+
+### naturalness（自然さ）
+- 5: 語尾が適度に変化し、具体的な行動描写がある。人間が書いたESとして違和感がない
+- 3: 読めるが、「〜したい」「〜と考える」が2文連続するなど、やや機械的
+- 2: 同じ文末パターンが3文以上連続、「多様な関係者」「価値を創出する」等のLLM定型句が目立つ
+
+## 出力ルール
+- fail_reasons: スコア2以下の軸がある場合、その具体的理由を書く
+- warnings: スコア3の軸がある場合、改善点を書く
+- overall_pass: 全軸3以上かつ平均3.5以上ならtrue
+- JSON以外は出力しないでください"""
 
 JUDGE_SCHEMA = {
     "type": "object",
@@ -143,6 +186,7 @@ def _review_meta_diag(review_meta: object | None) -> dict[str, object] | None:
         "unfinished_tail_detected": getattr(review_meta, "unfinished_tail_detected", None),
         "retrieval_profile_name": getattr(review_meta, "retrieval_profile_name", None),
         "priority_source_match_count": getattr(review_meta, "priority_source_match_count", None),
+        "ai_smell_warnings": list(getattr(review_meta, "ai_smell_warnings", []) or []),
     }
 
 
@@ -474,8 +518,13 @@ def _cli_progress(
     print(line, file=sys.stderr, flush=True)
 
 
-def _require_judge_pass() -> bool:
-    return os.getenv("LIVE_ES_REVIEW_REQUIRE_JUDGE_PASS", "0").strip() == "1"
+def _require_judge_pass(case_set: str) -> bool:
+    raw = os.getenv("LIVE_ES_REVIEW_REQUIRE_JUDGE_PASS", "").strip()
+    if raw == "1":
+        return True
+    if raw == "0":
+        return False
+    return case_set == "extended"
 
 
 def _judge_min_score_thresholds() -> dict[str, int]:
@@ -596,21 +645,11 @@ async def _maybe_run_judge(case: LiveESReviewCase, rewrite: str) -> dict[str, ob
                 f"- {source.get('title','')} / {source.get('excerpt','')} / {source.get('source_url','')}"
             )
 
-    system_prompt = """あなたは日本語ES添削の品質評価者です。
-与えられた設問・元回答・添削後回答を読み、以下を5点満点で厳格に採点してください。
-- question_fit: 設問に正面から答えているか
-- user_fact_use: ユーザー元回答の事実や経験を活用できているか
-- company_grounding: 企業情報の使い方が適切で、必要以上に断定していないか
-- composition_quality: 結論先行で、参考ESらしい構成と読みやすさがあるか
-- naturalness: 日本語として不自然でないか
-fail_reasons には重大な欠点だけ、warnings には軽微な懸念だけを書いてください。
-JSON以外は出力しないでください。"""
-
     result = await call_llm_with_error(
-        system_prompt=system_prompt,
+        system_prompt=_JUDGE_SYSTEM_PROMPT,
         user_message="\n".join(user_lines),
         max_tokens=250,
-        temperature=0.1,
+        temperature=0.0,
         model=_judge_model(),
         feature="es_review",
         response_format="json_schema",
@@ -642,13 +681,15 @@ def _write_report(case_set: str, rows: list[dict[str, object]]) -> tuple[Path, P
     md_lines = [
         f"# Live ES Review Report ({case_set})",
         "",
-        "| model | case | band | context | status | failure_kind | preflight | chars | retries | length_fix | judge | duration_ms | note |",
-        "|---|---|---|---|---:|---|---|---:|---:|---|---|---:|---|",
+        "| model | case | band | context | status | failure_kind | preflight | chars | retries | length_fix | ai_smell | judge | duration_ms | note |",
+        "|---|---|---|---|---:|---|---|---:|---:|---|---:|---|---:|---|",
     ]
     for row in rows:
         judge = row.get("judge_status", "")
+        ai_smell_count = row.get("ai_smell_count", 0)
+        ai_smell_cell = str(ai_smell_count) if ai_smell_count else ""
         md_lines.append(
-            f"| {row['model']} | {row['case_id']} | {row.get('char_band','')} | {row.get('company_context','')} | {row['status']} | {row.get('failure_kind','')} | {row.get('preflight_status','')} | {row.get('char_count','')} | {row.get('rewrite_attempt_count','')} | {row.get('length_fix_result','')} | {judge} | {row.get('duration_ms', '')} | {row.get('note','')} |"
+            f"| {row['model']} | {row['case_id']} | {row.get('char_band','')} | {row.get('company_context','')} | {row['status']} | {row.get('failure_kind','')} | {row.get('preflight_status','')} | {row.get('char_count','')} | {row.get('rewrite_attempt_count','')} | {row.get('length_fix_result','')} | {ai_smell_cell} | {judge} | {row.get('duration_ms', '')} | {row.get('note','')} |"
         )
     _append_markdown_diagnostic_appendix(md_lines, rows)
     md_path.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
@@ -667,7 +708,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
     selected_models = _selected_models(case_set)
     fail_on_missing_keys = os.getenv("LIVE_ES_REVIEW_FAIL_ON_MISSING_KEYS", "0") == "1"
     enable_judge = _judge_enabled(case_set)
-    require_judge_pass = _require_judge_pass()
+    require_judge_pass = _require_judge_pass(case_set)
     judge_min_scores = _judge_min_score_thresholds()
     collect_only = _collect_only()
     blocking_failures_enabled = _blocking_failures_enabled(case_set)
@@ -825,6 +866,8 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                     "length_shortfall": getattr(review_meta, "length_shortfall", None),
                     "length_fix_result": getattr(review_meta, "length_fix_result", None),
                     "weak_evidence_notice": getattr(review_meta, "weak_evidence_notice", None),
+                    "ai_smell_warnings": list(getattr(review_meta, "ai_smell_warnings", []) or []),
+                    "ai_smell_count": len(list(getattr(review_meta, "ai_smell_warnings", []) or [])),
                     "token_usage": review_meta.token_usage.model_dump() if review_meta and review_meta.token_usage else None,
                     "judge_status": judge_result.get("status") if judge_result else "disabled",
                     "judge_scores": judge_result.get("scores") if judge_result else None,

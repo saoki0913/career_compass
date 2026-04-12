@@ -1,11 +1,13 @@
 import pytest
 
 from app.routers import company_info
+from app.routers import company_info_pdf
+import app.utils.pdf_ocr as pdf_ocr_module
 
 
 @pytest.mark.asyncio
 async def test_schedule_pdf_uses_shared_pdf_ocr_route(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(company_info, "_extract_text_from_pdf_locally", lambda _pdf_bytes: "short")
+    monkeypatch.setattr(company_info_pdf, "_extract_text_from_pdf_locally", lambda _pdf_bytes: "short")
 
     calls: list[dict[str, object]] = []
 
@@ -20,7 +22,7 @@ async def test_schedule_pdf_uses_shared_pdf_ocr_route(monkeypatch: pytest.Monkey
             "diagnostics": {},
         }
 
-    monkeypatch.setattr(company_info, "extract_text_from_pdf_with_ocr", _fake_pdf_ocr)
+    monkeypatch.setattr(pdf_ocr_module, "extract_text_from_pdf_with_ocr", _fake_pdf_ocr)
 
     text, is_pdf = await company_info._extract_schedule_text_from_bytes(
         "https://example.com/schedule.pdf",

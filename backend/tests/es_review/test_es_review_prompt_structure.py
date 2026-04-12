@@ -246,6 +246,83 @@ def test_self_pr_rewrite_prompt_includes_negative_reframe_guidance() -> None:
     assert "準備・責任感・学習姿勢・確認力" in system_prompt
 
 
+@pytest.mark.parametrize(
+    ("template_type", "question", "answer", "expected_line"),
+    [
+        (
+            "gakuchika",
+            "学生時代に力を入れたことを教えてください。",
+            "ゼミで進行改善に取り組んだ。",
+            "1文目で取り組みの全体像と自分の役割を示す",
+        ),
+        (
+            "self_pr",
+            "自己PRを教えてください。",
+            "私の強みは、周囲を巻き込みながらやり切る力だ。",
+            "1文目で強みの核を一言で示す",
+        ),
+        (
+            "work_values",
+            "働くうえで大切にしている価値観を教えてください。",
+            "私が大切にしているのは、相手の状況を踏まえて動く姿勢だ。",
+            "1文目で大切にしている価値観を示す",
+        ),
+    ],
+)
+def test_rewrite_prompt_includes_new_playbooks_for_core_self_templates(
+    template_type: str,
+    question: str,
+    answer: str,
+    expected_line: str,
+) -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type=template_type,
+        company_name=None,
+        industry=None,
+        question=question,
+        answer=answer,
+        char_min=180,
+        char_max=240,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": answer}],
+        grounding_mode="none",
+    )
+
+    assert "【requiredテンプレの型】" in system_prompt
+    assert expected_line in system_prompt
+
+
+def test_rewrite_prompt_keeps_core_constraints_when_structural_patterns_v2_are_present() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="gakuchika",
+        company_name=None,
+        industry=None,
+        question="学生時代に力を入れたことを教えてください。",
+        answer="ゼミで進行改善に取り組み、共有の型を見直した。",
+        char_min=250,
+        char_max=320,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "ゼミで進行改善に取り組んだ。"}],
+        grounding_mode="none",
+        reference_quality_block=(
+            "【参考ESから抽出した構成パターン】\n"
+            "- 冒頭傾向: 結論先行が多い（75%）\n"
+            "- 構成タイプ: STAR順が多い（75%）\n"
+            "- 締め傾向: 成果で終える例が多い（75%）\n"
+            "- 配分傾向: 冒頭短め・中盤厚め・締め短め\n"
+            "- 構成パターンは論点順の参考に留め、既存の骨子や事実より優先しない"
+        ),
+    )
+
+    assert "<constraints>" in system_prompt
+    assert "<length_policy>" in system_prompt
+    assert "【参考ESから抽出した構成パターン】" in system_prompt
+    assert "【設問で落としてはいけない要素】" in system_prompt
+    assert "【requiredテンプレの型】" in system_prompt
+
+
 def test_required_length_fix_prompt_stays_minimal_and_bridge_only() -> None:
     system_prompt, user_prompt = build_template_length_fix_prompt(
         template_type="role_course_reason",
@@ -406,7 +483,7 @@ def test_target_window_biases_openai_mini_higher_for_short_answers() -> None:
         llm_model="claude-sonnet-4-6",
     )
 
-    assert mini_window == "137字〜140字"
+    assert mini_window == "135字〜140字"  # gap拡大 (short:2→4) により目標下限が下がった
     assert full_window == "134字〜140字"
     assert claude_window == "132字〜140字"
 

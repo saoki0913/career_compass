@@ -96,6 +96,30 @@ def test_build_deepdive_prompt_includes_future_and_backstory() -> None:
     assert "STAR の点数評価は不要です" in prompt
 
 
+def test_build_deepdive_prompt_tightens_continuation_focus_by_round() -> None:
+    prompt = _build_deepdive_prompt(
+        NextQuestionRequest(
+            gakuchika_title="塾講師のアルバイト",
+            conversation_history=[
+                {"role": "assistant", "content": "その方法を選んだ理由は何ですか。"},
+                {"role": "user", "content": "面談頻度を増やし、宿題管理表を導入しました。"},
+            ],
+            question_count=9,
+            conversation_state=ConversationStateInput(
+                stage="interview_ready",
+                draft_text="私は個別指導塾で担当生徒の学習継続率改善に取り組みました。",
+                ready_for_draft=True,
+                extended_deep_dive_round=3,
+            ),
+        )
+    )
+
+    assert "継続深掘り（3 回目）" in prompt
+    assert "仮説の裏取り" in prompt
+    assert "数値の分解" in prompt
+    assert "逆質問に備えた答え" in prompt
+
+
 def test_fallback_questions_avoid_prohibited_phrases() -> None:
     banned = (
         "教えてください",

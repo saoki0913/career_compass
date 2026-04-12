@@ -12,11 +12,11 @@ from app.routers.interview import (
     InterviewStartRequest,
     InterviewTurnRequest,
     INTERVIEW_TURN_SCHEMA,
-    _collect_llm_completion,
     _generate_feedback_progress,
     _generate_start_progress,
     _generate_turn_progress,
     _normalize_feedback,
+    _stream_llm_json_completion,
 )
 
 
@@ -106,7 +106,7 @@ def test_normalize_feedback_preserves_weakest_turn_linkage_fields() -> None:
 
 
 @pytest.mark.asyncio
-async def test_collect_llm_completion_forwards_json_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_stream_llm_json_completion_forwards_json_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict[str, object] = {}
 
     async def fake_stream(*args, **kwargs):
@@ -115,7 +115,9 @@ async def test_collect_llm_completion_forwards_json_schema(monkeypatch: pytest.M
 
     monkeypatch.setattr("app.routers.interview.call_llm_streaming_fields", fake_stream)
 
-    data, string_chunks = await _collect_llm_completion(
+    data = None
+    string_chunks = []
+    async for kind, payload in _stream_llm_json_completion(
         prompt="system",
         user_message="user",
         stream_string_fields=["question"],
@@ -124,7 +126,11 @@ async def test_collect_llm_completion_forwards_json_schema(monkeypatch: pytest.M
         temperature=0.2,
         feature="interview",
         json_schema=INTERVIEW_OPENING_SCHEMA,
-    )
+    ):
+        if kind == "chunk":
+            string_chunks.append(payload)
+        else:
+            data = payload
 
     assert data == {"question": "自己紹介をお願いします。"}
     assert string_chunks == []
@@ -403,8 +409,9 @@ async def test_start_stream_falls_back_when_llm_generation_fails(
 ) -> None:
     async def fake_collect(**kwargs):
         raise RuntimeError("LLM unavailable")
+        yield ("done", None)
 
-    monkeypatch.setattr("app.routers.interview._collect_llm_completion", fake_collect)
+    monkeypatch.setattr("app.routers.interview._stream_llm_json_completion", fake_collect)
 
     request = InterviewStartRequest(
         company_name="ケース株式会社",
@@ -428,7 +435,8 @@ async def test_start_stream_falls_back_when_llm_generation_fails(
         events.append(json.loads(payload.removeprefix("data: ").strip()))
 
     complete_event = next(e for e in events if e["type"] == "complete")
-    assert "売上が前年同期比で10%下がっている" in complete_event["data"]["question"]
+    assert "ケース面接として" in complete_event["data"]["question"]
+    assert "まず何から切り分けて考えますか" in complete_event["data"]["question"]
     assert complete_event["data"]["turn_meta"]["topic"] in {"structured_thinking", "case_fit"}
 
 
@@ -491,7 +499,8 @@ async def test_start_stream_replaces_format_mismatched_opening_question(
         events.append(json.loads(payload.removeprefix("data: ").strip()))
 
     complete_event = next(e for e in events if e["type"] == "complete")
-    assert "売上が前年同期比で10%下がっている" in complete_event["data"]["question"]
+    assert "ケース面接として" in complete_event["data"]["question"]
+    assert "まず何から切り分けて考えますか" in complete_event["data"]["question"]
     assert complete_event["data"]["turn_meta"]["topic"] in {"structured_thinking", "case_fit"}
 
 

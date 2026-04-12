@@ -2,9 +2,11 @@ import pytest
 
 from app.routers.motivation import (
     _build_progress_payload,
+    _build_draft_primary_material,
     _classify_slot_state,
     _compute_deterministic_causal_gaps,
     _determine_next_turn,
+    _has_profile_draft_material,
     _normalize_conversation_context,
     _should_use_deepdive_mode,
 )
@@ -152,3 +154,30 @@ def test_should_use_deepdive_mode_requires_actual_generated_draft() -> None:
 
     assert _should_use_deepdive_mode(Prep(True, False)) is False
     assert _should_use_deepdive_mode(Prep(True, True)) is True
+
+
+def test_build_draft_primary_material_prioritizes_structured_slots() -> None:
+    heading, body = _build_draft_primary_material(
+        conversation_text="質問: なぜその企業ですか？\n\n回答: DX支援の現場感に惹かれています。",
+        slot_summaries={
+            "company_reason": "DX支援の現場感に惹かれている。",
+            "desired_work": "企画職として課題整理に関わりたい。",
+        },
+        slot_evidence_sentences={
+            "company_reason": ["DX支援の現場感に惹かれている。"],
+        },
+    )
+
+    assert heading == "【構造化材料＋会話ログ】"
+    assert "【スロット要約】" in body
+    assert "company_reason" in body
+    assert "【根拠文】" in body
+    assert "【会話ログ】" in body
+
+
+def test_has_profile_draft_material_requires_more_than_selected_role_only() -> None:
+    assert _has_profile_draft_material({"target_job_types": ["企画職"]}, []) is False
+    assert _has_profile_draft_material(
+        {"target_job_types": ["企画職"], "target_industries": ["IT"]},
+        [],
+    ) is True
