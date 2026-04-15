@@ -17,6 +17,23 @@
     "expectedDraftTokens": ["業務改革", "企画", "顧客課題"]
   },
   {
+    "id": "motivation_bank_trust",
+    "suiteDepth": "smoke",
+    "title": "銀行の法人営業で顧客信頼を重視するケース",
+    "companyName": "株式会社テスト銀行",
+    "industry": "銀行",
+    "selectedIndustry": "銀行",
+    "selectedRole": "総合職",
+    "applicationJobType": "総合職",
+    "answers": [
+      "法人顧客の資金繰りと事業成長を支える点に社会的意義を感じています。",
+      "ゼミのフィールドワークで中小企業のヒアリングをまとめ、課題の優先順位付けを担当しました。",
+      "入社後は顧客の事業理解を深め、提案の精度を上げたいです。"
+    ],
+    "expectedQuestionTokens": ["法人", "銀行"],
+    "expectedDraftTokens": ["顧客", "事業", "信頼"]
+  },
+  {
     "id": "motivation_differentiation_and_fit",
     "suiteDepth": "extended",
     "title": "同業比較で第一志望を説明するケース",

@@ -128,14 +128,19 @@ run_es_review() {
 
 run_conversation_feature() {
   local conversation_feature="$1"
+  local upper_feature
+  upper_feature="$(echo "$conversation_feature" | tr '[:lower:]' '[:upper:]')"
+
   run_logged \
-    "${conversation_feature}-playwright" \
+    "${conversation_feature}-pytest" \
     env \
-    PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-https://stg.shupass.jp}" \
-    PLAYWRIGHT_SKIP_WEBSERVER=1 \
+    AI_LIVE_BASE_URL="${PLAYWRIGHT_BASE_URL:-${AI_LIVE_BASE_URL:-https://stg.shupass.jp}}" \
     CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
-    LIVE_AI_CONVERSATION_FEATURE="$conversation_feature" \
-    npx playwright test -c playwright.live.config.ts e2e/live-ai-conversations.spec.ts
+    CI_E2E_SCOPE="${CI_E2E_SCOPE:-}" \
+    AI_LIVE_OUTPUT_DIR="$run_dir" \
+    LIVE_AI_CONVERSATION_CASE_SET="$suite" \
+    "RUN_LIVE_${upper_feature}=1" \
+    python -m pytest "backend/tests/${conversation_feature}/integration/test_live_${conversation_feature}_report.py" -v -s -m integration
 }
 
 run_company_info_feature() {

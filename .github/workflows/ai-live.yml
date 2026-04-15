@@ -113,25 +113,23 @@ jobs:
     timeout-minutes: 60
     environment: staging
     env:
-      PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
-      PLAYWRIGHT_SKIP_WEBSERVER: "1"
+      AI_LIVE_BASE_URL: https://stg.shupass.jp
       CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
       CI_E2E_SCOPE: ai-live-${{ github.run_id }}-gakuchika
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: 20
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
       - name: Preflight CI E2E auth
-        run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+        run: python scripts/ci/check-ai-live-auth.py --base-url "${{ env.AI_LIVE_BASE_URL }}"
       - name: Reset AI live state
-        run: node scripts/ci/reset-ai-live-state.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+        run: python scripts/ci/reset-ai-live-state.py --base-url "${{ env.AI_LIVE_BASE_URL }}"
       - name: Run gakuchika live
         env:
           AI_LIVE_SKIP_SUMMARY: "1"
@@ -269,25 +267,23 @@ jobs:
     timeout-minutes: 60
     environment: staging
     env:
-      PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
-      PLAYWRIGHT_SKIP_WEBSERVER: "1"
+      AI_LIVE_BASE_URL: https://stg.shupass.jp
       CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
       CI_E2E_SCOPE: ai-live-${{ github.run_id }}-motivation
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: 20
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
       - name: Preflight CI E2E auth
-        run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+        run: python scripts/ci/check-ai-live-auth.py --base-url "${{ env.AI_LIVE_BASE_URL }}"
       - name: Reset AI live state
-        run: node scripts/ci/reset-ai-live-state.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+        run: python scripts/ci/reset-ai-live-state.py --base-url "${{ env.AI_LIVE_BASE_URL }}"
       - name: Run motivation live
         env:
           AI_LIVE_SKIP_SUMMARY: "1"
@@ -310,25 +306,23 @@ jobs:
     timeout-minutes: 60
     environment: staging
     env:
-      PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
-      PLAYWRIGHT_SKIP_WEBSERVER: "1"
+      AI_LIVE_BASE_URL: https://stg.shupass.jp
       CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
       CI_E2E_SCOPE: ai-live-${{ github.run_id }}-interview
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: 20
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
       - name: Preflight CI E2E auth
-        run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+        run: python scripts/ci/check-ai-live-auth.py --base-url "${{ env.AI_LIVE_BASE_URL }}"
       - name: Reset AI live state
-        run: node scripts/ci/reset-ai-live-state.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+        run: python scripts/ci/reset-ai-live-state.py --base-url "${{ env.AI_LIVE_BASE_URL }}"
       - name: Run interview live
         env:
           AI_LIVE_SKIP_SUMMARY: "1"

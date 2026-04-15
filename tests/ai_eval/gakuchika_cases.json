@@ -16,6 +16,38 @@
     "expectedSummaryTokens": ["共有", "継続", "提案"]
   },
   {
+    "id": "gakuchika_quantitative_outcome",
+    "suiteDepth": "smoke",
+    "title": "飲食アルバイトで回転率改善に取り組んだ経験",
+    "gakuchikaTitle": "飲食店アルバイトでの回転率改善",
+    "gakuchikaContent": "居酒屋のアルバイトで、週末のピーク帯に待ち客が増え回転率が下がる課題に対し、オーダーと片付けの連携ルールを提案した。",
+    "charLimitType": "400",
+    "answers": [
+      "ピーク帯の待ち時間を手元でメモし、ボトルネックがオーダー確認と片付けの間の空白時間だと特定しました。",
+      "ホールスタッフ同士で「退席合図→片付け→案内」を3分以内に回す声かけルールを作りました。",
+      "繁忙日に限定して試し、待ち時間と回転率の変化を店長に報告しました。",
+      "結果、週末の待ち時間が平均10分ほど短くなり、客数も増えました。"
+    ],
+    "expectedQuestionTokens": ["課題", "改善", "結果"],
+    "expectedSummaryTokens": ["回転率", "ルール", "待ち時間"]
+  },
+  {
+    "id": "gakuchika_team_conflict",
+    "suiteDepth": "smoke",
+    "title": "サークル運営でメンバー対立を収束させた経験",
+    "gakuchikaTitle": "サークルの方針対立を解消した経験",
+    "gakuchikaContent": "サークルの活動方針をめぐり幹部間で対立が生じた際、個別ヒアリングと論点整理で合意を形成した。",
+    "charLimitType": "400",
+    "answers": [
+      "大会出場を重視する派と、初心者歓迎を重視する派で意見が割れていました。",
+      "私は副代表として双方の主張を個別に聞き取り、共通点と譲れない点を整理しました。",
+      "曜日別に練習メニューを分ける折衷案を提示し、両方のニーズを両立させました。",
+      "対立後もメンバーの離脱はなく、新入部員も増えて活動の幅が広がりました。"
+    ],
+    "expectedQuestionTokens": ["対立", "合意", "役割"],
+    "expectedSummaryTokens": ["ヒアリング", "折衷", "両立"]
+  },
+  {
     "id": "gakuchika_process_over_result",
     "suiteDepth": "extended",
     "title": "イベント運営で仕組み化を進めた経験",
