@@ -153,19 +153,45 @@ def build_deterministic_gakuchika_followup(
     next_question: str,
     attempt_index: int,
     latest_complete: dict[str, Any] | None = None,
+    case_answers: list[str] | None = None,
 ) -> str:
     """Generate a deterministic gakuchika follow-up answer based on question context.
 
     Ported from ``buildDeterministicGakuchikaFollowupAnswer`` (lines 745-784 of
-    ``e2e/live-ai-conversations.spec.ts``).
+    ``e2e/live-ai-conversations.spec.ts``), with case-awareness.
+
+    When ``case_answers`` is provided, answers are drawn from the case's own
+    answer bank to stay on-topic.  Falls back to ``GAKUCHIKA_FALLBACK_ANSWERS``
+    only when no case-specific answers are available.
 
     Priority order:
-    1. Match explicit question patterns (preferred over focusKey so we do not
-       loop when the model asks for outcomes while focusKey says "role").
+    1. Match explicit question patterns → map to the appropriate dimension
+       index in the answer bank.
     2. Fall back to ``conversationState.focusKey`` or first
        ``conversationState.missingElements`` entry.
-    3. Default to ``GAKUCHIKA_FALLBACK_ANSWERS`` indexed by ``attempt_index``.
+    3. Default to answer bank indexed by ``attempt_index`` (cycling).
     """
+    bank = case_answers if case_answers and len(case_answers) >= 4 else GAKUCHIKA_FALLBACK_ANSWERS
+
+    def _pick(dimension_index: int) -> str:
+        """Pick from the bank, mapping dimension to a bank index."""
+        # Map 5 dimensions (0-4) to bank positions:
+        #   0=context/challenge, 1=role/task, 2=action/reasoning,
+        #   3=result/evidence, 4+=learning/reflection
+        if len(bank) <= 5:
+            return bank[min(dimension_index, len(bank) - 1)]
+        # For larger banks (8+ answers), use the second half for
+        # role-clarity, action-reasoning, result-evidence, learning
+        dim_map = {
+            0: 0,  # context → first answer
+            1: 4 if len(bank) > 4 else 1,  # role → 5th answer (role clarity)
+            2: 5 if len(bank) > 5 else 2,  # action reasoning → 6th answer
+            3: 6 if len(bank) > 6 else 3,  # result evidence → 7th answer
+            4: 7 if len(bank) > 7 else min(len(bank) - 1, 4),  # learning → 8th answer
+        }
+        idx = dim_map.get(dimension_index, dimension_index % len(bank))
+        return bank[idx]
+
     conversation_state: dict[str, Any] = {}
     if isinstance(latest_complete, dict):
         cs = latest_complete.get("conversationState")
@@ -189,29 +215,30 @@ def build_deterministic_gakuchika_followup(
 
     # Explicit question-pattern matches take priority over focusKey
     if re.search(r"結果|変化|どれだけ|改善|成果|前後で|どのような変化|見られたか", normalized):
-        return GAKUCHIKA_FALLBACK_ANSWERS[3]
+        return _pick(3)
     if re.search(r"学び|今後|活か|再現", normalized):
-        return GAKUCHIKA_FALLBACK_ANSWERS[4]
+        return _pick(4)
     if re.search(r"基準|判断軸|優先|なぜその順番|どう決め", normalized):
-        return GAKUCHIKA_FALLBACK_ANSWERS[2]
+        return _pick(2)
     if re.search(r"課題|きっかけ|どんな場面|背景", normalized):
-        return GAKUCHIKA_FALLBACK_ANSWERS[0]
+        return _pick(0)
     if re.search(r"役割|どこまで判断|担当", normalized):
-        return GAKUCHIKA_FALLBACK_ANSWERS[1]
+        return _pick(1)
 
     # focusKey fallback
     if focus_key in ("context", "challenge"):
-        return GAKUCHIKA_FALLBACK_ANSWERS[0]
+        return _pick(0)
     if focus_key in ("role", "task"):
-        return GAKUCHIKA_FALLBACK_ANSWERS[1]
+        return _pick(1)
     if focus_key in ("action", "action_reason"):
-        return GAKUCHIKA_FALLBACK_ANSWERS[2]
+        return _pick(2)
     if focus_key in ("result", "result_evidence"):
-        return GAKUCHIKA_FALLBACK_ANSWERS[3]
+        return _pick(3)
     if focus_key in ("learning", "learning_transfer"):
-        return GAKUCHIKA_FALLBACK_ANSWERS[4]
+        return _pick(4)
 
-    return GAKUCHIKA_FALLBACK_ANSWERS[min(attempt_index, len(GAKUCHIKA_FALLBACK_ANSWERS) - 1)]
+    # Cycle through the bank to avoid repeating the same answer
+    return bank[attempt_index % len(bank)]
 
 
 def build_deterministic_motivation_followup(
@@ -400,6 +427,7 @@ async def run_gakuchika_conversation(
                     next_question=next_question_text,
                     attempt_index=attempt - len(answers),
                     latest_complete=latest_complete,
+                    case_answers=answers,
                 )
 
             transcript.append({"role": "user", "content": answer})
