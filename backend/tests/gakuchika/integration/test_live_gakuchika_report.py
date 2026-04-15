@@ -107,6 +107,7 @@ async def _run_single_case(
     t0 = perf_counter()
     gakuchika_id: str | None = None
     document_ids: list[str] = []
+    transcript: list[dict[str, str]] = []
 
     try:
         # 1. Create gakuchika resource
@@ -122,11 +123,10 @@ async def _run_single_case(
         assert gakuchika_id, f"Failed to obtain gakuchika id for case {case_id!r}"
 
         # 2. Run conversation loop until draft_ready state
-        transcript: list[dict[str, str]] = []
         complete_data = await run_gakuchika_conversation(
             client, gakuchika_id, answers, transcript
         )
-        row["transcript"] = transcript
+        row["transcript"] = transcript  # also captured on exception via finally
 
         # 3. Generate ES draft via SSE endpoint
         draft_response = await client.request(
@@ -261,6 +261,9 @@ async def _run_single_case(
         traceback.print_exc()
     finally:
         row["durationMs"] = int((perf_counter() - t0) * 1000)
+        # Always capture transcript (even partial, on exception)
+        if transcript:
+            row["transcript"] = transcript
 
         # Cleanup: documents first, then the gakuchika resource itself.
         cleanup_errors: list[str] = []

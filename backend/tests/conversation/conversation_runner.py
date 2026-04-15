@@ -382,6 +382,7 @@ async def run_gakuchika_conversation(
         messages: list[dict[str, str]] = start_body.get("messages") or []
         first_question: str = start_body.get("nextQuestion") or (messages[0].get("content") if messages else "") or ""
         push_assistant_if_present(transcript, first_question)
+        print(f"  [gak] started session={session_id} q0={first_question[:80]!r}")
 
         latest_complete: dict[str, Any] | None = None
         next_question_text: str = first_question
@@ -422,11 +423,26 @@ async def run_gakuchika_conversation(
             )
             events = parse_sse_events(stream_body)
             next_question_chunk = collect_chunks(events, "question")
-            latest_complete = parse_complete_data(events)
+            try:
+                latest_complete = parse_complete_data(events)
+            except ValueError:
+                print(f"  [gak] attempt={attempt} no complete event; events={len(events)} body_len={len(stream_body)}")
+                latest_complete = {}
             next_question_text = str(
                 latest_complete.get("nextQuestion") or next_question_chunk or ""
             )
             push_assistant_if_present(transcript, next_question_text)
+
+            # Debug: log key signals from each turn
+            cs = latest_complete.get("conversationState") or {}
+            print(
+                f"  [gak] attempt={attempt} "
+                f"stage={cs.get('stage')!r} "
+                f"readyForDraft={cs.get('readyForDraft')} "
+                f"isCompleted={latest_complete.get('isCompleted')} "
+                f"nextAction={latest_complete.get('nextAction')!r} "
+                f"q={next_question_text[:60]!r}"
+            )
 
             if is_gakuchika_draft_ready(latest_complete):
                 return latest_complete
@@ -502,6 +518,7 @@ async def run_motivation_conversation(
             or ""
         )
         push_assistant_if_present(transcript, first_question)
+        print(f"  [mot] started session={session_id} q0={first_question[:80]!r}")
 
         latest_complete: dict[str, Any] | None = None
         next_question_text: str = first_question
@@ -540,11 +557,22 @@ async def run_motivation_conversation(
             )
             events = parse_sse_events(stream_body)
             next_question_chunk = collect_chunks(events, "question")
-            latest_complete = parse_complete_data(events)
+            try:
+                latest_complete = parse_complete_data(events)
+            except ValueError:
+                print(f"  [mot] attempt={attempt} no complete event; events={len(events)} body_len={len(stream_body)}")
+                latest_complete = {}
             next_question_text = str(
                 latest_complete.get("nextQuestion") or next_question_chunk or ""
             )
             push_assistant_if_present(transcript, next_question_text)
+
+            print(
+                f"  [mot] attempt={attempt} "
+                f"isDraftReady={latest_complete.get('isDraftReady')} "
+                f"nextAction={latest_complete.get('nextAction')!r} "
+                f"q={next_question_text[:60]!r}"
+            )
 
             if latest_complete.get("isDraftReady") is True:
                 return latest_complete

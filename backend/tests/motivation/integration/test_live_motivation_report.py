@@ -218,6 +218,7 @@ async def _run_single_case(
     t0 = perf_counter()
     company_id: str | None = None
     document_ids: list[str] = []
+    transcript: list[dict[str, str]] = []
 
     try:
         # Step 1: Create company + application + job type
@@ -245,7 +246,6 @@ async def _run_single_case(
                 pass
 
         # Step 2: Run motivation conversation loop
-        transcript: list[dict[str, str]] = []
         await run_motivation_conversation(
             client,
             company_id,
@@ -348,6 +348,8 @@ async def _run_single_case(
 
     finally:
         row["durationMs"] = int((perf_counter() - t0) * 1000)
+        if transcript:
+            row["transcript"] = transcript
 
         cleanup_errors: list[str] = []
         for doc_id in document_ids:

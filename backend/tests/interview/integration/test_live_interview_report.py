@@ -87,6 +87,7 @@ async def _run_single_case(client: StagingClient, case: dict[str, Any]) -> dict[
     company_id: str | None = None
     gakuchika_id: str | None = None
     document_ids: list[str] = []
+    interview_transcript: list[dict[str, str]] = []
 
     try:
         # 1. Create company with unique name
@@ -182,7 +183,6 @@ async def _run_single_case(client: StagingClient, case: dict[str, Any]) -> dict[
                 pass  # Non-fatal for interview
 
         # 9. Run interview flow
-        interview_transcript: list[dict[str, str]] = []
         feedback_dict, feedback_text = await run_interview_flow(
             client,
             company_id,
@@ -240,6 +240,8 @@ async def _run_single_case(client: StagingClient, case: dict[str, Any]) -> dict[
         traceback.print_exc()
     finally:
         row["durationMs"] = int((perf_counter() - t0) * 1000)
+        if interview_transcript:
+            row["transcript"] = interview_transcript
 
         cleanup_errors: list[str] = []
         for doc_id in document_ids:
