@@ -21,14 +21,14 @@ export function FinalCTASection() {
             className="mx-auto mb-10 max-w-md text-lg text-[var(--lp-on-dark-muted)]"
             style={{ lineHeight: 1.7 }}
           >
-            今なら会員登録で、ES対策チェックリストをプレゼント中。
+            ESを貼り付けるだけで、AIが改善案を提示します。
           </p>
           <Link
             href="/login"
             className="group inline-flex items-center gap-2 rounded-xl bg-white px-10 py-4 text-base text-[var(--lp-navy)] shadow-lg shadow-black/20 transition-all hover:shadow-xl active:scale-[0.98]"
             style={{ fontWeight: 700 }}
           >
-            無料で今すぐ始める
+            無料で試す
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </Link>
           <p className="mt-6 text-sm text-[var(--lp-on-dark-fine)]" style={{ fontWeight: 400 }}>

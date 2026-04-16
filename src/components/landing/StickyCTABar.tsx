@@ -22,7 +22,7 @@ export function StickyCTABar() {
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--lp-cta)] py-3.5 text-sm text-white transition-transform active:scale-[0.98]"
         style={{ fontWeight: 600 }}
       >
-        無料で始める
+        無料で試す
         <ArrowRight className="h-4 w-4" />
       </Link>
     </div>

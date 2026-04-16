@@ -13,7 +13,7 @@ export type LandingMedia = {
 export const landingMedia = {
   heroDashboard: {
     src: "/marketing/screenshots/hero-dashboard.png",
-    alt: "就活Pass ダッシュボード画面 - 企業管理、ES作成、締切管理、クイックアクション",
+    alt: "就活AIアプリ就活Passのダッシュボード（ES添削・企業管理）",
     videoSrc: HERO_PRODUCT_DEMO_VIDEO_PATH,
   },
   esReview: {
