@@ -18,6 +18,10 @@ const items = [
     before: "面接練習の相手がいない",
     after: "企業ごとの模擬面接で、本番前に練習できる",
   },
+  {
+    before: "AIらしい定型文が残って、ES が「それっぽい」だけで終わる",
+    after: "AIが出しがちな表現を辞書で検出し、自分の言葉に書き直す候補を提示",
+  },
 ];
 
 export function BeforeAfterSection() {

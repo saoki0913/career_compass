@@ -16,16 +16,22 @@ export function FeatureInterviewSection() {
               className="mb-4 text-2xl tracking-tight text-[var(--lp-navy)] md:text-[2rem]"
               style={{ fontWeight: 800, lineHeight: 1.3 }}
             >
-              AIとの対話で、自分の言葉にする。
+              志望動機AI・ガクチカ対話で、自分の言葉にする。
             </h3>
             <p className="mb-8 text-slate-500" style={{ lineHeight: 1.8 }}>
               志望動機やガクチカを、AIとの会話で言語化。頭の中の曖昧な考えが、ESに書ける材料に変わります。
             </p>
+            <p
+              className="mb-6 text-xs text-slate-500"
+              style={{ lineHeight: 1.8 }}
+            >
+              業界理由 → 企業理由 → 自分との接点 → やりたい仕事 → 価値発揮 → 差別化
+            </p>
             <ul className="space-y-3">
               {[
-                "質問に答えるだけで考えが整理される",
-                "「何を書けばいいか」が自然と見えてくる",
-                "整理した内容からES下書きを自動生成",
+                "業界理由・企業理由・自分との接点・やりたい仕事・価値発揮・差別化の 6 軸で整理",
+                "企業情報を自動で取り込み、対話のフィードバックに反映",
+                "「成長できる」「学べる」など企業固有性の薄い言い回しを把握して深掘り質問へ回す",
               ].map((text) => (
                 <li key={text} className="flex items-start gap-3">
                   <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--lp-navy)]">

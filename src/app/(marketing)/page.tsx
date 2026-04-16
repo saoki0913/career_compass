@@ -9,6 +9,7 @@ import { BeforeAfterSection } from "@/components/landing/BeforeAfterSection";
 import { FeatureESSection } from "@/components/landing/FeatureESSection";
 import { FeatureManagementSection } from "@/components/landing/FeatureManagementSection";
 import { FeatureInterviewSection } from "@/components/landing/FeatureInterviewSection";
+import { MidCTASection } from "@/components/landing/MidCTASection";
 import { HowItWorksSection } from "@/components/landing/HowItWorksSection";
 import { ComparisonSection } from "@/components/landing/ComparisonSection";
 import { PricingSection } from "@/components/landing/PricingSection";
@@ -54,6 +55,8 @@ export default function Home() {
         <FeatureManagementSection />
 
         <FeatureInterviewSection />
+
+        <MidCTASection />
 
         <HowItWorksSection />
 

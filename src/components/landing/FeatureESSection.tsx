@@ -33,16 +33,16 @@ export function FeatureESSection() {
               className="mb-4 text-2xl tracking-tight text-[var(--lp-navy)] md:text-[2rem]"
               style={{ fontWeight: 800, lineHeight: 1.3 }}
             >
-              AIがESを即時添削。改善案もその場で確認。
+              ES添削AIが設問ごとに改善案を提示。
             </h3>
             <p className="mb-8 text-slate-500" style={{ lineHeight: 1.8 }}>
-              ESの下書きを貼り付けるだけで、AIが設問ごとに改善点を提示。書き換え案を見ながらその場で修正できるので、何度でもブラッシュアップできます。
+              ESの下書きを貼り付けるだけで、AIが設問タイプに合わせた改善点を提示。書き換え案を見ながらその場で修正できるので、何度でもブラッシュアップできます。
             </p>
             <ul className="space-y-3">
               {[
-                "設問に合わせた具体的な改善案をAIが提示",
-                "書き換え案を見ながらワンクリックで更新",
-                "途中のメモや下書きからでもスタート可能",
+                "志望動機・自己PR・ガクチカ等 8 種の設問タイプに、専用テンプレートで改善案",
+                "AI が出しがちな定型語・文末反復を辞書とスコアで検出し、書き直し候補を提示",
+                "指定文字数に合わせた構成・改善ポイントを提案",
               ].map((text) => (
                 <li key={text} className="flex items-start gap-3">
                   <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--lp-navy)]">
