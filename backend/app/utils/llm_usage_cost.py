@@ -242,6 +242,18 @@ def _record_request_llm_cost_summary(
     _request_llm_cost_summary_var.set(summary)
 
 
+def get_request_total_tokens() -> int:
+    """Peek at accumulated token count without resetting the ContextVar."""
+    summary = _request_llm_cost_summary_var.get()
+    if not summary:
+        return 0
+    return (
+        int(summary.get("input_tokens_total") or 0)
+        + int(summary.get("output_tokens_total") or 0)
+        + int(summary.get("reasoning_tokens_total") or 0)
+    )
+
+
 def consume_request_llm_cost_summary(feature: str | None = None) -> dict[str, Any] | None:
     summary = _request_llm_cost_summary_var.get()
     _request_llm_cost_summary_var.set(None)
@@ -265,9 +277,7 @@ def consume_request_llm_cost_summary(feature: str | None = None) -> dict[str, An
     if isinstance(est_jpy_total, (int, float)) and est_jpy_total > 0:
         result["est_jpy_total"] = round(float(est_jpy_total), 2)
     logger.info("[llm_cost_summary] %s", json.dumps(result, ensure_ascii=False))
-    if settings.debug:
-        return result
-    return None
+    return result
 
 
 def _append_llm_cost_estimate_parts(parts: list[str], est: float | None) -> None:
