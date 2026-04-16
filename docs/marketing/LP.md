@@ -2,7 +2,7 @@
 
 > **目的**: LP（ランディングページ）の現行セクション構成、デザイン方針、実装ファイルを一箇所にまとめる。
 > **対象読者**: LP の改修・拡張に関わるチーム全員
-> **最終更新**: 2026-04-05（Stripe マーケ準拠の全面刷新。見た目のモデルは Stripe、ブランド色は就活Pass のまま）
+> **最終更新**: 2026-04-17（LP トップに固有 metadata + Organization JSON-LD + MidCTA / Quality セクション追加。HowItWorks は `LANDING_STEPS` SSOT に刷新）
 
 **見た目の詳細（トークン・シャドウ・guardrails・エージェント向け規約）の正本はリポジトリルートの [`DESIGN.md`](../../DESIGN.md)。** 本書のトークン表は概要であり、実装では `DESIGN.md` と [`src/app/globals.css`](../../src/app/globals.css) の `--lp-*` を優先する。
 
@@ -13,18 +13,21 @@
 ```
  1. LandingHeader       — 固定ヘッダー（細めボーダー・ゴーストログイン + 赤CTA）
  2. HeroSection         — lg: 2カラム（左コピー+CTA、右ダッシュボードSS）・グラデ背景
- 3. TrustStripSection   — 信頼帯（landing-content の trustPoints：決済・クレカ・カレンダー）
- 4. PainPointsSection   — 3カラムカード（細境界・Stripe風）
- 5. BeforeAfterSection  — 表形式に近い Before/After（4行）
- 6. FeatureESSection    — Feature 01 + ES SS
+ 3. TrustStripSection   — 信頼帯（landing-content の trustPoints：設問タイプ別AI添削 / 成功時のみ消費 / 企業情報反映 / カード登録不要）
+ 4. PainPointsSection   — 3カラムカード（各カードに「→ ソリューション」ヒント）
+ 5. BeforeAfterSection  — 表形式の Before/After（5行・AI表現検出含む）
+ 6. FeatureESSection    — Feature 01（8種設問テンプレ・AI表現辞書検出・文字数構成）+ ES SS
  7. FeatureManagement   — Feature 02 逆配置 + カレンダー SS
- 8. FeatureInterview    — Feature 03 + 志望動機 SS
- 9. ComparisonSection   — 就活塾比較テーブル
-10. PricingSection      — 3カラム（推奨はネイビー地）
-11. FAQSection          — アコーディオン（白カード内）
-12. FinalCTASection     — ダークネイビー帯
-13. LandingFooter       — 4列リンク
-14. StickyCTABar        — モバイル下部固定 CTA（md:hidden）
+ 8. FeatureInterview    — Feature 03（6軸で整理・企業情報取り込み・企業固有性検出）+ 志望動機 SS
+ 9. MidCTASection       — 中間CTA帯（`--lp-tint-navy-soft` 背景）
+10. HowItWorksSection   — 3 ステップ（LANDING_STEPS SSOT）
+11. QualitySection      — 4 ポイントカード（設問タイプ専用プロンプト / 企業情報反映 / AI表現検出 / 失敗時クレジットゼロ）
+12. ComparisonSection   — 10行テーブル（就活塾料金は「対面指導のため高額」、具体数字を外し景表法回避）
+13. PricingSection      — 3カラム（各プランに audience サブ、Free に「カード登録不要」バッジ、下部に /pricing リンク）
+14. FAQSection          — アコーディオン（landing-faqs 9問）
+15. FinalCTASection     — ダークネイビー帯
+16. LandingFooter       — 4列リンク
+17. StickyCTABar        — モバイル下部固定 CTA（md:hidden）
 ```
 
 ---
@@ -58,12 +61,15 @@
 | `HeroSection.tsx` | ヒーロー | 2カラム（lg）、グラデ背景、バッジ |
 | `TrustStripSection.tsx` | 信頼帯 | `landing-content.ts` の trustPoints |
 | `LandingSectionMotion.tsx` | モーション | framer-motion whileInView（クライアント） |
-| `PainPointsSection.tsx` | 悩みカード | lucide アイコン |
-| `BeforeAfterSection.tsx` | Before/After | 表形式レイアウト |
-| `FeatureESSection.tsx` | Feature 01 | ES添削画面SS |
+| `PainPointsSection.tsx` | 悩みカード | lucide アイコン、→ ソリューションヒント付き |
+| `BeforeAfterSection.tsx` | Before/After | 表形式レイアウト（5行） |
+| `FeatureESSection.tsx` | Feature 01 | ES添削画面SS、8種設問テンプレ / AI表現検出 / 文字数構成を訴求 |
 | `FeatureManagementSection.tsx` | Feature 02 | カレンダー画面SS + 統計数値 |
-| `FeatureInterviewSection.tsx` | Feature 03 | 志望動機画面SS |
-| `ComparisonSection.tsx` | 競合比較 | HTML table、就活塾との比較 |
+| `FeatureInterviewSection.tsx` | Feature 03 | 志望動機画面SS、6 軸整理 / 企業情報反映 / 企業固有性検出を訴求 |
+| `MidCTASection.tsx` | 中間CTA | `--lp-tint-navy-soft` 背景、600px 中央揃え |
+| `HowItWorksSection.tsx` | 3 ステップ | `LANDING_STEPS` SSOT から描画、ドリフト防止テスト付き |
+| `QualitySection.tsx` | 仕組み訴求 | 4 ポイント（専用プロンプト / 企業情報 / AI表現 / 失敗時0CR） |
+| `ComparisonSection.tsx` | 競合比較 | HTML table、10 行。就活塾料金は「対面指導のため高額」表記 |
 | `PricingSection.tsx` | 料金プラン | 3カラム、pricing-plans.ts からデータ取得 |
 | `FAQSection.tsx` | FAQ | "use client"、landing-faqs.ts からデータ取得 |
 | `FinalCTASection.tsx` | 最終CTA | ダークネイビー背景 |
@@ -75,8 +81,9 @@
 
 | ファイル | 内容 |
 |---------|------|
-| `landing-faqs.ts` | FAQ 6問（AIバレ / 無料プラン / 就活塾 / スマホ / データ安全 / クレジット） |
-| `landing-content.ts` | `trustPoints`（信頼帯）ほか |
+| `landing-faqs.ts` | FAQ 9問（AIバレ / 無料プラン / 就活塾 / スマホ / データ安全 / クレジット / ChatGPT 差分 / 企業別カスタマイズ / 無料で試せる範囲） |
+| `landing-content.ts` | `trustPoints`（信頼帯・4 要素）ほか |
+| `landing-steps.ts` | `LANDING_STEPS`（HowItWorks SSOT・3 ステップ） |
 | `pricing-plans.ts` | Free / Standard / Pro の機能リスト・価格 |
 
 ### ページ
@@ -123,11 +130,36 @@ src/components/landing/LandingPrimaryAction.tsx
 | # | 質問 | 回答要約 |
 |---|------|---------|
 | 1 | AIが作成したESは選考でバレませんか？ | 自動生成ではなく原体験ベース。最終調整はユーザー |
-| 2 | 無料プランでは何ができますか？ | 月30CR、AI添削、企業5社、ガクチカ3件、カレンダー連携 |
+| 2 | 無料プランでは何ができますか？ | 月50CR、AI添削、企業5社、ガクチカ5件、カレンダー連携 |
 | 3 | 就活塾と何が違いますか？ | 月¥0〜2,980 vs 月3〜10万。24時間利用可 |
 | 4 | スマホでも利用できますか？ | 全機能レスポンシブ対応 |
 | 5 | 入力したデータは安全ですか？ | Google OAuth + 暗号化。AI学習不使用 |
 | 6 | クレジットとは何ですか？ | 成功時のみ消費、毎月リセット。添削は6〜20CR/回 |
+| 7 | ChatGPT でES添削するのと何が違う？ | 8 種の設問テンプレ / AI 表現辞書検出 / 企業情報自動取り込み |
+| 8 | 企業別の志望動機・ガクチカはできる？ | 企業情報を自動で取り込み、企業固有性の薄い言い回しは深掘りへ回す |
+| 9 | 就活塾の代わりになる？無料で試せる？ | 対面指導は非提供、Free 50CR で ES 添削約 8 回試せる |
+
+---
+
+## SEO 判断メモ（2026-04-17 LP 改善時）
+
+LP 改善時に以下の JSON-LD / metadata 施策を意図的に見送った。再検討時に同じ議論をしないための記録。
+
+| 項目 | 判断 | 理由 |
+|------|------|------|
+| HowTo JSON-LD | 見送り | Google が 2023-09 にリッチリザルト終了。構造化データ追加は費用対効果なし |
+| BreadcrumbList JSON-LD | 見送り | LP は 1 階層構造で対象外。Search Console 警告源になりうる |
+| ItemList JSON-LD（Features） | 見送り | SaaS 機能一覧は Rich Results 対象カテゴリ外 |
+| FAQPage 拡張を SEO 目的で正当化 | 見送り | 2023-08 以降 gov/医療限定。既存 FAQPage は内部コンテンツ目的で維持 |
+| Comparison 列副題に競合サービス名 | 見送り | 景表法 5 条 / 不競法 2 条 1 項 21 号（信用毀損）回避 |
+| 就活塾料金「3〜10万円」表記 | 見送り | 根拠資料未確認、優良誤認リスク。「対面指導のため高額」に後退 |
+| meta keywords フィールド | 見送り | Google は 2009 年から無視、スパム兆候 |
+| AggregateOffer + Offer 並列 | 見送り | schema.org 非準拠、Rich Results Test で重複警告 |
+
+導入した SEO 施策:
+- `Organization` JSON-LD ノード（`src/lib/seo/site-structured-data.ts`）
+- LP `/` 専用の `description` SSOT（`getMarketingDescription("/")`）
+- LP `/` 用 `export const metadata`（`src/app/(marketing)/page.tsx`）で便益＋対象者型の title
 
 ---
 
@@ -137,7 +169,5 @@ src/components/landing/LandingPrimaryAction.tsx
 |------|--------|------|
 | ソーシャルプルーフ（ユーザー数、利用者の声） | P1 | ユーザーデータ蓄積 |
 | 季節対応アナウンスバー | P2 | 就活シーズンに合わせたコピー |
-| 中間CTA（Feature後） | P2 | なし |
-| HowTo JSON-LD | P2 | なし |
 | インタラクティブデモ | P3 | デモ環境構築 |
 | AggregateRating JSON-LD | P3 | レビューデータ |
