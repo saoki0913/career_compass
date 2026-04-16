@@ -463,12 +463,17 @@ async def run_gakuchika_conversation(
 
             # Debug: log key signals from each turn
             cs = latest_complete.get("conversationState") or {}
+            missing = cs.get("missingElements", [])
+            qc = {k: v for k, v in (cs.get("draftQualityChecks") or {}).items() if v}
             print(
                 f"  [gak] attempt={attempt} "
                 f"stage={cs.get('stage')!r} "
                 f"readyForDraft={cs.get('readyForDraft')} "
                 f"isCompleted={latest_complete.get('isCompleted')} "
                 f"nextAction={latest_complete.get('nextAction')!r} "
+                f"qCount={latest_complete.get('questionCount')} "
+                f"missing={missing} "
+                f"qualityTrue={list(qc.keys())} "
                 f"q={next_question_text[:60]!r}"
             )
 

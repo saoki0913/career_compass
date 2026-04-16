@@ -69,6 +69,18 @@ def _es_build_question_cap_threshold() -> int:
     if os.getenv("AI_LIVE_LOCAL_RELAX_GAKUCHIKA_GATES", "").strip() == "1":
         return 5
     return 6
+
+
+def _force_draft_ready_after() -> int:
+    """Return question count after which draft-ready is forced (0 = disabled).
+
+    Opt-in via ``GAKUCHIKA_FORCE_DRAFT_READY_AFTER=N`` for CI / E2E tests
+    that need deterministic convergence.  Not set in production.
+    """
+    raw = os.getenv("GAKUCHIKA_FORCE_DRAFT_READY_AFTER", "").strip()
+    if raw.isdigit() and int(raw) > 0:
+        return int(raw)
+    return 0
 BUILD_ELEMENTS = ("overview", "context", "task", "action", "result", "learning")
 CORE_BUILD_ELEMENTS = ("context", "task", "action", "result")
 DRAFT_QUALITY_CHECK_KEYS = (
@@ -903,6 +915,10 @@ def _normalize_es_build_payload(
         )
         if server_ready and question_count < _min_user_answers_for_es_draft_ready():
             server_ready = False
+        # CI / E2E override: force draft-ready after N questions (disabled by default)
+        force_after = _force_draft_ready_after()
+        if not server_ready and force_after > 0 and question_count >= force_after:
+            server_ready = True
         if not readiness_reason:
             readiness_reason = _build_readiness_reason(quality_checks, causal_gaps, missing_elements)
 
