@@ -32,6 +32,8 @@ describe("marketing home page regressions", () => {
     expect(source).toContain("<FeatureESSection />");
     expect(source).toContain("<FeatureManagementSection />");
     expect(source).toContain("<FeatureInterviewSection />");
+    expect(source).toContain("<MidCTASection />");
+    expect(source).toContain("<QualitySection />");
     expect(source).toContain("<ComparisonSection />");
     expect(source).toContain("<PricingSection />");
     expect(source).toContain("<FAQSection />");

@@ -3,6 +3,12 @@ import Link from "next/link";
 import { getMarketingPricingPlans } from "@/lib/marketing/pricing-plans";
 import { LandingSectionMotion } from "./LandingSectionMotion";
 
+const planAudienceNotes: Record<"free" | "standard" | "pro", string> = {
+  free: "まず試したい方",
+  standard: "本格的に就活対策したい方",
+  pro: "複数企業を並行で対策したい方",
+};
+
 export function PricingSection() {
   const plans = getMarketingPricingPlans("monthly");
 
@@ -51,12 +57,27 @@ export function PricingSection() {
                     </div>
                   ) : null}
 
-                  <h3
-                    className={`mb-2 text-lg ${isHighlighted ? "text-white" : "text-[var(--lp-navy)]"}`}
-                    style={{ fontWeight: 700 }}
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <h3
+                      className={`text-lg ${isHighlighted ? "text-white" : "text-[var(--lp-navy)]"}`}
+                      style={{ fontWeight: 700 }}
+                    >
+                      {plan.name}
+                    </h3>
+                    {plan.id === "free" ? (
+                      <span
+                        className="rounded-full bg-[var(--lp-badge-bg)] px-2 py-0.5 text-[10px] text-[var(--lp-navy)]"
+                        style={{ fontWeight: 700 }}
+                      >
+                        カード登録不要
+                      </span>
+                    ) : null}
+                  </div>
+                  <p
+                    className={`mb-3 text-xs ${isHighlighted ? "text-white/70" : "text-slate-500"}`}
                   >
-                    {plan.name}
-                  </h3>
+                    {planAudienceNotes[plan.id]}
+                  </p>
 
                   <div className="mb-1 flex items-baseline gap-1">
                     <span
@@ -116,6 +137,16 @@ export function PricingSection() {
                 </div>
               );
             })}
+          </div>
+
+          <div className="mt-8 text-center">
+            <Link
+              href="/pricing"
+              className="text-sm text-[var(--lp-navy)] underline underline-offset-4 hover:opacity-80"
+              style={{ fontWeight: 600 }}
+            >
+              料金の詳細を見る →
+            </Link>
           </div>
         </LandingSectionMotion>
       </div>

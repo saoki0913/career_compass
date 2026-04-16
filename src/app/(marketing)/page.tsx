@@ -11,6 +11,7 @@ import { FeatureManagementSection } from "@/components/landing/FeatureManagement
 import { FeatureInterviewSection } from "@/components/landing/FeatureInterviewSection";
 import { MidCTASection } from "@/components/landing/MidCTASection";
 import { HowItWorksSection } from "@/components/landing/HowItWorksSection";
+import { QualitySection } from "@/components/landing/QualitySection";
 import { ComparisonSection } from "@/components/landing/ComparisonSection";
 import { PricingSection } from "@/components/landing/PricingSection";
 import { FAQSection } from "@/components/landing/FAQSection";
@@ -59,6 +60,8 @@ export default function Home() {
         <MidCTASection />
 
         <HowItWorksSection />
+
+        <QualitySection />
 
         <ComparisonSection />
 

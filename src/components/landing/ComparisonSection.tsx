@@ -6,13 +6,37 @@ const rows = [
     label: "月額コスト",
     pass: { text: "¥0〜¥2,980", status: "good" as const },
     aiService: { text: "¥0〜¥3,000", status: "neutral" as const },
-    juku: { text: "3万〜10万円以上", status: "bad" as const },
+    juku: { text: "対面指導のため高額", status: "bad" as const },
   },
   {
     label: "ES添削",
     pass: { text: "設問に沿った具体的改善", status: "good" as const },
     aiService: { text: "汎用的なフィードバック", status: "neutral" as const },
     juku: { text: "講師に依存・遅い", status: "bad" as const },
+  },
+  {
+    label: "設問タイプ別添削",
+    pass: { text: "8 種の専用テンプレート", status: "good" as const },
+    aiService: { text: "汎用的な回答", status: "bad" as const },
+    juku: { text: "講師の判断による", status: "neutral" as const },
+  },
+  {
+    label: "AI表現の検出",
+    pass: {
+      text: "辞書とスコアで検出・書き直し候補提示",
+      status: "good" as const,
+    },
+    aiService: { text: "対策なし", status: "bad" as const },
+    juku: { text: "講師が確認", status: "neutral" as const },
+  },
+  {
+    label: "企業情報活用",
+    pass: {
+      text: "自動収集して対話・添削に反映",
+      status: "good" as const,
+    },
+    aiService: { text: "ユーザーが入力", status: "bad" as const },
+    juku: { text: "講師の知見による", status: "neutral" as const },
   },
   {
     label: "志望動機・ガクチカ",
