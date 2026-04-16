@@ -4,27 +4,27 @@ import { LandingSectionMotion } from "./LandingSectionMotion";
 const points = [
   {
     icon: FileSearch,
-    title: "設問タイプごとに専用プロンプト",
+    title: "設問ごとに専用テンプレート",
     description:
-      "志望動機・自己PR・ガクチカ・入社後やりたいこと・職種選択理由など 8 種の設問タイプに、独立した改善テンプレートと評価基準を用意しています。",
+      "志望動機・自己PR・ガクチカ・入社後やりたいこと・研究内容など、設問の種類ごとに評価観点と書き方のお手本を切り替えて添削します。",
   },
   {
     icon: Building2,
-    title: "企業情報を取り込み反映",
+    title: "会社情報を添削にそのまま反映",
     description:
-      "企業の採用ページ・公開情報を自動収集し、日本語ハイブリッド検索で対話・添削に根拠として反映します。",
+      "企業の採用ページや公開情報を読み込んで、会話や添削の根拠として引用。毎回ユーザーがペーストする手間を省きます。",
   },
   {
     icon: Shield,
-    title: "AIらしい表現を検出",
+    title: "AI っぽい定型文を、自分の言葉へ",
     description:
-      "「新たな価値を」「幅広い視野」など AI が出しがちなフレーズを辞書とスコアで検出し、書き直し候補を提示します。",
+      "「幅広い視野」「新たな価値」など AI が使いがちなフレーズを自動で見つけて、別の表現への書き直しを提案します。",
   },
   {
     icon: Coins,
     title: "失敗時はクレジットゼロ",
     description:
-      "AI 処理が失敗したクレジットは消費しません。ES 添削を無料の範囲で試してから、有料プランを検討できます。",
+      "AI 処理が失敗したときはクレジットを消費しません。Free プランの範囲で試してから、有料プランを検討できます。",
   },
 ];
 
@@ -37,10 +37,10 @@ export function QualitySection() {
             className="text-3xl tracking-tight text-[var(--lp-navy)] md:text-[2.5rem]"
             style={{ fontWeight: 800, lineHeight: 1.3 }}
           >
-            AIの仕組みで、ES添削の精度を上げる
+            その会社・その設問にしっかり寄せる仕組み
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-slate-500" style={{ lineHeight: 1.7 }}>
-            設問タイプの理解、企業情報の取り込み、AI 表現の検出。就活AIのベースを仕組みとして用意しています。
+            設問ごとの専用テンプレと、会社情報をふまえたチェック。AI まかせで終わらせない添削を目指しています。
           </p>
         </LandingSectionMotion>
 

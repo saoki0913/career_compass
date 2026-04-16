@@ -16,14 +16,14 @@ const rows = [
   },
   {
     label: "設問タイプ別添削",
-    pass: { text: "8 種の専用テンプレート", status: "good" as const },
+    pass: { text: "設問ごとに専用テンプレート", status: "good" as const },
     aiService: { text: "汎用的な回答", status: "bad" as const },
     juku: { text: "講師の判断による", status: "neutral" as const },
   },
   {
     label: "AI表現の検出",
     pass: {
-      text: "辞書とスコアで検出・書き直し候補提示",
+      text: "AI がよく使うフレーズを検出・書き直し案を提示",
       status: "good" as const,
     },
     aiService: { text: "対策なし", status: "bad" as const },
@@ -46,9 +46,21 @@ const rows = [
   },
   {
     label: "面接対策",
-    pass: { text: "企業別AI模擬面接", status: "good" as const },
+    pass: { text: "その会社に合わせた AI 模擬面接", status: "good" as const },
     aiService: { text: "ロールプレイ可能", status: "neutral" as const },
     juku: { text: "対面（別料金の場合も）", status: "bad" as const },
+  },
+  {
+    label: "面接のフィードバック",
+    pass: {
+      text: "良かった点・改善点・改善後の回答例を自動提示",
+      status: "good" as const,
+    },
+    aiService: {
+      text: "なし／その都度プロンプト設計が必要",
+      status: "bad" as const,
+    },
+    juku: { text: "講師との振り返り", status: "neutral" as const },
   },
   {
     label: "スケジュール管理",

@@ -39,7 +39,7 @@ export function HeroSection() {
                 className="mt-6 mb-10 max-w-lg text-base text-slate-500 md:text-lg"
                 style={{ lineHeight: 1.8 }}
               >
-                志望動機・自己PR・ガクチカ。設問タイプ別のAI添削と、企業情報を踏まえたフィードバック。カード登録なしで、今すぐ試せます。
+                志望動機・自己PR・ガクチカから、企業別の AI 模擬面接まで。会社に合わせた添削と対話を、カード登録なしで。
               </p>
 
               <div className="mb-8 flex flex-wrap gap-3">
@@ -61,7 +61,7 @@ export function HeroSection() {
               </div>
 
               <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-400">
-                {["カード登録不要", "成功時のみクレジット消費", "設問タイプ別に添削"].map((t) => (
+                {["カード登録不要", "成功時のみクレジット消費", "面接対策までAI と一緒に"].map((t) => (
                   <span key={t} className="flex items-center gap-1.5">
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
                       <circle cx="7" cy="7" r="6" stroke="#22c55e" strokeWidth="1.5" />

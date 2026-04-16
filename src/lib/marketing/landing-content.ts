@@ -2,7 +2,7 @@ import { CalendarClock, FileText, MessageSquareQuote } from "lucide-react";
 import { landingMedia } from "@/components/landing/landing-media";
 
 export const trustPoints = [
-  "設問タイプ別の専用AI添削",
+  "設問ごとに専用テンプレで添削",
   "成功した時だけクレジット消費",
   "企業情報を踏まえたフィードバック",
   "カード登録不要・すぐに試せる",
