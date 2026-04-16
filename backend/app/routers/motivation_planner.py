@@ -26,17 +26,20 @@ from app.routers.motivation_context import (
     _normalize_conversation_context,
     _normalize_slot_state_map,
 )
+from app.routers.motivation_models import DeepDiveGap
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
+# E-3 (P3-5): DeepDiveGap enum を gap_id の単一情報源にする。planner 側で
+# 独自の文字列を散らすと E-3 で統一した意味が壊れるので、必ず `to_gap_id()` 経由で書く。
 DEEPDIVE_INTENT_BY_GAP_ID = {
-    "company_reason_specificity": "specificity_check",
-    "self_connection_gap": "experience_anchor",
-    "role_reason_missing": "role_reason_capture",
-    "value_contribution_vague": "contribution_shape",
-    "differentiation_missing": "compare_or_unique_point",
+    DeepDiveGap.COMPANY_REASON.to_gap_id(): "specificity_check",
+    DeepDiveGap.SELF_CONNECTION.to_gap_id(): "experience_anchor",
+    DeepDiveGap.DESIRED_WORK.to_gap_id(): "role_reason_capture",
+    DeepDiveGap.VALUE_CONTRIBUTION.to_gap_id(): "contribution_shape",
+    DeepDiveGap.DIFFERENTIATION.to_gap_id(): "compare_or_unique_point",
 }
 
 NEXT_ADVANCE_CONDITION_BY_SLOT = {
@@ -62,24 +65,26 @@ def _compute_deterministic_causal_gaps(context: dict[str, Any] | None) -> list[d
     value_contribution = normalized.get("slotSummaries", {}).get("value_contribution") or normalized.get("valueContribution")
     differentiation = normalized.get("slotSummaries", {}).get("differentiation") or normalized.get("differentiationReason")
 
+    # E-3 (P3-5): gap_id / slot を DeepDiveGap 経由で生成して `_deepdive_area_to_*`
+    # や `DEEPDIVE_INTENT_BY_GAP_ID` と整合させる
     if company_reason and not _has_company_specificity(company_reason, normalized):
         gaps.append({
-            "id": "company_reason_specificity",
-            "slot": "company_reason",
+            "id": DeepDiveGap.COMPANY_REASON.to_gap_id(),
+            "slot": DeepDiveGap.COMPANY_REASON.to_stage(),
             "reason": "企業固有語が不足している",
             "promptHint": "企業のどの特徴や仕事のどこに惹かれたかを具体化する",
         })
     if self_connection and not _contains_any_token(self_connection, ("経験", "価値観", "強み")):
         gaps.append({
-            "id": "self_connection_gap",
-            "slot": "self_connection",
+            "id": DeepDiveGap.SELF_CONNECTION.to_gap_id(),
+            "slot": DeepDiveGap.SELF_CONNECTION.to_stage(),
             "reason": "経験との接続が弱い",
             "promptHint": "過去の経験や価値観とのつながりを補う",
         })
     if normalized.get("selectedRole") and not _looks_like_role_reason(normalized.get("roleReason") or desired_work, normalized):
         gaps.append({
-            "id": "role_reason_missing",
-            "slot": "desired_work",
+            "id": DeepDiveGap.DESIRED_WORK.to_gap_id(),
+            "slot": DeepDiveGap.DESIRED_WORK.to_stage(),
             "reason": "職種志望理由が不足している",
             "promptHint": "なぜその職種で働きたいかを補う",
         })
@@ -92,15 +97,15 @@ def _compute_deterministic_causal_gaps(context: dict[str, Any] | None) -> list[d
         ),
     ) < 2:
         gaps.append({
-            "id": "value_contribution_vague",
-            "slot": "value_contribution",
+            "id": DeepDiveGap.VALUE_CONTRIBUTION.to_gap_id(),
+            "slot": DeepDiveGap.VALUE_CONTRIBUTION.to_stage(),
             "reason": "価値発揮が理想論に寄っている",
             "promptHint": "誰にどう価値を出したいかを補う",
         })
     if not differentiation or not _contains_any_token(differentiation, ("他社", "違い", "ならでは", "だからこそ", "最も")):
         gaps.append({
-            "id": "differentiation_missing",
-            "slot": "differentiation",
+            "id": DeepDiveGap.DIFFERENTIATION.to_gap_id(),
+            "slot": DeepDiveGap.DIFFERENTIATION.to_stage(),
             "reason": "他社との差分が弱い",
             "promptHint": "他社ではなくこの企業を選ぶ理由を補う",
         })

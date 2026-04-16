@@ -58,6 +58,15 @@ vi.mock("@/app/api/_shared/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
 
+vi.mock("@/app/api/_shared/llm-cost-guard", () => ({
+  guardDailyTokenLimit: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("@/lib/llm-cost-limit", () => ({
+  incrementDailyTokenCount: vi.fn().mockResolvedValue(undefined),
+  computeTotalTokens: vi.fn().mockReturnValue(0),
+}));
+
 vi.mock("@/lib/motivation/conversation", () => ({
   DEFAULT_CONFIRMED_FACTS: {},
   DEFAULT_MOTIVATION_CONTEXT: {

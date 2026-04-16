@@ -43,6 +43,7 @@ import {
 import { getMotivationConversationByCondition as getConversationByCondition } from "@/lib/motivation/conversation-store";
 import { buildMotivationConversationPayload } from "@/lib/motivation/conversation-payload";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   getRequestId,
@@ -50,7 +51,9 @@ import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { getViewerPlan } from "@/lib/server/loader-helpers";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import {
   buildMotivationOwnerCondition,
   fetchMotivationApplicationJobCandidates,
@@ -95,6 +98,9 @@ export async function POST(
         { status: 401, headers: { "Content-Type": "application/json" } },
       );
     }
+
+    const limitResponse = await guardDailyTokenLimit(identity);
+    if (limitResponse) return limitResponse;
 
     const rateLimited = await enforceRateLimitLayers(
       request,
@@ -196,11 +202,21 @@ export async function POST(
     const abortController = new AbortController();
     const fetchTimeoutId = setTimeout(() => abortController.abort(), 60_000);
 
+    const principalPlan = await getViewerPlan(identity);
+
     let aiResponse: Response;
     try {
-      aiResponse = await fetchFastApiInternal("/api/motivation/next-question/stream", {
+      aiResponse = await fetchFastApiWithPrincipal("/api/motivation/next-question/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
+        principal: {
+          scope: "ai-stream",
+          actor: userId
+            ? { kind: "user", id: userId }
+            : { kind: "guest", id: guestId! },
+          companyId,
+          plan: principalPlan,
+        },
         body: JSON.stringify({
           company_id: company.id,
           company_name: company.name,
@@ -476,6 +492,7 @@ export async function POST(
       onFinally: () => {
         if (billingOutcomeStatus === "success") {
           logSummaryOnce({ status: "success", creditsUsed: creditsAppliedForSummary });
+          void incrementDailyTokenCount(identity, computeTotalTokens(latestTelemetry));
         } else if (billingOutcomeStatus === "failed") {
           logSummaryOnce({ status: "failed", creditsUsed: 0 });
         } else {

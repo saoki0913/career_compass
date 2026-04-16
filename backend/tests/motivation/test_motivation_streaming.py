@@ -21,6 +21,7 @@ async def test_streaming_emits_only_final_canonical_question(
 
     async def fake_evaluate(*args, **kwargs):
         return {
+            "evaluation_status": "ok",
             "scores": {
                 "company_understanding": 32,
                 "self_analysis": 28,
@@ -86,5 +87,6 @@ async def test_streaming_emits_only_final_canonical_question(
 
     assert complete_events
     canonical_question = complete_events[0]["data"]["question"]
-    assert canonical_question == "株式会社テストを志望先として考えるとき、どんな点に魅力を感じますか？"
+    # D-1 (P2-8): 選択型/機械的ペアリングを撤廃したフォールバック候補の 1 つ目
+    assert canonical_question == "株式会社テストの事業や取り組みで、気になっている点はありますか？"
     assert question_chunks == []

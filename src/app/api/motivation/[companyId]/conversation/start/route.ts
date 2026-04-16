@@ -25,6 +25,7 @@ import {
   type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   getRequestId,
@@ -33,6 +34,7 @@ import {
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import {
   ensureMotivationConversation,
   fetchMotivationApplicationJobCandidates,
@@ -292,6 +294,9 @@ export async function POST(
       );
     }
 
+    const limitResponse = await guardDailyTokenLimit(identity);
+    if (limitResponse) return limitResponse;
+
     const rateLimited = await enforceRateLimitLayers(
       request,
       [...CONVERSATION_RATE_LAYERS],
@@ -452,6 +457,7 @@ export async function POST(
       creditsUsed: 0,
       telemetry: result.telemetry,
     });
+    void incrementDailyTokenCount(identity, computeTotalTokens(result.telemetry));
 
     const payload = buildMotivationConversationPayload({
       messages,

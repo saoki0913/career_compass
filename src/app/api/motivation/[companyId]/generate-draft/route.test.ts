@@ -73,6 +73,15 @@ vi.mock("@/app/api/_shared/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
 
+vi.mock("@/app/api/_shared/llm-cost-guard", () => ({
+  guardDailyTokenLimit: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("@/lib/llm-cost-limit", () => ({
+  incrementDailyTokenCount: vi.fn().mockResolvedValue(undefined),
+  computeTotalTokens: vi.fn().mockReturnValue(0),
+}));
+
 vi.mock("@/lib/fastapi/client", () => ({
   fetchFastApiInternal: fetchFastApiInternalMock,
 }));
@@ -260,6 +269,8 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     expect(firstCallBody.slot_evidence_sentences).toEqual({
       company_reason: ["DX支援を通じて顧客課題に向き合える点に惹かれています。"],
     });
+    // D-2 (P2-1): RAG role-grounded モード判定のため selected_role を FastAPI へ送る
+    expect(firstCallBody.selected_role).toBe("企画職");
   });
 
   it("keeps the generated draft as conversation state without creating an ES document immediately", async () => {

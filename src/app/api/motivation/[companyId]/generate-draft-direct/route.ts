@@ -18,6 +18,7 @@ import {
   type MotivationStage,
 } from "@/lib/motivation/conversation";
 import { DRAFT_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   getRequestId,
@@ -25,6 +26,7 @@ import {
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import {
   fetchGakuchikaContext,
   fetchProfileContext,
@@ -129,6 +131,9 @@ export async function POST(
       { status: 401 },
     );
   }
+
+  const limitResponse = await guardDailyTokenLimit(identity);
+  if (limitResponse) return limitResponse;
 
   const rateLimited = await enforceRateLimitLayers(
     request,
@@ -270,6 +275,7 @@ export async function POST(
       creditsUsed: reservationId ? 2 : 0,
       telemetry,
     });
+    void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
 
     const prevCtx = safeParseConversationContext(conversation.conversationContext ?? null);
     const industrySource: MotivationConversationContext["selectedIndustrySource"] =

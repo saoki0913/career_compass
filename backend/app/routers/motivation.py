@@ -14,14 +14,25 @@ Features:
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, AsyncGenerator, Optional
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
+
+from app.security.career_principal import (
+    CareerPrincipal,
+    require_career_principal,
+)
+from app.security.sse_concurrency import (
+    SseConcurrencyExceeded,
+    SseLease,
+)
 
 from app.utils.llm import (
     PromptSafetyError,
@@ -49,6 +60,7 @@ from app.limiter import limiter
 
 # Sub-module imports
 from app.routers.motivation_models import (
+    DeepDiveGap,
     EvidenceCard,
     GenerateDraftFromProfileRequest,
     GenerateDraftRequest,
@@ -138,6 +150,18 @@ from app.routers.motivation_sanitizers import (
 from app.routers.motivation_contract import (
     build_stage_status as _build_stage_status,
 )
+# D-2 / P2-1: ES 添削用の grounding ヘルパを志望動機ドラフトで再利用
+from app.routers.es_review_grounding import (
+    _assess_company_evidence_coverage,
+    _build_company_evidence_cards,
+)
+# D-3 / P2-2: AI 臭検出と Tier 2 リトライヒントを志望動機ドラフトで再利用
+from app.routers.es_review_validation import (
+    _compute_ai_smell_score,
+    _detect_ai_smell_patterns,
+    _is_within_char_limits,
+)
+from app.routers.es_review_retry import _build_ai_smell_retry_hints
 
 logger = get_logger(__name__)
 
@@ -361,781 +385,6 @@ QUESTION_FOCUS_BY_STAGE = {
     "closing": ("one_line_summary",),
 }
 
-CONVERSATION_MODE_SLOT_FILL = "slot_fill"
-CONVERSATION_MODE_DEEPDIVE = "deepdive"
-SLOT_STATE_VALUES = ("empty", "rough", "sufficient", "locked")
-
-SLOT_FILL_INTENTS: dict[str, str] = {
-    "industry_reason": "initial_capture",
-    "company_reason": "initial_capture",
-    "self_connection": "initial_capture",
-    "desired_work": "initial_capture",
-    "value_contribution": "initial_capture",
-    "differentiation": "initial_capture",
-}
-
-DEEPDIVE_INTENT_BY_GAP_ID = {
-    "company_reason_specificity": "specificity_check",
-    "self_connection_gap": "experience_anchor",
-    "role_reason_missing": "role_reason_capture",
-    "value_contribution_vague": "contribution_shape",
-    "differentiation_missing": "compare_or_unique_point",
-}
-
-NEXT_ADVANCE_CONDITION_BY_SLOT = {
-    "industry_reason": "その業界を選ぶ理由が1つ言えれば次に進みます。",
-    "company_reason": "この企業を志望する理由が1つ言えれば次に進みます。",
-    "self_connection": "自分の経験や価値観との接点が1つ言えれば次に進みます。",
-    "desired_work": "入社後にやりたい仕事が1つ言えれば次に進みます。",
-    "value_contribution": "どんな価値を出したいかが1つ言えれば次に進みます。",
-    "differentiation": "他社ではなくこの企業を選ぶ理由が1つ言えればESに進めます。",
-}
-
-UNRESOLVED_PATTERNS = (
-    "まだ整理できていない",
-    "まだ決めきれていない",
-    "まだ言語化できていない",
-    "わからない",
-    "まだわからない",
-)
-
-CONTRADICTION_PATTERNS = (
-    "ではなく",
-    "むしろ",
-    "違って",
-    "やっぱり",
-    "訂正すると",
-    "まだ決めていない",
-)
-
-COMPANY_GENERIC_PATTERNS = (
-    "社会課題を解決",
-    "成長できる",
-    "学べる",
-    "幅広く活躍",
-    "挑戦できる",
-)
-
-CONTRIBUTION_TARGET_TOKENS = ("相手", "顧客", "現場", "企業", "組織", "チーム")
-CONTRIBUTION_ACTION_TOKENS = ("整理", "提案", "支援", "改善", "推進", "巻き込")
-CONTRIBUTION_VALUE_TOKENS = ("価値", "貢献", "役立", "前に進", "実現", "判断")
-
-
-def _default_slot_states() -> dict[str, str]:
-    return {
-        stage: "empty"
-        for stage in REQUIRED_MOTIVATION_STAGES
-    }
-
-
-def _default_slot_summaries() -> dict[str, str | None]:
-    return {
-        stage: None
-        for stage in REQUIRED_MOTIVATION_STAGES
-    }
-
-
-def _default_slot_evidence_sentences() -> dict[str, list[str]]:
-    return {
-        stage: []
-        for stage in REQUIRED_MOTIVATION_STAGES
-    }
-
-
-def _default_slot_intents_asked() -> dict[str, list[str]]:
-    return {
-        stage: []
-        for stage in REQUIRED_MOTIVATION_STAGES
-    }
-
-
-def _default_reask_budget_by_slot() -> dict[str, int]:
-    return {
-        stage: 1
-        for stage in REQUIRED_MOTIVATION_STAGES
-    }
-
-
-def _clean_short_phrase(text: str, max_len: int = 40) -> str:
-    cleaned = re.sub(r"\s+", " ", (text or "")).strip(" ・-:：")
-    if len(cleaned) <= max_len:
-        return cleaned
-    return cleaned[: max_len - 1].rstrip() + "…"
-
-
-def _coerce_string_list(value: Any, max_items: int = 4) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    output: list[str] = []
-    for item in value:
-        if not isinstance(item, str):
-            continue
-        cleaned = _clean_short_phrase(item, max_len=48)
-        if cleaned and cleaned not in output:
-            output.append(cleaned)
-        if len(output) >= max_items:
-            break
-    return output
-
-
-def _default_confirmed_facts() -> dict[str, bool]:
-    return {
-        "industry_reason_confirmed": False,
-        "company_reason_confirmed": False,
-        "self_connection_confirmed": False,
-        "desired_work_confirmed": False,
-        "value_contribution_confirmed": False,
-        "differentiation_confirmed": False,
-    }
-
-
-def _default_weak_slot_retries() -> dict[str, int]:
-    return {stage: 0 for stage in REQUIRED_MOTIVATION_STAGES}
-
-
-def _normalize_weak_slot_retries(value: Any) -> dict[str, int]:
-    defaults = _default_weak_slot_retries()
-    if not isinstance(value, dict):
-        return defaults
-    normalized = defaults.copy()
-    for stage in defaults:
-        try:
-            normalized[stage] = max(int(value.get(stage) or 0), 0)
-        except (TypeError, ValueError):
-            normalized[stage] = 0
-    return normalized
-
-
-def _normalize_slot_state(value: Any) -> str:
-    raw = str(value or "").strip()
-    if raw == "filled":
-        return "filled_strong"
-    if raw in SLOT_STATE_ORDER:
-        return raw
-    return "missing"
-
-
-def _legacy_slot_state(value: str) -> str:
-    normalized = _normalize_slot_state(value)
-    if normalized in {"filled_strong", "filled_weak"}:
-        return "filled"
-    return normalized
-
-
-def _normalize_slot_status_v2(value: Any) -> dict[str, str]:
-    statuses = {
-        stage: "missing"
-        for stage in REQUIRED_MOTIVATION_STAGES
-    }
-    if not isinstance(value, dict):
-        return statuses
-    for stage in statuses:
-        statuses[stage] = _normalize_slot_state(value.get(stage))
-    return statuses
-
-
-def _normalize_slot_state_map(value: Any) -> dict[str, str]:
-    states = _default_slot_states()
-    if not isinstance(value, dict):
-        return states
-    for stage in states:
-        raw = str(value.get(stage) or "").strip()
-        if raw in SLOT_STATE_VALUES:
-            states[stage] = raw
-    return states
-
-
-def _normalize_slot_summary_map(value: Any) -> dict[str, str | None]:
-    summaries = _default_slot_summaries()
-    if not isinstance(value, dict):
-        return summaries
-    for stage in summaries:
-        raw = str(value.get(stage) or "").strip()
-        summaries[stage] = raw or None
-    return summaries
-
-
-def _normalize_slot_evidence_map(value: Any) -> dict[str, list[str]]:
-    evidence_map = _default_slot_evidence_sentences()
-    if not isinstance(value, dict):
-        return evidence_map
-    for stage in evidence_map:
-        evidence_map[stage] = _coerce_string_list(value.get(stage), max_items=4)
-    return evidence_map
-
-
-def _normalize_slot_intents_map(value: Any) -> dict[str, list[str]]:
-    intents_map = _default_slot_intents_asked()
-    if not isinstance(value, dict):
-        return intents_map
-    for stage in intents_map:
-        intents_map[stage] = _coerce_string_list(value.get(stage), max_items=6)
-    return intents_map
-
-
-def _normalize_forbidden_reasks(value: Any) -> list[dict[str, str]]:
-    if not isinstance(value, list):
-        return []
-    rows: list[dict[str, str]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        slot = str(item.get("slot") or "").strip()
-        intent = str(item.get("intent") or "").strip()
-        reason = str(item.get("reason") or "").strip()
-        if slot not in REQUIRED_MOTIVATION_STAGES or not intent:
-            continue
-        rows.append({"slot": slot, "intent": intent, "reason": reason or "reask_forbidden"})
-    return rows
-
-
-def _normalize_causal_gaps(value: Any) -> list[dict[str, str]]:
-    if not isinstance(value, list):
-        return []
-    gaps: list[dict[str, str]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        gap_id = str(item.get("id") or "").strip()
-        slot = str(item.get("slot") or "").strip()
-        reason = str(item.get("reason") or "").strip()
-        prompt_hint = str(item.get("promptHint") or item.get("prompt_hint") or "").strip()
-        if not gap_id or slot not in REQUIRED_MOTIVATION_STAGES:
-            continue
-        gaps.append(
-            {
-                "id": gap_id,
-                "slot": slot,
-                "reason": reason or gap_id,
-                "promptHint": prompt_hint,
-            }
-        )
-    return gaps
-
-
-def _slot_priority(state: str) -> int:
-    ranking = {"missing": 0, "partial": 1, "filled_weak": 2, "filled_strong": 3}
-    return ranking.get(_normalize_slot_state(state), 0)
-
-
-def _coerce_stage_list(value: Any, *, max_items: int = 8) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    output: list[str] = []
-    for item in value:
-        stage = str(item or "").strip()
-        if stage in REQUIRED_MOTIVATION_STAGES and stage not in output:
-            output.append(stage)
-        if len(output) >= max_items:
-            break
-    return output
-
-
-def _normalize_confirmed_facts(value: Any) -> dict[str, bool]:
-    defaults = _default_confirmed_facts()
-    if not isinstance(value, dict):
-        return defaults
-    normalized = defaults.copy()
-    for key in defaults:
-        if key in value:
-            normalized[key] = bool(value[key])
-    if "origin_experience_confirmed" in value:
-        normalized["self_connection_confirmed"] = (
-            normalized["self_connection_confirmed"] or bool(value["origin_experience_confirmed"])
-        )
-    if "fit_connection_confirmed" in value:
-        normalized["self_connection_confirmed"] = (
-            normalized["self_connection_confirmed"] or bool(value["fit_connection_confirmed"])
-        )
-    return normalized
-
-
-def _build_open_slots_from_confirmed_facts(confirmed_facts: dict[str, bool]) -> list[str]:
-    slots: list[str] = []
-    for stage, key in STAGE_CONFIRMED_FACT_KEYS.items():
-        if not confirmed_facts.get(key, False):
-            slots.append(stage)
-    return slots
-
-
-def _confirmed_fact_key_for_stage(stage: str) -> str | None:
-    return STAGE_CONFIRMED_FACT_KEYS.get(stage)
-
-
-def _answer_is_confirmed_for_stage(stage: str, answer: str) -> bool:
-    normalized = " ".join((answer or "").split()).strip()
-    if len(normalized) < 10:
-        return False
-    if stage == "industry_reason":
-        return len(normalized) >= 18 and any(
-            token in normalized for token in ("業界", "関心", "理由", "ため", "から", "惹かれ")
-        )
-    if stage == "company_reason":
-        return len(normalized) >= 18 and any(
-            token in normalized for token in ("理由", "ため", "から", "惹かれ", "魅力", "合う")
-        )
-    if stage == "self_connection":
-        return len(normalized) >= 18 and any(
-            token in normalized for token in ("経験", "価値観", "強み", "きっかけ", "つなが", "活か")
-        )
-    if stage == "desired_work":
-        return len(normalized) >= 16 and any(
-            token in normalized for token in ("したい", "挑戦", "関わりたい", "担いたい", "取り組みたい")
-        )
-    if stage == "value_contribution":
-        return len(normalized) >= 16 and any(
-            token in normalized for token in ("価値", "貢献", "役立", "前に進め", "支え", "実現")
-        )
-    if stage == "differentiation":
-        return len(normalized) >= 16 and any(
-            token in normalized for token in ("他社", "違い", "だからこそ", "最も", "ならでは", "合う")
-        )
-    return bool(normalized)
-
-
-def _coerce_risk_flags(value: Any, max_items: int = 2) -> list[str]:
-    return _coerce_string_list(value, max_items=max_items)
-
-
-def _normalize_conversation_context(value: dict[str, Any] | None) -> dict[str, Any]:
-    context = value.copy() if isinstance(value, dict) else {}
-    has_explicit_confirmed_facts = isinstance(context.get("confirmedFacts"), dict)
-    confirmed_facts = _normalize_confirmed_facts(context.get("confirmedFacts"))
-    weak_slot_retries = _normalize_weak_slot_retries(context.get("weakSlotRetries"))
-    raw_stage_attempt_count = context.get("stageAttemptCount")
-    try:
-        stage_attempt_count = max(int(raw_stage_attempt_count or 0), 0)
-    except (TypeError, ValueError):
-        stage_attempt_count = 0
-    normalized = {
-        "conversationMode": (
-            str(context.get("conversationMode") or "").strip()
-            if str(context.get("conversationMode") or "").strip() in {CONVERSATION_MODE_SLOT_FILL, CONVERSATION_MODE_DEEPDIVE}
-            else CONVERSATION_MODE_SLOT_FILL
-        ),
-        "selectedIndustry": str(context.get("selectedIndustry") or "").strip() or None,
-        "selectedIndustrySource": str(context.get("selectedIndustrySource") or "").strip() or None,
-        "industryReason": str(context.get("industryReason") or "").strip() or None,
-        "companyReason": str(context.get("companyReason") or "").strip() or None,
-        "selectedRole": str(context.get("selectedRole") or "").strip() or None,
-        "selectedRoleSource": str(context.get("selectedRoleSource") or "").strip() or None,
-        "selfConnection": str(
-            context.get("selfConnection")
-            or context.get("fitConnection")
-            or context.get("originExperience")
-            or ""
-        ).strip()
-        or None,
-        "desiredWork": str(context.get("desiredWork") or "").strip() or None,
-        "valueContribution": str(context.get("valueContribution") or "").strip() or None,
-        "differentiationReason": str(context.get("differentiationReason") or "").strip() or None,
-        "originExperience": str(context.get("originExperience") or "").strip() or None,
-        "fitConnection": str(context.get("fitConnection") or "").strip() or None,
-        "userAnchorStrengths": _coerce_string_list(context.get("userAnchorStrengths"), max_items=4),
-        "userAnchorEpisodes": _coerce_string_list(context.get("userAnchorEpisodes"), max_items=4),
-        "profileAnchorIndustries": _coerce_string_list(context.get("profileAnchorIndustries"), max_items=4),
-        "profileAnchorJobTypes": _coerce_string_list(context.get("profileAnchorJobTypes"), max_items=4),
-        "companyAnchorKeywords": _sanitize_existing_grounding_candidates(
-            context.get("companyAnchorKeywords"),
-            max_items=6,
-            max_len=32,
-        ),
-        "companyRoleCandidates": _coerce_string_list(context.get("companyRoleCandidates"), max_items=4),
-        "companyWorkCandidates": _sanitize_existing_grounding_candidates(
-            context.get("companyWorkCandidates"),
-            max_items=4,
-            max_len=32,
-        ),
-        "turnCount": max(int(context.get("turnCount") or 0), 0) if str(context.get("turnCount") or "0").strip().isdigit() else 0,
-        "deepdiveTurnCount": max(int(context.get("deepdiveTurnCount") or 0), 0) if str(context.get("deepdiveTurnCount") or "0").strip().isdigit() else 0,
-        "questionStage": (
-            "self_connection"
-            if str(context.get("questionStage") or "").strip() in {"origin_experience", "fit_connection"}
-            else str(context.get("questionStage") or "").strip() or "industry_reason"
-        ),
-        "stageAttemptCount": stage_attempt_count,
-        "lastQuestionSignature": str(context.get("lastQuestionSignature") or "").strip() or None,
-        "lastQuestionSemanticSignature": str(context.get("lastQuestionSemanticSignature") or "").strip() or None,
-        "confirmedFacts": confirmed_facts,
-        "openSlots": _coerce_string_list(
-            context.get("openSlots") or _build_open_slots_from_confirmed_facts(confirmed_facts),
-            max_items=8,
-        ),
-        "closedSlots": _coerce_stage_list(context.get("closedSlots"), max_items=8),
-        "recentlyClosedSlots": _coerce_stage_list(context.get("recentlyClosedSlots"), max_items=4),
-        "weakSlotRetries": weak_slot_retries,
-        "draftReady": bool(context.get("draftReady", False)),
-        "draftReadyUnlockedAt": str(context.get("draftReadyUnlockedAt") or "").strip() or None,
-        "lastQuestionMeta": context.get("lastQuestionMeta")
-        if isinstance(context.get("lastQuestionMeta"), dict)
-        else None,
-        "generatedDraft": str(context.get("generatedDraft") or "").strip() or None,
-        "slotStatusV2": _normalize_slot_status_v2(context.get("slotStatusV2")),
-        "draftBlockers": _coerce_stage_list(context.get("draftBlockers"), max_items=8),
-        "slotStates": _normalize_slot_state_map(context.get("slotStates")),
-        "slotSummaries": _normalize_slot_summary_map(context.get("slotSummaries")),
-        "slotEvidenceSentences": _normalize_slot_evidence_map(context.get("slotEvidenceSentences")),
-        "slotIntentsAsked": _normalize_slot_intents_map(context.get("slotIntentsAsked")),
-        "reaskBudgetBySlot": {
-            **_default_reask_budget_by_slot(),
-            **(
-                {
-                    stage: max(int(value), 0)
-                    for stage, value in (context.get("reaskBudgetBySlot") or {}).items()
-                    if stage in REQUIRED_MOTIVATION_STAGES
-                }
-                if isinstance(context.get("reaskBudgetBySlot"), dict)
-                else {}
-            ),
-        },
-        "forbiddenReasks": _normalize_forbidden_reasks(context.get("forbiddenReasks")),
-        "unresolvedPoints": _coerce_string_list(context.get("unresolvedPoints"), max_items=8),
-        "causalGaps": _normalize_causal_gaps(context.get("causalGaps")),
-        "roleReason": str(context.get("roleReason") or "").strip() or None,
-        "roleReasonState": (
-            str(context.get("roleReasonState") or "").strip()
-            if str(context.get("roleReasonState") or "").strip() in SLOT_STATE_VALUES
-            else "empty"
-        ),
-        "unlockReason": str(context.get("unlockReason") or "").strip() or None,
-        "currentIntent": str(context.get("currentIntent") or "").strip() or None,
-        "nextAdvanceCondition": str(context.get("nextAdvanceCondition") or "").strip() or None,
-    }
-    if not has_explicit_confirmed_facts:
-        if normalized["industryReason"]:
-            confirmed_facts["industry_reason_confirmed"] = True
-        if normalized["companyReason"]:
-            confirmed_facts["company_reason_confirmed"] = True
-        if normalized["selfConnection"]:
-            confirmed_facts["self_connection_confirmed"] = True
-        if normalized["desiredWork"]:
-            confirmed_facts["desired_work_confirmed"] = True
-        if normalized["valueContribution"]:
-            confirmed_facts["value_contribution_confirmed"] = True
-        if normalized["differentiationReason"]:
-            confirmed_facts["differentiation_confirmed"] = True
-        normalized["confirmedFacts"] = confirmed_facts
-        normalized["openSlots"] = _build_open_slots_from_confirmed_facts(confirmed_facts)
-    legacy_summary_map = {
-        "industry_reason": normalized["industryReason"],
-        "company_reason": normalized["companyReason"],
-        "self_connection": normalized["selfConnection"],
-        "desired_work": normalized["desiredWork"],
-        "value_contribution": normalized["valueContribution"],
-        "differentiation": normalized["differentiationReason"],
-    }
-    for stage, summary in legacy_summary_map.items():
-        if summary and not normalized["slotSummaries"].get(stage):
-            normalized["slotSummaries"][stage] = summary
-    if not normalized["closedSlots"]:
-        normalized["closedSlots"] = [
-            stage for stage in REQUIRED_MOTIVATION_STAGES
-            if normalized["confirmedFacts"].get(STAGE_CONFIRMED_FACT_KEYS[stage], False)
-        ]
-    return normalized
-
-
-def _capture_answer_into_context(
-    conversation_context: dict[str, Any] | None,
-    answer: str | None,
-) -> dict[str, Any]:
-    context = _normalize_conversation_context(conversation_context)
-    trimmed = " ".join((answer or "").split()).strip()
-    if not trimmed:
-        return context
-
-    stage = context.get("questionStage") or "industry_reason"
-    if stage == "industry_reason":
-        context["industryReason"] = trimmed
-    elif stage == "company_reason":
-        context["companyReason"] = trimmed
-    elif stage == "self_connection":
-        context["selfConnection"] = trimmed
-        context["fitConnection"] = trimmed
-    elif stage == "desired_work":
-        context["desiredWork"] = trimmed
-    elif stage == "value_contribution":
-        context["valueContribution"] = trimmed
-    elif stage == "differentiation":
-        context["differentiationReason"] = trimmed
-
-    confirmed_facts = _normalize_confirmed_facts(context.get("confirmedFacts"))
-    fact_key = _confirmed_fact_key_for_stage(stage)
-    if fact_key:
-        is_confirmed = _answer_is_confirmed_for_stage(stage, trimmed)
-        confirmed_facts[fact_key] = is_confirmed
-        if stage == "self_connection":
-            confirmed_facts["origin_experience_confirmed"] = is_confirmed
-            confirmed_facts["fit_connection_confirmed"] = is_confirmed
-    context["confirmedFacts"] = confirmed_facts
-    context["openSlots"] = _build_open_slots_from_confirmed_facts(confirmed_facts)
-    context["turnCount"] = max(int(context.get("turnCount") or 0) + 1, 0)
-    if context.get("conversationMode") == CONVERSATION_MODE_DEEPDIVE:
-        context["deepdiveTurnCount"] = max(int(context.get("deepdiveTurnCount") or 0) + 1, 0)
-    context["slotSummaries"][stage] = trimmed
-    existing_sentences = list(context["slotEvidenceSentences"].get(stage) or [])
-    if trimmed not in existing_sentences:
-        existing_sentences.append(trimmed)
-    context["slotEvidenceSentences"][stage] = existing_sentences[:4]
-    slot_state = _classify_slot_state(stage, trimmed, context)
-    if stage == "desired_work":
-        context["roleReason"] = trimmed if _looks_like_role_reason(trimmed, context) else context.get("roleReason")
-        context["roleReasonState"] = (
-            "sufficient" if context.get("roleReason") else "empty"
-        )
-
-    unresolved = _answer_signals_unresolved(trimmed)
-    contradiction = _answer_signals_contradiction(trimmed)
-    budget = _default_reask_budget_by_slot().get(stage, 1)
-    if isinstance(context.get("reaskBudgetBySlot"), dict):
-        try:
-            budget = max(int(context["reaskBudgetBySlot"].get(stage, budget)), 0)
-        except (TypeError, ValueError):
-            budget = 0
-    should_hold_slot = (unresolved or contradiction) and budget > 0
-    context.setdefault("reaskBudgetBySlot", _default_reask_budget_by_slot())
-    if should_hold_slot:
-        context["slotStates"][stage] = slot_state
-        context["unresolvedPoints"] = _coerce_string_list(
-            [*context.get("unresolvedPoints", []), STAGE_LABELS.get(stage, stage)],
-            max_items=8,
-        )
-        context["reaskBudgetBySlot"][stage] = budget - 1
-    else:
-        context["slotStates"][stage] = "locked"
-        context["closedSlots"] = list({
-            *(_coerce_stage_list(context.get("closedSlots"), max_items=8)),
-            stage,
-        })
-        current_intent = str(context.get("currentIntent") or SLOT_FILL_INTENTS.get(stage, "initial_capture"))
-        existing_forbidden = [row for row in context.get("forbiddenReasks", []) if row.get("slot") != stage or row.get("intent") != current_intent]
-        existing_forbidden.append({"slot": stage, "intent": current_intent, "reason": "slot_locked"})
-        context["forbiddenReasks"] = existing_forbidden
-        intents = list(context["slotIntentsAsked"].get(stage) or [])
-        if current_intent and current_intent not in intents:
-            intents.append(current_intent)
-        context["slotIntentsAsked"][stage] = intents[:6]
-
-    return context
-
-
-def _answer_signals_unresolved(answer: str) -> bool:
-    normalized = " ".join((answer or "").split())
-    return any(token in normalized for token in UNRESOLVED_PATTERNS)
-
-
-def _answer_signals_contradiction(answer: str) -> bool:
-    normalized = " ".join((answer or "").split())
-    return any(token in normalized for token in CONTRADICTION_PATTERNS)
-
-
-def _contains_any_token(text: str | None, tokens: tuple[str, ...]) -> bool:
-    normalized = " ".join((text or "").split())
-    return any(token in normalized for token in tokens)
-
-
-def _count_matching_groups(text: str | None, token_groups: tuple[tuple[str, ...], ...]) -> int:
-    normalized = " ".join((text or "").split())
-    return sum(1 for group in token_groups if any(token in normalized for token in group))
-
-
-def _has_company_specificity(answer: str | None, context: dict[str, Any]) -> bool:
-    normalized = " ".join((answer or "").split())
-    if not normalized:
-        return False
-    keywords = _sanitize_existing_grounding_candidates(
-        context.get("companyAnchorKeywords"),
-        max_items=6,
-        max_len=32,
-    )
-    if any(keyword in normalized for keyword in keywords):
-        return True
-    if any(keyword in normalized for keyword in ("DX", "業務改革", "事業", "商材", "社風", "働き方", "顧客課題", "提案")):
-        return True
-    return not any(pattern in normalized for pattern in COMPANY_GENERIC_PATTERNS)
-
-
-def _looks_like_role_reason(answer: str | None, context: dict[str, Any]) -> bool:
-    normalized = " ".join((answer or "").split())
-    selected_role = str(context.get("selectedRole") or "").strip()
-    if selected_role and selected_role in normalized:
-        return True
-    return any(token in normalized for token in ("企画", "営業", "提案", "改善", "開発", "仕事", "役割"))
-
-
-def _classify_slot_state(stage: str, answer: str, context: dict[str, Any] | None = None) -> str:
-    normalized = " ".join((answer or "").split()).strip()
-    ctx = _normalize_conversation_context(context) if context is not None else _normalize_conversation_context(None)
-    if len(normalized) < 6:
-        return "empty"
-    if stage == "industry_reason":
-        return "sufficient" if len(normalized) >= 14 and _contains_any_token(normalized, ("業界", "理由", "関心", "ため", "から", "惹かれ")) else "rough"
-    if stage == "company_reason":
-        return "sufficient" if len(normalized) >= 16 and _has_company_specificity(normalized, ctx) else "rough"
-    if stage == "self_connection":
-        has_anchor = _contains_any_token(normalized, ("経験", "価値観", "強み", "原体験", "学生時代"))
-        has_link = _contains_any_token(normalized, ("つなが", "活か", "生か", "だからこそ", "土台"))
-        return "sufficient" if has_anchor and has_link else "rough"
-    if stage == "desired_work":
-        has_work = _contains_any_token(normalized, ("入社後", "仕事", "挑戦", "関わ", "役割", "提案", "改善"))
-        has_role = _looks_like_role_reason(normalized, ctx)
-        return "sufficient" if has_work and has_role else "rough"
-    if stage == "value_contribution":
-        return (
-            "sufficient"
-            if _count_matching_groups(
-                normalized,
-                (
-                    CONTRIBUTION_TARGET_TOKENS,
-                    CONTRIBUTION_ACTION_TOKENS,
-                    CONTRIBUTION_VALUE_TOKENS,
-                ),
-            )
-            >= 2
-            else "rough"
-        )
-    if stage == "differentiation":
-        return "sufficient" if _contains_any_token(normalized, ("他社", "違い", "ならでは", "だからこそ", "最も")) or _has_company_specificity(normalized, ctx) else "rough"
-    return "rough"
-
-
-def _compute_deterministic_causal_gaps(context: dict[str, Any] | None) -> list[dict[str, str]]:
-    normalized = _normalize_conversation_context(context)
-    gaps: list[dict[str, str]] = []
-    company_reason = normalized.get("slotSummaries", {}).get("company_reason") or normalized.get("companyReason")
-    self_connection = normalized.get("slotSummaries", {}).get("self_connection") or normalized.get("selfConnection")
-    desired_work = normalized.get("slotSummaries", {}).get("desired_work") or normalized.get("desiredWork")
-    value_contribution = normalized.get("slotSummaries", {}).get("value_contribution") or normalized.get("valueContribution")
-    differentiation = normalized.get("slotSummaries", {}).get("differentiation") or normalized.get("differentiationReason")
-
-    if company_reason and not _has_company_specificity(company_reason, normalized):
-        gaps.append({
-            "id": "company_reason_specificity",
-            "slot": "company_reason",
-            "reason": "企業固有語が不足している",
-            "promptHint": "企業のどの特徴や仕事のどこに惹かれたかを具体化する",
-        })
-    if self_connection and not _contains_any_token(self_connection, ("経験", "価値観", "強み")):
-        gaps.append({
-            "id": "self_connection_gap",
-            "slot": "self_connection",
-            "reason": "経験との接続が弱い",
-            "promptHint": "過去の経験や価値観とのつながりを補う",
-        })
-    if normalized.get("selectedRole") and not _looks_like_role_reason(normalized.get("roleReason") or desired_work, normalized):
-        gaps.append({
-            "id": "role_reason_missing",
-            "slot": "desired_work",
-            "reason": "職種志望理由が不足している",
-            "promptHint": "なぜその職種で働きたいかを補う",
-        })
-    if value_contribution and _count_matching_groups(
-        value_contribution,
-        (
-            CONTRIBUTION_TARGET_TOKENS,
-            CONTRIBUTION_ACTION_TOKENS,
-            CONTRIBUTION_VALUE_TOKENS,
-        ),
-    ) < 2:
-        gaps.append({
-            "id": "value_contribution_vague",
-            "slot": "value_contribution",
-            "reason": "価値発揮が理想論に寄っている",
-            "promptHint": "誰にどう価値を出したいかを補う",
-        })
-    if not differentiation or not _contains_any_token(differentiation, ("他社", "違い", "ならでは", "だからこそ", "最も")):
-        gaps.append({
-            "id": "differentiation_missing",
-            "slot": "differentiation",
-            "reason": "他社との差分が弱い",
-            "promptHint": "他社ではなくこの企業を選ぶ理由を補う",
-        })
-    return gaps
-
-
-def _determine_next_turn(context: dict[str, Any] | None) -> dict[str, Any]:
-    normalized = _normalize_conversation_context(context)
-    mode = normalized.get("conversationMode") or CONVERSATION_MODE_SLOT_FILL
-    if mode == CONVERSATION_MODE_DEEPDIVE:
-        gaps = normalized.get("causalGaps") or _compute_deterministic_causal_gaps(normalized)
-        if int(normalized.get("deepdiveTurnCount") or 0) >= 10 or not gaps:
-            return {
-                "mode": CONVERSATION_MODE_DEEPDIVE,
-                "unlock": True,
-                "unlock_reason": "deepdive_complete",
-                "target_slot": None,
-                "intent": None,
-                "next_advance_condition": "必要な補強が終わったため、このまま仕上げに進めます。",
-            }
-        gap = gaps[0]
-        return {
-            "mode": CONVERSATION_MODE_DEEPDIVE,
-            "unlock": False,
-            "unlock_reason": None,
-            "target_slot": gap["slot"],
-            "intent": DEEPDIVE_INTENT_BY_GAP_ID.get(gap["id"], "specificity_check"),
-            "next_advance_condition": gap.get("promptHint") or "弱い部分を1つ補えれば次に進みます。",
-        }
-
-    states = _normalize_slot_state_map(normalized.get("slotStates"))
-    if all(states.get(stage) == "locked" for stage in REQUIRED_MOTIVATION_STAGES):
-        return {
-            "mode": CONVERSATION_MODE_SLOT_FILL,
-            "unlock": True,
-            "unlock_reason": "completed_six_slots",
-            "target_slot": None,
-            "intent": None,
-            "next_advance_condition": "6項目の材料が一通り揃ったのでESに進めます。",
-        }
-    if int(normalized.get("turnCount") or 0) >= 7:
-        return {
-            "mode": CONVERSATION_MODE_SLOT_FILL,
-            "unlock": True,
-            "unlock_reason": "max_turn_reached",
-            "target_slot": None,
-            "intent": None,
-            "next_advance_condition": "一定回数まで確認したため、いったんESの作成に進めます。",
-        }
-    for stage in REQUIRED_MOTIVATION_STAGES:
-        if states.get(stage) != "locked":
-            return {
-                "mode": CONVERSATION_MODE_SLOT_FILL,
-                "unlock": False,
-                "unlock_reason": None,
-                "target_slot": stage,
-                "intent": SLOT_FILL_INTENTS[stage],
-                "next_advance_condition": NEXT_ADVANCE_CONDITION_BY_SLOT[stage],
-            }
-    return {
-        "mode": CONVERSATION_MODE_SLOT_FILL,
-        "unlock": True,
-        "unlock_reason": "completed_six_slots",
-        "target_slot": None,
-        "intent": None,
-        "next_advance_condition": "6項目の材料が一通り揃ったのでESに進めます。",
-    }
-
-
-def _build_progress_payload(
-    context: dict[str, Any] | None,
-    *,
-    current_slot: str | None,
-    current_intent: str | None,
-    next_advance_condition: str | None,
-) -> dict[str, Any]:
-    normalized = _normalize_conversation_context(context)
-    states = _normalize_slot_state_map(normalized.get("slotStates"))
-    completed = sum(1 for state in states.values() if state == "locked")
-    return {
-        "completed": completed,
-        "total": len(REQUIRED_MOTIVATION_STAGES),
-        "current_slot": current_slot,
-        "current_slot_label": _slot_label(current_slot) if current_slot else None,
-        "current_intent": current_intent,
-        "next_advance_condition": next_advance_condition,
-        "mode": normalized.get("conversationMode") or CONVERSATION_MODE_SLOT_FILL,
-    }
-
 
 def _format_profile_for_prompt(profile_context: dict[str, Any] | None) -> str:
     if not isinstance(profile_context, dict):
@@ -1224,38 +473,6 @@ def _format_answer_contract_for_prompt(
     )
 
 
-COMPANY_TEXT_NOISE_PATTERNS = (
-    re.compile(r"^[QＱ]\s*\d+\b", re.IGNORECASE),
-    re.compile(r"^(見出し|質問|回答)[:：]"),
-    re.compile(r"^https?://", re.IGNORECASE),
-)
-
-COMPANY_TEXT_NOISE_KEYWORDS = (
-    "ご紹介します",
-    "エントリー",
-    "マイページ",
-    "募集要項",
-    "選考フロー",
-    "選考情報",
-    "応募方法",
-    "応募する",
-    "よくある質問",
-    "FAQ",
-    "ニュース",
-    "トピックス",
-    "一覧",
-    "詳細はこちら",
-    "クリック",
-    "社員紹介",
-    "採用情報",
-    "インターンシップ",
-    "見出し",
-    "Q1",
-    "Q2",
-    "Q3",
-    "Q4",
-)
-
 COMPANY_FEATURE_ENDINGS = (
     "事業投資",
     "バリューチェーン",
@@ -1328,12 +545,12 @@ ROLE_WORK_FALLBACKS = {
 }
 
 QUESTION_KEYWORDS_BY_STAGE = {
-    "industry_reason": ("業界", "関心", "理由", "きっかけ", "今"),
-    "company_reason": ("理由", "魅力", "惹かれ", "きっかけ", "選ぶ"),
-    "self_connection": ("経験", "価値観", "強み", "つなが", "活か", "原体験"),
-    "desired_work": ("入社後", "仕事", "挑戦", "担い", "関わり"),
-    "value_contribution": ("価値", "貢献", "役立", "実現", "前に進め"),
-    "differentiation": ("他社", "違い", "選ぶ", "理由", "だからこそ"),
+    "industry_reason": ("業界", "分野", "領域", "セクター", "関心", "理由", "きっかけ", "今"),
+    "company_reason": ("理由", "魅力", "惹かれ", "きっかけ", "選ぶ", "特徴", "事業"),
+    "self_connection": ("経験", "価値観", "強み", "つなが", "活か", "原体験", "学び", "きっかけ"),
+    "desired_work": ("入社後", "仕事", "挑戦", "担い", "関わり", "取り組", "チーム"),
+    "value_contribution": ("価値", "貢献", "役立", "実現", "前に進め", "発揮", "出したい", "支え"),
+    "differentiation": ("他社", "違い", "選ぶ", "理由", "だからこそ", "比較", "決め手", "最も", "ならでは"),
     "closing": ("一言", "まとめ", "実現", "目標", "価値"),
 }
 
@@ -1381,21 +598,6 @@ def _iter_company_grounding_segments(
     return segments
 
 
-def _is_noisy_company_text(text: str) -> bool:
-    cleaned = " ".join((text or "").split())
-    if len(cleaned) < 4:
-        return True
-    if any(pattern.search(cleaned) for pattern in COMPANY_TEXT_NOISE_PATTERNS):
-        return True
-    if any(keyword in cleaned for keyword in COMPANY_TEXT_NOISE_KEYWORDS):
-        return True
-    if "?" in cleaned or "？" in cleaned:
-        return True
-    if any(token in cleaned for token in ("|", ">", "＞", "http://", "https://")):
-        return True
-    return False
-
-
 def _extract_compound_nouns(
     text: str,
     endings: tuple[str, ...],
@@ -1418,29 +620,6 @@ def _extract_compound_nouns(
                 continue
             candidates.append(candidate)
     return candidates
-
-
-def _sanitize_existing_grounding_candidates(
-    values: list[str] | None,
-    *,
-    max_items: int = 4,
-    max_len: int = 32,
-) -> list[str]:
-    if not isinstance(values, list):
-        return []
-    cleaned_values: list[str] = []
-    for value in values:
-        if not isinstance(value, str):
-            continue
-        cleaned = _clean_short_phrase(value, max_len=max_len)
-        if not cleaned or cleaned in cleaned_values:
-            continue
-        if _is_noisy_company_text(cleaned):
-            continue
-        cleaned_values.append(cleaned)
-        if len(cleaned_values) >= max_items:
-            break
-    return cleaned_values
 
 
 def _extract_company_keywords(
@@ -1798,7 +977,8 @@ def _looks_like_instruction_or_ui_copy(question: str) -> bool:
     normalized = " ".join((question or "").split())
     if any(token in normalized for token in QUESTION_INSTRUCTION_BLOCKLIST):
         return True
-    if normalized and not normalized.endswith(("?", "？")):
+    VALID_ENDINGS = ("？", "?", "ください。", "しょうか。", "すか。", "ますか。")
+    if normalized and not any(normalized.endswith(e) for e in VALID_ENDINGS):
         return True
     return False
 
@@ -1862,35 +1042,56 @@ def _build_question_fallback_candidates(
     normalized_stage = "self_connection" if stage in {"origin_experience", "fit_connection"} else stage
     confirmed = _normalize_confirmed_facts(confirmed_facts) if confirmed_facts is not None else None
     if stage == "industry_reason":
+        # D-1: 開放型に統一、関心のきっかけ系も追加
         if selected_industry:
-            return [f"{selected_industry}業界を志望する理由を1つ教えてください。"]
-        return ["この業界を志望する理由を1つ教えてください。"]
+            return [
+                f"{selected_industry}業界を志望する理由を1つ教えてください。",
+                f"{selected_industry}業界に関心を持ったきっかけは何ですか？",
+                f"{selected_industry}業界のどんな分野に今もっとも興味がありますか？",
+                f"{selected_industry}業界で関わりたい領域があれば教えてください。",
+            ]
+        return [
+            "この業界を志望する理由を1つ教えてください。",
+            "いまの業界選びで関心を持っている理由を教えてください。",
+            "この業界のどの領域に今もっとも興味がありますか？",
+        ]
 
     if normalized_stage == "company_reason":
+        # D-1: 「最も近いものを1つ」選択型・「{企業名}で{職種}を考えるとき」機械的ペアリングを廃止
         if selected_role and confirmed is not None and not confirmed["company_reason_confirmed"]:
             return [
-                f"{company_name}を志望先として考えるとき、どんな点に魅力を感じますか？",
-                f"{company_name}を選びたいと思う理由があるとしたら、何が近いですか？",
+                f"{company_name}の事業や取り組みで、気になっている点はありますか？",
+                f"{company_name}に惹かれる理由が1つあるとしたら、何でしょうか？",
+                f"{company_name}で特に関心を持った特徴を教えてください。",
+                f"{company_name}を選ぶきっかけになった情報があれば教えてください。",
             ]
         if selected_role:
             return [
-                f"{company_name}で{selected_role}を考えるとき、どんな点に惹かれますか？",
-                f"{company_name}を志望する理由として近いものを1つ教えてください。",
+                f"{company_name}の事業や取り組みで、気になっている点を1つ教えてください。",
+                f"{company_name}に惹かれるきっかけになった事柄は何ですか？",
+                f"{company_name}のどの特徴に共感していますか？",
+                f"{company_name}を志望する理由を一言で教えてください。",
             ]
         return [
             f"{company_name}を志望する理由を1つ教えてください。",
             f"{company_name}に惹かれる点を1つ教えてください。",
+            f"{company_name}の事業や取り組みで気になる点はありますか？",
+            f"{company_name}を選ぶきっかけになった情報があれば教えてください。",
         ]
 
     if normalized_stage == "self_connection":
         if gakuchika_episode:
             return [
                 f"{gakuchika_episode}の経験は、今の志望とどうつながっていますか？",
+                f"{gakuchika_episode}で身につけた強みは、今の志望にどう活かせそうですか？",
                 "ご自身の経験や価値観の中で、今の志望につながるものは何ですか？",
+                "これまでの経験で、今の志望に影響している学びはありますか？",
             ]
         return [
             "ご自身の経験や価値観の中で、今の志望につながるものは何ですか？",
             "これまでの経験で、今の志望に影響していることはありますか？",
+            "今の志望理由に近い原体験や価値観があれば教えてください。",
+            "自分の強みのうち、今の志望と特につなげやすいと感じるものは何ですか？",
         ]
 
     if normalized_stage == "desired_work":
@@ -1898,27 +1099,37 @@ def _build_question_fallback_candidates(
             return [
                 f"入社後、{selected_role}として{desired_work}の中で特に挑戦したいことは何ですか？",
                 f"入社後、{selected_role}として{desired_work}にどう関わりたいですか？",
+                f"{selected_role}として{desired_work}で担いたい役割を教えてください。",
+                f"{selected_role}として{desired_work}の中で一番取り組みたいテーマは何ですか？",
             ]
         if selected_role:
             return [
                 f"入社後、{selected_role}としてどんな仕事に挑戦したいですか？",
                 f"入社後、{selected_role}としてどんな役割を担いたいですか？",
+                f"{selected_role}として関わってみたいチームや領域はありますか？",
+                f"{selected_role}として一番取り組みたいテーマは何ですか？",
             ]
         return [
             "入社後にどんな仕事へ挑戦したいですか？",
             "入社後にどんな役割を担いたいですか？",
+            "入社後に関わりたいチームや領域はありますか？",
+            "入社後に一番取り組みたいテーマは何ですか？",
         ]
 
     if normalized_stage == "value_contribution":
         return [
             "入社後、どんな価値や貢献を出したいですか？",
-            "その仕事を通じて、相手にどんな変化を届けたいですか？",
+            "その仕事を通じて、相手にどんな価値を届けたいですか？",
+            "入社後、まずどんな形で役立ちたいと考えていますか？",
+            "自分の強みを使って、どんな価値を発揮したいですか？",
         ]
 
     if normalized_stage == "differentiation":
         return [
             f"同業他社ではなく、{company_name}を選ぶ理由は何ですか？",
             f"同業他社と比べて、{company_name}に惹かれる理由は何ですか？",
+            f"{company_name}を選ぶ決め手になっている理由を教えてください。",
+            f"他社と比較したうえで、{company_name}だからこそ選びたいと感じる点は何ですか？",
         ]
 
     if desired_work:
@@ -1972,6 +1183,7 @@ def _validate_or_repair_question(
     gakuchika_episode: str | None,
     gakuchika_strength: str | None,
     confirmed_facts: dict[str, bool] | None = None,
+    validation_report: dict | None = None,
 ) -> str:
     normalized = " ".join((question or "").split())
     fallback = _build_question_fallback(
@@ -1985,15 +1197,28 @@ def _validate_or_repair_question(
         gakuchika_strength=gakuchika_strength,
         confirmed_facts=confirmed_facts,
     )
+
+    def _record_fallback(reason: str) -> None:
+        # E-2 / P3-4: 副作用オブジェクトで採用結果を可視化（ログは既存動作を温存）
+        logger.info("[Motivation] question_fallback reason=%s stage=%s", reason, stage)
+        if validation_report is not None:
+            validation_report["fallback_used"] = True
+            validation_report["fallback_reason"] = reason
+
     if not normalized:
+        _record_fallback("empty")
         return fallback
     if any(token in normalized for token in GENERIC_QUESTION_BLOCKLIST):
+        _record_fallback("generic_blocklist")
         return fallback
     if _looks_like_instruction_or_ui_copy(normalized):
+        _record_fallback("instruction_copy")
         return fallback
     if _looks_like_multi_part_question(normalized):
+        _record_fallback("multi_part")
         return fallback
     if stage in {"company_reason", "differentiation", "closing"} and _mentions_other_company_name(normalized, company_name):
+        _record_fallback("other_company")
         return fallback
     if _question_uses_unconfirmed_premise(
         question=normalized,
@@ -2002,25 +1227,22 @@ def _validate_or_repair_question(
         desired_work=desired_work,
         confirmed_facts=confirmed_facts,
     ):
+        _record_fallback("unconfirmed_premise")
         return fallback
-    if len(normalized) > 80:
+    # P2-6: 企業名が長いほど質問文も自然に長くなるため、会社名長さを許容枠に上乗せする
+    max_length = 80 + len(company_name or "")
+    if len(normalized) > max_length:
+        _record_fallback("too_long")
         return fallback
     if not any(keyword in normalized for keyword in QUESTION_KEYWORDS_BY_STAGE.get(stage, ())):
-        return fallback
-    if stage == "industry_reason" and "業界" not in normalized:
+        _record_fallback("missing_keyword")
         return fallback
     if stage == "company_reason" and normalized.startswith("入社後"):
+        _record_fallback("stage_specific")
         return fallback
-    if stage == "desired_work" and "入社後" not in normalized:
-        return fallback
-    if stage == "self_connection" and not any(token in normalized for token in ("経験", "価値観", "きっかけ", "つなが")):
-        return fallback
-    if stage == "value_contribution" and not any(token in normalized for token in ("価値", "貢献", "役立", "支え", "実現")):
-        return fallback
-    if stage == "differentiation" and "他社" not in normalized and "違い" not in normalized:
-        return fallback
-    if stage == "closing" and not any(token in normalized for token in ("一言", "まとめ", "端的")):
-        return fallback
+    if validation_report is not None:
+        validation_report.setdefault("fallback_used", False)
+        validation_report.setdefault("fallback_reason", None)
     return normalized
 
 
@@ -2192,6 +1414,7 @@ def _repair_generated_question_for_response(
     company_role_candidates: list[str] | None,
     company_work_candidates: list[str] | None,
     conversation_context: dict[str, Any] | None,
+    validation_report: dict | None = None,
 ) -> str:
     context = _normalize_conversation_context(conversation_context)
     selected_role = context["selectedRole"] or (application_job_candidates or [None])[0]
@@ -2208,6 +1431,7 @@ def _repair_generated_question_for_response(
         gakuchika_episode=_extract_gakuchika_episode(gakuchika_context),
         gakuchika_strength=_extract_gakuchika_strength(gakuchika_context),
         confirmed_facts=context.get("confirmedFacts"),
+        validation_report=validation_report,
     )
 
 
@@ -2296,18 +1520,6 @@ def _slot_to_legacy_element(slot: str) -> str:
         "differentiation": "differentiation",
     }
     return mapping.get(slot, "company_understanding")
-
-
-def _slot_label(slot: str) -> str:
-    labels = {
-        "industry_reason": "業界志望理由",
-        "company_reason": "企業志望理由",
-        "self_connection": "自分との接続",
-        "desired_work": "やりたい仕事",
-        "value_contribution": "価値発揮",
-        "differentiation": "差別化",
-    }
-    return labels.get(slot, slot)
 
 
 def _slot_status_to_scores(slot_status: dict[str, str]) -> MotivationScores:
@@ -2556,6 +1768,7 @@ async def _evaluate_motivation_internal(
 
     if not request.conversation_history:
         return {
+            "evaluation_status": "ok",
             "scores": {
                 "company_understanding": 0,
                 "self_analysis": 0,
@@ -2615,6 +1828,9 @@ async def _evaluate_motivation_internal(
         )
 
     conversation_text = _format_conversation(trimmed_history)
+    summaries = normalized_context.get("slotSummaries", {})
+    summary_lines = [f"- {STAGE_LABELS.get(k, k)}: {v}" for k, v in summaries.items() if v]
+    slot_summaries_section = "\n".join(summary_lines) if summary_lines else "（まだ確認済みのスロットはありません）"
     prompt = MOTIVATION_EVALUATION_PROMPT.format(
         conversation=conversation_text,
         company_name=sanitize_prompt_input(request.company_name, max_length=200),
@@ -2624,6 +1840,7 @@ async def _evaluate_motivation_internal(
             request.application_job_candidates,
         ),
         company_context=company_context or "（企業情報なし）",
+        slot_summaries_section=slot_summaries_section,
     )
     prompt = (
         f"{prompt}\n\n"
@@ -2661,8 +1878,19 @@ async def _evaluate_motivation_internal(
     )
 
     if not llm_result.success or llm_result.data is None:
+        # Classify failure type for caller-side handling
+        if llm_result.error and getattr(llm_result.error, "error_type", None) == "parse":
+            evaluation_status = "parse_failure"
+        else:
+            evaluation_status = "provider_failure"
+        logger.warning(
+            "[Motivation] Evaluation LLM call failed: status=%s, error=%s",
+            evaluation_status,
+            llm_result.error.message if llm_result.error else "unknown",
+        )
         scores = MotivationScores()
         return {
+            "evaluation_status": evaluation_status,
             "scores": scores.model_dump(),
             "weakest_element": "company_reason",
             "is_complete": False,
@@ -2726,6 +1954,7 @@ async def _evaluate_motivation_internal(
     weakest_element = _slot_to_legacy_element(missing_slots[0] if missing_slots else "differentiation")
 
     return {
+        "evaluation_status": "ok",
         "scores": {
             "company_understanding": 0,
             "self_analysis": 0,
@@ -2768,6 +1997,7 @@ async def _prepare_motivation_next_question(
         ),
         None,
     )
+    pre_capture_context = copy.deepcopy(conversation_context)
     conversation_context = _capture_answer_into_context(
         conversation_context,
         latest_user_answer,
@@ -2822,6 +2052,32 @@ async def _prepare_motivation_next_question(
         company_context=company_context,
         conversation_context=conversation_context,
     )
+
+    # ── Evaluation failure handling ──────────────────────────────────────
+    if eval_result.get("evaluation_status") != "ok":
+        # Rollback conversation_context to pre-capture state so the
+        # already-captured answer does not persist as confirmed fact.
+        conversation_context = pre_capture_context
+        logger.warning(
+            "[Motivation] evaluation %s — context fully rolled back to pre-capture state",
+            eval_result.get("evaluation_status"),
+        )
+
+        if eval_result.get("evaluation_status") == "provider_failure":
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "評価処理が一時的に利用できません",
+                    "error_type": "evaluation_provider_failure",
+                },
+            )
+
+        # parse_failure: continue with degraded quality, add risk flag
+        if eval_result.get("evaluation_status") == "parse_failure":
+            risk_flags = list(eval_result.get("risk_flags", []))
+            risk_flags.append("evaluation_parse_failure")
+            eval_result["risk_flags"] = risk_flags
+
     scores = MotivationScores(**(eval_result.get("scores") or MotivationScores().model_dump()))
     weakest_element = eval_result["weakest_element"]
     missing_slots = list(eval_result.get("missing_slots") or [])
@@ -2859,7 +2115,7 @@ async def _prepare_motivation_next_question(
         conversation_context["draftReady"] = True
         conversation_context["unlockReason"] = unlock_reason
         conversation_context["draftReadyUnlockedAt"] = (
-            conversation_context.get("draftReadyUnlockedAt") or datetime.utcnow().isoformat()
+            conversation_context.get("draftReadyUnlockedAt") or datetime.now(ZoneInfo("Asia/Tokyo")).isoformat()
         )
 
     progress = _build_progress_payload(
@@ -3012,47 +2268,78 @@ def _build_motivation_deepdive_system_prompt(
 
 
 def _deepdive_area_to_stage(target_area: str | None) -> str:
-    mapping = {
-        "company_reason_strengthening": "company_reason",
-        "desired_work_clarity": "desired_work",
-        "value_contribution_clarity": "value_contribution",
-        "differentiation_strengthening": "differentiation",
-        "origin_background": "self_connection",
-        "why_now_strengthening": "company_reason",
-    }
-    return mapping.get(str(target_area or "").strip(), "differentiation")
+    # E-3 (P3-5): DeepDiveGap enum を単一情報源にして target_area → stage を解決する
+    gap = DeepDiveGap.from_target_area(target_area)
+    if gap is None:
+        return DeepDiveGap.DIFFERENTIATION.to_stage()
+    return gap.to_stage()
 
 
 def _deepdive_area_to_weakness_tag(target_area: str | None) -> str:
-    mapping = {
-        "company_reason_strengthening": "company_reason_generic",
-        "desired_work_clarity": "desired_work_too_abstract",
-        "value_contribution_clarity": "value_contribution_vague",
-        "differentiation_strengthening": "differentiation_missing",
-        "origin_background": "self_connection_weak",
-        "why_now_strengthening": "why_now_missing",
-    }
-    return mapping.get(str(target_area or "").strip(), "company_reason_generic")
+    # E-3 (P3-5): target_area → weakness_tag を DeepDiveGap 経由で解決する
+    gap = DeepDiveGap.from_target_area(target_area)
+    if gap is None:
+        return DeepDiveGap.COMPANY_REASON.to_weakness_tag()
+    return gap.to_weakness_tag()
 
 
 def _infer_weakness_tag_from_eval(eval_result: dict[str, Any] | None) -> str:
+    # E-3 (P3-5): draft_blockers の stage 名を DeepDiveGap に解決してから weakness_tag へ
     data = eval_result or {}
     blockers = list(data.get("draft_blockers") or [])
-    if "company_reason" in blockers:
-        return "company_reason_generic"
-    if "desired_work" in blockers:
-        return "desired_work_too_abstract"
-    if "value_contribution" in blockers:
-        return "value_contribution_vague"
-    if "differentiation" in blockers:
-        return "differentiation_missing"
-    if "self_connection" in blockers:
-        return "self_connection_weak"
-    return "company_reason_generic"
+    # draft_blockers は優先順位順で評価する。最初にヒットした stage を採用。
+    for stage_name in ("company_reason", "desired_work", "value_contribution", "differentiation", "self_connection"):
+        if stage_name in blockers:
+            gap = DeepDiveGap.from_stage(stage_name)
+            if gap is not None:
+                return gap.to_weakness_tag()
+    return DeepDiveGap.COMPANY_REASON.to_weakness_tag()
 
 
 def _should_use_deepdive_mode(prep: _MotivationQuestionPrep) -> bool:
     return prep.was_draft_ready and prep.has_generated_draft
+
+
+def _classify_draft_ready_source(
+    *,
+    eval_ready: bool,
+    planner_unlock: bool,
+    unlock_reason: str | None,
+) -> str:
+    """Classify which signal drove the draft-ready transition.
+
+    Returns one of:
+    - "both_agree": eval LLM and planner both declared ready
+    - "planner_only:<reason>": planner unlocked (e.g. max_turn_reached) but eval was not ready
+    - "eval_only": eval declared ready but planner did not unlock
+    - "neither": neither signal was ready (used when response is not draft_ready)
+    """
+    if eval_ready and planner_unlock:
+        return "both_agree"
+    if planner_unlock and not eval_ready:
+        return f"planner_only:{unlock_reason or 'unknown'}"
+    if eval_ready and not planner_unlock:
+        return "eval_only"
+    return "neither"
+
+
+def _build_draft_ready_telemetry(
+    prep: _MotivationQuestionPrep,
+    base: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Enrich the LLM cost summary with draft_ready source telemetry (P2-5)."""
+    eval_ready = bool(prep.eval_result.get("ready_for_draft"))
+    planner_unlock = bool(prep.is_complete)
+    telemetry = dict(base) if base else {}
+    telemetry["draft_ready_eval"] = eval_ready
+    telemetry["draft_ready_planner"] = planner_unlock
+    telemetry["draft_ready_source"] = _classify_draft_ready_source(
+        eval_ready=eval_ready,
+        planner_unlock=planner_unlock,
+        unlock_reason=prep.unlock_reason,
+    )
+    telemetry["planner_unlock_reason"] = prep.unlock_reason
+    return telemetry
 
 
 def _build_draft_ready_response(prep: _MotivationQuestionPrep) -> NextQuestionResponse:
@@ -3080,7 +2367,9 @@ def _build_draft_ready_response(prep: _MotivationQuestionPrep) -> NextQuestionRe
         next_advance_condition=prep.next_advance_condition,
         progress=prep.progress,
         causal_gaps=prep.causal_gaps,
-        internal_telemetry=consume_request_llm_cost_summary("motivation"),
+        internal_telemetry=_build_draft_ready_telemetry(
+            prep, consume_request_llm_cost_summary("motivation")
+        ),
     )
 
 async def _assemble_regular_next_question_response(
@@ -3102,6 +2391,8 @@ async def _assemble_regular_next_question_response(
         evidence_basis=str(data.get("question_focus") or ""),
         wording_level=wording_level,
     )
+    # E-2 / P3-4: validation_report を副作用オブジェクトで受け取り、採用可視化に使う
+    validation_report: dict[str, Any] = {}
     validated_question = _repair_generated_question_for_response(
         question=str(data["question"]),
         stage=stage,
@@ -3114,6 +2405,7 @@ async def _assemble_regular_next_question_response(
         company_role_candidates=prep.role_candidates,
         company_work_candidates=prep.work_candidates,
         conversation_context=prep.conversation_context,
+        validation_report=validation_report,
     )
     validated_question = _ensure_distinct_question(
         question=validated_question,
@@ -3209,6 +2501,9 @@ async def _assemble_regular_next_question_response(
         candidate_validation_summary={
             "total_candidates": 0,
             "deepdive_mode": _should_use_deepdive_mode(prep),
+            # E-2 / P3-4: フォールバック採用有無と理由コードを可視化
+            "fallback_used": bool(validation_report.get("fallback_used", False)),
+            "fallback_reason": validation_report.get("fallback_reason"),
         },
         weakness_tag=weakness_tag,
         premise_mode="confirmed_only",
@@ -3218,7 +2513,9 @@ async def _assemble_regular_next_question_response(
         next_advance_condition=prep.next_advance_condition,
         progress=prep.progress,
         causal_gaps=prep.causal_gaps,
-        internal_telemetry=consume_request_llm_cost_summary("motivation"),
+        internal_telemetry=_build_draft_ready_telemetry(
+            prep, consume_request_llm_cost_summary("motivation")
+        ),
     )
 
 
@@ -3253,7 +2550,9 @@ def _build_draft_ready_unlock_response(
         next_advance_condition=prep.next_advance_condition,
         progress=prep.progress,
         causal_gaps=prep.causal_gaps,
-        internal_telemetry=consume_request_llm_cost_summary("motivation"),
+        internal_telemetry=_build_draft_ready_telemetry(
+            prep, consume_request_llm_cost_summary("motivation")
+        ),
     )
 
 
@@ -3550,7 +2849,11 @@ async def _generate_next_question_progress(
 
 @router.post("/next-question/stream")
 @limiter.limit("60/minute")
-async def get_next_question_stream(payload: NextQuestionRequest, request: Request):
+async def get_next_question_stream(
+    payload: NextQuestionRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("ai-stream")),
+):
     """
     SSE streaming version of next-question.
     Yields progress events then complete/error event.
@@ -3560,11 +2863,46 @@ async def get_next_question_stream(payload: NextQuestionRequest, request: Reques
         _sanitize_next_question_request(request)
     except PromptSafetyError:
         raise _prompt_safety_http_error()
+
+    # Defense-in-depth: if both sides carry a company_id, they must match.
+    if (
+        request.company_id
+        and principal.company_id
+        and principal.company_id != request.company_id
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="career principal company_id mismatch",
+        )
+
     from app.routers.motivation_streaming import (
         _generate_next_question_progress as _generate_next_question_progress_canonical,
     )
+
+    try:
+        lease = await SseLease.acquire(
+            actor_id=principal.actor_id, plan=principal.plan
+        )
+    except SseConcurrencyExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "sse_concurrency_exceeded",
+                "limit": exc.rejection.limit,
+            },
+            headers={
+                "Retry-After": str(exc.rejection.retry_after_seconds),
+            },
+        )
+
+    async def _stream_with_lease() -> AsyncGenerator[str, None]:
+        async with lease:
+            async for chunk in _generate_next_question_progress_canonical(request):
+                await lease.heartbeat_if_due()
+                yield chunk
+
     return StreamingResponse(
-        _generate_next_question_progress_canonical(request),
+        _stream_with_lease(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -3572,6 +2910,294 @@ async def get_next_question_stream(payload: NextQuestionRequest, request: Reques
             "X-Accel-Buffering": "no",
         },
     )
+
+
+def _resolve_motivation_grounding_mode(
+    *,
+    rag_available: bool,
+    company_sources: list[dict] | None,
+    role_name: str | None,
+    coverage_level: str,
+) -> str:
+    """D-2 / P2-1: coverage × role に基づき grounding_mode を決定する.
+
+    - coverage が weak/none → "none"
+    - role あり & coverage=strong → "role_grounded"
+    - それ以外 (partial または role なし) → "company_general"
+    """
+    if not rag_available or not company_sources:
+        return "none"
+    if coverage_level in ("weak", "none"):
+        return "none"
+    role_name_stripped = (role_name or "").strip()
+    if role_name_stripped and coverage_level == "strong":
+        return "role_grounded"
+    return "company_general"
+
+
+def _build_motivation_grounding_answer(
+    *,
+    slot_summaries: dict[str, Optional[str]] | None,
+    selected_role: str | None,
+) -> str:
+    """会話由来の slot 要約から、grounding card 評価用の合成 answer を組み立てる."""
+    if not slot_summaries:
+        base = (selected_role or "").strip()
+        return base
+    parts: list[str] = []
+    for key in ("company_reason", "desired_work", "differentiation"):
+        value = slot_summaries.get(key)
+        if value and str(value).strip():
+            parts.append(str(value).strip())
+    role = (selected_role or "").strip()
+    if role:
+        parts.append(role)
+    return " ".join(parts)
+
+
+def _build_motivation_grounding_answer_from_profile(
+    *,
+    role_name: str,
+    gakuchika_section: str,
+    profile_summary: str,
+) -> str:
+    """プロフィール/ガクチカ由来の合成 answer。先頭から bounded 抽出して evidence card 評価に供する."""
+    parts: list[str] = [role_name.strip()] if role_name else []
+    if gakuchika_section:
+        parts.append(gakuchika_section[:300])
+    if profile_summary:
+        parts.append(profile_summary[:200])
+    return "\n".join(p for p in parts if p)
+
+
+def _resolve_motivation_draft_grounding(
+    *,
+    template_type: str,
+    company_sources: list[dict] | None,
+    synthetic_question: str,
+    grounding_answer: str,
+    role_name: str | None,
+) -> tuple[bool, str, Optional[list[dict[str, str]]]]:
+    """RAG ソースから 2 段階評価し (has_rag, grounding_mode, evidence_cards) を返す.
+
+    1. 暫定 grounding_mode="company_general" で evidence_cards を初回構築
+    2. coverage を評価して最終 mode を決定
+    3. 最終 mode が "none" ならカードも捨てる
+    """
+    if not settings.motivation_rag_grounding:
+        return False, "none", None
+    if not company_sources:
+        return False, "none", None
+    try:
+        preliminary_cards = _build_company_evidence_cards(
+            company_sources,
+            template_type=template_type,
+            question=synthetic_question,
+            answer=grounding_answer,
+            role_name=role_name,
+            intern_name=None,
+            grounding_mode="company_general",
+        )
+    except Exception as exc:  # noqa: BLE001 - fail-safe: RAG 側の例外でドラフト生成は止めない
+        logger.warning("[Motivation] evidence card build failed, falling back to has_rag=False: %s", exc)
+        return False, "none", None
+
+    try:
+        coverage_level, _ = _assess_company_evidence_coverage(
+            template_type=template_type,
+            role_name=role_name,
+            company_rag_available=True,
+            company_evidence_cards=preliminary_cards,
+            grounding_mode="company_general",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[Motivation] coverage assessment failed: %s", exc)
+        coverage_level = "weak"
+
+    final_mode = _resolve_motivation_grounding_mode(
+        rag_available=True,
+        company_sources=company_sources,
+        role_name=role_name,
+        coverage_level=coverage_level,
+    )
+    if final_mode == "none" or not preliminary_cards:
+        return False, "none", None
+    return True, final_mode, preliminary_cards
+
+
+# D-3 / P2-2: AI 臭抑制と決定論的な採用ルール
+def _build_user_origin_from_conversation(
+    conversation_history: list[Message],
+    *,
+    max_messages: int = 3,
+    max_chars: int = 1200,
+) -> str:
+    """直近 user 発話を結合して AI 臭検出の比較テキストにする."""
+    user_texts: list[str] = []
+    for msg in reversed(conversation_history):
+        if getattr(msg, "role", "") != "user":
+            continue
+        text = (msg.content or "").strip()
+        if not text:
+            continue
+        user_texts.append(text)
+        if len(user_texts) >= max_messages:
+            break
+    joined = "\n".join(reversed(user_texts))
+    if len(joined) > max_chars:
+        joined = joined[:max_chars]
+    return joined
+
+
+def _select_motivation_draft(
+    *,
+    initial_draft: str,
+    initial_smell_score: dict[str, Any],
+    initial_within_limits: bool,
+    retry_draft: Optional[str],
+    retry_smell_score: Optional[dict[str, Any]],
+    retry_within_limits: Optional[bool],
+    char_min: int,
+    char_max: int,
+) -> tuple[str, str]:
+    """(draft, selection_reason) を返す決定論的採用ルール.
+
+    1. retry なし → initial (retry_failed)
+    2. 両方 limits 内 → AI smell score が低い方 (同点 initial 優先)
+    3. retry のみ limits 内 → retry
+    4. initial のみ limits 内 → initial
+    5. 両方 limits 外 → initial
+    """
+    if retry_draft is None or retry_smell_score is None or retry_within_limits is None:
+        return initial_draft, "retry_failed"
+
+    initial_score = float(initial_smell_score.get("score", 0.0))
+    retry_score = float(retry_smell_score.get("score", 0.0))
+
+    if initial_within_limits and retry_within_limits:
+        if retry_score < initial_score:
+            return retry_draft, "retry_better_score"
+        return initial_draft, "initial_equal_or_better"
+    if retry_within_limits and not initial_within_limits:
+        return retry_draft, "retry_within_limits"
+    if initial_within_limits and not retry_within_limits:
+        return initial_draft, "initial_within_limits"
+    return initial_draft, "both_out_of_limits"
+
+
+async def _maybe_retry_for_ai_smell(
+    *,
+    initial_draft: str,
+    user_origin_text: str,
+    system_prompt: str,
+    user_prompt: str,
+    char_min: int,
+    char_max: int,
+    template_type: str = "company_motivation",
+    max_tokens: int,
+) -> tuple[str, str, dict[str, Any]]:
+    """Tier 2 が出たら 1 回だけリトライし、決定論的に採用する。
+
+    Returns (final_draft, selection_reason, telemetry_dict).
+    telemetry_dict は draft_selection_reason / ai_smell_score / ai_smell_tier /
+    retry_attempted / initial_within_limits / retry_within_limits を含む。
+    """
+    initial_warnings = _detect_ai_smell_patterns(initial_draft, user_origin_text)
+    initial_smell_score = _compute_ai_smell_score(
+        initial_warnings,
+        template_type=template_type,
+        char_max=char_max,
+    )
+    initial_within, _ = _is_within_char_limits(initial_draft, char_min, char_max)
+
+    tier = int(initial_smell_score.get("tier", 0) or 0)
+    if tier < 2:
+        telemetry = {
+            "draft_selection_reason": "initial_only_no_retry",
+            "ai_smell_score": float(initial_smell_score.get("score", 0.0)),
+            "ai_smell_tier": tier,
+            "retry_attempted": False,
+            "initial_within_limits": initial_within,
+            "retry_within_limits": None,
+        }
+        return initial_draft, "initial_only_no_retry", telemetry
+
+    hints = _build_ai_smell_retry_hints(initial_warnings)
+    retry_system_prompt = system_prompt
+    if hints:
+        retry_system_prompt = (
+            system_prompt
+            + "\n\n## AI臭修正指示\n"
+            + "\n".join(f"- {h}" for h in hints)
+        )
+
+    retry_result = await call_llm_with_error(
+        system_prompt=retry_system_prompt,
+        user_message=user_prompt,
+        max_tokens=max_tokens,
+        temperature=0.35,
+        feature="motivation_draft",
+        retry_on_parse=True,
+        disable_fallback=True,
+    )
+
+    retry_draft: Optional[str] = None
+    retry_smell_score: Optional[dict[str, Any]] = None
+    retry_within: Optional[bool] = None
+    # B-2: LLM 呼び出し自体の失敗と、成功したが空ドラフトだった場合を区別してテレメトリに出す
+    retry_llm_failed = not (retry_result.success and retry_result.data is not None)
+    retry_empty_draft = False
+    if not retry_llm_failed:
+        raw_retry_draft = str(retry_result.data.get("draft", "")).strip()
+        if raw_retry_draft:
+            retry_draft = normalize_es_draft_single_paragraph(raw_retry_draft)
+            retry_warnings = _detect_ai_smell_patterns(retry_draft, user_origin_text)
+            retry_smell_score = _compute_ai_smell_score(
+                retry_warnings,
+                template_type=template_type,
+                char_max=char_max,
+            )
+            retry_within, _ = _is_within_char_limits(retry_draft, char_min, char_max)
+        else:
+            retry_empty_draft = True
+
+    if retry_draft is None:
+        # `_select_motivation_draft` に None を渡すと retry_failed を返すが、B-2 では
+        # LLM 呼び出しが失敗した場合と、成功したが空ドラフトだった場合を区別する。
+        if retry_llm_failed:
+            reason = "retry_llm_failed"
+        elif retry_empty_draft:
+            reason = "retry_empty_draft"
+        else:
+            reason = "retry_failed"
+        final_draft = initial_draft
+        chosen_smell = initial_smell_score
+    else:
+        final_draft, reason = _select_motivation_draft(
+            initial_draft=initial_draft,
+            initial_smell_score=initial_smell_score,
+            initial_within_limits=initial_within,
+            retry_draft=retry_draft,
+            retry_smell_score=retry_smell_score,
+            retry_within_limits=retry_within,
+            char_min=char_min,
+            char_max=char_max,
+        )
+        retry_adopted_reasons = {"retry_better_score", "retry_within_limits"}
+        if reason in retry_adopted_reasons and retry_smell_score is not None:
+            chosen_smell = retry_smell_score
+        else:
+            chosen_smell = initial_smell_score
+    telemetry = {
+        "draft_selection_reason": reason,
+        "ai_smell_score": float(chosen_smell.get("score", 0.0)),
+        "ai_smell_tier": int(chosen_smell.get("tier", 0) or 0),
+        "retry_attempted": True,
+        "initial_within_limits": initial_within,
+        "retry_within_limits": retry_within,
+        "retry_llm_failed": retry_llm_failed,
+    }
+    return final_draft, reason, telemetry
 
 
 @router.post("/generate-draft", response_model=GenerateDraftResponse)
@@ -3591,8 +3217,8 @@ async def generate_draft(payload: GenerateDraftRequest, request: Request):
     except PromptSafetyError:
         raise _prompt_safety_http_error()
 
-    # Get company context
-    company_context, _ = await _get_company_context(request.company_id)
+    # Get company context (sources preserved for D-2 / P2-1 grounding)
+    company_context, company_sources = await _get_company_context(request.company_id)
 
     conversation_text = _format_conversation(request.conversation_history)
     char_min = int(request.char_limit * 0.9)
@@ -3600,6 +3226,21 @@ async def generate_draft(payload: GenerateDraftRequest, request: Request):
     honorific = get_company_honorific(industry_s)
     synthetic_q = draft_synthetic_question_company_motivation(honorific)
     ref_body = (company_context or "").strip() or None
+
+    # D-2 / P2-1: RAG evidence cards と coverage に基づく grounding_mode 決定
+    role_name = (request.selected_role or "").strip() or None
+    grounding_answer = _build_motivation_grounding_answer(
+        slot_summaries=request.slot_summaries,
+        selected_role=role_name,
+    )
+    has_rag, grounding_mode, evidence_cards = _resolve_motivation_draft_grounding(
+        template_type="company_motivation",
+        company_sources=company_sources,
+        synthetic_question=synthetic_q,
+        grounding_answer=grounding_answer,
+        role_name=role_name,
+    )
+
     system_prompt, user_prompt = build_template_draft_generation_prompt(
         "company_motivation",
         company_name=sanitize_prompt_input(request.company_name, max_length=200),
@@ -3612,10 +3253,10 @@ async def generate_draft(payload: GenerateDraftRequest, request: Request):
         company_reference_heading="【企業参考情報（要約）】",
         company_reference_body=ref_body,
         output_json_kind="motivation",
-        role_name=None,
-        company_evidence_cards=None,
-        has_rag=False,
-        grounding_mode="none",
+        role_name=role_name,
+        company_evidence_cards=evidence_cards,
+        has_rag=has_rag,
+        grounding_mode=grounding_mode,
     )
     if settings.debug:
         logger.debug(
@@ -3673,12 +3314,24 @@ async def generate_draft(payload: GenerateDraftRequest, request: Request):
                 if len(draft_text) >= 100:
                     logger.warning(f"[志望動機作成] ⚠️ raw_textフォールバック: {len(draft_text)}字のドラフトを抽出")
                     draft_text = normalize_es_draft_single_paragraph(draft_text)
+                    # D-3 / P2-2: raw_text フォールバック経路は AI 臭リトライをスキップ（既に劣化動作）
+                    fallback_telemetry = consume_request_llm_cost_summary("motivation_draft") or {}
+                    fallback_telemetry.update(
+                        {
+                            "draft_selection_reason": "raw_text_fallback",
+                            "ai_smell_score": None,
+                            "ai_smell_tier": None,
+                            "retry_attempted": False,
+                            "initial_within_limits": None,
+                            "retry_within_limits": None,
+                        }
+                    )
                     return GenerateDraftResponse(
                         draft=draft_text,
                         char_count=len(draft_text),
                         key_points=[],
                         company_keywords=[],
-                        internal_telemetry=consume_request_llm_cost_summary("motivation_draft"),
+                        internal_telemetry=fallback_telemetry,
                     )
 
         error = llm_result.error
@@ -3692,12 +3345,27 @@ async def generate_draft(payload: GenerateDraftRequest, request: Request):
     data = llm_result.data
     draft = normalize_es_draft_single_paragraph(str(data.get("draft", "")))
 
+    # D-3 / P2-2: AI 臭検出 → Tier 2 のとき 1 回リトライ → 決定論的採用
+    user_origin_text = _build_user_origin_from_conversation(request.conversation_history)
+    draft, _selection_reason, smell_telemetry = await _maybe_retry_for_ai_smell(
+        initial_draft=draft,
+        user_origin_text=user_origin_text,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        char_min=char_min,
+        char_max=request.char_limit,
+        template_type="company_motivation",
+        max_tokens=1800,
+    )
+
+    base_telemetry = consume_request_llm_cost_summary("motivation_draft") or {}
+    base_telemetry.update(smell_telemetry)
     return GenerateDraftResponse(
         draft=draft,
         char_count=len(draft),
         key_points=data.get("key_points", []),
         company_keywords=data.get("company_keywords", []),
-        internal_telemetry=consume_request_llm_cost_summary("motivation_draft"),
+        internal_telemetry=base_telemetry,
     )
 
 
@@ -3718,7 +3386,7 @@ async def generate_draft_from_profile(payload: GenerateDraftFromProfileRequest, 
     except PromptSafetyError:
         raise _prompt_safety_http_error()
 
-    company_context, _ = await _get_company_context(request.company_id)
+    company_context, company_sources = await _get_company_context(request.company_id)
     char_min = int(request.char_limit * 0.9)
     profile_section = _format_profile_for_prompt(request.profile_context)
     gakuchika_section = _format_gakuchika_for_prompt(request.gakuchika_context)
@@ -3735,6 +3403,22 @@ async def generate_draft_from_profile(payload: GenerateDraftFromProfileRequest, 
     ]
     primary_material = "\n\n".join(material_parts) if material_parts else "（追加材料なし）"
     ref_body = (company_context or "").strip() or None
+
+    # D-2 / P2-1: プロフィール/ガクチカ由来の合成 answer で grounding cards を構築
+    role_name = request.selected_role.strip()
+    grounding_answer = _build_motivation_grounding_answer_from_profile(
+        role_name=role_name,
+        gakuchika_section=gakuchika_section or "",
+        profile_summary=profile_section or "",
+    )
+    has_rag, grounding_mode, evidence_cards = _resolve_motivation_draft_grounding(
+        template_type="company_motivation",
+        company_sources=company_sources,
+        synthetic_question=synthetic_q,
+        grounding_answer=grounding_answer,
+        role_name=role_name,
+    )
+
     system_prompt, user_prompt = build_template_draft_generation_prompt(
         "company_motivation",
         company_name=sanitize_prompt_input(request.company_name, max_length=200),
@@ -3747,10 +3431,10 @@ async def generate_draft_from_profile(payload: GenerateDraftFromProfileRequest, 
         company_reference_heading="【企業参考情報（要約）】",
         company_reference_body=ref_body,
         output_json_kind="motivation",
-        role_name=request.selected_role.strip(),
-        company_evidence_cards=None,
-        has_rag=False,
-        grounding_mode="none",
+        role_name=role_name,
+        company_evidence_cards=evidence_cards,
+        has_rag=has_rag,
+        grounding_mode=grounding_mode,
     )
 
     llm_result = None
@@ -3778,10 +3462,26 @@ async def generate_draft_from_profile(payload: GenerateDraftFromProfileRequest, 
 
     data = llm_result.data
     draft = normalize_es_draft_single_paragraph(str(data.get("draft", "")))
+
+    # D-3 / P2-2: profile 経路でも AI 臭検出 + Tier 2 リトライ + 決定論的採用
+    user_origin_text = (gakuchika_section or "")[:300]
+    draft, _selection_reason, smell_telemetry = await _maybe_retry_for_ai_smell(
+        initial_draft=draft,
+        user_origin_text=user_origin_text,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        char_min=char_min,
+        char_max=request.char_limit,
+        template_type="company_motivation",
+        max_tokens=1200,
+    )
+
+    base_telemetry = consume_request_llm_cost_summary("motivation_draft") or {}
+    base_telemetry.update(smell_telemetry)
     return GenerateDraftResponse(
         draft=draft,
         char_count=len(draft),
         key_points=data.get("key_points", []) or [],
         company_keywords=data.get("company_keywords", []) or [],
-        internal_telemetry=consume_request_llm_cost_summary("motivation_draft"),
+        internal_telemetry=base_telemetry,
     )

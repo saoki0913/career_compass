@@ -21,6 +21,7 @@ import {
 } from "@/lib/motivation/conversation";
 import { getMotivationConversationByCondition as getConversationByCondition } from "@/lib/motivation/conversation-store";
 import { DRAFT_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   getRequestId,
@@ -28,6 +29,7 @@ import {
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import { normalizeEsDraftSingleParagraph } from "@/lib/server/es-draft-normalize";
 import { messageFromFastApiDetail } from "@/lib/server/fastapi-detail-message";
 import {
@@ -87,6 +89,9 @@ export async function POST(
       { status: 401 },
     );
   }
+
+  const limitResponse = await guardDailyTokenLimit(identity);
+  if (limitResponse) return limitResponse;
 
   const rateLimited = await enforceRateLimitLayers(
     request,
@@ -154,6 +159,8 @@ export async function POST(
       company_id: company.id,
       company_name: company.name,
       industry: company.industry,
+      // D-2 / P2-1: RAG role-grounded モード決定のためロール軸を渡す
+      selected_role: conversationContext.selectedRole ?? null,
       conversation_history: messages,
       slot_summaries: conversationContext.slotSummaries ?? {},
       slot_evidence_sentences: conversationContext.slotEvidenceSentences ?? {},
@@ -211,6 +218,7 @@ export async function POST(
       creditsUsed: reservationId ? 2 : 0,
       telemetry,
     });
+    void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
 
     let nextQuestion: string | null = null;
     let evidenceSummary: string | null = null;
