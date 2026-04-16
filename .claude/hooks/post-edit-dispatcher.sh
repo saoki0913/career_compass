@@ -2,12 +2,81 @@
 # PostToolUse (Edit|Write): path-aware reminders for prompts, maintainability, schema, and tests.
 set -euo pipefail
 
+# shellcheck source=lib/skill-recommender.sh
+. "$(dirname "$0")/lib/skill-recommender.sh"
+
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
 
 if [ -z "$FILE_PATH" ]; then
   exit 0
+fi
+
+# ─────────────────────────────────────────────────────────────
+# hotspot ファイル編集 — 1 回でも触れたら即推奨
+# ─────────────────────────────────────────────────────────────
+if is_hotspot_path "$FILE_PATH"; then
+  cat >&2 <<EOF
+🔥 hotspot ファイルを編集しました: ${FILE_PATH}
+   （docs/ops/AI_DEVELOPMENT_PRINCIPLES.md 列挙の負債集中ポイント）
+
+   推奨アクション:
+     1. 継ぎ足し追記なら refactoring-specialist skill で分離可否を先に判定
+     2. session 終了前に maintainability-review skill で影響範囲を確認
+     3. commit 前に code-reviewer skill で OWASP / 重複ロジック / dead code チェック
+
+EOF
+fi
+
+# ─────────────────────────────────────────────────────────────
+# 500 行超ファイルへの追記 — 責務肥大化のシグナル
+# ─────────────────────────────────────────────────────────────
+case "$FILE_PATH" in
+  *.ts|*.tsx|*.py)
+    if is_oversized_file "$FILE_PATH" 500; then
+      LINES=$(file_line_count "$FILE_PATH")
+      cat >&2 <<EOF
+⚠️ 500 行超ファイルに追記しました: ${FILE_PATH} (現在 ${LINES} 行)
+
+   推奨アクション:
+     - 新責務を追加したなら refactoring-specialist skill で分離計画を作る
+     - architecture-gate skill で分離前 / 後の境界を確認
+     - 「とりあえず動く」より「後から直しやすい」を優先（AI_DEVELOPMENT_PRINCIPLES.md）
+
+EOF
+    fi
+    ;;
+esac
+
+# ─────────────────────────────────────────────────────────────
+# src/app/api/ と backend/app/ の横断変更 — 境界変更のシグナル
+# ─────────────────────────────────────────────────────────────
+CROSS_DIR=$(skill_session_state_dir)
+NEXT_API_FLAG="$CROSS_DIR/edited-next-api-${SESSION_ID}"
+FASTAPI_FLAG="$CROSS_DIR/edited-fastapi-${SESSION_ID}"
+CROSS_NOTIFIED_FLAG="$CROSS_DIR/cross-notified-${SESSION_ID}"
+
+case "$FILE_PATH" in
+  */src/app/api/*)
+    skill_touch_flag "$NEXT_API_FLAG"
+    ;;
+  */backend/app/*)
+    skill_touch_flag "$FASTAPI_FLAG"
+    ;;
+esac
+
+if [ -f "$NEXT_API_FLAG" ] && [ -f "$FASTAPI_FLAG" ] && [ ! -f "$CROSS_NOTIFIED_FLAG" ]; then
+  skill_touch_flag "$CROSS_NOTIFIED_FLAG"
+  cat >&2 <<'EOF'
+🔀 src/app/api/ と backend/app/ の両方を 1 セッション内で編集しました（横断変更）。
+
+   推奨アクション:
+     - architect skill で境界 / 所有権 / データフローを整理
+     - 重複ロジックがないか確認（同じ知識が両層に書かれていないか）
+     - session 終了前に maintainability-review skill で全体整合を検証
+
+EOF
 fi
 
 case "$FILE_PATH" in

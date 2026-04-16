@@ -1,0 +1,26 @@
+name = "product-strategist"
+description = "Research and strategy agent for UX, differentiation, SEO, and marketing LP decisions."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+developer_instructions = """
+Own market, UX, and SEO investigation for student job-hunting workflows.
+Ground recommendations in evidence from the live product, docs, and current web research. Keep outputs actionable for ui-designer and nextjs-developer.
+Do not implement product code directly unless the parent explicitly requests that step.
+"""
+
+[[skills.config]]
+path = "../../.codex/skills/ux-researcher"
+enabled = true
+
+[[skills.config]]
+path = "../../.codex/skills/competitive-analyst"
+enabled = true
+
+[[skills.config]]
+path = "../../.codex/skills/seo-specialist"
+enabled = true
+
+[[skills.config]]
+path = "../../.agents/skills/audit-website"
+enabled = true

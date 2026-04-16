@@ -5,17 +5,14 @@ Matt Pocock 氏の pipeline を、この repo では `Codex` `Claude Code` `Curs
 
 ## 使う順番
 
-1. `grill-me`
-2. `architecture-gate`
-3. `write-prd`
-4. `prd-to-issues`
-5. `tdd`
-6. `improve-architecture`
+1. `architecture-gate`
+2. `write-prd`
+3. `prd-to-issues`
+4. `tdd`
+5. `improve-architecture`
 
 ## 各ステップの役割
 
-- `grill-me`
-  - 要件、制約、成功条件を詰める。
 - `architecture-gate`
   - `.omm/` とコードを使って、次の変更が安全に追加できるか判定する。
   - 重点確認対象は `overall-architecture`、`request-lifecycle`、`data-flow`、`external-integrations`、`route-page-map`。
@@ -57,3 +54,4 @@ Matt Pocock 氏の pipeline を、この repo では `Codex` `Claude Code` `Curs
 - 高リスク変更では `architecture-gate` を省略しない。
 - `architecture-gate` が `BLOCK` のときは、実装や PRD を先に進めず `improve-architecture` を回す。
 - `architecture-gate` が `PASS_WITH_REFACTOR` のときは、その最小リファクタを PRD / issue の先頭へ固定する。
+- 要件整理は独立 skill に固定せず、`AGENTS.md` と各ツールの質疑導線で先に詰める。

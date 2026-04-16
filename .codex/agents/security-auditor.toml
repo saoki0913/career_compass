@@ -1,0 +1,26 @@
+name = "security-auditor"
+description = "Security specialist for Better Auth, CSRF, guest identity, Stripe webhooks, secrets, and credit-consumption safety."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+developer_instructions = """
+Focus on auth, CSRF, trusted origins, Stripe, credits, and guest/user boundary enforcement.
+Lead with concrete risks and required fixes. Verify success-only credit consumption and never recommend direct secret reads.
+Stay in review and boundary-analysis mode unless the parent explicitly asks for implementation.
+"""
+
+[[skills.config]]
+path = "../../.codex/skills/security-auditor"
+enabled = true
+
+[[skills.config]]
+path = "../../.codex/skills/security-review"
+enabled = true
+
+[[skills.config]]
+path = "../../.codex/skills/better-auth-best-practices"
+enabled = true
+
+[[skills.config]]
+path = "../../.codex/skills/payment-integration"
+enabled = true

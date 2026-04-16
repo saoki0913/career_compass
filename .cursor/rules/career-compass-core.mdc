@@ -32,4 +32,6 @@ alwaysApply: true
 
 - 実在するファイル・コマンド・script を確認してから提案する
 - 仕様が不足する場合は推測で埋めずに必要ファイルを読む
+- UI 変更では `npm run ui:preflight -- <route> --surface=marketing|product [--auth=none|guest]` を先に実行する
+- UI 変更後は `npm run lint:ui:guardrails` と `npm run test:ui:review -- <route>` を実行する
 - 大きい変更は先に計画を立て、変更後は検証コマンドを実行する

@@ -1,3 +1,7 @@
+[agents]
+max_threads = 6
+max_depth = 1
+
 [setup]
 commands = [
   "npm install",
@@ -18,3 +22,41 @@ args = ["-y", "@playwright/mcp", "--headless"]
 
 [mcp_servers.notion]
 url = "https://mcp.notion.com/mcp"
+
+[routing]
+# AGENTS.md / CLAUDE.md の Subagent Routing 表を Codex 形式で再現する。
+"backend/app/prompts/**"                                                             = "prompt-engineer"
+"backend/app/utils/llm.py"                                                           = "prompt-engineer"
+"backend/app/utils/vector_store.py"                                                  = "rag-engineer"
+"backend/app/utils/hybrid_search.py"                                                 = "rag-engineer"
+"backend/app/utils/embeddings.py"                                                    = "rag-engineer"
+"backend/app/utils/text_chunker.py"                                                  = "rag-engineer"
+"backend/app/utils/content_classifier.py"                                            = "rag-engineer"
+"backend/app/utils/bm25_store.py"                                                    = "search-quality-engineer"
+"backend/app/utils/reranker.py"                                                      = "search-quality-engineer"
+"backend/app/utils/japanese_tokenizer.py"                                            = "search-quality-engineer"
+"backend/app/utils/web_search.py"                                                    = "search-quality-engineer"
+"backend/app/routers/**"                                                             = "fastapi-developer"
+"backend/app/main.py"                                                                = "fastapi-developer"
+"backend/app/utils/llm_streaming.py"                                                 = "fastapi-developer"
+"src/components/**"                                                                  = "ui-designer"
+"src/app/**/page.tsx"                                                                = "nextjs-developer"
+"src/app/**/layout.tsx"                                                              = "nextjs-developer"
+"src/hooks/**"                                                                       = "nextjs-developer"
+"src/app/api/**"                                                                     = "nextjs-developer"
+"src/lib/db/schema.ts"                                                               = "database-engineer"
+"drizzle_pg/**"                                                                      = "database-engineer"
+"src/lib/auth/**"                                                                    = "security-auditor"
+"src/lib/csrf.ts"                                                                    = "security-auditor"
+"src/lib/trusted-origins.ts"                                                         = "security-auditor"
+"src/app/api/webhooks/stripe/**"                                                     = "security-auditor"
+"src/lib/stripe/**"                                                                  = "security-auditor"
+"src/app/api/credits/**"                                                             = "security-auditor"
+"scripts/release/**"                                                                 = "release-engineer"
+"e2e/**"                                                                             = "test-automator"
+"backend/tests/**"                                                                   = "test-automator"
+"src/**/*.test.ts"                                                                   = "test-automator"
+
+[security]
+# 機密ファイルの読み書きを Codex 側でもブロックする defense-in-depth。
+deny_patterns = ["*.env", "*.pem", "*.key", "secrets/**"]
