@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { FaqJsonLd } from "@/components/seo/FaqJsonLd";
 import { LANDING_PAGE_FAQS } from "@/lib/marketing/landing-faqs";
 import { LandingHeader } from "@/components/landing/LandingHeader";
@@ -15,6 +16,19 @@ import { FAQSection } from "@/components/landing/FAQSection";
 import { FinalCTASection } from "@/components/landing/FinalCTASection";
 import { LandingFooter } from "@/components/landing/LandingFooter";
 import { StickyCTABar } from "@/components/landing/StickyCTABar";
+import { createMarketingMetadata } from "@/lib/marketing-metadata";
+import { getMarketingDescription } from "@/lib/seo/site-structured-data";
+
+/**
+ * LP トップの metadata。
+ * タイトルは「便益 + 対象者」型でキーワードを自然に含みつつ Google の title rewrite を避ける。
+ * description は SSOT（`getMarketingDescription("/")`）から取得。
+ */
+export const metadata: Metadata = createMarketingMetadata({
+  title: "就活Pass | ES添削・志望動機をAIで。就活塾に行かずに進める学生のための就活アプリ",
+  description: getMarketingDescription("/"),
+  path: "/",
+});
 
 export default function Home() {
   return (

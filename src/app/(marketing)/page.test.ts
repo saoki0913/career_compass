@@ -38,4 +38,35 @@ describe("marketing home page regressions", () => {
     expect(source).toContain("<FinalCTASection />");
     expect(source).toContain("<StickyCTABar />");
   });
+
+  it("exports page-specific metadata via createMarketingMetadata", () => {
+    const source = readSource("src/app/(marketing)/page.tsx");
+
+    expect(source).toContain("export const metadata");
+    expect(source).toContain("createMarketingMetadata");
+    expect(source).toContain('getMarketingDescription("/")');
+  });
+});
+
+describe("marketing home page metadata", () => {
+  it("uses the LP-specific description from the SSOT helper", async () => {
+    const [{ metadata }, seoMod] = await Promise.all([
+      import("./page"),
+      import("@/lib/seo/site-structured-data"),
+    ]);
+    expect(metadata.description).toBe(seoMod.getMarketingDescription("/"));
+  });
+
+  it("has a keyword-plus-target-persona title", async () => {
+    const { metadata } = await import("./page");
+    const title = typeof metadata.title === "string" ? metadata.title : "";
+    expect(title).toMatch(/就活Pass/);
+    expect(title).toMatch(/ES添削/);
+    expect(title).toMatch(/志望動機/);
+  });
+
+  it("sets canonical path to '/'", async () => {
+    const { metadata } = await import("./page");
+    expect(metadata.alternates?.canonical).toBe("/");
+  });
 });
