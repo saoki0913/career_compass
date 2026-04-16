@@ -28,10 +28,12 @@
 | `STRIPE_PRICE_PRO_ANNUAL` | Yes | Pro 年額 Price ID (`price_...`) |
 | `FASTAPI_URL` | Yes | `https://shupass-backend-production.up.railway.app` |
 | `INTERNAL_API_JWT_SECRET` | Yes | Next.js から FastAPI への内部呼び出し用 shared secret。32文字以上を推奨 |
+| `CAREER_PRINCIPAL_HMAC_SECRET` | Yes | `X-Career-Principal` ヘッダ署名用 HMAC シークレット（BFF 側）。`INTERNAL_API_JWT_SECRET` とは独立して回転できるよう別管理。32文字以上を推奨。詳細は `docs/security/principal_spec.md` |
 | `CRON_SECRET` | Yes | Cron 認証トークン (hex 32) |
 | `COMPANY_PDF_INGEST_BUCKET` | No | 旧 deferred OCR 用 Storage。遅延 OCR 廃止後は主に互換・掃除用 |
 | `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST URL (`https://xxx.upstash.io`) |
 | `UPSTASH_REDIS_REST_TOKEN` | No | Upstash Redis REST トークン |
+| `DISABLE_TOKEN_LIMIT` | No | `true` で日次トークン上限チェック全体を無効化。緊急バイパス用 |
 
 ## Railway (バックエンド)
 
@@ -50,6 +52,7 @@
 | `MISTRAL_API_KEY` | No | 難しい IR 系 PDF の高精度 OCR 用 API キー |
 | `CORS_ORIGINS` | Yes | `["https://www.shupass.jp","https://shupass.jp"]` |
 | `INTERNAL_API_JWT_SECRET` | Yes | Next.js BFF からの service JWT 検証用 shared secret |
+| `CAREER_PRINCIPAL_HMAC_SECRET` | Yes | `X-Career-Principal` ヘッダ署名検証用 HMAC シークレット（FastAPI 側）。BFF と同値を設定する。詳細は `docs/security/principal_spec.md` |
 | `BACKEND_TRUSTED_HOSTS` | No | 受け付ける Host 名。例: `["shupass-backend-production.up.railway.app","stg-api.shupass.jp","localhost","127.0.0.1"]` |
 | `PORT` | No | Railway が自動注入することが多い。アプリは `${PORT:-8000}` で待受（ローカルは 8000） |
 | `FRONTEND_URL` | No | 任意（ログ出力用）。例: `https://www.shupass.jp` |

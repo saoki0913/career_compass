@@ -75,6 +75,14 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("INTERNAL_API_JWT_SECRET"),
     )
+    # HMAC secret for the `X-Career-Principal` header minted by the Next BFF.
+    # Distinct from INTERNAL_API_JWT_SECRET so that service-level trust and
+    # actor-level principal propagation can be rotated independently.
+    # See docs/security/principal_spec.md.
+    career_principal_hmac_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("CAREER_PRINCIPAL_HMAC_SECRET"),
+    )
     trusted_hosts: list[str] = Field(
         default=["localhost", "127.0.0.1"],
         validation_alias=AliasChoices("BACKEND_TRUSTED_HOSTS"),
@@ -262,6 +270,12 @@ class Settings(BaseSettings):
     rag_use_hyde: bool = True
     rag_use_mmr: bool = True
     rag_use_rerank: bool = True
+    # D-2 / P2-1: 志望動機ドラフトで RAG グラウンディングを有効化するフラグ
+    # false にすると従来動作 (has_rag=False, grounding_mode="none") に戻る
+    motivation_rag_grounding: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("MOTIVATION_RAG_GROUNDING"),
+    )
     # MMRの多様性係数（0=多様性重視、1=関連性重視）
     rag_mmr_lambda: float = 0.5
     # 取得候補数（kの最小値、n_results*3と比較して大きい方を使用）

@@ -10,6 +10,7 @@ from app.config import settings
 from app.limiter import limiter
 from app.routers import health, company_info, es_review, gakuchika, motivation, interview
 from app.security.internal_service import require_internal_service
+from app.security.payload_limits import JsonPayloadSizeLimitMiddleware
 from app.utils.secure_logger import get_logger
 from app.utils.llm import reset_request_llm_cost_summary
 
@@ -57,10 +58,21 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# LLM token usage header middleware
+@app.middleware("http")
+async def llm_tokens_header_middleware(request: Request, call_next):
+    response = await call_next(request)
+    from app.utils.llm_usage_cost import get_request_total_tokens
+    total = get_request_total_tokens()
+    response.headers["X-LLM-Tokens-Used"] = str(total)
+    return response
+
 # Security headers middleware (applied to all responses)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
+# Reject oversized JSON bodies before any route-level allocation happens.
+app.add_middleware(JsonPayloadSizeLimitMiddleware)
 
 # CORS middleware - explicitly specify allowed methods and headers for security
 app.add_middleware(

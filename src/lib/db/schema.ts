@@ -374,6 +374,7 @@ export const creditTransactions = pgTable(
         "gakuchika_draft",
         "motivation",
         "motivation_draft",
+        "interview",
         "interview_feedback",
         "refund",
       ],
@@ -631,6 +632,11 @@ export const calendarSettings = pgTable("calendar_settings", {
   googleCalendarEmail: text("google_calendar_email"),
   googleCalendarConnectedAt: timestamptz("google_calendar_connected_at"),
   googleCalendarNeedsReconnect: boolean("google_calendar_needs_reconnect").notNull().default(false),
+  // When the current `googleRefreshToken` was first issued by Google.
+  // Used to expire refresh tokens that are older than a safe threshold
+  // (see `getValidGoogleCalendarAccessToken` in `src/lib/calendar/connection.ts`).
+  // Only set when a brand-new refresh token is received from Google; not updated on access token refresh.
+  googleRefreshTokenIssuedAt: timestamptz("google_refresh_token_issued_at"),
   createdAt: timestamptz("created_at").notNull().defaultNow(),
   updatedAt: timestamptz("updated_at").notNull().defaultNow(),
 });

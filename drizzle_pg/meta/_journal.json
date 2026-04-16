@@ -141,6 +141,13 @@
       "when": 1776105600000,
       "tag": "0019_calendar_deadline_improvements",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1776595200000,
+      "tag": "0020_calendar_refresh_token_issued_at",
+      "breakpoints": true
     }
   ]
 }
