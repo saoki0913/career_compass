@@ -302,7 +302,7 @@ export function useGakuchikaConversationController({
     const trimmedAnswer = answer.trim();
     const optimisticUpdate = appendOptimisticUserMessage(messages, "optimistic", (optimisticId) => ({
       id: optimisticId,
-      role: "user",
+      role: "user" as const,
       content: trimmedAnswer,
       isOptimistic: true,
     }));

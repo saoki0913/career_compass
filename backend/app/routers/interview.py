@@ -15,6 +15,7 @@ from app.utils.llm import (
     sanitize_prompt_input,
     sanitize_user_prompt_text,
 )
+from app.utils.llm_usage_cost import consume_request_llm_cost_summary
 from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)
@@ -1791,6 +1792,7 @@ async def _generate_start_progress(payload: InterviewStartRequest) -> AsyncGener
         turn_state["coveredTopics"] = []
         turn_state["lastQuestionFocus"] = turn_meta.get("focus_reason") or "初回導入"
 
+        cost_summary = consume_request_llm_cost_summary("interview_start")
         yield _sse_event(
             "complete",
             {
@@ -1804,12 +1806,14 @@ async def _generate_start_progress(payload: InterviewStartRequest) -> AsyncGener
                     "stage_status": None,
                     "question_flow_completed": False,
                     "turn_state": turn_state,
-                }
+                },
+                "internal_telemetry": cost_summary,
             },
         )
     except Exception as exc:
         logger.exception("[Interview] start failed")
-        yield _sse_event("error", {"message": f"予期しないエラーが発生しました: {str(exc)}"})
+        cost_summary = consume_request_llm_cost_summary("interview_start")
+        yield _sse_event("error", {"message": f"予期しないエラーが発生しました: {str(exc)}", "internal_telemetry": cost_summary})
 
 
 async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerator[str, None]:
@@ -1882,6 +1886,7 @@ async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerat
             topic for topic in _normalize_string_list(interview_plan.get("must_cover_topics")) if topic not in merged_state.get("coveredTopics", [])
         ]
 
+        cost_summary = consume_request_llm_cost_summary("interview_turn")
         yield _sse_event(
             "complete",
             {
@@ -1895,12 +1900,14 @@ async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerat
                     "stage_status": None,
                     "question_flow_completed": False,
                     "turn_state": merged_state,
-                }
+                },
+                "internal_telemetry": cost_summary,
             },
         )
     except Exception as exc:
         logger.exception("[Interview] turn failed")
-        yield _sse_event("error", {"message": f"予期しないエラーが発生しました: {str(exc)}"})
+        cost_summary = consume_request_llm_cost_summary("interview_turn")
+        yield _sse_event("error", {"message": f"予期しないエラーが発生しました: {str(exc)}", "internal_telemetry": cost_summary})
 
 
 async def _generate_continue_progress(payload: InterviewContinueRequest) -> AsyncGenerator[str, None]:
@@ -1964,6 +1971,7 @@ async def _generate_continue_progress(payload: InterviewContinueRequest) -> Asyn
             topic for topic in _normalize_string_list(interview_plan.get("must_cover_topics")) if topic not in merged_state.get("coveredTopics", [])
         ]
 
+        cost_summary = consume_request_llm_cost_summary("interview_continue")
         yield _sse_event(
             "complete",
             {
@@ -1977,12 +1985,14 @@ async def _generate_continue_progress(payload: InterviewContinueRequest) -> Asyn
                     "stage_status": None,
                     "question_flow_completed": False,
                     "turn_state": merged_state,
-                }
+                },
+                "internal_telemetry": cost_summary,
             },
         )
     except Exception as exc:
         logger.exception("[Interview] continue failed")
-        yield _sse_event("error", {"message": f"予期しないエラーが発生しました: {str(exc)}"})
+        cost_summary = consume_request_llm_cost_summary("interview_continue")
+        yield _sse_event("error", {"message": f"予期しないエラーが発生しました: {str(exc)}", "internal_telemetry": cost_summary})
 
 
 async def _generate_feedback_progress(payload: InterviewFeedbackRequest) -> AsyncGenerator[str, None]:
@@ -2040,6 +2050,7 @@ async def _generate_feedback_progress(payload: InterviewFeedbackRequest) -> Asyn
 
         yield _sse_event("field_complete", {"path": "scores", "value": feedback["scores"]})
         yield _sse_event("field_complete", {"path": "premise_consistency", "value": feedback["premise_consistency"]})
+        cost_summary = consume_request_llm_cost_summary("interview_feedback")
         yield _sse_event(
             "complete",
             {
@@ -2051,12 +2062,14 @@ async def _generate_feedback_progress(payload: InterviewFeedbackRequest) -> Asyn
                     "stage_status": None,
                     "question_flow_completed": True,
                     "turn_state": final_state,
-                }
+                },
+                "internal_telemetry": cost_summary,
             },
         )
     except Exception as exc:
         logger.exception("[Interview] feedback failed")
-        yield _sse_event("error", {"message": f"予期しないエラーが発生しました: {str(exc)}"})
+        cost_summary = consume_request_llm_cost_summary("interview_feedback")
+        yield _sse_event("error", {"message": f"予期しないエラーが発生しました: {str(exc)}", "internal_telemetry": cost_summary})
 
 
 def _stream_response(generator: AsyncGenerator[str, None]) -> StreamingResponse:

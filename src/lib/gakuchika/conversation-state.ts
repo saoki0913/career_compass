@@ -207,23 +207,34 @@ function normalizeFocusAttemptCounts(value: unknown): Partial<Record<FocusKey, n
   return next;
 }
 
-export function safeParseMessages(json: string): Message[] {
-  try {
-    const parsed = JSON.parse(json);
-    if (!Array.isArray(parsed)) return [];
+function normalizeMessagesFromUnknown(parsed: unknown): Message[] {
+  if (!Array.isArray(parsed)) return [];
 
-    return parsed
-      .filter((message): message is { id?: string; role: string; content: string } =>
-        message &&
-        typeof message === "object" &&
-        (message.role === "user" || message.role === "assistant") &&
-        typeof message.content === "string",
-      )
-      .map((message) => ({
-        id: message.id || crypto.randomUUID(),
-        role: message.role as "user" | "assistant",
-        content: message.content,
-      }));
+  return parsed
+    .filter((message): message is { id?: string; role: string; content: string } =>
+      message &&
+      typeof message === "object" &&
+      (message.role === "user" || message.role === "assistant") &&
+      typeof message.content === "string",
+    )
+    .map((message) => ({
+      id: message.id || crypto.randomUUID(),
+      role: message.role as "user" | "assistant",
+      content: message.content,
+    }));
+}
+
+/** Accepts JSON string (legacy rows) or parsed jsonb array from Drizzle. */
+export function safeParseMessages(value: string | unknown): Message[] {
+  if (Array.isArray(value)) {
+    return normalizeMessagesFromUnknown(value);
+  }
+  if (typeof value !== "string") {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return normalizeMessagesFromUnknown(parsed);
   } catch {
     return [];
   }

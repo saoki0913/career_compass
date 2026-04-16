@@ -17,6 +17,8 @@ import {
   getRequestId,
   logAiCreditCostSummary,
 } from "@/lib/ai/cost-summary-log";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 
 export async function POST(
   request: NextRequest,
@@ -37,6 +39,9 @@ export async function POST(
         { status: 401 },
       );
     }
+
+    const limitResponse = await guardDailyTokenLimit(identity);
+    if (limitResponse) return limitResponse;
 
     const hasAccess = await verifyGakuchikaAccess(gakuchikaId, identity.userId, identity.guestId);
     if (!hasAccess) {
@@ -146,7 +151,7 @@ export async function POST(
       await db
         .update(gakuchikaConversations)
         .set({
-          messages: JSON.stringify(messages),
+          messages,
           status,
           starScores: serializeConversationState(conversationState),
           updatedAt: new Date(),
@@ -159,6 +164,7 @@ export async function POST(
         creditsUsed: 0,
         telemetry: result.telemetry,
       });
+      void incrementDailyTokenCount(identity, computeTotalTokens(result.telemetry));
     }
 
     const allConversations = await db

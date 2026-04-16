@@ -24,12 +24,15 @@ import {
   logAiCreditCostSummary,
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import {
   getIdentity,
   isDraftReady,
   safeParseConversationState,
   safeParseMessages,
   serializeConversationState,
+  type DraftQualityChecks,
 } from "@/app/api/gakuchika";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 import { normalizeEsDraftSingleParagraph } from "@/lib/server/es-draft-normalize";
@@ -52,7 +55,7 @@ interface FastAPIDraftResponse {
 type DraftMaterialPayload = {
   input_richness_mode: string | null;
   missing_elements: string[];
-  draft_quality_checks: Record<string, boolean | undefined>;
+  draft_quality_checks: DraftQualityChecks;
   causal_gaps: string[];
   strength_tags: string[];
   issue_tags: string[];
@@ -124,6 +127,9 @@ export async function POST(
       { status: 401 },
     );
   }
+
+  const limitResponse = await guardDailyTokenLimit(identity);
+  if (limitResponse) return limitResponse;
 
   const rateLimited = await enforceRateLimitLayers(
     request,
@@ -291,6 +297,7 @@ export async function POST(
       creditsUsed: reservationId ? 6 : 0,
       telemetry,
     });
+    void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
 
     const updatedConversationState = {
       ...conversationState,

@@ -1,11 +1,14 @@
 import { NextRequest } from "next/server";
 
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import type { RequestIdentity } from "@/app/api/_shared/request-identity";
 import { DEFAULT_INTERVIEW_SESSION_CREDIT_COST } from "@/lib/credits";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 import type { InterviewFeedback, InterviewMessage } from "@/lib/interview/conversation";
 import type { InterviewPlan, InterviewStageStatus, InterviewTurnMeta, InterviewTurnState } from "@/lib/interview/session";
 import type { InterviewFeedbackHistoryItem } from ".";
+import { splitInternalTelemetry } from "@/lib/ai/cost-summary-log";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 
 type UpstreamCompleteData = {
   question?: string;
@@ -113,6 +116,7 @@ export function normalizeFeedback(data: UpstreamCompleteData): InterviewFeedback
 
 export async function createInterviewUpstreamStream(options: {
   request: NextRequest;
+  identity?: RequestIdentity;
   upstreamPath:
     | "/api/interview/start"
     | "/api/interview/turn"
@@ -123,6 +127,13 @@ export async function createInterviewUpstreamStream(options: {
   onAbort?: () => Promise<void>;
   onError?: () => Promise<void>;
 }) {
+  // TODO(D-10 Phase 6): wire X-Career-Principal (scope="ai-stream") for interview
+  // SSE once the interview generator is aligned with motivation/gakuchika.
+  // Interview has multiple upstream paths (start/turn/feedback/continue) and the
+  // callers in interview/{start,continue,feedback}/route.ts do not currently
+  // thread the acting principal (userId/guestId + plan + companyId) into this
+  // helper. Add a `principal` option here and migrate to
+  // fetchFastApiWithPrincipal in a follow-up task.
   const upstreamResponse = await fetchFastApiInternal(options.upstreamPath, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -204,8 +215,13 @@ export async function createInterviewUpstreamStream(options: {
             }
 
             completed = true;
-            const upstreamData = (event.data || {}) as UpstreamCompleteData;
+            const rawCompleteData = (event.data || {}) as Record<string, unknown>;
+            const { payload: cleanData, telemetry } = splitInternalTelemetry(rawCompleteData);
+            const upstreamData = cleanData as UpstreamCompleteData;
             const clientData = await options.onComplete(upstreamData);
+            if (options.identity && telemetry) {
+              void incrementDailyTokenCount(options.identity, computeTotalTokens(telemetry));
+            }
             controller.enqueue(
               encoder.encode(
                 formatSseEvent({

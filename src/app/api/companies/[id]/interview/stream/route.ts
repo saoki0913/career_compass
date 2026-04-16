@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import { CONVERSATION_CREDITS_PER_TURN, consumeCredits, DEFAULT_INTERVIEW_SESSION_CREDIT_COST, hasEnoughCredits } from "@/lib/credits";
 import {
@@ -50,6 +51,9 @@ export async function POST(
       action: "ログインしてから、もう一度お試しください。",
     });
   }
+
+  const limitResponse = await guardDailyTokenLimit(identity);
+  if (limitResponse) return limitResponse;
 
   let context;
   try {
@@ -135,6 +139,7 @@ export async function POST(
 
   return createInterviewUpstreamStream({
     request,
+    identity,
     upstreamPath: "/api/interview/turn",
     upstreamPayload: {
       company_name: context.company.name,

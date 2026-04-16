@@ -30,13 +30,16 @@ import {
   type ConversationState,
   type Message,
 } from "@/app/api/gakuchika";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { getViewerPlan } from "@/lib/server/loader-helpers";
 import {
   getRequestId,
   logAiCreditCostSummary,
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 
 export async function POST(
   request: NextRequest,
@@ -61,6 +64,9 @@ export async function POST(
         { status: 401, headers: { "Content-Type": "application/json" } },
       );
     }
+
+    const limitResponse = await guardDailyTokenLimit(identity);
+    if (limitResponse) return limitResponse;
 
     const rateLimited = await enforceRateLimitLayers(
       request,
@@ -190,11 +196,21 @@ export async function POST(
       FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS,
     );
 
+    const principalPlan = await getViewerPlan(identity);
+
     let aiResponse: Response;
     try {
-      aiResponse = await fetchFastApiInternal("/api/gakuchika/next-question/stream", {
+      aiResponse = await fetchFastApiWithPrincipal("/api/gakuchika/next-question/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
+        principal: {
+          scope: "ai-stream",
+          actor: userId
+            ? { kind: "user", id: userId }
+            : { kind: "guest", id: guestId! },
+          companyId: null,
+          plan: principalPlan,
+        },
         body: JSON.stringify({
           gakuchika_title: gakuchika.title,
           gakuchika_content: gakuchika.content || null,
@@ -405,7 +421,7 @@ export async function POST(
               await db
                 .update(gakuchikaConversations)
                 .set({
-                  messages: JSON.stringify(messages),
+                  messages,
                   questionCount: newQuestionCount,
                   status,
                   starScores: serializeConversationState(nextConversationState),
@@ -463,6 +479,7 @@ export async function POST(
                 status: "success",
                 creditsUsed: shouldConsumeCredit ? CONVERSATION_CREDITS_PER_TURN : 0,
               });
+              void incrementDailyTokenCount(identity, computeTotalTokens(latestTelemetry));
               controller.enqueue(
                 encoder.encode(`data: ${JSON.stringify(enrichedEvent)}\n\n`)
               );

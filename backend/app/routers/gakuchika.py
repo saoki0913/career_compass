@@ -14,9 +14,18 @@ import random
 import re
 from typing import Any, AsyncGenerator, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+from app.security.career_principal import (
+    CareerPrincipal,
+    require_career_principal,
+)
+from app.security.sse_concurrency import (
+    SseConcurrencyExceeded,
+    SseLease,
+)
 
 from app.limiter import limiter
 from app.prompts.gakuchika_prompts import (
@@ -1464,14 +1473,42 @@ async def get_next_question(payload: NextQuestionRequest, request: Request):
 
 @router.post("/next-question/stream")
 @limiter.limit("60/minute")
-async def get_next_question_stream(payload: NextQuestionRequest, request: Request):
+async def get_next_question_stream(
+    payload: NextQuestionRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("ai-stream")),
+):
     request = payload
     try:
         _sanitize_next_question_request(request)
     except PromptSafetyError:
         raise _prompt_safety_http_error()
+
+    # NextQuestionRequest has no company_id, so no mismatch check is needed here.
+    try:
+        lease = await SseLease.acquire(
+            actor_id=principal.actor_id, plan=principal.plan
+        )
+    except SseConcurrencyExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "sse_concurrency_exceeded",
+                "limit": exc.rejection.limit,
+            },
+            headers={
+                "Retry-After": str(exc.rejection.retry_after_seconds),
+            },
+        )
+
+    async def _stream_with_lease() -> AsyncGenerator[str, None]:
+        async with lease:
+            async for chunk in _generate_next_question_progress(request):
+                await lease.heartbeat_if_due()
+                yield chunk
+
     return StreamingResponse(
-        _generate_next_question_progress(request),
+        _stream_with_lease(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
