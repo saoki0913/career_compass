@@ -109,6 +109,8 @@
 | 文書 | 説明 |
 |------|------|
 | [ops/AI_HARNESS.md](./ops/AI_HARNESS.md) | Claude Code ハーネス（agents / skills / hooks / MCP / commands）の詳細リファレンスと運用ガイド |
+| [ops/CODEX_HARNESS.md](./ops/CODEX_HARNESS.md) | Codex custom agent / config / wrapper の詳細リファレンス |
+| [ops/CURSOR_HARNESS.md](./ops/CURSOR_HARNESS.md) | Cursor rules / MCP / prompt template の詳細リファレンス |
 | [ops/AI_AGENT_PIPELINE.md](./ops/AI_AGENT_PIPELINE.md) | Codex / Claude / Cursor 共通の AI 開発 pipeline |
 | [ops/AI_DEVELOPMENT_PRINCIPLES.md](./ops/AI_DEVELOPMENT_PRINCIPLES.md) | AI 継続開発で負債を増やさないための設計原則 |
 | [ops/CLI_GUARDRAILS.md](./ops/CLI_GUARDRAILS.md) | CLI の安全な使い方 |
