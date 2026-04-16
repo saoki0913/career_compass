@@ -6,7 +6,7 @@ import { companies, userProfiles } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { CORPORATE_MUTATE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { getRemainingCompanyRagPdfFreeUnits } from "@/lib/company-info/usage";
 
 export const runtime = "nodejs";
@@ -109,9 +109,15 @@ export async function POST(
     }
     backendForm.set("file", file, file.name);
 
-    const response = await fetchFastApiInternal("/company-info/rag/estimate-upload-pdf", {
+    const response = await fetchFastApiWithPrincipal("/company-info/rag/estimate-upload-pdf", {
       method: "POST",
       body: backendForm,
+      principal: {
+        scope: "company",
+        actor: { kind: "user", id: authUser.userId },
+        companyId,
+        plan: authUser.plan,
+      },
     });
     const data = (await response.json().catch(() => ({}))) as PdfEstimateResult;
     if (!response.ok) {

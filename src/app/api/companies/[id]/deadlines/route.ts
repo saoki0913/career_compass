@@ -6,14 +6,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { deadlines, companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
 import { enqueueDeadlineSync } from "@/lib/calendar/sync";
 import { generateTasksForDeadline } from "@/lib/server/task-generation";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 
 type DeadlineType =
   | "es_submission"
@@ -55,17 +53,16 @@ async function verifyCompanyAccess(
   companyId: string,
   request: NextRequest
 ): Promise<{ valid: boolean; error?: string }> {
-  // Try authenticated session first
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  const identity = await getRequestIdentity(request);
+  if (!identity) {
+    return { valid: false, error: "Authentication required" };
+  }
 
-  if (session?.user?.id) {
-    // Check if company belongs to user
+  if (identity.userId) {
     const [company] = await db
       .select()
       .from(companies)
-      .where(and(eq(companies.id, companyId), eq(companies.userId, session.user.id)))
+      .where(and(eq(companies.id, companyId), eq(companies.userId, identity.userId)))
       .limit(1);
 
     if (!company) {
@@ -74,22 +71,17 @@ async function verifyCompanyAccess(
     return { valid: true };
   }
 
-  // Try guest token
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      const [company] = await db
-        .select()
-        .from(companies)
-        .where(and(eq(companies.id, companyId), eq(companies.guestId, guest.id)))
-        .limit(1);
+  if (identity.guestId) {
+    const [company] = await db
+      .select()
+      .from(companies)
+      .where(and(eq(companies.id, companyId), eq(companies.guestId, identity.guestId)))
+      .limit(1);
 
-      if (!company) {
-        return { valid: false, error: "Company not found" };
-      }
-      return { valid: true };
+    if (!company) {
+      return { valid: false, error: "Company not found" };
     }
+    return { valid: true };
   }
 
   return { valid: false, error: "Authentication required" };
@@ -159,23 +151,9 @@ export async function POST(
     }
 
     // Get user identity for task creation
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-    let userId: string | null = null;
-    let guestId: string | null = null;
-
-    if (session?.user?.id) {
-      userId = session.user.id;
-    } else {
-      const deviceToken = request.headers.get("x-device-token");
-      if (deviceToken) {
-        const guest = await getGuestUser(deviceToken);
-        if (guest) {
-          guestId = guest.id;
-        }
-      }
-    }
+    const identity = await getRequestIdentity(request);
+    const userId: string | null = identity?.userId ?? null;
+    const guestId: string | null = identity?.guestId ?? null;
 
     const body: CreateDeadlineBody = await request.json();
 

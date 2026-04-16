@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   constructEventMock,
+  subscriptionsRetrieveMock,
   dbInsertValuesMock,
   dbDeleteWhereMock,
   dbSelectLimitMock,
@@ -9,6 +10,7 @@ const {
   updatePlanAllocationMock,
 } = vi.hoisted(() => ({
   constructEventMock: vi.fn(),
+  subscriptionsRetrieveMock: vi.fn(),
   dbInsertValuesMock: vi.fn(),
   dbDeleteWhereMock: vi.fn(),
   dbSelectLimitMock: vi.fn(),
@@ -28,6 +30,9 @@ vi.mock("@/lib/stripe", () => ({
   stripe: {
     webhooks: {
       constructEvent: constructEventMock,
+    },
+    subscriptions: {
+      retrieve: subscriptionsRetrieveMock,
     },
   },
 }));
@@ -52,6 +57,13 @@ vi.mock("@/lib/db", () => ({
         where: dbUpdateWhereMock,
       })),
     })),
+    transaction: vi.fn(async (fn: (tx: unknown) => Promise<void>) => {
+      const tx = {
+        insert: vi.fn(() => ({ values: vi.fn() })),
+        update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn() })) })),
+      };
+      await fn(tx);
+    }),
   },
 }));
 
@@ -67,6 +79,7 @@ describe("api/webhooks/stripe subscription.updated", () => {
     vi.stubEnv("STRIPE_PRICE_PRO_MONTHLY", "price_pro_month");
     vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
     constructEventMock.mockReset();
+    subscriptionsRetrieveMock.mockReset();
     dbInsertValuesMock.mockReset();
     dbDeleteWhereMock.mockReset();
     dbSelectLimitMock.mockReset();
@@ -145,5 +158,69 @@ describe("api/webhooks/stripe subscription.updated", () => {
 
     expect(response.status).toBe(500);
     expect(dbDeleteWhereMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("api/webhooks/stripe checkout.session.completed", () => {
+  beforeEach(() => {
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_test");
+    vi.stubEnv("STRIPE_PRICE_STANDARD_MONTHLY", "price_std_month");
+    vi.stubEnv("STRIPE_PRICE_STANDARD_ANNUAL", "price_std_year");
+    vi.stubEnv("STRIPE_PRICE_PRO_MONTHLY", "price_pro_month");
+    vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
+    constructEventMock.mockReset();
+    subscriptionsRetrieveMock.mockReset();
+    dbInsertValuesMock.mockReset();
+    dbDeleteWhereMock.mockReset();
+    dbSelectLimitMock.mockReset();
+    dbUpdateWhereMock.mockReset();
+    updatePlanAllocationMock.mockReset();
+
+    dbInsertValuesMock.mockResolvedValue(undefined);
+    dbDeleteWhereMock.mockResolvedValue(undefined);
+    dbUpdateWhereMock.mockResolvedValue(undefined);
+  });
+
+  it("resolves plan from priceId, ignoring metadata.plan", async () => {
+    constructEventMock.mockReturnValue({
+      id: "evt_checkout_1",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          metadata: { userId: "user-1", plan: "pro" },
+          subscription: "sub_checkout_1",
+          customer: "cus_1",
+        },
+      },
+    });
+
+    subscriptionsRetrieveMock.mockResolvedValue({
+      id: "sub_checkout_1",
+      status: "active",
+      cancel_at_period_end: false,
+      items: {
+        data: [
+          {
+            current_period_end: 1777561200,
+            price: { id: "price_std_month" },
+          },
+        ],
+      },
+    });
+
+    // No existing subscription — new insert path
+    dbSelectLimitMock.mockResolvedValue([]);
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(
+      new Request("http://localhost:3000/api/webhooks/stripe", {
+        method: "POST",
+        body: "{}",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    // metadata.plan was "pro" but priceId maps to "standard" — metadata must be ignored
+    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "standard");
   });
 });

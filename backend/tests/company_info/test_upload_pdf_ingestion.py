@@ -5,6 +5,7 @@ from fastapi import UploadFile
 from starlette.requests import Request
 
 from app.routers import company_info
+from app.security.career_principal import CareerPrincipal
 
 
 def _minimal_request() -> Request:
@@ -19,6 +20,17 @@ def _minimal_request() -> Request:
             "server": ("test", 80),
             "scheme": "http",
         }
+    )
+
+
+def _company_principal(company_id: str = "company-1") -> CareerPrincipal:
+    return CareerPrincipal(
+        scope="company",
+        actor_kind="user",
+        actor_id="user-1",
+        plan="standard",
+        company_id=company_id,
+        jti="test-jti",
     )
 
 
@@ -66,6 +78,7 @@ async def test_upload_pdf_uses_ocr_when_text_too_short(monkeypatch: pytest.Monke
         content_channel=None,
         billing_plan="free",
         file=upload,
+        principal=_company_principal(),
     )
 
     assert result.success is True
@@ -123,6 +136,7 @@ async def test_upload_pdf_uses_google_ocr_route_when_text_too_short(
         content_channel=None,
         billing_plan="free",
         file=upload,
+        principal=_company_principal(),
     )
 
     assert result.success is True
@@ -189,6 +203,7 @@ async def test_upload_pdf_uses_high_accuracy_ocr_for_standard_ir_materials(
         content_channel=None,
         billing_plan="standard",
         file=upload,
+        principal=_company_principal(),
     )
 
     assert result.success is True
@@ -249,6 +264,7 @@ async def test_upload_pdf_keeps_readable_pages_local_and_ocrs_only_hard_pages(
         content_channel=None,
         billing_plan="free",
         file=upload,
+        principal=_company_principal(),
     )
 
     assert result.success is True

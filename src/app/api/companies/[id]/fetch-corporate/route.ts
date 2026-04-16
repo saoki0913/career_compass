@@ -39,7 +39,7 @@ import {
   STATUS_POLL_RATE_LAYERS,
   enforceRateLimitLayers,
 } from "@/lib/rate-limit-spike";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 
 // FastAPI backend URL
 interface CrawlResult {
@@ -204,7 +204,7 @@ export async function POST(
     // Call FastAPI backend to crawl pages
     let crawlResult: CrawlResult;
     try {
-      const response = await fetchFastApiInternal("/company-info/rag/crawl-corporate", {
+      const response = await fetchFastApiWithPrincipal("/company-info/rag/crawl-corporate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -215,6 +215,12 @@ export async function POST(
           content_type: contentTypeResolved, // 9-category content type for proper counting
           billing_plan: plan,
         }),
+        principal: {
+          scope: "company",
+          actor: { kind: "user", id: userId },
+          companyId,
+          plan,
+        },
       });
 
       if (!response.ok) {
@@ -461,8 +467,16 @@ export async function GET(
     };
 
     try {
-      const response = await fetchFastApiInternal(
-        `/company-info/rag/status-detailed/${companyId}`
+      const response = await fetchFastApiWithPrincipal(
+        `/company-info/rag/status-detailed/${companyId}`,
+        {
+          principal: {
+            scope: "company",
+            actor: { kind: "user", id: authUser.userId },
+            companyId,
+            plan: authUser.plan,
+          },
+        },
       );
       if (response.ok) {
         ragStatus = await response.json();

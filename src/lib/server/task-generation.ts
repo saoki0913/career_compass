@@ -9,8 +9,16 @@ import { db } from "@/lib/db";
 import { tasks, taskTemplates } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
+type TaskTemplateCategory =
+  | "es_submission"
+  | "test"
+  | "interview"
+  | "briefing"
+  | "internship"
+  | "offer_response";
+
 /** Maps deadline type → template category. null = no templates available. */
-const DEADLINE_TYPE_TO_TEMPLATE_CATEGORY: Record<string, string | null> = {
+const DEADLINE_TYPE_TO_TEMPLATE_CATEGORY: Record<string, TaskTemplateCategory | null> = {
   es_submission: "es_submission",
   web_test: "test",
   aptitude_test: "test",

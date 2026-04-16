@@ -12,7 +12,7 @@ import {
 import { calculatePdfIngestCredits } from "@/lib/company-info/pricing";
 import { filterAllowedPublicSourceUrls } from "@/lib/company-info/source-compliance";
 import { CORPORATE_MUTATE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 
 export const runtime = "nodejs";
 
@@ -116,7 +116,7 @@ export async function POST(
         ? "corporate_ir"
         : "corporate_general");
 
-    const response = await fetchFastApiInternal("/company-info/rag/estimate-crawl-corporate", {
+    const response = await fetchFastApiWithPrincipal("/company-info/rag/estimate-crawl-corporate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -127,6 +127,12 @@ export async function POST(
         content_type: contentTypeResolved,
         billing_plan: authUser.plan,
       }),
+      principal: {
+        scope: "company",
+        actor: { kind: "user", id: authUser.userId },
+        companyId,
+        plan: authUser.plan,
+      },
     });
 
     const result = (await response.json().catch(() => ({}))) as CrawlEstimateResult;

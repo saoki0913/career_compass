@@ -10,7 +10,7 @@ SPEC Section 9.5 Requirements:
 - Partial success: if deadline not found but other items extracted = 0.5 credit
 """
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, HttpUrl
 from typing import Optional
 from datetime import datetime
@@ -58,6 +58,14 @@ from app.utils.web_search import (
 from app.utils.http_fetch import fetch_page_content, extract_text_from_html
 from app.utils.pdf_ocr import extract_text_from_pdf_with_ocr
 from app.limiter import limiter
+from app.security.career_principal import (
+    CareerPrincipal,
+    require_career_principal,
+)
+from app.security.upload_limits import (
+    MAX_PDF_UPLOAD_BYTES,
+    enforce_pdf_upload_size,
+)
 from app.routers.company_info_models import (
     FetchRequest,
     SearchPagesRequest,
@@ -207,7 +215,9 @@ logger = get_logger(__name__)
 # ===== Hybrid Search Configuration =====
 USE_HYBRID_SEARCH = settings.company_search_hybrid
 
-MAX_UPLOAD_PDF_BYTES = 20 * 1024 * 1024
+# Historical alias retained for in-repo consumers (e.g. company_info_ingest_service).
+# Authoritative source lives in ``app.security.upload_limits``.
+MAX_UPLOAD_PDF_BYTES = MAX_PDF_UPLOAD_BYTES
 
 
 def _normalize_cache_mode(cache_mode: str | None, fallback: str) -> str:
@@ -217,6 +227,23 @@ def _normalize_cache_mode(cache_mode: str | None, fallback: str) -> str:
 
 
 router = APIRouter(prefix="/company-info", tags=["company-info"])
+
+
+def _assert_principal_owns_company(
+    principal: CareerPrincipal, expected_company_id: str
+) -> None:
+    """Enforce that the decoded principal was minted for this company_id.
+
+    Defense-in-depth against a misbehaving BFF: the service JWT already says
+    "this request came from next-bff", and this check adds "…acting on behalf
+    of someone authorized for ``expected_company_id``". See V-1 in
+    ``docs/review/security/security_audit_2026-04-14.md``.
+    """
+    if principal.company_id != expected_company_id:
+        raise HTTPException(
+            status_code=403,
+            detail="career principal company_id mismatch",
+        )
 
 
 async def extract_info_with_llm(text: str, url: str) -> ExtractedInfo:
@@ -1716,7 +1743,11 @@ def _extracted_data_to_chunks(extracted_data: dict, source_url: str) -> list[dic
 
 @router.post("/rag/build", response_model=BuildRagResponse)
 @limiter.limit("60/minute")
-async def build_company_rag(payload: BuildRagRequest, request: Request):
+async def build_company_rag(
+    payload: BuildRagRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
     """
     Build RAG (vector embeddings) for a company.
 
@@ -1734,6 +1765,7 @@ async def build_company_rag(payload: BuildRagRequest, request: Request):
     - store_full_text: When True, also stores full text content (chunked)
     - content_type: New classification (optional). Use content_channel for legacy.
     """
+    _assert_principal_owns_company(principal, payload.company_id)
     request = payload
     try:
         structured_chunks = []
@@ -1873,7 +1905,11 @@ async def build_company_rag(payload: BuildRagRequest, request: Request):
 
 @router.post("/rag/context", response_model=RagContextResponse)
 @limiter.limit("60/minute")
-async def get_rag_context(payload: RagContextRequest, request: Request):
+async def get_rag_context(
+    payload: RagContextRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
     """
     Get RAG context for ES review.
 
@@ -1886,6 +1922,7 @@ async def get_rag_context(payload: RagContextRequest, request: Request):
     - Enrich ES review with company-specific context
     - Enable company_connection scoring axis
     """
+    _assert_principal_owns_company(principal, payload.company_id)
     request = payload
     try:
         # Check if RAG exists
@@ -1916,12 +1953,17 @@ async def get_rag_context(payload: RagContextRequest, request: Request):
 
 @router.get("/rag/status/{company_id}", response_model=RagStatusResponse)
 @limiter.limit("120/minute")
-async def get_rag_status(company_id: str, request: Request):
+async def get_rag_status(
+    company_id: str,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
     """
     Check if a company has RAG data (simple check).
 
     Returns whether the company has vector embeddings stored.
     """
+    _assert_principal_owns_company(principal, company_id)
     return RagStatusResponse(company_id=company_id, has_rag=has_company_rag(company_id))
 
 
@@ -1929,12 +1971,17 @@ async def get_rag_status(company_id: str, request: Request):
     "/rag/status-detailed/{company_id}", response_model=DetailedRagStatusResponse
 )
 @limiter.limit("120/minute")
-async def get_detailed_rag_status(company_id: str, request: Request):
+async def get_detailed_rag_status(
+    company_id: str,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
     """
     Get detailed RAG status for a company.
 
     Returns chunk counts by content type and last update time.
     """
+    _assert_principal_owns_company(principal, company_id)
     status = get_company_rag_status(company_id)
 
     return DetailedRagStatusResponse(
@@ -1956,12 +2003,17 @@ async def get_detailed_rag_status(company_id: str, request: Request):
 
 @router.delete("/rag/{company_id}")
 @limiter.limit("60/minute")
-async def delete_rag(company_id: str, request: Request):
+async def delete_rag(
+    company_id: str,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
     """
     Delete all RAG data for a company.
 
     Used when company info is updated or company is deleted.
     """
+    _assert_principal_owns_company(principal, company_id)
     success = delete_company_rag(company_id)
     cache = get_rag_cache()
     if cache:
@@ -1971,12 +2023,18 @@ async def delete_rag(company_id: str, request: Request):
 
 @router.delete("/rag/{company_id}/{content_type}")
 @limiter.limit("60/minute")
-async def delete_rag_by_type(company_id: str, content_type: str, request: Request):
+async def delete_rag_by_type(
+    company_id: str,
+    content_type: str,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
     """
     Delete RAG data for a company by content type.
 
     Used when only specific content type needs to be updated.
     """
+    _assert_principal_owns_company(principal, company_id)
     if content_type not in CONTENT_TYPES:
         raise HTTPException(
             status_code=400,
@@ -1992,7 +2050,12 @@ async def delete_rag_by_type(company_id: str, content_type: str, request: Reques
 
 @router.post("/rag/{company_id}/delete-by-urls", response_model=DeleteByUrlsResponse)
 @limiter.limit("60/minute")
-async def delete_rag_by_urls(company_id: str, payload: DeleteByUrlsRequest, request: Request):
+async def delete_rag_by_urls(
+    company_id: str,
+    payload: DeleteByUrlsRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
     """
     Delete RAG data for a company by source URLs.
 
@@ -2002,6 +2065,7 @@ async def delete_rag_by_urls(company_id: str, payload: DeleteByUrlsRequest, requ
     Note: Using POST instead of DELETE because DELETE with request body
     is not well supported across all HTTP clients.
     """
+    _assert_principal_owns_company(principal, company_id)
     request = payload
     if not request.urls:
         return DeleteByUrlsResponse(
@@ -2054,7 +2118,9 @@ async def estimate_corporate_pdf_upload(
     billing_plan: str = Form("free"),
     remaining_free_pdf_pages: int = Form(0),
     file: UploadFile = File(...),
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
 ):
+    _assert_principal_owns_company(principal, company_id)
     filename = file.filename or "document.pdf"
     mime_type = (file.content_type or "").lower()
     if not filename.lower().endswith(".pdf") and mime_type != "application/pdf":
@@ -2063,8 +2129,7 @@ async def estimate_corporate_pdf_upload(
     pdf_bytes = await file.read()
     if not pdf_bytes:
         raise HTTPException(status_code=400, detail="PDFファイルが空です。")
-    if len(pdf_bytes) > MAX_UPLOAD_PDF_BYTES:
-        raise HTTPException(status_code=400, detail="PDFファイルが大きすぎます。20MB以下にしてください。")
+    enforce_pdf_upload_size(pdf_bytes)
 
     plan = _normalize_rag_pdf_billing_plan(billing_plan)
     routing = await _extract_text_from_pdf_with_page_routing(
@@ -2098,8 +2163,10 @@ async def upload_corporate_pdf(
     content_channel: Optional[str] = Form(None),
     billing_plan: str = Form("free"),
     file: UploadFile = File(...),
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
 ):
     """Extract text from an uploaded PDF and store it in company RAG."""
+    _assert_principal_owns_company(principal, company_id)
     t0 = time.monotonic()
 
     filename = file.filename or "document.pdf"
@@ -2110,11 +2177,7 @@ async def upload_corporate_pdf(
     pdf_bytes = await file.read()
     if not pdf_bytes:
         raise HTTPException(status_code=400, detail="PDFファイルが空です。")
-    if len(pdf_bytes) > MAX_UPLOAD_PDF_BYTES:
-        raise HTTPException(
-            status_code=400,
-            detail="PDFファイルが大きすぎます。20MB以下にしてください。",
-        )
+    enforce_pdf_upload_size(pdf_bytes)
 
     plan = _normalize_rag_pdf_billing_plan(billing_plan)
 
@@ -2447,7 +2510,12 @@ async def _process_crawl_source(
 
 @router.post("/rag/estimate-crawl-corporate", response_model=CrawlCorporateEstimateResponse)
 @limiter.limit("60/minute")
-async def estimate_crawl_corporate_pages(payload: CrawlCorporateRequest, request: Request):
+async def estimate_crawl_corporate_pages(
+    payload: CrawlCorporateRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
+    _assert_principal_owns_company(principal, payload.company_id)
     request = payload
     billing_plan = _normalize_rag_pdf_billing_plan(request.billing_plan)
     errors: list[str] = []
@@ -2505,7 +2573,11 @@ async def estimate_crawl_corporate_pages(payload: CrawlCorporateRequest, request
 
 @router.post("/rag/crawl-corporate", response_model=CrawlCorporateResponse)
 @limiter.limit("60/minute")
-async def crawl_corporate_pages(payload: CrawlCorporateRequest, request: Request):
+async def crawl_corporate_pages(
+    payload: CrawlCorporateRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
     """
     Crawl and index corporate site pages for RAG.
 
@@ -2520,6 +2592,7 @@ async def crawl_corporate_pages(payload: CrawlCorporateRequest, request: Request
     - Plan limit checking (page count limits)
     - Storing URLs in company record
     """
+    _assert_principal_owns_company(principal, payload.company_id)
     request = payload
     billing_plan = _normalize_rag_pdf_billing_plan(request.billing_plan)
     valid_channels = ["corporate_ir", "corporate_business", "corporate_general"]

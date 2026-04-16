@@ -5,17 +5,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
 import {
   getCreditsInfo,
   getRemainingFreeFetches,
   PLAN_CREDITS,
 } from "@/lib/credits";
-import { getGuestUser } from "@/lib/auth/guest";
 import { db } from "@/lib/db";
 import { userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   getMonthlyScheduleFetchFreeLimit,
   getMonthlyRagHtmlFreeUnits,
@@ -34,13 +32,10 @@ import {
 
 export async function GET(request: NextRequest) {
   try {
-    // Try authenticated session first
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
+    const identity = await getRequestIdentity(request);
 
-    if (session?.user?.id) {
-      const userId = session.user.id;
+    if (identity?.userId) {
+      const userId = identity.userId;
 
       // Get user's plan
       const [profile] = await db
@@ -90,36 +85,32 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Try guest token
-    const deviceToken = request.headers.get("x-device-token");
-    if (deviceToken) {
-      const guest = await getGuestUser(deviceToken);
-      if (guest) {
-        // Get remaining free fetches for guest
-        const remainingFreeFetches = await getRemainingFreeFetches(null, guest.id, "guest");
+    if (identity?.guestId) {
+      const guestId = identity.guestId;
+      // Get remaining free fetches for guest
+      const remainingFreeFetches = await getRemainingFreeFetches(null, guestId, "guest");
 
-        return NextResponse.json({
-          type: "guest",
-          plan: "guest",
-          balance: PLAN_CREDITS.guest, // Guests have a fixed allocation
-          monthlyAllocation: PLAN_CREDITS.guest,
-          nextResetAt: null, // Guests don't have monthly reset
-          monthlyFree: {
-            companyRagHtmlPages: {
-              remaining: 0,
-              limit: 0,
-            },
-            companyRagPdfPages: {
-              remaining: 0,
-              limit: 0,
-            },
-            selectionSchedule: {
-              remaining: remainingFreeFetches,
-              limit: getMonthlyScheduleFetchFreeLimit("guest"),
-            },
+      return NextResponse.json({
+        type: "guest",
+        plan: "guest",
+        balance: PLAN_CREDITS.guest, // Guests have a fixed allocation
+        monthlyAllocation: PLAN_CREDITS.guest,
+        nextResetAt: null, // Guests don't have monthly reset
+        monthlyFree: {
+          companyRagHtmlPages: {
+            remaining: 0,
+            limit: 0,
           },
-        });
-      }
+          companyRagPdfPages: {
+            remaining: 0,
+            limit: 0,
+          },
+          selectionSchedule: {
+            remaining: remainingFreeFetches,
+            limit: getMonthlyScheduleFetchFreeLimit("guest"),
+          },
+        },
+      });
     }
 
     return NextResponse.json(

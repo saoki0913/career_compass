@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import { getOwnedCompanyRecord } from "@/app/api/_shared/owner-access";
 import { db } from "@/lib/db";
@@ -27,6 +28,7 @@ import {
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import { companyFetchPolicy } from "@/lib/api-route/billing/company-fetch-policy";
 import { saveExtractedDeadlines } from "@/lib/company-info/deadline-persistence";
 import type { ExtractedDeadline } from "@/lib/company-info/deadline-persistence";
@@ -176,6 +178,9 @@ export async function POST(
         action: "ログイン後に、もう一度お試しください。",
       });
     }
+
+    const limitResponse = await guardDailyTokenLimit(identity);
+    if (limitResponse) return limitResponse;
 
     const rateLimited = await enforceRateLimitLayers(
       request,
@@ -396,6 +401,7 @@ export async function POST(
         creditsUsed: 0,
         telemetry,
       });
+      void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
 
       return NextResponse.json({
         success: false,
@@ -488,6 +494,7 @@ export async function POST(
         creditsUsed: actualCreditsDeducted ?? 0,
         telemetry,
       });
+      void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
       return NextResponse.json({
         success: false,
         resultStatus: "duplicates_only" satisfies FetchInfoResultStatus,
@@ -518,6 +525,7 @@ export async function POST(
       creditsUsed: actualCreditsDeducted ?? 0,
       telemetry,
     });
+    void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
     return NextResponse.json({
       success: true,
       resultStatus: "success" satisfies FetchInfoResultStatus,

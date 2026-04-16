@@ -103,18 +103,28 @@ export async function reserveCredits(
 }
 
 export async function confirmReservation(reservationId: string): Promise<void> {
-  const [tx] = await db.select().from(creditTransactions).where(eq(creditTransactions.id, reservationId)).limit(1);
-  if (!tx) return;
+  await db.transaction(async (tx) => {
+    const [reservation] = await tx
+      .select()
+      .from(creditTransactions)
+      .where(eq(creditTransactions.id, reservationId))
+      .limit(1);
+    if (!reservation) return;
 
-  const userCredits = await getCreditRow(tx.userId);
+    const [userCredits] = await tx
+      .select()
+      .from(credits)
+      .where(eq(credits.userId, reservation.userId))
+      .limit(1);
 
-  await db
-    .update(creditTransactions)
-    .set({
-      description: tx.description?.replace("[Reserved]", "[Confirmed]") || "[Confirmed]",
-      balanceAfter: userCredits?.balance ?? tx.balanceAfter,
-    })
-    .where(eq(creditTransactions.id, reservationId));
+    await tx
+      .update(creditTransactions)
+      .set({
+        description: reservation.description?.replace("[Reserved]", "[Confirmed]") || "[Confirmed]",
+        balanceAfter: userCredits?.balance ?? reservation.balanceAfter,
+      })
+      .where(eq(creditTransactions.id, reservationId));
+  });
 }
 
 export async function cancelReservation(reservationId: string): Promise<void> {

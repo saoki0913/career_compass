@@ -58,6 +58,15 @@ vi.mock("@/lib/rate-limit-spike", () => ({
 
 vi.mock("@/lib/fastapi/client", () => ({
   fetchFastApiInternal: fetchFastApiInternalMock,
+  // V-1 principal wiring: the route now uses fetchFastApiWithPrincipal for
+  // company-info RAG. Tests treat both entry points identically.
+  fetchFastApiWithPrincipal: (path: string, init?: RequestInit & { principal?: unknown }) => {
+    const { principal: _principal, ...rest } = (init || {}) as RequestInit & {
+      principal?: unknown;
+    };
+    void _principal;
+    return fetchFastApiInternalMock(path, rest);
+  },
 }));
 
 function makeProfileQuery() {
@@ -257,5 +266,31 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
     expect(backendForm.get("billing_plan")).toBe("free");
     expect(backendForm.get("remaining_free_pdf_pages")).toBe("6");
     expect(backendForm.get("source_url")).toContain("upload://corporate-pdf/company-1/");
+  });
+
+  it("rejects multipart bodies whose aggregate Content-Length exceeds the cap with 413 (D-2 象限②)", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const formData = new FormData();
+    formData.append("file", new File(["pdf"], "company.pdf", { type: "application/pdf" }));
+
+    const { POST } = await import("@/app/api/companies/[id]/fetch-corporate-upload/route");
+    const request = new NextRequest(
+      "http://localhost:3000/api/companies/company-1/fetch-corporate-upload",
+      {
+        method: "POST",
+        body: formData,
+        headers: {
+          // Claim 60 MiB — above the 50 MiB aggregate cap.
+          "content-length": String(60 * 1024 * 1024),
+        },
+      }
+    );
+
+    const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
+
+    expect(response.status).toBe(413);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

@@ -8,14 +8,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { companies } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
 import { decrypt } from "@/lib/crypto";
 import { logError } from "@/lib/logger";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -29,31 +27,14 @@ export async function GET(
     const { id } = await context.params;
 
     // Authenticate
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-
-    let userId: string | null = null;
-    let guestId: string | null = null;
-
-    if (session?.user?.id) {
-      userId = session.user.id;
-    } else {
-      const deviceToken = request.headers.get("x-device-token");
-      if (deviceToken) {
-        const guest = await getGuestUser(deviceToken);
-        if (guest) {
-          guestId = guest.id;
-        }
-      }
-    }
-
-    if (!userId && !guestId) {
+    const identity = await getRequestIdentity(request);
+    if (!identity) {
       return NextResponse.json(
         { error: "Authentication required" },
         { status: 401 }
       );
     }
+    const { userId, guestId } = identity;
 
     // Fetch only credential fields + ownership fields
     const [company] = await db

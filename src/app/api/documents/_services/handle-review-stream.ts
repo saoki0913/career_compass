@@ -35,9 +35,11 @@ import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import { getOwnedDocument } from "@/app/api/_shared/owner-access";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 
 function deriveCharMin(charLimit?: number | null) {
   if (!charLimit) {
@@ -211,6 +213,9 @@ export async function handleReviewStream(
         { status: 401, headers: { "Content-Type": "application/json" } }
       );
     }
+
+    const limitResponse = await guardDailyTokenLimit(identity);
+    if (limitResponse) return limitResponse;
 
     const { userId, guestId } = identity;
 
@@ -558,6 +563,7 @@ export async function handleReviewStream(
           status: "success",
           creditsUsed: creditCost,
         });
+        void incrementDailyTokenCount(identity, computeTotalTokens(latestTelemetry));
       },
       onError: async () => {
         logSummaryOnce({

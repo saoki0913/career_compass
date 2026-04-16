@@ -20,7 +20,7 @@ import {
 } from "@/lib/company-info/sources";
 import { deleteSupabaseObject } from "@/lib/storage/supabase-storage";
 import { CORPORATE_DELETE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 
 interface DeleteByUrlsResult {
   success: boolean;
@@ -118,10 +118,16 @@ export async function POST(
     // Call FastAPI backend to delete RAG chunks by URLs
     let deleteResult: DeleteByUrlsResult;
     try {
-      const response = await fetchFastApiInternal(`/company-info/rag/${companyId}/delete-by-urls`, {
+      const response = await fetchFastApiWithPrincipal(`/company-info/rag/${companyId}/delete-by-urls`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ urls }),
+        principal: {
+          scope: "company",
+          actor: { kind: "user", id: userId },
+          companyId,
+          plan: authUser.plan,
+        },
       });
 
       if (!response.ok) {

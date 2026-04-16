@@ -7,41 +7,16 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { documents, aiThreads, aiMessages } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 
 const patchBodySchema = z.object({
   status: z.enum(["active", "archived"]).optional(),
   title: z.string().min(1).max(220).optional(),
 });
-
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
-}
 
 async function verifyDocumentAccess(
   documentId: string,
@@ -75,7 +50,7 @@ export async function GET(
   try {
     const { id: documentId, threadId } = await params;
 
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return NextResponse.json(
         { error: "Authentication required" },
@@ -142,7 +117,7 @@ export async function PATCH(
   try {
     const { id: documentId, threadId } = await params;
 
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return createApiErrorResponse(request, {
         status: 401,

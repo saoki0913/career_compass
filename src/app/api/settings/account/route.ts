@@ -55,7 +55,12 @@ export async function DELETE(request: NextRequest) {
         }));
       } catch (e) {
         logError("cancel-stripe-subscription", e as Error, { userId });
-        // Continue with account deletion even if Stripe cancellation fails
+        return createApiErrorResponse(request, {
+          status: 502,
+          code: "STRIPE_CANCEL_FAILED",
+          userMessage: "サブスクリプションの解約に失敗しました。再度お試しいただくか、サポートにお問い合わせください。",
+          action: "retry",
+        });
       }
     }
 

@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { companies, userProfiles } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
+import { readGuestDeviceToken } from "@/lib/auth/guest-cookie";
 import { filterAllowedPublicSourceUrls } from "@/lib/company-info/source-compliance";
 import { COMPANY_SEARCH_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 
 interface SearchCandidate {
   url: string;
@@ -59,37 +58,32 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const session = await auth.api.getSession({ headers: await headers() });
+    const identity = await getRequestIdentity(request);
+    if (!identity) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
     let company;
     let graduationYear: number | null = null;
 
-    if (session?.user?.id) {
+    if (identity.userId) {
       company = (await db
         .select()
         .from(companies)
-        .where(and(eq(companies.id, id), eq(companies.userId, session.user.id)))
+        .where(and(eq(companies.id, id), eq(companies.userId, identity.userId)))
         .limit(1))[0];
 
       // Get user's graduation year from profile
       const [profile] = await db
         .select()
         .from(userProfiles)
-        .where(eq(userProfiles.userId, session.user.id))
+        .where(eq(userProfiles.userId, identity.userId))
         .limit(1);
       graduationYear = profile?.graduationYear || null;
-    } else {
-      const deviceToken = request.headers.get("x-device-token");
-      if (!deviceToken) {
-        return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-      }
-      const guest = await getGuestUser(deviceToken);
-      if (!guest) {
-        return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-      }
+    } else if (identity.guestId) {
       company = (await db
         .select()
         .from(companies)
-        .where(and(eq(companies.id, id), eq(companies.guestId, guest.id)))
+        .where(and(eq(companies.id, id), eq(companies.guestId, identity.guestId)))
         .limit(1))[0];
       // Guests don't have a graduation year setting
     }
@@ -101,8 +95,8 @@ export async function POST(
     const rateLimited = await enforceRateLimitLayers(
       request,
       [...COMPANY_SEARCH_RATE_LAYERS],
-      session?.user?.id ?? null,
-      session?.user?.id ? null : request.headers.get("x-device-token"),
+      identity.userId,
+      identity.userId ? null : readGuestDeviceToken(request),
       "companies_search_pages"
     );
     if (rateLimited) {

@@ -90,6 +90,15 @@ vi.mock("@/lib/rate-limit-spike", () => ({
 
 vi.mock("@/lib/fastapi/client", () => ({
   fetchFastApiInternal: fetchFastApiInternalMock,
+  // V-1 principal wiring: the route now uses fetchFastApiWithPrincipal for
+  // company-info RAG. Tests treat both entry points identically.
+  fetchFastApiWithPrincipal: (path: string, init?: RequestInit & { principal?: unknown }) => {
+    const { principal: _principal, ...rest } = (init || {}) as RequestInit & {
+      principal?: unknown;
+    };
+    void _principal;
+    return fetchFastApiInternalMock(path, rest);
+  },
 }));
 
 function makeProfileQuery(plan: "free" | "standard" | "pro") {

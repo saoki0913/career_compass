@@ -128,7 +128,7 @@ describe("api/credits", () => {
     getRemainingFreeFetchesMock.mockResolvedValue(0);
 
     const request = new NextRequest("http://localhost:3000/api/credits", {
-      headers: { "x-device-token": "guest-token" },
+      headers: { cookie: "guest_device_token=11111111-1111-4111-8111-111111111111" },
     });
     const response = await GET(request);
     const data = await response.json();
