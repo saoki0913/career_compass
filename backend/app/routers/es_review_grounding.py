@@ -377,6 +377,7 @@ def _select_prompt_user_facts(
     intern_name: str | None,
     company_name: str | None,
     max_items: int = 8,
+    char_max: int | None = None,
 ) -> list[dict[str, str]]:
     if not allowed_user_facts:
         return []
@@ -411,6 +412,10 @@ def _select_prompt_user_facts(
         "gakuchika_raw_material": 2,
         "profile": 2,
     }
+    # Short-band: allow more current_answer facts to preserve user's key points
+    if char_max and char_max <= 220:
+        source_caps["current_answer"] = 4
+
     if role_name or company_name:
         source_caps["profile"] = 1
 

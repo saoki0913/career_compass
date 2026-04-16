@@ -235,7 +235,7 @@ def test_review_meta_diag_includes_new_length_and_grounding_diagnostics() -> Non
         (),
         {
             "llm_provider": "openai",
-            "llm_model": "gpt-5.4-mini",
+            "llm_model": "gpt-5.4",
             "grounding_mode": "company_general",
             "company_grounding_policy": "required",
             "effective_company_grounding_policy": "required",

@@ -10,6 +10,7 @@ import math
 import re
 from typing import Any, Optional
 
+from app.prompts.es_templates import get_company_honorific
 from app.routers.es_review_grounding import (
     COMPANY_HONORIFIC_TOKENS,
     COMPANY_REFERENCE_TOKENS,
@@ -541,6 +542,20 @@ def _validate_standard_conclusion_focus(
     return None, None
 
 
+def _auto_replace_gosha(text: str, industry: str | None) -> tuple[str, list[dict]]:
+    """ESでの「御社」を正しい敬称（貴社/貴行等）に自動置換."""
+    replacements: list[dict] = []
+    if "御社" not in text:
+        return text, replacements
+    correct_honorific = get_company_honorific(industry)
+    count = text.count("御社")
+    text = text.replace("御社", correct_honorific)
+    replacements.append({
+        "original": "御社", "replaced_with": correct_honorific, "count": count,
+    })
+    return text, replacements
+
+
 def _validate_rewrite_candidate(
     candidate: str,
     *,
@@ -552,6 +567,7 @@ def _validate_rewrite_candidate(
     issues: list[Issue],
     role_name: str | None,
     intern_name: str | None = None,
+    industry: str | None = None,
     grounding_mode: str,
     effective_company_grounding_policy: str = "assistive",
     company_evidence_cards: Optional[list[dict]] = None,
@@ -613,8 +629,20 @@ def _validate_rewrite_candidate(
             primary_length_code = retry_code
             fitted = normalized
 
+    gosha_replacements: list[dict] = []
+    if grounding_mode != "none":
+        fitted, gosha_replacements = _auto_replace_gosha(fitted, industry)
+        if gosha_replacements:
+            length_meta["gosha_replacements"] = gosha_replacements
+
     _ai_warnings = _detect_ai_smell_patterns(fitted, user_answer)
     length_meta["ai_smell_warnings"] = _ai_warnings
+    _ai_smell_result = _compute_ai_smell_score(
+        _ai_warnings, template_type=template_type, char_max=char_max,
+    )
+    length_meta["ai_smell_score"] = _ai_smell_result["score"]
+    length_meta["ai_smell_tier"] = _ai_smell_result["tier"]
+    length_meta["ai_smell_band"] = _ai_smell_result["band"]
 
     if "です" in fitted or "ます" in fitted:
         style_invalid = True
@@ -659,6 +687,12 @@ def _validate_rewrite_candidate(
             token in fitted for token in COMPANY_HONORIFIC_TOKENS
         )
 
+    assistive_honorific_detected = False
+    if effective_company_grounding_policy == "assistive" and grounding_mode != "none":
+        assistive_honorific_detected = any(
+            token in fitted for token in COMPANY_HONORIFIC_TOKENS
+        )
+
     failure_codes: list[str] = []
     failure_reason = "条件を満たしていません。"
     if style_invalid:
@@ -682,6 +716,9 @@ def _validate_rewrite_candidate(
     if companyless_honorific_detected:
         failure_codes.append("company_reference_in_companyless")
         failure_reason = "企業名なしの設問で「貴社」等の企業敬称が含まれています。自分の経験を主軸にまとめてください。"
+    if assistive_honorific_detected:
+        failure_codes.append("assistive_honorific")
+        failure_reason = "この設問では「貴社」等の企業敬称ではなく、企業名や固有の事業・価値観で触れてください。"
     if primary_length_code:
         failure_codes.append(primary_length_code)
         if len(failure_codes) == 1:
@@ -719,9 +756,9 @@ def _detect_ai_smell_patterns(text: str, user_answer: str) -> list[dict[str, str
     if not text:
         return warnings
 
-    # 1. repetitive_ending: same sentence-ending pattern 3+ times in a row
+    # 1. repetitive_ending: same sentence-ending pattern 2+ times in a row
     sentences = [s.strip() for s in re.split(r"[。！？]", text) if s.strip()]
-    if len(sentences) >= 3:
+    if len(sentences) >= 2:
         ending_patterns = []
         for s in sentences:
             if s.endswith("したい"):
@@ -736,13 +773,23 @@ def _detect_ai_smell_patterns(text: str, user_answer: str) -> list[dict[str, str
                 ending_patterns.append("していきたい")
             else:
                 ending_patterns.append(None)
-        for i in range(len(ending_patterns) - 2):
-            if ending_patterns[i] and ending_patterns[i] == ending_patterns[i + 1] == ending_patterns[i + 2]:
+        for i in range(len(ending_patterns) - 1):
+            if ending_patterns[i] and ending_patterns[i] == ending_patterns[i + 1]:
                 warnings.append({
                     "code": "repetitive_ending",
-                    "detail": f"「〜{ending_patterns[i]}」が3文以上連続",
+                    "detail": f"「〜{ending_patterns[i]}」が2文連続",
                 })
                 break
+
+        # low_ending_diversity: too few unique endings relative to total
+        non_null_endings = [e for e in ending_patterns if e is not None]
+        if len(non_null_endings) >= 3:
+            unique_ratio = len(set(non_null_endings)) / len(non_null_endings)
+            if unique_ratio < 0.5:
+                warnings.append({
+                    "code": "low_ending_diversity",
+                    "detail": f"文末多様性が低い（一意率 {unique_ratio:.1%}、{len(non_null_endings)}文中{len(set(non_null_endings))}種）",
+                })
 
     # 2. ai_signature_phrase: LLM-typical phrases not in user's original answer
     ai_phrases = [
@@ -797,13 +844,79 @@ def _detect_ai_smell_patterns(text: str, user_answer: str) -> list[dict[str, str
     return warnings
 
 
+_AI_SMELL_PENALTIES: dict[str, float] = {
+    "repetitive_ending": 2.0,
+    "ai_signature_phrase": 2.5,
+    "vague_modifier_chain": 1.5,
+    "monotone_connector": 1.0,
+    "ceremonial_closing": 1.0,
+    "low_ending_diversity": 0.5,
+}
+
+_TIER2_THRESHOLDS: dict[str, dict[str, float]] = {
+    # template_type -> band -> threshold
+    "gakuchika": {"short": 3.0, "mid_long": 3.5},
+    "self_pr": {"short": 3.0, "mid_long": 3.5},
+    "work_values": {"short": 3.0, "mid_long": 3.5},
+    "_default": {"short": 3.5, "mid_long": 4.0},
+}
+
+
+def _char_max_to_band(char_max: int | None) -> str:
+    """Map char_max to band name for AI smell threshold lookup."""
+    if not char_max or char_max <= 220:
+        return "short"
+    return "mid_long"
+
+
+def _compute_ai_smell_score(
+    warnings: list[dict[str, str]],
+    *,
+    template_type: str = "basic",
+    char_max: int | None = None,
+) -> dict[str, Any]:
+    """Compute AI smell score and tier from warning list.
+
+    Returns dict with: score, tier (0/1/2), band, details.
+    Tier 0: clean, Tier 1: warnings only (current behavior), Tier 2: triggers retry/rejection.
+    """
+    if not warnings:
+        return {"score": 0.0, "tier": 0, "band": _char_max_to_band(char_max), "details": []}
+
+    score = 0.0
+    details: list[str] = []
+    for w in warnings:
+        code = w.get("code", "")
+        penalty = _AI_SMELL_PENALTIES.get(code, 0.0)
+        if penalty > 0:
+            score += penalty
+            details.append(f"{code}={penalty}")
+
+    band = _char_max_to_band(char_max)
+    thresholds = _TIER2_THRESHOLDS.get(template_type, _TIER2_THRESHOLDS["_default"])
+    tier2_threshold = thresholds.get(band, 4.0)
+
+    if score >= tier2_threshold:
+        tier = 2
+    elif score > 0:
+        tier = 1
+    else:
+        tier = 0
+
+    return {"score": score, "tier": tier, "band": band, "threshold": tier2_threshold, "details": details}
+
+
 __all__ = [
     "FINAL_SOFT_MIN_FLOOR_RATIO",
     "SEMANTIC_COMPRESSION_RULES",
     "SHORT_ANSWER_CHAR_MAX",
     "TIGHT_LENGTH_TEMPLATES",
+    "_AI_SMELL_PENALTIES",
     "_apply_semantic_compression_rules",
+    "_auto_replace_gosha",
     "_candidate_has_grounding_anchor",
+    "_char_max_to_band",
+    "_compute_ai_smell_score",
     "_detect_ai_smell_patterns",
     "_char_limit_distance",
     "_coerce_degraded_rewrite_dearu_style",

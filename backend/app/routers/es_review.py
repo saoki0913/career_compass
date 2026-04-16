@@ -1,8 +1,17 @@
 """ES review router."""
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from typing import Optional, AsyncGenerator, Any, Awaitable, Callable
+
+from app.security.career_principal import (
+    CareerPrincipal,
+    require_career_principal,
+)
+from app.security.sse_concurrency import (
+    SseConcurrencyExceeded,
+    SseLease,
+)
 import json
 import asyncio
 import math
@@ -837,6 +846,7 @@ async def review_section_with_template(
         role_name=effective_role_name,
         intern_name=template_request.intern_name,
         company_name=template_request.company_name,
+        char_max=char_max,
     )
     verified_rag_sources, rejected_rag_sources, has_mismatched_company_sources = (
         _filter_verified_company_rag_sources(
@@ -1031,6 +1041,7 @@ async def review_section_with_template(
             improvement_payload=improvement_payload,
             reference_quality_block=reference_quality_block,
             evidence_coverage_level=evidence_coverage_level,
+            effective_company_grounding=effective_company_grounding,
         )
         system_prompt, user_prompt = build_template_rewrite_prompt(
             template_type=template_type,
@@ -1120,6 +1131,7 @@ async def review_section_with_template(
             issues=[],
             role_name=effective_role_name,
             intern_name=template_request.intern_name,
+            industry=template_request.industry,
             grounding_mode=effective_grounding_mode,
             effective_company_grounding_policy=effective_company_grounding,
             company_evidence_cards=prompt_company_evidence_cards,
@@ -1289,6 +1301,7 @@ async def review_section_with_template(
             issues=[],
             role_name=effective_role_name,
             intern_name=template_request.intern_name,
+            industry=template_request.industry,
             grounding_mode=effective_grounding_mode,
             effective_company_grounding_policy=effective_company_grounding,
             company_evidence_cards=prompt_company_evidence_cards,
@@ -1376,6 +1389,8 @@ async def review_section_with_template(
                     else "default"
                 ),
                 llm_model=llm_model,
+                effective_company_grounding=effective_company_grounding,
+                grounding_mode=effective_grounding_mode,
             )
             rewrite_result = await text_caller(
                 system_prompt=system_prompt,
@@ -1420,6 +1435,7 @@ async def review_section_with_template(
                 issues=[],
                 role_name=effective_role_name,
                 intern_name=template_request.intern_name,
+                industry=template_request.industry,
                 grounding_mode=effective_grounding_mode,
                 effective_company_grounding_policy=effective_company_grounding,
                 company_evidence_cards=prompt_company_evidence_cards,
@@ -2056,7 +2072,11 @@ def _build_review_streaming_response(
 
 @router.post("/review/stream")
 @limiter.limit("60/minute")
-async def review_es_stream(payload: ReviewRequest, request: Request):
+async def review_es_stream(
+    payload: ReviewRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("ai-stream")),
+):
     """
     Stream ES review progress via Server-Sent Events (SSE).
 
@@ -2069,7 +2089,41 @@ async def review_es_stream(payload: ReviewRequest, request: Request):
     - error: {"type": "error", "message": "..."}
     """
     request = payload
-    return _build_review_streaming_response(_generate_review_progress(request))
+
+    # Defense-in-depth: if both sides carry a company_id, they must match.
+    if (
+        request.company_id
+        and principal.company_id
+        and principal.company_id != request.company_id
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="career principal company_id mismatch",
+        )
+
+    try:
+        lease = await SseLease.acquire(
+            actor_id=principal.actor_id, plan=principal.plan
+        )
+    except SseConcurrencyExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "sse_concurrency_exceeded",
+                "limit": exc.rejection.limit,
+            },
+            headers={
+                "Retry-After": str(exc.rejection.retry_after_seconds),
+            },
+        )
+
+    async def _stream_with_lease() -> AsyncGenerator[str, None]:
+        async with lease:
+            async for chunk in _generate_review_progress(request):
+                await lease.heartbeat_if_due()
+                yield chunk
+
+    return _build_review_streaming_response(_stream_with_lease())
 
 
 @router.get("/company-status/{company_id}", response_model=CompanyReviewStatusResponse)

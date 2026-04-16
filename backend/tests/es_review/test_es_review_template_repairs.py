@@ -238,6 +238,9 @@ def test_validate_rewrite_candidate_accepts_soft_min_on_final_short_answer_attem
         "length_shortfall": 20,
         "soft_min_floor_ratio": 0.9,
         "ai_smell_warnings": [],
+        "ai_smell_score": 0.0,
+        "ai_smell_tier": 0,
+        "ai_smell_band": "short",
     }
 
 
@@ -265,6 +268,9 @@ def test_validate_rewrite_candidate_accepts_soft_min_on_final_long_answer_attemp
         "length_shortfall": 30,
         "soft_min_floor_ratio": 0.9,
         "ai_smell_warnings": [],
+        "ai_smell_score": 0.0,
+        "ai_smell_tier": 0,
+        "ai_smell_band": "mid_long",
     }
 
 
@@ -275,6 +281,8 @@ def test_resolve_rewrite_focus_mode_tracks_latest_failure_code() -> None:
     assert _resolve_rewrite_focus_mode(retry_code="grounding") == "grounding_focus"
     assert _resolve_rewrite_focus_mode(retry_code="verbose_opening") == "opening_focus"
     assert _resolve_rewrite_focus_mode(retry_code="negative_self_eval") == "positive_reframe_focus"
+    assert _resolve_rewrite_focus_mode(retry_code="quantify") == "quantify_focus"
+    assert _resolve_rewrite_focus_mode(retry_code="structure") == "structure_focus"
 
 
 def test_resolve_rewrite_focus_modes_combines_length_and_opening() -> None:
@@ -282,6 +290,13 @@ def test_resolve_rewrite_focus_modes_combines_length_and_opening() -> None:
         retry_code="under_min",
         failure_codes=["under_min", "verbose_opening"],
     ) == ["length_focus_min", "opening_focus"]
+
+
+def test_resolve_rewrite_focus_modes_combines_length_and_quantify() -> None:
+    assert _resolve_rewrite_focus_modes(
+        retry_code="under_min",
+        failure_codes=["under_min", "quantify"],
+    ) == ["length_focus_min", "quantify_focus"]
 
 
 def test_select_retry_codes_prioritizes_under_min_for_mixed_failures() -> None:
@@ -392,6 +407,32 @@ def test_retry_hints_use_template_spec_under_min_guidance(
     )
 
     assert hints == ["検証用の橋渡しを入れて不足字数を埋める"]
+
+
+def test_retry_hints_read_quantify_and_structure_guidance_from_template_spec() -> None:
+    quantify_hints = _retry_hints_from_codes(
+        retry_code="quantify",
+        failure_codes=["quantify"],
+        char_min=220,
+        char_max=320,
+        current_length=180,
+        length_control_mode="default",
+        template_type="self_pr",
+    )
+    structure_hints = _retry_hints_from_codes(
+        retry_code="structure",
+        failure_codes=["structure"],
+        char_min=220,
+        char_max=320,
+        current_length=210,
+        length_control_mode="default",
+        template_type="gakuchika",
+    )
+
+    assert quantify_hints
+    assert any("数値" in hint or "行動動詞" in hint for hint in quantify_hints)
+    assert structure_hints
+    assert any("順序" in hint or "まず" in hint or "次に" in hint for hint in structure_hints)
 
 
 def test_retry_hints_keep_dynamic_under_min_recovery_details_for_required_templates() -> None:
@@ -673,6 +714,7 @@ def test_should_run_role_focused_second_pass_for_required_partial_coverage() -> 
         ],
         evidence_coverage_level="partial",
         assistive_company_signal=False,
+        effective_company_grounding="required",
     )
 
     assert should_retry is True
@@ -714,6 +756,95 @@ def test_fallback_improvement_points_reflect_company_and_role() -> None:
     categories = [issue.category for issue in issues]
     assert "企業接続" in categories
     assert "職種適合" in categories
+
+
+# ---- Step 1 施策 2: Assistive 経路の敬称規約統一テスト ----
+
+from app.routers.es_review_validation import _auto_replace_gosha
+
+
+def test_assistive_honorific_rejection() -> None:
+    """assistive grounding で「貴社」が含まれていると assistive_honorific で拒否される."""
+    text = _make_text(200).replace("あ" * 10, "貴社の事業に貢献")
+    fitted, primary_code, reason, meta = _validate_rewrite_candidate(
+        candidate=text,
+        template_type="company_motivation",
+        company_name="テスト株式会社",
+        question="志望動機を教えてください。",
+        user_answer="事業で成長したい。",
+        char_min=100,
+        char_max=250,
+        issues=[],
+        role_name=None,
+        grounding_mode="company_general",
+        effective_company_grounding_policy="assistive",
+        company_evidence_cards=[],
+    )
+    assert fitted is None
+    failure_codes = meta.get("failure_codes", [primary_code])
+    assert "assistive_honorific" in failure_codes
+
+
+def test_gosha_auto_replace() -> None:
+    """御社 → 貴社 に自動置換される."""
+    text, replacements = _auto_replace_gosha("御社の事業に魅力を感じた。", None)
+    assert "御社" not in text
+    assert "貴社" in text
+    assert len(replacements) == 1
+    assert replacements[0]["replaced_with"] == "貴社"
+
+
+def test_gosha_industry_replace() -> None:
+    """banking 業界では 御社 → 貴行 に置換される."""
+    text, replacements = _auto_replace_gosha("御社の融資制度に魅力を感じた。", "銀行")
+    assert "御社" not in text
+    assert "貴行" in text
+    assert replacements[0]["replaced_with"] == "貴行"
+
+
+def test_companyless_gosha_not_replaced() -> None:
+    """grounding_mode=none では gosha 置換が呼ばれない (validator レイヤーのテスト)."""
+    text = "御社の事業に" + _make_text(190)
+    fitted, code, reason, meta = _validate_rewrite_candidate(
+        candidate=text,
+        template_type="gakuchika",
+        company_name=None,
+        question="学生時代に力を入れたことは？",
+        user_answer="ゼミで進行改善をした。",
+        char_min=100,
+        char_max=250,
+        issues=[],
+        role_name=None,
+        grounding_mode="none",
+        effective_company_grounding_policy="assistive",
+        company_evidence_cards=[],
+    )
+    # grounding_mode=none では gosha_replacements が付かない
+    assert "gosha_replacements" not in meta
+
+
+def test_assistive_gosha_replaced_then_rejected() -> None:
+    """assistive 経路で御社→貴社に置換されたあと、貴社が敬称として拒否される."""
+    text = "御社のビジョンに共感し" + _make_text(180)
+    fitted, code, reason, meta = _validate_rewrite_candidate(
+        candidate=text,
+        template_type="company_motivation",
+        company_name="テスト株式会社",
+        question="志望動機を教えてください。",
+        user_answer="事業で成長したい。",
+        char_min=100,
+        char_max=250,
+        issues=[],
+        role_name=None,
+        industry=None,
+        grounding_mode="company_general",
+        effective_company_grounding_policy="assistive",
+        company_evidence_cards=[],
+    )
+    # 御社 → 貴社 に置換されたうえで assistive_honorific で拒否
+    assert fitted is None
+    failure_codes = meta.get("failure_codes", [code])
+    assert "assistive_honorific" in failure_codes
 
 
 def test_fallback_improvement_points_skip_company_issue_for_plain_gakuchika() -> None:
@@ -1082,6 +1213,7 @@ def test_select_rewrite_prompt_context_compacts_context_on_late_attempts() -> No
         improvement_payload=[{"issue": f"issue-{index}"} for index in range(3)],
         reference_quality_block="【参考ESから抽出した品質ヒント】\n- 結論先行",
         evidence_coverage_level="strong",
+        effective_company_grounding="required",
     )
 
     assert len(context["prompt_user_facts"]) == 6
@@ -1777,12 +1909,12 @@ async def test_review_section_with_template_uses_length_fix_for_small_overflow(
         )
 
     overflow_text = (
-        "貴社を志望する理由は研究経験を価値へ変える仕事に挑みたいからであり"
+        "KPMGを志望する理由は研究経験を価値へ変える仕事に挑みたいからであり"
         "現場で学びながら事業理解と顧客への貢献の解像度を高めたいと考え"
         "さらに周囲と協働しながら長期的に価値を出し続けたいと考える。"
     )
     fixed_text = (
-        "貴社を志望する理由は研究経験を価値へ変える仕事に挑みたいからであり"
+        "KPMGを志望する理由は研究経験を価値へ変える仕事に挑みたいからであり"
         "現場で学びながら事業理解と顧客への貢献の解像度を高め将来につなげたいと考える。"
     )
     calls = 0
@@ -1852,7 +1984,7 @@ async def test_review_section_with_template_short_circuits_to_length_fix_after_r
     fixed_text = (
         "私がデジタル企画を志望するのは、事業課題と技術をつなぎ、構想を実装まで進める役割に価値を感じるからだ。"
         "研究では課題を構造化し、仮説を検証して関係者と認識をそろえてきた。"
-        "貴社で事業の解像度を高め、現場の価値創出をさらに加速する企画を担いたい。"
+        "三菱商事で事業の解像度を高め、現場での価値創出を加速する企画を担いたい。"
     )
     calls = 0
     call_stages: list[str] = []
@@ -2132,9 +2264,9 @@ def test_validate_rewrite_candidate_rejects_verbose_question_repeat_opening(
 ) -> None:
     candidate, code, reason, meta = _validate_rewrite_candidate(
         (
-            "私が三菱商事を志望する理由は、貴社を志望する理由として社会に大きな価値を届けたいからである。"
+            "私が三菱商事を志望する理由は、三菱商事を志望する理由として社会に大きな価値を届けたいからである。"
             "研究では仮説を立てて検証し、関係者と論点を整理しながら前進させてきた。"
-            "成長領域で事業を動かす貴社で、この力を価値創出につなげたい。"
+            "成長領域で事業を動かす三菱商事で、この力を価値創出につなげたい。"
         ),
         template_type="company_motivation",
         question="三菱商事を志望する理由を教えてください。",
@@ -2202,10 +2334,10 @@ def test_validate_rewrite_candidate_requires_first_sentence_answer_focus(
 def test_validate_rewrite_candidate_company_motivation_allows_lead_sentence_then_motivation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """先頭が経験でも、続く文に貴社＋志望の核があれば受理する。"""
+    """先頭が経験でも、続く文に企業名＋志望の核があれば受理する。"""
     text = (
         "研究で仮説を立てて検証を回し、論点を整理してきた。"
-        "貴社を志望するのは、成長領域で価値を形にし社会課題に向き合う事業に関わりたいからだ。"
+        "三菱商事を志望するのは、成長領域で価値を形にし社会課題に向き合う事業に関わりたいからだ。"
         "分析と対話を通じて現場の意思決定を支えたい。"
     )
     candidate, code, reason, meta = _validate_rewrite_candidate(
@@ -2309,12 +2441,12 @@ def test_validate_rewrite_candidate_role_course_reason_matches_role_name_segment
     assert code == "ok"
 
 
-def test_validate_rewrite_candidate_company_motivation_accepts_tosha_in_head(
+def test_validate_rewrite_candidate_company_motivation_accepts_company_name_in_head(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     text = (
         "研究で課題を分解し、検証しながら前に進めてきた。"
-        "御社を志望するのは、社会課題に向き合う事業で価値を出したいからだ。"
+        "サンプル株式会社を志望するのは、社会課題に向き合う事業で価値を出したいからだ。"
     )
     candidate, code, _, _ = _validate_rewrite_candidate(
         text,
@@ -2331,3 +2463,86 @@ def test_validate_rewrite_candidate_company_motivation_accepts_tosha_in_head(
     )
     assert candidate is not None
     assert code == "ok"
+
+
+# ---- Step 5 施策 6+4: AI臭検出改善 + Tier 2 閾値テスト ----
+
+from app.routers.es_review_validation import (
+    _compute_ai_smell_score,
+    _char_max_to_band,
+    _detect_ai_smell_patterns,
+)
+
+
+def test_two_consecutive_endings_detected() -> None:
+    """2文連続の同一語尾で repetitive_ending が検出される."""
+    text = "事業に貢献したい。研究を活用したい。社会を変革したい。"
+    warnings = _detect_ai_smell_patterns(text, "")
+    codes = [w["code"] for w in warnings]
+    assert "repetitive_ending" in codes
+    detail = next(w["detail"] for w in warnings if w["code"] == "repetitive_ending")
+    assert "2文連続" in detail
+
+
+def test_single_ending_no_repetitive_penalty() -> None:
+    """連続しない同一語尾ではpenaltyなし."""
+    text = "事業で成長したい。研究経験を生かせる。技術を磨きたい。"
+    warnings = _detect_ai_smell_patterns(text, "")
+    codes = [w["code"] for w in warnings]
+    assert "repetitive_ending" not in codes
+
+
+def test_low_ending_diversity_penalty() -> None:
+    """文末多様性 < 50% で low_ending_diversity が検出される."""
+    # 4文中3文が「したい」= unique ratio 0.33
+    text = "事業に貢献したい。研究を活用したい。社会を変革したい。課題を見つけた。"
+    warnings = _detect_ai_smell_patterns(text, "")
+    codes = [w["code"] for w in warnings]
+    assert "low_ending_diversity" in codes
+
+
+def test_ending_diversity_ok_when_varied() -> None:
+    """文末が十分に多様なら low_ending_diversity は出ない."""
+    text = "事業で成長したい。分析力を生かせると考える。課題を見つけた。環境がある。"
+    warnings = _detect_ai_smell_patterns(text, "")
+    codes = [w["code"] for w in warnings]
+    assert "low_ending_diversity" not in codes
+
+
+def test_tier2_reached_for_high_score() -> None:
+    """十分に高いスコアで tier=2 になる."""
+    warnings = [
+        {"code": "repetitive_ending", "detail": "test"},
+        {"code": "ai_signature_phrase", "detail": "test"},
+    ]
+    result = _compute_ai_smell_score(warnings, template_type="basic", char_max=400)
+    assert result["tier"] == 2
+    assert result["score"] >= 4.0
+
+
+def test_tier2_gakuchika_lower_threshold() -> None:
+    """gakuchika は低い閾値で tier 2 に到達する."""
+    warnings = [
+        {"code": "repetitive_ending", "detail": "test"},
+        {"code": "vague_modifier_chain", "detail": "test"},
+    ]
+    result = _compute_ai_smell_score(warnings, template_type="gakuchika", char_max=400)
+    assert result["tier"] == 2
+    assert result["threshold"] == 3.5
+
+
+def test_tier1_below_tier2_threshold() -> None:
+    """閾値未満のスコアでは tier=1 に留まる."""
+    warnings = [{"code": "low_ending_diversity", "detail": "test"}]
+    result = _compute_ai_smell_score(warnings, template_type="basic", char_max=400)
+    assert result["tier"] == 1
+    assert result["score"] == 0.5
+
+
+def test_char_max_to_band_boundaries() -> None:
+    """band 境界テスト."""
+    assert _char_max_to_band(200) == "short"
+    assert _char_max_to_band(220) == "short"
+    assert _char_max_to_band(221) == "mid_long"
+    assert _char_max_to_band(400) == "mid_long"
+    assert _char_max_to_band(None) == "short"

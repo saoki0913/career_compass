@@ -40,7 +40,6 @@ export async function consumeESReviewStream(args: {
 
   const decoder = new TextDecoder();
   let buffer = "";
-  let completed: SSECompleteEvent | null = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -59,7 +58,6 @@ export async function consumeESReviewStream(args: {
       args.onEvent(event);
 
       if (event.type === "complete") {
-        completed = event;
         return {
           ok: true,
           result: event.result,
@@ -75,14 +73,6 @@ export async function consumeESReviewStream(args: {
         };
       }
     }
-  }
-
-  if (completed) {
-    return {
-      ok: true,
-      result: completed.result,
-      creditCost: completed.creditCost,
-    };
   }
 
   return {

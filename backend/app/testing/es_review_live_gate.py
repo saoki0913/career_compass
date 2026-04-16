@@ -14,14 +14,12 @@ ALL_STANDARD_MODELS = [
     "claude-sonnet",
     "claude-haiku",
     "gpt-5.4",
-    "gpt-5.4-mini",
     "gemini-3.1-pro-preview",
     "low-cost",
 ]
-# extended / ローカル 5+5 スイープの既定（本番で使う主要 5 モデル）
+# extended / ローカル 5+5 スイープの既定（本番で使う主要 4 モデル）
 DEFAULT_LIVE_PROVIDERS_EXTENDED: tuple[str, ...] = (
     "claude-haiku",
-    "gpt-5.4-mini",
     "gpt-5.4",
     "claude-sonnet",
     "gemini-3.1-pro-preview",
@@ -826,7 +824,7 @@ EXTENDED_ONLY_CASES: tuple[LiveESReviewCase, ...] = (
         expected_policy="assistive",
         expected_effective_policy="company_general",
         expected_min_company_evidence=1,
-        expected_focus_tokens=("強み", "志望", "貴社", "事業", "意思決定"),
+        expected_focus_tokens=("強み", "志望", "事業", "意思決定"),
         expected_user_fact_tokens=("研究室", "仮説", "検証", "役割"),
         expected_company_tokens=("事業", "現場", "価値", "挑戦"),
         rag_sources=[
@@ -1177,5 +1175,11 @@ def evaluate_live_case(
             failures.append("companyless:company_name_present")
         if any(token in rewrite for token in COMPANY_HONORIFIC_TOKENS):
             failures.append("companyless:honorific_token_present")
+    elif (
+        review_meta
+        and getattr(review_meta, "effective_company_grounding_policy", None) == "assistive"
+    ):
+        if any(token in rewrite for token in COMPANY_HONORIFIC_TOKENS):
+            failures.append("assistive:honorific_token_present")
 
     return failures

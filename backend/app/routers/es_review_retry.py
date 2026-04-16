@@ -97,11 +97,15 @@ def _resolve_rewrite_focus_mode(*, retry_code: str) -> str:
         "grounding": "grounding_focus",
         "answer_focus": "answer_focus",
         "verbose_opening": "opening_focus",
+        "quantify": "quantify_focus",
+        "structure": "structure_focus",
         "bulletish_or_listlike": "structure_focus",
         "empty": "structure_focus",
         "fragment": "structure_focus",
         "negative_self_eval": "positive_reframe_focus",
         "company_reference_in_companyless": "structure_focus",
+        "assistive_honorific": "grounding_focus",
+        "low_ending_diversity": "ai_smell_focus",
         "generic": "structure_focus",
     }
     return mapping.get(retry_code or "generic", "structure_focus")
@@ -149,6 +153,7 @@ def _format_target_char_hint(
 
 _DEGRADED_BLOCK_CODES = frozenset({
     "empty", "fragment", "negative_self_eval", "company_reference_in_companyless",
+    "assistive_honorific",
 })
 
 
@@ -185,12 +190,14 @@ def _build_ai_smell_retry_hints(warnings: list[dict[str, str]]) -> list[str]:
     for w in warnings[:2]:
         code = w.get("code", "")
         if code == "repetitive_ending":
-            hints.append("文末表現を変化させる（同じ語尾を3文連続で使わない）")
+            hints.append("文末表現を変化させる（同じ語尾を2文連続で使わない）")
         elif code == "ai_signature_phrase":
             detail = w.get("detail", "")
             hints.append(f"LLM特有フレーズを避ける: {detail}")
         elif code == "vague_modifier_chain":
             hints.append("「多様な」「幅広い」等の抽象修飾語を具体例に置き換える")
+        elif code == "low_ending_diversity":
+            hints.append("文末のバリエーションを増やす（「〜したい」「〜と考える」だけでなく、「〜である」「〜だ」等も使う）")
     return hints
 
 
@@ -539,6 +546,7 @@ def _retry_hint_from_code(
             "準備・責任感・学習姿勢として言い換える"
         ),
         "company_reference_in_companyless": "「貴社」等の企業敬称を使わず、自分の経験で書く",
+        "assistive_honorific": "「貴社」等の企業敬称ではなく、企業名や固有の事業・価値観で触れる",
         "generic": "条件を満たす安全な改善案を返す",
     }
     return mapping.get(code, mapping["generic"])
@@ -622,9 +630,10 @@ def _select_rewrite_prompt_context(
     improvement_payload: list[dict[str, Any]],
     reference_quality_block: str,
     evidence_coverage_level: str,
+    effective_company_grounding: str = "assistive",
 ) -> dict[str, Any]:
     _ = review_variant
-    company_grounding = get_template_company_grounding_policy(template_type)
+    company_grounding = effective_company_grounding
     short_answer_mode = _is_short_answer_mode(char_max)
     compact_mode = timeout_compact_mode or simplified_mode or attempt >= 2
     preserve_context_for_recovery = length_control_mode == "under_min_recovery"
@@ -633,7 +642,7 @@ def _select_rewrite_prompt_context(
     if preserve_context_for_recovery:
         fact_limit = PROMPT_USER_FACT_LIMIT
     elif short_answer_mode:
-        fact_limit = 4
+        fact_limit = 5
     elif simplified_mode:
         fact_limit = 5
     elif compact_mode:
@@ -790,13 +799,14 @@ def _should_run_role_focused_second_pass(
     company_evidence_cards: list[dict[str, str]],
     evidence_coverage_level: str,
     assistive_company_signal: bool,
+    effective_company_grounding: str = "assistive",
 ) -> bool:
     if not company_rag_available:
         return False
     if not (primary_role or template_request.intern_name or template_request.question):
         return False
 
-    if get_template_company_grounding_policy(template_request.template_type) == "assistive":
+    if effective_company_grounding == "assistive":
         return (
             grounding_mode == "company_general"
             and assistive_company_signal

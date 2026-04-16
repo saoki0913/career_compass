@@ -4,6 +4,8 @@ import pytest
 
 from app.prompts.es_templates import (
     TEMPLATE_DEFS,
+    _GLOBAL_CONCLUSION_FIRST_RULES,
+    _GLOBAL_CONCLUSION_FIRST_RULES_FALLBACK,
     _format_target_char_window,
     build_template_fallback_rewrite_prompt,
     build_template_length_fix_prompt,
@@ -253,19 +255,19 @@ def test_self_pr_rewrite_prompt_includes_negative_reframe_guidance() -> None:
             "gakuchika",
             "学生時代に力を入れたことを教えてください。",
             "ゼミで進行改善に取り組んだ。",
-            "1文目で取り組みの全体像と自分の役割を示す",
+            "取り組みの核",
         ),
         (
             "self_pr",
             "自己PRを教えてください。",
             "私の強みは、周囲を巻き込みながらやり切る力だ。",
-            "1文目で強みの核を一言で示す",
+            "強みの核",
         ),
         (
             "work_values",
             "働くうえで大切にしている価値観を教えてください。",
             "私が大切にしているのは、相手の状況を踏まえて動く姿勢だ。",
-            "1文目で大切にしている価値観を示す",
+            "価値観の核",
         ),
     ],
 )
@@ -289,7 +291,6 @@ def test_rewrite_prompt_includes_new_playbooks_for_core_self_templates(
         grounding_mode="none",
     )
 
-    assert "【requiredテンプレの型】" in system_prompt
     assert expected_line in system_prompt
 
 
@@ -320,7 +321,6 @@ def test_rewrite_prompt_keeps_core_constraints_when_structural_patterns_v2_are_p
     assert "<length_policy>" in system_prompt
     assert "【参考ESから抽出した構成パターン】" in system_prompt
     assert "【設問で落としてはいけない要素】" in system_prompt
-    assert "【requiredテンプレの型】" in system_prompt
 
 
 def test_required_length_fix_prompt_stays_minimal_and_bridge_only() -> None:
@@ -558,3 +558,394 @@ def test_required_short_answer_guidance_avoids_over_compression_in_150_to_220_ba
     assert "3〜4文で構成する" in system_prompt
     assert "1〜2文まで補う" in system_prompt
     assert "企業接点と貢献の両方を残す" in system_prompt
+
+
+# ---------------------------------------------------------------------------
+# 施策 8: Contextual style rules tests
+# ---------------------------------------------------------------------------
+
+
+def test_contextual_rules_gakuchika_excludes_company_rules() -> None:
+    """Gakuchika (grounding_mode=none) should have the fewest rules."""
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="gakuchika",
+        company_name=None,
+        industry=None,
+        question="学生時代に力を入れたことを教えてください。",
+        answer="ゼミで進行改善に取り組んだ。",
+        char_min=180,
+        char_max=240,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "ゼミで進行改善に取り組んだ。"}],
+        grounding_mode="none",
+    )
+    # core_style block should exist
+    assert "<core_style>" in system_prompt
+    assert "結論ファースト" in system_prompt
+
+
+def test_contextual_rules_short_band_includes_short_rule() -> None:
+    """Short band (char_max<=220) should include short-specific rule."""
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="basic",
+        company_name="テスト株式会社",
+        industry=None,
+        question="志望動機を教えてください。",
+        answer="事業に関心がある。",
+        char_min=100,
+        char_max=200,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "事業に関心がある。"}],
+        grounding_mode="company_general",
+    )
+    assert "短い字数制限" in system_prompt or "凝縮" in system_prompt
+
+
+def test_contextual_rules_basic_medium_excludes_short_rule() -> None:
+    """Medium band should NOT include short-only rules."""
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="basic",
+        company_name="テスト株式会社",
+        industry=None,
+        question="志望動機を教えてください。",
+        answer="事業に関心がある。",
+        char_min=250,
+        char_max=400,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "事業に関心がある。"}],
+        grounding_mode="company_general",
+    )
+    # Should have mid_long rules but NOT short_only
+    assert "要約しすぎず" in system_prompt
+    assert "短い字数制限" not in system_prompt
+
+
+def test_prose_style_present_for_long_answer() -> None:
+    """char_max=400 should include <prose_style> block."""
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="company_motivation",
+        company_name="三菱商事",
+        industry="総合商社",
+        question="志望理由を400字以内で教えてください。",
+        answer="事業を動かす仕事がしたい。",
+        char_min=300,
+        char_max=400,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "事業を動かす仕事がしたい。"}],
+        grounding_mode="company_general",
+    )
+    assert "<prose_style>" in system_prompt
+
+
+def test_prose_style_absent_for_short_answer() -> None:
+    """char_max=200 should NOT include <prose_style> block."""
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="company_motivation",
+        company_name="三菱商事",
+        industry="総合商社",
+        question="志望理由を200字以内で教えてください。",
+        answer="事業を動かす仕事がしたい。",
+        char_min=100,
+        char_max=200,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "事業を動かす仕事がしたい。"}],
+        grounding_mode="company_general",
+    )
+    assert "<prose_style>" not in system_prompt
+
+
+def test_output_contract_contains_no_linebreak_rule() -> None:
+    """Output contract should prohibit line breaks."""
+    for builder_fn in [build_template_rewrite_prompt, build_template_fallback_rewrite_prompt]:
+        system_prompt, _ = builder_fn(
+            template_type="company_motivation",
+            company_name="三菱商事",
+            industry="総合商社",
+            question="志望理由を教えてください。",
+            answer="事業を動かす仕事がしたい。",
+            char_min=200,
+            char_max=400,
+            company_evidence_cards=[],
+            has_rag=False,
+            allowed_user_facts=[{"source": "current_answer", "text": "事業を動かす仕事がしたい。"}],
+            grounding_mode="company_general",
+        )
+        assert "改行" in system_prompt or "空行" in system_prompt
+
+
+def test_constraints_ending_variety() -> None:
+    """Constraints should include the 2-sentence consecutive ending prohibition."""
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="basic",
+        company_name="テスト株式会社",
+        industry=None,
+        question="志望動機を教えてください。",
+        answer="事業に関心がある。",
+        char_min=200,
+        char_max=400,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "事業に関心がある。"}],
+        grounding_mode="company_general",
+    )
+    assert "2文連続" in system_prompt
+
+
+def test_global_rules_include_flow_and_linebreak() -> None:
+    """_GLOBAL_CONCLUSION_FIRST_RULES should contain line-break prohibition, ending variety, and flow rules."""
+    assert "結論ファースト" in _GLOBAL_CONCLUSION_FIRST_RULES
+    assert "抽象動詞" in _GLOBAL_CONCLUSION_FIRST_RULES
+    assert "LLM特有フレーズ" in _GLOBAL_CONCLUSION_FIRST_RULES
+
+
+@pytest.mark.parametrize(
+    "builder_fn",
+    [build_template_rewrite_prompt, build_template_fallback_rewrite_prompt],
+)
+def test_constraints_require_opening_conclusion_with_20_to_45_chars(builder_fn) -> None:
+    system_prompt, _ = builder_fn(
+        template_type="company_motivation",
+        company_name="三菱商事",
+        industry="総合商社",
+        question="三菱商事を志望する理由を教えてください。",
+        answer="研究で仮説検証を重ねた経験を、事業を動かす仕事で生かしたい。",
+        char_min=220,
+        char_max=280,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "研究で仮説検証を重ねた。"}],
+        grounding_mode="company_general",
+    )
+    assert "20〜45字" in system_prompt
+
+
+def test_global_fallback_rules_require_opening_conclusion_with_20_to_45_chars() -> None:
+    assert "20〜45字" in _GLOBAL_CONCLUSION_FIRST_RULES_FALLBACK
+
+
+def test_assistive_grounding_limits_company_name_mentions() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="self_pr",
+        company_name="三菱商事",
+        industry="総合商社",
+        question="自己PRを教えてください。",
+        answer="研究で仮説検証を重ねた経験を、仕事で生かしたい。",
+        char_min=220,
+        char_max=280,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "研究で仮説検証を重ねた。"}],
+        grounding_mode="company_light",
+        company_grounding_override="assistive",
+    )
+    assert "本文全体で2回まで" in system_prompt
+    assert "貴社・御社" in system_prompt
+
+
+def test_required_grounding_limits_company_name_to_once_then_honorific() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="company_motivation",
+        company_name="三菱商事",
+        industry="総合商社",
+        question="三菱商事を志望する理由を教えてください。",
+        answer="研究で仮説検証を重ねた経験を、事業を動かす仕事で生かしたい。",
+        char_min=220,
+        char_max=280,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "研究で仮説検証を重ねた。"}],
+        grounding_mode="company_general",
+    )
+    assert "本文中で1回まで" in system_prompt
+    assert "2回目以降は「貴社」" in system_prompt
+
+
+def test_intern_reason_prompt_includes_proper_noun_policy() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="intern_reason",
+        company_name="三井物産",
+        industry="総合商社",
+        question="インターンに参加したい理由を教えてください。",
+        answer="研究で培った分析力を実務で試したい。",
+        char_min=160,
+        char_max=220,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "研究で培った分析力を実務で試したい。"}],
+        role_name="Business Intelligence",
+        intern_name="Business Intelligence Internship",
+        grounding_mode="role_grounded",
+    )
+    assert "<proper_noun_policy>" in system_prompt
+    assert "本インターンシップ" in system_prompt
+
+
+def test_gakuchika_prompt_does_not_include_proper_noun_policy() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="gakuchika",
+        company_name=None,
+        industry=None,
+        question="学生時代に力を入れたことを教えてください。",
+        answer="学園祭運営の改善に取り組んだ。",
+        char_min=220,
+        char_max=320,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "学園祭運営の改善に取り組んだ。"}],
+        grounding_mode="none",
+    )
+    assert "<proper_noun_policy>" not in system_prompt
+
+
+@pytest.mark.parametrize("template_type", ["self_pr", "work_values"])
+def test_template_specific_quantify_rules_are_only_in_self_pr_and_work_values(
+    template_type: str,
+) -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type=template_type,
+        company_name=None,
+        industry=None,
+        question="設問に回答してください。",
+        answer="周囲を巻き込みながら改善を進めた。",
+        char_min=220,
+        char_max=320,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "周囲を巻き込みながら改善を進めた。"}],
+        grounding_mode="none",
+    )
+    assert "人数・期間・件数・比率" in system_prompt
+    assert "行動動詞" in system_prompt
+
+
+def test_basic_prompt_does_not_include_quantify_rule() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="basic",
+        company_name=None,
+        industry=None,
+        question="設問に回答してください。",
+        answer="周囲を巻き込みながら改善を進めた。",
+        char_min=220,
+        char_max=320,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "周囲を巻き込みながら改善を進めた。"}],
+        grounding_mode="none",
+    )
+    assert "人数・期間・件数・比率" not in system_prompt
+
+
+def test_gakuchika_prompt_includes_structure_rule_and_playbook() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="gakuchika",
+        company_name=None,
+        industry=None,
+        question="学生時代に力を入れたことを教えてください。",
+        answer="学園祭運営の改善に取り組んだ。",
+        char_min=250,
+        char_max=320,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "学園祭運営の改善に取り組んだ。"}],
+        grounding_mode="none",
+    )
+    assert "まず / 次に" in system_prompt or "(1)(2)" in system_prompt
+    assert "【requiredテンプレの型】" in system_prompt
+
+
+def test_retry_guidance_has_quantify_and_structure_entries() -> None:
+    assert "quantify" in TEMPLATE_DEFS["self_pr"]["retry_guidance"]
+    assert "quantify" in TEMPLATE_DEFS["work_values"]["retry_guidance"]
+    assert "structure" in TEMPLATE_DEFS["gakuchika"]["retry_guidance"]
+
+
+def test_length_fix_prompt_supports_quantify_focus() -> None:
+    system_prompt, _ = build_template_length_fix_prompt(
+        template_type="self_pr",
+        current_text="周囲を巻き込みながら改善を進めた。",
+        char_min=220,
+        char_max=320,
+        fix_mode="under_min",
+        focus_modes=["quantify_focus"],
+    )
+    assert "人数・期間・件数・比率" in system_prompt or "数値" in system_prompt
+
+
+# ---------------------------------------------------------------------------
+# 施策 7: CAPEL-inspired self-count instruction tests
+# ---------------------------------------------------------------------------
+
+
+def test_self_count_instruction_present() -> None:
+    """Self-count instruction should appear when char limits are specified."""
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="basic",
+        company_name="テスト株式会社",
+        industry=None,
+        question="志望動機を教えてください。",
+        answer="事業に関心がある。",
+        char_min=200,
+        char_max=400,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "事業に関心がある。"}],
+        grounding_mode="company_general",
+    )
+    assert "文字数" in system_prompt and (
+        "セルフチェック" in system_prompt or "数え" in system_prompt
+    )
+
+
+def test_self_count_absent_without_limits() -> None:
+    """Self-count should NOT appear when no char limits specified."""
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="basic",
+        company_name="テスト株式会社",
+        industry=None,
+        question="志望動機を教えてください。",
+        answer="事業に関心がある。",
+        char_min=None,
+        char_max=None,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "事業に関心がある。"}],
+        grounding_mode="company_general",
+    )
+    assert "セルフチェック" not in system_prompt
+
+
+def test_length_fix_includes_count_adjust() -> None:
+    """Length-fix prompt with GPT model should include Draft->Count->Adjust pattern."""
+    system_prompt, _ = build_template_length_fix_prompt(
+        template_type="basic",
+        current_text="短い回答。",
+        char_min=200,
+        char_max=400,
+        fix_mode="under_min",
+        llm_model="gpt-4o",
+    )
+    assert "Draft" in system_prompt and "Adjust" in system_prompt
+
+
+def test_gemini_paragraph_allocation() -> None:
+    """Gemini model with medium+ band should include paragraph allocation."""
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="basic",
+        company_name="テスト株式会社",
+        industry=None,
+        question="志望動機を教えてください。",
+        answer="事業に関心がある。",
+        char_min=300,
+        char_max=400,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "事業に関心がある。"}],
+        grounding_mode="company_general",
+        llm_model="gemini-2.0-flash",
+    )
+    assert "段落配分" in system_prompt

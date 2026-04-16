@@ -229,6 +229,56 @@ def test_build_reference_quality_profile_adds_conclusion_and_digit_hints(
     assert any("数字や比較" in hint for hint in profile["conditional_hints"])
 
 
+@pytest.mark.parametrize(
+    ("question_type", "expected_hint"),
+    [
+        ("basic", "20〜45字"),
+        ("company_motivation", "20〜45字"),
+        ("intern_reason", "20〜45字"),
+        ("intern_goals", "20〜45字"),
+        ("gakuchika", "20〜45字"),
+        ("self_pr", "20〜45字"),
+        ("post_join_goals", "20〜45字"),
+        ("role_course_reason", "20〜45字"),
+        ("work_values", "20〜45字"),
+    ],
+)
+def test_quality_hints_require_short_opening_conclusion(
+    question_type: str,
+    expected_hint: str,
+) -> None:
+    assert any(expected_hint in hint for hint in reference_es.QUESTION_TYPE_QUALITY_HINTS[question_type])
+
+
+def test_company_motivation_quality_hints_warn_on_repeating_company_name() -> None:
+    assert any(
+        "企業名" in hint and ("3回" in hint or "多重" in hint)
+        for hint in reference_es.QUESTION_TYPE_QUALITY_HINTS["company_motivation"]
+    )
+
+
+@pytest.mark.parametrize("question_type", ["intern_reason", "intern_goals", "role_course_reason"])
+def test_intern_and_role_quality_hints_include_proper_noun_generalization(question_type: str) -> None:
+    assert any(
+        "本インターンシップ" in hint or "本コース" in hint or "本プログラム" in hint
+        for hint in reference_es.QUESTION_TYPE_QUALITY_HINTS[question_type]
+    )
+
+
+@pytest.mark.parametrize("question_type", ["self_pr", "work_values"])
+def test_self_pr_and_work_values_quality_hints_require_numbers_and_actions(question_type: str) -> None:
+    hints = reference_es.QUESTION_TYPE_QUALITY_HINTS[question_type]
+    assert any("数値" in hint or "人数" in hint or "期間" in hint for hint in hints)
+    assert any("行動動詞" in hint or "具体例" in hint for hint in hints)
+
+
+def test_gakuchika_quality_hints_warn_against_listing_without_order() -> None:
+    assert any(
+        "また" in hint or "さらに" in hint or "順序" in hint
+        for hint in reference_es.QUESTION_TYPE_QUALITY_HINTS["gakuchika"]
+    )
+
+
 def test_build_reference_quality_block_includes_structural_patterns_only_when_enough_filtered_references(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
