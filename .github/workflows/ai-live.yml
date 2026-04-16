@@ -6,9 +6,9 @@ permissions:
   actions: read
 
 on:
-  schedule:
-    - cron: "7 14 * * *"
-    - cron: "37 14 * * 0"
+  # NOTE: 定期実行 (cron) は一時停止中 — AI 機能の改善が局所完成するまで、
+  # ローカル `make ai-live-local` を正本とする。手動 dispatch は引き続き可能。
+  # 復活時に備え、resolve-suite の case "${{ github.event.schedule }}" 分岐は残置。
   workflow_dispatch:
     inputs:
       suite:

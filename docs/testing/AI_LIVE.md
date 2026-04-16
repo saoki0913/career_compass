@@ -2,14 +2,29 @@
 
 実 API を使って `ES添削` `企業情報検索` `企業RAG取り込み` `選考スケジュール取得` `ガクチカ作成` `志望動機作成` `面接対策` を検証する運用の説明です。
 
-- `nightly / GitHub Actions`: staging を正本に 7機能を定時実行する
-- `localhost / make ai-live-local`: ローカル開発中に 6機能だけを一括実行する
+> **現状: CI 定期実行は停止中 (2026-04-16〜)**
+> 会話3機能（ガクチカ / 志望動機 / 面接対策）の品質ゲートが staging 上で収束しないケースが続き、`degraded` 扱いで CI が green になる「偽 green」が常態化していたため、`.github/workflows/ai-live.yml` の `on.schedule:` を一時停止した。
+> AI 機能の改善が局所完成するまで、**ローカル `make ai-live-local` を正本**とする。GitHub Actions UI からの手動 dispatch（`workflow_dispatch`）は引き続き利用可能。
+
+- `localhost / make ai-live-local`: ローカル開発中に 6機能を一括実行する（**現在の正本**）
+- `manual dispatch / GitHub Actions`: staging を正本に 7機能を任意のタイミングで実行する（手動のみ）
+- ~~`nightly / GitHub Actions`: staging を正本に 7機能を定時実行する~~ **(停止中)**
 
 - workflow 名: `AI Live`
-- 正本環境: `staging`
-- 毎日 23:07 JST: `smoke`
-- 毎週日曜 23:37 JST: `extended`
-- 朝の確認先: GitHub Issue `AI Live Daily Report YYYY-MM-DD`
+- 正本環境: `staging`（手動 dispatch 時）/ `localhost`（`make ai-live-local`）
+- ~~毎日 23:07 JST: `smoke`~~ **(停止中)**
+- ~~毎週日曜 23:37 JST: `extended`~~ **(停止中)**
+- 朝の確認先: ローカル `make ai-live-local` の出力 `backend/tests/output/local_ai_live/<suite>_<timestamp>/`（手動 dispatch を走らせた場合のみ GitHub Issue `AI Live Daily Report YYYY-MM-DD`）
+
+## 復活手順（cron 再開時）
+
+会話3機能の収束が安定し、`degraded` 比率が許容範囲に収まったら、`.github/workflows/ai-live.yml` の `on:` 直下に下記を追記して `develop` に push する。`resolve-suite` 内の `case "${{ github.event.schedule }}"` 分岐は残してあるので追加修正は不要。
+
+```yaml
+  schedule:
+    - cron: "7 14 * * *"   # 毎日 23:07 JST: smoke
+    - cron: "37 14 * * 0"  # 毎週日曜 23:37 JST: extended
+```
 
 ## 1. Job 構成
 
