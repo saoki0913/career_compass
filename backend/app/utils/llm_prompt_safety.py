@@ -1,6 +1,40 @@
 from __future__ import annotations
 
 import re as _re
+import unicodedata
+
+# Homoglyph confusables map: visually similar chars -> ASCII equivalents.
+# Covers Cyrillic, Greek, and other common look-alikes used to bypass pattern
+# matching. Only characters relevant to injection keyword detection are listed.
+_CONFUSABLES: dict[str, str] = {
+    '\u0430': 'a',  # Cyrillic а
+    '\u0435': 'e',  # Cyrillic е
+    '\u043e': 'o',  # Cyrillic о
+    '\u0440': 'p',  # Cyrillic р
+    '\u0441': 'c',  # Cyrillic с
+    '\u0443': 'y',  # Cyrillic у (visual: y)
+    '\u0456': 'i',  # Cyrillic і (Byelorussian-Ukrainian)
+    '\u0458': 'j',  # Cyrillic ј
+    '\u04bb': 'h',  # Cyrillic һ
+    '\u0501': 'd',  # Cyrillic ԁ
+    '\u051b': 'q',  # Cyrillic ԛ
+    '\u0455': 's',  # Cyrillic ѕ
+    '\u04cf': 'l',  # Cyrillic ӏ
+    '\u0475': 'v',  # Cyrillic ѵ (izhitsa)
+    '\u0410': 'A',  # Cyrillic А
+    '\u0412': 'B',  # Cyrillic В
+    '\u0415': 'E',  # Cyrillic Е
+    '\u041a': 'K',  # Cyrillic К
+    '\u041c': 'M',  # Cyrillic М
+    '\u041d': 'H',  # Cyrillic Н
+    '\u041e': 'O',  # Cyrillic О
+    '\u0420': 'P',  # Cyrillic Р
+    '\u0421': 'C',  # Cyrillic С
+    '\u0422': 'T',  # Cyrillic Т
+    '\u0425': 'X',  # Cyrillic Х
+    '\u0406': 'I',  # Cyrillic І
+}
+_CONFUSABLES_TRANS = str.maketrans(_CONFUSABLES)
 
 
 class PromptSafetyError(ValueError):
@@ -54,6 +88,14 @@ def detect_es_injection_risk(text: str) -> tuple[str, list[str]]:
     if not text:
         return "none", []
 
+    # NFKC normalization + zero-width character handling + confusable
+    # homoglyph mapping (V-3 security fix)
+    text = unicodedata.normalize('NFKC', text)
+    # Replace zero-width chars with spaces (they may act as invisible word
+    # separators in injection payloads), then collapse runs of whitespace.
+    text = _re.sub(r'[\u200b-\u200d\ufeff\u00ad]+', ' ', text)
+    text = _re.sub(r' {2,}', ' ', text)
+    text = text.translate(_CONFUSABLES_TRANS)
     normalized = text.lower()
     reasons: list[str] = []
     risk = "none"

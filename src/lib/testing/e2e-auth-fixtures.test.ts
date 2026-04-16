@@ -93,7 +93,7 @@ describe("e2e auth fixtures", () => {
   it("keeps guest company and document helpers on the guest token path", async () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
     const cookies = vi.fn().mockResolvedValue([
-      { name: "guest_device_token", value: "guest-device-token" },
+      { name: "guest_device_token", value: "550e8400-e29b-41d4-a716-446655440000" },
       { name: "csrf_token", value: "csrf-cookie" },
     ]);
 
@@ -120,12 +120,12 @@ describe("e2e auth fixtures", () => {
     expect(contextFetch.mock.calls[0]?.[1]?.headers).toMatchObject({
       "Content-Type": "application/json",
       "x-csrf-token": "csrf-cookie",
-      "x-device-token": "guest-device-token",
+      "x-device-token": "550e8400-e29b-41d4-a716-446655440000",
     });
     expect(contextFetch.mock.calls[1]?.[1]?.headers).toMatchObject({
       "Content-Type": "application/json",
       "x-csrf-token": "csrf-cookie",
-      "x-device-token": "guest-device-token",
+      "x-device-token": "550e8400-e29b-41d4-a716-446655440000",
     });
   });
 
@@ -171,7 +171,7 @@ describe("e2e auth fixtures", () => {
   it("keeps guest application, task, notification, and gakuchika helpers on the guest token path", async () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
     const cookies = vi.fn().mockResolvedValue([
-      { name: "guest_device_token", value: "guest-device-token" },
+      { name: "guest_device_token", value: "550e8400-e29b-41d4-a716-446655440000" },
       { name: "csrf_token", value: "csrf-cookie" },
     ]);
 
@@ -214,7 +214,7 @@ describe("e2e auth fixtures", () => {
       expect(call[1]?.headers).toMatchObject({
         "Content-Type": "application/json",
         "x-csrf-token": "csrf-cookie",
-        "x-device-token": "guest-device-token",
+        "x-device-token": "550e8400-e29b-41d4-a716-446655440000",
       });
     }
   });
@@ -309,7 +309,7 @@ describe("e2e auth fixtures", () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
     const cookies = vi.fn().mockResolvedValue([
       { name: "better-auth.session_token", value: "session-cookie" },
-      { name: "guest_device_token", value: "guest-device-token" },
+      { name: "guest_device_token", value: "550e8400-e29b-41d4-a716-446655440000" },
       { name: "csrf_token", value: "csrf-cookie" },
       { name: "other_cookie", value: "other-value" },
     ]);
