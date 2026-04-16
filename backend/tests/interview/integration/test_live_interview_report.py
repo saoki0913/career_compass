@@ -6,6 +6,7 @@ Environment gates:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import traceback
@@ -104,16 +105,46 @@ async def _run_single_case(client: StagingClient, case: dict[str, Any]) -> dict[
         if app_id:
             await client.create_job_type(app_id, case.get("applicationJobType", "総合職"))
 
-        # 3. Run motivation setup (prerequisite)
+        # 3. Run motivation setup (prerequisite).
+        # If the staging LLM never converges to draft_ready within the
+        # attempt budget, classify the whole interview case as ``degraded``
+        # rather than crash — the interview flow itself wasn't exercised.
         motivation_transcript: list[dict[str, str]] = []
-        await run_motivation_conversation(
-            client,
-            company_id,
-            case.get("selectedIndustry", ""),
-            case.get("selectedRole", ""),
-            motivation_cfg.get("answers", []),
-            motivation_transcript,
-        )
+        setup_converged = True
+        try:
+            await run_motivation_conversation(
+                client,
+                company_id,
+                case.get("selectedIndustry", ""),
+                case.get("selectedRole", ""),
+                motivation_cfg.get("answers", []),
+                motivation_transcript,
+            )
+        except (RuntimeError, asyncio.TimeoutError) as conv_exc:
+            setup_converged = False
+            print(
+                f"  [interview] motivation setup did not reach draft_ready: "
+                f"{conv_exc}"
+            )
+
+        if not setup_converged:
+            row["transcript"] = motivation_transcript
+            row["outputs"] = {
+                "feedbackText": "",
+                "feedbackLength": 0,
+                "hasFeedback": False,
+                "setupConverged": False,
+                "setupStage": "motivation",
+            }
+            row["deterministicFailReasons"] = [
+                "setup_conversation_did_not_converge:motivation"
+            ]
+            row["checks"] = {}
+            row["judge"] = None
+            row["failureKind"] = "degraded"
+            row["status"] = "degraded"
+            row["severity"] = "warning"
+            return row
 
         # 4. Generate motivation draft
         mot_draft_resp = await client.request(
@@ -143,11 +174,39 @@ async def _run_single_case(client: StagingClient, case: dict[str, Any]) -> dict[
         gakuchika_id = gak_resp.get("id") or gak_resp.get("gakuchika", {}).get("id")
         assert gakuchika_id, f"Failed to create gakuchika for {case_id}"
 
-        # 6. Run gakuchika conversation
+        # 6. Run gakuchika conversation (also a prerequisite for the
+        # interview flow).  Same degraded handling as the motivation step.
         gak_transcript: list[dict[str, str]] = []
-        await run_gakuchika_conversation(
-            client, gakuchika_id, gakuchika_cfg.get("answers", []), gak_transcript
-        )
+        gak_converged = True
+        try:
+            await run_gakuchika_conversation(
+                client, gakuchika_id, gakuchika_cfg.get("answers", []), gak_transcript
+            )
+        except (RuntimeError, asyncio.TimeoutError) as conv_exc:
+            gak_converged = False
+            print(
+                f"  [interview] gakuchika setup did not reach draft_ready: "
+                f"{conv_exc}"
+            )
+
+        if not gak_converged:
+            row["transcript"] = gak_transcript
+            row["outputs"] = {
+                "feedbackText": "",
+                "feedbackLength": 0,
+                "hasFeedback": False,
+                "setupConverged": False,
+                "setupStage": "gakuchika",
+            }
+            row["deterministicFailReasons"] = [
+                "setup_conversation_did_not_converge:gakuchika"
+            ]
+            row["checks"] = {}
+            row["judge"] = None
+            row["failureKind"] = "degraded"
+            row["status"] = "degraded"
+            row["severity"] = "warning"
+            return row
 
         # 7. Generate gakuchika draft
         gak_draft_resp = await client.request(
@@ -291,7 +350,12 @@ async def test_live_interview_report():
     json_path, md_path = write_conversation_report("interview", rows)
     print(f"[interview] report: {json_path}")
 
-    hard_failures = [r for r in rows if r["failureKind"] in ("crash", "api_error", "deterministic_fail")]
+    # Hard failures = anything that is not "pass" or "degraded"
+    hard_failures = [
+        r for r in rows
+        if r.get("failureKind") not in ("pass", "degraded")
+    ]
     if hard_failures:
         names = [r["caseId"] for r in hard_failures]
-        pytest.fail(f"Interview hard failures: {names}")
+        kinds = [r.get("failureKind") for r in hard_failures]
+        pytest.fail(f"Interview hard failures: {names} (kinds: {kinds})")

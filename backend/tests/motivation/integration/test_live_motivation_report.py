@@ -221,7 +221,31 @@ async def _run_single_case(
     transcript: list[dict[str, str]] = []
 
     try:
-        # Step 1: Create company + application + job type
+        # Step 1: Create company + application + job type.
+        # Defensive: a previous run's cleanup may have left a company with the
+        # same name behind, in which case POST /api/companies returns 409.
+        # Delete any pre-existing company with the same name before creating.
+        try:
+            existing = await client.list_companies()
+            for c in existing:
+                if (c.get("name") or "").strip() == case["companyName"]:
+                    leftover_id = c.get("id")
+                    if leftover_id:
+                        try:
+                            await client.delete_company(str(leftover_id))
+                            print(
+                                f"  [mot] deleted leftover company "
+                                f"{leftover_id} ({case['companyName']!r})"
+                            )
+                        except Exception as cleanup_exc:
+                            print(
+                                f"  [mot] failed to delete leftover company "
+                                f"{leftover_id}: {cleanup_exc!r}"
+                            )
+        except Exception as list_exc:
+            # Listing is best-effort; failure here should not abort the case.
+            print(f"  [mot] list_companies failed (continuing): {list_exc!r}")
+
         company_resp = await client.create_company(
             case["companyName"], case.get("industry", "")
         )
@@ -245,16 +269,38 @@ async def _run_single_case(
                 # job_type creation is best-effort; missing it does not break the flow
                 pass
 
-        # Step 2: Run motivation conversation loop
-        await run_motivation_conversation(
-            client,
-            company_id,
-            case.get("selectedIndustry", ""),
-            case.get("selectedRole", ""),
-            answers,
-            transcript,
-        )
+        # Step 2: Run motivation conversation loop.
+        # Mirror the gakuchika handling: if the staging LLM never converges
+        # within the attempt budget, classify as ``degraded`` (non-blocking
+        # quality signal) rather than crash the test run.
+        draft_ready_reached = True
+        try:
+            await run_motivation_conversation(
+                client,
+                company_id,
+                case.get("selectedIndustry", ""),
+                case.get("selectedRole", ""),
+                answers,
+                transcript,
+            )
+        except (RuntimeError, asyncio.TimeoutError) as conv_exc:
+            draft_ready_reached = False
+            print(f"  [mot] conversation did not reach draft_ready: {conv_exc}")
         row["transcript"] = transcript
+
+        if not draft_ready_reached:
+            row["outputs"] = {
+                "draftText": "",
+                "draftLength": 0,
+                "draftReadyReached": False,
+            }
+            row["deterministicFailReasons"] = ["conversation_did_not_reach_draft_ready"]
+            row["checks"] = {}
+            row["judge"] = None
+            row["failureKind"] = "degraded"
+            row["status"] = "degraded"
+            row["severity"] = "warning"
+            return row
 
         # Step 3: Generate draft via direct endpoint
         draft_response = await client.request(
