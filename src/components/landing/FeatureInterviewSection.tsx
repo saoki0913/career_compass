@@ -1,7 +1,8 @@
-import { Check, MessageSquareQuote, Sparkles, UsersRound } from "lucide-react";
+import { MessageSquareQuote, Sparkles, UsersRound } from "lucide-react";
 import Image from "next/image";
 import { landingMedia } from "./landing-media";
 import { LandingSectionMotion } from "./LandingSectionMotion";
+import { LandingCheckList } from "./shared/LandingCheckList";
 
 const motivationPoints = [
   "「なぜその業界か／なぜその会社か／そこで何をしたいか」など、志望動機に必要な観点を会話で順に整理",
@@ -53,21 +54,7 @@ export function FeatureInterviewSection() {
             <p className="mb-8 text-slate-500" style={{ lineHeight: 1.8 }}>
               志望動機やガクチカを、AIとの会話で言語化。頭の中の曖昧な考えが、ESに書ける材料に変わります。
             </p>
-            <ul className="space-y-3">
-              {motivationPoints.map((text) => (
-                <li key={text} className="flex items-start gap-3">
-                  <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--lp-navy)]">
-                    <Check className="h-3 w-3 text-white" strokeWidth={3} />
-                  </span>
-                  <span
-                    className="text-sm text-slate-600"
-                    style={{ fontWeight: 500, lineHeight: 1.6 }}
-                  >
-                    {text}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <LandingCheckList items={motivationPoints} />
           </LandingSectionMotion>
 
           <LandingSectionMotion className="lg:w-1/2">
@@ -102,21 +89,7 @@ export function FeatureInterviewSection() {
               <p className="mb-8 text-slate-500" style={{ lineHeight: 1.8 }}>
                 登録した企業情報をふまえて、AI 面接官が質問。あなたの回答を受けて、さらに深掘るか次の論点に移るかを判断します。終了後には、良かった点と改善点、改善後の回答例まで提示。
               </p>
-              <ul className="space-y-3">
-                {interviewPoints.map((text) => (
-                  <li key={text} className="flex items-start gap-3">
-                    <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--lp-navy)]">
-                      <Check className="h-3 w-3 text-white" strokeWidth={3} />
-                    </span>
-                    <span
-                      className="text-sm text-slate-600"
-                      style={{ fontWeight: 500, lineHeight: 1.6 }}
-                    >
-                      {text}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <LandingCheckList items={interviewPoints} />
             </LandingSectionMotion>
 
             <LandingSectionMotion className="lg:w-1/2">

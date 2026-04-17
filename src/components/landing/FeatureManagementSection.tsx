@@ -1,7 +1,7 @@
-import { Check } from "lucide-react";
 import Image from "next/image";
 import { landingMedia } from "./landing-media";
 import { LandingSectionMotion } from "./LandingSectionMotion";
+import { LandingCheckList } from "./shared/LandingCheckList";
 
 export function FeatureManagementSection() {
   return (
@@ -21,20 +21,13 @@ export function FeatureManagementSection() {
             <p className="mb-8 text-slate-500" style={{ lineHeight: 1.8 }}>
               企業一覧、締切、応募状況、Googleカレンダー連携まで。情報が散らばらないから、やるべきことに集中できます。
             </p>
-            <ul className="space-y-3">
-              {[
+            <LandingCheckList
+              items={[
                 "企業ごとの選考状況をカンバンで一覧管理",
                 "締切をカレンダーで可視化、通知でリマインド",
                 "Googleカレンダーとワンクリック同期",
-              ].map((text) => (
-                <li key={text} className="flex items-start gap-3">
-                  <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--lp-navy)]">
-                    <Check className="h-3 w-3 text-white" strokeWidth={3} />
-                  </span>
-                  <span className="text-sm text-slate-600" style={{ fontWeight: 500, lineHeight: 1.6 }}>{text}</span>
-                </li>
-              ))}
-            </ul>
+              ]}
+            />
           </LandingSectionMotion>
 
           <LandingSectionMotion className="lg:w-1/2">

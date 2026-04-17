@@ -22,7 +22,7 @@ export function HeroSection() {
               <div className="mb-7">
                 <span className="inline-flex items-center gap-2 text-sm text-slate-600">
                   <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--lp-navy)]" />
-                  ES添削から企業管理まで、就活をAIで一括サポート
+                  ES添削から企業別AI模擬面接まで、就活AIで一括サポート
                 </span>
               </div>
 

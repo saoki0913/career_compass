@@ -3,10 +3,18 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { LANDING_PAGE_FAQS } from "@/lib/marketing/landing-faqs";
+import { LANDING_PAGE_FAQS, type MarketingFaq } from "@/lib/marketing/landing-faqs";
 import { LandingSectionMotion } from "./LandingSectionMotion";
 
-export function FAQSection() {
+type FAQSectionProps = {
+  faqs?: readonly MarketingFaq[];
+  heading?: string;
+};
+
+export function FAQSection({
+  faqs = LANDING_PAGE_FAQS,
+  heading = "よくある質問",
+}: FAQSectionProps = {}) {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   return (
@@ -17,14 +25,14 @@ export function FAQSection() {
             className="text-3xl tracking-tight text-[var(--lp-navy)] md:text-[2.5rem]"
             style={{ fontWeight: 800, lineHeight: 1.3 }}
           >
-            よくある質問
+            {heading}
           </h2>
         </LandingSectionMotion>
 
         <LandingSectionMotion>
           <div>
-            {LANDING_PAGE_FAQS.map((faq, i) => (
-              <div key={i} className="border-b border-slate-100">
+            {faqs.map((faq, i) => (
+              <div key={faq.question} className="border-b border-slate-100">
                 <button
                   type="button"
                   className="flex w-full items-center justify-between py-5 text-left group"

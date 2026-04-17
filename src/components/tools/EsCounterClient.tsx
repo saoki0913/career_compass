@@ -4,10 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Sparkles, Target } from "lucide-react";
 import { trackEvent } from "@/lib/analytics/client";
-import {
-  publicSurfacePrimaryCtaClassName,
-  publicSurfaceSecondaryCtaClassName,
-} from "@/components/public-surface/public-surface";
+const primaryCtaClassName =
+  "inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[var(--lp-cta)] px-5 text-sm font-semibold text-white shadow-lg shadow-[rgba(10,15,92,0.12)] transition-all hover:bg-[var(--lp-cta)]/90 hover:shadow-xl hover:shadow-[rgba(10,15,92,0.18)] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lp-navy)] focus-visible:ring-offset-2";
+
+const secondaryCtaClassName =
+  "inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-[var(--lp-navy)] shadow-sm transition-colors duration-200 hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lp-navy)]/20 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
 import { cn } from "@/lib/utils";
 
 function countChars(text: string): number {
@@ -136,14 +137,14 @@ export function EsCounterClient() {
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <Link
               href="/login"
-              className={cn(publicSurfacePrimaryCtaClassName, "px-4 sm:px-5")}
+              className={cn(primaryCtaClassName, "px-4 sm:px-5")}
             >
               アプリで続ける
               <ArrowRight className="size-4 shrink-0" aria-hidden />
             </Link>
             <Link
               href="/templates/shiboudouki"
-              className={cn(publicSurfaceSecondaryCtaClassName, "px-4 sm:px-5")}
+              className={cn(secondaryCtaClassName, "px-4 sm:px-5")}
             >
               志望動機テンプレを見る
               <ArrowRight className="size-4 shrink-0" aria-hidden />
