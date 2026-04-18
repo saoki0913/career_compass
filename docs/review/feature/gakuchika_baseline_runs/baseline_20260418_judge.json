@@ -1,0 +1,466 @@
+{
+  "gak_golden_01_seed_only": {
+    "axes": {
+      "star_completeness": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "user_fact_preservation": {
+        "mean": 4.667,
+        "sd": 0.471,
+        "values": [
+          5,
+          5,
+          4
+        ],
+        "n": 3
+      },
+      "logical_flow": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "question_depth": {
+        "mean": 3.667,
+        "sd": 0.471,
+        "values": [
+          4,
+          4,
+          3
+        ],
+        "n": 3
+      },
+      "naturalness": {
+        "mean": 4.333,
+        "sd": 0.471,
+        "values": [
+          5,
+          4,
+          4
+        ],
+        "n": 3
+      }
+    },
+    "overall": {
+      "mean_of_axis_means": 4.533,
+      "errors": []
+    }
+  },
+  "gak_golden_02_rough_episode": {
+    "axes": {
+      "star_completeness": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "user_fact_preservation": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "logical_flow": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "question_depth": {
+        "mean": 3.333,
+        "sd": 0.471,
+        "values": [
+          3,
+          4,
+          3
+        ],
+        "n": 3
+      },
+      "naturalness": {
+        "mean": 4,
+        "sd": 0.0,
+        "values": [
+          4,
+          4,
+          4
+        ],
+        "n": 3
+      }
+    },
+    "overall": {
+      "mean_of_axis_means": 4.467,
+      "errors": []
+    }
+  },
+  "gak_golden_03_approval_pattern": {
+    "axes": {
+      "star_completeness": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "user_fact_preservation": {
+        "mean": 4.333,
+        "sd": 0.471,
+        "values": [
+          4,
+          4,
+          5
+        ],
+        "n": 3
+      },
+      "logical_flow": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "question_depth": {
+        "mean": 3.667,
+        "sd": 0.471,
+        "values": [
+          4,
+          4,
+          3
+        ],
+        "n": 3
+      },
+      "naturalness": {
+        "mean": 4,
+        "sd": 0.0,
+        "values": [
+          4,
+          4,
+          4
+        ],
+        "n": 3
+      }
+    },
+    "overall": {
+      "mean_of_axis_means": 4.4,
+      "errors": []
+    }
+  },
+  "gak_golden_04_blocked_focus": {
+    "axes": {
+      "star_completeness": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "user_fact_preservation": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "logical_flow": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "question_depth": {
+        "mean": 4,
+        "sd": 0.816,
+        "values": [
+          5,
+          4,
+          3
+        ],
+        "n": 3
+      },
+      "naturalness": {
+        "mean": 4.667,
+        "sd": 0.471,
+        "values": [
+          5,
+          4,
+          5
+        ],
+        "n": 3
+      }
+    },
+    "overall": {
+      "mean_of_axis_means": 4.733,
+      "errors": []
+    }
+  },
+  "gak_golden_05_es_draft_quality": {
+    "axes": {
+      "star_completeness": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "user_fact_preservation": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "logical_flow": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "question_depth": {
+        "mean": 4,
+        "sd": 0.0,
+        "values": [
+          4,
+          4,
+          4
+        ],
+        "n": 3
+      },
+      "naturalness": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      }
+    },
+    "overall": {
+      "mean_of_axis_means": 4.8,
+      "errors": []
+    }
+  },
+  "gak_holdout_01_rich_detailed_episode": {
+    "axes": {
+      "star_completeness": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "user_fact_preservation": {
+        "mean": 4.667,
+        "sd": 0.471,
+        "values": [
+          4,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "logical_flow": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "question_depth": {
+        "mean": 4.333,
+        "sd": 0.471,
+        "values": [
+          5,
+          4,
+          4
+        ],
+        "n": 3
+      },
+      "naturalness": {
+        "mean": 4,
+        "sd": 0.0,
+        "values": [
+          4,
+          4,
+          4
+        ],
+        "n": 3
+      }
+    },
+    "overall": {
+      "mean_of_axis_means": 4.6,
+      "errors": []
+    }
+  },
+  "gak_holdout_02_ambiguous_role_scope": {
+    "axes": {
+      "star_completeness": {
+        "mean": 4.667,
+        "sd": 0.471,
+        "values": [
+          5,
+          5,
+          4
+        ],
+        "n": 3
+      },
+      "user_fact_preservation": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "logical_flow": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "question_depth": {
+        "mean": 4,
+        "sd": 0.0,
+        "values": [
+          4,
+          4,
+          4
+        ],
+        "n": 3
+      },
+      "naturalness": {
+        "mean": 4.667,
+        "sd": 0.471,
+        "values": [
+          5,
+          5,
+          4
+        ],
+        "n": 3
+      }
+    },
+    "overall": {
+      "mean_of_axis_means": 4.667,
+      "errors": []
+    }
+  },
+  "gak_holdout_03_learning_only_feedback": {
+    "axes": {
+      "star_completeness": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "user_fact_preservation": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "logical_flow": {
+        "mean": 5,
+        "sd": 0.0,
+        "values": [
+          5,
+          5,
+          5
+        ],
+        "n": 3
+      },
+      "question_depth": {
+        "mean": 4,
+        "sd": 0.0,
+        "values": [
+          4,
+          4,
+          4
+        ],
+        "n": 3
+      },
+      "naturalness": {
+        "mean": 4,
+        "sd": 0.0,
+        "values": [
+          4,
+          4,
+          4
+        ],
+        "n": 3
+      }
+    },
+    "overall": {
+      "mean_of_axis_means": 4.6,
+      "errors": []
+    }
+  }
+}

@@ -1,0 +1,338 @@
+{
+  "per_sample": [
+    {
+      "case_id": "gak_golden_01_seed_only",
+      "sample_idx": 0,
+      "quote_retention": 0.5,
+      "quote_total": 2,
+      "quote_preserved": 1,
+      "noun_retention": 0.07692307692307693,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5384615384615384,
+      "noun_count": 13,
+      "numeral_count": 9
+    },
+    {
+      "case_id": "gak_golden_01_seed_only",
+      "sample_idx": 1,
+      "quote_retention": 0.5,
+      "quote_total": 2,
+      "quote_preserved": 1,
+      "noun_retention": 0.07692307692307693,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5384615384615384,
+      "noun_count": 13,
+      "numeral_count": 9
+    },
+    {
+      "case_id": "gak_golden_01_seed_only",
+      "sample_idx": 2,
+      "quote_retention": 0.5,
+      "quote_total": 2,
+      "quote_preserved": 1,
+      "noun_retention": 0.07692307692307693,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5384615384615384,
+      "noun_count": 13,
+      "numeral_count": 9
+    },
+    {
+      "case_id": "gak_golden_02_rough_episode",
+      "sample_idx": 0,
+      "quote_retention": 0.0,
+      "quote_total": 2,
+      "quote_preserved": 0,
+      "noun_retention": 0.0,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5,
+      "noun_count": 8,
+      "numeral_count": 7
+    },
+    {
+      "case_id": "gak_golden_02_rough_episode",
+      "sample_idx": 1,
+      "quote_retention": 0.0,
+      "quote_total": 2,
+      "quote_preserved": 0,
+      "noun_retention": 0.0,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5,
+      "noun_count": 8,
+      "numeral_count": 7
+    },
+    {
+      "case_id": "gak_golden_02_rough_episode",
+      "sample_idx": 2,
+      "quote_retention": 0.0,
+      "quote_total": 2,
+      "quote_preserved": 0,
+      "noun_retention": 0.125,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5625,
+      "noun_count": 8,
+      "numeral_count": 7
+    },
+    {
+      "case_id": "gak_golden_03_approval_pattern",
+      "sample_idx": 0,
+      "quote_retention": 0.0,
+      "quote_total": 3,
+      "quote_preserved": 0,
+      "noun_retention": 0.0,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5,
+      "noun_count": 11,
+      "numeral_count": 6
+    },
+    {
+      "case_id": "gak_golden_03_approval_pattern",
+      "sample_idx": 1,
+      "quote_retention": 0.0,
+      "quote_total": 3,
+      "quote_preserved": 0,
+      "noun_retention": 0.0,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5,
+      "noun_count": 11,
+      "numeral_count": 6
+    },
+    {
+      "case_id": "gak_golden_03_approval_pattern",
+      "sample_idx": 2,
+      "quote_retention": 0.0,
+      "quote_total": 3,
+      "quote_preserved": 0,
+      "noun_retention": 0.0,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5,
+      "noun_count": 11,
+      "numeral_count": 6
+    },
+    {
+      "case_id": "gak_golden_04_blocked_focus",
+      "sample_idx": 0,
+      "quote_retention": 0.3333333333333333,
+      "quote_total": 3,
+      "quote_preserved": 1,
+      "noun_retention": 0.1,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.55,
+      "noun_count": 10,
+      "numeral_count": 4
+    },
+    {
+      "case_id": "gak_golden_04_blocked_focus",
+      "sample_idx": 1,
+      "quote_retention": 0.3333333333333333,
+      "quote_total": 3,
+      "quote_preserved": 1,
+      "noun_retention": 0.2,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.6,
+      "noun_count": 10,
+      "numeral_count": 4
+    },
+    {
+      "case_id": "gak_golden_04_blocked_focus",
+      "sample_idx": 2,
+      "quote_retention": 0.3333333333333333,
+      "quote_total": 3,
+      "quote_preserved": 1,
+      "noun_retention": 0.0,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5,
+      "noun_count": 10,
+      "numeral_count": 4
+    },
+    {
+      "case_id": "gak_golden_05_es_draft_quality",
+      "sample_idx": 0,
+      "quote_retention": 0.3333333333333333,
+      "quote_total": 3,
+      "quote_preserved": 1,
+      "noun_retention": 0.16666666666666666,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5833333333333334,
+      "noun_count": 12,
+      "numeral_count": 6
+    },
+    {
+      "case_id": "gak_golden_05_es_draft_quality",
+      "sample_idx": 1,
+      "quote_retention": 0.3333333333333333,
+      "quote_total": 3,
+      "quote_preserved": 1,
+      "noun_retention": 0.16666666666666666,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5833333333333334,
+      "noun_count": 12,
+      "numeral_count": 6
+    },
+    {
+      "case_id": "gak_golden_05_es_draft_quality",
+      "sample_idx": 2,
+      "quote_retention": 0.3333333333333333,
+      "quote_total": 3,
+      "quote_preserved": 1,
+      "noun_retention": 0.08333333333333333,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5416666666666666,
+      "noun_count": 12,
+      "numeral_count": 6
+    },
+    {
+      "case_id": "gak_holdout_01_rich_detailed_episode",
+      "sample_idx": 0,
+      "quote_retention": 0.2,
+      "quote_total": 5,
+      "quote_preserved": 1,
+      "noun_retention": 0.0,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5,
+      "noun_count": 17,
+      "numeral_count": 12
+    },
+    {
+      "case_id": "gak_holdout_01_rich_detailed_episode",
+      "sample_idx": 1,
+      "quote_retention": 0.2,
+      "quote_total": 5,
+      "quote_preserved": 1,
+      "noun_retention": 0.0,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5,
+      "noun_count": 17,
+      "numeral_count": 12
+    },
+    {
+      "case_id": "gak_holdout_01_rich_detailed_episode",
+      "sample_idx": 2,
+      "quote_retention": 0.4,
+      "quote_total": 5,
+      "quote_preserved": 2,
+      "noun_retention": 0.058823529411764705,
+      "numeral_retention": 0.9166666666666666,
+      "combined_fact_retention": 0.4877450980392157,
+      "noun_count": 17,
+      "numeral_count": 12
+    },
+    {
+      "case_id": "gak_holdout_02_ambiguous_role_scope",
+      "sample_idx": 0,
+      "quote_retention": 0.0,
+      "quote_total": 4,
+      "quote_preserved": 0,
+      "noun_retention": 0.07142857142857142,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5357142857142857,
+      "noun_count": 14,
+      "numeral_count": 7
+    },
+    {
+      "case_id": "gak_holdout_02_ambiguous_role_scope",
+      "sample_idx": 1,
+      "quote_retention": 0.0,
+      "quote_total": 4,
+      "quote_preserved": 0,
+      "noun_retention": 0.0,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5,
+      "noun_count": 14,
+      "numeral_count": 7
+    },
+    {
+      "case_id": "gak_holdout_02_ambiguous_role_scope",
+      "sample_idx": 2,
+      "quote_retention": 0.0,
+      "quote_total": 4,
+      "quote_preserved": 0,
+      "noun_retention": 0.07142857142857142,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.5357142857142857,
+      "noun_count": 14,
+      "numeral_count": 7
+    },
+    {
+      "case_id": "gak_holdout_03_learning_only_feedback",
+      "sample_idx": 0,
+      "quote_retention": 0.6666666666666666,
+      "quote_total": 3,
+      "quote_preserved": 2,
+      "noun_retention": 0.21428571428571427,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.6071428571428571,
+      "noun_count": 14,
+      "numeral_count": 6
+    },
+    {
+      "case_id": "gak_holdout_03_learning_only_feedback",
+      "sample_idx": 1,
+      "quote_retention": 0.6666666666666666,
+      "quote_total": 3,
+      "quote_preserved": 2,
+      "noun_retention": 0.21428571428571427,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.6071428571428571,
+      "noun_count": 14,
+      "numeral_count": 6
+    },
+    {
+      "case_id": "gak_holdout_03_learning_only_feedback",
+      "sample_idx": 2,
+      "quote_retention": 0.6666666666666666,
+      "quote_total": 3,
+      "quote_preserved": 2,
+      "noun_retention": 0.21428571428571427,
+      "numeral_retention": 1.0,
+      "combined_fact_retention": 0.6071428571428571,
+      "noun_count": 14,
+      "numeral_count": 6
+    }
+  ],
+  "per_case": {
+    "gak_golden_01_seed_only": {
+      "mean_quote_retention": 0.5,
+      "mean_combined_fact_retention": 0.5384615384615384,
+      "n_samples": 3
+    },
+    "gak_golden_02_rough_episode": {
+      "mean_quote_retention": 0.0,
+      "mean_combined_fact_retention": 0.5208333333333334,
+      "n_samples": 3
+    },
+    "gak_golden_03_approval_pattern": {
+      "mean_quote_retention": 0.0,
+      "mean_combined_fact_retention": 0.5,
+      "n_samples": 3
+    },
+    "gak_golden_04_blocked_focus": {
+      "mean_quote_retention": 0.3333333333333333,
+      "mean_combined_fact_retention": 0.5499999999999999,
+      "n_samples": 3
+    },
+    "gak_golden_05_es_draft_quality": {
+      "mean_quote_retention": 0.3333333333333333,
+      "mean_combined_fact_retention": 0.5694444444444445,
+      "n_samples": 3
+    },
+    "gak_holdout_01_rich_detailed_episode": {
+      "mean_quote_retention": 0.26666666666666666,
+      "mean_combined_fact_retention": 0.4959150326797386,
+      "n_samples": 3
+    },
+    "gak_holdout_02_ambiguous_role_scope": {
+      "mean_quote_retention": 0.0,
+      "mean_combined_fact_retention": 0.5238095238095237,
+      "n_samples": 3
+    },
+    "gak_holdout_03_learning_only_feedback": {
+      "mean_quote_retention": 0.6666666666666666,
+      "mean_combined_fact_retention": 0.6071428571428571,
+      "n_samples": 3
+    }
+  },
+  "overall": {
+    "mean_quote_retention": 0.26250000000000007,
+    "mean_combined_fact_retention": 0.5382008412339295
+  }
+}
