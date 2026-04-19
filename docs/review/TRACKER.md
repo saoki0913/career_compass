@@ -1,24 +1,29 @@
 # 改善トラッカー
 
-最終更新: 2026-04-17
+最終更新: 2026-04-19 (Phase 1A-1 LLM cross-fallback + circuit 観測性実装 / company-info-search Primary Gate FAIL 静的分析レポート追加 / 子プラン AI_QUALITY_IMPROVEMENT_PHASE1A1_1B01 完了)
 
 ## 凡例
-未着手 / 進行中 / 検証待ち / 完了 / superseded
+未着手 / 進行中 / 検証待ち / 完了 / superseded / RFC
 
 ## トラッカー
 
 | topic | latest_review | latest_plan | status | notes |
 |-------|--------------|-------------|--------|-------|
 | security | [2026-04-14](security/security_audit_2026-04-14.md) | [SECURITY_HOTFIX](../plan/SECURITY_HOTFIX_PLAN.md) | 完了 | Phase 1+2 完了 (2026-04-14) / A-1・D-2・D-4・D-10・D-11・D-12・V-1 完了 (2026-04-16) |
-| llm-cost-control | — | [LLM_COST_CONTROL](../plan/LLM_COST_CONTROL_PLAN.md) | 実装済み | C-1〜C-4 全タスク完了 (2026-04-14)。14ルート統合済み |
-| es-review | [2026-04-14](feature/es_review_quality_audit_20260414.md) | [ES_REVIEW_QUALITY_IMPROVEMENT v10](../plan/ES_REVIEW_QUALITY_IMPROVEMENT_PLAN.md) | 検証待ち | Phase 1-10 実装確認済み。Phase 10 の prompt/reference 更新と専用テスト整合を確認 (2026-04-17)。`test_reference_es_quality.py` の非Phase10起因の既存失敗は別件で継続管理 |
-| motivation | [2026-04-12](feature/motivation_quality_audit_20260412.md) | [MOTIVATION_QUALITY_IMPROVEMENT](../plan/MOTIVATION_QUALITY_IMPROVEMENT_PLAN.md) | 進行中 | Grade D(42) → 目標 A(92)。P1 全7項目実装完了 (2026-04-14) |
-| gakuchika | [2026-04-12](feature/gakuchika_quality_audit_20260412.md) | [GAKUCHIKA_QUALITY_IMPROVEMENT v4](../plan/GAKUCHIKA_QUALITY_IMPROVEMENT_PLAN.md) | 未着手 | Grade C(52) → 目標 A-(85+), v4: フルスタック拡張+判定緩和+フロントUX刷新 |
-| interview | [2026-04-12](feature/interview_quality_audit_20260412.md) | [INTERVIEW_QUALITY_IMPROVEMENT](../plan/INTERVIEW_QUALITY_IMPROVEMENT_PLAN.md) | 未着手 | Grade C |
-| maintainability | [2026-04-12](maintainability-architecture/2026-04-12-strict-maintainability-review-current-working-tree.md) | [MAINTAINABILITY_IMPROVEMENT](../plan/MAINTAINABILITY_IMPROVEMENT_PLAN.md) | 未着手 | Phase 3/5/6 残件 |
-| harness | [2026-04-14](harness/2026-04-14-harness-strict-review.md) | [HARNESS_IMPROVEMENT](../plan/HARNESS_IMPROVEMENT_PLAN.md) | 進行中 | H-1a〜H-1d 完了 (2026-04-12 既) / H-2a・H-2b・H-1e 完了 (2026-04-17) / H-3a 方針転換でスキップ |
+| llm-cost-control | — | [LLM_COST_CONTROL](../plan/LLM_COST_CONTROL_PLAN.md) | 完了 | C-1〜C-4 全タスク完了 (2026-04-14)。14ルート統合済み。2026-04-17 closeout で `npm run build` PASS、`src/lib/llm-cost-limit.test.ts` 19 tests PASS を確認し、security audit の C-3 remediation と整合 |
+| es-review | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [2026-04-17 v2](feature/es_review_quality_audit_20260417_v2.md) | [ES_REVIEW_QUALITY_IMPROVEMENT v11](../plan/ES_REVIEW_QUALITY_IMPROVEMENT_PLAN.md) | Phase 10 完了 (次フェーズ検討) | **7軸 86/100 Grade A** (包括評価 2026-04-19)。旧6軸 72/100 B- → 7軸で再評価。diff表示UI実装済み確認(ReflectModal+text-diff.ts)。残課題: hallucination検出 / 添削理由説明生成 / 受容率フィードバックループ |
+| motivation | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [2026-04-12](feature/motivation_quality_audit_20260412.md) | [MOTIVATION_QUALITY_IMPROVEMENT](../plan/MOTIVATION_QUALITY_IMPROVEMENT_PLAN.md) | 完了 | **7軸 80/100 Grade A** (包括評価 2026-04-19)。server-side重複回避(semantic_question_signature+_ensure_distinct_question)実装確認。残課題: motivation.py 4,150行分割 / embedding類似度重複検出 |
+| gakuchika | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [2026-04-18 cycle 1](feature/gakuchika_prompt_measurement_20260418.md) / [2026-04-17](feature/gakuchika_quality_audit_20260417.md) | [GAKUCHIKA_QUALITY_IMPROVEMENT v4](../plan/GAKUCHIKA_QUALITY_IMPROVEMENT_PLAN.md) | cycle 1 実測完了 | **7軸 75/100 Grade A** (包括評価 2026-04-19)。cycle 1 judge mean 4.598/5 = 91.96/100、Tier 1 AI臭 -82%。残課題: 質問品質自動評価基盤 / リトライ機構 / 個人情報取扱ルール明確化 |
+| interview | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [2026-04-12](feature/interview_quality_audit_20260412.md) | [INTERVIEW_QUALITY_IMPROVEMENT v4](../plan/INTERVIEW_QUALITY_IMPROVEMENT_PLAN.md) | Phase 2 完了 | **7軸 83/100 Grade A** (包括評価 2026-04-19)。法定遵守テスト(evaluator.py 14正規表現+96 assertions)実装確認。残課題: 採点キャリブレーション(人間評価一致率測定) |
+| maintainability | [2026-04-12](maintainability-architecture/2026-04-12-strict-maintainability-review-current-working-tree.md) | [MAINTAINABILITY_IMPROVEMENT](../plan/MAINTAINABILITY_IMPROVEMENT_PLAN.md) | 未着手 | Phase 3/5/6 残件。2026-04-17 に `CLEAN_ARCHITECTURE_REFACTORING.md` の将来設計を統合し、canonical を一本化 |
+| harness | [2026-04-14](harness/2026-04-14-harness-strict-review.md) | [HARNESS_IMPROVEMENT](../plan/HARNESS_IMPROVEMENT_PLAN.md) | 完了 | v3: H-1a〜H-1d (2026-04-12) / H-2a・H-2b・H-1e (2026-04-17) / H-3a スキップ。v4: H4-1〜H4-7 完了 (2026-04-18) — permissions.deny 10 件追加 (root-anchored) / codex deny_patterns 拡張 / sync-pipeline.test.mjs 件数ドリフト detector / AI_HARNESS §4.1・§7.4 stale 是正 + §8 観測性新設 / agent description 同義語補強 / v3 plan クローズ。v5 候補は OpenTelemetry / gitleaks / skill canonicalization |
+| rag-arch | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [2026-04-17](rag-architecture/2026-04-17-rag-design-review.md) | [RAG_ARCHITECTURE_IMPROVEMENT](../plan/RAG_ARCHITECTURE_IMPROVEMENT_PLAN.md) | 未着手 | **7軸: 企業RAG 65 B / RAG検索基盤 63 B** (包括評価 2026-04-19)。P0-1 (labeled eval) / P0-2 (tenant fail-closed) / P0-3 (OTel metrics) が Phase 2 M-3 の前提 |
+| clean-arch | — | [CLEAN_ARCHITECTURE_REFACTORING](../plan/CLEAN_ARCHITECTURE_REFACTORING.md) | superseded | 2026-04-17 に MAINTAINABILITY へ吸収。以後は案内文のみ保持し、将来設計の正本は MAINTAINABILITY 側で管理 |
+| llm-infra | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) | [AI_QUALITY_IMPROVEMENT Phase 1A](../plan/AI_QUALITY_IMPROVEMENT_PLAN.md) / [Phase 1A-1 子プラン](../plan/AI_QUALITY_IMPROVEMENT_PHASE1A1_1B01_PLAN.md) | 検証待ち | **Phase 1A-1 実装済み (2026-04-19)**: `_capability_class` + `_feature_cross_fallback_model`、billing 以外で cross-provider フォールバック、`CircuitBreaker` を registry 集約 + `llm.circuit.*` / `llm.fallback.triggered` 構造化ログ。`pytest tests/shared/` PASS |
+| prompt-safety | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [llm_ai_security](security/llm_ai_security.md) | [AI_QUALITY_IMPROVEMENT Phase 1A](../plan/AI_QUALITY_IMPROVEMENT_PLAN.md) | 未着手 | **7軸 56/100 Grade C**。出力側ガードレール未実装。テスト12件passだがlabeled dataset+precision/recall計測が未導入。間接インジェクション対策なし |
+| company-info-search | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [Primary Gate FAIL 静的分析](company-info-search/2026-04-19-primary-gate-fail-investigation.md) | [AI_QUALITY_IMPROVEMENT Phase 1B-2](../plan/AI_QUALITY_IMPROVEMENT_PLAN.md) | 未着手（1B-0/1B-1 調査完了） | **静的分析 (2026-04-19)**: curated 8,050 run 中 7,700 件が `tuple index out of range`、350 件が `error=null`・空 candidates（`company_context`）。主因は検索品質以前のパイプライン例外。1B-2 で修正範囲を特定予定 |
 | db-redesign | — | [DB_REDESIGN](../plan/DB_REDESIGN_PLAN.md) | 未着手 | blast radius 最大 |
-| lp | — | [LP_IMPROVEMENT](../plan/LP_IMPROVEMENT_PLAN.md) | 未着手 | |
+| lp | — | [LP_IMPROVEMENT](../plan/LP_IMPROVEMENT_PLAN.md) | 完了 (2026-04-17) | SEO 改善フェーズ完了。Hero/TrustStrip/CTA 文言統一、Feature 書換え + MidCTA 新設、HowItWorks/PainPoints/Quality 新設、Comparison 11 行、FAQ 10 問、企業別 AI 模擬面接訴求追加、2 階層 LP 4 枚に `BreadcrumbList` 付与、`/pricing` Server + Client 分離。plan frontmatter `完了` 化済み (2026-04-17) |
 
 ## 運用
 - 新しい review / plan を作ったら該当行を更新。行がなければ追加。
