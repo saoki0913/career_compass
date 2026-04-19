@@ -263,13 +263,15 @@ kill_stale_runs() {
 cleanup() {
   local exit_code=$?
   set +e
-  for cpid in "${feature_child_pids[@]}"; do
-    if kill -0 "$cpid" 2>/dev/null; then
-      log "killing feature child (pid=${cpid})"
-      kill -- -"$cpid" 2>/dev/null || kill "$cpid" 2>/dev/null || true
-    fi
-  done
-  feature_child_pids=()
+  if [[ ${#feature_child_pids[@]} -gt 0 ]]; then
+    for cpid in "${feature_child_pids[@]}"; do
+      if kill -0 "$cpid" 2>/dev/null; then
+        log "killing feature child (pid=${cpid})"
+        kill -- -"$cpid" 2>/dev/null || kill "$cpid" 2>/dev/null || true
+      fi
+    done
+    feature_child_pids=()
+  fi
   cleanup_process "FastAPI" "$fastapi_pid"
   cleanup_process "Next.js" "$next_pid"
   exit "$exit_code"
@@ -632,11 +634,17 @@ run_feature_isolated() {
 
   feature_run_dir="$(find_feature_run_dir "$feature" || true)"
 
-  if ! copy_feature_bundle "$feature_run_dir"; then
-    feature_failed=1
-  fi
+  if [[ -n "$feature_run_dir" ]]; then
+    if ! copy_feature_bundle "$feature_run_dir"; then
+      feature_failed=1
+    fi
 
-  if ! write_local_feature_status "$feature" "$feature_run_dir"; then
+    if ! write_local_feature_status "$feature" "$feature_run_dir"; then
+      log "status write failed for ${feature}; run-manifest.json may be missing (timeout?)"
+      feature_failed=1
+    fi
+  else
+    log "no run directory found for ${feature}"
     feature_failed=1
   fi
 
