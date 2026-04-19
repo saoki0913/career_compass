@@ -10,6 +10,7 @@
 | ページ | `src/app/(product)/companies/[id]/motivation/page.tsx` |
 | Next API | `src/app/api/motivation/[companyId]/` |
 | 会話状態 | `src/lib/motivation/conversation.ts` |
+| 集客 LP | `src/app/(marketing)/shiboudouki-ai/page.tsx`（志望動機 AI / 書き方 / テンプレ） |
 
 ## 概要
 
@@ -74,6 +75,8 @@
   - 300/400/500 字の ES 下書きを生成し、会話 state に保持する（会話が draft ready かつ十分な履歴があること）
 - `POST /api/motivation/[companyId]/generate-draft-direct`
   - ルート A。会話メッセージが空のときのみ、かつログイン必須。FastAPI `generate-draft-from-profile` を呼び、材料が薄い場合は 409 で止める。生成後は必要に応じて `next-question` で深掘り用の初回質問を 1 件付与する
+- `POST /api/motivation/[companyId]/resume-deepdive`
+  - `generate-draft` のフォローアップ質問取得失敗時のリカバリ用。既存の `generatedDraft` を前提に FastAPI `/api/motivation/next-question` を再呼び出しし、deepdive 質問を取得する。1 クレジット消費
 - FastAPI のエラー `detail` が文字列以外でも、Next 側で `messageFromFastApiDetail` によりユーザー向け短文に正規化する
 
 ## 会話状態
@@ -99,16 +102,49 @@
 
 ## UI 要点
 
-- 右カラムの進捗は `6項目中 n 項目取得` の形で出す
-- `今確認していること` / `今回知りたいこと` / `次に進む条件` を表示する
+- 右カラムの進捗はガクチカと同じピルバッジ + フェーズトラッカーで表示する
+  - ピル: 6 スロット（業界理由・企業理由・自己接続・希望業務・価値貢献・差別化）を done✓ / current● / pending○ の 3 状態で表示。データソースは `StageStatus`
+  - フェーズ: ES作成可 / 深堀り中 / 面接準備完了（真理値表ベースで導出）
+  - カウンター: slot_fill 時「N問目 / 約6問」、deepdive 時「N問目 / 補強中」
+- slot_fill 中は「今確認していること」「今回知りたいこと」「次に進む条件」を詳細セクションで維持する
 - setup 画面では業界と職種を先に確定する
 - `参考にした企業情報` は compact card で表示する
-- `会話をやり直す` は進捗カードから操作できる。現状は全体リセットが基本で、スロット単位の redo はない
+- `会話をやり直す` は `ConversationSidebarCard` ラッパーのアクションボタンから操作できる。現状は全体リセットが基本で、スロット単位の redo はない
 - `志望動機ESを作成` CTA は常に見える位置に置き、未到達時は disabled 理由を表示する
 - ES 完成後は面接対策への CTA も出す
+- `applyConversationPayload` は `Partial<ConversationPayload>` 対応。`"key" in` ガードで未指定フィールドは既存 state を保持し、ES 作成後もピルやフェーズの状態が維持される
+
+## ES 作成後の導線
+
+ES 生成成功後のフローは以下の通り:
+
+1. **スナックバー** → **モーダル** (`MotivationDraftModal`) が表示される
+2. モーダルには「ESとして保存する」(primary) と「もっと深堀りして再生成する」(outline) の 2 ボタンがある
+3. **「ESとして保存する」** → 新規 ES ドキュメントを作成 → `/es/{docId}` に遷移 → 成功スナックバー表示
+4. **「もっと深堀りして再生成する」** → モーダルを閉じ → deepdive 会話が再開される
+5. モーダルの X ボタンまたはオーバーレイクリックも「もっと深堀り」と同じ動作
+6. ES 保存は毎回新規ドキュメントとして作成される（会話内の下書きは上書き更新）
+
+### 過渡期メッセージ
+
+- **draft_ready 直後（ES 未生成）**: 「志望動機の材料が揃いました。右上の「志望動機ESを作成」からESを生成できます。」
+- **deepdive 完了時（追加質問なし）**: 「補強が完了しました。「志望動機ESを作成」で再生成すると、深掘り内容が反映されます。」
+
+### フォローアップ質問取得失敗時
+
+`generate-draft` 成功後に FastAPI `/api/motivation/next-question` が失敗した場合:
+- モーダルは表示される（保存は可能）
+- エラーメッセージが表示され、リトライボタンは `resume-deepdive` API を呼ぶ
+
+### 進捗パネル（deepdive 時）
+
+- `conversationMode === "deepdive"` 時に「補強フェーズ」セクションが表示される
+- 各 causal gap をカード形式で全件表示（slot 名 + 理由）
+- gap 残数バッジ or 「完了」バッジ
 
 ## クレジット
 
 - 応答 5 回ごとに 3 クレジット消費
 - 下書き生成（対話後 `generate-draft` と会話なし `generate-draft-direct` の両方）は **同一 feature キー `motivation_draft`**。6 credits 予約 → 成功確定 / 失敗取消
+- `resume-deepdive` はフォローアップ質問再取得のため 1 credit 消費（feature キー `motivation_resume_deepdive`）
 - 失敗時は消費しない

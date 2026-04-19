@@ -11,6 +11,7 @@ import {
   generateMotivationDraft,
   generateMotivationDraftDirect,
   resetMotivationConversation,
+  resumeMotivationDeepDive,
   saveMotivationDraft,
   startMotivationConversation,
   streamMotivationConversation,
@@ -29,7 +30,7 @@ import {
   type StageStatus,
 } from "@/lib/motivation/ui";
 import type { MotivationConversationPayload } from "@/lib/motivation/conversation-payload";
-import { notifyMotivationDraftReady } from "@/lib/notifications";
+import { notifyMotivationDraftGenerated, notifyMotivationDraftReady, notifyMotivationDraftSaved } from "@/lib/notifications";
 import { appendOptimisticUserMessage, rollbackOptimisticMessageById } from "@/hooks/conversation/optimistic-message";
 import { resolveRoleSelection } from "@/hooks/conversation/role-selection";
 import { useStreamingTextPlayback } from "@/hooks/useStreamingTextPlayback";
@@ -100,6 +101,7 @@ export function useMotivationConversationController({ companyId }: { companyId: 
   const [generatedDocumentId, setGeneratedDocumentId] = useState<string | null>(null);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isDraftModalOpen, setIsDraftModalOpen] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isStartingConversation, setIsStartingConversation] = useState(false);
   const [charLimit, setCharLimit] = useState<300 | 400 | 500>(400);
@@ -165,24 +167,25 @@ export function useMotivationConversationController({ companyId }: { companyId: 
   }, []);
 
   const applyConversationPayload = useCallback((conversation: ConversationPayload, roleOptions: RoleOptionsResponse | null) => {
-    setMessages(withIds(conversation.messages || []));
-    setNextQuestion(conversation.nextQuestion ?? null);
-    setQuestionCount(conversation.questionCount || 0);
-    setIsDraftReady(conversation.isDraftReady || false);
-    setEvidenceSummary(conversation.evidenceSummary || null);
-    setEvidenceCards(conversation.evidenceCards || []);
-    setGeneratedDraft(conversation.generatedDraft || null);
-    setQuestionStage(conversation.questionStage || null);
-    setStageStatus(conversation.stageStatus || null);
-    setCoachingFocus(conversation.coachingFocus || null);
-    setConversationMode(conversation.conversationMode || "slot_fill");
-    setCurrentSlot(conversation.currentSlot || null);
-    setCurrentIntent(conversation.currentIntent || null);
-    setNextAdvanceCondition(conversation.nextAdvanceCondition || null);
-    setProgress(conversation.progress || null);
-    setCausalGaps(conversation.causalGaps || []);
-    applySetupSelection(conversation.setup, roleOptions, conversation.conversationContext);
-    setConversationLoadError(conversation.error || null);
+    const has = <K extends keyof ConversationPayload>(k: K) => k in conversation;
+    if (has("messages")) setMessages(withIds(conversation.messages ?? []));
+    if (has("nextQuestion")) setNextQuestion(conversation.nextQuestion ?? null);
+    if (has("questionCount")) setQuestionCount(conversation.questionCount ?? 0);
+    if (has("isDraftReady")) setIsDraftReady(conversation.isDraftReady ?? false);
+    if (has("evidenceSummary")) setEvidenceSummary(conversation.evidenceSummary ?? null);
+    if (has("evidenceCards")) setEvidenceCards(conversation.evidenceCards ?? []);
+    if (has("generatedDraft")) setGeneratedDraft(conversation.generatedDraft ?? null);
+    if (has("questionStage")) setQuestionStage(conversation.questionStage ?? null);
+    if (has("stageStatus")) setStageStatus(conversation.stageStatus ?? null);
+    if (has("coachingFocus")) setCoachingFocus(conversation.coachingFocus ?? null);
+    if (has("conversationMode")) setConversationMode(conversation.conversationMode ?? "slot_fill");
+    if (has("currentSlot")) setCurrentSlot(conversation.currentSlot ?? null);
+    if (has("currentIntent")) setCurrentIntent(conversation.currentIntent ?? null);
+    if (has("nextAdvanceCondition")) setNextAdvanceCondition(conversation.nextAdvanceCondition ?? null);
+    if (has("progress")) setProgress(conversation.progress ?? null);
+    if (has("causalGaps")) setCausalGaps(conversation.causalGaps ?? []);
+    if (has("setup")) applySetupSelection(conversation.setup!, roleOptions, conversation.conversationContext);
+    if (has("error")) setConversationLoadError(conversation.error ?? null);
   }, [applySetupSelection]);
 
   const fetchRoleOptions = useCallback(async (industryOverride?: string | null) => {
@@ -247,6 +250,7 @@ export function useMotivationConversationController({ companyId }: { companyId: 
       setEvidenceCards([]);
       setGeneratedDraft(null);
       setGeneratedDocumentId(null);
+      setIsDraftModalOpen(false);
       setQuestionStage(null);
       setStageStatus(null);
       setCoachingFocus(null);
@@ -557,9 +561,31 @@ export function useMotivationConversationController({ companyId }: { companyId: 
         );
       }
 
-      await response.json().catch(() => null);
+      const data = await response.json().catch(() => null);
       setGeneratedDocumentId(null);
-      await fetchData();
+
+      if (data) {
+        applyConversationPayload({
+          messages: data.messages ?? [],
+          nextQuestion: data.nextQuestion ?? null,
+          questionCount: data.questionCount ?? 0,
+          isDraftReady: true,
+          generatedDraft: data.draft ?? null,
+          ...(data.evidenceSummary != null && { evidenceSummary: data.evidenceSummary }),
+          ...(data.evidenceCards != null && { evidenceCards: data.evidenceCards }),
+          ...(data.questionStage != null && { questionStage: data.questionStage }),
+          ...(data.stageStatus != null && { stageStatus: data.stageStatus }),
+          ...(data.coachingFocus != null && { coachingFocus: data.coachingFocus }),
+          ...(data.conversationMode != null && { conversationMode: data.conversationMode }),
+          ...(data.currentSlot != null && { currentSlot: data.currentSlot }),
+          ...(data.currentIntent != null && { currentIntent: data.currentIntent }),
+          ...(data.nextAdvanceCondition != null && { nextAdvanceCondition: data.nextAdvanceCondition }),
+          ...(data.progress != null && { progress: data.progress }),
+          ...(data.causalGaps != null && { causalGaps: data.causalGaps }),
+        }, roleOptionsData);
+      } else {
+        await fetchData();
+      }
     } catch (err) {
       setError(
         reportUserFacingError(
@@ -580,6 +606,7 @@ export function useMotivationConversationController({ companyId }: { companyId: 
   }, [
     acquireLock,
     activeOperationLabel,
+    applyConversationPayload,
     charLimit,
     companyId,
     fetchData,
@@ -802,9 +829,33 @@ export function useMotivationConversationController({ companyId }: { companyId: 
       }
 
       const data = await response.json();
-      setGeneratedDraft(data.draft);
-      setGeneratedDocumentId(typeof data.documentId === "string" ? data.documentId : null);
-      await fetchData();
+      setGeneratedDocumentId(null);
+
+      applyConversationPayload({
+        messages: data.messages || messages,
+        nextQuestion: data.nextQuestion ?? null,
+        questionCount: questionCount,
+        isDraftReady: true,
+        generatedDraft: data.draft,
+        ...(data.evidenceSummary != null && { evidenceSummary: data.evidenceSummary }),
+        ...(data.evidenceCards != null && { evidenceCards: data.evidenceCards }),
+        ...(data.questionStage != null && { questionStage: data.questionStage }),
+        ...(data.stageStatus != null && { stageStatus: data.stageStatus }),
+        ...(data.coachingFocus != null && { coachingFocus: data.coachingFocus }),
+        ...(data.conversationMode != null && { conversationMode: data.conversationMode }),
+        ...(data.currentSlot != null && { currentSlot: data.currentSlot }),
+        ...(data.currentIntent != null && { currentIntent: data.currentIntent }),
+        ...(data.nextAdvanceCondition != null && { nextAdvanceCondition: data.nextAdvanceCondition }),
+        ...(data.progress != null && { progress: data.progress }),
+        ...(data.causalGaps != null && { causalGaps: data.causalGaps }),
+      }, roleOptionsData);
+
+      notifyMotivationDraftGenerated();
+      setIsDraftModalOpen(true);
+
+      if (!data.nextQuestion && data.draft) {
+        setError("深掘り質問の取得に失敗しました。モーダルを閉じた後「再試行」で再取得できます。");
+      }
     } catch (err) {
       setError(
         reportUserFacingError(
@@ -822,14 +873,14 @@ export function useMotivationConversationController({ companyId }: { companyId: 
       setIsGeneratingDraft(false);
       releaseLock();
     }
-  }, [acquireLock, charLimit, companyId, fetchData, isDraftReady, isGeneratingDraft, isStartingConversation, messages.length, releaseLock]);
+  }, [acquireLock, applyConversationPayload, charLimit, companyId, isDraftReady, isGeneratingDraft, isStartingConversation, messages, questionCount, releaseLock, roleOptionsData]);
 
-  const handleSaveGeneratedDraft = useCallback(async () => {
-    if (!generatedDraft || generatedDocumentId || isSavingDraft || isGeneratingDraft || isLocked) return;
+  const handleSaveGeneratedDraft = useCallback(async (): Promise<string | null> => {
+    if (!generatedDraft || generatedDocumentId || isSavingDraft || isGeneratingDraft || isLocked) return null;
 
     if (!acquireLock("下書きを保存中")) {
       setError(`${activeOperationLabel || "別の操作"}が進行中です。完了までお待ちください。`);
-      return;
+      return null;
     }
 
     setIsSavingDraft(true);
@@ -851,7 +902,10 @@ export function useMotivationConversationController({ companyId }: { companyId: 
       }
 
       const data = await response.json();
-      setGeneratedDocumentId(typeof data.documentId === "string" ? data.documentId : null);
+      const docId = typeof data.documentId === "string" ? data.documentId : null;
+      setGeneratedDocumentId(docId);
+      notifyMotivationDraftSaved();
+      return docId;
     } catch (err) {
       setError(
         reportUserFacingError(
@@ -865,6 +919,7 @@ export function useMotivationConversationController({ companyId }: { companyId: 
           "MotivationPage.handleSaveGeneratedDraft",
         ),
       );
+      return null;
     } finally {
       setIsSavingDraft(false);
       releaseLock();
@@ -880,6 +935,51 @@ export function useMotivationConversationController({ companyId }: { companyId: 
     isSavingDraft,
     releaseLock,
   ]);
+
+  const handleResumeDeepDive = useCallback(async () => {
+    if (!generatedDraft || isLocked) return;
+    if (!acquireLock("深掘り質問を取得中")) return;
+    setError(null);
+
+    try {
+      const response = await resumeMotivationDeepDive(companyId);
+      if (!response.ok) {
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "MOTIVATION_RESUME_DEEPDIVE_FAILED",
+            userMessage: "深掘り質問の取得に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleResumeDeepDive",
+        );
+      }
+
+      const data = await response.json();
+      setGeneratedDocumentId(null);
+      applyConversationPayload(data, roleOptionsData);
+    } catch (err) {
+      setError(
+        reportUserFacingError(
+          err,
+          {
+            code: "MOTIVATION_RESUME_DEEPDIVE_FAILED",
+            userMessage: "深掘り質問の取得に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "MotivationPage.handleResumeDeepDive",
+        ),
+      );
+    } finally {
+      releaseLock();
+    }
+  }, [acquireLock, applyConversationPayload, companyId, generatedDraft, isLocked, releaseLock, roleOptionsData]);
+
+  const handleCloseDraftModal = useCallback(() => {
+    setIsDraftModalOpen(false);
+  }, []);
 
   const handleResetConversation = useCallback(async () => {
     if (isSending || isGeneratingDraft || isResetting || isWaitingForResponse || isTextStreaming || isStartingConversation) {
@@ -965,14 +1065,18 @@ export function useMotivationConversationController({ companyId }: { companyId: 
     fetchData,
     generatedDocumentId,
     generatedDraft,
+    handleCloseDraftModal,
     handleGenerateDraft,
     handleGenerateDraftDirect,
     handleIndustryChange,
     handleResetConversation,
+    handleResumeDeepDive,
     handleSaveGeneratedDraft,
     handleSend,
     handleStartConversation,
+    isDraftModalOpen,
     isDraftReady,
+    setIsDraftModalOpen,
     isGeneratingDraft,
     isLoading,
     isLocked,

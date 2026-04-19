@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +21,11 @@ import { cn } from "@/lib/utils";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
 import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
+import { MotivationDraftModal } from "@/components/motivation/MotivationDraftModal";
 import { MotivationEvidenceSection } from "@/components/motivation/MotivationEvidenceSection";
+import { MotivationProgressStatus } from "@/components/motivation/MotivationProgressStatus";
+import { MotivationPhaseBar } from "@/components/motivation/MotivationPhaseBar";
+import { ConversationSidebarCard } from "@/components/chat/ConversationWorkspaceShell";
 import { OperationLockProvider } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -36,8 +40,6 @@ import {
   type MotivationStageKey,
   STAGE_ANSWER_GUIDE,
   STAGE_LABELS,
-  STAGE_ORDER,
-  type StageStatus,
 } from "@/lib/motivation/ui";
 
 // Icons
@@ -69,44 +71,6 @@ const ResetIcon = () => (
   </svg>
 );
 
-function normalizeTrackerStage(stage: MotivationStageKey): Exclude<MotivationStageKey, "closing"> {
-  return stage === "closing" ? "differentiation" : stage;
-}
-
-function MotivationStageTracker({ stageStatus }: { stageStatus: StageStatus | null }) {
-  if (!stageStatus) return null;
-
-  const currentForUi = normalizeTrackerStage(stageStatus.current);
-
-  return (
-    <div className="space-y-2">
-      {STAGE_ORDER.map((stage) => {
-        const isCurrent = currentForUi === stage;
-        const isCompleted =
-          stageStatus.completed.includes(stage) ||
-          (stage === "differentiation" && stageStatus.completed.includes("closing"));
-        return (
-          <div
-            key={stage}
-            className={cn(
-              "rounded-[18px] border px-3.5 py-2.5 text-xs shadow-sm",
-              isCurrent && "border-sky-300 bg-sky-50 text-slate-900",
-              isCompleted && "border-emerald-200 bg-emerald-50 text-emerald-800",
-              !isCurrent && !isCompleted && "border-border/60 bg-muted/20 text-muted-foreground"
-            )}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-medium">{STAGE_LABELS[stage]}</span>
-              <span>
-                {isCompleted ? "完了" : isCurrent ? "進行中" : "未着手"}
-              </span>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function MotivationDraftActionBar({
   charLimit,
@@ -207,6 +171,7 @@ function MotivationDraftActionBar({
 function MotivationConversationContent() {
   const params = useParams();
   const companyId = params.id as string;
+  const router = useRouter();
   const {
     answer,
     causalGaps,
@@ -224,14 +189,18 @@ function MotivationConversationContent() {
     fetchData,
     generatedDocumentId,
     generatedDraft,
+    handleCloseDraftModal,
     handleGenerateDraft,
     handleGenerateDraftDirect,
     handleIndustryChange,
     handleResetConversation,
+    handleResumeDeepDive,
     handleSaveGeneratedDraft,
     handleSend,
     handleStartConversation,
+    isDraftModalOpen,
     isDraftReady,
+    setIsDraftModalOpen,
     isGeneratingDraft,
     isLoading,
     isLocked,
@@ -311,7 +280,7 @@ function MotivationConversationContent() {
     questionCount > 0 ||
     messages.length > 0 ||
     isDraftReady;
-  const hasStartedConversation = messages.length > 0;
+  const hasStartedConversation = messages.length > 0 || Boolean(generatedDraft);
   const requiresIndustrySelection = Boolean(roleOptionsData?.requiresIndustrySelection);
   const effectiveIndustry =
     selectedIndustry ||
@@ -336,8 +305,6 @@ function MotivationConversationContent() {
     questionStage === "closing"
       ? CONVERSATION_MODE_LABELS[conversationMode]
       : progress?.current_slot_label || (activeStage ? STAGE_LABELS[activeStage] : null);
-  const progressCompleted = progress?.completed ?? 0;
-  const progressTotal = progress?.total ?? 6;
 
   const draftHelperText = (() => {
     if (isGeneratingDraft) return "会話内容をもとに志望動機ESを生成しています。";
@@ -656,6 +623,19 @@ function MotivationConversationContent() {
                       />
                     </div>
                   )}
+
+                  {isDraftReady && !nextQuestion && !generatedDraft && !isGeneratingDraft && !isWaitingForResponse && !isTextStreaming && (
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900">
+                      志望動機の材料が揃いました。右上の「志望動機ESを作成」からESを生成できます。生成後はさらに深掘りして強化できます。
+                    </div>
+                  )}
+
+                  {isDraftReady && !nextQuestion && generatedDraft && !isWaitingForResponse && !isTextStreaming && (
+                    <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900">
+                      補強が完了しました。「志望動機ESを作成」で再生成すると、深掘り内容が反映されます。
+                    </div>
+                  )}
+
                   <div ref={messagesEndRef} />
                 </div>
               )}
@@ -687,7 +667,15 @@ function MotivationConversationContent() {
                   variant="ghost"
                   size="sm"
                   className="shrink-0 text-destructive hover:text-destructive"
-                  onClick={() => { setError(null); releaseLock(); fetchData(); }}
+                  onClick={() => {
+                    setError(null);
+                    if (generatedDraft && !nextQuestion) {
+                      handleResumeDeepDive();
+                    } else {
+                      releaseLock();
+                      fetchData();
+                    }
+                  }}
                 >
                   再試行
                 </Button>
@@ -755,7 +743,13 @@ function MotivationConversationContent() {
                   onChange={setAnswer}
                   onSend={() => handleSend()}
                   disabled={isSending || !nextQuestion || isLocked || showSetupScreen}
-                  placeholder={answerGuide}
+                  placeholder={
+                    isDraftReady && !nextQuestion && !generatedDraft
+                      ? "ESを生成すると、補強の質問が始まります"
+                      : isDraftReady && !nextQuestion && generatedDraft
+                        ? "補強完了。ESを再生成できます"
+                        : answerGuide
+                  }
                   className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0"
                 />
               )}
@@ -765,10 +759,10 @@ function MotivationConversationContent() {
           {/* Sidebar */}
           <div className="space-y-4 lg:flex lg:min-h-0 lg:flex-col lg:space-y-0">
             <div className="space-y-3 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-              <Card className="border-border/50">
-                <CardHeader className="flex min-h-12 flex-row items-center justify-between space-y-0 px-3.5 py-2.5">
-                  <CardTitle className="text-sm font-medium">進捗</CardTitle>
-                  {hasSavedConversation ? (
+              <ConversationSidebarCard
+                title="進捗"
+                actions={
+                  hasSavedConversation ? (
                     <Button
                       variant="outline"
                       size="sm"
@@ -779,10 +773,11 @@ function MotivationConversationContent() {
                       <ResetIcon />
                       <span className="ml-2">{isResetting ? "初期化中..." : "会話をやり直す"}</span>
                     </Button>
-                  ) : null}
-                </CardHeader>
-                <CardContent className="px-3.5 pb-3.5 pt-0">
-                  <div className="mb-3 flex flex-wrap gap-2">
+                  ) : undefined
+                }
+              >
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
                     {effectiveIndustry ? (
                       <Badge variant="soft-info" className="px-3 py-1 text-[11px]">
                         業界: {effectiveIndustry}
@@ -801,6 +796,11 @@ function MotivationConversationContent() {
                         職種未選択
                       </Badge>
                     )}
+                    {generatedDraft ? (
+                      <Badge variant="soft-success" className="px-3 py-1 text-[11px]">
+                        ES下書き生成済み
+                      </Badge>
+                    ) : null}
                   </div>
 
                   {showSetupScreen ? (
@@ -812,63 +812,52 @@ function MotivationConversationContent() {
                     </div>
                   ) : (
                     <>
-                      <div className="mb-3 flex flex-wrap gap-2">
-                        <Badge variant={isPostDraftMode ? "soft-info" : "outline"} className="px-3 py-1 text-[11px]">
-                          {motivationModeLabel}
-                        </Badge>
-                        {generatedDraft ? (
-                          <Badge variant="soft-success" className="px-3 py-1 text-[11px]">
-                            ES下書き生成済み
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
-                        <p className="text-xs text-muted-foreground">
-                          進捗: <span className="font-medium text-foreground/80">{progressCompleted}項目 / {progressTotal}項目</span>
-                        </p>
-                        {currentSlotLabel ? (
-                          <p className="text-xs text-muted-foreground">
-                            今確認していること: <span className="font-medium text-foreground/80">{currentSlotLabel}</span>
-                          </p>
-                        ) : null}
-                        {currentIntentLabel ? (
-                          <p className="text-xs text-muted-foreground">
-                            今回知りたいこと: <span className="font-medium text-foreground/80">{currentIntentLabel}</span>
-                          </p>
-                        ) : null}
-                        {nextAdvanceCondition ? (
-                          <p className="text-xs text-muted-foreground">
-                            次に進む条件: <span className="font-medium text-foreground/80">{nextAdvanceCondition}</span>
-                          </p>
-                        ) : null}
-                      </div>
-                      {activeStage && (
-                        <p className="mb-2 pt-2 text-xs text-center text-muted-foreground">{STAGE_LABELS[activeStage]}</p>
-                      )}
-                      {coachingFocus && (
-                        <p className="mb-2 text-xs text-center text-muted-foreground">
-                          今回の狙い: <span className="font-medium text-foreground/80">{coachingFocus}</span>
-                        </p>
-                      )}
-                      <div className="mt-3">
-                        <MotivationStageTracker stageStatus={stageStatus} />
-                      </div>
-                      {conversationMode === "deepdive" && causalGaps.length > 0 ? (
-                        <div className="mt-3 rounded-xl border border-border/60 bg-background px-4 py-3">
-                          <p className="text-xs font-medium text-foreground">補強対象</p>
-                          <div className="mt-2 space-y-2">
-                            {causalGaps.slice(0, 2).map((gap) => (
-                              <p key={gap.id} className="text-xs leading-5 text-muted-foreground">
-                                {gap.reason}
-                              </p>
-                            ))}
+                      <MotivationProgressStatus
+                        stageStatus={stageStatus}
+                        questionCount={questionCount}
+                        conversationMode={conversationMode}
+                        coachingFocus={coachingFocus}
+                        currentSlotLabel={currentSlotLabel}
+                        currentIntentLabel={currentIntentLabel}
+                        nextAdvanceCondition={nextAdvanceCondition}
+                      />
+                      <MotivationPhaseBar
+                        isDraftReady={isDraftReady}
+                        conversationMode={conversationMode}
+                        hasNextQuestion={Boolean(nextQuestion)}
+                        hasCausalGaps={causalGaps.length > 0}
+                      />
+                      {conversationMode === "deepdive" ? (
+                        <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-medium text-foreground">補強フェーズ</p>
+                            <Badge
+                              variant={causalGaps.length === 0 ? "soft-success" : "soft-info"}
+                              className="px-2 py-0.5 text-[10px]"
+                            >
+                              {causalGaps.length === 0 ? "完了" : `残り${causalGaps.length}件`}
+                            </Badge>
                           </div>
+                          {causalGaps.length > 0 ? (
+                            <div className="mt-2 space-y-2">
+                              {causalGaps.map((gap) => (
+                                <div key={gap.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2">
+                                  <p className="text-[11px] font-medium text-foreground/80">{gap.slot}</p>
+                                  <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{gap.reason}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              全ての補強項目が解消されました。
+                            </p>
+                          )}
                         </div>
                       ) : null}
                     </>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </ConversationSidebarCard>
 
               <Card className="border-border/50">
                 <CardHeader className="px-3.5 py-2.5">
@@ -892,36 +881,29 @@ function MotivationConversationContent() {
 
               {generatedDraft ? (
                 <Card className="border-border/50">
-                  <CardHeader className="px-3.5 py-2.5">
+                  <CardHeader className="flex min-h-12 flex-row items-center justify-between space-y-0 px-3.5 py-2.5">
                     <CardTitle className="text-sm font-medium">生成した下書き</CardTitle>
+                    <Badge variant="soft-info" className="px-2 py-0.5 text-[10px]">
+                      {generatedDraft.length}字
+                    </Badge>
                   </CardHeader>
                   <CardContent className="space-y-3 px-3.5 pb-3.5 pt-0">
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      {generatedDocumentId
-                        ? "志望動機 ES の下書きは保存済みです。必要ならこのまま補足質問に答えて、企業理由や原体験を強められます。"
-                        : "生成直後の下書きはまだ ES 一覧に保存していません。内容を残したい場合は先に保存してください。"}
+                    <p className="text-xs leading-5 text-muted-foreground line-clamp-4">
+                      {generatedDraft.slice(0, 120)}{generatedDraft.length > 120 ? "..." : ""}
                     </p>
-                    {!generatedDocumentId ? (
-                      <Button
-                        className="w-full"
-                        onClick={handleSaveGeneratedDraft}
-                        disabled={isSavingDraft || isGeneratingDraft}
-                      >
-                        {isSavingDraft ? (
-                          <>
-                            <LoadingSpinner />
-                            <span className="ml-2">保存中...</span>
-                          </>
-                        ) : (
-                          "ESとして保存する"
-                        )}
-                      </Button>
-                    ) : null}
                     {generatedDocumentId ? (
                       <Button asChild variant="outline" className="w-full">
                         <Link href={`/es/${generatedDocumentId}`}>ESを編集する</Link>
                       </Button>
-                    ) : null}
+                    ) : (
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => setIsDraftModalOpen(true)}
+                      >
+                        下書きを確認する
+                      </Button>
+                    )}
                     <Button asChild className="w-full">
                       <Link href={`/companies/${companyId}/interview`}>この志望動機をもとに面接対策へ進む</Link>
                     </Button>
@@ -931,6 +913,23 @@ function MotivationConversationContent() {
             </div>
           </div>
         </div>
+
+        {generatedDraft ? (
+          <MotivationDraftModal
+            isOpen={isDraftModalOpen}
+            draft={generatedDraft}
+            charLimit={charLimit}
+            isSaving={isSavingDraft}
+            onSave={async () => {
+              const docId = await handleSaveGeneratedDraft();
+              if (docId) {
+                handleCloseDraftModal();
+                router.push(`/es/${docId}`);
+              }
+            }}
+            onDeepDive={handleCloseDraftModal}
+          />
+        ) : null}
       </main>
     </div>
   );

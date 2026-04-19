@@ -153,6 +153,83 @@ test.describe("Motivation page (guest)", () => {
   });
 });
 
+async function mockDraftReadyConversation(page: Page) {
+  await page.unroute(`**/api/motivation/${COMPANY_ID}/conversation`);
+  await page.route(`**/api/motivation/${COMPANY_ID}/conversation`, async (route) => {
+    if (route.request().method() !== "GET") {
+      return route.continue();
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        messages: [
+          { id: "a-1", role: "assistant", content: "株式会社テストを志望する理由を教えてください。" },
+          { id: "u-1", role: "user", content: "DX推進に共感しました。" },
+          { id: "a-2", role: "assistant", content: "入社後にどんな仕事へ挑戦したいですか？" },
+          { id: "u-2", role: "user", content: "プロダクト改善を担いたいです。" },
+          { id: "a-3", role: "assistant", content: "自分の強みをどう活かしますか？" },
+          { id: "u-3", role: "user", content: "課題発見力が強みです。" },
+          { id: "a-4", role: "assistant", content: "業界を選んだ理由は何ですか？" },
+          { id: "u-4", role: "user", content: "IT業界の成長性に惹かれています。" },
+          { id: "a-5", role: "assistant", content: "チームで成果を出した経験を教えてください。" },
+          { id: "u-5", role: "user", content: "学園祭の実行委員として300人を動かしました。" },
+          { id: "a-6", role: "assistant", content: "他社と比べてこの会社を選ぶ決め手は何ですか？" },
+          { id: "u-6", role: "user", content: "技術力と社風の両立が決め手です。" },
+        ],
+        nextQuestion: null,
+        questionCount: 6,
+        isCompleted: false,
+        isDraftReady: true,
+        scores: {
+          company_understanding: 75,
+          self_analysis: 70,
+          career_vision: 68,
+          differentiation: 72,
+        },
+        conversationMode: "slot_fill",
+        progress: { completed: 6, total: 6 },
+        currentSlot: "differentiation",
+        currentIntent: null,
+        nextAdvanceCondition: null,
+        causalGaps: [],
+        evidenceSummary: null,
+        evidenceCards: [],
+        questionStage: "differentiation",
+        stageStatus: {
+          current: "differentiation",
+          completed: [
+            "industry_reason",
+            "company_reason",
+            "self_connection",
+            "desired_work",
+            "value_contribution",
+            "differentiation",
+          ],
+          pending: [],
+        },
+        coachingFocus: null,
+        generatedDraft: null,
+        conversationContext: {
+          selectedIndustry: "IT・通信",
+          selectedRole: "企画職",
+          selectedRoleSource: "industry_default",
+        },
+        setup: {
+          selectedIndustry: "IT・通信",
+          selectedRole: "企画職",
+          selectedRoleSource: "industry_default",
+          requiresIndustrySelection: false,
+          resolvedIndustry: "IT・通信",
+          isComplete: true,
+          requiresRestart: false,
+          hasSavedConversation: true,
+        },
+      }),
+    });
+  });
+}
+
 test.describe("Motivation page (mock authenticated)", () => {
   test.beforeEach(async ({ page }) => {
     await mockMotivationPage(page);
@@ -181,10 +258,10 @@ test.describe("Motivation page (mock authenticated)", () => {
     await expect(page.getByRole("button", { name: "志望動機ESを作成" })).toHaveCount(1);
     await expect(page.getByRole("button", { name: "志望動機ESを作成" })).toBeVisible();
     await expect(page.getByRole("button", { name: "会話をやり直す" }).first()).toBeVisible();
+    await expect(page.getByText("進捗", { exact: true }).first()).toBeVisible();
+    await expect(page.getByLabel("企業理由: 進行中")).toBeVisible();
     await expect(page.getByText("今確認していること")).toBeVisible();
-    await expect(page.getByText("今回知りたいこと")).toBeVisible();
-    await expect(page.getByText("次に進む条件")).toBeVisible();
-    await expect(page.getByText("1項目 / 6項目")).toBeVisible();
+    await expect(page.getByText("ES作成可").first()).toBeVisible();
     await expect(page.getByRole("link", { name: /新卒採用ページ/ }).first()).toBeVisible();
   });
 
@@ -195,7 +272,7 @@ test.describe("Motivation page (mock authenticated)", () => {
     await expect(page.getByRole("button", { name: "志望動機ESを作成" }).first()).toBeVisible();
     await expect(page.getByRole("textbox")).toBeVisible();
     await expect(page.getByRole("button", { name: "会話をやり直す" }).first()).toBeVisible();
-    await expect(page.getByText("1項目 / 6項目")).toBeVisible();
+    await expect(page.getByText("企業志望理由を整理中").first()).toBeVisible();
   });
 
   test("refetches conversation after stream failure instead of restoring stale state", async ({
@@ -359,13 +436,454 @@ test.describe("Motivation page (mock authenticated)", () => {
     });
 
     await page.goto(`/companies/${COMPANY_ID}/motivation`);
-    await expect(page.getByText("1項目 / 6項目")).toBeVisible();
+    await expect(page.getByLabel("企業理由: 進行中")).toBeVisible();
     await expect(page.getByText("今確認していること")).toBeVisible();
 
     await page.getByRole("textbox").fill("顧客課題を解決できる点に惹かれます。");
     await page.getByRole("textbox").press("Enter");
 
-    await expect(page.getByText("2項目 / 6項目")).toBeVisible();
+    await expect(page.getByLabel("希望業務: 進行中")).toBeVisible();
     await expect(page.getByText("入社後にどんな仕事へ挑戦したいですか？")).toBeVisible();
+  });
+});
+
+test.describe("Motivation page (draft-ready flows)", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockMotivationPage(page);
+    await mockAuthenticatedUser(page, {
+      id: "motivation-e2e-draft-user",
+      name: "Draft E2E User",
+      email: "e2e-motivation-draft@example.com",
+      plan: "free",
+    });
+    await mockCredits(page, { type: "user", plan: "free", balance: 100 });
+    await mockMotivationShellApis(page);
+  });
+
+  test("shows draft_ready transitional message when all slots are filled", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await mockDraftReadyConversation(page);
+    await page.goto(`/companies/${COMPANY_ID}/motivation`);
+
+    await expect(
+      page.getByText("志望動機の材料が揃いました", { exact: false })
+    ).toBeVisible();
+    await expect(page.getByRole("textbox")).toHaveAttribute(
+      "placeholder",
+      "ESを生成すると、補強の質問が始まります"
+    );
+  });
+
+  test("generates draft, shows snackbar and modal", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await mockDraftReadyConversation(page);
+
+    await page.route(`**/api/motivation/${COMPANY_ID}/generate-draft`, async (route) => {
+      if (route.request().method() !== "POST") {
+        return route.continue();
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          draft: "テスト志望動機です。企業のDX推進に共感し…",
+          charCount: 200,
+          keyPoints: ["企業理解"],
+          companyKeywords: ["DX"],
+          documentId: null,
+          nextQuestion: "さらに補強したい点はどこですか？",
+          conversationMode: "deepdive",
+          causalGaps: [
+            {
+              id: "g1",
+              slot: "self_connection",
+              reason: "経験との接続が弱い",
+              promptHint: "",
+            },
+          ],
+          stageStatus: {
+            current: "self_connection",
+            completed: [
+              "industry_reason",
+              "company_reason",
+              "self_connection",
+              "desired_work",
+              "value_contribution",
+              "differentiation",
+            ],
+            pending: [],
+          },
+          messages: [
+            { role: "user", content: "a" },
+            { role: "assistant", content: "b" },
+            { role: "assistant", content: "さらに補強したい点はどこですか？" },
+          ],
+          evidenceSummary: null,
+          evidenceCards: [],
+          questionStage: "self_connection",
+          coachingFocus: null,
+          currentSlot: "self_connection",
+          currentIntent: null,
+          nextAdvanceCondition: null,
+          progress: null,
+        }),
+      });
+    });
+
+    await page.goto(`/companies/${COMPANY_ID}/motivation`);
+    await page.getByRole("button", { name: "志望動機ESを作成" }).click();
+
+    await expect(page.getByText("ESを生成しました")).toBeVisible();
+    await expect(
+      page.getByRole("dialog").filter({ hasText: "生成した志望動機ES" })
+    ).toBeVisible();
+    await expect(page.getByText("テスト志望動機です")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "ESとして保存する" })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "もっと深堀りして再生成する" })
+    ).toBeVisible();
+  });
+
+  test("closing modal resumes deepdive conversation", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await mockDraftReadyConversation(page);
+
+    await page.route(`**/api/motivation/${COMPANY_ID}/generate-draft`, async (route) => {
+      if (route.request().method() !== "POST") {
+        return route.continue();
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          draft: "テスト志望動機です。企業のDX推進に共感し…",
+          charCount: 200,
+          keyPoints: ["企業理解"],
+          companyKeywords: ["DX"],
+          documentId: null,
+          nextQuestion: "さらに補強したい点はどこですか？",
+          conversationMode: "deepdive",
+          causalGaps: [],
+          stageStatus: {
+            current: "self_connection",
+            completed: [
+              "industry_reason",
+              "company_reason",
+              "self_connection",
+              "desired_work",
+              "value_contribution",
+              "differentiation",
+            ],
+            pending: [],
+          },
+          messages: [
+            { role: "user", content: "a" },
+            { role: "assistant", content: "b" },
+            { role: "assistant", content: "さらに補強したい点はどこですか？" },
+          ],
+          evidenceSummary: null,
+          evidenceCards: [],
+          questionStage: "self_connection",
+          coachingFocus: null,
+          currentSlot: "self_connection",
+          currentIntent: null,
+          nextAdvanceCondition: null,
+          progress: null,
+        }),
+      });
+    });
+
+    await page.goto(`/companies/${COMPANY_ID}/motivation`);
+    await page.getByRole("button", { name: "志望動機ESを作成" }).click();
+
+    await expect(
+      page.getByRole("dialog").filter({ hasText: "生成した志望動機ES" })
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "もっと深堀りして再生成する" }).click();
+
+    await expect(
+      page.getByRole("dialog").filter({ hasText: "生成した志望動機ES" })
+    ).not.toBeVisible();
+    await expect(page.getByText("さらに補強したい点はどこですか？")).toBeVisible();
+    await expect(page.getByRole("textbox")).not.toBeDisabled();
+  });
+
+  test("saving draft navigates to ES edit page", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await mockDraftReadyConversation(page);
+
+    await page.route(`**/api/motivation/${COMPANY_ID}/generate-draft`, async (route) => {
+      if (route.request().method() !== "POST") {
+        return route.continue();
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          draft: "テスト志望動機です。企業のDX推進に共感し…",
+          charCount: 200,
+          keyPoints: ["企業理解"],
+          companyKeywords: ["DX"],
+          documentId: null,
+          nextQuestion: "さらに補強したい点はどこですか？",
+          conversationMode: "deepdive",
+          causalGaps: [],
+          stageStatus: {
+            current: "self_connection",
+            completed: [
+              "industry_reason",
+              "company_reason",
+              "self_connection",
+              "desired_work",
+              "value_contribution",
+              "differentiation",
+            ],
+            pending: [],
+          },
+          messages: [
+            { role: "user", content: "a" },
+            { role: "assistant", content: "b" },
+            { role: "assistant", content: "さらに補強したい点はどこですか？" },
+          ],
+          evidenceSummary: null,
+          evidenceCards: [],
+          questionStage: "self_connection",
+          coachingFocus: null,
+          currentSlot: "self_connection",
+          currentIntent: null,
+          nextAdvanceCondition: null,
+          progress: null,
+        }),
+      });
+    });
+
+    await page.route(`**/api/motivation/${COMPANY_ID}/save-draft`, async (route) => {
+      if (route.request().method() !== "POST") {
+        return route.continue();
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ documentId: "doc-123" }),
+      });
+    });
+
+    await page.goto(`/companies/${COMPANY_ID}/motivation`);
+    await page.getByRole("button", { name: "志望動機ESを作成" }).click();
+
+    await expect(
+      page.getByRole("dialog").filter({ hasText: "生成した志望動機ES" })
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "ESとして保存する" }).click();
+
+    await expect(page).toHaveURL(/\/es\/doc-123/);
+  });
+
+  test("shows deepdive completion message when no follow-up question", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 960 });
+
+    await page.unroute(`**/api/motivation/${COMPANY_ID}/conversation`);
+    await page.route(`**/api/motivation/${COMPANY_ID}/conversation`, async (route) => {
+      if (route.request().method() !== "GET") {
+        return route.continue();
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          messages: [
+            { id: "a-1", role: "assistant", content: "補強について教えてください。" },
+            { id: "u-1", role: "user", content: "はい、補強しました。" },
+          ],
+          nextQuestion: null,
+          questionCount: 6,
+          isCompleted: false,
+          isDraftReady: true,
+          generatedDraft: "既存の下書きです。",
+          conversationMode: "deepdive",
+          progress: null,
+          currentSlot: null,
+          currentIntent: null,
+          nextAdvanceCondition: null,
+          causalGaps: [],
+          evidenceSummary: null,
+          evidenceCards: [],
+          questionStage: "differentiation",
+          stageStatus: {
+            current: "differentiation",
+            completed: [
+              "industry_reason",
+              "company_reason",
+              "self_connection",
+              "desired_work",
+              "value_contribution",
+              "differentiation",
+            ],
+            pending: [],
+          },
+          coachingFocus: null,
+          conversationContext: {
+            selectedIndustry: "IT・通信",
+            selectedRole: "企画職",
+            selectedRoleSource: "industry_default",
+          },
+          setup: {
+            selectedIndustry: "IT・通信",
+            selectedRole: "企画職",
+            selectedRoleSource: "industry_default",
+            requiresIndustrySelection: false,
+            resolvedIndustry: "IT・通信",
+            isComplete: true,
+            requiresRestart: false,
+            hasSavedConversation: true,
+          },
+        }),
+      });
+    });
+
+    await page.goto(`/companies/${COMPANY_ID}/motivation`);
+
+    await expect(
+      page.getByText("補強が完了しました", { exact: false })
+    ).toBeVisible();
+  });
+
+  test("progress pills reflect slot_fill stage status", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await page.goto(`/companies/${COMPANY_ID}/motivation`);
+
+    await expect(page.getByLabel("企業理由: 進行中")).toBeVisible();
+    await expect(page.getByLabel("業界理由: 未着手")).toBeVisible();
+    await expect(page.getByLabel("自己接続: 未着手")).toBeVisible();
+    await expect(page.getByLabel("希望業務: 未着手")).toBeVisible();
+    await expect(page.getByLabel("価値貢献: 未着手")).toBeVisible();
+    await expect(page.getByLabel("差別化: 未着手")).toBeVisible();
+    await expect(page.getByText("1問目 / 約6問")).toBeVisible();
+  });
+
+  test("phase tracker shows ES作成可 as current during slot_fill", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await page.goto(`/companies/${COMPANY_ID}/motivation`);
+
+    const phaseBar = page.locator("[class*='space-y-2']").filter({ hasText: "ES作成可" });
+    await expect(phaseBar.getByText("ES作成可")).toBeVisible();
+    await expect(phaseBar.getByText("進行中")).toBeVisible();
+    await expect(phaseBar.getByText("深堀り中")).toBeVisible();
+    await expect(phaseBar.getByText("未着手").first()).toBeVisible();
+  });
+
+  test("phase tracker shows draft_ready done and deepdive current after generate-draft", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await mockDraftReadyConversation(page);
+
+    await page.route(`**/api/motivation/${COMPANY_ID}/generate-draft`, async (route) => {
+      if (route.request().method() !== "POST") {
+        return route.continue();
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          draft: "テスト志望動機です。",
+          charCount: 100,
+          keyPoints: [],
+          companyKeywords: [],
+          documentId: null,
+          nextQuestion: "補強します。",
+          conversationMode: "deepdive",
+          causalGaps: [{ id: "g1", slot: "self_connection", reason: "弱い", promptHint: "" }],
+          stageStatus: {
+            current: "self_connection",
+            completed: ["industry_reason", "company_reason", "self_connection", "desired_work", "value_contribution", "differentiation"],
+            pending: [],
+          },
+          messages: [
+            { role: "user", content: "a" },
+            { role: "assistant", content: "b" },
+            { role: "assistant", content: "補強します。" },
+          ],
+          evidenceSummary: null,
+          evidenceCards: [],
+          questionStage: "self_connection",
+          coachingFocus: null,
+          currentSlot: "self_connection",
+          currentIntent: null,
+          nextAdvanceCondition: null,
+          progress: null,
+        }),
+      });
+    });
+
+    await page.goto(`/companies/${COMPANY_ID}/motivation`);
+    await page.getByRole("button", { name: "志望動機ESを作成" }).click();
+
+    await expect(page.getByRole("dialog").filter({ hasText: "生成した志望動機ES" })).toBeVisible();
+    await page.getByRole("button", { name: "もっと深堀りして再生成する" }).click();
+
+    const phaseBar = page.locator("[class*='space-y-2']").filter({ hasText: "ES作成可" });
+    await expect(phaseBar.getByText("完了").first()).toBeVisible();
+    await expect(phaseBar.getByText("深堀り中")).toBeVisible();
+  });
+
+  test("question counter switches to deepdive format", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 960 });
+
+    await page.unroute(`**/api/motivation/${COMPANY_ID}/conversation`);
+    await page.route(`**/api/motivation/${COMPANY_ID}/conversation`, async (route) => {
+      if (route.request().method() !== "GET") {
+        return route.continue();
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          messages: [
+            { id: "a-1", role: "assistant", content: "補強質問です。" },
+          ],
+          nextQuestion: "補強質問です。",
+          questionCount: 8,
+          isCompleted: false,
+          isDraftReady: true,
+          generatedDraft: "既存ES。",
+          conversationMode: "deepdive",
+          progress: null,
+          currentSlot: null,
+          currentIntent: null,
+          nextAdvanceCondition: null,
+          causalGaps: [{ id: "g1", slot: "self_connection", reason: "弱い", promptHint: "" }],
+          evidenceSummary: null,
+          evidenceCards: [],
+          questionStage: "self_connection",
+          stageStatus: {
+            current: "self_connection",
+            completed: ["industry_reason", "company_reason", "self_connection", "desired_work", "value_contribution", "differentiation"],
+            pending: [],
+          },
+          coachingFocus: null,
+          conversationContext: {
+            selectedIndustry: "IT・通信",
+            selectedRole: "企画職",
+            selectedRoleSource: "industry_default",
+          },
+          setup: {
+            selectedIndustry: "IT・通信",
+            selectedRole: "企画職",
+            selectedRoleSource: "industry_default",
+            requiresIndustrySelection: false,
+            resolvedIndustry: "IT・通信",
+            isComplete: true,
+            requiresRestart: false,
+            hasSavedConversation: true,
+          },
+        }),
+      });
+    });
+
+    await page.goto(`/companies/${COMPANY_ID}/motivation`);
+    await expect(page.getByText("8問目 / 補強中")).toBeVisible();
   });
 });
