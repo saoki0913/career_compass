@@ -952,21 +952,34 @@ def test_repair_json_gpt_mini_max_tokens_matches_policy() -> None:
     assert llm.REPAIR_JSON_OPENAI_MAX_TOKENS == 1500
 
 
-def test_feature_cross_fallback_model_disabled_for_all_features(
+def test_feature_cross_fallback_model_gpt_mini_features_no_mapping_from_anthropic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """gpt-mini primary に対して失敗側が anthropic の組み合わせはマッピングなし。"""
+    monkeypatch.setattr(settings, "openai_api_key", "x")
+    monkeypatch.setattr(settings, "anthropic_api_key", "a")
+    reset_registry()
+    assert llm._feature_cross_fallback_model("company_info", "anthropic") is None
+    assert llm._feature_cross_fallback_model("selection_schedule", "anthropic") is None
+
+
+def test_feature_cross_fallback_model_es_review_anthropic_to_gpt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "x")
-    assert llm._feature_cross_fallback_model("company_info", "anthropic") is None
-    assert llm._feature_cross_fallback_model("selection_schedule", "anthropic") is None
-    assert llm._feature_cross_fallback_model("es_review", "anthropic") is None
+    monkeypatch.setattr(settings, "anthropic_api_key", "a")
+    reset_registry()
+    assert llm._feature_cross_fallback_model("es_review", "anthropic") == "gpt"
 
 
-def test_feature_cross_fallback_model_openai_never_switches_provider(
+def test_feature_cross_fallback_model_openai_gpt_mini_to_claude_haiku(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "anthropic_api_key", "y")
-    assert llm._feature_cross_fallback_model("company_info", "openai") is None
-    assert llm._feature_cross_fallback_model("selection_schedule", "openai") is None
+    monkeypatch.setattr(settings, "openai_api_key", "x")
+    reset_registry()
+    assert llm._feature_cross_fallback_model("company_info", "openai") == "claude-haiku"
+    assert llm._feature_cross_fallback_model("selection_schedule", "openai") == "claude-haiku"
 
 
 def test_feature_cross_fallback_model_google_never_switch(
@@ -978,11 +991,13 @@ def test_feature_cross_fallback_model_google_never_switch(
 
 
 @pytest.mark.asyncio
-async def test_call_llm_with_error_openai_rate_limit_skips_cross_provider_fallback(
+async def test_call_llm_with_error_openai_rate_limit_cross_provider_fallback_to_claude(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """rate_limit 時も billing 以外は cross-provider フォールバックする。"""
     monkeypatch.setattr(settings, "openai_api_key", "k")
     monkeypatch.setattr(settings, "anthropic_api_key", "a")
+    reset_registry()
 
     async def fail_responses(*args, **kwargs):
         raise OpenAIAPIError(
@@ -991,11 +1006,11 @@ async def test_call_llm_with_error_openai_rate_limit_skips_cross_provider_fallba
             body=None,
         )
 
-    async def no_claude(*args, **kwargs):
-        raise AssertionError("claude must not be called when rate_limited")
+    async def ok_claude(*args, **kwargs):
+        return '{"a": "ok"}', {"input_tokens": 1, "output_tokens": 1}
 
     monkeypatch.setattr(llm, "_call_openai_responses", fail_responses)
-    monkeypatch.setattr(llm, "_call_claude_raw", no_claude)
+    monkeypatch.setattr(llm, "_call_claude_raw", ok_claude)
 
     result = await llm.call_llm_with_error(
         system_prompt="s",
@@ -1010,9 +1025,8 @@ async def test_call_llm_with_error_openai_rate_limit_skips_cross_provider_fallba
         use_responses_api=True,
     )
 
-    assert result.success is False
-    assert result.error is not None
-    assert result.error.error_type == "rate_limit"
+    assert result.success is True
+    assert result.data == {"a": "ok"}
 
 
 @pytest.mark.asyncio

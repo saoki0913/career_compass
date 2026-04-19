@@ -22,6 +22,7 @@ def _build_model_config() -> dict[str, LLMModel]:
         "gakuchika": settings.model_gakuchika,
         "motivation": settings.model_motivation,
         "interview": settings.model_interview,
+        "interview_plan": settings.model_interview_plan,
         "interview_feedback": settings.model_interview_feedback,
         "gakuchika_draft": settings.model_gakuchika_draft,
         "motivation_draft": settings.model_motivation_draft,
@@ -145,9 +146,52 @@ def _provider_has_api_key(provider: LLMProvider) -> bool:
     }[provider]
 
 
-def _feature_cross_fallback_model(feature: str, provider: LLMProvider) -> Optional[LLMModel]:
-    _ = (feature, provider)
+def _capability_class(model: str) -> Optional[str]:
+    """Map model alias or resolved ID to a small set of capability tiers for cross-provider fallback."""
+    m = (model or "").lower().strip()
+    if not m:
+        return None
+    if "claude" in m:
+        if "sonnet" in m:
+            return "sonnet_tier"
+        if "haiku" in m:
+            return "haiku_tier"
+        return None
+    if "gpt" in m:
+        if "mini" in m:
+            return "gpt_mini_tier"
+        if "nano" in m:
+            return None
+        return "gpt5_tier"
     return None
+
+
+def _feature_cross_fallback_model(feature: str, provider: LLMProvider) -> Optional[LLMModel]:
+    from app.utils.llm_client_registry import get_circuit_breaker
+
+    cfg = get_model_config()
+    primary = cfg.get(feature)
+    if not primary:
+        return None
+    cc = _capability_class(primary)
+    target_model: Optional[str] = None
+    if cc == "sonnet_tier" and provider == "anthropic":
+        target_model = "gpt"
+    elif cc == "gpt5_tier" and provider == "openai":
+        target_model = "claude-sonnet"
+    elif cc == "haiku_tier" and provider == "anthropic":
+        target_model = "gpt-mini"
+    elif cc == "gpt_mini_tier" and provider == "openai":
+        target_model = "claude-haiku"
+    if not target_model:
+        return None
+    target = _resolve_model_target(feature, target_model)
+    target_provider = target.provider
+    if not _provider_has_api_key(target_provider):
+        return None
+    if get_circuit_breaker(target_provider).is_open():
+        return None
+    return target_model
 
 
 __all__ = [
@@ -156,6 +200,7 @@ __all__ = [
     "ResponseFormat",
     "ResolvedModelTarget",
     "_build_model_config",
+    "_capability_class",
     "_feature_cross_fallback_model",
     "_provider_has_api_key",
     "_resolve_model_target",

@@ -11,12 +11,12 @@ LLMユーティリティモジュール
 
 import asyncio
 import base64
+import time
 import httpx
 from anthropic import AsyncAnthropic, APIError as AnthropicAPIError
 import openai
 from openai import APIError as OpenAIAPIError
 from app.config import settings
-from app.prompts.notion_registry import get_managed_prompt_content
 from app.utils.secure_logger import get_logger
 import json
 
@@ -50,7 +50,7 @@ from app.utils.llm_usage_cost import (
     _should_log_llm_cost,
     _should_log_llm_cost_debug,
 )
-from app.utils.llm_client_registry import CircuitBreaker
+from app.utils.llm_client_registry import get_circuit_breaker
 from app.utils.llm_model_routing import (
     LLMProvider,
     LLMModel,
@@ -77,10 +77,6 @@ _google_http_client_rag: Optional[httpx.AsyncClient] = None
 
 # Thread-safe lock for client initialization
 _client_lock = asyncio.Lock()
-
-# Circuit breakers for each provider
-_anthropic_circuit = CircuitBreaker()
-_openai_circuit = CircuitBreaker()
 
 
 async def get_anthropic_client(for_rag: bool = False) -> AsyncAnthropic:
@@ -206,19 +202,15 @@ def _requires_json_prompt_hint(provider: LLMProvider) -> bool:
 
 
 def _json_repair_system_prompt(*, require_valid: bool = False) -> str:
-    fallback = "あなたはJSON修復の専門家です。必ずJSONのみ出力してください。"
     if require_valid:
-        fallback = "あなたはJSON修復の専門家です。必ず有効なJSONのみを返してください。"
-    return get_managed_prompt_content("llm_common.json_repair_system", fallback=fallback)
+        return "あなたはJSON修復の専門家です。必ず有効なJSONのみを返してください。"
+    return "あなたはJSON修復の専門家です。必ずJSONのみ出力してください。"
 
 
 def _json_repair_user_prompt(repair_source: str) -> str:
-    template = get_managed_prompt_content(
-        "llm_common.json_repair_user",
-        fallback=(
-            "以下のテキストを有効なJSONに修復してください。JSON以外は出力しないでください。\n\n"
-            "{repair_source}"
-        ),
+    template = (
+        "以下のテキストを有効なJSONに修復してください。JSON以外は出力しないでください。\n\n"
+        "{repair_source}"
     )
     return template.format(repair_source=repair_source)
 
@@ -309,26 +301,20 @@ def _augment_system_prompt_for_provider_json(
 
     schema_body = _schema_body(json_schema)
     schema_example = _build_schema_example(schema_body)
-    strict_note_template = get_managed_prompt_content(
-        "llm_common.json_strict_note",
-        fallback=(
-            "\n\n# JSON出力の厳守\n"
-            "必ず有効なJSONのみを返してください。説明文、前置き、コードブロックは禁止です。"
-            "\n先頭文字は {{、末尾文字は }} にしてください。"
-            "\n期待するJSONの骨組み:\n"
-            "{schema_example}"
-        ),
+    strict_note_template = (
+        "\n\n# JSON出力の厳守\n"
+        "必ず有効なJSONのみを返してください。説明文、前置き、コードブロックは禁止です。"
+        "\n先頭文字は {{、末尾文字は }} にしてください。"
+        "\n期待するJSONの骨組み:\n"
+        "{schema_example}"
     )
     strict_note = strict_note_template.format(
         schema_example=json.dumps(schema_example, ensure_ascii=False)
     )
     if provider == "google":
-        strict_note += get_managed_prompt_content(
-            "llm_common.json_strict_note_google_append",
-            fallback=(
-                "\nこれは単純な構造化出力タスクです。思考や解説を書かず、"
-                "回答のJSONオブジェクトを先に、かつそれだけを返してください。"
-            ),
+        strict_note += (
+            "\nこれは単純な構造化出力タスクです。思考や解説を書かず、"
+            "回答のJSONオブジェクトを先に、かつそれだけを返してください。"
         )
     return f"{system_prompt}{strict_note}"
 
@@ -342,20 +328,14 @@ def _augment_system_prompt_for_provider_text(
     if feature != "es_review" or provider == "anthropic":
         return system_prompt
 
-    strict_note = get_managed_prompt_content(
-        "llm_common.text_strict_note",
-        fallback=(
-            "\n\n# 出力形式の厳守\n"
-            "出力は最終本文のみを返してください。"
-            "\n説明、前置き、後書き、見出し、箇条書き、コードブロック、引用符は禁止です。"
-            "\n先頭から本文を書き始め、余計なラベルを付けないでください。"
-        ),
+    strict_note = (
+        "\n\n# 出力形式の厳守\n"
+        "出力は最終本文のみを返してください。"
+        "\n説明、前置き、後書き、見出し、箇条書き、コードブロック、引用符は禁止です。"
+        "\n先頭から本文を書き始め、余計なラベルを付けないでください。"
     )
     if provider == "google":
-        strict_note += get_managed_prompt_content(
-            "llm_common.text_strict_note_google_append",
-            fallback="\n思考や解説は書かず、本文だけを返してください。",
-        )
+        strict_note += "\n思考や解説は書かず、本文だけを返してください。"
     return f"{system_prompt}{strict_note}"
 
 
@@ -933,7 +913,25 @@ async def _call_openai_compatible(
     response = await client.chat.completions.create(**request_kwargs)
 
     usage_summary = _extract_openai_chat_usage_summary(response)
-    content = response.choices[0].message.content
+    message = response.choices[0].message
+    content = message.content
+    msg_parsed = getattr(message, "parsed", None)
+
+    # Structured Outputs: SDK が message.parsed に dict を載せ、content が空のことがある。
+    parsed_obj: dict[str, Any] | None = None
+    if isinstance(msg_parsed, dict):
+        parsed_obj = msg_parsed
+    elif msg_parsed is not None and hasattr(msg_parsed, "model_dump"):
+        try:
+            dumped = msg_parsed.model_dump()
+            if isinstance(dumped, dict):
+                parsed_obj = dumped
+        except Exception:
+            parsed_obj = None
+
+    if parsed_obj is not None:
+        return parsed_obj, usage_summary
+
     if not content:
         print(f"[{_provider_display_name(provider)}] 空のレスポンスを受信")
         return None, usage_summary
@@ -997,6 +995,38 @@ async def _call_openai_compatible_raw_text(
     return content, usage_summary
 
 
+def _emit_fallback_event(
+    feature: str,
+    primary_model: str,
+    selected_model: str,
+    failure_reason: str,
+    latency_ms: int,
+    primary_provider: str,
+) -> None:
+    """Cross-provider fallback 開始時の構造化ログ。circuit_state は失敗した側 primary のブレーカーのみ。"""
+    get_logger(__name__).info(
+        json.dumps(
+            {
+                "event": "llm.fallback.triggered",
+                "feature": feature,
+                "primary_model": primary_model,
+                "selected_model": selected_model,
+                "failure_reason": failure_reason,
+                "latency_ms": latency_ms,
+                "circuit_state": (
+                    (
+                        "open"
+                        if get_circuit_breaker(primary_provider).is_open()
+                        else "closed"
+                    )
+                    if primary_provider in ("anthropic", "openai")
+                    else "closed"
+                ),
+            }
+        )
+    )
+
+
 async def call_llm_with_error(
     system_prompt: str,
     user_message: str,
@@ -1032,6 +1062,7 @@ async def call_llm_with_error(
     """
     feature = feature or "unknown"
     requested_model = model or get_model_config().get(feature, "claude-sonnet")
+    start = time.monotonic()
     try:
         target = _resolve_model_target(feature, requested_model)
     except ValueError as exc:
@@ -1248,9 +1279,18 @@ async def call_llm_with_error(
     except (AnthropicAPIError, OpenAIAPIError, httpx.HTTPError) as e:
         error_type, detail = _classify_error_for_provider(target.provider, e)
         fallback_model = None
-        if not disable_fallback and error_type not in {"billing", "rate_limit", "network"}:
+        if not disable_fallback and error_type not in {"billing"}:
             fallback_model = _feature_cross_fallback_model(feature, target.provider)
         if fallback_model:
+            latency_ms = int((time.monotonic() - start) * 1000)
+            _emit_fallback_event(
+                feature=feature,
+                primary_model=str(requested_model),
+                selected_model=fallback_model,
+                failure_reason=error_type,
+                latency_ms=latency_ms,
+                primary_provider=target.provider,
+            )
             _log(
                 feature,
                 f"{_provider_display_name(target.provider)} {error_type}、{fallback_model} にフォールバック",
@@ -1303,6 +1343,7 @@ async def call_llm_text_with_error(
     """Plain text response path with provider fallback and no JSON parsing."""
     feature = feature or "unknown"
     requested_model = model or get_model_config().get(feature, "claude-sonnet")
+    start = time.monotonic()
     try:
         target = _resolve_model_target(feature, requested_model)
     except ValueError as exc:
@@ -1455,9 +1496,18 @@ async def call_llm_text_with_error(
 
     except (AnthropicAPIError, OpenAIAPIError, httpx.HTTPError) as e:
         error_type, detail = _classify_error_for_provider(target.provider, e)
-        if not disable_fallback and error_type not in {"billing", "rate_limit", "network"}:
+        if not disable_fallback and error_type not in {"billing"}:
             fallback_model = _feature_cross_fallback_model(feature, target.provider)
             if fallback_model:
+                latency_ms = int((time.monotonic() - start) * 1000)
+                _emit_fallback_event(
+                    feature=feature,
+                    primary_model=str(requested_model),
+                    selected_model=fallback_model,
+                    failure_reason=error_type,
+                    latency_ms=latency_ms,
+                    primary_provider=target.provider,
+                )
                 _log(
                     feature,
                     f"{_provider_display_name(target.provider)} {error_type}、{fallback_model} にフォールバック",
@@ -1836,7 +1886,7 @@ async def call_llm_streaming_fields(
         result = _parse_json_response(accumulated)
         if result is not None:
             _log(feature, f"{model_display} フィールドストリーミング成功", SUCCESS)
-            _anthropic_circuit.record_success()
+            get_circuit_breaker("anthropic").record_success()
             yield StreamFieldEvent(
                 type="complete",
                 result=LLMResult(
@@ -1947,7 +1997,7 @@ async def call_llm_streaming_fields(
         error_type, detail = _classify_anthropic_error(e)
         error = _create_error(error_type, "anthropic", feature, detail)
         _log(feature, f"Anthropic フィールドストリーミングエラー: {detail}", ERROR)
-        _anthropic_circuit.record_failure()
+        get_circuit_breaker("anthropic").record_failure()
         yield StreamFieldEvent(
             type="error",
             result=LLMResult(success=False, error=error),

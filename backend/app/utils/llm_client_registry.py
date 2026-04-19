@@ -36,6 +36,8 @@ class CircuitBreaker:
     last_failure: Optional[datetime] = None
     threshold: int = 3
     reset_timeout: timedelta = field(default_factory=lambda: timedelta(minutes=5))
+    was_open: bool = False
+    provider: Optional[str] = None  # registry がセット。ログ識別用
 
     def is_open(self) -> bool:
         """サーキットが open (このプロバイダーをスキップすべき) かを返す。"""
@@ -53,6 +55,9 @@ class CircuitBreaker:
         """失敗を記録する。"""
         self.failures += 1
         self.last_failure = datetime.now()
+        if self.failures >= self.threshold and not self.was_open:
+            self.was_open = True
+            self._emit("llm.circuit.open")
 
     def record_success(self) -> None:
         """成功を記録し、サーキットをリセットする。"""
@@ -60,8 +65,28 @@ class CircuitBreaker:
 
     def reset(self) -> None:
         """サーキットブレーカーをリセットする。"""
+        was_prev_open = self.was_open
         self.failures = 0
         self.last_failure = None
+        self.was_open = False
+        if was_prev_open:
+            self._emit("llm.circuit.reset")
+
+    def _emit(self, event: str) -> None:
+        import json
+
+        from app.utils.secure_logger import get_logger
+
+        get_logger(__name__).info(
+            json.dumps(
+                {
+                    "event": event,
+                    "provider": self.provider,
+                    "failures": self.failures,
+                    "threshold": self.threshold,
+                }
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -84,8 +109,12 @@ class LLMClientRegistry:
     google_http_client: Any = None  # httpx.AsyncClient
     google_http_client_rag: Any = None  # httpx.AsyncClient
     client_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    anthropic_circuit: CircuitBreaker = field(default_factory=CircuitBreaker)
-    openai_circuit: CircuitBreaker = field(default_factory=CircuitBreaker)
+    anthropic_circuit: CircuitBreaker = field(
+        default_factory=lambda: CircuitBreaker(provider="anthropic")
+    )
+    openai_circuit: CircuitBreaker = field(
+        default_factory=lambda: CircuitBreaker(provider="openai")
+    )
     model_config: Optional[dict[str, "LLMModel"]] = None
 
 
