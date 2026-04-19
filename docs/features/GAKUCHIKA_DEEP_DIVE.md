@@ -9,8 +9,10 @@
 | FastAPI | `backend/app/routers/gakuchika.py` |
 | ページ | `src/app/(product)/gakuchika/[id]/page.tsx` |
 | Next API | `src/app/api/gakuchika/` |
-| 会話状態 | `src/app/api/gakuchika/state.ts` |
+| 会話状態 (SSOT) | `src/lib/gakuchika/conversation-state.ts` |
+| SSE 契約 | `docs/architecture/GAKUCHIKA_SSE_CONTRACT.md` |
 | 一覧ステータス | `src/lib/gakuchika/list-status.ts` |
+| 集客 LP | `src/app/(marketing)/gakuchika-ai/page.tsx`（ガクチカ AI / 深掘り / 作り方） |
 
 ## 概要
 
@@ -73,9 +75,13 @@
   "deepdive_stage": null,
   "deepdive_complete": false,
   "completion_reasons": [],
-  "extended_deep_dive_round": 0
+  "extended_deep_dive_round": 0,
+  "coach_progress_message": "いま状況を一緒に整理しています。",
+  "remaining_questions_estimate": 3
 }
 ```
+
+> **注**: `coach_progress_message`（≤ 30 字の決定論的な進捗キュー）と `remaining_questions_estimate`（整数 ≥ 0、readiness gate と同じ入力から算出）は `backend/app/normalization/gakuchika_payload.py` の pure function で生成される。SSE では `field_complete` partial と `complete` の最終スナップショット双方で送られ、`NaturalProgressStatus` コンポーネントが両方を消費する。SSE 契約の詳細は `docs/architecture/GAKUCHIKA_SSE_CONTRACT.md` 参照。
 
 ### ES 作成フェーズ
 
@@ -110,8 +116,9 @@
 - UI では `ES作成可` と表示する
 - `progress_label` は `ESを作成できます`
 - この段階では follow-up question を出さず、会話入力欄を閉じる
-- 主 CTA は `ガクチカESを作成`、副 CTA は `もう少し整える`
-- **文字数**: 作成前に UI で **300 / 400 / 500** 字を選べる。`POST /api/gakuchika/[id]/generate-es-draft` の JSON ボディ `charLimit`（300 / 400 / 500）に対応。初期値は `gakuchika_contents.charLimitType` に追従
+- コンパクトなインライン導線で「深掘りを続ける」ボタンを表示し、ユーザーは `deep_dive_active` へ遷移して会話を再開できる
+- **ES 作成ボタン**は右上アクションバーに常設（`draftReady` かつ `!interviewReady` で活性化）
+- **文字数**: アクションバー内の文字数セレクターで **300 / 400 / 500** 字を選べる。`POST /api/gakuchika/[id]/generate-es-draft` の JSON ボディ `charLimit`（300 / 400 / 500）に対応。初期値は `gakuchika_contents.charLimitType` に追従
 - `POST /api/gakuchika/[id]/generate-es-draft` は `completed` セッション限定ではなく、`ready_for_draft=true` を条件に実行する
 - DB 上の `gakuchika_conversations.status` はまだ `in_progress` のまま保つ
 - ES 生成成功時は draft を ES ドキュメントへ保存し、同じセッションの `draft_text` にも保持する
@@ -180,7 +187,9 @@
     "credibility_risk_tags": [],
     "deepdive_stage": null,
     "deepdive_complete": false,
-    "completion_reasons": []
+    "completion_reasons": [],
+    "coach_progress_message": "いま状況を一緒に整理しています。",
+    "remaining_questions_estimate": 3
   }
 }
 ```
@@ -218,9 +227,8 @@
 - ES 作成フェーズでは会話と進捗を同じ画面で見せる
 - 進捗の主表示は `状況 / 課題 / 行動 / 結果` の 4 要素に寄せる
 - `focus_key` に対応する `answer_hint` と `progress_label` をそのまま表示する
-- `draft_ready` 到達後は `ガクチカESを作成` CTA を強く見せ、入力欄は閉じる
-- `もう少し整える` を押した時だけ、その時点の `draft_ready` セッションで会話を再開できる
-- ES 作成後は `更に深掘りする` で同一セッションを再開する
+- `draft_ready` 到達後は右上アクションバーの `ガクチカESを作成` ボタンが活性化し、入力欄は閉じる。インライン導線の「深掘りを続ける」で会話を再開できる
+- ES 生成後はモーダル（`GakuchikaDraftModal`）で生成テキストを確認し、「ESを開く」で `/es/${documentId}` へ遷移するか、「もっと深堀りして再生成する」で深掘りを続行する
 - `interview_ready` 到達後は構造化サマリーを表示する
 - 面接準備パックでは `one_line_core_answer` と `two_minute_version_outline` を主表示にし、`likely_followup_questions` と `weak_points_to_prepare` を補助表示にする
 
@@ -256,3 +264,4 @@
 - `src/app/api/gakuchika/summary-server.ts`
 - `src/app/(product)/gakuchika/page.tsx`
 - `src/app/(product)/gakuchika/[id]/page.tsx`
+- `src/components/gakuchika/GakuchikaDraftModal.tsx`

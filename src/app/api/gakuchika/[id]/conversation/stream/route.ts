@@ -375,6 +375,50 @@ export async function POST(
                 partialState = { ...partialState, readyForDraft: Boolean(event.value) };
               } else if (event.path === "deepdive_stage" && typeof event.value === "string") {
                 partialState = { ...partialState, deepdiveStage: event.value };
+              } else if (event.path === "coach_progress_message") {
+                partialState = {
+                  ...partialState,
+                  coachProgressMessage: typeof event.value === "string" ? event.value : null,
+                };
+              } else if (
+                event.path === "remaining_questions_estimate" &&
+                typeof event.value === "number" &&
+                Number.isFinite(event.value) &&
+                event.value >= 0
+              ) {
+                partialState = {
+                  ...partialState,
+                  remainingQuestionsEstimate: Math.floor(event.value),
+                };
+              }
+              // Forward partial patches (coach_progress_message, remaining_questions_estimate)
+              // so the client can hydrate NaturalProgressStatus before the complete event.
+              if (event.path === "coach_progress_message") {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: "field_complete",
+                      path: "coach_progress_message",
+                      value: typeof event.value === "string" ? event.value : null,
+                    })}\n\n`,
+                  ),
+                );
+              } else if (event.path === "remaining_questions_estimate") {
+                const normalized =
+                  typeof event.value === "number" &&
+                  Number.isFinite(event.value) &&
+                  event.value >= 0
+                    ? Math.floor(event.value)
+                    : null;
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: "field_complete",
+                      path: "remaining_questions_estimate",
+                      value: normalized,
+                    })}\n\n`,
+                  ),
+                );
               }
               const hintPayload = buildHintPayload(
                 buildConversationStatePatch(currentConversationState, partialState),
@@ -452,12 +496,16 @@ export async function POST(
               if (nextConversationState.stage === "interview_ready" && nextConversationState.draftText) {
                 const summaryMessages = messages.map((message) => ({ ...message }));
                 after(async () => {
-                  await persistGakuchikaSummary(
-                    gakuchikaId,
-                    gakuchika.title,
-                    nextConversationState.draftText!,
-                    summaryMessages
-                  );
+                  try {
+                    await persistGakuchikaSummary(
+                      gakuchikaId,
+                      gakuchika.title,
+                      nextConversationState.draftText!,
+                      summaryMessages
+                    );
+                  } catch (error) {
+                    console.error("[Gakuchika Stream] persistGakuchikaSummary failed:", error);
+                  }
                 });
               }
 

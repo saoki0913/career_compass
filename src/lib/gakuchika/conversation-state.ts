@@ -78,6 +78,14 @@ export interface ConversationState {
   lastQuestionSignature: string | null;
   /** 面接準備完了後の「もっと深掘る」回数（サーバー・FastAPI と同期） */
   extendedDeepDiveRound: number;
+  /** サーバーサイドで計算されたコーチ進捗メッセージ (NaturalProgressStatus で表示) */
+  coachProgressMessage: string | null;
+  /**
+   * サーバー側 readiness gate と整合した残り質問数推定 (int ≥ 0)。
+   * `null` は古い resume payload（新キー未搭載）のフォールバック用。
+   * 値がある場合、UI は `missingElements.length` などの client heuristic より優先する。
+   */
+  remainingQuestionsEstimate: number | null;
 }
 
 export const BUILD_TRACK_KEYS: Array<Extract<BuildElement, "context" | "task" | "action" | "result">> = [
@@ -126,6 +134,8 @@ export function getDefaultConversationState(): ConversationState {
     focusAttemptCounts: {},
     lastQuestionSignature: null,
     extendedDeepDiveRound: 0,
+    coachProgressMessage: null,
+    remainingQuestionsEstimate: null,
   };
 }
 
@@ -194,6 +204,11 @@ function normalizeFocusList(value: unknown): FocusKey[] {
 function normalizeExtendedDeepDiveRound(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
   return Math.min(100, Math.max(0, Math.floor(value)));
+}
+
+function normalizeRemainingQuestionsEstimate(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+  return Math.floor(value);
 }
 
 function normalizeFocusAttemptCounts(value: unknown): Partial<Record<FocusKey, number>> {
@@ -270,6 +285,8 @@ function parseLegacyState(value: Record<string, unknown>, status: string | null 
     focusAttemptCounts: {},
     lastQuestionSignature: null,
     extendedDeepDiveRound: 0,
+    coachProgressMessage: null,
+    remainingQuestionsEstimate: status === "completed" ? 0 : null,
   };
 }
 
@@ -283,6 +300,7 @@ export function safeParseConversationState(json: string | null, status?: string 
           progressLabel: "ES作成可",
           resolvedFocuses: ["context", "task", "action", "result"],
           deferredFocuses: ["learning"],
+          remainingQuestionsEstimate: 0,
         }
       : getDefaultConversationState();
   }
@@ -330,6 +348,10 @@ export function safeParseConversationState(json: string | null, status?: string 
       extendedDeepDiveRound: normalizeExtendedDeepDiveRound(
         parsed.extended_deep_dive_round ?? parsed.extendedDeepDiveRound,
       ),
+      coachProgressMessage: normalizeString(parsed.coach_progress_message ?? parsed.coachProgressMessage),
+      remainingQuestionsEstimate: normalizeRemainingQuestionsEstimate(
+        parsed.remaining_questions_estimate ?? parsed.remainingQuestionsEstimate,
+      ),
     };
   } catch {
     return getDefaultConversationState();
@@ -364,6 +386,8 @@ export function serializeConversationState(state: ConversationState): string {
     focus_attempt_counts: state.focusAttemptCounts,
     last_question_signature: state.lastQuestionSignature,
     extended_deep_dive_round: state.extendedDeepDiveRound,
+    coach_progress_message: state.coachProgressMessage,
+    remaining_questions_estimate: state.remainingQuestionsEstimate,
   });
 }
 
@@ -390,6 +414,17 @@ export function buildConversationStatePatch(
     focusAttemptCounts: patch.focusAttemptCounts ?? current.focusAttemptCounts,
     lastQuestionSignature: patch.lastQuestionSignature ?? current.lastQuestionSignature,
     extendedDeepDiveRound: patch.extendedDeepDiveRound ?? current.extendedDeepDiveRound,
+    // `coachProgressMessage` is null-late-wins: サーバーが明示的に null を送った時は
+    // 古い値を消す必要がある。`??` は `null` も fallback 対象にしてしまうので、
+    // `hasOwnProperty` で「patch に key が存在するか」を判定する。
+    coachProgressMessage: Object.prototype.hasOwnProperty.call(patch, "coachProgressMessage")
+      ? (patch.coachProgressMessage ?? null)
+      : current.coachProgressMessage,
+    // `remainingQuestionsEstimate` も同じ late-wins。patch に明示的に `null` が
+    // 乗っていたら古い値を消し、key が存在しないときは保持する。
+    remainingQuestionsEstimate: Object.prototype.hasOwnProperty.call(patch, "remainingQuestionsEstimate")
+      ? (patch.remainingQuestionsEstimate ?? null)
+      : current.remainingQuestionsEstimate,
   };
 }
 

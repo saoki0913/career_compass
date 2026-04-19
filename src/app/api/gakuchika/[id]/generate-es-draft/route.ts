@@ -11,7 +11,7 @@ import {
   gakuchikaConversations,
   documents,
 } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import {
   reserveCredits,
   confirmReservation,
@@ -143,7 +143,7 @@ export async function POST(
   }
 
   const body = await request.json();
-  const { charLimit = 400 } = body;
+  const { charLimit = 400, sessionId } = body;
 
   if (![300, 400, 500].includes(charLimit)) {
     return NextResponse.json(
@@ -180,13 +180,18 @@ export async function POST(
     );
   }
 
-  // Get latest conversation that belongs to this gakuchika
-  const [conversation] = await db
-    .select()
-    .from(gakuchikaConversations)
-    .where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId))
-    .orderBy(desc(gakuchikaConversations.updatedAt))
-    .limit(1);
+  // Get conversation: use specified session or fall back to latest
+  const conversationQuery = typeof sessionId === "string" && sessionId
+    ? db.select().from(gakuchikaConversations)
+        .where(and(
+          eq(gakuchikaConversations.id, sessionId),
+          eq(gakuchikaConversations.gakuchikaId, gakuchikaId),
+        )).limit(1)
+    : db.select().from(gakuchikaConversations)
+        .where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId))
+        .orderBy(desc(gakuchikaConversations.updatedAt))
+        .limit(1);
+  const [conversation] = await conversationQuery;
 
   if (!conversation) {
     return NextResponse.json(
@@ -286,10 +291,6 @@ export async function POST(
     const data = payload as FastAPIDraftResponse;
     const draftNormalized = normalizeEsDraftSingleParagraph(data.draft);
 
-    // Confirm credit reservation on success
-    if (reservationId) {
-      await confirmReservation(reservationId);
-    }
     logAiCreditCostSummary({
       feature: "gakuchika_draft",
       requestId,
@@ -301,7 +302,9 @@ export async function POST(
 
     const updatedConversationState = {
       ...conversationState,
-      stage: "draft_ready" as const,
+      stage: (["deep_dive_active", "interview_ready"].includes(conversationState.stage)
+        ? conversationState.stage
+        : "draft_ready") as typeof conversationState.stage,
       readyForDraft: true,
       progressLabel: "ESを作成できます",
       answerHint: "必要なら、この本文を起点に面接向けの深掘りを続けられます。",
@@ -351,6 +354,11 @@ export async function POST(
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+
+    // Confirm credit reservation only after all persistence succeeds
+    if (reservationId) {
+      await confirmReservation(reservationId);
+    }
 
     return NextResponse.json({
       draft: draftNormalized,

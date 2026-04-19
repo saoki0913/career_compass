@@ -2,7 +2,9 @@ import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import type { Identity } from "@/app/api/gakuchika/access";
+import { getViewerPlan } from "@/lib/server/loader-helpers";
 import {
   buildConversationStatePatch,
   defaultConversationState,
@@ -12,7 +14,7 @@ import {
   type ConversationState,
   type GakuchikaNextAction,
   type Message,
-} from "./state";
+} from "@/lib/gakuchika/conversation-state";
 
 export interface GakuchikaData {
   title: string;
@@ -125,6 +127,15 @@ export async function consumeGakuchikaNextQuestionSse(
         partialState.draftReadinessReason = event.value;
       } else if (event.path === "deepdive_stage" && typeof event.value === "string") {
         partialState.deepdiveStage = event.value;
+      } else if (event.path === "coach_progress_message") {
+        partialState.coachProgressMessage = typeof event.value === "string" ? event.value : null;
+      } else if (
+        event.path === "remaining_questions_estimate" &&
+        typeof event.value === "number" &&
+        Number.isFinite(event.value) &&
+        event.value >= 0
+      ) {
+        partialState.remainingQuestionsEstimate = Math.floor(event.value);
       }
     } else if (type === "complete") {
       const data = event.data as {
@@ -180,6 +191,7 @@ export async function getQuestionFromFastAPI(
   questionCount: number,
   conversationState?: ConversationState | null,
   requestId?: string,
+  identity?: Identity | null,
 ): Promise<{
   question: string | null;
   error: string | null;
@@ -190,11 +202,20 @@ export async function getQuestionFromFastAPI(
   const abortController = new AbortController();
   const fetchTimeoutId = setTimeout(() => abortController.abort(), FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS);
   try {
-    const response = await fetchFastApiInternal("/api/gakuchika/next-question/stream", {
+    const principalPlan = await getViewerPlan(identity ?? { userId: null, guestId: null });
+    const response = await fetchFastApiWithPrincipal("/api/gakuchika/next-question/stream", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...(requestId ? { "X-Request-Id": requestId } : {}),
+      },
+      principal: {
+        scope: "ai-stream",
+        actor: identity?.userId
+          ? { kind: "user", id: identity.userId }
+          : { kind: "guest", id: identity?.guestId ?? "guest" },
+        companyId: null,
+        plan: principalPlan,
       },
       body: JSON.stringify({
         gakuchika_title: gakuchika.title,
@@ -233,6 +254,8 @@ export async function getQuestionFromFastAPI(
               focus_attempt_counts: conversationState.focusAttemptCounts,
               last_question_signature: conversationState.lastQuestionSignature,
               extended_deep_dive_round: conversationState.extendedDeepDiveRound,
+              coach_progress_message: conversationState.coachProgressMessage,
+              remaining_questions_estimate: conversationState.remainingQuestionsEstimate,
             }
           : null,
       }),

@@ -46,7 +46,7 @@ export function resumeGakuchikaConversation(
 
 export function generateGakuchikaEsDraft(
   gakuchikaId: string,
-  payload: { charLimit: 300 | 400 | 500 },
+  payload: { charLimit: 300 | 400 | 500; sessionId?: string | null },
 ) {
   return postJson(`/api/gakuchika/${gakuchikaId}/generate-es-draft`, payload);
 }

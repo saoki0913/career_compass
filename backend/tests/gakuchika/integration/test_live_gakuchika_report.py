@@ -137,13 +137,13 @@ async def _run_single_case(
             print(f"  [gak] conversation did not reach draft_ready: {conv_exc}")
         row["transcript"] = transcript  # also captured on exception via finally
 
-        # 3. Generate ES draft via SSE endpoint (only if conversation reached draft_ready)
+        # 3. Generate ES draft (JSON endpoint, not SSE)
         draft_text: str = ""
         if draft_ready_reached:
             draft_response = await client.request(
                 "POST",
                 f"/api/gakuchika/{gakuchika_id}/generate-es-draft",
-                json={"charLimit": char_limit_type},
+                json={"charLimit": int(char_limit_type)},
             )
             if draft_response.status_code >= 400:
                 raise RuntimeError(
@@ -151,27 +151,12 @@ async def _run_single_case(
                     f"{draft_response.text[:500]}"
                 )
 
-            draft_events = parse_sse_events(draft_response.text)
-            # Try "draft" first, then fall back to other known path names.
-            draft_text = (
-                collect_chunks(draft_events, "draft")
-                or collect_chunks(draft_events, "content")
-                or collect_chunks(draft_events, "text")
-            )
+            draft_data = draft_response.json()
+            draft_text = draft_data.get("draft", "")
 
-            draft_complete: dict[str, Any] | None = None
-            try:
-                draft_complete = parse_complete_data(draft_events)
-            except ValueError:
-                pass  # stream did not emit a complete event — caught below if draft is empty
-
-            # Track any document created so we can delete it during cleanup.
-            if draft_complete:
-                doc_id = draft_complete.get("documentId") or (
-                    draft_complete.get("document") or {}
-                ).get("id")
-                if doc_id:
-                    document_ids.append(str(doc_id))
+            doc_id = draft_data.get("documentId")
+            if doc_id:
+                document_ids.append(str(doc_id))
 
         draft_len = len(draft_text)
         row["outputs"] = {

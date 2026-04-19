@@ -79,6 +79,7 @@ export async function POST(
 
     let messages = safeParseMessages(conversation.messages);
     const questionCount = conversation.questionCount || 0;
+    let finalQuestionCount = questionCount;
     let conversationState = safeParseConversationState(conversation.starScores, conversation.status);
     let status = conversation.status;
     let nextAction = getGakuchikaNextAction(conversationState);
@@ -109,6 +110,7 @@ export async function POST(
         questionCount,
         stateForApi,
         requestId,
+        identity,
       );
 
       const resolvedNextAction =
@@ -137,6 +139,7 @@ export async function POST(
           },
         ];
       }
+      finalQuestionCount = result.question ? questionCount + 1 : questionCount;
       conversationState = result.conversationState
         ? {
             ...stateForApi,
@@ -152,6 +155,7 @@ export async function POST(
         .update(gakuchikaConversations)
         .set({
           messages,
+          questionCount: finalQuestionCount,
           status,
           starScores: serializeConversationState(conversationState),
           updatedAt: new Date(),
@@ -196,12 +200,12 @@ export async function POST(
     return NextResponse.json({
       conversation: {
         id: sessionId,
-        questionCount,
+        questionCount: finalQuestionCount,
         status,
       },
       messages,
       nextQuestion: nextAction === "ask" ? lastAssistantMessage?.content || null : null,
-      questionCount,
+      questionCount: finalQuestionCount,
       isCompleted: isInterviewReady(conversationState),
       isInterviewReady: isInterviewReady(conversationState),
       conversationState,

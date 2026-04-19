@@ -4,12 +4,21 @@ Gakuchika (学生時代に力を入れたこと) router.
 The authoring flow is split into:
 - ES build: collect enough material to write a credible ES draft quickly
 - Deep dive: after the draft exists, sharpen the story for interviews
+
+Orchestration responsibilities that live in this module:
+- Request / response Pydantic models (``NextQuestionRequest``, …)
+- REST + SSE handlers (``get_next_question``, ``get_next_question_stream``,
+  ``generate_structured_summary``, ``generate_es_draft``)
+- Phase detection (``_determine_deepdive_phase``) and diagnostic tagging
+  (``_build_draft_diagnostics``) — these are handler-side responsibilities
+  per the Phase A.4 architecture gate decision
+- Wiring between text helpers, evaluators, normalization and prompt
+  templates (thin delegation wrappers preserved for test compatibility)
 """
 
 from __future__ import annotations
 
 import json
-import os
 import random
 import re
 from typing import Any, AsyncGenerator, Optional
@@ -30,18 +39,50 @@ from app.security.sse_concurrency import (
 from app.limiter import limiter
 from app.prompts.gakuchika_prompts import (
     DEEPDIVE_QUESTION_PRINCIPLES,
-    ES_BUILD_AND_QUESTION_PROMPT,
-    ES_BUILD_QUESTION_PRINCIPLES,
-    INITIAL_QUESTION_PROMPT,
-    PROHIBITED_EXPRESSIONS as _PROHIBITED_EXPRESSIONS,
-    QUESTION_TONE_AND_ALIGNMENT_RULES,
+    INITIAL_QUESTION_USER_MESSAGE,
     REFERENCE_GUIDE_RUBRIC,
-    STAR_EVALUATE_AND_QUESTION_PROMPT,
     STRUCTURED_SUMMARY_PROMPT,
+    es_draft_few_shot_for,
+)
+from app.prompts.gakuchika_prompt_builder import (
+    INITIAL_QUESTION_MAX_TOKENS,
+    _render_initial_question_system_prompt,
+    build_deepdive_prompt_text,
+    build_es_prompt_text,
 )
 from app.prompts.es_templates import (
     DRAFT_SYNTHETIC_QUESTION_GAKUCHIKA,
     build_template_draft_generation_prompt,
+)
+from app.evaluators.deepdive_completion import _evaluate_deepdive_completion
+from app.evaluators.draft_quality import _build_causal_gaps, _build_draft_quality_checks
+from app.normalization.gakuchika_payload import (
+    _build_coach_progress_message,
+    _default_state,
+    _estimate_remaining_questions,
+    _extract_student_expressions,
+    _normalize_deepdive_payload,
+    _normalize_es_build_payload,
+    _sanitize_blocked_focuses,
+)
+from app.utils.gakuchika_text import (
+    BUILD_FOCUS_FALLBACKS,
+    CORE_BUILD_ELEMENTS,
+    DEEPDIVE_FOCUS_FALLBACKS,
+    ACTION_PATTERNS,
+    ACTION_WEAK_PATTERNS,
+    CONNECTIVE_PATTERNS,
+    LEARNING_GENERIC_PATTERNS,
+    LEARNING_PATTERNS,
+    ROLE_CLARITY_PATTERNS,
+    _classify_input_richness,
+    _clean_string,
+    _clean_string_list,
+    _contains_any,
+    _contains_digit,
+    _fallback_build_meta,
+    _normalize_text,
+    _role_required,
 )
 from app.utils.llm import (
     _parse_json_response,
@@ -59,162 +100,12 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/gakuchika", tags=["gakuchika"])
 
-INITIAL_QUESTION_MAX_TOKENS = 220
 NEXT_QUESTION_MAX_TOKENS = 420
-# ユーザー回答数（question_count）の目安: ES 材料 4〜6 問、面接準備完了はそれ以上の往復を想定
-MIN_USER_ANSWERS_FOR_ES_DRAFT_READY = 4
-MIN_USER_ANSWERS_FOR_INTERVIEW_READY = 8
 
 
-def _min_user_answers_for_es_draft_ready() -> int:
-    raw = os.getenv("GAKUCHIKA_MIN_USER_ANSWERS_FOR_ES_DRAFT_READY", "").strip()
-    if raw.isdigit():
-        return max(1, min(10, int(raw)))
-    return MIN_USER_ANSWERS_FOR_ES_DRAFT_READY
-
-
-def _es_build_question_cap_threshold() -> int:
-    """Lower cap for local ai-live E2E when AI_LIVE_LOCAL_RELAX_GAKUCHIKA_GATES=1."""
-    if os.getenv("AI_LIVE_LOCAL_RELAX_GAKUCHIKA_GATES", "").strip() == "1":
-        return 5
-    return 6
-
-
-def _force_draft_ready_after() -> int:
-    """Return question count after which draft-ready is forced (0 = disabled).
-
-    Opt-in via ``GAKUCHIKA_FORCE_DRAFT_READY_AFTER=N`` for CI / E2E tests
-    that need deterministic convergence.  Not set in production.
-    """
-    raw = os.getenv("GAKUCHIKA_FORCE_DRAFT_READY_AFTER", "").strip()
-    if raw.isdigit() and int(raw) > 0:
-        return int(raw)
-    return 0
-BUILD_ELEMENTS = ("overview", "context", "task", "action", "result", "learning")
-CORE_BUILD_ELEMENTS = ("context", "task", "action", "result")
-DRAFT_QUALITY_CHECK_KEYS = (
-    "task_clarity",
-    "action_ownership",
-    "role_clarity",
-    "role_required",
-    "result_traceability",
-    "learning_reusability",
-)
-DEEPDIVE_FOCUSES = (
-    "role",
-    "challenge",
-    "action_reason",
-    "result_evidence",
-    "learning_transfer",
-    "credibility",
-    "future",
-    "backstory",
-)
-ROLE_REQUIRED_HINT_PATTERNS = (
-    "チーム",
-    "メンバー",
-    "サークル",
-    "研究室",
-    "ゼミ",
-    "アルバイト",
-    "委員",
-    "運営",
-    "店舗",
-    "部活",
-    "複数",
-    "企画",
-)
-ROLE_CLARITY_PATTERNS = ("主担当", "担当", "リーダー", "役割", "分担", "責任", "任され", "私が", "私は", "自分が")
-TASK_PATTERNS = ("課題", "問題", "悩み", "不足", "滞り", "停滞", "伸び悩み", "困って", "混雑", "詰まり", "非効率", "逃して")
-ACTION_PATTERNS = ("提案", "導入", "作成", "設計", "改善", "見直", "分析", "整理", "調整", "実施", "企画", "再設計")
-ACTION_WEAK_PATTERNS = ("頑張", "工夫", "意識", "努力", "対応", "取り組")
-RESULT_PATTERNS = ("増", "減", "向上", "改善", "安定", "短縮", "達成", "上が", "下が", "変わ", "任され", "評価")
-LEARNING_PATTERNS = ("学び", "学ん", "気づ", "再現", "活か", "次", "今後", "原則")
-LEARNING_GENERIC_PATTERNS = ("大切", "重要", "必要", "協力の大切さ", "継続の大切さ")
-ACTION_REASON_PATTERNS = ("理由", "判断", "なぜ", "比較", "根拠", "優先", "見立て")
-CONNECTIVE_PATTERNS = ("ため", "ので", "から", "結果", "その結果", "ことにより", "につなが")
-
-BUILD_FOCUS_FALLBACKS: dict[str, dict[str, str]] = {
-    "overview": {
-        "question": "この経験では、まず何に取り組んでいたのか教えていただけますか。",
-        "answer_hint": "活動名だけでなく、どんな役割やテーマの経験だったかまで書くとまとまりやすいです。",
-        "progress_label": "取り組みを整理中",
-    },
-    "context": {
-        "question": "そのときは、どんな状況や環境の中で進めていた経験でしたか。",
-        "answer_hint": "時期、場面、関わっていた相手や規模感が分かると書きやすくなります。",
-        "progress_label": "状況を整理中",
-    },
-    "task": {
-        "question": "その経験で、特にどんな課題に向き合う必要があったのですか。",
-        "answer_hint": "何がうまくいっていなかったのか、なぜそれを課題だと見たのかが分かると強くなります。",
-        "progress_label": "課題を整理中",
-    },
-    "action": {
-        "question": "その課題に対して、ご自身はまず何をしたのですか。",
-        "answer_hint": "頑張った気持ちより、自分が実際に取った行動や工夫を書くと伝わりやすいです。",
-        "progress_label": "行動を整理中",
-    },
-    "result": {
-        "question": "その行動のあと、どんな変化や成果がありましたか。",
-        "answer_hint": "数字がなくても、前後差や周囲の反応など変化が分かる形で書くと十分です。",
-        "progress_label": "結果を整理中",
-    },
-    "learning": {
-        "question": "その経験を通じて、どんな学びや気づきが残りましたか。",
-        "answer_hint": "抽象的な反省ではなく、今後にも活かせそうな気づきを一つ書くとまとまります。",
-        "progress_label": "学びを整理中",
-    },
-    "role": {
-        "question": "その経験では、ご自身が主にどこを担当していたのか教えていただけますか。",
-        "answer_hint": "自分が任されていた範囲と、周囲と分担していた範囲を分けて書くと伝わりやすいです。",
-        "progress_label": "役割を整理中",
-    },
-}
-
-DEEPDIVE_FOCUS_FALLBACKS: dict[str, dict[str, str]] = {
-    "role": {
-        "question": "その場面では、ご自身がどこまでを担っていたのか教えていただけますか。",
-        "answer_hint": "自分が任されていた範囲と、周囲と分担していた範囲を分けて答えると伝わりやすいです。",
-        "progress_label": "役割を整理中",
-    },
-    "challenge": {
-        "question": "その状況を、なぜ本当に解くべき課題だと判断したのですか。",
-        "answer_hint": "当時見えていた事実や違和感を根拠にすると、判断の筋が伝わります。",
-        "progress_label": "課題認識を整理中",
-    },
-    "action_reason": {
-        "question": "その方法を選んだのは、どんな理由や比較があったからですか。",
-        "answer_hint": "他のやり方ではなくその打ち手を選んだ判断軸を書くと、行動の説得力が増します。",
-        "progress_label": "判断理由を整理中",
-    },
-    "result_evidence": {
-        "question": "その工夫が効いたと判断したのは、どんな前後差や反応が見えたからですか。",
-        "answer_hint": "数字、行動の変化、周囲の反応など、成果を裏づける事実を書くとまとまります。",
-        "progress_label": "成果の根拠を整理中",
-    },
-    "learning_transfer": {
-        "question": "その経験から得た学びは、次の場面でどう活かせると思いますか。",
-        "answer_hint": "感想ではなく、再現できる行動原則として言い換えると強くなります。",
-        "progress_label": "学びを整理中",
-    },
-    "credibility": {
-        "question": "その成果の中で、ご自身が特に担った部分はどこでしたか。",
-        "answer_hint": "役割範囲を具体的にすると、話の信頼感が上がります。",
-        "progress_label": "信憑性を整理中",
-    },
-    "future": {
-        "question": "この経験を踏まえて、今後はどんな挑戦につなげていきたいですか。",
-        "answer_hint": "今回の経験で得た強みや学びが、次にどう活きるかを書くとつながりが出ます。",
-        "progress_label": "将来展望を整理中",
-    },
-    "backstory": {
-        "question": "そもそもその経験に力を入れようと思った背景には、どんな原体験や価値観がありましたか。",
-        "answer_hint": "今の行動につながるきっかけや背景が分かるように書くと、人物像が伝わります。",
-        "progress_label": "背景を整理中",
-    },
-}
-
+# ---------------------------------------------------------------------------
+# Pydantic models
+# ---------------------------------------------------------------------------
 
 class Message(BaseModel):
     role: str = Field(pattern=r"^(user|assistant)$")
@@ -248,6 +139,9 @@ class ConversationStateInput(BaseModel):
     focus_attempt_counts: dict[str, int] = Field(default_factory=dict)
     last_question_signature: str | None = Field(default=None, max_length=120)
     extended_deep_dive_round: int = Field(default=0, ge=0, le=100)
+    # Round-trip fields surfaced to the client via SSE (pass-through on resume).
+    coach_progress_message: str | None = Field(default=None, max_length=120)
+    remaining_questions_estimate: int | None = Field(default=None, ge=0, le=20)
 
     model_config = {"extra": "ignore"}
 
@@ -321,6 +215,10 @@ class GakuchikaESDraftResponse(BaseModel):
     internal_telemetry: Optional[dict[str, object]] = None
 
 
+# ---------------------------------------------------------------------------
+# Request-scoped sanitisation / formatting helpers
+# ---------------------------------------------------------------------------
+
 def _format_conversation(messages: list[Message]) -> str:
     formatted = []
     for msg in messages:
@@ -371,161 +269,76 @@ def _sanitize_es_draft_request(request: GakuchikaESDraftRequest) -> None:
     _sanitize_messages(request.conversation_history)
 
 
-def _clean_string(value: object) -> str:
-    return str(value).strip() if isinstance(value, str) else ""
+def _extract_question_from_text(raw_text: str) -> Optional[str]:
+    if not raw_text:
+        return None
+    stripped = raw_text.strip()
+    if not stripped or stripped.startswith("{") or stripped.startswith("```"):
+        return None
+    line = stripped.splitlines()[0].strip().strip('"')
+    return line or None
 
 
-def _clean_string_list(value: object, *, max_items: int = 6) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    cleaned: list[str] = []
-    for item in value:
-        if isinstance(item, str):
-            text = item.strip()
-            if text:
-                cleaned.append(text)
-        if len(cleaned) >= max_items:
+def _parse_json_payload(raw_text: str) -> dict[str, Any]:
+    parsed = _parse_json_response(raw_text)
+    if isinstance(parsed, dict):
+        return parsed
+    question = _extract_question_from_text(raw_text)
+    if question:
+        return {"question": question}
+    return {}
+
+
+def _build_known_facts(messages: list[Message]) -> str:
+    user_answers = [msg.content.strip() for msg in messages if msg.role == "user" and msg.content.strip()]
+    if not user_answers:
+        return "- まだ整理済みの事実は少ない"
+
+    def _truncate(text: str, limit: int = 240) -> str:
+        return text if len(text) <= limit else text[: limit - 1] + "…"
+
+    if len(user_answers) <= 5:
+        selected = user_answers
+    else:
+        selected = user_answers[:2] + user_answers[-3:]
+
+    bullets = [f"- {_truncate(answer)}" for answer in selected]
+    facts = "\n".join(bullets)
+
+    total_cap = 1200
+    if len(facts) <= total_cap:
+        return facts
+
+    truncated: list[str] = []
+    running = 0
+    for bullet in bullets:
+        if running + len(bullet) + 1 > total_cap:
             break
-    return cleaned
+        truncated.append(bullet)
+        running += len(bullet) + 1
+    return "\n".join(truncated) if truncated else bullets[0][: total_cap - 1] + "…"
 
 
-def _clean_bool_map(value: object, allowed_keys: tuple[str, ...]) -> dict[str, bool]:
-    if not isinstance(value, dict):
-        return {}
-    cleaned: dict[str, bool] = {}
-    for key in allowed_keys:
-        if key in value:
-            cleaned[key] = bool(value[key])
-    return cleaned
+def _build_user_corpus(messages: list[Message], *, initial_content: str | None = None, draft_text: str | None = None) -> str:
+    parts: list[str] = []
+    if initial_content:
+        parts.append(initial_content.strip())
+    parts.extend(msg.content.strip() for msg in messages if msg.role == "user" and msg.content.strip())
+    if draft_text:
+        parts.append(draft_text.strip())
+    return "\n".join(part for part in parts if part)
 
 
-def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
-    return any(pattern in text for pattern in patterns)
-
-
-def _contains_digit(text: str) -> bool:
-    return bool(re.search(r"\d", text))
-
-
-def _normalize_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text or "").strip()
-
-
-def _classify_input_richness(text: str) -> str:
-    normalized = _normalize_text(text)
-    if not normalized:
-        return "seed_only"
-
-    sentences = [part for part in re.split(r"[。！？\n]", normalized) if part.strip()]
-    score = 0
-    if _contains_any(normalized, TASK_PATTERNS):
-        score += 1
-    if _contains_any(normalized, ACTION_PATTERNS):
-        score += 1
-    if _contains_any(normalized, RESULT_PATTERNS) or _contains_digit(normalized):
-        score += 1
-    if _contains_any(normalized, CONNECTIVE_PATTERNS):
-        score += 1
-    if len(normalized) <= 18 and len(sentences) <= 1:
-        return "seed_only"
-    if score >= 3 and len(normalized) >= 55:
-        return "almost_draftable"
-    if len(normalized) <= 24 and score == 0:
-        return "seed_only"
-    return "rough_episode"
-
-
-def _role_required(text: str) -> bool:
-    normalized = _normalize_text(text)
-    return _contains_any(normalized, ROLE_REQUIRED_HINT_PATTERNS) or (
-        _contains_any(normalized, RESULT_PATTERNS) and _contains_digit(normalized)
-    )
-
-
-def _build_draft_quality_checks(text: str) -> dict[str, bool]:
-    normalized = _normalize_text(text)
-    role_required = _role_required(normalized)
-    action_specific = _contains_any(normalized, ACTION_PATTERNS) and (
-        "私" in normalized or "自分" in normalized or _contains_any(normalized, ROLE_CLARITY_PATTERNS)
-    )
-    result_visible = _contains_any(normalized, RESULT_PATTERNS) or _contains_digit(normalized)
-    learning_visible = _contains_any(normalized, LEARNING_PATTERNS)
-
-    return {
-        "task_clarity": _contains_any(normalized, TASK_PATTERNS) and _contains_any(normalized, CONNECTIVE_PATTERNS),
-        "action_ownership": action_specific,
-        "role_required": role_required,
-        "role_clarity": (not role_required) or _contains_any(normalized, ROLE_CLARITY_PATTERNS),
-        "result_traceability": result_visible and action_specific and _contains_any(normalized, CONNECTIVE_PATTERNS),
-        "learning_reusability": learning_visible and _contains_any(normalized, ("活か", "次", "今後", "再現", "原則")),
-    }
-
-
-def _build_causal_gaps(text: str, quality_checks: dict[str, bool]) -> list[str]:
-    normalized = _normalize_text(text)
-    gaps: list[str] = []
-    if quality_checks.get("task_clarity") and quality_checks.get("action_ownership") and not _contains_any(
-        normalized, ACTION_REASON_PATTERNS
-    ):
-        gaps.append("causal_gap_task_action")
-    if quality_checks.get("action_ownership") and not quality_checks.get("result_traceability"):
-        gaps.append("causal_gap_action_result")
-    if _contains_any(normalized, LEARNING_PATTERNS) and not quality_checks.get("learning_reusability"):
-        gaps.append("learning_too_generic")
-    if quality_checks.get("role_required") and not quality_checks.get("role_clarity"):
-        gaps.append("role_scope_missing")
-    return gaps
-
-
-def _choose_build_focus(missing_elements: list[str], quality_checks: dict[str, bool], causal_gaps: list[str]) -> str:
-    for key in CORE_BUILD_ELEMENTS:
-        if key in missing_elements:
-            return key
-    if quality_checks.get("role_required") and not quality_checks.get("role_clarity"):
-        return "role"
-    if not quality_checks.get("task_clarity"):
-        return "task"
-    if not quality_checks.get("action_ownership"):
-        return "action"
-    if not quality_checks.get("result_traceability"):
-        return "result"
-    if "causal_gap_task_action" in causal_gaps:
-        return "task"
-    if "causal_gap_action_result" in causal_gaps:
-        return "result"
-    return "result"
-
-
-_LABEL_FOR_MISSING_ELEMENT = {
-    "context": "状況",
-    "task": "課題",
-    "action": "行動",
-    "result": "結果",
-    "learning": "学び",
-}
-
-
-def _build_readiness_reason(quality_checks: dict[str, bool], causal_gaps: list[str], missing_elements: list[str]) -> str:
-    if missing_elements:
-        jp = [_LABEL_FOR_MISSING_ELEMENT.get(m, m) for m in missing_elements[:3]]
-        return f"「{'・'.join(jp)}」について、まだ書き足すとよい点があります。"
-    reasons: list[str] = []
-    if not quality_checks.get("task_clarity"):
-        reasons.append("課題をなぜ重要と見たかを、もう一文補うと伝わりやすくなります")
-    if not quality_checks.get("action_ownership"):
-        reasons.append("ご自身の役割と行動を、もう少し具体的にするとよいです")
-    if quality_checks.get("role_required") and not quality_checks.get("role_clarity"):
-        reasons.append("担当範囲をはっきりさせると、話の信頼感が上がります")
-    if not quality_checks.get("result_traceability"):
-        reasons.append("行動のあとにどう変わったかを、もう一歩具体的にするとよいです")
-    if not reasons and causal_gaps:
-        reasons.append("状況から成果までのつながりを、もう一段補うとまとまります")
-    if not reasons:
-        return "あと少し補うと、ES 本文が書きやすくなります。"
-    return "。".join(reasons[:2]) + "。"
-
+# ---------------------------------------------------------------------------
+# Handler-side diagnostics / orchestration
+# ---------------------------------------------------------------------------
 
 def _build_draft_diagnostics(draft_text: str) -> dict[str, list[str]]:
+    """Tag diagnostic attributes (strength / issue / recommendation / risk).
+
+    Kept in the router layer because the output drives UX messaging +
+    deep-dive prompt scaffolding, both of which are handler responsibilities.
+    """
     normalized = _normalize_text(draft_text)
     strength_tags: list[str] = []
     issue_tags: list[str] = []
@@ -575,228 +388,17 @@ def _build_draft_diagnostics(draft_text: str) -> dict[str, list[str]]:
     }
 
 
-def _evaluate_deepdive_completion(
-    conversation_text: str,
-    draft_text: str | list[Message],
-    focus_key: str | None = None,
-) -> dict[str, object]:
-    if isinstance(draft_text, list):
-        legacy_eval = _evaluate_deepdive_completion(_format_conversation(draft_text), conversation_text, focus_key)
-        return {
-            "deepdive_complete": bool(legacy_eval["complete"]),
-            "completion_reasons": [] if legacy_eval["complete"] else list(legacy_eval["missing_reasons"]),
-        }
+def _determine_deepdive_phase(question_count: int) -> tuple[str, str, list[str]]:
+    """Map deep-dive question count to (phase_name, description, preferred_focuses).
 
-    combined = _normalize_text(f"{draft_text}\n{conversation_text}")
-    role_needed = _role_required(combined) or focus_key in {"role", "credibility"}
-    completed_checks = {
-        "role_confirmed": (not role_needed) or _contains_any(combined, ROLE_CLARITY_PATTERNS),
-        "challenge_confirmed": _contains_any(combined, TASK_PATTERNS) and _contains_any(combined, CONNECTIVE_PATTERNS),
-        "action_reason_confirmed": _contains_any(combined, ACTION_REASON_PATTERNS),
-        "result_evidence_confirmed": _contains_digit(combined) or _contains_any(
-            combined, ("前後", "変化", "反応", "評価", "増", "減", "向上", "改善")
-        ),
-        "learning_transfer_confirmed": _contains_any(combined, ("活か", "今後", "再現", "原則", "次")),
-        "credibility_confirmed": (
-            ((not role_needed) or _contains_any(combined, ROLE_CLARITY_PATTERNS))
-            and not _contains_any(
-                combined,
-                ("先輩が担当", "主に先輩", "他のメンバーが担当", "サポートに回った", "提案はしたが", "実行は主に"),
-            )
-        ),
-    }
-    missing_reasons: list[str] = []
-    if not completed_checks["role_confirmed"]:
-        missing_reasons.append("role_scope_missing")
-    if not completed_checks["challenge_confirmed"]:
-        missing_reasons.append("challenge_context_missing")
-    if not completed_checks["action_reason_confirmed"]:
-        missing_reasons.append("action_reason_missing")
-    if not completed_checks["result_evidence_confirmed"]:
-        missing_reasons.append("result_evidence_missing")
-    if not completed_checks["learning_transfer_confirmed"]:
-        missing_reasons.append("learning_transfer_missing")
-    if not completed_checks["credibility_confirmed"]:
-        missing_reasons.append("credibility_risk")
-    complete = len(missing_reasons) == 0
-    completion_reasons = [key for key, value in completed_checks.items() if value] if complete else []
-    return {
-        "complete": complete,
-        "completion_checks": completed_checks,
-        "missing_reasons": missing_reasons,
-        "completion_reasons": completion_reasons,
-        "focus_key": focus_key or "challenge",
-    }
-
-
-def _default_state(stage: str = "es_building", **kwargs: Any) -> dict[str, Any]:
-    return {
-        "stage": stage,
-        "focus_key": kwargs.get("focus_key"),
-        "progress_label": kwargs.get("progress_label"),
-        "answer_hint": kwargs.get("answer_hint"),
-        "input_richness_mode": kwargs.get("input_richness_mode"),
-        "missing_elements": kwargs.get("missing_elements", []),
-        "draft_quality_checks": kwargs.get("draft_quality_checks", {}),
-        "causal_gaps": kwargs.get("causal_gaps", []),
-        "ready_for_draft": kwargs.get("ready_for_draft", False),
-        "draft_readiness_reason": kwargs.get("draft_readiness_reason", ""),
-        "draft_text": kwargs.get("draft_text"),
-        "strength_tags": kwargs.get("strength_tags", []),
-        "issue_tags": kwargs.get("issue_tags", []),
-        "deepdive_recommendation_tags": kwargs.get("deepdive_recommendation_tags", []),
-        "credibility_risk_tags": kwargs.get("credibility_risk_tags", []),
-        "deepdive_stage": kwargs.get("deepdive_stage"),
-        "completion_checks": kwargs.get("completion_checks", {}),
-        "deepdive_complete": kwargs.get("deepdive_complete", False),
-        "completion_reasons": kwargs.get("completion_reasons", []),
-        "asked_focuses": kwargs.get("asked_focuses", []),
-        "resolved_focuses": kwargs.get("resolved_focuses", []),
-        "deferred_focuses": kwargs.get("deferred_focuses", []),
-        "blocked_focuses": kwargs.get("blocked_focuses", []),
-        "focus_attempt_counts": kwargs.get("focus_attempt_counts", {}),
-        "last_question_signature": kwargs.get("last_question_signature"),
-        "extended_deep_dive_round": int(kwargs.get("extended_deep_dive_round", 0) or 0),
-    }
-
-
-def _fallback_build_meta(focus_key: str) -> dict[str, str]:
-    if focus_key == "role":
-        return DEEPDIVE_FOCUS_FALLBACKS["role"]
-    return BUILD_FOCUS_FALLBACKS.get(focus_key, BUILD_FOCUS_FALLBACKS["overview"])
-
-
-def _fallback_deepdive_meta(focus_key: str) -> dict[str, str]:
-    return DEEPDIVE_FOCUS_FALLBACKS.get(focus_key, DEEPDIVE_FOCUS_FALLBACKS["challenge"])
-
-
-def _build_focus_meta(focus_key: str) -> dict[str, str]:
-    if focus_key == "role":
-        return _fallback_deepdive_meta("role")
-    return _fallback_build_meta(focus_key)
-
-
-def _extract_question_from_text(raw_text: str) -> Optional[str]:
-    if not raw_text:
-        return None
-    stripped = raw_text.strip()
-    if not stripped or stripped.startswith("{") or stripped.startswith("```"):
-        return None
-    line = stripped.splitlines()[0].strip().strip('"')
-    return line or None
-
-
-def _parse_json_payload(raw_text: str) -> dict[str, Any]:
-    parsed = _parse_json_response(raw_text)
-    if isinstance(parsed, dict):
-        return parsed
-    question = _extract_question_from_text(raw_text)
-    if question:
-        return {"question": question}
-    return {}
-
-
-def _build_known_facts(messages: list[Message]) -> str:
-    user_answers = [msg.content.strip() for msg in messages if msg.role == "user" and msg.content.strip()]
-    if not user_answers:
-        return "- まだ整理済みの事実は少ない"
-    bullets = [f"- {answer}" for answer in user_answers[-4:]]
-    return "\n".join(bullets)
-
-
-def _build_user_corpus(messages: list[Message], *, initial_content: str | None = None, draft_text: str | None = None) -> str:
-    parts: list[str] = []
-    if initial_content:
-        parts.append(initial_content.strip())
-    parts.extend(msg.content.strip() for msg in messages if msg.role == "user" and msg.content.strip())
-    if draft_text:
-        parts.append(draft_text.strip())
-    return "\n".join(part for part in parts if part)
-
-
-def _normalize_missing_elements(value: object) -> list[str]:
-    items = [item for item in _clean_string_list(value, max_items=len(CORE_BUILD_ELEMENTS)) if item in CORE_BUILD_ELEMENTS]
-    seen: list[str] = []
-    for item in items:
-        if item not in seen:
-            seen.append(item)
-    return seen
-
-
-def _normalize_focus_list(value: object) -> list[str]:
-    return [item for item in _clean_string_list(value, max_items=12) if item in (*BUILD_ELEMENTS, *DEEPDIVE_FOCUSES)]
-
-
-def _normalize_focus_attempt_counts(value: object) -> dict[str, int]:
-    if not isinstance(value, dict):
-        return {}
-    counts: dict[str, int] = {}
-    for key, raw in value.items():
-        if key not in (*BUILD_ELEMENTS, *DEEPDIVE_FOCUSES):
-            continue
-        try:
-            count = int(raw)
-        except (TypeError, ValueError):
-            continue
-        if count > 0:
-            counts[key] = count
-    return counts
-
-
-# Situation/setup hints: short answers can still satisfy "context" without hitting a raw char threshold.
-_CONTEXT_HINT_PATTERNS: tuple[str, ...] = (
-    "インターン",
-    "配属",
-    "アルバイト",
-    "バイト",
-    "サークル",
-    "ゼミ",
-    "研究室",
-    "部活",
-    "チーム",
-    "部署",
-    "職場",
-    "現場",
-    "プロジェクト",
-    "会社",
-    "当時",
-    "背景",
-    "環境",
-    "所属",
-    "学年",
-    "大学",
-    "高校",
-    "役割",
-)
-
-
-def _context_core_satisfied(normalized: str) -> bool:
-    if len(normalized) >= 12:
-        return True
-    if len(normalized) >= 6 and _contains_any(normalized, _CONTEXT_HINT_PATTERNS):
-        return True
-    return False
-
-
-def _build_core_missing_elements(text: str, quality_checks: dict[str, bool]) -> list[str]:
-    normalized = _normalize_text(text)
-    missing: list[str] = []
-    if not _context_core_satisfied(normalized):
-        missing.append("context")
-    if not quality_checks.get("task_clarity"):
-        missing.append("task")
-    if not quality_checks.get("action_ownership"):
-        missing.append("action")
-    result_present = _contains_digit(normalized) or _contains_any(
-        normalized, ("前後", "変化", "反応", "評価", "増", "減", "向上", "改善", "短縮", "達成", "任され")
-    )
-    if not result_present:
-        missing.append("result")
-    return missing
-
-
-def _critical_causal_gaps(causal_gaps: list[str]) -> list[str]:
-    return [gap for gap in causal_gaps if gap in {"causal_gap_action_result", "role_scope_missing"}]
+    Orchestration: the handler decides which phase to drive and passes the
+    tuple to the prompt-template builder.
+    """
+    if question_count <= 2:
+        return ("es_aftercare", "ES本文の骨格に対して判断理由と役割の解像度を上げる", ["challenge", "role", "action_reason"])
+    if question_count <= 5:
+        return ("evidence_enhancement", "成果の根拠・信憑性・再現可能性を補強する", ["result_evidence", "credibility", "learning_transfer"])
+    return ("interview_expansion", "将来展望や原体験まで含めて人物像を厚くする", ["future", "backstory", "learning_transfer"])
 
 
 def _resolve_next_action(state: dict[str, Any]) -> str:
@@ -807,305 +409,6 @@ def _resolve_next_action(state: dict[str, Any]) -> str:
     if stage == "draft_ready":
         return "continue_deep_dive" if draft_text else "show_generate_draft_cta"
     return "ask"
-
-
-def _derive_focus_tracking(
-    fallback_state: ConversationStateInput | None,
-    *,
-    stage: str,
-    focus_key: str | None,
-    missing_elements: list[str],
-    quality_checks: dict[str, bool],
-    should_record_focus: bool,
-) -> tuple[list[str], list[str], list[str], list[str], dict[str, int], str | None]:
-    prior_asked = _normalize_focus_list(fallback_state.asked_focuses if fallback_state else [])
-    prior_resolved = _normalize_focus_list(fallback_state.resolved_focuses if fallback_state else [])
-    prior_deferred = _normalize_focus_list(fallback_state.deferred_focuses if fallback_state else [])
-    prior_blocked = _normalize_focus_list(fallback_state.blocked_focuses if fallback_state else [])
-    prior_attempts = _normalize_focus_attempt_counts(fallback_state.focus_attempt_counts if fallback_state else {})
-    last_signature = _clean_string(fallback_state.last_question_signature if fallback_state else None)
-
-    asked = list(dict.fromkeys(prior_asked + ([focus_key] if should_record_focus and focus_key else [])))
-    resolved = list(dict.fromkeys([
-        *prior_resolved,
-        *[key for key in CORE_BUILD_ELEMENTS if key not in missing_elements],
-        *(["learning"] if quality_checks.get("learning_reusability") else []),
-    ]))
-    deferred = list(dict.fromkeys([
-        *prior_deferred,
-        *(["learning"] if stage == "draft_ready" and not quality_checks.get("learning_reusability") else []),
-    ]))
-
-    attempts = dict(prior_attempts)
-    blocked = list(prior_blocked)
-    if should_record_focus and focus_key:
-        attempts[focus_key] = attempts.get(focus_key, 0) + 1
-        if focus_key not in resolved and attempts[focus_key] >= 2 and focus_key not in blocked:
-            blocked.append(focus_key)
-
-    return asked, resolved, deferred, blocked, attempts, last_signature
-
-
-def _detect_es_focus_from_missing(missing_elements: list[str]) -> str:
-    for key in CORE_BUILD_ELEMENTS:
-        if key in missing_elements:
-            return key
-    return "result"
-
-
-def _determine_deepdive_phase(question_count: int) -> tuple[str, str, list[str]]:
-    if question_count <= 2:
-        return ("es_aftercare", "ES本文の骨格に対して判断理由と役割の解像度を上げる", ["challenge", "role", "action_reason"])
-    if question_count <= 5:
-        return ("evidence_enhancement", "成果の根拠・信憑性・再現可能性を補強する", ["result_evidence", "credibility", "learning_transfer"])
-    return ("interview_expansion", "将来展望や原体験まで含めて人物像を厚くする", ["future", "backstory", "learning_transfer"])
-
-
-def _normalize_es_build_payload(
-    payload: object,
-    fallback_state: ConversationStateInput | None,
-    *,
-    conversation_text: str = "",
-    input_richness_mode: str | None = None,
-    question_count: int = 0,
-) -> tuple[str, dict[str, Any], str]:
-    data = payload if isinstance(payload, dict) else {}
-    _ext_dr = int(fallback_state.extended_deep_dive_round) if fallback_state else 0
-    missing_elements = _normalize_missing_elements(data.get("missing_elements"))
-    quality_checks = _build_draft_quality_checks(conversation_text) if conversation_text else _clean_bool_map(
-        data.get("draft_quality_checks"), DRAFT_QUALITY_CHECK_KEYS
-    )
-    causal_gaps = _build_causal_gaps(conversation_text, quality_checks) if conversation_text else _clean_string_list(
-        data.get("causal_gaps"), max_items=4
-    )
-    if conversation_text:
-        missing_elements = _build_core_missing_elements(conversation_text, quality_checks)
-    readiness_reason = _clean_string(data.get("draft_readiness_reason"))
-    focus_key = _clean_string(data.get("focus_key"))
-    if focus_key not in BUILD_ELEMENTS and focus_key != "role":
-        focus_key = _choose_build_focus(missing_elements, quality_checks, causal_gaps)
-    blocked_focuses = _normalize_focus_list(fallback_state.blocked_focuses if fallback_state else [])
-    if focus_key in blocked_focuses:
-        focus_key = _choose_build_focus(
-            [item for item in missing_elements if item not in blocked_focuses],
-            quality_checks,
-            [gap for gap in causal_gaps if gap not in {"learning_too_generic"}],
-        )
-    # STAR 進捗と質問の論点を一致させる: 骨格が未充足のときは常に先頭欠落要素へ寄せる
-    if missing_elements and focus_key in CORE_BUILD_ELEMENTS:
-        aligned = _detect_es_focus_from_missing(missing_elements)
-        if focus_key != aligned:
-            focus_key = aligned
-    meta = _build_focus_meta(focus_key)
-    question = _clean_string(data.get("question"))
-    answer_hint = _clean_string(data.get("answer_hint")) or meta["answer_hint"]
-    progress_label = _clean_string(data.get("progress_label")) or meta["progress_label"]
-    server_ready = bool(data.get("ready_for_draft"))
-    if conversation_text:
-        critical_gaps = _critical_causal_gaps(causal_gaps)
-        core_ready = len(missing_elements) == 0
-        role_gap = quality_checks.get("role_required", False) and not quality_checks.get("role_clarity", False)
-        cap_threshold = _es_build_question_cap_threshold()
-        question_cap_ready = (
-            question_count >= cap_threshold
-            and core_ready
-            and not role_gap
-            and "causal_gap_action_result" not in critical_gaps
-        )
-        server_ready = (
-            ((core_ready and quality_checks.get("task_clarity", False)) or question_cap_ready)
-            and quality_checks.get("action_ownership", False)
-            and (
-                quality_checks.get("result_traceability", False)
-                or "result" not in missing_elements
-            )
-            and (not quality_checks.get("role_required", False) or quality_checks.get("role_clarity", False))
-            and not critical_gaps
-        )
-        if server_ready and question_count < _min_user_answers_for_es_draft_ready():
-            server_ready = False
-        # CI / E2E override: force draft-ready after N questions (disabled by default)
-        force_after = _force_draft_ready_after()
-        if not server_ready and force_after > 0 and question_count >= force_after:
-            server_ready = True
-        if not readiness_reason:
-            readiness_reason = _build_readiness_reason(quality_checks, causal_gaps, missing_elements)
-
-    asked_focuses, resolved_focuses, deferred_focuses, blocked_focuses, focus_attempt_counts, _ = _derive_focus_tracking(
-        fallback_state,
-        stage="draft_ready" if server_ready else "es_building",
-        focus_key=focus_key,
-        missing_elements=missing_elements,
-        quality_checks=quality_checks,
-        should_record_focus=not server_ready,
-    )
-    last_question_signature = f"{focus_key}:{(focus_attempt_counts.get(focus_key, 0) or 1)}" if focus_key else None
-
-    if server_ready:
-        state = _default_state(
-            "draft_ready",
-            focus_key=focus_key,
-            progress_label="ESを作成できます",
-            answer_hint="ここまででES本文を書ける最低限の材料は揃っています。",
-            input_richness_mode=input_richness_mode or (fallback_state.input_richness_mode if fallback_state else None),
-            missing_elements=missing_elements,
-            draft_quality_checks=quality_checks,
-            causal_gaps=causal_gaps,
-            ready_for_draft=True,
-            draft_readiness_reason=readiness_reason or "ES本文に必要な材料が揃っています。",
-            draft_text=fallback_state.draft_text if fallback_state else None,
-            strength_tags=fallback_state.strength_tags if fallback_state else [],
-            issue_tags=fallback_state.issue_tags if fallback_state else [],
-            deepdive_recommendation_tags=fallback_state.deepdive_recommendation_tags if fallback_state else [],
-            credibility_risk_tags=fallback_state.credibility_risk_tags if fallback_state else [],
-            asked_focuses=asked_focuses,
-            resolved_focuses=resolved_focuses,
-            deferred_focuses=deferred_focuses,
-            blocked_focuses=blocked_focuses,
-            focus_attempt_counts=focus_attempt_counts,
-            last_question_signature=last_question_signature,
-            extended_deep_dive_round=_ext_dr,
-        )
-        return "", state, "draft_ready"
-
-    if not question:
-        question = meta["question"]
-        source = "rule_fallback"
-    else:
-        source = "full_json"
-
-    state = _default_state(
-        "es_building",
-        focus_key=focus_key,
-        progress_label=progress_label,
-        answer_hint=answer_hint,
-        input_richness_mode=input_richness_mode or (fallback_state.input_richness_mode if fallback_state else None),
-        missing_elements=missing_elements,
-        draft_quality_checks=quality_checks,
-        causal_gaps=causal_gaps,
-        ready_for_draft=False,
-        draft_readiness_reason=readiness_reason or _build_readiness_reason(quality_checks, causal_gaps, missing_elements),
-        draft_text=fallback_state.draft_text if fallback_state else None,
-        strength_tags=fallback_state.strength_tags if fallback_state else [],
-        issue_tags=fallback_state.issue_tags if fallback_state else [],
-        deepdive_recommendation_tags=fallback_state.deepdive_recommendation_tags if fallback_state else [],
-        credibility_risk_tags=fallback_state.credibility_risk_tags if fallback_state else [],
-        asked_focuses=asked_focuses,
-        resolved_focuses=resolved_focuses,
-        deferred_focuses=deferred_focuses,
-        blocked_focuses=blocked_focuses,
-        focus_attempt_counts=focus_attempt_counts,
-        last_question_signature=last_question_signature,
-        extended_deep_dive_round=_ext_dr,
-    )
-    return question, state, source
-
-
-def _normalize_deepdive_payload(
-    payload: object,
-    fallback_state: ConversationStateInput | None,
-    *,
-    conversation_text: str = "",
-    draft_text: str = "",
-    question_count: int = 0,
-) -> tuple[str, dict[str, Any], str]:
-    data = payload if isinstance(payload, dict) else {}
-    _ext_dr = int(fallback_state.extended_deep_dive_round) if fallback_state else 0
-    focus_key = _clean_string(data.get("focus_key")) or "challenge"
-    if focus_key not in DEEPDIVE_FOCUSES:
-        focus_key = "challenge"
-    meta = _fallback_deepdive_meta(focus_key)
-    question = _clean_string(data.get("question"))
-    answer_hint = _clean_string(data.get("answer_hint")) or meta["answer_hint"]
-    progress_label = _clean_string(data.get("progress_label")) or meta["progress_label"]
-    deepdive_stage = _clean_string(data.get("deepdive_stage")) or "es_aftercare"
-    completion = (
-        _evaluate_deepdive_completion(conversation_text, draft_text or (fallback_state.draft_text if fallback_state else ""), focus_key)
-        if conversation_text or draft_text or (fallback_state and fallback_state.draft_text)
-        else None
-    )
-    explicit_interview_ready = deepdive_stage == "interview_ready"
-    raw_complete = explicit_interview_ready or bool(completion and completion["complete"])
-    deepdive_complete = raw_complete and question_count >= MIN_USER_ANSWERS_FOR_INTERVIEW_READY
-    completion_reasons = (
-        [] if deepdive_complete and explicit_interview_ready else list(completion["completion_reasons"]) if completion else []
-    )
-    asked_focuses, resolved_focuses, deferred_focuses, blocked_focuses, focus_attempt_counts, _ = _derive_focus_tracking(
-        fallback_state,
-        stage="interview_ready" if deepdive_complete else "deep_dive_active",
-        focus_key=focus_key,
-        missing_elements=fallback_state.missing_elements if fallback_state else [],
-        quality_checks=fallback_state.draft_quality_checks if fallback_state else {},
-        should_record_focus=not deepdive_complete,
-    )
-    last_question_signature = f"{focus_key}:{(focus_attempt_counts.get(focus_key, 0) or 1)}" if focus_key else None
-
-    if deepdive_complete:
-        state = _default_state(
-            "interview_ready",
-            focus_key=focus_key,
-            progress_label="面接準備完了",
-            answer_hint="ここまでで面接に向けた補足材料も揃っています。",
-            input_richness_mode=fallback_state.input_richness_mode if fallback_state else None,
-            missing_elements=fallback_state.missing_elements if fallback_state else [],
-            draft_quality_checks=fallback_state.draft_quality_checks if fallback_state else {},
-            causal_gaps=fallback_state.causal_gaps if fallback_state else [],
-            ready_for_draft=True,
-            draft_readiness_reason=fallback_state.draft_readiness_reason if fallback_state else "",
-            draft_text=fallback_state.draft_text if fallback_state else None,
-            strength_tags=fallback_state.strength_tags if fallback_state else [],
-            issue_tags=fallback_state.issue_tags if fallback_state else [],
-            deepdive_recommendation_tags=fallback_state.deepdive_recommendation_tags if fallback_state else [],
-            credibility_risk_tags=fallback_state.credibility_risk_tags if fallback_state else [],
-            deepdive_stage="interview_ready",
-            completion_checks=completion["completion_checks"] if completion else {},
-            deepdive_complete=True,
-            completion_reasons=completion_reasons,
-            asked_focuses=asked_focuses,
-            resolved_focuses=resolved_focuses,
-            deferred_focuses=deferred_focuses,
-            blocked_focuses=blocked_focuses,
-            focus_attempt_counts=focus_attempt_counts,
-            last_question_signature=last_question_signature,
-            extended_deep_dive_round=_ext_dr,
-        )
-        return "", state, "interview_ready"
-
-    if not question:
-        question = meta["question"]
-        source = "rule_fallback"
-    else:
-        source = "full_json"
-
-    state = _default_state(
-        "deep_dive_active",
-        focus_key=focus_key,
-        progress_label=progress_label,
-        answer_hint=answer_hint,
-        input_richness_mode=fallback_state.input_richness_mode if fallback_state else None,
-        missing_elements=fallback_state.missing_elements if fallback_state else [],
-        draft_quality_checks=fallback_state.draft_quality_checks if fallback_state else {},
-        causal_gaps=fallback_state.causal_gaps if fallback_state else [],
-        ready_for_draft=True,
-        draft_readiness_reason=fallback_state.draft_readiness_reason if fallback_state else "",
-        draft_text=fallback_state.draft_text if fallback_state else None,
-        strength_tags=fallback_state.strength_tags if fallback_state else [],
-        issue_tags=fallback_state.issue_tags if fallback_state else [],
-        deepdive_recommendation_tags=fallback_state.deepdive_recommendation_tags if fallback_state else [],
-        credibility_risk_tags=fallback_state.credibility_risk_tags if fallback_state else [],
-        deepdive_stage=deepdive_stage,
-        completion_checks=completion["completion_checks"] if completion else {},
-        deepdive_complete=False,
-        completion_reasons=list(completion["missing_reasons"]) if completion else [],
-        asked_focuses=asked_focuses,
-        resolved_focuses=resolved_focuses,
-        deferred_focuses=deferred_focuses,
-        blocked_focuses=blocked_focuses,
-        focus_attempt_counts=focus_attempt_counts,
-        last_question_signature=last_question_signature,
-        extended_deep_dive_round=_ext_dr,
-    )
-    return question, state, source
 
 
 def _is_deepdive_request(request: NextQuestionRequest) -> bool:
@@ -1120,96 +423,149 @@ def _is_deepdive_request(request: NextQuestionRequest) -> bool:
     }
 
 
-def _build_es_prompt(request: NextQuestionRequest) -> str:
+# ---------------------------------------------------------------------------
+# Prompt-builder wrappers (thin orchestration layer)
+# ---------------------------------------------------------------------------
+
+def _build_es_prompt(request: NextQuestionRequest) -> tuple[str, str]:
+    """Orchestrate ES-build prompt: derive primitives, delegate formatting.
+
+    Returns ``(system_prompt, user_message)``.  The system half is stable
+    across turns (persona + rules + few-shot) and safe to cache; the user
+    half carries the per-turn dynamic content (conversation, known
+    facts, asked / blocked focuses).
+    """
     input_richness_mode = (
         request.conversation_state.input_richness_mode
         if request.conversation_state and request.conversation_state.input_richness_mode
         else _classify_input_richness(request.gakuchika_content or request.gakuchika_title)
     )
-    return ES_BUILD_AND_QUESTION_PROMPT.format(
-        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
-        conversation=_format_conversation(request.conversation_history),
+    state = request.conversation_state
+    asked = list(state.asked_focuses) if state else []
+    blocked = _sanitize_blocked_focuses(
+        state.blocked_focuses if state else [],
+        stage=state.stage if state else "es_building",
+        missing_elements=list(state.missing_elements) if state else [],
+    )
+    return build_es_prompt_text(
+        gakuchika_title=request.gakuchika_title,
+        conversation_text=_format_conversation(request.conversation_history),
         known_facts=_build_known_facts(request.conversation_history),
         input_richness_mode=input_richness_mode,
-        question_tone_and_alignment_rules=QUESTION_TONE_AND_ALIGNMENT_RULES,
-        es_build_question_principles=ES_BUILD_QUESTION_PRINCIPLES,
-        reference_guide_rubric=REFERENCE_GUIDE_RUBRIC,
-        prohibited_expressions=_PROHIBITED_EXPRESSIONS,
+        asked_focuses=asked,
+        blocked_focuses=blocked,
     )
 
 
-def _build_deepdive_prompt(request: NextQuestionRequest) -> str:
+def _build_deepdive_prompt(request: NextQuestionRequest) -> tuple[str, str]:
+    """Orchestrate deep-dive prompt: decide phase, collect diagnostic tags,
+    delegate template formatting to ``prompts.gakuchika_prompt_builder``.
+
+    Returns ``(system_prompt, user_message)``.
+    """
     phase_name, phase_description, preferred_focuses = _determine_deepdive_phase(request.question_count)
-    draft_text = request.conversation_state.draft_text if request.conversation_state else ""
-    ext_round = int(request.conversation_state.extended_deep_dive_round or 0) if request.conversation_state else 0
-    continuation_depth_note = ""
-    if ext_round > 0:
-        continuation_depth_note = (
-            f"## 継続深掘り（{ext_round} 回目）\n"
-            "- ユーザーは面接準備完了のあとも、さらに細かく詰めたいと依頼している。\n"
-            "- 仮説の裏取り・数値の分解・逆質問に備えた答え・一段狭い論点に絞った 1 問にする。\n"
-        )
-    draft_diagnostics_json = json.dumps(
-        {
-            "strength_tags": request.conversation_state.strength_tags if request.conversation_state else [],
-            "issue_tags": request.conversation_state.issue_tags if request.conversation_state else [],
-            "deepdive_recommendation_tags": (
-                request.conversation_state.deepdive_recommendation_tags if request.conversation_state else []
-            ),
-            "credibility_risk_tags": (
-                request.conversation_state.credibility_risk_tags if request.conversation_state else []
-            ),
-        },
-        ensure_ascii=False,
+    state = request.conversation_state
+    draft_text = state.draft_text if state else ""
+    ext_round = int(state.extended_deep_dive_round or 0) if state else 0
+    asked = list(state.asked_focuses) if state else []
+    blocked = _sanitize_blocked_focuses(
+        state.blocked_focuses if state else [],
+        stage=state.stage if state else "deep_dive_active",
+        missing_elements=list(state.missing_elements) if state else [],
     )
-    body = STAR_EVALUATE_AND_QUESTION_PROMPT.format(
-        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
-        draft_text=sanitize_prompt_input(draft_text or "記載なし", max_length=1800),
-        conversation=_format_conversation(request.conversation_history),
+    return build_deepdive_prompt_text(
+        gakuchika_title=request.gakuchika_title,
+        draft_text=draft_text or "",
+        conversation_text=_format_conversation(request.conversation_history),
         phase_name=phase_name,
         phase_description=phase_description,
-        preferred_focuses=", ".join(preferred_focuses),
-        draft_diagnostics_json=draft_diagnostics_json,
-        question_tone_and_alignment_rules=QUESTION_TONE_AND_ALIGNMENT_RULES,
-        deepdive_question_principles=DEEPDIVE_QUESTION_PRINCIPLES,
-        reference_guide_rubric=REFERENCE_GUIDE_RUBRIC,
-        prohibited_expressions=_PROHIBITED_EXPRESSIONS,
+        preferred_focuses=preferred_focuses,
+        extended_deep_dive_round=ext_round,
+        strength_tags=list(state.strength_tags) if state else [],
+        issue_tags=list(state.issue_tags) if state else [],
+        deepdive_recommendation_tags=list(state.deepdive_recommendation_tags) if state else [],
+        credibility_risk_tags=list(state.credibility_risk_tags) if state else [],
+        asked_focuses=asked,
+        blocked_focuses=blocked,
     )
-    if continuation_depth_note:
-        body = f"{body}\n\n{continuation_depth_note}"
-    return body
+
+
+def _build_initial_fallback_response(
+    *,
+    focus_key: str,
+    input_richness_mode: str,
+    question_count: int,
+) -> tuple[str, dict[str, Any]]:
+    """Assemble (question, state) for an initial-question fallback.
+
+    Shared between the empty-content early return and the LLM-failure path so
+    both hands emit the same shape (coach message + remaining questions +
+    missing_elements).
+    """
+    fallback = _fallback_build_meta(focus_key)
+    missing_elements = list(CORE_BUILD_ELEMENTS)
+    coach_message = _build_coach_progress_message(
+        stage="es_building",
+        resolved_focuses=[],
+        missing_elements=missing_elements,
+        focus_key=focus_key,
+        ready_for_draft=False,
+    )
+    remaining_estimate = _estimate_remaining_questions(
+        stage="es_building",
+        question_count=question_count,
+        missing_elements=missing_elements,
+        quality_checks={},
+        causal_gaps=[],
+        ready_for_draft=False,
+        role_required=False,
+    )
+    state = _default_state(
+        "es_building",
+        focus_key=focus_key,
+        progress_label=fallback["progress_label"],
+        answer_hint=fallback["answer_hint"],
+        input_richness_mode=input_richness_mode,
+        missing_elements=missing_elements,
+        draft_quality_checks={},
+        causal_gaps=[],
+        ready_for_draft=False,
+        draft_text=None,
+        coach_progress_message=coach_message,
+        remaining_questions_estimate=remaining_estimate,
+    )
+    return fallback["question"], state
 
 
 async def _generate_initial_question(request: NextQuestionRequest) -> tuple[str, dict[str, Any]]:
-    input_richness_mode = _classify_input_richness(request.gakuchika_content or request.gakuchika_title)
-    if not request.gakuchika_content:
-        fallback = _fallback_build_meta("context")
-        state = _default_state(
-            "es_building",
-            focus_key="context",
-            progress_label=fallback["progress_label"],
-            answer_hint=fallback["answer_hint"],
-            input_richness_mode=input_richness_mode,
-            missing_elements=list(CORE_BUILD_ELEMENTS),
-            draft_quality_checks={},
-            causal_gaps=[],
-            ready_for_draft=False,
-            draft_text=None,
-        )
-        return fallback["question"], state
+    """Orchestrate initial question generation.
 
-    prompt = INITIAL_QUESTION_PROMPT.format(
+    M2 (2026-04-17): LLM call and normalization moved out of
+    ``app.prompts.gakuchika_prompt_builder`` (template-only layer) and into
+    this router so that prompts stay side-effect free.
+    """
+    input_richness_mode = _classify_input_richness(
+        request.gakuchika_content or request.gakuchika_title
+    )
+
+    if not request.gakuchika_content:
+        return _build_initial_fallback_response(
+            focus_key="context",
+            input_richness_mode=input_richness_mode,
+            question_count=request.question_count,
+        )
+
+    system_prompt = _render_initial_question_system_prompt(
+        input_richness_mode=input_richness_mode,
+    )
+    user_message = INITIAL_QUESTION_USER_MESSAGE.format(
         gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
         gakuchika_content=sanitize_prompt_input(request.gakuchika_content, max_length=2000),
         input_richness_mode=input_richness_mode,
-        question_tone_and_alignment_rules=QUESTION_TONE_AND_ALIGNMENT_RULES,
-        es_build_question_principles=ES_BUILD_QUESTION_PRINCIPLES,
-        reference_guide_rubric=REFERENCE_GUIDE_RUBRIC,
-        prohibited_expressions=_PROHIBITED_EXPRESSIONS,
     )
     llm_result = await call_llm_with_error(
-        system_prompt=prompt,
-        user_message="最初の質問を生成してください。",
+        system_prompt=system_prompt,
+        user_message=user_message,
         max_tokens=INITIAL_QUESTION_MAX_TOKENS,
         temperature=0.4,
         feature="gakuchika",
@@ -1228,21 +584,16 @@ async def _generate_initial_question(request: NextQuestionRequest) -> tuple[str,
         if question or state["ready_for_draft"]:
             return question or _fallback_build_meta("context")["question"], state
 
-    fallback_focus = random.choice(["context", "task", "action"])
-    fallback = _fallback_build_meta(fallback_focus)
-    return fallback["question"], _default_state(
-        "es_building",
-        focus_key=fallback_focus,
-        progress_label=fallback["progress_label"],
-        answer_hint=fallback["answer_hint"],
+    return _build_initial_fallback_response(
+        focus_key=random.choice(["context", "task", "action"]),
         input_richness_mode=input_richness_mode,
-        missing_elements=list(CORE_BUILD_ELEMENTS),
-        draft_quality_checks={},
-        causal_gaps=[],
-        ready_for_draft=False,
-        draft_text=None,
+        question_count=request.question_count,
     )
 
+
+# ---------------------------------------------------------------------------
+# SSE helpers
+# ---------------------------------------------------------------------------
 
 def _sse_event(event_type: str, data: dict[str, Any]) -> str:
     payload = {"type": event_type, **data}
@@ -1281,6 +632,18 @@ async def _generate_next_question_progress(request: NextQuestionRequest) -> Asyn
         has_user_response = any(msg.role == "user" for msg in request.conversation_history)
         if not has_user_response and not _is_deepdive_request(request):
             question, state = await _generate_initial_question(request)
+            coach_progress_message = state.get("coach_progress_message")
+            if coach_progress_message:
+                yield _sse_event("field_complete", {
+                    "path": "coach_progress_message",
+                    "value": coach_progress_message,
+                })
+            remaining_estimate = state.get("remaining_questions_estimate")
+            if isinstance(remaining_estimate, int):
+                yield _sse_event("field_complete", {
+                    "path": "remaining_questions_estimate",
+                    "value": remaining_estimate,
+                })
             yield _sse_event("complete", {
                 "data": {
                     "question": question,
@@ -1292,7 +655,9 @@ async def _generate_next_question_progress(request: NextQuestionRequest) -> Asyn
             return
 
         is_deepdive = _is_deepdive_request(request)
-        prompt = _build_deepdive_prompt(request) if is_deepdive else _build_es_prompt(request)
+        system_prompt, user_message = (
+            _build_deepdive_prompt(request) if is_deepdive else _build_es_prompt(request)
+        )
         fallback_state = request.conversation_state
 
         yield _sse_event("progress", {
@@ -1308,8 +673,8 @@ async def _generate_next_question_progress(request: NextQuestionRequest) -> Asyn
 
         llm_result = None
         async for event in call_llm_streaming_fields(
-            system_prompt=prompt,
-            user_message="上記の会話を分析し、次の質問をJSON形式で生成してください。",
+            system_prompt=system_prompt,
+            user_message=user_message,
             max_tokens=NEXT_QUESTION_MAX_TOKENS,
             temperature=0.35,
             feature="gakuchika",
@@ -1377,6 +742,24 @@ async def _generate_next_question_progress(request: NextQuestionRequest) -> Asyn
             state["focus_key"],
         )
 
+        # Phase B.7: emit coach_progress_message as a partial so the UI
+        # ``NaturalProgressStatus`` chip can update before the final
+        # ``complete`` event lands. M4 (2026-04-17) adds remaining_questions_estimate
+        # with the same partial+complete pattern. Contract:
+        # ``docs/architecture/GAKUCHIKA_SSE_CONTRACT.md`` § field_complete.
+        coach_progress_message = state.get("coach_progress_message")
+        if coach_progress_message:
+            yield _sse_event("field_complete", {
+                "path": "coach_progress_message",
+                "value": coach_progress_message,
+            })
+        remaining_estimate = state.get("remaining_questions_estimate")
+        if isinstance(remaining_estimate, int):
+            yield _sse_event("field_complete", {
+                "path": "remaining_questions_estimate",
+                "value": remaining_estimate,
+            })
+
         yield _sse_event("complete", {
             "data": {
                 "question": question,
@@ -1392,18 +775,21 @@ async def _generate_next_question_progress(request: NextQuestionRequest) -> Asyn
         })
 
 
+# ---------------------------------------------------------------------------
+# HTTP handlers
+# ---------------------------------------------------------------------------
+
 @router.post("/next-question", response_model=NextQuestionResponse)
 @limiter.limit("60/minute")
 async def get_next_question(payload: NextQuestionRequest, request: Request):
-    request = payload
     try:
-        _sanitize_next_question_request(request)
+        _sanitize_next_question_request(payload)
     except PromptSafetyError:
         raise _prompt_safety_http_error()
 
-    has_user_response = any(msg.role == "user" for msg in request.conversation_history)
-    if not has_user_response and not _is_deepdive_request(request):
-        question, state = await _generate_initial_question(request)
+    has_user_response = any(msg.role == "user" for msg in payload.conversation_history)
+    if not has_user_response and not _is_deepdive_request(payload):
+        question, state = await _generate_initial_question(payload)
         return NextQuestionResponse(
             question=question,
             conversation_state=state,
@@ -1411,11 +797,13 @@ async def get_next_question(payload: NextQuestionRequest, request: Request):
             internal_telemetry=consume_request_llm_cost_summary("gakuchika"),
         )
 
-    is_deepdive = _is_deepdive_request(request)
-    prompt = _build_deepdive_prompt(request) if is_deepdive else _build_es_prompt(request)
+    is_deepdive = _is_deepdive_request(payload)
+    system_prompt, user_message = (
+        _build_deepdive_prompt(payload) if is_deepdive else _build_es_prompt(payload)
+    )
     llm_result = await call_llm_with_error(
-        system_prompt=prompt,
-        user_message="上記の会話を分析し、次の質問をJSON形式で生成してください。",
+        system_prompt=system_prompt,
+        user_message=user_message,
         max_tokens=NEXT_QUESTION_MAX_TOKENS,
         temperature=0.35,
         feature="gakuchika",
@@ -1438,29 +826,29 @@ async def get_next_question(payload: NextQuestionRequest, request: Request):
     if is_deepdive:
         question, state, _ = _normalize_deepdive_payload(
             data,
-            request.conversation_state,
+            payload.conversation_state,
             conversation_text=_build_user_corpus(
-                request.conversation_history,
-                initial_content=request.gakuchika_content,
-                draft_text=request.conversation_state.draft_text if request.conversation_state else None,
+                payload.conversation_history,
+                initial_content=payload.gakuchika_content,
+                draft_text=payload.conversation_state.draft_text if payload.conversation_state else None,
             ),
-            draft_text=request.conversation_state.draft_text if request.conversation_state else "",
-            question_count=request.question_count,
+            draft_text=payload.conversation_state.draft_text if payload.conversation_state else "",
+            question_count=payload.question_count,
         )
     else:
         question, state, _ = _normalize_es_build_payload(
             data,
-            request.conversation_state,
+            payload.conversation_state,
             conversation_text=_build_user_corpus(
-                request.conversation_history,
-                initial_content=request.gakuchika_content,
+                payload.conversation_history,
+                initial_content=payload.gakuchika_content,
             ),
             input_richness_mode=(
-                request.conversation_state.input_richness_mode
-                if request.conversation_state
-                else _classify_input_richness(request.gakuchika_content or request.gakuchika_title)
+                payload.conversation_state.input_richness_mode
+                if payload.conversation_state
+                else _classify_input_richness(payload.gakuchika_content or payload.gakuchika_title)
             ),
-            question_count=request.question_count,
+            question_count=payload.question_count,
         )
 
     return NextQuestionResponse(
@@ -1478,9 +866,8 @@ async def get_next_question_stream(
     request: Request,
     principal: CareerPrincipal = Depends(require_career_principal("ai-stream")),
 ):
-    request = payload
     try:
-        _sanitize_next_question_request(request)
+        _sanitize_next_question_request(payload)
     except PromptSafetyError:
         raise _prompt_safety_http_error()
 
@@ -1503,7 +890,7 @@ async def get_next_question_stream(
 
     async def _stream_with_lease() -> AsyncGenerator[str, None]:
         async with lease:
-            async for chunk in _generate_next_question_progress(request):
+            async for chunk in _generate_next_question_progress(payload):
                 await lease.heartbeat_if_due()
                 yield chunk
 
@@ -1521,19 +908,18 @@ async def get_next_question_stream(
 @router.post("/structured-summary")
 @limiter.limit("60/minute")
 async def generate_structured_summary(payload: StructuredSummaryRequest, request: Request):
-    request = payload
     try:
-        _sanitize_summary_request(request)
+        _sanitize_summary_request(payload)
     except PromptSafetyError:
         raise _prompt_safety_http_error()
 
-    if not request.conversation_history:
+    if not payload.conversation_history:
         raise HTTPException(status_code=400, detail="会話履歴がありません")
 
     prompt = STRUCTURED_SUMMARY_PROMPT.format(
-        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
-        draft_text=sanitize_prompt_input(request.draft_text, max_length=1800),
-        conversation=_format_conversation(request.conversation_history),
+        gakuchika_title=sanitize_prompt_input(payload.gakuchika_title, max_length=200),
+        draft_text=sanitize_prompt_input(payload.draft_text, max_length=1800),
+        conversation=_format_conversation(payload.conversation_history),
         deepdive_question_principles=DEEPDIVE_QUESTION_PRINCIPLES,
         reference_guide_rubric=REFERENCE_GUIDE_RUBRIC,
     )
@@ -1593,27 +979,29 @@ async def generate_structured_summary(payload: StructuredSummaryRequest, request
 @router.post("/generate-es-draft", response_model=GakuchikaESDraftResponse)
 @limiter.limit("60/minute")
 async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
-    request = payload
-    if not request.conversation_history:
+    if not payload.conversation_history:
         raise HTTPException(status_code=400, detail="会話履歴がありません")
-    if request.char_limit not in [300, 400, 500]:
+    if payload.char_limit not in [300, 400, 500]:
         raise HTTPException(status_code=400, detail="文字数は300, 400, 500のいずれかを指定してください")
     try:
-        _sanitize_es_draft_request(request)
+        _sanitize_es_draft_request(payload)
     except PromptSafetyError:
         raise _prompt_safety_http_error()
 
-    conversation_text = _format_conversation(request.conversation_history)
-    char_min = int(request.char_limit * 0.9)
-    title = sanitize_prompt_input(request.gakuchika_title, max_length=200)
+    conversation_text = _format_conversation(payload.conversation_history)
+    char_min = int(payload.char_limit * 0.9)
+    title = sanitize_prompt_input(payload.gakuchika_title, max_length=200)
     primary_body = f"テーマ: {title}\n\n{conversation_text}"
+    # Phase B.5: pull up to 5 of the student's own-words expressions so the
+    # draft can reuse them verbatim rather than over-polishing everything.
+    student_expressions = _extract_student_expressions(payload.conversation_history, max_items=5)
     system_prompt, user_prompt = build_template_draft_generation_prompt(
         "gakuchika",
         company_name=None,
         industry=None,
         question=DRAFT_SYNTHETIC_QUESTION_GAKUCHIKA,
         char_min=char_min,
-        char_max=request.char_limit,
+        char_max=payload.char_limit,
         primary_material_heading="【テーマと会話】",
         primary_material_body=primary_body,
         output_json_kind="gakuchika",
@@ -1621,7 +1009,13 @@ async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
         company_evidence_cards=None,
         has_rag=False,
         grounding_mode="none",
+        student_expressions=student_expressions,
     )
+    # Phase B.3: inject char_limit-tuned allocation guide. Kept on the system
+    # side so that repeated drafts of the same shape hit the prompt cache.
+    draft_few_shot = es_draft_few_shot_for(payload.char_limit)
+    if draft_few_shot:
+        system_prompt = f"{system_prompt}\n\n{draft_few_shot}"
     llm_result = await call_llm_with_error(
         system_prompt=system_prompt,
         user_message=user_prompt,

@@ -10,11 +10,12 @@ from app.routers.gakuchika import (
     _build_es_prompt,
     _classify_input_richness,
     _evaluate_deepdive_completion,
+    _generate_initial_question,
     _is_deepdive_request,
     _normalize_deepdive_payload,
     _normalize_es_build_payload,
 )
-from app.utils.llm import call_llm_streaming_fields
+from app.utils.llm import LLMResult, call_llm_streaming_fields
 
 
 def test_is_deepdive_request_true_for_draft_ready_without_draft_text() -> None:
@@ -51,7 +52,8 @@ def test_is_deepdive_request_false_for_es_building() -> None:
 
 
 def test_build_es_prompt_includes_readiness_guardrails() -> None:
-    prompt = _build_es_prompt(
+    # Phase B.2: _build_es_prompt returns (system_prompt, user_message).
+    system_prompt, user_message = _build_es_prompt(
         NextQuestionRequest(
             gakuchika_title="塾講師のアルバイト",
             gakuchika_content="高校生向け個別指導塾で講師を担当していました。",
@@ -62,6 +64,7 @@ def test_build_es_prompt_includes_readiness_guardrails() -> None:
             question_count=2,
         )
     )
+    prompt = system_prompt + "\n\n" + user_message
 
     assert "ready_for_draft=true" in prompt
     assert "4要素がそろい" in prompt
@@ -70,10 +73,16 @@ def test_build_es_prompt_includes_readiness_guardrails() -> None:
     assert "自然な丁寧語" in prompt
     assert '"answer_hint"' in prompt
     assert '"progress_label"' in prompt
+    # Persona + approval pattern should land in the system half (cacheable).
+    assert "キャリアアドバイザー" in system_prompt
+    assert "承認+質問パターン" in system_prompt
+    # Blocked/asked focus placeholders should be in the user half (dynamic).
+    assert "既に聞いた要素" in user_message
+    assert "ブロックされた要素" in user_message
 
 
 def test_build_deepdive_prompt_includes_future_and_backstory() -> None:
-    prompt = _build_deepdive_prompt(
+    system_prompt, user_message = _build_deepdive_prompt(
         NextQuestionRequest(
             gakuchika_title="塾講師のアルバイト",
             conversation_history=[
@@ -88,6 +97,7 @@ def test_build_deepdive_prompt_includes_future_and_backstory() -> None:
             ),
         )
     )
+    prompt = system_prompt + "\n\n" + user_message
 
     assert "future" in prompt
     assert "backstory" in prompt
@@ -97,7 +107,7 @@ def test_build_deepdive_prompt_includes_future_and_backstory() -> None:
 
 
 def test_build_deepdive_prompt_tightens_continuation_focus_by_round() -> None:
-    prompt = _build_deepdive_prompt(
+    system_prompt, user_message = _build_deepdive_prompt(
         NextQuestionRequest(
             gakuchika_title="塾講師のアルバイト",
             conversation_history=[
@@ -113,11 +123,11 @@ def test_build_deepdive_prompt_tightens_continuation_focus_by_round() -> None:
             ),
         )
     )
-
-    assert "継続深掘り（3 回目）" in prompt
-    assert "仮説の裏取り" in prompt
-    assert "数値の分解" in prompt
-    assert "逆質問に備えた答え" in prompt
+    # Continuation note is appended to the user half (it references dynamic round info).
+    assert "継続深掘り（3 回目）" in user_message
+    assert "仮説の裏取り" in user_message
+    assert "数値の分解" in user_message
+    assert "逆質問に備えた答え" in user_message
 
 
 def test_fallback_questions_avoid_prohibited_phrases() -> None:
@@ -152,6 +162,67 @@ def test_normalize_es_build_payload_aligns_focus_to_first_missing_star() -> None
         fallback_state=None,
     )
     assert state["focus_key"] == "task"
+
+
+def test_normalize_es_build_payload_releases_blocked_focus_when_core_gap_remains() -> None:
+    """core 要素が未充足なら blocked_focuses より STAR 補完を優先する。"""
+    _question, state, _source = _normalize_es_build_payload(
+        {
+            "question": "次の焦点を教えてください。",
+            "focus_key": "action",
+            "missing_elements": ["task", "action"],
+            "ready_for_draft": False,
+        },
+        fallback_state=ConversationStateInput(
+            stage="es_building",
+            blocked_focuses=["task"],
+        ),
+    )
+    assert state["focus_key"] == "task"
+    assert "task" not in state["blocked_focuses"]
+
+
+def test_normalize_es_build_payload_releases_stale_blocked_focus_for_missing_core_element() -> None:
+    """古い blocked_focuses で core 要素が永久にスキップされないこと。"""
+    _question, state, _source = _normalize_es_build_payload(
+        {
+            "question": "どの課題に向き合ったのですか。",
+            "focus_key": "action",
+            "missing_elements": ["task", "action"],
+            "ready_for_draft": False,
+        },
+        fallback_state=ConversationStateInput(
+            stage="es_building",
+            missing_elements=["task", "action"],
+            blocked_focuses=["task"],
+        ),
+    )
+
+    assert state["focus_key"] == "task"
+    assert "task" not in state["blocked_focuses"]
+
+
+def test_build_es_prompt_ignores_stale_blocked_focuses_for_missing_core_element() -> None:
+    system_prompt, user_message = _build_es_prompt(
+        NextQuestionRequest(
+            gakuchika_title="塾講師のアルバイト",
+            gakuchika_content="高校生向け個別指導塾で講師を担当していました。",
+            conversation_history=[
+                {"role": "assistant", "content": "どのような経験でしたか。"},
+                {"role": "user", "content": "塾講師として担当生徒の成績向上に取り組みました。"},
+            ],
+            question_count=2,
+            conversation_state=ConversationStateInput(
+                stage="es_building",
+                missing_elements=["task", "action"],
+                blocked_focuses=["task"],
+            ),
+        )
+    )
+
+    assert "ブロックされた要素" in user_message
+    assert "ブロックされた要素はありません" in user_message
+    assert "承認+質問パターン" in system_prompt
 
 
 def test_normalize_es_build_payload_keeps_building_until_quality_threshold() -> None:
@@ -359,3 +430,100 @@ async def test_call_llm_streaming_fields_uses_partial_success_without_repair(
     assert complete_events[0].result.data == {
         "question": "何が一番難しかったですか",
     }
+
+
+# ---------------------------------------------------------------------------
+# M2 + M4 (2026-04-17): router-side _generate_initial_question
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_generate_initial_question_without_content_uses_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M2: empty content short-circuits to a deterministic fallback without
+    hitting the LLM. M4: state carries remaining_questions_estimate."""
+
+    async def fail_llm(*args, **kwargs):
+        raise AssertionError("LLM must not be called for empty-content fallback")
+
+    monkeypatch.setattr("app.routers.gakuchika.call_llm_with_error", fail_llm)
+
+    req = NextQuestionRequest(
+        gakuchika_title="学園祭",
+        gakuchika_content=None,
+        conversation_history=[],
+        question_count=0,
+    )
+    question, state = await _generate_initial_question(req)
+
+    assert isinstance(question, str) and question
+    assert state["stage"] == "es_building"
+    assert state["focus_key"] == "context"
+    assert isinstance(state["remaining_questions_estimate"], int)
+    assert state["remaining_questions_estimate"] >= 1
+    assert state["coach_progress_message"]
+
+
+@pytest.mark.asyncio
+async def test_generate_initial_question_llm_failure_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the LLM fails, we fall back to one of the canned focuses and still
+    return a sensible state with remaining_questions_estimate set."""
+
+    async def failing_llm(*args, **kwargs):
+        return LLMResult(success=False, data=None, error=None)
+
+    monkeypatch.setattr("app.routers.gakuchika.call_llm_with_error", failing_llm)
+
+    req = NextQuestionRequest(
+        gakuchika_title="学園祭",
+        gakuchika_content="実行委員として受付を担当した。",
+        conversation_history=[],
+        question_count=0,
+    )
+    question, state = await _generate_initial_question(req)
+
+    assert isinstance(question, str) and question
+    assert state["stage"] == "es_building"
+    assert state["focus_key"] in {"context", "task", "action"}
+    assert isinstance(state["remaining_questions_estimate"], int)
+    assert state["remaining_questions_estimate"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_generate_initial_question_llm_success_carries_remaining_estimate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the LLM returns a well-formed payload, the state carries an
+    integer remaining_questions_estimate that is routed through the
+    normalizer."""
+
+    async def ok_llm(*args, **kwargs):
+        return LLMResult(
+            success=True,
+            data={
+                "question": "具体的にどんな場面でしたか？",
+                "answer_hint": "状況を一文で。",
+                "progress_label": "状況を整理中",
+                "focus_key": "context",
+                "missing_elements": ["context", "task", "action", "result"],
+                "ready_for_draft": False,
+                "draft_readiness_reason": "",
+            },
+        )
+
+    monkeypatch.setattr("app.routers.gakuchika.call_llm_with_error", ok_llm)
+
+    req = NextQuestionRequest(
+        gakuchika_title="学園祭",
+        gakuchika_content="実行委員として受付を担当した。",
+        conversation_history=[],
+        question_count=0,
+    )
+    question, state = await _generate_initial_question(req)
+
+    assert isinstance(question, str) and question
+    assert isinstance(state["remaining_questions_estimate"], int)
+    assert state["remaining_questions_estimate"] >= 0

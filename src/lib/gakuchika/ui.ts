@@ -6,7 +6,7 @@ export const PROCESSING_LABELS = {
 } as const;
 
 export const SUMMARY_POLL_INTERVAL_MS = 1500;
-export const SUMMARY_POLL_MAX_ATTEMPTS = 8;
+export const SUMMARY_POLL_MAX_ATTEMPTS = 12;
 
 export type GakuchikaDraftCharLimit = 300 | 400 | 500;
 

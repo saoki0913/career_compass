@@ -36,6 +36,8 @@ function baseState(overrides: Partial<ConversationState> = {}): ConversationStat
     focusAttemptCounts: {},
     lastQuestionSignature: null,
     extendedDeepDiveRound: 0,
+    coachProgressMessage: null,
+    remainingQuestionsEstimate: null,
     ...overrides,
   };
 }
@@ -112,5 +114,71 @@ describe("conversation-state adapters", () => {
     expect(patched.focusKey).toBe("task");
     expect(patched.askedFocuses).toEqual(["context", "task"]);
     expect(patched.blockedFocuses).toEqual(["future"]);
+  });
+});
+
+describe("remainingQuestionsEstimate normalization (M4)", () => {
+  it("parses snake_case remaining_questions_estimate into the camelCase field", () => {
+    const json = JSON.stringify({
+      stage: "es_building",
+      remaining_questions_estimate: 3,
+    });
+    expect(safeParseConversationState(json).remainingQuestionsEstimate).toBe(3);
+  });
+
+  it("accepts the camelCase alias for resume payloads", () => {
+    const json = JSON.stringify({
+      stage: "es_building",
+      remainingQuestionsEstimate: 5,
+    });
+    expect(safeParseConversationState(json).remainingQuestionsEstimate).toBe(5);
+  });
+
+  it("coerces negative or non-numeric estimates to null", () => {
+    const negative = JSON.stringify({ stage: "es_building", remaining_questions_estimate: -1 });
+    const wrongType = JSON.stringify({ stage: "es_building", remaining_questions_estimate: "three" });
+
+    expect(safeParseConversationState(negative).remainingQuestionsEstimate).toBeNull();
+    expect(safeParseConversationState(wrongType).remainingQuestionsEstimate).toBeNull();
+  });
+
+  it("floors fractional values and keeps zero as a valid value", () => {
+    const frac = JSON.stringify({ stage: "es_building", remaining_questions_estimate: 2.9 });
+    const zero = JSON.stringify({ stage: "es_building", remaining_questions_estimate: 0 });
+
+    expect(safeParseConversationState(frac).remainingQuestionsEstimate).toBe(2);
+    expect(safeParseConversationState(zero).remainingQuestionsEstimate).toBe(0);
+  });
+
+  it("round-trips through serialize → parse", () => {
+    const state = baseState({
+      stage: "es_building",
+      remainingQuestionsEstimate: 4,
+    });
+    expect(
+      safeParseConversationState(serializeConversationState(state)).remainingQuestionsEstimate,
+    ).toBe(4);
+  });
+
+  it("late-wins on null in buildConversationStatePatch to clear the field", () => {
+    const patched = buildConversationStatePatch(
+      baseState({ remainingQuestionsEstimate: 3 }),
+      { remainingQuestionsEstimate: null },
+    );
+    expect(patched.remainingQuestionsEstimate).toBeNull();
+  });
+
+  it("preserves the current value when the patch does not mention the field", () => {
+    const patched = buildConversationStatePatch(
+      baseState({ remainingQuestionsEstimate: 3 }),
+      { focusKey: "task" },
+    );
+    expect(patched.remainingQuestionsEstimate).toBe(3);
+  });
+
+  it("defaults to 0 for legacy completed rows without a stored state JSON", () => {
+    const parsed = safeParseConversationState(null, "completed");
+    expect(parsed.stage).toBe("draft_ready");
+    expect(parsed.remainingQuestionsEstimate).toBe(0);
   });
 });

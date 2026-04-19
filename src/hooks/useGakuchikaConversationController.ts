@@ -7,6 +7,7 @@ import { useStreamingTextPlayback } from "@/hooks/useStreamingTextPlayback";
 import { appendOptimisticUserMessage, rollbackOptimisticMessageById } from "@/hooks/conversation/optimistic-message";
 import { parseApiErrorResponse } from "@/lib/api-errors";
 import { reportUserFacingError } from "@/lib/client-error-ui";
+import { notifyGakuchikaDraftGenerated } from "@/lib/notifications";
 import {
   fetchGakuchikaConversation,
   fetchGakuchikaDetail,
@@ -43,12 +44,10 @@ type GakuchikaSummary = ReturnType<typeof parseGakuchikaSummary>;
 
 type ControllerParams = {
   gakuchikaId: string;
-  onDraftGenerated: (documentId: string) => void;
 };
 
 export function useGakuchikaConversationController({
   gakuchikaId,
-  onDraftGenerated,
 }: ControllerParams) {
   const { acquireLock, releaseLock } = useOperationLock();
 
@@ -82,11 +81,20 @@ export function useGakuchikaConversationController({
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [restartDialogOpen, setRestartDialogOpen] = useState(false);
   const [draftCharLimit, setDraftCharLimit] = useState<GakuchikaDraftCharLimit>(400);
+  const [isDraftModalOpen, setIsDraftModalOpen] = useState(false);
+  const [generatedDraftText, setGeneratedDraftText] = useState<string | null>(null);
+  const [generatedDocumentId, setGeneratedDocumentId] = useState<string | null>(null);
 
   const { displayedText: streamingText, isPlaybackComplete } = useStreamingTextPlayback(
     streamingTargetText,
     { isActive: isTextStreaming, resetKey: streamingSessionId },
   );
+
+  const clearDraftModalState = useCallback(() => {
+    setIsDraftModalOpen(false);
+    setGeneratedDraftText(null);
+    setGeneratedDocumentId(null);
+  }, []);
 
   const applyConversationUpdate = useCallback((update: ConversationUpdate) => {
     startTransition(() => {
@@ -230,7 +238,8 @@ export function useGakuchikaConversationController({
         attempts += 1;
         const found = await fetchSummaryIfAvailable();
         if (found || cancelled) return;
-        await new Promise((resolve) => setTimeout(resolve, SUMMARY_POLL_INTERVAL_MS));
+        const delayMs = attempts < 5 ? SUMMARY_POLL_INTERVAL_MS : SUMMARY_POLL_INTERVAL_MS * 2;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
 
       if (!cancelled) {
@@ -245,17 +254,15 @@ export function useGakuchikaConversationController({
     };
   }, [fetchSummaryIfAvailable, isInterviewReadyState, isSummaryLoading, summary]);
 
-  const retrySummary = useCallback(async () => {
+  const retrySummary = useCallback(() => {
+    setSummary(null);
     setIsSummaryLoading(true);
-    const ok = await fetchSummaryIfAvailable();
-    if (!ok) {
-      setIsSummaryLoading(false);
-    }
-  }, [fetchSummaryIfAvailable]);
+  }, []);
 
   const startDeepDive = useCallback(async () => {
     setIsStarting(true);
     setError(null);
+    clearDraftModalState();
 
     try {
       const response = await startGakuchikaConversation(gakuchikaId);
@@ -293,7 +300,7 @@ export function useGakuchikaConversationController({
     } finally {
       setIsStarting(false);
     }
-  }, [fetchConversation, gakuchikaId]);
+  }, [clearDraftModalState, fetchConversation, gakuchikaId]);
 
   const send = useCallback(async () => {
     if (!answer.trim() || isSending) return;
@@ -380,6 +387,15 @@ export function useGakuchikaConversationController({
                     answerHint: event.data?.answerHint || prev.answerHint,
                     progressLabel: event.data?.progressLabel || prev.progressLabel,
                   }
+                : prev,
+            );
+          } else if (event.type === "field_complete" && event.path === "coach_progress_message") {
+            // Early-hydrate the coach progress message so NaturalProgressStatus can update
+            // before the full complete event arrives.
+            const nextValue = typeof event.value === "string" ? event.value : null;
+            setConversationState((prev) =>
+              prev
+                ? { ...prev, coachProgressMessage: nextValue }
                 : prev,
             );
           } else if (event.type === "progress" && !hasReceivedQuestionStream) {
@@ -475,10 +491,13 @@ export function useGakuchikaConversationController({
   const selectSession = useCallback(async (sessionId: string) => {
     setCurrentSessionId(sessionId);
     setIsLoading(true);
+    clearDraftModalState();
     await fetchConversation(sessionId);
-  }, [fetchConversation]);
+  }, [clearDraftModalState, fetchConversation]);
 
   const resumeSession = useCallback(async () => {
+    if (!acquireLock("深掘りを再開中")) return;
+    clearDraftModalState();
     try {
       const response = await resumeGakuchikaConversation(gakuchikaId, {
         sessionId: currentSessionId,
@@ -523,8 +542,10 @@ export function useGakuchikaConversationController({
           "GakuchikaPage.handleResumeSession",
         ),
       );
+    } finally {
+      releaseLock();
     }
-  }, [currentSessionId, gakuchikaId]);
+  }, [acquireLock, clearDraftModalState, currentSessionId, gakuchikaId, releaseLock]);
 
   const generateDraft = useCallback(async () => {
     if (!isDraftReady(conversationState) || isGeneratingDraft) return;
@@ -534,7 +555,10 @@ export function useGakuchikaConversationController({
     setError(null);
 
     try {
-      const response = await generateGakuchikaEsDraft(gakuchikaId, { charLimit: draftCharLimit });
+      const response = await generateGakuchikaEsDraft(gakuchikaId, {
+        charLimit: draftCharLimit,
+        sessionId: currentSessionId,
+      });
 
       if (!response.ok) {
         throw await parseApiErrorResponse(
@@ -550,9 +574,11 @@ export function useGakuchikaConversationController({
       }
 
       const data = await response.json();
-      if (data.documentId) {
-        onDraftGenerated(data.documentId);
-      }
+      setGeneratedDraftText(data.draft ?? null);
+      setGeneratedDocumentId(data.documentId ?? null);
+      notifyGakuchikaDraftGenerated();
+      setIsDraftModalOpen(true);
+      await fetchConversation(currentSessionId || undefined);
     } catch (err) {
       setError(
         reportUserFacingError(
@@ -570,7 +596,7 @@ export function useGakuchikaConversationController({
       setIsGeneratingDraft(false);
       releaseLock();
     }
-  }, [acquireLock, conversationState, draftCharLimit, gakuchikaId, isGeneratingDraft, onDraftGenerated, releaseLock]);
+  }, [acquireLock, conversationState, currentSessionId, draftCharLimit, fetchConversation, gakuchikaId, isGeneratingDraft, releaseLock]);
 
   const restartConversation = useCallback(() => {
     if (isStarting || isSending || isGeneratingDraft) return;
@@ -579,9 +605,10 @@ export function useGakuchikaConversationController({
 
   const confirmRestartConversation = useCallback(async () => {
     if (isStarting || isSending || isGeneratingDraft) return;
+    clearDraftModalState();
     await startDeepDive();
     setRestartDialogOpen(false);
-  }, [isGeneratingDraft, isSending, isStarting, startDeepDive]);
+  }, [clearDraftModalState, isGeneratingDraft, isSending, isStarting, startDeepDive]);
 
   const processingText =
     assistantPhase === "organizing_intent" || assistantPhase === "generating_question"
@@ -598,7 +625,7 @@ export function useGakuchikaConversationController({
     : generatedDraft
       ? "ES を起点に、この画面から更に深掘りできます。"
       : draftReady
-        ? `ここまででガクチカESを約 ${draftCharLimit} 字で作成できます。成功時のみクレジット消費です。`
+        ? "ガクチカESを作成できます。深掘りを続けることもできます。"
         : "材料が揃うとガクチカESを作成できます。";
 
   const currentSessionIndex = currentSessionId
@@ -642,6 +669,9 @@ export function useGakuchikaConversationController({
     shouldPauseConversation,
     gakuchikaDraftHelperText,
     currentSessionLabel,
+    isDraftModalOpen,
+    generatedDraftText,
+    generatedDocumentId,
   }), [
     messages,
     nextQuestion,
@@ -678,6 +708,9 @@ export function useGakuchikaConversationController({
     shouldPauseConversation,
     gakuchikaDraftHelperText,
     currentSessionLabel,
+    isDraftModalOpen,
+    generatedDraftText,
+    generatedDocumentId,
   ]);
 
   return {
@@ -698,6 +731,7 @@ export function useGakuchikaConversationController({
       confirmRestartConversation,
       setRestartDialogOpen,
       setDraftCharLimit,
+      setIsDraftModalOpen,
     },
   };
 }
