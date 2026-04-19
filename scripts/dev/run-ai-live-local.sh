@@ -28,29 +28,46 @@ suite="${SUITE:-${AI_LIVE_SUITE:-extended}}"
 timestamp="${AI_LIVE_LOCAL_TIMESTAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
 default_output_dir="backend/tests/output/local_ai_live/${suite}_${timestamp}"
 output_dir="${OUTPUT_DIR:-${AI_LIVE_LOCAL_OUTPUT_DIR:-$default_output_dir}}"
+features_arg="${AI_LIVE_LOCAL_FEATURES:-all}"
+skip_es_review_playwright="${AI_LIVE_LOCAL_SKIP_ES_REVIEW_PLAYWRIGHT:-1}"
 web_port=""
 base_url=""
 fastapi_health_url="${AI_LIVE_LOCAL_FASTAPI_HEALTH_URL:-http://localhost:8000/health}"
-expected_features_csv="selection_schedule,rag_ingest,gakuchika,motivation,interview,es_review"
+expected_features_csv="company_info_search,selection_schedule,rag_ingest,gakuchika,motivation,interview,es_review"
 feature_workspace_root="${output_dir%/}/_feature_runs"
 next_log_path="${output_dir%/}/next-dev.log"
 fastapi_log_path="${output_dir%/}/fastapi.log"
 summary_log_path="${output_dir%/}/summary.log"
 auth_preflight_log_path="${output_dir%/}/auth-preflight.log"
+principal_preflight_log_path="${output_dir%/}/principal-preflight.log"
 db_bootstrap_log_path="${output_dir%/}/db-bootstrap.log"
+snapshot_hash=""
+snapshot_files_json="[]"
+auth_preflight_status="not_run"
+principal_preflight_status="not_run"
 
 next_pid=""
 fastapi_pid=""
 overall_status=0
+feature_child_pids=()
+feature_timeout="${AI_LIVE_LOCAL_FEATURE_TIMEOUT:-600}"
 ci_e2e_auth_secret="${CI_E2E_AUTH_SECRET:-}"
 
 readonly features=(
+  "company-info-search"
   "selection-schedule"
   "rag-ingest"
   "gakuchika"
   "motivation"
   "interview"
   "es-review"
+  "calendar"
+  "tasks-deadlines"
+  "notifications"
+  "company-crud"
+  "profile-settings"
+  "billing"
+  "search-query"
 )
 
 readonly stateful_features=(
@@ -58,7 +75,15 @@ readonly stateful_features=(
   "gakuchika"
   "motivation"
   "interview"
+  "calendar"
+  "tasks-deadlines"
+  "notifications"
+  "company-crud"
+  "profile-settings"
+  "search-query"
 )
+
+selected_features=()
 
 log() {
   printf '[ai-live-local] %s\n' "$*"
@@ -80,10 +105,43 @@ is_stateful_feature() {
   return 1
 }
 
+select_features() {
+  local requested_features=()
+  local feature normalized
+
+  if [[ "$features_arg" == "all" ]]; then
+    selected_features=("${features[@]}")
+  else
+    IFS=',' read -r -a requested_features <<< "$features_arg"
+    for feature in "${requested_features[@]}"; do
+      normalized="$(echo "$feature" | tr -d '[:space:]')"
+      case "$normalized" in
+        company-info-search|selection-schedule|rag-ingest|gakuchika|motivation|interview|es-review|calendar|tasks-deadlines|notifications|company-crud|profile-settings|billing|search-query)
+          selected_features+=("$normalized")
+          ;;
+        *)
+          die "unsupported AI_LIVE_LOCAL_FEATURES entry: ${normalized}"
+          ;;
+      esac
+    done
+  fi
+
+  if [[ ${#selected_features[@]} -eq 0 ]]; then
+    die "AI_LIVE_LOCAL_FEATURES did not resolve to any features"
+  fi
+
+  expected_features_csv="$(
+    printf '%s\n' "${selected_features[@]}" \
+      | sed 's/-/_/g' \
+      | paste -sd, -
+  )"
+}
+
 ensure_required_env() {
   local missing=()
   local required_envs=(
     "BETTER_AUTH_SECRET"
+    "CAREER_PRINCIPAL_HMAC_SECRET"
     "OPENAI_API_KEY"
     "ANTHROPIC_API_KEY"
     "GOOGLE_API_KEY"
@@ -104,6 +162,9 @@ ensure_required_env() {
         case "$name" in
           BETTER_AUTH_SECRET)
             log "- ${name}: Better Auth session signing"
+            ;;
+          CAREER_PRINCIPAL_HMAC_SECRET)
+            log "- ${name}: Next.js -> FastAPI principal HMAC signing for local AI routes"
             ;;
           OPENAI_API_KEY)
             log "- ${name}: ES review / embeddings / company info live calls"
@@ -187,9 +248,28 @@ cleanup_process() {
   wait "$pid" >/dev/null 2>&1 || true
 }
 
+kill_stale_runs() {
+  local my_pid=$$
+  local stale_pids
+  stale_pids=$(pgrep -f "run-ai-live-local\\.sh" 2>/dev/null || true)
+  for pid in $stale_pids; do
+    if [[ "$pid" != "$my_pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      log "killing stale run-ai-live-local.sh (pid=${pid})"
+      kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+    fi
+  done
+}
+
 cleanup() {
   local exit_code=$?
   set +e
+  for cpid in "${feature_child_pids[@]}"; do
+    if kill -0 "$cpid" 2>/dev/null; then
+      log "killing feature child (pid=${cpid})"
+      kill -- -"$cpid" 2>/dev/null || kill "$cpid" 2>/dev/null || true
+    fi
+  done
+  feature_child_pids=()
   cleanup_process "FastAPI" "$fastapi_pid"
   cleanup_process "Next.js" "$next_pid"
   exit "$exit_code"
@@ -440,13 +520,9 @@ ensure_local_database() {
 }
 
 copy_feature_bundle() {
-  local feature="$1"
-  local feature_workspace="${feature_workspace_root%/}/${feature}"
-  local feature_run_dir=""
+  local feature_run_dir="$1"
 
-  feature_run_dir="$(find "$feature_workspace" -mindepth 1 -maxdepth 1 -type d -name 'ai_live_*' | sort | tail -n 1)"
-  if [[ -z "$feature_run_dir" ]]; then
-    log "feature run directory not found for ${feature}"
+  if [[ -z "$feature_run_dir" || ! -d "$feature_run_dir" ]]; then
     return 1
   fi
 
@@ -457,6 +533,55 @@ copy_feature_bundle() {
   return 0
 }
 
+find_feature_run_dir() {
+  local feature="$1"
+  local feature_workspace="${feature_workspace_root%/}/${feature}"
+
+  find "$feature_workspace" -mindepth 1 -maxdepth 1 -type d -name 'ai_live_*' | sort | tail -n 1
+}
+
+load_snapshot_metadata() {
+  local snapshot_json
+  snapshot_json="$(node scripts/ci/e2e-functional-snapshot.mjs)"
+  snapshot_hash="$(
+    SNAPSHOT_JSON="$snapshot_json" node - <<'NODE'
+const snapshot = JSON.parse(process.env.SNAPSHOT_JSON || "{}");
+process.stdout.write(String(snapshot.snapshotHash || "no-staged-files"));
+NODE
+  )"
+  snapshot_files_json="$(
+    SNAPSHOT_JSON="$snapshot_json" node - <<'NODE'
+const snapshot = JSON.parse(process.env.SNAPSHOT_JSON || "{}");
+process.stdout.write(JSON.stringify(Array.isArray(snapshot.snapshotFiles) ? snapshot.snapshotFiles : []));
+NODE
+  )"
+
+  if [[ "$snapshot_hash" == "no-staged-files" ]]; then
+    log "staged snapshot is empty; local manifest will be marked as no-staged-files until files are staged"
+  else
+    log "captured staged snapshot hash: ${snapshot_hash}"
+  fi
+}
+
+write_local_feature_status() {
+  local feature="$1"
+  local feature_run_dir="$2"
+
+  if [[ -z "$feature_run_dir" ]]; then
+    log "feature run directory not found for ${feature}"
+    return 1
+  fi
+
+  node scripts/ci/write-local-ai-status.mjs \
+    --feature "$feature" \
+    --suite "$suite" \
+    --run-dir "$feature_run_dir" \
+    --snapshot-hash "$snapshot_hash" \
+    --snapshot-files-json "$snapshot_files_json" \
+    --auth-preflight-status "$auth_preflight_status" \
+    --principal-preflight-status "$principal_preflight_status" >/dev/null
+}
+
 run_reset() {
   local scope="$1"
   log "resetting local AI Live state for scope=${scope}"
@@ -465,22 +590,25 @@ run_reset() {
     node scripts/ci/reset-ai-live-state.mjs --base-url "$base_url" --scope "$scope"
 }
 
-run_feature() {
+run_feature_isolated() {
   local feature="$1"
   local scope="local-ai-live-${timestamp}-${feature}"
   local feature_workspace="${feature_workspace_root%/}/${feature}"
+  local feature_run_dir=""
+  local feature_failed=0
 
   mkdir -p "$feature_workspace"
 
   if is_stateful_feature "$feature"; then
     if ! run_reset "$scope"; then
       log "state reset failed for ${feature}"
-      overall_status=1
+      feature_failed=1
     fi
   fi
 
-  log "running feature=${feature} suite=${suite}"
-  if ! env \
+  log "running feature=${feature} suite=${suite} (timeout=${feature_timeout}s)"
+  local feature_rc=0
+  timeout --kill-after=30 "$feature_timeout" env \
     CI_E2E_AUTH_SECRET="$ci_e2e_auth_secret" \
     PLAYWRIGHT_BASE_URL="$base_url" \
     PLAYWRIGHT_SKIP_WEBSERVER=1 \
@@ -492,14 +620,27 @@ run_feature() {
       --suite "$suite" \
       --feature "$feature" \
       --output-dir "$feature_workspace" \
-      --skip-summary; then
-    log "feature failed: ${feature}"
-    overall_status=1
+      --skip-summary || feature_rc=$?
+  if [[ $feature_rc -ne 0 ]]; then
+    if [[ $feature_rc -eq 124 ]]; then
+      log "feature timed out after ${feature_timeout}s: ${feature}"
+    else
+      log "feature failed: ${feature} (exit=${feature_rc})"
+    fi
+    feature_failed=1
   fi
 
-  if ! copy_feature_bundle "$feature"; then
-    overall_status=1
+  feature_run_dir="$(find_feature_run_dir "$feature" || true)"
+
+  if ! copy_feature_bundle "$feature_run_dir"; then
+    feature_failed=1
   fi
+
+  if ! write_local_feature_status "$feature" "$feature_run_dir"; then
+    feature_failed=1
+  fi
+
+  return "$feature_failed"
 }
 
 generate_summary() {
@@ -520,7 +661,11 @@ case "$suite" in
 esac
 
 ensure_required_env
+select_features
 ensure_dir
+load_snapshot_metadata
+
+kill_stale_runs
 
 ensure_local_database
 
@@ -585,9 +730,15 @@ env \
   CI_E2E_AUTH_SECRET="$ci_e2e_auth_secret" \
   node scripts/ci/check-ai-live-auth.mjs --base-url "$base_url" --scope "local-ai-live-${timestamp}-auth" \
   2>&1 | tee "$auth_preflight_log_path"
+auth_preflight_status="passed"
 
-# Local bundle only: skip ES review browser E2E (pytest remains). CI and manual run-ai-live.sh are unchanged.
-export AI_LIVE_SKIP_ES_REVIEW_PLAYWRIGHT=1
+log "running local principal preflight against ${base_url}"
+node scripts/ci/check-ai-live-principal.mjs --base-url "$base_url" \
+  2>&1 | tee "$principal_preflight_log_path"
+principal_preflight_status="passed"
+
+# Local bundle defaults to skipping ES review browser E2E, but local feature runs can enable it.
+export AI_LIVE_SKIP_ES_REVIEW_PLAYWRIGHT="$skip_es_review_playwright"
 if [[ "$suite" == "extended" ]]; then
   # Align with extended ES review pytest: record quality/state in JSON/MD; fail Playwright only on infra-like failures.
   export LIVE_AI_CONVERSATION_BLOCKING_FAILURES=0
@@ -602,9 +753,70 @@ if [[ "$suite" == "extended" ]]; then
   fi
 fi
 
-for feature in "${features[@]}"; do
-  run_feature "$feature"
-done
+run_features_parallel() {
+  local max_parallel="${AI_LIVE_LOCAL_PARALLEL:-4}"
+  local running_pids=()
+  local running_features=()
+
+  trim_finished_pids() {
+    local alive_pids=()
+    local alive_features=()
+    local i
+    for i in "${!running_pids[@]}"; do
+      if kill -0 "${running_pids[$i]}" 2>/dev/null; then
+        alive_pids+=("${running_pids[$i]}")
+        alive_features+=("${running_features[$i]}")
+      fi
+    done
+    running_pids=("${alive_pids[@]}")
+    running_features=("${alive_features[@]}")
+  }
+
+  for feature in "${selected_features[@]}"; do
+    while [[ ${#running_pids[@]} -ge $max_parallel ]]; do
+      sleep 0.5
+      trim_finished_pids
+    done
+
+    local exit_file="${feature_workspace_root}/${feature}/.exit_code"
+    local log_file="${feature_workspace_root}/${feature}/feature.log"
+    mkdir -p "${feature_workspace_root}/${feature}"
+
+    (
+      set +e
+      run_feature_isolated "$feature" >"$log_file" 2>&1
+      echo $? > "$exit_file"
+    ) &
+    local child_pid=$!
+    running_pids+=("$child_pid")
+    running_features+=("$feature")
+    feature_child_pids+=("$child_pid")
+  done
+
+  wait
+
+  for feature in "${selected_features[@]}"; do
+    local exit_file="${feature_workspace_root}/${feature}/.exit_code"
+    local code
+    code=$(cat "$exit_file" 2>/dev/null || echo "1")
+    if [[ "$code" != "0" ]]; then
+      overall_status=1
+      log "FAIL: ${feature}"
+      tail -20 "${feature_workspace_root}/${feature}/feature.log" | sed "s/^/  [${feature}] /" >&2
+    else
+      log "PASS: ${feature}"
+    fi
+  done
+}
+
+if [[ ${#selected_features[@]} -eq 1 ]] || [[ "${AI_LIVE_LOCAL_PARALLEL:-4}" == "1" ]]; then
+  for feature in "${selected_features[@]}"; do
+    run_feature_isolated "$feature"
+    if [[ $? -ne 0 ]]; then overall_status=1; fi
+  done
+else
+  run_features_parallel
+fi
 
 generate_summary
 
