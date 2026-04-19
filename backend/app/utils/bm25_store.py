@@ -14,6 +14,10 @@ from dataclasses import dataclass, field
 
 from cachetools import LRUCache
 
+from app.utils.secure_logger import get_logger
+
+logger = get_logger(__name__)
+
 try:
     import bm25s
 
@@ -142,6 +146,15 @@ class BM25Index:
 
         indices = results[0]
         score_list = scores[0]
+        if len(indices) == 0 or len(score_list) == 0:
+            return []
+        if len(indices) != len(score_list):
+            logger.warning(
+                "bm25 retrieve length mismatch: indices=%d scores=%d",
+                len(indices),
+                len(score_list),
+            )
+            return []
         output: list[tuple[str, float]] = []
         for rank, doc_idx in enumerate(indices):
             if doc_idx is None:

@@ -614,7 +614,10 @@ def generate_query_variations(
     queries = []
     base_variants = generate_company_variants(company_name)
     company_variants = _merge_query_aliases(company_name, base_variants)
-    primary_name = company_variants[0]
+    if not company_variants:
+        primary_name = company_name or ""
+    else:
+        primary_name = company_variants[0]
     short_name = company_variants[1] if len(company_variants) > 1 else primary_name
     alias_name = company_variants[2] if len(company_variants) > 2 else None
     ascii_name = base_variants[2] if len(base_variants) > 2 else None
