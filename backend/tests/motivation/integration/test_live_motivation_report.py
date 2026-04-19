@@ -31,9 +31,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from tests.conversation.staging_client import StagingClient
 from tests.conversation.conversation_runner import (
-    collect_chunks,
-    parse_complete_data,
-    parse_sse_events,
     run_motivation_conversation,
 )
 from tests.conversation.checks import (
@@ -302,41 +299,26 @@ async def _run_single_case(
             row["severity"] = "warning"
             return row
 
-        # Step 3: Generate draft via direct endpoint
+        # Step 3: Generate draft from conversation
         draft_response = await client.request(
             "POST",
-            f"/api/motivation/{company_id}/generate-draft-direct",
+            f"/api/motivation/{company_id}/generate-draft",
             json={
-                "selectedIndustry": case.get("selectedIndustry", ""),
-                "selectedRole": case.get("selectedRole", ""),
+                "charLimit": 400,
             },
         )
         if draft_response.status_code >= 400:
             raise RuntimeError(
-                f"generate-draft-direct failed: {draft_response.status_code} "
+                f"generate-draft failed: {draft_response.status_code} "
                 f"{draft_response.text[:500]}"
             )
 
-        draft_events = parse_sse_events(draft_response.text)
+        draft_data = json.loads(draft_response.text)
+        draft_text = draft_data.get("draft", "")
 
-        # collect_chunks tries multiple path names in priority order
-        draft_text = (
-            collect_chunks(draft_events, "draft")
-            or collect_chunks(draft_events, "content")
-            or collect_chunks(draft_events, "text")
-            or ""
-        )
-
-        # Try to recover document id from the complete event
-        try:
-            draft_complete = parse_complete_data(draft_events)
-            doc_id = draft_complete.get("documentId") or (
-                draft_complete.get("document") or {}
-            ).get("id")
-            if doc_id:
-                document_ids.append(str(doc_id))
-        except ValueError:
-            pass
+        doc_id = draft_data.get("documentId")
+        if doc_id:
+            document_ids.append(str(doc_id))
 
         row["outputs"] = {
             "draftText": draft_text[:2000],
@@ -466,7 +448,7 @@ async def test_live_motivation_report() -> None:
     What this test verifies:
     - The staging motivation conversation API starts a session, accepts answers,
       and converges to a draft-ready state without crashing.
-    - The ``generate-draft-direct`` endpoint returns a non-empty text containing
+    - The ``generate-draft`` endpoint returns a non-empty text containing
       the expected token coverage from the case fixture.
     - Forbidden tokens do not appear in any output.
     - Required question token groups are covered by assistant questions.
