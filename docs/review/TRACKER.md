@@ -1,6 +1,6 @@
 # 改善トラッカー
 
-最終更新: 2026-04-19 (Phase 1A-1 LLM cross-fallback + circuit 観測性実装 / company-info-search Primary Gate FAIL 静的分析レポート追加 / 子プラン AI_QUALITY_IMPROVEMENT_PHASE1A1_1B01 完了)
+最終更新: 2026-04-19 (Phase 1A-2/1A-3 出力側ガードレール + labeled dataset / Phase 1B-2 tuple bug fix 実装)
 
 ## 凡例
 未着手 / 進行中 / 検証待ち / 完了 / superseded / RFC
@@ -20,8 +20,8 @@
 | rag-arch | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [2026-04-17](rag-architecture/2026-04-17-rag-design-review.md) | [RAG_ARCHITECTURE_IMPROVEMENT](../plan/RAG_ARCHITECTURE_IMPROVEMENT_PLAN.md) | 未着手 | **7軸: 企業RAG 65 B / RAG検索基盤 63 B** (包括評価 2026-04-19)。P0-1 (labeled eval) / P0-2 (tenant fail-closed) / P0-3 (OTel metrics) が Phase 2 M-3 の前提 |
 | clean-arch | — | [CLEAN_ARCHITECTURE_REFACTORING](../plan/CLEAN_ARCHITECTURE_REFACTORING.md) | superseded | 2026-04-17 に MAINTAINABILITY へ吸収。以後は案内文のみ保持し、将来設計の正本は MAINTAINABILITY 側で管理 |
 | llm-infra | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) | [AI_QUALITY_IMPROVEMENT Phase 1A](../plan/AI_QUALITY_IMPROVEMENT_PLAN.md) / [Phase 1A-1 子プラン](../plan/AI_QUALITY_IMPROVEMENT_PHASE1A1_1B01_PLAN.md) | 検証待ち | **Phase 1A-1 実装済み (2026-04-19)**: `_capability_class` + `_feature_cross_fallback_model`、billing 以外で cross-provider フォールバック、`CircuitBreaker` を registry 集約 + `llm.circuit.*` / `llm.fallback.triggered` 構造化ログ。`pytest tests/shared/` PASS |
-| prompt-safety | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [llm_ai_security](security/llm_ai_security.md) | [AI_QUALITY_IMPROVEMENT Phase 1A](../plan/AI_QUALITY_IMPROVEMENT_PLAN.md) | 未着手 | **7軸 56/100 Grade C**。出力側ガードレール未実装。テスト12件passだがlabeled dataset+precision/recall計測が未導入。間接インジェクション対策なし |
-| company-info-search | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [Primary Gate FAIL 静的分析](company-info-search/2026-04-19-primary-gate-fail-investigation.md) | [AI_QUALITY_IMPROVEMENT Phase 1B-2](../plan/AI_QUALITY_IMPROVEMENT_PLAN.md) | 未着手（1B-0/1B-1 調査完了） | **静的分析 (2026-04-19)**: curated 8,050 run 中 7,700 件が `tuple index out of range`、350 件が `error=null`・空 candidates（`company_context`）。主因は検索品質以前のパイプライン例外。1B-2 で修正範囲を特定予定 |
+| prompt-safety | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [llm_ai_security](security/llm_ai_security.md) | [AI_QUALITY_IMPROVEMENT Phase 1A](../plan/AI_QUALITY_IMPROVEMENT_PLAN.md) / [Phase 1A-2/1A-3/1B-2 子プラン](../plan/AI_QUALITY_IMPROVEMENT_PHASE1A2_1A3_1B2_PLAN.md) | 検証待ち | **Phase 1A-2/1A-3 実装済み (2026-04-19)**: `detect_output_leakage` + Claude 3 経路注入 (log_only tier)。合成 labeled dataset (input 150+/output 90+) + precision/recall harness 導入。間接インジェクション対策は次フェーズ |
+| company-info-search | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [Primary Gate FAIL 静的分析](company-info-search/2026-04-19-primary-gate-fail-investigation.md) | [AI_QUALITY_IMPROVEMENT Phase 1B-2](../plan/AI_QUALITY_IMPROVEMENT_PLAN.md) / [Phase 1A-2/1A-3/1B-2 子プラン](../plan/AI_QUALITY_IMPROVEMENT_PHASE1A2_1A3_1B2_PLAN.md) | fix 済み（live eval 未） | **1B-2 修正済み (2026-04-19)**: `web_search.py` 空 variants ガード + 原名 fallback、`bm25_store.py` 内側 ndarray 長さガード + mismatch warning。unit test 7 件 pass。live eval は別セッション |
 | db-redesign | — | [DB_REDESIGN](../plan/DB_REDESIGN_PLAN.md) | 未着手 | blast radius 最大 |
 | lp | — | [LP_IMPROVEMENT](../plan/LP_IMPROVEMENT_PLAN.md) | 完了 (2026-04-17) | SEO 改善フェーズ完了。Hero/TrustStrip/CTA 文言統一、Feature 書換え + MidCTA 新設、HowItWorks/PainPoints/Quality 新設、Comparison 11 行、FAQ 10 問、企業別 AI 模擬面接訴求追加、2 階層 LP 4 枚に `BreadcrumbList` 付与、`/pricing` Server + Client 分離。plan frontmatter `完了` 化済み (2026-04-17) |
 
