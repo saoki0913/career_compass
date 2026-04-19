@@ -2,43 +2,53 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
+from typing import Optional
 from urllib.parse import urlparse
 
-from fastapi import File, Form, HTTPException, Request, UploadFile
+from fastapi import HTTPException
 
 from app.routers.company_info_models import (
     CrawlCorporateEstimateResponse,
     CrawlCorporateRequest,
     CrawlCorporateResponse,
+    EstimateCorporatePdfResponse,
     UploadCorporatePdfResponse,
 )
+from app.routers.company_info_pdf import (
+    _build_pdf_estimate_response,
+    _extract_text_from_pdf_with_page_routing,
+    _is_garbled_text,
+    _normalize_rag_pdf_billing_plan,
+    _pdf_ingest_telemetry_line,
+)
+from app.utils.http_fetch import extract_text_from_html
+from app.utils.secure_logger import get_logger
+
+logger = get_logger(__name__)
 
 
-async def estimate_corporate_pdf_upload(
-    request: Request,
-    company_id: str = Form(...),
-    source_url: str = Form(...),
-    content_type: str | None = Form(None),
-    billing_plan: str = Form("free"),
-    remaining_free_pdf_pages: int = Form(0),
-    file: UploadFile = File(...),
-):
-    from app.routers import company_info as ci
+def _looks_like_pdf_payload(url: str, payload: bytes) -> bool:
+    return url.lower().endswith(".pdf") or payload[:5] == b"%PDF-"
 
-    filename = file.filename or "document.pdf"
-    mime_type = (file.content_type or "").lower()
-    if not filename.lower().endswith(".pdf") and mime_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="PDFファイルを指定してください。")
 
-    pdf_bytes = await file.read()
-    if not pdf_bytes:
-        raise HTTPException(status_code=400, detail="PDFファイルが空です。")
-    if len(pdf_bytes) > ci.MAX_UPLOAD_PDF_BYTES:
-        raise HTTPException(status_code=400, detail="PDFファイルが大きすぎます。20MB以下にしてください。")
+def _looks_like_html_payload(payload: bytes) -> bool:
+    sample = payload[:512].lower()
+    return b"<html" in sample or b"<!doctype html" in sample or b"<body" in sample
 
-    plan = ci._normalize_rag_pdf_billing_plan(billing_plan)
-    routing = await ci._extract_text_from_pdf_with_page_routing(
+
+async def estimate_corporate_pdf_upload_impl(
+    company_id: str,
+    source_url: str,
+    content_type: Optional[str],
+    billing_plan: str,
+    remaining_free_pdf_pages: int,
+    pdf_bytes: bytes,
+    filename: str,
+) -> EstimateCorporatePdfResponse:
+    plan = _normalize_rag_pdf_billing_plan(billing_plan)
+    routing = await _extract_text_from_pdf_with_page_routing(
         pdf_bytes=pdf_bytes,
         filename=filename,
         billing_plan=plan,
@@ -47,7 +57,7 @@ async def estimate_corporate_pdf_upload(
         feature="company_info",
     )
 
-    return ci._build_pdf_estimate_response(
+    return _build_pdf_estimate_response(
         company_id=company_id,
         source_url=source_url,
         source_total_pages=routing["source_total_pages"],
@@ -58,34 +68,29 @@ async def estimate_corporate_pdf_upload(
     )
 
 
-async def upload_corporate_pdf(
-    request: Request,
-    company_id: str = Form(...),
-    company_name: str = Form(...),
-    source_url: str = Form(...),
-    content_type: str | None = Form(None),
-    content_channel: str | None = Form(None),
-    billing_plan: str = Form("free"),
-    file: UploadFile = File(...),
-):
-    from app.routers import company_info as ci
+async def upload_corporate_pdf_impl(
+    company_id: str,
+    company_name: str,
+    source_url: str,
+    content_type: Optional[str],
+    content_channel: Optional[str],
+    billing_plan: str,
+    pdf_bytes: bytes,
+    filename: str,
+) -> UploadCorporatePdfResponse:
+    # Late-bound imports: tests monkeypatch these on the company_info module
+    from app.routers import company_info as _ci
+
+    resolve_embedding_backend = _ci.resolve_embedding_backend
+    store_full_text_content = _ci.store_full_text_content
 
     t0 = time.monotonic()
-    filename = file.filename or "document.pdf"
-    mime_type = (file.content_type or "").lower()
-    if not filename.lower().endswith(".pdf") and mime_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="PDFファイルを指定してください。")
 
-    pdf_bytes = await file.read()
-    if not pdf_bytes:
-        raise HTTPException(status_code=400, detail="PDFファイルが空です。")
-    if len(pdf_bytes) > ci.MAX_UPLOAD_PDF_BYTES:
-        raise HTTPException(status_code=400, detail="PDFファイルが大きすぎます。20MB以下にしてください。")
+    plan = _normalize_rag_pdf_billing_plan(billing_plan)
 
-    plan = ci._normalize_rag_pdf_billing_plan(billing_plan)
-    backend = ci.resolve_embedding_backend()
+    backend = resolve_embedding_backend()
     if backend is None:
-        ci._pdf_ingest_telemetry_line(
+        _pdf_ingest_telemetry_line(
             ocr_ran=False,
             source_total_pages=None,
             processed_pages=None,
@@ -113,7 +118,7 @@ async def upload_corporate_pdf(
             ],
         )
 
-    routing = await ci._extract_text_from_pdf_with_page_routing(
+    routing = await _extract_text_from_pdf_with_page_routing(
         pdf_bytes=pdf_bytes,
         filename=filename,
         billing_plan=plan,
@@ -138,7 +143,7 @@ async def upload_corporate_pdf(
     ocr_fallback_count = int(routing["ocr_fallback_count"])
 
     if len(extracted_text.strip()) < 100:
-        ci._pdf_ingest_telemetry_line(
+        _pdf_ingest_telemetry_line(
             ocr_ran=ocr_ran,
             source_total_pages=source_total_pages,
             processed_pages=processed_pages,
@@ -171,8 +176,13 @@ async def upload_corporate_pdf(
             page_routing_summary=page_routing_summary,
         )
 
-    channel = content_channel or ("corporate_ir" if content_type in {"ir_materials", "midterm_plan"} else "corporate_general")
-    result = await ci.store_full_text_content(
+    channel = content_channel or (
+        "corporate_ir"
+        if content_type in {"ir_materials", "midterm_plan"}
+        else "corporate_general"
+    )
+
+    result = await store_full_text_content(
         company_id=company_id,
         company_name=company_name,
         raw_text=extracted_text,
@@ -184,7 +194,7 @@ async def upload_corporate_pdf(
     )
 
     if not result["success"]:
-        ci._pdf_ingest_telemetry_line(
+        _pdf_ingest_telemetry_line(
             ocr_ran=ocr_ran,
             source_total_pages=source_total_pages,
             processed_pages=processed_pages,
@@ -224,7 +234,7 @@ async def upload_corporate_pdf(
     chunker = JapaneseTextChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     chunks = chunker.chunk(extracted_text)
 
-    ci._pdf_ingest_telemetry_line(
+    _pdf_ingest_telemetry_line(
         ocr_ran=ocr_ran,
         source_total_pages=source_total_pages,
         processed_pages=processed_pages,
@@ -259,15 +269,6 @@ async def upload_corporate_pdf(
     )
 
 
-def _looks_like_pdf_payload(url: str, payload: bytes) -> bool:
-    return url.lower().endswith(".pdf") or payload[:5] == b"%PDF-"
-
-
-def _looks_like_html_payload(payload: bytes) -> bool:
-    sample = payload[:512].lower()
-    return b"<html" in sample or b"<!doctype html" in sample or b"<body" in sample
-
-
 async def _process_crawl_source(
     *,
     company_id: str,
@@ -279,12 +280,15 @@ async def _process_crawl_source(
     billing_plan: str,
     store_result: bool,
 ) -> dict[str, object]:
-    from app.routers import company_info as ci
+    # Late-bound: tests monkeypatch fetch_page_content / store_full_text_content on company_info
+    from app.routers import company_info as _ci
 
-    payload = await ci.fetch_page_content(url)
+    store_full_text_content = _ci.store_full_text_content
+
+    payload = await _ci.fetch_page_content(url)
 
     if _looks_like_pdf_payload(url, payload):
-        routing = await ci._extract_text_from_pdf_with_page_routing(
+        routing = await _extract_text_from_pdf_with_page_routing(
             pdf_bytes=payload,
             filename=urlparse(url).path.split("/")[-1] or "document.pdf",
             billing_plan=billing_plan,
@@ -313,7 +317,7 @@ async def _process_crawl_source(
                 "page_routing_summary": page_routing_summary,
             }
 
-        result = await ci.store_full_text_content(
+        result = await store_full_text_content(
             company_id=company_id,
             company_name=company_name,
             raw_text=text,
@@ -357,8 +361,8 @@ async def _process_crawl_source(
             "chunks_stored": 0,
         }
 
-    text = ci.extract_text_from_html(payload)
-    if not text or len(text) < 100 or ci._is_garbled_text(text):
+    text = extract_text_from_html(payload)
+    if not text or len(text) < 100 or _is_garbled_text(text):
         return {
             "success": False,
             "kind": "html",
@@ -375,7 +379,7 @@ async def _process_crawl_source(
             "chunks_stored": 0,
         }
 
-    result = await ci.store_full_text_content(
+    result = await store_full_text_content(
         company_id=company_id,
         company_name=company_name,
         raw_text=payload,
@@ -407,11 +411,11 @@ async def _process_crawl_source(
     }
 
 
-async def estimate_crawl_corporate_pages(payload: CrawlCorporateRequest, request: Request):
-    from app.routers import company_info as ci
-
+async def estimate_crawl_corporate_pages_impl(
+    payload: CrawlCorporateRequest,
+) -> CrawlCorporateEstimateResponse:
     request = payload
-    billing_plan = ci._normalize_rag_pdf_billing_plan(request.billing_plan)
+    billing_plan = _normalize_rag_pdf_billing_plan(request.billing_plan)
     errors: list[str] = []
     estimated_html_pages = 0
     estimated_pdf_pages = 0
@@ -465,11 +469,15 @@ async def estimate_crawl_corporate_pages(payload: CrawlCorporateRequest, request
     )
 
 
-async def crawl_corporate_pages(payload: CrawlCorporateRequest, request: Request):
-    from app.routers import company_info as ci
+async def crawl_corporate_pages_impl(
+    payload: CrawlCorporateRequest,
+) -> CrawlCorporateResponse:
+    from app.routers import company_info as _ci
+
+    resolve_embedding_backend = _ci.resolve_embedding_backend
 
     request = payload
-    billing_plan = ci._normalize_rag_pdf_billing_plan(request.billing_plan)
+    billing_plan = _normalize_rag_pdf_billing_plan(request.billing_plan)
     valid_channels = ["corporate_ir", "corporate_business", "corporate_general"]
     channel = request.content_channel or "corporate_general"
     if channel not in valid_channels:
@@ -484,7 +492,7 @@ async def crawl_corporate_pages(payload: CrawlCorporateRequest, request: Request
     url_content_types: dict[str, str] = {}
     page_routing_summaries: dict[str, dict[str, object]] = {}
 
-    backend = ci.resolve_embedding_backend()
+    backend = resolve_embedding_backend()
     if backend is None:
         return CrawlCorporateResponse(
             success=False,
@@ -495,8 +503,6 @@ async def crawl_corporate_pages(payload: CrawlCorporateRequest, request: Request
                 "No embedding backend available. Set OPENAI_API_KEY or install sentence-transformers."
             ],
         )
-
-    import asyncio
 
     for url in request.urls:
         try:
