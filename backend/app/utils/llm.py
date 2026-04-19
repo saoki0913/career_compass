@@ -32,6 +32,7 @@ from app.utils.llm_prompt_safety import (
     sanitize_es_content,
     detect_es_injection_risk,
     sanitize_user_prompt_text,
+    detect_output_leakage,
 )
 from app.utils.llm_usage_cost import (
     _request_llm_cost_summary_var,
@@ -66,6 +67,29 @@ from app.utils.llm_model_routing import (
     _feature_cross_fallback_model,
 )
 # ===== End re-exports =====
+
+
+def _emit_output_leakage_event(
+    *,
+    feature: str,
+    model: str,
+    provider: str,
+    raw_text: str,
+) -> None:
+    result = detect_output_leakage(raw_text)
+    if not result.is_leaked:
+        return
+    import json as _json
+    logger.info(_json.dumps({
+        "event": "llm.output.leakage_detected",
+        "feature": feature,
+        "model": model,
+        "provider": provider,
+        "patterns": result.matched_patterns,
+        "text_length": len(raw_text),
+        "tier": "log_only",
+    }))
+
 
 # Global clients for connection pooling (mutable state stays here)
 _anthropic_client: Optional[AsyncAnthropic] = None
@@ -1705,6 +1729,10 @@ async def call_llm_streaming(
             usage=usage_summary,
         )
 
+        _emit_output_leakage_event(
+            feature=feature, model=actual_model or "", provider="anthropic", raw_text=accumulated,
+        )
+
         result = _parse_json_response(accumulated)
         if result is not None:
             _log(feature, f"{model_display} ストリーミング成功", SUCCESS)
@@ -1883,6 +1911,10 @@ async def call_llm_streaming_fields(
             usage=usage_summary,
         )
 
+        _emit_output_leakage_event(
+            feature=feature, model=actual_model or "", provider="anthropic", raw_text=accumulated,
+        )
+
         result = _parse_json_response(accumulated)
         if result is not None:
             _log(feature, f"{model_display} フィールドストリーミング成功", SUCCESS)
@@ -2033,6 +2065,9 @@ async def _call_claude(
     )
     if not content:
         return None
+    _emit_output_leakage_event(
+        feature=feature, model=model or "", provider="anthropic", raw_text=content,
+    )
     return _parse_json_response(content)
 
 

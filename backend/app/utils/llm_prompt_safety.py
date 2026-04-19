@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re as _re
 import unicodedata
+from dataclasses import dataclass
 
 # Homoglyph confusables map: visually similar chars -> ASCII equivalents.
 # Covers Cyrillic, Greek, and other common look-alikes used to bypass pattern
@@ -116,8 +117,10 @@ def detect_es_injection_risk(text: str) -> tuple[str, list[str]]:
         (r"(what|which).*(model|provider).*(are you|using)", "モデル/プロバイダ情報の要求"),
         (r"(model name|provider name|deployment name)", "モデル名の要求"),
         (r"これまでの指示を無視", "日本語の無視命令"),
-        (r"(システム|開発者).*(プロンプト|指示)", "内部プロンプトへの言及"),
-        (r"(内部|機密).*(表示|開示|出力)", "内部情報の開示要求"),
+        # 「システム開発 + 上司の指示」等で誤検知しないよう、連続する「システム/開発者プロンプト」系のみ高リスクにする。
+        (r"(システム|開発者)\s*プロンプト", "内部プロンプトへの言及"),
+        # 「内部のKPIを表示」等の正当な記述は除外し、開示・漏えい寄りに絞る。
+        (r"(内部|機密).*(開示|漏えい)", "内部情報の開示要求"),
         (
             r"(あなた|君).*(モデル|model|provider).*(教えて|表示|開示|出力)",
             "モデル情報の開示要求",
@@ -143,9 +146,11 @@ def detect_es_injection_risk(text: str) -> tuple[str, list[str]]:
     reference_targets = [
         r"(reference\s*es|参考\s*es|参考文章|例文|模範解答|通過es)",
     ]
+    # 単独の「指示」「instruction」はガクチカ/ES で頻出のため含めない。
+    # 開示動詞との組み合わせはプロンプト・秘密・認証情報など限定キーワードに絞る。
     prompt_targets = [
-        r"(prompt|instruction|secret|api key|token|password|credential)",
-        r"(プロンプト|指示|機密|秘密|apiキー|トークン|認証情報|ログイン情報)",
+        r"(prompt|secret|api key|token|password|credential)",
+        r"(プロンプト|機密|秘密|apiキー|トークン|認証情報|ログイン情報)",
     ]
     pii_targets = [
         r"(個人情報|氏名|名前|メールアドレス|email|住所|電話番号|phone number|password|パスワード|ログインid|login id)",
@@ -202,3 +207,56 @@ def sanitize_user_prompt_text(
     if rich_text:
         return sanitize_es_content(text, max_length=max_length)
     return sanitize_prompt_input(text, max_length=max_length)
+
+
+# ---------------------------------------------------------------------------
+# Output-side leakage detection (1A-2)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class OutputLeakageResult:
+    is_leaked: bool
+    matched_patterns: list[str]
+
+
+_OUTPUT_LEAKAGE_PATTERNS: list[tuple[_re.Pattern[str], str]] = [
+    (_re.compile(r"\[SYSTEM\]", _re.IGNORECASE), "system_bracket_marker"),
+    (_re.compile(r"\[SYSTEM PROMPT\]", _re.IGNORECASE), "system_prompt_bracket"),
+    (_re.compile(r"<system>", _re.IGNORECASE), "system_xml_tag"),
+    (_re.compile(r"<\|system\|>", _re.IGNORECASE), "system_pipe_marker"),
+    (_re.compile(
+        r"^(role|System|Assistant)\s*[:：]",
+        _re.IGNORECASE | _re.MULTILINE,
+    ), "role_prefix_leak"),
+    (_re.compile(
+        r"""role\s*=\s*["']?(system|assistant|user)["']?""",
+        _re.IGNORECASE,
+    ), "role_assignment_leak"),
+    (_re.compile(r"system_prompt\s*=", _re.IGNORECASE), "system_prompt_variable"),
+    (_re.compile(
+        r"instruction\s*[:：]\s*.{40,}",
+        _re.IGNORECASE | _re.MULTILINE,
+    ), "instruction_label_long"),
+    (_re.compile(
+        r"###\s*(Example|Instruction|Output)\b",
+        _re.IGNORECASE | _re.MULTILINE,
+    ), "fewshot_delimiter"),
+    (_re.compile(
+        r'"type"\s*:\s*"json_schema"',
+        _re.IGNORECASE,
+    ), "json_schema_type_leak"),
+    (_re.compile(
+        r'"json_schema"\s*:\s*\{',
+        _re.IGNORECASE,
+    ), "json_schema_object_leak"),
+]
+
+
+def detect_output_leakage(text: str) -> OutputLeakageResult:
+    if not text:
+        return OutputLeakageResult(is_leaked=False, matched_patterns=[])
+    matched: list[str] = []
+    for pattern, name in _OUTPUT_LEAKAGE_PATTERNS:
+        if pattern.search(text):
+            matched.append(name)
+    return OutputLeakageResult(is_leaked=bool(matched), matched_patterns=matched)
