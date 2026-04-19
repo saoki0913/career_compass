@@ -1,6 +1,6 @@
 # 改善トラッカー
 
-最終更新: 2026-04-19 (Phase 1A-2/1A-3 出力側ガードレール + labeled dataset / Phase 1B-2 tuple bug fix 実装)
+最終更新: 2026-04-19 (子プラン3: eval runner slowapi修正 + Route A確定 / Makefile テストパス修正)
 
 ## 凡例
 未着手 / 進行中 / 検証待ち / 完了 / superseded / RFC
@@ -21,7 +21,7 @@
 | clean-arch | — | [CLEAN_ARCHITECTURE_REFACTORING](../plan/CLEAN_ARCHITECTURE_REFACTORING.md) | superseded | 2026-04-17 に MAINTAINABILITY へ吸収。以後は案内文のみ保持し、将来設計の正本は MAINTAINABILITY 側で管理 |
 | llm-infra | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) | [AI_QUALITY_IMPROVEMENT Phase 1A](../plan/AI_QUALITY_IMPROVEMENT_PLAN.md) / [Phase 1A-1 子プラン](../plan/AI_QUALITY_IMPROVEMENT_PHASE1A1_1B01_PLAN.md) | 検証待ち | **Phase 1A-1 実装済み (2026-04-19)**: `_capability_class` + `_feature_cross_fallback_model`、billing 以外で cross-provider フォールバック、`CircuitBreaker` を registry 集約 + `llm.circuit.*` / `llm.fallback.triggered` 構造化ログ。`pytest tests/shared/` PASS |
 | prompt-safety | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [llm_ai_security](security/llm_ai_security.md) | [AI_QUALITY_IMPROVEMENT Phase 1A](../plan/AI_QUALITY_IMPROVEMENT_PLAN.md) / [Phase 1A-2/1A-3/1B-2 子プラン](../plan/AI_QUALITY_IMPROVEMENT_PHASE1A2_1A3_1B2_PLAN.md) | 検証待ち | **Phase 1A-2/1A-3 実装済み (2026-04-19)**: `detect_output_leakage` + Claude 3 経路注入 (log_only tier)。合成 labeled dataset (input 150+/output 90+) + precision/recall harness 導入。間接インジェクション対策は次フェーズ |
-| company-info-search | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [Primary Gate FAIL 静的分析](company-info-search/2026-04-19-primary-gate-fail-investigation.md) | [AI_QUALITY_IMPROVEMENT Phase 1B-2](../plan/AI_QUALITY_IMPROVEMENT_PLAN.md) / [Phase 1A-2/1A-3/1B-2 子プラン](../plan/AI_QUALITY_IMPROVEMENT_PHASE1A2_1A3_1B2_PLAN.md) | fix 済み（live eval 未） | **1B-2 修正済み (2026-04-19)**: `web_search.py` 空 variants ガード + 原名 fallback、`bm25_store.py` 内側 ndarray 長さガード + mismatch warning。unit test 7 件 pass。live eval は別セッション |
+| company-info-search | [2026-04-19 包括](ai_quality_comprehensive_20260419.md) / [Primary Gate FAIL 静的分析](company-info-search/2026-04-19-primary-gate-fail-investigation.md) | [AI_QUALITY_IMPROVEMENT Phase 1B/2](../plan/AI_QUALITY_IMPROVEMENT_PLAN.md) / [子プラン3](../plan/AI_QUALITY_IMPROVEMENT_PHASE_1B34_OR_2_PLAN.md) | **Route A 確定** | **Primary Gate FAIL 真因判明 (2026-04-19)**: eval runner が `search_company_pages(req)` と呼び slowapi の `Request` 未渡し → `tuple index out of range`。修正後にトヨタ自動車で公式3件取得。検索パイプライン正常。Route A（Phase 2-1a/2-1b）へ進行 |
 | db-redesign | — | [DB_REDESIGN](../plan/DB_REDESIGN_PLAN.md) | 未着手 | blast radius 最大 |
 | lp | — | [LP_IMPROVEMENT](../plan/LP_IMPROVEMENT_PLAN.md) | 完了 (2026-04-17) | SEO 改善フェーズ完了。Hero/TrustStrip/CTA 文言統一、Feature 書換え + MidCTA 新設、HowItWorks/PainPoints/Quality 新設、Comparison 11 行、FAQ 10 問、企業別 AI 模擬面接訴求追加、2 階層 LP 4 枚に `BreadcrumbList` 付与、`/pricing` Server + Client 分離。plan frontmatter `完了` 化済み (2026-04-17) |
 

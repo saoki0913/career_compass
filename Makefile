@@ -1,4 +1,4 @@
-.PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression ai-live-local db-push db-generate db-studio clean \
+.PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression test-e2e-regression test-e2e-functional test-e2e-functional-es test-e2e-functional-gakuchika test-e2e-functional-motivation test-e2e-functional-interview test-e2e-functional-company-info-search test-e2e-functional-rag-ingest test-e2e-functional-selection-schedule test-e2e-functional-calendar test-e2e-functional-tasks-deadlines test-e2e-functional-notifications test-e2e-functional-company-crud test-e2e-functional-profile-settings test-e2e-functional-billing test-e2e-functional-search-query test-e2e-functional-local test-e2e-functional-local-company-info-search test-e2e-functional-local-selection-schedule test-e2e-functional-local-rag-ingest test-e2e-functional-local-gakuchika test-e2e-functional-local-motivation test-e2e-functional-local-interview test-e2e-functional-local-es test-e2e-functional-local-calendar test-e2e-functional-local-tasks-deadlines test-e2e-functional-local-notifications test-e2e-functional-local-company-crud test-e2e-functional-local-profile-settings test-e2e-functional-local-billing test-e2e-functional-local-search-query ai-live-local db-push db-generate db-studio clean \
 	up down restart backend-test backend-test-search backend-lint backend-format logs check deps reset-db seed \
 	backend-deadcode frontend-deadcode deadcode \
 	db-migrate db-status db-check db-drop db-introspect db-fresh backend-install \
@@ -74,10 +74,42 @@ test-major-user:
 test-major-live:
 	npm run test:e2e:major:live
 
-## localhost を対象に 6機能の AI Live を一括実行（既定: SUITE=extended）
+## localhost を対象に 7機能の AI Live を一括実行（既定: SUITE=extended）
 SUITE ?= extended
 ai-live-local:
 	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) bash scripts/dev/run-ai-live-local.sh
+
+## localhost を対象に 7機能の AI Live を一括実行（feature 指定対応）
+test-e2e-functional-local:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=$${AI_LIVE_LOCAL_FEATURES:-all} bash scripts/dev/run-ai-live-local.sh
+
+## localhost を対象に企業情報検索の AI Live を実行
+test-e2e-functional-local-company-info-search:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=company-info-search bash scripts/dev/run-ai-live-local.sh
+
+## localhost を対象に選考スケジュール取得の AI Live を実行
+test-e2e-functional-local-selection-schedule:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=selection-schedule bash scripts/dev/run-ai-live-local.sh
+
+## localhost を対象に企業RAG取り込みの AI Live を実行
+test-e2e-functional-local-rag-ingest:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=rag-ingest bash scripts/dev/run-ai-live-local.sh
+
+## localhost を対象にガクチカ作成の AI Live を実行
+test-e2e-functional-local-gakuchika:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=gakuchika bash scripts/dev/run-ai-live-local.sh
+
+## localhost を対象に志望動機作成の AI Live を実行
+test-e2e-functional-local-motivation:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=motivation bash scripts/dev/run-ai-live-local.sh
+
+## localhost を対象に面接対策の AI Live を実行
+test-e2e-functional-local-interview:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=interview bash scripts/dev/run-ai-live-local.sh
+
+## localhost を対象に ES 添削の AI Live を実行（Playwright stream 含む）
+test-e2e-functional-local-es:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=es-review AI_LIVE_LOCAL_SKIP_ES_REVIEW_PLAYWRIGHT=0 bash scripts/dev/run-ai-live-local.sh
 
 ## 認証・制限契約の Playwright テスト
 test-auth:
@@ -86,6 +118,99 @@ test-auth:
 ## focused regression の Playwright テスト
 test-regression:
 	npm run test:e2e:regression
+
+## staging を対象に guest/auth/regression を一括実行
+E2E_STAGING_BASE_URL ?= https://stg.shupass.jp
+test-e2e-regression:
+	PLAYWRIGHT_BASE_URL=$(E2E_STAGING_BASE_URL) PLAYWRIGHT_SKIP_WEBSERVER=1 bash scripts/ci/run-main-e2e.sh all
+
+## 全 AI 機能の live smoke E2E
+test-e2e-functional:
+	PLAYWRIGHT_BASE_URL=$(E2E_STAGING_BASE_URL) PLAYWRIGHT_SKIP_WEBSERVER=1 bash scripts/ci/run-e2e-functional.sh --features all
+
+## ES 添削の live smoke E2E
+test-e2e-functional-es:
+	PLAYWRIGHT_BASE_URL=$(E2E_STAGING_BASE_URL) PLAYWRIGHT_SKIP_WEBSERVER=1 bash scripts/ci/run-e2e-functional.sh --features es-review
+
+## ガクチカの live smoke E2E
+test-e2e-functional-gakuchika:
+	PLAYWRIGHT_BASE_URL=$(E2E_STAGING_BASE_URL) PLAYWRIGHT_SKIP_WEBSERVER=1 bash scripts/ci/run-e2e-functional.sh --features gakuchika
+
+## 志望動機の live smoke E2E
+test-e2e-functional-motivation:
+	PLAYWRIGHT_BASE_URL=$(E2E_STAGING_BASE_URL) PLAYWRIGHT_SKIP_WEBSERVER=1 bash scripts/ci/run-e2e-functional.sh --features motivation
+
+## 面接対策の live smoke E2E
+test-e2e-functional-interview:
+	PLAYWRIGHT_BASE_URL=$(E2E_STAGING_BASE_URL) PLAYWRIGHT_SKIP_WEBSERVER=1 bash scripts/ci/run-e2e-functional.sh --features interview
+
+## 企業情報検索の live smoke E2E
+test-e2e-functional-company-info-search:
+	PLAYWRIGHT_BASE_URL=$(E2E_STAGING_BASE_URL) PLAYWRIGHT_SKIP_WEBSERVER=1 bash scripts/ci/run-e2e-functional.sh --features company-info-search
+
+## RAG ingest の live smoke E2E
+test-e2e-functional-rag-ingest:
+	PLAYWRIGHT_BASE_URL=$(E2E_STAGING_BASE_URL) PLAYWRIGHT_SKIP_WEBSERVER=1 bash scripts/ci/run-e2e-functional.sh --features rag-ingest
+
+## 選考スケジュール抽出の live smoke E2E
+test-e2e-functional-selection-schedule:
+	PLAYWRIGHT_BASE_URL=$(E2E_STAGING_BASE_URL) PLAYWRIGHT_SKIP_WEBSERVER=1 bash scripts/ci/run-e2e-functional.sh --features selection-schedule
+
+## localhost を対象にカレンダーの AI Live を実行
+test-e2e-functional-local-calendar:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=calendar bash scripts/dev/run-ai-live-local.sh
+
+## staging を対象にカレンダーの AI Live を実行
+test-e2e-functional-calendar:
+	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=calendar bash scripts/ci/run-ai-live.sh
+
+## localhost を対象にタスク・締切の AI Live を実行
+test-e2e-functional-local-tasks-deadlines:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=tasks-deadlines bash scripts/dev/run-ai-live-local.sh
+
+## staging を対象にタスク・締切の AI Live を実行
+test-e2e-functional-tasks-deadlines:
+	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=tasks-deadlines bash scripts/ci/run-ai-live.sh
+
+## localhost を対象に通知の AI Live を実行
+test-e2e-functional-local-notifications:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=notifications bash scripts/dev/run-ai-live-local.sh
+
+## staging を対象に通知の AI Live を実行
+test-e2e-functional-notifications:
+	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=notifications bash scripts/ci/run-ai-live.sh
+
+## localhost を対象に企業CRUDの AI Live を実行
+test-e2e-functional-local-company-crud:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=company-crud bash scripts/dev/run-ai-live-local.sh
+
+## staging を対象に企業CRUDの AI Live を実行
+test-e2e-functional-company-crud:
+	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=company-crud bash scripts/ci/run-ai-live.sh
+
+## localhost を対象にプロフィール設定の AI Live を実行
+test-e2e-functional-local-profile-settings:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=profile-settings bash scripts/dev/run-ai-live-local.sh
+
+## staging を対象にプロフィール設定の AI Live を実行
+test-e2e-functional-profile-settings:
+	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=profile-settings bash scripts/ci/run-ai-live.sh
+
+## localhost を対象に課金の AI Live を実行
+test-e2e-functional-local-billing:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=billing bash scripts/dev/run-ai-live-local.sh
+
+## staging を対象に課金の AI Live を実行
+test-e2e-functional-billing:
+	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=billing bash scripts/ci/run-ai-live.sh
+
+## localhost を対象に検索の AI Live を実行
+test-e2e-functional-local-search-query:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=search-query bash scripts/dev/run-ai-live-local.sh
+
+## staging を対象に検索の AI Live を実行
+test-e2e-functional-search-query:
+	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=search-query bash scripts/ci/run-ai-live.sh
 
 # ===========================================
 # データベース (Drizzle + Supabase/PostgreSQL)
@@ -272,7 +397,7 @@ backend-test-live-search:
 	LIVE_SEARCH_FAIL_ON_REGRESSION="$(LIVE_SEARCH_FAIL_ON_REGRESSION)" \
 	BASELINE_SAVE="$(BASELINE_SAVE)" \
 	BASELINE_AUTO_PROMOTE="$(BASELINE_AUTO_PROMOTE)" \
-	python -m pytest tests/test_live_company_info_search_report.py -v -s -m "integration"
+	python -m pytest tests/company_info/integration/test_live_company_info_search_report.py -v -s -m "integration"
 
 backend-test-live-search-hybrid:
 	@$(MAKE) backend-test-live-search LIVE_SEARCH_MODES=hybrid
