@@ -3,6 +3,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { parseApiErrorResponse, toAppUiError, type AppUiError } from "@/lib/api-errors";
+import { useStreamingTextPlayback } from "@/hooks/useStreamingTextPlayback";
 import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 import { resolveRoleSelection } from "@/hooks/conversation/role-selection";
 import {
@@ -30,11 +31,18 @@ import {
   type HydratedConversation,
   type MaterialCard,
   type Message,
-  type PendingCompleteData,
   type RoleOptionsResponse,
   type RoleSelectionSource,
   type SetupState,
 } from "@/lib/interview/ui";
+import {
+  mergeContinueCompletePayload,
+  mergeFeedbackCompletePayload,
+  mergeStartCompletePayload,
+  mergeTurnCompletePayload,
+  type InterviewCompletePayload,
+  type InterviewControllerState,
+} from "@/lib/interview/reducers";
 
 type StreamKind = "start" | "send" | "feedback" | "continue";
 
@@ -131,8 +139,71 @@ export function useInterviewConversationController({
   const [customRoleName, setCustomRoleNameState] = useState("");
   const [roleSelectionSource, setRoleSelectionSource] = useState<RoleSelectionSource | null>(null);
   const [feedbackCompletionCount, setFeedbackCompletionCount] = useState(0);
+  // Phase 2 Stage 6: 最新 turn の short coaching (null = 非表示)。
+  // Stage 8 ダッシュボードが参照する。現時点では state に保持のみで UI 未表示。
+  const [shortCoaching, setShortCoaching] =
+    useState<import("@/lib/interview/conversation").InterviewShortCoaching | null>(null);
+
+  const [streamingTargetText, setStreamingTargetText] = useState("");
+  const [isTextStreaming, setIsTextStreaming] = useState(false);
+  const [streamingSessionId, setStreamingSessionId] = useState(0);
+  const [pendingCompleteState, setPendingCompleteState] = useState<InterviewControllerState | null>(null);
+
+  const { displayedText: streamingText, isPlaybackComplete } = useStreamingTextPlayback(
+    streamingTargetText,
+    { isActive: isTextStreaming, resetKey: streamingSessionId },
+  );
 
   const shouldAnnounceFeedbackSuccessRef = useRef(false);
+
+  // SSE complete event merge reducer に渡す prev state スナップショット。
+  // useCallback deps を肥大化させず latest state を読むため ref で同期する。
+  const controllerStateRef = useRef<InterviewControllerState>({
+    messages: [],
+    questionCount: 0,
+    stageStatus: null,
+    questionStage: null,
+    feedback: null,
+    turnState: null,
+    turnMeta: null,
+    interviewPlan: null,
+    questionFlowCompleted: false,
+    creditCost: 6,
+    feedbackHistories: [],
+    feedbackCompletionCount: 0,
+    shortCoaching: null,
+  });
+  useEffect(() => {
+    controllerStateRef.current = {
+      messages,
+      questionCount,
+      stageStatus,
+      questionStage,
+      feedback,
+      turnState,
+      turnMeta,
+      interviewPlan,
+      questionFlowCompleted,
+      creditCost,
+      feedbackHistories,
+      feedbackCompletionCount,
+      shortCoaching,
+    };
+  }, [
+    messages,
+    questionCount,
+    stageStatus,
+    questionStage,
+    feedback,
+    turnState,
+    turnMeta,
+    interviewPlan,
+    questionFlowCompleted,
+    creditCost,
+    feedbackHistories,
+    feedbackCompletionCount,
+    shortCoaching,
+  ]);
 
   const flattenedRoleOptions = useMemo(
     () => roleOptionsData?.roleGroups.flatMap((group) => group.options) ?? [],
@@ -291,7 +362,7 @@ export function useInterviewConversationController({
   ) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 90_000);
-    let pendingCompleteData: PendingCompleteData | null = null;
+    let pendingCompletePayload: InterviewCompletePayload | null = null;
 
     try {
       if (!companyId) {
@@ -328,6 +399,7 @@ export function useInterviewConversationController({
       const decoder = new TextDecoder();
       let buffer = "";
       let completed = false;
+      let streamedQuestionText = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -404,10 +476,7 @@ export function useInterviewConversationController({
 
           if (event.type === "string_chunk") {
             if (event.path === "question") {
-              setPendingAssistantMessage((prev) => ({
-                role: "assistant",
-                content: `${prev?.content ?? ""}${event.text || ""}`,
-              }));
+              streamedQuestionText += event.text || "";
             }
             if (event.path === "overall_comment" || event.path === "improved_answer") {
               setStreamingFeedback((prev) => {
@@ -435,50 +504,46 @@ export function useInterviewConversationController({
 
           if (event.type === "complete") {
             completed = true;
-            const data = event.data || {};
-            pendingCompleteData = {
-              messages: Array.isArray(data.messages) ? data.messages : [],
-              questionCount: typeof data.questionCount === "number" ? data.questionCount : 0,
-              stageStatus: data.stageStatus || null,
-              questionStage: data.questionStage || null,
-              focus: data.focus || null,
-              feedback: data.feedback || null,
-              questionFlowCompleted:
-                Boolean(data.questionFlowCompleted) || Boolean(data.feedback),
-              creditCost: typeof data.creditCost === "number" ? data.creditCost : creditCost,
-              turnState: data.turnState || null,
-              turnMeta: data.turnMeta || null,
-              plan: data.plan || null,
-              feedbackHistories: Array.isArray(data.feedbackHistories) ? data.feedbackHistories : undefined,
-            };
+            pendingCompletePayload = (event.data ?? {}) as InterviewCompletePayload;
           }
         }
       }
 
-      if (!completed || !pendingCompleteData) {
+      if (!completed || !pendingCompletePayload) {
         throw new Error("ストリームが途中で切断されました。");
       }
 
-      const completeData = pendingCompleteData;
-      startTransition(() => {
-        setMessages(completeData.messages);
-        setQuestionCount(completeData.questionCount);
-        setStageStatus(completeData.stageStatus);
-        setQuestionStage(completeData.questionStage);
-        setFeedback(completeData.feedback);
-        setTurnState(completeData.turnState);
-        setTurnMeta(completeData.turnMeta ?? null);
-        setInterviewPlan(completeData.plan ?? null);
-        setQuestionFlowCompleted(completeData.questionFlowCompleted);
-        setCreditCost(completeData.creditCost);
-        if (completeData.feedbackHistories) {
-          setFeedbackHistories(completeData.feedbackHistories);
-        }
-        if (kind === "feedback" && completeData.feedback && shouldAnnounceFeedbackSuccessRef.current) {
-          setFeedbackCompletionCount((value) => value + 1);
-        }
-        setPendingAssistantMessage(null);
-      });
+      const payload = pendingCompletePayload;
+      const shouldAnnounceFeedback = shouldAnnounceFeedbackSuccessRef.current;
+      // Pure reducer 経由で state を合成する (unit test は src/lib/interview/reducers.test.ts)。
+      // prev state は最新値 ref (controllerStateRef) から取得し、runStream の useCallback deps を
+      // 肥大化させない。個別 setter で分割 useState に反映することで既存の state 構造を保つ。
+      const prevState = controllerStateRef.current;
+      const mergeOptions = {
+        fallbackCreditCost: prevState.creditCost,
+        shouldAnnounceFeedback,
+      };
+      const nextState =
+        kind === "start"
+          ? mergeStartCompletePayload(prevState, payload, mergeOptions)
+          : kind === "send"
+            ? mergeTurnCompletePayload(prevState, payload, mergeOptions)
+            : kind === "continue"
+              ? mergeContinueCompletePayload(prevState, payload, mergeOptions)
+              : mergeFeedbackCompletePayload(prevState, payload, mergeOptions);
+
+      const lastMessage = Array.isArray(nextState.messages) ? nextState.messages.at(-1) : null;
+      const questionForPlayback =
+        (lastMessage?.role === "assistant" ? lastMessage.content : "") || streamedQuestionText.trim();
+
+      if (questionForPlayback && kind !== "feedback") {
+        setStreamingTargetText(questionForPlayback);
+        setIsTextStreaming(true);
+        setStreamingSessionId((prev) => prev + 1);
+        setPendingCompleteState(nextState);
+      } else {
+        applyCompleteState(nextState, prevState);
+      }
     } finally {
       clearTimeout(timeoutId);
       setStreamingLabel(null);
@@ -487,7 +552,44 @@ export function useInterviewConversationController({
         setStreamingFeedback(null);
       }
     }
-  }, [companyId, creditCost]);
+  }, [companyId]);
+
+  const applyCompleteState = useCallback((nextState: InterviewControllerState, prevState: InterviewControllerState) => {
+    startTransition(() => {
+      setMessages(nextState.messages);
+      setQuestionCount(nextState.questionCount);
+      setStageStatus(nextState.stageStatus);
+      setQuestionStage(nextState.questionStage);
+      setFeedback(nextState.feedback);
+      setTurnState(nextState.turnState);
+      setTurnMeta(nextState.turnMeta);
+      setInterviewPlan(nextState.interviewPlan);
+      setQuestionFlowCompleted(nextState.questionFlowCompleted);
+      setCreditCost(nextState.creditCost);
+      if (nextState.feedbackHistories !== prevState.feedbackHistories) {
+        setFeedbackHistories(nextState.feedbackHistories);
+      }
+      if (nextState.feedbackCompletionCount !== prevState.feedbackCompletionCount) {
+        setFeedbackCompletionCount(nextState.feedbackCompletionCount);
+      }
+      if (nextState.shortCoaching !== prevState.shortCoaching) {
+        setShortCoaching(nextState.shortCoaching);
+      }
+      setPendingAssistantMessage(null);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!pendingCompleteState || !isTextStreaming || !isPlaybackComplete) return;
+    const timer = window.setTimeout(() => {
+      const prevState = controllerStateRef.current;
+      applyCompleteState(pendingCompleteState, prevState);
+      setPendingCompleteState(null);
+      setIsTextStreaming(false);
+      setStreamingTargetText("");
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [applyCompleteState, isPlaybackComplete, isTextStreaming, pendingCompleteState]);
 
   const handleStart = useCallback(async () => {
     if (!setupComplete || isBusy || hasStarted || persistenceUnavailable) return;
@@ -700,6 +802,8 @@ export function useInterviewConversationController({
       interviewPlan,
       streamingLabel,
       pendingAssistantMessage,
+      streamingText,
+      isTextStreaming,
       isLoading,
       isSending,
       isGeneratingFeedback,

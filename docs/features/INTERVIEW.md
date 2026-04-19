@@ -11,13 +11,15 @@
 | Next API | `src/app/api/companies/[id]/interview/`（start, stream, feedback, continue, reset） |
 | セッション管理 | `src/lib/interview/session.ts`, `src/lib/interview/conversation.ts` |
 | 共通ロジック | `src/app/api/companies/[id]/interview/shared.ts` |
+| 集客 LP | `src/app/(marketing)/ai-mensetsu/page.tsx`（AI 面接対策 / 模擬面接 AI / 企業別 面接対策） |
 
 ## 概要
 
 - ルートは `/companies/[id]/interview`
 - 開始前に `業界 / 職種 / 面接方式 / 選考種別 / 面接段階 / 面接官タイプ / 厳しさ` を確認する `setup-first` UI を使う
 - `roleTrack` は UI で直接選ばせず、応募職種から内部自動分類する
-- 質問生成モデルは `MODEL_INTERVIEW=gpt-mini`（既定 `GPT-5.4 mini`）
+- 面接計画生成は `MODEL_INTERVIEW_PLAN=gpt`（既定 `GPT-5.4`）
+- 質問生成モデルは `MODEL_INTERVIEW=claude-haiku`（既定 `Claude Haiku 4.5`）
 - 最終講評は `MODEL_INTERVIEW_FEEDBACK=claude-sonnet`（表示名 `Claude Sonnet 4.6`）
 - 面接対策はログイン必須。guest は開始・進行・講評・満足度保存のいずれも利用しない
 - 会話は `interview_conversations`、講評履歴は `interview_feedback_histories` に保存する
@@ -80,7 +82,7 @@
 - `technical`: 専門知識、設計判断、前提・トレードオフ・再現性を確認する
 - `life_history`: 転機、価値観、行動の一貫性と自己理解の深さを確認する（旧 `discussion` / `presentation` の DB 値は `life_history` に正規化）
 
-FastAPI の質問・計画・講評は `string_chunk` を逐次 SSE で返し、Next BFF は中継のみ（バッファで一括しない）。
+opening/turn/continue の質問文、および feedback の本文が `string_chunk` で段階表示される。plan は `stream_string_fields=[]` のため一括返却。Next BFF は中継のみ（バッファで一括しない）。
 
 ## 会社別上乗せ
 
@@ -254,12 +256,27 @@ seed は repo 内の設定資産として保持し、実行時に毎回 live sea
 ## UI / UX
 
 - 開始前は setup card を表示し、設定確認後に開始できる
-- 会話上部に `現在の主論点 / covered までの残り checklist / follow-up 意図 / format phase` を表示する
-- 右カラムに `進捗 / 面接設定 / 面接計画 / 論点詳細 / 参考にする材料 / 過去の最終講評` を表示する
-- 進捗は固定段階 tracker ではなく `現在の論点 / 確認済み / 残り論点 / 未充足 checklist` で表示する
+- 右カラムにガクチカ風の進捗カードを表示する
+  - トピックピル: 確認済み (emerald + ✓) / 進行中 (sky) / 未着手 (muted) の 3 色バッジ
+  - 内部キー（`motivation_fit` 等）は `labelTopic()` で日本語ラベル（「志望動機」等）に変換して表示する
+  - ライフサイクルフェーズ: 「質問フェーズ → フィードバック → 面接完了」の 3 段階を done/current/pending で表示する
+  - 進捗ナラティブ: 「次は○○について確認します。」を `currentTopicLabel` から生成する
+- 質問テキストは `useStreamingTextPlayback` による文字送り演出で表示する
+  - SSE `string_chunk` はローカル蓄積のみ行い、`complete` イベント後に playback を開始する
+  - playback 完了 + 180ms 遅延後に `startTransition` で全 state を一括適用し、ステータス切り替え時のガタつきを防ぐ
+  - フィードバックの `string_chunk` は従来どおり即時表示（文字送り不要）
+- 右カラムに `面接設定 / PrepPack / 論点詳細 / 参考にする材料 / 過去の最終講評` を表示する
+- PrepPack は折りたたみ式（accordion）で面接設定カードの下に配置する
 - 過去講評は compact 表示にし、クリックでモーダル全文表示する
 - 最終講評後は `最弱設問 / そのときの回答 / improved_answer / 次に準備すべき論点 / 1問満足度` を表示する
 - 最終講評後は `面接対策を続ける` と `会話をやり直す` を表示する
+
+## 面接官口調ルール
+
+- `INTERVIEWER_COMMON_RULES` で挨拶・感想・評価・要約・共感・前置きを禁止する
+- 禁止例: 「一貫していますね」「良い点ですね」「なるほど」「これまでの話を聞くと」
+- 疑問文か指示文で開始し、応募者への言及から始めない
+- `_normalize_question_text` で防御的正規表現を適用し、LLM 非準拠時に前置きを除去する
 
 ## analytics
 

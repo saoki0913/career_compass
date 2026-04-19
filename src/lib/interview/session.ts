@@ -329,32 +329,52 @@ export function normalizeInterviewTurnState(
   };
 }
 
+const TOPIC_DISPLAY_LABELS: Record<string, string> = {
+  motivation_fit: "志望動機",
+  role_understanding: "職種理解",
+  company_fit: "企業適合",
+  growth_opportunity: "成長機会",
+  company_compare_check: "他社比較",
+  career_alignment: "キャリア一貫性",
+  learning_motivation: "学習意欲",
+  technical_depth: "技術力",
+  design_decision: "設計判断",
+  work_understanding: "業務理解",
+  case_fit: "ケース適性",
+  structured_thinking: "構造化思考",
+  life_narrative_core: "自分史の核",
+  turning_point_values: "転機と価値観",
+  motivation_bridge: "志望接続",
+  credibility_check: "信憑性確認",
+  consistency_check: "一貫性確認",
+  personality: "人物像",
+  pressure_followup: "圧迫深掘り",
+  experience: "経験・ガクチカ",
+  company_understanding: "企業理解",
+  industry_reason: "業界志望理由",
+  role_reason: "職種志望理由",
+  opening: "導入・人物把握",
+};
+
+export function labelTopic(topic: string): string {
+  if (topic in TOPIC_DISPLAY_LABELS) return TOPIC_DISPLAY_LABELS[topic];
+  if (/[\u3000-\u9fff\uff00-\uffef]/.test(topic)) return topic;
+  return topic.replace(/_/g, " ");
+}
+
 export function getInterviewStageStatus(input: {
   currentTopicLabel?: string | null;
   coveredTopics?: string[];
   remainingTopics?: string[];
 }): InterviewStageStatus {
+  const label = normalizeOptionalString(input.currentTopicLabel);
   return {
-    currentTopicLabel: normalizeOptionalString(input.currentTopicLabel),
-    coveredTopics: normalizeStringArray(input.coveredTopics),
-    remainingTopics: normalizeStringArray(input.remainingTopics),
+    currentTopicLabel: label ? labelTopic(label) : null,
+    coveredTopics: normalizeStringArray(input.coveredTopics).map(labelTopic),
+    remainingTopics: normalizeStringArray(input.remainingTopics).map(labelTopic),
   };
 }
 
-export function getInterviewTrackerStatus(input: {
-  turnCount: number;
-  currentTopicLabel: string | null;
-  remainingTopicCount: number;
-}) {
-  return {
-    headline: `${Math.max(0, Math.floor(input.turnCount))}問`,
-    detail: `現在: ${input.currentTopicLabel || "初回質問"} / 残り論点 ${Math.max(0, Math.floor(input.remainingTopicCount))}件`,
-  };
-}
-
-export function getCurrentStageQuestionCount() {
-  return 0;
-}
 
 export function shouldChargeInterviewSession(isCompleted: boolean): boolean {
   return isCompleted;

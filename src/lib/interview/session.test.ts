@@ -10,7 +10,7 @@ import {
   canonicalizeInterviewFormat,
   classifyInterviewRoleTrack,
   createInitialInterviewTurnState,
-  getInterviewTrackerStatus,
+  labelTopic,
   normalizeInterviewPlanValue,
   normalizeInterviewTurnState,
   parseInterviewFormatParam,
@@ -51,17 +51,14 @@ describe("interview session helpers", () => {
     });
   });
 
-  it("reports tracker copy for the current topic and remaining must-cover topics", () => {
-    expect(
-      getInterviewTrackerStatus({
-        turnCount: 4,
-        currentTopicLabel: "志望動機の企業固有性",
-        remainingTopicCount: 3,
-      }),
-    ).toEqual({
-      headline: "4問",
-      detail: "現在: 志望動機の企業固有性 / 残り論点 3件",
-    });
+  it("converts internal topic keys to Japanese display labels", () => {
+    expect(labelTopic("motivation_fit")).toBe("志望動機");
+    expect(labelTopic("technical_depth")).toBe("技術力");
+    expect(labelTopic("pressure_followup")).toBe("圧迫深掘り");
+    expect(labelTopic("experience")).toBe("経験・ガクチカ");
+    expect(labelTopic("company_understanding")).toBe("企業理解");
+    expect(labelTopic("志望動機")).toBe("志望動機");
+    expect(labelTopic("unknown_key")).toBe("unknown key");
   });
 
   it("normalizes v2.1 turn state and derives covered topics from deterministic coverage", () => {

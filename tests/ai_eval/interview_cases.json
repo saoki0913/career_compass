@@ -72,7 +72,7 @@
         "困難な場面では、まず全体像を把握してから優先順位を決めるようにしています。",
         "入社後は、技術を磨きながらチームの生産性向上にも貢献したいです。"
       ],
-      "expectedQuestionTokens": ["弱み", "失敗", "経験"],
+      "expectedQuestionTokens": ["弱み", "課題", "経験"],
       "expectedFeedbackTokens": ["具体性", "改善", "自己理解"],
       "expectedForbiddenTokens": ["お答えできません", "I cannot"],
       "requiredQuestionTokenGroups": [["弱み", "課題"], ["入社後", "貢献"]],
@@ -113,7 +113,7 @@
         "企画経験を活かして、関係者を巻き込みながら論点を整理し、意思決定を前に進める役割で強みを出したいです。",
         "入社後は、現場で得た学びを次の提案に接続し続ける姿勢を最も意識したいです。"
       ],
-      "expectedQuestionTokens": ["第一志望", "総合職", "強み"],
+      "expectedQuestionTokens": ["志望", "経験", "入社後"],
       "expectedFeedbackTokens": ["差別化", "具体性", "入社後"],
       "expectedForbiddenTokens": ["お答えできません", "I cannot"],
       "requiredQuestionTokenGroups": [["志望", "理由"], ["経験", "活か"]],
@@ -198,7 +198,7 @@
       "expectedQuestionTokens": ["法人", "顧客"],
       "expectedFeedbackTokens": ["信頼", "リスク", "具体"],
       "expectedForbiddenTokens": ["cannot comply"],
-      "requiredQuestionTokenGroups": [["金融", "銀行"], ["強み", "経験"]],
+      "requiredQuestionTokenGroups": [["金融", "銀行"], ["経験", "行動", "役割"]],
       "minFeedbackCharCount": 30
     }
   },

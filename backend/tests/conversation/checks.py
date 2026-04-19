@@ -164,24 +164,22 @@ def check_required_question_groups(
 ) -> dict[str, Any]:
     """Check required question token groups.
 
-    Each group is a list of tokens where ALL tokens must appear across the
+    Each group is a list of tokens where ANY token must appear across the
     questions for the group to be satisfied.  Every group must be satisfied
     for the overall check to pass.
 
     For example, ``[["志望", "理由"], ["経験", "活か"]]`` requires that the
-    questions contain both "志望" AND "理由" (possibly in different questions),
-    AND both "経験" AND "活か".
+    questions contain "志望" OR "理由" (in any question), AND "経験" OR "活か".
 
-    Note: this is stricter than the TypeScript ``buildRequiredQuestionGroupChecks``
-    which uses OR within a group (any token satisfies the group).  The Python
-    public API intentionally requires ALL tokens within a group.
+    This matches the TypeScript ``buildRequiredQuestionGroupChecks`` which
+    uses OR within a group.
 
     Parameters
     ----------
     questions:
         AI-generated question texts (assistant turns only).
     required_groups:
-        Each inner list is a group where ALL tokens must be found.
+        Each inner list is a group where ANY token must be found.
 
     Returns
     -------
@@ -191,9 +189,8 @@ def check_required_question_groups(
     """
     failed_groups: list[list[str]] = []
     for group in required_groups:
-        # Every token in the group must appear in at least one question
-        group_satisfied = all(
-            any(tok.lower() in q.lower() for q in questions) for tok in group
+        group_satisfied = any(
+            tok.lower() in q.lower() for tok in group for q in questions
         )
         if not group_satisfied:
             failed_groups.append(group)

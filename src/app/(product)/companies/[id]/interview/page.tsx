@@ -15,7 +15,7 @@ import { ChatInput, ChatMessage, ThinkingIndicator } from "@/components/chat";
 import { DashboardHeader } from "@/components/dashboard";
 import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
 import { InterviewConversationSkeleton } from "@/components/skeletons/InterviewConversationSkeleton";
-import { InterviewPlanCard } from "@/components/interview/InterviewPlanCard";
+import { PrepPack } from "@/components/interview/PrepPack";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -42,20 +42,15 @@ import {
   INTERVIEWER_TYPE_OPTIONS,
   SELECTION_TYPE_OPTIONS,
   STRICTNESS_MODE_OPTIONS,
-  getInterviewTrackerStatus,
   type InterviewFormat,
-  type InterviewPlan,
   type InterviewRoundStage,
   type InterviewSelectionType,
   type InterviewStageStatus,
   type InterviewStrictnessMode,
-  type InterviewTurnMeta,
-  type InterviewTurnState,
   type InterviewerType,
 } from "@/lib/interview/session";
 import { notifySuccess } from "@/lib/notifications";
 import {
-  FORMAT_PHASE_LABELS,
   INDUSTRY_SELECT_UNSET,
   INTERVIEWER_TYPE_LABELS,
   INTERVIEW_FORMAT_LABELS,
@@ -65,14 +60,12 @@ import {
   ROLE_TRACK_LABELS,
   SELECTION_TYPE_LABELS,
   STRICTNESS_MODE_LABELS,
-  getActiveCoverage,
-  getCurrentFollowupIntent,
-  getMissingChecklist,
   scoreEntries,
   type Feedback,
   type FeedbackHistoryItem,
   type MaterialCard,
 } from "@/lib/interview/ui";
+import { buildPrepPackSections } from "@/lib/interview/prep-pack";
 
 /** Avoid `/api/companies//...` which redirects to `/api/companies/...` and returns HTML 404 (no `[id]` route). */
 function normalizeAppDynamicParam(value: string | string[] | undefined): string | null {
@@ -83,146 +76,100 @@ function normalizeAppDynamicParam(value: string | string[] | undefined): string 
   return trimmed.length > 0 ? trimmed : null;
 }
 
+type InterviewLifecyclePhase = "questions" | "feedback" | "complete";
+
+function getLifecycleStatus(
+  phase: InterviewLifecyclePhase,
+  questionFlowCompleted: boolean,
+  hasFeedback: boolean,
+): "done" | "current" | "pending" {
+  if (phase === "questions") return questionFlowCompleted ? "done" : "current";
+  if (phase === "feedback") {
+    if (hasFeedback) return "done";
+    return questionFlowCompleted ? "current" : "pending";
+  }
+  return hasFeedback ? "done" : "pending";
+}
+
+const LIFECYCLE_PHASES: { key: InterviewLifecyclePhase; label: string }[] = [
+  { key: "questions", label: "質問フェーズ" },
+  { key: "feedback", label: "フィードバック" },
+  { key: "complete", label: "面接完了" },
+];
+
+function lifecycleClass(status: "done" | "current" | "pending") {
+  if (status === "done") return "border-emerald-200 bg-emerald-50 text-emerald-900";
+  if (status === "current") return "border-sky-300 bg-sky-50 text-slate-900";
+  return "border-border/60 bg-muted/20 text-muted-foreground";
+}
+
 function InterviewProgressCard({
   stageStatus,
-  trackerHeadline,
-  trackerDetail,
-  turnState,
-  turnMeta,
+  questionCount,
+  questionFlowCompleted,
+  hasFeedback,
 }: {
   stageStatus: InterviewStageStatus | null;
-  trackerHeadline: string;
-  trackerDetail: string;
-  turnState: InterviewTurnState | null;
-  turnMeta: InterviewTurnMeta | null;
+  questionCount: number;
+  questionFlowCompleted: boolean;
+  hasFeedback: boolean;
 }) {
   if (!stageStatus) return null;
   const coveredTopics = Array.isArray(stageStatus.coveredTopics) ? stageStatus.coveredTopics : [];
   const remainingTopics = Array.isArray(stageStatus.remainingTopics) ? stageStatus.remainingTopics : [];
-  const missingChecklist = getMissingChecklist(turnState);
-  const activeCoverage = getActiveCoverage(turnState);
-  const followupIntent = getCurrentFollowupIntent(turnMeta);
+  const allTopics = [...coveredTopics, ...remainingTopics];
+  const totalEstimate = Math.max(allTopics.length, questionCount) + remainingTopics.length;
+
+  const currentTopic = stageStatus.currentTopicLabel;
+  const narrative = currentTopic
+    ? coveredTopics.includes(currentTopic)
+      ? `${currentTopic}の深掘りが完了しました。`
+      : `${currentTopic}について確認しています。`
+    : questionCount === 0
+      ? "初回質問を準備中"
+      : null;
 
   return (
-    <div className="space-y-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">{trackerHeadline}</p>
-        <p className="text-[11px] text-muted-foreground">{trackerDetail}</p>
-      </div>
+    <div className="space-y-3">
       <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-[11px] text-foreground/80">
-            {FORMAT_PHASE_LABELS[turnState?.formatPhase ?? "opening"] ?? "本編"}
-          </span>
-          {followupIntent ? (
-            <span className="rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-[11px] text-primary">
-              follow-up 意図: {followupIntent}
-            </span>
-          ) : null}
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-foreground">いまの進み具合</p>
+          <p className="text-[11px] text-muted-foreground">
+            {questionCount}問目 / 約{totalEstimate}問
+          </p>
         </div>
-        <p className="text-[11px] text-muted-foreground">現在の論点</p>
-        <p className="mt-1 text-sm font-medium text-foreground">
-          {stageStatus.currentTopicLabel || "初回質問を準備中"}
-        </p>
-        {activeCoverage ? (
-          <div className="mt-4 rounded-xl border border-border/60 bg-background px-3 py-3">
-            <p className="text-[11px] text-muted-foreground">covered までの残り checklist</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {missingChecklist.length === 0 ? (
-                <span className="text-xs text-muted-foreground">この論点の必須 checklist は満たしています</span>
-              ) : (
-                missingChecklist.map((item) => (
-                  <span key={item} className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] text-amber-900">
-                    {item}
-                  </span>
-                ))
-              )}
-            </div>
-          </div>
-        ) : null}
-        <div className="mt-4 space-y-3">
-          <div>
-            <p className="text-[11px] text-muted-foreground">確認済み</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {coveredTopics.length === 0 ? (
-                <span className="text-xs text-muted-foreground">まだありません</span>
-              ) : (
-                coveredTopics.map((topic) => (
-                  <span key={topic} className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] text-emerald-900">
-                    {topic}
-                  </span>
-                ))
-              )}
-            </div>
-          </div>
-          <div>
-            <p className="text-[11px] text-muted-foreground">残り論点</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {remainingTopics.length === 0 ? (
-                <span className="text-xs text-muted-foreground">面接全体の論点はほぼ確認済みです</span>
-              ) : (
-                remainingTopics.map((topic) => (
-                  <span key={topic} className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-[11px] text-foreground/80">
-                    {topic}
-                  </span>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function InterviewCoverageCard({
-  turnState,
-  turnMeta,
-}: {
-  turnState: InterviewTurnState | null;
-  turnMeta: InterviewTurnMeta | null;
-}) {
-  const activeCoverage = getActiveCoverage(turnState);
-  const missingChecklist = getMissingChecklist(turnState);
-  const followupIntent = getCurrentFollowupIntent(turnMeta);
-
-  if (!turnState || !activeCoverage) {
-    return <p className="text-xs text-muted-foreground">会話開始後に論点の詳細を表示します。</p>;
-  }
-
-  return (
-    <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 px-4 py-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-[11px] text-foreground/80">
-          {FORMAT_PHASE_LABELS[turnState.formatPhase] ?? turnState.formatPhase}
-        </span>
-        <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] text-emerald-900">
-          passed {activeCoverage.passedChecklistKeys.length}/{activeCoverage.requiredChecklist.length}
-        </span>
-      </div>
-      <div>
-        <p className="text-[11px] text-muted-foreground">主論点</p>
-        <p className="mt-1 text-sm font-medium text-foreground">{activeCoverage.topic}</p>
-      </div>
-      {followupIntent ? (
-        <div>
-          <p className="text-[11px] text-muted-foreground">今回の follow-up 意図</p>
-          <p className="mt-1 text-sm text-foreground/90">{followupIntent}</p>
-        </div>
-      ) : null}
-      <div>
-        <p className="text-[11px] text-muted-foreground">未充足 checklist</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {missingChecklist.length === 0 ? (
-            <span className="text-xs text-muted-foreground">この論点は covered 扱いです</span>
-          ) : (
-            missingChecklist.map((item) => (
-              <span key={item} className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] text-amber-900">
-                {item}
+        {allTopics.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {coveredTopics.map((topic) => (
+              <span key={topic} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] text-emerald-900">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                {topic} ✓
               </span>
-            ))
-          )}
-        </div>
+            ))}
+            {remainingTopics.map((topic) => (
+              <span key={topic} className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/20 px-2.5 py-1 text-[11px] text-muted-foreground">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+                {topic}
+              </span>
+            ))}
+          </div>
+        )}
+        {narrative && (
+          <p className="mt-3 text-xs text-muted-foreground">{narrative}</p>
+        )}
+      </div>
+      <div className="space-y-1">
+        {LIFECYCLE_PHASES.map((phase) => {
+          const status = getLifecycleStatus(phase.key, questionFlowCompleted, hasFeedback);
+          return (
+            <div key={phase.key} className={`rounded-[18px] border px-3.5 py-2.5 text-xs shadow-sm ${lifecycleClass(status)}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{phase.label}</span>
+                <span>{status === "done" ? "完了" : status === "current" ? "進行中" : "未着手"}</span>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -471,6 +418,8 @@ export default function CompanyInterviewPage() {
     interviewPlan,
     streamingLabel,
     pendingAssistantMessage,
+    streamingText,
+    isTextStreaming,
     isLoading,
     isGeneratingFeedback,
     isSavingSatisfaction,
@@ -512,11 +461,6 @@ export default function CompanyInterviewPage() {
     saveSatisfaction: handleSaveSatisfaction,
   } = actions;
 
-  const trackerStatus = getInterviewTrackerStatus({
-    turnCount: questionCount,
-    currentTopicLabel: turnMeta?.interviewSetupNote || stageStatus?.currentTopicLabel || state.questionStage,
-    remainingTopicCount: stageStatus?.remainingTopics?.length ?? turnState?.remainingTopics?.length ?? 0,
-  });
 
   useEffect(() => {
     const viewport = conversationRef.current?.parentElement;
@@ -538,7 +482,7 @@ export default function CompanyInterviewPage() {
     conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [
     messages.length,
-    pendingAssistantMessage?.content,
+    streamingText,
     streamingFeedback?.overall_comment,
     streamingFeedback?.improved_answer,
     streamingFeedback?.strengths.length,
@@ -617,7 +561,7 @@ export default function CompanyInterviewPage() {
         mobileStatus={
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <span>{turnMeta?.interviewSetupNote || stageStatus?.currentTopicLabel || "開始前"}</span>
-            <span>{questionCount > 0 ? trackerStatus.headline : "開始前"}</span>
+            <span>{questionCount > 0 ? `${questionCount}問目` : "開始前"}</span>
           </div>
         }
         conversation={
@@ -838,7 +782,17 @@ export default function CompanyInterviewPage() {
 
                   <div className="space-y-3">
                     <Button onClick={handleStart} disabled={!setupComplete || isBusy || persistenceUnavailable} className="w-full sm:w-auto">
-                      面接対策を始める
+                      {isBusy ? (
+                        <>
+                          <svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          <span className="ml-2">準備中...</span>
+                        </>
+                      ) : (
+                        "面接対策を始める"
+                      )}
                     </Button>
                     {error ? <p className="text-sm text-destructive">{error}</p> : null}
                     {errorAction ? <p className="text-xs text-muted-foreground">{errorAction}</p> : null}
@@ -855,6 +809,15 @@ export default function CompanyInterviewPage() {
                   </div>
                 </CardContent>
               </Card>
+
+              <PrepPack
+                companyName={companyName ?? null}
+                sections={buildPrepPackSections({
+                  materials,
+                  interviewPlan,
+                  recentFeedbackHistories: feedbackHistories,
+                })}
+              />
             </div>
           ) : (
             <div ref={conversationRef} className="space-y-4">
@@ -880,7 +843,7 @@ export default function CompanyInterviewPage() {
                 />
               ))}
 
-              {isBusy && !pendingAssistantMessage && !streamingFeedback?.overall_comment && !streamingFeedback?.improved_answer ? (
+              {isBusy && !isTextStreaming && !streamingText && !streamingFeedback?.overall_comment && !streamingFeedback?.improved_answer ? (
                 <ThinkingIndicator
                   text={
                     streamingLabel ||
@@ -889,8 +852,8 @@ export default function CompanyInterviewPage() {
                 />
               ) : null}
 
-              {pendingAssistantMessage ? (
-                <ChatMessage role="assistant" content={pendingAssistantMessage.content} isStreaming />
+              {isTextStreaming && streamingText ? (
+                <ChatMessage role="assistant" content={streamingText} isStreaming />
               ) : null}
 
               {questionFlowCompleted && !feedback ? (
@@ -909,14 +872,24 @@ export default function CompanyInterviewPage() {
                     isSavingSatisfaction={isSavingSatisfaction}
                   />
                   {feedback ? (
-                    <div className="flex flex-wrap gap-3">
-                      <Button onClick={handleContinue} disabled={!canContinue || persistenceUnavailable}>
-                        面接対策を続ける
-                      </Button>
-                      <Button variant="outline" onClick={handleReset} disabled={isBusy || persistenceUnavailable}>
-                        会話をやり直す
-                      </Button>
-                    </div>
+                    <>
+                      <div className="flex flex-wrap gap-3">
+                        <Button onClick={handleContinue} disabled={!canContinue || persistenceUnavailable}>
+                          面接対策を続ける
+                        </Button>
+                        <Button variant="outline" onClick={handleReset} disabled={isBusy || persistenceUnavailable}>
+                          会話をやり直す
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        <Link
+                          href="/interview/dashboard"
+                          className="text-primary underline-offset-2 hover:underline"
+                        >
+                          成長ダッシュボードで推移を見る →
+                        </Link>
+                      </p>
+                    </>
                   ) : null}
                 </div>
               ) : null}
@@ -960,10 +933,9 @@ export default function CompanyInterviewPage() {
             >
               <InterviewProgressCard
                 stageStatus={stageStatus}
-                trackerHeadline={trackerStatus.headline}
-                trackerDetail={trackerStatus.detail}
-                turnState={turnState}
-                turnMeta={turnMeta}
+                questionCount={questionCount}
+                questionFlowCompleted={questionFlowCompleted}
+                hasFeedback={!!feedback}
               />
             </ConversationSidebarCard>
             <ConversationSidebarCard title="面接設定">
@@ -977,12 +949,6 @@ export default function CompanyInterviewPage() {
                 <p>面接官: {INTERVIEWER_TYPE_LABELS[setupState.interviewerType]}</p>
                 <p>厳しさ: {STRICTNESS_MODE_LABELS[setupState.strictnessMode]}</p>
               </div>
-            </ConversationSidebarCard>
-            <ConversationSidebarCard title="面接計画">
-              <InterviewPlanCard plan={interviewPlan} />
-            </ConversationSidebarCard>
-            <ConversationSidebarCard title="見られている論点">
-              <InterviewCoverageCard turnState={turnState} turnMeta={turnMeta} />
             </ConversationSidebarCard>
             <ConversationSidebarCard title="参考にする材料">
               <InterviewMaterialsCard materials={materials} />

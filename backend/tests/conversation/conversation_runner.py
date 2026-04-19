@@ -663,7 +663,15 @@ async def run_interview_flow(
 
     async def _loop() -> tuple[dict[str, Any] | None, str]:
         start_response = await client.request(
-            "POST", f"/api/companies/{company_id}/interview/start", json={}
+            "POST",
+            f"/api/companies/{company_id}/interview/start",
+            json={
+                "interviewFormat": "standard_behavioral",
+                "selectionType": "fulltime",
+                "interviewStage": "early",
+                "interviewerType": "hr",
+                "strictnessMode": "standard",
+            },
         )
         start_body_text = await _read_response_body(
             start_response, f"interview start {company_id}"
@@ -695,7 +703,7 @@ async def run_interview_flow(
             stream_response = await client.request(
                 "POST",
                 f"/api/companies/{company_id}/interview/stream",
-                json={"messages": messages},
+                json={"answer": answer},
             )
             stream_body = await _read_response_body(
                 stream_response, f"interview stream {company_id}"
@@ -718,7 +726,7 @@ async def run_interview_flow(
         feedback_response = await client.request(
             "POST",
             f"/api/companies/{company_id}/interview/feedback",
-            json={"messages": messages},
+            json={},
         )
         feedback_body = await _read_response_body(
             feedback_response, f"interview feedback {company_id}"
