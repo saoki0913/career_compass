@@ -199,7 +199,11 @@ pre-commit フック (`enforce-local-ai-e2e.mjs`) がステージ済みファイ
 1. `git add <対象ファイル>` で全変更をステージ
 2. E2E スコープ判定: ステージ済みファイルで `resolveE2EFunctionalScope()` を呼ぶ（SSOT: `src/lib/e2e-functional-features.mjs`）
 3. `shouldRun: false` → Section B の閾値チェック → コミット → **ユーザーに push 確認**
-4. `shouldRun: true` → `make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES={features}` を実行
+4. `shouldRun: true` → AskUserQuestion で E2E 実行の確認をする。以下を提示:
+   - トリガーされた features 一覧と source（shared-trigger / llm-shared / feature-trigger）
+   - 各 feature の推定実行時間
+   - ユーザーが features を選択・スキップ可能
+   → 承認された features で `make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES={features}` を実行
 5. 全 pass → Section B の閾値チェック（Codex post_review）→ コミット → **ユーザーに push 確認**
 6. いずれか fail:
    a. エラーを分析し修正
