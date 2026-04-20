@@ -6,6 +6,11 @@ from datetime import datetime
 
 from fastapi import HTTPException
 
+from app.prompts.company_info_prompts import (
+    EXTRACTION_SYSTEM_PROMPT,
+    EXTRACTION_USER_MESSAGE,
+    PARSE_RETRY_INSTRUCTION,
+)
 from app.routers.company_info_config import (
     COMPANY_INFO_SCHEMA,
     SCHEDULE_LLM_MAX_OUTPUT_TOKENS,
@@ -43,68 +48,10 @@ async def extract_info_with_llm(text: str, url: str) -> ExtractedInfo:
     """
     current_year = datetime.now().year
 
-    system_prompt_template = """あなたは日本の就活情報を抽出する専門アシスタントです。
-以下のWebページテキストから、採用に関する情報を抽出してJSONで返してください。
-
-## 重要な指示
-
-1. **日付の推測**: 日付が曖昧でも推測して抽出してください
-   - 「6月上旬」→ "{current_year}-06-01"
-   - 「7月中旬」→ "{current_year}-07-15"
-   - 「8月下旬」→ "{current_year}-08-25"
-   - 「随時」「未定」→ null
-   - 年が明記されていない場合は{current_year}年または{current_year + 1}年と推測
-
-2. **部分的な情報も抽出**: 締切情報がなくても、他の情報（募集区分、応募方法など）があれば抽出してください
-
-3. **信頼度の判定**:
-   - high: 明確に記載されている（日付、具体的な手順など）
-   - medium: 推測を含む（曖昧な日付、一般的な記述など）
-   - low: 不確実（断片的な情報、古い可能性がある情報など）
-
-## 抽出項目
-
-1. **deadlines**: 締切情報のリスト
-   - type: es_submission, web_test, aptitude_test, interview_1, interview_2, interview_3, interview_final, briefing, internship, offer_response, other
-   - title: 締切のタイトル（例: "ES提出 (一次締切)"）
-   - due_date: ISO形式の日付（YYYY-MM-DD）または null
-   - source_url: "{url}"
-   - confidence: high, medium, low
-
-2. **recruitment_types**: 募集区分のリスト
-   - name: 募集区分の名前（例: "夏インターン", "本選考", "早期選考"）
-   - source_url: "{url}"
-   - confidence: high, medium, low
-
-3. **required_documents**: 必要書類のリスト
-   - name: 書類名（例: "履歴書", "ES", "成績証明書"）
-   - required: 必須かどうか（true/false）
-   - source_url: "{url}"
-   - confidence: high, medium, low
-
-4. **application_method**: 応募方法（見つからない場合はnull）
-   - value: 応募方法の説明（例: "マイページから応募"、"WEBエントリー"）
-   - source_url: "{url}"
-   - confidence: high, medium, low
-
-5. **selection_process**: 選考プロセス（見つからない場合はnull）
-   - value: 選考プロセスの説明（例: "ES→Webテスト→面接3回→最終面接"）
-   - source_url: "{url}"
-   - confidence: high, medium, low
-
-## 出力形式
-
-必ず以下の形式の有効なJSONを返してください:
-{{
-  "deadlines": [...],
-  "recruitment_types": [...],
-  "required_documents": [...],
-  "application_method": {{...}} または null,
-  "selection_process": {{...}} または null
-}}"""
+    system_prompt_template = EXTRACTION_SYSTEM_PROMPT
     system_prompt = system_prompt_template.format(current_year=current_year, url=url)
 
-    user_message_template = "以下のWebページテキストから採用情報を抽出してください:\n\n{text}"
+    user_message_template = EXTRACTION_USER_MESSAGE
     user_message = user_message_template.format(text=text)
 
     llm_result = await call_llm_with_error(
@@ -117,7 +64,7 @@ async def extract_info_with_llm(text: str, url: str) -> ExtractedInfo:
         json_schema=COMPANY_INFO_SCHEMA,
         use_responses_api=True,
         retry_on_parse=True,
-        parse_retry_instructions="必ず有効なJSONのみを出力してください。説明文やコードブロックは禁止です。",
+        parse_retry_instructions=PARSE_RETRY_INSTRUCTION,
     )
 
     if not llm_result.success:
@@ -258,7 +205,7 @@ async def extract_schedule_with_llm(
         json_schema=SELECTION_SCHEDULE_SCHEMA,
         use_responses_api=True,
         retry_on_parse=True,
-        parse_retry_instructions="必ず有効なJSONのみを出力してください。説明文やコードブロックは禁止です。",
+        parse_retry_instructions=PARSE_RETRY_INSTRUCTION,
     )
 
     if not llm_result.success:
