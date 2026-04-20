@@ -312,6 +312,7 @@ async def _run_all_cases() -> list[dict[str, Any]]:
 
 
 @pytest.mark.integration
+@pytest.mark.no_company_context
 @pytest.mark.asyncio
 async def test_live_gakuchika_report() -> None:
     """Run gakuchika AI live tests and write report.

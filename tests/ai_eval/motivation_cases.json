@@ -2,6 +2,7 @@
   {
     "id": "motivation_company_reason",
     "suiteDepth": "smoke",
+    "usesCompanyContext": true,
     "title": "DX 推進の会社で企画職を志望するケース",
     "companyName": "株式会社テストDX",
     "industry": "IT・通信",
@@ -19,6 +20,7 @@
   {
     "id": "motivation_bank_trust",
     "suiteDepth": "smoke",
+    "usesCompanyContext": true,
     "title": "銀行の法人営業で顧客信頼を重視するケース",
     "companyName": "株式会社テスト銀行",
     "industry": "銀行",
@@ -36,6 +38,7 @@
   {
     "id": "motivation_differentiation_and_fit",
     "suiteDepth": "extended",
+    "usesCompanyContext": true,
     "title": "同業比較で第一志望を説明するケース",
     "companyName": "株式会社テスト商事",
     "industry": "商社",
@@ -57,6 +60,7 @@
   {
     "id": "motivation_manufacturer_quality",
     "suiteDepth": "extended",
+    "usesCompanyContext": true,
     "title": "メーカーで製造現場と企画の橋渡しを志望",
     "companyName": "株式会社テスト電機",
     "industry": "メーカー（電機・機械）",
@@ -78,6 +82,7 @@
   {
     "id": "motivation_bank_corporate_banking",
     "suiteDepth": "extended",
+    "usesCompanyContext": true,
     "title": "銀行の法人営業志望で顧客接点を説明",
     "companyName": "株式会社テスト銀行",
     "industry": "銀行",
@@ -99,6 +104,7 @@
   {
     "id": "motivation_consulting_generalist",
     "suiteDepth": "extended",
+    "usesCompanyContext": true,
     "title": "コンサルで仮説検証型の働き方を志望",
     "companyName": "株式会社テストコンサル",
     "industry": "コンサルティング",
@@ -120,6 +126,7 @@
   {
     "id": "motivation_retail_omni_channel",
     "suiteDepth": "extended",
+    "usesCompanyContext": true,
     "title": "小売で店舗とECの連携企画を志望",
     "companyName": "株式会社テストリテール",
     "industry": "小売・流通",

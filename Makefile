@@ -6,7 +6,7 @@
 	backend-test-comprehensive backend-test-comprehensive-quick backend-test-comprehensive-stats \
 	backend-test-content-type backend-test-content-type-unit backend-test-content-type-integration \
 	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy \
-	backend-test-live-es-review \
+	backend-test-live-es-review backend-test-interview-calibration \
 	deploy deploy-stage-all deploy-check deploy-migrate ops-status ops-auth-check ops-release-check \
 	db-up db-down db-restart db-down-clean db-local-status \
 	supabase-start supabase-stop supabase-stop-clean supabase-status
@@ -30,6 +30,12 @@ start:
 ## ESLintでコードチェック
 lint:
 	npm run lint
+
+backend-test-interview-calibration:
+	cd backend && RUN_INTERVIEW_CALIBRATION=1 \
+		python -m pytest tests/interview/harness/test_calibration.py \
+		-v --tb=short -s \
+		$(PYTEST_EXTRA_ARGS)
 
 # ===========================================
 # E2Eテスト (Playwright)

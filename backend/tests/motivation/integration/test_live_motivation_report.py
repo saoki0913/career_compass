@@ -436,6 +436,7 @@ async def _run_all_cases() -> list[dict[str, Any]]:
 
 
 @pytest.mark.integration
+@pytest.mark.uses_company_context
 @pytest.mark.asyncio
 async def test_live_motivation_report() -> None:
     """Run the full motivation AI Live test suite and write a report.
