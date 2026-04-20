@@ -1,6 +1,6 @@
 # Codex Harness 運用リファレンス
 
-**最終確認**: 2026-04-17
+**最終確認**: 2026-04-18
 
 この文書は `career_compass` における Codex 用ハーネスの current state をまとめる。Codex は Claude の mirror ではなく、`AGENTS.md` と repo skill を土台にしつつ、**project-scoped custom agent** を `.codex/agents/*.toml` に持つ構成へ寄せている。運用品質は Claude 正本と等価にそろえ、完全同型にはしない。
 
@@ -123,6 +123,42 @@ shell wrapper:
 - `.codex/hooks/session-end-cleanup.sh`
 
 wrapper は guardrail と closeout の補助であり、agent selection の正本ではない。
+
+`post-edit-dispatcher.sh` だけは Claude と同じ AI functional E2E reminder を必須導線として共有する。実際の判定ロジックは `.claude/hooks/lib/e2e-functional-reminder.sh` を source し、`es-review`, `gakuchika`, `motivation`, `interview`, `company-info-search`, `rag-ingest`, `selection-schedule` の各 feature 変更で対応する `make test-e2e-functional-local-*` を 1 セッション 1 回だけ案内する。実際の block は agent hook ではなく repo-managed `.githooks/pre-commit` が担当する。
+
+## 5.1 Claude-to-Codex Delegation
+
+Claude Code (Opus 4.6) から Codex CLI (GPT-5.4) へ作業を委譲するフロー。3 モードで運用する。
+
+| モード | sandbox | codex コマンド | 用途 |
+|---|---|---|---|
+| `plan_review` | read-only | `codex exec` | 設計/計画の second opinion レビュー |
+| `implementation` | workspace-write | `codex exec` | 独立性の高い実装タスクの委譲 |
+| `post_review` | read-only (組込) | `codex review --uncommitted` | uncommitted changes のクロスレビュー |
+
+**起動**: Claude Code の command (`/codex-plan-review`, `/codex-implement`, `/codex-post-review`) → `scripts/codex/delegate.sh <mode>` → Codex CLI。
+
+`delegate.sh` は handoff prompt に共通の `Codex Harness Activation` ブロックを差し込み、`.codex/commands/codex-start.md` の orientation、`AGENTS.md` + `.codex/config.toml` routing による agent 選定、`.codex/agents/*.toml` の `developer_instructions`、および `.codex/skills/` / `.agents/skills/` の活用を明示的に要求する。
+
+**State**: `.claude/state/codex-handoffs/<request_id>/` に `request.md`, `result.md`, `meta.json` を保存。`.gitignore` 対象でローカルのみ。
+
+**フォールバック**: Codex が失敗（timeout / 非ゼロ exit / 空結果）した場合は Claude が自身で作業を続行し、`meta.json` に失敗を記録。
+
+**ガードレール**: wrapper が secrets 参照・`danger-full-access` sandbox・provider CLI 直叩きをブロック。既存 hook の guardrail と同等レベル。
+
+### 5.1.1 オーケストレーター運用（CLAUDE.md Section C）
+
+Claude = オーケストレーター、Codex = ワーカーの閉ループ運用。正本は `CLAUDE.md` Section C。
+
+**Plan mode での委譲判断**: Section A の plan review 後、AskUserQuestion で委譲可否をユーザーに確認。委譲スコープ・推奨 Codex エージェント・コンテキスト準備計画・推定時間・戦略オプションを提示する。
+
+**委譲閾値**: 変更 ≥3 ファイル or ≥50 行 → Codex 委譲。閾値未満 → Claude 直接実装。
+
+**リッチコンテキスト**: Codex はスキル・Web 検索を使えないため、Claude が委譲前に対象コード・関連パターン・ライブラリ docs・テスト期待値をコンテキストファイルにまとめて渡す。テンプレート: `scripts/codex/prompt-templates/implementation.md`。
+
+**閉ループ**: 実装 → Claude 検証 → 不合格なら再委譲（1回）→ まだ不合格なら Claude 修正 → Codex post_review → stage → E2E → commit → push。
+
+**並列安全性**: Codex 実行中は Claude はファイル編集しない（リサーチ・設計・ユーザー対話のみ）。
 
 ## 6. Config
 
