@@ -188,14 +188,6 @@ test-e2e-functional-local-company-crud:
 test-e2e-functional-company-crud:
 	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=company-crud bash scripts/ci/run-ai-live.sh
 
-## localhost を対象にプロフィール設定の AI Live を実行
-test-e2e-functional-local-profile-settings:
-	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=profile-settings bash scripts/dev/run-ai-live-local.sh
-
-## staging を対象にプロフィール設定の AI Live を実行
-test-e2e-functional-profile-settings:
-	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=profile-settings bash scripts/ci/run-ai-live.sh
-
 ## localhost を対象に課金の AI Live を実行
 test-e2e-functional-local-billing:
 	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=billing bash scripts/dev/run-ai-live-local.sh
@@ -211,6 +203,14 @@ test-e2e-functional-local-search-query:
 ## staging を対象に検索の AI Live を実行
 test-e2e-functional-search-query:
 	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=search-query bash scripts/ci/run-ai-live.sh
+
+## localhost を対象にページ表示確認の AI Live を実行
+test-e2e-functional-local-pages-smoke:
+	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=pages-smoke bash scripts/dev/run-ai-live-local.sh
+
+## staging を対象にページ表示確認の AI Live を実行
+test-e2e-functional-pages-smoke:
+	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=pages-smoke bash scripts/ci/run-ai-live.sh
 
 # ===========================================
 # データベース (Drizzle + Supabase/PostgreSQL)

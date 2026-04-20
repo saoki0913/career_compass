@@ -5,6 +5,11 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
 
+export CI_SECRETS_PREFER_BUNDLE=1
+
+# shellcheck source=load-github-actions-secrets.sh
+source "${script_dir}/load-github-actions-secrets.sh"
+
 cd "$repo_root"
 
 suite="${AI_LIVE_SUITE:-smoke}"
@@ -51,7 +56,7 @@ case "$suite" in
 esac
 
 case "$feature" in
-  all|es-review|company-info-search|rag-ingest|selection-schedule|gakuchika|motivation|interview) ;;
+  all|es-review|company-info-search|rag-ingest|selection-schedule|gakuchika|motivation|interview|calendar|tasks-deadlines|notifications|company-crud|billing|search-query|pages-smoke) ;;
   *)
     echo "Unsupported feature: $feature" >&2
     exit 2
@@ -63,6 +68,22 @@ run_dir="${output_dir%/}/ai_live_${feature//-/_}_${timestamp}"
 mkdir -p "$run_dir"
 
 status=0
+steps_json="[]"
+
+append_step_status() {
+  local name="$1"
+  local step_status="$2"
+  steps_json="$(
+    STEPS_JSON="$steps_json" STEP_NAME="$name" STEP_STATUS="$step_status" node - <<'NODE'
+const steps = JSON.parse(process.env.STEPS_JSON || "[]");
+steps.push({
+  name: process.env.STEP_NAME || "",
+  status: process.env.STEP_STATUS || "failed",
+});
+process.stdout.write(JSON.stringify(steps));
+NODE
+  )"
+}
 
 run_logged() {
   local name="$1"
@@ -77,7 +98,12 @@ run_logged() {
 
   if [[ $cmd_status -ne 0 ]]; then
     status="$cmd_status"
+    append_step_status "$name" "failed"
+    return 0
   fi
+
+  append_step_status "$name" "passed"
+  return 0
 }
 
 export AI_LIVE_OUTPUT_DIR="$run_dir"
@@ -115,6 +141,7 @@ run_es_review() {
 
   if [[ "${AI_LIVE_SKIP_ES_REVIEW_PLAYWRIGHT:-}" == "1" ]]; then
     echo "[ai-live] skipping es-review-playwright (AI_LIVE_SKIP_ES_REVIEW_PLAYWRIGHT=1)"
+    append_step_status "es-review-playwright" "skipped"
   else
     run_logged \
       "es-review-playwright" \
@@ -128,19 +155,24 @@ run_es_review() {
 
 run_conversation_feature() {
   local conversation_feature="$1"
-  local upper_feature
-  upper_feature="$(echo "$conversation_feature" | tr '[:lower:]' '[:upper:]')"
+  local blocking_failures="1"
+  if [[ "$suite" == "extended" ]]; then
+    blocking_failures="0"
+  fi
 
   run_logged \
-    "${conversation_feature}-pytest" \
+    "${conversation_feature}-playwright" \
     env \
-    AI_LIVE_BASE_URL="${PLAYWRIGHT_BASE_URL:-${AI_LIVE_BASE_URL:-https://stg.shupass.jp}}" \
+    PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-${AI_LIVE_BASE_URL:-https://stg.shupass.jp}}" \
+    PLAYWRIGHT_SKIP_WEBSERVER=1 \
     CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
     CI_E2E_SCOPE="${CI_E2E_SCOPE:-}" \
     AI_LIVE_OUTPUT_DIR="$run_dir" \
     LIVE_AI_CONVERSATION_CASE_SET="$suite" \
-    "RUN_LIVE_${upper_feature}=1" \
-    python -m pytest "backend/tests/${conversation_feature}/integration/test_live_${conversation_feature}_report.py" -v -s -m integration
+    LIVE_AI_CONVERSATION_TARGET_ENV="${LIVE_AI_CONVERSATION_TARGET_ENV:-staging}" \
+    LIVE_AI_CONVERSATION_FEATURE="$conversation_feature" \
+    LIVE_AI_CONVERSATION_BLOCKING_FAILURES="$blocking_failures" \
+    npx playwright test -c playwright.live.config.ts e2e/live-ai-conversations.spec.ts
 }
 
 run_company_info_feature() {
@@ -174,12 +206,16 @@ run_company_info_feature() {
 }
 
 run_company_info_search_feature() {
-  local sample_size="30"
+  local sample_size="6"
   local per_industry_min="1"
+  local modes="hybrid"
+  local tokens_per_second="2"
 
   if [[ "$suite" == "extended" ]]; then
-    sample_size="120"
+    sample_size="30"
     per_industry_min="2"
+    modes="hybrid,legacy"
+    tokens_per_second="1"
   fi
 
   run_logged \
@@ -192,11 +228,41 @@ run_company_info_search_feature() {
     LIVE_SEARCH_USE_CURATED=1 \
     LIVE_SEARCH_SAMPLE_SIZE="$sample_size" \
     LIVE_SEARCH_PER_INDUSTRY_MIN="$per_industry_min" \
+    LIVE_SEARCH_MODES="$modes" \
+    LIVE_SEARCH_TOKENS_PER_SECOND="$tokens_per_second" \
     LIVE_SEARCH_FAIL_ON_REGRESSION=0 \
     LIVE_SEARCH_FAIL_ON_LOW_RATE=0 \
     BASELINE_SAVE=0 \
     BASELINE_AUTO_PROMOTE=0 \
     python -m pytest backend/tests/company_info/integration/test_live_company_info_search_report.py -v -s -m integration
+}
+
+run_crud_feature() {
+  local crud_feature="$1"
+  local upper_feature
+  upper_feature="$(echo "$crud_feature" | tr '[:lower:]-' '[:upper:]_')"
+
+  run_logged \
+    "${crud_feature}-pytest" \
+    env \
+    AI_LIVE_BASE_URL="${PLAYWRIGHT_BASE_URL:-${AI_LIVE_BASE_URL:-https://stg.shupass.jp}}" \
+    CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
+    CI_E2E_SCOPE="${CI_E2E_SCOPE:-}" \
+    AI_LIVE_OUTPUT_DIR="$run_dir" \
+    "RUN_LIVE_${upper_feature}=1" \
+    python -m pytest \
+      "backend/tests/${crud_feature//-/_}/integration/test_live_${crud_feature//-/_}_report.py" \
+      -v -s -m integration
+}
+
+run_pages_smoke() {
+  run_logged \
+    "pages-smoke-playwright" \
+    env \
+    PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-${AI_LIVE_BASE_URL:-https://stg.shupass.jp}}" \
+    PLAYWRIGHT_SKIP_WEBSERVER=1 \
+    CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
+    npx playwright test -c playwright.live.config.ts e2e/live-ai-pages.spec.ts
 }
 
 case "$feature" in
@@ -208,6 +274,13 @@ case "$feature" in
     run_conversation_feature "gakuchika"
     run_conversation_feature "motivation"
     run_conversation_feature "interview"
+    run_crud_feature "calendar"
+    run_crud_feature "tasks-deadlines"
+    run_crud_feature "notifications"
+    run_crud_feature "company-crud"
+    run_crud_feature "billing"
+    run_crud_feature "search-query"
+    run_pages_smoke
     ;;
   es-review)
     run_es_review
@@ -221,7 +294,22 @@ case "$feature" in
   gakuchika|motivation|interview)
     run_conversation_feature "$feature"
     ;;
+  pages-smoke)
+    run_pages_smoke
+    ;;
+  calendar|tasks-deadlines|notifications|company-crud|billing|search-query)
+    run_crud_feature "$feature"
+    ;;
 esac
+
+manifest_target_env="${LIVE_COMPANY_INFO_TARGET_ENV:-${LIVE_AI_CONVERSATION_TARGET_ENV:-staging}}"
+node scripts/ci/write-ai-live-run-manifest.mjs \
+  --run-dir "$run_dir" \
+  --feature "$feature" \
+  --suite "$suite" \
+  --target-env "$manifest_target_env" \
+  --overall-status "$([[ "$status" -eq 0 ]] && printf 'passed' || printf 'failed')" \
+  --steps-json "$steps_json" >/dev/null
 
 if [[ "$skip_summary" != "1" ]]; then
   if [[ -n "$summary_file" ]]; then

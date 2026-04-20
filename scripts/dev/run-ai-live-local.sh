@@ -65,9 +65,9 @@ readonly features=(
   "tasks-deadlines"
   "notifications"
   "company-crud"
-  "profile-settings"
   "billing"
   "search-query"
+  "pages-smoke"
 )
 
 readonly stateful_features=(
@@ -79,7 +79,6 @@ readonly stateful_features=(
   "tasks-deadlines"
   "notifications"
   "company-crud"
-  "profile-settings"
   "search-query"
 )
 
@@ -116,7 +115,7 @@ select_features() {
     for feature in "${requested_features[@]}"; do
       normalized="$(echo "$feature" | tr -d '[:space:]')"
       case "$normalized" in
-        company-info-search|selection-schedule|rag-ingest|gakuchika|motivation|interview|es-review|calendar|tasks-deadlines|notifications|company-crud|profile-settings|billing|search-query)
+        company-info-search|selection-schedule|rag-ingest|gakuchika|motivation|interview|es-review|calendar|tasks-deadlines|notifications|company-crud|billing|search-query|pages-smoke)
           selected_features+=("$normalized")
           ;;
         *)

@@ -86,7 +86,10 @@ export function evaluateLocalAiE2EReadiness({
       continue;
     }
 
-    if (feature === "es-review" && manifest.playwrightStatus !== "passed") {
+    const BROWSER_REQUIRED_FEATURES = new Set([
+      "es-review", "gakuchika", "motivation", "interview", "pages-smoke",
+    ]);
+    if (BROWSER_REQUIRED_FEATURES.has(feature) && manifest.playwrightStatus !== "passed") {
       failures.push({
         feature,
         reason: "playwright_required",

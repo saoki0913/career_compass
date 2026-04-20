@@ -12,6 +12,13 @@ const FEATURE_DISPLAY = {
   gakuchika: "ガクチカ作成",
   motivation: "志望動機作成",
   interview: "面接対策",
+  calendar: "カレンダー",
+  tasks_deadlines: "タスク・締切管理",
+  notifications: "通知",
+  company_crud: "企業CRUD",
+  billing: "課金・クレジット",
+  search_query: "検索",
+  pages_smoke: "ページ表示確認",
 };
 const FEATURE_ORDER = [
   "es_review",
@@ -21,6 +28,13 @@ const FEATURE_ORDER = [
   "gakuchika",
   "motivation",
   "interview",
+  "calendar",
+  "tasks_deadlines",
+  "notifications",
+  "company_crud",
+  "billing",
+  "search_query",
+  "pages_smoke",
 ];
 
 function normalizeExpectedFeatures(expectedFeatures) {
