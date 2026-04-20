@@ -338,15 +338,11 @@ def _score_to_confidence(
         if not year_matched:
             if score >= 6:
                 return "medium"
-            if score >= 3:
-                return "medium"
-            return "low"
+            return "medium"
         else:
             if score >= 6:
                 return "high"
-            if score >= 3:
-                return "medium"
-            return "low"
+            return "medium"
     elif source_type == "blog":
         if score >= 6:
             return "medium"
@@ -374,9 +370,7 @@ def _hybrid_score_to_confidence(
     if source_type == "official":
         if score >= 0.7:
             return "high" if year_matched else "medium"
-        if score >= 0.5:
-            return "medium"
-        return "low"
+        return "medium"
     if source_type in {"parent", "subsidiary"}:
         return "low"
     if source_type in {"job_site", "aggregator", "blog"}:
@@ -392,9 +386,7 @@ def _recruitment_score_to_confidence(
     if source_type == "official":
         if score >= 6:
             return "high" if year_matched else "medium"
-        if score >= 3:
-            return "medium"
-        return "low"
+        return "medium"
     if source_type == "job_site":
         return "medium" if score >= 6 else "low"
     if source_type in {"parent", "subsidiary", "blog", "other"}:
@@ -410,9 +402,7 @@ def _recruitment_hybrid_score_to_confidence(
     if source_type == "official":
         if score >= 0.7:
             return "high" if year_matched else "medium"
-        if score >= 0.5:
-            return "medium"
-        return "low"
+        return "medium"
     if source_type == "job_site":
         return "medium" if score >= 0.7 else "low"
     if source_type in {"parent", "subsidiary", "blog", "other"}:

@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
+from app.routers.company_info_candidate_scoring import (
+    _hybrid_score_to_confidence,
+    _recruitment_hybrid_score_to_confidence,
+    _recruitment_score_to_confidence,
+    _score_to_confidence,
+)
 from app.utils.company_names import (
     classify_company_domain_relation,
     get_company_domain_patterns,
@@ -92,89 +98,6 @@ def _normalize_recruitment_source_type(
     if is_trusted_schedule_job_site(url):
         return "job_site"
     return "other"
-
-
-def _recruitment_score_to_confidence(
-    score: float,
-    source_type: str = "other",
-    year_matched: bool = True,
-) -> str:
-    if source_type == "official":
-        if score >= 6:
-            return "high" if year_matched else "medium"
-        if score >= 3:
-            return "medium"
-        return "low"
-    if source_type == "job_site":
-        return "medium" if score >= 6 else "low"
-    if source_type in {"parent", "subsidiary", "blog", "other"}:
-        return "low"
-    return "low"
-
-
-def _recruitment_hybrid_score_to_confidence(
-    score: float,
-    source_type: str,
-    year_matched: bool = True,
-) -> str:
-    if source_type == "official":
-        if score >= 0.7:
-            return "high" if year_matched else "medium"
-        if score >= 0.5:
-            return "medium"
-        return "low"
-    if source_type == "job_site":
-        return "medium" if score >= 0.7 else "low"
-    if source_type in {"parent", "subsidiary", "blog", "other"}:
-        return "low"
-    return "low"
-
-
-def _score_to_confidence(
-    score: float,
-    source_type: str = "other",
-    year_matched: bool = True,
-    content_type: str | None = None,
-    company_match: bool = False,
-) -> str:
-    if source_type == "official":
-        if not year_matched:
-            if score >= 6:
-                return "medium"
-            if score >= 3:
-                return "medium"
-            return "low"
-        if score >= 6:
-            return "high"
-        if score >= 3:
-            return "medium"
-        return "low"
-    if source_type == "blog":
-        return "medium" if score >= 6 else "low"
-    if source_type == "job_site":
-        return "medium" if score >= 6 else "low"
-    if source_type in {"parent", "subsidiary"}:
-        return "low"
-    return "medium" if score >= 4 else "low"
-
-
-def _hybrid_score_to_confidence(
-    score: float,
-    source_type: str,
-    year_matched: bool = True,
-    content_type: str | None = None,
-) -> str:
-    if source_type == "official":
-        if score >= 0.7:
-            return "high" if year_matched else "medium"
-        if score >= 0.5:
-            return "medium"
-        return "low"
-    if source_type in {"parent", "subsidiary"}:
-        return "low"
-    if source_type in {"job_site", "aggregator", "blog"}:
-        return "medium" if score >= 0.7 else "low"
-    return "medium" if score >= 0.5 else "low"
 
 
 def _get_blog_penalty(url: str, domain: str, company_name: str) -> float:
