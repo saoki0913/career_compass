@@ -86,6 +86,34 @@ export function notifyMotivationDraftReady() {
   });
 }
 
+export function notifyMotivationDraftGenerated() {
+  return notifySuccess({
+    title: "ESを生成しました",
+    duration: 4200,
+  });
+}
+
+export function notifyMotivationDraftSaved() {
+  return notifySuccess({
+    title: "ESとして保存しました",
+    duration: 4200,
+  });
+}
+
+export function notifyGakuchikaDraftGenerated() {
+  return notifySuccess({
+    title: "ESを生成しました",
+    duration: 4200,
+  });
+}
+
+export function notifyGakuchikaDraftSaved() {
+  return notifySuccess({
+    title: "ESを開きます",
+    duration: 4200,
+  });
+}
+
 export function notifyTaskCreated() {
   return notifySuccess({ title: "タスクを追加しました" });
 }
@@ -124,6 +152,19 @@ export function notifyCalendarEventCreated(type: "work_block" | "manual") {
 
 export function notifyCalendarEventDeleted() {
   return notifySuccess({ title: "イベントを削除しました" });
+}
+
+export function notifyCalendarSynced() {
+  return notifySuccess({
+    title: "Googleカレンダーに同期しました",
+  });
+}
+
+export function notifyCalendarSyncFailed() {
+  return notifyError({
+    title: "Googleカレンダーの同期に失敗しました",
+    description: "バックグラウンドで自動的に再試行します。",
+  });
 }
 
 export function notifyDocumentCreated() {

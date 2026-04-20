@@ -105,7 +105,8 @@ export async function createCalendarEvent(
     startAt: string;
     endAt: string;
     description?: string;
-  }
+  },
+  signal?: AbortSignal,
 ) {
   const summary = buildAppCalendarSummary(event.kind, event.title);
 
@@ -117,6 +118,7 @@ export async function createCalendarEvent(
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
+      signal,
       body: JSON.stringify({
         summary,
         start: { dateTime: event.startAt },
@@ -183,6 +185,7 @@ export async function updateCalendarEvent(
     endAt: string;
     description?: string;
   },
+  signal?: AbortSignal,
 ): Promise<{ id: string }> {
   const summary = buildAppCalendarSummary(event.kind, event.title);
 
@@ -194,6 +197,7 @@ export async function updateCalendarEvent(
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
+      signal,
       body: JSON.stringify({
         summary,
         start: { dateTime: event.startAt },
@@ -227,13 +231,15 @@ export async function updateCalendarEvent(
 export async function deleteCalendarEvent(
   accessToken: string,
   calendarId: string = "primary",
-  eventId: string
+  eventId: string,
+  signal?: AbortSignal,
 ) {
   const response = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`,
     {
       method: "DELETE",
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal,
     }
   );
 

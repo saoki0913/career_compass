@@ -775,8 +775,8 @@ run_features_parallel() {
         alive_features+=("${running_features[$i]}")
       fi
     done
-    running_pids=("${alive_pids[@]}")
-    running_features=("${alive_features[@]}")
+    running_pids=("${alive_pids[@]+"${alive_pids[@]}"}")
+    running_features=("${alive_features[@]+"${alive_features[@]}"}")
   }
 
   for feature in "${selected_features[@]}"; do

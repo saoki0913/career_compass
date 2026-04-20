@@ -382,3 +382,87 @@ class StagingClient:
         """DELETE /api/documents/{document_id}."""
         response = await self.request("DELETE", f"/api/documents/{document_id}")
         response.raise_for_status()
+
+    # ------------------------------------------------------------------
+    # CRUD test helpers
+    # ------------------------------------------------------------------
+
+    async def get_profile(self) -> dict[str, Any]:
+        """GET /api/settings/profile."""
+        response = await self.request("GET", "/api/settings/profile")
+        response.raise_for_status()
+        return response.json()
+
+    async def update_profile(self, data: dict[str, Any]) -> dict[str, Any]:
+        """PUT /api/settings/profile."""
+        response = await self.request("PUT", "/api/settings/profile", json=data)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_notifications(self) -> list[dict[str, Any]]:
+        """GET /api/notifications."""
+        response = await self.request("GET", "/api/notifications")
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, list):
+            return data
+        return data.get("notifications", [])
+
+    async def get_notification_settings(self) -> dict[str, Any]:
+        """GET /api/settings/notifications."""
+        response = await self.request("GET", "/api/settings/notifications")
+        response.raise_for_status()
+        return response.json()
+
+    async def get_credits(self) -> dict[str, Any]:
+        """GET /api/credits."""
+        response = await self.request("GET", "/api/credits")
+        response.raise_for_status()
+        return response.json()
+
+    async def get_deadlines(self) -> list[dict[str, Any]]:
+        """GET /api/deadlines."""
+        response = await self.request("GET", "/api/deadlines")
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, list):
+            return data
+        return data.get("deadlines", [])
+
+    async def get_tasks(self) -> list[dict[str, Any]]:
+        """GET /api/tasks."""
+        response = await self.request("GET", "/api/tasks")
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, list):
+            return data
+        return data.get("tasks", [])
+
+    async def create_task(self, data: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/tasks."""
+        response = await self.request("POST", "/api/tasks", json=data)
+        response.raise_for_status()
+        return response.json()
+
+    async def delete_task(self, task_id: str) -> None:
+        """DELETE /api/tasks/{task_id}."""
+        response = await self.request("DELETE", f"/api/tasks/{task_id}")
+        response.raise_for_status()
+
+    async def get_calendar_settings(self) -> dict[str, Any]:
+        """GET /api/calendar/settings."""
+        response = await self.request("GET", "/api/calendar/settings")
+        response.raise_for_status()
+        return response.json()
+
+    async def get_calendar_connection_status(self) -> dict[str, Any]:
+        """GET /api/calendar/connection-status."""
+        response = await self.request("GET", "/api/calendar/connection-status")
+        response.raise_for_status()
+        return response.json()
+
+    async def search(self, query: str) -> dict[str, Any]:
+        """GET /api/search?q={query}."""
+        response = await self.request("GET", f"/api/search?q={query}")
+        response.raise_for_status()
+        return response.json()

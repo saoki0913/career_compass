@@ -8,6 +8,13 @@ export {
   processCalendarSyncBatch,
 } from "./sync-queue";
 export {
+  syncDeadlineImmediately,
+  syncDeadlineDeleteImmediately,
+  syncWorkBlockImmediately,
+  syncWorkBlockDeleteImmediately,
+  type ImmediateSyncResult,
+} from "./sync-immediate";
+export {
   DEFAULT_SYNC_BATCH_SIZE,
   type ClaimedCalendarSyncJob,
   type SyncAction,

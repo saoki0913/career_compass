@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
@@ -11,7 +11,6 @@ import { buildCalendarConnectionStatus, getCalendarSettingsRecord, getValidGoogl
 import {
   createCalendarEvent,
   deleteCalendarEvent,
-  findEventByEntityId,
   getCalendarEvents,
   isAppCalendarEvent,
   stripAppCalendarPrefix,
@@ -22,13 +21,27 @@ import {
   getWorkBlockForSync,
   markJobCancelled,
   markJobCompleted,
-  markJobRetryOrFailure,
   suppressMissingDeadlines,
   updateDeadlineSyncState,
   updateWorkBlockSyncState,
   deleteMissingWorkBlocks,
 } from "./sync-persistence";
 import type { ClaimedCalendarSyncJob } from "./sync-types";
+
+type DeadlineForDraft = {
+  id: string;
+  title: string;
+  dueDate: Date;
+  sourceUrl: string | null;
+  companyName: string;
+} | null;
+
+type WorkBlockForDraft = {
+  id: string;
+  title: string;
+  startAt: Date;
+  endAt: Date;
+} | null;
 
 export function canSyncToGoogle(settings: typeof calendarSettings.$inferSelect | null) {
   if (!settings || settings.provider !== "google" || !settings.targetCalendarId) {
@@ -38,7 +51,7 @@ export function canSyncToGoogle(settings: typeof calendarSettings.$inferSelect |
   return buildCalendarConnectionStatus(settings).connected;
 }
 
-export function buildDeadlineEventDraft(deadline: Awaited<ReturnType<typeof getDeadlineForSync>>) {
+export function buildDeadlineEventDraft(deadline: DeadlineForDraft) {
   if (!deadline) return null;
 
   const title = `${deadline.companyName} ${deadline.title}`.trim();
@@ -56,7 +69,7 @@ export function buildDeadlineEventDraft(deadline: Awaited<ReturnType<typeof getD
   };
 }
 
-export function buildWorkBlockEventDraft(event: Awaited<ReturnType<typeof getWorkBlockForSync>>) {
+export function buildWorkBlockEventDraft(event: WorkBlockForDraft) {
   if (!event) return null;
 
   return {
@@ -78,17 +91,18 @@ export function buildWorkBlockEventDraft(event: Awaited<ReturnType<typeof getWor
  * | different calendar             | Leave old event, CREATE on new calendar   |
  * | not found (initial or deleted) | CREATE new event                          |
  */
-async function upsertGoogleEvent(
+export async function upsertGoogleEvent(
   accessToken: string,
   targetCalendarId: string,
   entity: { googleCalendarId: string | null; googleEventId: string | null },
   draft: { kind: "deadline" | "work_block"; entityId: string; title: string; startAt: string; endAt: string; description?: string },
+  signal?: AbortSignal,
 ): Promise<{ googleCalendarId: string; googleEventId: string }> {
   const sameCalendar = entity.googleCalendarId === targetCalendarId;
 
   if (sameCalendar && entity.googleCalendarId && entity.googleEventId) {
     // Same calendar — try PATCH for stable event ID
-    const patched = await updateCalendarEvent(accessToken, entity.googleCalendarId, entity.googleEventId, draft);
+    const patched = await updateCalendarEvent(accessToken, entity.googleCalendarId, entity.googleEventId, draft, signal);
     if (patched.id) {
       return { googleCalendarId: entity.googleCalendarId, googleEventId: patched.id };
     }
@@ -98,8 +112,72 @@ async function upsertGoogleEvent(
   }
 
   // Not found or different calendar — CREATE
-  const created = await createCalendarEvent(accessToken, targetCalendarId, draft);
+  const created = await createCalendarEvent(accessToken, targetCalendarId, draft, signal);
   return { googleCalendarId: targetCalendarId, googleEventId: created.id ?? "" };
+}
+
+/**
+ * Core sync executor shared by both immediate and cron paths.
+ * Throws on failure — callers decide how to handle.
+ */
+export async function executeUpsert(
+  userId: string,
+  entityType: "deadline" | "work_block",
+  entityId: string,
+  targetCalendarId: string,
+  signal?: AbortSignal,
+): Promise<{ googleCalendarId: string; googleEventId: string }> {
+  const { accessToken, status } = await getValidGoogleCalendarAccessToken(userId);
+  if (!accessToken || !status.connected) {
+    throw new Error(
+      status.needsReconnect
+        ? "Googleカレンダーの再連携が必要です。"
+        : "Googleカレンダーとの接続を確認できませんでした。",
+    );
+  }
+
+  if (entityType === "deadline") {
+    const deadline = await getDeadlineForSync(entityId);
+    if (!deadline) throw new Error("同期対象の締切が見つかりません。");
+    if (!deadline.isConfirmed) throw new Error("未承認の締切は同期しません。");
+    const draft = buildDeadlineEventDraft(deadline);
+    if (!draft) throw new Error("同期対象の締切を組み立てられませんでした。");
+    const result = await upsertGoogleEvent(accessToken, targetCalendarId, deadline, draft, signal);
+    await updateDeadlineSyncState(deadline.id, {
+      googleCalendarId: result.googleCalendarId,
+      googleEventId: result.googleEventId,
+      googleSyncStatus: "synced",
+      googleSyncError: null,
+      googleSyncedAt: new Date(),
+      googleSyncSuppressedAt: null,
+    });
+    return result;
+  }
+
+  const event = await getWorkBlockForSync(entityId);
+  if (!event) throw new Error("同期対象の作業ブロックが見つかりません。");
+  const draft = buildWorkBlockEventDraft(event);
+  if (!draft) throw new Error("同期対象の作業ブロックを組み立てられませんでした。");
+  const result = await upsertGoogleEvent(accessToken, targetCalendarId, event, draft, signal);
+  await updateWorkBlockSyncState(event.id, {
+    googleCalendarId: result.googleCalendarId,
+    googleEventId: result.googleEventId,
+    googleSyncStatus: "synced",
+    googleSyncError: null,
+    googleSyncedAt: new Date(),
+  });
+  return result;
+}
+
+export async function executeDelete(
+  userId: string,
+  googleCalendarId: string,
+  googleEventId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const { accessToken, status } = await getValidGoogleCalendarAccessToken(userId);
+  if (!accessToken || !status.connected) return;
+  await deleteCalendarEvent(accessToken, googleCalendarId, googleEventId, signal);
 }
 
 export async function processUpsertJob(job: ClaimedCalendarSyncJob) {
@@ -109,81 +187,17 @@ export async function processUpsertJob(job: ClaimedCalendarSyncJob) {
     return;
   }
 
-  const { accessToken, status } = await getValidGoogleCalendarAccessToken(job.user_id);
-  if (!accessToken || !status.connected) {
-    await markJobRetryOrFailure(
-      job,
-      status.needsReconnect
-        ? "Googleカレンダーの再連携が必要です。"
-        : "Googleカレンダーとの接続を確認できませんでした。",
-    );
-    return;
-  }
-
   const targetCalendarId = job.target_calendar_id || settings.targetCalendarId;
-
-  if (job.entity_type === "deadline") {
-    const deadline = await getDeadlineForSync(job.entity_id);
-    if (!deadline) {
-      await markJobCompleted(job.id);
-      return;
-    }
-    if (!deadline.isConfirmed) {
-      await markJobCancelled(job.id, "未承認の締切は Google へ同期しません。");
-      return;
-    }
-
-    const draft = buildDeadlineEventDraft(deadline);
-    if (!draft) {
-      await markJobCancelled(job.id, "同期対象の締切を組み立てられませんでした。");
-      return;
-    }
-
-    const result = await upsertGoogleEvent(accessToken, targetCalendarId, deadline, draft);
-    await updateDeadlineSyncState(deadline.id, {
-      googleCalendarId: result.googleCalendarId,
-      googleEventId: result.googleEventId,
-      googleSyncStatus: "synced",
-      googleSyncError: null,
-      googleSyncedAt: new Date(),
-      googleSyncSuppressedAt: null,
-    });
-    await markJobCompleted(job.id);
-    return;
-  }
-
-  const event = await getWorkBlockForSync(job.entity_id);
-  if (!event) {
-    await markJobCompleted(job.id);
-    return;
-  }
-
-  const draft = buildWorkBlockEventDraft(event);
-  if (!draft) {
-    await markJobCancelled(job.id, "同期対象の作業ブロックを組み立てられませんでした。");
-    return;
-  }
-
-  const result = await upsertGoogleEvent(accessToken, targetCalendarId, event, draft);
-  await updateWorkBlockSyncState(event.id, {
-    googleCalendarId: result.googleCalendarId,
-    googleEventId: result.googleEventId,
-    googleSyncStatus: "synced",
-    googleSyncError: null,
-    googleSyncedAt: new Date(),
-  });
+  await executeUpsert(job.user_id, job.entity_type, job.entity_id, targetCalendarId);
   await markJobCompleted(job.id);
 }
 
 export async function processDeleteJob(job: ClaimedCalendarSyncJob) {
-  const { accessToken, status } = await getValidGoogleCalendarAccessToken(job.user_id);
-
-  if (!accessToken || !status.connected || !job.target_calendar_id || !job.google_event_id) {
+  if (!job.target_calendar_id || !job.google_event_id) {
     await markJobCancelled(job.id, "Google接続がないため削除ジョブを完了扱いにしました。");
     return;
   }
-
-  await deleteCalendarEvent(accessToken, job.target_calendar_id, job.google_event_id);
+  await executeDelete(job.user_id, job.target_calendar_id, job.google_event_id);
   await markJobCompleted(job.id);
 }
 

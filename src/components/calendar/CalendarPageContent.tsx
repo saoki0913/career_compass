@@ -15,7 +15,12 @@ import { CalendarSidebar } from "@/components/calendar/CalendarSidebar";
 import { WorkBlockSuggestionsModal } from "@/components/calendar/WorkBlockSuggestionsModal";
 import { WorkBlockFAB } from "@/components/calendar/WorkBlockFAB";
 import { EventDetailModal, type DisplayEvent } from "@/components/calendar/EventDetailModal";
-import { notifyCalendarEventCreated, notifyCalendarEventDeleted } from "@/lib/notifications";
+import {
+  notifyCalendarEventCreated,
+  notifyCalendarEventDeleted,
+  notifyCalendarSynced,
+  notifyCalendarSyncFailed,
+} from "@/lib/notifications";
 import { toAppUiError } from "@/lib/api-errors";
 import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 
@@ -56,6 +61,14 @@ const LoadingSpinner = () => (
 );
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+
+function notifyCalendarSyncResult(calendarSync?: { status?: string }) {
+  if (calendarSync?.status === "synced") {
+    notifyCalendarSynced();
+  } else if (calendarSync?.status === "failed") {
+    notifyCalendarSyncFailed();
+  }
+}
 
 interface AddEventModalProps {
   isOpen: boolean;
@@ -402,8 +415,9 @@ export default function CalendarPage() {
     endAt: string;
   }) => {
     try {
-      await createEvent(data);
+      const result = await createEvent(data);
       notifyCalendarEventCreated("manual");
+      notifyCalendarSyncResult(result.calendarSync);
     } catch (error) {
       const ui = toAppUiError(
         error,
@@ -420,13 +434,14 @@ export default function CalendarPage() {
 
   const handleCreateFromSuggestion = async (suggestion: WorkBlockSuggestion) => {
     try {
-      await createEvent({
+      const result = await createEvent({
         type: "work_block",
         title: suggestion.title,
         startAt: suggestion.start,
         endAt: suggestion.end,
       });
       notifyCalendarEventCreated("work_block");
+      notifyCalendarSyncResult(result.calendarSync);
     } catch (error) {
       const ui = toAppUiError(
         error,
@@ -751,8 +766,9 @@ export default function CalendarPage() {
             setSelectedEvent(null);
           }}
           onDelete={async (eventId) => {
-            await deleteEvent(eventId);
+            const result = await deleteEvent(eventId);
             notifyCalendarEventDeleted();
+            notifyCalendarSyncResult(result.calendarSync);
             setShowDetailModal(false);
             setSelectedEvent(null);
           }}

@@ -11,7 +11,7 @@ import { db } from "@/lib/db";
 import { calendarEvents, deadlines, companies } from "@/lib/db/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { headers } from "next/headers";
-import { enqueueWorkBlockUpsert } from "@/lib/calendar/sync";
+import { syncWorkBlockImmediately, type ImmediateSyncResult } from "@/lib/calendar/sync";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { hasOwnedDeadline } from "@/app/api/_shared/owner-access";
 
@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
       })
       .returning();
 
-    await enqueueWorkBlockUpsert(userId, newEvent.id);
+    const calendarSync: ImmediateSyncResult = await syncWorkBlockImmediately(userId, newEvent.id);
 
     const [event] = await db
       .select()
@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
       .where(eq(calendarEvents.id, newEvent.id))
       .limit(1);
 
-    return NextResponse.json({ event });
+    return NextResponse.json({ event, calendarSync });
   } catch (error) {
     return createApiErrorResponse(request, {
       status: 500,

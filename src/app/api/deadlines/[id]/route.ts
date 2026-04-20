@@ -13,7 +13,11 @@ import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
 import { db } from "@/lib/db";
 import { deadlines, companies, tasks } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { enqueueDeadlineDelete, enqueueDeadlineSync } from "@/lib/calendar/sync";
+import {
+  syncDeadlineDeleteImmediately,
+  syncDeadlineImmediately,
+  type ImmediateSyncResult,
+} from "@/lib/calendar/sync";
 import { generateTasksForDeadline } from "@/lib/server/task-generation";
 
 type DeadlineType =
@@ -314,14 +318,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const d = updated[0];
 
-    // Enqueue calendar sync for authenticated users
+    let calendarSync: ImmediateSyncResult | undefined;
     if (identity.userId) {
-      await enqueueDeadlineSync(identity.userId, deadlineId);
+      calendarSync = await syncDeadlineImmediately(identity.userId, deadlineId);
     }
 
     return timing.apply(
       NextResponse.json({
         success: true,
+        calendarSync,
         deadline: {
           id: d.id,
           companyId: d.companyId,
@@ -383,14 +388,15 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       });
     }
 
+    let calendarSync: ImmediateSyncResult | undefined;
     if (identity.userId) {
-      await enqueueDeadlineDelete(identity.userId, deadlineId);
+      calendarSync = await syncDeadlineDeleteImmediately(identity.userId, deadlineId);
     }
 
     await db.delete(deadlines).where(eq(deadlines.id, deadlineId));
 
     return timing.apply(
-      NextResponse.json({ success: true, message: "Deadline deleted" }),
+      NextResponse.json({ success: true, message: "Deadline deleted", calendarSync }),
     );
   } catch (error) {
     return createApiErrorResponse(request, {

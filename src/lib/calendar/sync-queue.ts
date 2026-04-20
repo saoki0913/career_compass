@@ -7,7 +7,6 @@ import {
   claimPendingJobs,
   enqueueCalendarSyncJob,
   getDeadlineForSync,
-  getWorkBlockForSync,
   markJobRetryOrFailure,
   updateDeadlineSyncState,
   updateWorkBlockSyncState,

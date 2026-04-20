@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { deadlines, companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { enqueueDeadlineSync } from "@/lib/calendar/sync";
+import { syncDeadlineImmediately, type ImmediateSyncResult } from "@/lib/calendar/sync";
 import { generateTasksForDeadline } from "@/lib/server/task-generation";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 
@@ -224,8 +224,9 @@ export async function POST(
       guestId,
     });
 
+    let calendarSync: ImmediateSyncResult | undefined;
     if (userId) {
-      await enqueueDeadlineSync(userId, deadlineId);
+      calendarSync = await syncDeadlineImmediately(userId, deadlineId);
     }
 
     const [storedDeadline] = await db
@@ -236,6 +237,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
+      calendarSync,
       deadline: {
         id: storedDeadline?.id ?? newDeadline[0].id,
         companyId: storedDeadline?.companyId ?? newDeadline[0].companyId,
