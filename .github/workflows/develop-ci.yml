@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - develop
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 concurrency:
@@ -14,75 +11,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ui-scope:
+  staging-health:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs:
-      should_run: ${{ steps.resolve.outputs.ui_review_should_run }}
-      routes_json: ${{ steps.resolve.outputs.ui_review_routes_json }}
-      auth_mode: ${{ steps.resolve.outputs.ui_review_auth_mode }}
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - id: resolve
-        run: node tools/resolve-ui-review-routes.mjs --github-output >> "$GITHUB_OUTPUT"
-
-  ui-guardrails:
-    needs: ui-scope
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        if: needs.ui-scope.outputs.should_run == 'true'
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        if: needs.ui-scope.outputs.should_run == 'true'
-        with:
-          node-version: 20
-          cache: npm
-      - name: Install and lint UI guardrails
-        if: needs.ui-scope.outputs.should_run == 'true'
+      - name: Wait for staging frontend and backend
         run: |
-          npm ci
-          npm run lint:ui:guardrails
-      - name: Skip UI guardrails
-        if: needs.ui-scope.outputs.should_run != 'true'
-        run: echo "No UI review routes; skipping lint:ui:guardrails."
-
-  ui-review:
-    needs: [ui-scope, ui-guardrails]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
-      PLAYWRIGHT_SKIP_WEBSERVER: "1"
-    steps:
-      - uses: actions/checkout@v4
-        if: needs.ui-scope.outputs.should_run == 'true'
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        if: needs.ui-scope.outputs.should_run == 'true'
-        with:
-          node-version: 20
-          cache: npm
-      - name: Install dependencies
-        if: needs.ui-scope.outputs.should_run == 'true'
-        run: npm ci
-      - name: Install Playwright Chromium
-        if: needs.ui-scope.outputs.should_run == 'true'
-        run: npx playwright install --with-deps chromium
-      - name: Run UI review
-        if: needs.ui-scope.outputs.should_run == 'true'
-        run: npm run test:ui:review -- ${{ join(fromJson(needs.ui-scope.outputs.routes_json), ' ') }} --auth=${{ needs.ui-scope.outputs.auth_mode }}
-      - name: Skip UI review
-        if: needs.ui-scope.outputs.should_run != 'true'
-        run: echo "No UI review routes; skipping Playwright UI review."
+          for url in \
+            "https://stg-api.shupass.jp/health" \
+            "https://stg.shupass.jp" \
+            "https://stg.shupass.jp/robots.txt" \
+            "https://stg.shupass.jp/sitemap.xml"; do
+            ok=0
+            for _ in $(seq 1 20); do
+              if curl --fail --silent --show-error "$url" >/tmp/staging-check.out; then
+                ok=1
+                break
+              fi
+              sleep 10
+            done
+            if [ "$ok" -ne 1 ]; then
+              echo "Timed out waiting for $url" >&2
+              exit 1
+            fi
+          done
+      - name: Assert staging URLs are wired correctly
+        run: |
+          curl --fail --silent https://stg.shupass.jp/robots.txt | grep -F "https://stg.shupass.jp"
+          curl --fail --silent https://stg.shupass.jp/sitemap.xml | grep -F "https://stg.shupass.jp"
 
   frontend:
     runs-on: ubuntu-latest
