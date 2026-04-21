@@ -22,3 +22,5 @@ export {
   saveInterviewFeedbackSatisfaction,
   saveInterviewTurnEvent,
 } from "@/lib/interview/persistence";
+
+export type { InterviewVersionMetadata } from "@/lib/interview/persistence";

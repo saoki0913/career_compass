@@ -107,6 +107,13 @@ export async function saveMotivationDraft(companyId: string) {
   });
 }
 
+export async function resumeMotivationDeepDive(companyId: string) {
+  return request(`/api/motivation/${companyId}/resume-deepdive`, {
+    method: "POST",
+    headers: buildJsonHeaders(),
+  });
+}
+
 export async function resetMotivationConversation(companyId: string) {
   return request(`/api/motivation/${companyId}/conversation`, {
     method: "DELETE",

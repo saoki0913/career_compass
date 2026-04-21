@@ -3,12 +3,21 @@ import { NextRequest } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import type { RequestIdentity } from "@/app/api/_shared/request-identity";
 import { DEFAULT_INTERVIEW_SESSION_CREDIT_COST } from "@/lib/credits";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
-import type { InterviewFeedback, InterviewMessage } from "@/lib/interview/conversation";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { getViewerPlan } from "@/lib/server/loader-helpers";
+import type {
+  InterviewFeedback,
+  InterviewMessage,
+  InterviewShortCoaching,
+} from "@/lib/interview/conversation";
 import type { InterviewPlan, InterviewStageStatus, InterviewTurnMeta, InterviewTurnState } from "@/lib/interview/session";
 import type { InterviewFeedbackHistoryItem } from ".";
 import { splitInternalTelemetry } from "@/lib/ai/cost-summary-log";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
+import {
+  INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE,
+  normalizeInterviewPersistenceError,
+} from "./persistence-errors";
 
 type UpstreamCompleteData = {
   question?: string;
@@ -34,6 +43,13 @@ type UpstreamCompleteData = {
   next_preparation?: string[];
   premise_consistency?: number;
   satisfaction_score?: number;
+  // Phase 2 Stage 0-3: evaluation harness lineage metadata (from FastAPI).
+  prompt_version?: string | null;
+  followup_policy_version?: string | null;
+  case_seed_version?: string | null;
+  // Phase 2 Stage 6: Per-turn short coaching (turn SSE complete のみ)。
+  // FastAPI から 3 フィールド構造 or null で届く。
+  short_coaching?: InterviewShortCoaching | null;
 };
 
 export type InterviewClientCompleteData = {
@@ -50,10 +66,27 @@ export type InterviewClientCompleteData = {
   plan?: InterviewPlan | null;
   transitionLine?: string | null;
   feedbackHistories?: InterviewFeedbackHistoryItem[];
+  // Phase 2 Stage 6: Per-turn short coaching pass-through。
+  // Stage 8 ダッシュボード実装でクライアント側が参照する。
+  shortCoaching?: InterviewShortCoaching | null;
 };
 
 function formatSseEvent(event: Record<string, unknown>) {
   return `data: ${JSON.stringify(event)}\n\n`;
+}
+
+function createPersistenceSseErrorMessage(error: unknown) {
+  const normalized = normalizeInterviewPersistenceError(error, {
+    companyId: "unknown",
+    operation: "interview:stream:onComplete",
+  });
+  if (!normalized) {
+    return null;
+  }
+  return {
+    code: INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE,
+    message: "現在、面接対策の保存機能を一時的に利用できません。しばらくしてから再度お試しください。",
+  };
 }
 
 export function createImmediateInterviewStream(data: InterviewClientCompleteData) {
@@ -117,6 +150,7 @@ export function normalizeFeedback(data: UpstreamCompleteData): InterviewFeedback
 export async function createInterviewUpstreamStream(options: {
   request: NextRequest;
   identity?: RequestIdentity;
+  companyId?: string;
   upstreamPath:
     | "/api/interview/start"
     | "/api/interview/turn"
@@ -127,16 +161,18 @@ export async function createInterviewUpstreamStream(options: {
   onAbort?: () => Promise<void>;
   onError?: () => Promise<void>;
 }) {
-  // TODO(D-10 Phase 6): wire X-Career-Principal (scope="ai-stream") for interview
-  // SSE once the interview generator is aligned with motivation/gakuchika.
-  // Interview has multiple upstream paths (start/turn/feedback/continue) and the
-  // callers in interview/{start,continue,feedback}/route.ts do not currently
-  // thread the acting principal (userId/guestId + plan + companyId) into this
-  // helper. Add a `principal` option here and migrate to
-  // fetchFastApiWithPrincipal in a follow-up task.
-  const upstreamResponse = await fetchFastApiInternal(options.upstreamPath, {
+  const principalPlan = await getViewerPlan(options.identity ?? { userId: null, guestId: null });
+  const upstreamResponse = await fetchFastApiWithPrincipal(options.upstreamPath, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    principal: {
+      scope: "ai-stream",
+      actor: options.identity?.userId
+        ? { kind: "user", id: options.identity.userId }
+        : { kind: "guest", id: options.identity?.guestId ?? "guest" },
+      companyId: options.companyId ?? null,
+      plan: principalPlan,
+    },
     body: JSON.stringify(options.upstreamPayload),
   });
 
@@ -247,13 +283,15 @@ export async function createInterviewUpstreamStream(options: {
             ),
           );
         }
-      } catch {
+      } catch (error) {
         await options.onError?.();
+        const persistenceError = createPersistenceSseErrorMessage(error);
         controller.enqueue(
           encoder.encode(
             formatSseEvent({
               type: "error",
-              message: "ストリーミング処理中にエラーが発生しました。",
+              ...(persistenceError ?? {}),
+              message: persistenceError?.message ?? "ストリーミング処理中にエラーが発生しました。",
             }),
           ),
         );

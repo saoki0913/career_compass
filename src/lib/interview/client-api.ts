@@ -59,3 +59,85 @@ export function saveInterviewFeedbackSatisfaction(
 ) {
   return postJson(`/api/companies/${companyId}/interview/feedback/satisfaction`, payload);
 }
+
+// ---------------------------------------------------------------------------
+// Phase 2 Stage 7: Weakness drill client helpers
+// ---------------------------------------------------------------------------
+
+export type InterviewDrillStartPayload = {
+  weakestTurnId: string;
+  weakestQuestion: string;
+  weakestAnswer: string;
+  weakestAxis: string;
+  originalScore: number;
+  weakestEvidence?: string[];
+  originalScores?: Record<string, number>;
+  originalFeedbackId?: string | null;
+  interviewFormat?: string;
+  interviewerType?: string;
+  strictnessMode?: string;
+};
+
+export type InterviewDrillStartResult = {
+  attemptId: string;
+  whyWeak: string;
+  improvementPattern: string;
+  modelRewrite: string;
+  retryQuestion: string;
+  promptVersion?: string;
+};
+
+export type InterviewDrillScorePayload = {
+  attemptId: string;
+  retryAnswer: string;
+};
+
+export type InterviewDrillScoreResult = {
+  attemptId: string;
+  retryScores: Record<string, number>;
+  deltaScores: Record<string, number>;
+  rationale: string;
+  promptVersion?: string;
+};
+
+export async function startInterviewDrill(
+  companyId: string,
+  payload: InterviewDrillStartPayload,
+  signal?: AbortSignal,
+): Promise<InterviewDrillStartResult> {
+  const response = await postJson(
+    `/api/companies/${companyId}/interview/drill/start`,
+    payload as unknown as Record<string, JsonValue | undefined>,
+    signal,
+  );
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(
+      typeof errorBody?.userMessage === "string"
+        ? errorBody.userMessage
+        : "ドリルの開始に失敗しました。",
+    );
+  }
+  return (await response.json()) as InterviewDrillStartResult;
+}
+
+export async function scoreInterviewDrill(
+  companyId: string,
+  payload: InterviewDrillScorePayload,
+  signal?: AbortSignal,
+): Promise<InterviewDrillScoreResult> {
+  const response = await postJson(
+    `/api/companies/${companyId}/interview/drill/score`,
+    payload as unknown as Record<string, JsonValue | undefined>,
+    signal,
+  );
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(
+      typeof errorBody?.userMessage === "string"
+        ? errorBody.userMessage
+        : "再採点に失敗しました。",
+    );
+  }
+  return (await response.json()) as InterviewDrillScoreResult;
+}

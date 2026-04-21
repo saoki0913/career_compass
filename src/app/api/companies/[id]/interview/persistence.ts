@@ -26,6 +26,36 @@ import { normalizeInterviewPersistenceError } from "./persistence-errors";
 import { parseFeedbackScores, parseJsonArray } from "./serialization";
 import type { InterviewSetupState } from "./types";
 
+/**
+ * Phase 2 Stage 0-3: evaluation harness lineage metadata.
+ * Upstream FastAPI emits these on every `complete` SSE payload (prompt_version /
+ * followup_policy_version come from `backend/app/prompts/interview_prompts.py` constants,
+ * case_seed_version is null until Stage 3 CaseBrief lands).
+ * DB columns default to "unknown" for prompt_version / followup_policy_version so that
+ * legacy callers and older upstream payloads remain safe.
+ */
+export type InterviewVersionMetadata = {
+  promptVersion?: string | null;
+  followupPolicyVersion?: string | null;
+  caseSeedVersion?: string | null;
+};
+
+function resolveVersionString(value: string | null | undefined): string {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return "unknown";
+}
+
+function resolveNullableVersionString(value: string | null | undefined): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return null;
+}
+
 function buildConversationOwnerWhere(companyId: string, identity: RequestIdentity) {
   return identity.userId
     ? and(eq(interviewConversations.companyId, companyId), eq(interviewConversations.userId, identity.userId))
@@ -182,6 +212,7 @@ export async function saveInterviewTurnEvent(args: {
   questionType: string | null;
   turnState: InterviewTurnState;
   turnMeta: InterviewTurnMeta | null;
+  versionMetadata?: InterviewVersionMetadata;
 }) {
   const activeCoverage = args.turnState.coverageState.find(
     (item) => item.topic === (args.turnMeta?.topic ?? args.turnState.currentTopic ?? ""),
@@ -215,6 +246,9 @@ export async function saveInterviewTurnEvent(args: {
       llmCoverageHint: activeCoverage?.llmCoverageHint ?? null,
       formatPhase: args.turnState.formatPhase,
       formatGuardApplied: args.turnMeta?.formatGuardApplied ?? null,
+      promptVersion: resolveVersionString(args.versionMetadata?.promptVersion),
+      followupPolicyVersion: resolveVersionString(args.versionMetadata?.followupPolicyVersion),
+      caseSeedVersion: resolveNullableVersionString(args.versionMetadata?.caseSeedVersion),
       createdAt: new Date(),
     });
   } catch (error) {
@@ -294,6 +328,7 @@ export async function saveInterviewFeedbackHistory(args: {
   feedback: InterviewFeedback;
   sourceMessagesSnapshot: InterviewMessage[];
   sourceQuestionCount: number;
+  versionMetadata?: InterviewVersionMetadata;
 }) {
   const historyId = crypto.randomUUID();
   try {
@@ -319,6 +354,9 @@ export async function saveInterviewFeedbackHistory(args: {
         typeof args.feedback.satisfaction_score === "number" ? args.feedback.satisfaction_score : null,
       sourceQuestionCount: args.sourceQuestionCount,
       sourceMessagesSnapshot: args.sourceMessagesSnapshot,
+      promptVersion: resolveVersionString(args.versionMetadata?.promptVersion),
+      followupPolicyVersion: resolveVersionString(args.versionMetadata?.followupPolicyVersion),
+      caseSeedVersion: resolveNullableVersionString(args.versionMetadata?.caseSeedVersion),
       createdAt: new Date(),
     });
 

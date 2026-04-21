@@ -28,6 +28,9 @@ const {
 vi.mock("@/app/api/_shared/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
+vi.mock("@/app/api/_shared/llm-cost-guard", () => ({
+  guardDailyTokenLimit: vi.fn(async () => null),
+}));
 
 vi.mock("..", () => ({
   buildInterviewContext: buildInterviewContextMock,

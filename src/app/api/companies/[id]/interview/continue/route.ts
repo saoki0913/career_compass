@@ -93,6 +93,7 @@ export async function POST(
   return createInterviewUpstreamStream({
     request,
     identity,
+    companyId,
     upstreamPath: "/api/interview/continue",
     upstreamPayload: {
       company_name: context.company.name,
@@ -174,6 +175,11 @@ export async function POST(
             : turnState.currentTopic,
         turnState,
         turnMeta,
+        versionMetadata: {
+          promptVersion: upstreamData.prompt_version ?? null,
+          followupPolicyVersion: upstreamData.followup_policy_version ?? null,
+          caseSeedVersion: upstreamData.case_seed_version ?? null,
+        },
       });
 
       await consumeCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN, "interview", companyId);

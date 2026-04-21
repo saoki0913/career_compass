@@ -10,6 +10,7 @@ import {
   type InterviewTurnMeta,
   type InterviewTurnState,
 } from "@/lib/interview/session";
+import { safeParseInterviewShortCoaching } from "@/lib/interview/conversation";
 
 import {
   buildInterviewContext,
@@ -140,6 +141,7 @@ export async function POST(
   return createInterviewUpstreamStream({
     request,
     identity,
+    companyId,
     upstreamPath: "/api/interview/turn",
     upstreamPayload: {
       company_name: context.company.name,
@@ -210,9 +212,18 @@ export async function POST(
             : null,
         turnState: context.conversation!.turnState,
         turnMeta: context.conversation!.turnMeta,
+        versionMetadata: {
+          promptVersion: upstreamData.prompt_version ?? null,
+          followupPolicyVersion: upstreamData.followup_policy_version ?? null,
+          caseSeedVersion: upstreamData.case_seed_version ?? null,
+        },
       });
 
       await consumeCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN, "interview", companyId);
+
+      // Phase 2 Stage 6: FastAPI の short_coaching を client pass-through。
+      // UI は Stage 8 ダッシュボード実装時に参照する (現時点では controller state に保持のみ)。
+      const shortCoaching = safeParseInterviewShortCoaching(upstreamData.short_coaching ?? null);
 
       return {
         messages,
@@ -239,6 +250,7 @@ export async function POST(
         plan,
         transitionLine,
         feedbackHistories: context.feedbackHistories,
+        shortCoaching,
       };
     },
   });

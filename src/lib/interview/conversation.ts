@@ -22,6 +22,43 @@ export type InterviewFeedbackScores = {
   credibility?: number;
 };
 
+export type InterviewFeedbackConfidence = "high" | "medium" | "low";
+
+/**
+ * Phase 2 Stage 6: Per-turn short coaching.
+ *
+ * 直前回答 (lastAnswer) に対する short coaching。turn SSE の `complete` event の
+ * `data.short_coaching` として返る。3 フィールドは各 30-60 字、general praise 禁止。
+ * 初回ターン (会話履歴が空) は 3 フィールド空文字または null の可能性があり、
+ * UI 側は空判定で非表示にする。
+ */
+export type InterviewShortCoaching = {
+  good: string;
+  missing: string;
+  next_edit: string;
+};
+
+export function safeParseInterviewShortCoaching(value: unknown): InterviewShortCoaching | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.good !== "string" ||
+    typeof record.missing !== "string" ||
+    typeof record.next_edit !== "string"
+  ) {
+    return null;
+  }
+  // 初回ターンの空文字 3 件は UI 非表示のため null に丸める
+  if (!record.good.trim() && !record.missing.trim() && !record.next_edit.trim()) {
+    return null;
+  }
+  return {
+    good: record.good,
+    missing: record.missing,
+    next_edit: record.next_edit,
+  };
+}
+
 export type InterviewFeedback = {
   overall_comment: string;
   scores: InterviewFeedbackScores;
@@ -36,6 +73,10 @@ export type InterviewFeedback = {
   next_preparation: string[];
   premise_consistency?: number;
   satisfaction_score?: number;
+  // Phase 2 Stage 5: Evidence-Linked Rubric
+  score_evidence_by_axis?: Record<string, string[]>;
+  score_rationale_by_axis?: Record<string, string>;
+  confidence_by_axis?: Record<string, InterviewFeedbackConfidence>;
 };
 
 function parseStringArray(value: unknown): string[] {
@@ -88,6 +129,39 @@ export function safeParseInterviewMessages(value: unknown): InterviewMessage[] {
     .filter((message) => message.content.length > 0);
 }
 
+function parseEvidenceMap(value: unknown): Record<string, string[]> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const result: Record<string, string[]> = {};
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    if (Array.isArray(val)) {
+      result[key] = parseStringArray(val);
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function parseRationaleMap(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const result: Record<string, string> = {};
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof val === "string" && val.trim().length > 0) {
+      result[key] = val.trim();
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function parseConfidenceMap(value: unknown): Record<string, InterviewFeedbackConfidence> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const result: Record<string, InterviewFeedbackConfidence> = {};
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    if (val === "high" || val === "medium" || val === "low") {
+      result[key] = val;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
 export function safeParseInterviewFeedback(value: unknown): InterviewFeedback | null {
   const parsed = safeParseJsonValue(value) as Partial<InterviewFeedback> | null;
   if (!parsed || typeof parsed !== "object") return null;
@@ -106,6 +180,9 @@ export function safeParseInterviewFeedback(value: unknown): InterviewFeedback | 
     premise_consistency:
       typeof parsed.premise_consistency === "number" ? parsed.premise_consistency : undefined,
     satisfaction_score: typeof parsed.satisfaction_score === "number" ? parsed.satisfaction_score : undefined,
+    score_evidence_by_axis: parseEvidenceMap(parsed.score_evidence_by_axis),
+    score_rationale_by_axis: parseRationaleMap(parsed.score_rationale_by_axis),
+    confidence_by_axis: parseConfidenceMap(parsed.confidence_by_axis),
   };
 }
 

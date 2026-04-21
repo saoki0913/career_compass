@@ -1,4 +1,10 @@
-export type { InterviewFeedback, InterviewFeedbackScores, InterviewMessage } from "./conversation";
+export type {
+  InterviewFeedback,
+  InterviewFeedbackConfidence,
+  InterviewFeedbackScores,
+  InterviewMessage,
+  InterviewShortCoaching,
+} from "./conversation";
 export type { InterviewPlan } from "./plan";
 export type {
   InterviewCoverageState,

@@ -10,6 +10,7 @@ import type {
   InterviewTurnState,
   InterviewerType,
 } from "@/lib/interview/session";
+import type { InterviewShortCoaching } from "@/lib/interview/conversation";
 
 export const INDUSTRY_SELECT_UNSET = "__interview_industry_unset__";
 export const ROLE_SELECT_UNSET = "__interview_role_unset__";
@@ -150,6 +151,9 @@ export type PendingCompleteData = {
   turnMeta?: InterviewTurnMeta | null;
   plan?: InterviewPlan | null;
   feedbackHistories?: FeedbackHistoryItem[];
+  // Phase 2 Stage 6: turn SSE complete の short coaching (turn only, 他 kind は null)。
+  // UI 表示は Stage 8 ダッシュボードと一括実装予定。現時点は state に保持のみ。
+  shortCoaching?: InterviewShortCoaching | null;
 };
 
 export function createEmptyFeedback(): Feedback {
@@ -214,39 +218,8 @@ export const ROLE_TRACK_LABELS: Record<InterviewRoleTrack, string> = {
   quant_finance: "クオンツ / 数理",
 };
 
-export const FORMAT_PHASE_LABELS: Record<string, string> = {
-  opening: "導入",
-  standard_main: "本編",
-  case_main: "ケース本編",
-  case_closing: "ケース締め",
-  technical_main: "技術本編",
-  life_history_main: "自分史本編",
-  feedback: "講評",
-};
-
 export const PREMISE_CONSISTENCY_HELP =
   "前提一致度は、回答全体で志望理由・経験・将来像の前提がどれだけ矛盾せずにつながっていたかを見る目安です。";
-
-export function getActiveCoverage(turnState: InterviewTurnState | null) {
-  if (!turnState) return null;
-  return (
-    turnState.coverageState.find((item) => item.topic === turnState.currentTopic) ??
-    turnState.coverageState.find((item) => !item.deterministicCoveragePassed) ??
-    turnState.coverageState[0] ??
-    null
-  );
-}
-
-export function getMissingChecklist(turnState: InterviewTurnState | null) {
-  const coverage = getActiveCoverage(turnState);
-  if (!coverage) return [];
-  return coverage.requiredChecklist.filter((item) => !coverage.passedChecklistKeys.includes(item));
-}
-
-export function getCurrentFollowupIntent(turnMeta: InterviewTurnMeta | null) {
-  if (!turnMeta) return null;
-  return turnMeta.focusReason || turnMeta.followupStyle || turnMeta.intentKey || null;
-}
 
 export function scoreEntries(feedback: Feedback | null) {
   if (!feedback) return [];

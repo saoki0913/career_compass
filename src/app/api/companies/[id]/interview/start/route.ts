@@ -212,6 +212,7 @@ export async function POST(
   return createInterviewUpstreamStream({
     request,
     identity,
+    companyId,
     upstreamPath: "/api/interview/start",
     upstreamPayload: {
       company_name: context.company.name,
@@ -271,6 +272,11 @@ export async function POST(
         questionType: "opening",
         turnState: turnStateToPersist,
         turnMeta,
+        versionMetadata: {
+          promptVersion: upstreamData.prompt_version ?? null,
+          followupPolicyVersion: upstreamData.followup_policy_version ?? null,
+          caseSeedVersion: upstreamData.case_seed_version ?? null,
+        },
       });
 
       await consumeCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN, "interview", companyId);
@@ -285,7 +291,10 @@ export async function POST(
             coveredTopics: turnStateToPersist.coveredTopics,
             remainingTopics: turnStateToPersist.remainingTopics,
           }),
-        questionStage: turnStateToPersist.currentTopic,
+        questionStage:
+          typeof upstreamData.question_stage === "string" && upstreamData.question_stage.length > 0
+            ? upstreamData.question_stage
+            : turnStateToPersist.currentTopic,
         focus:
           typeof upstreamData.focus === "string" && upstreamData.focus.trim().length > 0
             ? upstreamData.focus.trim()

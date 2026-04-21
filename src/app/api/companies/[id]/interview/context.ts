@@ -360,70 +360,120 @@ export async function buildInterviewContext(companyId: string, identity: Request
     applicationRoles: [],
   };
 
-  try {
-    [motivationConversation, gakuchikaRows, documentRows, persistence, applicationContext] =
-      await Promise.all([
-        db
-          .select({
-            generatedDraft: motivationConversations.generatedDraft,
-            messages: motivationConversations.messages,
-            selectedRole: motivationConversations.selectedRole,
-            selectedRoleSource: motivationConversations.selectedRoleSource,
-            desiredWork: motivationConversations.desiredWork,
-          })
-          .from(motivationConversations)
-          .where(
-            identity.userId
-              ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, identity.userId))
-              : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, identity.guestId!)),
-          )
-          .limit(1),
-        db
-          .select({
-            title: gakuchikaContents.title,
-            summary: gakuchikaContents.summary,
-          })
-          .from(gakuchikaContents)
-          .where(
-            identity.userId
-              ? and(eq(gakuchikaContents.userId, identity.userId), isNotNull(gakuchikaContents.summary))
-              : and(eq(gakuchikaContents.guestId, identity.guestId!), isNotNull(gakuchikaContents.summary)),
-          )
-          .orderBy(desc(gakuchikaContents.updatedAt))
-          .limit(3),
-        db
-          .select({
-            title: documents.title,
-            content: documents.content,
-            esCategory: documents.esCategory,
-          })
-          .from(documents)
-          .where(
-            identity.userId
-              ? and(
-                  eq(documents.userId, identity.userId),
-                  eq(documents.companyId, companyId),
-                  eq(documents.type, "es"),
-                  ne(documents.status, "deleted"),
-                )
-              : and(
-                  eq(documents.guestId, identity.guestId!),
-                  eq(documents.companyId, companyId),
-                  eq(documents.type, "es"),
-                  ne(documents.status, "deleted"),
-                ),
-          )
-          .orderBy(desc(documents.updatedAt))
-          .limit(8),
-        loadInterviewPersistence(companyId, identity),
-        fetchApplicationContext(identity, companyId),
-      ]);
-  } catch (error) {
-    throw (
-      normalizeInterviewPersistenceError(error, {
+  type MotivationRow = typeof motivationConversation;
+  type GakuchikaRow = typeof gakuchikaRows;
+  type DocumentRow = typeof documentRows;
+
+  // Promise.allSettled で partial failure を許容する。
+  // 1 クエリが transient に失敗しても面接フロー自体は継続できるよう graceful degradation する。
+  // ただし schema 欠損 (InterviewPersistenceUnavailableError) が混ざった場合は即時 throw する
+  // (面接機能全体が未構成の状態なので fall-through させない)。
+  const hydrationResults = await Promise.allSettled([
+    db
+      .select({
+        generatedDraft: motivationConversations.generatedDraft,
+        messages: motivationConversations.messages,
+        selectedRole: motivationConversations.selectedRole,
+        selectedRoleSource: motivationConversations.selectedRoleSource,
+        desiredWork: motivationConversations.desiredWork,
+      })
+      .from(motivationConversations)
+      .where(
+        identity.userId
+          ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, identity.userId))
+          : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, identity.guestId!)),
+      )
+      .limit(1),
+    db
+      .select({
+        title: gakuchikaContents.title,
+        summary: gakuchikaContents.summary,
+      })
+      .from(gakuchikaContents)
+      .where(
+        identity.userId
+          ? and(eq(gakuchikaContents.userId, identity.userId), isNotNull(gakuchikaContents.summary))
+          : and(eq(gakuchikaContents.guestId, identity.guestId!), isNotNull(gakuchikaContents.summary)),
+      )
+      .orderBy(desc(gakuchikaContents.updatedAt))
+      .limit(3),
+    db
+      .select({
+        title: documents.title,
+        content: documents.content,
+        esCategory: documents.esCategory,
+      })
+      .from(documents)
+      .where(
+        identity.userId
+          ? and(
+              eq(documents.userId, identity.userId),
+              eq(documents.companyId, companyId),
+              eq(documents.type, "es"),
+              ne(documents.status, "deleted"),
+            )
+          : and(
+              eq(documents.guestId, identity.guestId!),
+              eq(documents.companyId, companyId),
+              eq(documents.type, "es"),
+              ne(documents.status, "deleted"),
+            ),
+      )
+      .orderBy(desc(documents.updatedAt))
+      .limit(8),
+    loadInterviewPersistence(companyId, identity),
+    fetchApplicationContext(identity, companyId),
+  ]);
+
+  const [
+    motivationResult,
+    gakuchikaResult,
+    documentResult,
+    persistenceResult,
+    applicationResult,
+  ] = hydrationResults;
+
+  // 先に persistence-unavailable を検出。schema 欠損は graceful degradation では隠さず throw する。
+  const rejectedResults = hydrationResults.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  for (const rejected of rejectedResults) {
+    const normalized = normalizeInterviewPersistenceError(rejected.reason, {
+      companyId,
+      operation: "interview:build-context",
+    });
+    if (normalized) {
+      throw normalized;
+    }
+  }
+
+  motivationConversation =
+    motivationResult.status === "fulfilled" ? (motivationResult.value as MotivationRow) : [];
+  gakuchikaRows =
+    gakuchikaResult.status === "fulfilled" ? (gakuchikaResult.value as GakuchikaRow) : [];
+  documentRows =
+    documentResult.status === "fulfilled" ? (documentResult.value as DocumentRow) : [];
+  persistence =
+    persistenceResult.status === "fulfilled"
+      ? persistenceResult.value
+      : { activeConversation: null, feedbackRows: [] };
+  applicationContext =
+    applicationResult.status === "fulfilled"
+      ? applicationResult.value
+      : { applicationTypes: [], applicationRoles: [] };
+
+  if (rejectedResults.length > 0) {
+    console.warn(
+      `[buildInterviewContext] partial hydration failed: ${rejectedResults.length}/${hydrationResults.length} queries rejected`,
+      {
         companyId,
         operation: "interview:build-context",
-      }) ?? error
+        reasons: rejectedResults.map((result) =>
+          result.reason instanceof Error
+            ? { name: result.reason.name, message: result.reason.message }
+            : { message: String(result.reason) },
+        ),
+      },
     );
   }
 

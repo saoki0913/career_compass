@@ -133,6 +133,7 @@ export async function POST(
   return createInterviewUpstreamStream({
     request,
     identity,
+    companyId,
     upstreamPath: "/api/interview/feedback",
     upstreamPayload: {
       company_name: context.company.name,
@@ -194,6 +195,11 @@ export async function POST(
           feedback,
           sourceMessagesSnapshot: context.conversation!.messages,
           sourceQuestionCount: context.conversation!.questionCount,
+          versionMetadata: {
+            promptVersion: upstreamData.prompt_version ?? null,
+            followupPolicyVersion: upstreamData.followup_policy_version ?? null,
+            caseSeedVersion: upstreamData.case_seed_version ?? null,
+          },
         });
       } catch (error) {
         if (reservationId) {
