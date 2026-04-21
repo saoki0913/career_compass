@@ -374,6 +374,7 @@ export const creditTransactions = pgTable(
         "gakuchika_draft",
         "motivation",
         "motivation_draft",
+        "motivation_resume_deepdive",
         "interview",
         "interview_feedback",
         "refund",
@@ -881,6 +882,11 @@ export const interviewFeedbackHistories = pgTable(
     satisfactionScore: integer("satisfaction_score"),
     sourceQuestionCount: integer("source_question_count").notNull().default(0),
     sourceMessagesSnapshot: jsonb("source_messages_snapshot").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+    // Phase 2 Stage 0-3: evaluation harness lineage for A/B test infrastructure.
+    // Tracks which prompt / followup policy / case seed generation produced this feedback.
+    promptVersion: text("prompt_version").notNull().default("unknown"),
+    followupPolicyVersion: text("followup_policy_version").notNull().default("unknown"),
+    caseSeedVersion: text("case_seed_version"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
   },
   (t) => [
@@ -915,6 +921,11 @@ export const interviewTurnEvents = pgTable(
     llmCoverageHint: text("llm_coverage_hint"),
     formatPhase: text("format_phase"),
     formatGuardApplied: text("format_guard_applied"),
+    // Phase 2 Stage 0-3: evaluation harness lineage for A/B test infrastructure.
+    // Tracks which prompt / followup policy / case seed generation produced this turn.
+    promptVersion: text("prompt_version").notNull().default("unknown"),
+    followupPolicyVersion: text("followup_policy_version").notNull().default("unknown"),
+    caseSeedVersion: text("case_seed_version"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
   },
   (t) => [
@@ -923,6 +934,57 @@ export const interviewTurnEvents = pgTable(
     index("interview_turn_events_company_idx").on(t.companyId, t.createdAt),
     index("interview_turn_events_turn_id_idx").on(t.turnId),
   ]
+);
+
+// Phase 2 Stage 7: Weakness drill attempts - applicants rewrite the weakest
+// answer and obtain a delta score (retry - original) for 7 axes.
+// One row per drill cycle: drill/start writes why_weak / improvement_pattern /
+// model_rewrite / retry_question; drill/score updates retry_answer /
+// retry_scores / delta_scores and sets completedAt.
+export const interviewDrillAttempts = pgTable(
+  "interview_drill_attempts",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => interviewConversations.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    guestId: text("guest_id").references(() => guestUsers.id, { onDelete: "cascade" }),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+
+    // Source weakness metadata (copied at drill/start time).
+    originalFeedbackId: text("original_feedback_id").references(
+      () => interviewFeedbackHistories.id,
+      { onDelete: "set null" },
+    ),
+    weakestTurnId: text("weakest_turn_id"),
+    weakestAxis: text("weakest_axis"),
+    weakestQuestion: text("weakest_question"),
+    weakestAnswer: text("weakest_answer"),
+    originalScores: jsonb("original_scores").$type<Record<string, number>>(),
+
+    // drill/start LLM output (4 fields).
+    whyWeak: text("why_weak"),
+    improvementPattern: text("improvement_pattern"),
+    modelRewrite: text("model_rewrite"),
+    retryQuestion: text("retry_question"),
+
+    // drill/score retry result (updated by drill/score).
+    retryAnswer: text("retry_answer"),
+    retryScores: jsonb("retry_scores").$type<Record<string, number>>(),
+    deltaScores: jsonb("delta_scores").$type<Record<string, number>>(),
+
+    promptVersion: text("prompt_version").notNull().default("unknown"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    completedAt: timestamptz("completed_at"),
+  },
+  (t) => [
+    check("interview_drill_attempts_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
+    index("interview_drill_attempts_conversation_idx").on(t.conversationId, t.createdAt),
+    index("interview_drill_attempts_company_idx").on(t.companyId, t.createdAt),
+  ],
 );
 
 // Processed Stripe events table - webhook idempotency protection
