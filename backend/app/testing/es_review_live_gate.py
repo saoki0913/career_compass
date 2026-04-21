@@ -8,6 +8,7 @@ from app.routers.es_review_grounding import COMPANY_HONORIFIC_TOKENS
 
 DEFAULT_JUDGE_MODEL = "gpt-5.4"
 SMOKE_CASE_SET = "smoke"
+DEV_CASE_SET = "dev"
 EXTENDED_CASE_SET = "extended"
 CANARY_CASE_SET = "canary"
 ALL_STANDARD_MODELS = [
@@ -1027,7 +1028,7 @@ EXTENDED_ONLY_CASES: tuple[LiveESReviewCase, ...] = (
 
 def get_live_cases(case_set: str) -> list[LiveESReviewCase]:
     normalized = (case_set or SMOKE_CASE_SET).strip().lower()
-    if normalized == SMOKE_CASE_SET:
+    if normalized in (SMOKE_CASE_SET, DEV_CASE_SET):
         return list(SMOKE_CASES)
     if normalized == EXTENDED_CASE_SET:
         return list(SMOKE_CASES) + list(EXTENDED_ONLY_CASES)

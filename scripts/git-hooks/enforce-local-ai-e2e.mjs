@@ -8,6 +8,7 @@ import readline from "node:readline";
 import { buildE2EFunctionalSnapshot, getStagedFiles } from "../ci/e2e-functional-snapshot.mjs";
 import {
   ALL_E2E_FUNCTIONAL_FEATURES,
+  getAllE2EFunctionalFeatureConfigs,
   getE2EFunctionalCommand,
 } from "../../src/lib/e2e-functional-features.mjs";
 import { resolveE2EFunctionalScope } from "../../src/lib/e2e-functional-scope.mjs";
@@ -86,9 +87,11 @@ export function evaluateLocalAiE2EReadiness({
       continue;
     }
 
-    const BROWSER_REQUIRED_FEATURES = new Set([
-      "es-review", "gakuchika", "motivation", "interview", "pages-smoke",
-    ]);
+    const BROWSER_REQUIRED_FEATURES = new Set(
+      getAllE2EFunctionalFeatureConfigs()
+        .filter((c) => c.browserRequired)
+        .map((c) => c.feature),
+    );
     if (BROWSER_REQUIRED_FEATURES.has(feature) && manifest.playwrightStatus !== "passed") {
       failures.push({
         feature,
@@ -173,18 +176,19 @@ async function autoRunFeatureTests(repoRoot, failures) {
   process.stderr.write(`🔄 AI E2E テストを実行します (${features.join(", ")})...\n`);
 
   const featuresArg = features.join(",");
-  const cmd = `make ai-live-local SUITE=extended AI_LIVE_LOCAL_FEATURES=${featuresArg}`;
+  const suiteOverride = process.env.AI_E2E_AUTO_SUITE || "dev";
+  const cmd = `make ai-live-local SUITE=${suiteOverride} AI_LIVE_LOCAL_FEATURES=${featuresArg}`;
   process.stderr.write(`${cmd}\n`);
-  const result = spawnSync("make", ["ai-live-local", `SUITE=extended`, `AI_LIVE_LOCAL_FEATURES=${featuresArg}`], {
+  const result = spawnSync("make", ["ai-live-local", `SUITE=${suiteOverride}`, `AI_LIVE_LOCAL_FEATURES=${featuresArg}`], {
     stdio: "inherit",
     cwd: repoRoot,
-    timeout: 25 * 60 * 1000,
+    timeout: 20 * 60 * 1000,
     killSignal: "SIGTERM",
     shell: false,
   });
 
   if (result.error?.code === "ETIMEDOUT") {
-    process.stderr.write("  ⏰ テスト実行がタイムアウトしました (25分)\n");
+    process.stderr.write("  ⏰ テスト実行がタイムアウトしました (20分)\n");
   } else if (result.status !== 0) {
     process.stderr.write("  一部テスト失敗\n");
   }

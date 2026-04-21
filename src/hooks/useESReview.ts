@@ -292,6 +292,19 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
                     rewriteText:
                       rewriteText.length > prev.rewriteText.length ? rewriteText : prev.rewriteText,
                   }));
+                } else if (
+                  event.path === "improvement_explanation" &&
+                  typeof event.value === "string"
+                ) {
+                  const explanationText = event.value;
+                  setReceivedReview((prev) => ({
+                    ...prev,
+                    explanationText:
+                      explanationText.length > prev.explanationText.length
+                        ? explanationText
+                        : prev.explanationText,
+                    explanationComplete: true,
+                  }));
                 }
                 break;
 
@@ -309,6 +322,11 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
                   setReceivedReview((prev) => ({
                     ...prev,
                     rewriteText: prev.rewriteText + event.text,
+                  }));
+                } else if (event.path === "improvement_explanation") {
+                  setReceivedReview((prev) => ({
+                    ...prev,
+                    explanationText: prev.explanationText + event.text,
                   }));
                 }
                 break;
@@ -355,6 +373,10 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
           const finalSources = streamResult.result.template_review?.keyword_sources ?? [];
           return {
             keywordSources: mergeStreamedItems(prev.keywordSources, finalSources),
+            explanationText:
+              streamResult.result.improvement_explanation ?? prev.explanationText,
+            explanationComplete:
+              prev.explanationComplete || Boolean(streamResult.result.improvement_explanation),
             rewriteText:
               finalRewrite.length > prev.rewriteText.length ? finalRewrite : prev.rewriteText,
           };
@@ -447,6 +469,42 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
 
     return () => window.clearTimeout(timer);
   }, [playbackReview.visibleRewriteText, receivedReview.rewriteText]);
+
+  useEffect(() => {
+    const targetText = receivedReview.explanationText;
+    const visibleText = playbackReview.visibleExplanationText;
+
+    if (!targetText || visibleText.length >= targetText.length) {
+      return;
+    }
+
+    if (getReduceMotionPreference()) {
+      startTransition(() => {
+        setPlaybackReview((prev) => ({
+          ...prev,
+          visibleExplanationText: targetText,
+        }));
+      });
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      startTransition(() => {
+        setPlaybackReview((prev) => {
+          const nextLength = Math.min(
+            targetText.length,
+            prev.visibleExplanationText.length + 2,
+          );
+          return {
+            ...prev,
+            visibleExplanationText: targetText.slice(0, nextLength),
+          };
+        });
+      });
+    }, 15);
+
+    return () => window.clearTimeout(timer);
+  }, [playbackReview.visibleExplanationText, receivedReview.explanationText]);
 
   useEffect(() => {
     const rewriteSettled =
@@ -608,6 +666,8 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
   return {
     review,
     visibleRewriteText: playbackReview.visibleRewriteText,
+    explanationText: playbackReview.visibleExplanationText,
+    explanationComplete: receivedReview.explanationComplete,
     visibleSources: playbackReview.visibleSources,
     finalRewriteText,
     playbackPhase,
