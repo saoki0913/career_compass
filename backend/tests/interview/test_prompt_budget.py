@@ -26,14 +26,18 @@ import pytest
 from tests.interview.harness.evaluator import collect_prompt_tokens
 from tests.interview.harness.fixtures import HARNESS_CASES
 
-# Phase 2 Stage 1 hot path budget.
+# Phase 3 quality hot path budget.
+# Phase 2 Stage 1 baseline に Phase 3 quality 改善分を加算:
+#   - GROUNDING_CORE: +seed 活用指示 2 行 (全 builder に影響)
+#   - SCORING_RUBRIC: +軸別 3 点 anchor 7 行 (feedback のみ)
+#   - mixed_panel ペルソナ: +ターン回転指示 1 行 (interviewer=mixed_panel 時のみ)
 # 更新時は plan v4 §1-1 のテーブルと docs/review/TRACKER.md の interview エントリを更新する。
 BUDGETS: dict[str, int] = {
-    "plan": 1_200,
-    "opening": 2_150,
-    "turn": 2_700,
-    "continue": 2_000,
-    "feedback": 2_800,
+    "plan": 1_300,
+    "opening": 2_300,
+    "turn": 2_850,
+    "continue": 2_150,
+    "feedback": 3_150,
 }
 
 

@@ -901,17 +901,18 @@ def _fallback_short_coaching(
     応募者発言がない状態) は 3 フィールド空文字で返し、UI 側で非表示に
     することを想定する。
 
+    ``setup`` が渡された場合、``company_name`` を coaching テンプレートに
+    埋め込みパーソナライズする (空なら汎用文言を維持)。
+
     Args:
         turn_state: 現在の turn_state。``lastAnswer`` と Stage 4 の
             ``answer_gap`` の取得に使う。
         turn_meta: 直近の turn_meta。``answer_gap`` が直接詰まっているか
             チェックする (fallback_turn_meta の戻り値 or LLM レスポンスで
             埋まるため)。
-        setup: interview setup (format / stage / etc)。現状は将来の
-            format/stage 別チューニング用に受け取るだけ。
+        setup: interview setup (format / stage / etc)。``company_name`` を
+            coaching テンプレートに埋め込む。
     """
-    del setup  # 現状は未使用 (将来の format/stage 別 coaching 拡張用)。
-
     last_answer = str(turn_state.get("lastAnswer") or "").strip()
     if not last_answer:
         # 初回ターン (会話履歴空) は空文字列で返し、UI 側で非表示にする。
@@ -921,7 +922,74 @@ def _fallback_short_coaching(
     # 判定 or LLM 出力の尊重)。空 / 未知なら "sufficient" fallback。
     answer_gap_raw = turn_meta.get("answer_gap") if isinstance(turn_meta, dict) else None
     answer_gap = str(answer_gap_raw).strip() if answer_gap_raw else ""
-    return dict(_SHORT_COACHING_BY_GAP.get(answer_gap or "sufficient", _SHORT_COACHING_BY_GAP["sufficient"]))
+    result = dict(_SHORT_COACHING_BY_GAP.get(answer_gap or "sufficient", _SHORT_COACHING_BY_GAP["sufficient"]))
+
+    # company_name パーソナライズ: setup.company_name が存在する場合、
+    # 「他社でも通用する」→「{company_name}固有の」、「御社」→「{company_name}」に置換。
+    company_name = ""
+    if isinstance(setup, dict):
+        company_name = str(setup.get("company_name") or "").strip()
+    if company_name:
+        for key in ("good", "missing", "next_edit"):
+            result[key] = result[key].replace("他社でも通用する内容", f"{company_name}固有でない内容")
+            result[key] = result[key].replace("他社でも同じ回答になりそう", f"{company_name}でなければならない理由が見えない")
+            result[key] = result[key].replace("御社", company_name)
+            result[key] = result[key].replace("この会社", company_name)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Pure helper: case scenario from interview_plan.case_brief
+# ---------------------------------------------------------------------------
+
+
+def _build_case_scenario_from_plan(
+    interview_plan: dict[str, Any],
+    payload: InterviewStartRequest,
+    setup: dict[str, Any],
+) -> str:
+    """case format の fallback opening 用シナリオ文を構築する pure helper。
+
+    ``interview_plan["case_brief"]`` が存在し ``business_context`` と
+    ``candidate_task`` を持つ場合はそこからケース題材を構成する。
+    case_brief がない / パース失敗時は seed_summary / selected_industry で
+    業界連動させ、最終的に汎用の小売チェーンシナリオにフォールバックする。
+    """
+    # 1) case_brief 参照 (try/except で保護)
+    try:
+        case_brief = interview_plan.get("case_brief") if isinstance(interview_plan, dict) else None
+        if isinstance(case_brief, dict):
+            biz_ctx = str(case_brief.get("business_context") or "").strip()
+            candidate_task = str(case_brief.get("candidate_task") or "").strip()
+            if biz_ctx and candidate_task:
+                return f"{biz_ctx}。{candidate_task}"
+    except Exception:
+        pass  # パース失敗時は後続の固定シナリオにフォールバック
+
+    # 2) seed_summary / selected_industry による業界連動 (既存ロジック維持)
+    seed_summary = (getattr(payload, "seed_summary", None) or "").strip()
+    selected_industry = (setup.get("selected_industry") or "").strip()
+    scenario = "ある小売チェーンの売上が前年同期比で10%下がっているとします"
+    if seed_summary:
+        if "SaaS" in seed_summary or "サブスク" in seed_summary:
+            scenario = "ある BtoB SaaS の新規契約数が前年同期比で15%下がっているとします"
+        elif "製造" in seed_summary or "メーカー" in seed_summary:
+            scenario = "あるメーカーの主力製品の出荷数が前年同期比で10%下がっているとします"
+        elif "金融" in seed_summary or "銀行" in seed_summary:
+            scenario = "ある地方銀行の個人向け新規口座開設数が前年同期比で12%下がっているとします"
+        elif "広告" in seed_summary or "マーケティング" in seed_summary:
+            scenario = "ある広告代理店の既存顧客の出稿額が前年同期比で10%下がっているとします"
+    elif selected_industry:
+        if "小売" in selected_industry:
+            scenario = "ある小売チェーンの売上が前年同期比で10%下がっているとします"
+        elif "製造" in selected_industry or "メーカー" in selected_industry:
+            scenario = "あるメーカーの主力製品の出荷数が前年同期比で10%下がっているとします"
+        elif "金融" in selected_industry or "銀行" in selected_industry:
+            scenario = "ある地方銀行の個人向け新規口座開設数が前年同期比で12%下がっているとします"
+        elif "IT" in selected_industry or "SaaS" in selected_industry:
+            scenario = "ある BtoB SaaS の新規契約数が前年同期比で15%下がっているとします"
+    return scenario
 
 
 def _build_fallback_opening_payload(
@@ -951,29 +1019,9 @@ def _build_fallback_opening_payload(
         return turn_meta
 
     if interview_format == "case":
-        # case シナリオの seed_summary / 業界連動
-        seed_summary = (getattr(payload, "seed_summary", None) or "").strip()
-        selected_industry = (setup.get("selected_industry") or "").strip()
-        # seed_summary に業界ヒントがあれば反映、なければ selected_industry、最終的に汎用
-        scenario = "ある小売チェーンの売上が前年同期比で10%下がっているとします"
-        if seed_summary:
-            if "SaaS" in seed_summary or "サブスク" in seed_summary:
-                scenario = "ある BtoB SaaS の新規契約数が前年同期比で15%下がっているとします"
-            elif "製造" in seed_summary or "メーカー" in seed_summary:
-                scenario = "あるメーカーの主力製品の出荷数が前年同期比で10%下がっているとします"
-            elif "金融" in seed_summary or "銀行" in seed_summary:
-                scenario = "ある地方銀行の個人向け新規口座開設数が前年同期比で12%下がっているとします"
-            elif "広告" in seed_summary or "マーケティング" in seed_summary:
-                scenario = "ある広告代理店の既存顧客の出稿額が前年同期比で10%下がっているとします"
-        elif selected_industry:
-            if "小売" in selected_industry:
-                scenario = "ある小売チェーンの売上が前年同期比で10%下がっているとします"
-            elif "製造" in selected_industry or "メーカー" in selected_industry:
-                scenario = "あるメーカーの主力製品の出荷数が前年同期比で10%下がっているとします"
-            elif "金融" in selected_industry or "銀行" in selected_industry:
-                scenario = "ある地方銀行の個人向け新規口座開設数が前年同期比で12%下がっているとします"
-            elif "IT" in selected_industry or "SaaS" in selected_industry:
-                scenario = "ある BtoB SaaS の新規契約数が前年同期比で15%下がっているとします"
+        # case_brief が interview_plan にあれば business_context + candidate_task で
+        # シナリオを構成。パース失敗やキー欠落時は既存の固定シナリオにフォールバック。
+        scenario = _build_case_scenario_from_plan(interview_plan, payload, setup)
         question = _apply_tone(
             f"ケース面接として、{scenario}。まず何から切り分けて考えますか。"
         )
@@ -1050,6 +1098,40 @@ def _build_fallback_opening_payload(
     }
 
 
+def _fallback_question_by_strictness(setup: dict[str, Any]) -> str:
+    """strictness_mode に応じた fallback 質問文を返す pure helper。"""
+    strictness = str(setup.get("strictness_mode") or "standard").strip()
+    if strictness == "strict":
+        return "前回の回答で述べた判断について、別の可能性を検討しましたか？"
+    if strictness == "supportive":
+        return "直前の経験について、特にうまくいった点をもう少し詳しく教えてください。"
+    return "直前の経験について、具体的な場面と行動をもう少し詳しく教えてください。"
+
+
+def _fallback_depth_focus_by_interviewer(setup: dict[str, Any]) -> str:
+    """interviewer_type に応じた depth_focus を返す pure helper。"""
+    interviewer = str(setup.get("interviewer_type") or "hr").strip()
+    mapping = {
+        "executive": "company_fit",
+        "line_manager": "specificity",
+        "hr": "consistency",
+        "mixed_panel": "logic",
+    }
+    return mapping.get(interviewer, "specificity")
+
+
+def _fallback_followup_style_by_interviewer(setup: dict[str, Any]) -> str:
+    """interviewer_type に応じた followup_style を返す pure helper。"""
+    interviewer = str(setup.get("interviewer_type") or "hr").strip()
+    mapping = {
+        "executive": "company_reason_check",
+        "line_manager": "specificity_check",
+        "hr": "consistency_check",
+        "mixed_panel": "reason_check",
+    }
+    return mapping.get(interviewer, "reason_check")
+
+
 def _build_fallback_turn_payload(
     payload: InterviewTurnRequest,
     interview_plan: dict[str, Any],
@@ -1058,17 +1140,20 @@ def _build_fallback_turn_payload(
 ) -> dict[str, Any]:
     """/turn の LLM 失敗時に使う decision-deterministic fallback。
 
-    payload / setup は将来の個別カスタマイズ余地のため受け取るが、
-    現状は interview_plan と turn_state のみから次質問 shape を構築する。
+    setup から strictness_mode / interviewer_type を参照して質問文 /
+    depth_focus / followup_style を個別化する。
+    payload は将来の拡張余地のため受け取るが現時点では参照しない。
     """
-    del payload, setup  # 現状未使用だが B4 以降で topic カスタマイズに使う予定
+    del payload  # 将来の拡張余地
     topic = str(interview_plan.get("opening_topic") or "motivation_fit").strip() or "motivation_fit"
-    followup_style = "reason_check"
+    question = _fallback_question_by_strictness(setup)
+    depth_focus = _fallback_depth_focus_by_interviewer(setup)
+    followup_style = _fallback_followup_style_by_interviewer(setup)
     turn_meta = {
         "topic": topic,
         "turn_action": "deepen",
         "focus_reason": "計画に沿って深掘りするため",
-        "depth_focus": "specificity",
+        "depth_focus": depth_focus,
         "followup_style": followup_style,
         "intent_key": f"{topic}:{followup_style}",
         "should_move_next": False,
@@ -1076,7 +1161,7 @@ def _build_fallback_turn_payload(
     covered_topics = list(turn_state.get("coveredTopics") or [])
     remaining_topics = _normalize_string_list(interview_plan.get("must_cover_topics"))
     return {
-        "question": "直前の経験について、具体的な場面と行動をもう少し詳しく教えてください。",
+        "question": question,
         "question_stage": "turn",
         "focus": "次の論点",
         "turn_meta": turn_meta,
@@ -1434,6 +1519,10 @@ __all__ = [
     "_fallback_turn_meta",
     "detect_answer_gap",
     "_fallback_short_coaching",
+    "_build_case_scenario_from_plan",
+    "_fallback_question_by_strictness",
+    "_fallback_depth_focus_by_interviewer",
+    "_fallback_followup_style_by_interviewer",
     "_build_fallback_opening_payload",
     "_build_fallback_turn_payload",
     "_build_fallback_continue_payload",

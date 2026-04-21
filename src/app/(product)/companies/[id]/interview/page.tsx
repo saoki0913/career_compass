@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { ChevronDown } from "lucide-react";
 
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -13,11 +14,28 @@ import {
 } from "@/components/chat/ConversationWorkspaceShell";
 import { ChatInput, ChatMessage, ThinkingIndicator } from "@/components/chat";
 import { DashboardHeader } from "@/components/dashboard";
+import { DrillPanel } from "@/components/interview/DrillPanel";
 import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
 import { InterviewConversationSkeleton } from "@/components/skeletons/InterviewConversationSkeleton";
 import { PrepPack } from "@/components/interview/PrepPack";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -66,6 +84,8 @@ import {
   type MaterialCard,
 } from "@/lib/interview/ui";
 import { buildPrepPackSections } from "@/lib/interview/prep-pack";
+
+type LastFailedAction = "start" | "send" | "feedback" | "continue" | null;
 
 /** Avoid `/api/companies//...` which redirects to `/api/companies/...` and returns HTML 404 (no `[id]` route). */
 function normalizeAppDynamicParam(value: string | string[] | undefined): string | null {
@@ -239,6 +259,7 @@ function FeedbackHistoryList({
         >
           <p className="text-[11px] text-muted-foreground">
             {new Date(item.createdAt).toLocaleString("ja-JP", {
+              timeZone: "Asia/Tokyo",
               month: "2-digit",
               day: "2-digit",
               hour: "2-digit",
@@ -287,7 +308,9 @@ function InterviewFeedbackCard({
           {scoreRows.map(([label, score]) => (
             <div key={label} className="rounded-xl border border-border/60 bg-background px-3 py-3">
               <p className="text-xs text-muted-foreground">{label}</p>
-              <p className="mt-1 text-lg font-semibold">{score}</p>
+              <p className={`mt-1 text-lg font-semibold ${typeof score === "number" ? (score >= 4 ? "text-emerald-600" : score <= 3 ? "text-amber-600" : "") : ""}`}>
+                {score}{typeof score === "number" ? "/5" : ""}
+              </p>
             </div>
           ))}
         </div>
@@ -363,7 +386,8 @@ function InterviewFeedbackCard({
         {!isStreaming && currentHistory ? (
           <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
             <p className="text-sm font-medium">今回の面接の満足度</p>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">不満</span>
               {[1, 2, 3, 4, 5].map((score) => (
                 <Button
                   key={score}
@@ -376,6 +400,7 @@ function InterviewFeedbackCard({
                   {score}
                 </Button>
               ))}
+              <span className="text-xs text-muted-foreground">満足</span>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
               {currentSatisfaction ? `保存済み: ${currentSatisfaction} / 5` : "1〜5 で回答すると改善指標に反映されます。"}
@@ -384,6 +409,54 @@ function InterviewFeedbackCard({
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+function deriveWeakestAxis(scores: Feedback["scores"]): string | null {
+  let weakest: string | null = null;
+  let lowest = Infinity;
+  for (const [key, value] of Object.entries(scores)) {
+    if (typeof value === "number" && value < lowest) {
+      lowest = value;
+      weakest = key;
+    }
+  }
+  return weakest;
+}
+
+function ResetConfirmButton({
+  onReset,
+  disabled,
+  variant = "outline",
+  size,
+  className,
+}: {
+  onReset: () => void;
+  disabled: boolean;
+  variant?: "outline" | "default";
+  size?: "sm" | "default";
+  className?: string;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button variant={variant} size={size} disabled={disabled} className={className}>
+          会話をやり直す
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>面接対策をやり直しますか？</AlertDialogTitle>
+          <AlertDialogDescription>
+            これまでの会話内容はすべて失われます。この操作は取り消せません。
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>キャンセル</AlertDialogCancel>
+          <AlertDialogAction onClick={onReset}>やり直す</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -397,6 +470,8 @@ export default function CompanyInterviewPage() {
   const feedbackCardRef = useRef<HTMLDivElement | null>(null);
   const autoScrollEnabledRef = useRef(true);
   const lastAnnouncedFeedbackCompletionCountRef = useRef(0);
+
+  const [lastFailedAction, setLastFailedAction] = useState<LastFailedAction>(null);
 
   const { state, actions } = useInterviewConversationController({
     companyId,
@@ -453,13 +528,40 @@ export default function CompanyInterviewPage() {
     setSelectedHistory,
     selectRole,
     setCustomRoleName,
-    start: handleStart,
-    send: handleSend,
-    generateFeedback: handleGenerateFeedback,
-    continueInterview: handleContinue,
+    start: rawStart,
+    send: rawSend,
+    generateFeedback: rawGenerateFeedback,
+    continueInterview: rawContinue,
     reset: handleReset,
     saveSatisfaction: handleSaveSatisfaction,
   } = actions;
+
+  const handleStart = useCallback(async () => {
+    setLastFailedAction(null);
+    try { await rawStart(); } catch { setLastFailedAction("start"); }
+  }, [rawStart]);
+
+  const handleSend = useCallback(async () => {
+    setLastFailedAction(null);
+    try { await rawSend(); } catch { setLastFailedAction("send"); }
+  }, [rawSend]);
+
+  const handleGenerateFeedback = useCallback(async () => {
+    setLastFailedAction(null);
+    try { await rawGenerateFeedback(); } catch { setLastFailedAction("feedback"); }
+  }, [rawGenerateFeedback]);
+
+  const handleContinue = useCallback(async () => {
+    setLastFailedAction(null);
+    try { await rawContinue(); } catch { setLastFailedAction("continue"); }
+  }, [rawContinue]);
+
+  const handleRetry = useCallback(() => {
+    if (lastFailedAction === "start") handleStart();
+    else if (lastFailedAction === "send") handleSend();
+    else if (lastFailedAction === "feedback") handleGenerateFeedback();
+    else if (lastFailedAction === "continue") handleContinue();
+  }, [lastFailedAction, handleStart, handleSend, handleGenerateFeedback, handleContinue]);
 
 
   useEffect(() => {
@@ -541,6 +643,8 @@ export default function CompanyInterviewPage() {
       </div>
     );
   }
+
+  const weakestAxis = feedback ? deriveWeakestAxis(feedback.scores) : null;
 
   return (
     <>
@@ -794,7 +898,21 @@ export default function CompanyInterviewPage() {
                         "面接対策を始める"
                       )}
                     </Button>
-                    {error ? <p className="text-sm text-destructive">{error}</p> : null}
+                    {!setupComplete && !isBusy && !persistenceUnavailable ? (
+                      <p className="text-xs text-muted-foreground">
+                        職種を入力すると開始できます
+                      </p>
+                    ) : null}
+                    {error ? (
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm text-destructive">{error}</p>
+                        {lastFailedAction ? (
+                          <Button variant="outline" size="sm" onClick={handleRetry} disabled={isBusy}>
+                            再試行
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {errorAction ? <p className="text-xs text-muted-foreground">{errorAction}</p> : null}
                     {persistenceUnavailable ? (
                       <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
@@ -873,13 +991,36 @@ export default function CompanyInterviewPage() {
                   />
                   {feedback ? (
                     <>
+                      {feedback.weakest_turn_id && feedback.weakest_question_snapshot && companyId ? (
+                        <Collapsible>
+                          <CollapsibleTrigger asChild>
+                            <Button variant="outline" className="w-full justify-between">
+                              最弱回答を書き直して再採点する
+                              <ChevronDown className="h-4 w-4" />
+                            </Button>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="mt-3">
+                            <DrillPanel
+                              companyId={companyId}
+                              weakestTurnId={feedback.weakest_turn_id}
+                              weakestQuestion={feedback.weakest_question_snapshot}
+                              weakestAnswer={feedback.weakest_answer_snapshot ?? ""}
+                              weakestAxis={weakestAxis ?? "specificity"}
+                              originalScore={weakestAxis ? (feedback.scores[weakestAxis as keyof Feedback["scores"]] ?? 0) : 0}
+                              originalScores={feedback.scores as Record<string, number>}
+                              originalFeedbackId={latestFeedbackHistory?.id}
+                              interviewFormat={setupState.interviewFormat}
+                              interviewerType={setupState.interviewerType}
+                              strictnessMode={setupState.strictnessMode}
+                            />
+                          </CollapsibleContent>
+                        </Collapsible>
+                      ) : null}
                       <div className="flex flex-wrap gap-3">
                         <Button onClick={handleContinue} disabled={!canContinue || persistenceUnavailable}>
                           面接対策を続ける
                         </Button>
-                        <Button variant="outline" onClick={handleReset} disabled={isBusy || persistenceUnavailable}>
-                          会話をやり直す
-                        </Button>
+                        <ResetConfirmButton onReset={handleReset} disabled={isBusy || persistenceUnavailable} />
                       </div>
                       <p className="text-xs text-muted-foreground">
                         <Link
@@ -894,7 +1035,16 @@ export default function CompanyInterviewPage() {
                 </div>
               ) : null}
 
-              {error ? <p className="text-sm text-destructive">{error}</p> : null}
+              {error ? (
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-destructive">{error}</p>
+                  {lastFailedAction ? (
+                    <Button variant="outline" size="sm" onClick={handleRetry} disabled={isBusy}>
+                      再試行
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
               {errorAction ? <p className="text-xs text-muted-foreground">{errorAction}</p> : null}
               <div ref={conversationEndRef} />
             </div>
@@ -925,9 +1075,12 @@ export default function CompanyInterviewPage() {
               title="進捗"
               actions={
                 hasStarted ? (
-                  <Button variant="outline" size="sm" onClick={handleReset} disabled={isBusy || persistenceUnavailable} className="h-9 rounded-xl px-3 text-xs shadow-sm">
-                    会話をやり直す
-                  </Button>
+                  <ResetConfirmButton
+                    onReset={handleReset}
+                    disabled={isBusy || persistenceUnavailable}
+                    size="sm"
+                    className="h-9 rounded-xl px-3 text-xs shadow-sm"
+                  />
                 ) : null
               }
             >

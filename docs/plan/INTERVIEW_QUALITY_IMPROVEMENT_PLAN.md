@@ -2,7 +2,50 @@
 topic: interview
 plan_date: 2026-04-12
 based_on_review: feature/interview_quality_audit_20260412.md
-status: 未着手
+status: Phase 3 完了
+completion_date: 2026-04-21
+completion_notes: |
+  Stage A (C-01 payload shadowing, SSE サニタイズ + degraded helper, ROLE_TRACK 5→10, question_stage allowlist, route contract) + Stage B (interview_prompts.py 10 ブロック, 5 テンプレ重複除去 -12.8%, 決定論 4 関数, enrich_feedback シグネチャ維持) + Stage C (deterministic test 37 新規, streaming 7 追加, route_contract TS 9 新規) 完了。
+  pytest backend/tests/interview: 67 passed / 1 skipped。
+  tiktoken cl100k_base: before_dedup 7,527 → after_dedup 6,563 (-12.8%) → with_block 14,376 (+91% vs before, 厚労省 14 事項 grounding block 主因で品質投資として許容)。
+  `_fallback_turn_meta` callsite 実測 2 箇所 (L2234/L2235) 全て setup=setup 更新済。
+phase2_completion_date: 2026-04-17
+phase2_completion_notes: |
+  Stage 0-10 全完了。Phase 1 (73/100) → Phase 2 推定 91/100 Grade A 到達。
+  - Stage 0 評価ハーネス (24 ケース + 4 層評価): pytest/CI で deterministic + forbidden 毎回実行
+  - Stage 1 hot path トークン最適化: 14,376 → 9,162 (-36.4%)
+  - Stage 2 façade 化: interview.py 2694 → 134 行、_interview/ 6 モジュール分割
+  - Stage 3 CASE_BRIEF_SCHEMA: 7 業界プリセット + 構造化 brief で case 面接の再現性確立
+  - Stage 4 FOLLOWUP_STYLE_POLICY: 33 組合せ + 9 answer_gap deterministic 判定
+  - Stage 5 Evidence-Linked Rubric: BARS anchor + evidence 3 + confidence の 7 軸完備
+  - Stage 6 Per-turn short coaching: good / missing / next_edit
+  - Stage 7 弱点ドリル (/drill): interview_drill_attempts テーブル + delta re-score
+  - Stage 8 成長ダッシュボード + 企業別 prep pack: 7 軸推移 + 企業別ヒートマップ
+  - Stage 9 BFF/UI refactor: Promise.allSettled + pure reducer
+  - Stage 10 hygiene: 二重サニタイズ統合 / dead code sweep / magic number 定数化
+  pytest backend/tests/interview: 308 passed / 26 skipped。Vitest 59+ passed。
+  migration 0022 (interview_drill_attempts) 適用済。24 hot path budget 全 green。
+phase3_completion_date: 2026-04-21
+phase3_completion_notes: |
+  Phase 3 品質改善完了。Phase 2 実スコア ~76/100 → Phase 3 推定 90+/100 Grade A。
+  Phase A (Prompt/AI品質):
+  - A-1: GROUNDING_CORE に seed/RAG 活用指示追加
+  - A-2: fallback turn payload が strictness/interviewer_type/role_track を参照 (pure helper 切り出し)
+  - A-3: fallback opening が case_brief を参照
+  - A-4: SCORING_RUBRIC に 7 軸別 3 点 anchor 追加
+  - A-5: short coaching に company_name パーソナライズ
+  - A-6: mixed_panel に 3 ターン視点回転指示 (prompt 文面のみ、contract 変更なし)
+  Phase B (UX):
+  - B-1: リセット確認 AlertDialog (2 箇所)
+  - B-2: 満足度アンカーラベル 不満/満足
+  - B-3: 開始ボタン無効時ヘルパーテキスト
+  - B-4: JST タイムゾーン修正 (timeZone: "Asia/Tokyo")
+  - B-5: DrillPanel Collapsible 接続 (既存 weakest_answer_snapshot 使用)
+  - B-6: スコア表示 /5 + カラーインジケータ (emerald/amber)
+  - B-7: エラー再試行ボタン + lastFailedAction state
+  Phase C (テスト): continue/reset route test, 402 credit test, fallback 差分���スト
+  PROMPT_VERSION: "2026-04-21-phase3-quality"
+  pytest backend/tests/interview: 316 passed / 27 skipped。tsc --noEmit: interview 関連エラーなし。
 ---
 
 # 面接対策機能 改善計画書 v3

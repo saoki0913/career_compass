@@ -31,6 +31,10 @@ vi.mock("@/app/api/_shared/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
 
+vi.mock("@/app/api/_shared/llm-cost-guard", () => ({
+  guardDailyTokenLimit: vi.fn(async () => null),
+}));
+
 vi.mock("..", () => ({
   buildInterviewContext: buildInterviewContextMock,
   ensureInterviewConversation: ensureInterviewConversationMock,
@@ -224,6 +228,35 @@ describe("api/companies/[id]/interview/start", () => {
         }),
       }),
     );
+  });
+
+  it("returns 402 when the user has insufficient credits", async () => {
+    const { POST } = await import("./route");
+    const { hasEnoughCredits } = await import("@/lib/credits");
+    vi.mocked(hasEnoughCredits).mockResolvedValueOnce(false);
+
+    const response = await POST(
+      new NextRequest("http://localhost:3000/api/companies/company-1/interview/start", {
+        method: "POST",
+        body: JSON.stringify({
+          selectedIndustry: "商社",
+          selectedRole: "事業企画",
+          roleTrack: "biz_general",
+          interviewFormat: "standard_behavioral",
+          selectionType: "fulltime",
+          interviewStage: "mid",
+          interviewerType: "line_manager",
+          strictnessMode: "standard",
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(402);
+    expect(data.error.code).toBe("INTERVIEW_INSUFFICIENT_CREDITS");
+    expect(createInterviewUpstreamStreamMock).not.toHaveBeenCalled();
   });
 
   it("resets an existing conversation before starting a new interview", async () => {
