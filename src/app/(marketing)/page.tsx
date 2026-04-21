@@ -27,7 +27,7 @@ import { getMarketingDescription } from "@/lib/seo/site-structured-data";
  * description は SSOT（`getMarketingDescription("/")`）から取得。
  */
 export const metadata: Metadata = createMarketingMetadata({
-  title: "就活Pass | ES添削・志望動機をAIで。就活塾に行かずに進める学生のための就活アプリ",
+  title: "就活Pass | ES添削・志望動機・AI模擬面接をひとつにまとめる就活AIアプリ（シューパス）",
   description: getMarketingDescription("/"),
   path: "/",
 });
@@ -36,7 +36,12 @@ export default function Home() {
   return (
     <div
       className="font-['Inter','Noto_Sans_JP',sans-serif] text-slate-900 bg-white overflow-x-hidden"
-      style={{ WebkitFontSmoothing: "antialiased" }}
+      style={{
+        WebkitFontSmoothing: "antialiased",
+        // Figma design color override — scoped to main LP only
+        "--lp-cta": "#000666",
+        "--lp-navy": "#000666",
+      } as React.CSSProperties}
     >
       <LandingHeader />
 
