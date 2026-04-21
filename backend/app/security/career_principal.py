@@ -52,6 +52,8 @@ class CareerPrincipal:
         company_id: Present for company-scoped operations, None for ai-stream
             tied to no company.
         jti: Unique token id (can be used for anti-replay if we add a cache).
+        tenant_key: HMAC-derived key for ChromaDB/BM25 data isolation.
+            None when TENANT_KEY_SECRET is not configured.
     """
 
     scope: CareerPrincipalScope
@@ -60,6 +62,19 @@ class CareerPrincipal:
     plan: CareerPrincipalPlan
     company_id: str | None
     jti: str
+    tenant_key: str | None = None
+
+
+def compute_tenant_key(actor_kind: str, actor_id: str) -> str | None:
+    """Derive a deterministic tenant key from the actor identity.
+
+    Returns a 32-char hex string, or None if TENANT_KEY_SECRET is not set.
+    """
+    secret = settings.tenant_key_secret.strip()
+    if not secret:
+        return None
+    msg = f"{actor_kind}:{actor_id}".encode()
+    return hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()[:32]
 
 
 def _b64url_decode(value: str) -> bytes:
@@ -169,6 +184,7 @@ def _extract_principal(request: Request, expected_scope: CareerPrincipalScope) -
         plan=plan,  # type: ignore[arg-type]
         company_id=company_id,
         jti=jti,
+        tenant_key=compute_tenant_key(actor_kind, actor_id),
     )
 
 

@@ -14,6 +14,8 @@
 /coverage
 /playwright-report/
 /test-results/
+/.ai/
+/.claude/state/
 
 # next.js
 /.next/
@@ -62,6 +64,7 @@ venv/
 backend/data/chroma/
 backend/data/bm25/
 backend/tests/output/
+backend/evals/rag/golden/baseline_v1.json
 
 # Local-only ES reference samples
 private/reference_es/*

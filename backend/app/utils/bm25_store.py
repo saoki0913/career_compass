@@ -6,6 +6,7 @@ Used for hybrid search combining with semantic search.
 """
 
 import json
+import os
 import pickle
 import time
 from pathlib import Path
@@ -27,13 +28,31 @@ except ImportError:
     bm25s = None  # type: ignore
     print("Warning: bm25s not installed. BM25 search will be disabled.")
 
-from app.utils.japanese_tokenizer import tokenize
+from app.utils.japanese_tokenizer import tokenize, tokenize_with_domain_expansion
 
 # BM25 index persistence directory
 BM25_PERSIST_DIR = Path(__file__).parent.parent.parent / "data" / "bm25"
 
 # Current JSON format version for schema validation
 BM25_FORMAT_VERSION = 1
+
+
+def _index_file_stem(company_id: str, tenant_key: Optional[str] = None) -> str:
+    """Build the file stem for BM25 index files.
+
+    With tenant_key: ``{tenant_key}__{company_id}``
+    Without: ``{company_id}``
+    """
+    if tenant_key:
+        return f"{tenant_key}__{company_id}"
+    return company_id
+
+
+def _cache_key(company_id: str, tenant_key: Optional[str] = None) -> str:
+    """Build the LRU cache key."""
+    if tenant_key:
+        return f"{tenant_key}__{company_id}"
+    return company_id
 
 
 @dataclass
@@ -54,14 +73,16 @@ class BM25Index:
     Persists to disk for durability.
     """
 
-    def __init__(self, company_id: str):
+    def __init__(self, company_id: str, tenant_key: Optional[str] = None):
         """
         Initialize BM25 index for a company.
 
         Args:
             company_id: Company identifier
+            tenant_key: Tenant key for data isolation
         """
         self.company_id = company_id
+        self.tenant_key = tenant_key
         self.documents: list[BM25Document] = []
         self._bm25: Optional["bm25s.BM25"] = None
 
@@ -74,7 +95,7 @@ class BM25Index:
             text: Document text
             metadata: Optional metadata
         """
-        tokens = tokenize(text)
+        tokens = tokenize_with_domain_expansion(text)
         if not tokens:
             return
 
@@ -131,7 +152,7 @@ class BM25Index:
             return []
 
         # Tokenize query
-        query_tokens = tokenize(query)
+        query_tokens = tokenize_with_domain_expansion(query)
         if not query_tokens:
             return []
 
@@ -186,7 +207,8 @@ class BM25Index:
     def save(self):
         """Save the index to disk using JSON format."""
         BM25_PERSIST_DIR.mkdir(parents=True, exist_ok=True)
-        json_path = BM25_PERSIST_DIR / f"{self.company_id}.json"
+        stem = _index_file_stem(self.company_id, self.tenant_key)
+        json_path = BM25_PERSIST_DIR / f"{stem}.json"
 
         data = {
             "version": BM25_FORMAT_VERSION,
@@ -202,27 +224,42 @@ class BM25Index:
             ],
         }
 
-        with open(json_path, "w", encoding="utf-8") as f:
+        tmp_path = json_path.with_suffix(".json.tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp_path, json_path)
 
         print(f"[BM25] Saved index for {self.company_id} ({len(self.documents)} docs)")
 
     @classmethod
-    def load(cls, company_id: str) -> Optional["BM25Index"]:
+    def load(cls, company_id: str, tenant_key: Optional[str] = None) -> Optional["BM25Index"]:
         """
         Load an index from disk.
 
-        Tries JSON format first (secure), then falls back to pickle for migration.
-        Corrupted files are moved to .corrupted extension.
+        Tries tenant-aware path first, then falls back to legacy company-only
+        path (for pre-migration data). Tries JSON format first (secure), then
+        falls back to pickle for migration. Corrupted files are moved to
+        .corrupted extension.
 
         Args:
             company_id: Company identifier
+            tenant_key: Tenant key for data isolation
 
         Returns:
             BM25Index if found, None otherwise
         """
-        json_path = BM25_PERSIST_DIR / f"{company_id}.json"
-        pkl_path = BM25_PERSIST_DIR / f"{company_id}.pkl"
+        stem = _index_file_stem(company_id, tenant_key)
+        json_path = BM25_PERSIST_DIR / f"{stem}.json"
+        pkl_path = BM25_PERSIST_DIR / f"{stem}.pkl"
+
+        # Fallback to legacy (non-tenant) path if tenant-aware file doesn't exist
+        if tenant_key and not json_path.exists() and not pkl_path.exists():
+            legacy_json = BM25_PERSIST_DIR / f"{company_id}.json"
+            legacy_pkl = BM25_PERSIST_DIR / f"{company_id}.pkl"
+            if legacy_json.exists():
+                json_path = legacy_json
+            elif legacy_pkl.exists():
+                pkl_path = legacy_pkl
 
         # Try JSON first (new secure format)
         if json_path.exists():
@@ -236,7 +273,7 @@ class BM25Index:
                     print(f"[BM25] ⚠️ Unsupported version {version} for {company_id}")
                     return None
 
-                index = cls(company_id)
+                index = cls(company_id, tenant_key=tenant_key)
                 for doc_data in data.get("documents", []):
                     doc = BM25Document(
                         doc_id=doc_data["doc_id"],
@@ -271,7 +308,7 @@ class BM25Index:
                 with open(pkl_path, "rb") as f:
                     data = pickle.load(f)
 
-                index = cls(company_id)
+                index = cls(company_id, tenant_key=tenant_key)
                 for doc_data in data.get("documents", []):
                     doc = BM25Document(
                         doc_id=doc_data["doc_id"],
@@ -307,19 +344,21 @@ class BM25Index:
         return None
 
     @classmethod
-    def delete(cls, company_id: str) -> bool:
+    def delete(cls, company_id: str, tenant_key: Optional[str] = None) -> bool:
         """
         Delete an index from disk.
 
         Args:
             company_id: Company identifier
+            tenant_key: Tenant key for data isolation
 
         Returns:
             True if deleted, False if not found
         """
         deleted = False
-        json_path = BM25_PERSIST_DIR / f"{company_id}.json"
-        pkl_path = BM25_PERSIST_DIR / f"{company_id}.pkl"
+        stem = _index_file_stem(company_id, tenant_key)
+        json_path = BM25_PERSIST_DIR / f"{stem}.json"
+        pkl_path = BM25_PERSIST_DIR / f"{stem}.pkl"
 
         if json_path.exists():
             json_path.unlink()
@@ -333,10 +372,11 @@ class BM25Index:
         return deleted
 
     @classmethod
-    def exists(cls, company_id: str) -> bool:
+    def exists(cls, company_id: str, tenant_key: Optional[str] = None) -> bool:
         """Check if an index exists on disk."""
-        json_path = BM25_PERSIST_DIR / f"{company_id}.json"
-        pkl_path = BM25_PERSIST_DIR / f"{company_id}.pkl"
+        stem = _index_file_stem(company_id, tenant_key)
+        json_path = BM25_PERSIST_DIR / f"{stem}.json"
+        pkl_path = BM25_PERSIST_DIR / f"{stem}.pkl"
         return json_path.exists() or pkl_path.exists()
 
 
@@ -345,7 +385,7 @@ class BM25Index:
 _index_cache: LRUCache = LRUCache(maxsize=100)
 
 
-def get_or_create_index(company_id: str) -> BM25Index:
+def get_or_create_index(company_id: str, tenant_key: Optional[str] = None) -> BM25Index:
     """
     Get or create a BM25 index for a company.
 
@@ -353,31 +393,34 @@ def get_or_create_index(company_id: str) -> BM25Index:
 
     Args:
         company_id: Company identifier
+        tenant_key: Tenant key for data isolation
 
     Returns:
         BM25Index instance
     """
-    if company_id in _index_cache:
-        return _index_cache[company_id]
+    key = _cache_key(company_id, tenant_key)
+    if key in _index_cache:
+        return _index_cache[key]
 
-    # Try to load from disk
-    index = BM25Index.load(company_id)
+    index = BM25Index.load(company_id, tenant_key=tenant_key)
     if index is None:
-        index = BM25Index(company_id)
+        index = BM25Index(company_id, tenant_key=tenant_key)
 
-    _index_cache[company_id] = index
+    _index_cache[key] = index
     return index
 
 
-def clear_index_cache(company_id: Optional[str] = None):
+def clear_index_cache(company_id: Optional[str] = None, tenant_key: Optional[str] = None):
     """
     Clear the index cache.
 
     Args:
         company_id: If provided, only clear that company's cache.
                    If None, clear all.
+        tenant_key: Tenant key for data isolation.
     """
     if company_id:
-        _index_cache.pop(company_id, None)
+        key = _cache_key(company_id, tenant_key)
+        _index_cache.pop(key, None)
     else:
         _index_cache.clear()

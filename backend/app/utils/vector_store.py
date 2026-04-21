@@ -282,6 +282,7 @@ async def store_company_info(
     content_chunks: list[dict],
     source_url: str,
     backend: Optional[EmbeddingBackend] = None,
+    tenant_key: Optional[str] = None,
 ) -> bool:
     """
     Store company information in vector database.
@@ -340,6 +341,8 @@ async def store_company_info(
                 "embedding_provider": backend.provider,
                 "embedding_model": backend.model,
             }
+            if tenant_key:
+                metadata["tenant_key"] = tenant_key
             # Add any additional metadata from the chunk
             if chunk.get("metadata"):
                 for key, value in chunk["metadata"].items():
@@ -390,7 +393,7 @@ async def store_company_info(
         logger.info(
             "Stored %d chunks (company_id: %s...)", len(valid_docs), company_id[:8]
         )
-        schedule_bm25_update(company_id)
+        schedule_bm25_update(company_id, tenant_key=tenant_key)
         cache = get_rag_cache()
         if cache:
             await cache.invalidate_company(company_id)
@@ -552,6 +555,7 @@ async def store_full_text_content(
     content_channel: Optional[str] = None,
     backend: Optional[EmbeddingBackend] = None,
     raw_format: str = "text",
+    tenant_key: Optional[str] = None,
 ) -> dict:
     """
     Store full text content from a web page in vector database.
@@ -660,10 +664,11 @@ async def store_full_text_content(
             content_chunks=classified,
             source_url=source_url,
             backend=backend,
+            tenant_key=tenant_key,
         )
 
         if success:
-            schedule_bm25_update(company_id)
+            schedule_bm25_update(company_id, tenant_key=tenant_key)
             cache = get_rag_cache()
             if cache:
                 await cache.invalidate_company(company_id)
@@ -685,6 +690,7 @@ async def _store_content_by_source_url(
     content_chunks: list[dict],
     source_url: str,
     backend: EmbeddingBackend,
+    tenant_key: Optional[str] = None,
 ) -> bool:
     """
     Store content chunks for a single source URL.
@@ -739,6 +745,8 @@ async def _store_content_by_source_url(
                 "embedding_provider": backend.provider,
                 "embedding_model": backend.model,
             }
+            if tenant_key:
+                metadata["tenant_key"] = tenant_key
 
             # Add any additional metadata from the chunk
             if chunk.get("metadata"):
@@ -824,6 +832,7 @@ async def search_company_context_by_type(
     backends: Optional[list[EmbeddingBackend]] = None,
     include_embeddings: bool = False,
     precomputed_query_embedding: Optional[list[float]] = None,
+    tenant_key: Optional[str] = None,
 ) -> list[dict]:
     """
     Search for relevant company context with content type filtering.
@@ -852,7 +861,10 @@ async def search_company_context_by_type(
         content_type_set = set(content_types) if content_types else set()
         # Fetch 3x when filtering by type to ensure enough candidates survive
         fetch_n = n_results * 3 if content_type_set else n_results
-        where_clause = {"company_id": company_id}
+        if tenant_key and settings.tenant_key_filter_enabled:
+            where_clause = {"$and": [{"company_id": company_id}, {"tenant_key": tenant_key}]}
+        else:
+            where_clause = {"company_id": company_id}
 
         all_contexts: list[dict] = []
 
@@ -1160,7 +1172,7 @@ def delete_company_rag_by_urls(
 # ============================================================
 
 
-def schedule_bm25_update(company_id: str) -> None:
+def schedule_bm25_update(company_id: str, tenant_key: Optional[str] = None) -> None:
     """Schedule BM25 index update in the background (fire-and-forget).
 
     If no event loop is running, falls back to synchronous update.
@@ -1169,13 +1181,12 @@ def schedule_bm25_update(company_id: str) -> None:
 
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(asyncio.to_thread(update_bm25_index, company_id))
+        loop.create_task(asyncio.to_thread(update_bm25_index, company_id, tenant_key))
     except RuntimeError:
-        # No running event loop — run synchronously
-        update_bm25_index(company_id)
+        update_bm25_index(company_id, tenant_key)
 
 
-def update_bm25_index(company_id: str) -> bool:
+def update_bm25_index(company_id: str, tenant_key: Optional[str] = None) -> bool:
     """
     Update BM25 index from ChromaDB data.
 
@@ -1184,6 +1195,7 @@ def update_bm25_index(company_id: str) -> bool:
 
     Args:
         company_id: Company identifier
+        tenant_key: Tenant key for data isolation (optional)
 
     Returns:
         True if successful
@@ -1202,11 +1214,16 @@ def update_bm25_index(company_id: str) -> bool:
         read_backends = get_configured_backends()
         documents: list[dict] = []
 
+        if tenant_key and settings.tenant_key_filter_enabled:
+            where = {"$and": [{"company_id": company_id}, {"tenant_key": tenant_key}]}
+        else:
+            where = {"company_id": company_id}
+
         for backend in read_backends:
             for name in _collection_names_for_backend(backend):
                 collection = _get_collection(name)
                 results = collection.get(
-                    where={"company_id": company_id},
+                    where=where,
                     include=[
                         "documents",
                         "metadatas",
@@ -1224,8 +1241,8 @@ def update_bm25_index(company_id: str) -> bool:
                     documents.append({"id": doc_id, "text": doc, "metadata": metadata})
 
         if not documents:
-            BM25Index.delete(company_id)
-            clear_index_cache(company_id)
+            BM25Index.delete(company_id, tenant_key=tenant_key)
+            clear_index_cache(company_id, tenant_key=tenant_key)
             logger.debug("BM25 index deleted for company_id: %s...", company_id[:8])
             return False
 
@@ -1238,11 +1255,11 @@ def update_bm25_index(company_id: str) -> bool:
             if key not in deduped:
                 deduped[key] = doc
 
-        index = get_or_create_index(company_id)
+        index = get_or_create_index(company_id, tenant_key=tenant_key)
         index.clear()
         index.add_documents(list(deduped.values()))
         index.save()
-        clear_index_cache(company_id)
+        clear_index_cache(company_id, tenant_key=tenant_key)
         logger.info(
             "BM25 index updated for company_id: %s... (%d docs)", company_id[:8], len(deduped)
         )
@@ -1303,6 +1320,7 @@ async def hybrid_search_company_context_enhanced(
     content_type_boosts: Optional[dict[str, float]] = None,
     priority_source_urls: Optional[list[str]] = None,
     short_circuit: bool = True,
+    tenant_key: Optional[str] = None,
 ) -> list[dict]:
     """
     Enhanced dense search with query expansion, HyDE, MMR, and cross-encoder reranking.
@@ -1355,6 +1373,7 @@ async def hybrid_search_company_context_enhanced(
         priority_source_urls=priority_source_urls,
         use_bm25=effective_bm25,
         short_circuit=short_circuit,
+        tenant_key=tenant_key,
     )
 
 

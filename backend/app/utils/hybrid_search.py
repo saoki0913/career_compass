@@ -84,7 +84,7 @@ CONTENT_TYPE_BOOSTS = {
     },
     # Company culture / people queries
     "culture": {
-        "employee_interviews": 1.6,
+        "employee_interviews": 1.35,
         "ceo_message": 1.4,
         "new_grad_recruitment": 1.3,
         "csr_sustainability": 1.1,
@@ -603,15 +603,16 @@ def _apply_priority_source_boost(
 
 
 def _keyword_search(
-    company_id: str, query: str, k: int = 10, content_types: Optional[list[str]] = None
+    company_id: str, query: str, k: int = 10, content_types: Optional[list[str]] = None,
+    tenant_key: Optional[str] = None,
 ) -> list[dict]:
-    index = get_or_create_index(company_id)
+    index = get_or_create_index(company_id, tenant_key=tenant_key)
     if not index.documents:
         try:
             from app.utils.vector_store import update_bm25_index
 
-            update_bm25_index(company_id)
-            index = get_or_create_index(company_id)
+            update_bm25_index(company_id, tenant_key)
+            index = get_or_create_index(company_id, tenant_key=tenant_key)
         except Exception:
             pass
     if not index.documents:
@@ -878,6 +879,7 @@ async def semantic_search(
     backends: Optional[list[EmbeddingBackend]] = None,
     include_embeddings: bool = False,
     precomputed_query_embedding: Optional[list[float]] = None,
+    tenant_key: Optional[str] = None,
 ) -> list[dict]:
     """Run semantic search for a single query."""
     from app.utils.vector_store import search_company_context_by_type
@@ -890,6 +892,7 @@ async def semantic_search(
         backends=backends,
         include_embeddings=include_embeddings,
         precomputed_query_embedding=precomputed_query_embedding,
+        tenant_key=tenant_key,
     )
 
 
@@ -914,6 +917,7 @@ async def dense_hybrid_search(
     content_type_boosts: Optional[dict[str, float]] = None,
     priority_source_urls: Optional[list[str]] = None,
     short_circuit: bool = True,
+    tenant_key: Optional[str] = None,
 ) -> list[dict]:
     """
     Dense-only hybrid search pipeline (BM25-free).
@@ -973,6 +977,7 @@ async def dense_hybrid_search(
         backends=search_backends,
         include_embeddings=use_mmr,
         precomputed_query_embedding=query_embedding,
+        tenant_key=tenant_key,
     )
 
     if not initial_results:
@@ -1057,6 +1062,7 @@ async def dense_hybrid_search(
                 query=query,
                 k=bm25_k,
                 content_types=content_types,
+                tenant_key=tenant_key,
             )
         )
 
@@ -1074,6 +1080,7 @@ async def dense_hybrid_search(
                 content_types=content_types,
                 backends=search_backends,
                 include_embeddings=use_mmr,
+                tenant_key=tenant_key,
             )
             for q in extra_queries
         ]

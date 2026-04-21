@@ -83,6 +83,19 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("CAREER_PRINCIPAL_HMAC_SECRET"),
     )
+    # HMAC secret for deriving per-actor tenant keys used in ChromaDB/BM25
+    # data isolation. Distinct from CAREER_PRINCIPAL_HMAC_SECRET so that
+    # tenant namespace and token signing can be rotated independently.
+    tenant_key_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("TENANT_KEY_SECRET"),
+    )
+    # Feature flag: when True, ChromaDB and BM25 queries filter by tenant_key.
+    # Enable after running migrate_tenant_key.py to backfill existing data.
+    tenant_key_filter_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("TENANT_KEY_FILTER_ENABLED"),
+    )
     trusted_hosts: list[str] = Field(
         default=["localhost", "127.0.0.1"],
         validation_alias=AliasChoices("BACKEND_TRUSTED_HOSTS"),
@@ -179,9 +192,13 @@ class Settings(BaseSettings):
     #   - low-cost
     # 直指定 model ID や旧 alias（openai / google）も後方互換で解決する。
     model_es_review: str = "claude-sonnet"           # MODEL_ES_REVIEW
-    model_gakuchika: str = "gpt-mini"                # MODEL_GAKUCHIKA
-    model_motivation: str = "gpt-mini"               # MODEL_MOTIVATION
-    model_interview: str = "gpt-mini"                # MODEL_INTERVIEW
+    model_gakuchika: str = "claude-haiku"             # MODEL_GAKUCHIKA
+    model_motivation: str = "claude-haiku"            # MODEL_MOTIVATION
+    model_interview_plan: str = Field(
+        default="gpt",
+        validation_alias=AliasChoices("MODEL_INTERVIEW_PLAN"),
+    )
+    model_interview: str = "claude-haiku"             # MODEL_INTERVIEW
     model_interview_feedback: str = Field(
         default="claude-sonnet",
         validation_alias=AliasChoices("MODEL_INTERVIEW_FEEDBACK"),
@@ -275,6 +292,35 @@ class Settings(BaseSettings):
     motivation_rag_grounding: bool = Field(
         default=True,
         validation_alias=AliasChoices("MOTIVATION_RAG_GROUNDING"),
+    )
+    # P4-4: ドラフト生成時の3軸 (AI臭/企業固有性/結論先行) マルチパス精錬。
+    # false にすると従来動作 (P2-2 単独 Tier 2 リトライのみ) に戻る。
+    motivation_multipass_refinement: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("MOTIVATION_MULTIPASS_REFINEMENT"),
+        description="P4-4: ドラフト生成時の3軸マルチパス精錬 (AI臭/企業固有性/結論先行)。default=true。",
+    )
+    # P4-2: 質問遷移時に keyword 確認に外れた回答を gpt-nano で意味判定するか。
+    # default false。staging 検証後に MOTIVATION_SEMANTIC_CONFIRM=true で本番有効化。
+    motivation_semantic_confirm: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MOTIVATION_SEMANTIC_CONFIRM"),
+        description="P4-2: keyword 不一致 + 14 文字以上の回答を LLM ミニコールで意味判定。default=false。",
+    )
+    motivation_embedding_dedup: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MOTIVATION_EMBEDDING_DEDUP"),
+        description="P5-1: 質問の意味的重複を embedding 類似度で検出する。default=false。",
+    )
+    motivation_embedding_dedup_similarity_threshold: float = Field(
+        default=0.85,
+        validation_alias=AliasChoices("MOTIVATION_EMBEDDING_DEDUP_SIMILARITY_THRESHOLD"),
+        description="P5-1: semantic duplicate 判定の cosine 類似度閾値。",
+    )
+    motivation_embedding_dedup_timeout_seconds: float = Field(
+        default=1.5,
+        validation_alias=AliasChoices("MOTIVATION_EMBEDDING_DEDUP_TIMEOUT_SECONDS"),
+        description="P5-1: semantic duplicate embedding 判定の fail-open timeout seconds。",
     )
     # MMRの多様性係数（0=多様性重視、1=関連性重視）
     rag_mmr_lambda: float = 0.5
