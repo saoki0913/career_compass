@@ -15,7 +15,7 @@ const siteSeoKeywords =
 
 /** LP トップ `/` 専用の description（HTML meta と JSON-LD で完全一致させる SSOT） */
 const landingRootDescription =
-  "就活Pass（シューパス）は、志望動機・自己PR・ガクチカなど 8 種の設問タイプに専用AIで添削する就活アプリ。企業情報を自動で取り込み、AIが出しがちな定型表現も辞書とスコアで検出して書き直し候補を提示します。カード登録不要、月0円から試せます。";
+  "就活Pass（シューパス）は、ES添削・志望動機AI・ガクチカAI・企業別AI模擬面接をひとつにまとめた就活AIアプリ。登録した企業の採用ページ情報を自動で取り込み、企業固有性の薄い言い回しは深掘りに回します。カード登録不要、月0円から試せます。";
 
 /**
  * パス別のマーケティング用 description を返す（SSOT）。
@@ -55,6 +55,16 @@ export function buildSiteStructuredDataGraph(
         url: siteUrl,
         description,
         keywords: siteSeoKeywords,
+        featureList: [
+          "ES添削AI（設問タイプ別の専用テンプレで添削）",
+          "志望動機AI（6 要素スロットで会話しながら整理、300/400/500字の下書き生成）",
+          "ガクチカAI（STAR 4 要素 + 面接向け深掘り、面接準備パック生成）",
+          "企業別AI模擬面接（4 方式・7 軸講評・最弱設問の改善案）",
+          "企業情報の自動取り込み（採用ページ・事業内容）",
+          "選考スケジュール自動抽出と Google カレンダー連携",
+          "締切管理・タスク管理",
+          "ゲストでも試せる ES 添削と無料ツール（文字数カウント・テンプレート）",
+        ],
         offers: [
           {
             "@type": "Offer",

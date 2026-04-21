@@ -121,7 +121,7 @@ export function ComparisonSection() {
         </LandingSectionMotion>
 
         <LandingSectionMotion>
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm md:block">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px]">
                 <thead>
@@ -191,6 +191,56 @@ export function ComparisonSection() {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          <div className="space-y-3 md:hidden">
+            {rows.map((row) => (
+              <div
+                key={row.label}
+                className="rounded-xl border border-slate-100 bg-white p-5"
+              >
+                <p
+                  className="text-sm text-[var(--lp-navy)]"
+                  style={{ fontWeight: 700 }}
+                >
+                  {row.label}
+                </p>
+                <div className="mt-3 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <StatusIcon status={row.pass.status} />
+                    <div>
+                      <span className="text-xs text-slate-400" style={{ fontWeight: 500 }}>
+                        就活Pass
+                      </span>
+                      <p
+                        className="text-sm text-[var(--lp-navy)]"
+                        style={{ fontWeight: 600 }}
+                      >
+                        {row.pass.text}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <StatusIcon status={row.aiService.status} />
+                    <div>
+                      <span className="text-xs text-slate-400" style={{ fontWeight: 500 }}>
+                        汎用AIサービス
+                      </span>
+                      <p className="text-sm text-slate-500">{row.aiService.text}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <StatusIcon status={row.juku.status} />
+                    <div>
+                      <span className="text-xs text-slate-400" style={{ fontWeight: 500 }}>
+                        就活塾・スクール
+                      </span>
+                      <p className="text-sm text-slate-500">{row.juku.text}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </LandingSectionMotion>
       </div>

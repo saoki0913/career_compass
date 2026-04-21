@@ -1,6 +1,6 @@
 # マーケティング・LP・SEO・分析
 
-**最終更新**: 2026-03-22
+**最終更新**: 2026-04-17（SEO 改善フェーズ反映）
 
 **この文書の目的**: 訴求・チャネル・SEO・LP・メディア・計測のメモを1か所にまとめます。
 
@@ -250,7 +250,7 @@
 | P2 | 就活アプリおすすめ比較 | 就活 アプリ おすすめ | 比較検討 |
 | P2 | 内定者のES実例と添削ポイント | ES 添削 例 | 情報収集 |
 
-**技術SEO（実装状況）**: ルート・マーケLPで `FAQPage`（`FaqJsonLd`）、マーケレイアウトで `WebSite` + `SoftwareApplication` の JSON-LD（`@graph`、月額は `MARKETING_STANDARD_MONTHLY_JPY` / `MARKETING_PRO_MONTHLY_JPY` と一致）。`BreadcrumbList` / `HowTo` / `Article` は未実装。Core Web Vitals は継続監視。
+**技術SEO（実装状況）**: ルート・マーケLPで `FAQPage`（`FaqJsonLd`）、マーケレイアウトで `Organization` + `WebSite` + `SoftwareApplication`（`featureList` 含む）の JSON-LD（`@graph`、月額は `MARKETING_STANDARD_MONTHLY_JPY` / `MARKETING_PRO_MONTHLY_JPY` と一致）。2 階層ページ（`/tools/es-counter` `/templates/shiboudouki` `/templates/gakuchika-star` `/checklists/deadline-management`）は `BreadcrumbJsonLd`（`src/lib/seo/breadcrumb-jsonld.ts` + `src/components/seo/BreadcrumbJsonLd.tsx`）あり。1 階層の LP は `BreadcrumbList` 対象外。`HowTo` / `Article` は Rich Results 対象終了・対象限定のため見送り。Core Web Vitals は継続監視。
 
 ### 2.2 SNS（Twitter / TikTok / Instagram）
 
@@ -421,17 +421,35 @@
 ## デプロイ後の確認URL
 
 - `/`
-- `/es-tensaku-ai`
-- `/shukatsu-ai`
+- `/es-tensaku-ai`（ES 添削 AI / 設問タイプ別添削 / 企業情報反映 / AI 表現検出、リッチ LP 化済み）
+- `/shukatsu-ai`（総合ハブ。他の機能 LP への導線集約）
+- `/ai-mensetsu`（AI 面接対策 / 模擬面接 AI / 企業別 面接対策、2026-04 新設）
+- `/shiboudouki-ai`（志望動機 AI / 書き方 / テンプレ、2026-04 新設）
+- `/gakuchika-ai`（ガクチカ AI / 深掘り / 作り方、2026-04 新設）
 - `/shukatsu-pass` → `/` へ恒久的リダイレクト（旧ガイドURLの互換）
 - `/entry-sheet-ai`（エントリーシート添削ロングテール）
 - `/es-ai-guide`（ES AI の選び方）
 - `/shukatsu-kanri`
-- `/pricing`
-- `/tools/es-counter`
-- `/templates/shiboudouki`
+- `/pricing`（Server Component + Client Island（`PricingInteractive`）構成）
+- `/tools/es-counter`（`BreadcrumbJsonLd` あり）
+- `/templates/shiboudouki`（`BreadcrumbJsonLd` あり）
+- `/templates/gakuchika-star`（`BreadcrumbJsonLd` あり）
+- `/checklists/deadline-management`（`BreadcrumbJsonLd` あり）
 - `/data-source-policy`（`robots.txt` / `sitemap.xml` に含める）
-- `/checklists/deadline-management`
+
+## キーワード戦略（実装裏付けあり、2026-04-17 更新）
+
+| 検索クエリ | 意図 | 着地 LP | 実装裏付け |
+|---|---|---|---|
+| ES添削 AI / ES AI / エントリーシート 添削 AI | info | `/es-tensaku-ai` `/entry-sheet-ai` | `backend/app/routers/es_review.py`、設問タイプ別添削テンプレ |
+| 就活AI / 就活 AI アプリ | info / trans | `/shukatsu-ai`（総合ハブ） | ES + 志望動機 + ガクチカ + 面接の統合体験 |
+| AI 面接対策 / 模擬面接 AI / 企業別 面接対策 | info | `/ai-mensetsu` | `backend/app/routers/interview.py`、4 方式・7 軸講評 |
+| 志望動機 AI / 志望動機 書き方 AI / 志望動機 テンプレ | info | `/shiboudouki-ai` | `backend/app/routers/motivation.py`、6 要素スロット |
+| ガクチカ AI / ガクチカ 深掘り AI / ガクチカ 作り方 | info | `/gakuchika-ai` | `backend/app/routers/gakuchika.py`、STAR + 面接準備 |
+| 就活 締切 管理 / 就活 アプリ | info / trans | `/shukatsu-kanri` `/` | 選考スケジュール自動抽出 + Google Calendar PATCH sync |
+| 就活Pass / シューパス / 就活パス | nav | `/` | `site-structured-data.ts` alternateName |
+
+除外（実装なし・優良誤認リスク）: 内定率・通過率・OB 訪問 AI・求人紹介・無制限無料・`AggregateRating` など。
 
 ## 確認項目
 

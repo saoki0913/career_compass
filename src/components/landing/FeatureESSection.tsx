@@ -1,7 +1,7 @@
-import Image from "next/image";
-import { landingMedia } from "./landing-media";
 import { LandingSectionMotion } from "./LandingSectionMotion";
 import { LandingCheckList } from "./shared/LandingCheckList";
+import { ScaleFit } from "./mocks/ScaleFit";
+import { ESReviewMock } from "./mocks/ESReviewMock";
 
 export function FeatureESSection() {
   return (
@@ -25,7 +25,7 @@ export function FeatureESSection() {
         </LandingSectionMotion>
 
         <div className="flex flex-col items-center gap-12 lg:flex-row lg:gap-20">
-          <LandingSectionMotion className="lg:w-1/2">
+          <LandingSectionMotion className="w-full lg:w-1/2">
             <p className="mb-3 text-sm text-slate-400" style={{ fontWeight: 600 }}>
               ES添削
             </p>
@@ -47,16 +47,13 @@ export function FeatureESSection() {
             />
           </LandingSectionMotion>
 
-          <LandingSectionMotion className="lg:w-1/2">
-            <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_8px_40px_rgba(0,0,0,0.06)]">
-              <Image
-                src={landingMedia.esReview.src}
-                alt={landingMedia.esReview.alt}
-                width={800}
-                height={540}
-                className="block w-full"
-              />
-            </div>
+          <LandingSectionMotion className="w-full lg:w-1/2">
+            <ScaleFit
+              naturalWidth={1040}
+              className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_8px_40px_rgba(0,0,0,0.06)]"
+            >
+              <ESReviewMock />
+            </ScaleFit>
           </LandingSectionMotion>
         </div>
       </div>

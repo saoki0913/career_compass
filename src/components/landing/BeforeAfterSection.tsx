@@ -42,7 +42,7 @@ export function BeforeAfterSection() {
 
         <LandingSectionMotion>
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="grid grid-cols-2">
+            <div className="hidden md:grid md:grid-cols-2">
               <div className="border-b border-slate-100 px-6 py-4">
                 <span className="text-sm text-slate-400" style={{ fontWeight: 600 }}>これまで</span>
               </div>
@@ -54,21 +54,27 @@ export function BeforeAfterSection() {
             {items.map((item, i) => (
               <div
                 key={i}
-                className={`grid grid-cols-2 ${i < items.length - 1 ? "border-b border-slate-50" : ""}`}
+                className={`grid grid-cols-1 md:grid-cols-2 ${i < items.length - 1 ? "border-b border-slate-50" : ""}`}
               >
-                <div className="flex items-start gap-3 px-6 py-5">
+                <div className="flex items-start gap-3 px-6 pt-5 pb-3 md:py-5">
                   <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100">
                     <Minus className="h-3 w-3 text-slate-400" strokeWidth={3} />
                   </span>
-                  <p className="text-sm text-slate-400" style={{ lineHeight: 1.6 }}>{item.before}</p>
+                  <div>
+                    <span className="mb-1 block text-xs text-slate-400 md:hidden" style={{ fontWeight: 600 }}>これまで</span>
+                    <p className="text-sm text-slate-400" style={{ lineHeight: 1.6 }}>{item.before}</p>
+                  </div>
                 </div>
-                <div className="flex items-start gap-3 bg-[var(--lp-tint-navy-soft)]/70 px-6 py-5">
+                <div className="flex items-start gap-3 bg-[var(--lp-tint-navy-soft)]/70 px-6 pt-3 pb-5 md:py-5">
                   <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--lp-badge-bg)]">
                     <Check className="h-3 w-3 text-[var(--lp-navy)]" strokeWidth={3} />
                   </span>
-                  <p className="text-sm text-[var(--lp-navy)]" style={{ fontWeight: 600, lineHeight: 1.6 }}>
-                    {item.after}
-                  </p>
+                  <div>
+                    <span className="mb-1 block text-xs text-[var(--lp-navy)] md:hidden" style={{ fontWeight: 600 }}>就活Passで</span>
+                    <p className="text-sm text-[var(--lp-navy)]" style={{ fontWeight: 600, lineHeight: 1.6 }}>
+                      {item.after}
+                    </p>
+                  </div>
                 </div>
               </div>
             ))}

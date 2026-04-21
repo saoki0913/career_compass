@@ -1,8 +1,8 @@
-import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { landingMedia } from "./landing-media";
 import { LandingSectionMotion } from "./LandingSectionMotion";
+import { ScaleFit } from "./mocks/ScaleFit";
+import { HomeMock } from "./mocks/HomeMock";
 
 export function HeroSection() {
   return (
@@ -27,7 +27,7 @@ export function HeroSection() {
               </div>
 
               <h1
-                className="text-[2.5rem] tracking-tight text-[var(--lp-navy)] md:text-[3.25rem] lg:text-[3.5rem]"
+                className="text-[2.25rem] tracking-tight text-[var(--lp-navy)] md:text-[3.25rem] lg:text-[3.5rem]"
                 style={{ fontWeight: 800, lineHeight: 1.15 }}
               >
                 就活を、AIと一緒に
@@ -83,16 +83,12 @@ export function HeroSection() {
                     "linear-gradient(to bottom right, color-mix(in srgb, var(--lp-tint-navy-soft) 85%, white), rgba(255,255,255,0.75), transparent)",
                 }}
               />
-              <div className="overflow-hidden rounded-2xl border border-slate-200/50 bg-white shadow-[0_20px_80px_rgba(10,15,92,0.08)]">
-                <Image
-                  src={landingMedia.heroDashboard.src}
-                  alt={landingMedia.heroDashboard.alt}
-                  width={1200}
-                  height={750}
-                  priority
-                  className="block w-full"
-                />
-              </div>
+              <ScaleFit
+                naturalWidth={1120}
+                className="overflow-hidden rounded-2xl border border-slate-200/50 bg-white shadow-[0_20px_80px_rgba(10,15,92,0.08)]"
+              >
+                <HomeMock />
+              </ScaleFit>
             </div>
           </LandingSectionMotion>
         </div>

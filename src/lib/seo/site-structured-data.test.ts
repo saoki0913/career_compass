@@ -51,7 +51,7 @@ describe("buildSiteStructuredDataGraph", () => {
 describe("getMarketingDescription", () => {
   it("returns LP-specific copy for '/'", () => {
     const desc = getMarketingDescription("/");
-    expect(desc).toContain("8 種の設問タイプ");
+    expect(desc).toContain("企業別AI模擬面接");
     expect(desc).toContain("カード登録不要");
     expect(desc).not.toBe(siteDescription);
   });
@@ -62,8 +62,8 @@ describe("getMarketingDescription", () => {
   });
 
   it("strips query and trailing slash before routing", () => {
-    expect(getMarketingDescription("/?utm=x")).toContain("8 種の設問タイプ");
-    expect(getMarketingDescription("/")).toContain("8 種の設問タイプ");
+    expect(getMarketingDescription("/?utm=x")).toContain("企業別AI模擬面接");
+    expect(getMarketingDescription("/")).toContain("企業別AI模擬面接");
   });
 
   it("falls back to siteDescription when path is empty", () => {

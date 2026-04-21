@@ -1,14 +1,14 @@
-import Image from "next/image";
-import { landingMedia } from "./landing-media";
 import { LandingSectionMotion } from "./LandingSectionMotion";
 import { LandingCheckList } from "./shared/LandingCheckList";
+import { ScaleFit } from "./mocks/ScaleFit";
+import { CalendarMock } from "./mocks/CalendarMock";
 
 export function FeatureManagementSection() {
   return (
     <section className="bg-white px-6 py-24 md:py-32">
       <div className="mx-auto max-w-[1200px]">
         <div className="flex flex-col items-center gap-12 lg:flex-row-reverse lg:gap-20">
-          <LandingSectionMotion className="lg:w-1/2">
+          <LandingSectionMotion className="w-full lg:w-1/2">
             <p className="mb-3 text-sm text-slate-400" style={{ fontWeight: 600 }}>
               進捗・スケジュール管理
             </p>
@@ -30,16 +30,13 @@ export function FeatureManagementSection() {
             />
           </LandingSectionMotion>
 
-          <LandingSectionMotion className="lg:w-1/2">
-            <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_8px_40px_rgba(0,0,0,0.06)]">
-              <Image
-                src={landingMedia.calendar.src}
-                alt={landingMedia.calendar.alt}
-                width={800}
-                height={540}
-                className="block w-full"
-              />
-            </div>
+          <LandingSectionMotion className="w-full lg:w-1/2">
+            <ScaleFit
+              naturalWidth={1040}
+              className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_8px_40px_rgba(0,0,0,0.06)]"
+            >
+              <CalendarMock />
+            </ScaleFit>
           </LandingSectionMotion>
         </div>
       </div>

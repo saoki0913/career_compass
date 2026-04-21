@@ -1,8 +1,8 @@
-import { MessageSquareQuote, Sparkles, UsersRound } from "lucide-react";
-import Image from "next/image";
-import { landingMedia } from "./landing-media";
 import { LandingSectionMotion } from "./LandingSectionMotion";
 import { LandingCheckList } from "./shared/LandingCheckList";
+import { ScaleFit } from "./mocks/ScaleFit";
+import { MotivationMock } from "./mocks/MotivationMock";
+import { InterviewMock } from "./mocks/InterviewMock";
 
 const motivationPoints = [
   "「なぜその業界か／なぜその会社か／そこで何をしたいか」など、志望動機に必要な観点を会話で順に整理",
@@ -17,23 +17,6 @@ const interviewPoints = [
   "職種や面接方式（技術／ケース／人生史 など）、選考段階に合わせた質問",
 ] as const;
 
-const interviewHighlights = [
-  {
-    icon: MessageSquareQuote,
-    label: "企業ごとの質問",
-    detail: "登録した会社情報から質問を生成",
-  },
-  {
-    icon: Sparkles,
-    label: "深掘り or 次の論点",
-    detail: "回答に応じて自動で切り替え",
-  },
-  {
-    icon: UsersRound,
-    label: "終了後のフィードバック",
-    detail: "改善点と改善後の回答例を提示",
-  },
-] as const;
 
 export function FeatureInterviewSection() {
   return (
@@ -41,7 +24,7 @@ export function FeatureInterviewSection() {
       <div className="mx-auto max-w-[1200px]">
         {/* Part 1: 志望動機・ガクチカ対話 */}
         <div className="flex flex-col items-center gap-12 lg:flex-row lg:gap-20">
-          <LandingSectionMotion className="lg:w-1/2">
+          <LandingSectionMotion className="w-full lg:w-1/2">
             <p className="mb-3 text-sm text-slate-400" style={{ fontWeight: 600 }}>
               志望動機・ガクチカ作成
             </p>
@@ -57,23 +40,20 @@ export function FeatureInterviewSection() {
             <LandingCheckList items={motivationPoints} />
           </LandingSectionMotion>
 
-          <LandingSectionMotion className="lg:w-1/2">
-            <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_8px_40px_rgba(0,0,0,0.06)]">
-              <Image
-                src={landingMedia.motivation.src}
-                alt={landingMedia.motivation.alt}
-                width={800}
-                height={540}
-                className="block w-full"
-              />
-            </div>
+          <LandingSectionMotion className="w-full lg:w-1/2">
+            <ScaleFit
+              naturalWidth={960}
+              className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_8px_40px_rgba(0,0,0,0.06)]"
+            >
+              <MotivationMock />
+            </ScaleFit>
           </LandingSectionMotion>
         </div>
 
         {/* Part 2: 企業別 AI 模擬面接 */}
         <div className="mt-16 border-t border-slate-100 pt-16 md:mt-20 md:pt-20">
           <div className="flex flex-col items-center gap-12 lg:flex-row lg:gap-20">
-            <LandingSectionMotion className="lg:w-1/2">
+            <LandingSectionMotion className="w-full lg:w-1/2">
               <p
                 className="mb-3 text-sm text-slate-400"
                 style={{ fontWeight: 600 }}
@@ -92,57 +72,13 @@ export function FeatureInterviewSection() {
               <LandingCheckList items={interviewPoints} />
             </LandingSectionMotion>
 
-            <LandingSectionMotion className="lg:w-1/2">
-              <div
-                className="relative rounded-2xl border border-slate-100 bg-white p-8 shadow-[0_8px_40px_rgba(0,0,0,0.04)]"
-                aria-hidden
+            <LandingSectionMotion className="w-full lg:w-1/2">
+              <ScaleFit
+                naturalWidth={960}
+                className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_8px_40px_rgba(0,0,0,0.06)]"
               >
-                <div className="mb-6 flex items-center gap-3 border-b border-slate-100 pb-5">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--lp-tint-navy-soft)]">
-                    <UsersRound
-                      className="h-5 w-5 text-[var(--lp-navy)]"
-                      strokeWidth={1.75}
-                    />
-                  </span>
-                  <div>
-                    <p
-                      className="text-sm text-[var(--lp-navy)]"
-                      style={{ fontWeight: 700 }}
-                    >
-                      AI 面接官との模擬面接
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      企業情報 × 職種 × 面接方式
-                    </p>
-                  </div>
-                </div>
-                <ul className="space-y-4">
-                  {interviewHighlights.map(({ icon: Icon, label, detail }) => (
-                    <li key={label} className="flex items-start gap-3">
-                      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-100 bg-slate-50">
-                        <Icon
-                          className="h-4 w-4 text-[var(--lp-navy)]"
-                          strokeWidth={1.75}
-                        />
-                      </span>
-                      <div>
-                        <p
-                          className="text-sm text-[var(--lp-navy)]"
-                          style={{ fontWeight: 700, lineHeight: 1.5 }}
-                        >
-                          {label}
-                        </p>
-                        <p
-                          className="text-xs text-slate-500"
-                          style={{ lineHeight: 1.6 }}
-                        >
-                          {detail}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+                <InterviewMock />
+              </ScaleFit>
             </LandingSectionMotion>
           </div>
         </div>
