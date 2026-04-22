@@ -1,112 +1,97 @@
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { landingMedia } from "./landing-media";
-import { LandingPrimaryAction } from "./LandingPrimaryAction";
-import { ScreenPreview } from "./ScreenPreview";
-import { ScrollReveal } from "./ScrollReveal";
-
-const trustPoints = [
-  "成功時のみ消費",
-  "クレジットカード不要",
-  "Googleカレンダー連携",
-] as const;
-
-const supportingLines = [
-  "ES添削も、志望動機の整理も、企業・締切管理も一つの流れで進められます。",
-  "今やることが見える状態を、AIと一緒に作る就活アプリです。",
-] as const;
+import { LandingSectionMotion } from "./LandingSectionMotion";
+import { ScaleFit } from "./mocks/ScaleFit";
+import { HomeMock } from "./mocks/HomeMock";
 
 export function HeroSection() {
-  const heroMedia = landingMedia.heroDashboard;
-
   return (
-    <section className="landing-hero-backdrop relative overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(63,114,255,0.16),transparent_34%),radial-gradient(circle_at_85%_20%,rgba(148,163,184,0.16),transparent_26%)]" />
-      <div className="mx-auto max-w-6xl px-4 pb-20 pt-28 sm:pb-24 lg:pt-36">
-        <ScrollReveal>
-          <div className="grid items-center gap-12 lg:grid-cols-[0.7fr_1.3fr] lg:gap-7">
-            <div className="text-left">
-              <div className="max-w-lg">
-                <h1 className="text-balance text-[3.1rem] font-semibold leading-[0.92] tracking-[-0.08em] text-slate-950 sm:text-[4.2rem] lg:text-[5.25rem]">
-                  就活を、
-                  <br />
-                  AIと一緒に
-                  <br />
-                  迷わず進める。
-                </h1>
+    <section className="relative overflow-hidden px-6 pb-16 pt-24 md:pb-24 md:pt-32 lg:pb-28 lg:pt-36">
+      <div
+        className="absolute inset-0 -z-10 bg-gradient-to-br"
+        style={{
+          backgroundImage:
+            "linear-gradient(to bottom right, var(--lp-hero-gradient-top), var(--lp-hero-gradient-mid), var(--lp-tint-navy-soft))",
+        }}
+      />
+
+      <div className="mx-auto max-w-[1300px]">
+        <div className="flex flex-col items-center gap-12 lg:flex-row lg:gap-16">
+          <div className="shrink-0 lg:w-[48%]">
+            <LandingSectionMotion instant>
+              <div className="mb-7">
+                <span className="inline-flex items-center gap-2 text-sm text-slate-600">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--lp-navy)]" />
+                  ES添削から企業別AI模擬面接まで、就活AIで一括サポート
+                </span>
               </div>
 
-              <div className="mt-7 max-w-xl space-y-3 text-[17px] leading-8 text-slate-600 sm:text-[18px]">
-                {supportingLines.map((line) => (
-                  <p key={line}>{line}</p>
-                ))}
-              </div>
+              <h1
+                className="text-[2.25rem] tracking-tight text-[var(--lp-navy)] md:text-[3.25rem] lg:text-[3.5rem]"
+                style={{ fontWeight: 800, lineHeight: 1.15 }}
+              >
+                就活を、AIと一緒に
+                <br />
+                迷わず進める。
+              </h1>
 
-              <div className="mt-10 flex flex-col gap-3 sm:flex-row">
-                <LandingPrimaryAction size="lg" className="h-[52px] px-7 text-base" />
-                <Button
-                  size="lg"
-                  variant="outline"
-                  asChild
-                  className="landing-cta-secondary h-[52px] min-w-[190px] rounded-full px-6"
+              <p
+                className="mt-6 mb-10 max-w-lg text-base text-slate-500 md:text-lg"
+                style={{ lineHeight: 1.8 }}
+              >
+                志望動機・自己PR・ガクチカから、企業別の AI 模擬面接まで。会社に合わせた添削と対話を、カード登録なしで。
+              </p>
+
+              <div className="mb-8 flex flex-wrap gap-3">
+                <Link
+                  href="/login"
+                  className="group inline-flex items-center gap-2 rounded-xl bg-[var(--lp-cta)] px-7 py-3.5 text-sm text-white shadow-lg shadow-blue-900/10 transition-all hover:shadow-xl hover:shadow-blue-900/15 active:scale-[0.98]"
+                  style={{ fontWeight: 600 }}
                 >
-                  <a href="#pricing">
-                    料金を見る
-                    <ArrowRight className="size-4" />
-                  </a>
-                </Button>
+                  無料で試す
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </Link>
+                <Link
+                  href="#features"
+                  className="rounded-xl border border-slate-200 px-7 py-3.5 text-sm text-slate-600 transition-all hover:border-slate-300 hover:bg-slate-50"
+                  style={{ fontWeight: 500 }}
+                >
+                  機能を見る
+                </Link>
               </div>
 
-              <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-500">
-                {trustPoints.map((point) => (
-                  <span key={point} className="inline-flex items-center gap-2">
-                    <span className="h-1 w-1 rounded-full bg-slate-400/70" aria-hidden="true" />
-                    {point}
+              <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-400">
+                {["カード登録不要", "成功時のみクレジット消費", "面接対策までAI と一緒に"].map((t) => (
+                  <span key={t} className="flex items-center gap-1.5">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                      <circle cx="7" cy="7" r="6" stroke="#22c55e" strokeWidth="1.5" />
+                      <path d="M4.5 7l1.5 1.5 3-3" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    {t}
                   </span>
                 ))}
               </div>
-            </div>
-
-            <div className="relative lg:-mr-12 lg:pl-2">
-              <div className="absolute inset-x-2 top-10 h-[79%] rounded-[42px] bg-[linear-gradient(180deg,rgba(37,99,235,0.18),rgba(148,163,184,0.06))] blur-3xl" />
-              <div className="relative">
-                <ScreenPreview
-                  src={heroMedia.src}
-                  alt={heroMedia.alt}
-                  priority
-                  className="rounded-[34px] border border-white/70 bg-white/95"
-                  imageClassName="scale-[1.11] object-top translate-y-[-58px] sm:translate-y-[-88px] lg:translate-y-[-114px]"
-                />
-                <div className="mt-5 grid gap-4 border-t border-slate-200/70 pt-5 sm:grid-cols-3">
-                  <div>
-                    <p className="text-[11px] font-semibold tracking-[0.2em] text-slate-500 uppercase">
-                      Review
-                    </p>
-                    <p className="mt-2 text-sm font-semibold tracking-[-0.02em] text-slate-950">
-                      設問別の添削
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-semibold tracking-[0.2em] text-slate-500 uppercase">
-                      Organize
-                    </p>
-                    <p className="mt-2 text-sm font-semibold tracking-[-0.02em] text-slate-950">
-                      会話で素材整理
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-semibold tracking-[0.2em] text-slate-500 uppercase">
-                      Track
-                    </p>
-                    <p className="mt-2 text-sm font-semibold tracking-[-0.02em] text-slate-950">
-                      締切を一覧管理
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
+            </LandingSectionMotion>
           </div>
-        </ScrollReveal>
+
+          <LandingSectionMotion className="w-full lg:w-[52%]">
+            <div className="relative">
+              <div
+                className="absolute -inset-6 -z-10 rounded-3xl blur-2xl"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(to bottom right, color-mix(in srgb, var(--lp-tint-navy-soft) 85%, white), rgba(255,255,255,0.75), transparent)",
+                }}
+              />
+              <ScaleFit
+                naturalWidth={1120}
+                className="overflow-hidden rounded-2xl border border-slate-200/50 bg-white shadow-[0_20px_80px_rgba(10,15,92,0.08)]"
+              >
+                <HomeMock />
+              </ScaleFit>
+            </div>
+          </LandingSectionMotion>
+        </div>
       </div>
     </section>
   );

@@ -1,128 +1,154 @@
-import { Button } from "@/components/ui/button";
 import { Check } from "lucide-react";
 import Link from "next/link";
 import { getMarketingPricingPlans } from "@/lib/marketing/pricing-plans";
-import { ScrollReveal } from "./ScrollReveal";
+import { LandingSectionMotion } from "./LandingSectionMotion";
+
+const planAudienceNotes: Record<"free" | "standard" | "pro", string> = {
+  free: "まず試したい方",
+  standard: "本格的に就活対策したい方",
+  pro: "複数企業を並行で対策したい方",
+};
 
 export function PricingSection() {
   const plans = getMarketingPricingPlans("monthly");
-  const recommendedPlan = plans.find((plan) => plan.isPopular) ?? plans[1] ?? plans[0];
-  const secondaryPlans = plans.filter((plan) => plan.id !== recommendedPlan.id);
 
   return (
-    <section id="pricing" className="scroll-mt-24 py-32 lg:scroll-mt-28 lg:py-40">
-      <div className="mx-auto max-w-6xl px-4">
-        <ScrollReveal>
-          <div className="mx-auto mb-14 max-w-3xl text-center lg:mb-18">
-            <p className="text-sm font-semibold tracking-[0.18em] text-primary uppercase">
-              Pricing
-            </p>
-            <h2 className="mt-4 text-balance text-3xl font-semibold tracking-[-0.05em] text-slate-950 sm:text-4xl lg:text-5xl">
-              無料で始めて、
-              必要なぶんだけ広げる。
+    <section className="bg-white px-6 py-24 md:py-32" id="pricing">
+      <div className="mx-auto max-w-[1100px]">
+        <LandingSectionMotion>
+          <div className="mb-14 text-center md:mb-16">
+            <h2
+              className="mb-3 text-3xl tracking-tight text-[var(--lp-navy)] md:text-[2.5rem]"
+              style={{ fontWeight: 800, lineHeight: 1.3 }}
+            >
+              シンプルな料金プラン
             </h2>
-            <p className="mx-auto mt-6 max-w-2xl text-balance text-lg leading-8 text-slate-600">
-              まずは無料プランで流れを確かめて、必要になったら Standard や Pro に切り替えられます。
-              クレジットは成功した時だけ消費されるので、無駄なく使えます。
+            <p className="mx-auto max-w-xl text-slate-500" style={{ lineHeight: 1.7 }}>
+              用途に合わせて選べる3プラン。いつでもアップグレード・ダウングレード可能です。
             </p>
           </div>
-        </ScrollReveal>
 
-        <ScrollReveal delay={0.06}>
-          <div className="mb-8 grid gap-4 border-y border-slate-200/80 py-5 sm:grid-cols-2">
-            <div>
-              <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
-                Free start
-              </p>
-              <p className="mt-2 text-sm font-semibold text-slate-950">クレジットカード不要</p>
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
-                Fair usage
-              </p>
-              <p className="mt-2 text-sm font-semibold text-slate-950">成功した時だけ消費</p>
-            </div>
-          </div>
-        </ScrollReveal>
+          <div className="mx-auto grid max-w-5xl grid-cols-1 gap-6 md:grid-cols-3 md:gap-5 lg:gap-6">
+            {plans.map((plan) => {
+              const isHighlighted = plan.isPopular;
 
-        <ScrollReveal delay={0.1}>
-          <div className="grid gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
-            <div className="rounded-[34px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(245,249,255,0.95),rgba(255,255,255,0.94))] p-8 shadow-[0_32px_90px_-62px_rgba(15,23,42,0.22)] sm:p-10">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-xl font-semibold tracking-tight text-slate-950">
-                  {recommendedPlan.name}
-                </h3>
-                <span className="rounded-full border border-primary/14 bg-primary/8 px-3 py-1 text-[11px] font-semibold tracking-[0.18em] text-primary uppercase">
-                  Recommended
-                </span>
-              </div>
-              <p className="mt-3 max-w-md text-sm leading-6 text-slate-600">
-                {recommendedPlan.description}
-              </p>
-
-              <div className="mt-7 flex items-end gap-2">
-                <span className="text-5xl font-semibold tracking-tight text-slate-950">
-                  {recommendedPlan.price}
-                </span>
-                <span className="pb-1 text-sm text-slate-500">
-                  {recommendedPlan.period ? `/${recommendedPlan.period}` : ""}
-                </span>
-              </div>
-
-              {recommendedPlan.dailyPrice ? (
-                <p className="mt-2 text-xs text-slate-500">{recommendedPlan.dailyPrice}</p>
-              ) : null}
-
-              <ul className="mt-8 space-y-3.5">
-                {recommendedPlan.features.slice(0, 5).map((feature) => (
-                  <li key={feature} className="flex items-start gap-3">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                    <span className="text-sm leading-6 text-slate-700">{feature}</span>
-                  </li>
-                ))}
-              </ul>
-
-              <Button asChild className="landing-cta-primary mt-8 h-12 w-full rounded-full">
-                <Link href="/pricing">{recommendedPlan.ctaLabel}</Link>
-              </Button>
-            </div>
-
-            <div className="grid gap-4">
-              {secondaryPlans.map((plan) => (
+              return (
                 <div
                   key={plan.id}
-                  className="flex flex-col gap-4 rounded-[28px] border border-slate-200/80 bg-white/90 p-6 shadow-[0_22px_64px_-52px_rgba(15,23,42,0.18)] sm:flex-row sm:items-end sm:justify-between"
+                  className={`relative flex flex-col rounded-2xl border p-8 ${isHighlighted ? "text-white" : "bg-white"}`}
+                  style={{
+                    borderColor: isHighlighted
+                      ? "var(--lp-navy)"
+                      : "var(--lp-border-default)",
+                    backgroundColor: isHighlighted
+                      ? "var(--lp-navy)"
+                      : "#ffffff",
+                    boxShadow: isHighlighted
+                      ? "0 20px 80px rgba(10,15,92,0.08)"
+                      : undefined,
+                  }}
                 >
-                  <div>
-                    <p className="text-sm font-semibold tracking-tight text-slate-950">
-                      {plan.name}
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">{plan.description}</p>
-                    <p className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">
-                      {plan.price}
-                      <span className="ml-1 text-sm font-normal text-slate-500">
-                        {plan.period ? `/${plan.period}` : ""}
-                      </span>
-                    </p>
-                  </div>
-                  <Button
-                    asChild
-                    variant="outline"
-                    className="landing-cta-secondary h-11 rounded-full px-5"
-                  >
-                    <Link href={plan.id === "free" ? "/login" : "/pricing"}>
-                      {plan.ctaLabel}
-                    </Link>
-                  </Button>
-                </div>
-              ))}
+                  {isHighlighted ? (
+                    <div
+                      className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-white px-3 py-1 text-[10px] uppercase tracking-widest text-[var(--lp-navy)]"
+                      style={{ fontWeight: 700 }}
+                    >
+                      Popular
+                    </div>
+                  ) : null}
 
-              <p className="text-sm font-medium text-slate-500">
-                年額プランと細かい比較表は pricing page に掲載。クレジットは成功時のみ消費されます。
-              </p>
-            </div>
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <h3
+                      className={`text-lg ${isHighlighted ? "text-white" : "text-[var(--lp-navy)]"}`}
+                      style={{ fontWeight: 700 }}
+                    >
+                      {plan.name}
+                    </h3>
+                    {plan.id === "free" ? (
+                      <span
+                        className="rounded-full bg-[var(--lp-badge-bg)] px-2 py-0.5 text-[10px] text-[var(--lp-navy)]"
+                        style={{ fontWeight: 700 }}
+                      >
+                        カード登録不要
+                      </span>
+                    ) : null}
+                  </div>
+                  <p
+                    className={`mb-3 text-xs ${isHighlighted ? "text-white/70" : "text-slate-500"}`}
+                  >
+                    {planAudienceNotes[plan.id]}
+                  </p>
+
+                  <div className="mb-1 flex items-baseline gap-1">
+                    <span
+                      className={`text-3xl tabular-nums ${isHighlighted ? "text-white" : "text-[var(--lp-navy)]"}`}
+                      style={{ fontWeight: 700 }}
+                    >
+                      {plan.price}
+                    </span>
+                    {plan.period ? (
+                      <span
+                        className={
+                          isHighlighted ? "text-white/75" : "text-slate-500"
+                        }
+                        style={{ fontSize: "0.875rem" }}
+                      >
+                        / {plan.period}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {plan.dailyPrice ? (
+                    <p
+                      className={`mb-6 text-sm ${isHighlighted ? "text-white/65" : "text-slate-500"}`}
+                    >
+                      {plan.dailyPrice}
+                    </p>
+                  ) : (
+                    <p
+                      className={`mb-6 text-sm ${isHighlighted ? "text-white/65" : "text-slate-500"}`}
+                    >
+                      {plan.description}
+                    </p>
+                  )}
+
+                  <ul className="mb-8 flex flex-grow flex-col gap-3">
+                    {plan.features.map((f) => (
+                      <li
+                        key={f}
+                        className={`flex items-start gap-2.5 text-sm ${isHighlighted ? "text-white/90" : "text-slate-500"}`}
+                      >
+                        <Check
+                          className={`mt-0.5 h-4 w-4 shrink-0 ${isHighlighted ? "text-white" : "text-[var(--lp-success)]"}`}
+                          strokeWidth={2.5}
+                        />
+                        <span style={{ fontWeight: 400 }}>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <Link
+                    href={plan.id === "free" ? "/login" : "/pricing"}
+                    className={`mt-auto w-full rounded-xl py-3 text-center text-sm transition ${isHighlighted ? "bg-white text-[var(--lp-navy)] hover:bg-white/95" : "border border-slate-200 text-[var(--lp-navy)] hover:bg-slate-50"}`}
+                    style={{ fontWeight: 600 }}
+                  >
+                    {plan.ctaLabel}
+                  </Link>
+                </div>
+              );
+            })}
           </div>
-        </ScrollReveal>
+
+          <div className="mt-8 text-center">
+            <Link
+              href="/pricing"
+              className="text-sm text-[var(--lp-navy)] underline underline-offset-4 hover:opacity-80"
+              style={{ fontWeight: 600 }}
+            >
+              料金の詳細を見る →
+            </Link>
+          </div>
+        </LandingSectionMotion>
       </div>
     </section>
   );

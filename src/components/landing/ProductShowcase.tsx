@@ -37,7 +37,7 @@ const detailSections = [
     description:
       "企業一覧、締切、応募状況、Google カレンダー連携までを同じ流れにまとめます。ES 添削だけで終わらず、応募までの進行を止めないことを前提にした product です。",
     points: ["企業ごとの状況整理", "締切の見落とし防止", "次にやることが見える dashboard"],
-    image: landingMedia.companies,
+    image: landingMedia.calendar,
     imageClassName: "scale-[1.04] object-top translate-y-[-20px] sm:translate-y-[-34px]",
   },
 ] as const;
