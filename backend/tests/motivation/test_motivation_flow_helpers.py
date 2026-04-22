@@ -1,14 +1,11 @@
 import pytest
 
-from app.routers.motivation import (
+from app.routers.motivation import _build_draft_primary_material, _resolve_motivation_draft_metadata, _should_use_deepdive_mode
+from app.routers.motivation_context import _classify_slot_state, _normalize_conversation_context
+from app.routers.motivation_planner import (
     _build_progress_payload,
-    _build_draft_primary_material,
-    _classify_slot_state,
     _compute_deterministic_causal_gaps,
     _determine_next_turn,
-    _has_profile_draft_material,
-    _normalize_conversation_context,
-    _should_use_deepdive_mode,
 )
 
 
@@ -168,16 +165,41 @@ def test_build_draft_primary_material_prioritizes_structured_slots() -> None:
         },
     )
 
-    assert heading == "【構造化材料＋会話ログ】"
-    assert "【スロット要約】" in body
-    assert "company_reason" in body
-    assert "【根拠文】" in body
-    assert "【会話ログ】" in body
+    assert heading == "【一次材料：骨格要約】"
+    assert "【一次材料：骨格要約（優先的に反映すること）】" in body
+    assert "企業志望理由" in body
+    assert "根拠:" in body
+    assert "【三次材料：会話ログ（補完用）】" in body
 
 
-def test_has_profile_draft_material_requires_more_than_selected_role_only() -> None:
-    assert _has_profile_draft_material({"target_job_types": ["企画職"]}, []) is False
-    assert _has_profile_draft_material(
-        {"target_job_types": ["企画職"], "target_industries": ["IT"]},
-        [],
-    ) is True
+def test_resolve_motivation_draft_metadata_prefers_structured_slot_labels_and_company_context() -> None:
+    key_points, company_keywords = _resolve_motivation_draft_metadata(
+        slot_summaries={
+            "company_reason": "DX支援の現場感に惹かれている。",
+            "self_connection": "課題整理の経験がつながる。",
+        },
+        llm_key_points=["抽象的な表現", "企業理解"],
+        llm_company_keywords=["抽象ワード"],
+        company_context="DX支援を通じて顧客課題を解決する。業務改革の知見がある。",
+        company_sources=[{"title": "業務改革", "excerpt": "DX支援の実績"}],
+        selected_role="企画職",
+    )
+
+    assert key_points[:2] == ["企業理解", "自己接続"]
+    assert "DX支援" in company_keywords
+
+
+def test_resolve_motivation_draft_metadata_adds_experience_anchor_for_profile_route() -> None:
+    key_points, company_keywords = _resolve_motivation_draft_metadata(
+        slot_summaries=None,
+        llm_key_points=[],
+        llm_company_keywords=[],
+        company_context="サプライチェーン最適化とデータ活用を推進する。",
+        company_sources=None,
+        selected_role="企画職",
+        include_experience_anchor=True,
+    )
+
+    assert "自己接続" in key_points
+    assert "やりたい仕事" in key_points
+    assert company_keywords

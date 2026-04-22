@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException
 
-from app.utils.llm import PromptSafetyError, sanitize_user_prompt_text
+from app.utils.llm_prompt_safety import PromptSafetyError, sanitize_user_prompt_text
 
 
 def format_conversation(messages: list[Any]) -> str:

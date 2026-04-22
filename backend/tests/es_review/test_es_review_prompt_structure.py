@@ -6,6 +6,9 @@ from app.prompts.es_templates import (
     TEMPLATE_DEFS,
     _GLOBAL_CONCLUSION_FIRST_RULES,
     _GLOBAL_CONCLUSION_FIRST_RULES_FALLBACK,
+    _build_contextual_rules,
+    _format_company_guidance,
+    _format_user_fact_guidance,
     _format_target_char_window,
     build_template_fallback_rewrite_prompt,
     build_template_length_fix_prompt,
@@ -246,6 +249,69 @@ def test_self_pr_rewrite_prompt_includes_negative_reframe_guidance() -> None:
     assert "【自己PRで避ける表現】" in system_prompt
     assert "「経験不足」「自信がない」" in system_prompt
     assert "準備・責任感・学習姿勢・確認力" in system_prompt
+
+
+def test_contextual_rules_are_grouped_by_priority() -> None:
+    rules = _build_contextual_rules(
+        template_type="company_motivation",
+        char_max=260,
+        grounding_mode="company_general",
+    )
+
+    assert "【MUST（絶対守る）】" in rules
+    assert "【SHOULD（できる限り）】" in rules
+    assert "【WATCH（注意）】" in rules
+    assert "ユーザーの元回答に含まれる数値・固有名詞" in rules
+    assert "関係者を巻き込みながら" in rules
+    assert "- 指定の字数下限を下回る改善案は再検証で弾かれる" in rules
+
+
+def test_user_fact_guidance_uses_fact_weaving_rules() -> None:
+    guidance = _format_user_fact_guidance(
+        [{"source": "current_answer", "text": "3人チームで整理した"}],
+        template_type="self_pr",
+        char_max=260,
+    )
+
+    assert "<fact_weaving_rules>" in guidance
+    assert "数値・固有名詞" in guidance
+    assert "2文目または3文目の主語・目的語として使う" in guidance
+    assert "推定や敷衍をしない" in guidance
+    assert "情報が足りない場合は一般化して書く" not in guidance
+
+
+def test_company_guidance_marks_primary_card_and_reference_cards() -> None:
+    guidance = _format_company_guidance(
+        company_evidence_cards=[
+            {
+                "theme": "事業理解",
+                "normalized_axis": "business_characteristics",
+                "normalized_summary": "事業や提供価値の特徴としては、成長領域への投資を進める",
+                "claim": "成長領域への投資を進める",
+                "excerpt": "新たな事業機会を広げる",
+                "is_primary": True,
+            },
+            {
+                "theme": "価値観",
+                "normalized_axis": "value_orientation",
+                "normalized_summary": "価値観・重視姿勢としては、顧客起点を重視する",
+                "claim": "顧客起点を重視する",
+                "excerpt": "意思決定の軸に据える",
+            },
+        ],
+        has_rag=True,
+        grounding_mode="company_general",
+        requires_company_rag=True,
+        company_grounding="required",
+        generic_role_mode=False,
+        evidence_coverage_level="partial",
+        template_type="company_motivation",
+    )
+
+    assert "PRIMARY" in guidance
+    assert "参考" in guidance
+    assert "PRIMARY カードの方向性だけを1文で使い" in guidance
+    assert "企業接点の書き方" in guidance
 
 
 @pytest.mark.parametrize(
@@ -819,8 +885,8 @@ def test_template_specific_quantify_rules_are_only_in_self_pr_and_work_values(
         allowed_user_facts=[{"source": "current_answer", "text": "周囲を巻き込みながら改善を進めた。"}],
         grounding_mode="none",
     )
-    assert "人数・期間・件数・比率" in system_prompt
-    assert "行動動詞" in system_prompt
+    assert "行動の対象・範囲・頻度・比較を具体化" in system_prompt
+    assert "元回答にない数字は作らない" in system_prompt
 
 
 def test_basic_prompt_does_not_include_quantify_rule() -> None:
@@ -837,7 +903,7 @@ def test_basic_prompt_does_not_include_quantify_rule() -> None:
         allowed_user_facts=[{"source": "current_answer", "text": "周囲を巻き込みながら改善を進めた。"}],
         grounding_mode="none",
     )
-    assert "人数・期間・件数・比率" not in system_prompt
+    assert "行動の対象・範囲・頻度・比較を具体化" not in system_prompt
 
 
 def test_gakuchika_prompt_includes_structure_rule_and_playbook() -> None:

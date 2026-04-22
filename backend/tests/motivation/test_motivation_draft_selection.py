@@ -180,11 +180,11 @@ class TestMaybeRetryForAiSmellFailureModes:
     def _stub_ai_smell_helpers(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Tier 2 を必ず返してリトライ経路を踏ませる
         monkeypatch.setattr(
-            "app.routers.motivation._detect_ai_smell_patterns",
+            "app.routers.motivation_retry._detect_ai_smell_patterns",
             lambda draft, origin: [],
         )
         monkeypatch.setattr(
-            "app.routers.motivation._compute_ai_smell_score",
+            "app.routers.motivation_retry._compute_ai_smell_score",
             lambda warnings, template_type, char_max: {
                 "score": 0.8,
                 "tier": 2,
@@ -193,11 +193,11 @@ class TestMaybeRetryForAiSmellFailureModes:
             },
         )
         monkeypatch.setattr(
-            "app.routers.motivation._is_within_char_limits",
+            "app.routers.motivation_retry._is_within_char_limits",
             lambda draft, lo, hi: (True, []),
         )
         monkeypatch.setattr(
-            "app.routers.motivation._build_ai_smell_retry_hints",
+            "app.routers.motivation_retry._build_ai_smell_retry_hints",
             lambda warnings: [],
         )
 
@@ -213,7 +213,7 @@ class TestMaybeRetryForAiSmellFailureModes:
                 error=SimpleNamespace(message="rate limited"),
             )
 
-        monkeypatch.setattr("app.routers.motivation.call_llm_with_error", fake_call)
+        monkeypatch.setattr("app.routers.motivation_retry.call_llm_with_error", fake_call)
 
         draft, reason, telemetry = await _maybe_retry_for_ai_smell(
             initial_draft="initial",
@@ -244,7 +244,7 @@ class TestMaybeRetryForAiSmellFailureModes:
                 error=None,
             )
 
-        monkeypatch.setattr("app.routers.motivation.call_llm_with_error", fake_call)
+        monkeypatch.setattr("app.routers.motivation_retry.call_llm_with_error", fake_call)
 
         draft, reason, telemetry = await _maybe_retry_for_ai_smell(
             initial_draft="initial",

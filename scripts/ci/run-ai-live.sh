@@ -48,7 +48,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$suite" in
-  smoke|extended) ;;
+  dev|smoke|extended) ;;
   *)
     echo "Unsupported suite: $suite" >&2
     exit 2
@@ -106,6 +106,16 @@ run_logged() {
   return 0
 }
 
+should_skip_playwright() {
+  [[ "${AI_LIVE_SKIP_ALL_PLAYWRIGHT:-}" == "1" ]]
+}
+
+skip_playwright_step() {
+  local name="$1"
+  echo "[ai-live] skipping ${name} (AI_LIVE_SKIP_ALL_PLAYWRIGHT=1)"
+  append_step_status "$name" "skipped"
+}
+
 export AI_LIVE_OUTPUT_DIR="$run_dir"
 export LIVE_AI_CONVERSATION_CASE_SET="$suite"
 export LIVE_AI_CONVERSATION_TARGET_ENV="${LIVE_AI_CONVERSATION_TARGET_ENV:-staging}"
@@ -139,9 +149,8 @@ run_es_review() {
     LIVE_ES_REVIEW_BLOCKING_FAILURES="$blocking_failures" \
     python -m pytest backend/tests/es_review/integration/test_live_es_review_provider_report.py -v -s -m integration
 
-  if [[ "${AI_LIVE_SKIP_ES_REVIEW_PLAYWRIGHT:-}" == "1" ]]; then
-    echo "[ai-live] skipping es-review-playwright (AI_LIVE_SKIP_ES_REVIEW_PLAYWRIGHT=1)"
-    append_step_status "es-review-playwright" "skipped"
+  if should_skip_playwright || [[ "${AI_LIVE_SKIP_ES_REVIEW_PLAYWRIGHT:-}" == "1" ]]; then
+    skip_playwright_step "es-review-playwright"
   else
     run_logged \
       "es-review-playwright" \
@@ -158,6 +167,11 @@ run_conversation_feature() {
   local blocking_failures="1"
   if [[ "$suite" == "extended" ]]; then
     blocking_failures="0"
+  fi
+
+  if should_skip_playwright; then
+    skip_playwright_step "${conversation_feature}-playwright"
+    return 0
   fi
 
   run_logged \
@@ -203,15 +217,38 @@ run_company_info_feature() {
     LIVE_COMPANY_INFO_TARGET_ENV="${LIVE_COMPANY_INFO_TARGET_ENV:-staging}" \
     ${env_flag} \
     python -m pytest "$pytest_target" -v -s -m integration
+
+  local playwright_spec=""
+  case "$company_feature" in
+    rag-ingest) playwright_spec="e2e/company-info-rag.spec.ts" ;;
+    selection-schedule) playwright_spec="e2e/company-info-search.spec.ts" ;;
+  esac
+
+  if [[ -n "$playwright_spec" ]]; then
+    if should_skip_playwright; then
+      skip_playwright_step "${company_feature}-playwright"
+    else
+      run_logged \
+        "${company_feature}-playwright" \
+        env \
+        PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-${AI_LIVE_BASE_URL:-https://stg.shupass.jp}}" \
+        PLAYWRIGHT_SKIP_WEBSERVER=1 \
+        CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
+        npx playwright test -c playwright.live.config.ts "$playwright_spec"
+    fi
+  fi
 }
 
 run_company_info_search_feature() {
-  local sample_size="6"
+  local sample_size="10"
   local per_industry_min="1"
   local modes="hybrid"
   local tokens_per_second="2"
 
-  if [[ "$suite" == "extended" ]]; then
+  if [[ "$suite" == "dev" ]]; then
+    sample_size="5"
+    tokens_per_second="3"
+  elif [[ "$suite" == "extended" ]]; then
     sample_size="30"
     per_industry_min="2"
     modes="hybrid,legacy"
@@ -235,6 +272,18 @@ run_company_info_search_feature() {
     BASELINE_SAVE=0 \
     BASELINE_AUTO_PROMOTE=0 \
     python -m pytest backend/tests/company_info/integration/test_live_company_info_search_report.py -v -s -m integration
+
+  if should_skip_playwright; then
+    skip_playwright_step "company-info-search-playwright"
+  else
+    run_logged \
+      "company-info-search-playwright" \
+      env \
+      PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-${AI_LIVE_BASE_URL:-https://stg.shupass.jp}}" \
+      PLAYWRIGHT_SKIP_WEBSERVER=1 \
+      CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
+      npx playwright test -c playwright.live.config.ts e2e/company-info-search.spec.ts
+  fi
 }
 
 run_crud_feature() {
@@ -253,9 +302,33 @@ run_crud_feature() {
     python -m pytest \
       "backend/tests/${crud_feature//-/_}/integration/test_live_${crud_feature//-/_}_report.py" \
       -v -s -m integration
+
+  local playwright_spec=""
+  case "$crud_feature" in
+    calendar|tasks-deadlines) playwright_spec="e2e/deadlines-calendar.spec.ts" ;;
+  esac
+
+  if [[ -n "$playwright_spec" ]]; then
+    if should_skip_playwright; then
+      skip_playwright_step "${crud_feature}-playwright"
+    else
+      run_logged \
+        "${crud_feature}-playwright" \
+        env \
+        PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-${AI_LIVE_BASE_URL:-https://stg.shupass.jp}}" \
+        PLAYWRIGHT_SKIP_WEBSERVER=1 \
+        CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
+        npx playwright test -c playwright.live.config.ts "$playwright_spec"
+    fi
+  fi
 }
 
 run_pages_smoke() {
+  if should_skip_playwright; then
+    skip_playwright_step "pages-smoke-playwright"
+    return 0
+  fi
+
   run_logged \
     "pages-smoke-playwright" \
     env \

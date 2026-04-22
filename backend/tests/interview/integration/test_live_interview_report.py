@@ -283,13 +283,18 @@ async def _run_single_case(client: StagingClient, case: dict[str, Any]) -> dict[
         row["judge"] = judge_result
 
         # 12. Classify
-        row["failureKind"] = classify_failure(None, True, fail_reasons, judge_result)
-        row["status"] = "pass" if row["failureKind"] == "pass" else "fail"
-        if row["failureKind"] == "degraded":
+        row["failureKind"] = classify_failure(
+            None, True, fail_reasons, judge_result, feature="interview",
+        )
+        if row["failureKind"] == "pass":
+            row["status"] = "pass"
+            row["severity"] = "info"
+        elif row["failureKind"] in ("degraded", "soft_fail"):
             row["status"] = "degraded"
             row["severity"] = "warning"
-        elif row["status"] == "pass":
-            row["severity"] = "info"
+        else:
+            row["status"] = "fail"
+            row["severity"] = "error"
 
     except Exception as exc:
         row["status"] = "fail"
@@ -350,10 +355,10 @@ async def test_live_interview_report():
     json_path, md_path = write_conversation_report("interview", rows)
     print(f"[interview] report: {json_path}")
 
-    # Hard failures = anything that is not "pass" or "degraded"
+    # Hard failures = anything that is not "pass", "degraded", or "soft_fail"
     hard_failures = [
         r for r in rows
-        if r.get("failureKind") not in ("pass", "degraded")
+        if r.get("failureKind") not in ("pass", "degraded", "soft_fail")
     ]
     if hard_failures:
         names = [r["caseId"] for r in hard_failures]

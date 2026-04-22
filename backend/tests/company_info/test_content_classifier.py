@@ -11,12 +11,6 @@ async def test_classify_content_category_with_llm_formats_optional_fields_safely
 ) -> None:
     captured: dict[str, str] = {}
 
-    monkeypatch.setattr(
-        content_classifier,
-        "get_managed_prompt_content",
-        lambda _key, *, fallback: fallback,
-    )
-
     async def _fake_call_llm_with_error(**kwargs):
         captured["user_message"] = kwargs["user_message"]
         return SimpleNamespace(success=True, data={"category": "corporate_site"})

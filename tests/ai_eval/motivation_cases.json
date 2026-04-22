@@ -19,7 +19,7 @@
   },
   {
     "id": "motivation_bank_trust",
-    "suiteDepth": "smoke",
+    "suiteDepth": "extended",
     "usesCompanyContext": true,
     "title": "銀行の法人営業で顧客信頼を重視するケース",
     "companyName": "株式会社テスト銀行",

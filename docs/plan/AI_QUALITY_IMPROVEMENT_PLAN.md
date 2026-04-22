@@ -46,7 +46,7 @@ last_update: 2026-04-20
 | [ES_REVIEW_QUALITY_IMPROVEMENT_PLAN](ES_REVIEW_QUALITY_IMPROVEMENT_PLAN.md) | Phase 4 で残課題を継続 | **完了** (Phase 10 検証済み 86/100 A)。4-1 hallucination検出は Phase 9 で実装済み。残: 4-2 添削理由説明 |
 | [MOTIVATION_QUALITY_IMPROVEMENT_PLAN](MOTIVATION_QUALITY_IMPROVEMENT_PLAN.md) | Phase 3 で残課題を継続 | **完了** (P1-P4 全完了 92/100 A)。3-3a 分割・3-4 embedding重複は実装済み。残: 3-3b few-shot deepdive |
 | [GAKUCHIKA_QUALITY_IMPROVEMENT_PLAN](GAKUCHIKA_QUALITY_IMPROVEMENT_PLAN.md) | Phase 3 で残課題を継続 | **完了** (Phase 7-A〜7-H 全完了、judge mean 92/100)。3-0a・3-1・3-2 すべて実装済み |
-| [INTERVIEW_QUALITY_IMPROVEMENT_PLAN](INTERVIEW_QUALITY_IMPROVEMENT_PLAN.md) | Phase 4 で残課題を継続 | **Phase 2 完了** (83/100 A)。残: 4-3 採点キャリブレーション |
+| [INTERVIEW_QUALITY_IMPROVEMENT_PLAN](INTERVIEW_QUALITY_IMPROVEMENT_PLAN.md) | Phase 3 完了 | **Phase 3 完了** (90+/100 目標, 2026-04-21)。A: prompt/fallback改善, B: UX改善7件, C: テスト拡充 |
 | [RAG_ARCHITECTURE_IMPROVEMENT_PLAN](RAG_ARCHITECTURE_IMPROVEMENT_PLAN.md) | Phase 1B/2 が P0 の前提を一部カバー | 未着手。6ゲートFAIL根本原因(web_search.py)はこのスコープ |
 | [MAINTAINABILITY_IMPROVEMENT_PLAN](MAINTAINABILITY_IMPROVEMENT_PLAN.md) | Phase 2/3 のファイル分割が M-3/M-4 と連動 | company_info.py・motivation.py 分割完了で連動部分は解消 |
 

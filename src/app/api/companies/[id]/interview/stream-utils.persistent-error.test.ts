@@ -2,15 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const {
-  fetchFastApiInternalMock,
+  fetchUpstreamSSEMock,
   normalizeInterviewPersistenceErrorMock,
 } = vi.hoisted(() => ({
-  fetchFastApiInternalMock: vi.fn(),
+  fetchUpstreamSSEMock: vi.fn(),
   normalizeInterviewPersistenceErrorMock: vi.fn(),
 }));
 
-vi.mock("@/lib/fastapi/client", () => ({
-  fetchFastApiInternal: fetchFastApiInternalMock,
+vi.mock("@/lib/fastapi/stream-transport", () => ({
+  fetchUpstreamSSE: fetchUpstreamSSEMock,
 }));
 
 vi.mock("./persistence-errors", () => ({
@@ -27,7 +27,7 @@ vi.mock("@/lib/ai/cost-summary-log", () => ({
 
 describe("interview stream utils persistence errors", () => {
   beforeEach(() => {
-    fetchFastApiInternalMock.mockReset();
+    fetchUpstreamSSEMock.mockReset();
     normalizeInterviewPersistenceErrorMock.mockReset();
   });
 
@@ -45,7 +45,10 @@ describe("interview stream utils persistence errors", () => {
         controller.close();
       },
     });
-    fetchFastApiInternalMock.mockResolvedValue(new Response(upstream, { status: 200 }));
+    fetchUpstreamSSEMock.mockResolvedValue({
+      response: new Response(upstream, { status: 200 }),
+      clearTimeout: vi.fn(),
+    });
     normalizeInterviewPersistenceErrorMock.mockReturnValue({
       code: "INTERVIEW_PERSISTENCE_UNAVAILABLE",
       companyId: "company-1",

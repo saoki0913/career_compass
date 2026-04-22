@@ -101,7 +101,7 @@ AGENTS.md / CLAUDE.md  (Subagent Routing 正本)
 
 MCP 設定はツールごとの設定ファイルがそれぞれ正本であり、`.mcp.json` から自動生成はしない。本ドキュメントは差分管理のために「存在と用途」を一覧化する。user scope の設定はリポジトリには記録しない。
 
-`.claude/settings.json` の `env` では Claude Code の Bash timeout を project scope で上書きしており、`BASH_DEFAULT_TIMEOUT_MS=3600000` と `BASH_MAX_TIMEOUT_MS=3600000` を設定する。これにより、Claude から `bash scripts/codex/delegate.sh ...` のような長時間委譲コマンドを実行しても、デフォルト 2 分 / 最大 10 分ではなく 60 分まで許可する。
+`.claude/settings.json` の `env` に `BASH_DEFAULT_TIMEOUT_MS=3600000` と `BASH_MAX_TIMEOUT_MS=7200000` を環境変数として設定している。これらはシェル内で `delegate.sh` が参照可能だが、Claude Code の Bash ツール `timeout` パラメータを直接制御するものではない。モデルへの timeout 指示は CLAUDE.md Section A/B/C-5 が正本であり、`delegate.sh` 呼び出し時に Bash ツールの `timeout` パラメータとして `3600000`（60分）または `7200000`（120分）を明示指定する。
 
 ---
 

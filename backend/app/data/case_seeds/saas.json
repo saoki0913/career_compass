@@ -1,0 +1,18 @@
+{
+  "industry": "saas",
+  "business_context": "中堅企業向け業務 SaaS (ARR 約 30 億円) で解約率悪化、Net Churn 6% 台。",
+  "target_metric": "Net Revenue Retention (NRR)",
+  "constraints": [
+    "CS 組織新設 1 年で未整備",
+    "プロダクト開発 6 ヶ月凍結",
+    "既存契約縛りで値上げ半年不可"
+  ],
+  "candidate_task": "NRR を 90% 台前半から 110% 以上に戻す打ち手を優先順位付きで提案してください。",
+  "why_this_company": "NRR 分解 (ロゴ維持 × 既存拡大) と制約下の優先順位",
+  "case_followup_topics": [
+    "解約 / ダウンセル / アップセルの分解",
+    "CS とセールスの接点設計",
+    "プロダクト凍結下で打てる施策"
+  ],
+  "case_seed_version": "v1.0"
+}

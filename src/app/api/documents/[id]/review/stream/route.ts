@@ -7,8 +7,6 @@
 import type { NextRequest } from "next/server";
 import { handleReviewStream } from "@/app/api/documents/_services/handle-review-stream";
 
-export { handleReviewStream } from "@/app/api/documents/_services/handle-review-stream";
-
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }

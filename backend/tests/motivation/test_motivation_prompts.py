@@ -1,52 +1,28 @@
-"""Unit tests for motivation prompt templates and managed prompt registry.
+"""Unit tests for motivation prompt templates.
 
 Covers:
-- P1-3 / A-1: `slot_summaries_section` variable is wired into `motivation.evaluation`
-- P2-7 / C-1: positive instruction for RAG-grounded question phrasing lands in all 3 keys
-- P2-9 / C-2: 3-line persona shipped to `motivation.question`
+- P1-3 / A-1: `slot_summaries_section` variable is wired into the evaluation prompt
+- P2-1 / P2-2 / P2-3: deepdive few-shot, slot completeness rubric, skeleton-slot mapping
+- P2-7 / C-1: positive instruction for RAG-grounded question phrasing lands in all 3 fallbacks
+- P2-9 / C-2: 3-line persona shipped to MOTIVATION_QUESTION_PROMPT
 """
 
 from __future__ import annotations
-
-import json
-from pathlib import Path
-
-import pytest
 
 from app.prompts.motivation_prompts import (
     MOTIVATION_DEEPDIVE_QUESTION_PROMPT,
     MOTIVATION_EVALUATION_PROMPT,
     MOTIVATION_QUESTION_PROMPT,
+    _MOTIVATION_DEEPDIVE_QUESTION_PROMPT_FALLBACK,
+    _MOTIVATION_EVALUATION_PROMPT_FALLBACK,
+    _MOTIVATION_QUESTION_PROMPT_FALLBACK,
 )
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
-GENERATED_PROMPTS_PATH = REPO_ROOT / "backend" / "app" / "prompts" / "generated" / "notion_prompts.json"
-
-
-@pytest.fixture(scope="module")
-def generated_prompts() -> dict:
-    with open(GENERATED_PROMPTS_PATH, encoding="utf-8") as f:
-        return json.load(f)
 
 
 class TestSlotSummariesSectionWiring:
     """A-1: slot_summaries_section が motivation.evaluation に到達する."""
 
-    def test_variable_listed_in_managed_prompt(self, generated_prompts: dict) -> None:
-        variables = generated_prompts["motivation.evaluation"]["variables"]
-        assert "slot_summaries_section" in variables, (
-            "motivation.evaluation variables に slot_summaries_section が未登録。"
-            " str.format() で silent drop される。"
-        )
-
-    def test_placeholder_exists_in_content(self, generated_prompts: dict) -> None:
-        content = generated_prompts["motivation.evaluation"]["content"]
-        assert "{slot_summaries_section}" in content, (
-            "motivation.evaluation content に {slot_summaries_section} プレースホルダが不在。"
-        )
-
     def test_placeholder_exists_in_python_fallback(self) -> None:
-        # Python fallback でも同じ variable を参照していること
         assert "{slot_summaries_section}" in MOTIVATION_EVALUATION_PROMPT
 
     def test_evaluation_prompt_format_injects_summary(self) -> None:
@@ -66,39 +42,9 @@ class TestSlotSummariesSectionWiring:
 
 
 class TestPositiveGroundingInstruction:
-    """C-1 / P2-7: RAG 固有名詞の参照を肯定形で許可するルールが 3 つの managed prompt に届く."""
+    """C-1 / P2-7: RAG 固有名詞の参照を肯定形で許可するルールが 3 つの prompt fallback に届く."""
 
-    MOTIVATION_KEYS = (
-        "motivation.evaluation",
-        "motivation.question",
-        "motivation.deepdive_question",
-    )
-
-    def test_woven_city_example_present_in_all_managed_prompts(self, generated_prompts: dict) -> None:
-        for key in self.MOTIVATION_KEYS:
-            content = generated_prompts[key]["content"]
-            assert "Woven City" in content, (
-                f"{key} に肯定形グラウンディング例 (Woven City) が同期されていない。"
-                f" Notion 側の本文更新と --apply による再同期が必要。"
-            )
-
-    def test_positive_form_instruction_present_in_all_managed_prompts(self, generated_prompts: dict) -> None:
-        for key in self.MOTIVATION_KEYS:
-            content = generated_prompts[key]["content"]
-            # 「〜について」形式を許可する肯定指示が存在する
-            assert "のような取り組み" in content, (
-                f"{key} に肯定形の質問例「〜のような取り組み」が含まれていない"
-            )
-
-    def test_positive_instruction_also_in_python_fallback(self) -> None:
-        """`.py` fallback 側にも新ルールが入っていること（Notion 削除時のセーフティネット）."""
-        # evaluation/question/deepdive_question すべて同じ _GROUNDING_AND_SAFETY_RULES を参照するため
-        # 代表として 2 種を確認
-        from app.prompts.motivation_prompts import (
-            _MOTIVATION_EVALUATION_PROMPT_FALLBACK,
-            _MOTIVATION_QUESTION_PROMPT_FALLBACK,
-            _MOTIVATION_DEEPDIVE_QUESTION_PROMPT_FALLBACK,
-        )
+    def test_positive_instruction_in_all_python_fallbacks(self) -> None:
         for fallback in (
             _MOTIVATION_EVALUATION_PROMPT_FALLBACK,
             _MOTIVATION_QUESTION_PROMPT_FALLBACK,
@@ -106,6 +52,15 @@ class TestPositiveGroundingInstruction:
         ):
             assert "Woven City" in fallback
             assert "のような取り組み" in fallback
+
+    def test_woven_city_example_present_in_active_prompts(self) -> None:
+        for prompt in (
+            MOTIVATION_EVALUATION_PROMPT,
+            MOTIVATION_QUESTION_PROMPT,
+            MOTIVATION_DEEPDIVE_QUESTION_PROMPT,
+        ):
+            assert "Woven City" in prompt
+            assert "のような取り組み" in prompt
 
 
 class TestQuestionPersonaThreeLine:
@@ -117,25 +72,53 @@ class TestQuestionPersonaThreeLine:
         "1問ずつ短く聞いて、学生自身の言葉で材料を引き出してください。",
     )
 
-    def test_managed_prompt_starts_with_three_line_persona(self, generated_prompts: dict) -> None:
-        content = generated_prompts["motivation.question"]["content"]
-        for line in self._PERSONA_LINES:
-            assert line in content, f"motivation.question に新ペルソナ行が見当たらない: {line!r}"
-        # 先頭 3 行が上記 3 行であることを確認（ペルソナが別セクションに埋没していない）
-        head = "\n".join(content.splitlines()[:3])
-        for line in self._PERSONA_LINES:
-            assert line in head, f"ペルソナが prompt 冒頭にない: {line!r}\n先頭3行:\n{head}"
-
     def test_python_fallback_has_three_line_persona(self) -> None:
-        from app.prompts.motivation_prompts import _MOTIVATION_QUESTION_PROMPT_FALLBACK
         for line in self._PERSONA_LINES:
             assert line in _MOTIVATION_QUESTION_PROMPT_FALLBACK
 
-    def test_old_single_line_persona_removed(self, generated_prompts: dict) -> None:
+    def test_active_prompt_starts_with_three_line_persona(self) -> None:
+        head = "\n".join(MOTIVATION_QUESTION_PROMPT.splitlines()[:3])
+        for line in self._PERSONA_LINES:
+            assert line in head, f"ペルソナが prompt 冒頭にない: {line!r}\n先頭3行:\n{head}"
+
+    def test_old_single_line_persona_removed(self) -> None:
         """旧 1 行ペルソナがそのまま残っていないこと."""
-        content = generated_prompts["motivation.question"]["content"]
         legacy = (
             "あなたは就活生向けの志望動機作成アドバイザーです。"
             "会話履歴と企業情報を読み、"
         )
-        assert legacy not in content, "旧 1 行ペルソナが削除されていない"
+        assert legacy not in MOTIVATION_QUESTION_PROMPT, "旧 1 行ペルソナが削除されていない"
+
+
+class TestDeepDiveFewShotExamples:
+    """Phase 2: 深掘り質問の few-shot 例が prompt に入る."""
+
+    def test_deepdive_prompt_contains_good_and_bad_examples(self) -> None:
+        prompt = MOTIVATION_DEEPDIVE_QUESTION_PROMPT
+        assert "## 質問の良い例・悪い例" in prompt
+        assert "### 例1: company_reason_strengthening" in prompt
+        assert "良い質問: 「アジア展開の中でも" in prompt
+        assert "悪い質問: 「もう少し詳しく教えてください」" in prompt
+        assert "### 例3: differentiation_strengthening" in prompt
+        assert "悪い質問: 「なぜ他社を選ばないのですか」" in prompt
+
+
+class TestCompletenessAndSkeletonGuidance:
+    """Phase 2: 6要素判定基準と4部構造→スロット対応が prompt に入る."""
+
+    def test_slot_completeness_rules_include_four_state_examples(self) -> None:
+        prompt = MOTIVATION_EVALUATION_PROMPT
+        assert "filled_strong" in prompt
+        assert "filled_weak" in prompt
+        assert "partial" in prompt
+        assert "Woven City" in prompt
+        assert "グローバルに展開している点が魅力" in prompt
+        assert "知名度がある" in prompt
+
+    def test_question_prompt_includes_structure_to_slot_mapping(self) -> None:
+        prompt = MOTIVATION_QUESTION_PROMPT
+        assert "## 志望動機ドラフトの基本構成と6スロットの対応" in prompt
+        assert "冒頭15% → industry_reason + company_reason" in prompt
+        assert "企業理解25% → company_reason + differentiation" in prompt
+        assert "自己接点35% → self_connection + desired_work" in prompt
+        assert "締め25% → value_contribution" in prompt

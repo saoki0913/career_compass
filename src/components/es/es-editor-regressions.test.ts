@@ -33,4 +33,14 @@ describe("ES editor regressions", () => {
     expect(mobilePanelSource).not.toContain("onReviewComplete");
     expect(hookSource).not.toContain("onReviewComplete");
   });
+
+  it("wires streamed improvement explanation through the ES review UI", () => {
+    const reviewPanelSource = readSource("src/components/es/ReviewPanel.tsx");
+    const hookSource = readSource("src/hooks/useESReview.ts");
+
+    expect(reviewPanelSource).toContain("explanationText={explanationText}");
+    expect(reviewPanelSource).toContain("explanationComplete={explanationComplete}");
+    expect(hookSource).toContain('event.path === "improvement_explanation"');
+    expect(hookSource).toContain("explanationComplete: true");
+  });
 });

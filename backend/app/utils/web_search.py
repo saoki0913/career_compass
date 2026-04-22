@@ -31,6 +31,33 @@ from app.utils.company_names import (
 from app.utils.http_fetch import fetch_page_content, extract_text_from_html
 from app.utils.intent_profile import AMBIGUOUS_RULES, AMBIGUOUS_TOKENS, get_all_intent_profiles, get_intent_profile
 
+# ---------------------------------------------------------------------------
+# Extracted modules — import and re-export for backward compatibility
+# ---------------------------------------------------------------------------
+from app.utils.web_search_query import (  # noqa: F401  — re-exported
+    COMPANY_DOMAIN_SUFFIXES,
+    COMPANY_QUERY_ALIASES,
+    COMPANY_SUFFIXES,
+    _get_graduation_year,
+    _merge_query_aliases,
+    _reformulate_empty_query,
+    extract_ascii_name,
+    generate_company_variants,
+    generate_query_variations,
+    normalize_company_name,
+)
+from app.utils.web_search_filter import (  # noqa: F401  — re-exported
+    AGGREGATOR_DOMAINS,
+    EXCLUDED_DOMAINS,
+    EXTERNAL_STRICT_CATEGORIES,
+    FAQ_EXCLUDE_CATEGORIES,
+    FAQ_LIKE_PATTERNS,
+    INTENT_GATE_CATEGORIES,
+    INTENT_GATE_RELAXED_THRESHOLD,
+    INTENT_GATE_THRESHOLD,
+    _prefilter_results,
+)
+
 logger = logging.getLogger(__name__)
 
 LOG_MAX_ITEMS = 20
@@ -101,8 +128,8 @@ WEB_SEARCH_RERANK_TOP_K = 30  # Top results to rerank
 WEB_SEARCH_SITE_RETRY_MIN_RESULTS = 3  # Trigger site: rescue below this count
 
 # Score combination weights
-WEIGHT_RERANK = 0.45  # Semantic relevance
-WEIGHT_INTENT = 0.40  # Intent/domain/year signals
+WEIGHT_RERANK = 0.50  # Semantic relevance (base-v2 higher quality)
+WEIGHT_INTENT = 0.35  # Intent/domain/year signals
 WEIGHT_RRF = 0.15  # Multi-query frequency
 
 # Short company name guard (e.g., "AGC", "TDK")
@@ -139,54 +166,9 @@ VERIFY_CACHE_TTL = timedelta(minutes=30)
 CACHE_TTL = timedelta(minutes=30)
 CACHE_MAX_SIZE = 200
 
-# Company name suffixes to normalize
-COMPANY_SUFFIXES = [
-    "株式会社",
-    "（株）",
-    "(株)",
-    "㈱",
-    "有限会社",
-    "合同会社",
-    "合資会社",
-    "Inc.",
-    "Inc",
-    "Ltd.",
-    "Ltd",
-    "Co.,Ltd.",
-    "Co.,Ltd",
-    "Co., Ltd.",
-    "Corporation",
-    "Corp.",
-    "Corp",
-    "Holdings",
-    "ホールディングス",
-    "HD",
-    "グループ",
-]
-
-# Long company name shortening suffixes (domain-specific, not legal)
-COMPANY_DOMAIN_SUFFIXES = [
-    "火災保険",
-    "海上火災",
-    "ホールディングス",
-    "グループ",
-    "フィナンシャルグループ",
-    "フィナンシャル",
-]
-
-# Company-specific query aliases (used to improve recall for brand/English names)
-COMPANY_QUERY_ALIASES = {
-    "BCG": ["BCG", "Boston Consulting Group"],
-    "PwC": ["PwC", "PricewaterhouseCoopers"],
-    "KPMG": ["KPMG"],
-    "P&G": ["P&G", "P&G Japan", "Procter & Gamble", "Procter and Gamble", "Procter Gamble", "PG"],
-    "SUBARU": ["SUBARU"],
-    "NTTデータ": ["NTT DATA", "NTTData"],
-    "NTTドコモ": ["docomo", "ドコモ"],
-    "三菱UFJ銀行": ["MUFG", "MUFG Bank", "MUFGBANK"],
-    "JFE商事": ["JFE商事", "JFETC"],
-    "三越伊勢丹": ["IMHDS", "IMHD", "三越伊勢丹ホールディングス"],
-}
+# COMPANY_SUFFIXES — moved to web_search_query.py, re-exported above
+# COMPANY_DOMAIN_SUFFIXES — moved to web_search_query.py, re-exported above
+# COMPANY_QUERY_ALIASES — moved to web_search_query.py, re-exported above
 
 # Recruitment-related keywords for scoring
 RECRUIT_KEYWORDS_TITLE = [
@@ -224,64 +206,8 @@ RECRUIT_KEYWORDS_URL = [
 
 RECRUIT_SUBDOMAINS = ["recruit", "saiyo", "entry", "career", "careers", "job", "jobs"]
 
-# Excluded domains
-EXCLUDED_DOMAINS = [
-    "youtube.com",
-    "twitter.com",
-    "x.com",
-    "instagram.com",
-    "facebook.com",
-    "tiktok.com",
-    "note.com",
-    "ameblo.jp",
-    "hatena.ne.jp",
-    "prtimes.jp",
-    "news.yahoo.co.jp",
-    "nikkei.com",
-    "wikipedia.org",
-    "tickerreport.com",
-    "aum13f.com",
-    "ibankie.com",
-    "cryptonews.com",
-    "tapwage.com",
-    "interviewanswers.com",
-    "skymizer.ai",
-    "yell.com",
-    "ncsy.org",
-    "nttdatafoundation.com",
-    "presseportal.de",
-    "telcomagazine.com",
-    "test-dev-site.site",
-    "i-webs.jp",
-    "snar.jp",
-    "hrmos.co.jp",
-    "hrmos.co",
-]
-
-# Job aggregator sites (lower score but not excluded)
-AGGREGATOR_DOMAINS = [
-    "rikunabi.com",
-    "mynavi.jp",
-    "onecareer.jp",
-    "unistyle.jp",
-    "goodfind.jp",
-    "offerbox.jp",
-    "wantedly.com",
-    "indeed.com",
-    "en-japan.com",
-    "doda.jp",
-    "careerpark.jp",
-    "rikeinavi.com",
-    "reashu.com",
-    "ut-board.com",
-    "talentsquare.co.jp",
-    "renew-career.com",
-    "abuild-c.com",
-    "pasonacareer.jp",
-    "r-agent.com",
-    "careerup-media.com",
-    "syukatsu-kaigi.jp",
-]
+# EXCLUDED_DOMAINS — moved to web_search_filter.py, re-exported above
+# AGGREGATOR_DOMAINS — moved to web_search_filter.py, re-exported above
 
 # Trusted job sites for selection-schedule retrieval fallback.
 # Official recruitment sites remain the primary source.
@@ -291,19 +217,7 @@ TRUSTED_SCHEDULE_JOB_SITE_DOMAINS = [
     "onecareer.jp",
 ]
 
-# FAQ/Help-like paths to exclude in certain categories
-FAQ_LIKE_PATTERNS = [
-    "faq",
-    "help",
-    "support",
-    "shop",
-    "campaign",
-    "loan",
-    "net_simulation",
-    "tenpoinfo",
-    "branch",
-    "store",
-]
+# FAQ_LIKE_PATTERNS — moved to web_search_filter.py, re-exported above
 
 
 def is_trusted_schedule_job_site(url: str) -> bool:
@@ -318,40 +232,11 @@ def is_trusted_schedule_job_site(url: str) -> bool:
         for domain in TRUSTED_SCHEDULE_JOB_SITE_DOMAINS
     )
 
-# Categories where external sites should be excluded entirely
-EXTERNAL_STRICT_CATEGORIES = {
-    "new_grad_recruitment",
-    "midcareer_recruitment",
-    "ir_materials",
-    "csr_sustainability",
-    "midterm_plan",
-    "press_release",
-}
-
-# Categories where FAQ/help-like pages should be excluded
-FAQ_EXCLUDE_CATEGORIES = {
-    "ceo_message",
-    "employee_interviews",
-    "ir_materials",
-    "csr_sustainability",
-    "midterm_plan",
-    "press_release",
-}
-
-# Categories where intent gate should be enforced
-INTENT_GATE_CATEGORIES = {
-    "new_grad_recruitment",
-    "midcareer_recruitment",
-    "ir_materials",
-    "csr_sustainability",
-    "midterm_plan",
-    "press_release",
-    "ceo_message",
-    "employee_interviews",
-}
-
-INTENT_GATE_THRESHOLD = 0.7
-INTENT_GATE_RELAXED_THRESHOLD = 0.55
+# EXTERNAL_STRICT_CATEGORIES — moved to web_search_filter.py, re-exported above
+# FAQ_EXCLUDE_CATEGORIES — moved to web_search_filter.py, re-exported above
+# INTENT_GATE_CATEGORIES — moved to web_search_filter.py, re-exported above
+# INTENT_GATE_THRESHOLD — moved to web_search_filter.py, re-exported above
+# INTENT_GATE_RELAXED_THRESHOLD — moved to web_search_filter.py, re-exported above
 
 # Content type to search intent mapping
 CONTENT_TYPE_SEARCH_INTENT = {
@@ -541,270 +426,12 @@ def _normalize_cache_mode(cache_mode: str | None, fallback: str) -> str:
     return fallback
 
 
-# =============================================================================
-# Company Name Utilities
-# =============================================================================
-
-
-def normalize_company_name(name: str) -> str:
-    """Normalize company name by removing legal suffixes."""
-    result = name
-    for suffix in COMPANY_SUFFIXES:
-        result = result.replace(suffix, "")
-    return result.strip()
-
-
-def extract_ascii_name(name: str) -> str | None:
-    """Extract ASCII/romanized version of company name."""
-    # Check for ASCII-only portions
-    ascii_parts = re.findall(r"[A-Za-z]{2,}", name)
-    if ascii_parts:
-        return ascii_parts[0].lower()
-    return None
-
-
-def generate_company_variants(company_name: str) -> list[str]:
-    """
-    Generate company name variants for search queries.
-
-    Returns list of variants: [original, normalized, ascii, short forms]
-    """
-    variants = [company_name]
-
-    # Normalized (without legal suffix)
-    normalized = normalize_company_name(company_name)
-    if normalized != company_name and normalized:
-        variants.append(normalized)
-
-    # ASCII/romanized version
-    ascii_name = extract_ascii_name(company_name)
-    if ascii_name:
-        variants.append(ascii_name)
-
-    # Short variant for long names (remove domain-specific suffixes)
-    short = normalized
-    for suffix in COMPANY_DOMAIN_SUFFIXES:
-        if short.endswith(suffix):
-            short = short[: -len(suffix)].strip()
-            break
-    if short and short != normalized and len(short) >= 3:
-        variants.append(short)
-
-    # Remove duplicates while preserving order
-    seen = set()
-    unique_variants = []
-    for v in variants:
-        v_lower = v.lower()
-        if v_lower not in seen and v:
-            seen.add(v_lower)
-            unique_variants.append(v)
-
-    return unique_variants
-
-
-def _merge_query_aliases(company_name: str, base_variants: list[str]) -> list[str]:
-    aliases = COMPANY_QUERY_ALIASES.get(company_name, [])
-    if not aliases:
-        return base_variants
-
-    merged = list(base_variants)
-    seen = {v.lower() for v in base_variants if v}
-    for alias in aliases:
-        alias_normalized = alias.lower()
-        if alias_normalized in seen or not alias:
-            continue
-        merged.append(alias)
-        seen.add(alias_normalized)
-
-    return merged
-
-
-# =============================================================================
-# Query Generation
-# =============================================================================
-
-
-def generate_query_variations(
-    company_name: str,
-    search_intent: str = "recruitment",
-    graduation_year: int | None = None,
-    selection_type: str | None = None,
-) -> list[str]:
-    """
-    Generate diverse search query variations for improved recall.
-
-    Args:
-        company_name: Company name to search for
-        search_intent: "recruitment" | "corporate_ir" | "corporate_about"
-        graduation_year: Target graduation year (e.g., 2027)
-        selection_type: "main_selection" | "internship" | None
-
-    Returns:
-        List of 6-8 unique search queries
-    """
-    queries = []
-    base_variants = generate_company_variants(company_name)
-    company_variants = _merge_query_aliases(company_name, base_variants)
-    if not company_variants:
-        primary_name = company_name or ""
-    else:
-        primary_name = company_variants[0]
-    short_name = company_variants[1] if len(company_variants) > 1 else primary_name
-    alias_name = company_variants[2] if len(company_variants) > 2 else None
-    ascii_name = base_variants[2] if len(base_variants) > 2 else None
-
-    grad_year = graduation_year or _get_graduation_year()
-    grad_year_short = grad_year % 100
-
-    def add_queries(suffixes: list[str]):
-        for suffix in suffixes:
-            queries.append(f"{primary_name} {suffix}")
-            if short_name != primary_name:
-                queries.append(f"{short_name} {suffix}")
-
-    if search_intent in {"recruitment", "new_grad"}:
-        if alias_name:
-            queries.extend([f"{alias_name} 新卒採用", f"{alias_name} Graduate Recruitment"])
-        if selection_type == "internship":
-            add_queries(
-                [
-                    f"インターン {grad_year_short}卒",
-                    f"インターン 選考スケジュール {grad_year_short}卒",
-                    "インターンシップ 募集",
-                    f"インターン 募集要項 {grad_year}",
-                    f"サマーインターン {grad_year}",
-                    "インターン エントリー",
-                ]
-            )
-        else:
-            add_queries(
-                [
-                    f"新卒採用 {grad_year_short}卒",
-                    f"選考スケジュール {grad_year_short}卒",
-                    f"新卒採用 {grad_year}",
-                    f"募集要項 {grad_year}",
-                    "新卒採用情報",
-                    "新卒 採用HP",
-                    "エントリー 締切",
-                    "Graduate Recruitment",
-                    "Early Career",
-                ]
-            )
-        if ascii_name:
-            queries.append(f"{ascii_name} graduate recruitment")
-        trusted_site_queries = [
-            f"{primary_name} 新卒採用 {grad_year} site:job.mynavi.jp",
-            f"{primary_name} 新卒採用 {grad_year} site:job.rikunabi.com",
-            f"{primary_name} {grad_year_short}卒 site:onecareer.jp",
-        ]
-        queries.extend(trusted_site_queries)
-
-    elif search_intent == "midcareer":
-        if alias_name:
-            queries.extend([f"{alias_name} キャリア採用", f"{alias_name} Job Openings"])
-        add_queries(
-            [
-                "中途採用",
-                "キャリア採用",
-                "経験者採用",
-                "Job Openings",
-                "Experienced Hire",
-            ]
-        )
-
-    elif search_intent == "corporate_ir":
-        add_queries(
-            [
-                "IR",
-                "投資家情報",
-                "有価証券報告書",
-                "決算説明資料",
-                "統合報告書",
-                "決算短信",
-            ]
-        )
-
-    elif search_intent == "corporate_about":
-        add_queries(["会社概要", "企業情報", "事業内容", "会社案内"])
-
-    elif search_intent == "ceo_message":
-        add_queries(
-            [
-                "社長メッセージ",
-                "代表挨拶",
-                "トップメッセージ",
-                "CEO Message",
-                "社長挨拶",
-                "ごあいさつ",
-            ]
-        )
-
-    elif search_intent == "employee_interviews":
-        add_queries(
-            [
-                "社員インタビュー",
-                "社員紹介",
-                "社員の声",
-                "Employee Interview",
-                "Culture",
-                "先輩社員",
-                "働く人",
-            ]
-        )
-
-    elif search_intent == "csr":
-        add_queries(
-            [
-                "CSR",
-                "サステナビリティ",
-                "ESG",
-                "サステナビリティレポート",
-                "ESG Report",
-            ]
-        )
-
-    elif search_intent == "midterm_plan":
-        add_queries(
-            [
-                "中期経営計画",
-                "中期計画",
-                "中期経営方針",
-                "Medium-Term Plan",
-                "経営計画",
-                "長期ビジョン",
-            ]
-        )
-
-    elif search_intent == "press_release":
-        add_queries(
-            [
-                "プレスリリース",
-                "ニュースリリース",
-                "報道発表",
-                "Press Release",
-            ]
-        )
-
-    # Deduplicate while preserving order
-    seen = set()
-    unique_queries = []
-    for q in queries:
-        q_normalized = q.lower().strip()
-        if q_normalized not in seen:
-            seen.add(q_normalized)
-            unique_queries.append(q)
-
-    return unique_queries[:WEB_SEARCH_MAX_QUERIES]
-
-
-def _get_graduation_year() -> int:
-    """Calculate the current target graduation year."""
-    now = datetime.now()
-    # If before October, target next year + 2 (e.g., 2024年1月 → 2026卒)
-    # If October or later, target next year + 3 (e.g., 2024年10月 → 2027卒)
-    if now.month < 10:
-        return now.year + 2
-    return now.year + 3
+# normalize_company_name — moved to web_search_query.py, re-exported above
+# extract_ascii_name — moved to web_search_query.py, re-exported above
+# generate_company_variants — moved to web_search_query.py, re-exported above
+# _merge_query_aliases — moved to web_search_query.py, re-exported above
+# generate_query_variations — moved to web_search_query.py, re-exported above
+# _get_graduation_year — moved to web_search_query.py, re-exported above
 
 
 # =============================================================================
@@ -903,11 +530,15 @@ def rrf_merge_web_results(
     return merged
 
 
+# _reformulate_empty_query — moved to web_search_query.py, re-exported above
+
+
 async def search_with_rrf_fusion(
     queries: list[str],
     max_results_per_query: int = 8,
     rrf_k: int = 60,
     return_raw: bool = False,
+    company_name: str = "",
 ) -> list[WebSearchResult] | tuple[list[WebSearchResult], list[list[dict]]]:
     """
     Execute multiple DuckDuckGo searches and combine with RRF.
@@ -916,6 +547,7 @@ async def search_with_rrf_fusion(
         queries: List of search queries
         max_results_per_query: Max results per query
         rrf_k: RRF constant
+        company_name: Company name for retry reformulation
 
     Returns:
         Merged results with RRF scores
@@ -925,7 +557,24 @@ async def search_with_rrf_fusion(
 
     # Execute all searches in parallel
     tasks = [_search_ddg_async(q, max_results_per_query) for q in queries]
-    results_by_query = await asyncio.gather(*tasks, return_exceptions=True)
+    results_by_query = list(await asyncio.gather(*tasks, return_exceptions=True))
+
+    # Retry empty queries (max 3) with reformulated queries
+    empty_indices = [
+        i for i, r in enumerate(results_by_query)
+        if isinstance(r, list) and not r
+    ]
+    if empty_indices and len(empty_indices) <= 3 and company_name:
+        retry_queries = [
+            _reformulate_empty_query(queries[i], company_name)
+            for i in empty_indices[:3]
+        ]
+        retry_tasks = [_search_ddg_async(q, max_results_per_query) for q in retry_queries]
+        retry_results = await asyncio.gather(*retry_tasks, return_exceptions=True)
+        for idx, retry_result in zip(empty_indices[:3], retry_results):
+            if isinstance(retry_result, list) and retry_result:
+                results_by_query[idx] = retry_result
+                logger.debug(f"[WebSearch] DDG retry succeeded for query index {idx}")
 
     if WEB_SEARCH_DEBUG:
         debug_entries: list[dict] = []
@@ -1219,174 +868,7 @@ def _build_site_queries(base_queries: list[str], site_domains: list[str]) -> lis
     return deduped
 
 
-def _prefilter_results(
-    results: list[WebSearchResult],
-    company_name: str,
-    official_patterns: list[str],
-    strict_match: bool,
-    allow_aggs: bool,
-    allow_snippet_match: bool,
-    short_name_guard: bool,
-    content_type: str | None,
-    target_intent: str,
-    preferred_domain: str | None = None,
-) -> list[WebSearchResult]:
-    lower_content_type = content_type or ""
-    exclude_external = lower_content_type in EXTERNAL_STRICT_CATEGORIES
-    exclude_faq = lower_content_type in FAQ_EXCLUDE_CATEGORIES
-    enforce_intent_gate = lower_content_type in INTENT_GATE_CATEGORIES
-
-    def _run_filter_pass(
-        *,
-        phase: str,
-        intent_gate_threshold: float,
-        relax_external_for_company_match: bool,
-    ) -> tuple[list[WebSearchResult], dict[str, int], list[dict]]:
-        filtered_local: list[WebSearchResult] = []
-        debug_records_local: list[dict] = []
-        exclude_counts_local: dict[str, int] = {}
-
-        for result in results:
-            domain = result.domain
-            url_lower = (result.url or "").lower()
-            exclude_reason = None
-
-            if any(excl in domain for excl in EXCLUDED_DOMAINS):
-                exclude_reason = "excluded_domain"
-
-            is_aggregator = any(agg in domain for agg in AGGREGATOR_DOMAINS)
-            if not allow_aggs and is_aggregator:
-                exclude_reason = "aggregator_excluded"
-
-            relation = classify_company_domain_relation(
-                result.url,
-                company_name,
-                content_type=content_type,
-            )
-            is_official = bool(relation["is_official"])
-            is_parent_site = bool(relation["is_parent"])
-            is_related_company = is_parent_site or bool(relation["is_subsidiary"])
-            result.is_parent = is_parent_site
-            result.is_subsidiary = bool(relation["is_subsidiary"])
-
-            if exclude_faq and any(pattern in url_lower for pattern in FAQ_LIKE_PATTERNS):
-                exclude_reason = "faq_excluded"
-
-            company_match = _contains_company_name(
-                company_name,
-                title=result.title,
-                url=result.url,
-                snippet=result.snippet,
-                allow_snippet_match=allow_snippet_match,
-            )
-            result.company_name_matched = company_match
-            result.is_official = is_official
-            result.source_type = normalize_company_result_source_type(
-                "aggregator" if is_aggregator else result.source_type,
-                relation,
-            )
-            is_likely_official = is_official or (
-                company_match
-                and not is_aggregator
-                and (
-                    any(domain_pattern_matches(domain, pat) for pat in official_patterns)
-                    or (
-                        preferred_domain
-                        and domain_pattern_matches(domain, preferred_domain)
-                    )
-                )
-            )
-
-            if exclude_external and not is_likely_official and not is_related_company:
-                if not (relax_external_for_company_match and company_match):
-                    exclude_reason = "external_excluded"
-
-            conflicts = get_conflicting_companies_for_domain(domain, company_name)
-            if conflicts:
-                result.is_conflict = True
-                if not is_official and not is_related_company:
-                    exclude_reason = "conflict_domain"
-
-            if short_name_guard and not is_official and not is_related_company:
-                exclude_reason = "short_name_guard"
-
-            intent_gate_score = None
-            if enforce_intent_gate:
-                intent_gate_score = _calculate_intent_match_score(result, target_intent)
-                result.score_breakdown["intent_gate"] = intent_gate_score
-                if not is_likely_official and intent_gate_score < intent_gate_threshold:
-                    exclude_reason = "intent_gate"
-
-            if exclude_reason:
-                exclude_counts_local[exclude_reason] = (
-                    exclude_counts_local.get(exclude_reason, 0) + 1
-                )
-                if len(debug_records_local) < LOG_MAX_ITEMS:
-                    debug_records_local.append(
-                        {
-                            "phase": phase,
-                            "url": result.url,
-                            "domain": domain,
-                            "official": is_official,
-                            "likely_official": is_likely_official,
-                            "preferred": bool(
-                                preferred_domain
-                                and domain_pattern_matches(domain, preferred_domain)
-                            ),
-                            "parent": is_parent_site,
-                            "company_match": company_match,
-                            "intent_gate": intent_gate_score,
-                            "exclude_reason": exclude_reason,
-                        }
-                    )
-                continue
-
-            filtered_local.append(result)
-
-        return filtered_local, exclude_counts_local, debug_records_local
-
-    filtered, exclude_counts, debug_records = _run_filter_pass(
-        phase="strict",
-        intent_gate_threshold=INTENT_GATE_THRESHOLD,
-        relax_external_for_company_match=False,
-    )
-
-    if not filtered:
-        filtered, exclude_counts, debug_records = _run_filter_pass(
-            phase="relax_intent_gate",
-            intent_gate_threshold=INTENT_GATE_RELAXED_THRESHOLD,
-            relax_external_for_company_match=False,
-        )
-        if filtered:
-            _debug_log(
-                "[WebSearch] Prefilter recovered with relaxed intent gate (%d results)",
-                len(filtered),
-            )
-
-    if not filtered and exclude_external:
-        filtered, exclude_counts, debug_records = _run_filter_pass(
-            phase="relax_external_company_match",
-            intent_gate_threshold=INTENT_GATE_RELAXED_THRESHOLD,
-            relax_external_for_company_match=True,
-        )
-        if filtered:
-            _debug_log(
-                "[WebSearch] Prefilter recovered with external relaxation (%d results)",
-                len(filtered),
-            )
-
-    if exclude_counts:
-        _debug_log(
-            "[WebSearch] Prefilter stats total=%d kept=%d excluded=%d by_reason=%s",
-            len(results),
-            len(filtered),
-            len(results) - len(filtered),
-            exclude_counts,
-        )
-    if debug_records:
-        _debug_log("[WebSearch] Prefilter samples=%s", debug_records[:LOG_MAX_ITEMS])
-
-    return filtered
+# _prefilter_results — moved to web_search_filter.py, re-exported above
 
 
 def _score_ambiguous_terms(
@@ -2095,6 +1577,7 @@ async def hybrid_web_search(
         max_results_per_query=WEB_SEARCH_RESULTS_PER_QUERY,
         rrf_k=WEB_SEARCH_RRF_K,
         return_raw=True,
+        company_name=company_name,
     )
 
     if not results:
@@ -2116,6 +1599,7 @@ async def hybrid_web_search(
             max_results_per_query=WEB_SEARCH_RESULTS_PER_QUERY,
             rrf_k=WEB_SEARCH_RRF_K,
             return_raw=True,
+            company_name=company_name,
         )
         if not results:
             logger.warning(
@@ -2192,6 +1676,7 @@ async def hybrid_web_search(
                 max_results_per_query=WEB_SEARCH_RESULTS_PER_QUERY,
                 rrf_k=WEB_SEARCH_RRF_K,
                 return_raw=True,
+                company_name=company_name,
             )
             site_raw_total = sum(len(r) for r in (site_raw or []))
             _debug_log("[WebSearch] Site rescue raw_total=%d", site_raw_total)
@@ -2267,6 +1752,7 @@ async def hybrid_web_search(
             max_results_per_query=WEB_SEARCH_RESULTS_PER_QUERY,
             rrf_k=WEB_SEARCH_RRF_K,
             return_raw=True,
+            company_name=company_name,
         )
         if not results:
             logger.warning(f"[WebSearch] No results in deep path for '{company_name}'")

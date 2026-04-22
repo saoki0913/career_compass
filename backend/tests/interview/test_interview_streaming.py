@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.routers.interview import (
+    InterviewContinueRequest,
     InterviewFeedbackRequest,
     INTERVIEW_CONTINUE_SCHEMA,
     INTERVIEW_FEEDBACK_SCHEMA,
@@ -12,6 +13,7 @@ from app.routers.interview import (
     InterviewStartRequest,
     InterviewTurnRequest,
     INTERVIEW_TURN_SCHEMA,
+    _generate_continue_progress,
     _generate_feedback_progress,
     _generate_start_progress,
     _generate_turn_progress,
@@ -113,7 +115,7 @@ async def test_stream_llm_json_completion_forwards_json_schema(monkeypatch: pyte
         seen.update(kwargs)
         yield _stream_event({"question": "自己紹介をお願いします。"})
 
-    monkeypatch.setattr("app.routers.interview.call_llm_streaming_fields", fake_stream)
+    monkeypatch.setattr("app.routers._interview.generators.call_llm_streaming_fields", fake_stream)
 
     data = None
     string_chunks = []
@@ -173,7 +175,7 @@ async def test_start_stream_emits_plan_before_opening_question(monkeypatch: pyte
             }
         )
 
-    monkeypatch.setattr("app.routers.interview.call_llm_streaming_fields", fake_stream)
+    monkeypatch.setattr("app.routers._interview.generators.call_llm_streaming_fields", fake_stream)
 
     request = InterviewStartRequest(
         company_name="UI Review株式会社",
@@ -234,7 +236,7 @@ async def test_turn_stream_emits_turn_meta_and_updates_state(
             )
             return
 
-    monkeypatch.setattr("app.routers.interview.call_llm_streaming_fields", fake_stream)
+    monkeypatch.setattr("app.routers._interview.generators.call_llm_streaming_fields", fake_stream)
 
     request = InterviewTurnRequest(
         company_name="UI Review株式会社",
@@ -367,7 +369,7 @@ async def test_feedback_stream_emits_seven_axis_scores_and_risks(
             }
         )
 
-    monkeypatch.setattr("app.routers.interview.call_llm_streaming_fields", fake_stream)
+    monkeypatch.setattr("app.routers._interview.generators.call_llm_streaming_fields", fake_stream)
 
     request = InterviewFeedbackRequest(
         company_name="UI Review株式会社",
@@ -411,7 +413,7 @@ async def test_start_stream_falls_back_when_llm_generation_fails(
         raise RuntimeError("LLM unavailable")
         yield ("done", None)
 
-    monkeypatch.setattr("app.routers.interview._stream_llm_json_completion", fake_collect)
+    monkeypatch.setattr("app.routers._interview.generators._stream_llm_json_completion", fake_collect)
 
     request = InterviewStartRequest(
         company_name="ケース株式会社",
@@ -475,7 +477,7 @@ async def test_start_stream_replaces_format_mismatched_opening_question(
             }
         )
 
-    monkeypatch.setattr("app.routers.interview.call_llm_streaming_fields", fake_stream)
+    monkeypatch.setattr("app.routers._interview.generators.call_llm_streaming_fields", fake_stream)
 
     request = InterviewStartRequest(
         company_name="ケース株式会社",
@@ -530,7 +532,7 @@ async def test_feedback_stream_backfills_missing_action_fields(
             }
         )
 
-    monkeypatch.setattr("app.routers.interview.call_llm_streaming_fields", fake_stream)
+    monkeypatch.setattr("app.routers._interview.generators.call_llm_streaming_fields", fake_stream)
 
     request = InterviewFeedbackRequest(
         company_name="UI Review株式会社",
@@ -564,3 +566,437 @@ async def test_feedback_stream_backfills_missing_action_fields(
     assert complete_event["data"]["weakest_turn_id"] == "turn-1"
     assert complete_event["data"]["weakest_question_snapshot"] == "志望理由を教えてください。"
     assert complete_event["data"]["weakest_answer_snapshot"] == "顧客課題に近い立場で改善したいです。"
+
+
+# ---------------------------------------------------------------------------
+# SSE サニタイズテスト
+# 全 4 ジェネレータで、外側 try/except が固定文言を返し内部例外が漏れないことを確認。
+# ---------------------------------------------------------------------------
+
+_SSE_SANITIZED_MESSAGE = "予期しないエラーが発生しました。しばらくしてからもう一度お試しください。"
+
+
+def _make_start_request_minimal() -> InterviewStartRequest:
+    return InterviewStartRequest(
+        company_name="サニタイズテスト株式会社",
+        company_summary="DX 支援を行う企業。",
+        motivation_summary="課題解決に貢献したい。",
+        gakuchika_summary="学園祭運営。",
+        academic_summary="経営学。",
+        es_summary="分析経験あり。",
+        selected_industry="コンサルティング",
+        selected_role="コンサルタント",
+        role_track="consulting",
+        interview_format="standard_behavioral",
+        selection_type="fulltime",
+        interview_stage="mid",
+        interviewer_type="hr",
+        strictness_mode="standard",
+    )
+
+
+def _make_turn_request_minimal() -> InterviewTurnRequest:
+    return InterviewTurnRequest(
+        company_name="サニタイズテスト株式会社",
+        company_summary="DX 支援を行う企業。",
+        motivation_summary="課題解決に貢献したい。",
+        gakuchika_summary="学園祭運営。",
+        academic_summary="経営学。",
+        es_summary="分析経験あり。",
+        selected_industry="コンサルティング",
+        selected_role="コンサルタント",
+        role_track="consulting",
+        interview_format="standard_behavioral",
+        selection_type="fulltime",
+        interview_stage="mid",
+        interviewer_type="hr",
+        strictness_mode="standard",
+        conversation_history=[
+            {"role": "assistant", "content": "志望理由を教えてください。"},
+            {"role": "user", "content": "課題解決がしたいです。"},
+        ],
+        turn_state={
+            "currentStage": "opening",
+            "totalQuestionCount": 1,
+            "stageQuestionCounts": {
+                "industry_reason": 0,
+                "role_reason": 0,
+                "opening": 1,
+                "experience": 0,
+                "company_understanding": 0,
+                "motivation_fit": 0,
+            },
+            "completedStages": [],
+            "lastQuestionFocus": "志望動機",
+            "nextAction": "ask",
+            "phase": "turn",
+            "formatPhase": "standard_main",
+            "coveredTopics": [],
+            "remainingTopics": ["motivation_fit"],
+            "coverageState": [],
+            "recentQuestionSummariesV2": [],
+            "interviewPlan": {
+                "interview_type": "new_grad_behavioral",
+                "priority_topics": ["motivation_fit"],
+                "opening_topic": "motivation_fit",
+                "must_cover_topics": ["motivation_fit"],
+                "risk_topics": [],
+                "suggested_timeflow": ["導入", "志望動機", "締め"],
+            },
+        },
+    )
+
+
+def _make_continue_request_minimal() -> InterviewContinueRequest:
+    return InterviewContinueRequest(
+        company_name="サニタイズテスト株式会社",
+        company_summary="DX 支援を行う企業。",
+        motivation_summary="課題解決に貢献したい。",
+        gakuchika_summary="学園祭運営。",
+        academic_summary="経営学。",
+        es_summary="分析経験あり。",
+        selected_industry="コンサルティング",
+        selected_role="コンサルタント",
+        role_track="consulting",
+        interview_format="standard_behavioral",
+        selection_type="fulltime",
+        interview_stage="mid",
+        interviewer_type="hr",
+        strictness_mode="standard",
+        conversation_history=[
+            {"role": "assistant", "content": "志望理由を教えてください。"},
+            {"role": "user", "content": "課題解決がしたいです。"},
+        ],
+    )
+
+
+def _make_feedback_request_minimal() -> InterviewFeedbackRequest:
+    return InterviewFeedbackRequest(
+        company_name="サニタイズテスト株式会社",
+        company_summary="DX 支援を行う企業。",
+        motivation_summary="課題解決に貢献したい。",
+        gakuchika_summary="学園祭運営。",
+        academic_summary="経営学。",
+        es_summary="分析経験あり。",
+        selected_industry="コンサルティング",
+        selected_role="コンサルタント",
+        role_track="consulting",
+        interview_format="standard_behavioral",
+        selection_type="fulltime",
+        interview_stage="mid",
+        interviewer_type="hr",
+        strictness_mode="standard",
+        conversation_history=[
+            {"role": "assistant", "content": "志望理由を教えてください。"},
+            {"role": "user", "content": "課題解決がしたいです。"},
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_start_sse_sanitizes_exception_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """start generator で外側例外が発生したとき、SSE error の message が固定文言であり
+    内部例外テキストを含まないことを確認。
+    _build_setup (最初に呼ばれる) を例外化して確実に外側 try/except に到達させる。"""
+    secret_error_text = "INTERNAL_SECRET_API_KEY_12345"
+
+    def boom_setup(*args, **kwargs):
+        raise RuntimeError(secret_error_text)
+
+    monkeypatch.setattr("app.routers._interview.generators._build_setup", boom_setup)
+
+    events = []
+    async for raw in _generate_start_progress(_make_start_request_minimal()):
+        events.append(json.loads(raw.removeprefix("data: ").strip()))
+
+    error_events = [e for e in events if e["type"] == "error"]
+    assert error_events, "エラーイベントが生成されていない"
+    error_msg = error_events[0]["message"]
+    assert error_msg == _SSE_SANITIZED_MESSAGE, f"固定文言と異なる: {error_msg!r}"
+    assert secret_error_text not in error_msg, "内部エラーテキストが漏洩している"
+
+
+@pytest.mark.asyncio
+async def test_turn_sse_sanitizes_exception_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """turn generator で外側例外が発生したとき、SSE error の message が固定文言であり
+    内部例外テキストを含まないことを確認。
+    turn は内側 try で degraded helper に fallback するため、外側到達には
+    _merge_plan_progress (fallback 後に呼ばれる) で例外を起こす。"""
+    secret_error_text = "TURN_SECRET_INTERNAL_ERROR_XYZ"
+
+    def boom_merge(*args, **kwargs):
+        raise RuntimeError(secret_error_text)
+
+    monkeypatch.setattr("app.routers._interview.generators._merge_plan_progress", boom_merge)
+
+    events = []
+    async for raw in _generate_turn_progress(_make_turn_request_minimal()):
+        events.append(json.loads(raw.removeprefix("data: ").strip()))
+
+    error_events = [e for e in events if e["type"] == "error"]
+    assert error_events, "turn generator のエラーイベントが生成されていない"
+    error_msg = error_events[0]["message"]
+    assert error_msg == _SSE_SANITIZED_MESSAGE, f"固定文言と異なる: {error_msg!r}"
+    assert secret_error_text not in error_msg, "内部エラーテキストが漏洩している"
+
+
+@pytest.mark.asyncio
+async def test_continue_sse_sanitizes_exception_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """continue generator で外側例外が発生したとき SSE サニタイズを確認。
+    continue は内側 try で degraded helper に fallback するため、外側到達には
+    _derive_turn_state_for_question (fallback 後に呼ばれる) で例外を起こす。"""
+    secret_error_text = "CONTINUE_SECRET_INTERNAL_ERROR_ABC"
+
+    def boom_derive(*args, **kwargs):
+        raise RuntimeError(secret_error_text)
+
+    monkeypatch.setattr("app.routers._interview.generators._derive_turn_state_for_question", boom_derive)
+
+    events = []
+    async for raw in _generate_continue_progress(_make_continue_request_minimal()):
+        events.append(json.loads(raw.removeprefix("data: ").strip()))
+
+    error_events = [e for e in events if e["type"] == "error"]
+    assert error_events, "continue generator のエラーイベントが生成されていない"
+    error_msg = error_events[0]["message"]
+    assert error_msg == _SSE_SANITIZED_MESSAGE, f"固定文言と異なる: {error_msg!r}"
+    assert secret_error_text not in error_msg, "内部エラーテキストが漏洩している"
+
+
+@pytest.mark.asyncio
+async def test_feedback_sse_sanitizes_exception_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """feedback generator で外側例外が発生したとき SSE サニタイズを確認。
+    feedback は内側 try/except がないため _stream_llm_json_completion を直接例外化できる。"""
+    secret_error_text = "FEEDBACK_SECRET_INTERNAL_ERROR_DEF"
+
+    async def boom(**kwargs):
+        raise RuntimeError(secret_error_text)
+        yield  # noqa: unreachable
+
+    monkeypatch.setattr("app.routers._interview.generators._stream_llm_json_completion", boom)
+
+    events = []
+    async for raw in _generate_feedback_progress(_make_feedback_request_minimal()):
+        events.append(json.loads(raw.removeprefix("data: ").strip()))
+
+    error_events = [e for e in events if e["type"] == "error"]
+    assert error_events, "feedback generator のエラーイベントが生成されていない"
+    error_msg = error_events[0]["message"]
+    assert error_msg == _SSE_SANITIZED_MESSAGE, f"固定文言と異なる: {error_msg!r}"
+    assert secret_error_text not in error_msg, "内部エラーテキストが漏洩している"
+
+
+# ---------------------------------------------------------------------------
+# degraded helper 経由の継続動作テスト (3 件)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_turn_stream_uses_degraded_fallback_on_llm_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """turn generator で _stream_llm_json_completion が例外を投げたとき、
+    degraded fallback (_build_fallback_turn_payload) の shape で complete イベントが届く。"""
+    from app.routers.interview import _build_fallback_turn_payload
+
+    async def boom(**kwargs):
+        raise RuntimeError("LLM timed out")
+        yield  # noqa: unreachable
+
+    monkeypatch.setattr("app.routers._interview.generators._stream_llm_json_completion", boom)
+
+    events = []
+    async for raw in _generate_turn_progress(_make_turn_request_minimal()):
+        events.append(json.loads(raw.removeprefix("data: ").strip()))
+
+    complete_events = [e for e in events if e["type"] == "complete"]
+    assert complete_events, "complete イベントが生成されていない (degraded fallback が機能していない)"
+    data = complete_events[0]["data"]
+    # fallback shape の必須フィールドが揃っているか
+    assert data.get("question"), "fallback の question が空"
+    assert data.get("question_stage") == "turn", (
+        f"fallback の question_stage は 'turn' であるべき, got {data.get('question_stage')!r}"
+    )
+    assert "turn_meta" in data
+    assert "turn_state" in data
+
+
+@pytest.mark.asyncio
+async def test_continue_stream_uses_degraded_fallback_on_llm_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """continue generator で LLM が失敗したとき、_build_fallback_continue_payload の
+    shape で complete イベントが届く。"""
+    async def boom(**kwargs):
+        raise RuntimeError("LLM timed out")
+        yield  # noqa: unreachable
+
+    monkeypatch.setattr("app.routers._interview.generators._stream_llm_json_completion", boom)
+
+    events = []
+    async for raw in _generate_continue_progress(_make_continue_request_minimal()):
+        events.append(json.loads(raw.removeprefix("data: ").strip()))
+
+    complete_events = [e for e in events if e["type"] == "complete"]
+    assert complete_events, "complete イベントが生成されていない (continue degraded fallback が機能していない)"
+    data = complete_events[0]["data"]
+    assert data.get("question"), "fallback の question が空"
+    assert data.get("transition_line"), "fallback の transition_line が空"
+    assert "turn_meta" in data
+
+
+@pytest.mark.asyncio
+async def test_feedback_stream_falls_back_to_enriched_defaults_on_llm_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """feedback generator で LLM が失敗し _normalize_feedback({}) + _enrich_feedback_defaults
+    のパイプラインが動作して complete イベントが届くことを確認。
+
+    feedback の外側 try/except が捕捉するため、complete ではなく error になることが正しい動作。
+    ただし _normalize_feedback({}) の後に外部例外 (consume_request_llm_cost_summary 以外) が
+    ない場合は complete が届く。ここでは complete が届かず error イベントになることを
+    意図せず検証しないよう、外側例外なしの LLM failure で確認する。
+
+    feedback は内側 try/except がないため LLM 例外は外側 try/except に届き error になる。
+    ここでは改めてその事実を確認し、error イベントの message が固定文言であることを確認。
+    """
+    # feedback は LLM 例外が外側まで届いて error になる — degraded complete にはならない。
+    # 代わりに _normalize_feedback({}) → _enrich_feedback_defaults のパイプを
+    # LLM mock で {} を返すことで確認する。
+    async def return_empty(**kwargs):
+        yield SimpleNamespace(
+            type="complete",
+            result=SimpleNamespace(success=True, data={}, error=None),
+        )
+
+    monkeypatch.setattr("app.routers._interview.generators.call_llm_streaming_fields", return_empty)
+
+    events = []
+    async for raw in _generate_feedback_progress(_make_feedback_request_minimal()):
+        events.append(json.loads(raw.removeprefix("data: ").strip()))
+
+    complete_events = [e for e in events if e["type"] == "complete"]
+    assert complete_events, "empty LLM result から complete イベントが生成されていない"
+    data = complete_events[0]["data"]
+    # _enrich_feedback_defaults が overall_comment / improvements / next_preparation を補填
+    assert data.get("overall_comment"), "overall_comment が空 (_enrich_feedback_defaults が機能していない)"
+    assert data.get("improvements"), "improvements が空 (_enrich_feedback_defaults が機能していない)"
+    assert data.get("next_preparation"), "next_preparation が空 (_enrich_feedback_defaults が機能していない)"
+    # scores が 7 軸で返る
+    scores = data.get("scores", {})
+    assert set(scores.keys()) >= {
+        "company_fit",
+        "role_fit",
+        "specificity",
+        "logic",
+        "persuasiveness",
+        "consistency",
+        "credibility",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 Stage 6 — Per-turn short coaching (SSE complete に含まれる)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_turn_stream_includes_short_coaching_from_llm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLM が short_coaching を返した場合、SSE complete.data.short_coaching に含まれる。"""
+    llm_short_coaching = {
+        "good": "結論を先に述べられていた点は良いです。",
+        "missing": "数字や固有名詞が不足しており、具体性に欠けます。",
+        "next_edit": "次は顧客数や期間など数字を 1 つ入れてください。",
+    }
+
+    async def fake_stream(**kwargs):
+        yield _stream_event(
+            {
+                "question": "もう少し具体的に教えてください。",
+                "question_stage": "turn",
+                "focus": "具体性",
+                "turn_meta": {
+                    "topic": "motivation_fit",
+                    "turn_action": "deepen",
+                    "focus_reason": "具体性を確認するため",
+                    "depth_focus": "specificity",
+                    "followup_style": "specificity_check",
+                    "intent_key": "motivation_fit:specificity_check",
+                    "should_move_next": False,
+                },
+                "plan_progress": {
+                    "covered_topics": [],
+                    "remaining_topics": ["motivation_fit"],
+                },
+                "short_coaching": llm_short_coaching,
+            }
+        )
+
+    monkeypatch.setattr(
+        "app.routers._interview.generators.call_llm_streaming_fields", fake_stream
+    )
+
+    events = []
+    async for raw in _generate_turn_progress(_make_turn_request_minimal()):
+        events.append(json.loads(raw.removeprefix("data: ").strip()))
+
+    complete_events = [e for e in events if e["type"] == "complete"]
+    assert complete_events, "complete イベントが届いていない"
+    data = complete_events[0]["data"]
+    assert "short_coaching" in data, f"short_coaching missing from {list(data.keys())}"
+    sc = data["short_coaching"]
+    assert sc == llm_short_coaching, f"LLM の short_coaching が pass-through されていない: {sc!r}"
+
+
+@pytest.mark.asyncio
+async def test_turn_stream_short_coaching_falls_back_when_llm_omits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLM が short_coaching を返さない場合、deterministic fallback が埋める。"""
+
+    async def fake_stream(**kwargs):
+        yield _stream_event(
+            {
+                "question": "なぜ当社を志望されたのですか?",
+                "question_stage": "turn",
+                "focus": "志望理由",
+                "turn_meta": {
+                    "topic": "motivation_fit",
+                    "turn_action": "deepen",
+                    "focus_reason": "志望理由を深掘りするため",
+                    "depth_focus": "company_fit",
+                    "followup_style": "company_reason_check",
+                    "intent_key": "motivation_fit:company_reason_check",
+                    "should_move_next": False,
+                },
+                "plan_progress": {
+                    "covered_topics": [],
+                    "remaining_topics": ["motivation_fit"],
+                },
+                # short_coaching 欠落 (LLM が返さないケース)
+            }
+        )
+
+    monkeypatch.setattr(
+        "app.routers._interview.generators.call_llm_streaming_fields", fake_stream
+    )
+
+    events = []
+    async for raw in _generate_turn_progress(_make_turn_request_minimal()):
+        events.append(json.loads(raw.removeprefix("data: ").strip()))
+
+    complete_events = [e for e in events if e["type"] == "complete"]
+    assert complete_events, "complete イベントが届いていない"
+    data = complete_events[0]["data"]
+    assert "short_coaching" in data, "fallback が動いていない (short_coaching 欠落)"
+    sc = data["short_coaching"]
+    # turn request の minimal fixture は lastAnswer="課題解決がしたいです。" を持つため
+    # fallback は空文字列ではなく gap に応じた coaching を埋める
+    assert isinstance(sc, dict)
+    assert set(sc.keys()) == {"good", "missing", "next_edit"}
+    for k in ("good", "missing", "next_edit"):
+        assert isinstance(sc[k], str) and sc[k], (
+            f"fallback short_coaching.{k} が空: {sc[k]!r}"
+        )

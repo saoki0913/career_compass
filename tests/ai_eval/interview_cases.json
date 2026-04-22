@@ -40,7 +40,7 @@
   },
   {
     "id": "interview_weakness_depth",
-    "suiteDepth": "smoke",
+    "suiteDepth": "extended",
     "title": "弱みや失敗体験を深掘りされるケース",
     "companyName": "株式会社テストサービス",
     "industry": "IT・通信",

@@ -3,6 +3,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { motivationConversations } from "@/lib/db/schema";
@@ -250,8 +251,6 @@ export async function POST(
     if (!response.ok) {
       if (reservationId) await cancelReservation(reservationId);
       const errorData = await response.json().catch(() => ({}));
-      const msg =
-        messageFromFastApiDetail((errorData as { detail?: unknown }).detail) || "ES生成に失敗しました";
       logAiCreditCostSummary({
         feature: "motivation_draft",
         requestId,
@@ -259,6 +258,35 @@ export async function POST(
         creditsUsed: 0,
         telemetry: null,
       });
+
+      if (response.status === 422) {
+        return NextResponse.json(
+          createApiErrorResponse(request, {
+            status: 422,
+            code: "VALIDATION_FAILED",
+            userMessage: "入力データの検証に失敗しました。",
+            action: "入力内容を見直して、もう一度お試しください。",
+          }),
+          { status: 422 }
+        );
+      }
+
+      if (response.status === 409) {
+        const detail = (errorData as { detail?: { error?: string; failure_codes?: string[] } }).detail;
+        return NextResponse.json(
+          createApiErrorResponse(request, {
+            status: 409,
+            code: "DRAFT_QUALITY_FAILED",
+            userMessage: detail?.error || "志望動機の品質基準を満たす下書きを生成できませんでした。",
+            action: "もう一度お試��ください。",
+            retryable: true,
+          }),
+          { status: 409 }
+        );
+      }
+
+      const msg =
+        messageFromFastApiDetail((errorData as { detail?: unknown }).detail) || "ES生成に失敗しました";
       return NextResponse.json({ error: msg }, { status: 503 });
     }
 

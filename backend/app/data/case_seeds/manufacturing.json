@@ -1,0 +1,18 @@
+{
+  "industry": "manufacturing",
+  "business_context": "産業機器メーカーで主力製品の出荷が前年比 10% 下落、サービス事業は堅調。",
+  "target_metric": "サービス売上比率 × 営業利益率",
+  "constraints": [
+    "製造設備の国内比率 80%、海外移管不可",
+    "保守契約値上げは信用問題で慎重",
+    "営業はハード中心でサービス営業スキル不足"
+  ],
+  "candidate_task": "サービス売上比率を現状 25% から 3 年で 40% に引き上げる戦略を提案してください。",
+  "why_this_company": "ハード × サービスの転換と組織能力ギャップを扱えるか",
+  "case_followup_topics": [
+    "機器売上低下とサービス伸長の因果",
+    "既存顧客の LTV 分解",
+    "営業の re-skilling プラン"
+  ],
+  "case_seed_version": "v1.0"
+}

@@ -9,6 +9,8 @@ motivation.py that would shadow the canonical implementations.
 from app.routers import motivation
 from app.routers import motivation_context
 from app.routers import motivation_planner
+from app.routers import motivation_retry
+from app.routers import motivation_validation
 
 
 def test_motivation_uses_context_functions():
@@ -41,3 +43,15 @@ def test_motivation_uses_planner_constants():
     """Verify motivation.py uses constants from motivation_planner, not local copies."""
     assert motivation.DEEPDIVE_INTENT_BY_GAP_ID is motivation_planner.DEEPDIVE_INTENT_BY_GAP_ID
     assert motivation.NEXT_ADVANCE_CONDITION_BY_SLOT is motivation_planner.NEXT_ADVANCE_CONDITION_BY_SLOT
+
+
+def test_motivation_uses_retry_helpers():
+    """Verify motivation.py uses extracted retry helpers, not local copies."""
+    assert motivation._select_motivation_draft is motivation_retry._select_motivation_draft
+    assert motivation._maybe_retry_for_ai_smell is motivation_retry._maybe_retry_for_ai_smell
+    assert motivation._apply_multipass_refinement is motivation_retry._apply_multipass_refinement
+
+
+def test_motivation_uses_validation_helpers():
+    """Verify motivation.py uses extracted validation helpers for semantic dedup."""
+    assert motivation._is_semantically_duplicate_question is motivation_validation._is_semantically_duplicate_question

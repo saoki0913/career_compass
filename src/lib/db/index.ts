@@ -41,7 +41,7 @@ const db: PostgresJsDatabase<typeof schema> = (() => {
       // Supabase requires TLS; local Postgres commonly doesn't.
       ssl: shouldDisableSsl ? false : "require",
       // Conservative default to avoid connection spikes in serverless.
-      max: 5,
+      max: Number(process.env.DATABASE_POOL_SIZE) || (shouldDisableSsl ? 10 : 5),
     });
 
   if (process.env.NODE_ENV !== "production") {

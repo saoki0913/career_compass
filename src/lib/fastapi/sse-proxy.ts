@@ -33,9 +33,15 @@ export interface SSEProxyCompleteResult {
   cancel?: boolean;
 }
 
+export interface SSEProxyProgressResult {
+  suppress?: boolean;
+  emitExtra?: Record<string, unknown>[];
+}
+
 export interface SSEProxyOptions {
   feature: string;
   requestId: string;
+  onProgress?: (event: Record<string, unknown>) => SSEProxyProgressResult | void;
   onComplete?: (
     data: Record<string, unknown>,
   ) => Promise<SSEProxyCompleteResult | void>;
@@ -54,6 +60,7 @@ export function createSSEProxyStream(
 ): ReadableStream<Uint8Array> {
   const {
     feature,
+    onProgress,
     onComplete,
     onError,
     onCostTelemetry,
@@ -201,7 +208,16 @@ export function createSSEProxyStream(
           return false;
         }
 
-        // progress or unknown events — forward as-is
+        // progress, string_chunk, field_complete, etc. — optionally intercept via onProgress
+        if (onProgress) {
+          const result = onProgress(sanitized);
+          if (result?.emitExtra) {
+            for (const extra of result.emitExtra) {
+              forwardEventObject(extra);
+            }
+          }
+          if (result?.suppress) return false;
+        }
         forwardEventObject(sanitized);
         return false;
       };

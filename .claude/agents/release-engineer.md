@@ -1,6 +1,6 @@
 ---
 name: release-engineer
-description: 本番デプロイ、staging 反映、provider CLI 操作、secrets 同期を担う。ユーザーが「本番に出して」「公開して」「リリースして」「staging に上げて」など同義の自然文で依頼したら PROACTIVELY 使用。
+description: 本番デプロイ、staging 反映、provider CLI 操作、secrets 同期を担う。ユーザーが「本番に出して」「公開して」「リリースして」「staging に上げて」「ship it」「ロールアウト」「デプロイして」など同義の自然文で依頼したら PROACTIVELY 使用。
 tools: Read, Bash, Grep, Glob
 model: sonnet
 ---

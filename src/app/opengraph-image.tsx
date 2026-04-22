@@ -60,12 +60,12 @@ export default function OpenGraphImage() {
 
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             <div style={{ fontSize: 60, fontWeight: 900, letterSpacing: -1.2, lineHeight: 1.05 }}>
-              ESも締切も、
+              就活を、AIと一緒に
               <br />
-              AIが見逃さない。
+              迷わず進める。
             </div>
             <div style={{ fontSize: 26, color: "rgba(255,255,255,0.78)", lineHeight: 1.4 }}>
-              AIと進捗管理で「安価に、迷わず、締切を落とさず、ESの品質を上げる」
+              ES添削・志望動機・ガクチカ・AI模擬面接をひとつのアプリで
             </div>
           </div>
 
@@ -78,7 +78,7 @@ export default function OpenGraphImage() {
                 background: "rgba(0,0,0,0.25)",
               }}
             >
-              締切管理
+              ES添削AI
             </div>
             <div
               style={{
@@ -88,7 +88,7 @@ export default function OpenGraphImage() {
                 background: "rgba(0,0,0,0.25)",
               }}
             >
-              ES添削
+              志望動機AI
             </div>
             <div
               style={{
@@ -98,7 +98,7 @@ export default function OpenGraphImage() {
                 background: "rgba(0,0,0,0.25)",
               }}
             >
-              ガクチカ深掘り
+              AI模擬面接
             </div>
           </div>
         </div>

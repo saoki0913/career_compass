@@ -64,6 +64,23 @@ if [ ${#REASONS[@]} -gt 0 ]; then
 
   AI_DEVELOPMENT_PRINCIPLES.md: 「とりあえず動く」より「後から直しやすい」を優先。
 EOF
+  if is_codex_post_review_candidate "$TOTAL_FILES" "$TOTAL_LINES" "$HOTSPOT_HIT"; then
+    cat >&2 <<'CODEX_EOF'
+
+  📋 Codex CLI によるクロスレビューも推奨:
+    /codex-post-review を実行すると、Codex (GPT-5.4) が uncommitted changes を独立レビューします。
+    Claude の code-reviewer skill と併用することで multi-model review が可能です。
+
+CODEX_EOF
+  fi
 fi
+
+if ! node "$CLAUDE_PROJECT_DIR/tools/run-verify-status.mjs" >/tmp/career-compass-claude-verify-status.$$ 2>/tmp/career-compass-claude-verify-status.err; then
+  cat /tmp/career-compass-claude-verify-status.err >&2 || true
+  cat /tmp/career-compass-claude-verify-status.$$ >&2 || true
+else
+  cat /tmp/career-compass-claude-verify-status.$$ >&2 || true
+fi
+rm -f /tmp/career-compass-claude-verify-status.$$ /tmp/career-compass-claude-verify-status.err
 
 exit 0

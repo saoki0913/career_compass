@@ -23,7 +23,7 @@
   },
   {
     "id": "gakuchika_quantitative_outcome",
-    "suiteDepth": "smoke",
+    "suiteDepth": "extended",
     "usesCompanyContext": false,
     "title": "飲食アルバイトで回転率改善に取り組んだ経験",
     "gakuchikaTitle": "飲食店アルバイトでの回転率改善",

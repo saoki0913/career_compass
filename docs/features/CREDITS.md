@@ -23,6 +23,7 @@
 | DB 台帳                      | `src/lib/db/schema.ts`                                             |
 | クレジット API                  | `src/app/api/credits/route.ts`                                     |
 | クレジット表示 hook               | `src/hooks/useCredits.ts`                                          |
+| 日次 LLM トークン上限            | `src/lib/llm-cost-limit.ts`                                        |
 
 
 ### 2. プランと月次配分
@@ -45,14 +46,15 @@
 
 | 項目                         | Guest | Free    | Standard  | Pro      |
 | -------------------------- | ----- | ------- | --------- | -------- |
-| ガクチカ素材数上限                  | 2     | 5       | 15        | 30       |
+| ガクチカ素材数上限                  | 0     | 5       | 15        | 30       |
 | 選考スケジュール取得の月次無料回数          | 0     | 10      | 100       | 200      |
 | 企業 RAG URL/HTML の月次無料ページ   | 0     | 20      | 200       | 500      |
 | 企業 RAG PDF の月次無料ページ        | 0     | 60      | 250       | 600      |
-| 1 社あたり RAG ソース上限           | 0     | 3       | 200       | 500      |
+| 1 社あたり RAG ソース上限           | 0     | 3       | 100       | 500      |
 | PDF 取込上限（1 ファイル）           | 0     | 20 ページ  | 100 ページ   | 200 ページ  |
 | PDF Google OCR 上限（1 ファイル）  | 0     | 5 ページ   | 50 ページ    | 100 ページ  |
 | PDF Mistral OCR 上限（1 ファイル） | 0     | 0 ページ   | 15 ページ    | 30 ページ   |
+| 日次 LLM トークン上限             | 100K  | 500K    | 2M        | 5M       |
 
 
 補足:
@@ -87,7 +89,20 @@ Stripe webhook でプランが確定すると `updatePlanAllocation()` が走る
 - `balance` も新プラン値に即時リセット
 - `credit_transactions.type = "plan_change"` を記録
 
-#### 3.4 予約取消と `refund`
+#### 3.4 日次 LLM トークン上限
+
+クレジットとは独立した安全機構として、プランごとに日次 LLM トークン上限を設ける。
+正本は `src/lib/llm-cost-limit.ts`。
+
+- guest: 100,000 tokens/日
+- free: 500,000 tokens/日
+- standard: 2,000,000 tokens/日
+- pro: 5,000,000 tokens/日
+
+JST 日付境界（Asia/Tokyo midnight）でリセット。Upstash Redis で管理し、Redis 不可時は fail-open（制限なし）。
+`DISABLE_TOKEN_LIMIT=true` でバイパス可能。
+
+#### 3.5 予約取消と `refund`
 
 `TransactionType` には `refund` があるが、現行の予約取消では別の `refund` transaction を追加していない。
 `cancelReservation()` は、元の予約 transaction の description を `[Cancelled/Refunded] ...` に更新し、残高を戻す。
@@ -106,6 +121,7 @@ Stripe webhook でプランが確定すると `updatePlanAllocation()` が走る
 | 志望動機 ES 下書き   | ログイン必須 | 6 credits を予約 -> 成功確定 / 失敗取消（対話後 `generate-draft` と会話なし `generate-draft-direct` の両方で同一 `motivation_draft`） | `motivation_draft`   |
 | 面接会話          | ログイン必須 | 1 ターン 1 credit を成功時消費                                                                                      | `interview`          |
 | 面接最終講評        | ログイン必須 | 6 credits を予約 -> 成功確定 / 失敗取消                                                                               | `interview_feedback` |
+| 志望動機レジュメ深掘り   | ログイン必須 | 1 credit を予約 -> 成功確定 / 失敗取消                                                                                | `motivation_resume_deepdive` |
 | 選考スケジュール取得    | ログイン必須 | 月次無料枠を先に消費。超過後は 1 回 1 credit                                                                               | `company_fetch`      |
 | 企業 RAG URL 取込 | ログイン必須 | 月次無料ページを先に消費。超過ページは 1 ページ 1 credit                                                                         | `company_fetch`      |
 | 企業 RAG PDF 取込 | ログイン必須 | PDF 無料枠内は 0 credits。超過時だけ PDF tier 課金                                                                      | `company_fetch`      |
@@ -141,7 +157,7 @@ Stripe webhook でプランが確定すると `updatePlanAllocation()` が走る
 
 - `claude-sonnet` / `gpt` / `gemini` はプレミアム帯。
 - `low-cost` は low-cost 帯。
-- **Free プランは実行モデルが low-cost（実装上は `gpt-mini` / `gpt-5.4-mini`）でも、請求クレジットはプレミアム帯**。
+- **Free プランは実行モデルが low-cost（実装上は `claude-haiku-4-5-20251001`）でも、請求クレジットはプレミアム帯**。
 - ES 添削 route は document の owner が guest でも、最終的にログイン必須。
 
 #### 4.3 ガクチカ・志望動機
@@ -154,12 +170,17 @@ Stripe webhook でプランが確定すると `updatePlanAllocation()` が走る
   - ガクチカ ES 下書き: 6 credits
   - 志望動機 ES 下書き: 6 credits（対話ベースとプロフィールのみの直生成で共通）
   - どちらも `reserve -> confirm/cancel`
+- レジュメ深掘り:
+  - 志望動機レジュメ深掘り: 1 credit
+  - `reserve -> confirm/cancel`
+  - TransactionType: `motivation_resume_deepdive`
 
 #### 4.4 面接対策
 
 - 面接対策全体がログイン必須
 - 質問フロー（start → stream → continue）: 1 ターン 1 credit を `consumeCredits()` で成功時のみ消費
 - 最終講評: 6 credits（`reserve -> confirm/cancel`）
+- 会話履歴は直近 20 ターン（40 メッセージ）の sliding window で LLM に渡す（turn/continue prompt のみ。最終講評 feedback は全履歴を使用）
 
 ### 5. 選考スケジュール取得と企業 RAG
 
@@ -246,6 +267,7 @@ hook では `selectionScheduleRemaining` / `selectionScheduleLimit` を返し、
 - `gakuchika_draft`
 - `motivation`
 - `motivation_draft`
+- `motivation_resume_deepdive`
 - `interview`
 - `interview_feedback`
 - `refund`
@@ -271,20 +293,25 @@ hook では `selectionScheduleRemaining` / `selectionScheduleLimit` を返し、
 
 ### 機能別デフォルトモデル
 
-alias → feature 対応の正本: `backend/app/config.py:172-189`
-alias → 実モデル ID 解決の正本: `backend/app/config.py:126-162`
+alias → feature 対応の正本: `backend/app/config.py:173-207`
+alias → 実モデル ID 解決の正本: `backend/app/config.py:131-171`
 
 
-| 機能       | alias           | 実モデル ID             | 表示名               |
-| -------- | --------------- | ------------------- | ----------------- |
-| ES 添削    | `claude-sonnet` | `claude-sonnet-4-6` | Claude Sonnet 4.6 |
-| ガクチカ会話   | `gpt-mini`      | `gpt-5.4-mini`      | GPT-5.4 mini      |
-| ガクチカ下書き  | `claude-sonnet` | `claude-sonnet-4-6` | Claude Sonnet 4.6 |
-| 志望動機会話   | `gpt-mini`      | `gpt-5.4-mini`      | GPT-5.4 mini      |
-| 志望動機下書き  | `claude-sonnet` | `claude-sonnet-4-6` | Claude Sonnet 4.6 |
-| 面接質問     | `gpt-mini`      | `gpt-5.4-mini`      | GPT-5.4 mini      |
-| 面接講評     | `claude-sonnet` | `claude-sonnet-4-6` | Claude Sonnet 4.6 |
-| 選考スケジュール | `gpt-mini`      | `gpt-5.4-mini`      | GPT-5.4 mini      |
+| 機能           | alias           | 実モデル ID                  | 表示名               |
+| ------------ | --------------- | ------------------------ | ----------------- |
+| ES 添削        | `claude-sonnet` | `claude-sonnet-4-6`      | Claude Sonnet 4.6 |
+| ガクチカ会話       | `claude-haiku`  | `claude-haiku-4-5-20251001` | Claude Haiku 4.5 |
+| ガクチカ下書き      | `claude-sonnet` | `claude-sonnet-4-6`      | Claude Sonnet 4.6 |
+| 志望動機会話       | `claude-haiku`  | `claude-haiku-4-5-20251001` | Claude Haiku 4.5 |
+| 志望動機下書き      | `claude-sonnet` | `claude-sonnet-4-6`      | Claude Sonnet 4.6 |
+| 面接計画         | `gpt`           | `gpt-5.4`                | GPT-5.4           |
+| 面接会話         | `claude-haiku`  | `claude-haiku-4-5-20251001` | Claude Haiku 4.5 |
+| 面接講評         | `claude-sonnet` | `claude-sonnet-4-6`      | Claude Sonnet 4.6 |
+| 選考スケジュール     | `gpt-mini`      | `gpt-5.4-mini`           | GPT-5.4 mini      |
+| 企業情報取得       | `gpt-mini`      | `gpt-5.4-mini`           | GPT-5.4 mini      |
+| RAG クエリ拡張    | `gpt-mini`      | `gpt-5.4-mini`           | GPT-5.4 mini      |
+| RAG HyDE     | `gpt-mini`      | `gpt-5.4-mini`           | GPT-5.4 mini      |
+| RAG 分類       | `gpt-nano`      | `gpt-5.4-nano`           | GPT-5.4 nano      |
 
 
 ES 添削はユーザーがモデルを選択可能（`claude-sonnet` / `gpt` / `gemini` / `low-cost`）。他の機能はサーバー側で固定。
@@ -302,6 +329,7 @@ ES 添削はユーザーがモデルを選択可能（`claude-sonnet` / `gpt` / 
 | OpenAI    | GPT-5.4 mini           | ¥120         | ¥720          | 2026-04-03 |
 | OpenAI    | GPT-5.4 nano           | ¥32          | ¥200          | 2026-04-03 |
 | Anthropic | Claude Sonnet 4.6      | ¥480         | ¥2,400        | 2026-04-03 |
+| Anthropic | Claude Haiku 4.5       | ¥160         | ¥800          | 2026-04-03 |
 | Google    | Gemini 3.1 Pro Preview | ¥320         | ¥1,920        | 2026-04-09 |
 | Google    | Document AI OCR        | ¥0.24/page   | —             | 2026-04-03 |
 | Mistral   | OCR 3                  | ¥0.32/page   | —             | 2026-04-03 |
@@ -311,11 +339,13 @@ ES 添削はユーザーがモデルを選択可能（`claude-sonnet` / `gpt` / 
 
 - コード上の alias:
   - `gpt` → `gpt-5.4`
-  - `gpt-mini` / `low-cost` → `gpt-5.4-mini`
+  - `gpt-mini` → `gpt-5.4-mini`
   - `gpt-nano` → `gpt-5.4-nano`
   - `claude-sonnet` → `claude-sonnet-4-6`
+  - `claude-haiku` → `claude-haiku-4-5-20251001`
+  - `low-cost` → `claude-haiku-4-5-20251001`
   - `gemini` → `gemini-3.1-pro-preview`
-- OpenAI cached input: GPT-5.4 ¥40/1M, GPT-5.4 mini ¥12/1M, GPT-5.4 nano ¥3.2/1M
+- Cached input: GPT-5.4 ¥40/1M, GPT-5.4 mini ¥12/1M, GPT-5.4 nano ¥3.2/1M, Claude Sonnet 4.6 ¥48/1M, Claude Haiku 4.5 ¥16/1M
 - OpenAI ES 添削では `max_output_tokens` を最低 4096 に設定している（`es_review_retry.py:41`）が、これは上限設定であり実際の課金は生成トークン分のみ。ES rewrite は常に `reasoning_effort="none"`（reasoning tokens = 0）で実行される。可視出力は 500-700 tok/call 程度
 - Google Document AI の OCR add-ons: ¥0.96/page
 - Mistral OCR 3 Annotated Pages: ¥0.48/page
@@ -338,7 +368,7 @@ ES 添削はユーザーがモデルを選択可能（`claude-sonnet` / `gpt` / 
 - 会話系（ガクチカ・志望動機・面接）は conversation_history を累積送信するため、後半ほど入力トークンが増大する:
   - ガクチカ 5 回答: 初回 ~1,500 tok → 5 回目 ~4,000 tok（累計入力 ~13,000 tok）
   - 志望動機 5 回答: 同上（累計入力 ~13,000 tok）
-  - 面接 1 セッション（20 ターン）: 初回 ~2,000 tok → 20 回目 ~12,000 tok（累計入力 ~140,000 tok）
+  - 面接 1 セッション（20 ターン）: sliding window（20 ターン上限）により入力トークンは ~4,500 tok で頭打ち（累計入力 ~65,000 tok）
 - 全会話系機能は 1 ターン 1 credit を消費する。面接もクレジット消費対象
 
 ### 1 操作あたり API コスト見積（worst-case）
@@ -349,16 +379,16 @@ ES 添削はユーザーがモデルを選択可能（`claude-sonnet` / `gpt` / 
 | ES 添削（Claude, 1500+字, 4call）    | Claude Sonnet 4.6 | ~¥22           | 20      | ~¥1.1       |
 | ES 添削（GPT, 1500+字, 4call）       | GPT-5.4           | ~¥20           | 20      | ~¥1.0       |
 | ES 添削（Gemini, 1500+字, 4call）    | Gemini 3.1 Pro    | ~¥20           | 20      | ~¥1.0       |
-| ES 添削（low-cost, 1500+字, 4call）  | GPT-5.4 mini      | ~¥6            | 12      | ~¥0.5       |
-| ガクチカ会話（1ターン, 累積 history）        | GPT-5.4 mini      | ~¥0.6          | 1       | ~¥0.6       |
+| ES 添削（low-cost, 1500+字, 4call）  | Claude Haiku 4.5  | ~¥8            | 12      | ~¥0.7       |
+| ガクチカ会話（1ターン, 累積 history）        | Claude Haiku 4.5  | ~¥0.8          | 1       | ~¥0.8       |
 | ガクチカ下書き                         | Claude Sonnet 4.6 | ~¥5            | 6       | ~¥0.8       |
-| 志望動機会話（1ターン, 累積 history）        | GPT-5.4 mini      | ~¥0.6          | 1       | ~¥0.6       |
+| 志望動機会話（1ターン, 累積 history）        | Claude Haiku 4.5  | ~¥0.8          | 1       | ~¥0.8       |
 | 志望動機下書き                         | Claude Sonnet 4.6 | ~¥5            | 6       | ~¥0.8       |
-| 面接会話（1ターン, 累積 history）          | GPT-5.4 mini      | ~¥1.3          | 1       | ~¥1.3       |
+| 面接会話（1ターン, sliding window）       | Claude Haiku 4.5  | ~¥1.2          | 1       | ~¥1.2       |
 | 面接講評                            | Claude Sonnet 4.6 | ~¥6            | 6       | ~¥1.0       |
 | 選考スケジュール取得                      | GPT-5.4 mini      | ~¥0.5          | 1（超過時）  | ~¥0.5       |
 
-面接会話の 1 cr あたりコストが高いのは、会話履歴の累積により後半ターンの入力トークンが増大するため。
+面接会話は sliding window（直近 20 ターン）により後半ターンの入力トークンが ~4,500 tok で頭打ちになる。ガクチカ・志望動機より高いのは Claude Haiku 4.5 の単価による。
 
 ### プラン別 収益 vs 最大コスト
 
@@ -396,4 +426,5 @@ ES 添削はユーザーがモデルを選択可能（`claude-sonnet` / `gpt` / 
 - `src/app/api/credits/route.ts`
 - `src/hooks/useCredits.ts`
 - `src/app/api/webhooks/stripe/route.ts`
+- `src/lib/llm-cost-limit.ts`
 

@@ -6,6 +6,8 @@ import pytest
 from fastapi import HTTPException
 
 import app.routers.es_review as es_review_module
+import app.routers.es_review_orchestrator as es_review_orchestrator_module
+import app.routers.es_review_explanation as es_review_explanation_module
 from app.prompts.es_templates import TEMPLATE_DEFS
 from app.routers.es_review import (
     _coerce_degraded_rewrite_dearu_style,
@@ -45,7 +47,8 @@ from app.routers.es_review import (
     deterministic_compress_variant,
     review_section_with_template,
 )
-from app.utils.llm import LLMError, detect_es_injection_risk
+from app.utils.llm import LLMError
+from app.utils.llm_prompt_safety import detect_es_injection_risk
 
 
 def _make_text(length: int) -> str:
@@ -241,6 +244,10 @@ def test_validate_rewrite_candidate_accepts_soft_min_on_final_short_answer_attem
         "ai_smell_score": 0.0,
         "ai_smell_tier": 0,
         "ai_smell_band": "short",
+        "hallucination_warnings": [],
+        "hallucination_score": 0.0,
+        "hallucination_tier": 0,
+        "hallucination_band": "standard",
     }
 
 
@@ -271,6 +278,10 @@ def test_validate_rewrite_candidate_accepts_soft_min_on_final_long_answer_attemp
         "ai_smell_score": 0.0,
         "ai_smell_tier": 0,
         "ai_smell_band": "mid_long",
+        "hallucination_warnings": [],
+        "hallucination_score": 0.0,
+        "hallucination_tier": 0,
+        "hallucination_band": "standard",
     }
 
 
@@ -1143,6 +1154,116 @@ async def test_generate_review_progress_emits_keepalive_while_review_runner_is_i
     assert any('"type": "complete"' in event for event in events)
 
 
+@pytest.mark.asyncio
+async def test_generate_review_progress_streams_improvement_explanation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_review_runner(**kwargs):
+        return ReviewResponse(
+            rewrites=["改善後の回答です。"],
+        )
+
+    async def fake_generate_improvement_explanation(
+        *,
+        original_text: str,
+        rewritten_text: str,
+        template_type: str,
+        company_name: str | None,
+        progress_queue,
+    ) -> str | None:
+        assert original_text == "私は課題解決力を生かして価値を出したいです。"
+        assert rewritten_text == "改善後の回答です。"
+        assert template_type == "self_pr"
+        assert company_name is None
+        es_review_module._queue_stream_event(
+            progress_queue,
+            "string_chunk",
+            {"path": "improvement_explanation", "text": "結論を先に示した。"},
+        )
+        es_review_module._queue_stream_event(
+            progress_queue,
+            "field_complete",
+            {
+                "path": "improvement_explanation",
+                "value": "結論を先に示した。",
+            },
+        )
+        return "結論を先に示した。"
+
+    monkeypatch.setattr(
+        es_review_explanation_module,
+        "generate_improvement_explanation",
+        fake_generate_improvement_explanation,
+    )
+
+    request = ReviewRequest(
+        content="私は課題解決力を生かして価値を出したいです。",
+        section_title="自己PRを教えてください。",
+        template_request=TemplateRequest(
+            template_type="self_pr",
+            question="自己PRを教えてください。",
+            answer="私は課題解決力を生かして価値を出したいです。",
+        ),
+    )
+
+    events = [
+        event
+        async for event in _generate_review_progress(
+            request,
+            review_runner=fake_review_runner,
+        )
+    ]
+
+    assert any('"step": "explanation"' in event for event in events)
+    assert any('"path": "improvement_explanation"' in event for event in events)
+    assert any(
+        '"improvement_explanation": "結論を先に示した。"' in event
+        for event in events
+        if '"type": "complete"' in event
+    )
+
+
+@pytest.mark.asyncio
+async def test_generate_review_progress_continues_when_improvement_explanation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_review_runner(**kwargs):
+        return ReviewResponse(
+            rewrites=["改善後の回答です。"],
+        )
+
+    async def fake_generate_improvement_explanation(**kwargs) -> str | None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        es_review_explanation_module,
+        "generate_improvement_explanation",
+        fake_generate_improvement_explanation,
+    )
+
+    request = ReviewRequest(
+        content="私は課題解決力を生かして価値を出したいです。",
+        section_title="自己PRを教えてください。",
+        template_request=TemplateRequest(
+            template_type="self_pr",
+            question="自己PRを教えてください。",
+            answer="私は課題解決力を生かして価値を出したいです。",
+        ),
+    )
+
+    events = [
+        event
+        async for event in _generate_review_progress(
+            request,
+            review_runner=fake_review_runner,
+        )
+    ]
+
+    complete_events = [event for event in events if '"type": "complete"' in event]
+    assert len(complete_events) == 1
+    assert "improvement_explanation" not in complete_events[0]
+
+
 def test_evaluate_grounding_mode_requires_role_support() -> None:
     grounded = _evaluate_grounding_mode(
         "role_course_reason",
@@ -1717,6 +1838,7 @@ async def test_review_section_with_template_logs_rewrite_and_sources(
     formatter = logging.Formatter("%(message)s")
     handler.setFormatter(formatter)
     es_review_module.logger.addHandler(handler)
+    es_review_orchestrator_module.logger.addHandler(handler)
 
     try:
         result = await review_section_with_template(
@@ -1746,6 +1868,7 @@ async def test_review_section_with_template_logs_rewrite_and_sources(
         )
     finally:
         es_review_module.logger.removeHandler(handler)
+        es_review_orchestrator_module.logger.removeHandler(handler)
 
     logs = stream.getvalue()
     assert "[ES添削/テンプレート] evidence cards:" in logs

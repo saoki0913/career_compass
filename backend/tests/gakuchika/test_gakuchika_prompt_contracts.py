@@ -176,6 +176,10 @@ def test_deepdive_evaluate_passes_acknowledgment_rules_in_system() -> None:
     assert "15〜30字" in system_prompt, (
         "Character length guidance for approval must be in deep-dive system prompt"
     )
+    assert "## 個人情報の取り扱い" in system_prompt
+    assert "会話中は学生が使った固有名詞" in system_prompt
+    assert "ドラフト出力時は「Aさん」「B大学」のように匿名化する" in system_prompt
+    assert "匿名化はドラフト出力時のみ適用" in system_prompt
 
 
 # ---------------------------------------------------------------------------

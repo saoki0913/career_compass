@@ -3,7 +3,12 @@ import logging
 
 import pytest
 
-from app.utils.llm import PromptSafetyError, detect_es_injection_risk, sanitize_user_prompt_text
+from app.utils.llm import _emit_output_leakage_event
+from app.utils.llm_prompt_safety import (
+    PromptSafetyError,
+    detect_es_injection_risk,
+    sanitize_user_prompt_text,
+)
 from app.utils.llm_prompt_safety import detect_output_leakage
 
 
@@ -137,7 +142,6 @@ def _propagate_llm_loggers():
 
 
 def test_emit_output_leakage_event_logs_json(caplog, _propagate_llm_loggers) -> None:
-    from app.utils.llm import _emit_output_leakage_event
 
     with caplog.at_level(logging.INFO, logger="app.utils.llm"):
         _emit_output_leakage_event(

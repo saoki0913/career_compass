@@ -25,10 +25,12 @@ from app.utils.llm import (
     call_llm_text_with_error,
     call_llm_with_error,
     consume_request_llm_cost_summary,
-    sanitize_es_content,
+)
+from app.utils.llm_model_routing import resolve_feature_model_metadata
+from app.utils.llm_prompt_safety import (
     detect_es_injection_risk,
+    sanitize_es_content,
     sanitize_prompt_input,
-    resolve_feature_model_metadata,
 )
 from app.utils.vector_store import (
     get_enhanced_context_for_review_with_sources,
@@ -772,925 +774,34 @@ async def review_section_with_template(
     progress_queue: "asyncio.Queue | None" = None,
 ) -> ReviewResponse:
     """Review a single ES section with a rewrite-only pipeline."""
-    _ = json_caller
-    text_caller = text_caller or call_llm_text_with_error
-    template_request = request.template_request
-    if not template_request:
-        raise ValueError("template_request is required")
-
-    template_type = template_request.template_type
-    if template_type not in TEMPLATE_DEFS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown template type: {template_type}. Available: {list(TEMPLATE_DEFS.keys())}",
-        )
-
-    classification = classify_es_question(template_request.question)
-    classification_confidence = (
-        template_request.inferred_confidence or classification.confidence
-    )
-    classification_secondary_candidates = (
-        template_request.secondary_template_types or classification.secondary_candidates
-    )
-    classification_rationale = (
-        template_request.classification_rationale or classification.rationale
-    )
-    recommended_grounding_level = (
-        template_request.recommended_grounding_level
-        or classification.recommended_grounding_level
-        or _get_default_grounding_level(template_type)
-    )
-    classification_hints: list[str] = []
-    if classification.predicted_template_type != template_type:
-        predicted_label = TEMPLATE_DEFS.get(classification.predicted_template_type, {}).get(
-            "label", classification.predicted_template_type
-        )
-        current_label = TEMPLATE_DEFS.get(template_type, {}).get("label", template_type)
-        classification_hints.append(
-            f"この設問は {predicted_label} とも読まれやすいが、今回は {current_label} として正面から答える"
-        )
-    if classification_secondary_candidates:
-        secondary_labels = [
-            str(TEMPLATE_DEFS.get(candidate, {}).get("label") or candidate)
-            for candidate in classification_secondary_candidates[:2]
-        ]
-        classification_hints.append(
-            f"近接しやすい観点（{' / '.join(secondary_labels)}）と混線しない"
-        )
-    if classification_confidence != "high":
-        classification_hints.append("設問の主眼を1つに絞り、別種の設問要素を混ぜすぎない")
-    misclassification_recovery_applied = bool(classification_hints)
-
-    company_grounding = _get_company_grounding_policy(template_type)
-    effective_role_name = (
-        request.role_context.primary_role if request.role_context else None
-    ) or template_request.role_name
-
-    # Character limits
-    char_min = template_request.char_min
-    char_max = template_request.char_max
-
-    allowed_user_facts = _build_allowed_user_facts(request)
-    logger.info(
-        "[ES添削/テンプレート] user facts: count=%s sources=%s",
-        len(allowed_user_facts),
-        _collect_user_context_sources(request),
-    )
-    generic_role_mode = _is_generic_role_label(effective_role_name)
-    user_priority_urls = {url for url in request.user_provided_corporate_urls if url}
-    prompt_user_facts = _select_prompt_user_facts(
-        allowed_user_facts,
-        template_type=template_type,
-        question=template_request.question,
-        answer=template_request.answer,
-        role_name=effective_role_name,
-        intern_name=template_request.intern_name,
-        company_name=template_request.company_name,
-        char_max=char_max,
-    )
-    verified_rag_sources, rejected_rag_sources, has_mismatched_company_sources = (
-        _filter_verified_company_rag_sources(
-            rag_sources,
-            company_name=template_request.company_name,
-        )
-    )
-    effective_company_rag_available = company_rag_available and bool(verified_rag_sources)
-    effective_grounding_mode = grounding_mode
-    effective_grounding_level = _resolve_effective_grounding_level(
-        template_type=template_type,
-        classifier_grounding_level=recommended_grounding_level,
-        char_max=char_max,
-        evidence_coverage_level="none",
-        has_company_rag=effective_company_rag_available,
-    )
-    effective_company_grounding = grounding_level_to_policy(effective_grounding_level)
-    if has_mismatched_company_sources:
-        effective_grounding_level = "light"
-        effective_company_grounding = grounding_level_to_policy(effective_grounding_level)
-        effective_grounding_mode = "company_general" if verified_rag_sources else "none"
-    company_evidence_cards = _build_company_evidence_cards(
-        verified_rag_sources,
-        template_type=template_type,
-        question=template_request.question,
-        answer=template_request.answer,
-        role_name=effective_role_name,
-        intern_name=template_request.intern_name,
-        grounding_mode=effective_grounding_mode,
-        user_priority_urls=user_priority_urls,
-    )
-    evidence_coverage_level, weak_evidence_notice = _assess_company_evidence_coverage(
-        template_type=template_type,
-        role_name=effective_role_name,
-        company_rag_available=effective_company_rag_available,
-        company_evidence_cards=company_evidence_cards,
-        grounding_mode=effective_grounding_mode,
-    )
-    effective_grounding_level = _resolve_effective_grounding_level(
-        template_type=template_type,
-        classifier_grounding_level=recommended_grounding_level,
-        char_max=char_max,
-        evidence_coverage_level=evidence_coverage_level,
-        has_company_rag=effective_company_rag_available,
-    )
-    if has_mismatched_company_sources:
-        effective_grounding_level = "light"
-    effective_company_grounding = grounding_level_to_policy(effective_grounding_level)
-    grounding_repair_applied = effective_grounding_level != recommended_grounding_level or has_mismatched_company_sources
-    prompt_company_evidence_cards = company_evidence_cards
-    reference_examples = load_reference_examples(
-        template_type,
-        char_max=char_max,
-        company_name=template_request.company_name,
-        max_items=3,
-    )
-    reference_quality_profile = build_reference_quality_profile(
-        template_type,
-        char_max=char_max,
-        company_name=template_request.company_name,
-        current_answer=template_request.answer,
-    )
-    reference_quality_block = build_reference_quality_block(
-        template_type,
-        char_max=char_max,
-        company_name=template_request.company_name,
-        current_answer=template_request.answer,
-    )
-    reference_outline_used = "【参考ESから抽出した骨子】" in reference_quality_block
-    logger.info(
-        "[ES添削/テンプレート] prompt context: selected_user_facts=%s company_evidence_cards=%s reference_examples=%s evidence_coverage=%s company_grounding=%s effective_grounding=%s safety_applied=%s",
-        len(prompt_user_facts),
-        len(prompt_company_evidence_cards),
-        len(reference_examples),
-        evidence_coverage_level,
-        effective_company_grounding,
-        effective_grounding_mode,
-        has_mismatched_company_sources,
-    )
-    logger.info(
-        "[ES添削/テンプレート] evidence cards:\n%s",
-        _format_evidence_card_log_lines(prompt_company_evidence_cards),
-    )
-    logger.info(
-        "[ES添削/テンプレート] rejected evidence:\n%s",
-        _format_rejected_source_log_lines(rejected_rag_sources),
-    )
-    review_token_usage = _empty_review_token_usage()
-    improvement_payload: list[dict[str, Any]] = []
-
-    final_rewrite = ""
-    retry_reason = ""
-    retry_code = "generic"
-    attempt_failures: list[str] = []
-    rewrite_attempt_trace: list[dict[str, Any]] = []
-    rewrite_generation_mode = "normal"
-    rewrite_validation_status = "strict_ok"
-    rewrite_validation_codes: list[str] = []
-    rewrite_validation_user_hint: str | None = None
-    accepted_attempt = 0
-    accepted_length_policy = "strict"
-    accepted_length_shortfall = 0
-    accepted_soft_min_floor_ratio: float | None = None
-    accepted_length_profile_id: str | None = None
-    accepted_target_window_lower: int | None = None
-    accepted_target_window_upper: int | None = None
-    accepted_source_fill_ratio: float | None = None
-    accepted_required_growth = 0
-    accepted_latest_failed_length = 0
-    accepted_length_failure_code: str | None = None
-    retrieval_profile_name = _template_source_family_priority_name(template_type)
-    priority_source_match_count = sum(
-        1
-        for source in verified_rag_sources
-        if str(source.get("source_url") or "") in user_priority_urls
-    )
-    fallback_triggered = False
-    fallback_reason: str | None = None
-    length_fix_attempted = False
-    length_fix_result = "not_needed"
-    best_rejected_candidate = ""
-    best_rejected_length = 0
-    best_rejected_distance: int | None = None
-    best_retry_code = "generic"
-    best_failure_codes: list[str] = []
-    accepted_ai_smell_warnings: list[dict[str, str]] = []
-    best_rejected_ai_smell_warnings: list[dict[str, str]] = []
-    retry_failure_codes: list[str] = []
-    last_ai_smell_warnings: list[dict[str, str]] = []
-    last_under_min_length: int | None = None
-    executed_rewrite_attempts = 0
-    total_attempts = _total_rewrite_attempts(review_variant)
-    use_tight_length_control = _uses_tight_length_control(
-        template_type=template_type,
-        char_min=char_min,
-        char_max=char_max,
-        review_variant=review_variant,
-    )
-    for attempt in range(total_attempts):
-        executed_rewrite_attempts = attempt + 1
-        focus_modes = (
-            ["normal"]
-            if attempt == 0
-            else _resolve_rewrite_focus_modes(
-                retry_code=retry_code,
-                failure_codes=retry_failure_codes,
-            )
-        )
-        focus_mode = focus_modes[0]
-        length_control_mode = _resolve_rewrite_length_control_mode(
-            use_tight_length_control=use_tight_length_control,
-            focus_mode=focus_mode,
-        )
-        retry_hints = _retry_hints_from_codes(
-            retry_code=retry_code,
-            failure_codes=retry_failure_codes,
-            char_min=char_min,
-            char_max=char_max,
-            current_length=best_rejected_length or None,
-            length_control_mode=length_control_mode,
-            template_type=template_type,
-        )
-        if classification_hints:
-            retry_hints = [*classification_hints, *retry_hints]
-        if last_ai_smell_warnings:
-            smell_hints = _build_ai_smell_retry_hints(last_ai_smell_warnings)
-            retry_hints = [*retry_hints, *smell_hints]
-        length_shortfall = (
-            max(0, char_min - best_rejected_length)
-            if char_min and best_rejected_length and best_rejected_length < char_min
-            else None
-        )
-        rewrite_source_answer = best_rejected_candidate or template_request.answer
-        if attempt == 0:
-            rewrite_source_answer = template_request.answer
-        length_profile = resolve_length_control_profile(
-            char_min,
-            char_max,
-            stage=_length_profile_stage_from_mode(length_control_mode),
-            original_len=len(rewrite_source_answer),
-            llm_model=llm_model,
-            latest_failed_len=best_rejected_length,
-        )
-        attempt_context = _select_rewrite_prompt_context(
-            template_type=template_type,
-            char_max=char_max,
-            attempt=attempt,
-            simplified_mode=False,
-            length_control_mode=length_control_mode,
-            prompt_user_facts=prompt_user_facts,
-            company_evidence_cards=prompt_company_evidence_cards,
-            improvement_payload=improvement_payload,
-            reference_quality_block=reference_quality_block,
-            evidence_coverage_level=evidence_coverage_level,
-            effective_company_grounding=effective_company_grounding,
-        )
-        system_prompt, user_prompt = build_template_rewrite_prompt(
-            template_type=template_type,
-            company_name=template_request.company_name,
-            industry=template_request.industry,
-            question=template_request.question,
-            answer=rewrite_source_answer,
-            char_min=char_min,
-            char_max=char_max,
-            company_evidence_cards=attempt_context["company_evidence_cards"],
-            has_rag=effective_company_rag_available,
-            allowed_user_facts=attempt_context["prompt_user_facts"],
-            intern_name=template_request.intern_name,
-            role_name=effective_role_name,
-            grounding_mode=effective_grounding_mode,
-            retry_hints=retry_hints,
-            reference_quality_block=attempt_context["reference_quality_block"],
-            generic_role_mode=generic_role_mode,
-            evidence_coverage_level=evidence_coverage_level,
-            length_control_mode=length_control_mode,
-            length_shortfall=length_shortfall,
-            focus_mode=focus_mode,
-            focus_modes=focus_modes,
-            company_grounding_override=effective_company_grounding,
-            grounding_level_override=effective_grounding_level,
-            llm_model=llm_model,
-        )
-
-        logger.info(
-            "[ES添削/テンプレート] rewrite %s attempt=%s/%s mode=%s",
-            template_type,
-            attempt + 1,
-            total_attempts,
-            focus_mode,
-        )
-        _queue_progress_event(
-            progress_queue,
-            step="rewrite",
-            progress=52 if attempt == 0 else min(76, 52 + attempt * 5),
-            label="改善案を作成中..." if focus_mode == "normal" else "失敗理由に合わせて再調整中...",
-            sub_label="事実を保ちながら提出用の本文に整えています",
-        )
-
-        rewrite_result = await text_caller(
-            system_prompt=system_prompt,
-            user_message=user_prompt,
-            max_tokens=_rewrite_max_tokens(
-                char_max,
-                review_variant=review_variant,
-                llm_model=llm_model,
-            ),
-            temperature=_es_review_temperature(
-                llm_model,
-                stage="rewrite",
-                focus_mode=focus_mode,
-            ),
-            model=llm_model,
-            feature=review_feature,
-            disable_fallback=True,
-        )
-        _accumulate_review_token_usage(review_token_usage, rewrite_result, call_kind="text")
-
-        if not rewrite_result.success or not rewrite_result.data:
-            error = rewrite_result.error
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "error": error.message if error else "AI処理中にエラーが発生しました",
-                    "error_type": error.error_type if error else "unknown",
-                    "provider": error.provider if error else "unknown",
-                    "detail": error.detail if error else "",
-                },
-            )
-
-        candidate = (
-            rewrite_result.data.get("text", "")
-            if isinstance(rewrite_result.data, dict)
-            else str(rewrite_result.data)
-        )
-        validated_candidate, retry_code, retry_reason, retry_meta = _validate_rewrite_candidate(
-            candidate,
-            template_type=template_type,
-            question=template_request.question,
-            company_name=template_request.company_name,
-            char_min=char_min,
-            char_max=char_max,
-            issues=[],
-            role_name=effective_role_name,
-            intern_name=template_request.intern_name,
-            industry=template_request.industry,
-            grounding_mode=effective_grounding_mode,
-            effective_company_grounding_policy=effective_company_grounding,
-            company_evidence_cards=prompt_company_evidence_cards,
-            review_variant=review_variant,
-            soft_validation_mode="strict",
-            user_answer=template_request.answer,
-        )
-        _append_rewrite_attempt_trace(
-            rewrite_attempt_trace,
-            stage="rewrite",
-            text=str(candidate),
-            accepted=bool(validated_candidate),
-            retry_reason=retry_reason if not validated_candidate else "",
-            attempt_index=attempt + 1,
-            total_rewrite_attempts=total_attempts,
-            prompt_mode=focus_mode,
-            prompt_modes=focus_modes,
-            failure_codes=[] if validated_candidate else list(retry_meta.get("failure_codes") or [retry_code]),
-        )
-        if not validated_candidate:
-            failure_codes = list(retry_meta.get("failure_codes") or [retry_code])
-            retry_failure_codes = failure_codes
-            normalized_candidate = _normalize_repaired_text(candidate)
-            current_length = len(normalized_candidate)
-            candidate_distance = _char_limit_distance(
-                normalized_candidate,
-                char_min=char_min,
-                char_max=char_max,
-            )
-            if best_rejected_distance is None or candidate_distance <= best_rejected_distance:
-                best_rejected_candidate = normalized_candidate
-                best_rejected_length = len(best_rejected_candidate)
-                best_rejected_distance = candidate_distance
-                best_retry_code = _primary_retry_code(
-                    retry_code=retry_code,
-                    failure_codes=failure_codes,
-                )
-                best_failure_codes = failure_codes
-                best_rejected_ai_smell_warnings = list(retry_meta.get("ai_smell_warnings") or [])
-            last_ai_smell_warnings = list(retry_meta.get("ai_smell_warnings") or [])
-            primary_retry_code = _primary_retry_code(
-                retry_code=retry_code,
-                failure_codes=failure_codes,
-            )
-            accepted_length_failure_code = primary_retry_code
-            if primary_retry_code == "under_min":
-                if _should_short_circuit_to_length_fix(
-                    retry_code=primary_retry_code,
-                    current_length=current_length,
-                    last_under_min_length=last_under_min_length,
-                    attempt_number=attempt + 1,
-                    llm_model=llm_model,
-                    char_min=char_min,
-                    char_max=char_max,
-                    rewrite_source_answer=rewrite_source_answer,
-                ):
-                    last_under_min_length = current_length
-                    attempt_failures.append(retry_reason)
-                    logger.warning(
-                        "[ES添削/テンプレート] rewrite %s attempt=%s/%s 失敗: %s",
-                        template_type,
-                        attempt + 1,
-                        total_attempts,
-                        _describe_retry_reason(retry_reason),
-                    )
-                    logger.info(
-                        "[ES添削/テンプレート] rewrite %s attempt=%s/%s under_min が連続したため早期に length-fix へ移行",
-                        template_type,
-                        attempt + 1,
-                        total_attempts,
-                    )
-                    break
-                last_under_min_length = current_length
-            else:
-                last_under_min_length = None
-            attempt_failures.append(retry_reason)
-            logger.warning(
-                "[ES添削/テンプレート] rewrite %s attempt=%s/%s 失敗: %s",
-                template_type,
-                attempt + 1,
-                total_attempts,
-                _describe_retry_reason(retry_reason),
-            )
-            continue
-
-        final_rewrite = validated_candidate
-        accepted_attempt = attempt + 1
-        accepted_length_policy = str(retry_meta.get("length_policy") or "strict")
-        accepted_length_shortfall = int(retry_meta.get("length_shortfall") or 0)
-        accepted_soft_min_floor_ratio = retry_meta.get("soft_min_floor_ratio")
-        accepted_length_profile_id = length_profile.profile_id
-        accepted_target_window_lower = length_profile.target_lower
-        accepted_target_window_upper = length_profile.target_upper
-        accepted_source_fill_ratio = length_profile.source_fill_ratio
-        accepted_required_growth = length_profile.required_growth
-        accepted_latest_failed_length = length_profile.latest_failed_length
-        accepted_length_failure_code = None
-        accepted_ai_smell_warnings = list(retry_meta.get("ai_smell_warnings") or [])
-        rewrite_generation_mode = _serialize_focus_modes(focus_modes)
-        break
-
-    if (
-        not final_rewrite
-        and best_rejected_candidate
-        and any(code not in {"under_min", "over_max"} for code in best_failure_codes)
-    ):
-        fallback_triggered = True
-        fallback_reason = best_retry_code or "generic"
-        fallback_hints = [*classification_hints, *attempt_failures[-2:]]
-        if best_rejected_ai_smell_warnings:
-            smell_hints = _build_ai_smell_retry_hints(best_rejected_ai_smell_warnings)
-            fallback_hints = [*fallback_hints, *smell_hints]
-        system_prompt, user_prompt = build_template_fallback_rewrite_prompt(
-            template_type=template_type,
-            company_name=template_request.company_name,
-            industry=template_request.industry,
-            question=template_request.question,
-            answer=best_rejected_candidate,
-            char_min=char_min,
-            char_max=char_max,
-            company_evidence_cards=prompt_company_evidence_cards,
-            has_rag=effective_company_rag_available,
-            allowed_user_facts=prompt_user_facts,
-            intern_name=template_request.intern_name,
-            role_name=effective_role_name,
-            grounding_mode=effective_grounding_mode,
-            retry_hints=fallback_hints,
-            reference_quality_block=reference_quality_block,
-            generic_role_mode=generic_role_mode,
-            evidence_coverage_level=evidence_coverage_level,
-            length_control_mode="under_min_recovery" if best_retry_code == "under_min" else "default",
-            length_shortfall=max(0, (char_min or 0) - len(best_rejected_candidate)) if char_min else None,
-            focus_modes=_resolve_rewrite_focus_modes(
-                retry_code=best_retry_code,
-                failure_codes=best_failure_codes,
-            ),
-            company_grounding_override=effective_company_grounding,
-            grounding_level_override=effective_grounding_level,
-            llm_model=llm_model,
-        )
-        fallback_result = await text_caller(
-            system_prompt=system_prompt,
-            user_message=user_prompt,
-            max_tokens=_rewrite_max_tokens(
-                char_max,
-                review_variant=review_variant,
-                llm_model=llm_model,
-            ),
-            temperature=_es_review_temperature(llm_model, stage="rewrite", focus_mode="normal"),
-            model=llm_model,
-            feature=review_feature,
-            disable_fallback=True,
-        )
-        _accumulate_review_token_usage(review_token_usage, fallback_result, call_kind="text")
-        fallback_candidate = (
-            fallback_result.data.get("text", "")
-            if fallback_result.success and isinstance(fallback_result.data, dict)
-            else str(fallback_result.data) if fallback_result.success and fallback_result.data else ""
-        )
-        validated_candidate, retry_code, retry_reason, retry_meta = _validate_rewrite_candidate(
-            fallback_candidate,
-            template_type=template_type,
-            question=template_request.question,
-            company_name=template_request.company_name,
-            char_min=char_min,
-            char_max=char_max,
-            issues=[],
-            role_name=effective_role_name,
-            intern_name=template_request.intern_name,
-            industry=template_request.industry,
-            grounding_mode=effective_grounding_mode,
-            effective_company_grounding_policy=effective_company_grounding,
-            company_evidence_cards=prompt_company_evidence_cards,
-            review_variant=review_variant,
-            soft_validation_mode="strict",
-            user_answer=template_request.answer,
-        )
-        _append_rewrite_attempt_trace(
-            rewrite_attempt_trace,
-            stage="fallback",
-            text=fallback_candidate,
-            accepted=bool(validated_candidate),
-            retry_reason="" if validated_candidate else retry_reason,
-            attempt_index=total_attempts + 1,
-            total_rewrite_attempts=total_attempts + 1,
-            prompt_mode="fallback",
-            failure_codes=[] if validated_candidate else list(retry_meta.get("failure_codes") or [retry_code]),
-        )
-        if validated_candidate:
-            final_rewrite = validated_candidate
-            accepted_attempt = total_attempts + 1
-            accepted_length_policy = str(retry_meta.get("length_policy") or "strict")
-            accepted_length_shortfall = int(retry_meta.get("length_shortfall") or 0)
-            accepted_soft_min_floor_ratio = retry_meta.get("soft_min_floor_ratio")
-            fallback_profile = resolve_length_control_profile(
-                char_min,
-                char_max,
-                stage="under_min_recovery" if best_retry_code == "under_min" else "default",
-                original_len=len(best_rejected_candidate),
-                llm_model=llm_model,
-                latest_failed_len=len(best_rejected_candidate),
-            )
-            accepted_length_profile_id = fallback_profile.profile_id
-            accepted_target_window_lower = fallback_profile.target_lower
-            accepted_target_window_upper = fallback_profile.target_upper
-            accepted_source_fill_ratio = fallback_profile.source_fill_ratio
-            accepted_required_growth = fallback_profile.required_growth
-            accepted_latest_failed_length = fallback_profile.latest_failed_length
-            accepted_length_failure_code = None
-            accepted_ai_smell_warnings = list(retry_meta.get("ai_smell_warnings") or [])
-            rewrite_generation_mode = "fallback_safe_rewrite"
-        else:
-            attempt_failures.append(retry_reason)
-
-    if (
-        not final_rewrite
-        and best_rejected_candidate
-        and best_retry_code in {"under_min", "over_max", "style", "grounding"}
-        and _should_attempt_length_fix(
-            best_rejected_candidate,
-            char_min=char_min,
-            char_max=char_max,
-            use_tight_length_control=use_tight_length_control,
-            primary_failure_code=best_retry_code,
-            failure_codes=best_failure_codes,
-        )
-    ):
-        length_fix_attempted = True
-        length_fix_source = best_rejected_candidate
-        length_fix_code = best_retry_code
-        length_fix_failure_codes = list(best_failure_codes or [best_retry_code])
-        length_fix_result = "failed"
-        for fix_pass in range(LENGTH_FIX_REWRITE_ATTEMPTS):
-            length_fix_focus_modes = _resolve_rewrite_focus_modes(
-                retry_code=length_fix_code,
-                failure_codes=length_fix_failure_codes,
-            )
-            logger.info(
-                "[ES添削/テンプレート] length-fix attempt: template=%s mode=%s pass=%s/%s",
-                template_type,
-                _serialize_focus_modes(length_fix_focus_modes),
-                fix_pass + 1,
-                LENGTH_FIX_REWRITE_ATTEMPTS,
-            )
-            system_prompt, user_prompt = build_template_length_fix_prompt(
-                template_type=template_type,
-                current_text=length_fix_source,
-                char_min=char_min,
-                char_max=char_max,
-                fix_mode=length_fix_code,
-                focus_modes=length_fix_focus_modes,
-                length_control_mode=(
-                    "under_min_recovery"
-                    if use_tight_length_control and length_fix_code in {"under_min", "over_max"}
-                    else "default"
-                ),
-                llm_model=llm_model,
-                effective_company_grounding=effective_company_grounding,
-                grounding_mode=effective_grounding_mode,
-            )
-            rewrite_result = await text_caller(
-                system_prompt=system_prompt,
-                user_message=user_prompt,
-                max_tokens=_rewrite_max_tokens(
-                    char_max,
-                    length_fix_mode=True,
-                    review_variant=review_variant,
-                    llm_model=llm_model,
-                ),
-                temperature=_es_review_temperature(llm_model, stage="length_fix"),
-                model=llm_model,
-                feature=review_feature,
-                disable_fallback=True,
-            )
-            _accumulate_review_token_usage(review_token_usage, rewrite_result, call_kind="text")
-            if not rewrite_result.success or not rewrite_result.data:
-                _append_rewrite_attempt_trace(
-                    rewrite_attempt_trace,
-                    stage="length_fix",
-                    text="",
-                    accepted=False,
-                    retry_reason="llm_call_failed",
-                    prompt_mode=_serialize_focus_modes(length_fix_focus_modes),
-                    prompt_modes=length_fix_focus_modes,
-                    fix_pass=fix_pass + 1,
-                    length_fix_total=LENGTH_FIX_REWRITE_ATTEMPTS,
-                )
-                break
-            candidate = (
-                rewrite_result.data.get("text", "")
-                if isinstance(rewrite_result.data, dict)
-                else str(rewrite_result.data)
-            )
-            validated_candidate, retry_code, retry_reason, retry_meta = _validate_rewrite_candidate(
-                candidate,
-                template_type=template_type,
-                question=template_request.question,
-                company_name=template_request.company_name,
-                char_min=char_min,
-                char_max=char_max,
-                issues=[],
-                role_name=effective_role_name,
-                intern_name=template_request.intern_name,
-                industry=template_request.industry,
-                grounding_mode=effective_grounding_mode,
-                effective_company_grounding_policy=effective_company_grounding,
-                company_evidence_cards=prompt_company_evidence_cards,
-                review_variant=review_variant,
-                soft_validation_mode="final_soft",
-                user_answer=template_request.answer,
-            )
-            if validated_candidate:
-                _append_rewrite_attempt_trace(
-                    rewrite_attempt_trace,
-                    stage="length_fix",
-                    text=str(candidate),
-                    accepted=True,
-                    prompt_mode=_serialize_focus_modes(length_fix_focus_modes),
-                    prompt_modes=length_fix_focus_modes,
-                    fix_pass=fix_pass + 1,
-                    length_fix_total=LENGTH_FIX_REWRITE_ATTEMPTS,
-                )
-                final_rewrite = validated_candidate
-                accepted_attempt = executed_rewrite_attempts + fix_pass + 1
-                accepted_length_policy = str(retry_meta.get("length_policy") or "strict")
-                accepted_length_shortfall = int(retry_meta.get("length_shortfall") or 0)
-                accepted_soft_min_floor_ratio = retry_meta.get("soft_min_floor_ratio")
-                accepted_ai_smell_warnings = list(retry_meta.get("ai_smell_warnings") or [])
-                length_fix_profile = resolve_length_control_profile(
-                    char_min,
-                    char_max,
-                    stage="under_min_recovery" if length_fix_code == "under_min" else "tight_length",
-                    original_len=len(length_fix_source),
-                    llm_model=llm_model,
-                    latest_failed_len=len(length_fix_source),
-                )
-                accepted_length_profile_id = length_fix_profile.profile_id
-                accepted_target_window_lower = length_fix_profile.target_lower
-                accepted_target_window_upper = length_fix_profile.target_upper
-                accepted_source_fill_ratio = length_fix_profile.source_fill_ratio
-                accepted_required_growth = length_fix_profile.required_growth
-                accepted_latest_failed_length = len(length_fix_source)
-                accepted_length_failure_code = "under_min" if length_fix_code == "under_min" else retry_code
-                if retry_code == "soft_ok":
-                    rewrite_validation_status = "soft_ok"
-                    rewrite_validation_codes = list(
-                        retry_meta.get("soft_validation_codes") or ["under_min"]
-                    )
-                    rewrite_validation_user_hint = _rewrite_validation_soft_hint(
-                        rewrite_validation_codes
-                    )
-                    length_fix_result = "soft_recovered"
-                else:
-                    length_fix_result = "strict_recovered"
-                break
-            _append_rewrite_attempt_trace(
-                rewrite_attempt_trace,
-                stage="length_fix",
-                text=str(candidate),
-                accepted=False,
-                retry_reason=retry_reason,
-                prompt_mode=_serialize_focus_modes(length_fix_focus_modes),
-                prompt_modes=length_fix_focus_modes,
-                failure_codes=list(retry_meta.get("failure_codes") or [retry_code]),
-                fix_pass=fix_pass + 1,
-                length_fix_total=LENGTH_FIX_REWRITE_ATTEMPTS,
-            )
-            if fix_pass + 1 < LENGTH_FIX_REWRITE_ATTEMPTS:
-                normalized_candidate = _normalize_repaired_text(candidate)
-                if normalized_candidate:
-                    length_fix_source = normalized_candidate
-                    length_fix_failure_codes = list(retry_meta.get("failure_codes") or [retry_code])
-                    length_fix_code = retry_code or length_fix_code
-
-    if not final_rewrite:
-        if best_rejected_candidate and _best_effort_rewrite_admissible(
-            best_rejected_candidate,
-            template_type=template_type,
-            company_name=template_request.company_name,
-            char_max=char_max,
-            primary_failure_code=best_retry_code,
-            failure_codes=best_failure_codes,
-        ):
-            final_rewrite = _coerce_degraded_rewrite_dearu_style(best_rejected_candidate)
-            rewrite_validation_status = "degraded"
-            rewrite_validation_codes = list(best_failure_codes or ([best_retry_code] if best_retry_code != "generic" else []))
-            rewrite_validation_user_hint = _rewrite_validation_degraded_hint(rewrite_validation_codes)
-            accepted_ai_smell_warnings = best_rejected_ai_smell_warnings
-            if accepted_ai_smell_warnings:
-                smell_details = "; ".join(w["detail"] for w in accepted_ai_smell_warnings[:3])
-                rewrite_validation_user_hint += f" また、以下のAI的表現が検出されました: {smell_details}"
-            rewrite_generation_mode = "degraded_best_effort"
-            accepted_attempt = executed_rewrite_attempts + (
-                LENGTH_FIX_REWRITE_ATTEMPTS if length_fix_attempted else 0
-            )
-            degraded_profile = resolve_length_control_profile(
-                char_min,
-                char_max,
-                stage="under_min_recovery" if best_retry_code == "under_min" else "default",
-                original_len=len(best_rejected_candidate),
-                llm_model=llm_model,
-                latest_failed_len=len(best_rejected_candidate),
-            )
-            accepted_length_profile_id = degraded_profile.profile_id
-            accepted_target_window_lower = degraded_profile.target_lower
-            accepted_target_window_upper = degraded_profile.target_upper
-            accepted_source_fill_ratio = degraded_profile.source_fill_ratio
-            accepted_required_growth = degraded_profile.required_growth
-            accepted_latest_failed_length = len(best_rejected_candidate)
-            accepted_length_failure_code = best_retry_code
-            _append_rewrite_attempt_trace(
-                rewrite_attempt_trace,
-                stage="degraded_best_effort",
-                text=final_rewrite,
-                accepted=True,
-                retry_reason="adopted_best_rejected_without_new_llm",
-                failure_codes=rewrite_validation_codes,
-            )
-            logger.warning(
-                "[ES添削/テンプレート] rewrite %s ベストエフォート採用: codes=%s",
-                template_type,
-                rewrite_validation_codes,
-            )
-        else:
-            record_parse_failure("es_review_template_rewrite", retry_reason)
-            logger.error(
-                f"[ES添削/テンプレート] rewrite {template_type} 最終失敗: "
-                f"{_describe_retry_reason(retry_reason)} / 履歴={attempt_failures}"
-            )
-            detail: dict[str, Any] = {
-                "error": GENERIC_REWRITE_VALIDATION_ERROR,
-                "error_type": "validation",
-                "provider": "template_rewrite",
-            }
-            if os.getenv("LIVE_ES_REVIEW_CAPTURE_DEBUG") == "1":
-                detail["debug"] = {
-                    "last_retry_reason": retry_reason,
-                    "attempt_failures": attempt_failures[-16:],
-                    "rewrite_attempt_trace": rewrite_attempt_trace,
-                }
-            raise HTTPException(status_code=422, detail=detail)
-
-    total_logged_attempts = total_attempts + (LENGTH_FIX_REWRITE_ATTEMPTS if length_fix_attempted else 0)
-    logger.info(
-        "[ES添削/テンプレート] rewrite success: template=%s attempt=%s/%s chars=%s",
-        template_type,
-        accepted_attempt,
-        total_logged_attempts,
-        len(final_rewrite),
-    )
-    logger.info(
-        "[ES添削/テンプレート] final rewrite:\n%s",
-        final_rewrite,
-    )
-    _queue_progress_event(
-        progress_queue,
-        step="rewrite",
-        progress=80,
-        label="改善案を表示中...",
-        sub_label="確定した改善案をそのまま表示しています",
-    )
-    await _stream_final_rewrite(progress_queue, final_rewrite)
-
-    _queue_progress_event(
-        progress_queue,
-        step="sources",
-        progress=90,
-        label="出典リンクを表示中...",
-        sub_label="企業情報の参照元を整理しています",
+    from app.routers.es_review_orchestrator import (
+        prepare_review_context,
+        execute_rewrite_loop,
+        execute_recovery_pipeline,
+        assemble_review_response,
     )
 
-    template_review = _build_template_review_response(
-        template_type=template_type,
-        rewrite_text=final_rewrite,
-        rag_sources=verified_rag_sources,
+    ctx = await prepare_review_context(
         request=request,
+        rag_sources=rag_sources,
+        company_rag_available=company_rag_available,
+        json_caller=json_caller,
+        text_caller=text_caller,
+        review_feature=review_feature,
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        review_variant=review_variant,
+        grounding_mode=grounding_mode,
+        triggered_enrichment=triggered_enrichment,
+        enrichment_completed=enrichment_completed,
+        enrichment_sources_added=enrichment_sources_added,
+        injection_risk=injection_risk,
+        progress_queue=progress_queue,
     )
-    logger.info(
-        "[ES添削/テンプレート] sources:\n%s",
-        _format_source_log_lines(template_review.keyword_sources),
-    )
-    await _stream_source_links(progress_queue, template_review.keyword_sources)
 
-    return ReviewResponse(
-        rewrites=[final_rewrite],
-        template_review=template_review,
-        review_meta=_build_review_meta(
-            request,
-            llm_provider=llm_provider,
-            llm_model=llm_model,
-            review_variant=review_variant,
-            grounding_mode=effective_grounding_mode,
-            triggered_enrichment=triggered_enrichment,
-            enrichment_completed=enrichment_completed,
-            enrichment_sources_added=enrichment_sources_added,
-            injection_risk=injection_risk,
-            rewrite_generation_mode=rewrite_generation_mode,
-            rewrite_attempt_count=accepted_attempt,
-            reference_es_count=len(reference_examples),
-            reference_quality_profile_used=bool(reference_quality_block),
-            reference_outline_used=reference_outline_used,
-            reference_hint_count=len((reference_quality_profile or {}).get("quality_hints") or [])
-            + len((reference_quality_profile or {}).get("conditional_hints") or []),
-            reference_conditional_hints_applied=bool(
-                (reference_quality_profile or {}).get("conditional_hints_applied")
-            ),
-            reference_profile_variance=(reference_quality_profile or {}).get("variance_band"),
-            company_grounding_policy=company_grounding,
-            effective_company_grounding_policy=effective_company_grounding,
-            recommended_grounding_level=recommended_grounding_level,
-            effective_grounding_level=effective_grounding_level,
-            company_evidence_count=len(prompt_company_evidence_cards),
-            company_evidence_verified_count=len(verified_rag_sources),
-            company_evidence_rejected_count=len(rejected_rag_sources),
-            company_grounding_safety_applied=has_mismatched_company_sources,
-            evidence_coverage_level=evidence_coverage_level,
-            weak_evidence_notice=weak_evidence_notice,
-            selected_company_evidence_themes=[
-                str(card.get("theme") or "").strip()
-                for card in prompt_company_evidence_cards
-                if str(card.get("theme") or "").strip()
-            ],
-            length_policy=accepted_length_policy,
-            length_shortfall=accepted_length_shortfall,
-            length_shortfall_bucket=_length_shortfall_bucket(
-                char_min=char_min,
-                latest_failed_length=accepted_latest_failed_length,
-                length_failure_code=accepted_length_failure_code,
-            ),
-            soft_min_floor_ratio=accepted_soft_min_floor_ratio,
-            length_fix_attempted=length_fix_attempted,
-            length_fix_result=length_fix_result,
-            rewrite_validation_status=rewrite_validation_status,
-            rewrite_validation_codes=rewrite_validation_codes,
-            rewrite_validation_user_hint=rewrite_validation_user_hint,
-            classification_confidence=classification_confidence,
-            classification_secondary_candidates=classification_secondary_candidates,
-            classification_rationale=classification_rationale,
-            misclassification_recovery_applied=misclassification_recovery_applied,
-            fallback_triggered=fallback_triggered,
-            fallback_reason=fallback_reason,
-            grounding_repair_applied=grounding_repair_applied,
-            length_profile_id=accepted_length_profile_id,
-            target_window_lower=accepted_target_window_lower,
-            target_window_upper=accepted_target_window_upper,
-            source_fill_ratio=accepted_source_fill_ratio,
-            required_growth=accepted_required_growth,
-            latest_failed_length=accepted_latest_failed_length,
-            length_failure_code=accepted_length_failure_code,
-            unfinished_tail_detected=_has_unfinished_tail(final_rewrite),
-            retrieval_profile_name=retrieval_profile_name,
-            priority_source_match_count=priority_source_match_count,
-            token_usage=_maybe_review_token_usage(review_token_usage),
-            rewrite_rejection_reasons=list(attempt_failures),
-            rewrite_attempt_trace=rewrite_attempt_trace,
-            rewrite_total_rewrite_attempts=total_attempts,
-            ai_smell_warnings=accepted_ai_smell_warnings,
-        ),
-    )
+    loop_result = await execute_rewrite_loop(ctx)
+    recovery = await execute_recovery_pipeline(ctx, loop_result)
+    return await assemble_review_response(ctx, loop_result, recovery)
 
 
 PROGRESS_STEPS = [
@@ -1725,6 +836,16 @@ PROGRESS_STEPS = [
         "subLabel": "関連情報を最後に添えています",
     },
 ]
+
+
+def _extract_user_facing_message(detail: Any) -> str:
+    """Extract a user-safe message from HTTPException detail, never exposing internals."""
+    if isinstance(detail, dict):
+        for key in ("userMessage", "message"):
+            val = detail.get(key)
+            if isinstance(val, str) and val:
+                return val
+    return "入力内容に問題があります。内容を確認してもう一度お試しください。"
 
 
 async def _generate_review_progress(
@@ -2025,34 +1146,71 @@ async def _generate_review_progress(
         try:
             result = await review_task
         except HTTPException as e:
-            detail = e.detail
-            if isinstance(detail, dict):
-                message = (
-                    detail.get("error")
-                    or detail.get("message")
-                    or detail.get("detail")
-                    or "AI処理中にエラーが発生しました"
-                )
+            logger.warning(
+                f"[ES添削/SSE] HTTPException {e.status_code}: {e.detail}"
+            )
+            if 400 <= e.status_code < 500:
+                message = _extract_user_facing_message(e.detail)
             else:
-                message = str(detail)
-            yield _sse_event("error", {
-                "message": message,
-                "internal_telemetry": consume_request_llm_cost_summary("es_review"),
-            })
+                message = "AI処理が混み合っています。しばらくしてからお試しください。"
+            yield _sse_event("error", {"message": message})
             last_stream_activity = time.monotonic()
             return
 
+        result_payload = result.model_dump()
+        final_rewrite_text = result.rewrites[0] if result.rewrites else ""
+        explanation_text: str | None = None
+        if final_rewrite_text:
+            from app.routers.es_review_explanation import generate_improvement_explanation
+
+            try:
+                _queue_progress_event(
+                    progress_queue,
+                    step="explanation",
+                    progress=92,
+                    label="改善ポイントを整理中",
+                )
+                explanation_text = await generate_improvement_explanation(
+                    original_text=request.content,
+                    rewritten_text=final_rewrite_text,
+                    template_type=template_request.template_type,
+                    company_name=template_request.company_name,
+                    progress_queue=progress_queue,
+                )
+            except Exception:
+                logger.warning(
+                    "Explanation generation failed, continuing without it",
+                    exc_info=True,
+                )
+                explanation_text = None
+
+            while not progress_queue.empty():
+                try:
+                    event_type, event_data = progress_queue.get_nowait()
+                    if event_type in {
+                        "progress",
+                        "string_chunk",
+                        "field_complete",
+                        "array_item_complete",
+                    }:
+                        yield _sse_event(event_type, event_data)
+                        last_stream_activity = time.monotonic()
+                except asyncio.QueueEmpty:
+                    break
+
+        if explanation_text:
+            result_payload["improvement_explanation"] = explanation_text
+
         yield _sse_event("complete", {
-            "result": result.model_dump(),
+            "result": result_payload,
             "internal_telemetry": consume_request_llm_cost_summary("es_review"),
         })
         last_stream_activity = time.monotonic()
 
     except Exception as e:
-        logger.error(f"[ES添削/SSE] ❌ エラー: {e}")
+        logger.error(f"[ES添削/SSE] ❌ エラー: {e}", exc_info=True)
         yield _sse_event("error", {
-            "message": str(e),
-            "internal_telemetry": consume_request_llm_cost_summary("es_review"),
+            "message": "AI処理中にエラーが発生しました。しばらくしてからもう一度お試しください。",
         })
 
 
@@ -2124,6 +1282,41 @@ async def review_es_stream(
                 yield chunk
 
     return _build_review_streaming_response(_stream_with_lease())
+
+
+def evaluate_company_review_status(company_id: str) -> CompanyReviewStatusResponse:
+    rag_status = get_company_rag_status(company_id)
+    strategic_chunks = (
+        rag_status.get("new_grad_recruitment_chunks", 0)
+        + rag_status.get("midcareer_recruitment_chunks", 0)
+        + rag_status.get("corporate_site_chunks", 0)
+        + rag_status.get("ir_materials_chunks", 0)
+        + rag_status.get("employee_interviews_chunks", 0)
+        + rag_status.get("ceo_message_chunks", 0)
+        + rag_status.get("midterm_plan_chunks", 0)
+        + rag_status.get("press_release_chunks", 0)
+        + rag_status.get("csr_sustainability_chunks", 0)
+    )
+    total_chunks = int(rag_status.get("total_chunks", 0) or 0)
+    ready = bool(rag_status.get("has_rag")) and total_chunks >= 3 and strategic_chunks >= 2
+    if ready:
+        reason = "ok"
+    elif total_chunks == 0:
+        reason = "rag_missing"
+    elif strategic_chunks == 0:
+        reason = "no_strategic_chunks"
+    elif strategic_chunks < 2:
+        reason = "insufficient_strategic_chunks"
+    else:
+        reason = "insufficient_total_chunks"
+    return CompanyReviewStatusResponse(
+        status="ready_for_es_review" if ready else "company_fetched_but_not_ready",
+        ready_for_es_review=ready,
+        reason=reason,
+        total_chunks=total_chunks,
+        strategic_chunks=strategic_chunks,
+        last_updated=rag_status.get("last_updated"),
+    )
 
 
 @router.get("/company-status/{company_id}", response_model=CompanyReviewStatusResponse)

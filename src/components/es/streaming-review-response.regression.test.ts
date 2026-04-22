@@ -9,13 +9,15 @@ function readSource(relativePath: string) {
 }
 
 describe("streaming review response regressions", () => {
-  it("does not keep animated issue/source wrappers during streaming", () => {
+  it("keeps the explanation block simple without animated wrappers", () => {
     const source = readSource("src/components/es/StreamingReviewResponse.tsx");
 
     expect(source).not.toContain("AnimatePresence");
     expect(source).not.toContain("motion.article");
     expect(source).not.toContain("motion.div");
-    expect(source).not.toContain("改善ポイント");
+    expect(source).toContain("改善ポイント");
+    expect(source).toContain("visibleExplanationText");
+    expect(source).toContain("explanationComplete");
     expect(source).not.toContain("top3");
   });
 });

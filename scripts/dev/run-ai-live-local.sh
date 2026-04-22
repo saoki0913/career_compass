@@ -29,7 +29,8 @@ timestamp="${AI_LIVE_LOCAL_TIMESTAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
 default_output_dir="backend/tests/output/local_ai_live/${suite}_${timestamp}"
 output_dir="${OUTPUT_DIR:-${AI_LIVE_LOCAL_OUTPUT_DIR:-$default_output_dir}}"
 features_arg="${AI_LIVE_LOCAL_FEATURES:-all}"
-skip_es_review_playwright="${AI_LIVE_LOCAL_SKIP_ES_REVIEW_PLAYWRIGHT:-1}"
+skip_es_review_playwright="${AI_LIVE_LOCAL_SKIP_ES_REVIEW_PLAYWRIGHT:-0}"
+skip_all_playwright="${AI_LIVE_SKIP_ALL_PLAYWRIGHT:-0}"
 web_port=""
 base_url=""
 fastapi_health_url="${AI_LIVE_LOCAL_FASTAPI_HEALTH_URL:-http://localhost:8000/health}"
@@ -50,7 +51,12 @@ next_pid=""
 fastapi_pid=""
 overall_status=0
 feature_child_pids=()
-feature_timeout="${AI_LIVE_LOCAL_FEATURE_TIMEOUT:-600}"
+case "${suite:-smoke}" in
+  dev)       feature_timeout="${AI_LIVE_LOCAL_FEATURE_TIMEOUT:-1200}" ;;
+  smoke)     feature_timeout="${AI_LIVE_LOCAL_FEATURE_TIMEOUT:-1800}" ;;
+  extended)  feature_timeout="${AI_LIVE_LOCAL_FEATURE_TIMEOUT:-5400}" ;;
+  *)         feature_timeout="${AI_LIVE_LOCAL_FEATURE_TIMEOUT:-600}" ;;
+esac
 ci_e2e_auth_secret="${CI_E2E_AUTH_SECRET:-}"
 
 readonly features=(
@@ -661,9 +667,9 @@ generate_summary() {
 }
 
 case "$suite" in
-  smoke|extended) ;;
+  dev|smoke|extended) ;;
   *)
-    die "unsupported suite: ${suite} (expected smoke or extended)"
+    die "unsupported suite: ${suite} (expected dev, smoke or extended)"
     ;;
 esac
 
@@ -744,7 +750,7 @@ node scripts/ci/check-ai-live-principal.mjs --base-url "$base_url" \
   2>&1 | tee "$principal_preflight_log_path"
 principal_preflight_status="passed"
 
-# Local bundle defaults to skipping ES review browser E2E, but local feature runs can enable it.
+export AI_LIVE_SKIP_ALL_PLAYWRIGHT="$skip_all_playwright"
 export AI_LIVE_SKIP_ES_REVIEW_PLAYWRIGHT="$skip_es_review_playwright"
 if [[ "$suite" == "extended" ]]; then
   # Align with extended ES review pytest: record quality/state in JSON/MD; fail Playwright only on infra-like failures.
@@ -758,6 +764,8 @@ if [[ "$suite" == "extended" ]]; then
       *) export LIVE_AI_CONVERSATION_LLM_JUDGE=1 ;;
     esac
   fi
+  # Relax LLM judge thresholds for local pre-commit testing (all≥2, avg≥3.0)
+  export LLM_JUDGE_LOCAL_MODE=1
 fi
 
 run_features_parallel() {

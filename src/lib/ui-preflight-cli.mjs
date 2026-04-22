@@ -1,8 +1,8 @@
-const VALID_AUTH_MODES = new Set(["none", "guest"]);
+const VALID_AUTH_MODES = new Set(["none", "guest", "mock", "real"]);
 const VALID_SURFACES = new Set(["marketing", "product"]);
 
 export function getUiPreflightUsage() {
-  return "Usage: npm run ui:preflight -- /route --surface=marketing|product [--auth=none|guest]";
+  return "Usage: npm run ui:preflight -- /route --surface=marketing|product [--auth=none|guest|mock|real]";
 }
 
 export function parseUiPreflightArgs(argv) {
@@ -37,7 +37,7 @@ export function parseUiPreflightArgs(argv) {
   }
 
   if (!VALID_AUTH_MODES.has(authMode)) {
-    throw new Error("UI preflight auth must be one of: none, guest");
+    throw new Error("UI preflight auth must be one of: none, guest, mock, real");
   }
 
   if (!VALID_SURFACES.has(surface)) {
@@ -93,9 +93,9 @@ export function getUiPreflightQuestions(surface) {
 }
 
 export function buildUiPreflightReviewCommand({ authMode, routePath }) {
-  return authMode === "guest"
-    ? `npm run test:ui:review -- ${routePath} --auth=guest`
-    : `npm run test:ui:review -- ${routePath}`;
+  return authMode === "none"
+    ? `npm run test:ui:review -- ${routePath}`
+    : `npm run test:ui:review -- ${routePath} --auth=${authMode}`;
 }
 
 export function formatUiPreflightMarkdown({ authMode, routePath, surface, answers }) {

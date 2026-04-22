@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from app.routers.es_review_models import ReviewRequest
-from app.utils.llm import detect_es_injection_risk, sanitize_es_content, sanitize_prompt_input
+from app.utils.llm_prompt_safety import (
+    detect_es_injection_risk,
+    sanitize_es_content,
+    sanitize_prompt_input,
+)
 
 
 def iter_string_leaves(field_name: str, value: Any) -> list[tuple[str, str]]:

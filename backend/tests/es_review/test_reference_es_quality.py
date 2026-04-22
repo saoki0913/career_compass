@@ -252,7 +252,7 @@ def test_quality_hints_require_short_opening_conclusion(
 
 def test_company_motivation_quality_hints_warn_on_repeating_company_name() -> None:
     assert any(
-        "企業名" in hint and ("3回" in hint or "多重" in hint)
+        "企業固有情報" in hint and "1軸" in hint
         for hint in reference_es.QUESTION_TYPE_QUALITY_HINTS["company_motivation"]
     )
 
@@ -277,6 +277,25 @@ def test_gakuchika_quality_hints_warn_against_listing_without_order() -> None:
         "また" in hint or "さらに" in hint or "順序" in hint
         for hint in reference_es.QUESTION_TYPE_QUALITY_HINTS["gakuchika"]
     )
+
+
+def test_quality_hints_do_not_include_ng_prefix_anymore() -> None:
+    for hints in reference_es.QUESTION_TYPE_QUALITY_HINTS.values():
+        assert all(not hint.startswith("NG:") for hint in hints)
+
+
+def test_build_reference_quality_block_includes_sentence_flow_when_available(
+    reference_payload: None,
+) -> None:
+    block = reference_es.build_reference_quality_block(
+        "company_motivation",
+        char_max=400,
+        company_name="KPMG",
+    )
+
+    assert "【文レベルの流れ】" in block
+    assert "なぜその企業かの核心を言い切る" in block
+    assert "接続:" in block
 
 
 def test_build_reference_quality_block_includes_structural_patterns_only_when_enough_filtered_references(

@@ -39,8 +39,8 @@ from app.utils.http_fetch import extract_text_from_html
 from app.utils.llm import (
     consume_request_llm_cost_summary,
     log_selection_schedule_request_llm_cost,
-    merge_llm_usage_tokens,
 )
+from app.utils.llm_usage_cost import merge_llm_usage_tokens
 
 
 def _apply_source_caps(

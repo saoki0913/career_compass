@@ -5,7 +5,7 @@ import {
   safeParseConversationState,
   serializeConversationState,
   type ConversationState,
-} from "./shared";
+} from ".";
 
 describe("api/gakuchika/shared conversation state", () => {
   it("does not infer interview_ready from completed status alone", () => {
@@ -52,6 +52,8 @@ describe("api/gakuchika/shared conversation state", () => {
       resolvedFocuses: ["context", "task", "action", "result"],
       deferredFocuses: ["learning"],
       blockedFocuses: ["role"],
+      recentQuestionTexts: ["その課題は何でしたか？", "なぜその方法を選びましたか？"],
+      loopBlockedFocuses: ["challenge"],
       focusAttemptCounts: {
         task: 1,
         action: 2,
@@ -71,6 +73,8 @@ describe("api/gakuchika/shared conversation state", () => {
     expect(parsed.resolvedFocuses).toEqual(["context", "task", "action", "result"]);
     expect(parsed.deferredFocuses).toEqual(["learning"]);
     expect(parsed.blockedFocuses).toEqual(["role"]);
+    expect(parsed.recentQuestionTexts).toEqual(["その課題は何でしたか？", "なぜその方法を選びましたか？"]);
+    expect(parsed.loopBlockedFocuses).toEqual(["challenge"]);
     expect(parsed.focusAttemptCounts.action).toBe(2);
     expect(parsed.lastQuestionSignature).toBe("action_reason:v2");
   });

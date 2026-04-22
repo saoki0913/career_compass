@@ -36,12 +36,17 @@ export async function loginAsGuest(page: Page): Promise<string> {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
 
   await page.goto("/");
+  const csrfToken = await ensureCsrfToken(page, baseURL);
+  if (!csrfToken) {
+    throw new Error("Failed to obtain CSRF token before guest login");
+  }
   const response = await page.context().request.fetch(`${baseURL}/api/auth/guest`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Origin: baseURL,
       Referer: `${baseURL}/`,
+      [CSRF_HEADER_NAME]: csrfToken,
     },
     data: JSON.stringify({}),
   });
@@ -110,12 +115,17 @@ export async function ensureGuestSession(page: Page): Promise<void> {
   const url = `${baseURL}/api/auth/guest`;
   let lastStatus = 0;
   for (let attempt = 0; attempt < 4; attempt += 1) {
+    const csrfToken = await ensureCsrfToken(page, baseURL);
+    if (!csrfToken) {
+      throw new Error("Failed to obtain CSRF token before guest session bootstrap");
+    }
     const response = await page.context().request.fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Origin: baseURL,
         Referer: `${baseURL}/`,
+        [CSRF_HEADER_NAME]: csrfToken,
       },
       data: JSON.stringify({}),
     });

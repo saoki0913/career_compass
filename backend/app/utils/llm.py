@@ -17,6 +17,7 @@ from anthropic import AsyncAnthropic, APIError as AnthropicAPIError
 import openai
 from openai import APIError as OpenAIAPIError
 from app.config import settings
+from app.utils import llm_client_registry, llm_model_routing, llm_prompt_safety, llm_usage_cost
 from app.utils.secure_logger import get_logger
 import json
 
@@ -24,49 +25,6 @@ logger = get_logger(__name__)
 from typing import Any, AsyncGenerator, Callable, Literal, Optional, TypeAlias
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-
-# ===== Re-exports from extraction modules (backward compatibility) =====
-from app.utils.llm_prompt_safety import (
-    PromptSafetyError,
-    sanitize_prompt_input,
-    sanitize_es_content,
-    detect_es_injection_risk,
-    sanitize_user_prompt_text,
-    detect_output_leakage,
-)
-from app.utils.llm_usage_cost import (
-    _request_llm_cost_summary_var,
-    merge_llm_usage_tokens,
-    _normalize_usage_summary,
-    _canonical_price_model,
-    _resolve_price_entry,
-    estimate_llm_usage_cost_usd,
-    estimate_openai_usage_cost_usd,
-    reset_request_llm_cost_summary,
-    _merge_usage_status,
-    _record_request_llm_cost_summary,
-    _append_llm_cost_estimate_parts,
-    _format_llm_cost_kv_line,
-    _DEFAULT_LLM_PRICE_CATALOG,
-    _should_log_llm_cost,
-    _should_log_llm_cost_debug,
-)
-from app.utils.llm_client_registry import get_circuit_breaker
-from app.utils.llm_model_routing import (
-    LLMProvider,
-    LLMModel,
-    ResponseFormat,
-    ResolvedModelTarget,
-    _build_model_config,
-    get_model_config,
-    get_model_display_name,
-    _resolve_openai_model,
-    _resolve_model_target,
-    resolve_feature_model_metadata,
-    _provider_has_api_key,
-    _feature_cross_fallback_model,
-)
-# ===== End re-exports =====
 
 
 def _emit_output_leakage_event(
@@ -76,7 +34,7 @@ def _emit_output_leakage_event(
     provider: str,
     raw_text: str,
 ) -> None:
-    result = detect_output_leakage(raw_text)
+    result = llm_prompt_safety.detect_output_leakage(raw_text)
     if not result.is_leaked:
         return
     import json as _json
@@ -221,7 +179,7 @@ def _provider_display_name(provider: str) -> str:
 #  _provider_has_api_key, _feature_cross_fallback_model moved to llm_model_routing; imported above)
 
 
-def _requires_json_prompt_hint(provider: LLMProvider) -> bool:
+def _requires_json_prompt_hint(provider: llm_model_routing.LLMProvider) -> bool:
     return provider == "google"
 
 
@@ -315,9 +273,9 @@ def _build_schema_example(schema: dict | None) -> Any:
 
 
 def _augment_system_prompt_for_provider_json(
-    provider: LLMProvider,
+    provider: llm_model_routing.LLMProvider,
     system_prompt: str,
-    response_format: ResponseFormat,
+    response_format: llm_model_routing.ResponseFormat,
     json_schema: dict | None,
 ) -> str:
     if response_format == "text" or not _requires_json_prompt_hint(provider):
@@ -344,7 +302,7 @@ def _augment_system_prompt_for_provider_json(
 
 
 def _augment_system_prompt_for_provider_text(
-    provider: LLMProvider,
+    provider: llm_model_routing.LLMProvider,
     system_prompt: str,
     *,
     feature: str,
@@ -365,7 +323,7 @@ def _augment_system_prompt_for_provider_text(
 
 def _build_chat_response_format(
     provider: Literal["openai"],
-    response_format: ResponseFormat,
+    response_format: llm_model_routing.ResponseFormat,
     json_schema: dict | None,
 ) -> dict[str, Any] | None:
     if response_format == "text":
@@ -428,8 +386,8 @@ class OpenAIResponsesRefusalError(RuntimeError):
 
 
 def consume_request_llm_cost_summary(feature: str | None = None) -> dict[str, Any] | None:
-    summary = _request_llm_cost_summary_var.get()
-    _request_llm_cost_summary_var.set(None)
+    summary = llm_usage_cost._request_llm_cost_summary_var.get()
+    llm_usage_cost._request_llm_cost_summary_var.set(None)
     if not summary:
         return None
     if feature:
@@ -465,7 +423,7 @@ def log_llm_cost_event(
     usage: dict[str, int] | None,
     trace_id: str | None = None,
 ) -> None:
-    normalized_usage = _normalize_usage_summary(usage)
+    normalized_usage = llm_usage_cost._normalize_usage_summary(usage)
     usage_status = "ok"
     est = None
     if normalized_usage is None:
@@ -477,12 +435,12 @@ def log_llm_cost_event(
         }
         usage_status = "unavailable"
     else:
-        est = estimate_llm_usage_cost_usd(resolved_model or "", normalized_usage)
+        est = llm_usage_cost.estimate_llm_usage_cost_usd(resolved_model or "", normalized_usage)
         if est is None:
             usage_status = "unavailable_price"
 
-    if _should_log_llm_cost():
-        _record_request_llm_cost_summary(
+    if llm_usage_cost._should_log_llm_cost():
+        llm_usage_cost._record_request_llm_cost_summary(
             feature=feature,
             resolved_model=resolved_model or "unknown",
             normalized_usage=normalized_usage,
@@ -490,10 +448,10 @@ def log_llm_cost_event(
             est=est,
         )
 
-    if not _should_log_llm_cost_debug():
+    if not llm_usage_cost._should_log_llm_cost_debug():
         return
 
-    line = _format_llm_cost_kv_line(
+    line = llm_usage_cost._format_llm_cost_kv_line(
         scope="call",
         feature=feature,
         provider=provider,
@@ -518,13 +476,13 @@ def log_selection_schedule_request_llm_cost(
     Developer-only log: aggregated tokens and optional USD estimate.
     Never sent to API clients.
     """
-    if not _should_log_llm_cost_debug():
+    if not llm_usage_cost._should_log_llm_cost_debug():
         return
     if not aggregated_usage and not resolved_models:
         return
     models_unique = ",".join(dict.fromkeys(m for m in resolved_models if m)) or "unknown"
     if aggregated_usage:
-        normalized_usage = _normalize_usage_summary(aggregated_usage)
+        normalized_usage = llm_usage_cost._normalize_usage_summary(aggregated_usage)
         if normalized_usage is None:
             normalized_usage = {
                 "input_tokens": 0,
@@ -546,13 +504,13 @@ def log_selection_schedule_request_llm_cost(
     if aggregated_usage and normalized_usage:
         for m in resolved_models:
             if m:
-                est = estimate_llm_usage_cost_usd(m, normalized_usage)
+                est = llm_usage_cost.estimate_llm_usage_cost_usd(m, normalized_usage)
                 if est is not None:
                     break
         if est is None and resolved_models:
             usage_status = "unavailable_price"
 
-    line = _format_llm_cost_kv_line(
+    line = llm_usage_cost._format_llm_cost_kv_line(
         scope="request",
         feature=feature,
         provider="mixed",
@@ -653,7 +611,7 @@ def _classify_google_error(error: Exception) -> tuple[str, str]:
     return "unknown", str(error)
 
 
-def _classify_error_for_provider(provider: LLMProvider, error: Exception) -> tuple[str, str]:
+def _classify_error_for_provider(provider: llm_model_routing.LLMProvider, error: Exception) -> tuple[str, str]:
     if provider == "anthropic":
         return _classify_anthropic_error(error)
     if provider == "google":
@@ -755,7 +713,7 @@ async def _call_google_generate_content(
     temperature: float,
     model: str,
     *,
-    response_format: ResponseFormat = "text",
+    response_format: llm_model_routing.ResponseFormat = "text",
     json_schema: dict | None = None,
     feature: str = "unknown",
 ) -> tuple[str, dict[str, Any]]:
@@ -797,7 +755,7 @@ async def _call_google_generate_content(
 
 async def _repair_json_with_same_model(
     *,
-    provider: LLMProvider,
+    provider: llm_model_routing.LLMProvider,
     requested_model: str | None,
     raw_response: str,
     json_schema: dict | None,
@@ -852,7 +810,7 @@ async def _repair_json_with_openai_model(
     raw_response: str,
     json_schema: dict | None,
     feature: str,
-    repair_model: LLMModel,
+    repair_model: llm_model_routing.LLMModel,
     use_responses_api: bool = False,
     parse_retry_instructions: Optional[str] = None,
 ) -> LLMResult | None:
@@ -903,7 +861,7 @@ async def _call_openai_compatible(
     max_tokens: int,
     temperature: float,
     model: str,
-    response_format: ResponseFormat = "json_object",
+    response_format: llm_model_routing.ResponseFormat = "json_object",
     json_schema: dict | None = None,
     feature: str = "unknown",
 ) -> tuple[dict | None, dict[str, int] | None]:
@@ -1040,7 +998,7 @@ def _emit_fallback_event(
                 "circuit_state": (
                     (
                         "open"
-                        if get_circuit_breaker(primary_provider).is_open()
+                        if llm_client_registry.get_circuit_breaker(primary_provider).is_open()
                         else "closed"
                     )
                     if primary_provider in ("anthropic", "openai")
@@ -1057,9 +1015,9 @@ async def call_llm_with_error(
     messages: list[dict] | None = None,
     max_tokens: int = 2000,
     temperature: float = 0.3,
-    model: LLMModel | None = None,
+    model: llm_model_routing.LLMModel | None = None,
     feature: str | None = None,
-    response_format: ResponseFormat = "json_object",
+    response_format: llm_model_routing.ResponseFormat = "json_object",
     json_schema: dict | None = None,
     use_responses_api: bool = False,
     retry_on_parse: bool = False,
@@ -1085,16 +1043,16 @@ async def call_llm_with_error(
         LLMResult: 成功ステータス、データ、オプションのエラー詳細を含む
     """
     feature = feature or "unknown"
-    requested_model = model or get_model_config().get(feature, "claude-sonnet")
+    requested_model = model or llm_model_routing.get_model_config().get(feature, "claude-sonnet")
     start = time.monotonic()
     try:
-        target = _resolve_model_target(feature, requested_model)
+        target = llm_model_routing._resolve_model_target(feature, requested_model)
     except ValueError as exc:
         error = _create_error("unknown", "openai", feature, str(exc))
         _log(feature, str(exc), ERROR)
         return LLMResult(success=False, error=error)
 
-    if not _provider_has_api_key(target.provider):
+    if not llm_model_routing._provider_has_api_key(target.provider):
         error = _create_error(
             "no_api_key",
             target.provider,
@@ -1104,7 +1062,7 @@ async def call_llm_with_error(
         _log(feature, "APIキーが設定されていません", ERROR)
         return LLMResult(success=False, error=error)
 
-    model_display = get_model_display_name(target.actual_model)
+    model_display = llm_model_routing.get_model_display_name(target.actual_model)
     _log(feature, f"{model_display} を呼び出し中...")
 
     normalized_messages, used_user_message = _normalize_chat_messages(messages, user_message)
@@ -1226,7 +1184,7 @@ async def call_llm_with_error(
             repair_source = raw_response or ""
             if repair_source:
                 if settings.openai_api_key:
-                    repair_llm: LLMModel = "gpt-mini"
+                    repair_llm: llm_model_routing.LLMModel = "gpt-mini"
                     _log(
                         feature,
                         "JSON解析失敗、GPT mini で修復を試行",
@@ -1304,7 +1262,7 @@ async def call_llm_with_error(
         error_type, detail = _classify_error_for_provider(target.provider, e)
         fallback_model = None
         if not disable_fallback and error_type not in {"billing"}:
-            fallback_model = _feature_cross_fallback_model(feature, target.provider)
+            fallback_model = llm_model_routing._feature_cross_fallback_model(feature, target.provider)
         if fallback_model:
             latency_ms = int((time.monotonic() - start) * 1000)
             _emit_fallback_event(
@@ -1359,23 +1317,23 @@ async def call_llm_text_with_error(
     messages: list[dict] | None = None,
     max_tokens: int = 2000,
     temperature: float = 0.3,
-    model: LLMModel | None = None,
+    model: llm_model_routing.LLMModel | None = None,
     feature: str | None = None,
     use_responses_api: bool = False,
     disable_fallback: bool = False,
 ) -> LLMResult:
     """Plain text response path with provider fallback and no JSON parsing."""
     feature = feature or "unknown"
-    requested_model = model or get_model_config().get(feature, "claude-sonnet")
+    requested_model = model or llm_model_routing.get_model_config().get(feature, "claude-sonnet")
     start = time.monotonic()
     try:
-        target = _resolve_model_target(feature, requested_model)
+        target = llm_model_routing._resolve_model_target(feature, requested_model)
     except ValueError as exc:
         error = _create_error("unknown", "openai", feature, str(exc))
         _log(feature, str(exc), ERROR)
         return LLMResult(success=False, error=error)
 
-    if not _provider_has_api_key(target.provider):
+    if not llm_model_routing._provider_has_api_key(target.provider):
         error = _create_error(
             "no_api_key",
             target.provider,
@@ -1385,7 +1343,7 @@ async def call_llm_text_with_error(
         _log(feature, "APIキーが設定されていません", ERROR)
         return LLMResult(success=False, error=error)
 
-    model_display = get_model_display_name(target.actual_model)
+    model_display = llm_model_routing.get_model_display_name(target.actual_model)
     _log(feature, f"{model_display} を呼び出し中...")
 
     normalized_messages, used_user_message = _normalize_chat_messages(messages, user_message)
@@ -1491,7 +1449,7 @@ async def call_llm_text_with_error(
                 resolved_model=target.actual_model,
             )
 
-        fallback_model = None if disable_fallback else _feature_cross_fallback_model(
+        fallback_model = None if disable_fallback else llm_model_routing._feature_cross_fallback_model(
             feature, target.provider
         )
         if fallback_model:
@@ -1521,7 +1479,7 @@ async def call_llm_text_with_error(
     except (AnthropicAPIError, OpenAIAPIError, httpx.HTTPError) as e:
         error_type, detail = _classify_error_for_provider(target.provider, e)
         if not disable_fallback and error_type not in {"billing"}:
-            fallback_model = _feature_cross_fallback_model(feature, target.provider)
+            fallback_model = llm_model_routing._feature_cross_fallback_model(feature, target.provider)
             if fallback_model:
                 latency_ms = int((time.monotonic() - start) * 1000)
                 _emit_fallback_event(
@@ -1642,11 +1600,11 @@ async def _call_claude_raw_stream(
         stop_reason = getattr(final_message, "stop_reason", None)
         stop_sequence = getattr(final_message, "stop_sequence", None)
         if stop_reason:
-            _log(feature, f"{get_model_display_name(actual_model)} stop_reason={stop_reason}", INFO)
+            _log(feature, f"{llm_model_routing.get_model_display_name(actual_model)} stop_reason={stop_reason}", INFO)
         if stop_sequence:
             _log_debug(feature, f"stop_sequence={stop_sequence}")
         if stop_reason == "max_tokens":
-            _log(feature, f"{get_model_display_name(actual_model)} が max_tokens={max_tokens} に到達", WARNING)
+            _log(feature, f"{llm_model_routing.get_model_display_name(actual_model)} が max_tokens={max_tokens} に到達", WARNING)
 
 
 async def call_llm_streaming(
@@ -1654,7 +1612,7 @@ async def call_llm_streaming(
     user_message: str,
     max_tokens: int = 2000,
     temperature: float = 0.3,
-    model: LLMModel | None = None,
+    model: llm_model_routing.LLMModel | None = None,
     feature: str | None = None,
     on_chunk: Optional[Callable[[str, int], None]] = None,
 ) -> LLMResult:
@@ -1668,9 +1626,9 @@ async def call_llm_streaming(
     feature = feature or "unknown"
 
     if model is None:
-        model = get_model_config().get(feature, "claude-sonnet")
+        model = llm_model_routing.get_model_config().get(feature, "claude-sonnet")
 
-    target = _resolve_model_target(feature, model)
+    target = llm_model_routing._resolve_model_target(feature, model)
 
     # Only Anthropic models support token streaming in this implementation
     if target.provider != "anthropic":
@@ -1686,7 +1644,7 @@ async def call_llm_streaming(
 
     actual_model = target.actual_model
 
-    model_display = get_model_display_name(actual_model)
+    model_display = llm_model_routing.get_model_display_name(actual_model)
     _log(feature, f"{model_display} をストリーミング呼び出し中...")
 
     try:
@@ -1793,11 +1751,11 @@ async def call_llm_streaming_fields(
     messages: list[dict] | None = None,
     max_tokens: int = 2000,
     temperature: float = 0.3,
-    model: LLMModel | None = None,
+    model: llm_model_routing.LLMModel | None = None,
     feature: str | None = None,
     schema_hints: dict[str, str] | None = None,
     stream_string_fields: list[str] | None = None,
-    response_format: ResponseFormat = "json_object",
+    response_format: llm_model_routing.ResponseFormat = "json_object",
     json_schema: dict | None = None,
     use_responses_api: bool = False,
     attempt_repair_on_parse_failure: bool = True,
@@ -1822,9 +1780,9 @@ async def call_llm_streaming_fields(
     feature = feature or "unknown"
 
     if model is None:
-        model = get_model_config().get(feature, "claude-sonnet")
+        model = llm_model_routing.get_model_config().get(feature, "claude-sonnet")
 
-    target = _resolve_model_target(feature, model)
+    target = llm_model_routing._resolve_model_target(feature, model)
 
     # Non-Anthropic models: fall back to non-streaming
     if target.provider != "anthropic":
@@ -1844,7 +1802,7 @@ async def call_llm_streaming_fields(
 
     actual_model = target.actual_model
 
-    model_display = get_model_display_name(actual_model)
+    model_display = llm_model_routing.get_model_display_name(actual_model)
     _log(feature, f"{model_display} をフィールドストリーミング呼び出し中...")
 
     extractor = StreamingJSONExtractor(
@@ -1918,7 +1876,7 @@ async def call_llm_streaming_fields(
         result = _parse_json_response(accumulated)
         if result is not None:
             _log(feature, f"{model_display} フィールドストリーミング成功", SUCCESS)
-            get_circuit_breaker("anthropic").record_success()
+            llm_client_registry.get_circuit_breaker("anthropic").record_success()
             yield StreamFieldEvent(
                 type="complete",
                 result=LLMResult(
@@ -2029,7 +1987,7 @@ async def call_llm_streaming_fields(
         error_type, detail = _classify_anthropic_error(e)
         error = _create_error(error_type, "anthropic", feature, detail)
         _log(feature, f"Anthropic フィールドストリーミングエラー: {detail}", ERROR)
-        get_circuit_breaker("anthropic").record_failure()
+        llm_client_registry.get_circuit_breaker("anthropic").record_failure()
         yield StreamFieldEvent(
             type="error",
             result=LLMResult(success=False, error=error),
@@ -2078,7 +2036,7 @@ async def _call_openai(
     max_tokens: int,
     temperature: float,
     model: str,
-    response_format: ResponseFormat = "json_object",
+    response_format: llm_model_routing.ResponseFormat = "json_object",
     json_schema: dict | None = None,
     feature: str = "unknown",
 ) -> dict | None:
@@ -2122,7 +2080,7 @@ async def _call_openai_raw_text(
 
 def _should_use_openai_responses_api(
     *,
-    provider: LLMProvider,
+    provider: llm_model_routing.LLMProvider,
     feature: str,
     use_responses_api: bool,
 ) -> bool:
@@ -2377,7 +2335,7 @@ async def _call_openai_responses(
     max_tokens: int,
     temperature: float,
     model: str,
-    response_format: ResponseFormat = "json_schema",
+    response_format: llm_model_routing.ResponseFormat = "json_schema",
     json_schema: dict | None = None,
     feature: str = "unknown",
 ) -> tuple[dict | None, dict[str, int] | None]:
@@ -2557,7 +2515,7 @@ async def extract_text_from_pdf_with_openai(
         return "", empty_usage, ""
 
     client = await get_openai_client(for_rag=_is_rag_feature(feature))
-    model_name = model or _resolve_openai_model(feature)
+    model_name = model or llm_model_routing._resolve_openai_model(feature)
     file_b64 = base64.b64encode(pdf_bytes).decode("ascii")
 
     request_kwargs = {

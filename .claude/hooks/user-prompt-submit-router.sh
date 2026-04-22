@@ -70,6 +70,18 @@ if [ -z "$CONTEXT" ] && printf '%s' "$PROMPT" | grep -qE 'src/app/api/|backend/a
   [ -z "$TITLE" ] && TITLE="Architecture Task"
 fi
 
+# 実装規模タスク → plan mode 誘導（docs-only / test-only / 質問系は除外）
+if printf '%s' "$LOWER" | grep -qE '実装|追加して|作って|修正して|変更して|直して|対応して|改善して|組み込|入れて|書いて|更新して|fix|implement|build|create|refactor|add.*feature|update.*to'; then
+  if ! printf '%s' "$LOWER" | grep -qE '^(何|どう|なぜ|how|what|why|explain|教えて|確認)'; then
+    CONTEXT="${CONTEXT}実装規模のタスクの可能性があります。docs-only / test-only / 局所的文言修正でなければ、EnterPlanMode でプランを立ててから着手してください（CLAUDE.md §A: Codex plan review チェックポイントを通過するために必要）.\n"
+  fi
+fi
+
+if printf '%s' "$PROMPT" | grep -qiE 'codex.*レビュー|codex.*review|codex.*implement|codex.*委譲|codex.*delegate|[Cc]odex.*に.*任せ'; then
+  CONTEXT="${CONTEXT}Codex CLI 委譲の依頼です。/codex-plan-review, /codex-implement, /codex-post-review のいずれかを使うか、codex-delegation-workflow skill を参照してください.\n"
+  [ -z "$TITLE" ] && TITLE="Codex Delegation Task"
+fi
+
 if [ -z "$CONTEXT" ]; then
   exit 0
 fi

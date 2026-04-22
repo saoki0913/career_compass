@@ -99,6 +99,44 @@ def _load_curated_companies(
     return names, industry_map, version
 
 
+def _sample_from_list(
+    companies: list[str],
+    industry_map: dict[str, str],
+    sample_size: int,
+    seed: int,
+    per_industry_min: int = 1,
+) -> tuple[list[str], dict[str, str]]:
+    """Industry-aware sampling from a pre-loaded company list."""
+    by_industry: dict[str, list[str]] = {}
+    for name in companies:
+        ind = industry_map.get(name, "unknown")
+        by_industry.setdefault(ind, []).append(name)
+
+    rng = random.Random(seed)
+    sampled: list[str] = []
+    sampled_set: set[str] = set()
+
+    for industry in sorted(by_industry.keys()):
+        pool = by_industry[industry]
+        k = min(per_industry_min, len(pool))
+        chosen = rng.sample(pool, k)
+        for c in chosen:
+            if c not in sampled_set:
+                sampled.append(c)
+                sampled_set.add(c)
+
+    remaining = sample_size - len(sampled)
+    if remaining > 0:
+        extras = [n for n in companies if n not in sampled_set]
+        rng.shuffle(extras)
+        for c in extras[:remaining]:
+            sampled.append(c)
+            sampled_set.add(c)
+
+    sampled_industry = {c: industry_map[c] for c in sampled if c in industry_map}
+    return sampled, sampled_industry
+
+
 class CompanyLoader:
     """Load companies based on config (curated / random / override)."""
 
@@ -142,9 +180,18 @@ class CompanyLoader:
                 fixtures_path
             )
             if companies:
+                total = len(companies)
+                if self.config.sample_size < total:
+                    companies, industry_map = _sample_from_list(
+                        companies,
+                        industry_map,
+                        self.config.sample_size,
+                        self.config.sample_seed,
+                        self.config.per_industry_min,
+                    )
                 sys.__stdout__.write(
                     f"[live-search] Using curated list v{curated_version} "
-                    f"({len(companies)} companies)\n"
+                    f"({len(companies)}/{total} companies)\n"
                 )
                 return companies, industry_map, "curated", curated_version
             else:

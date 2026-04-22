@@ -19,7 +19,7 @@ import {
   collectStaleLiveAiCompanyIds,
   runMotivationSetupWithRequest,
   runGakuchikaSetupWithRequest,
-} from "../../../e2e/live-ai-conversations.spec";
+} from "../../../e2e/helpers/live-ai-conversation-utils";
 
 describe("live ai conversation helpers", () => {
   it("collects stale live ai companies by case id signature", () => {

@@ -1,6 +1,7 @@
 /**
  * ES review SSE orchestration (shared by App Router POST handler).
  * Transport entrypoint: `src/app/api/documents/[id]/review/stream/route.ts`.
+ * Uses shared SSE infrastructure (fetchUpstreamSSE + createSSEProxyStream).
  */
 
 import { NextRequest } from "next/server";
@@ -20,15 +21,15 @@ import { eq } from "drizzle-orm";
 import { calculateESReviewCost } from "@/lib/credits";
 import { esReviewStreamPolicy } from "@/lib/api-route/billing/es-review-stream-policy";
 import { createSSEProxyStream } from "@/lib/fastapi/sse-proxy";
+import { fetchUpstreamSSE } from "@/lib/fastapi/stream-transport";
+import { SSE_RESPONSE_HEADERS } from "@/lib/fastapi/stream-config";
 import { enforceRateLimitLayers, REVIEW_RATE_LAYERS } from "@/lib/rate-limit-spike";
 import type { TemplateType } from "@/hooks/useESReview";
 import { FREE_PLAN_ES_REVIEW_MODEL, isStandardESReviewModel } from "@/lib/ai/es-review-models";
 import { resolveEffectiveTemplateTypeWithoutCompany } from "@/lib/es-review/companyless-templates";
 import { inferTemplateTypeDetailsFromQuestion } from "@/lib/es-review/infer-template-type";
 import { resolveIndustryForReview } from "@/lib/constants/es-review-role-catalog";
-import {
-  parseCorporateInfoSources,
-} from "@/lib/company-info/sources";
+import { parseCorporateInfoSources } from "@/lib/company-info/sources";
 import {
   getRequestId,
   logAiCreditCostSummary,
@@ -38,13 +39,18 @@ import {
 import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import { getOwnedDocument } from "@/app/api/_shared/owner-access";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
+import { getViewerPlan } from "@/lib/server/loader-helpers";
+
+/* ------------------------------------------------------------------ */
+/*  Local helpers                                                      */
+/* ------------------------------------------------------------------ */
+
+const jsonErr = (msg: string, status: number) =>
+  new Response(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json" } });
 
 function deriveCharMin(charLimit?: number | null) {
-  if (!charLimit) {
-    return null;
-  }
+  if (!charLimit) return null;
   return Math.max(0, charLimit - 10);
 }
 
@@ -77,9 +83,7 @@ function normalizeRoleLabel(value?: string | null): string | null {
 
 function inferTemplateTypeWithCompany(question: string): TemplateType {
   const inferred = inferTemplateTypeDetailsFromQuestion(question);
-  if (inferred.confidence !== "high") {
-    return "basic";
-  }
+  if (inferred.confidence !== "high") return "basic";
   return inferred.templateType as TemplateType;
 }
 
@@ -100,41 +104,31 @@ function buildRetrievalQuery(input: {
   const parts: string[] = [];
   const push = (value: string) => {
     const next = value.replace(/\s+/g, " ").trim();
-    if (next) {
-      parts.push(next);
-    }
+    if (next) parts.push(next);
   };
 
   push(`設問タイプ:${input.templateType}`);
-  if (input.industry) {
-    push(`業界:${input.industry}`);
-  }
+  if (input.industry) push(`業界:${input.industry}`);
   push(input.companyName ?? "");
   push(input.roleName ?? "");
   push(input.internName ?? "");
   push(input.sectionTitle);
-  const summary = input.sectionContent.replace(/\s+/g, " ").trim().slice(0, 140);
-  push(summary);
+  push(input.sectionContent.replace(/\s+/g, " ").trim().slice(0, 140));
 
   if (input.profileContext) {
     const p = input.profileContext;
     const bits = [
-      p.university,
-      p.faculty,
+      p.university, p.faculty,
       p.graduation_year != null ? `${p.graduation_year}年卒` : null,
       p.target_industries?.length ? `志望業界:${p.target_industries.slice(0, 4).join("・")}` : null,
       p.target_job_types?.length ? `志望職種:${p.target_job_types.slice(0, 4).join("・")}` : null,
     ].filter(Boolean);
-    if (bits.length) {
-      push(`プロフィール:${bits.join(" ")}`);
-    }
+    if (bits.length) push(`プロフィール:${bits.join(" ")}`);
   }
 
   for (const g of input.gakuchikaContext.slice(0, 4)) {
     const title = g.title?.trim();
-    if (!title) {
-      continue;
-    }
+    if (!title) continue;
     let excerpt = "";
     if (g.source_status === "structured_summary") {
       excerpt = [g.action_text, g.result_text].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 100);
@@ -146,17 +140,12 @@ function buildRetrievalQuery(input: {
 
   for (const sec of input.otherSections.slice(0, 4)) {
     const t = sec.title?.trim();
-    if (!t) {
-      continue;
-    }
-    const c = sec.content.replace(/\s+/g, " ").trim().slice(0, 80);
-    push(`他設問:「${t}」${c}`);
+    if (!t) continue;
+    push(`他設問:「${t}」${sec.content.replace(/\s+/g, " ").trim().slice(0, 80)}`);
   }
 
   let joined = parts.join(" / ");
-  if (joined.length > RETRIEVAL_QUERY_MAX_LENGTH) {
-    joined = joined.slice(0, RETRIEVAL_QUERY_MAX_LENGTH);
-  }
+  if (joined.length > RETRIEVAL_QUERY_MAX_LENGTH) joined = joined.slice(0, RETRIEVAL_QUERY_MAX_LENGTH);
   return joined;
 }
 
@@ -166,36 +155,22 @@ function parseCorporateInfoUrls(raw: string | null): CorporateInfoUrlEntry[] {
 
 function resolveRoleContext(explicitRoleName?: string): RoleContext {
   const manualRole = normalizeRoleLabel(explicitRoleName);
-  if (manualRole) {
-    return {
-      primary_role: manualRole,
-      role_candidates: [manualRole],
-      source: "user_input",
-    };
-  }
-
-  return {
-    primary_role: undefined,
-    role_candidates: [],
-    source: "none",
-  };
+  if (manualRole) return { primary_role: manualRole, role_candidates: [manualRole], source: "user_input" };
+  return { primary_role: undefined, role_candidates: [], source: "none" };
 }
 
 function collectUserProvidedCorporateUrls(entries: CorporateInfoUrlEntry[]): string[] {
   const urls: string[] = [];
   for (const entry of entries) {
-    if (!entry.url) {
-      continue;
-    }
-    if (entry.complianceStatus === "blocked") {
-      continue;
-    }
-    if (!urls.includes(entry.url)) {
-      urls.push(entry.url);
-    }
+    if (!entry.url || entry.complianceStatus === "blocked") continue;
+    if (!urls.includes(entry.url)) urls.push(entry.url);
   }
   return urls;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Main handler                                                       */
+/* ------------------------------------------------------------------ */
 
 export async function handleReviewStream(
   request: NextRequest,
@@ -207,62 +182,26 @@ export async function handleReviewStream(
     const { id: documentId } = await params;
 
     const identity = await getRequestIdentity(request);
-    if (!identity) {
-      return new Response(
-        JSON.stringify({ error: "Authentication required" }),
-        { status: 401, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
+    if (!identity) return jsonErr("Authentication required", 401);
     const limitResponse = await guardDailyTokenLimit(identity);
     if (limitResponse) return limitResponse;
-
     const { userId, guestId } = identity;
 
-    const rateLimited = await enforceRateLimitLayers(
-      request,
-      [...REVIEW_RATE_LAYERS],
-      userId,
-      guestId,
-      "documents_review_stream"
-    );
-    if (rateLimited) {
-      return rateLimited;
-    }
+    const rateLimited = await enforceRateLimitLayers(request, [...REVIEW_RATE_LAYERS], userId, guestId, "documents_review_stream");
+    if (rateLimited) return rateLimited;
 
     const documentRow = await getOwnedDocument(documentId, identity);
-    if (!documentRow) {
-      return new Response(
-        JSON.stringify({ error: "Document not found" }),
-        { status: 404, headers: { "Content-Type": "application/json" } }
-      );
-    }
+    if (!documentRow) return jsonErr("Document not found", 404);
 
     const body = await request.json();
     const {
-      content,
-      sectionId,
-      hasCompanyRag = false,
-      companyId: requestCompanyId,
-      sectionTitle,
-      sectionCharLimit,
-      templateType,
-      internName,
-      roleName,
-      industryOverride,
-      llmModel,
+      content, sectionId, hasCompanyRag = false, companyId: requestCompanyId,
+      sectionTitle, sectionCharLimit, templateType, internName, roleName,
+      industryOverride, llmModel,
     } = body as {
-      content: string;
-      sectionId?: string;
-      hasCompanyRag?: boolean;
-      companyId?: string;
-      sectionTitle?: string;
-      sectionCharLimit?: number;
-      templateType?: TemplateType;
-      internName?: string;
-      roleName?: string;
-      industryOverride?: string;
-      llmModel?: string;
+      content: string; sectionId?: string; hasCompanyRag?: boolean; companyId?: string;
+      sectionTitle?: string; sectionCharLimit?: number; templateType?: TemplateType;
+      internName?: string; roleName?: string; industryOverride?: string; llmModel?: string;
     };
     let resolvedLLMModel = typeof llmModel === "string" && isStandardESReviewModel(llmModel) ? llmModel : null;
 
@@ -276,9 +215,7 @@ export async function handleReviewStream(
       const p = profile?.plan;
       userPlan = p === "standard" || p === "pro" ? p : "free";
     }
-    if (userPlan === "free") {
-      resolvedLLMModel = FREE_PLAN_ES_REVIEW_MODEL;
-    }
+    if (userPlan === "free") resolvedLLMModel = FREE_PLAN_ES_REVIEW_MODEL;
 
     // Verify requestCompanyId ownership to prevent IDOR
     let companyId = documentRow.companyId;
@@ -290,42 +227,26 @@ export async function handleReviewStream(
         .limit(1);
       if (
         ownedCompany &&
-        ((userId && ownedCompany.userId === userId) ||
-         (guestId && ownedCompany.guestId === guestId))
+        ((userId && ownedCompany.userId === userId) || (guestId && ownedCompany.guestId === guestId))
       ) {
         companyId = requestCompanyId;
       }
-      // else: silently fall back to document's companyId (safe default)
     } else if (requestCompanyId) {
       companyId = requestCompanyId;
     }
 
-    // Fetch company info so prompt construction can use company-aware quality guidance.
-    let companyInfo: {
-      name: string | null;
-      industry: string | null;
-      corporateInfoUrls: CorporateInfoUrlEntry[];
-    } = {
-      name: null,
-      industry: null,
-      corporateInfoUrls: [],
+    // Fetch company info for prompt construction
+    let companyInfo: { name: string | null; industry: string | null; corporateInfoUrls: CorporateInfoUrlEntry[] } = {
+      name: null, industry: null, corporateInfoUrls: [],
     };
     if (companyId) {
       const [company] = await db
-        .select({
-          name: companies.name,
-          industry: companies.industry,
-          corporateInfoUrls: companies.corporateInfoUrls,
-        })
+        .select({ name: companies.name, industry: companies.industry, corporateInfoUrls: companies.corporateInfoUrls })
         .from(companies)
         .where(eq(companies.id, companyId))
         .limit(1);
       if (company) {
-        companyInfo = {
-          name: company.name,
-          industry: company.industry,
-          corporateInfoUrls: parseCorporateInfoUrls(company.corporateInfoUrls),
-        };
+        companyInfo = { name: company.name, industry: company.industry, corporateInfoUrls: parseCorporateInfoUrls(company.corporateInfoUrls) };
       }
     }
 
@@ -334,103 +255,55 @@ export async function handleReviewStream(
     if (!companyId) {
       const resolved = resolveEffectiveTemplateTypeWithoutCompany(templateType, sectionTitle || "");
       if (!resolved.ok) {
-        return new Response(
-          JSON.stringify({
-            error:
-              "企業未選択の添削では、設問タイプは自動・ガクチカ・自己PR・価値観のいずれかにしてください",
-          }),
-          { status: 400, headers: { "Content-Type": "application/json" } }
-        );
+        return jsonErr("企業未選択の添削では、設問タイプは自動・ガクチカ・自己PR・価値観のいずれかにしてください", 400);
       }
       effectiveTemplateType = resolved.effective;
     } else {
       effectiveTemplateType = templateType ?? inferTemplateTypeWithCompany(sectionTitle || "");
     }
-    const resolvedIndustry = resolveIndustryForReview({
-      companyName: companyInfo.name,
-      companyIndustry: companyInfo.industry,
-      industryOverride,
-    });
+    const resolvedIndustry = resolveIndustryForReview({ companyName: companyInfo.name, companyIndustry: companyInfo.industry, industryOverride });
     const resolvedRoleContext = resolveRoleContext(roleName);
     const [profileContext, gakuchikaContext] = userId
-      ? await Promise.all([
-          fetchProfileContext(userId),
-          fetchGakuchikaContext(userId, { allowIncomplete: true, limit: 4 }),
-        ])
+      ? await Promise.all([fetchProfileContext(userId), fetchGakuchikaContext(userId, { allowIncomplete: true, limit: 4 })])
       : [null, []];
-    const otherSections = extractOtherDocumentSections(
-      documentRow.content,
-      sectionTitle || null,
-      { maxSections: 4, maxCharsPerSection: 260 },
-    );
-    if (!content || content.trim().length === 0) {
-      return new Response(
-        JSON.stringify({ error: "内容が空です" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
+    const otherSections = extractOtherDocumentSections(documentRow.content, sectionTitle || null, { maxSections: 4, maxCharsPerSection: 260 });
 
-    if (companyId && !resolvedIndustry) {
-      return new Response(
-        JSON.stringify({ error: "企業に合わせた添削では、先に業界を選択してください" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    if (companyId && !resolvedRoleContext.primary_role) {
-      return new Response(
-        JSON.stringify({ error: "企業に合わせた添削では、先に職種を選択してください" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
+    if (!content || content.trim().length === 0) return jsonErr("内容が空です", 400);
+    if (companyId && !resolvedIndustry) return jsonErr("企業に合わせた添削では、先に業界を選択してください", 400);
+    if (companyId && !resolvedRoleContext.primary_role) return jsonErr("企業に合わせた添削では、先に職種を選択してください", 400);
 
     const retrievalQuery = buildRetrievalQuery({
-      templateType: effectiveTemplateType,
-      industry: resolvedIndustry,
-      sectionTitle: sectionTitle || "",
-      sectionContent: content,
-      companyName: companyInfo.name,
-      roleName: resolvedRoleContext.primary_role,
-      internName: internName || null,
-      profileContext,
-      gakuchikaContext,
-      otherSections,
+      templateType: effectiveTemplateType, industry: resolvedIndustry,
+      sectionTitle: sectionTitle || "", sectionContent: content,
+      companyName: companyInfo.name, roleName: resolvedRoleContext.primary_role,
+      internName: internName || null, profileContext, gakuchikaContext, otherSections,
     });
 
-    // Calculate credit cost using the shared provider-aware pricing table.
     const charCount = content.length;
     const creditCost = calculateESReviewCost(charCount, resolvedLLMModel, { userPlan });
 
-    // Reserve credits upfront (only for logged-in users)
-    // Credits are deducted now and refunded if the stream fails.
-    const billingContext = {
-      userId,
-      guestId,
-      documentId,
-      creditCost,
-    };
+    const billingContext = { userId, guestId, documentId, creditCost };
     const precheckResult = await esReviewStreamPolicy.precheck(billingContext);
-    if (!precheckResult.ok) {
-      return precheckResult.errorResponse!;
-    }
+    if (!precheckResult.ok) return precheckResult.errorResponse!;
     const reserveResult = await esReviewStreamPolicy.reserve!(billingContext, creditCost);
-    if (reserveResult.errorResponse) {
-      return reserveResult.errorResponse;
-    }
+    if (reserveResult.errorResponse) return reserveResult.errorResponse;
     const reservationId: string | null = reserveResult.reservationId;
 
     const userProvidedCorporateUrls = collectUserProvidedCorporateUrls(companyInfo.corporateInfoUrls);
+    const principalPlan = await getViewerPlan(identity);
 
-    // Call FastAPI SSE streaming endpoint
-    let aiResponse: Response;
+    let upstream: Awaited<ReturnType<typeof fetchUpstreamSSE>>;
     try {
-      aiResponse = await fetchFastApiInternal(backendPath, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Request-Id": requestId,
+      upstream = await fetchUpstreamSSE({
+        path: backendPath,
+        requestId,
+        principal: {
+          scope: "ai-stream",
+          actor: userId ? { kind: "user", id: userId } : { kind: "guest", id: guestId! },
+          companyId: companyId || null,
+          plan: principalPlan,
         },
-        body: JSON.stringify({
+        payload: {
           content,
           section_id: sectionId,
           has_company_rag: hasCompanyRag,
@@ -461,60 +334,31 @@ export async function handleReviewStream(
           gakuchika_context: gakuchikaContext,
           document_context: otherSections.length > 0 ? { other_sections: otherSections } : null,
           llm_model: resolvedLLMModel,
-          // SSE specific: include document_id for credit consumption on completion
           document_id: documentId,
           user_id: userId,
           credit_cost: creditCost,
           user_provided_corporate_urls: userProvidedCorporateUrls,
-        }),
+        },
       });
     } catch (fetchError) {
       await esReviewStreamPolicy.cancel(billingContext, reservationId, "fastapi_fetch_exception");
       throw fetchError;
     }
 
-    if (!aiResponse.ok) {
-      // FastAPI rejected the request — refund reserved credits
-      await esReviewStreamPolicy.cancel(
-        billingContext,
-        reservationId,
-        "fastapi_not_ok",
-      );
-      const rawErrorBody = await aiResponse.json().catch(() => null);
-      const { payload: errorBody, telemetry } =
-        rawErrorBody && typeof rawErrorBody === "object"
-          ? splitInternalTelemetry(rawErrorBody as Record<string, unknown>)
-          : { payload: rawErrorBody, telemetry: null as InternalCostTelemetry | null };
-      logAiCreditCostSummary({
-        feature: "es_review",
-        requestId,
-        status: "failed",
-        creditsUsed: 0,
-        telemetry,
-      });
+    if (!upstream.response.ok) {
+      upstream.clearTimeout();
+      await esReviewStreamPolicy.cancel(billingContext, reservationId, "fastapi_not_ok");
+      const raw = await upstream.response.json().catch(() => null);
+      const { payload: errorBody, telemetry } = raw && typeof raw === "object"
+        ? splitInternalTelemetry(raw as Record<string, unknown>)
+        : { payload: raw, telemetry: null as InternalCostTelemetry | null };
+      logAiCreditCostSummary({ feature: "es_review", requestId, status: "failed", creditsUsed: 0, telemetry });
       return new Response(
         JSON.stringify({
           error: (errorBody as { detail?: { error?: string } } | null)?.detail?.error || "AI review failed",
           error_type: (errorBody as { detail?: { error_type?: string } } | null)?.detail?.error_type,
         }),
-        { status: aiResponse.status, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // Consume and re-emit individual SSE events so the browser receives
-    // stable event boundaries even when upstream chunks are bursty.
-    if (!aiResponse.body) {
-      await esReviewStreamPolicy.cancel(billingContext, reservationId, "empty_body");
-      logAiCreditCostSummary({
-        feature: "es_review",
-        requestId,
-        status: "failed",
-        creditsUsed: 0,
-        telemetry: null,
-      });
-      return new Response(
-        JSON.stringify({ error: "AIレスポンスが空です" }),
-        { status: 502, headers: { "Content-Type": "application/json" } }
+        { status: upstream.response.status, headers: { "Content-Type": "application/json" } },
       );
     }
 
@@ -522,92 +366,41 @@ export async function handleReviewStream(
     let creditConfirmed = false;
     let summaryLogged = false;
     let latestTelemetry: InternalCostTelemetry | null = null;
-
-    const logSummaryOnce = (args: {
-      status: "success" | "failed" | "cancelled";
-      creditsUsed: number;
-      telemetry?: InternalCostTelemetry | null;
-    }) => {
-      if (summaryLogged) {
-        return;
-      }
+    const logOnce = (st: "success" | "failed" | "cancelled", cr: number) => {
+      if (summaryLogged) return;
       summaryLogged = true;
-      logAiCreditCostSummary({
-        feature: "es_review",
-        requestId,
-        status: args.status,
-        creditsUsed: args.creditsUsed,
-        telemetry: args.telemetry ?? latestTelemetry,
-      });
+      logAiCreditCostSummary({ feature: "es_review", requestId, status: st, creditsUsed: cr, telemetry: latestTelemetry });
     };
 
-    const stream = createSSEProxyStream(aiResponse, {
+    const stream = createSSEProxyStream(upstream.response, {
       feature: "es_review",
       requestId,
-      onCostTelemetry: (telemetry) => {
-        latestTelemetry = telemetry ?? latestTelemetry;
-      },
+      onCostTelemetry: (telemetry) => { latestTelemetry = telemetry ?? latestTelemetry; },
       onComplete: async () => {
         if (creditConfirmed) return;
         await esReviewStreamPolicy.confirm(
           billingContext,
-          {
-            kind: "billable_success",
-            creditsConsumed: creditCost,
-            freeQuotaUsed: false,
-          },
+          { kind: "billable_success", creditsConsumed: creditCost, freeQuotaUsed: false },
           capturedReservationId,
         );
         creditConfirmed = true;
-        logSummaryOnce({
-          status: "success",
-          creditsUsed: creditCost,
-        });
+        logOnce("success", creditCost);
         void incrementDailyTokenCount(identity, computeTotalTokens(latestTelemetry));
       },
-      onError: async () => {
-        logSummaryOnce({
-          status: "failed",
-          creditsUsed: 0,
-        });
-      },
+      onError: async () => { logOnce("failed", 0); },
       onFinally: async () => {
+        upstream.clearTimeout();
         if (!creditConfirmed && capturedReservationId) {
-          await esReviewStreamPolicy.cancel(
-            billingContext,
-            capturedReservationId,
-            "stream_ended_without_complete",
-          );
+          await esReviewStreamPolicy.cancel(billingContext, capturedReservationId, "stream_ended_without_complete");
         }
-        if (!summaryLogged) {
-          logSummaryOnce({
-            status: "cancelled",
-            creditsUsed: 0,
-          });
-        }
+        if (!summaryLogged) logOnce("cancelled", 0);
       },
     });
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      },
-    });
+    return new Response(stream, { headers: SSE_RESPONSE_HEADERS });
   } catch (error) {
     console.error(`Error in review stream (${backendPath}):`, error);
-    logAiCreditCostSummary({
-      feature: "es_review",
-      requestId,
-      status: "failed",
-      creditsUsed: 0,
-      telemetry: null,
-    });
-    return new Response(
-      JSON.stringify({ error: "Internal server error" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    logAiCreditCostSummary({ feature: "es_review", requestId, status: "failed", creditsUsed: 0, telemetry: null });
+    return jsonErr("Internal server error", 500);
   }
 }

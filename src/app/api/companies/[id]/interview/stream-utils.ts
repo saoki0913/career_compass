@@ -2,18 +2,20 @@ import { NextRequest } from "next/server";
 
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import { splitInternalTelemetry } from "@/lib/ai/cost-summary-log";
 import { DEFAULT_INTERVIEW_SESSION_CREDIT_COST } from "@/lib/credits";
-import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
-import { getViewerPlan } from "@/lib/server/loader-helpers";
+import { createSSEProxyStream } from "@/lib/fastapi/sse-proxy";
+import { SSE_RESPONSE_HEADERS } from "@/lib/fastapi/stream-config";
+import { fetchUpstreamSSE } from "@/lib/fastapi/stream-transport";
 import type {
   InterviewFeedback,
   InterviewMessage,
   InterviewShortCoaching,
 } from "@/lib/interview/conversation";
 import type { InterviewPlan, InterviewStageStatus, InterviewTurnMeta, InterviewTurnState } from "@/lib/interview/session";
+import { computeTotalTokens, incrementDailyTokenCount } from "@/lib/llm-cost-limit";
+import { getViewerPlan } from "@/lib/server/loader-helpers";
 import type { InterviewFeedbackHistoryItem } from ".";
-import { splitInternalTelemetry } from "@/lib/ai/cost-summary-log";
-import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import {
   INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE,
   normalizeInterviewPersistenceError,
@@ -43,12 +45,9 @@ type UpstreamCompleteData = {
   next_preparation?: string[];
   premise_consistency?: number;
   satisfaction_score?: number;
-  // Phase 2 Stage 0-3: evaluation harness lineage metadata (from FastAPI).
   prompt_version?: string | null;
   followup_policy_version?: string | null;
   case_seed_version?: string | null;
-  // Phase 2 Stage 6: Per-turn short coaching (turn SSE complete のみ)。
-  // FastAPI から 3 フィールド構造 or null で届く。
   short_coaching?: InterviewShortCoaching | null;
 };
 
@@ -66,56 +65,29 @@ export type InterviewClientCompleteData = {
   plan?: InterviewPlan | null;
   transitionLine?: string | null;
   feedbackHistories?: InterviewFeedbackHistoryItem[];
-  // Phase 2 Stage 6: Per-turn short coaching pass-through。
-  // Stage 8 ダッシュボード実装でクライアント側が参照する。
   shortCoaching?: InterviewShortCoaching | null;
 };
 
-function formatSseEvent(event: Record<string, unknown>) {
-  return `data: ${JSON.stringify(event)}\n\n`;
-}
-
-function createPersistenceSseErrorMessage(error: unknown) {
-  const normalized = normalizeInterviewPersistenceError(error, {
-    companyId: "unknown",
-    operation: "interview:stream:onComplete",
-  });
-  if (!normalized) {
-    return null;
-  }
-  return {
-    code: INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE,
-    message: "現在、面接対策の保存機能を一時的に利用できません。しばらくしてから再度お試しください。",
-  };
-}
-
 export function createImmediateInterviewStream(data: InterviewClientCompleteData) {
+  const encoder = new TextEncoder();
   const stream = new ReadableStream({
     start(controller) {
-      const encoder = new TextEncoder();
       controller.enqueue(
         encoder.encode(
-          formatSseEvent({
+          `data: ${JSON.stringify({
             type: "complete",
             data: {
               ...data,
               creditCost: data.creditCost ?? DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
             },
-          }),
+          })}\n\n`,
         ),
       );
       controller.close();
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    },
-  });
+  return new Response(stream, { headers: SSE_RESPONSE_HEADERS });
 }
 
 export function normalizeFeedback(data: UpstreamCompleteData): InterviewFeedback {
@@ -162,21 +134,22 @@ export async function createInterviewUpstreamStream(options: {
   onError?: () => Promise<void>;
 }) {
   const principalPlan = await getViewerPlan(options.identity ?? { userId: null, guestId: null });
-  const upstreamResponse = await fetchFastApiWithPrincipal(options.upstreamPath, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    principal: {
-      scope: "ai-stream",
-      actor: options.identity?.userId
-        ? { kind: "user", id: options.identity.userId }
-        : { kind: "guest", id: options.identity?.guestId ?? "guest" },
-      companyId: options.companyId ?? null,
-      plan: principalPlan,
-    },
-    body: JSON.stringify(options.upstreamPayload),
-  });
+  const { response: upstreamResponse, clearTimeout: clearUpstreamTimeout } =
+    await fetchUpstreamSSE({
+      path: options.upstreamPath,
+      payload: options.upstreamPayload,
+      principal: {
+        scope: "ai-stream",
+        actor: options.identity?.userId
+          ? { kind: "user", id: options.identity.userId }
+          : { kind: "guest", id: options.identity?.guestId ?? "guest" },
+        companyId: options.companyId ?? null,
+        plan: principalPlan,
+      },
+    });
 
   if (!upstreamResponse.ok) {
+    clearUpstreamTimeout();
     await options.onError?.();
     const data = await upstreamResponse.json().catch(() => null);
     return createApiErrorResponse(options.request, {
@@ -190,123 +163,61 @@ export async function createInterviewUpstreamStream(options: {
     });
   }
 
-  const reader = upstreamResponse.body?.getReader();
-  if (!reader) {
-    await options.onError?.();
-    return createApiErrorResponse(options.request, {
-      status: 502,
-      code: "INTERVIEW_STREAM_UNAVAILABLE",
-      userMessage: "面接対策のストリームを開始できませんでした。",
-      action: "少し待ってから、もう一度お試しください。",
-    });
-  }
+  let errorSeen = false;
 
-  const decoder = new TextDecoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      const encoder = new TextEncoder();
-      let buffer = "";
-      let completed = false;
+  const stream = createSSEProxyStream(upstreamResponse, {
+    feature: "interview",
+    requestId: options.request.headers.get("x-request-id") ?? "",
+    onComplete: async (event) => {
+      // Interview complete events nest telemetry inside `data`, not at top level.
+      const rawData = (event.data || {}) as Record<string, unknown>;
+      const { payload: cleanData, telemetry } = splitInternalTelemetry(rawData);
 
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const jsonStr = line.slice(6).trim();
-            if (!jsonStr) continue;
-
-            let event: Record<string, unknown>;
-            try {
-              event = JSON.parse(jsonStr) as Record<string, unknown>;
-            } catch {
-              continue;
-            }
-
-            if (
-              event.type === "progress" ||
-              event.type === "string_chunk" ||
-              event.type === "field_complete" ||
-              event.type === "array_item_complete"
-            ) {
-              controller.enqueue(encoder.encode(formatSseEvent(event)));
-              continue;
-            }
-
-            if (event.type === "error") {
-              await options.onError?.();
-              controller.enqueue(encoder.encode(formatSseEvent(event)));
-              return;
-            }
-
-            if (event.type !== "complete") {
-              controller.enqueue(encoder.encode(formatSseEvent(event)));
-              continue;
-            }
-
-            completed = true;
-            const rawCompleteData = (event.data || {}) as Record<string, unknown>;
-            const { payload: cleanData, telemetry } = splitInternalTelemetry(rawCompleteData);
-            const upstreamData = cleanData as UpstreamCompleteData;
-            const clientData = await options.onComplete(upstreamData);
-            if (options.identity && telemetry) {
-              void incrementDailyTokenCount(options.identity, computeTotalTokens(telemetry));
-            }
-            controller.enqueue(
-              encoder.encode(
-                formatSseEvent({
-                  type: "complete",
-                  data: {
-                    ...clientData,
-                    creditCost: clientData.creditCost ?? DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
-                  },
-                }),
-              ),
-            );
-          }
+        const clientData = await options.onComplete(cleanData as UpstreamCompleteData);
+        if (options.identity && telemetry) {
+          void incrementDailyTokenCount(options.identity, computeTotalTokens(telemetry));
         }
-
-        if (!completed) {
-          await options.onAbort?.();
-          controller.enqueue(
-            encoder.encode(
-              formatSseEvent({
-                type: "error",
-                message: "ストリームが途中で切断されました。",
-              }),
-            ),
-          );
-        }
+        return {
+          replaceEvent: {
+            type: "complete",
+            data: {
+              ...clientData,
+              creditCost: clientData.creditCost ?? DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
+            },
+          },
+        };
       } catch (error) {
-        await options.onError?.();
-        const persistenceError = createPersistenceSseErrorMessage(error);
-        controller.enqueue(
-          encoder.encode(
-            formatSseEvent({
+        // Persistence errors produce a specific SSE error event instead of
+        // letting sse-proxy emit a generic one.
+        const normalized = normalizeInterviewPersistenceError(error, {
+          companyId: "unknown",
+          operation: "interview:stream:onComplete",
+        });
+        if (normalized) {
+          return {
+            replaceEvent: {
               type: "error",
-              ...(persistenceError ?? {}),
-              message: persistenceError?.message ?? "ストリーミング処理中にエラーが発生しました。",
-            }),
-          ),
-        );
-      } finally {
-        controller.close();
+              code: INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE,
+              message:
+                "現在、面接対策の保存機能を一時的に利用できません。しばらくしてから再度お試しください。",
+            },
+          };
+        }
+        throw error;
+      }
+    },
+    onError: async () => {
+      errorSeen = true;
+      await options.onError?.();
+    },
+    onFinally: async ({ success }) => {
+      clearUpstreamTimeout();
+      if (!success && !errorSeen) {
+        await options.onAbort?.();
       }
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    },
-  });
+  return new Response(stream, { headers: SSE_RESPONSE_HEADERS });
 }

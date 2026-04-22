@@ -10,7 +10,7 @@ from app.prompts.es_templates import (
     get_template_evaluation_checks,
 )
 from app.routers.es_review_models import ReviewRequest
-from app.utils.llm import sanitize_prompt_input
+from app.utils.llm_prompt_safety import sanitize_prompt_input
 
 COMPANY_HONORIFIC_TOKENS = ("貴社", "貴行", "貴庫", "貴所", "貴校", "貴院")
 COMPANY_REFERENCE_TOKENS = ("当社", "御社", "同社", "本社", "こちらの企業")
@@ -43,6 +43,14 @@ GENERIC_ROLE_PATTERNS = (
     r"^open$",
     r"^global\s*staff$",
 )
+GENERIC_EVIDENCE_TITLES = {
+    "社員インタビュー",
+    "企業理念",
+    "採用情報",
+    "会社概要",
+    "事業紹介",
+    "事業",
+}
 
 
 def _template_checks(template_type: str) -> dict[str, Any]:
@@ -679,6 +687,24 @@ def _normalize_company_evidence_summary(card: dict[str, Any]) -> str:
     return "事業や提供価値の特徴としては、" + (claim or excerpt)
 
 
+def _is_card_quality_sufficient(card: dict) -> bool:
+    claim = str(card.get("claim") or "")
+    excerpt = str(card.get("excerpt") or "")
+    text = claim + " " + excerpt
+    if len(text.strip()) < 15:
+        return False
+    abstract_only = not bool(
+        re.search(
+            r"[\d一-龠]{2,}(部門|事業|技術|分野|コース|拠点|商品|サービス|社員)",
+            text,
+        )
+    )
+    short_content = len(text.strip()) < 25
+    if abstract_only and short_content:
+        return False
+    return True
+
+
 def _build_company_evidence_cards(
     rag_sources: list[dict],
     *,
@@ -728,7 +754,10 @@ def _build_company_evidence_cards(
         excerpt = sanitize_prompt_input(
             str(source.get("excerpt") or ""), max_length=120
         ).strip()
-        claim = title if len(title) >= 8 else excerpt or title
+        if excerpt and title in GENERIC_EVIDENCE_TITLES:
+            claim = f"{title}では、{excerpt}"
+        else:
+            claim = title if len(title) >= 8 else excerpt or title
         if len(claim) < 8:
             continue
         theme = _infer_company_evidence_theme(
@@ -743,18 +772,26 @@ def _build_company_evidence_cards(
         if claim in seen_claims:
             continue
         seen_claims.add(claim)
-        candidates.append(
-            {
-                "theme": theme,
-                "claim": claim,
-                "excerpt": excerpt,
-                "normalized_axis": _normalize_company_evidence_axis(theme),
-                "source_url": str(source.get("source_url") or ""),
-                "content_type": content_type,
-                "title": title,
-                "same_company_verified": bool(source.get("same_company_verified", True)),
-            }
-        )
+        primary_candidate = {
+            "theme": theme,
+            "claim": claim,
+            "excerpt": excerpt,
+            "normalized_axis": _normalize_company_evidence_axis(theme),
+            "source_url": str(source.get("source_url") or ""),
+            "content_type": content_type,
+            "title": title,
+            "same_company_verified": bool(source.get("same_company_verified", True)),
+        }
+        if not _is_card_quality_sufficient(primary_candidate) and excerpt:
+            primary_candidate["claim"] = _normalize_company_evidence_summary(
+                {
+                    "claim": excerpt,
+                    "excerpt": excerpt,
+                    "normalized_axis": primary_candidate["normalized_axis"],
+                }
+            )
+        if _is_card_quality_sufficient(primary_candidate):
+            candidates.append(primary_candidate)
         secondary_theme = _infer_secondary_company_evidence_theme(
             template_type=template_type,
             content_type=content_type,
@@ -769,18 +806,63 @@ def _build_company_evidence_cards(
             and secondary_theme != theme
             and len(excerpt) >= 20
         ):
-            candidates.append(
-                {
-                    "theme": secondary_theme,
-                    "claim": excerpt,
-                    "excerpt": title if title and title != excerpt else "",
-                    "normalized_axis": _normalize_company_evidence_axis(secondary_theme),
-                    "source_url": str(source.get("source_url") or ""),
-                    "content_type": content_type,
-                    "title": title,
-                    "same_company_verified": bool(source.get("same_company_verified", True)),
-                }
+            secondary_candidate = {
+                "theme": secondary_theme,
+                "claim": excerpt,
+                "excerpt": title if title and title != excerpt else "",
+                "normalized_axis": _normalize_company_evidence_axis(secondary_theme),
+                "source_url": str(source.get("source_url") or ""),
+                "content_type": content_type,
+                "title": title,
+                "same_company_verified": bool(source.get("same_company_verified", True)),
+            }
+            if not _is_card_quality_sufficient(secondary_candidate):
+                secondary_candidate["claim"] = _normalize_company_evidence_summary(
+                    {
+                        "claim": excerpt,
+                        "excerpt": secondary_candidate["excerpt"],
+                        "normalized_axis": secondary_candidate["normalized_axis"],
+                    }
+                )
+            if _is_card_quality_sufficient(secondary_candidate):
+                candidates.append(secondary_candidate)
+
+    if not candidates:
+        for _, _, source in sorted(ranked):
+            excerpt = sanitize_prompt_input(
+                str(source.get("excerpt") or source.get("title") or ""),
+                max_length=120,
+            ).strip()
+            if len(excerpt) < 8:
+                continue
+            theme = _infer_company_evidence_theme(
+                template_type=template_type,
+                content_type=str(source.get("content_type") or ""),
+                text=excerpt,
+                role_terms=role_terms,
+                intern_name=intern_name,
+                generic_role_mode=generic_role_mode,
+                question_focus_themes=focus_signals["themes"],
             )
+            fallback_candidate = {
+                "theme": theme,
+                "claim": _normalize_company_evidence_summary(
+                    {
+                        "claim": excerpt,
+                        "excerpt": excerpt,
+                        "normalized_axis": _normalize_company_evidence_axis(theme),
+                    }
+                ),
+                "excerpt": excerpt,
+                "normalized_axis": _normalize_company_evidence_axis(theme),
+                "source_url": str(source.get("source_url") or ""),
+                "content_type": str(source.get("content_type") or ""),
+                "title": sanitize_prompt_input(str(source.get("title") or ""), max_length=72).strip(),
+                "same_company_verified": bool(source.get("same_company_verified", True)),
+            }
+            if _is_card_quality_sufficient(fallback_candidate):
+                candidates.append(fallback_candidate)
+                break
 
     effective_max_items = min(max_items, 1 if company_grounding == "assistive" else 4)
 
@@ -828,6 +910,9 @@ def _build_company_evidence_cards(
         if not generic_role_mode and per_theme_counts.get(theme, 0) >= 2:
             continue
         append_candidate(candidate)
+
+    if cards:
+        cards[0]["is_primary"] = True
 
     return cards
 

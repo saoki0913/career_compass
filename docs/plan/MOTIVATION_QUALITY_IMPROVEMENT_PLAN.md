@@ -2,13 +2,14 @@
 topic: motivation
 plan_date: 2026-04-12
 based_on_review: feature/motivation_quality_audit_20260412.md
-status: 進行中
+status: 完了
+closed_date: 2026-04-17
 ---
 
 # 志望動機作成機能 品質改善計画
 
 **作成日:** 2026-04-12
-**最終更新:** 2026-04-16（P1 完了マーキング + P2 設計改善: managed prompt 同期手順、grounding_mode 決定規則、retry 採用基準を追記）
+**最終更新:** 2026-04-17（P4 + Notion 廃止 完了。status を `完了` に更新。完了再評価の詳細は audit `## 10` へ移動）
 **対象:** 志望動機作成機能（品質監査スコア 42/100 → 目標 92/100 Grade A）
 **根拠:** `docs/review/feature/motivation_quality_audit_20260412.md`（セクション9「2026-04-14 再評価」を含む）
 **注記:** review ops ルール上、再監査は新日付ファイル並置が推奨だが、今回は既存ファイルへのセクション追記とした（ユーザー判断）。次回の本格再監査時に `motivation_quality_audit_20260414.md` として独立化する
@@ -1639,3 +1640,11 @@ P4 完了後、ゴールドセット10ケースで総合スコア再計測を実
 - **coverage_level の四段階**: `strong` / `partial` / `weak` / `none` (`es_review_grounding.py:835-888`)。**危険ゾーン**: `company_general` × `weak` coverage で `company_grounding="required"` 設定時、薄い根拠で企業言及2点を強制する。これを避けるため `weak` 以下では grounding_mode を `none` にダウングレードする。
 
 **次回監査:** P2 実装完了後、ゴールドセット3ケースで簡易再検証 (60→75 Grade C 達成確認)。実装完了時に本セクションへ「2026-04-XX P2 実装後検証」ブロックを追記し、観測指標 (フォールバック発火率、AI smell tier 分布、`draft_ready_source` 分布) の staging 計測結果を記録する。
+
+---
+
+### 2026-04-17 P4 + Notion 廃止 完了
+
+完了再評価の詳細は audit 正本に移動済み → [`docs/review/feature/motivation_quality_audit_20260412.md` の `## 10. 2026-04-17 P4 + Notion 廃止 完了再評価`](../review/feature/motivation_quality_audit_20260412.md#10-2026-04-17-p4--notion-廃止-完了再評価) を参照。本 plan は `status: 完了` / `closed_date: 2026-04-17` で close。
+
+**次回監査:** Live AI Smoke 拡張完了後、ゴールドセット 10 ケースで総合スコア再計測 (90+ Grade A 達成確認)、staging で `MOTIVATION_SEMANTIC_CONFIRM=true` のレイテンシ・コスト計測。

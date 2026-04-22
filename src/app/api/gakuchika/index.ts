@@ -1,9 +1,7 @@
 export { getIdentity, verifyGakuchikaAccess, type Identity } from "./access";
 
 export {
-  FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS,
   getQuestionFromFastAPI,
-  iterateGakuchikaFastApiSseEvents,
   consumeGakuchikaNextQuestionSse,
   type GakuchikaData,
   type ConsumeGakuchikaNextQuestionSseResult,
@@ -30,16 +28,3 @@ export {
 } from "@/lib/gakuchika/conversation-state";
 
 export { CONVERSATION_CREDITS_PER_TURN } from "@/lib/credits";
-
-export function buildHintPayload(state: import("@/lib/gakuchika/conversation-state").ConversationState | null) {
-  if (!state?.focusKey || !state.answerHint || !state.progressLabel) {
-    return null;
-  }
-
-  return {
-    focusKey: state.focusKey,
-    answerHint: state.answerHint,
-    progressLabel: state.progressLabel,
-    source: "model",
-  };
-}

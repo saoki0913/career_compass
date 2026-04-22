@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { createInterface } from "node:readline/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import process from "node:process";
 import {
   formatUiPreflightMarkdown,
@@ -10,6 +12,7 @@ import {
 
 async function main() {
   const config = parseUiPreflightArgs(process.argv.slice(2));
+  const outputPath = process.env.UI_PREFLIGHT_OUTPUT_PATH?.trim() || "";
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("UI preflight requires an interactive terminal");
@@ -38,6 +41,11 @@ async function main() {
       ...config,
       answers,
     });
+
+    if (outputPath) {
+      await mkdir(path.dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, `${markdown}\n`, "utf8");
+    }
 
     console.log(markdown);
   } finally {

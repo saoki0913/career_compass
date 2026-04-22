@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { BreadcrumbJsonLd } from "@/components/seo/BreadcrumbJsonLd";
 import { createMarketingMetadata } from "@/lib/marketing-metadata";
 
 export const metadata: Metadata = createMarketingMetadata({
@@ -13,6 +14,13 @@ export const metadata: Metadata = createMarketingMetadata({
 export default function DeadlineChecklistPage() {
   return (
     <div className="min-h-screen bg-background">
+      <BreadcrumbJsonLd
+        crumbs={[
+          { name: "ホーム", path: "/" },
+          { name: "チェックリスト", path: "/checklists" },
+          { name: "締切管理チェックリスト", path: "/checklists/deadline-management" },
+        ]}
+      />
       <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="font-bold text-xl">

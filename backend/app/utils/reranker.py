@@ -41,9 +41,9 @@ def _ensure_cross_encoder_imported() -> bool:
 
 
 # Default model: Japanese-specific cross-encoder trained on native Japanese data
-# ModernBERT-based (ruri-v3-pt-70m), L13-H384, ~70M params
+# ModernBERT-based (ruri-v3-pt-130m), L13-H384, ~130M params
 # Requires transformers>=4.48.0
-DEFAULT_CROSS_ENCODER_MODEL = "hotchpotch/japanese-reranker-small-v2"
+DEFAULT_CROSS_ENCODER_MODEL = "hotchpotch/japanese-reranker-base-v2"
 # Alternatives:
 # - "hotchpotch/japanese-reranker-xsmall-v2" (faster, ~30M params, avg 0.870)
 # - "hotchpotch/japanese-reranker-base-v2" (higher accuracy, ~130M params, avg 0.893)

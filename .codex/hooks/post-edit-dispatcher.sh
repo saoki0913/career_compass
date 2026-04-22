@@ -2,6 +2,9 @@
 # Codex wrapper for path-aware post-edit reminders.
 set -euo pipefail
 
+# shellcheck source=../../.claude/hooks/lib/e2e-functional-reminder.sh
+. "$(dirname "$0")/../../.claude/hooks/lib/e2e-functional-reminder.sh"
+
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .file_path // empty')
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
@@ -9,6 +12,10 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
 if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
+
+maybe_emit_e2e_functional_reminder "$FILE_PATH" "$SESSION_ID" "codex"
+
+node tools/mark-verification-stale.mjs --file="$FILE_PATH" --session="$SESSION_ID" --agent=codex >/dev/null 2>&1 || true
 
 case "$FILE_PATH" in
   */backend/app/prompts/*|*/backend/app/utils/llm*.py)

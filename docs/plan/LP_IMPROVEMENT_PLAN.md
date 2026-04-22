@@ -2,7 +2,8 @@
 topic: lp
 plan_date: 2026-04-14
 based_on_review: null
-status: 未着手
+status: 完了
+last_update: 2026-04-17
 implementation_level: 手順書レベル
 ---
 

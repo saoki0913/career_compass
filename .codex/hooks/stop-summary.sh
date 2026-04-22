@@ -12,4 +12,12 @@ if [ -n "$STATUS" ]; then
 else
   echo "working tree clean" >&2
 fi
+
+if ! node tools/run-verify-status.mjs >/tmp/career-compass-codex-verify-status.$$ 2>/tmp/career-compass-codex-verify-status.err; then
+  cat /tmp/career-compass-codex-verify-status.err >&2 || true
+  cat /tmp/career-compass-codex-verify-status.$$ >&2 || true
+else
+  cat /tmp/career-compass-codex-verify-status.$$ >&2 || true
+fi
+rm -f /tmp/career-compass-codex-verify-status.$$ /tmp/career-compass-codex-verify-status.err
 exit 0
