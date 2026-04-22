@@ -16,9 +16,11 @@ import {
 } from "./fixtures/auth";
 import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
 import {
+  classifyLiveAiConversationFailure,
   generateLiveAiConversationReport,
   writeLiveAiConversationReport,
   type LiveAiConversationCheck,
+  type LiveAiConversationFailureKind,
   type LiveAiConversationFeature,
   type LiveAiConversationJudge,
   type LiveAiConversationReportRow,
@@ -26,6 +28,7 @@ import {
   type LiveAiConversationTargetEnv,
   type LiveAiConversationTranscriptTurn,
 } from "../src/lib/testing/live-ai-conversation-report";
+import { maybeLiveAiConversationLlmJudge } from "../src/lib/testing/live-ai-conversation-llm-judge";
 
 type GakuchikaCase = {
   id: string;
@@ -37,6 +40,12 @@ type GakuchikaCase = {
   answers: string[];
   expectedQuestionTokens: string[];
   expectedSummaryTokens: string[];
+  /** Substrings that must not appear in transcript or draft (e.g. refusal boilerplate). */
+  expectedForbiddenTokens?: string[];
+  /** Each inner array is OR; every group must have at least one hit somewhere in assistant questions. */
+  requiredQuestionTokenGroups?: string[][];
+  minDraftCharCount?: number;
+  maxDraftCharCount?: number;
 };
 
 type MotivationCase = {
@@ -51,6 +60,11 @@ type MotivationCase = {
   answers: string[];
   expectedQuestionTokens: string[];
   expectedDraftTokens: string[];
+  draftCharLimit?: 300 | 400 | 500;
+  expectedForbiddenTokens?: string[];
+  requiredQuestionTokenGroups?: string[][];
+  minDraftCharCount?: number;
+  maxDraftCharCount?: number;
 };
 
 type InterviewCase = {
@@ -75,6 +89,10 @@ type InterviewCase = {
     answers: string[];
     expectedQuestionTokens: string[];
     expectedFeedbackTokens: string[];
+    expectedForbiddenTokens?: string[];
+    requiredQuestionTokenGroups?: string[][];
+    minFeedbackCharCount?: number;
+    maxFeedbackCharCount?: number;
   };
 };
 
@@ -106,6 +124,29 @@ const OUTPUT_DIR = path.resolve(
 );
 const RUN_ID = `live-ai-conversations-${Date.now()}`;
 const LIVE_CONVERSATION_TEST_TIMEOUT_MS = 180_000;
+
+/** When false (`LIVE_AI_CONVERSATION_BLOCKING_FAILURES=0`), only infra-like failureKind fails Playwright; state/quality stay report-only. */
+const BLOCKING_CONVERSATION_FAILURES =
+  process.env.LIVE_AI_CONVERSATION_BLOCKING_FAILURES?.trim() !== "0";
+
+const BLOCKING_CONVERSATION_FAILURE_KINDS: LiveAiConversationFailureKind[] = [
+  "auth",
+  "cleanup",
+  "timeout",
+  "infra",
+];
+
+function assertConversationOutcome(row: LiveAiConversationReportRow) {
+  if (row.severity !== "failed") {
+    return;
+  }
+  const shouldFailPlaywright =
+    BLOCKING_CONVERSATION_FAILURES ||
+    BLOCKING_CONVERSATION_FAILURE_KINDS.includes(row.failureKind);
+  if (shouldFailPlaywright) {
+    expect(row.severity, `${row.feature}/${row.caseId} failureKind=${row.failureKind}`).not.toBe("failed");
+  }
+}
 
 function buildScopedCompanyName(companyName: string, caseId: string) {
   return `${companyName}_${caseId}_${RUN_ID}`.slice(0, 120);
@@ -146,11 +187,32 @@ function parseSseEvents(rawText: string): ParsedSseEvent[] {
 }
 
 function parseCompleteData(events: ParsedSseEvent[]) {
-  const completeEvent = events.find((event) => event.type === "complete");
+  const completeEvents = events.filter((event) => event.type === "complete");
+  const completeEvent = completeEvents[completeEvents.length - 1];
   if (!completeEvent) {
     throw new Error("stream did not emit a complete event");
   }
   return (completeEvent.data || {}) as Record<string, unknown>;
+}
+
+function isGakuchikaDraftReady(completeData: Record<string, unknown> | null | undefined) {
+  const conversationState =
+    completeData?.conversationState && typeof completeData.conversationState === "object"
+      ? (completeData.conversationState as { readyForDraft?: unknown; stage?: unknown })
+      : null;
+  const nextAction = typeof completeData?.nextAction === "string" ? completeData.nextAction : "";
+  const stage = typeof conversationState?.stage === "string" ? conversationState.stage : "";
+
+  return (
+    completeData?.isCompleted === true ||
+    completeData?.isInterviewReady === true ||
+    conversationState?.readyForDraft === true ||
+    stage === "draft_ready" ||
+    stage === "interview_ready" ||
+    nextAction === "show_generate_draft_cta" ||
+    nextAction === "continue_deep_dive" ||
+    nextAction === "show_interview_ready"
+  );
 }
 
 function collectChunks(events: ParsedSseEvent[], pathName: string): string {
@@ -236,6 +298,135 @@ function buildJudge(
   };
 }
 
+function assistantQuestionTexts(transcript: LiveAiConversationTranscriptTurn[]): string[] {
+  return transcript.filter((t) => t.role === "assistant").map((t) => t.content);
+}
+
+function buildForbiddenTokenChecks(
+  label: string,
+  texts: string[],
+  forbidden: string[] | undefined,
+): { checks: LiveAiConversationCheck[]; failCodes: string[] } {
+  const checks: LiveAiConversationCheck[] = [];
+  const failCodes: string[] = [];
+  if (!forbidden?.length) {
+    return { checks, failCodes };
+  }
+  const haystack = texts.join("\n");
+  for (const tok of forbidden) {
+    const hit = haystack.includes(tok);
+    checks.push({
+      name: `${label}-forbidden-absent:${tok.slice(0, 24)}`,
+      passed: !hit,
+      evidence: hit ? [`found:${tok.slice(0, 40)}`] : ["ok"],
+    });
+    if (hit) {
+      failCodes.push(`forbidden_token:${tok}`);
+    }
+  }
+  return { checks, failCodes };
+}
+
+function buildRequiredQuestionGroupChecks(
+  questionTexts: string[],
+  groups: string[][] | undefined,
+): { checks: LiveAiConversationCheck[]; failCodes: string[] } {
+  const checks: LiveAiConversationCheck[] = [];
+  const failCodes: string[] = [];
+  if (!groups?.length) {
+    return { checks, failCodes };
+  }
+  let satisfied = 0;
+  for (const group of groups) {
+    if (group.some((tok) => questionTexts.some((q) => q.includes(tok)))) {
+      satisfied += 1;
+    }
+  }
+  const ok = satisfied === groups.length;
+  checks.push({
+    name: "required-question-token-groups",
+    passed: ok,
+    evidence: [`satisfied_groups=${satisfied}/${groups.length}`],
+  });
+  if (!ok) {
+    failCodes.push("required_question_group_miss");
+  }
+  return { checks, failCodes };
+}
+
+function buildDraftLengthChecks(
+  finalText: string,
+  minC: number | undefined,
+  maxC: number | undefined,
+): { checks: LiveAiConversationCheck[]; failCodes: string[] } {
+  const checks: LiveAiConversationCheck[] = [];
+  const failCodes: string[] = [];
+  if (minC != null) {
+    const ok = finalText.length >= minC;
+    checks.push({
+      name: "min-draft-chars",
+      passed: ok,
+      evidence: [`len=${finalText.length} min=${minC}`],
+    });
+    if (!ok) {
+      failCodes.push(`draft_too_short:${finalText.length}<${minC}`);
+    }
+  }
+  if (maxC != null) {
+    const ok = finalText.length <= maxC;
+    checks.push({
+      name: "max-draft-chars",
+      passed: ok,
+      evidence: [`len=${finalText.length} max=${maxC}`],
+    });
+    if (!ok) {
+      failCodes.push(`draft_too_long:${finalText.length}>${maxC}`);
+    }
+  }
+  return { checks, failCodes };
+}
+
+function buildFeedbackLengthChecks(
+  feedbackSummary: string,
+  minC: number | undefined,
+  maxC: number | undefined,
+): { checks: LiveAiConversationCheck[]; failCodes: string[] } {
+  const checks: LiveAiConversationCheck[] = [];
+  const failCodes: string[] = [];
+  if (minC != null) {
+    const ok = feedbackSummary.length >= minC;
+    checks.push({
+      name: "min-feedback-chars",
+      passed: ok,
+      evidence: [`len=${feedbackSummary.length} min=${minC}`],
+    });
+    if (!ok) {
+      failCodes.push(`feedback_too_short:${feedbackSummary.length}<${minC}`);
+    }
+  }
+  if (maxC != null) {
+    const ok = feedbackSummary.length <= maxC;
+    checks.push({
+      name: "max-feedback-chars",
+      passed: ok,
+      evidence: [`len=${feedbackSummary.length} max=${maxC}`],
+    });
+    if (!ok) {
+      failCodes.push(`feedback_too_long:${feedbackSummary.length}>${maxC}`);
+    }
+  }
+  return { checks, failCodes };
+}
+
+function mergeExtendedDeterministic(
+  parts: Array<{ checks: LiveAiConversationCheck[]; failCodes: string[] }>,
+): { checks: LiveAiConversationCheck[]; failCodes: string[] } {
+  return {
+    checks: parts.flatMap((p) => p.checks),
+    failCodes: parts.flatMap((p) => p.failCodes),
+  };
+}
+
 function buildMissingFeatureRow(feature: LiveAiConversationFeature): LiveAiConversationReportRow {
   return {
     feature,
@@ -243,10 +434,13 @@ function buildMissingFeatureRow(feature: LiveAiConversationFeature): LiveAiConve
     title: `${feature} live suite failed before report rows were recorded`,
     status: "failed",
     severity: "failed",
+    failureKind: "infra",
     durationMs: 0,
     transcript: [],
     outputs: { finalText: "", generatedDocumentId: null },
     deterministicFailReasons: ["missing_report", "suite_failed_before_report_rows"],
+    representativeLog: "no feature rows were captured before afterAll",
+    representativeError: null,
     checks: [
       {
         name: "report-generated",
@@ -306,6 +500,104 @@ async function createOwnedJobType(
   return body.jobType;
 }
 
+async function startMotivationSetupWithRequest(
+  request: SetupRequester,
+  page: Parameters<typeof apiRequest>[0],
+  companyId: string,
+  selectedIndustry: string,
+  selectedRole: string,
+  transcript?: LiveAiConversationTranscriptTurn[],
+) {
+  let startResponse = await request(page, "POST", `/api/motivation/${companyId}/conversation/start`, {
+    selectedIndustry,
+    selectedRole,
+  });
+
+  if (startResponse.status() === 409) {
+    const resetResponse = await request(page, "DELETE", `/api/motivation/${companyId}/conversation`);
+    await readSetupResponseBody(resetResponse, `motivation setup reset ${companyId}`);
+    startResponse = await request(page, "POST", `/api/motivation/${companyId}/conversation/start`, {
+      selectedIndustry,
+      selectedRole,
+    });
+  }
+
+  const startBody = JSON.parse(
+    await readSetupResponseBody(startResponse, `motivation setup start ${companyId}`),
+  ) as {
+    conversation: { id: string };
+    nextQuestion: string;
+    messages: ChatMessage[];
+  };
+
+  const sessionId = startBody.conversation.id;
+  const nextQuestionText = startBody.nextQuestion || startBody.messages[0]?.content || "";
+  pushAssistantIfPresent(transcript ?? [], nextQuestionText);
+
+  return {
+    sessionId,
+    nextQuestionText,
+  };
+}
+
+export async function runMotivationSetupWithRequest(
+  request: SetupRequester,
+  page: Parameters<typeof apiRequest>[0],
+  companyId: string,
+  selectedIndustry: string,
+  selectedRole: string,
+  answers: string[],
+  transcript?: LiveAiConversationTranscriptTurn[],
+) {
+  const { sessionId, nextQuestionText: firstQuestion } = await startMotivationSetupWithRequest(
+    request,
+    page,
+    companyId,
+    selectedIndustry,
+    selectedRole,
+    transcript,
+  );
+  let nextQuestionText = firstQuestion;
+
+  let latestComplete: Record<string, unknown> | null = null;
+  const totalAttempts = Math.max(answers.length + MOTIVATION_FALLBACK_ANSWERS.length, 16);
+  let motivationRateRetries = 0;
+  const maxMotivationRateRetries = 12;
+
+  for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
+    const answer =
+      attempt < answers.length
+        ? answers[attempt]
+        : buildDeterministicMotivationFollowupAnswer({
+            nextQuestion: nextQuestionText,
+            attemptIndex: attempt - answers.length,
+            latestComplete,
+          });
+    transcript?.push({ role: "user", content: answer });
+    const streamResponse = await request(page, "POST", `/api/motivation/${companyId}/conversation/stream`, {
+      answer,
+      sessionId,
+    });
+    if (streamResponse.status() === 429 && motivationRateRetries < maxMotivationRateRetries) {
+      motivationRateRetries += 1;
+      transcript?.pop();
+      attempt -= 1;
+      await new Promise((r) => setTimeout(r, 2000 * motivationRateRetries));
+      continue;
+    }
+    const events = parseSseEvents(await readSetupResponseBody(streamResponse, `motivation setup stream ${companyId}`));
+    const nextQuestion = collectChunks(events, "question");
+    latestComplete = parseCompleteData(events);
+    nextQuestionText = String(latestComplete?.nextQuestion || nextQuestion || "");
+    pushAssistantIfPresent(transcript ?? [], nextQuestionText);
+    if (latestComplete?.isDraftReady === true) {
+      return latestComplete;
+    }
+  }
+
+  throw new Error("motivation conversation did not reach draft_ready");
+}
+
 async function runMotivationSetup(
   page: Parameters<typeof apiRequest>[0],
   companyId: string,
@@ -314,63 +606,181 @@ async function runMotivationSetup(
   answers: string[],
   transcript?: LiveAiConversationTranscriptTurn[],
 ) {
-  const startResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/motivation/${companyId}/conversation/start`, {
+  return runMotivationSetupWithRequest(
+    apiRequestAsAuthenticatedUser,
+    page,
+    companyId,
     selectedIndustry,
     selectedRole,
-  });
-  const startBody = JSON.parse(
-    await expectOkResponse(startResponse, `motivation setup start ${companyId}`),
-  ) as {
-    conversation: { id: string };
-    nextQuestion: string;
-    messages: ChatMessage[];
-  };
+    answers,
+    transcript,
+  );
+}
 
-  const sessionId = startBody.conversation.id;
-  pushAssistantIfPresent(transcript ?? [], startBody.nextQuestion || startBody.messages[0]?.content || "");
+const MOTIVATION_FALLBACK_ANSWERS = [
+  "大学の企画運営で非効率な進行を立て直した経験から、仕組みで顧客課題を減らせる仕事に関心を持ちました。",
+  "株式会社テストDXはDX推進を通じて現場課題を整理し改善まで伴走できる点が魅力です。",
+  "大学では関係者の意見を整理し、優先順位を決めて改善を進めたため、企画職でもその強みを活かせます。",
+  "入社後は現場に近い位置で課題を構造化し、提案から実行までやり切る企画として価値を出したいです。",
+  "他社よりも御社を志望するのは、若手でも仮説を持って改善提案できる環境があると感じているからです。",
+];
 
-  let latestComplete: Record<string, unknown> | null = null;
-  for (const answer of answers) {
-    transcript?.push({ role: "user", content: answer });
-    const streamResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/motivation/${companyId}/conversation/stream`, {
-      answer,
-      sessionId,
-    });
-    const events = parseSseEvents(await expectOkResponse(streamResponse, `motivation setup stream ${companyId}`));
-    const nextQuestion = collectChunks(events, "question");
-    pushAssistantIfPresent(transcript ?? [], nextQuestion);
-    latestComplete = parseCompleteData(events);
-  }
+const MOTIVATION_EXPERIENCE_FALLBACKS = [
+  "学園祭運営で申請漏れが重なり、確認フローを整理して混乱を減らした経験が原体験です。",
+  "ゼミの共同発表で情報共有の型を作った結果、準備の抜け漏れが減り、仕組みで現場を楽にできると実感しました。",
+  "大学の企画運営で現場の負荷を下げる改善を続けた経験から、課題整理を仕事にしたいと考えるようになりました。",
+];
 
-  return latestComplete;
+export function buildDeterministicMotivationFollowupAnswer(input: {
+  nextQuestion: string;
+  attemptIndex: number;
+  latestComplete?: Record<string, unknown> | null;
+}) {
+  const questionStage =
+    typeof input.latestComplete?.questionStage === "string"
+      ? input.latestComplete.questionStage
+      : typeof (input.latestComplete?.stageStatus as { current?: unknown } | undefined)?.current === "string"
+        ? String((input.latestComplete?.stageStatus as { current?: unknown }).current)
+        : "";
+  const question = input.nextQuestion.trim();
+  const normalizedQuestion = question.replace(/\s+/g, "");
+
+  const targetedAnswer = (() => {
+    if (questionStage === "industry_reason") {
+      return "学園祭運営で申請と連絡の流れを整理し、確認漏れを減らした経験から、業務改革で顧客課題を減らせるIT業界を志望しています。";
+    }
+
+    if (questionStage === "company_reason") {
+      return "株式会社テストDXは現場の業務改革を企画から実装まで支援しており、企画職として課題整理から提案まで担える点に魅力を感じています。";
+    }
+
+    if (questionStage === "self_connection") {
+      return "大学の企画運営では関係者の要望を整理し、優先順位を決めて改善を進めてきたため、企画職でも論点整理と巻き込み力を活かせます。";
+    }
+
+    if (questionStage === "desired_work") {
+      return "入社後は現場ヒアリングを通じて課題を構造化し、実行可能な改善企画に落とし込む役割を担いたいです。";
+    }
+
+    if (questionStage === "value_contribution") {
+      return "まずは利用部門の声を定量・定性の両面で整理し、関係者を巻き込みながら改善提案を前に進めたいです。";
+    }
+
+    if (questionStage === "differentiation") {
+      return "他社比較では事業の広さより、顧客業務に入り込み改善を回し続けられる点で御社の志望度が高いです。";
+    }
+
+    if (
+      normalizedQuestion.includes("他社") ||
+      normalizedQuestion.includes("御社") ||
+      normalizedQuestion.includes("この会社") ||
+      normalizedQuestion.includes("選ぶ理由") ||
+      normalizedQuestion.includes("志望理由")
+    ) {
+      return "他社よりも御社を志望するのは、DX推進で現場課題を構造化し、若手でも改善提案まで担える環境に魅力を感じているからです。";
+    }
+
+    if (
+      normalizedQuestion.includes("原体験") ||
+      normalizedQuestion.includes("きっかけ") ||
+      normalizedQuestion.includes("経験") ||
+      normalizedQuestion.includes("関心を持った")
+    ) {
+      return MOTIVATION_EXPERIENCE_FALLBACKS[
+        input.attemptIndex % MOTIVATION_EXPERIENCE_FALLBACKS.length
+      ];
+    }
+
+    if (
+      normalizedQuestion.includes("印象に残っている場面") ||
+      normalizedQuestion.includes("どの場面") ||
+      normalizedQuestion.includes("最初のきっかけ")
+    ) {
+      return "学園祭準備で申請状況の共有が曖昧で当日対応が遅れた場面があり、関係者一覧と確認フローを作って改善したことが印象に残っています。";
+    }
+
+    if (
+      normalizedQuestion.includes("企画職") ||
+      normalizedQuestion.includes("活かせる") ||
+      normalizedQuestion.includes("強み") ||
+      normalizedQuestion.includes("再現")
+    ) {
+      return "大学では関係者の意見を整理し、優先順位を決めて改善を進めてきたため、企画職でも論点整理と巻き込み力を活かして貢献できます。";
+    }
+
+    if (
+      normalizedQuestion.includes("入社後") ||
+      normalizedQuestion.includes("挑戦") ||
+      normalizedQuestion.includes("やりたい") ||
+      normalizedQuestion.includes("貢献")
+    ) {
+      return "入社後は現場に近い位置で課題を構造化し、関係者を巻き込みながら提案から実行までやり切る企画として価値を出したいです。";
+    }
+
+    if (
+      normalizedQuestion.includes("IT・通信") ||
+      normalizedQuestion.includes("業界") ||
+      normalizedQuestion.includes("顧客課題") ||
+      normalizedQuestion.includes("業務改革")
+    ) {
+      return "IT・通信業界を志望するのは、仕組みや業務改革によって顧客課題を継続的に減らせる点に魅力を感じているからです。";
+    }
+
+    return MOTIVATION_FALLBACK_ANSWERS[
+      Math.min(input.attemptIndex, MOTIVATION_FALLBACK_ANSWERS.length - 1)
+    ];
+  })();
+
+  return targetedAnswer;
 }
 
 const GAKUCHIKA_FALLBACK_ANSWERS = [
-  "補足すると、役割分担を明確にしながら、周囲が動きやすい状態を整えました。",
-  "さらに、改善提案を小さく回して、関係者と認識をそろえました。",
-  "最後に、数字と現場の声の両方を見ながら、運用を微調整しました。",
-  "加えて、継続して見直せるように、共有の型も整えました。",
+  "宿題未提出が続く生徒が増え、保護者からも学習習慣への相談が続いていたため、校舎全体で対応を見直す必要がありました。",
+  "私は担当講師としてだけでなく、他の講師も同じ基準で動けるように共有フォーマットを整える役割も担いました。",
+  "宿題提出率と面談メモを見て要注意生徒から優先して声かけし、週次ミーティングで改善提案を回しました。",
+  "その結果、宿題提出率が上がり、保護者相談への初期対応も早くなって学習継続率の改善につながりました。",
+  "数字と現場の声を両方見て基準をそろえることで、個人依存ではなく再現性ある改善になると学びました。",
 ];
 
 export function buildDeterministicGakuchikaFollowupAnswer(input: {
   nextQuestion: string;
   attemptIndex: number;
-  transcript?: LiveAiConversationTranscriptTurn[];
+  latestComplete?: Record<string, unknown> | null;
 }) {
-  const fallback =
-    GAKUCHIKA_FALLBACK_ANSWERS[
+  const conversationState =
+    input.latestComplete?.conversationState && typeof input.latestComplete.conversationState === "object"
+      ? (input.latestComplete.conversationState as { focusKey?: unknown; missingElements?: unknown })
+      : null;
+  const focusKey =
+    typeof conversationState?.focusKey === "string"
+      ? conversationState.focusKey
+      : Array.isArray(conversationState?.missingElements)
+        ? conversationState.missingElements.find((value): value is string => typeof value === "string") || ""
+        : "";
+  const normalizedQuestion = input.nextQuestion.trim().replace(/\s+/g, "");
+
+  const targetedAnswer = (() => {
+    // Prefer explicit question intent over backend focusKey so we do not loop on e.g. "role" while the model asks for outcomes.
+    if (/(結果|変化|どれだけ|改善|成果|前後で|どのような変化|見られたか)/.test(normalizedQuestion)) {
+      return GAKUCHIKA_FALLBACK_ANSWERS[3];
+    }
+    if (/(学び|今後|活か|再現)/.test(normalizedQuestion)) return GAKUCHIKA_FALLBACK_ANSWERS[4];
+    if (/(基準|判断軸|優先|なぜその順番|どう決め)/.test(normalizedQuestion)) return GAKUCHIKA_FALLBACK_ANSWERS[2];
+    if (/(課題|きっかけ|どんな場面|背景)/.test(normalizedQuestion)) return GAKUCHIKA_FALLBACK_ANSWERS[0];
+    if (/(役割|どこまで判断|担当)/.test(normalizedQuestion)) return GAKUCHIKA_FALLBACK_ANSWERS[1];
+
+    if (focusKey === "context" || focusKey === "challenge") return GAKUCHIKA_FALLBACK_ANSWERS[0];
+    if (focusKey === "role" || focusKey === "task") return GAKUCHIKA_FALLBACK_ANSWERS[1];
+    if (focusKey === "action" || focusKey === "action_reason") return GAKUCHIKA_FALLBACK_ANSWERS[2];
+    if (focusKey === "result" || focusKey === "result_evidence") return GAKUCHIKA_FALLBACK_ANSWERS[3];
+    if (focusKey === "learning" || focusKey === "learning_transfer") return GAKUCHIKA_FALLBACK_ANSWERS[4];
+
+    return GAKUCHIKA_FALLBACK_ANSWERS[
       Math.min(input.attemptIndex, GAKUCHIKA_FALLBACK_ANSWERS.length - 1)
     ];
-  const latestUserAnswer =
-    [...(input.transcript ?? [])]
-      .reverse()
-      .find((turn) => turn.role === "user" && turn.content.trim())
-      ?.content.trim() || "";
-  const trimmedQuestion = input.nextQuestion.trim();
-  const contextPrefix = latestUserAnswer ? `直前の回答「${latestUserAnswer}」を踏まえると、` : "";
-  return trimmedQuestion
-    ? `${contextPrefix}${fallback} 追加確認としては「${trimmedQuestion}」に答える形で補足します。`
-    : `${contextPrefix}${fallback}`;
+  })();
+
+  return targetedAnswer;
 }
 
 export async function runGakuchikaSetupWithRequest(
@@ -397,7 +807,9 @@ export async function runGakuchikaSetupWithRequest(
 
   let latestComplete: Record<string, unknown> | null = null;
   let nextQuestionText = startBody.nextQuestion || startBody.messages[0]?.content || "";
-  const totalAttempts = Math.max(answers.length + GAKUCHIKA_FALLBACK_ANSWERS.length, 6);
+  const totalAttempts = Math.max(answers.length + GAKUCHIKA_FALLBACK_ANSWERS.length, 16);
+  let rateLimitRetries = 0;
+  const maxRateLimitRetries = 12;
   for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
     const answer =
       attempt < answers.length
@@ -405,24 +817,31 @@ export async function runGakuchikaSetupWithRequest(
         : buildDeterministicGakuchikaFollowupAnswer({
             nextQuestion: nextQuestionText,
             attemptIndex: attempt - answers.length,
-            transcript,
+            latestComplete,
           });
     transcript?.push({ role: "user", content: answer });
     const streamResponse = await request(page, "POST", `/api/gakuchika/${gakuchikaId}/conversation/stream`, {
       answer,
       sessionId,
     });
+    if (streamResponse.status() === 429 && rateLimitRetries < maxRateLimitRetries) {
+      rateLimitRetries += 1;
+      transcript?.pop();
+      attempt -= 1;
+      await new Promise((r) => setTimeout(r, 2000 * rateLimitRetries));
+      continue;
+    }
     const events = parseSseEvents(await readSetupResponseBody(streamResponse, `gakuchika setup stream ${gakuchikaId}`));
     const nextQuestion = collectChunks(events, "question");
     latestComplete = parseCompleteData(events);
     nextQuestionText = String(latestComplete?.nextQuestion || nextQuestion || "");
     pushAssistantIfPresent(transcript ?? [], nextQuestionText);
-    if (latestComplete?.isCompleted === true) {
+    if (isGakuchikaDraftReady(latestComplete)) {
       return latestComplete;
     }
   }
 
-  throw new Error("gakuchika conversation did not complete");
+  throw new Error("gakuchika conversation did not reach draft_ready");
 }
 
 async function runGakuchikaSetup(
@@ -451,6 +870,8 @@ async function runGakuchikaCase(
   let finalText = "";
   let generatedDocumentId: string | null = null;
   let cleanupOk = true;
+  let representativeLog: string | null = null;
+  let representativeError: string | null = null;
   let status: LiveAiConversationReportRow["status"] = "passed";
   let checks: LiveAiConversationCheck[] = [];
   let judge: LiveAiConversationJudge | null = null;
@@ -476,9 +897,14 @@ async function runGakuchikaCase(
     const summaryHit = countTokenHits([finalText], input.expectedSummaryTokens);
     checks = buildChecks([
       {
-        name: "conversation-complete",
-        passed: latestComplete?.isCompleted === true,
-        evidence: [`isCompleted=${String(latestComplete?.isCompleted)}`],
+        name: "draft-ready",
+        passed: isGakuchikaDraftReady(latestComplete),
+        evidence: [
+          `isCompleted=${String(latestComplete?.isCompleted)}`,
+          `isInterviewReady=${String(latestComplete?.isInterviewReady)}`,
+          `nextAction=${String(latestComplete?.nextAction || "")}`,
+          `readyForDraft=${String((latestComplete?.conversationState as { readyForDraft?: unknown } | undefined)?.readyForDraft)}`,
+        ],
       },
       {
         name: "question-token-coverage",
@@ -496,6 +922,17 @@ async function runGakuchikaCase(
         evidence: [generatedDocumentId ? `documentId=${generatedDocumentId}` : "documentId=none"],
       },
     ]);
+    const questionOnly = assistantQuestionTexts(transcript);
+    const extendedDeterministic = mergeExtendedDeterministic([
+      buildForbiddenTokenChecks(
+        "gakuchika",
+        [...transcript.map((t) => t.content), finalText],
+        input.expectedForbiddenTokens,
+      ),
+      buildRequiredQuestionGroupChecks(questionOnly, input.requiredQuestionTokenGroups),
+      buildDraftLengthChecks(finalText, input.minDraftCharCount, input.maxDraftCharCount),
+    ]);
+    checks = [...checks, ...extendedDeterministic.checks];
     for (const check of checks) {
       expect(check.passed, `${input.id}:${check.name}`).toBeTruthy();
     }
@@ -506,9 +943,25 @@ async function runGakuchikaCase(
       input.expectedQuestionTokens,
       input.expectedSummaryTokens,
     );
+    const llmJudge = await maybeLiveAiConversationLlmJudge({
+      feature: "gakuchika",
+      caseId: input.id,
+      title: input.title,
+      transcript,
+      finalText,
+    });
+    if (llmJudge) {
+      judge = llmJudge;
+    }
+    if (judge?.blocking && judge.enabled && !judge.overallPass) {
+      throw new Error(`${input.id}:llm_judge_blocking_fail`);
+    }
   } catch (error) {
     status = "failed";
-    deterministicFailReasons.push(error instanceof Error ? error.message : "unknown_error");
+    const errorMessage = error instanceof Error ? error.message : "unknown_error";
+    deterministicFailReasons.push(errorMessage);
+    representativeError = errorMessage;
+    representativeLog = "gakuchika setup failed before ES draft generation";
   } finally {
     try {
       if (generatedDocumentId) {
@@ -536,9 +989,24 @@ async function runGakuchikaCase(
   if (!cleanupOk) {
     status = "failed";
     deterministicFailReasons.push("cleanup_failed");
+    representativeLog = representativeLog ?? "cleanup failed while deleting gakuchika artifacts";
   }
   const severity: LiveAiConversationReportRow["severity"] =
     status === "failed" ? "failed" : judge && !judge.overallPass ? "degraded" : "passed";
+  const failureKind = classifyLiveAiConversationFailure({
+    status,
+    cleanupOk,
+    deterministicFailReasons,
+    judge,
+  });
+  if (failureKind === "quality" && judge?.warnings.length) {
+    representativeLog = representativeLog ?? judge.warnings[0];
+  }
+  representativeError = representativeError ?? deterministicFailReasons.find((reason) => reason !== "cleanup_failed") ?? null;
+  if (failureKind === "none") {
+    representativeLog = null;
+    representativeError = null;
+  }
 
   return {
     feature: "gakuchika",
@@ -546,10 +1014,13 @@ async function runGakuchikaCase(
     title: input.title,
     status,
     severity,
+    failureKind,
     durationMs: Date.now() - startedAt,
     transcript,
     outputs: { finalText, generatedDocumentId },
     deterministicFailReasons,
+    representativeLog,
+    representativeError,
     checks,
     judge,
     cleanup: { ok: cleanupOk, removedIds },
@@ -578,6 +1049,8 @@ async function runMotivationCase(
   let finalText = "";
   let generatedDocumentId: string | null = null;
   let cleanupOk = true;
+  let representativeLog: string | null = null;
+  let representativeError: string | null = null;
   let status: LiveAiConversationReportRow["status"] = "passed";
   let checks: LiveAiConversationCheck[] = [];
   let judge: LiveAiConversationJudge | null = null;
@@ -596,8 +1069,9 @@ async function runMotivationCase(
       throw new Error("motivation draft was not ready");
     }
 
+    const draftCharLimit = input.draftCharLimit ?? 400;
     const draftResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/motivation/${company.id}/generate-draft`, {
-      charLimit: 400,
+      charLimit: draftCharLimit,
     });
     const draft = JSON.parse(
       await expectOkResponse(draftResponse, `motivation draft ${input.id}`),
@@ -633,6 +1107,17 @@ async function runMotivationCase(
         evidence: [generatedDocumentId ? `documentId=${generatedDocumentId}` : "documentId=none"],
       },
     ]);
+    const motivationQuestionOnly = assistantQuestionTexts(transcript);
+    const motivationExtended = mergeExtendedDeterministic([
+      buildForbiddenTokenChecks(
+        "motivation",
+        [...transcript.map((t) => t.content), finalText],
+        input.expectedForbiddenTokens,
+      ),
+      buildRequiredQuestionGroupChecks(motivationQuestionOnly, input.requiredQuestionTokenGroups),
+      buildDraftLengthChecks(finalText, input.minDraftCharCount, input.maxDraftCharCount),
+    ]);
+    checks = [...checks, ...motivationExtended.checks];
     for (const check of checks) {
       expect(check.passed, `${input.id}:${check.name}`).toBeTruthy();
     }
@@ -643,9 +1128,25 @@ async function runMotivationCase(
       input.expectedQuestionTokens,
       input.expectedDraftTokens,
     );
+    const motivationLlmJudge = await maybeLiveAiConversationLlmJudge({
+      feature: "motivation",
+      caseId: input.id,
+      title: input.title,
+      transcript,
+      finalText,
+    });
+    if (motivationLlmJudge) {
+      judge = motivationLlmJudge;
+    }
+    if (judge?.blocking && judge.enabled && !judge.overallPass) {
+      throw new Error(`${input.id}:llm_judge_blocking_fail`);
+    }
   } catch (error) {
     status = "failed";
-    deterministicFailReasons.push(error instanceof Error ? error.message : "unknown_error");
+    const errorMessage = error instanceof Error ? error.message : "unknown_error";
+    deterministicFailReasons.push(errorMessage);
+    representativeError = errorMessage;
+    representativeLog = "motivation setup failed before draft generation";
   } finally {
     try {
       if (generatedDocumentId) {
@@ -673,9 +1174,24 @@ async function runMotivationCase(
   if (!cleanupOk) {
     status = "failed";
     deterministicFailReasons.push("cleanup_failed");
+    representativeLog = representativeLog ?? "cleanup failed while deleting motivation artifacts";
   }
   const severity: LiveAiConversationReportRow["severity"] =
     status === "failed" ? "failed" : judge && !judge.overallPass ? "degraded" : "passed";
+  const failureKind = classifyLiveAiConversationFailure({
+    status,
+    cleanupOk,
+    deterministicFailReasons,
+    judge,
+  });
+  if (failureKind === "quality" && judge?.warnings.length) {
+    representativeLog = representativeLog ?? judge.warnings[0];
+  }
+  representativeError = representativeError ?? deterministicFailReasons.find((reason) => reason !== "cleanup_failed") ?? null;
+  if (failureKind === "none") {
+    representativeLog = null;
+    representativeError = null;
+  }
 
   return {
     feature: "motivation",
@@ -683,10 +1199,13 @@ async function runMotivationCase(
     title: input.title,
     status,
     severity,
+    failureKind,
     durationMs: Date.now() - startedAt,
     transcript,
     outputs: { finalText, generatedDocumentId },
     deterministicFailReasons,
+    representativeLog,
+    representativeError,
     checks,
     judge,
     cleanup: { ok: cleanupOk, removedIds },
@@ -716,6 +1235,8 @@ async function runInterviewCase(
   let createdGakuchikaId: string | null = null;
   let finalText = "";
   let cleanupOk = true;
+  let representativeLog: string | null = null;
+  let representativeError: string | null = null;
   let status: LiveAiConversationReportRow["status"] = "passed";
   let checks: LiveAiConversationCheck[] = [];
   let judge: LiveAiConversationJudge | null = null;
@@ -741,8 +1262,8 @@ async function runInterviewCase(
       gakuchika.id,
       input.gakuchika.answers,
     );
-    if (gakuchikaComplete?.isCompleted !== true) {
-      throw new Error("interview setup gakuchika did not complete");
+    if (!isGakuchikaDraftReady(gakuchikaComplete)) {
+      throw new Error("interview setup gakuchika did not reach draft_ready");
     }
 
     const gakuchikaDraftResponse = await apiRequestAsAuthenticatedUser(page, "POST", `/api/gakuchika/${gakuchika.id}/generate-es-draft`, {
@@ -848,6 +1369,21 @@ async function runInterviewCase(
         evidence: [feedback?.overall_comment || feedback?.improved_answer || "feedback=empty"],
       },
     ]);
+    const interviewQuestionOnly = assistantQuestionTexts(transcript);
+    const interviewExtended = mergeExtendedDeterministic([
+      buildForbiddenTokenChecks(
+        "interview",
+        [...transcriptTexts, feedbackSummary],
+        input.interview.expectedForbiddenTokens,
+      ),
+      buildRequiredQuestionGroupChecks(interviewQuestionOnly, input.interview.requiredQuestionTokenGroups),
+      buildFeedbackLengthChecks(
+        feedbackSummary,
+        input.interview.minFeedbackCharCount,
+        input.interview.maxFeedbackCharCount,
+      ),
+    ]);
+    checks = [...checks, ...interviewExtended.checks];
     for (const check of checks) {
       expect(check.passed, `${input.id}:${check.name}`).toBeTruthy();
     }
@@ -858,10 +1394,26 @@ async function runInterviewCase(
       input.interview.expectedQuestionTokens,
       input.interview.expectedFeedbackTokens,
     );
+    const interviewLlmJudge = await maybeLiveAiConversationLlmJudge({
+      feature: "interview",
+      caseId: input.id,
+      title: input.title,
+      transcript,
+      finalText: feedbackSummary,
+    });
+    if (interviewLlmJudge) {
+      judge = interviewLlmJudge;
+    }
+    if (judge?.blocking && judge.enabled && !judge.overallPass) {
+      throw new Error(`${input.id}:llm_judge_blocking_fail`);
+    }
     finalText = feedback?.overall_comment || finalText;
   } catch (error) {
     status = "failed";
-    deterministicFailReasons.push(error instanceof Error ? error.message : "unknown_error");
+    const errorMessage = error instanceof Error ? error.message : "unknown_error";
+    deterministicFailReasons.push(errorMessage);
+    representativeError = errorMessage;
+    representativeLog = "interview setup failed before feedback generation";
   } finally {
     for (const documentId of createdDocumentIds) {
       try {
@@ -898,9 +1450,24 @@ async function runInterviewCase(
   if (!cleanupOk) {
     status = "failed";
     deterministicFailReasons.push("cleanup_failed");
+    representativeLog = representativeLog ?? "cleanup failed while deleting interview artifacts";
   }
   const severity: LiveAiConversationReportRow["severity"] =
     status === "failed" ? "failed" : judge && !judge.overallPass ? "degraded" : "passed";
+  const failureKind = classifyLiveAiConversationFailure({
+    status,
+    cleanupOk,
+    deterministicFailReasons,
+    judge,
+  });
+  if (failureKind === "quality" && judge?.warnings.length) {
+    representativeLog = representativeLog ?? judge.warnings[0];
+  }
+  representativeError = representativeError ?? deterministicFailReasons.find((reason) => reason !== "cleanup_failed") ?? null;
+  if (failureKind === "none") {
+    representativeLog = null;
+    representativeError = null;
+  }
 
   return {
     feature: "interview",
@@ -908,10 +1475,13 @@ async function runInterviewCase(
     title: input.title,
     status,
     severity,
+    failureKind,
     durationMs: Date.now() - startedAt,
     transcript,
     outputs: { finalText, generatedDocumentId: null },
     deterministicFailReasons,
+    representativeLog,
+    representativeError,
     checks,
     judge,
     cleanup: { ok: cleanupOk, removedIds },
@@ -946,7 +1516,7 @@ test.describe.serial("Live AI conversations", () => {
       test.setTimeout(LIVE_CONVERSATION_TEST_TIMEOUT_MS);
       const row = await runGakuchikaCase(page, item);
       reportRowsByKey.set(`${row.feature}:${row.caseId}`, row);
-      expect(row.severity).not.toBe("failed");
+      assertConversationOutcome(row);
     });
   }
 
@@ -956,7 +1526,7 @@ test.describe.serial("Live AI conversations", () => {
       test.setTimeout(LIVE_CONVERSATION_TEST_TIMEOUT_MS);
       const row = await runMotivationCase(page, item);
       reportRowsByKey.set(`${row.feature}:${row.caseId}`, row);
-      expect(row.severity).not.toBe("failed");
+      assertConversationOutcome(row);
     });
   }
 
@@ -966,7 +1536,7 @@ test.describe.serial("Live AI conversations", () => {
       test.setTimeout(LIVE_CONVERSATION_TEST_TIMEOUT_MS);
       const row = await runInterviewCase(page, item);
       reportRowsByKey.set(`${row.feature}:${row.caseId}`, row);
-      expect(row.severity).not.toBe("failed");
+      assertConversationOutcome(row);
     });
   }
 

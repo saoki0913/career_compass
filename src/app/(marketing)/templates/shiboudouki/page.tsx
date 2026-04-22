@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Sparkles } from "lucide-react";
-import {
-  PublicSurfaceButton,
-  PublicSurfaceFrame,
-  PublicSurfaceHeader,
-  PublicSurfaceHero,
-  PublicSurfacePanel,
-} from "@/components/public-surface";
+import { ArrowRight, Sparkles } from "lucide-react";
+import { LandingHeader } from "@/components/landing/LandingHeader";
+import { LandingFooter } from "@/components/landing/LandingFooter";
+import { StickyCTABar } from "@/components/landing/StickyCTABar";
+import { SeoLPHeroSection } from "@/components/landing/shared/SeoLPHeroSection";
+import { LandingContentSection } from "@/components/landing/shared/LandingContentSection";
+import { MidCTASection } from "@/components/landing/MidCTASection";
+import { FAQSection } from "@/components/landing/FAQSection";
+import { FinalCTASection } from "@/components/landing/FinalCTASection";
+import { FaqJsonLd } from "@/components/seo/FaqJsonLd";
+import { BreadcrumbJsonLd } from "@/components/seo/BreadcrumbJsonLd";
+import { SHIBOUDOUKI_TEMPLATE_PAGE_FAQS } from "@/lib/marketing/shiboudouki-template-faqs";
 import { createMarketingMetadata } from "@/lib/marketing-metadata";
-import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = createMarketingMetadata({
   title: "志望動機テンプレ | 就活Pass",
@@ -19,83 +22,77 @@ export const metadata: Metadata = createMarketingMetadata({
   keywords: ["志望動機 テンプレ", "志望動機 書き方", "ES 志望動機 例文"],
 });
 
-const mainClass = "mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8";
-
 export default function ShiboudoukiTemplatePage() {
   return (
-    <PublicSurfaceFrame>
-      <PublicSurfaceHeader
-        navLinks={[
-          { href: "/templates", label: "テンプレ一覧" },
-          { href: "/tools/es-counter", label: "文字数カウント" },
-          { href: "/pricing", label: "料金" },
-        ]}
-        primaryAction={{ href: "/login", label: "アプリで続ける" }}
-        secondaryAction={{ href: "/templates", label: "テンプレ一覧" }}
-      />
+    <div
+      className="font-['Inter','Noto_Sans_JP',sans-serif] bg-white text-slate-900 overflow-x-hidden"
+      style={{ WebkitFontSmoothing: "antialiased" }}
+    >
+      <LandingHeader />
 
       <main>
-        <PublicSurfaceHero
-          title="志望動機テンプレ"
-          description="結論→根拠→企業接続→再現性→入社後の流れで書くための例です。"
-          actions={[
-            { href: "/login", label: "アプリで続ける" },
-            { href: "/tools/es-counter", label: "文字数カウントへ", variant: "secondary" },
+        <BreadcrumbJsonLd
+          crumbs={[
+            { name: "ホーム", path: "/" },
+            { name: "テンプレ集", path: "/templates" },
+            { name: "志望動機テンプレ", path: "/templates/shiboudouki" },
           ]}
-          points={["結論から", "5つのブロック", "無料"]}
-          visual={
-            <div className="p-5 sm:p-6">
-              <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
-                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="text-xs font-medium tracking-[0.18em] text-slate-500 uppercase">
-                    Preview
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">構成の例</p>
-                </div>
-                <div className="space-y-3 p-4">
-                  {[
-                    { label: "1", title: "結論", text: "志望理由を一文で言い切る。" },
-                    { label: "2", title: "根拠", text: "その志向になった経験を置く。" },
-                    { label: "3", title: "企業接続", text: "事業・強み・取り組みにつなぐ。" },
-                  ].map((item) => (
-                    <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-xs font-semibold tracking-[0.18em] text-primary">{item.label}</p>
-                      <p className="mt-2 text-sm font-semibold text-slate-900">{item.title}</p>
-                      <p className="mt-2 text-sm leading-7 text-slate-600">{item.text}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          }
+        />
+        <FaqJsonLd faqs={SHIBOUDOUKI_TEMPLATE_PAGE_FAQS} />
+
+        <SeoLPHeroSection
+          eyebrow="テンプレ集 · 志望動機"
+          title="志望動機テンプレート"
+          description="結論→根拠→企業接続→再現性の4段構成で書き始められます。"
         />
 
-        <section className={cn(mainClass, "space-y-10 pb-12 pt-2 sm:pb-16 lg:pb-20")}>
+        <LandingContentSection heading="書き出し例と構成" bg="muted">
           <div className="grid gap-6 lg:grid-cols-2">
-            <PublicSurfacePanel title="書き出し例" tone="accent">
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-slate-200 bg-white/90 p-4">
-                  <p className="text-sm font-medium text-slate-500">例</p>
-                  <p className="mt-3 text-sm leading-7 text-slate-700">
-                    私が貴社を志望する理由は、{`{結論}`}を実現したいからです。 その背景には、{`{根拠}`}と
-                    {`{企業接続}`}があります。
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {["結論", "根拠", "企業接続"].map((label) => (
-                    <span
-                      key={label}
-                      className="rounded-full border border-slate-200 bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
-                    >
-                      {label}
-                    </span>
-                  ))}
-                </div>
+            {/* 書き出し例 */}
+            <div className="rounded-xl border border-[var(--lp-border-default)] bg-white p-6 shadow-[var(--lp-shadow-card)]">
+              <h3
+                className="text-lg text-[var(--lp-navy)]"
+                style={{ fontWeight: 700 }}
+              >
+                書き出し例
+              </h3>
+              <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-4">
+                <p
+                  className="text-sm text-slate-500"
+                  style={{ fontWeight: 500 }}
+                >
+                  例
+                </p>
+                <p
+                  className="mt-2 text-sm text-slate-700"
+                  style={{ lineHeight: 1.7 }}
+                >
+                  私が貴社を志望する理由は、{"{結論}"}を実現したいからです。
+                  その背景には、{"{根拠}"}と{"{企業接続}"}があります。
+                </p>
               </div>
-            </PublicSurfacePanel>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {["結論", "根拠", "企業接続"].map((label) => (
+                  <span
+                    key={label}
+                    className="rounded-full border border-slate-200 bg-[var(--lp-tint-navy-soft)] px-3 py-1 text-xs text-[var(--lp-navy)]"
+                    style={{ fontWeight: 500 }}
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </div>
 
-            <PublicSurfacePanel title="構成（5段）">
-              <div className="space-y-3">
+            {/* 構成5段 */}
+            <div className="rounded-xl border border-[var(--lp-border-default)] bg-white p-6 shadow-[var(--lp-shadow-card)]">
+              <h3
+                className="text-lg text-[var(--lp-navy)]"
+                style={{ fontWeight: 700 }}
+              >
+                構成（5段）
+              </h3>
+              <div className="mt-4 space-y-3">
                 {[
                   { label: "1. 結論", text: "志望理由を一文で言い切る。" },
                   { label: "2. 原体験", text: "その志向になった経験を置く。" },
@@ -103,26 +100,65 @@ export default function ShiboudoukiTemplatePage() {
                   { label: "4. 再現性", text: "入社後に活かせる強みを示す。" },
                   { label: "5. 入社後", text: "何をどう学びたいかまで書く。" },
                 ].map((item) => (
-                  <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-sm font-semibold text-slate-950">{item.label}</p>
-                    <p className="mt-2 text-sm leading-7 text-slate-600">{item.text}</p>
+                  <div
+                    key={item.label}
+                    className="rounded-lg border border-slate-100 bg-slate-50 p-3"
+                  >
+                    <p
+                      className="text-sm text-slate-800"
+                      style={{ fontWeight: 600 }}
+                    >
+                      {item.label}
+                    </p>
+                    <p
+                      className="mt-1 text-sm text-slate-500"
+                      style={{ lineHeight: 1.7 }}
+                    >
+                      {item.text}
+                    </p>
                   </div>
                 ))}
               </div>
-            </PublicSurfacePanel>
+            </div>
           </div>
+        </LandingContentSection>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <PublicSurfacePanel title="NGになりやすい形" tone="soft">
-              <ul className="space-y-3 text-sm leading-7 text-slate-600">
-                <li>企業接続が「理念に共感」で止まる</li>
-                <li>原体験が長く、結論が見えない</li>
-                <li>入社後が「成長したい」で止まる</li>
+        <LandingContentSection heading="気をつけるポイント">
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* NGパターン */}
+            <div className="rounded-xl border border-[var(--lp-border-default)] bg-white p-6 shadow-[var(--lp-shadow-card)]">
+              <h3
+                className="text-lg text-[var(--lp-navy)]"
+                style={{ fontWeight: 700 }}
+              >
+                NGになりやすい形
+              </h3>
+              <ul className="mt-4 space-y-3">
+                {[
+                  "企業接続が「理念に共感」で止まる",
+                  "原体験が長く、結論が見えない",
+                  "入社後が「成長したい」で止まる",
+                ].map((item) => (
+                  <li
+                    key={item}
+                    className="text-sm text-slate-600"
+                    style={{ lineHeight: 1.7 }}
+                  >
+                    {item}
+                  </li>
+                ))}
               </ul>
-            </PublicSurfacePanel>
+            </div>
 
-            <PublicSurfacePanel title="整えるコツ" tone="accent">
-              <div className="space-y-3">
+            {/* 整えるコツ */}
+            <div className="rounded-xl border border-[var(--lp-border-default)] bg-white p-6 shadow-[var(--lp-shadow-card)]">
+              <h3
+                className="text-lg text-[var(--lp-navy)]"
+                style={{ fontWeight: 700 }}
+              >
+                整えるコツ
+              </h3>
+              <div className="mt-4 space-y-3">
                 {[
                   "数字を 1 つ入れる",
                   "行動には意思決定と検証を含める",
@@ -130,53 +166,97 @@ export default function ShiboudoukiTemplatePage() {
                 ].map((item) => (
                   <div
                     key={item}
-                    className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4"
+                    className="flex items-start gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3"
                   >
-                    <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-                    <p className="text-sm leading-7 text-slate-700">{item}</p>
+                    <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[var(--lp-navy)]" aria-hidden />
+                    <p
+                      className="text-sm text-slate-700"
+                      style={{ lineHeight: 1.7 }}
+                    >
+                      {item}
+                    </p>
                   </div>
                 ))}
               </div>
-            </PublicSurfacePanel>
+            </div>
           </div>
+        </LandingContentSection>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <PublicSurfacePanel title="文字数を合わせる" tone="soft">
-              <div className="flex flex-wrap gap-3">
-                <PublicSurfaceButton href="/tools/es-counter">ES文字数カウントへ</PublicSurfaceButton>
-                <Link
-                  href="/templates/gakuchika-star"
-                  className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950"
+        <LandingContentSection heading="次のステップ" bg="muted">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Link
+              href="/shiboudouki-ai"
+              className="group flex items-center justify-between rounded-xl border border-[var(--lp-border-default)] bg-white p-5 shadow-[var(--lp-shadow-card)] transition-all hover:shadow-md"
+            >
+              <div>
+                <h3
+                  className="text-[var(--lp-navy)]"
+                  style={{ fontWeight: 700 }}
                 >
-                  ガクチカテンプレを見る
-                  <ArrowRight className="size-4 shrink-0" aria-hidden />
-                </Link>
+                  志望動機AIの使い方
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  対話で材料を整理し下書きを生成
+                </p>
               </div>
-            </PublicSurfacePanel>
+              <ArrowRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-[var(--lp-navy)]" />
+            </Link>
 
-            <PublicSurfacePanel title="アプリで続ける" tone="accent">
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-                  <p className="text-sm leading-7 text-slate-600">
-                    ESの保存・AI添削・締切管理はログイン後に利用できます。
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <PublicSurfaceButton href="/login">アプリで続ける</PublicSurfaceButton>
-                  <Link
-                    href="/pricing"
-                    className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950"
-                  >
-                    料金を見る
-                    <ArrowRight className="size-4 shrink-0" aria-hidden />
-                  </Link>
-                </div>
+            <Link
+              href="/tools/es-counter"
+              className="group flex items-center justify-between rounded-xl border border-[var(--lp-border-default)] bg-white p-5 shadow-[var(--lp-shadow-card)] transition-all hover:shadow-md"
+            >
+              <div>
+                <h3
+                  className="text-[var(--lp-navy)]"
+                  style={{ fontWeight: 700 }}
+                >
+                  ES文字数カウント
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  300 / 400 / 500字を確認
+                </p>
               </div>
-            </PublicSurfacePanel>
+              <ArrowRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-[var(--lp-navy)]" />
+            </Link>
+
+            <Link
+              href="/login"
+              className="group flex items-center justify-between rounded-xl border border-[var(--lp-border-default)] bg-white p-5 shadow-[var(--lp-shadow-card)] transition-all hover:shadow-md"
+            >
+              <div>
+                <h3
+                  className="text-[var(--lp-navy)]"
+                  style={{ fontWeight: 700 }}
+                >
+                  アプリで続ける
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  保存・添削・締切管理はログイン後
+                </p>
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-[var(--lp-navy)]" />
+            </Link>
           </div>
-        </section>
+        </LandingContentSection>
+
+        <MidCTASection title="志望動機AIを、無料で試す" />
+
+        <FAQSection faqs={SHIBOUDOUKI_TEMPLATE_PAGE_FAQS} />
+
+        <FinalCTASection
+          title={
+            <>
+              志望動機を、
+              <br />
+              AIと一緒に仕上げる。
+            </>
+          }
+        />
       </main>
-    </PublicSurfaceFrame>
+
+      <LandingFooter />
+      <StickyCTABar />
+    </div>
   );
 }

@@ -1,0 +1,1 @@
+The architecture concentrates many product domains inside App Router route handlers, so consistency in identity handling, structured API errors, and background follow-up work is critical. AI flows also depend on multiple external providers, which increases latency and failure modes.

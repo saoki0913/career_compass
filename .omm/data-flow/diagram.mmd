@@ -1,0 +1,15 @@
+graph LR
+    user-input["User Input\nforms, conversations, uploads, settings"]
+    transactional-records["Transactional Records\ncompanies, documents, deadlines, tasks"]
+    ai-enrichment["AI Enrichment\nFastAPI retrieval and generation"]
+    rag-corpus["RAG Corpus\ncompany context, chunks, ingest jobs"]
+    provider-sync["Provider Sync\nGoogle Calendar, Stripe, scraping/search"]
+    user-feedback["User Feedback\nUI state, notifications, summaries"]
+
+    user-input -->|"creates or updates canonical product data"| transactional-records
+    transactional-records -->|"supply context and prompts for AI tasks"| ai-enrichment
+    ai-enrichment -->|"stores retrieved context and ingest metadata"| rag-corpus
+    rag-corpus -->|"feeds better retrieval into later requests"| ai-enrichment
+    transactional-records -->|"drive external synchronization and billing"| provider-sync
+    ai-enrichment -->|"returns drafts, review output, and extracted suggestions"| user-feedback
+    provider-sync -->|"writes confirmations and sync status back to records"| transactional-records

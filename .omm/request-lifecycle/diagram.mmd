@@ -1,0 +1,17 @@
+graph LR
+    browser-clients["Browser Clients\nmarketing and product pages"]
+    next-route-handlers["Next Route Handlers\nsrc/app/api/"]
+    identity-resolution["Identity Resolution\nBetter Auth + guest cookie helpers"]
+    domain-services["Domain Services\nsrc/lib/ + db access"]
+    fastapi-internal["FastAPI Internal Service\nbackend/app/"]
+    persistence["Persistence\nSupabase Postgres + storage"]
+    background-sync["Background Sync\ncron routes + provider callbacks"]
+
+    browser-clients -->|"submit form and fetch requests"| next-route-handlers
+    next-route-handlers -->|"resolve authenticated or guest ownership"| identity-resolution
+    next-route-handlers -->|"load and mutate domain state"| domain-services
+    domain-services -->|"persist transactional records"| persistence
+    next-route-handlers -->|"forward AI-heavy workflows"| fastapi-internal
+    fastapi-internal -->|"read or write retrieval context and job metadata"| persistence
+    domain-services -->|"enqueue provider sync or follow-up work"| background-sync
+    background-sync -->|"writes provider results back into app state"| persistence

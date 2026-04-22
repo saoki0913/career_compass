@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { trackEvent } from "@/lib/analytics/client";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 import type { EsDocumentCategory } from "@/lib/es-document-category";
 
 export type { EsDocumentCategory };
@@ -142,6 +143,7 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         "useDocuments.fetch"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }
@@ -426,6 +428,7 @@ export function useDocument(documentId: string, options: UseDocumentOptions = {}
         "useDocument.fetch"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }
@@ -491,6 +494,7 @@ export function useDocument(documentId: string, options: UseDocumentOptions = {}
           "useDocument.update"
         );
         setError(uiError.message);
+        notifyUserFacingAppError(uiError);
         return false;
       } finally {
         setIsSaving(false);

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+/* ルートの DESIGN.md 等、src 外の Markdown を走査しない（誤ったユーティリティ生成を防ぐ） */
+@source "../**/*.{js,ts,jsx,tsx}";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -158,6 +160,30 @@
   --sidebar-accent-foreground: oklch(0.25 0.02 235);
   --sidebar-border: oklch(0.92 0.008 235);
   --sidebar-ring: oklch(0.50 0.18 235);
+
+  /* Landing page tokens — Figma-aligned navy-centric design */
+  --lp-navy: #0A0F5C;
+  --lp-cta: #0A0F5C;
+  --lp-cta-hover: rgba(10, 15, 92, 0.90);
+  --lp-surface-page: #f8fafc;
+  --lp-surface-section: #ffffff;
+  --lp-surface-muted: #f8fafc;
+  --lp-border-default: #e2e8f0;
+  --lp-border-hairline: rgba(0, 0, 0, 0.08);
+  --lp-border-tint: rgba(10, 15, 92, 0.12);
+  --lp-muted-text: #64748b;
+  --lp-body-muted: #64748b;
+  --lp-badge-bg: #eef2ff;
+  --lp-tint-navy-soft: #eff1fb;
+  --lp-tint-cta-soft: #eff1fb;
+  --lp-success: #22c55e;
+  --lp-on-dark-muted: rgba(191, 219, 254, 0.70);
+  --lp-on-dark-fine: rgba(147, 197, 253, 0.50);
+  --lp-hero-gradient-top: #f8fafc;
+  --lp-hero-gradient-mid: #ffffff;
+  --lp-shadow-card: 0 0 0 1px rgba(0, 0, 0, 0.03), 0 2px 4px rgba(50, 50, 93, 0.08),
+    0 8px 16px rgba(0, 0, 0, 0.06);
+  --lp-shadow-screenshot: 0 20px 80px rgba(10, 15, 92, 0.08);
 }
 
 .dark {
@@ -285,6 +311,15 @@
   /* Selection color */
   ::selection {
     @apply bg-primary/20 text-foreground;
+  }
+}
+
+/* Product: scroll inside h-screen shells — body padding does not inset inner overflow-y areas */
+@layer utilities {
+  @media (max-width: 1023px) {
+    .pb-mobile-tab {
+      padding-bottom: var(--mobile-bottom-nav-offset);
+    }
   }
 }
 

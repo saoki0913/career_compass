@@ -1,16 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { headers } from "next/headers";
 import { and, eq } from "drizzle-orm";
-import { auth } from "@/lib/auth";
-import { getGuestUser } from "@/lib/auth/guest";
 import { db } from "@/lib/db";
-import {
-  applications,
-  companies,
-  jobTypes,
-  motivationConversations,
-} from "@/lib/db/schema";
+import { motivationConversations } from "@/lib/db/schema";
 import {
   fetchGakuchikaContext,
   fetchProfileContext,
@@ -18,14 +10,23 @@ import {
   type ProfileContext,
 } from "@/lib/ai/user-context";
 import {
-  getMotivationConversationByCondition as getConversationByCondition,
   mergeDraftReadyContext,
   resolveDraftReadyState,
   safeParseConversationContext as parseConversationContext,
+  safeParseMessages,
+  serializeConversationContext,
+  serializeEvidenceCards,
+  serializeMessages,
+  serializeScores,
+  serializeStageStatus,
+  type CausalGap,
+  type MotivationProgress,
+  type StageStatus,
   type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
-import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   getRequestId,
   logAiCreditCostSummary,
@@ -33,6 +34,18 @@ import {
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
+import {
+  ensureMotivationConversation,
+  fetchMotivationApplicationJobCandidates,
+  getOwnedMotivationCompanyData,
+  isMotivationSetupComplete,
+  resolveMotivationInputs,
+  resolveMotivationRoleSelectionSource,
+  type MotivationCompanyData as CompanyData,
+  type MotivationEvidenceCard as EvidenceCard,
+} from "@/lib/motivation/motivation-input-resolver";
+import { buildMotivationConversationPayload } from "@/lib/motivation/conversation-payload";
 
 function resolveSafeMotivationStartError(raw: string | null | undefined): {
   userMessage: string;
@@ -56,29 +69,6 @@ function resolveSafeMotivationStartError(raw: string | null | undefined): {
   };
 }
 
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
-}
-
 interface Message {
   id: string;
   role: "user" | "assistant";
@@ -98,60 +88,18 @@ interface MotivationEvaluation {
   is_complete: boolean;
   ready_for_draft?: boolean;
   slot_status?: Record<string, string>;
+  slot_status_v2?: Record<string, "filled_strong" | "filled_weak" | "partial" | "missing">;
   missing_slots?: string[];
+  weak_slots?: string[];
+  do_not_ask_slots?: string[];
   draft_readiness_reason?: string;
+  draft_blockers?: string[];
   missing_aspects?: Record<string, string[]>;
   hidden_eval?: Record<string, number>;
   risk_flags?: string[];
 }
 
-interface SuggestionOption {
-  id: string;
-  label: string;
-  sourceType: "conversation" | "gakuchika" | "profile" | "safe_fallback";
-  intent:
-    | "industry_reason"
-    | "company_reason"
-    | "self_connection"
-    | "desired_work"
-    | "value_contribution"
-    | "differentiation"
-    | "closing";
-  evidenceSourceIds?: string[];
-  rationale?: string | null;
-  isTentative?: boolean;
-}
-
-interface EvidenceCard {
-  sourceId: string;
-  title: string;
-  contentType: string;
-  excerpt: string;
-  sourceUrl: string;
-  relevanceLabel: string;
-}
-
-interface StageStatus {
-  current: MotivationConversationContext["questionStage"];
-  completed: MotivationConversationContext["questionStage"][];
-  pending: MotivationConversationContext["questionStage"][];
-}
-
 type MotivationConversationContext = BaseMotivationConversationContext;
-
-interface CompanyData {
-  id: string;
-  name: string;
-  industry: string | null;
-}
-
-interface ResolvedMotivationInputs {
-  company: CompanyData;
-  conversationContext: MotivationConversationContext;
-  requiresIndustrySelection: boolean;
-  industryOptions: string[];
-  companyRoleCandidates: string[];
-}
 
 interface FastAPIQuestionResponse {
   question: string;
@@ -162,137 +110,28 @@ interface FastAPIQuestionResponse {
   evaluation?: MotivationEvaluation;
   target_slot?: MotivationConversationContext["questionStage"];
   question_intent?: string;
+  answer_contract?: Record<string, unknown>;
   target_element?: string;
   company_insight?: string;
-  suggestion_options?: SuggestionOption[];
   evidence_summary?: string;
   evidence_cards?: EvidenceCard[];
   coaching_focus?: string;
   risk_flags?: string[];
   question_stage?: MotivationConversationContext["questionStage"];
   question_focus?: string;
+  semantic_question_signature?: string;
+  question_difficulty_level?: number;
+  candidate_validation_summary?: Record<string, unknown>;
+  weakness_tag?: string;
+  conversation_mode?: "slot_fill" | "deepdive";
+  current_slot?: MotivationConversationContext["questionStage"] | null;
+  current_intent?: string | null;
+  next_advance_condition?: string | null;
+  progress?: MotivationProgress | null;
+  causal_gaps?: CausalGap[];
   stage_status?: StageStatus;
   captured_context?: Partial<MotivationConversationContext>;
   internal_telemetry?: unknown;
-}
-
-function safeParseConversationContext(json: string | null): MotivationConversationContext {
-  return parseConversationContext(json);
-}
-
-function uniqueStrings(values: Array<string | null | undefined>, maxItems = 8): string[] {
-  const seen = new Set<string>();
-  const output: string[] = [];
-  for (const value of values) {
-    const normalized = value?.trim();
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    output.push(normalized);
-    if (output.length >= maxItems) break;
-  }
-  return output;
-}
-
-function buildEvidenceSummaryFromCards(cards: EvidenceCard[]): string | null {
-  if (cards.length === 0) return null;
-  return cards
-    .slice(0, 2)
-    .map((card) => `${card.sourceId} ${card.title}: ${card.excerpt}`)
-    .join(" / ");
-}
-
-function resolveMotivationInputs(
-  company: CompanyData,
-  conversationContext: MotivationConversationContext,
-  applicationJobCandidates: string[],
-): ResolvedMotivationInputs {
-  const resolution = resolveMotivationRoleContext({
-    companyName: company.name,
-    companyIndustry: company.industry,
-    selectedIndustry: conversationContext.selectedIndustry,
-    applicationRoles: applicationJobCandidates,
-  });
-
-  const nextContext: MotivationConversationContext = {
-    ...conversationContext,
-    selectedIndustry: conversationContext.selectedIndustry || resolution.resolvedIndustry || undefined,
-    selectedIndustrySource:
-      conversationContext.selectedIndustrySource ||
-      resolution.industrySource ||
-      undefined,
-    companyRoleCandidates: uniqueStrings([
-      ...conversationContext.companyRoleCandidates,
-      ...resolution.roleCandidates,
-    ]),
-  };
-
-  return {
-    company: {
-      ...company,
-      industry: resolution.resolvedIndustry,
-    },
-    conversationContext: nextContext,
-    requiresIndustrySelection: resolution.requiresIndustrySelection,
-    industryOptions: [...resolution.industryOptions],
-    companyRoleCandidates: resolution.roleCandidates,
-  };
-}
-
-function isSetupComplete(
-  conversationContext: MotivationConversationContext,
-  requiresIndustrySelection: boolean,
-): boolean {
-  const hasIndustry = !requiresIndustrySelection || Boolean(conversationContext.selectedIndustry);
-  return hasIndustry && Boolean(conversationContext.selectedRole);
-}
-
-async function fetchApplicationJobCandidates(
-  companyId: string,
-  userId: string | null,
-  guestId: string | null,
-): Promise<string[]> {
-  const rows = await db
-    .select({
-      jobTypeName: jobTypes.name,
-    })
-    .from(applications)
-    .leftJoin(jobTypes, eq(jobTypes.applicationId, applications.id))
-    .where(
-      userId
-        ? and(eq(applications.companyId, companyId), eq(applications.userId, userId))
-        : and(eq(applications.companyId, companyId), eq(applications.guestId, guestId!))
-    );
-
-  const candidates: string[] = [];
-  for (const row of rows) {
-    const value = row.jobTypeName?.trim();
-    if (value && !candidates.includes(value)) {
-      candidates.push(value);
-    }
-  }
-  return candidates.slice(0, 6);
-}
-
-function resolveRoleSelectionSource(
-  selectedRole: string,
-  profileContext: ProfileContext | null,
-  applicationJobCandidates: string[],
-  companyRoleCandidates: string[],
-  explicitSource?: string | null,
-): MotivationConversationContext["selectedRoleSource"] {
-  if (explicitSource === "profile" || explicitSource === "company_doc" || explicitSource === "application_job_type" || explicitSource === "user_free_text") {
-    return explicitSource;
-  }
-  if (applicationJobCandidates.includes(selectedRole)) {
-    return "application_job_type";
-  }
-  if (profileContext?.target_job_types.includes(selectedRole)) {
-    return "profile";
-  }
-  if (companyRoleCandidates.includes(selectedRole)) {
-    return "company_doc";
-  }
-  return "user_free_text";
 }
 
 async function getQuestionFromFastAPI(
@@ -311,13 +150,18 @@ async function getQuestionFromFastAPI(
   error: string | null;
   evaluation: MotivationEvaluation | null;
   draftReady: boolean;
-  suggestionOptions: SuggestionOption[];
   evidenceSummary: string | null;
   evidenceCards: EvidenceCard[];
   coachingFocus: string | null;
   riskFlags: string[];
   questionStage: MotivationConversationContext["questionStage"] | null;
   stageStatus: StageStatus | null;
+  conversationMode: "slot_fill" | "deepdive" | null;
+  currentSlot: MotivationConversationContext["questionStage"] | null;
+  currentIntent: string | null;
+  nextAdvanceCondition: string | null;
+  progress: MotivationProgress | null;
+  causalGaps: CausalGap[];
   capturedContext: Partial<MotivationConversationContext> | null;
   telemetry: InternalCostTelemetry | null;
 }> {
@@ -360,13 +204,18 @@ async function getQuestionFromFastAPI(
         error: errorData.detail?.error || "AIサービスに接続できませんでした",
         evaluation: null,
         draftReady: false,
-        suggestionOptions: [],
         evidenceSummary: null,
         evidenceCards: [],
         coachingFocus: null,
         riskFlags: [],
         questionStage: null,
         stageStatus: null,
+        conversationMode: null,
+        currentSlot: null,
+        currentIntent: null,
+        nextAdvanceCondition: null,
+        progress: null,
+        causalGaps: [],
         capturedContext: null,
         telemetry: null,
       };
@@ -380,13 +229,18 @@ async function getQuestionFromFastAPI(
       error: null,
       evaluation: data.evaluation || null,
       draftReady: Boolean(data.draft_ready),
-      suggestionOptions: data.suggestion_options || [],
       evidenceSummary: data.evidence_summary || null,
       evidenceCards: data.evidence_cards || [],
       coachingFocus: data.coaching_focus || null,
       riskFlags: Array.isArray(data.risk_flags) ? data.risk_flags : [],
       questionStage: data.question_stage || null,
       stageStatus: data.stage_status || null,
+      conversationMode: data.conversation_mode || null,
+      currentSlot: data.current_slot || null,
+      currentIntent: data.current_intent || null,
+      nextAdvanceCondition: data.next_advance_condition || null,
+      progress: data.progress || null,
+      causalGaps: Array.isArray(data.causal_gaps) ? data.causal_gaps : [],
       capturedContext: data.captured_context || null,
       telemetry,
     };
@@ -399,13 +253,18 @@ async function getQuestionFromFastAPI(
         : "AIサービスに接続できませんでした",
       evaluation: null,
       draftReady: false,
-      suggestionOptions: [],
       evidenceSummary: null,
       evidenceCards: [],
       coachingFocus: null,
       riskFlags: [],
       questionStage: null,
       stageStatus: null,
+      conversationMode: null,
+      currentSlot: null,
+      currentIntent: null,
+      nextAdvanceCondition: null,
+      progress: null,
+      causalGaps: [],
       capturedContext: null,
       telemetry: null,
     };
@@ -421,7 +280,7 @@ export async function POST(
   try {
     const { companyId } = await params;
     const requestId = getRequestId(request);
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
     }
@@ -434,6 +293,9 @@ export async function POST(
         { status: 401 },
       );
     }
+
+    const limitResponse = await guardDailyTokenLimit(identity);
+    if (limitResponse) return limitResponse;
 
     const rateLimited = await enforceRateLimitLayers(
       request,
@@ -455,61 +317,26 @@ export async function POST(
       return NextResponse.json({ error: "志望職種を選択してください" }, { status: 400 });
     }
 
-    const [company] = await db
-      .select()
-      .from(companies)
-      .where(eq(companies.id, companyId))
-      .limit(1);
+    const company = await getOwnedMotivationCompanyData(companyId, identity);
 
     if (!company) {
       return NextResponse.json({ error: "企業が見つかりません" }, { status: 404 });
     }
 
-    const ownerCondition = userId
-      ? and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.userId, userId))
-      : and(eq(motivationConversations.companyId, companyId), eq(motivationConversations.guestId, guestId!));
-
-    let conversation = await getConversationByCondition(ownerCondition);
-    if (!conversation) {
-      const newId = crypto.randomUUID();
-      const now = new Date();
-      const baseConversation = {
-        id: newId,
-        userId,
-        guestId,
-        companyId,
-        messages: "[]",
-        questionCount: 0,
-        status: "in_progress" as const,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      if (userId) {
-        await db.insert(motivationConversations).values(baseConversation).onConflictDoNothing({
-          target: [motivationConversations.companyId, motivationConversations.userId],
-        });
-      } else {
-        await db.insert(motivationConversations).values(baseConversation).onConflictDoNothing({
-          target: [motivationConversations.companyId, motivationConversations.guestId],
-        });
-      }
-
-      conversation = await getConversationByCondition(ownerCondition);
-    }
+    const conversation = await ensureMotivationConversation(companyId, userId, guestId);
 
     if (!conversation) {
       return NextResponse.json({ error: "会話の作成に失敗しました" }, { status: 500 });
     }
 
-    if (conversation.messages !== "[]") {
+    if (safeParseMessages(conversation.messages).length > 0) {
       return NextResponse.json({ error: "この会話は既に開始されています" }, { status: 409 });
     }
 
     const profileContext = await fetchProfileContext(userId);
     const gakuchikaContext = userId ? await fetchGakuchikaContext(userId) : [];
-    const applicationJobCandidates = await fetchApplicationJobCandidates(companyId, userId, guestId);
-    const existingContext = safeParseConversationContext(conversation.conversationContext);
+    const applicationJobCandidates = await fetchMotivationApplicationJobCandidates(companyId, userId, guestId);
+    const existingContext = parseConversationContext(conversation.conversationContext);
     const setupContext: MotivationConversationContext = {
       ...existingContext,
       selectedIndustry: selectedIndustry || existingContext.selectedIndustry,
@@ -527,7 +354,7 @@ export async function POST(
       setupContext,
       applicationJobCandidates,
     );
-    resolvedInputs.conversationContext.selectedRoleSource = resolveRoleSelectionSource(
+    resolvedInputs.conversationContext.selectedRoleSource = resolveMotivationRoleSelectionSource(
       selectedRole,
       profileContext,
       applicationJobCandidates,
@@ -535,7 +362,7 @@ export async function POST(
       roleSelectionSource,
     );
 
-    if (!isSetupComplete(resolvedInputs.conversationContext, resolvedInputs.requiresIndustrySelection)) {
+    if (!isMotivationSetupComplete(resolvedInputs.conversationContext, resolvedInputs.requiresIndustrySelection)) {
       return NextResponse.json({ error: "先に業界・職種の設定を完了してください" }, { status: 400 });
     }
 
@@ -601,18 +428,17 @@ export async function POST(
     const updatedRows = await db
       .update(motivationConversations)
       .set({
-        messages: JSON.stringify(messages),
+        messages: serializeMessages(messages),
         questionCount: 0,
         status: isDraftReady ? "completed" : "in_progress",
-        motivationScores: result.evaluation ? JSON.stringify(result.evaluation.scores) : null,
-        conversationContext: JSON.stringify(nextContext),
+        motivationScores: serializeScores(result.evaluation?.scores ?? null),
+        conversationContext: serializeConversationContext(nextContext),
         selectedRole: nextContext.selectedRole ?? null,
         selectedRoleSource: nextContext.selectedRoleSource ?? null,
         desiredWork: nextContext.desiredWork ?? null,
         questionStage: result.questionStage ?? nextContext.questionStage,
-        lastSuggestionOptions: JSON.stringify(result.suggestionOptions || []),
-        lastEvidenceCards: JSON.stringify(result.evidenceCards || []),
-        stageStatus: JSON.stringify(result.stageStatus || null),
+        lastEvidenceCards: serializeEvidenceCards(result.evidenceCards || []),
+        stageStatus: serializeStageStatus(result.stageStatus || null),
         updatedAt: new Date(),
       })
       .where(and(eq(motivationConversations.id, conversation.id), eq(motivationConversations.updatedAt, conversation.updatedAt)))
@@ -631,6 +457,30 @@ export async function POST(
       creditsUsed: 0,
       telemetry: result.telemetry,
     });
+    void incrementDailyTokenCount(identity, computeTotalTokens(result.telemetry));
+
+    const payload = buildMotivationConversationPayload({
+      messages,
+      nextQuestion: result.question,
+      questionCount: 0,
+      isDraftReady,
+      scores: result.evaluation?.scores || null,
+      conversationContext: nextContext,
+      persistedQuestionStage: result.questionStage ?? nextContext.questionStage,
+      stageStatusValue: result.stageStatus,
+      evidenceSummary: result.evidenceSummary || null,
+      evidenceCards: result.evidenceCards,
+      coachingFocus: result.coachingFocus,
+      riskFlags: result.riskFlags,
+      conversationMode: result.conversationMode ?? nextContext.conversationMode ?? "slot_fill",
+      currentIntent: result.currentIntent,
+      nextAdvanceCondition: result.nextAdvanceCondition,
+      progress: result.progress,
+      causalGaps: result.causalGaps,
+      resolvedIndustry: resolvedInputs.company.industry,
+      requiresIndustrySelection: resolvedInputs.requiresIndustrySelection,
+      isSetupComplete: true,
+    });
 
     return NextResponse.json({
       conversation: {
@@ -638,29 +488,7 @@ export async function POST(
         questionCount: 0,
         status: isDraftReady ? "completed" : "in_progress",
       },
-      messages,
-      nextQuestion: result.question,
-      suggestionOptions: result.suggestionOptions,
-      questionCount: 0,
-      isDraftReady,
-      scores: result.evaluation?.scores || null,
-      evidenceSummary: result.evidenceSummary || buildEvidenceSummaryFromCards(result.evidenceCards),
-      evidenceCards: result.evidenceCards,
-      coachingFocus: result.coachingFocus,
-      riskFlags: result.riskFlags,
-      questionStage: result.questionStage || nextContext.questionStage,
-      stageStatus: result.stageStatus,
-      conversationContext: nextContext,
-      setup: {
-        selectedIndustry: nextContext.selectedIndustry || resolvedInputs.company.industry,
-        selectedRole: nextContext.selectedRole || null,
-        selectedRoleSource: nextContext.selectedRoleSource || null,
-        requiresIndustrySelection: resolvedInputs.requiresIndustrySelection,
-        resolvedIndustry: resolvedInputs.company.industry,
-        isComplete: true,
-        requiresRestart: false,
-        hasSavedConversation: true,
-      },
+      ...payload,
     });
   } catch (error) {
     console.error("[MotivationStart] Failed to start conversation:", error);

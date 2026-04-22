@@ -28,7 +28,7 @@ import {
   getStatusLabel,
 } from "@/lib/constants/status";
 import { notifySuccess } from "@/lib/notifications";
-import { getUserFacingErrorMessage } from "@/lib/api-errors";
+import { reportUserFacingError } from "@/lib/client-error-ui";
 
 // Icons
 const XIcon = () => (
@@ -147,7 +147,7 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
       onClose();
     } catch (err) {
       setError(
-        getUserFacingErrorMessage(
+        reportUserFacingError(
           err,
           {
             code: "COMPANY_UPDATE_FAILED",

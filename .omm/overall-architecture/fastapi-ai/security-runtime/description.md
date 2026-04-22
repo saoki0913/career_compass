@@ -1,0 +1,1 @@
+FastAPI bootstrap, security headers, request-id middleware, trusted-host and CORS configuration, internal-service authorization, and request limiting. It protects the AI service boundary and keeps logs correlatable with the frontend.

@@ -1,0 +1,246 @@
+---
+name: improve-search
+description: 就活Pass の企業検索（hybrid/legacy）の精度・網羅性を自律的に改善する。テスト履歴分析→仮説生成→実装→フルテスト→評価を反復し、状態ファイルで中断復帰を行う。
+command_description: 企業検索の自律改善サイクルを開始/再開する。
+cursor_description: Run the Career Compass search quality improvement loop.
+---
+
+# Improve Search — 検索精度自律改善
+
+就活Pass の企業検索（hybrid + legacy）の精度・網羅性を自律的に改善するスキル。テスト結果履歴の分析、失敗パターン分類、修正実装、フルテスト実行、回帰テスト評価を反復する。
+
+**重要**: このスキルは PC スリープに耐性がある。`caffeinate` でスリープを防止し、万が一中断されてもキャッシュ利用で高速リスタートする。状態ファイルにより中断ポイントから自動復帰する。
+
+## 起動
+
+- `/improve-search` — 新規改善サイクル開始、または中断サイクルを自動復帰
+- `/improve-search status` — 現在の改善状態・テスト進捗を表示
+- `/improve-search report` — 最新の改善レポートを表示
+- `/improve-search revert` — 現イテレーションの変更を取り消し
+
+---
+
+## 状態ファイル
+
+**場所**: `backend/tests/output/improve_search_state.json`
+
+```json
+{
+  "version": 1,
+  "status": "analyzing|planning|implementing|testing|evaluating|completed|blocked",
+  "cycle": 1,
+  "baseline": {
+    "report_file": "live_company_info_search_YYYYMMDD_HHMMSS_seedN.json",
+    "metrics": {
+      "hybrid_overall_rate": 0.0,
+      "legacy_overall_rate": 0.0,
+      "by_content_type": {},
+      "by_industry": {},
+      "top_failures": [],
+      "failing_companies": []
+    }
+  },
+  "iterations": [
+    {
+      "iteration": 1,
+      "hypothesis": "description",
+      "root_cause_bucket": "A|B|C|D|E|F",
+      "changes": [
+        { "file": "path", "param": "name", "old_value": "…", "new_value": "…" }
+      ],
+      "test": {
+        "report_file": "filename or null",
+        "pid": null,
+        "exit_code": null
+      },
+      "metrics": {},
+      "delta": {},
+      "decision": "merged|reverted|iterating"
+    }
+  ],
+  "active_test": {
+    "pid_file": "/tmp/improve_search_test.pid",
+    "log_file": "backend/tests/output/improve_search_test.log",
+    "caffeinate_pid_file": "/tmp/improve_search_caffeinate.pid"
+  },
+  "seed_rotation": {
+    "current_seed": 6,
+    "seed_sequence": [6, 1, 42, 15, 3, 2, 4, 5, 9, 7],
+    "completed_seeds": [],
+    "auto_rotate": true
+  }
+}
+```
+
+### ローテーションルール
+
+merge 承認後、`current_seed` を `completed_seeds` に追加し、`seed_sequence` の中で未完了の次のシードに切り替える。全シード完了時は `completed_seeds` をリセットして再ローテーションする。
+
+---
+
+## Workflow
+
+### Phase 0: コンテキスト読込 & 状態復帰
+
+1. `CLAUDE.md` を読む
+2. `improve_search_state.json` の存在をチェック
+3. 存在する場合、以下で復帰判定:
+
+| state.status | PID 状態 | exit_code | アクション |
+|---|---|---|---|
+| testing | RUNNING | — | 「テスト実行中」と報告し status 表示 |
+| testing | DEAD | 0 | 出力ファイルを検索し Phase 6 へ |
+| testing | DEAD | non-0 | テスト失敗、ログ末尾を確認し原因報告 |
+| testing | DEAD | なし | 中断。`LIVE_SEARCH_CACHE_MODE=use` でリスタート提案 |
+| analyzing / planning / implementing / evaluating | — | — | 該当 Phase を再実行 |
+| completed | — | — | 前回結果を表示し、新サイクル開始を提案 |
+
+### Phase 1: 履歴分析
+
+`backend/tests/output/live_company_info_search_*.json` を全部読み、以下を集計:
+
+- 慢性的失敗企業（複数シードで fail）
+- content_type 別 pass 率
+- industry 別 pass 率
+- 失敗理由分布（`no_candidates`, `no_official_found`, `source_type_wrong` 等）
+- hybrid と legacy の成績差
+
+### Phase 2: 仮説生成（根本原因バケット）
+
+| バケット | 症状 | 修正対象 |
+|---|---|---|
+| A: クエリ品質 | `no_candidates`（結果 0 件） | `backend/app/utils/web_search.py` |
+| B: ランキング/スコア | 公式ドメインが top-5 外 | `backend/app/utils/web_search.py`, `hybrid_search.py` |
+| C: ドメインマッピング | `is_official=False` 全件 | `backend/data/company_mappings.json` |
+| D: メタデータ分類 | `source_type_correct=False` | `backend/app/routers/company_info.py` の `_classify_source_type` |
+| E: コンテンツタイプ特化 | `url_pattern_match=False` | コンテンツタイプ別クエリテンプレート |
+| F: テスト判定基準 | 系統的な偽陽性 / 偽陰性 | `backend/tests/fixtures/search_expectations.py` |
+
+`priority = impact / (effort × risk)` で上位 1–3 件を選ぶ。
+
+### Phase 3: 実装
+
+```bash
+git checkout -b improve-search/cycle-{N} develop
+```
+
+#### チューニング可能パラメータ
+
+| パラメータ | ファイル | 現在値 | 探索範囲 |
+|---|---|---|---|
+| `WEIGHT_RERANK` | `backend/app/utils/web_search.py` | 0.45 | 0.20–0.60 |
+| `WEIGHT_INTENT` | `backend/app/utils/web_search.py` | 0.40 | 0.20–0.60 |
+| `WEIGHT_RRF` | `backend/app/utils/web_search.py` | 0.15 | 0.05–0.30 |
+| `WEB_SEARCH_MAX_QUERIES` | `backend/app/utils/web_search.py` | 10 | 4–10 |
+| `WEB_SEARCH_RESULTS_PER_QUERY` | `backend/app/utils/web_search.py` | 12 | 8–15 |
+| `WEB_SEARCH_RERANK_TOP_K` | `backend/app/utils/web_search.py` | 30 | 15–50 |
+| `WEB_SEARCH_RRF_K` | `backend/app/utils/web_search.py` | 60 | 30–100 |
+| `INTENT_GATE_THRESHOLD` | `backend/app/utils/web_search.py` | 0.7 | 0.5–0.9 |
+| `CONTENT_TYPE_BOOSTS` | `backend/app/utils/hybrid_search.py` | 4 プロファイル | 0.7–2.0 |
+| `DEFAULT_MMR_LAMBDA` | `backend/app/utils/hybrid_search.py` | 0.5 | 0.3–0.7 |
+| `company_mappings.json` | `backend/data/company_mappings.json` | 100+ 社 | ドメイン追加 |
+
+#### 構文検証
+```bash
+cd backend && python -c "import app.utils.web_search; import app.utils.hybrid_search; import app.routers.company_info" && echo OK
+```
+
+### Phase 4: フルテスト実行（バックグラウンド + caffeinate）
+
+```bash
+SEED=$(python3 -c "import json; print(json.load(open('backend/tests/output/improve_search_state.json'))['seed_rotation']['current_seed'])")
+
+nohup bash -c "
+  cd /Users/saoki/work/career_compass && \
+  RUN_LIVE_SEARCH=1 \
+  LIVE_SEARCH_SAMPLE_SIZE=30 \
+  LIVE_SEARCH_MODES=hybrid,legacy \
+  LIVE_SEARCH_CACHE_MODE=bypass \
+  LIVE_SEARCH_SAMPLE_SEED=$SEED \
+  LIVE_SEARCH_TOKENS_PER_SECOND=1.0 \
+  python -m pytest backend/tests/test_live_company_info_search_report.py -v -s -m integration \
+  2>&1 | tee backend/tests/output/improve_search_test.log; \
+  echo \$? > /tmp/improve_search_exit_code
+" > /dev/null 2>&1 &
+TEST_PID=$!
+echo $TEST_PID > /tmp/improve_search_test.pid
+
+caffeinate -dims -w $TEST_PID > /dev/null 2>&1 &
+echo $! > /tmp/improve_search_caffeinate.pid
+```
+
+- 30 社 × 2 モード × 11 種 = 660 検索、レート制限 1 req/sec で約 34h
+- Bash ツールの `run_in_background` パラメータを使う
+
+### Phase 5: テスト中断時の復帰
+
+```bash
+LIVE_SEARCH_CACHE_MODE=use
+```
+キャッシュ利用で 34h → 2–3h にリスタート可能。
+
+### Phase 6: 評価 & レポート
+
+| ルール | 条件 | アクション |
+|---|---|---|
+| ハードゲート | 全体率が 2pp 以上低下 | リバート推奨 |
+| ソフトゲート | 個別 content_type が 10pp 以上低下 | 警告 + ユーザー確認 |
+| 改善確認 | 全体率 +1pp 以上 & 回帰なし | コミット推奨 |
+
+レポートは `backend/tests/output/improvement_report_cycle{N}.md` に出す（ベースライン比較、改善/回帰内訳、変更一覧、推奨アクション）。
+
+### Phase 7: コミット & 次サイクル（シードローテーション）
+
+1. 改善あり & 回帰なし → ユーザー承認を得て `/commit-develop`
+2. 回帰あり → `git checkout develop -- {files}` で revert
+3. merge 成功時、`seed_rotation` を更新して次シードへ
+
+---
+
+## サブコマンド
+
+### `/improve-search status`
+- state と PID、ログ進捗、現在 phase / cycle / baseline を表示
+
+### `/improve-search report`
+- `backend/tests/output/improvement_report_cycle*.md` の最新を表示
+
+### `/improve-search revert`
+- 現 iteration の変更を `git checkout develop -- {file}` で戻す
+- テスト PID / caffeinate PID を kill
+- state の `iteration.decision` を `"reverted"` に更新
+
+---
+
+## Targeted Testing
+
+特定企業のみテストする場合:
+```bash
+LIVE_SEARCH_COMPANIES="三菱商事,Apple,安川電機" make backend-test-live-search
+```
+
+---
+
+## Key File Reference
+
+| ファイル | 役割 |
+|---|---|
+| `backend/app/utils/web_search.py` | Web 検索パイプライン |
+| `backend/app/utils/hybrid_search.py` | RAG ハイブリッド検索 |
+| `backend/app/utils/reranker.py` | クロスエンコーダ |
+| `backend/app/utils/bm25_store.py` | キーワード検索 |
+| `backend/app/utils/vector_store.py` | ChromaDB 操作 |
+| `backend/app/routers/company_info.py` | source_type 分類、CONTENT_TYPE_SEARCH_INTENT |
+| `backend/data/company_mappings.json` | 企業ドメインパターン |
+| `backend/tests/test_live_company_info_search_report.py` | メインテスト |
+| `backend/tests/fixtures/search_expectations.py` | 判定基準 |
+
+---
+
+## Important Notes
+
+- フルテスト: 約 34h（1 req/sec）。キャッシュリスタートで 2–3h
+- ハードゲート: 全体率 -2pp → 自動リバート推奨
+- 全変更は `parameter_changelog` に記録、監査可能
+- `caffeinate -dims -w $PID` で macOS スリープ防止
+- `LIVE_SEARCH_CACHE_MODE=use` で中断からの高速リスタート

@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useCalendarSettings } from "@/hooks/useCalendar";
-import { getUserFacingErrorMessage, parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError, reportUserFacingError } from "@/lib/client-error-ui";
 import { notifySuccess } from "@/lib/notifications";
 
 interface GoogleCalendar {
@@ -96,6 +97,7 @@ export default function CalendarSettingsPage() {
         "calendarSettings.fetchCalendars"
       );
       setSaveError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setCalendarsLoading(false);
     }
@@ -166,10 +168,16 @@ export default function CalendarSettingsPage() {
       await updateSettings(payload);
       notifySuccess({ title: "カレンダー設定を保存しました" });
     } catch (err) {
-      setSaveError(getUserFacingErrorMessage(err, {
-        code: "CALENDAR_SETTINGS_SAVE_FAILED",
-        userMessage: "設定を保存できませんでした。",
-      }, "CalendarSettingsPage:save"));
+      setSaveError(
+        reportUserFacingError(
+          err,
+          {
+            code: "CALENDAR_SETTINGS_SAVE_FAILED",
+            userMessage: "設定を保存できませんでした。",
+          },
+          "CalendarSettingsPage:save",
+        ),
+      );
     } finally {
       setIsSaving(false);
     }
@@ -195,10 +203,16 @@ export default function CalendarSettingsPage() {
       });
       notifySuccess({ title: "Googleカレンダー設定を保存しました" });
     } catch (err) {
-      setSaveError(getUserFacingErrorMessage(err, {
-        code: "CALENDAR_SETTINGS_GOOGLE_SAVE_FAILED",
-        userMessage: "Googleカレンダー設定を保存できませんでした。",
-      }, "CalendarSettingsPage:saveGoogleSettings"));
+      setSaveError(
+        reportUserFacingError(
+          err,
+          {
+            code: "CALENDAR_SETTINGS_GOOGLE_SAVE_FAILED",
+            userMessage: "Googleカレンダー設定を保存できませんでした。",
+          },
+          "CalendarSettingsPage:saveGoogleSettings",
+        ),
+      );
     } finally {
       setIsSaving(false);
     }
@@ -250,6 +264,7 @@ export default function CalendarSettingsPage() {
         "calendarSettings.createCalendar"
       );
       setSaveError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsCreating(false);
     }
@@ -292,6 +307,7 @@ export default function CalendarSettingsPage() {
         "calendarSettings.disconnect"
       );
       setSaveError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsDisconnecting(false);
     }
@@ -386,15 +402,33 @@ export default function CalendarSettingsPage() {
                 </div>
 
                 {settings.syncSummary.failedCount > 0 && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                    Google同期に失敗した予定が {settings.syncSummary.failedCount} 件あります。
-                    {settings.syncSummary.lastFailureReason ? ` ${settings.syncSummary.lastFailureReason}` : ""}
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 flex items-center justify-between gap-3">
+                    <div>
+                      同期失敗: {settings.syncSummary.failedCount}件
+                      {settings.syncSummary.lastFailureReason ? ` — ${settings.syncSummary.lastFailureReason}` : ""}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch("/api/calendar/sync-retry", { method: "POST" });
+                          if (res.ok) {
+                            refresh();
+                          }
+                        } catch {
+                          // best-effort
+                        }
+                      }}
+                      className="shrink-0 text-xs font-medium px-3 py-1 rounded-md bg-red-100 hover:bg-red-200 transition-colors"
+                    >
+                      再試行
+                    </button>
                   </div>
                 )}
 
                 {settings.syncSummary.pendingCount > 0 && (
                   <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                    Googleへ同期中の予定が {settings.syncSummary.pendingCount} 件あります。
+                    同期待ち: {settings.syncSummary.pendingCount}件
                   </div>
                 )}
 

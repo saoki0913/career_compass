@@ -10,7 +10,10 @@ import { db } from "@/lib/db";
 import { calendarEvents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
-import { enqueueWorkBlockDelete } from "@/lib/calendar/sync";
+import {
+  syncWorkBlockDeleteImmediately,
+  type ImmediateSyncResult,
+} from "@/lib/calendar/sync";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 
 export async function DELETE(
@@ -66,7 +69,7 @@ export async function DELETE(
       });
     }
 
-    await enqueueWorkBlockDelete({
+    const calendarSync: ImmediateSyncResult = await syncWorkBlockDeleteImmediately({
       userId,
       eventId,
       googleCalendarId: event.googleCalendarId,
@@ -75,7 +78,7 @@ export async function DELETE(
 
     await db.delete(calendarEvents).where(eq(calendarEvents.id, eventId));
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, calendarSync });
   } catch (error) {
     return createApiErrorResponse(request, {
       status: 500,

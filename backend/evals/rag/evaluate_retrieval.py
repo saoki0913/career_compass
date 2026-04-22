@@ -21,7 +21,7 @@ import asyncio
 import json
 import math
 import sys
-import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -30,6 +30,42 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
 from app.utils.hybrid_search import dense_hybrid_search, CONTENT_TYPE_BOOSTS
+
+
+@dataclass
+class EvalConfig:
+    top_k: int = 5
+    expand_queries: bool = True
+    use_hyde: bool = True
+    rerank: bool = True
+    use_mmr: bool = True
+    use_bm25: bool = True
+    semantic_weight: float = 0.6
+    keyword_weight: float = 0.4
+    rerank_threshold: float = 0.7
+    fetch_k: int = 30
+    max_queries: int = 3
+    max_total_queries: int = 4
+    mmr_lambda: float = 0.5
+    content_type_boosts: dict[str, float] | None = None
+    sleep_between: float = 0.0
+    limit: int = 0
+
+
+@dataclass
+class EvalResult:
+    per_item: list[dict] = field(default_factory=list)
+    n_items: int = 0
+    ndcg_at_k_src: float = 0.0
+    mrr_src: float = 0.0
+    hit_rate_src: float = 0.0
+    precision_src: float = 0.0
+    recall_src: float = 0.0
+    ndcg_at_k_ids: float = 0.0
+    mrr_ids: float = 0.0
+    hit_rate_ids: float = 0.0
+    precision_ids: float = 0.0
+    recall_ids: float = 0.0
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -383,11 +419,59 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+async def run_evaluation(
+    items: list[dict], config: EvalConfig | None = None
+) -> EvalResult:
+    cfg = config or EvalConfig()
+    if cfg.limit and cfg.limit > 0:
+        items = items[: cfg.limit]
+
+    boosts = cfg.content_type_boosts
+    if boosts is None:
+        boosts = CONTENT_TYPE_BOOSTS.get("es_review")
+
+    metrics: list[dict] = []
+    for item in items:
+        result = await _evaluate_item(
+            item,
+            top_k=cfg.top_k,
+            expand_queries=cfg.expand_queries,
+            use_hyde=cfg.use_hyde,
+            rerank=cfg.rerank,
+            use_mmr=cfg.use_mmr,
+            use_bm25=cfg.use_bm25,
+            semantic_weight=cfg.semantic_weight,
+            keyword_weight=cfg.keyword_weight,
+            rerank_threshold=cfg.rerank_threshold,
+            fetch_k=cfg.fetch_k,
+            max_queries=cfg.max_queries,
+            max_total_queries=cfg.max_total_queries,
+            mmr_lambda=cfg.mmr_lambda,
+            content_type_boosts=boosts,
+        )
+        metrics.append(result)
+        if cfg.sleep_between:
+            await asyncio.sleep(cfg.sleep_between)
+
+    return EvalResult(
+        per_item=metrics,
+        n_items=len(metrics),
+        ndcg_at_k_src=_aggregate(metrics, "dense_ndcg_sources"),
+        mrr_src=_aggregate(metrics, "dense_mrr_sources"),
+        hit_rate_src=_aggregate(metrics, "dense_hit_sources"),
+        precision_src=_aggregate(metrics, "dense_precision_sources"),
+        recall_src=_aggregate(metrics, "dense_recall_sources"),
+        ndcg_at_k_ids=_aggregate(metrics, "dense_ndcg_ids"),
+        mrr_ids=_aggregate(metrics, "dense_mrr_ids"),
+        hit_rate_ids=_aggregate(metrics, "dense_hit_ids"),
+        precision_ids=_aggregate(metrics, "dense_precision_ids"),
+        recall_ids=_aggregate(metrics, "dense_recall_ids"),
+    )
+
+
 async def main_async(args: argparse.Namespace) -> int:
     input_path = Path(args.input)
     items = _load_jsonl(input_path)
-    if args.limit and args.limit > 0:
-        items = items[: args.limit]
 
     boosts: Optional[dict[str, float]] = CONTENT_TYPE_BOOSTS.get("es_review")
     if args.no_boosts:
@@ -403,35 +487,32 @@ async def main_async(args: argparse.Namespace) -> int:
             else:
                 boosts = None
 
-    metrics: list[dict] = []
-    for item in items:
-        result = await _evaluate_item(
-            item,
-            top_k=args.top_k,
-            expand_queries=not args.no_expand,
-            use_hyde=not args.no_hyde,
-            rerank=not args.no_rerank,
-            use_mmr=not args.no_mmr,
-            use_bm25=not args.no_bm25,
-            semantic_weight=args.semantic_weight,
-            keyword_weight=args.keyword_weight,
-            rerank_threshold=args.rerank_threshold,
-            fetch_k=args.fetch_k,
-            max_queries=args.max_queries,
-            max_total_queries=args.max_total_queries,
-            mmr_lambda=args.mmr_lambda,
-            content_type_boosts=boosts,
-        )
-        metrics.append(result)
-        if args.sleep:
-            time.sleep(args.sleep)
+    cfg = EvalConfig(
+        top_k=args.top_k,
+        expand_queries=not args.no_expand,
+        use_hyde=not args.no_hyde,
+        rerank=not args.no_rerank,
+        use_mmr=not args.no_mmr,
+        use_bm25=not args.no_bm25,
+        semantic_weight=args.semantic_weight,
+        keyword_weight=args.keyword_weight,
+        rerank_threshold=args.rerank_threshold,
+        fetch_k=args.fetch_k,
+        max_queries=args.max_queries,
+        max_total_queries=args.max_total_queries,
+        mmr_lambda=args.mmr_lambda,
+        content_type_boosts=boosts,
+        sleep_between=args.sleep,
+        limit=args.limit,
+    )
 
-    _print_summary(metrics)
+    result = await run_evaluation(items, cfg)
+    _print_summary(result.per_item)
 
     if args.output:
         output_path = Path(args.output)
         with output_path.open("w", encoding="utf-8") as f:
-            for item in metrics:
+            for item in result.per_item:
                 f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
     return 0

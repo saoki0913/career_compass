@@ -3,23 +3,21 @@
  *
  * POST: Fetch selection schedule information from recruitment URL
  * - Validates user/guest authentication
- * - Checks credits / monthly schedule free quota
+ * - Checks credits / monthly schedule free quota (via companyFetchPolicy)
  * - Calls FastAPI backend
- * - Saves extracted deadlines on success
+ * - Saves extracted deadlines on success (via saveExtractedDeadlines)
  * - Consumes credits only on success
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { auth } from "@/lib/auth";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getOwnedCompanyRecord } from "@/app/api/_shared/owner-access";
 import { db } from "@/lib/db";
-import { companies, deadlines, userProfiles } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
-import { getRemainingFreeFetches, hasEnoughCredits, consumeCredits } from "@/lib/credits";
-import { getMonthlyScheduleFetchFreeLimit } from "@/lib/company-info/pricing";
-import { incrementMonthlyScheduleFreeUse } from "@/lib/company-info/usage";
+import { companies, userProfiles } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
+import { getRemainingFreeFetches } from "@/lib/credits";
 import { enforceRateLimitLayers, FETCH_INFO_RATE_LAYERS } from "@/lib/rate-limit-spike";
 import { logError } from "@/lib/logger";
 import { checkPublicSourceCompliance } from "@/lib/company-info/source-compliance";
@@ -30,6 +28,50 @@ import {
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
+import { companyFetchPolicy } from "@/lib/api-route/billing/company-fetch-policy";
+import { saveExtractedDeadlines } from "@/lib/company-info/deadline-persistence";
+import type { ExtractedDeadline } from "@/lib/company-info/deadline-persistence";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface ExtractedDocument {
+  name: string;
+  required: boolean;
+  source_url: string;
+  confidence: string;
+}
+
+interface FetchResult {
+  success: boolean;
+  partial_success?: boolean;
+  source_type?: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
+  relation_company_name?: string | null;
+  year_matched?: boolean | null;
+  used_graduation_year?: number | null;
+  data?: {
+    deadlines: ExtractedDeadline[];
+    recruitment_types?: { name: string; source_url: string; confidence: string }[];
+    required_documents: ExtractedDocument[];
+    application_method: { value: string; source_url: string; confidence: string } | null;
+    selection_process: { value: string; source_url: string; confidence: string } | null;
+  };
+  source_url: string;
+  extracted_at: string;
+  error?: string;
+  deadlines_found?: boolean;
+  other_items_found?: boolean;
+  raw_text?: string | null;
+  raw_html?: string | null;
+}
+
+type FetchInfoResultStatus = "success" | "duplicates_only" | "no_deadlines" | "error";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 /** FastAPI HTTPException(detail={ error, error_type, ... }) from company-info LLM routes */
 function userFacingScheduleFetchError(detail: unknown): {
@@ -66,172 +108,40 @@ function userFacingScheduleFetchError(detail: unknown): {
   };
 }
 
-interface ExtractedDeadline {
-  type: string;
-  title: string;
-  due_date: string | null;  // Backend uses snake_case
-  dueDate?: string | null;  // Frontend alias
-  source_url?: string;
-  confidence: string;
-}
-
-interface ExtractedDocument {
-  name: string;
-  required: boolean;
-  source_url: string;
-  confidence: string;
-}
-
-interface FetchResult {
-  success: boolean;
-  partial_success?: boolean;
-  source_type?: "official" | "job_site" | "parent" | "subsidiary" | "blog" | "other";
-  relation_company_name?: string | null;
-  year_matched?: boolean | null;
-  used_graduation_year?: number | null;
-  data?: {
-    deadlines: ExtractedDeadline[];
-    recruitment_types?: { name: string; source_url: string; confidence: string }[];
-    required_documents: ExtractedDocument[];
-    application_method: { value: string; source_url: string; confidence: string } | null;
-    selection_process: { value: string; source_url: string; confidence: string } | null;
-  };
-  source_url: string;
-  extracted_at: string;
-  error?: string;
-  deadlines_found?: boolean;
-  other_items_found?: boolean;
-  raw_text?: string | null;
-  raw_html?: string | null;
-}
-
-type FetchInfoResultStatus = "success" | "duplicates_only" | "no_deadlines" | "error";
-type DeadlineType = typeof deadlines.$inferInsert.type;
-
-async function getIdentity(request: NextRequest): Promise<{
+async function resolveFetchInfoIdentity(request: NextRequest): Promise<{
   userId: string | null;
   guestId: string | null;
   plan: "guest" | "free" | "standard" | "pro";
 } | null> {
-  // Try authenticated session first
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  const identity = await getRequestIdentity(request);
+  if (!identity) {
+    return null;
+  }
 
-  if (session?.user?.id) {
+  if (identity.userId) {
     const [profile] = await db
       .select()
       .from(userProfiles)
-      .where(eq(userProfiles.userId, session.user.id))
+      .where(eq(userProfiles.userId, identity.userId))
       .limit(1);
 
     return {
-      userId: session.user.id,
+      userId: identity.userId,
       guestId: null,
       plan: (profile?.plan || "free") as "free" | "standard" | "pro",
     };
   }
 
-  // Try guest token
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return {
-        userId: null,
-        guestId: guest.id,
-        plan: "guest",
-      };
-    }
-  }
-
-  return null;
+  return {
+    userId: null,
+    guestId: identity.guestId,
+    plan: "guest",
+  };
 }
 
-async function verifyCompanyAccess(
-  companyId: string,
-  userId: string | null,
-  guestId: string | null
-): Promise<{ valid: boolean; company?: typeof companies.$inferSelect }> {
-  const whereClause = userId
-    ? and(eq(companies.id, companyId), eq(companies.userId, userId))
-    : guestId
-    ? and(eq(companies.id, companyId), eq(companies.guestId, guestId))
-    : null;
-
-  if (!whereClause) {
-    return { valid: false };
-  }
-
-  const [company] = await db.select().from(companies).where(whereClause).limit(1);
-
-  if (!company) {
-    return { valid: false };
-  }
-
-  return { valid: true, company };
-}
-
-/**
- * Normalize title for comparison (remove variations like parentheses, ordinal numbers)
- */
-function normalizeTitle(title: string): string {
-  return title
-    .replace(/\s+/g, "")                           // Remove spaces
-    .replace(/[（(][^）)]*[）)]/g, "")              // Remove content in parentheses
-    .replace(/第?[一二三四五1-5]次?/g, "")           // Remove ordinal numbers (Japanese and Arabic)
-    .toLowerCase();
-}
-
-/**
- * Check if two dates are the same day
- */
-function isSameDay(date1: Date, date2: Date): boolean {
-  return (
-    date1.getFullYear() === date2.getFullYear() &&
-    date1.getMonth() === date2.getMonth() &&
-    date1.getDate() === date2.getDate()
-  );
-}
-
-/**
- * Find existing deadline that matches the given criteria
- */
-async function findExistingDeadline(
-  companyId: string,
-  type: DeadlineType,
-  title: string,
-  dueDate: Date | null
-): Promise<typeof deadlines.$inferSelect | null> {
-  if (!dueDate) return null;
-
-  // Find deadlines with same type for this company
-  const existingDeadlines = await db
-    .select()
-    .from(deadlines)
-    .where(
-      and(
-        eq(deadlines.companyId, companyId),
-        eq(deadlines.type, type)
-      )
-    );
-
-  const normalizedNewTitle = normalizeTitle(title);
-
-  for (const existing of existingDeadlines) {
-    // Check if title is similar (after normalization)
-    const normalizedExistingTitle = normalizeTitle(existing.title);
-
-    if (normalizedExistingTitle === normalizedNewTitle) {
-      // Check if dates are same day
-      if (existing.dueDate && isSameDay(existing.dueDate, dueDate)) {
-        return existing;
-      }
-    }
-  }
-
-  return null;
-}
+// ---------------------------------------------------------------------------
+// Handler
+// ---------------------------------------------------------------------------
 
 export async function POST(
   request: NextRequest,
@@ -248,7 +158,7 @@ export async function POST(
     const graduationYear = body.graduationYear as number | undefined;
 
     // Get identity
-    const identity = await getIdentity(request);
+    const identity = await resolveFetchInfoIdentity(request);
     if (!identity) {
       return createApiErrorResponse(request, {
         status: 401,
@@ -269,6 +179,9 @@ export async function POST(
       });
     }
 
+    const limitResponse = await guardDailyTokenLimit(identity);
+    if (limitResponse) return limitResponse;
+
     const rateLimited = await enforceRateLimitLayers(
       request,
       [...FETCH_INFO_RATE_LAYERS],
@@ -280,9 +193,8 @@ export async function POST(
       return rateLimited;
     }
 
-    // Verify company access
-    const access = await verifyCompanyAccess(companyId, userId, guestId);
-    if (!access.valid || !access.company) {
+    const company = await getOwnedCompanyRecord(companyId, { userId, guestId });
+    if (!company) {
       return createApiErrorResponse(request, {
         status: 404,
         code: "COMPANY_NOT_FOUND",
@@ -290,8 +202,6 @@ export async function POST(
         action: "一覧から企業を選び直してください。",
       });
     }
-
-    const company = access.company;
 
     // Use provided URL or fall back to company's recruitment URL
     const urlToFetch = requestUrl || company.recruitmentUrl;
@@ -329,35 +239,25 @@ export async function POST(
       });
     }
 
-    // Check credits/quota（ログインユーザー: 月次無料枠 → 超過は 1 クレジット）
-    let useMonthlyScheduleFree = false;
-    if (userId) {
-      const freeRemaining = await getRemainingFreeFetches(userId, null, plan);
-      if (freeRemaining > 0) {
-        useMonthlyScheduleFree = true;
-      } else {
-        const hasCredits = await hasEnoughCredits(userId, 1);
-        if (!hasCredits) {
-          return createApiErrorResponse(request, {
-            status: 402,
-            code: "INSUFFICIENT_CREDITS",
-            userMessage: "クレジットが不足しています。",
-            action: "プランまたは残高を確認してください。",
-          });
-        }
-      }
-    } else if (guestId) {
-      const freeRemaining = await getRemainingFreeFetches(null, guestId, plan);
-      if (freeRemaining <= 0) {
-        return createApiErrorResponse(request, {
-          status: 402,
-          code: "MONTHLY_SCHEDULE_FREE_LIMIT_REACHED",
-          userMessage: `今月の無料取得回数を使い切りました。ログインすると月${getMonthlyScheduleFetchFreeLimit("free")}回まで利用できます。`,
-          action: "来月以降に再試行するか、ログインして利用してください。",
-        });
-      }
-      useMonthlyScheduleFree = true;
+    // Billing precheck: monthly free quota OR 1 credit required.
+    // Guest requests are already rejected above; userId is non-null here.
+    const billingCtx = {
+      userId: userId!,
+      guestId: null as null,
+      companyId,
+      companyName: company.name,
+      plan: plan as "free" | "standard" | "pro",
+    };
+    const precheckResult = await companyFetchPolicy.precheck(billingCtx);
+    if (!precheckResult.ok) {
+      return createApiErrorResponse(request, {
+        status: 402,
+        code: "INSUFFICIENT_CREDITS",
+        userMessage: "クレジットが不足しています。",
+        action: "プランまたは残高を確認してください。",
+      });
     }
+    const useMonthlyScheduleFree = precheckResult.freeQuotaAvailable;
 
     // Get user's graduation year from profile if not provided in request
     let effectiveGraduationYear = graduationYear;
@@ -484,7 +384,6 @@ export async function POST(
 
     // 締切なし & 他データあり = no_deadlines
     if (!hasDeadlines && hasOtherData) {
-      // Update company's recruitmentUrl and infoFetchedAt
       await db
         .update(companies)
         .set({
@@ -502,6 +401,7 @@ export async function POST(
         creditsUsed: 0,
         telemetry,
       });
+      void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
 
       return NextResponse.json({
         success: false,
@@ -545,104 +445,19 @@ export async function POST(
       });
     }
 
-    // 締切あり = 完全成功: Save extracted deadlines
-    const savedDeadlines: string[] = [];
-    const skippedDuplicates: string[] = [];
-    const savedDeadlineSummaries: Array<{
-      id: string;
-      title: string;
-      type: string;
-      dueDate: string;
-      sourceUrl: string | null;
-      isDuplicate?: boolean;
-    }> = [];
-    if (fetchResult.data?.deadlines && fetchResult.data.deadlines.length > 0) {
-      const now = new Date();
-
-      for (const d of fetchResult.data.deadlines) {
-        // Map type to valid enum value
-        const validTypes: DeadlineType[] = [
-          "es_submission", "web_test", "aptitude_test",
-          "interview_1", "interview_2", "interview_3", "interview_final",
-          "briefing", "internship", "offer_response", "other"
-        ];
-        const type: DeadlineType = validTypes.includes(d.type as DeadlineType)
-          ? (d.type as DeadlineType)
-          : "other";
-
-        let dueDate: Date | null = null;
-        // Backend uses snake_case: due_date
-        const rawDueDate = d.due_date || d.dueDate;
-        if (rawDueDate) {
-          try {
-            dueDate = new Date(rawDueDate);
-            if (isNaN(dueDate.getTime())) {
-              dueDate = null;
-            }
-          } catch {
-            dueDate = null;
-          }
-        }
-
-        // Skip if no due date (set a far future placeholder)
-        if (!dueDate) {
-          dueDate = new Date(now.getFullYear() + 1, 11, 31); // Dec 31 next year as placeholder
-        }
-
-        // Check for duplicate deadline (same type, similar title, same day)
-        const existingDeadline = await findExistingDeadline(
-          companyId,
-          type,
-          d.title,
-          dueDate
-        );
-
-        if (existingDeadline) {
-          // Skip duplicate, but track it
-          console.log(`Skipping duplicate deadline: ${d.title} (${dueDate?.toISOString()})`);
-          skippedDuplicates.push(existingDeadline.id);
-          savedDeadlineSummaries.push({
-            id: existingDeadline.id,
-            title: existingDeadline.title,
-            type: existingDeadline.type,
-            dueDate: existingDeadline.dueDate?.toISOString() || dueDate.toISOString(),
-            sourceUrl: existingDeadline.sourceUrl,
-            isDuplicate: true,
-          });
-          continue;
-        }
-
-        const newDeadline = await db
-          .insert(deadlines)
-          .values({
-            id: crypto.randomUUID(),
-            companyId,
-            type,
-            title: d.title,
-            description: null,
-            memo: null,
-            dueDate,
-            isConfirmed: false, // AI-extracted deadlines need confirmation
-            confidence: (d.confidence as "high" | "medium" | "low") || "low",
-            sourceUrl: d.source_url || urlToFetch,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning();
-
-        savedDeadlines.push(newDeadline[0].id);
-        savedDeadlineSummaries.push({
-          id: newDeadline[0].id,
-          title: newDeadline[0].title,
-          type: newDeadline[0].type,
-          dueDate: newDeadline[0].dueDate?.toISOString() || dueDate.toISOString(),
-          sourceUrl: newDeadline[0].sourceUrl,
-        });
-      }
-    }
+    // 締切あり = 完全成功: Save extracted deadlines and consume billing
+    const { savedDeadlines, skippedDuplicates, savedDeadlineSummaries } =
+      await saveExtractedDeadlines({
+        companyId,
+        extractedDeadlines: fetchResult.data?.deadlines ?? [],
+        fallbackSourceUrl: urlToFetch,
+      });
 
     const deadlinesSavedCount = savedDeadlines.length;
-    const duplicatesOnly = deadlinesExtractedCount > 0 && deadlinesSavedCount === 0 && skippedDuplicates.length > 0;
+    const duplicatesOnly =
+      deadlinesExtractedCount > 0 &&
+      deadlinesSavedCount === 0 &&
+      skippedDuplicates.length > 0;
 
     // Update company's recruitmentUrl and infoFetchedAt
     await db
@@ -654,27 +469,19 @@ export async function POST(
       })
       .where(eq(companies.id, companyId));
 
-    // Success: Consume credits/quota
-    let creditsConsumed = 0;
-    let actualCreditsDeducted: number | undefined;
-    if (useMonthlyScheduleFree) {
-      if (userId) {
-        await incrementMonthlyScheduleFreeUse(userId);
-      }
-    } else if (userId) {
-      const consumption = await consumeCredits(
-        userId,
-        1,
-        "company_fetch",
-        companyId,
-        `選考スケジュール取得: ${company.name}`,
-      );
-      if (!consumption.success) {
-        throw new Error("Insufficient credits for company info usage");
-      }
-      creditsConsumed = 1;
-      actualCreditsDeducted = 1;
-    }
+    // Billing confirm: consume free quota or 1 credit (success only)
+    await companyFetchPolicy.confirm(
+      billingCtx,
+      {
+        kind: "billable_success",
+        creditsConsumed: useMonthlyScheduleFree ? 0 : 1,
+        freeQuotaUsed: useMonthlyScheduleFree,
+      },
+      null,
+    );
+
+    const creditsConsumed = useMonthlyScheduleFree ? 0 : 1;
+    const actualCreditsDeducted = useMonthlyScheduleFree ? undefined : 1;
 
     // Get updated free remaining
     const freeRemaining = await getRemainingFreeFetches(userId, guestId, plan);
@@ -687,6 +494,7 @@ export async function POST(
         creditsUsed: actualCreditsDeducted ?? 0,
         telemetry,
       });
+      void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
       return NextResponse.json({
         success: false,
         resultStatus: "duplicates_only" satisfies FetchInfoResultStatus,
@@ -717,6 +525,7 @@ export async function POST(
       creditsUsed: actualCreditsDeducted ?? 0,
       telemetry,
     });
+    void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
     return NextResponse.json({
       success: true,
       resultStatus: "success" satisfies FetchInfoResultStatus,
@@ -739,9 +548,11 @@ export async function POST(
     });
   } catch (error) {
     logError("fetch-company-info", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "INTERNAL_ERROR",
+      userMessage: "選考スケジュールの取得中にエラーが発生しました。しばらく経ってからもう一度お試しください。",
+      action: "retry",
+    });
   }
 }

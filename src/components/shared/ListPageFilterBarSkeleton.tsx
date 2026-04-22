@@ -10,23 +10,23 @@ export function ListPageFilterBarSkeleton({
   const viewToggleSlots = variant === "gakuchika" ? 3 : 2;
 
   return (
-    <div className="mb-8 rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(244,247,251,0.94))] p-4 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.28)] backdrop-blur-xl">
-      <div className="pb-1">
-        <div className="flex min-w-full flex-wrap items-center gap-2.5">
-          <Skeleton className="h-10 w-full rounded-xl sm:w-[22rem] sm:shrink-0" />
-          <Skeleton className="h-10 w-full rounded-md sm:w-[160px] sm:shrink-0" />
+    <div className="mb-8 min-w-0 rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(244,247,251,0.94))] p-4 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+      <div className="min-w-0 pb-1">
+        <div className="flex w-full min-w-0 max-w-full flex-nowrap items-center gap-2.5 overflow-x-auto overscroll-x-contain pb-0.5 [-ms-overflow-style:none] [scrollbar-gutter:stable] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/80">
+          <Skeleton className="h-10 min-w-[10rem] max-w-[22rem] flex-1 rounded-xl" />
+          <Skeleton className="h-10 w-[160px] shrink-0 rounded-md" />
           {variant === "es" ? (
-            <div className="flex w-full flex-wrap items-center gap-2.5 sm:w-auto sm:shrink-0">
-              <Skeleton className="h-9 w-[150px] rounded-md sm:w-[170px]" />
-              <Skeleton className="h-9 w-[160px] rounded-md" />
+            <div className="flex shrink-0 items-center gap-2.5">
+              <Skeleton className="h-9 w-[170px] shrink-0 rounded-md" />
+              <Skeleton className="h-9 w-[160px] shrink-0 rounded-md" />
             </div>
           ) : null}
           {variant === "companies" ? (
-            <div className="flex w-full flex-wrap items-center gap-2.5 sm:w-auto sm:shrink-0">
-              <Skeleton className="h-10 w-[160px] rounded-md" />
+            <div className="flex shrink-0 items-center gap-2.5">
+              <Skeleton className="h-10 w-[160px] shrink-0 rounded-md" />
             </div>
           ) : null}
-          <div className="w-full sm:w-auto sm:shrink-0">
+          <div className="shrink-0">
             <div className="flex w-fit items-center gap-1 rounded-lg bg-muted/50 p-1">
               {Array.from({ length: viewToggleSlots }).map((_, i) => (
                 <Skeleton key={i} className="h-8 w-9 shrink-0 rounded-md" />

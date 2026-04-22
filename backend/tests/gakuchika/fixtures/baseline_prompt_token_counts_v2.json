@@ -1,0 +1,39 @@
+{
+  "_comment": "Baseline prompt token counts for Phase 0.3 (4-snapshot extension). Method: char_times_half. Established at v3 plan execution.",
+  "method": "char_times_half",
+  "established_at": "2026-04-17",
+  "snapshots": {
+    "initial_question": {
+      "system_chars": 3020,
+      "user_chars": 42,
+      "total_chars": 3062,
+      "approx_tokens": 1531,
+      "budget": 200,
+      "fixture_id": "塾講師_seed_only"
+    },
+    "es_build": {
+      "system_chars": 3682,
+      "user_chars": 948,
+      "total_chars": 4630,
+      "approx_tokens": 2315,
+      "budget": 200,
+      "fixture_id": "学園祭_rough_2turn_v3"
+    },
+    "deep_dive": {
+      "system_chars": 2866,
+      "user_chars": 597,
+      "total_chars": 3463,
+      "approx_tokens": 1731,
+      "budget": 200,
+      "fixture_id": "学園祭_es_aftercare_2turn"
+    },
+    "draft_generation": {
+      "system_chars": 2527,
+      "user_chars": 272,
+      "total_chars": 2799,
+      "approx_tokens": 1399,
+      "budget": 200,
+      "fixture_id": "学園祭_char400_5expressions"
+    }
+  }
+}

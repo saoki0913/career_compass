@@ -3,13 +3,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.routers.motivation import NextQuestionRequest, _generate_next_question_progress
+from app.routers.motivation import NextQuestionRequest
+from app.routers.motivation_streaming import _generate_next_question_progress
 
 
 @pytest.mark.asyncio
 async def test_streaming_emits_only_final_canonical_question(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    captured_system_prompt: dict[str, str] = {}
+
     async def fake_company_context(*args, **kwargs):
         return (
             "顧客課題に向き合うDX支援と業務改革を進める。",
@@ -18,6 +21,7 @@ async def test_streaming_emits_only_final_canonical_question(
 
     async def fake_evaluate(*args, **kwargs):
         return {
+            "evaluation_status": "ok",
             "scores": {
                 "company_understanding": 32,
                 "self_analysis": 28,
@@ -31,6 +35,7 @@ async def test_streaming_emits_only_final_canonical_question(
         }
 
     async def fake_stream(*args, **kwargs):
+        captured_system_prompt["value"] = args[0] if args else kwargs.get("system_prompt", "")
         yield SimpleNamespace(type="string_chunk", path="question", text="入社後に")
         yield SimpleNamespace(type="string_chunk", path="question", text="何をしたいですか？")
         yield SimpleNamespace(
@@ -48,7 +53,7 @@ async def test_streaming_emits_only_final_canonical_question(
 
     monkeypatch.setattr("app.routers.motivation._get_company_context", fake_company_context)
     monkeypatch.setattr("app.routers.motivation._evaluate_motivation_internal", fake_evaluate)
-    monkeypatch.setattr("app.routers.motivation.call_llm_streaming_fields", fake_stream)
+    monkeypatch.setattr("app.routers.motivation_streaming.call_llm_streaming_fields", fake_stream)
 
     request = NextQuestionRequest(
         company_id="company_test",
@@ -65,7 +70,7 @@ async def test_streaming_emits_only_final_canonical_question(
             "selectedIndustry": "IT・通信",
             "selectedRole": "企画職",
             "industryReason": "複数の業界課題に関われるから",
-            "questionStage": "company_reason",
+            "questionStage": "industry_reason",
         },
         profile_context={"target_job_types": ["企画職"], "target_industries": ["IT・通信"]},
         application_job_candidates=["企画職"],
@@ -82,5 +87,6 @@ async def test_streaming_emits_only_final_canonical_question(
 
     assert complete_events
     canonical_question = complete_events[0]["data"]["question"]
-    assert canonical_question == "株式会社テストを志望先として考えるとき、どんな点に魅力を感じますか？"
+    # D-1 (P2-8): 選択型/機械的ペアリングを撤廃したフォールバック候補の 1 つ目
+    assert canonical_question == "株式会社テストの事業や取り組みで、気になっている点はありますか？"
     assert question_chunks == []

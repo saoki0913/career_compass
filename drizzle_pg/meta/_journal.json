@@ -113,6 +113,41 @@
       "when": 1774886400000,
       "tag": "0015_interview_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1775092500000,
+      "tag": "0016_interview_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1775097600000,
+      "tag": "0017_interview_v21",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1775559301000,
+      "tag": "0018_conversation_jsonb",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1776105600000,
+      "tag": "0019_calendar_deadline_improvements",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1776595200000,
+      "tag": "0020_calendar_refresh_token_issued_at",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,10 @@
+created: 2026-04-05T11:29:46.894Z
+updated: 2026-04-05T11:29:57.290Z
+update_count: 2
+last_field: diagram
+kind: nested-class
+title: next-route-handlers
+children:
+  - calendar-routes
+  - crud-routes
+parentPath: []

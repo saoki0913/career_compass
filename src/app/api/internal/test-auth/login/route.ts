@@ -1,39 +1,21 @@
-import { randomBytes, randomUUID, timingSafeEqual } from "crypto";
-import { eq } from "drizzle-orm";
 import { serializeSignedCookie } from "better-call";
 import { NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { auth } from "@/lib/auth";
 import {
   getBetterAuthSessionCookieAttributes,
   getBetterAuthSessionCookieName,
   isCiE2EAuthEnabled,
 } from "@/lib/auth/ci-e2e";
 import { db } from "@/lib/db";
-import { sessions, userProfiles, users } from "@/lib/db/schema";
-
-const DEFAULT_TEST_EMAIL = "ci-e2e-user@shupass.jp";
-const DEFAULT_TEST_NAME = "CI E2E User";
-
-function parseBearerSecret(request: NextRequest) {
-  const header = request.headers.get("authorization")?.trim();
-  if (!header?.startsWith("Bearer ")) {
-    return null;
-  }
-  return header.slice("Bearer ".length).trim();
-}
-
-function hasMatchingSecret(expected: string, actual: string | null) {
-  if (!actual) {
-    return false;
-  }
-
-  const expectedBuffer = Buffer.from(expected, "utf8");
-  const actualBuffer = Buffer.from(actual, "utf8");
-  if (expectedBuffer.length !== actualBuffer.length) {
-    return false;
-  }
-  return timingSafeEqual(expectedBuffer, actualBuffer);
-}
+import { sessions } from "@/lib/db/schema";
+import {
+  CI_E2E_SCOPE_HEADER,
+  ensureCiE2ETestUser,
+  hasMatchingSecret,
+  parseBearerSecret,
+} from "@/app/api/internal/test-auth/shared";
+import { eq } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
   const authSecret = process.env.CI_E2E_AUTH_SECRET?.trim();
@@ -48,7 +30,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  if (!hasMatchingSecret(authSecret, parseBearerSecret(request))) {
+  if (!hasMatchingSecret(authSecret, parseBearerSecret(request.headers.get("authorization")))) {
     return createApiErrorResponse(request, {
       status: 401,
       code: "CI_TEST_AUTH_UNAUTHORIZED",
@@ -58,93 +40,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const email = process.env.CI_E2E_TEST_EMAIL?.trim() || DEFAULT_TEST_EMAIL;
-    const name = process.env.CI_E2E_TEST_NAME?.trim() || DEFAULT_TEST_NAME;
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const ensuredUser = await ensureCiE2ETestUser(request.headers.get(CI_E2E_SCOPE_HEADER));
+    await db.delete(sessions).where(eq(sessions.userId, ensuredUser.userId));
 
-    const { userId, sessionToken } = await db.transaction(async (tx) => {
-      const [existingUser] = await tx.select().from(users).where(eq(users.email, email)).limit(1);
-      const resolvedUserId = existingUser?.id ?? randomUUID();
-
-      if (existingUser) {
-        await tx
-          .update(users)
-          .set({
-            name,
-            emailVerified: true,
-            updatedAt: now,
-          })
-          .where(eq(users.id, existingUser.id));
-      } else {
-        await tx.insert(users).values({
-          id: resolvedUserId,
-          email,
-          name,
-          emailVerified: true,
-          image: null,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-
-      const [existingProfile] = await tx
-        .select()
-        .from(userProfiles)
-        .where(eq(userProfiles.userId, resolvedUserId))
-        .limit(1);
-
-      if (existingProfile) {
-        await tx
-          .update(userProfiles)
-          .set({
-            plan: "free",
-            planSelectedAt: existingProfile.planSelectedAt ?? now,
-            onboardingCompleted: true,
-            updatedAt: now,
-          })
-          .where(eq(userProfiles.userId, resolvedUserId));
-      } else {
-        await tx.insert(userProfiles).values({
-          id: randomUUID(),
-          userId: resolvedUserId,
-          plan: "free",
-          planSelectedAt: now,
-          onboardingCompleted: true,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-
-      await tx.delete(sessions).where(eq(sessions.userId, resolvedUserId));
-
-      const token = randomBytes(32).toString("hex");
-
-      await tx.insert(sessions).values({
-        id: randomUUID(),
-        userId: resolvedUserId,
-        token,
-        expiresAt,
-        ipAddress:
-          request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-          request.headers.get("x-real-ip")?.trim() ??
-          "127.0.0.1",
-        userAgent: request.headers.get("user-agent") ?? "ci-e2e-auth",
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      return {
-        userId: resolvedUserId,
-        sessionToken: token,
-      };
-    });
+    const authContext = await auth.$context;
+    const session = await authContext.internalAdapter.createSession(ensuredUser.userId);
+    if (!session) {
+      throw new Error("Better Auth failed to create a session for the CI E2E user");
+    }
 
     const response = NextResponse.json({
       success: true,
       user: {
-        id: userId,
-        email,
+        id: ensuredUser.userId,
+        email: ensuredUser.email,
       },
     });
 
@@ -152,7 +61,7 @@ export async function POST(request: NextRequest) {
       "set-cookie",
       await serializeSignedCookie(
         getBetterAuthSessionCookieName(),
-        sessionToken,
+        session.token,
         betterAuthSecret,
         getBetterAuthSessionCookieAttributes()
       )

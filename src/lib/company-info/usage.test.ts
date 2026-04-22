@@ -48,7 +48,7 @@ describe("company-info usage schema fallback", () => {
 
     await expect(
       getRemainingMonthlyScheduleFreeFetchesSafe("user-1", "free"),
-    ).resolves.toBe(5);
+    ).resolves.toBe(10);
   });
 
   it("returns full limit when Drizzle wraps Postgres missing-column in error.cause", async () => {
@@ -71,7 +71,7 @@ describe("company-info usage schema fallback", () => {
 
     await expect(
       getRemainingMonthlyScheduleFreeFetchesSafe("user-1", "free"),
-    ).resolves.toBe(5);
+    ).resolves.toBe(10);
   });
 
   it("treats missing schedule column as a no-op when incrementing free usage", async () => {

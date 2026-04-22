@@ -54,8 +54,7 @@
 
 | 技術 | バージョン | 用途 |
 |-----|----------|------|
-| **Stripe** | 20.x | サブスクリプション決済 |
-| **@stripe/stripe-js** | 8.x | フロントエンド SDK |
+| **Stripe** | 20.x | サブスクリプション決済（サーバー SDK。Checkout/Portal は API セッション URL リダイレクト） |
 
 ---
 
@@ -81,12 +80,12 @@
 | 機能 | デフォルトモデル | 環境変数 |
 |------|----------------|----------|
 | ES添削 | Claude Sonnet 4.6 / GPT-5.4 / Gemini 3.1 Pro Preview | `MODEL_ES_REVIEW` |
-| ガクチカ深掘り | GPT-5.4 mini（`gpt-fast`） | `MODEL_GAKUCHIKA` |
-| 志望動機 | GPT-5.4 mini（`gpt-fast`） | `MODEL_MOTIVATION` |
-| 選考スケジュール抽出 | GPT-5.4 nano（`gpt-nano`） | `MODEL_SELECTION_SCHEDULE` |
+| ガクチカ深掘り | GPT-5.4 mini（`gpt-mini`） | `MODEL_GAKUCHIKA` |
+| 志望動機 | GPT-5.4 mini（`gpt-mini`） | `MODEL_MOTIVATION` |
+| 選考スケジュール抽出 | GPT-5.4 mini（`gpt-mini`） | `MODEL_SELECTION_SCHEDULE` |
 | 企業情報抽出 | GPT-5.4-mini | `MODEL_COMPANY_INFO` |
-| RAGクエリ拡張 | GPT-5.4 mini（`gpt-fast`） | `MODEL_RAG_QUERY_EXPANSION` |
-| RAG HyDE | GPT-5.4 mini（`gpt-fast`） | `MODEL_RAG_HYDE` |
+| RAGクエリ拡張 | GPT-5.4 mini（`gpt-mini`） | `MODEL_RAG_QUERY_EXPANSION` |
+| RAG HyDE | GPT-5.4 mini（`gpt-mini`） | `MODEL_RAG_HYDE` |
 | RAG再ランキング | ローカル CrossEncoder（LLM 不使用） | — |
 | RAG分類 | GPT-5.4 nano（`gpt-nano`） | `MODEL_RAG_CLASSIFY` |
 
@@ -209,7 +208,7 @@ RAG（Retrieval-Augmented Generation）のための検索システム。
 | **Stripe** | サブスクリプション管理 |
 
 **プラン:**
-- Standard: ¥1,480/月
+- Standard: ¥1,490/月
 - Pro: ¥2,980/月
 
 ### AI
@@ -233,7 +232,6 @@ RAG（Retrieval-Augmented Generation）のための検索システム。
   "@radix-ui/react-select": "^2.2.6",
   "@radix-ui/react-slot": "^1.2.4",
   "@radix-ui/react-switch": "^1.2.6",
-  "@stripe/stripe-js": "^8.6.4",
   "better-auth": "^1.4.17",
   "class-variance-authority": "^0.7.1",
   "clsx": "^2.1.1",

@@ -1,0 +1,1 @@
+User-visible route structure across the marketing site, auth and onboarding flows, the main product workspace, and standalone utility pages. It explains how navigation surfaces map to the repository's App Router folders.

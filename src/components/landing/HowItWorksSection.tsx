@@ -1,81 +1,59 @@
-import { landingMedia } from "./landing-media";
-import { ScreenPreview } from "./ScreenPreview";
-import { ScrollReveal } from "./ScrollReveal";
-
-const steps = [
-  {
-    number: "01",
-    title: "アカウント作成",
-    description: "Googleアカウントで30秒で登録。無料プランからすぐに始められます。",
-    image: landingMedia.heroDashboard,
-    label: "Start",
-  },
-  {
-    number: "02",
-    title: "企業を登録",
-    description:
-      "志望企業を登録して、ES添削、企業情報、締切管理をスタート。",
-    image: landingMedia.companies,
-    label: "Track",
-  },
-  {
-    number: "03",
-    title: "AIと一緒に進める",
-    description:
-      "ES添削、志望動機の深掘り、ガクチカ整理をAIがサポート。",
-    image: landingMedia.esReview,
-    label: "Review",
-  },
-] as const;
+import { LANDING_STEPS } from "@/lib/marketing/landing-steps";
+import { LandingSectionMotion } from "./LandingSectionMotion";
 
 export function HowItWorksSection() {
   return (
-    <section
-      id="how-it-works"
-      className="scroll-mt-24 border-t border-slate-200/80 bg-white/70 py-24 lg:scroll-mt-28 lg:py-32"
-    >
-      <div className="mx-auto max-w-6xl px-4">
-        <ScrollReveal>
-          <div className="mx-auto mb-14 max-w-3xl text-center">
-            <p className="text-sm font-semibold tracking-[0.18em] text-primary uppercase">
-              How it works
-            </p>
-            <h2 className="mt-4 text-balance text-3xl font-semibold tracking-[-0.05em] text-slate-950 sm:text-4xl lg:text-5xl">
-              3ステップで、すぐに始められます。
-            </h2>
-            <p className="mx-auto mt-6 max-w-2xl text-balance text-lg leading-8 text-slate-600">
-              アカウント作成から実際の添削開始まで、最短30秒で就活管理をスタートできます。
-            </p>
-          </div>
-        </ScrollReveal>
+    <section className="bg-white px-6 py-24 md:py-32" id="how-it-works">
+      <div className="mx-auto max-w-[1100px]">
+        <LandingSectionMotion className="mb-16 text-center md:mb-20">
+          <h2
+            className="text-3xl tracking-tight text-[var(--lp-navy)] md:text-[2.5rem]"
+            style={{ fontWeight: 800, lineHeight: 1.3 }}
+          >
+            3ステップでES添削AIを始める
+          </h2>
+          <p className="mx-auto mt-4 max-w-lg text-slate-500" style={{ lineHeight: 1.7 }}>
+            登録なしで AI 添削を試してから、続けて使うアカウント作成に進めます。
+          </p>
+        </LandingSectionMotion>
 
-        <div className="relative mx-auto max-w-5xl">
-          <div className="pointer-events-none absolute bottom-12 left-[38px] top-12 hidden w-px bg-[linear-gradient(180deg,rgba(96,165,250,0.55),rgba(191,219,254,0.15))] lg:block" />
-          {steps.map((step, index) => (
-            <ScrollReveal key={step.number} delay={index * 0.08}>
-              <div className="relative grid gap-5 py-4 lg:grid-cols-[84px_1fr_280px] lg:items-center lg:gap-8">
-                <div className="relative z-10 flex size-16 items-center justify-center rounded-[22px] border border-white/80 bg-[linear-gradient(180deg,#5ba8ff_0%,#2f6cff_100%)] text-2xl font-semibold tracking-tight text-white shadow-[0_24px_60px_-24px_rgba(37,99,235,0.8)] lg:size-[76px]">
-                  {step.number}
+        <div className="relative grid grid-cols-1 gap-0 md:grid-cols-3">
+          {/* Desktop connector line */}
+          <div className="absolute left-[16.66%] right-[16.66%] top-[38px] hidden h-px overflow-hidden md:block">
+            <div className="h-full bg-gradient-to-r from-[var(--lp-navy)]/20 via-[var(--lp-navy)]/30 to-[var(--lp-navy)]/20" />
+          </div>
+
+          {LANDING_STEPS.map((s, i) => (
+            <LandingSectionMotion key={s.label}>
+              <div className="relative flex flex-col items-center px-6 py-10 text-center md:py-0">
+                {/* Mobile connector */}
+                {i < LANDING_STEPS.length - 1 && (
+                  <div className="absolute bottom-0 left-1/2 h-5 w-px -translate-x-1/2 bg-slate-200 md:hidden" />
+                )}
+
+                <div className="relative mb-6">
+                  <div className="flex h-[76px] w-[76px] items-center justify-center rounded-2xl bg-[var(--lp-navy)] shadow-lg shadow-[var(--lp-navy)]/15">
+                    <s.Icon className="h-7 w-7 text-white" strokeWidth={1.5} />
+                  </div>
+                  <div
+                    className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-slate-100 bg-white text-xs text-[var(--lp-navy)] shadow-sm"
+                    style={{ fontWeight: 800 }}
+                  >
+                    {i + 1}
+                  </div>
                 </div>
-                <div className="rounded-[28px] border border-slate-200/80 bg-white/90 px-6 py-6 shadow-[0_24px_80px_-62px_rgba(15,23,42,0.4)]">
-                  <h3 className="text-xl font-semibold tracking-[-0.03em] text-slate-950">
-                    {step.title}
-                  </h3>
-                  <p className="mt-3 text-sm leading-7 text-slate-600 sm:text-[15px]">
-                    {step.description}
-                  </p>
-                </div>
-                <div className="rounded-[24px] border border-slate-200/80 bg-white/86 p-2 shadow-[0_24px_80px_-62px_rgba(59,130,246,0.34)]">
-                  <ScreenPreview
-                    src={step.image.src}
-                    alt={step.image.alt}
-                    label={step.label}
-                    className="rounded-[20px] border-0 bg-white"
-                    imageClassName="object-top"
-                  />
-                </div>
+
+                <h3
+                  className="mb-3 text-lg text-[var(--lp-navy)]"
+                  style={{ fontWeight: 700 }}
+                >
+                  {s.label}
+                </h3>
+                <p className="mx-auto max-w-[260px] text-sm text-slate-500" style={{ lineHeight: 1.7 }}>
+                  {s.description}
+                </p>
               </div>
-            </ScrollReveal>
+            </LandingSectionMotion>
           ))}
         </div>
       </div>

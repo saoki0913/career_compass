@@ -1,0 +1,376 @@
+{
+  "before_label": "baseline_20260418",
+  "after_label": "after_phase2_20260418",
+  "training_axes": {
+    "star_completeness": {
+      "before_mean": 5,
+      "after_mean": 5,
+      "delta": 0,
+      "pooled_sd": 0.0,
+      "delta_over_2sigma": 0.0,
+      "improved_with_2sigma": false,
+      "n_before": 15,
+      "n_after": 15
+    },
+    "user_fact_preservation": {
+      "before_mean": 4.8,
+      "after_mean": 5,
+      "delta": 0.2,
+      "pooled_sd": 0.283,
+      "delta_over_2sigma": 0.354,
+      "improved_with_2sigma": false,
+      "n_before": 15,
+      "n_after": 15
+    },
+    "logical_flow": {
+      "before_mean": 5,
+      "after_mean": 5,
+      "delta": 0,
+      "pooled_sd": 0.0,
+      "delta_over_2sigma": 0.0,
+      "improved_with_2sigma": false,
+      "n_before": 15,
+      "n_after": 15
+    },
+    "question_depth": {
+      "before_mean": 3.733,
+      "after_mean": 3.867,
+      "delta": 0.133,
+      "pooled_sd": 0.471,
+      "delta_over_2sigma": 0.141,
+      "improved_with_2sigma": false,
+      "n_before": 15,
+      "n_after": 15
+    },
+    "naturalness": {
+      "before_mean": 4.4,
+      "after_mean": 4.333,
+      "delta": -0.067,
+      "pooled_sd": 0.481,
+      "delta_over_2sigma": -0.069,
+      "improved_with_2sigma": false,
+      "n_before": 15,
+      "n_after": 15
+    }
+  },
+  "holdout_axes": {
+    "star_completeness": {
+      "before_mean": 4.889,
+      "after_mean": 5,
+      "delta": 0.111,
+      "pooled_sd": 0.222,
+      "delta_over_2sigma": 0.25,
+      "improved_with_2sigma": false,
+      "n_before": 9,
+      "n_after": 9
+    },
+    "user_fact_preservation": {
+      "before_mean": 4.889,
+      "after_mean": 5,
+      "delta": 0.111,
+      "pooled_sd": 0.222,
+      "delta_over_2sigma": 0.25,
+      "improved_with_2sigma": false,
+      "n_before": 9,
+      "n_after": 9
+    },
+    "logical_flow": {
+      "before_mean": 5,
+      "after_mean": 5,
+      "delta": 0,
+      "pooled_sd": 0.0,
+      "delta_over_2sigma": 0.0,
+      "improved_with_2sigma": false,
+      "n_before": 9,
+      "n_after": 9
+    },
+    "question_depth": {
+      "before_mean": 4.111,
+      "after_mean": 4.222,
+      "delta": 0.111,
+      "pooled_sd": 0.369,
+      "delta_over_2sigma": 0.151,
+      "improved_with_2sigma": false,
+      "n_before": 9,
+      "n_after": 9
+    },
+    "naturalness": {
+      "before_mean": 4.222,
+      "after_mean": 4.444,
+      "delta": 0.222,
+      "pooled_sd": 0.458,
+      "delta_over_2sigma": 0.243,
+      "improved_with_2sigma": false,
+      "n_before": 9,
+      "n_after": 9
+    }
+  },
+  "holdout_regressions": [],
+  "battery_d": {
+    "quote_retention": {
+      "before": 0.24,
+      "after": 0.263,
+      "delta": 0.022
+    },
+    "combined_fact_retention": {
+      "before": 0.544,
+      "after": 0.538,
+      "delta": -0.005
+    }
+  },
+  "pairwise": {
+    "pairs": [
+      {
+        "case_id": "gak_golden_01_seed_only",
+        "sample_idx": 0,
+        "winner": "tie",
+        "consistent_ab_ba": false,
+        "ab": {
+          "order": "AB",
+          "winner": "b",
+          "reason": "Bは設問への汎用性が高く、締めの学びまで自然に繋がる。Aはやや成果の列挙寄りで汎用化が弱い。"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "a",
+          "reason": "Bは事実の流れが自然で簡潔、成果も先に示されて要点が掴みやすい。Aはやや抽象的な総括が長い。"
+        }
+      },
+      {
+        "case_id": "gak_golden_01_seed_only",
+        "sample_idx": 1,
+        "winner": "tie",
+        "consistent_ab_ba": false,
+        "ab": {
+          "order": "AB",
+          "winner": "b",
+          "reason": "Bは成果後の学びまで自然につながり、設問意図への掘り下げがやや深い。Aは良いがやや説明的。"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "a",
+          "reason": "Bは冒頭で成果を示し、課題→施策→結果の流れも自然。Aはやや説明的で締めの一般化が冗長。"
+        }
+      },
+      {
+        "case_id": "gak_golden_01_seed_only",
+        "sample_idx": 2,
+        "winner": "after",
+        "consistent_ab_ba": false,
+        "ab": {
+          "order": "AB",
+          "winner": "b",
+          "reason": "Bは成果後の学びと汎用性まで述べ、STARがより完結。Aより自然でESとして深みがある。"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "tie",
+          "reason": "両者とも事実網羅と成果提示が十分で、構成・自然さも僅差で優劣を付けにくい"
+        }
+      },
+      {
+        "case_id": "gak_golden_05_es_draft_quality",
+        "sample_idx": 0,
+        "winner": "tie",
+        "consistent_ab_ba": false,
+        "ab": {
+          "order": "AB",
+          "winner": "b",
+          "reason": "Bは事実を過不足なく保ちつつ、対応の因果関係がより自然で読みやすい。"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "a",
+          "reason": "Bは体験の要点を過不足なく押さえ、対応→結果→学びの流れが自然。Aより締めの汎用性も高い。"
+        }
+      },
+      {
+        "case_id": "gak_golden_05_es_draft_quality",
+        "sample_idx": 1,
+        "winner": "tie",
+        "consistent_ab_ba": false,
+        "ab": {
+          "order": "AB",
+          "winner": "b",
+          "reason": "Bは事実を自然に保ちつつ、対応の同時並行性と学びがより明確で流れも滑らかです。"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "a",
+          "reason": "事実の過不足が少なく、対応→結果→学びの流れも自然でSTARがやや明快"
+        }
+      },
+      {
+        "case_id": "gak_golden_05_es_draft_quality",
+        "sample_idx": 2,
+        "winner": "tie",
+        "consistent_ab_ba": true,
+        "ab": {
+          "order": "AB",
+          "winner": "tie",
+          "reason": "両案とも事実反映・因果関係・自然さが高く、STARも十分に揃っていて優劣差が小さいため"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "tie",
+          "reason": "両案とも事実保持と流れは良好で差が小さい。Bはやや自然、Aはやや簡潔で、総合差は僅少です。"
+        }
+      },
+      {
+        "case_id": "gak_golden_02_rough_episode",
+        "sample_idx": 0,
+        "winner": "tie",
+        "consistent_ab_ba": false,
+        "ab": {
+          "order": "AB",
+          "winner": "b",
+          "reason": "Bは結論後の学びと志向まで自然に接続し、問われる深掘りにも強い。Aより流れが滑らかで完成度が高い。"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "a",
+          "reason": "事実の再現性が高く、対策の因果と学びが自然に連なる。Aはやや抽象的な言い換えが多い。"
+        }
+      },
+      {
+        "case_id": "gak_golden_02_rough_episode",
+        "sample_idx": 1,
+        "winner": "tie",
+        "consistent_ab_ba": false,
+        "ab": {
+          "order": "AB",
+          "winner": "b",
+          "reason": "Bの方が簡潔で事実の重複が少なく、流れも自然。Aはやや冗長で締めの一般論が重い。"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "a",
+          "reason": "Bの方が数値成果を冒頭で明示し、課題→施策→結果の流れが自然で簡潔。Aはやや冗長で締めも抽象的。"
+        }
+      },
+      {
+        "case_id": "gak_golden_02_rough_episode",
+        "sample_idx": 2,
+        "winner": "tie",
+        "consistent_ab_ba": false,
+        "ab": {
+          "order": "AB",
+          "winner": "b",
+          "reason": "Bは時系列が自然で因果関係も明確。Aは表現がやや硬く、総じてBが読みやすい。"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "a",
+          "reason": "Bは背景・課題・施策・成果が自然に連なり、事実も漏れなく保持。Aより主張の流れが滑らかで深さもある。"
+        }
+      },
+      {
+        "case_id": "gak_golden_04_blocked_focus",
+        "sample_idx": 0,
+        "winner": "after",
+        "consistent_ab_ba": true,
+        "ab": {
+          "order": "AB",
+          "winner": "b",
+          "reason": "Bの方が事実を自然に保ちつつ、課題→施策→成果の流れが滑らかで完成度が高い"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "b",
+          "reason": "Aは経験の学びを「曖昧さを可視化して合意に変える」と具体化し、結論まで自然に接続できている。"
+        }
+      },
+      {
+        "case_id": "gak_golden_04_blocked_focus",
+        "sample_idx": 1,
+        "winner": "before",
+        "consistent_ab_ba": true,
+        "ab": {
+          "order": "AB",
+          "winner": "a",
+          "reason": "Aは曖昧さの可視化など学びまで一段深く、STARも自然に完結している。"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "a",
+          "reason": "事実の保持は同等だが、Bは課題設定と打ち手の因果がより明快で自然な流れ。"
+        }
+      },
+      {
+        "case_id": "gak_golden_04_blocked_focus",
+        "sample_idx": 2,
+        "winner": "before",
+        "consistent_ab_ba": false,
+        "ab": {
+          "order": "AB",
+          "winner": "tie",
+          "reason": "両者とも事実反映とSTAR整理が十分で差が小さい。Aは学びが明快、Bは簡潔で自然だが決定打に欠ける。"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "a",
+          "reason": "事実の過不足がなく、流れも自然で成果まで一貫している。Aは「個人の能力だけでなく」がやや抽象的。"
+        }
+      },
+      {
+        "case_id": "gak_golden_03_approval_pattern",
+        "sample_idx": 0,
+        "winner": "tie",
+        "consistent_ab_ba": false,
+        "ab": {
+          "order": "AB",
+          "winner": "b",
+          "reason": "Bは事実保持が自然で、時系列と因果が明確。Aは『主導』『採用させた』がやや強く、言い回しが不自然。"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "a",
+          "reason": "Bは事実を保ちつつ簡潔で、行動→結果→学びの流れが自然。Aはやや重複と抽象的な締めがある。"
+        }
+      },
+      {
+        "case_id": "gak_golden_03_approval_pattern",
+        "sample_idx": 1,
+        "winner": "tie",
+        "consistent_ab_ba": false,
+        "ab": {
+          "order": "AB",
+          "winner": "b",
+          "reason": "Bは事実を忠実に保ちつつ、時系列と因果が自然で読みやすい。Aは「主導」などやや盛り気味で不自然さがある。"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "a",
+          "reason": "Bは成果と強みの結び付けが自然で、施策採用までの流れも明確。AよりややESらしい完成度が高い。"
+        }
+      },
+      {
+        "case_id": "gak_golden_03_approval_pattern",
+        "sample_idx": 2,
+        "winner": "tie",
+        "consistent_ab_ba": false,
+        "ab": {
+          "order": "AB",
+          "winner": "b",
+          "reason": "Bは事実の再現性が高く、手順の可視化→分担→自動化→成果の流れが自然で読みやすい。Aは「主導」などやや言い過ぎがある。"
+        },
+        "ba": {
+          "order": "BA",
+          "winner": "a",
+          "reason": "Bは主導・一貫担当を明示し、対処→成果→学びの流れが自然で説得力が高い。"
+        }
+      }
+    ],
+    "summary": {
+      "total_pairs": 15,
+      "win_after": 2,
+      "win_before": 2,
+      "tie": 11,
+      "winrate_after": 0.133,
+      "winrate_before": 0.133,
+      "tie_rate": 0.733,
+      "consistent_rate": 0.2,
+      "improved_with_winrate_threshold_0_8": false
+    }
+  }
+}

@@ -1,394 +1,79 @@
 "use client";
 
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
-import type { ProcessingStep } from "@/components/ui/EnhancedProcessingSteps";
 import { trackEvent } from "@/lib/analytics/client";
 import type { StandardESReviewModel } from "@/lib/ai/es-review-models";
 import { calculateESReviewCost } from "@/lib/credits/cost";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import type {
+  CurrentSectionInfo,
+  ReviewMode,
+  ReviewResult,
+  SSEEvent,
+  SSEProgressState,
+  TemplateSource,
+  TemplateType,
+  UseESReviewOptions,
+  UseESReviewReturn,
+} from "./es-review/types";
+import { createSSESteps } from "./es-review/sse-steps";
+import { consumeESReviewStream } from "./es-review/transport";
+import {
+  createVisibleSource,
+  derivePlaybackPhase,
+  EMPTY_PLAYBACK_REVIEW,
+  EMPTY_RECEIVED_REVIEW,
+  getReduceMotionPreference,
+  getRewriteCadence,
+  getSourcePlaybackStage,
+  isVisibleSourceSettled,
+  mergeStreamedItems,
+  type ReceivedReviewState,
+  upsertStreamItem,
+} from "./es-review/playback";
 
-export interface SectionData {
-  title: string;
-  content: string;
-  charLimit?: number;
-}
+export type {
+  CurrentSectionInfo,
+  ReviewMode,
+  ReviewPlaybackPhase,
+  ReviewResult,
+  SectionData,
+  SSEArrayItemCompleteEvent,
+  SSEChunkEvent,
+  SSECompleteEvent,
+  SSEErrorEvent,
+  SSEEvent,
+  SSEFieldCompleteEvent,
+  SSEProgressEvent,
+  SSEProgressState,
+  SSEStringChunkEvent,
+  TemplateReview,
+  TemplateSource,
+  TemplateType,
+  TemplateVariant,
+  UseESReviewOptions,
+  UseESReviewReturn,
+  VisibleTemplateSource,
+} from "./es-review/types";
 
-export type ReviewMode = "standard";
-
-export type TemplateType =
-  | "basic"
-  | "company_motivation"
-  | "intern_reason"
-  | "intern_goals"
-  | "gakuchika"
-  | "self_pr"
-  | "post_join_goals"
-  | "role_course_reason"
-  | "work_values";
-
-export const TEMPLATE_LABELS: Record<TemplateType, string> = {
-  basic: "汎用ES添削",
-  company_motivation: "志望理由",
-  intern_reason: "インターン志望理由",
-  intern_goals: "インターンでやりたいこと・学びたいこと",
-  gakuchika: "ガクチカ",
-  self_pr: "自己PR",
-  post_join_goals: "入社してからやりたいこと",
-  role_course_reason: "職種・コースを選択した理由",
-  work_values: "働くうえで大切にしている価値観",
-};
-
-export const TEMPLATE_OPTIONS: { value: TemplateType; label: string }[] = [
-  { value: "company_motivation", label: "志望理由" },
-  { value: "intern_reason", label: "インターン志望理由" },
-  { value: "intern_goals", label: "インターンでやりたいこと・学びたいこと" },
-  { value: "gakuchika", label: "ガクチカ" },
-  { value: "self_pr", label: "自己PR" },
-  { value: "post_join_goals", label: "入社してからやりたいこと" },
-  { value: "role_course_reason", label: "職種・コースを選択した理由" },
-  { value: "work_values", label: "働くうえで大切にしている価値観" },
-];
-
-export const TEMPLATE_EXTRA_FIELDS: Record<TemplateType, string[]> = {
-  basic: [],
-  company_motivation: [],
-  intern_reason: ["intern_name"],
-  intern_goals: ["intern_name"],
-  gakuchika: [],
-  self_pr: [],
-  post_join_goals: [],
-  role_course_reason: [],
-  work_values: [],
-};
-
-export const EXTRA_FIELD_LABELS: Record<string, string> = {
-  intern_name: "インターン名",
-  role_name: "職種・コース名",
-};
-
-export interface TemplateVariant {
-  text: string;
-  char_count: number;
-  pros: string[];
-  cons: string[];
-  keywords_used: string[];
-  keyword_sources: string[];
-}
-
-export interface TemplateSource {
-  source_id: string;
-  source_url: string;
-  content_type: string;
-  content_type_label?: string;
-  title?: string;
-  domain?: string;
-  excerpt?: string;
-}
-
-export interface TemplateReview {
-  template_type: TemplateType;
-  variants: TemplateVariant[];
-  keyword_sources: TemplateSource[];
-}
-
-export interface ReviewResult {
-  rewrites: string[];
-  template_review?: TemplateReview;
-  review_meta?: {
-    llm_provider?: string;
-    llm_model?: string | null;
-    llm_model_alias?: string | null;
-    review_variant?: string;
-    grounding_mode?: "role_grounded" | "company_general" | "none";
-    primary_role?: string;
-    role_source?: string;
-    triggered_enrichment?: boolean;
-    enrichment_completed?: boolean;
-    enrichment_sources_added?: number;
-    reference_es_count?: number;
-    reference_es_mode?: string;
-    reference_quality_profile_used?: boolean;
-    reference_outline_used?: boolean;
-    reference_hint_count?: number;
-    reference_conditional_hints_applied?: boolean;
-    reference_profile_variance?: "low" | "medium" | "high" | null;
-    company_grounding_policy?: "required" | "assistive";
-    company_evidence_count?: number;
-    evidence_coverage_level?: "none" | "weak" | "partial" | "strong";
-    weak_evidence_notice?: boolean;
-    injection_risk?: string | null;
-    user_context_sources?: string[];
-    hallucination_guard_mode?: "strict";
-    rewrite_attempt_count?: number;
-    length_policy?: "strict" | "soft_ok";
-    length_shortfall?: number;
-    soft_min_floor_ratio?: number | null;
-    length_fix_attempted?: boolean;
-    length_fix_result?: "not_needed" | "strict_recovered" | "soft_recovered" | "failed";
-    rewrite_validation_status?: "strict_ok" | "soft_ok" | "degraded";
-    rewrite_validation_codes?: string[];
-    rewrite_validation_user_hint?: string | null;
-  };
-}
-
-export interface UseESReviewOptions {
-  documentId: string;
-  /** Free のとき ES 添削の見積クレジットをプレミアム帯に合わせる（サーバと一致させる） */
-  esReviewBillingPlan?: "free" | "standard" | "pro";
-}
-
-export interface CurrentSectionInfo {
-  title: string;
-  charLimit?: number;
-}
-
-export interface SSEProgressState {
-  currentStep: string | null;
-  progress: number;
-  steps: ProcessingStep[];
-  isStreaming: boolean;
-}
-
-export interface SSEProgressEvent {
-  type: "progress";
-  step: string;
-  progress: number;
-  label?: string;
-  subLabel?: string;
-}
-
-export interface SSECompleteEvent {
-  type: "complete";
-  result: ReviewResult;
-  creditCost?: number;
-}
-
-export interface SSEErrorEvent {
-  type: "error";
-  message: string;
-  error_type?: string;
-}
-
-export interface SSEFieldCompleteEvent {
-  type: "field_complete";
-  path: string;
-  value: unknown;
-}
-
-export interface SSEArrayItemCompleteEvent {
-  type: "array_item_complete";
-  path: string;
-  value: unknown;
-}
-
-export interface SSEChunkEvent {
-  type: "chunk";
-  text: string;
-}
-
-export interface SSEStringChunkEvent {
-  type: "string_chunk";
-  path: string;
-  text: string;
-}
-
-export type SSEEvent =
-  | SSEProgressEvent
-  | SSECompleteEvent
-  | SSEErrorEvent
-  | SSEFieldCompleteEvent
-  | SSEArrayItemCompleteEvent
-  | SSEChunkEvent
-  | SSEStringChunkEvent;
-
-interface ReceivedReviewState {
-  keywordSources: TemplateSource[];
-  rewriteText: string;
-}
-
-export interface VisibleTemplateSource extends TemplateSource {
-  isSettled: boolean;
-}
-
-interface PlaybackReviewState {
-  visibleRewriteText: string;
-  visibleSources: VisibleTemplateSource[];
-}
-
-export type ReviewPlaybackPhase = "idle" | "rewrite" | "sources" | "complete";
-
-export interface UseESReviewReturn {
-  review: ReviewResult | null;
-  visibleRewriteText: string;
-  visibleSources: VisibleTemplateSource[];
-  finalRewriteText: string;
-  playbackPhase: ReviewPlaybackPhase;
-  isPlaybackComplete: boolean;
-  isLoading: boolean;
-  error: string | null;
-  creditCost: number | null;
-  currentSection: CurrentSectionInfo | null;
-  cancelReview: () => void;
-  isCancelling: boolean;
-  elapsedTime: number;
-  sseProgress: SSEProgressState;
-  requestSectionReview: (params: {
-    sectionTitle: string;
-    sectionContent: string;
-    sectionCharLimit?: number;
-    hasCompanyRag?: boolean;
-    companyId?: string;
-    templateType?: TemplateType;
-    internName?: string;
-    roleName?: string;
-    industryOverride?: string;
-    roleSelectionSource?: string;
-    reviewMode?: ReviewMode;
-    llmModel?: StandardESReviewModel;
-  }) => Promise<boolean>;
-  clearReview: () => void;
-}
-
-const DEFAULT_SSE_STEPS: ProcessingStep[] = [
-  { id: "validation", label: "入力内容を確認中...", subLabel: "設問と条件をチェック", duration: 1000 },
-  { id: "rag_fetch", label: "企業情報を取得中...", subLabel: "関連情報を絞り込んでいます", duration: 8000 },
-  { id: "analysis", label: "設問を分析中...", subLabel: "回答の土台を整えています", duration: 10000 },
-  { id: "rewrite", label: "改善案を作成中...", subLabel: "伝わり方を整えています", duration: 8000 },
-  { id: "sources", label: "出典リンクを整理しています...", subLabel: "関連情報を最後に添えています", duration: 2000 },
-];
-
-function createSSESteps(): ProcessingStep[] {
-  return DEFAULT_SSE_STEPS.map((step) => ({ ...step }));
-}
-
-const EMPTY_RECEIVED_REVIEW: ReceivedReviewState = {
-  keywordSources: [],
-  rewriteText: "",
-};
-
-const EMPTY_PLAYBACK_REVIEW: PlaybackReviewState = {
-  visibleRewriteText: "",
-  visibleSources: [],
-};
-
-function mergeStreamedItems<T>(streamedItems: T[], finalItems: T[]): T[] {
-  if (streamedItems.length === 0) {
-    return finalItems;
-  }
-
-  if (finalItems.length === 0) {
-    return streamedItems;
-  }
-
-  const nextItems = [...streamedItems];
-  for (let index = streamedItems.length; index < finalItems.length; index += 1) {
-    nextItems[index] = finalItems[index];
-  }
-  return nextItems;
-}
-
-function upsertStreamItem<T>(items: T[], path: string, value: T): T[] {
-  const index = Number.parseInt(path.split(".").at(-1) ?? "", 10);
-  if (!Number.isFinite(index) || index < 0) {
-    return [...items, value];
-  }
-
-  const nextItems = [...items];
-  nextItems[index] = value;
-  return nextItems.filter((item): item is T => item !== undefined);
-}
-
-function getRewriteCadence(targetText: string, currentLength: number) {
-  const remaining = targetText.length - currentLength;
-  const nextChunk = targetText.slice(currentLength, currentLength + 6);
-  const hasHardPause = /[。！？]/.test(nextChunk);
-  const hasSoftPause = /[、，：]/.test(nextChunk);
-
-  return {
-    step: remaining > 220 ? 8 : remaining > 120 ? 6 : 3,
-    delay: hasHardPause ? 110 : hasSoftPause ? 78 : 48,
-  };
-}
-
-function getReduceMotionPreference() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-function derivePlaybackPhase(
-  review: ReviewResult | null,
-  playback: PlaybackReviewState,
-  received: ReceivedReviewState,
-  isLoading: boolean,
-): ReviewPlaybackPhase {
-  const hasVisibleContent =
-    playback.visibleRewriteText.length > 0 || playback.visibleSources.length > 0;
-
-  if (!isLoading && !review && !hasVisibleContent) {
-    return "idle";
-  }
-
-  if (
-    isLoading ||
-    playback.visibleRewriteText.length < received.rewriteText.length ||
-    (received.rewriteText.length === 0 && !review)
-  ) {
-    return "rewrite";
-  }
-
-  const sourcesSettled =
-    playback.visibleSources.length >= received.keywordSources.length &&
-    playback.visibleSources.every((source, index) => {
-      const targetSource = received.keywordSources[index];
-      return targetSource ? isVisibleSourceSettled(source, targetSource) : true;
-    });
-
-  if (!sourcesSettled) {
-    return "sources";
-  }
-
-  return review ? "complete" : "sources";
-}
-
-function createVisibleSource(source: TemplateSource): VisibleTemplateSource {
-  return {
-    ...source,
-    excerpt: "",
-    isSettled: !(source.excerpt ?? "").length,
-  };
-}
-
-function isVisibleSourceSettled(visible: VisibleTemplateSource, target: TemplateSource): boolean {
-  return (visible.excerpt ?? "") === (target.excerpt ?? "");
-}
-
-function getSourcePlaybackStage(visible: VisibleTemplateSource, target: TemplateSource) {
-  const targetValue = target.excerpt ?? "";
-  const currentValue = visible.excerpt ?? "";
-
-  if (currentValue.length < targetValue.length) {
-    return {
-      key: "excerpt" as const,
-      currentValue,
-      targetValue,
-    };
-  }
-
-  return null;
-}
+export {
+  EXTRA_FIELD_LABELS,
+  TEMPLATE_EXTRA_FIELDS,
+  TEMPLATE_LABELS,
+  TEMPLATE_OPTIONS,
+} from "./es-review/template-meta";
 
 export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOptions): UseESReviewReturn {
   const [review, setReview] = useState<ReviewResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorAction, setErrorAction] = useState<string | null>(null);
   const [creditCost, setCreditCost] = useState<number | null>(null);
   const [currentSection, setCurrentSection] = useState<CurrentSectionInfo | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [receivedReview, setReceivedReview] = useState<ReceivedReviewState>(EMPTY_RECEIVED_REVIEW);
-  const [playbackReview, setPlaybackReview] = useState<PlaybackReviewState>(EMPTY_PLAYBACK_REVIEW);
+  const [playbackReview, setPlaybackReview] = useState(EMPTY_PLAYBACK_REVIEW);
   const [sseProgress, setSSEProgress] = useState<SSEProgressState>({
     currentStep: null,
     progress: 0,
@@ -414,19 +99,6 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
     }
   }, [isLoading]);
 
-  const parseSSEEvent = useCallback((text: string): SSEEvent | null => {
-    try {
-      const dataMatch = text.match(/^data:\s*(.+)$/m);
-      if (!dataMatch) {
-        return null;
-      }
-      return JSON.parse(dataMatch[1]) as SSEEvent;
-    } catch {
-      console.warn("Failed to parse SSE event:", text);
-      return null;
-    }
-  }, []);
-
   const resetStreamingState = useCallback(() => {
     setReceivedReview(EMPTY_RECEIVED_REVIEW);
     setPlaybackReview(EMPTY_PLAYBACK_REVIEW);
@@ -448,6 +120,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
     clearTimer();
     setReview(null);
     setError(null);
+    setErrorAction(null);
     setCreditCost(null);
     setCurrentSection(null);
     setIsLoading(false);
@@ -491,6 +164,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
       setReview(null);
       setIsLoading(true);
       setError(null);
+      setErrorAction(null);
       setCreditCost(null);
       setIsCancelling(false);
       setElapsedTime(0);
@@ -556,6 +230,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
 
           if (response.status === 402) {
             setError("クレジットが不足しています。プランのアップグレードまたはクレジットの追加購入をご検討ください。");
+            setErrorAction(null);
             trackEvent("ai_review_error", {
               status: 402,
               reviewMode: effectiveReviewMode,
@@ -577,6 +252,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
             "useESReview.requestSectionReview"
           );
           setError(uiError.message);
+          setErrorAction(uiError.action ?? null);
           trackEvent("ai_review_error", {
             status: response.status,
             reviewMode: effectiveReviewMode,
@@ -585,39 +261,11 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
           return false;
         }
 
-        const reader = response.body?.getReader();
-        if (!reader) {
-          setError("ストリーミングがサポートされていません");
-          return false;
-        }
-
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let receivedComplete = false;
-
-        while (true) {
-          const { done, value } = await reader.read();
-
-          if (!isActiveRequest()) {
-            return false;
-          }
-
-          if (done) {
-            break;
-          }
-
-          buffer += decoder.decode(value, { stream: true });
-          const events = buffer.split("\n\n");
-          buffer = events.pop() || "";
-
-          for (const eventText of events) {
-            if (!eventText.trim()) {
-              continue;
-            }
-
-            const event = parseSSEEvent(eventText);
-            if (!event || !isActiveRequest()) {
-              continue;
+        const streamResult = await consumeESReviewStream({
+          response,
+          onEvent(event: SSEEvent) {
+            if (!isActiveRequest()) {
+              return;
             }
 
             switch (event.type) {
@@ -642,9 +290,20 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
                   setReceivedReview((prev) => ({
                     ...prev,
                     rewriteText:
-                      rewriteText.length > prev.rewriteText.length
-                        ? rewriteText
-                        : prev.rewriteText,
+                      rewriteText.length > prev.rewriteText.length ? rewriteText : prev.rewriteText,
+                  }));
+                } else if (
+                  event.path === "improvement_explanation" &&
+                  typeof event.value === "string"
+                ) {
+                  const explanationText = event.value;
+                  setReceivedReview((prev) => ({
+                    ...prev,
+                    explanationText:
+                      explanationText.length > prev.explanationText.length
+                        ? explanationText
+                        : prev.explanationText,
+                    explanationComplete: true,
                   }));
                 }
                 break;
@@ -653,11 +312,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
                 if (event.path.startsWith("keyword_sources.")) {
                   setReceivedReview((prev) => ({
                     ...prev,
-                    keywordSources: upsertStreamItem(
-                      prev.keywordSources,
-                      event.path,
-                      event.value as TemplateSource,
-                    ),
+                    keywordSources: upsertStreamItem(prev.keywordSources, event.path, event.value as TemplateSource),
                   }));
                 }
                 break;
@@ -668,68 +323,80 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
                     ...prev,
                     rewriteText: prev.rewriteText + event.text,
                   }));
+                } else if (event.path === "improvement_explanation") {
+                  setReceivedReview((prev) => ({
+                    ...prev,
+                    explanationText: prev.explanationText + event.text,
+                  }));
                 }
                 break;
 
-              case "complete":
-                receivedComplete = true;
-                setReview(event.result);
-                setCreditCost(event.creditCost ?? expectedCreditCost);
-                setReceivedReview((prev) => {
-                  const finalRewrite = event.result.rewrites[0] ?? prev.rewriteText;
-                  const finalSources = event.result.template_review?.keyword_sources ?? [];
-                  return {
-                    keywordSources: mergeStreamedItems(prev.keywordSources, finalSources),
-                    rewriteText:
-                      finalRewrite.length > prev.rewriteText.length
-                        ? finalRewrite
-                        : prev.rewriteText,
-                  };
-                });
-                trackEvent("ai_review_complete", {
-                  templateType: params.templateType ?? null,
-                  creditCost: event.creditCost ?? expectedCreditCost,
-                  reviewMode: effectiveReviewMode,
-                });
-                setSSEProgress((prev) => ({
-                  ...prev,
-                  progress: 100,
-                  isStreaming: false,
-                }));
-                return true;
-
-              case "error":
-                setError(
-                  toAppUiError(
-                    new Error(event.message),
-                    {
-                      code: "ES_REVIEW_STREAM_FAILED",
-                      userMessage: "添削処理を完了できませんでした。",
-                      action: "時間を置いて、もう一度お試しください。",
-                      retryable: true,
-                    },
-                    "useESReview.sseError"
-                  ).message
-                );
-                trackEvent("ai_review_error", { reviewMode: effectiveReviewMode });
-                return false;
-
               case "chunk":
+              case "complete":
+              case "error":
                 break;
             }
-          }
-        }
+          },
+        });
 
-        if (!receivedComplete) {
-          setError("添削結果を受信できませんでした");
+        if (!isActiveRequest()) {
           return false;
         }
 
+        if (!streamResult.ok) {
+          if (streamResult.reason === "stream_error") {
+            const streamUiError = toAppUiError(
+              new Error(streamResult.message),
+              {
+                code: "ES_REVIEW_STREAM_FAILED",
+                userMessage: "添削処理を完了できませんでした。",
+                action: "時間を置いて、もう一度お試しください。",
+                retryable: true,
+              },
+              "useESReview.sseError",
+            );
+            setError(streamUiError.message);
+            setErrorAction(streamUiError.action ?? null);
+            trackEvent("ai_review_error", { reviewMode: effectiveReviewMode });
+            return false;
+          }
+
+          setError(streamResult.message);
+          setErrorAction(null);
+          return false;
+        }
+
+        setReview(streamResult.result);
+        setCreditCost(streamResult.creditCost ?? expectedCreditCost);
+        setReceivedReview((prev) => {
+          const finalRewrite = streamResult.result.rewrites[0] ?? prev.rewriteText;
+          const finalSources = streamResult.result.template_review?.keyword_sources ?? [];
+          return {
+            keywordSources: mergeStreamedItems(prev.keywordSources, finalSources),
+            explanationText:
+              streamResult.result.improvement_explanation ?? prev.explanationText,
+            explanationComplete:
+              prev.explanationComplete || Boolean(streamResult.result.improvement_explanation),
+            rewriteText:
+              finalRewrite.length > prev.rewriteText.length ? finalRewrite : prev.rewriteText,
+          };
+        });
+        trackEvent("ai_review_complete", {
+          templateType: params.templateType ?? null,
+          creditCost: streamResult.creditCost ?? expectedCreditCost,
+          reviewMode: effectiveReviewMode,
+        });
+        setSSEProgress((prev) => ({
+          ...prev,
+          progress: 100,
+          isStreaming: false,
+        }));
         return true;
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {
           if (isActiveRequest()) {
             setError(null);
+            setErrorAction(null);
             setIsCancelling(false);
           }
           return false;
@@ -747,6 +414,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
             "useESReview.requestSectionReview"
           );
           setError(uiError.message);
+          setErrorAction(uiError.action ?? null);
           trackEvent("ai_review_error", {
             reviewMode: effectiveReviewMode,
             errorCode: uiError.code,
@@ -765,7 +433,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
         abortControllerRef.current = null;
       }
     },
-    [clearTimer, documentId, esReviewBillingPlan, parseSSEEvent],
+    [clearTimer, documentId, esReviewBillingPlan],
   );
 
   useEffect(() => {
@@ -801,6 +469,42 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
 
     return () => window.clearTimeout(timer);
   }, [playbackReview.visibleRewriteText, receivedReview.rewriteText]);
+
+  useEffect(() => {
+    const targetText = receivedReview.explanationText;
+    const visibleText = playbackReview.visibleExplanationText;
+
+    if (!targetText || visibleText.length >= targetText.length) {
+      return;
+    }
+
+    if (getReduceMotionPreference()) {
+      startTransition(() => {
+        setPlaybackReview((prev) => ({
+          ...prev,
+          visibleExplanationText: targetText,
+        }));
+      });
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      startTransition(() => {
+        setPlaybackReview((prev) => {
+          const nextLength = Math.min(
+            targetText.length,
+            prev.visibleExplanationText.length + 2,
+          );
+          return {
+            ...prev,
+            visibleExplanationText: targetText.slice(0, nextLength),
+          };
+        });
+      });
+    }, 15);
+
+    return () => window.clearTimeout(timer);
+  }, [playbackReview.visibleExplanationText, receivedReview.explanationText]);
 
   useEffect(() => {
     const rewriteSettled =
@@ -962,12 +666,15 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
   return {
     review,
     visibleRewriteText: playbackReview.visibleRewriteText,
+    explanationText: playbackReview.visibleExplanationText,
+    explanationComplete: receivedReview.explanationComplete,
     visibleSources: playbackReview.visibleSources,
     finalRewriteText,
     playbackPhase,
     isPlaybackComplete,
     isLoading,
     error,
+    errorAction,
     creditCost,
     currentSection,
     cancelReview,

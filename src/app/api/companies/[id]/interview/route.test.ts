@@ -17,7 +17,7 @@ vi.mock("@/app/api/_shared/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
 
-vi.mock("./shared", () => ({
+vi.mock(".", () => ({
   buildInterviewContext: buildInterviewContextMock,
 }));
 

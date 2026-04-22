@@ -42,6 +42,27 @@ function makeThenableQuery(result: unknown) {
   return query as Query;
 }
 
+describe("normalizeGakuchikaListConversationStatus", () => {
+  it("accepts in_progress and completed", async () => {
+    const { normalizeGakuchikaListConversationStatus } = await import("@/app/api/gakuchika/route");
+    expect(normalizeGakuchikaListConversationStatus("in_progress", 0)).toBe("in_progress");
+    expect(normalizeGakuchikaListConversationStatus("completed", 0)).toBe("completed");
+  });
+
+  it("returns null when no valid status and no questions", async () => {
+    const { normalizeGakuchikaListConversationStatus } = await import("@/app/api/gakuchika/route");
+    expect(normalizeGakuchikaListConversationStatus(null, 0)).toBe(null);
+    expect(normalizeGakuchikaListConversationStatus("", 0)).toBe(null);
+    expect(normalizeGakuchikaListConversationStatus("bogus", 0)).toBe(null);
+  });
+
+  it("falls back to in_progress when questionCount>0", async () => {
+    const { normalizeGakuchikaListConversationStatus } = await import("@/app/api/gakuchika/route");
+    expect(normalizeGakuchikaListConversationStatus(null, 3)).toBe("in_progress");
+    expect(normalizeGakuchikaListConversationStatus("bogus", 1)).toBe("in_progress");
+  });
+});
+
 describe("api/gakuchika", () => {
   beforeEach(() => {
     getRequestIdentityMock.mockReset();
@@ -49,34 +70,54 @@ describe("api/gakuchika", () => {
     dbInsertMock.mockReset();
   });
 
-  it("loads latest conversations in the main contents query", async () => {
+  it("loads latest conversations via batch fetch and normalizes status", async () => {
     const profile = [{ plan: "free" }];
     const contents = [
       {
         id: "gk-1",
         userId: "user-1",
         guestId: null,
+        title: "T1",
+        content: "C1",
+        charLimitType: "400" as const,
         summary: "summary-1",
+        linkedCompanyIds: null,
         sortOrder: 0,
+        createdAt: new Date("2026-03-01T00:00:00.000Z"),
         updatedAt: new Date("2026-03-02T00:00:00.000Z"),
-        conversationStatus: "done",
-        conversationStarScores: JSON.stringify({ situation: 2, task: 2, action: 2, result: 2 }),
-        conversationQuestionCount: 4,
       },
       {
         id: "gk-2",
         userId: "user-1",
         guestId: null,
+        title: "T2",
+        content: "C2",
+        charLimitType: "400" as const,
         summary: "summary-2",
+        linkedCompanyIds: null,
         sortOrder: 1,
+        createdAt: new Date("2026-03-01T00:00:00.000Z"),
         updatedAt: new Date("2026-03-03T00:00:00.000Z"),
-        conversationStatus: "active",
-        conversationStarScores: null,
-        conversationQuestionCount: 1,
+      },
+    ];
+    const conversations = [
+      {
+        gakuchikaId: "gk-1",
+        status: "completed",
+        starScores: JSON.stringify({ stage: "interview_ready" }),
+        questionCount: 4,
+        updatedAt: new Date("2026-03-02T00:00:00.000Z"),
+      },
+      {
+        gakuchikaId: "gk-2",
+        status: "in_progress",
+        starScores: null,
+        questionCount: 1,
+        updatedAt: new Date("2026-03-03T00:00:00.000Z"),
       },
     ];
 
-    const selectResults = [profile, contents];
+    const selectResults = [profile, contents, conversations];
     let selectCallIndex = 0;
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     dbSelectMock.mockImplementation(() => ({
@@ -90,11 +131,51 @@ describe("api/gakuchika", () => {
 
     expect(response.status).toBe(200);
     expect(data.gakuchikas).toHaveLength(2);
-    expect(data.gakuchikas[0].conversationStatus).toBe("done");
+    expect(data.gakuchikas[0].conversationStatus).toBe("completed");
     expect(data.gakuchikas[0].questionCount).toBe(4);
-    expect(data.gakuchikas[1].conversationStatus).toBe("active");
+    expect(data.gakuchikas[1].conversationStatus).toBe("in_progress");
     expect(getRequestIdentityMock).toHaveBeenCalledWith(request);
-    expect(dbSelectMock).toHaveBeenCalledTimes(2);
+    expect(dbSelectMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("infers in_progress when questionCount>0 but raw status is invalid", async () => {
+    const profile = [{ plan: "free" }];
+    const contents = [
+      {
+        id: "gk-x",
+        userId: "user-1",
+        guestId: null,
+        title: "T",
+        content: "C",
+        charLimitType: "400" as const,
+        summary: null,
+        linkedCompanyIds: null,
+        sortOrder: 0,
+        createdAt: new Date("2026-03-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-02T00:00:00.000Z"),
+      },
+    ];
+    const conversations = [
+      {
+        gakuchikaId: "gk-x",
+        status: "bogus",
+        starScores: null,
+        questionCount: 2,
+        updatedAt: new Date("2026-03-02T00:00:00.000Z"),
+      },
+    ];
+    const selectResults = [profile, contents, conversations];
+    let selectCallIndex = 0;
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    dbSelectMock.mockImplementation(() => ({
+      from: vi.fn(() => makeThenableQuery(selectResults[selectCallIndex++] ?? [])),
+    }));
+
+    const { GET } = await import("@/app/api/gakuchika/route");
+    const response = await GET(new NextRequest("http://localhost:3000/api/gakuchika"));
+    const data = await response.json();
+    expect(data.gakuchikas[0].conversationStatus).toBe("in_progress");
+    expect(data.gakuchikas[0].questionCount).toBe(2);
   });
 
   it("creates a gakuchika for an authenticated user resolved via shared request identity", async () => {

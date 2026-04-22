@@ -4,6 +4,16 @@ Gakuchika (学生時代に力を入れたこと) router.
 The authoring flow is split into:
 - ES build: collect enough material to write a credible ES draft quickly
 - Deep dive: after the draft exists, sharpen the story for interviews
+
+Orchestration responsibilities that live in this module:
+- Request / response Pydantic models (``NextQuestionRequest``, …)
+- REST + SSE handlers (``get_next_question``, ``get_next_question_stream``,
+  ``generate_structured_summary``, ``generate_es_draft``)
+- Phase detection (``_determine_deepdive_phase``) and diagnostic tagging
+  (``_build_draft_diagnostics``) — these are handler-side responsibilities
+  per the Phase A.4 architecture gate decision
+- Wiring between text helpers, evaluators, normalization and prompt
+  templates (thin delegation wrappers preserved for test compatibility)
 """
 
 from __future__ import annotations
@@ -13,22 +23,66 @@ import random
 import re
 from typing import Any, AsyncGenerator, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+from app.security.career_principal import (
+    CareerPrincipal,
+    require_career_principal,
+)
+from app.security.sse_concurrency import (
+    SseConcurrencyExceeded,
+    SseLease,
+)
 
 from app.limiter import limiter
 from app.prompts.gakuchika_prompts import (
     DEEPDIVE_QUESTION_PRINCIPLES,
-    ES_BUILD_AND_QUESTION_PROMPT,
-    ES_BUILD_QUESTION_PRINCIPLES,
-    GAKUCHIKA_DRAFT_PROMPT,
-    INITIAL_QUESTION_PROMPT,
-    PROHIBITED_EXPRESSIONS as _PROHIBITED_EXPRESSIONS,
-    QUESTION_TONE_AND_ALIGNMENT_RULES,
+    INITIAL_QUESTION_USER_MESSAGE,
     REFERENCE_GUIDE_RUBRIC,
-    STAR_EVALUATE_AND_QUESTION_PROMPT,
     STRUCTURED_SUMMARY_PROMPT,
+    es_draft_few_shot_for,
+)
+from app.prompts.gakuchika_prompt_builder import (
+    INITIAL_QUESTION_MAX_TOKENS,
+    _render_initial_question_system_prompt,
+    build_deepdive_prompt_text,
+    build_es_prompt_text,
+)
+from app.prompts.es_templates import (
+    DRAFT_SYNTHETIC_QUESTION_GAKUCHIKA,
+    build_template_draft_generation_prompt,
+)
+from app.evaluators.deepdive_completion import _evaluate_deepdive_completion
+from app.evaluators.draft_quality import _build_causal_gaps, _build_draft_quality_checks
+from app.normalization.gakuchika_payload import (
+    _build_coach_progress_message,
+    _default_state,
+    _estimate_remaining_questions,
+    _extract_student_expressions,
+    _normalize_deepdive_payload,
+    _normalize_es_build_payload,
+    _sanitize_blocked_focuses,
+)
+from app.utils.gakuchika_text import (
+    BUILD_FOCUS_FALLBACKS,
+    CORE_BUILD_ELEMENTS,
+    DEEPDIVE_FOCUS_FALLBACKS,
+    ACTION_PATTERNS,
+    ACTION_WEAK_PATTERNS,
+    CONNECTIVE_PATTERNS,
+    LEARNING_GENERIC_PATTERNS,
+    LEARNING_PATTERNS,
+    ROLE_CLARITY_PATTERNS,
+    _classify_input_richness,
+    _clean_string,
+    _clean_string_list,
+    _contains_any,
+    _contains_digit,
+    _fallback_build_meta,
+    _normalize_text,
+    _role_required,
 )
 from app.utils.llm import (
     _parse_json_response,
@@ -39,102 +93,19 @@ from app.utils.llm import (
     sanitize_prompt_input,
     sanitize_user_prompt_text,
 )
+from app.utils.es_draft_text import normalize_es_draft_single_paragraph
 from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/gakuchika", tags=["gakuchika"])
 
-INITIAL_QUESTION_MAX_TOKENS = 220
 NEXT_QUESTION_MAX_TOKENS = 420
-BUILD_ELEMENTS = ("overview", "context", "task", "action", "result", "learning")
-DEEPDIVE_FOCUSES = (
-    "role",
-    "challenge",
-    "action_reason",
-    "result_evidence",
-    "learning_transfer",
-    "credibility",
-    "future",
-    "backstory",
-)
 
-BUILD_FOCUS_FALLBACKS: dict[str, dict[str, str]] = {
-    "overview": {
-        "question": "この経験では、まず何に取り組んでいたのか教えていただけますか。",
-        "answer_hint": "活動名だけでなく、どんな役割やテーマの経験だったかまで書くとまとまりやすいです。",
-        "progress_label": "取り組みを整理中",
-    },
-    "context": {
-        "question": "そのときは、どんな状況や環境の中で進めていた経験でしたか。",
-        "answer_hint": "時期、場面、関わっていた相手や規模感が分かると書きやすくなります。",
-        "progress_label": "状況を整理中",
-    },
-    "task": {
-        "question": "その経験で、特にどんな課題に向き合う必要があったのですか。",
-        "answer_hint": "何がうまくいっていなかったのか、なぜそれを課題だと見たのかが分かると強くなります。",
-        "progress_label": "課題を整理中",
-    },
-    "action": {
-        "question": "その課題に対して、ご自身はまず何をしたのですか。",
-        "answer_hint": "頑張った気持ちより、自分が実際に取った行動や工夫を書くと伝わりやすいです。",
-        "progress_label": "行動を整理中",
-    },
-    "result": {
-        "question": "その行動のあと、どんな変化や成果がありましたか。",
-        "answer_hint": "数字がなくても、前後差や周囲の反応など変化が分かる形で書くと十分です。",
-        "progress_label": "結果を整理中",
-    },
-    "learning": {
-        "question": "その経験を通じて、どんな学びや気づきが残りましたか。",
-        "answer_hint": "抽象的な反省ではなく、今後にも活かせそうな気づきを一つ書くとまとまります。",
-        "progress_label": "学びを整理中",
-    },
-}
 
-DEEPDIVE_FOCUS_FALLBACKS: dict[str, dict[str, str]] = {
-    "role": {
-        "question": "その場面では、ご自身がどこまでを担っていたのか教えていただけますか。",
-        "answer_hint": "自分が任されていた範囲と、周囲と分担していた範囲を分けて答えると伝わりやすいです。",
-        "progress_label": "役割を整理中",
-    },
-    "challenge": {
-        "question": "その状況を、なぜ本当に解くべき課題だと判断したのですか。",
-        "answer_hint": "当時見えていた事実や違和感を根拠にすると、判断の筋が伝わります。",
-        "progress_label": "課題認識を整理中",
-    },
-    "action_reason": {
-        "question": "その方法を選んだのは、どんな理由や比較があったからですか。",
-        "answer_hint": "他のやり方ではなくその打ち手を選んだ判断軸を書くと、行動の説得力が増します。",
-        "progress_label": "判断理由を整理中",
-    },
-    "result_evidence": {
-        "question": "その工夫が効いたと判断したのは、どんな前後差や反応が見えたからですか。",
-        "answer_hint": "数字、行動の変化、周囲の反応など、成果を裏づける事実を書くとまとまります。",
-        "progress_label": "成果の根拠を整理中",
-    },
-    "learning_transfer": {
-        "question": "その経験から得た学びは、次の場面でどう活かせると思いますか。",
-        "answer_hint": "感想ではなく、再現できる行動原則として言い換えると強くなります。",
-        "progress_label": "学びを整理中",
-    },
-    "credibility": {
-        "question": "その成果の中で、ご自身が特に担った部分はどこでしたか。",
-        "answer_hint": "役割範囲を具体的にすると、話の信頼感が上がります。",
-        "progress_label": "信憑性を整理中",
-    },
-    "future": {
-        "question": "この経験を踏まえて、今後はどんな挑戦につなげていきたいですか。",
-        "answer_hint": "今回の経験で得た強みや学びが、次にどう活きるかを書くとつながりが出ます。",
-        "progress_label": "将来展望を整理中",
-    },
-    "backstory": {
-        "question": "そもそもその経験に力を入れようと思った背景には、どんな原体験や価値観がありましたか。",
-        "answer_hint": "今の行動につながるきっかけや背景が分かるように書くと、人物像が伝わります。",
-        "progress_label": "背景を整理中",
-    },
-}
-
+# ---------------------------------------------------------------------------
+# Pydantic models
+# ---------------------------------------------------------------------------
 
 class Message(BaseModel):
     role: str = Field(pattern=r"^(user|assistant)$")
@@ -146,11 +117,31 @@ class ConversationStateInput(BaseModel):
     focus_key: str | None = Field(default=None, max_length=40)
     progress_label: str | None = Field(default=None, max_length=80)
     answer_hint: str | None = Field(default=None, max_length=160)
+    input_richness_mode: str | None = Field(default=None, max_length=32)
     missing_elements: list[str] = Field(default_factory=list)
+    draft_quality_checks: dict[str, bool] = Field(default_factory=dict)
+    causal_gaps: list[str] = Field(default_factory=list)
+    completion_checks: dict[str, bool] = Field(default_factory=dict)
     ready_for_draft: bool = False
     draft_readiness_reason: str | None = Field(default=None, max_length=240)
     draft_text: str | None = Field(default=None, max_length=3000)
+    strength_tags: list[str] = Field(default_factory=list)
+    issue_tags: list[str] = Field(default_factory=list)
+    deepdive_recommendation_tags: list[str] = Field(default_factory=list)
+    credibility_risk_tags: list[str] = Field(default_factory=list)
     deepdive_stage: str | None = Field(default=None, max_length=40)
+    deepdive_complete: bool = False
+    completion_reasons: list[str] = Field(default_factory=list)
+    asked_focuses: list[str] = Field(default_factory=list)
+    resolved_focuses: list[str] = Field(default_factory=list)
+    deferred_focuses: list[str] = Field(default_factory=list)
+    blocked_focuses: list[str] = Field(default_factory=list)
+    focus_attempt_counts: dict[str, int] = Field(default_factory=dict)
+    last_question_signature: str | None = Field(default=None, max_length=120)
+    extended_deep_dive_round: int = Field(default=0, ge=0, le=100)
+    # Round-trip fields surfaced to the client via SSE (pass-through on resume).
+    coach_progress_message: str | None = Field(default=None, max_length=120)
+    remaining_questions_estimate: int | None = Field(default=None, ge=0, le=20)
 
     model_config = {"extra": "ignore"}
 
@@ -167,6 +158,7 @@ class NextQuestionRequest(BaseModel):
 class NextQuestionResponse(BaseModel):
     question: str
     conversation_state: dict[str, Any]
+    next_action: str = "ask"
     internal_telemetry: Optional[dict[str, object]] = None
 
 
@@ -203,12 +195,15 @@ class StructuredSummaryResponse(BaseModel):
     interview_supporting_details: list[str] = []
     future_outlook_notes: list[str] = []
     backstory_notes: list[str] = []
+    one_line_core_answer: str = ""
+    likely_followup_questions: list[str] = []
+    weak_points_to_prepare: list[str] = []
+    two_minute_version_outline: list[str] = []
 
 
 class GakuchikaESDraftRequest(BaseModel):
     gakuchika_title: str = Field(max_length=200)
     conversation_history: list[Message]
-    structured_summary: Optional[dict] = None
     char_limit: int = Field(default=400, ge=300, le=500)
 
 
@@ -216,8 +211,13 @@ class GakuchikaESDraftResponse(BaseModel):
     draft: str
     char_count: int
     followup_suggestion: str = "更に深掘りする"
+    draft_diagnostics: dict[str, list[str]] | None = None
     internal_telemetry: Optional[dict[str, object]] = None
 
+
+# ---------------------------------------------------------------------------
+# Request-scoped sanitisation / formatting helpers
+# ---------------------------------------------------------------------------
 
 def _format_conversation(messages: list[Message]) -> str:
     formatted = []
@@ -269,46 +269,6 @@ def _sanitize_es_draft_request(request: GakuchikaESDraftRequest) -> None:
     _sanitize_messages(request.conversation_history)
 
 
-def _clean_string(value: object) -> str:
-    return str(value).strip() if isinstance(value, str) else ""
-
-
-def _clean_string_list(value: object, *, max_items: int = 6) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    cleaned: list[str] = []
-    for item in value:
-        if isinstance(item, str):
-            text = item.strip()
-            if text:
-                cleaned.append(text)
-        if len(cleaned) >= max_items:
-            break
-    return cleaned
-
-
-def _default_state(stage: str = "es_building", **kwargs: Any) -> dict[str, Any]:
-    return {
-        "stage": stage,
-        "focus_key": kwargs.get("focus_key"),
-        "progress_label": kwargs.get("progress_label"),
-        "answer_hint": kwargs.get("answer_hint"),
-        "missing_elements": kwargs.get("missing_elements", []),
-        "ready_for_draft": kwargs.get("ready_for_draft", False),
-        "draft_readiness_reason": kwargs.get("draft_readiness_reason", ""),
-        "draft_text": kwargs.get("draft_text"),
-        "deepdive_stage": kwargs.get("deepdive_stage"),
-    }
-
-
-def _fallback_build_meta(focus_key: str) -> dict[str, str]:
-    return BUILD_FOCUS_FALLBACKS.get(focus_key, BUILD_FOCUS_FALLBACKS["overview"])
-
-
-def _fallback_deepdive_meta(focus_key: str) -> dict[str, str]:
-    return DEEPDIVE_FOCUS_FALLBACKS.get(focus_key, DEEPDIVE_FOCUS_FALLBACKS["challenge"])
-
-
 def _extract_question_from_text(raw_text: str) -> Optional[str]:
     if not raw_text:
         return None
@@ -333,27 +293,107 @@ def _build_known_facts(messages: list[Message]) -> str:
     user_answers = [msg.content.strip() for msg in messages if msg.role == "user" and msg.content.strip()]
     if not user_answers:
         return "- まだ整理済みの事実は少ない"
-    bullets = [f"- {answer}" for answer in user_answers[-4:]]
-    return "\n".join(bullets)
+
+    def _truncate(text: str, limit: int = 240) -> str:
+        return text if len(text) <= limit else text[: limit - 1] + "…"
+
+    if len(user_answers) <= 5:
+        selected = user_answers
+    else:
+        selected = user_answers[:2] + user_answers[-3:]
+
+    bullets = [f"- {_truncate(answer)}" for answer in selected]
+    facts = "\n".join(bullets)
+
+    total_cap = 1200
+    if len(facts) <= total_cap:
+        return facts
+
+    truncated: list[str] = []
+    running = 0
+    for bullet in bullets:
+        if running + len(bullet) + 1 > total_cap:
+            break
+        truncated.append(bullet)
+        running += len(bullet) + 1
+    return "\n".join(truncated) if truncated else bullets[0][: total_cap - 1] + "…"
 
 
-def _normalize_missing_elements(value: object) -> list[str]:
-    items = [item for item in _clean_string_list(value, max_items=len(BUILD_ELEMENTS)) if item in BUILD_ELEMENTS]
-    seen: list[str] = []
-    for item in items:
-        if item not in seen:
-            seen.append(item)
-    return seen
+def _build_user_corpus(messages: list[Message], *, initial_content: str | None = None, draft_text: str | None = None) -> str:
+    parts: list[str] = []
+    if initial_content:
+        parts.append(initial_content.strip())
+    parts.extend(msg.content.strip() for msg in messages if msg.role == "user" and msg.content.strip())
+    if draft_text:
+        parts.append(draft_text.strip())
+    return "\n".join(part for part in parts if part)
 
 
-def _detect_es_focus_from_missing(missing_elements: list[str]) -> str:
-    for key in BUILD_ELEMENTS:
-        if key in missing_elements:
-            return key
-    return "learning"
+# ---------------------------------------------------------------------------
+# Handler-side diagnostics / orchestration
+# ---------------------------------------------------------------------------
+
+def _build_draft_diagnostics(draft_text: str) -> dict[str, list[str]]:
+    """Tag diagnostic attributes (strength / issue / recommendation / risk).
+
+    Kept in the router layer because the output drives UX messaging +
+    deep-dive prompt scaffolding, both of which are handler responsibilities.
+    """
+    normalized = _normalize_text(draft_text)
+    strength_tags: list[str] = []
+    issue_tags: list[str] = []
+    deepdive_recommendation_tags: list[str] = []
+    credibility_risk_tags: list[str] = []
+
+    action_visible = _contains_any(normalized, ACTION_PATTERNS)
+    result_visible = _contains_digit(normalized) or _contains_any(normalized, ("増", "減", "向上", "改善", "結果"))
+    learning_visible = _contains_any(normalized, LEARNING_PATTERNS)
+
+    if action_visible:
+        strength_tags.append("action_visible")
+    if result_visible:
+        strength_tags.append("result_visible")
+    if _contains_any(normalized, ROLE_CLARITY_PATTERNS):
+        strength_tags.append("ownership_visible")
+    if _contains_any(normalized, ("活か", "次", "今後", "再現")):
+        strength_tags.append("learning_transfer_visible")
+
+    if not action_visible or _contains_any(normalized, ACTION_WEAK_PATTERNS):
+        issue_tags.append("action_specificity_weak")
+        deepdive_recommendation_tags.append("deepen_action_reason")
+    if not result_visible:
+        issue_tags.append("result_evidence_thin")
+        deepdive_recommendation_tags.append("collect_result_evidence")
+    else:
+        deepdive_recommendation_tags.append("result_traceability_check")
+        if not _contains_any(normalized, CONNECTIVE_PATTERNS):
+            issue_tags.append("result_traceability_weak")
+    if not learning_visible:
+        issue_tags.append("learning_missing")
+        deepdive_recommendation_tags.append("learning_transfer")
+    elif _contains_any(normalized, LEARNING_GENERIC_PATTERNS) and not _contains_any(
+        normalized, ("活か", "今後", "再現", "原則")
+    ):
+        issue_tags.append("learning_generic")
+        deepdive_recommendation_tags.append("deepen_learning_transfer")
+    if _role_required(normalized) and not _contains_any(normalized, ROLE_CLARITY_PATTERNS):
+        credibility_risk_tags.append("ownership_ambiguous")
+        deepdive_recommendation_tags.append("clarify_role_scope")
+
+    return {
+        "strength_tags": list(dict.fromkeys(strength_tags)),
+        "issue_tags": list(dict.fromkeys(issue_tags)),
+        "deepdive_recommendation_tags": list(dict.fromkeys(deepdive_recommendation_tags)),
+        "credibility_risk_tags": list(dict.fromkeys(credibility_risk_tags)),
+    }
 
 
 def _determine_deepdive_phase(question_count: int) -> tuple[str, str, list[str]]:
+    """Map deep-dive question count to (phase_name, description, preferred_focuses).
+
+    Orchestration: the handler decides which phase to drive and passes the
+    tuple to the prompt-template builder.
+    """
     if question_count <= 2:
         return ("es_aftercare", "ES本文の骨格に対して判断理由と役割の解像度を上げる", ["challenge", "role", "action_reason"])
     if question_count <= 5:
@@ -361,157 +401,171 @@ def _determine_deepdive_phase(question_count: int) -> tuple[str, str, list[str]]
     return ("interview_expansion", "将来展望や原体験まで含めて人物像を厚くする", ["future", "backstory", "learning_transfer"])
 
 
-def _normalize_es_build_payload(payload: object, fallback_state: ConversationStateInput | None) -> tuple[str, dict[str, Any], str]:
-    data = payload if isinstance(payload, dict) else {}
-    missing_elements = _normalize_missing_elements(data.get("missing_elements"))
-    ready_for_draft = bool(data.get("ready_for_draft"))
-    focus_key = _clean_string(data.get("focus_key")) or _detect_es_focus_from_missing(missing_elements)
-    if focus_key not in BUILD_ELEMENTS:
-        focus_key = _detect_es_focus_from_missing(missing_elements)
-    meta = _fallback_build_meta(focus_key)
-    question = _clean_string(data.get("question"))
-    answer_hint = _clean_string(data.get("answer_hint")) or meta["answer_hint"]
-    progress_label = _clean_string(data.get("progress_label")) or meta["progress_label"]
-    readiness_reason = _clean_string(data.get("draft_readiness_reason"))
-
-    if ready_for_draft:
-        state = _default_state(
-            "draft_ready",
-            focus_key=focus_key,
-            progress_label="ES作成可",
-            answer_hint="ここまででES本文を書ける最低限の材料は揃っています。",
-            missing_elements=missing_elements,
-            ready_for_draft=True,
-            draft_readiness_reason=readiness_reason or "ES本文に必要な材料が揃っています。",
-            draft_text=fallback_state.draft_text if fallback_state else None,
-        )
-        return "", state, "draft_ready"
-
-    if not question:
-        question = meta["question"]
-        source = "rule_fallback"
-    else:
-        source = "full_json"
-
-    state = _default_state(
-        "es_building",
-        focus_key=focus_key,
-        progress_label=progress_label,
-        answer_hint=answer_hint,
-        missing_elements=missing_elements,
-        ready_for_draft=False,
-        draft_readiness_reason=readiness_reason,
-        draft_text=fallback_state.draft_text if fallback_state else None,
-    )
-    return question, state, source
-
-
-def _normalize_deepdive_payload(payload: object, fallback_state: ConversationStateInput | None) -> tuple[str, dict[str, Any], str]:
-    data = payload if isinstance(payload, dict) else {}
-    focus_key = _clean_string(data.get("focus_key")) or "challenge"
-    if focus_key not in DEEPDIVE_FOCUSES:
-        focus_key = "challenge"
-    meta = _fallback_deepdive_meta(focus_key)
-    question = _clean_string(data.get("question"))
-    answer_hint = _clean_string(data.get("answer_hint")) or meta["answer_hint"]
-    progress_label = _clean_string(data.get("progress_label")) or meta["progress_label"]
-    deepdive_stage = _clean_string(data.get("deepdive_stage")) or "es_aftercare"
-
-    if deepdive_stage == "interview_ready":
-        state = _default_state(
-            "interview_ready",
-            focus_key=focus_key,
-            progress_label="面接準備完了",
-            answer_hint="ここまでで面接に向けた補足材料も揃っています。",
-            missing_elements=fallback_state.missing_elements if fallback_state else [],
-            ready_for_draft=True,
-            draft_readiness_reason=fallback_state.draft_readiness_reason if fallback_state else "",
-            draft_text=fallback_state.draft_text if fallback_state else None,
-            deepdive_stage=deepdive_stage,
-        )
-        return "", state, "interview_ready"
-
-    if not question:
-        question = meta["question"]
-        source = "rule_fallback"
-    else:
-        source = "full_json"
-
-    state = _default_state(
-        "deep_dive_active",
-        focus_key=focus_key,
-        progress_label=progress_label,
-        answer_hint=answer_hint,
-        missing_elements=fallback_state.missing_elements if fallback_state else [],
-        ready_for_draft=True,
-        draft_readiness_reason=fallback_state.draft_readiness_reason if fallback_state else "",
-        draft_text=fallback_state.draft_text if fallback_state else None,
-        deepdive_stage=deepdive_stage,
-    )
-    return question, state, source
+def _resolve_next_action(state: dict[str, Any]) -> str:
+    stage = _clean_string(state.get("stage")) or "es_building"
+    draft_text = _clean_string(state.get("draft_text"))
+    if stage == "interview_ready":
+        return "show_interview_ready"
+    if stage == "draft_ready":
+        return "continue_deep_dive" if draft_text else "show_generate_draft_cta"
+    return "ask"
 
 
 def _is_deepdive_request(request: NextQuestionRequest) -> bool:
     state = request.conversation_state
     if not state:
         return False
-    return bool(state.draft_text) or state.stage in {"draft_ready", "deep_dive_active", "interview_ready"}
+    # draft_ready: 「もう少し整える」等で ES 下書き本文がまだ無い段階でも深掘りプロンプトに乗せる（es_building ではない限り衝突しない）
+    return bool(state.draft_text) or state.stage in {
+        "draft_ready",
+        "deep_dive_active",
+        "interview_ready",
+    }
 
 
-def _build_es_prompt(request: NextQuestionRequest) -> str:
-    return ES_BUILD_AND_QUESTION_PROMPT.format(
-        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
-        conversation=_format_conversation(request.conversation_history),
+# ---------------------------------------------------------------------------
+# Prompt-builder wrappers (thin orchestration layer)
+# ---------------------------------------------------------------------------
+
+def _build_es_prompt(request: NextQuestionRequest) -> tuple[str, str]:
+    """Orchestrate ES-build prompt: derive primitives, delegate formatting.
+
+    Returns ``(system_prompt, user_message)``.  The system half is stable
+    across turns (persona + rules + few-shot) and safe to cache; the user
+    half carries the per-turn dynamic content (conversation, known
+    facts, asked / blocked focuses).
+    """
+    input_richness_mode = (
+        request.conversation_state.input_richness_mode
+        if request.conversation_state and request.conversation_state.input_richness_mode
+        else _classify_input_richness(request.gakuchika_content or request.gakuchika_title)
+    )
+    state = request.conversation_state
+    asked = list(state.asked_focuses) if state else []
+    blocked = _sanitize_blocked_focuses(
+        state.blocked_focuses if state else [],
+        stage=state.stage if state else "es_building",
+        missing_elements=list(state.missing_elements) if state else [],
+    )
+    return build_es_prompt_text(
+        gakuchika_title=request.gakuchika_title,
+        conversation_text=_format_conversation(request.conversation_history),
         known_facts=_build_known_facts(request.conversation_history),
-        question_tone_and_alignment_rules=QUESTION_TONE_AND_ALIGNMENT_RULES,
-        es_build_question_principles=ES_BUILD_QUESTION_PRINCIPLES,
-        reference_guide_rubric=REFERENCE_GUIDE_RUBRIC,
-        prohibited_expressions=_PROHIBITED_EXPRESSIONS,
+        input_richness_mode=input_richness_mode,
+        asked_focuses=asked,
+        blocked_focuses=blocked,
     )
 
 
-def _build_deepdive_prompt(request: NextQuestionRequest) -> str:
+def _build_deepdive_prompt(request: NextQuestionRequest) -> tuple[str, str]:
+    """Orchestrate deep-dive prompt: decide phase, collect diagnostic tags,
+    delegate template formatting to ``prompts.gakuchika_prompt_builder``.
+
+    Returns ``(system_prompt, user_message)``.
+    """
     phase_name, phase_description, preferred_focuses = _determine_deepdive_phase(request.question_count)
-    draft_text = request.conversation_state.draft_text if request.conversation_state else ""
-    return STAR_EVALUATE_AND_QUESTION_PROMPT.format(
-        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
-        draft_text=sanitize_prompt_input(draft_text or "記載なし", max_length=1800),
-        conversation=_format_conversation(request.conversation_history),
+    state = request.conversation_state
+    draft_text = state.draft_text if state else ""
+    ext_round = int(state.extended_deep_dive_round or 0) if state else 0
+    asked = list(state.asked_focuses) if state else []
+    blocked = _sanitize_blocked_focuses(
+        state.blocked_focuses if state else [],
+        stage=state.stage if state else "deep_dive_active",
+        missing_elements=list(state.missing_elements) if state else [],
+    )
+    return build_deepdive_prompt_text(
+        gakuchika_title=request.gakuchika_title,
+        draft_text=draft_text or "",
+        conversation_text=_format_conversation(request.conversation_history),
         phase_name=phase_name,
         phase_description=phase_description,
-        preferred_focuses=", ".join(preferred_focuses),
-        question_tone_and_alignment_rules=QUESTION_TONE_AND_ALIGNMENT_RULES,
-        deepdive_question_principles=DEEPDIVE_QUESTION_PRINCIPLES,
-        reference_guide_rubric=REFERENCE_GUIDE_RUBRIC,
-        prohibited_expressions=_PROHIBITED_EXPRESSIONS,
+        preferred_focuses=preferred_focuses,
+        extended_deep_dive_round=ext_round,
+        strength_tags=list(state.strength_tags) if state else [],
+        issue_tags=list(state.issue_tags) if state else [],
+        deepdive_recommendation_tags=list(state.deepdive_recommendation_tags) if state else [],
+        credibility_risk_tags=list(state.credibility_risk_tags) if state else [],
+        asked_focuses=asked,
+        blocked_focuses=blocked,
     )
+
+
+def _build_initial_fallback_response(
+    *,
+    focus_key: str,
+    input_richness_mode: str,
+    question_count: int,
+) -> tuple[str, dict[str, Any]]:
+    """Assemble (question, state) for an initial-question fallback.
+
+    Shared between the empty-content early return and the LLM-failure path so
+    both hands emit the same shape (coach message + remaining questions +
+    missing_elements).
+    """
+    fallback = _fallback_build_meta(focus_key)
+    missing_elements = list(CORE_BUILD_ELEMENTS)
+    coach_message = _build_coach_progress_message(
+        stage="es_building",
+        resolved_focuses=[],
+        missing_elements=missing_elements,
+        focus_key=focus_key,
+        ready_for_draft=False,
+    )
+    remaining_estimate = _estimate_remaining_questions(
+        stage="es_building",
+        question_count=question_count,
+        missing_elements=missing_elements,
+        quality_checks={},
+        causal_gaps=[],
+        ready_for_draft=False,
+        role_required=False,
+    )
+    state = _default_state(
+        "es_building",
+        focus_key=focus_key,
+        progress_label=fallback["progress_label"],
+        answer_hint=fallback["answer_hint"],
+        input_richness_mode=input_richness_mode,
+        missing_elements=missing_elements,
+        draft_quality_checks={},
+        causal_gaps=[],
+        ready_for_draft=False,
+        draft_text=None,
+        coach_progress_message=coach_message,
+        remaining_questions_estimate=remaining_estimate,
+    )
+    return fallback["question"], state
 
 
 async def _generate_initial_question(request: NextQuestionRequest) -> tuple[str, dict[str, Any]]:
-    if not request.gakuchika_content:
-        fallback = _fallback_build_meta("overview")
-        state = _default_state(
-            "es_building",
-            focus_key="overview",
-            progress_label=fallback["progress_label"],
-            answer_hint=fallback["answer_hint"],
-            missing_elements=["context", "task", "action", "result", "learning"],
-            ready_for_draft=False,
-            draft_text=None,
-        )
-        return fallback["question"], state
+    """Orchestrate initial question generation.
 
-    prompt = INITIAL_QUESTION_PROMPT.format(
+    M2 (2026-04-17): LLM call and normalization moved out of
+    ``app.prompts.gakuchika_prompt_builder`` (template-only layer) and into
+    this router so that prompts stay side-effect free.
+    """
+    input_richness_mode = _classify_input_richness(
+        request.gakuchika_content or request.gakuchika_title
+    )
+
+    if not request.gakuchika_content:
+        return _build_initial_fallback_response(
+            focus_key="context",
+            input_richness_mode=input_richness_mode,
+            question_count=request.question_count,
+        )
+
+    system_prompt = _render_initial_question_system_prompt(
+        input_richness_mode=input_richness_mode,
+    )
+    user_message = INITIAL_QUESTION_USER_MESSAGE.format(
         gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
         gakuchika_content=sanitize_prompt_input(request.gakuchika_content, max_length=2000),
-        question_tone_and_alignment_rules=QUESTION_TONE_AND_ALIGNMENT_RULES,
-        es_build_question_principles=ES_BUILD_QUESTION_PRINCIPLES,
-        reference_guide_rubric=REFERENCE_GUIDE_RUBRIC,
-        prohibited_expressions=_PROHIBITED_EXPRESSIONS,
+        input_richness_mode=input_richness_mode,
     )
     llm_result = await call_llm_with_error(
-        system_prompt=prompt,
-        user_message="最初の質問を生成してください。",
+        system_prompt=system_prompt,
+        user_message=user_message,
         max_tokens=INITIAL_QUESTION_MAX_TOKENS,
         temperature=0.4,
         feature="gakuchika",
@@ -520,22 +574,26 @@ async def _generate_initial_question(request: NextQuestionRequest) -> tuple[str,
     )
 
     if llm_result.success and llm_result.data is not None:
-        question, state, _ = _normalize_es_build_payload(llm_result.data, None)
+        question, state, _ = _normalize_es_build_payload(
+            llm_result.data,
+            None,
+            conversation_text=request.gakuchika_content or "",
+            input_richness_mode=input_richness_mode,
+            question_count=request.question_count,
+        )
         if question or state["ready_for_draft"]:
-            return question or _fallback_build_meta("overview")["question"], state
+            return question or _fallback_build_meta("context")["question"], state
 
-    fallback_focus = random.choice(["overview", "context", "task"])
-    fallback = _fallback_build_meta(fallback_focus)
-    return fallback["question"], _default_state(
-        "es_building",
-        focus_key=fallback_focus,
-        progress_label=fallback["progress_label"],
-        answer_hint=fallback["answer_hint"],
-        missing_elements=["context", "task", "action", "result", "learning"],
-        ready_for_draft=False,
-        draft_text=None,
+    return _build_initial_fallback_response(
+        focus_key=random.choice(["context", "task", "action"]),
+        input_richness_mode=input_richness_mode,
+        question_count=request.question_count,
     )
 
+
+# ---------------------------------------------------------------------------
+# SSE helpers
+# ---------------------------------------------------------------------------
 
 def _sse_event(event_type: str, data: dict[str, Any]) -> str:
     payload = {"type": event_type, **data}
@@ -574,17 +632,32 @@ async def _generate_next_question_progress(request: NextQuestionRequest) -> Asyn
         has_user_response = any(msg.role == "user" for msg in request.conversation_history)
         if not has_user_response and not _is_deepdive_request(request):
             question, state = await _generate_initial_question(request)
+            coach_progress_message = state.get("coach_progress_message")
+            if coach_progress_message:
+                yield _sse_event("field_complete", {
+                    "path": "coach_progress_message",
+                    "value": coach_progress_message,
+                })
+            remaining_estimate = state.get("remaining_questions_estimate")
+            if isinstance(remaining_estimate, int):
+                yield _sse_event("field_complete", {
+                    "path": "remaining_questions_estimate",
+                    "value": remaining_estimate,
+                })
             yield _sse_event("complete", {
                 "data": {
                     "question": question,
                     "conversation_state": state,
+                    "next_action": _resolve_next_action(state),
                 },
                 "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
             })
             return
 
         is_deepdive = _is_deepdive_request(request)
-        prompt = _build_deepdive_prompt(request) if is_deepdive else _build_es_prompt(request)
+        system_prompt, user_message = (
+            _build_deepdive_prompt(request) if is_deepdive else _build_es_prompt(request)
+        )
         fallback_state = request.conversation_state
 
         yield _sse_event("progress", {
@@ -600,15 +673,15 @@ async def _generate_next_question_progress(request: NextQuestionRequest) -> Asyn
 
         llm_result = None
         async for event in call_llm_streaming_fields(
-            system_prompt=prompt,
-            user_message="上記の会話を分析し、次の質問をJSON形式で生成してください。",
+            system_prompt=system_prompt,
+            user_message=user_message,
             max_tokens=NEXT_QUESTION_MAX_TOKENS,
             temperature=0.35,
             feature="gakuchika",
             schema_hints=_stream_schema_hints(is_deepdive),
             stream_string_fields=["question"],
             attempt_repair_on_parse_failure=False,
-            partial_required_fields=(),
+            partial_required_fields=("question",),
         ):
             if event.type == "string_chunk":
                 yield _sse_event("string_chunk", {"path": event.path, "text": event.text})
@@ -635,9 +708,32 @@ async def _generate_next_question_progress(request: NextQuestionRequest) -> Asyn
             return
 
         if is_deepdive:
-            question, state, source = _normalize_deepdive_payload(llm_result.data, fallback_state)
+            question, state, source = _normalize_deepdive_payload(
+                llm_result.data,
+                fallback_state,
+                conversation_text=_build_user_corpus(
+                    request.conversation_history,
+                    initial_content=request.gakuchika_content,
+                    draft_text=request.conversation_state.draft_text if request.conversation_state else None,
+                ),
+                draft_text=request.conversation_state.draft_text if request.conversation_state else "",
+                question_count=request.question_count,
+            )
         else:
-            question, state, source = _normalize_es_build_payload(llm_result.data, fallback_state)
+            question, state, source = _normalize_es_build_payload(
+                llm_result.data,
+                fallback_state,
+                conversation_text=_build_user_corpus(
+                    request.conversation_history,
+                    initial_content=request.gakuchika_content,
+                ),
+                input_richness_mode=(
+                    request.conversation_state.input_richness_mode
+                    if request.conversation_state
+                    else _classify_input_richness(request.gakuchika_content or request.gakuchika_title)
+                ),
+                question_count=request.question_count,
+            )
 
         logger.info(
             "[Gakuchika] normalized via %s (stage=%s focus=%s)",
@@ -646,10 +742,29 @@ async def _generate_next_question_progress(request: NextQuestionRequest) -> Asyn
             state["focus_key"],
         )
 
+        # Phase B.7: emit coach_progress_message as a partial so the UI
+        # ``NaturalProgressStatus`` chip can update before the final
+        # ``complete`` event lands. M4 (2026-04-17) adds remaining_questions_estimate
+        # with the same partial+complete pattern. Contract:
+        # ``docs/architecture/GAKUCHIKA_SSE_CONTRACT.md`` § field_complete.
+        coach_progress_message = state.get("coach_progress_message")
+        if coach_progress_message:
+            yield _sse_event("field_complete", {
+                "path": "coach_progress_message",
+                "value": coach_progress_message,
+            })
+        remaining_estimate = state.get("remaining_questions_estimate")
+        if isinstance(remaining_estimate, int):
+            yield _sse_event("field_complete", {
+                "path": "remaining_questions_estimate",
+                "value": remaining_estimate,
+            })
+
         yield _sse_event("complete", {
             "data": {
                 "question": question,
                 "conversation_state": state,
+                "next_action": _resolve_next_action(state),
             },
             "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
         })
@@ -660,29 +775,35 @@ async def _generate_next_question_progress(request: NextQuestionRequest) -> Asyn
         })
 
 
+# ---------------------------------------------------------------------------
+# HTTP handlers
+# ---------------------------------------------------------------------------
+
 @router.post("/next-question", response_model=NextQuestionResponse)
 @limiter.limit("60/minute")
 async def get_next_question(payload: NextQuestionRequest, request: Request):
-    request = payload
     try:
-        _sanitize_next_question_request(request)
+        _sanitize_next_question_request(payload)
     except PromptSafetyError:
         raise _prompt_safety_http_error()
 
-    has_user_response = any(msg.role == "user" for msg in request.conversation_history)
-    if not has_user_response and not _is_deepdive_request(request):
-        question, state = await _generate_initial_question(request)
+    has_user_response = any(msg.role == "user" for msg in payload.conversation_history)
+    if not has_user_response and not _is_deepdive_request(payload):
+        question, state = await _generate_initial_question(payload)
         return NextQuestionResponse(
             question=question,
             conversation_state=state,
+            next_action=_resolve_next_action(state),
             internal_telemetry=consume_request_llm_cost_summary("gakuchika"),
         )
 
-    is_deepdive = _is_deepdive_request(request)
-    prompt = _build_deepdive_prompt(request) if is_deepdive else _build_es_prompt(request)
+    is_deepdive = _is_deepdive_request(payload)
+    system_prompt, user_message = (
+        _build_deepdive_prompt(payload) if is_deepdive else _build_es_prompt(payload)
+    )
     llm_result = await call_llm_with_error(
-        system_prompt=prompt,
-        user_message="上記の会話を分析し、次の質問をJSON形式で生成してください。",
+        system_prompt=system_prompt,
+        user_message=user_message,
         max_tokens=NEXT_QUESTION_MAX_TOKENS,
         temperature=0.35,
         feature="gakuchika",
@@ -703,27 +824,78 @@ async def get_next_question(payload: NextQuestionRequest, request: Request):
 
     data = llm_result.data if llm_result.data is not None else _parse_json_payload(llm_result.raw_text or "")
     if is_deepdive:
-        question, state, _ = _normalize_deepdive_payload(data, request.conversation_state)
+        question, state, _ = _normalize_deepdive_payload(
+            data,
+            payload.conversation_state,
+            conversation_text=_build_user_corpus(
+                payload.conversation_history,
+                initial_content=payload.gakuchika_content,
+                draft_text=payload.conversation_state.draft_text if payload.conversation_state else None,
+            ),
+            draft_text=payload.conversation_state.draft_text if payload.conversation_state else "",
+            question_count=payload.question_count,
+        )
     else:
-        question, state, _ = _normalize_es_build_payload(data, request.conversation_state)
+        question, state, _ = _normalize_es_build_payload(
+            data,
+            payload.conversation_state,
+            conversation_text=_build_user_corpus(
+                payload.conversation_history,
+                initial_content=payload.gakuchika_content,
+            ),
+            input_richness_mode=(
+                payload.conversation_state.input_richness_mode
+                if payload.conversation_state
+                else _classify_input_richness(payload.gakuchika_content or payload.gakuchika_title)
+            ),
+            question_count=payload.question_count,
+        )
 
     return NextQuestionResponse(
         question=question,
         conversation_state=state,
+        next_action=_resolve_next_action(state),
         internal_telemetry=consume_request_llm_cost_summary("gakuchika"),
     )
 
 
 @router.post("/next-question/stream")
 @limiter.limit("60/minute")
-async def get_next_question_stream(payload: NextQuestionRequest, request: Request):
-    request = payload
+async def get_next_question_stream(
+    payload: NextQuestionRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("ai-stream")),
+):
     try:
-        _sanitize_next_question_request(request)
+        _sanitize_next_question_request(payload)
     except PromptSafetyError:
         raise _prompt_safety_http_error()
+
+    # NextQuestionRequest has no company_id, so no mismatch check is needed here.
+    try:
+        lease = await SseLease.acquire(
+            actor_id=principal.actor_id, plan=principal.plan
+        )
+    except SseConcurrencyExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "sse_concurrency_exceeded",
+                "limit": exc.rejection.limit,
+            },
+            headers={
+                "Retry-After": str(exc.rejection.retry_after_seconds),
+            },
+        )
+
+    async def _stream_with_lease() -> AsyncGenerator[str, None]:
+        async with lease:
+            async for chunk in _generate_next_question_progress(payload):
+                await lease.heartbeat_if_due()
+                yield chunk
+
     return StreamingResponse(
-        _generate_next_question_progress(request),
+        _stream_with_lease(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -736,19 +908,18 @@ async def get_next_question_stream(payload: NextQuestionRequest, request: Reques
 @router.post("/structured-summary")
 @limiter.limit("60/minute")
 async def generate_structured_summary(payload: StructuredSummaryRequest, request: Request):
-    request = payload
     try:
-        _sanitize_summary_request(request)
+        _sanitize_summary_request(payload)
     except PromptSafetyError:
         raise _prompt_safety_http_error()
 
-    if not request.conversation_history:
+    if not payload.conversation_history:
         raise HTTPException(status_code=400, detail="会話履歴がありません")
 
     prompt = STRUCTURED_SUMMARY_PROMPT.format(
-        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
-        draft_text=sanitize_prompt_input(request.draft_text, max_length=1800),
-        conversation=_format_conversation(request.conversation_history),
+        gakuchika_title=sanitize_prompt_input(payload.gakuchika_title, max_length=200),
+        draft_text=sanitize_prompt_input(payload.draft_text, max_length=1800),
+        conversation=_format_conversation(payload.conversation_history),
         deepdive_question_principles=DEEPDIVE_QUESTION_PRINCIPLES,
         reference_guide_rubric=REFERENCE_GUIDE_RUBRIC,
     )
@@ -798,34 +969,57 @@ async def generate_structured_summary(payload: StructuredSummaryRequest, request
         interview_supporting_details=_clean_string_list(data.get("interview_supporting_details"), max_items=3),
         future_outlook_notes=_clean_string_list(data.get("future_outlook_notes"), max_items=2),
         backstory_notes=_clean_string_list(data.get("backstory_notes"), max_items=2),
+        one_line_core_answer=_clean_string(data.get("one_line_core_answer")),
+        likely_followup_questions=_clean_string_list(data.get("likely_followup_questions"), max_items=4),
+        weak_points_to_prepare=_clean_string_list(data.get("weak_points_to_prepare"), max_items=3),
+        two_minute_version_outline=_clean_string_list(data.get("two_minute_version_outline"), max_items=4),
     )
 
 
 @router.post("/generate-es-draft", response_model=GakuchikaESDraftResponse)
 @limiter.limit("60/minute")
 async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
-    request = payload
-    if not request.conversation_history:
+    if not payload.conversation_history:
         raise HTTPException(status_code=400, detail="会話履歴がありません")
-    if request.char_limit not in [300, 400, 500]:
+    if payload.char_limit not in [300, 400, 500]:
         raise HTTPException(status_code=400, detail="文字数は300, 400, 500のいずれかを指定してください")
     try:
-        _sanitize_es_draft_request(request)
+        _sanitize_es_draft_request(payload)
     except PromptSafetyError:
         raise _prompt_safety_http_error()
 
-    conversation_text = _format_conversation(request.conversation_history)
-    char_min = int(request.char_limit * 0.9)
-    prompt = GAKUCHIKA_DRAFT_PROMPT.format(
-        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
-        conversation=conversation_text,
-        char_limit=request.char_limit,
+    conversation_text = _format_conversation(payload.conversation_history)
+    char_min = int(payload.char_limit * 0.9)
+    title = sanitize_prompt_input(payload.gakuchika_title, max_length=200)
+    primary_body = f"テーマ: {title}\n\n{conversation_text}"
+    # Phase B.5: pull up to 5 of the student's own-words expressions so the
+    # draft can reuse them verbatim rather than over-polishing everything.
+    student_expressions = _extract_student_expressions(payload.conversation_history, max_items=5)
+    system_prompt, user_prompt = build_template_draft_generation_prompt(
+        "gakuchika",
+        company_name=None,
+        industry=None,
+        question=DRAFT_SYNTHETIC_QUESTION_GAKUCHIKA,
         char_min=char_min,
+        char_max=payload.char_limit,
+        primary_material_heading="【テーマと会話】",
+        primary_material_body=primary_body,
+        output_json_kind="gakuchika",
+        role_name=None,
+        company_evidence_cards=None,
+        has_rag=False,
+        grounding_mode="none",
+        student_expressions=student_expressions,
     )
+    # Phase B.3: inject char_limit-tuned allocation guide. Kept on the system
+    # side so that repeated drafts of the same shape hit the prompt cache.
+    draft_few_shot = es_draft_few_shot_for(payload.char_limit)
+    if draft_few_shot:
+        system_prompt = f"{system_prompt}\n\n{draft_few_shot}"
     llm_result = await call_llm_with_error(
-        system_prompt=prompt,
-        user_message="ガクチカのESを作成してください。",
-        max_tokens=1200,
+        system_prompt=system_prompt,
+        user_message=user_prompt,
+        max_tokens=1400,
         temperature=0.3,
         feature="gakuchika_draft",
         retry_on_parse=True,
@@ -842,6 +1036,7 @@ async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
                     if last_period > len(draft_text) * 0.5:
                         draft_text = draft_text[: last_period + 1]
                 if len(draft_text) >= 100:
+                    draft_text = normalize_es_draft_single_paragraph(draft_text)
                     return GakuchikaESDraftResponse(
                         draft=draft_text,
                         char_count=len(draft_text),
@@ -856,11 +1051,13 @@ async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
         )
 
     data = llm_result.data
-    draft = _clean_string(data.get("draft"))
+    draft = normalize_es_draft_single_paragraph(_clean_string(data.get("draft")))
     followup_suggestion = _clean_string(data.get("followup_suggestion")) or "更に深掘りする"
+    draft_diagnostics = _build_draft_diagnostics(draft)
     return GakuchikaESDraftResponse(
         draft=draft,
         char_count=len(draft),
         followup_suggestion=followup_suggestion,
+        draft_diagnostics=draft_diagnostics,
         internal_telemetry=consume_request_llm_cost_summary("gakuchika_draft"),
     )

@@ -2,40 +2,45 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const {
-  getSessionMock,
-  dbSelectMock,
+  dbUpdateMock,
+  dbInsertMock,
   reserveCreditsMock,
+  confirmReservationMock,
+  cancelReservationMock,
   enforceRateLimitLayersMock,
+  getRequestIdentityMock,
   getMotivationConversationByConditionMock,
+  getOwnedMotivationCompanyDataMock,
+  buildMotivationOwnerConditionMock,
   resolveDraftReadyStateMock,
   safeParseConversationContextMock,
+  safeParseMessagesMock,
+  fetchFastApiInternalMock,
 } = vi.hoisted(() => ({
-  getSessionMock: vi.fn(),
-  dbSelectMock: vi.fn(),
+  dbUpdateMock: vi.fn(),
+  dbInsertMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
+  confirmReservationMock: vi.fn(),
+  cancelReservationMock: vi.fn(),
   enforceRateLimitLayersMock: vi.fn(),
+  getRequestIdentityMock: vi.fn(),
   getMotivationConversationByConditionMock: vi.fn(),
+  getOwnedMotivationCompanyDataMock: vi.fn(),
+  buildMotivationOwnerConditionMock: vi.fn(),
   resolveDraftReadyStateMock: vi.fn(),
   safeParseConversationContextMock: vi.fn(),
+  safeParseMessagesMock: vi.fn(),
+  fetchFastApiInternalMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers()),
 }));
 
-vi.mock("@/lib/auth", () => ({
-  auth: {
-    api: {
-      getSession: getSessionMock,
-    },
-  },
-}));
-
 vi.mock("@/lib/db", () => ({
   db: {
-    select: dbSelectMock,
-    update: vi.fn(),
-    insert: vi.fn(),
+    update: dbUpdateMock,
+    insert: dbInsertMock,
   },
 }));
 
@@ -45,14 +50,18 @@ vi.mock("@/lib/auth/guest", () => ({
 
 vi.mock("@/lib/credits", () => ({
   reserveCredits: reserveCreditsMock,
-  confirmReservation: vi.fn(),
-  cancelReservation: vi.fn(),
+  confirmReservation: confirmReservationMock,
+  cancelReservation: cancelReservationMock,
 }));
 
 vi.mock("@/lib/motivation/conversation", () => ({
-  getMotivationConversationByCondition: getMotivationConversationByConditionMock,
   resolveDraftReadyState: resolveDraftReadyStateMock,
   safeParseConversationContext: safeParseConversationContextMock,
+  safeParseMessages: safeParseMessagesMock,
+}));
+
+vi.mock("@/lib/motivation/conversation-store", () => ({
+  getMotivationConversationByCondition: getMotivationConversationByConditionMock,
 }));
 
 vi.mock("@/lib/rate-limit-spike", () => ({
@@ -60,41 +69,62 @@ vi.mock("@/lib/rate-limit-spike", () => ({
   DRAFT_RATE_LAYERS: [],
 }));
 
-vi.mock("@/lib/fastapi/client", () => ({
-  fetchFastApiInternal: vi.fn(),
+vi.mock("@/app/api/_shared/request-identity", () => ({
+  getRequestIdentity: getRequestIdentityMock,
 }));
 
-function makeCompanyQuery() {
-  return {
-    from: vi.fn(() => ({
-      where: vi.fn(() => ({
-        limit: vi.fn().mockResolvedValue([
-          {
-            id: "company-1",
-            name: "テスト株式会社",
-            industry: "IT",
-          },
-        ]),
-      })),
-    })),
-  };
-}
+vi.mock("@/app/api/_shared/llm-cost-guard", () => ({
+  guardDailyTokenLimit: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("@/lib/llm-cost-limit", () => ({
+  incrementDailyTokenCount: vi.fn().mockResolvedValue(undefined),
+  computeTotalTokens: vi.fn().mockReturnValue(0),
+}));
+
+vi.mock("@/lib/fastapi/client", () => ({
+  fetchFastApiInternal: fetchFastApiInternalMock,
+}));
+vi.mock("@/lib/motivation/motivation-input-resolver", () => ({
+  buildMotivationOwnerCondition: buildMotivationOwnerConditionMock,
+  getOwnedMotivationCompanyData: getOwnedMotivationCompanyDataMock,
+}));
 
 describe("api/motivation/[companyId]/generate-draft", () => {
   beforeEach(() => {
-    getSessionMock.mockReset();
-    dbSelectMock.mockReset();
+    dbUpdateMock.mockReset();
+    dbInsertMock.mockReset();
     reserveCreditsMock.mockReset();
+    confirmReservationMock.mockReset();
+    cancelReservationMock.mockReset();
     enforceRateLimitLayersMock.mockReset();
+    getRequestIdentityMock.mockReset();
     getMotivationConversationByConditionMock.mockReset();
+    getOwnedMotivationCompanyDataMock.mockReset();
+    buildMotivationOwnerConditionMock.mockReset();
     resolveDraftReadyStateMock.mockReset();
     safeParseConversationContextMock.mockReset();
+    safeParseMessagesMock.mockReset();
+    fetchFastApiInternalMock.mockReset();
     vi.restoreAllMocks();
 
-    getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
-    dbSelectMock.mockReturnValue(makeCompanyQuery());
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    dbUpdateMock.mockReturnValue({
+      set: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue(undefined),
+      })),
+    });
+    dbInsertMock.mockReturnValue({
+      values: vi.fn().mockResolvedValue(undefined),
+    });
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-1" });
     enforceRateLimitLayersMock.mockResolvedValue(null);
+    getOwnedMotivationCompanyDataMock.mockResolvedValue({
+      id: "company-1",
+      name: "テスト株式会社",
+      industry: "IT",
+    });
+    buildMotivationOwnerConditionMock.mockReturnValue({ owner: "condition" });
     getMotivationConversationByConditionMock.mockResolvedValue({
       id: "conversation-1",
       status: "completed",
@@ -104,7 +134,22 @@ describe("api/motivation/[companyId]/generate-draft", () => {
         { role: "assistant", content: "b" },
       ]),
     });
-    safeParseConversationContextMock.mockReturnValue({ draftReady: true });
+    safeParseConversationContextMock.mockReturnValue({
+      draftReady: true,
+      selectedIndustry: "IT",
+      selectedRole: "企画職",
+      questionStage: "differentiation",
+      slotSummaries: {
+        company_reason: "DX支援を通じて顧客課題に向き合える点に惹かれています。",
+      },
+      slotEvidenceSentences: {
+        company_reason: ["DX支援を通じて顧客課題に向き合える点に惹かれています。"],
+      },
+    });
+    safeParseMessagesMock.mockReturnValue([
+      { role: "user", content: "a" },
+      { role: "assistant", content: "b" },
+    ]);
     resolveDraftReadyStateMock.mockReturnValue({ isDraftReady: true, unlockedAt: null });
   });
 
@@ -152,5 +197,117 @@ describe("api/motivation/[companyId]/generate-draft", () => {
 
     expect(response.status).toBe(409);
     expect(reserveCreditsMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a deepdive follow-up question after draft generation succeeds", async () => {
+    fetchFastApiInternalMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            draft: "志望動機の下書きです。",
+            char_count: 120,
+            key_points: ["企業理解", "自己接続"],
+            company_keywords: ["DX支援"],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            question: "この志望動機をさらに強めるために、原体験のどの点を補足したいですか？",
+            draft_ready: true,
+            evidence_summary: "参考情報",
+            evidence_cards: [],
+            coaching_focus: "補足深掘り",
+            question_stage: "self_connection",
+            conversation_mode: "deepdive",
+            current_slot: "self_connection",
+            current_intent: "experience_anchor",
+            next_advance_condition: "原体験とのつながりが1つ補えれば十分です。",
+            progress: { completed: 6, total: 6, current_slot: "self_connection", current_slot_label: "自分との接続", current_intent: "experience_anchor", next_advance_condition: "原体験とのつながりが1つ補えれば十分です。", mode: "deepdive" },
+            causal_gaps: [{ id: "self_connection_gap", slot: "self_connection", reason: "経験との接続が弱い", promptHint: "過去の経験や価値観とのつながりを補う" }],
+            stage_status: { current: "self_connection", completed: ["industry_reason"], pending: ["value_contribution"] },
+            captured_context: {
+              draftReady: true,
+              selectedIndustry: "IT",
+              selectedRole: "企画職",
+              questionStage: "self_connection",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft/route");
+    const request = new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft", {
+      method: "POST",
+      body: JSON.stringify({ charLimit: 400 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ companyId: "company-1" }) });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.draft).toBe("志望動機の下書きです。");
+    expect(payload.nextQuestion).toBe("この志望動機をさらに強めるために、原体験のどの点を補足したいですか？");
+    expect(payload.conversationMode).toBe("deepdive");
+    expect(payload.currentSlot).toBe("self_connection");
+    expect(payload.coachingFocus).toBe("補足深掘り");
+    expect(fetchFastApiInternalMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/motivation/generate-draft",
+      expect.objectContaining({
+        body: expect.any(String),
+      }),
+    );
+    const firstCallBody = JSON.parse(fetchFastApiInternalMock.mock.calls[0][1].body as string);
+    expect(firstCallBody.slot_summaries).toEqual({
+      company_reason: "DX支援を通じて顧客課題に向き合える点に惹かれています。",
+    });
+    expect(firstCallBody.slot_evidence_sentences).toEqual({
+      company_reason: ["DX支援を通じて顧客課題に向き合える点に惹かれています。"],
+    });
+    // D-2 (P2-1): RAG role-grounded モード判定のため selected_role を FastAPI へ送る
+    expect(firstCallBody.selected_role).toBe("企画職");
+  });
+
+  it("keeps the generated draft as conversation state without creating an ES document immediately", async () => {
+    fetchFastApiInternalMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            draft: "志望動機の下書きです。",
+            char_count: 120,
+            key_points: ["企業理解"],
+            company_keywords: ["DX支援"],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            question: "次に補強したい点はどこですか？",
+            evidence_cards: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft/route");
+    const request = new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft", {
+      method: "POST",
+      body: JSON.stringify({ charLimit: 400 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ companyId: "company-1" }) });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.documentId).toBeNull();
+    expect(dbInsertMock).not.toHaveBeenCalled();
   });
 });

@@ -284,6 +284,30 @@ npx playwright test companies
 - `npm run test:e2e:auth` は guest の session persistence と guest/user access boundary を確認する。
 - `npm run test:e2e:regression` は feature-specific regression を確認する。
 
+### ローカル 6機能 AI Live
+
+- localhost 向け一括実行は `make ai-live-local` を使う。
+- 既定 suite は `extended`。短く回したいときだけ `make ai-live-local SUITE=smoke` を使う。
+- 対象は `ES添削` `企業RAG取り込み` `選考スケジュール取得` `ガクチカ作成` `志望動機作成` `面接対策` の 6機能で、`企業情報検索` は含めない。
+- wrapper は `npm run dev` と `bash tools/start-fastapi-playwright.sh` を起動し、既定の `http://localhost:3000` と `http://localhost:8000/health` を待ってから実行する。`3000` が埋まっている場合は `next dev` が選んだ localhost port に追従する。
+- `CI_E2E_AUTH_SECRET` が未設定なら wrapper が一時 secret を生成して local test auth route を有効化する。
+- `DATABASE_URL` が `localhost` / `127.0.0.1` 向けで DB 未起動なら、wrapper は `make db-up` を 1 回だけ試みる。
+- stateful な `es-review` `gakuchika` `motivation` `interview` の直前には `scripts/ci/reset-ai-live-state.mjs` を実行し、ローカル DB 上の CI E2E test user state を毎回 reset する。
+- 出力先既定は `backend/tests/output/local_ai_live/<suite>_<timestamp>/`。
+- 集約出力は `ai-live-summary.md` `ai-live-summary.json` `ai-live-issue-body.md`、feature 別 bundle は `live_*.json` `live_*.md`。
+
+実行前に最低限そろえるもの:
+
+- env: `BETTER_AUTH_SECRET`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DATABASE_URL`
+- service: local DB, Next.js dev server が起動できる Node/npm, FastAPI が起動できる Python 環境
+
+よくある失敗:
+
+- `BETTER_AUTH_SECRET` 未設定で `POST /api/internal/test-auth/login` が無効化される
+- ローカル DB 未起動で auth preflight / state reset が失敗する
+- FastAPI 起動失敗で `http://localhost:8000/health` が ready にならない
+- LLM key 不足で live report が skip または fail になる
+
 ### テストファイル構造
 
 ```
@@ -534,7 +558,7 @@ Stripe ダッシュボードで以下の商品を作成:
 
 | 商品名 | 価格 | 請求間隔 |
 |-------|------|---------|
-| Standard | ¥1,480 | 月次 |
+| Standard | ¥1,490 | 月次 |
 | Pro | ¥2,980 | 月次 |
 
 ---
@@ -586,17 +610,17 @@ LOCAL_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
 
 ```env
 MODEL_ES_REVIEW=claude-sonnet        # ES添削（例: gpt-5.4 / gemini-3.1-pro-preview / low-cost）
-MODEL_GAKUCHIKA=gpt-fast             # ガクチカ深掘り（GPT-5.4 mini）
-MODEL_MOTIVATION=gpt-fast            # 志望動機（GPT-5.4 mini）
+MODEL_GAKUCHIKA=gpt-mini             # ガクチカ深掘り（GPT-5.4 mini）
+MODEL_MOTIVATION=gpt-mini            # 志望動機（GPT-5.4 mini）
 MODEL_COMPANY_INFO=openai            # 企業情報抽出
-MODEL_RAG_QUERY_EXPANSION=gpt-fast   # クエリ拡張（mini）
-MODEL_RAG_HYDE=gpt-fast              # HyDE（mini）
+MODEL_RAG_QUERY_EXPANSION=gpt-mini   # クエリ拡張（mini）
+MODEL_RAG_HYDE=gpt-mini              # HyDE（mini）
 MODEL_RAG_CLASSIFY=gpt-nano          # コンテンツ分類（RAG 補助 LLM で唯一 nano 既定）
 
 # Optional commercial API providers
 # GOOGLE_API_KEY=...
 # GOOGLE_MODEL=gemini-3.1-pro-preview
-MODEL_SELECTION_SCHEDULE=gpt-nano # 選考スケジュール（既定: GPT-5.4 nano。精度優先なら gpt-fast）
+MODEL_SELECTION_SCHEDULE=gpt-mini # 選考スケジュール（既定: GPT-5.4 mini）
 ```
 
 ### 選考スケジュール取得の LLM コストログ（開発者向け）

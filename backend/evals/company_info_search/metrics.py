@@ -86,7 +86,7 @@ def compute_relevance_grade(
             else:
                 return 2  # Highly relevant: official + content match
         else:
-            return 1  # Partially relevant: official domain, wrong section
+            return 2  # Official domain without exact URL pattern is still highly relevant
 
     # Subsidiary or parent
     if (is_subsidiary or is_parent) and url_pattern_ok and company_matched:

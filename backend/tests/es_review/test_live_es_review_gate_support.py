@@ -39,7 +39,7 @@ def test_get_live_cases_smoke_covers_multiple_dimensions() -> None:
 
 
 def test_get_selected_models_defaults_follow_case_set() -> None:
-    assert get_selected_models("smoke", raw="") == ["gpt-5.4-mini"]
+    assert get_selected_models("smoke", raw="") == ["gpt-5.4"]
     assert get_selected_models("extended", raw="") == list(DEFAULT_LIVE_PROVIDERS_EXTENDED)
     assert get_selected_models("canary", raw="") == ["claude-sonnet", "gemini-3.1-pro-preview"]
     assert get_selected_models("extended", raw="all_standard") == ALL_STANDARD_MODELS

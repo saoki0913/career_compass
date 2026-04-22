@@ -3,17 +3,22 @@ import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
 import {
+  getGakuchikaNextAction,
   getIdentity,
   getQuestionFromFastAPI,
+  isInterviewReady,
   safeParseMessages,
   safeParseConversationState,
   serializeConversationState,
   verifyGakuchikaAccess,
-} from "@/app/api/gakuchika/shared";
+  type ConversationState,
+} from "@/app/api/gakuchika";
 import {
   getRequestId,
   logAiCreditCostSummary,
 } from "@/lib/ai/cost-summary-log";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 
 export async function POST(
   request: NextRequest,
@@ -34,6 +39,9 @@ export async function POST(
         { status: 401 },
       );
     }
+
+    const limitResponse = await guardDailyTokenLimit(identity);
+    if (limitResponse) return limitResponse;
 
     const hasAccess = await verifyGakuchikaAccess(gakuchikaId, identity.userId, identity.guestId);
     if (!hasAccess) {
@@ -71,17 +79,27 @@ export async function POST(
 
     let messages = safeParseMessages(conversation.messages);
     const questionCount = conversation.questionCount || 0;
+    let finalQuestionCount = questionCount;
     let conversationState = safeParseConversationState(conversation.starScores, conversation.status);
     let status = conversation.status;
+    let nextAction = getGakuchikaNextAction(conversationState);
 
-    if (conversationState.stage === "draft_ready" && !conversationState.draftText) {
-      return NextResponse.json(
-        { error: "先にガクチカESを作成してから深掘りを再開してください。" },
-        { status: 409 },
-      );
-    }
+    const shouldFetchNextQuestion =
+      conversationState.stage === "draft_ready" || conversationState.stage === "interview_ready";
 
-    if (conversation.status === "completed" && conversationState.stage === "draft_ready") {
+    if (shouldFetchNextQuestion) {
+      const stateForApi: ConversationState =
+        conversationState.stage === "interview_ready"
+          ? {
+              ...conversationState,
+              stage: "deep_dive_active",
+              deepdiveComplete: false,
+              deepdiveStage: "es_aftercare",
+              progressLabel: "さらに深掘り中",
+              extendedDeepDiveRound: (conversationState.extendedDeepDiveRound ?? 0) + 1,
+            }
+          : conversationState;
+
       const result = await getQuestionFromFastAPI(
         {
           title: gakuchika.title,
@@ -90,11 +108,14 @@ export async function POST(
         },
         messages,
         questionCount,
-        conversationState,
+        stateForApi,
         requestId,
+        identity,
       );
 
-      if (result.error || !result.question) {
+      const resolvedNextAction =
+        result.nextAction ?? getGakuchikaNextAction(result.conversationState ?? stateForApi);
+      if (result.error || (resolvedNextAction === "ask" && !result.question)) {
         logAiCreditCostSummary({
           feature: "gakuchika_resume",
           requestId,
@@ -108,21 +129,33 @@ export async function POST(
         );
       }
 
-      messages = [
-        ...messages,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: result.question,
-        },
-      ];
-      conversationState = result.conversationState ?? conversationState;
-      status = "in_progress";
+      if (result.question) {
+        messages = [
+          ...messages,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: result.question,
+          },
+        ];
+      }
+      finalQuestionCount = result.question ? questionCount + 1 : questionCount;
+      conversationState = result.conversationState
+        ? {
+            ...stateForApi,
+            ...result.conversationState,
+            extendedDeepDiveRound:
+              result.conversationState.extendedDeepDiveRound ?? stateForApi.extendedDeepDiveRound,
+          }
+        : stateForApi;
+      nextAction = resolvedNextAction;
+      status = isInterviewReady(conversationState) ? "completed" : "in_progress";
 
       await db
         .update(gakuchikaConversations)
         .set({
-          messages: JSON.stringify(messages),
+          messages,
+          questionCount: finalQuestionCount,
           status,
           starScores: serializeConversationState(conversationState),
           updatedAt: new Date(),
@@ -135,6 +168,7 @@ export async function POST(
         creditsUsed: 0,
         telemetry: result.telemetry,
       });
+      void incrementDailyTokenCount(identity, computeTotalTokens(result.telemetry));
     }
 
     const allConversations = await db
@@ -161,18 +195,21 @@ export async function POST(
       }));
 
     const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
+    nextAction = getGakuchikaNextAction(conversationState);
 
     return NextResponse.json({
       conversation: {
         id: sessionId,
-        questionCount,
+        questionCount: finalQuestionCount,
         status,
       },
       messages,
-      nextQuestion: lastAssistantMessage?.content || null,
-      questionCount,
-      isCompleted: status === "completed",
+      nextQuestion: nextAction === "ask" ? lastAssistantMessage?.content || null : null,
+      questionCount: finalQuestionCount,
+      isCompleted: isInterviewReady(conversationState),
+      isInterviewReady: isInterviewReady(conversationState),
       conversationState,
+      nextAction,
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,

@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from "react";
 import { CompanyStatus } from "@/lib/constants/status";
 import { trackEvent } from "@/lib/analytics/client";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 
 export type { CompanyStatus } from "@/lib/constants/status";
 
@@ -33,9 +34,9 @@ export interface Company {
   status: CompanyStatus;
   isPinned: boolean;
   sortOrder: number;
-  infoFetchedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
+  infoFetchedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
   // Aggregate fields
   nearestDeadline: NearestDeadline | null;
   applicationCount: number;
@@ -125,6 +126,7 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
         "useCompanies.fetch"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }
@@ -259,6 +261,7 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
         "useCompanies.delete"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
       return false;
     }
   }, []);
@@ -308,6 +311,7 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
         "useCompanies.togglePin"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     }
   }, [companies]);
 

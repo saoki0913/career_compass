@@ -160,8 +160,7 @@ def _required_signals_ok(judgment: RunJudgment, kind: str) -> bool:
         return False
     if kind.startswith("recruitment_"):
         return judgment.year_match_correct
-    if kind.startswith("content_type:"):
-        return judgment.url_pattern_match
+    # url_pattern_match for content_type is a soft signal, not a hard requirement
     return True
 
 

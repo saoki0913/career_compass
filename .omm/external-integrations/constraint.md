@@ -1,0 +1,1 @@
+Most provider interactions must remain behind shared wrappers, because secrets, internal JWT signing, and sync semantics need a controlled surface. Direct provider calls from feature code would make failure handling inconsistent.

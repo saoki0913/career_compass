@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { AppUiError, parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 
 export interface DraftES {
   id: string;
@@ -107,6 +108,7 @@ export function useIncompleteItems(options: UseIncompleteItemsOptions = {}): Use
       );
       setError(uiError.message);
       setErrorInfo(uiError);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }

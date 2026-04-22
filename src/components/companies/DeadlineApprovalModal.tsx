@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DEADLINE_TYPE_LABELS } from "@/hooks/useCompanyDeadlines";
 import type { Deadline, DeadlineType } from "@/hooks/useCompanyDeadlines";
 import { notifySuccess } from "@/lib/notifications";
-import { getUserFacingErrorMessage } from "@/lib/api-errors";
+import { reportUserFacingError } from "@/lib/client-error-ui";
 
 interface DeadlineApprovalModalProps {
   isOpen: boolean;
@@ -67,6 +67,7 @@ export function DeadlineApprovalModal({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [duplicateWarnings, setDuplicateWarnings] = useState<Map<string, string>>(new Map());
 
   // Filter to unconfirmed deadlines only
   const unconfirmedDeadlines = deadlines.filter((d) => !d.isConfirmed);
@@ -83,6 +84,46 @@ export function DeadlineApprovalModal({
       setSelectedIds(initialSelected);
       setError(null);
     }
+  }, [isOpen, unconfirmedDeadlines.map((d) => d.id).join(",")]);
+
+  // Batch duplicate check on mount
+  useEffect(() => {
+    if (!isOpen || unconfirmedDeadlines.length === 0) {
+      setDuplicateWarnings(new Map());
+      return;
+    }
+
+    const companyId = unconfirmedDeadlines[0]?.companyId;
+    if (!companyId) return;
+
+    const candidates = unconfirmedDeadlines.map((d) => ({
+      type: d.type,
+      title: d.title,
+      dueDate: d.dueDate,
+      excludeId: d.id,
+    }));
+
+    fetch(`/api/companies/${companyId}/deadlines/check-duplicates`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ candidates }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data?.duplicates) return;
+        const warnings = new Map<string, string>();
+        for (const [indexStr, matches] of Object.entries(data.duplicates)) {
+          const idx = Number(indexStr);
+          const deadline = unconfirmedDeadlines[idx];
+          if (deadline && Array.isArray(matches) && matches.length > 0) {
+            warnings.set(deadline.id, `同様の締切が既に${matches.length}件登録されています`);
+          }
+        }
+        setDuplicateWarnings(warnings);
+      })
+      .catch(() => {
+        // Duplicate check is best-effort; don't block approval flow
+      });
   }, [isOpen, unconfirmedDeadlines.map((d) => d.id).join(",")]);
 
   const toggleDeadline = (id: string) => {
@@ -124,7 +165,7 @@ export function DeadlineApprovalModal({
       });
       onClose();
     } catch (err) {
-      setError(getUserFacingErrorMessage(err, {
+      setError(reportUserFacingError(err, {
         code: "DEADLINE_APPROVAL_FAILED",
         userMessage: "締切を承認できませんでした。",
       }, "DeadlineApprovalModal:confirm"));
@@ -240,8 +281,18 @@ export function DeadlineApprovalModal({
                           信頼度: {confidenceStyle.label}
                         </span>
                       )}
+                      {duplicateWarnings.has(deadline.id) && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
+                          重複の可能性
+                        </span>
+                      )}
                     </div>
                     <p className="font-medium mt-1 text-sm">{deadline.title}</p>
+                    {duplicateWarnings.has(deadline.id) && (
+                      <p className="text-xs text-yellow-700 mt-0.5">
+                        {duplicateWarnings.get(deadline.id)}
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {dueDate.toLocaleDateString("ja-JP", {
                         year: "numeric",

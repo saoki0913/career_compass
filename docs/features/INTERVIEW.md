@@ -1,81 +1,102 @@
 # 面接対策（企業特化模擬面接）
 
-参照実装: `backend/app/routers/interview.py`, `src/app/api/companies/[id]/interview/route.ts`, `src/app/api/companies/[id]/interview/start/route.ts`, `src/app/api/companies/[id]/interview/stream/route.ts`, `src/app/api/companies/[id]/interview/feedback/route.ts`, `src/app/api/companies/[id]/interview/continue/route.ts`, `src/app/api/companies/[id]/interview/reset/route.ts`, `src/app/api/companies/[id]/interview/shared.ts`, `src/lib/interview/company-seeds.ts`, `src/lib/interview/session.ts`, `src/app/(product)/companies/[id]/interview/page.tsx`
+企業・職種に特化した模擬面接を行い、最終講評を生成する機能。
+
+## 入口
+
+| 項目 | パス |
+|------|------|
+| FastAPI | `backend/app/routers/interview.py` |
+| ページ | `src/app/(product)/companies/[id]/interview/page.tsx` |
+| Next API | `src/app/api/companies/[id]/interview/`（start, stream, feedback, continue, reset） |
+| セッション管理 | `src/lib/interview/session.ts`, `src/lib/interview/conversation.ts` |
+| 共通ロジック | `src/app/api/companies/[id]/interview/shared.ts` |
+| 集客 LP | `src/app/(marketing)/ai-mensetsu/page.tsx`（AI 面接対策 / 模擬面接 AI / 企業別 面接対策） |
 
 ## 概要
 
 - ルートは `/companies/[id]/interview`
-- 画面は `setup-first`。開始前に `業界` と `職種` を確定する
-- 質問生成モデルは `MODEL_INTERVIEW=gpt-fast`（既定 `GPT-5.4 mini`）
+- 開始前に `業界 / 職種 / 面接方式 / 選考種別 / 面接段階 / 面接官タイプ / 厳しさ` を確認する `setup-first` UI を使う
+- `roleTrack` は UI で直接選ばせず、応募職種から内部自動分類する
+- 面接計画生成は `MODEL_INTERVIEW_PLAN=gpt`（既定 `GPT-5.4`）
+- 質問生成モデルは `MODEL_INTERVIEW=claude-haiku`（既定 `Claude Haiku 4.5`）
 - 最終講評は `MODEL_INTERVIEW_FEEDBACK=claude-sonnet`（表示名 `Claude Sonnet 4.6`）
-- 面接セッションは `sessionStorage` ではなく `interview_conversations` に保存する
-- 1社につき `1つの進行中セッション` を持ち、最終講評は `interview_feedback_histories` に履歴保存する
-- 会社別上乗せは `採用サイト seed / 会社メモ / 保存済み志望動機 / ガクチカ / ES` を束ねて質問に反映する
+- 面接対策はログイン必須。guest は開始・進行・講評・満足度保存のいずれも利用しない
+- 会話は `interview_conversations`、講評履歴は `interview_feedback_histories` に保存する
+- 旧版セッションは互換復元せず、v2 開始時にリセット扱いにする
 - 最終講評の成功時のみ `6 credits` を予約・確定で消費する
-- persistence schema が未適用のときは silent fallback せず、全 interview API が `INTERVIEW_PERSISTENCE_UNAVAILABLE` で fail-closed する
+- persistence schema が未適用のときは `INTERVIEW_PERSISTENCE_UNAVAILABLE` で fail-closed する
 
-## 面接フロー
+## v2.1 の進行モデル
 
-表示段階は次の 7 つ。
-
-1. `industry_reason` - 業界志望理由
-2. `role_reason` - 職種志望理由
-3. `opening` - 導入・人物把握
-4. `experience` - 経験・ガクチカ
-5. `company_understanding` - 企業理解
-6. `motivation_fit` - 志望動機・適合
-7. `feedback` - 最終講評
-
-質問数は **10〜15問**。
-
-- 10問到達前は原則継続する
-- 10問以降は段階別 coverage と未解消 gap が十分なら終了できる
-- 15問で打ち切る
-
-段階切替時は必ず `次は○○について伺います。` の transition line を付ける。
+- 固定段階 `industry_reason / role_reason / opening / experience / company_understanding / motivation_fit` は正本として使わない
+- FastAPI 側で static checklist catalog を正本にし、`interview_plan` は deterministic weighting 後の `priorityTopics / mustCoverTopics / riskTopics / suggestedTimeflow` を返す
+- 各ターンでは `turn_state.coverageState` を正本にし、topic ごとに次を保持する
+  - `topic`
+  - `status`
+  - `requiredChecklist`
+  - `passedChecklistKeys`
+  - `deterministicCoveragePassed`
+  - `llmCoverageHint`
+  - `deepeningCount`
+  - `lastCoveredTurnId`
+- `coveredTopics` は `coverageState` から派生させる read model とし、coverage 判定の正本には使わない
+- `recentQuestionSummariesV2` は `intentKey / normalizedSummary / topic / followupStyle / turnId` を保持し、同義質問抑止に使う
+- `strictnessMode` は covered 判定の閾値だけを変え、`interviewStage` は required checklist 自体を変える
+- `formatPhase` は `opening / standard_main / case_main / case_closing / technical_main / life_history_main / feedback`（旧 `discussion_main` / `presentation_main` は読み取り時に `life_history_main` に正規化）
+- `case_main` では behavioral fallback を禁止し、`case_closing` でのみ motivation / personality 系 topic を限定解禁する
+- `improved_answer` は generic fallback を廃止し、`weakest_turn_id` に紐づく最弱 1 問専用で返す
 
 ## setup-first
 
-面接開始前に次を確定する。
+開始前に次を確定する。
 
 - `selectedIndustry`
 - `selectedRole`
 - `selectedRoleSource`
+- `interviewFormat`
+- `selectionType`
+- `interviewStage`
+- `interviewerType`
+- `strictnessMode`
 
-業界候補と職種候補は `es-role-options` と同じロジックを使う。会社 `industry` が曖昧な場合だけ業界選択を必須にする。
+補助情報:
 
-開始後の最初の 2 問は必ず次。
+- `roleTrack` は `selectedRole` から内部自動分類する
+- `company.industry` が曖昧な場合だけ業界選択を必須にする
+- 既存の志望動機・応募職種・企業情報から初期値をプリセットする
 
-- `その業界を志望する理由`
-- `その職種を志望する理由`
+## 面接方式
 
-この 2 問は短く確認し、その後の深掘りや最終講評で `前提一致度` を評価する。
+同一機能内で次の 4 方式を扱う（方式定義・論点の一次参照: [Notion 面接関連](https://www.notion.so/1d44da9ec68881f0b665c3fe5b391510?v=1d44da9ec688813096b4000ce931e6f2&source=copy_link)。ローカル補助: `references/interview` があればプロンプト整合の参照に使う）。
+
+- `standard_behavioral`
+- `case`
+- `technical`
+- `life_history`
+
+方式ごとの原則:
+
+- `standard_behavioral`: 1 問 1 論点で STAR 互換の深掘りを行う
+- `case`: 構造化、仮説、打ち手の優先順位を確認する
+- `technical`: 専門知識、設計判断、前提・トレードオフ・再現性を確認する
+- `life_history`: 転機、価値観、行動の一貫性と自己理解の深さを確認する（旧 `discussion` / `presentation` の DB 値は `life_history` に正規化）
+
+opening/turn/continue の質問文、および feedback の本文が `string_chunk` で段階表示される。plan は `stream_string_fields=[]` のため一括返却。Next BFF は中継のみ（バッファで一括しない）。
 
 ## 会社別上乗せ
 
-`src/lib/interview/company-seeds.ts` に `23業界 × 代表企業3社` の seed profile を保持する。
+質問生成では次を材料にする。
 
-- `commonTopics`
-- `watchouts`
-- `representativeCompanies[].companyTopics`
-- `representativeCompanies[].roleTopics`
-- `representativeCompanies[].cultureTopics`
+1. 保存済み志望動機
+2. ガクチカ要約
+3. 関連 ES
+4. `academic_summary` / `research_summary`
+5. `src/lib/interview/company-seeds.ts` の業界・企業 seed
 
-質問生成では次の順で優先する。
-
-1. 保存済み志望動機 / ガクチカ / 関連ES / これまでの会話
-2. 会社別 seed 論点
-3. 業界共通 seed 論点
-
-seed は repo 内の設定資産として保持し、実行時に毎回 69社を live search しない。
+seed は repo 内の設定資産として保持し、実行時に毎回 live search はしない。
 
 ## 永続化
-
-`schema.ts` と app DB の正本は `drizzle_pg/` で管理する。面接セッション追加のような app table 変更時は、`schema.ts` 変更だけでなく Drizzle migration も必須。
-
-- app DB への反映: `npm run db:migrate:as-app` または `make db-migrate`
-- local Supabase reset / mirror 反映: `supabase db push` または `supabase db reset`
-- 本番 drift check: `npm run check:prod-db-drift`
 
 ### `interview_conversations`
 
@@ -83,18 +104,45 @@ seed は repo 内の設定資産として保持し、実行時に毎回 69社を
 - `userId` / `guestId`
 - `messages`
 - `status`
-- `currentStage`
-- `questionCount`
-- `stageQuestionCounts`
-- `completedStages`
-- `lastQuestionFocus`
-- `questionFlowCompleted`
 - `selectedIndustry`
 - `selectedRole`
 - `selectedRoleSource`
+- `roleTrack`
+- `interviewFormat`
+- `selectionType`
+- `interviewStage`
+- `interviewerType`
+- `strictnessMode`
+- `interviewPlanJson`
+- `turnStateJson`
+- `turnMetaJson`
 - `activeFeedbackDraft`
 - `currentFeedbackId`
 - `updatedAt`
+
+旧 `currentStage / stageQuestionCounts / completedStages / lastQuestionFocus` は互換読み取りの補助として残るが、v2.1 の正本は `turnStateJson` と `turnMetaJson`。
+
+### `interview_turn_events`
+
+- `turnId`
+- `conversationId`
+- `companyId`
+- `userId` / `guestId`
+- `question`
+- `answer`
+- `topic`
+- `questionType`
+- `turnAction`
+- `followupStyle`
+- `intentKey`
+- `coverageChecklistSnapshot`
+- `deterministicCoveragePassed`
+- `llmCoverageHint`
+- `formatPhase`
+- `formatGuardApplied`
+- `createdAt`
+
+各ターンの canonical log。最弱設問の復元、同義質問分析、analytics の正本に使う。
 
 ### `interview_feedback_histories`
 
@@ -105,9 +153,15 @@ seed は repo 内の設定資産として保持し、実行時に毎回 69社を
 - `scores`
 - `strengths`
 - `improvements`
+- `consistencyRisks`
+- `weakestQuestionType`
+- `weakestTurnId`
+- `weakestQuestionSnapshot`
+- `weakestAnswerSnapshot`
 - `improvedAnswer`
 - `preparationPoints`
 - `premiseConsistency`
+- `satisfactionScore`
 - `sourceQuestionCount`
 - `sourceMessagesSnapshot`
 
@@ -116,15 +170,17 @@ seed は repo 内の設定資産として保持し、実行時に毎回 69社を
 - `GET /api/companies/[id]/interview`
   - hydrate 用。`setup`, `materials`, `conversation`, `feedbackHistories`, `creditCost` を返す
 - `POST /api/companies/[id]/interview/start`
-  - setup を保存し、active session があれば復元、なければ初回質問を SSE で返す
+  - v2 setup を保存し、`plan -> opening question` を SSE で返す
 - `POST /api/companies/[id]/interview/stream`
-  - サーバ保存済み会話を正として回答を append し、次質問を SSE で返す
+  - 直近回答を追加し、次質問を SSE で返す
 - `POST /api/companies/[id]/interview/feedback`
-  - Claude Sonnet 4.6 で最終講評を SSE 返却し、成功時のみ 6 credits を確定する
+  - 最終講評を SSE 返却し、成功時のみ 6 credits を確定する
 - `POST /api/companies/[id]/interview/continue`
-  - 直近講評の `preparation_points` を踏まえて追加深掘りの質問を返す
+  - 直近講評の `next_preparation` と現 plan を踏まえて追加深掘りを再開する
 - `POST /api/companies/[id]/interview/reset`
-  - active session のみ初期化し、講評履歴は残す
+  - active session を初期化し、講評履歴は残す
+- `POST /api/companies/[id]/interview/feedback/satisfaction`
+  - 直近講評履歴に `1..5` の満足度を保存する
 
 ## FastAPI
 
@@ -149,10 +205,12 @@ seed は repo 内の設定資産として保持し、実行時に毎回 69社を
   - `stage_status`
   - `scores`
   - `premise_consistency`
+  - `weakest_question_type`
 - `array_item_complete`
   - `strengths.{n}`
   - `improvements.{n}`
-  - `preparation_points.{n}`
+  - `next_preparation.{n}`
+  - `consistency_risks.{n}`
 - `complete`
   - `messages`
   - `questionCount`
@@ -163,49 +221,75 @@ seed は repo 内の設定資産として保持し、実行時に毎回 69社を
   - `questionFlowCompleted`
   - `creditCost`
   - `turnState`
+  - `turnMeta`
+  - `plan`
   - `feedbackHistories`
 - `error`
   - `message`
 
+## 最終講評
+
+7 軸で講評する。
+
+- `company_fit`
+- `role_fit`
+- `specificity`
+- `logic`
+- `persuasiveness`
+- `consistency`
+- `credibility`
+
+あわせて次を返す。
+
+- `strengths`
+- `improvements`
+- `consistency_risks`
+- `weakest_question_type`
+- `weakest_turn_id`
+- `weakest_question_snapshot`
+- `weakest_answer_snapshot`
+- `improved_answer`
+- `next_preparation`
+- `premise_consistency`
+- `satisfaction_score`
+
 ## UI / UX
 
-- 開始前は setup card を表示し、業界/職種確定後に開始できる
-- 戻る / 再読込 / 別タブ後でも active session を復元する
-- 右カラムに `参考にする材料` と `過去の最終講評` を表示する
+- 開始前は setup card を表示し、設定確認後に開始できる
+- 右カラムにガクチカ風の進捗カードを表示する
+  - トピックピル: 確認済み (emerald + ✓) / 進行中 (sky) / 未着手 (muted) の 3 色バッジ
+  - 内部キー（`motivation_fit` 等）は `labelTopic()` で日本語ラベル（「志望動機」等）に変換して表示する
+  - ライフサイクルフェーズ: 「質問フェーズ → フィードバック → 面接完了」の 3 段階を done/current/pending で表示する
+  - 進捗ナラティブ: 「次は○○について確認します。」を `currentTopicLabel` から生成する
+- 質問テキストは `useStreamingTextPlayback` による文字送り演出で表示する
+  - SSE `string_chunk` はローカル蓄積のみ行い、`complete` イベント後に playback を開始する
+  - playback 完了 + 180ms 遅延後に `startTransition` で全 state を一括適用し、ステータス切り替え時のガタつきを防ぐ
+  - フィードバックの `string_chunk` は従来どおり即時表示（文字送り不要）
+- 右カラムに `面接設定 / PrepPack / 論点詳細 / 参考にする材料 / 過去の最終講評` を表示する
+- PrepPack は折りたたみ式（accordion）で面接設定カードの下に配置する
 - 過去講評は compact 表示にし、クリックでモーダル全文表示する
-- 最終講評後は `面接対策を続ける` と `会話をやり直す` を出す
-- continue 時は前回講評を履歴として残しつつ、深掘り質問を再開する
+- 最終講評後は `最弱設問 / そのときの回答 / improved_answer / 次に準備すべき論点 / 1問満足度` を表示する
+- 最終講評後は `面接対策を続ける` と `会話をやり直す` を表示する
+
+## 面接官口調ルール
+
+- `INTERVIEWER_COMMON_RULES` で挨拶・感想・評価・要約・共感・前置きを禁止する
+- 禁止例: 「一貫していますね」「良い点ですね」「なるほど」「これまでの話を聞くと」
+- 疑問文か指示文で開始し、応募者への言及から始めない
+- `_normalize_question_text` で防御的正規表現を適用し、LLM 非準拠時に前置きを除去する
+
+## analytics
+
+- analytics の正本は server-side 保存
+- `interview_turn_events` と `interview_feedback_histories` を使って次を集計する
+  - 完走率
+  - 再質問率
+  - `followupStyle` 分布
+  - `satisfactionScore`
+- client の trackEvent は補助用途に留める
 
 ## 課金
 
 - 質問フロー中は課金しない
 - `POST /feedback` の成功時のみ `6 credits` を予約・確定する
 - 失敗・中断時は `cancelReservation` で返金する
-
-## 代表企業 seed
-
-初期 seed は次の 23 業界 × 3 社。
-
-- 商社: 三井物産 / 三菱商事 / 伊藤忠商事
-- 銀行: 三菱UFJ銀行 / 三井住友銀行 / みずほ銀行
-- 信託銀行: 三井住友信託銀行 / 三菱UFJ信託銀行 / みずほ信託銀行
-- 証券: 野村證券 / 大和証券 / SMBC日興証券
-- 保険: 東京海上日動 / 三井住友海上 / 住友生命
-- アセットマネジメント: 野村アセットマネジメント / アセットマネジメントOne / 三井住友DSアセットマネジメント
-- カード・リース・ノンバンク: オリックス / 三菱HCキャピタル / オリコ
-- 政府系・系統金融: DBJ / 日本政策金融公庫 / 農林中央金庫
-- コンサルティング: アクセンチュア / デロイト トーマツ コンサルティング / NRI
-- IT・通信: NTTデータ / KDDI / NTTドコモ
-- メーカー（電機・機械）: 日立製作所 / パナソニックグループ / キーエンス
-- メーカー（食品・日用品）: 味の素 / サントリー / 花王
-- 広告・マスコミ: 電通 / 博報堂プロダクツ / 講談社
-- 不動産・建設: 三井不動産 / 三菱地所 / 大和ハウス工業
-- 小売・流通: イオンリテール / ローソン / ニトリ
-- サービス・インフラ: JR東日本 / ANA / 東京ガス
-- 医療・福祉: SOMPOケア / ニチイ学館 / LITALICO
-- 教育: ベネッセ / 学研 / Z会
-- 印刷・包装: TOPPAN / DNP / レンゴー
-- アパレル・繊維: ファーストリテイリング / オンワード樫山 / 東レ
-- 設備工事・エンジニアリング: 日揮HD / 千代田化工建設 / NTTファシリティーズ
-- 公務員・団体: JICA / JETRO / JNTO
-- その他: リクルート / パーソルキャリア / ディップ

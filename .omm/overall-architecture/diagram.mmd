@@ -1,0 +1,26 @@
+graph LR
+    nextjs-surface["Next.js Surface\nsrc/app/ + src/components/"]
+    next-api["Next API Layer\nsrc/app/api/"]
+    shared-domain-libs["Shared Domain Libraries\nsrc/lib/"]
+    postgres-core["Postgres Core\nsrc/lib/db/schema.ts"]
+    fastapi-ai["FastAPI AI Service\nbackend/app/"]
+    background-jobs["Background Jobs\nsrc/app/api/cron/ + scripts/"]
+    external-platforms["External Platforms\nGoogle, Stripe, Supabase, LLM APIs"]
+
+    nextjs-surface -->|"calls route handlers for product and marketing data"| next-api
+    nextjs-surface -->|"reuses shared hooks and domain helpers"| shared-domain-libs
+    next-api -->|"reads and mutates application records"| postgres-core
+    next-api -->|"delegates AI-heavy workflows through internal JWT"| fastapi-ai
+    next-api -->|"triggers scheduled work and follow-up syncs"| background-jobs
+    shared-domain-libs -->|"encodes schema, auth, billing, calendar, and infra clients"| postgres-core
+    shared-domain-libs -->|"wraps provider SDKs and service credentials"| external-platforms
+    fastapi-ai -->|"stores and retrieves RAG context plus metadata"| postgres-core
+    fastapi-ai -->|"scrapes, searches, reranks, and generates with external systems"| external-platforms
+    background-jobs -->|"syncs provider state and sends scheduled updates"| external-platforms
+
+    classDef external fill:#585b70,stroke:#585b70,color:#cdd6f4
+    classDef store fill:#a6e3a1,stroke:#a6e3a1,color:#1e1e2e
+    classDef entry fill:#89b4fa,stroke:#89b4fa,color:#1e1e2e
+    class nextjs-surface,next-api,fastapi-ai,background-jobs entry
+    class postgres-core store
+    class external-platforms external

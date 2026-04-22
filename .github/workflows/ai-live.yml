@@ -6,9 +6,9 @@ permissions:
   actions: read
 
 on:
-  schedule:
-    - cron: "0 14 * * *"
-    - cron: "30 14 * * 0"
+  # NOTE: 定期実行 (cron) は一時停止中 — AI 機能の改善が局所完成するまで、
+  # ローカル `make ai-live-local` を正本とする。手動 dispatch は引き続き可能。
+  # 復活時に備え、resolve-suite の case "${{ github.event.schedule }}" 分岐は残置。
   workflow_dispatch:
     inputs:
       suite:
@@ -27,9 +27,14 @@ on:
         options:
           - all
           - es-review
+          - company-info-search
+          - rag-ingest
+          - selection-schedule
           - gakuchika
           - motivation
           - interview
+          - crud
+          - pages-smoke
 
 concurrency:
   group: ai-live
@@ -48,7 +53,7 @@ jobs:
           suite="${{ inputs.suite }}"
           if [[ -z "$suite" ]]; then
             case "${{ github.event.schedule }}" in
-              "30 14 * * 0") suite="extended" ;;
+              "37 14 * * 0") suite="extended" ;;
               *) suite="smoke" ;;
             esac
           fi
@@ -64,6 +69,7 @@ jobs:
       PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
       PLAYWRIGHT_SKIP_WEBSERVER: "1"
       CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      CI_E2E_SCOPE: ai-live-${{ github.run_id }}-es-review
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -85,6 +91,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Preflight CI E2E auth
         run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Reset AI live state
+        run: node scripts/ci/reset-ai-live-state.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
       - name: Run ES review live
         env:
           AI_LIVE_SKIP_SUMMARY: "1"
@@ -110,6 +118,7 @@ jobs:
       PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
       PLAYWRIGHT_SKIP_WEBSERVER: "1"
       CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      CI_E2E_SCOPE: ai-live-${{ github.run_id }}-gakuchika
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -117,12 +126,20 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Preflight CI E2E auth
         run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Reset AI live state
+        run: node scripts/ci/reset-ai-live-state.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
       - name: Run gakuchika live
         env:
           AI_LIVE_SKIP_SUMMARY: "1"
@@ -138,6 +155,121 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
+  rag-ingest-live:
+    needs: resolve-suite
+    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'rag-ingest' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    environment: staging
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+      - name: Run RAG ingest live
+        continue-on-error: true
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
+        run: bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature rag-ingest
+      - name: Upload RAG ingest internal artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-live-internal-rag-ingest-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_rag_ingest_*/live_rag_ingest_*.json
+            backend/tests/output/ai_live_rag_ingest_*/live_rag_ingest_*.md
+            backend/tests/output/ai_live_rag_ingest_*/*.log
+          if-no-files-found: warn
+          retention-days: 90
+
+  company-info-search-live:
+    needs: resolve-suite
+    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'company-info-search' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 60
+    environment: staging
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+      - name: Run company info search live
+        continue-on-error: true
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
+        run: bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature company-info-search
+      - name: Upload company info search internal artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-live-internal-company-info-search-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_company_info_search_*/live_company_info_search_*.json
+            backend/tests/output/ai_live_company_info_search_*/live_company_info_search_*.md
+            backend/tests/output/ai_live_company_info_search_*/*.log
+            backend/evals/company_info_search/output/live_company_info_search_*.json
+            backend/evals/company_info_search/output/live_company_info_search_*.md
+          if-no-files-found: warn
+          retention-days: 90
+
+  selection-schedule-live:
+    needs: resolve-suite
+    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'selection-schedule' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    environment: staging
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+      - name: Run selection schedule live
+        continue-on-error: true
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
+        run: bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature selection-schedule
+      - name: Upload selection schedule internal artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-live-internal-selection-schedule-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_selection_schedule_*/live_selection_schedule_*.json
+            backend/tests/output/ai_live_selection_schedule_*/live_selection_schedule_*.md
+            backend/tests/output/ai_live_selection_schedule_*/*.log
+          if-no-files-found: warn
+          retention-days: 90
+
   motivation-live:
     needs: resolve-suite
     if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'motivation' }}
@@ -148,6 +280,7 @@ jobs:
       PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
       PLAYWRIGHT_SKIP_WEBSERVER: "1"
       CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      CI_E2E_SCOPE: ai-live-${{ github.run_id }}-motivation
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -155,12 +288,20 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Preflight CI E2E auth
         run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Reset AI live state
+        run: node scripts/ci/reset-ai-live-state.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
       - name: Run motivation live
         env:
           AI_LIVE_SKIP_SUMMARY: "1"
@@ -186,6 +327,7 @@ jobs:
       PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
       PLAYWRIGHT_SKIP_WEBSERVER: "1"
       CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      CI_E2E_SCOPE: ai-live-${{ github.run_id }}-interview
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -193,12 +335,20 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Preflight CI E2E auth
         run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Reset AI live state
+        run: node scripts/ci/reset-ai-live-state.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
       - name: Run interview live
         env:
           AI_LIVE_SKIP_SUMMARY: "1"
@@ -214,13 +364,91 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
+  crud-live:
+    needs: resolve-suite
+    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'crud' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    env:
+      AI_LIVE_BASE_URL: https://stg.shupass.jp
+      CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      CI_E2E_SCOPE: ai-live-${{ github.run_id }}-crud
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+      - name: Reset AI live state
+        run: python scripts/ci/reset-ai-live-state.py --base-url "${{ env.AI_LIVE_BASE_URL }}"
+      - name: Run CRUD live tests
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
+        run: |
+          for feature in calendar tasks-deadlines notifications company-crud billing search-query; do
+            bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature "$feature" --skip-summary || true
+          done
+      - name: Upload CRUD internal artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-live-internal-crud-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_*_*/live_*_*.json
+            backend/tests/output/ai_live_*_*/*.log
+          if-no-files-found: warn
+          retention-days: 90
+
+  pages-smoke-live:
+    needs: resolve-suite
+    if: ${{ github.event_name == 'schedule' || inputs.feature == 'all' || inputs.feature == 'pages-smoke' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    env:
+      PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
+      PLAYWRIGHT_SKIP_WEBSERVER: "1"
+      CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run pages smoke
+        env:
+          AI_LIVE_SKIP_SUMMARY: "1"
+        run: bash scripts/ci/run-ai-live.sh --suite "${{ needs.resolve-suite.outputs.suite }}" --feature pages-smoke
+      - name: Upload pages smoke internal artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-live-internal-pages-smoke-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: |
+            backend/tests/output/ai_live_pages_smoke_*/*.log
+          if-no-files-found: warn
+          retention-days: 90
+
   compile-live-report:
     needs:
       - resolve-suite
       - es-review-live
+      - company-info-search-live
+      - rag-ingest-live
+      - selection-schedule-live
       - gakuchika-live
       - motivation-live
       - interview-live
+      - crud-live
+      - pages-smoke-live
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -233,28 +461,60 @@ jobs:
         run: npm ci
       - name: Download ES review artifact
         if: ${{ needs.es-review-live.result != 'skipped' }}
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: ai-live-internal-es-review-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
           path: backend/tests/output/downloads/es-review
+      - name: Download company info search artifact
+        if: ${{ needs.company-info-search-live.result != 'skipped' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-live-internal-company-info-search-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: backend/tests/output/downloads/company-info-search
+      - name: Download RAG ingest artifact
+        if: ${{ needs.rag-ingest-live.result != 'skipped' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-live-internal-rag-ingest-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: backend/tests/output/downloads/rag-ingest
+      - name: Download selection schedule artifact
+        if: ${{ needs.selection-schedule-live.result != 'skipped' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-live-internal-selection-schedule-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: backend/tests/output/downloads/selection-schedule
       - name: Download gakuchika artifact
         if: ${{ needs.gakuchika-live.result != 'skipped' }}
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: ai-live-internal-gakuchika-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
           path: backend/tests/output/downloads/gakuchika
       - name: Download motivation artifact
         if: ${{ needs.motivation-live.result != 'skipped' }}
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: ai-live-internal-motivation-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
           path: backend/tests/output/downloads/motivation
       - name: Download interview artifact
         if: ${{ needs.interview-live.result != 'skipped' }}
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: ai-live-internal-interview-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
           path: backend/tests/output/downloads/interview
+      - name: Download CRUD artifact
+        if: ${{ needs.crud-live.result != 'skipped' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-live-internal-crud-${{ needs.resolve-suite.outputs.suite }}-${{ github.run_id }}
+          path: backend/tests/output/downloads/crud
       - name: Curate AI live public bundle
         shell: bash
         run: |
@@ -270,6 +530,9 @@ jobs:
           path: |
             backend/tests/output/public/ai-live-summary.md
             backend/tests/output/public/live_es_review_*.json
+            backend/tests/output/public/live_company_info_search_${{ needs.resolve-suite.outputs.suite }}_*.json
+            backend/tests/output/public/live_rag_ingest_*.json
+            backend/tests/output/public/live_selection_schedule_*.json
             backend/tests/output/public/live_gakuchika_*.json
             backend/tests/output/public/live_motivation_*.json
             backend/tests/output/public/live_interview_*.json

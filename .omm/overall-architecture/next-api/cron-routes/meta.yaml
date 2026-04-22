@@ -1,0 +1,9 @@
+created: 2026-04-05T11:27:37.375Z
+updated: 2026-04-05T11:27:37.378Z
+update_count: 1
+last_field: description
+kind: nested-class
+title: cron-routes
+children: []
+parentPath:
+  - next-api

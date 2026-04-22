@@ -1,0 +1,1 @@
+Route groups preserve different layouts and access assumptions. Product routes must tolerate both guest and authenticated ownership models in many screens, while marketing routes remain publicly accessible.

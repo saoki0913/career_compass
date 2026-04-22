@@ -148,6 +148,16 @@ class SearchRunner:
         from app.utils.web_search import (
             generate_query_variations,
         )
+        from starlette.requests import Request as StarletteRequest
+
+        _mock_scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/eval",
+            "query_string": b"",
+            "headers": [],
+        }
+        _mock_request = StarletteRequest(scope=_mock_scope)
         from evals.company_info_search.support.rate_limiter import DistributedRateLimiter
         from evals.company_info_search.monkeypatch_helpers import setup_search_patches
 
@@ -240,7 +250,7 @@ class SearchRunner:
                             with contextlib.redirect_stdout(
                                 devnull
                             ), contextlib.redirect_stderr(devnull):
-                                resp = await company_info.search_company_pages(req)
+                                resp = await company_info.search_company_pages(req, _mock_request)
 
                             candidates = (resp or {}).get("candidates", [])
                             record.candidates = [
@@ -326,7 +336,7 @@ class SearchRunner:
                             with contextlib.redirect_stdout(
                                 devnull
                             ), contextlib.redirect_stderr(devnull):
-                                resp = await company_info.search_corporate_pages(req)
+                                resp = await company_info.search_corporate_pages(req, _mock_request)
 
                             candidates = (resp or {}).get("candidates", [])
                             record.candidates = [

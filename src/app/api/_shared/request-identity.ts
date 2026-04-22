@@ -9,7 +9,14 @@ export type RequestIdentity = {
   guestId: string | null;
 };
 
-export async function getHeadersIdentity(requestHeaders: Headers): Promise<RequestIdentity | null> {
+type RequestIdentityOptions = {
+  allowDeviceTokenHeader?: boolean;
+};
+
+export async function getHeadersIdentity(
+  requestHeaders: Headers,
+  options: RequestIdentityOptions = {},
+): Promise<RequestIdentity | null> {
   let session: Awaited<ReturnType<typeof auth.api.getSession>> | null = null;
 
   try {
@@ -29,9 +36,11 @@ export async function getHeadersIdentity(requestHeaders: Headers): Promise<Reque
     };
   }
 
-  const deviceToken =
-    requestHeaders.get("x-device-token") ??
-    readGuestDeviceTokenFromCookieHeader(requestHeaders.get("cookie"));
+  const deviceTokenFromCookie = readGuestDeviceTokenFromCookieHeader(requestHeaders.get("cookie"));
+  const deviceTokenFromHeader = options.allowDeviceTokenHeader
+    ? requestHeaders.get("x-device-token")
+    : null;
+  const deviceToken = deviceTokenFromCookie ?? deviceTokenFromHeader;
   if (!deviceToken) {
     return null;
   }
@@ -47,6 +56,9 @@ export async function getHeadersIdentity(requestHeaders: Headers): Promise<Reque
   };
 }
 
-export async function getRequestIdentity(request: NextRequest): Promise<RequestIdentity | null> {
-  return getHeadersIdentity(request.headers);
+export async function getRequestIdentity(
+  request: NextRequest,
+  options?: RequestIdentityOptions,
+): Promise<RequestIdentity | null> {
+  return getHeadersIdentity(request.headers, options);
 }

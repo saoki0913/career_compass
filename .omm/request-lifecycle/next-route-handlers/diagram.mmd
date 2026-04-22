@@ -1,0 +1,9 @@
+graph LR
+    crud-routes["CRUD Routes\ncompanies, deadlines, tasks, notifications"]
+    ai-stream-routes["AI Stream Routes\ndocuments/review, motivation, gakuchika"]
+    calendar-routes["Calendar Routes\ncalendar/connect, events, settings"]
+    webhook-cron-routes["Webhook And Cron Routes\nwebhooks/stripe + cron/"]
+
+    crud-routes -->|"persist user-managed application state"| calendar-routes
+    ai-stream-routes -->|"read and update product records around AI output"| crud-routes
+    webhook-cron-routes -->|"reconcile provider or scheduled outcomes"| crud-routes

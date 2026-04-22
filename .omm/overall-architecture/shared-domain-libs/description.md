@@ -1,0 +1,1 @@
+Reusable server and client helpers in src/lib. These modules centralize auth integration, DB access, FastAPI client logic, Stripe and Google Calendar wrappers, domain loaders, storage access, and cross-cutting utilities.

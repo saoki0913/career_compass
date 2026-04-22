@@ -32,4 +32,10 @@ describe("credits month reset", () => {
 
     expect(DEFAULT_INTERVIEW_SESSION_CREDIT_COST).toBe(6);
   });
+
+  it("exposes conversation credits per turn", async () => {
+    const { CONVERSATION_CREDITS_PER_TURN } = await import("@/lib/credits");
+
+    expect(CONVERSATION_CREDITS_PER_TURN).toBe(1);
+  });
 });

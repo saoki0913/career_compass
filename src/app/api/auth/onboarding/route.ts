@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import { getCsrfFailureReason } from "@/lib/csrf";
 
 // Onboarding data type
 interface OnboardingData {
@@ -23,6 +24,15 @@ interface OnboardingData {
 
 export async function POST(request: NextRequest) {
   try {
+    // Defense-in-depth CSRF check (D-11 hotfix)
+    const csrfFailure = getCsrfFailureReason(request);
+    if (csrfFailure) {
+      return NextResponse.json(
+        { error: "CSRF validation failed" },
+        { status: 403 }
+      );
+    }
+
     // Get the authenticated user session
     const session = await auth.api.getSession({
       headers: await headers(),

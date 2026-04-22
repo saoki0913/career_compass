@@ -1,0 +1,22 @@
+name = "database-engineer"
+description = "Schema and migration agent for Drizzle, PostgreSQL indexing, and database performance safety."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Own schema, migrations, and index design. Preserve guest/user dual ownership and migration safety.
+When schema changes are proposed, think through downstream API and backend readers before editing.
+Recommend db:generate and SQL review whenever schema.ts changes.
+"""
+
+[[skills.config]]
+path = "../../.codex/skills/postgres-pro"
+enabled = true
+
+[[skills.config]]
+path = "../../.codex/skills/database-optimizer"
+enabled = true
+
+[[skills.config]]
+path = "../../.agents/skills/database-design"
+enabled = true

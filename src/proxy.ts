@@ -36,15 +36,48 @@ const PLAN_REQUIRED_ROUTES = [
 // Routes that are only for unauthenticated users
 const AUTH_ROUTES = ["/login"];
 
+/**
+ * Custom `/api/auth/*` endpoints that we own (NOT handled by the Better Auth catch-all).
+ * These must go through our proxy CSRF + Origin validation like any other API route,
+ * so they are intentionally NOT treated as Better Auth managed paths below.
+ */
+const CUSTOM_AUTH_ROUTE_PATHS = [
+  "/api/auth/guest",
+  "/api/auth/onboarding",
+  "/api/auth/plan",
+] as const;
+
+/**
+ * Whether `pathname` is handled by the Better Auth catch-all (`/api/auth/[...all]`).
+ * Better Auth performs its own Origin / CSRF / token checks internally, so for those
+ * paths we skip our proxy-layer CSRF validation. Custom routes listed above are
+ * explicitly excluded because Better Auth never sees them.
+ */
+function isBetterAuthManagedPath(pathname: string): boolean {
+  if (!pathname.startsWith("/api/auth/")) return false;
+  return !CUSTOM_AUTH_ROUTE_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`)
+  );
+}
+
 // Paths excluded from CSRF checks
 const CSRF_EXEMPT_PATHS = [
-  "/api/auth/",       // Better Auth handles its own CSRF
   "/api/webhooks/",   // Webhooks use signature verification
   "/api/internal/test-auth/", // CI-only test auth is guarded by a separate secret
 ];
 
 // State-changing HTTP methods that require CSRF protection
 const CSRF_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
+
+/**
+ * Payload size cap for JSON API requests routed through the BFF (D-2 象限①).
+ *
+ * 1 MiB matches the FastAPI ``JsonPayloadSizeLimitMiddleware`` cap so both
+ * edges reject identically-sized bodies. Legitimate JSON requests from our UI
+ * (motivation/es-review submissions, document drafts) sit well under 200 KB.
+ * Multipart uploads bypass this check and are policed per-route.
+ */
+const MAX_JSON_PAYLOAD_BYTES = 1 * 1024 * 1024;
 
 function createCsrfErrorResponse(
   request: NextRequest,
@@ -108,6 +141,86 @@ function createProxyErrorResponse(
       },
     }
   );
+}
+
+/**
+ * Reject JSON API requests whose bodies exceed ``MAX_JSON_PAYLOAD_BYTES``.
+ *
+ * The check fires when:
+ * 1. The request carries a state-changing method and a JSON Content-Type.
+ * 2. ``Content-Length`` is present and exceeds the cap.
+ *
+ * We also reject ``Transfer-Encoding: chunked`` for JSON endpoints because our
+ * legitimate clients (browser fetch, internal tests) always emit Content-Length
+ * for JSON bodies. A chunked JSON request is either misconfigured tooling or
+ * an attempt to smuggle past the size check.
+ *
+ * Multipart requests intentionally pass through; per-route logic inspects each
+ * uploaded ``file.size`` (see ``fetch-corporate-upload/route.ts``).
+ */
+function validatePayloadSize(request: NextRequest): NextResponse | null {
+  if (!CSRF_METHODS.has(request.method)) return null;
+
+  const contentType = (request.headers.get("content-type") || "").toLowerCase();
+  // Only police JSON bodies here. multipart/* and application/x-www-form-urlencoded
+  // have route-level size checks, and missing Content-Type is allowed to fall
+  // through so the 415 surfaces from the route rather than from proxy.
+  if (!contentType.startsWith("application/json")) return null;
+
+  const transferEncoding = (
+    request.headers.get("transfer-encoding") || ""
+  ).toLowerCase();
+  if (transferEncoding.includes("chunked")) {
+    return createProxyErrorResponse(
+      request,
+      413,
+      "PAYLOAD_CHUNKED_JSON_REJECTED",
+      "リクエストを処理できませんでした。",
+      "ページを再読み込みして、もう一度お試しください。",
+      "Chunked Transfer-Encoding is not permitted for JSON requests",
+      JSON.stringify({
+        pathname: request.nextUrl.pathname,
+        method: request.method,
+      })
+    );
+  }
+
+  const contentLengthHeader = request.headers.get("content-length");
+  if (!contentLengthHeader) return null;
+
+  const contentLength = Number.parseInt(contentLengthHeader, 10);
+  if (!Number.isFinite(contentLength) || contentLength < 0) {
+    return createProxyErrorResponse(
+      request,
+      413,
+      "PAYLOAD_INVALID_CONTENT_LENGTH",
+      "リクエストを処理できませんでした。",
+      "ページを再読み込みして、もう一度お試しください。",
+      "Content-Length header is not a valid positive integer",
+      JSON.stringify({
+        pathname: request.nextUrl.pathname,
+        contentLengthHeader,
+      })
+    );
+  }
+
+  if (contentLength > MAX_JSON_PAYLOAD_BYTES) {
+    return createProxyErrorResponse(
+      request,
+      413,
+      "PAYLOAD_TOO_LARGE",
+      "送信データが大きすぎます。",
+      "内容を短くしてもう一度お試しください。",
+      `JSON payload ${contentLength} bytes exceeds ${MAX_JSON_PAYLOAD_BYTES}`,
+      JSON.stringify({
+        pathname: request.nextUrl.pathname,
+        contentLength,
+        maxBytes: MAX_JSON_PAYLOAD_BYTES,
+      })
+    );
+  }
+
+  return null;
 }
 
 /**
@@ -248,22 +361,32 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const cspContext = getCspContext(request);
 
-  // Skip static files and Better Auth / webhook routes for route protection
+  // Static assets + webhooks short-circuit: no route-protection, no proxy CSRF.
+  // (Webhooks verify request signatures in their own handlers.)
   if (
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/api/webhooks") ||
     pathname.includes(".")
   ) {
-    // Still run CSRF check on API routes
-    if (pathname.startsWith("/api/") && !pathname.startsWith("/api/auth/") && !pathname.startsWith("/api/webhooks")) {
-      const csrfResult = validateCsrf(request);
-      if (csrfResult) return csrfResult;
-    }
     return withCsrfCookie(request, createForwardResponse(request, cspContext), cspContext);
   }
 
-  // CSRF protection for API routes
+  // Better Auth catch-all (`/api/auth/[...all]`) performs its own Origin + CSRF
+  // validation internally, so we short-circuit here. Custom routes under
+  // `/api/auth/` (guest / onboarding / plan) do NOT match and fall through
+  // to the full proxy CSRF check below.
+  if (isBetterAuthManagedPath(pathname)) {
+    return withCsrfCookie(request, createForwardResponse(request, cspContext), cspContext);
+  }
+
+  // Reject oversized JSON bodies before any route-level allocation. This runs
+  // after Better-Auth short-circuit (those routes are self-policing) but before
+  // CSRF validation so we don't waste a request id / log entry on a payload that
+  // would have been rejected anyway.
+  const payloadResult = validatePayloadSize(request);
+  if (payloadResult) return payloadResult;
+
+  // CSRF protection for API routes (including our custom `/api/auth/*` endpoints)
   const csrfResult = validateCsrf(request);
   if (csrfResult) return csrfResult;
 

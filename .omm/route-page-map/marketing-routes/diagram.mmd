@@ -1,0 +1,11 @@
+graph TD
+    landing-entry["Landing Entry\nsrc/app/(marketing)/page.tsx"]
+    pricing-trust["Pricing And Trust\nsrc/app/(marketing)/pricing + legal + privacy + terms"]
+    seo-campaigns["SEO Campaign Pages\nsrc/app/(marketing)/entry-sheet-ai + es-ai-guide + shukatsu-*"]
+    free-tools["Free Tools And Templates\nsrc/app/(marketing)/tools/ + templates/"]
+    contact-waitlist["Contact And Waitlist\nsrc/app/(marketing)/contact + waitlist/"]
+
+    landing-entry -->|"routes conversion traffic into pricing and signup decisions"| pricing-trust
+    landing-entry -->|"branches organic traffic into topic-specific entry pages"| seo-campaigns
+    seo-campaigns -->|"offer practical lead magnets"| free-tools
+    pricing-trust -->|"captures direct inquiry and waitlist intent"| contact-waitlist

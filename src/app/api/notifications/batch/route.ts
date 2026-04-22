@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { notifications, deadlines, companies, userProfiles, notificationSettings } from "@/lib/db/schema";
 import { eq, and, lte, gte, gt, isNull, count, inArray, or } from "drizzle-orm";
 import { getJstHour, startOfJstDayAsUtc } from "@/lib/datetime/jst";
+import { classifyTier, getEffectiveTiers, TIER_MESSAGES, type ReminderTier } from "@/lib/notifications/deadline-importance";
 
 type NotificationInsertRow = typeof notifications.$inferInsert;
 
@@ -51,9 +52,9 @@ export async function POST(request: NextRequest) {
     const matchPreferredJstHour = body.matchPreferredJstHour !== false;
 
     if (type === "deadline_reminders") {
-      // Find deadlines due within 24h and 3 days
+      // 4-tier smart reminders: 7d, 3d, 1d, 0d (expanded from 3d window)
       const now = new Date();
-      const in3d = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+      const in7d = new Date(now.getTime() + 7.5 * 24 * 60 * 60 * 1000);
       const jstDayStart = startOfJstDayAsUtc(now);
 
       const upcomingDeadlines = await db
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
           and(
             eq(deadlines.isConfirmed, true),
             isNull(deadlines.completedAt),
-            lte(deadlines.dueDate, in3d),
+            lte(deadlines.dueDate, in7d),
             gt(deadlines.dueDate, now)
           )
         );
@@ -99,6 +100,7 @@ export async function POST(request: NextRequest) {
                 userId: notificationSettings.userId,
                 deadlineReminder: notificationSettings.deadlineReminder,
                 deadlineNear: notificationSettings.deadlineNear,
+                deadlineReminderOverrides: notificationSettings.deadlineReminderOverrides,
               })
               .from(notificationSettings)
               .where(inArray(notificationSettings.userId, reminderUserIds))
@@ -109,6 +111,7 @@ export async function POST(request: NextRequest) {
                 userId: notifications.userId,
                 guestId: notifications.guestId,
                 type: notifications.type,
+                data: notifications.data,
               })
               .from(notifications)
               .where(
@@ -129,26 +132,47 @@ export async function POST(request: NextRequest) {
       ]);
 
       const settingsMap = new Map(
-        settingsRows.map((row) => [
-          row.userId,
-          {
-            deadlineReminder: row.deadlineReminder,
-            deadlineNear: row.deadlineNear,
-          },
-        ])
+        settingsRows.map((row) => {
+          let overrides: Record<string, ReminderTier[]> | null = null;
+          if (row.deadlineReminderOverrides) {
+            try { overrides = JSON.parse(row.deadlineReminderOverrides); } catch { /* ignore */ }
+          }
+          return [
+            row.userId,
+            {
+              deadlineReminder: row.deadlineReminder,
+              deadlineNear: row.deadlineNear,
+              overrides,
+            },
+          ];
+        })
       );
+
+      // Per-deadline dedup: ownerKey:deadlineId:tier
       const existingKeys = new Set(
         existingNotifications.map((row) => {
           const owner = row.userId ? `user:${row.userId}` : row.guestId ? `guest:${row.guestId}` : "";
-          return `${owner}:${row.type}`;
+          let deadlineId = "";
+          let tier = "";
+          if (row.data) {
+            try {
+              const parsed = JSON.parse(row.data);
+              deadlineId = parsed.deadlineId ?? "";
+              tier = parsed.tier ?? "";
+            } catch { /* ignore */ }
+          }
+          return `${owner}:${deadlineId}:${tier}`;
         })
       );
+
+      // Flood prevention: max 5 notifications per owner per day
+      const ownerNotifCount = new Map<string, number>();
 
       const notificationRows: NotificationInsertRow[] = [];
       for (const { deadline, company } of upcomingDeadlines) {
         const hoursUntilDue = (deadline.dueDate.getTime() - now.getTime()) / (1000 * 60 * 60);
-        const notifType = hoursUntilDue <= 24 ? "deadline_near" : "deadline_reminder";
-        const urgency = hoursUntilDue <= 24 ? "24時間以内" : "3日以内";
+        const tier = classifyTier(hoursUntilDue);
+        if (!tier) continue;
 
         const ownerKey = company?.userId
           ? `user:${company.userId}`
@@ -157,25 +181,39 @@ export async function POST(request: NextRequest) {
             : null;
         if (!ownerKey) continue;
 
+        // Check user settings
         const settings = company?.userId ? settingsMap.get(company.userId) : undefined;
         if (settings) {
-          if (notifType === "deadline_near" && !settings.deadlineNear) continue;
-          if (notifType === "deadline_reminder" && !settings.deadlineReminder) continue;
+          if (!settings.deadlineReminder && !settings.deadlineNear) continue;
         }
 
-        if (existingKeys.has(`${ownerKey}:${notifType}`)) continue;
+        // Check if this tier is enabled for this deadline type
+        const effectiveTiers = getEffectiveTiers(deadline.type, settings?.overrides);
+        if (!effectiveTiers.includes(tier)) continue;
+
+        // Per-deadline dedup
+        if (existingKeys.has(`${ownerKey}:${deadline.id}:${tier}`)) continue;
+
+        // Flood cap
+        const currentCount = ownerNotifCount.get(ownerKey) ?? 0;
+        if (currentCount >= 5) continue;
+        ownerNotifCount.set(ownerKey, currentCount + 1);
+
+        const notifType = tier === "0d" ? "deadline_near" : "deadline_reminder";
+        const message = TIER_MESSAGES[tier];
 
         notificationRows.push({
           id: crypto.randomUUID(),
           userId: company?.userId,
           guestId: company?.guestId,
           type: notifType,
-          title: `締切が${urgency}です`,
+          title: message,
           message: `${company?.name || ""}の${deadline.title}の締切が近づいています`,
           data: JSON.stringify({
             deadlineId: deadline.id,
             companyId: deadline.companyId,
             dueDate: deadline.dueDate.toISOString(),
+            tier,
           }),
           isRead: false,
           createdAt: now,

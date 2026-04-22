@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { trackEvent } from "@/lib/analytics/client";
-import { getUserFacingErrorMessage } from "@/lib/api-errors";
+import { reportUserFacingError } from "@/lib/client-error-ui";
 
 const SUPPORT_EMAIL = "support@shupass.jp";
 
@@ -41,7 +41,7 @@ export function ContactForm({ className }: { className?: string }) {
       trackEvent("contact_submit_success");
       setSent(true);
     } catch (err) {
-      const msg = getUserFacingErrorMessage(err, {
+      const msg = reportUserFacingError(err, {
         code: "CONTACT_SUBMIT_FAILED",
         userMessage: "お問い合わせを送信できませんでした。",
       }, "ContactForm:submit");

@@ -2,6 +2,13 @@
 
 import { logError } from "@/lib/logger";
 
+const DEFAULT_AUTH_REQUIRED_USER_MESSAGE = "ログインが必要です。";
+const DEFAULT_AUTH_REQUIRED_ACTION = "ログインしてから、もう一度お試しください。";
+
+/** クライアント側の通信失敗（fetch 未到達など）時に UI で共通表示する次の行動 */
+export const CLIENT_NETWORK_DEFAULT_ACTION =
+  "インターネット接続を確認して、もう一度お試しください。";
+
 export interface AppUiErrorOptions {
   code: string;
   requestId?: string;
@@ -10,6 +17,8 @@ export interface AppUiErrorOptions {
   status?: number;
   developerMessage?: string;
   details?: string;
+  /** fetch が応答に至らなかった等のブラウザ側ネットワーク失敗 */
+  clientNetworkFailure?: boolean;
 }
 
 export class AppUiError extends Error {
@@ -20,6 +29,7 @@ export class AppUiError extends Error {
   status?: number;
   developerMessage?: string;
   details?: string;
+  clientNetworkFailure: boolean;
 
   constructor(message: string, options: AppUiErrorOptions) {
     super(message);
@@ -31,6 +41,7 @@ export class AppUiError extends Error {
     this.status = options.status;
     this.developerMessage = options.developerMessage;
     this.details = options.details;
+    this.clientNetworkFailure = options.clientNetworkFailure ?? false;
   }
 }
 
@@ -81,6 +92,57 @@ function isLikelyUserSafeMessage(text: string): boolean {
   return hasJapanese(text) && !isTechnicalMessage(text);
 }
 
+/**
+ * ブラウザ側のネットワーク失敗（オフライン、接続切断、CORS 未到達など）。
+ * 意図的な中断（AbortError）は含めない。
+ */
+export function isClientNetworkError(error: unknown): boolean {
+  if (error instanceof AppUiError) {
+    return error.clientNetworkFailure === true;
+  }
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (error.name === "AbortError") {
+    return false;
+  }
+
+  const msg = (error.message || "").toLowerCase();
+
+  if (error instanceof TypeError) {
+    if (
+      msg.includes("failed to fetch") ||
+      msg.includes("load failed") ||
+      msg.includes("networkerror") ||
+      msg.includes("fetch failed") ||
+      msg.includes("network request failed")
+    ) {
+      return true;
+    }
+  }
+
+  if (
+    msg.includes("failed to fetch") ||
+    msg.includes("load failed") ||
+    msg.includes("networkerror when attempting to fetch") ||
+    msg.includes("network error") ||
+    msg.includes("net::err_") ||
+    msg.includes("err_connection") ||
+    msg.includes("err_internet_disconnected") ||
+    msg.includes("err_name_not_resolved")
+  ) {
+    return true;
+  }
+
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    if (error instanceof TypeError || /fetch|network|load failed/i.test(error.message || "")) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function resolveLegacyMessage(
   rawMessage: string | null,
   status: number,
@@ -95,7 +157,7 @@ function resolveLegacyMessage(
 
   if (status === 401) {
     return {
-      message: fallback.authMessage ?? "ログイン状態を確認して、もう一度お試しください。",
+      message: DEFAULT_AUTH_REQUIRED_USER_MESSAGE,
       code: "AUTH_REQUIRED",
     };
   }
@@ -177,18 +239,23 @@ export async function parseApiErrorResponse(
   const requestId = payload?.requestId || response.headers.get("X-Request-Id") || undefined;
 
   if (payload?.error && typeof payload.error === "object") {
-    const error = new AppUiError(
-      payload.error.userMessage || fallback.userMessage,
-      {
-        code: payload.error.code || payload.code || fallback.code,
-        requestId,
-        action: payload.error.action || fallback.action,
-        retryable: payload.error.retryable ?? fallback.retryable ?? false,
-        status: response.status,
-        developerMessage: payload.debug?.developerMessage,
-        details: payload.debug?.details,
-      }
-    );
+    const message =
+      response.status === 401
+        ? DEFAULT_AUTH_REQUIRED_USER_MESSAGE
+        : payload.error.userMessage || fallback.userMessage;
+    const action =
+      response.status === 401
+        ? DEFAULT_AUTH_REQUIRED_ACTION
+        : payload.error.action || fallback.action;
+    const error = new AppUiError(message, {
+      code: payload.error.code || payload.code || fallback.code,
+      requestId,
+      action,
+      retryable: payload.error.retryable ?? fallback.retryable ?? false,
+      status: response.status,
+      developerMessage: payload.debug?.developerMessage,
+      details: payload.debug?.details,
+    });
     logDebugInfo(context, error, null);
     return error;
   }
@@ -201,7 +268,7 @@ export async function parseApiErrorResponse(
   const error = new AppUiError(legacy.message, {
     code: legacy.code,
     requestId,
-    action: fallback.action,
+    action: response.status === 401 ? DEFAULT_AUTH_REQUIRED_ACTION : fallback.action,
     retryable: fallback.retryable ?? false,
     status: response.status,
     developerMessage: rawMessage || undefined,
@@ -219,6 +286,8 @@ export function toAppUiError(
     return error;
   }
 
+  const network = isClientNetworkError(error);
+
   const message =
     error instanceof Error && isLikelyUserSafeMessage(error.message)
       ? error.message
@@ -226,9 +295,10 @@ export function toAppUiError(
 
   const uiError = new AppUiError(message, {
     code: fallback.code,
-    action: fallback.action,
-    retryable: fallback.retryable ?? false,
+    action: network ? CLIENT_NETWORK_DEFAULT_ACTION : fallback.action,
+    retryable: network ? true : (fallback.retryable ?? false),
     developerMessage: error instanceof Error ? error.message : String(error),
+    clientNetworkFailure: network,
   });
   logDebugInfo(context, uiError, error instanceof Error ? error.message : String(error));
   return uiError;

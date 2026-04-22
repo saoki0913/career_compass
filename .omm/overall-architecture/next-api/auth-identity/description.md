@@ -1,0 +1,1 @@
+Authentication and identity resolution endpoints plus shared request identity helpers. This area bridges Better Auth sessions with guest_device_token cookie handling so downstream routes can enforce owner access consistently.

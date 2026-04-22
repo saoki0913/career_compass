@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,8 @@ import {
 import { GakuchikaListPageHeaderSkeleton } from "@/components/skeletons/GakuchikaListPageHeaderSkeleton";
 import type { FilterTab, SortOption } from "@/components/shared";
 import { Reorder } from "framer-motion";
-import { getUserFacingErrorMessage } from "@/lib/api-errors";
+import { reportUserFacingError } from "@/lib/client-error-ui";
+import { getGakuchikaListStatusKey } from "@/lib/gakuchika/list-status";
 import {
   GripVertical,
   Pencil,
@@ -72,13 +73,6 @@ const sortOptions: SortOption[] = [
 ];
 
 type SortKey = "date_desc" | "date_asc" | "title_asc" | "title_desc";
-
-function getStatusKey(
-  status: "in_progress" | "completed" | null
-): "not_started" | "in_progress" | "completed" {
-  if (status === null) return "not_started";
-  return status;
-}
 
 function buildHeaders(): Record<string, string> {
   return {
@@ -126,7 +120,7 @@ function NewGakuchikaModal({
       setContent("");
       onClose();
     } catch (err) {
-      setError(getUserFacingErrorMessage(err, {
+      setError(reportUserFacingError(err, {
         code: "GAKUCHIKA_FETCH_FAILED",
         userMessage: "ガクチカ一覧を読み込めませんでした。",
       }, "GakuchikaPage:fetch"));
@@ -412,6 +406,7 @@ function ReorderView({
 
 export default function GakuchikaListPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const { isReady, isAuthenticated } = useAuth();
   const [gakuchikas, setGakuchikas] = useState<Gakuchika[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -443,7 +438,11 @@ export default function GakuchikaListPage() {
   // Pins
   const { pinnedIds, togglePin } = usePins("gakuchika");
 
-  const fetchGakuchikas = useCallback(async () => {
+  const fetchGakuchikas = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setIsLoading(true);
+    }
     try {
       const response = await fetch("/api/gakuchika", {
         headers: buildHeaders(),
@@ -463,14 +462,41 @@ export default function GakuchikaListPage() {
       console.error("Error fetching gakuchikas:", err);
       setQuotaLoaded(false);
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
+  const prevPathnameRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!isAuthenticated) return;
-    fetchGakuchikas();
+    void fetchGakuchikas();
   }, [fetchGakuchikas, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || pathname !== "/gakuchika") {
+      prevPathnameRef.current = pathname;
+      return;
+    }
+    const prev = prevPathnameRef.current;
+    prevPathnameRef.current = pathname;
+    if (prev !== null && prev !== "/gakuchika") {
+      void fetchGakuchikas({ silent: true });
+    }
+  }, [pathname, isAuthenticated, fetchGakuchikas]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      if (pathname !== "/gakuchika") return;
+      void fetchGakuchikas({ silent: true });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [isAuthenticated, pathname, fetchGakuchikas]);
 
   const handleCreate = async (title: string, content: string) => {
     const response = await fetch("/api/gakuchika", {
@@ -584,7 +610,7 @@ export default function GakuchikaListPage() {
     const normalizedQuery = searchQuery.toLowerCase().trim();
     const filtered = gakuchikas
       .filter(
-        (g) => filter === "all" || getStatusKey(g.conversationStatus) === filter
+        (g) => filter === "all" || getGakuchikaListStatusKey(g.conversationStatus) === filter
       )
       .filter(
         (g) =>

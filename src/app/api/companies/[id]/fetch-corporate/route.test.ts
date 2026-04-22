@@ -56,6 +56,8 @@ vi.mock("@/lib/company-info/sources", () => ({
 
 vi.mock("@/lib/company-info/usage", () => ({
   applyCompanyRagUsage: applyCompanyRagUsageMock,
+  getRemainingCompanyRagHtmlFreeUnits: vi.fn(async () => 30),
+  getRemainingCompanyRagPdfFreeUnits: vi.fn(async () => 12),
 }));
 
 vi.mock("@/lib/company-info/pricing", () => ({
@@ -88,6 +90,15 @@ vi.mock("@/lib/rate-limit-spike", () => ({
 
 vi.mock("@/lib/fastapi/client", () => ({
   fetchFastApiInternal: fetchFastApiInternalMock,
+  // V-1 principal wiring: the route now uses fetchFastApiWithPrincipal for
+  // company-info RAG. Tests treat both entry points identically.
+  fetchFastApiWithPrincipal: (path: string, init?: RequestInit & { principal?: unknown }) => {
+    const { principal: _principal, ...rest } = (init || {}) as RequestInit & {
+      principal?: unknown;
+    };
+    void _principal;
+    return fetchFastApiInternalMock(path, rest);
+  },
 }));
 
 function makeProfileQuery(plan: "free" | "standard" | "pro") {
@@ -160,9 +171,7 @@ describe("api/companies/[id]/fetch-corporate", () => {
   });
 
   it("returns 503 without saving or charging when backend reports crawl failure", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
+    const fetchSpy = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
           success: false,
@@ -172,8 +181,8 @@ describe("api/companies/[id]/fetch-corporate", () => {
           errors: ["埋め込み基盤が利用できません。"],
           url_content_types: {},
         }),
-      }),
-    );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
 
     const { POST } = await import("@/app/api/companies/[id]/fetch-corporate/route");
     const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate", {
@@ -193,8 +202,60 @@ describe("api/companies/[id]/fetch-corporate", () => {
     expect(data.error.code).toBe("CORPORATE_FETCH_FAILED");
     expect(data.error.userMessage).toBe("企業情報の取得に失敗しました。");
     expect(data.error.action).toBe("時間を置いて、もう一度お試しください。");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, fetchInit] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(String(fetchInit?.body ?? "{}"));
+    expect(body.billing_plan).toBe("free");
     expect(applyCompanyRagUsageMock).not.toHaveBeenCalled();
     expect(dbUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("sends billing_plan to the backend crawl request", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          company_id: "company-1",
+          pages_crawled: 1,
+          chunks_stored: 1,
+          errors: [],
+          url_content_types: {
+            "https://example.com/company": "corporate_site",
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    applyCompanyRagUsageMock.mockResolvedValue({
+      freeUnitsApplied: 1,
+      overflowUnits: 0,
+      creditsDisplayed: 0,
+      creditsActuallyDeducted: 0,
+      remainingFreeUnits: 29,
+    });
+
+    const { POST } = await import("@/app/api/companies/[id]/fetch-corporate/route");
+    const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate", {
+      method: "POST",
+      body: JSON.stringify({
+        urls: ["https://example.com/company"],
+      }),
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, backendInit] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(String(backendInit?.body ?? "{}"));
+    expect(body.billing_plan).toBe("free");
+    expect(body.urls).toEqual(["https://example.com/company"]);
   });
 
   it("returns 400 without calling backend when compliance check blocks the url", async () => {
@@ -261,7 +322,7 @@ describe("api/companies/[id]/fetch-corporate", () => {
         status: "completed",
         contentType: "corporate_site",
       },
-    ]);
+    ] as any);
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(

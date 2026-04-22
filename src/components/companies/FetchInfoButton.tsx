@@ -7,8 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { ProcessingSteps, COMPANY_FETCH_STEPS } from "@/components/ui/ProcessingSteps";
 import { useOperationLock } from "@/hooks/useOperationLock";
-import { notifyError, notifyMessage, notifySuccess } from "@/lib/notifications";
+import { notifyMessage, notifySuccess } from "@/lib/notifications";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 import {
   CONFIDENCE_BADGE_COLORS,
   INTEGRATED_BADGE_LABELS,
@@ -291,6 +292,7 @@ export function FetchInfoButton({
         "FetchInfoButton.handleSearchPages"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
       setCandidates([]);
       setSelectedSource(null);
     } finally {
@@ -378,10 +380,7 @@ export function FetchInfoButton({
           "FetchInfoButton.handleConfirmUrl"
         );
         setError(uiError.message);
-        notifyError({
-          title: uiError.message,
-          description: uiError.action,
-        });
+        notifyUserFacingAppError(uiError);
         return;
       }
 
@@ -397,10 +396,7 @@ export function FetchInfoButton({
           "FetchInfoButton.handleConfirmUrl"
         );
         setError(uiError.message);
-        notifyError({
-          title: uiError.message,
-          description: uiError.action,
-        });
+        notifyUserFacingAppError(uiError);
         return;
       }
 
@@ -446,10 +442,7 @@ export function FetchInfoButton({
         "FetchInfoButton.handleConfirmUrl"
       );
       setError(uiError.message);
-      notifyError({
-        title: uiError.message,
-        description: uiError.action,
-      });
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsFetching(false);
       setIsExtractingDeadlines(false);

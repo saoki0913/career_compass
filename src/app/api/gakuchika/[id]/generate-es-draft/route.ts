@@ -11,7 +11,7 @@ import {
   gakuchikaConversations,
   documents,
 } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import {
   reserveCredits,
   confirmReservation,
@@ -24,20 +24,88 @@ import {
   logAiCreditCostSummary,
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import {
   getIdentity,
   isDraftReady,
   safeParseConversationState,
   safeParseMessages,
   serializeConversationState,
-} from "@/app/api/gakuchika/shared";
+  type DraftQualityChecks,
+} from "@/app/api/gakuchika";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { normalizeEsDraftSingleParagraph } from "@/lib/server/es-draft-normalize";
+import { messageFromFastApiDetail } from "@/lib/server/fastapi-detail-message";
+import { buildGakuchikaEsSectionTitle } from "@/lib/es-review/es-document-section-titles";
 
 interface FastAPIDraftResponse {
   draft: string;
   char_count: number;
   followup_suggestion?: string;
+  draft_diagnostics?: {
+    strength_tags?: string[];
+    issue_tags?: string[];
+    deepdive_recommendation_tags?: string[];
+    credibility_risk_tags?: string[];
+  };
   internal_telemetry?: unknown;
+}
+
+type DraftMaterialPayload = {
+  input_richness_mode: string | null;
+  missing_elements: string[];
+  draft_quality_checks: DraftQualityChecks;
+  causal_gaps: string[];
+  strength_tags: string[];
+  issue_tags: string[];
+  deepdive_recommendation_tags: string[];
+  credibility_risk_tags: string[];
+  deferred_focuses: string[];
+  resolved_focuses: string[];
+  draft_readiness_reason: string;
+  user_fact_summary: string | null;
+};
+
+function buildKnownFacts(messages: Array<{ role: "user" | "assistant"; content: string }>): string | null {
+  const answers = messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content.trim())
+    .filter(Boolean);
+  if (answers.length === 0) return null;
+
+  const selected: string[] = [];
+  for (const answer of answers.slice(0, 2)) {
+    if (!selected.includes(answer)) selected.push(answer);
+  }
+  for (const answer of answers.slice(2, -2)) {
+    if (selected.length >= 4) break;
+    if (!selected.includes(answer)) selected.push(answer);
+  }
+  for (const answer of answers.slice(-2)) {
+    if (!selected.includes(answer)) selected.push(answer);
+  }
+  return selected.slice(0, 6).map((answer) => `- ${answer}`).join("\n");
+}
+
+function buildDraftMaterial(
+  conversationState: ReturnType<typeof safeParseConversationState>,
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+): DraftMaterialPayload {
+  return {
+    input_richness_mode: conversationState.inputRichnessMode,
+    missing_elements: conversationState.missingElements,
+    draft_quality_checks: conversationState.draftQualityChecks,
+    causal_gaps: conversationState.causalGaps,
+    strength_tags: conversationState.strengthTags,
+    issue_tags: conversationState.issueTags,
+    deepdive_recommendation_tags: conversationState.deepdiveRecommendationTags,
+    credibility_risk_tags: conversationState.credibilityRiskTags,
+    deferred_focuses: conversationState.deferredFocuses,
+    resolved_focuses: conversationState.resolvedFocuses,
+    draft_readiness_reason: conversationState.draftReadinessReason,
+    user_fact_summary: buildKnownFacts(messages),
+  };
 }
 
 export async function POST(
@@ -60,6 +128,9 @@ export async function POST(
     );
   }
 
+  const limitResponse = await guardDailyTokenLimit(identity);
+  if (limitResponse) return limitResponse;
+
   const rateLimited = await enforceRateLimitLayers(
     request,
     [...DRAFT_RATE_LAYERS],
@@ -72,7 +143,7 @@ export async function POST(
   }
 
   const body = await request.json();
-  const { charLimit = 400 } = body;
+  const { charLimit = 400, sessionId } = body;
 
   if (![300, 400, 500].includes(charLimit)) {
     return NextResponse.json(
@@ -109,13 +180,18 @@ export async function POST(
     );
   }
 
-  // Get latest conversation that belongs to this gakuchika
-  const [conversation] = await db
-    .select()
-    .from(gakuchikaConversations)
-    .where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId))
-    .orderBy(desc(gakuchikaConversations.updatedAt))
-    .limit(1);
+  // Get conversation: use specified session or fall back to latest
+  const conversationQuery = typeof sessionId === "string" && sessionId
+    ? db.select().from(gakuchikaConversations)
+        .where(and(
+          eq(gakuchikaConversations.id, sessionId),
+          eq(gakuchikaConversations.gakuchikaId, gakuchikaId),
+        )).limit(1)
+    : db.select().from(gakuchikaConversations)
+        .where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId))
+        .orderBy(desc(gakuchikaConversations.updatedAt))
+        .limit(1);
+  const [conversation] = await conversationQuery;
 
   if (!conversation) {
     return NextResponse.json(
@@ -139,19 +215,8 @@ export async function POST(
       { status: 400 }
     );
   }
-
-  // Parse structured summary if available
-  let structuredSummary = null;
-  if (gakuchika.summary) {
-    try {
-      const parsed = JSON.parse(gakuchika.summary);
-      if (parsed.situation_text) {
-        structuredSummary = parsed;
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  }
+  const knownFacts = buildKnownFacts(messages);
+  const draftMaterial = buildDraftMaterial(conversationState, messages);
 
   // Reserve credits (6 credits for draft generation for logged-in users)
   let reservationId: string | null = null;
@@ -172,18 +237,37 @@ export async function POST(
     reservationId = reservation.reservationId;
   }
 
-  // Call FastAPI for draft generation
+  // Call FastAPI for draft generation (retry transient 502/503 from upstream LLM/timeouts)
   try {
-    const response = await fetchFastApiInternal("/api/gakuchika/generate-es-draft", {
+    let response = await fetchFastApiInternal("/api/gakuchika/generate-es-draft", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
       body: JSON.stringify({
         gakuchika_title: gakuchika.title,
         conversation_history: messages,
-        structured_summary: structuredSummary,
         char_limit: charLimit,
+        known_facts: knownFacts,
+        draft_material: draftMaterial,
       }),
     });
+
+    const retryDelaysMs = [2500, 5000, 8000];
+    for (let r = 0; r < retryDelaysMs.length; r++) {
+      if (response.ok) break;
+      if (response.status !== 502 && response.status !== 503) break;
+      await new Promise((resolve) => setTimeout(resolve, retryDelaysMs[r]));
+      response = await fetchFastApiInternal("/api/gakuchika/generate-es-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
+        body: JSON.stringify({
+          gakuchika_title: gakuchika.title,
+          conversation_history: messages,
+          char_limit: charLimit,
+          known_facts: knownFacts,
+          draft_material: draftMaterial,
+        }),
+      });
+    }
 
     if (!response.ok) {
       if (reservationId) await cancelReservation(reservationId);
@@ -195,8 +279,9 @@ export async function POST(
         creditsUsed: 0,
         telemetry: null,
       });
+      const detailMsg = messageFromFastApiDetail((errorData as { detail?: unknown }).detail);
       return NextResponse.json(
-        { error: errorData.detail?.error || "ES生成に失敗しました" },
+        { error: detailMsg || "ES生成に失敗しました" },
         { status: 503 }
       );
     }
@@ -204,11 +289,8 @@ export async function POST(
     const rawData = await response.json();
     const { payload, telemetry } = splitInternalTelemetry(rawData);
     const data = payload as FastAPIDraftResponse;
+    const draftNormalized = normalizeEsDraftSingleParagraph(data.draft);
 
-    // Confirm credit reservation on success
-    if (reservationId) {
-      await confirmReservation(reservationId);
-    }
     logAiCreditCostSummary({
       feature: "gakuchika_draft",
       requestId,
@@ -216,20 +298,30 @@ export async function POST(
       creditsUsed: reservationId ? 6 : 0,
       telemetry,
     });
+    void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
 
     const updatedConversationState = {
       ...conversationState,
-      stage: "draft_ready" as const,
+      stage: (["deep_dive_active", "interview_ready"].includes(conversationState.stage)
+        ? conversationState.stage
+        : "draft_ready") as typeof conversationState.stage,
       readyForDraft: true,
-      progressLabel: "ES作成可",
+      progressLabel: "ESを作成できます",
       answerHint: "必要なら、この本文を起点に面接向けの深掘りを続けられます。",
-      draftText: data.draft,
+      draftText: draftNormalized,
+      deferredFocuses: Array.from(new Set([...conversationState.deferredFocuses, "learning"])) as typeof conversationState.deferredFocuses,
+      strengthTags: data.draft_diagnostics?.strength_tags ?? conversationState.strengthTags,
+      issueTags: data.draft_diagnostics?.issue_tags ?? conversationState.issueTags,
+      deepdiveRecommendationTags:
+        data.draft_diagnostics?.deepdive_recommendation_tags ?? conversationState.deepdiveRecommendationTags,
+      credibilityRiskTags:
+        data.draft_diagnostics?.credibility_risk_tags ?? conversationState.credibilityRiskTags,
     };
 
     await db
       .update(gakuchikaConversations)
       .set({
-        status: "completed",
+        status: "in_progress",
         starScores: serializeConversationState(updatedConversationState),
         updatedAt: new Date(),
       })
@@ -241,13 +333,13 @@ export async function POST(
       {
         id: randomUUID(),
         type: "h2",
-        content: gakuchika.title,
+        content: buildGakuchikaEsSectionTitle(gakuchika.title),
         charLimit: charLimit,
       },
       {
         id: randomUUID(),
         type: "paragraph",
-        content: data.draft,
+        content: draftNormalized,
       },
     ];
 
@@ -263,8 +355,13 @@ export async function POST(
       updatedAt: new Date(),
     });
 
+    // Confirm credit reservation only after all persistence succeeds
+    if (reservationId) {
+      await confirmReservation(reservationId);
+    }
+
     return NextResponse.json({
-      draft: data.draft,
+      draft: draftNormalized,
       charCount: data.char_count,
       followupSuggestion: data.followup_suggestion ?? "更に深掘りする",
       documentId: documentId,

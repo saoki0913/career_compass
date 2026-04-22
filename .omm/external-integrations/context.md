@@ -1,0 +1,1 @@
+The product intentionally outsources major platform concerns: Better Auth for session flows, Supabase for data storage, Stripe for billing, Google for calendar sync, and multiple AI-adjacent providers for enrichment and generation.

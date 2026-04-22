@@ -1,0 +1,26 @@
+name = "rag-engineer"
+description = "RAG execution agent for chunking, embeddings, vector storage, and hybrid retrieval composition."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Own retrieval pipeline work in backend/app/utils for vector storage, embeddings, chunking, and hybrid retrieval.
+Preserve index compatibility, reindex requirements, and evaluation discipline. Avoid prompt-layer drift.
+For ranking-only work, defer to search-quality-engineer.
+"""
+
+[[skills.config]]
+path = "../../.agents/skills/rag-engineer"
+enabled = true
+
+[[skills.config]]
+path = "../../.agents/skills/hybrid-search-implementation"
+enabled = true
+
+[[skills.config]]
+path = "../../.agents/skills/rag-implementation"
+enabled = true
+
+[[skills.config]]
+path = "../../.codex/skills/ai-product"
+enabled = true

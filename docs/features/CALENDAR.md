@@ -2,6 +2,16 @@
 
 締切、作業ブロック、Google Calendar の外部予定を統合表示する。
 
+## 入口
+
+| 項目 | パス |
+|------|------|
+| ページ | `src/app/(product)/calendar/page.tsx` |
+| 設定 | `src/app/(product)/calendar/settings/page.tsx` |
+| hook | `src/hooks/useCalendar.ts` |
+| Google 連携 | `src/lib/calendar/` |
+| 同期 Cron | `src/app/api/cron/calendar-sync/route.ts` |
+
 ## 概要
 
 | 項目 | 内容 |
@@ -9,8 +19,9 @@
 | ビュー | 月表示 |
 | アプリ内イベント | 締切、作業ブロック |
 | Google 連携開始 | `/calendar/settings` の明示操作のみ |
-| Google 同期方式 | 非同期キュー (`calendar_sync_jobs`) |
+| Google 同期方式 | 非同期キュー (`calendar_sync_jobs`) + update-in-place (PATCH) |
 | 空き時間提案 | Google freebusy を利用 |
+| トークン管理 | CAS (Compare-and-Swap) による競合安全なリフレッシュ |
 
 ## 現在の仕様
 
@@ -28,6 +39,7 @@
 - タイトル接頭辞は `[就活Pass][締切]` または `[就活Pass][作業]`
 - `extendedProperties.private` に `managedBy`, `entityType`, `entityId` を保存する
 - 接頭辞 `[就活Pass]`, `[シューパス]` を同一イベントとして扱う
+- `findEventByEntityId()` で `privateExtendedProperty=entityId={id}` クエリにより既存イベントを検索
 
 ## データ取得フロー
 
@@ -44,11 +56,21 @@
 
 ## 同期フロー
 
+### Sync State Machine (upsert)
+
+| 状態 | 条件 | 動作 |
+|------|------|------|
+| **same calendar + 既存あり** | `entity.googleCalendarId === job.targetCalendarId` かつ `findEventByEntityId()` で発見 | PATCH (update-in-place) → ID 不変 |
+| **different calendar** | `entity.googleCalendarId !== job.targetCalendarId` | 旧カレンダーのイベントは残す。新カレンダーに CREATE。DB の googleCalendarId/googleEventId を新側に更新 |
+| **not found** | `findEventByEntityId()` で未発見 (初回 or 外部削除後) | CREATE → 新規 ID を DB に保存 |
+| **delete** | action = "delete" | DELETE (404 は許容) |
+
 ### 作成・更新
 1. 締切または作業ブロックを保存する。
 2. `enqueueDeadlineSync()` または `enqueueWorkBlockUpsert()` が `calendar_sync_jobs` に `upsert` ジョブを積む。
 3. `GET /api/cron/calendar-sync` が pending ジョブを処理する。
-4. Google 作成成功時に各レコードへ `googleCalendarId`, `googleEventId`, `googleSyncStatus`, `googleSyncedAt` を反映する。
+4. `processUpsertJob()` が state machine に従い、既存イベントは PATCH、未発見なら CREATE する。
+5. Google 操作成功時に各レコードへ `googleCalendarId`, `googleEventId`, `googleSyncStatus`, `googleSyncedAt` を反映する。
 
 ### 削除
 1. 既存の Google ミラー ID を使って `delete` ジョブを積む。
@@ -59,6 +81,17 @@
 - 3回まで自動再試行
 - 失敗時は `notifications.type = calendar_sync_failed` を作成
 - 設定画面の `syncSummary` に pending 件数と failed 件数を表示
+- 設定画面に同期失敗時の再試行ボタン (`POST /api/calendar/sync-retry`)
+
+### トークンリフレッシュ (CAS)
+
+並行 sync job が同時に期限切れトークンを検出した場合の競合を CAS で安全に処理する。
+
+1. 通常 SELECT (ロックなし) → `updatedAt` を CAS キーとして記録
+2. Google にリフレッシュ要求
+3. CAS 更新: `WHERE updatedAt = {古い値}` で条件付き UPDATE
+4. CAS 失敗 = 別ジョブが先にリフレッシュ済み → DB から最新トークンを返す
+5. refresh 失敗: 再読込してまだ期限切れかチェック → 本当に失敗なら reconnect マーク
 
 ## Google 側変更の扱い
 
@@ -129,18 +162,23 @@
 | GET | `/api/calendar/google?action=freebusy` | 空き時間計算用の busy 取得 |
 | GET | `/api/calendar/google?action=suggest` | 作業ブロック提案 |
 | GET | `/api/cron/calendar-sync` | 同期ジョブ処理 |
+| POST | `/api/calendar/sync-retry` | 失敗した同期ジョブの再試行 |
 
 ## 関連ファイル
 
-- `src/app/calendar/page.tsx`
-- `src/app/calendar/settings/page.tsx`
-- `src/app/api/calendar/events/route.ts`
-- `src/app/api/calendar/events/[id]/route.ts`
-- `src/app/api/calendar/google/route.ts`
-- `src/app/api/calendar/settings/route.ts`
-- `src/app/api/calendar/calendars/route.ts`
-- `src/app/api/cron/calendar-sync/route.ts`
-- `src/lib/calendar/connection.ts`
-- `src/lib/calendar/google.ts`
-- `src/lib/calendar/sync.ts`
-- `src/lib/db/schema.ts`
+| ファイル | 役割 |
+|----------|------|
+| `src/app/(product)/calendar/page.tsx` | カレンダーページ |
+| `src/app/(product)/calendar/settings/page.tsx` | 設定ページ (sync status インジケータ付き) |
+| `src/app/api/calendar/events/route.ts` | アプリ内イベント API |
+| `src/app/api/calendar/events/[id]/route.ts` | イベント個別操作 API |
+| `src/app/api/calendar/google/route.ts` | Google 連携 API |
+| `src/app/api/calendar/settings/route.ts` | 設定 API |
+| `src/app/api/calendar/calendars/route.ts` | カレンダー一覧 API |
+| `src/app/api/calendar/sync-retry/route.ts` | 同期再試行 API |
+| `src/app/api/cron/calendar-sync/route.ts` | 同期 Cron ジョブ |
+| `src/lib/calendar/connection.ts` | トークン管理 (CAS リフレッシュ) |
+| `src/lib/calendar/google.ts` | Google API ラッパー (findEventByEntityId, updateCalendarEvent) |
+| `src/lib/calendar/sync-provider.ts` | sync state machine (processUpsertJob) |
+| `src/lib/calendar/sync-persistence.ts` | 同期永続化 (retryFailedSyncJobs) |
+| `src/lib/db/schema.ts` | DBスキーマ |

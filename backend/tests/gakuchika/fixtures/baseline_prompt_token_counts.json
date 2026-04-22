@@ -1,0 +1,10 @@
+{
+  "_comment": "Baseline prompt token counts for D.4 Scenario 5 regression gate. Established at Phase D commit. Method: char_count * 0.5 approximation (tiktoken unavailable in this env). Input: rough_episode mode, asked_focuses=['context'], 2-turn conversation.",
+  "system_chars": 3682,
+  "user_chars": 948,
+  "total_chars": 4630,
+  "approx_tokens": 2315,
+  "token_increment_budget": 350,
+  "method": "char_times_half",
+  "established_at": "2026-04-17"
+}

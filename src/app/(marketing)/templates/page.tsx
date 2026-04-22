@@ -1,22 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  ArrowRight,
-  ArrowUpRight,
-  BookText,
-  CheckCircle2,
-  FileText,
-  ListChecks,
-} from "lucide-react";
-import {
-  PublicSurfaceButton,
-  PublicSurfaceFrame,
-  PublicSurfaceHeader,
-  PublicSurfaceHero,
-  PublicSurfacePanel,
-} from "@/components/public-surface";
+import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { LandingHeader } from "@/components/landing/LandingHeader";
+import { LandingFooter } from "@/components/landing/LandingFooter";
+import { StickyCTABar } from "@/components/landing/StickyCTABar";
+import { SeoLPHeroSection } from "@/components/landing/shared/SeoLPHeroSection";
+import { LandingContentSection } from "@/components/landing/shared/LandingContentSection";
+import { MidCTASection } from "@/components/landing/MidCTASection";
+import { FAQSection } from "@/components/landing/FAQSection";
+import { FinalCTASection } from "@/components/landing/FinalCTASection";
+import { FaqJsonLd } from "@/components/seo/FaqJsonLd";
+import { TEMPLATES_PAGE_FAQS } from "@/lib/marketing/templates-faqs";
 import { createMarketingMetadata } from "@/lib/marketing-metadata";
-import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = createMarketingMetadata({
   title: "テンプレ集 | 就活Pass",
@@ -26,166 +21,145 @@ export const metadata: Metadata = createMarketingMetadata({
   keywords: ["就活 テンプレ", "志望動機 テンプレ", "ガクチカ STAR", "就活Pass テンプレ"],
 });
 
-const mainClass = "mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8";
-
 export default function TemplatesPage() {
   return (
-    <PublicSurfaceFrame>
-      <PublicSurfaceHeader
-        navLinks={[
-          { href: "/tools", label: "ツール" },
-          { href: "/pricing", label: "料金" },
-          { href: "/login", label: "ログイン" },
-        ]}
-        primaryAction={{ href: "/login", label: "アプリで続ける" }}
-        secondaryAction={{ href: "/tools/es-counter", label: "文字数カウント" }}
-      />
+    <div
+      className="font-['Inter','Noto_Sans_JP',sans-serif] bg-white text-slate-900 overflow-x-hidden"
+      style={{ WebkitFontSmoothing: "antialiased" }}
+    >
+      <LandingHeader />
 
       <main>
-        <PublicSurfaceHero
+        <FaqJsonLd faqs={TEMPLATES_PAGE_FAQS} />
+
+        <SeoLPHeroSection
+          eyebrow="テンプレ集"
           title="テンプレ集"
-          description="志望動機とガクチカ（STAR）の書き出し用テンプレです。"
-          actions={[
-            { href: "/login", label: "アプリで続ける" },
-            { href: "/tools/es-counter", label: "文字数カウントへ", variant: "secondary" },
-          ]}
-          points={["志望動機", "ガクチカ STAR", "無料で見られる"]}
-          visual={
-            <div className="p-5 sm:p-6">
-              <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
-                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="text-xs font-medium tracking-[0.18em] text-slate-500 uppercase">
-                    Preview
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">テンプレの種類</p>
-                </div>
-
-                <div className="space-y-3 p-4">
-                  <div className="rounded-2xl border border-primary/20 bg-primary/[0.06] p-4">
-                    <div className="flex items-center gap-2">
-                      <BookText className="size-4 shrink-0 text-primary" aria-hidden />
-                      <p className="text-sm font-semibold text-slate-900">志望動機</p>
-                    </div>
-                    <p className="mt-3 text-sm leading-7 text-slate-600">
-                      結論→根拠→企業接続→再現性の順の例です。
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <div className="flex items-center gap-2">
-                      <ListChecks className="size-4 shrink-0 text-primary" aria-hidden />
-                      <p className="text-sm font-semibold text-slate-900">ガクチカ STAR</p>
-                    </div>
-                    <p className="mt-3 text-sm leading-7 text-slate-600">
-                      Situation / Task / Action / Result に分けて整理する例です。
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex items-center gap-2">
-                      <FileText className="size-4 shrink-0 text-primary" aria-hidden />
-                      <p className="text-sm font-semibold text-slate-900">文字数</p>
-                    </div>
-                    <p className="mt-3 text-sm leading-7 text-slate-600">
-                      ES文字数カウントで 300 / 400 / 500字を確認できます。
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          }
+          description="志望動機・ガクチカの書き始めに使えるテンプレートを公開しています。"
         />
 
-        <section className={cn(mainClass, "pb-12 pt-2 sm:pb-16 lg:pb-20")}>
+        <LandingContentSection heading="テンプレートを選ぶ" bg="muted">
           <div className="grid gap-6 lg:grid-cols-2">
-            <PublicSurfacePanel title="志望動機テンプレ" tone="accent">
-              <div className="space-y-4">
-                <p className="text-sm leading-7 text-slate-600">
+            <Link
+              href="/templates/shiboudouki"
+              className="group flex items-center justify-between rounded-xl border border-[var(--lp-border-default)] bg-white p-5 shadow-[var(--lp-shadow-card)] transition-all hover:shadow-md"
+            >
+              <div>
+                <h3
+                  className="text-[var(--lp-navy)]"
+                  style={{ fontWeight: 700 }}
+                >
+                  志望動機テンプレ
+                </h3>
+                <p
+                  className="mt-1 text-sm text-slate-500"
+                  style={{ lineHeight: 1.7 }}
+                >
                   「なぜこの会社か」を、結論から書く流れの例です。
                 </p>
-                <div className="flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   {["結論", "根拠", "企業接続", "再現性"].map((label) => (
                     <span
                       key={label}
-                      className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600"
+                      className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs text-slate-600"
+                      style={{ fontWeight: 500 }}
                     >
                       {label}
                     </span>
                   ))}
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  <PublicSurfaceButton href="/templates/shiboudouki">テンプレを見る</PublicSurfaceButton>
-                  <Link
-                    href="/tools/es-counter"
-                    className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950"
-                  >
-                    文字数カウントへ
-                    <ArrowUpRight className="size-4 shrink-0" aria-hidden />
-                  </Link>
-                </div>
               </div>
-            </PublicSurfacePanel>
+              <ArrowRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-[var(--lp-navy)]" />
+            </Link>
 
-            <PublicSurfacePanel title="ガクチカ STAR テンプレ">
-              <div className="space-y-4">
-                <p className="text-sm leading-7 text-slate-600">
+            <Link
+              href="/templates/gakuchika-star"
+              className="group flex items-center justify-between rounded-xl border border-[var(--lp-border-default)] bg-white p-5 shadow-[var(--lp-shadow-card)] transition-all hover:shadow-md"
+            >
+              <div>
+                <h3
+                  className="text-[var(--lp-navy)]"
+                  style={{ fontWeight: 700 }}
+                >
+                  ガクチカ STAR テンプレ
+                </h3>
+                <p
+                  className="mt-1 text-sm text-slate-500"
+                  style={{ lineHeight: 1.7 }}
+                >
                   経験を S / T / A / R に分けて書くための例です。
                 </p>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {[
-                    { label: "S", text: "状況を短く置く" },
-                    { label: "T", text: "課題を具体にする" },
-                    { label: "A", text: "行動の工夫を書く" },
-                    { label: "R", text: "結果と学びで締める" },
+                    { label: "S", text: "状況" },
+                    { label: "T", text: "課題" },
+                    { label: "A", text: "行動" },
+                    { label: "R", text: "結果" },
                   ].map((item) => (
-                    <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-xs font-semibold tracking-[0.18em] text-primary">{item.label}</p>
-                      <p className="mt-3 text-sm leading-7 text-slate-700">{item.text}</p>
-                    </div>
+                    <span
+                      key={item.label}
+                      className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-center text-xs text-slate-600"
+                      style={{ fontWeight: 500 }}
+                    >
+                      {item.label} {item.text}
+                    </span>
                   ))}
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  <PublicSurfaceButton href="/templates/gakuchika-star" variant="secondary">
-                    テンプレを見る
-                  </PublicSurfaceButton>
-                  <Link
-                    href="/login"
-                    className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950"
-                  >
-                    アプリで続ける
-                    <ArrowRight className="size-4 shrink-0" aria-hidden />
-                  </Link>
-                </div>
               </div>
-            </PublicSurfacePanel>
+              <ArrowRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-[var(--lp-navy)]" />
+            </Link>
           </div>
+        </LandingContentSection>
 
-          <div className="mt-6">
-            <PublicSurfacePanel title="アプリで続ける">
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-                    <p className="text-sm leading-7 text-slate-600">
-                      企業登録、締切、ESの保存、AI添削はログイン後に利用できます。
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <PublicSurfaceButton href="/login">アプリで続ける</PublicSurfaceButton>
-                  <Link
-                    href="/pricing"
-                    className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950"
-                  >
-                    料金を見る
-                    <ArrowRight className="size-4 shrink-0" aria-hidden />
-                  </Link>
-                </div>
-              </div>
-            </PublicSurfacePanel>
+        <LandingContentSection heading="アプリで続ける">
+          <div className="rounded-xl border border-[var(--lp-border-default)] bg-white p-6 shadow-[var(--lp-shadow-card)]">
+            <div className="flex items-start gap-3 rounded-lg border border-slate-100 bg-slate-50 p-4">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--lp-navy)]" aria-hidden />
+              <p
+                className="text-sm text-slate-600"
+                style={{ lineHeight: 1.7 }}
+              >
+                企業登録、締切、ESの保存、AI添削はログイン後に利用できます。
+              </p>
+            </div>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Link
+                href="/login"
+                className="group inline-flex items-center gap-2 rounded-xl bg-[var(--lp-cta)] px-7 py-3.5 text-sm text-white shadow-lg shadow-blue-900/10 transition-all hover:shadow-xl hover:shadow-blue-900/15 active:scale-[0.98]"
+                style={{ fontWeight: 600 }}
+              >
+                アプリで続ける
+                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+              </Link>
+              <Link
+                href="/pricing"
+                className="inline-flex items-center gap-2 text-sm text-slate-600 transition-colors hover:text-[var(--lp-navy)]"
+                style={{ fontWeight: 500 }}
+              >
+                料金を見る
+                <ArrowRight className="h-4 w-4 shrink-0" />
+              </Link>
+            </div>
           </div>
-        </section>
+        </LandingContentSection>
+
+        <MidCTASection title="テンプレから始める" />
+
+        <FAQSection faqs={TEMPLATES_PAGE_FAQS} />
+
+        <FinalCTASection
+          title={
+            <>
+              ESの準備を、
+              <br />
+              テンプレから始めよう。
+            </>
+          }
+        />
       </main>
-    </PublicSurfaceFrame>
+
+      <LandingFooter />
+      <StickyCTABar />
+    </div>
   );
 }

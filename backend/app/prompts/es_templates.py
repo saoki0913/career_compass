@@ -9,20 +9,115 @@ Each template specifies:
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from app.prompts.notion_registry import get_managed_prompt_content
 
 _GLOBAL_CONCLUSION_FIRST_RULES_FALLBACK = """【結論ファースト（全設問・全文字数）】
-- 1文目は設問への答えを結論として短く言い切る（設問文の言い換えや背景説明から入らない）
+- 1文目は設問への答えを20〜45字で結論として短く言い切る（設問文の言い換えや背景説明から入らない）
 - 各文は役割を1つに絞り、同趣旨を言い換えて引き延ばさない
 - 企業接点・貢献・活かし方は必要なら1文に圧縮してよく、段階を無理に増やさない
 - 指定の字数下限を下回る改善案は再検証で弾かれる。要約しすぎず、下限まで本文を伸ばす
-- 下限が200字を超える設問では、具体を削りすぎず下限付近まで本文を伸ばす"""
+- 下限が200字を超える設問では、具体を削りすぎず下限付近まで本文を伸ばす
+- ユーザーの元回答に含まれる数値・固有名詞（○人、○か月、ツール名、イベント名など）は必ず保持する
+- 「整理した」「取り組んだ」「向き合った」のような抽象動詞だけで済ませず、具体的な行動（何をどうしたか）を1つ以上含める
+- 「多様な」「幅広い」「さまざまな」のような形容詞を単独で使わず、具体例や対象を併記する
+- 「この経験を活かし」「この力を生かし」のような定型接続は避け、文脈固有の橋渡し表現に変える（例: 「〜で培った視点は、〜に直結する」「〜から見えた問いを、〜で深めたい」）
+- 「関係者を巻き込みながら」「新たな価値を」「幅広い視野」等のLLM特有フレーズは、ユーザーの元回答に含まれていない限り使わない
+- 「貢献する」「成長する」だけで終わらず、何にどう貢献するか・どの方向に成長するかを1語以上具体化する"""
 _GLOBAL_CONCLUSION_FIRST_RULES = get_managed_prompt_content(
     "es_review.global_conclusion_first_rules",
     fallback=_GLOBAL_CONCLUSION_FIRST_RULES_FALLBACK,
 )
+
+
+# ---------------------------------------------------------------------------
+# 8-A: Contextual style rules — scope-aware variant of the global rules
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class _StyleRule:
+    text: str
+    scope: str  # "all", "company", "short_only", "mid_long"
+    applicable_templates: frozenset[str] | None = None
+
+
+_STYLE_RULES: list[_StyleRule] = [
+    # Core rules (always applied)
+    _StyleRule("1文目は設問への答えを20〜45字で結論として短く言い切る（設問文の言い換えや背景説明から入らない）", "all"),
+    _StyleRule("各文は役割を1つに絞り、同趣旨を言い換えて引き延ばさない", "all"),
+    _StyleRule("企業接点・貢献・活かし方は必要なら1文に圧縮してよく、段階を無理に増やさない", "all"),
+    _StyleRule("ユーザーの元回答に含まれる数値・固有名詞（○人、○か月、ツール名、イベント名など）は必ず保持する", "all"),
+    _StyleRule("「整理した」「取り組んだ」「向き合った」のような抽象動詞だけで済ませず、具体的な行動（何をどうしたか）を1つ以上含める", "all"),
+    _StyleRule("「多様な」「幅広い」「さまざまな」のような形容詞を単独で使わず、具体例や対象を併記する", "all"),
+    _StyleRule("「この経験を活かし」「この力を生かし」のような定型接続は避け、文脈固有の橋渡し表現に変える（例: 「〜で培った視点は、〜に直結する」「〜から見えた問いを、〜で深めたい」）", "all"),
+    _StyleRule("「関係者を巻き込みながら」「新たな価値を」「幅広い視野」等のLLM特有フレーズは、ユーザーの元回答に含まれていない限り使わない", "all"),
+    _StyleRule("「貢献する」「成長する」だけで終わらず、何にどう貢献するか・どの方向に成長するかを1語以上具体化する", "all"),
+    # Length-specific: mid/long band only
+    _StyleRule("指定の字数下限を下回る改善案は再検証で弾かれる。要約しすぎず、下限まで本文を伸ばす", "mid_long"),
+    _StyleRule("下限が200字を超える設問では、具体を削りすぎず下限付近まで本文を伸ばす", "mid_long"),
+    # Short-band only
+    _StyleRule("短い字数制限では結論と根拠を凝縮し、冗長な修飾を削る", "short_only"),
+    _StyleRule(
+        "抽象ラベルだけで終わらせず、人数・期間・件数・比率などの数値を最低1つ入れる",
+        "all",
+        frozenset({"self_pr", "work_values"}),
+    ),
+    _StyleRule(
+        "強みや価値観は抽象語の反復で済ませず、具体的な行動動詞を最低1組入れて再現性を示す",
+        "all",
+        frozenset({"self_pr", "work_values"}),
+    ),
+    _StyleRule(
+        "複数の施策や工夫を書くときは「(1)(2)」または「まず / 次に」で順序を明示し、「また / さらに」の羅列にしない",
+        "all",
+        frozenset({"gakuchika"}),
+    ),
+]
+
+
+def _build_contextual_rules(
+    template_type: str,
+    char_max: int | None,
+    grounding_mode: str,
+) -> str:
+    """Build contextual style rules based on template type, character band, and grounding mode."""
+    band = "short" if (char_max and char_max <= 220) else "mid_long"
+    is_company_template = grounding_mode not in ("none",)
+
+    rules: list[str] = []
+    for rule in _STYLE_RULES:
+        if rule.applicable_templates and template_type not in rule.applicable_templates:
+            continue
+        if rule.scope == "all":
+            rules.append(f"- {rule.text}")
+        elif rule.scope == "company" and is_company_template:
+            rules.append(f"- {rule.text}")
+        elif rule.scope == "short_only" and band == "short":
+            rules.append(f"- {rule.text}")
+        elif rule.scope == "mid_long" and band == "mid_long":
+            rules.append(f"- {rule.text}")
+
+    return "【結論ファースト（全設問・全文字数）】\n" + "\n".join(rules)
+
+
+# ---------------------------------------------------------------------------
+# 9-F helper: prose_style block for mid/long answers (char_max > 220)
+# ---------------------------------------------------------------------------
+
+def _format_prose_style_block(char_max: int | None) -> str:
+    """Return a <prose_style> block for longer answers where natural writing matters.
+
+    Only emitted when char_max > 220 to avoid cluttering short-answer prompts.
+    """
+    if not char_max or char_max <= 220:
+        return ""
+    return """
+<prose_style>
+- 文と文の間は論理的なつながりを保ち、唐突な話題転換を避ける
+- 読み手に伝わる順序で配置する（結論→根拠→展望）
+- 改行や空行を入れず、1段落の連続した文章として仕上げる
+</prose_style>"""
 
 
 @dataclass(frozen=True)
@@ -45,10 +140,11 @@ _RECOVERY_STAGE_KEY = "under_min_recovery"
 _TIGHT_STAGE_KEY = "tight_length"
 _MODEL_FAMILY_DEFAULTS = {
     "openai_gpt5_mini": {
-        # medium/long の gap は +1（下限未達の回収を少し緩める）
-        _DEFAULT_STAGE_KEY: {"short": 2, "medium": 5, "long": 7},
-        _RECOVERY_STAGE_KEY: {"short": 1, "medium": 3, "long": 4},
-        _TIGHT_STAGE_KEY: {"short": 6, "medium": 9, "long": 11},
+        # gap 拡大: medium 帯で char_max 60-70% しか生成できない問題への対応
+        # 内部目標帯を実際の生成能力範囲に近づけることでリトライ成功率を改善
+        _DEFAULT_STAGE_KEY: {"short": 4, "medium": 12, "long": 15},
+        _RECOVERY_STAGE_KEY: {"short": 2, "medium": 8, "long": 10},
+        _TIGHT_STAGE_KEY: {"short": 6, "medium": 12, "long": 14},
         "early_length_fix_after_attempt": 2,
     },
     "openai_gpt5": {
@@ -169,59 +265,367 @@ TEMPLATE_DEFS = {
     "basic": {
         "label": "汎用ES添削",
         "requires_company_rag": False,
-        "company_grounding": "assistive",
+        "grounding_level": "light",
         "description": "設問への適合性、企業理解、自己アピール、論理性を総合的に評価。",
+        "purpose": "設問の主眼に正面から答え、経験や考えが読み手に伝わる本文に整える。",
+        "required_elements": ["設問への結論", "根拠になる経験・考え", "必要に応じた仕事や企業との接点"],
+        "anti_patterns": [
+            "設問文の言い換えだけで始める",
+            "具体性のない一般論だけで終わる",
+            "箇条書きや断片文のまま終わる",
+        ],
+        "recommended_structure": {
+            "short": "1文目で結論、2文目で根拠、必要なら3文目で仕事や企業との接点を置く",
+        },
+        "evaluation_checks": {
+            "head_sentence_window": 2,
+        },
+        "retry_guidance": {
+            "under_min": "{target_hint} を狙い、既にある経験や考えのつながりを補って不足字数を埋める",
+            "answer_focus": "1文目で設問への答えの核を短く言い切る",
+            "grounding": "企業理解との接点を自然な範囲で1点示す",
+        },
+        "company_usage": "assistive",
+        "fact_priority": "mixed",
     },
     "company_motivation": {
         "label": "企業志望理由",
         "requires_company_rag": True,
-        "company_grounding": "required",
+        "grounding_level": "deep",
         "description": "企業への志望理由を述べる設問。企業の特徴・事業・価値観との接点を示す。",
+        "purpose": "なぜその企業なのかを、自分の経験や関心と企業理解につないで示す。",
+        "required_elements": ["志望理由の核", "根拠になる経験", "企業理解との接点", "入社後の価値発揮"],
+        "anti_patterns": [
+            "どの企業にも当てはまる一般論",
+            "企業説明だけで終わり自分との接続がない",
+            "志望理由の言い換えだけで始める",
+        ],
+        "recommended_structure": {
+            "short": "1文目で志望理由、2文目で根拠経験、必要なら3文目で企業接点を置く",
+            "mid": "1文目で志望理由、2文目で根拠経験、3文目で企業理解との接点、4文目で貢献イメージを置く",
+            "dense_short_answer": True,
+        },
+        "composition_ratio": "導入15% / 本論70% / 締め15%",
+        "why_now_hint": "可能なら「なぜ今この会社か」が伝わる一節を含める",
+        "evaluation_checks": {
+            "repeated_opening_pattern": r"(志望する理由|志望理由)は",
+            "head_sentence_window": 3,
+            "anchor_type": "company",
+            "head_focus_pattern": r"志望|惹|魅力|理由|価値|からだ|ためだ|関心|期待|共感|惹か",
+            "answer_focus_message": "冒頭でなぜこの会社かを短く言い切ってください（企業名または貴社と志望の核を含む）。",
+        },
+        "retry_guidance": {
+            "under_min": "{target_hint} を狙い、既にある経験から企業接点と貢献への橋渡しを1文補う",
+            "answer_focus": "1文目でなぜその企業を志望するのかを短く言い切る",
+            "grounding": "企業理解との接点を1点だけ明確にする",
+        },
+        "company_usage": "required",
+        "fact_priority": "mixed",
+        "playbook": {
+            "subject": "{honorific}を志望する理由",
+            "opening": "1文目で{honorific}を志望する理由の核を言い切る",
+            "second": "2文目で元回答の経験を1点だけ出す",
+            "third": "3文目で企業理解との接点を1点だけつなぐ",
+            "fourth": "4文目で入社後の貢献で締める",
+            "example_good_1": "私が{honorific}を志望するのは、事業を通じて社会課題に向き合う姿勢に魅力を感じたからだ。",
+            "example_good_2": "研究で仮説検証を重ねた経験を土台に、現場で事業理解を深め、価値創出につなげたい。",
+            "example_bad": "私は{honorific}を志望する理由は、{honorific}の魅力に惹かれたからだ。",
+        },
     },
     "intern_reason": {
         "label": "インターン志望理由",
         "requires_company_rag": True,
-        "company_grounding": "required",
+        "grounding_level": "standard",
         "description": "インターンへの参加理由を述べる設問。参加目的と自己成長の接点を示す。",
         "extra_fields": ["intern_name"],
+        "purpose": "なぜそのインターンに参加したいかを、経験と得たい学びにつないで示す。",
+        "required_elements": ["参加理由の核", "活かせる経験や課題意識", "プログラムとの接点", "得たい学び"],
+        "anti_patterns": [
+            "参加してみたいだけの一般論",
+            "学びたいことが抽象的すぎる",
+            "経験とインターンの接続がない",
+        ],
+        "recommended_structure": {
+            "short": "1文目で参加理由、2文目で根拠経験、必要なら3文目でこのインターンで得たいことを置く",
+            "mid": "1文目で参加理由、2文目で根拠経験、3文目でインターン価値との接点、4文目で得たい学びを置く",
+            "dense_short_answer": True,
+        },
+        "evaluation_checks": {
+            "repeated_opening_pattern": r"(参加理由|志望理由)は",
+            "head_sentence_window": 2,
+            "anchor_type": "intern",
+            "anchor_pattern": r"インターン|プログラム|インターンシップ",
+            "practice_context_pattern": r"実務|現場|課題|就業|体験",
+            "head_focus_pattern": r"参加|志望|理由|惹|魅力|学びたい|学びたく|身につけたい|得たい|挑戦したい|試したい|試し(?:ながら|て)|実践したい|実践的|期待|関心|魅力を感|惹か|ふさわしい|最適|身を置きたい|触れたい|体感|機会|鍛え",
+            "answer_focus_message": "冒頭でなぜそのインターンに参加したいかを短く言い切ってください。",
+        },
+        "retry_guidance": {
+            "under_min": "{target_hint} を狙い、参加理由から経験、得たい学びへの橋渡しを補う",
+            "answer_focus": "1文目で参加したい理由の核を短く言い切る",
+            "grounding": "インターンの価値との接点を1点だけ明確にする",
+        },
+        "company_usage": "required",
+        "fact_priority": "mixed",
+        "question_focus_rules": [
+            {
+                "contains_all": ["活か"],
+                "contains_any": ["持ち帰", "得たい", "学びたい"],
+                "title": "この設問で落としてはいけない3要素",
+                "items": [
+                    "参加したい理由を1文で明示する",
+                    "活かせる経験・事実を1文で置く",
+                    "持ち帰りたい学び・視点を最後に1文で言い切る",
+                    "3要素のどれも省略しない",
+                ],
+            }
+        ],
+        "playbook": {
+            "subject": "{intern_name}への参加理由",
+            "opening": "1文目で参加理由の核を言い切る",
+            "second": "2文目で元回答の経験や課題感を1点だけ出す",
+            "third": "3文目でそのインターンの価値との接点を1点だけつなぐ",
+            "fourth": "4文目でインターン後の成長イメージで締める",
+            "example_good_1": "私が{intern_name}に参加したいのは、実務に近い課題で分析力を試し、学びを得たいからだ。",
+            "example_good_2": "研究で磨いた仮説検証力を土台に、実務の制約下で優先順位を考える力を伸ばしたい。",
+            "example_bad": "私は{intern_name}に参加したい理由は、参加してみたいからだ。",
+        },
     },
     "intern_goals": {
         "label": "インターンでやりたいこと・学びたいこと",
         "requires_company_rag": True,
-        "company_grounding": "required",
+        "grounding_level": "standard",
         "description": "インターンで達成したい目標や学びたいことを述べる設問。",
         "extra_fields": ["intern_name"],
+        "purpose": "インターンで何を学びたいか、なぜそれを得たいかを経験とともに示す。",
+        "required_elements": ["学びたいことの核", "根拠になる経験や問題意識", "プログラムとの接点", "成長イメージ"],
+        "anti_patterns": [
+            "学びたいことが曖昧で広すぎる",
+            "インターンの文脈が見えない",
+            "経験や問題意識との接続がない",
+        ],
+        "recommended_structure": {
+            "short": "1文目で学びたいこと、2文目で根拠経験、必要なら3文目でインターン接点を置く",
+            "mid": "1文目で学びたいこと、2文目で根拠経験、3文目でプログラム接点、4文目で成長イメージを置く",
+            "dense_short_answer": True,
+        },
+        "evaluation_checks": {
+            "repeated_opening_pattern": r"(学びたいこと|やりたいこと)は",
+            "head_sentence_window": 3,
+            "anchor_type": "intern",
+            "anchor_pattern": r"インターン|プログラム|インターンシップ",
+            "practice_context_pattern": r"実務|現場|分析|学び|意思決定|優先|仮説|課題|顧客|価値",
+            "head_focus_pattern": r"学びたい|身につけたい|やりたい|獲得したい|高めたい|磨きたい|確かめたい|得たい|習得したい|鍛えたい|深めたい|試したい|経験したい|積みたい|培いたい|伸ばしたい",
+            "answer_focus_message": "冒頭でインターンで何を学びたいかを短く言い切ってください。",
+        },
+        "retry_guidance": {
+            "under_min": "{target_hint} を狙い、学びたいことから経験、成長イメージへの橋渡しを補う",
+            "answer_focus": "1文目で学びたいことの核を短く言い切る",
+            "grounding": "プログラムとの接点を1点だけ明確にする",
+        },
+        "company_usage": "required",
+        "fact_priority": "mixed",
+        "playbook": {
+            "subject": "{intern_name}で学びたいこと",
+            "opening": "1文目で学びたいことの核を言い切る（学びたい・確かめたい・得たい・磨きたいのいずれかを含める）",
+            "second": "2文目で元回答の経験や問題意識を1点だけ出す",
+            "third": "3文目でそのインターンで得たい学びとの接点を1点だけつなぐ",
+            "fourth": "4文目で将来の成長イメージで締める",
+            "example_good_1": "{intern_name}では、実務に近い課題の中で分析の精度と判断の速さを学びたい。",
+            "example_good_2": "研究で培った整理力を土台に、チームで課題を前に進める視点を身につけたい。",
+            "example_bad": "{intern_name}で学びたいことは、いろいろなことを学ぶことだ。",
+        },
     },
     "gakuchika": {
         "label": "ガクチカ",
         "requires_company_rag": False,
-        "company_grounding": "assistive",
+        "grounding_level": "none",
         "description": "学生時代に力を入れたことを述べる設問。STAR形式で具体的に。",
+        "purpose": "学生時代に力を入れた取り組みを、課題・行動・成果・学びが伝わる形で示す。",
+        "required_elements": ["取り組みの核", "課題や目的", "工夫した行動", "成果や学び"],
+        "anti_patterns": [
+            "活動名だけで中身が見えない",
+            "行動や工夫が具体化されていない",
+            "企業接続を無理に入れて主題がぼける",
+        ],
+        "recommended_structure": {
+            "short": "1文目で最も力を入れた行動、2文目で工夫や成果、必要なら3文目で仕事との接点を置く",
+            "three_sentence_close_on_short_band": True,
+        },
+        "evaluation_checks": {
+            "repeated_opening_pattern": r"(学生時代に力を入れたこと|学生時代に頑張ったこと)は",
+            "head_sentence_window": 3,
+            "head_focus_pattern": r"力を入れ|頑張っ|取り組ん|経験|課題|行動|成果|学び|リーダー|役割|担当|主担当|工夫|改善|達成|PDCA|チーム|サークル|ゼミ|研究|活動|最も",
+            "answer_focus_message": "冒頭で学生時代に力を入れた取り組みの核を短く示してください。",
+        },
+        "retry_guidance": {
+            "under_min": "{target_hint} を狙い、課題・行動・成果・学びのつながりを補う",
+            "answer_focus": "1文目で最も力を入れた取り組みの核を短く示す",
+            "structure": "複数の施策や工夫は「まず / 次に」または「(1)(2)」で順序を示し、課題・行動・成果が追える形に整える",
+        },
+        "company_usage": "none",
+        "fact_priority": "self",
+        "playbook": {
+            "subject": "学生時代に力を入れた取り組み",
+            "opening": "1文目で最も力を入れた取り組みと自分の役割を言い切る",
+            "second": "2文目で直面した課題や目的を1点だけ置く",
+            "third": "3文目で工夫した行動を順序が分かる形で具体化する",
+            "fourth": "4文目で成果と学び、仕事での再現性を短く締める",
+            "example_good_1": "私が学生時代に最も力を入れたのは、学園祭運営の導線改善である。",
+            "example_good_2": "30人規模の運営で情報共有の遅れを立て直し、来場者対応の流れを整えた。",
+            "example_bad": "学生時代に力を入れたことは、いろいろ工夫して頑張ったことである。",
+        },
     },
     "self_pr": {
         "label": "自己PR",
         "requires_company_rag": False,
-        "company_grounding": "assistive",
+        "grounding_level": "light",
         "description": "強み、その根拠となる経験、企業や職種での活かし方を述べる設問。",
+        "purpose": "自分の強みと、その再現性を裏づける経験を一貫して示す。",
+        "required_elements": ["強みの核", "根拠になる経験", "仕事や役割での活かし方"],
+        "anti_patterns": [
+            "強みの名前だけで根拠がない",
+            "経験が説明で終わり再現性が見えない",
+            "自己否定語をそのまま残す",
+        ],
+        "recommended_structure": {
+            "short": "1文目で強みの核、2文目で根拠経験、必要なら3文目で仕事や企業との接点を置く",
+            "three_sentence_close_on_short_band": True,
+        },
+        "evaluation_checks": {
+            "repeated_opening_pattern": r"(自己PR|自己ＰＲ)(?:として|で|は)|私の強みは|アピールしたいことは|自己紹介としては",
+            "head_sentence_window": 2,
+            "head_focus_pattern": r"強み|長所|得意|アピール|特徴|資質|性格|スキル|信念|指針|軸|他者と(?:の)?違い|差別化|強みとして|スキルとして|自分(?:自身)?(?:の)?|私(?:自身)?(?:の)?|一つ(?:の)?|まず|最も",
+            "answer_focus_message": "冒頭で自分の強みやアピールの核を短く示してください。",
+            "negative_self_eval_patterns": ["経験不足", "自信がない", "自信はない"],
+        },
+        "retry_guidance": {
+            "under_min": "{target_hint} を狙い、強みから経験、再現性へのつながりを補う",
+            "answer_focus": "1文目で強みの核を短く言い切る",
+            "grounding": "強みと企業との接点を自然な範囲で1点示す",
+            "quantify": "抽象的な強みの説明だけで終えず、人数・期間・件数・比率などの数値と具体的な行動動詞で裏づける",
+        },
+        "negative_reframe_guidance": [
+            "「経験不足」「自信がない」などの自己否定語をそのまま残さない",
+            "元の事実は保ちつつ、準備・責任感・学習姿勢・確認力などの前向きな表現に言い換える",
+            "弱さの告白で締めず、仕事で再現できる行動特性で締める",
+        ],
+        "company_usage": "assistive",
+        "fact_priority": "self",
     },
     "post_join_goals": {
         "label": "入社後やりたいこと",
         "requires_company_rag": True,
-        "company_grounding": "required",
+        "grounding_level": "standard",
         "description": "入社後のキャリアビジョンや挑戦したいことを述べる設問。",
+        "purpose": "入社後にやりたいことを、自分の経験と企業の方向性につなげて示す。",
+        "required_elements": ["やりたいことの核", "根拠になる経験や原体験", "企業や事業との接点", "価値発揮の方向性"],
+        "anti_patterns": [
+            "やりたいことが抽象的で広すぎる",
+            "企業や事業との接点がない",
+            "意気込みだけで具体的な価値発揮が見えない",
+        ],
+        "recommended_structure": {
+            "short": "1文目でやりたいこと、2文目で根拠経験、必要なら3文目で企業接点を置く",
+            "mid": "1文目で入社後の目標、2文目で根拠経験、3文目で企業との接点、4文目で価値発揮の方向性を置く",
+            "dense_short_answer": True,
+        },
+        "evaluation_checks": {
+            "head_sentence_window": 3,
+            "head_focus_pattern": r"入社後|将来|キャリア|仕事|業務|職場|携わりたい|挑戦したい|担いたい|実現したい|貢献したい|目標|手掛け|ビジネス|投資|事業機会|価値創出|獲得したい|極めたい|従事|取り組みたい|身を置き|発揮したい|成し遂げ|やりたい|務めたい",
+            "answer_focus_message": "冒頭で入社後にやりたいことや手掛けたいことを短く言い切ってください。",
+        },
+        "retry_guidance": {
+            "under_min": "{target_hint} を狙い、やりたいことから経験、価値発揮への橋渡しを補う",
+            "answer_focus": "1文目で入社後にやりたいことの核を短く言い切る",
+            "grounding": "企業や事業との接点を1点だけ明確にする",
+        },
+        "company_usage": "required",
+        "fact_priority": "mixed",
+        "playbook": {
+            "subject": "入社後に挑戦したいこと",
+            "opening": "1文目で入社後の挑戦の核を言い切る",
+            "second": "2文目で元回答の経験や原体験を1点だけ出す",
+            "third": "3文目で企業や事業との接点を1点だけつなぐ",
+            "fourth": "4文目で中長期の価値発揮で締める",
+            "example_good_1": "入社後は、現場で事業理解を深めながら論点整理を担い、価値創出につなげたい。",
+            "example_good_2": "研究で論点を整理した経験を土台に、関係者を巻き込みながら事業を前進させたい。",
+            "example_bad": "入社後に挑戦したいことは、入社後に頑張っていきたいということである。",
+        },
     },
     "role_course_reason": {
         "label": "職種・コース選択理由",
         "requires_company_rag": True,
-        "company_grounding": "required",
+        "grounding_level": "deep",
         "description": "特定の職種やコースを選んだ理由を述べる設問。",
         "extra_fields": ["role_name"],
+        "purpose": "なぜその職種・コースを選ぶのかを、経験・適性・企業文脈につないで示す。",
+        "required_elements": ["職種・コース志望の核", "根拠になる経験や適性", "役割や事業との接点", "その役割で出したい価値"],
+        "anti_patterns": [
+            "職種名への興味だけで終わる",
+            "経験や適性との結びつきがない",
+            "企業文脈がなく他社にも言える",
+        ],
+        "recommended_structure": {
+            "short": "1文目で職種志望、2文目で根拠経験、必要なら3文目で企業接点を置く",
+            "mid": "1文目で職種・コース志望、2文目で根拠経験、3文目で企業や事業との接点、4文目でその役割で出したい価値を置く",
+            "dense_short_answer": True,
+        },
+        "evaluation_checks": {
+            "repeated_opening_pattern": r"(選んだ理由|選択した理由|志望理由)は",
+            "head_sentence_window": 2,
+            "anchor_type": "role",
+            "anchor_pattern": r"職種|コース|業務|役割|ポジション|ジョブ",
+            "head_focus_pattern": r"志望|選ぶ|理由|関心|担いたい|携わりたい|適性|適合|惹か|魅力|期待|共感",
+            "answer_focus_message": "冒頭でなぜその職種・コースかを短く言い切ってください。",
+        },
+        "retry_guidance": {
+            "under_min": "{target_hint} を狙い、経験から役割理解、価値発揮への橋渡しを補う",
+            "answer_focus": "1文目でなぜその職種・コースを志望するのかを短く言い切る",
+            "grounding": "役割や事業との接点を1点だけ明確にする",
+        },
+        "company_usage": "required",
+        "fact_priority": "mixed",
+        "playbook": {
+            "subject": "{role_name}を志望する理由",
+            "opening": "1文目でその職種・コースを志望する理由の核を言い切る（志望・魅力・担いたいのいずれかを含める）",
+            "second": "2文目で元回答の経験や適性を1点だけ出す",
+            "third": "3文目でその役割や事業との接点を1点だけつなぐ",
+            "fourth": "4文目でその役割で出したい価値で締める",
+            "example_good_1": "私が{role_name}を志望するのは、事業と技術をつなぐ役割に魅力を感じるからだ。",
+            "example_good_2": "研究で論点を整理しながら前に進めた経験を土台に、その役割で価値を出したい。",
+            "example_bad": "私は{role_name}を選んだ理由は、{role_name}に興味があるからだ。",
+        },
     },
     "work_values": {
         "label": "働くうえで大切にしている価値観",
         "requires_company_rag": False,
-        "company_grounding": "assistive",
+        "grounding_level": "light",
         "description": "仕事に対する価値観や姿勢を述べる設問。",
+        "purpose": "働くうえで大切にしている価値観を、経験とともに一貫して示す。",
+        "required_elements": ["価値観の核", "根拠になる経験", "仕事での表れ方"],
+        "anti_patterns": [
+            "価値観の言葉だけで根拠がない",
+            "抽象論が続き本人らしさが見えない",
+            "企業接続を無理に入れて主題がぼける",
+        ],
+        "recommended_structure": {
+            "short": "1文目で価値観の核、2文目で根拠経験、必要なら3文目で仕事との接点を置く",
+            "three_sentence_close_on_short_band": True,
+        },
+        "evaluation_checks": {
+            "repeated_opening_pattern": r"(大切にしている価値観|働くうえで大切にしていること)は",
+            "head_sentence_window": 2,
+            "head_focus_pattern": r"大切|重視|価値観|信念|軸|譲れない|譲りたくない|姿勢|こだわり|大事にしている|考え方|モットー|指針|プライド|根底|念頭|秉|大切にしたい|尊重",
+            "answer_focus_message": "冒頭で大切にしている価値観や姿勢の核を短く示してください。",
+        },
+        "retry_guidance": {
+            "under_min": "{target_hint} を狙い、価値観から経験、仕事での表れ方へのつながりを補う",
+            "answer_focus": "1文目で価値観の核を短く示す",
+            "grounding": "価値観が仕事でどう表れるかの接点を1点示す",
+            "quantify": "価値観の抽象説明だけで終えず、人数・期間・件数・比率などの数値と具体的な行動で裏づける",
+        },
+        "company_usage": "assistive",
+        "fact_priority": "self",
     },
 }
 
@@ -385,14 +789,59 @@ TEMPLATE_ROLES = {
 }
 
 
+def grounding_level_to_policy(level: str) -> str:
+    return "required" if level in {"standard", "deep"} else "assistive"
+
+
+def get_template_default_grounding_level(template_type: str) -> str:
+    template_def = TEMPLATE_DEFS.get(template_type, TEMPLATE_DEFS["basic"])
+    return str(template_def.get("grounding_level") or "light")
+
+
 def get_template_labels() -> dict[str, str]:
     """Get template type to label mapping for frontend."""
     return {k: v["label"] for k, v in TEMPLATE_DEFS.items()}
 
 
 def get_template_company_grounding_policy(template_type: str) -> str:
-    template_def = TEMPLATE_DEFS.get(template_type, TEMPLATE_DEFS["basic"])
-    return str(template_def.get("company_grounding") or "assistive")
+    return grounding_level_to_policy(get_template_default_grounding_level(template_type))
+
+
+def get_template_spec(template_type: str) -> dict[str, Any]:
+    template_def = TEMPLATE_DEFS.get(template_type)
+    if template_def:
+        return template_def
+    return TEMPLATE_DEFS["basic"]
+
+
+def get_template_evaluation_checks(template_type: str) -> dict[str, Any]:
+    return dict(get_template_spec(template_type).get("evaluation_checks") or {})
+
+
+def get_template_retry_guidance(template_type: str) -> dict[str, str]:
+    return dict(get_template_spec(template_type).get("retry_guidance") or {})
+
+
+def get_template_company_usage(template_type: str) -> str:
+    return str(get_template_spec(template_type).get("company_usage") or "assistive")
+
+
+def get_template_fact_priority(template_type: str) -> str:
+    return str(get_template_spec(template_type).get("fact_priority") or "mixed")
+
+
+def _format_template_required_elements(template_type: str) -> str:
+    items = [str(item).strip() for item in get_template_spec(template_type).get("required_elements", []) if str(item).strip()]
+    if not items:
+        return ""
+    return "\n".join(["【設問で落としてはいけない要素】", *[f"- {item}" for item in items]])
+
+
+def _format_template_anti_patterns(template_type: str) -> str:
+    items = [str(item).strip() for item in get_template_spec(template_type).get("anti_patterns", []) if str(item).strip()]
+    if not items:
+        return ""
+    return "\n".join(["【避けるパターン】", *[f"- {item}" for item in items]])
 
 
 def _format_char_condition(char_min: Optional[int], char_max: Optional[int]) -> str:
@@ -506,7 +955,12 @@ def _format_length_policy_block(
 </length_policy>"""
 
 
-def _format_user_fact_guidance(allowed_user_facts: Optional[list[dict]]) -> str:
+def _format_user_fact_guidance(
+    allowed_user_facts: Optional[list[dict]],
+    *,
+    template_type: str,
+    char_max: int | None = None,
+) -> str:
     if not allowed_user_facts:
         return ""
     fact_lines = [
@@ -516,19 +970,80 @@ def _format_user_fact_guidance(allowed_user_facts: Optional[list[dict]]) -> str:
     ]
     if not fact_lines:
         return ""
+    fact_priority = get_template_fact_priority(template_type)
+    priority_line = ""
+    if fact_priority == "self":
+        priority_line = "\n- 本文の主軸は自分の経験・行動・学びに置く"
+    elif fact_priority == "mixed":
+        priority_line = "\n- 本文の主軸は自分の経験を起点に、必要な範囲で企業や仕事との接点につなぐ"
+    short_band_hint = ""
+    if char_max and char_max <= 220 and len(fact_lines) >= 2:
+        short_band_hint = "\n- 短い字数制限のため、元回答の核となる表現（動詞・名詞）をそのまま活かす"
     return f"""
 【使えるユーザー事実】
 {chr(10).join(fact_lines)}
 
 - 上記にない具体的な経験・役割・成果・数字は足さない
 - raw material 由来の内容は、書かれている範囲を超えて解釈しない
-- 情報が足りない場合は一般化して書く"""
+- 情報が足りない場合は一般化して書く{priority_line}{short_band_hint}"""
 
 
 def _format_reference_quality_guidance(reference_quality_block: str) -> str:
     if not reference_quality_block:
         return ""
     return f"\n{reference_quality_block}"
+
+
+def _format_assistive_grounding_block(
+    *,
+    effective_company_grounding: str,
+    grounding_mode: str,
+    company_name: str | None,
+) -> str:
+    """Return an <assistive_grounding> XML block for assistive-mode prompts.
+
+    Conditions: effective_company_grounding == "assistive" AND
+                grounding_mode != "none" AND company_name is truthy.
+    Otherwise returns empty string.
+    """
+    if effective_company_grounding != "assistive":
+        return ""
+    if grounding_mode == "none":
+        return ""
+    if not company_name:
+        return ""
+    return f"""
+<assistive_grounding>
+- 企業への言及は「{company_name}」の名前、または具体的な事業・価値観で行う
+- 「貴社」「御社」等の敬称は使わない
+- 企業との接点は補助的に 0〜1 文にとどめ、本文の主軸は応募者自身の経験に置く
+- 経験と企業の接点が自然に書けないときは企業言及を省略してよい
+</assistive_grounding>"""
+
+
+def _format_proper_noun_policy(
+    *,
+    template_type: str,
+    intern_name: str | None,
+    role_name: str | None,
+) -> str:
+    if template_type in {"intern_reason", "intern_goals"}:
+        anchor = intern_name or "そのインターン"
+        return f"""
+<proper_noun_policy>
+- 「{anchor}」のような固有名詞は冒頭で1回だけ使う
+- 2回目以降は「本インターンシップ」または「本プログラム」に言い換える
+- 固有名詞の反復で字数を使わず、参加理由・学び・接点の中身を優先する
+</proper_noun_policy>"""
+    if template_type == "role_course_reason":
+        anchor = role_name or "その職種・コース"
+        return f"""
+<proper_noun_policy>
+- 「{anchor}」のような固有名詞は冒頭で1回だけ使う
+- 2回目以降は「本コース」または「当該職種」に言い換える
+- 固有名詞の反復で字数を使わず、志望理由・適性・役割理解の中身を優先する
+</proper_noun_policy>"""
+    return ""
 
 
 def _format_company_guidance(
@@ -546,12 +1061,15 @@ def _format_company_guidance(
         card_lines = []
         for card in company_evidence_cards[:5]:
             theme = str(card.get("theme") or "").strip()
+            axis = str(card.get("normalized_axis") or "").strip()
+            summary = str(card.get("normalized_summary") or "").strip()
             claim = str(card.get("claim") or "").strip()
             excerpt = str(card.get("excerpt") or "").strip()
-            line = " / ".join(part for part in [claim, excerpt] if part)
+            line = summary or " / ".join(part for part in [claim, excerpt] if part)
             if not line:
                 continue
-            prefix = f"[{theme}] " if theme else ""
+            prefix_bits = [bit for bit in [theme, axis] if bit]
+            prefix = f"[{' / '.join(prefix_bits)}] " if prefix_bits else ""
             card_lines.append(f"- {prefix}{line}")
         if not card_lines:
             return ""
@@ -563,20 +1081,38 @@ def _format_company_guidance(
         ]
         if company_grounding == "assistive":
             if template_type == "gakuchika":
-                usage_lines.extend(
-                    [
-                        "- 本文の主軸は課題・行動・成果・学びに置く",
-                        "- 企業理解や「貴社で活かす」系の接続を義務づけない（自然に書けるときだけ最大1文、なければ省略）",
-                    ]
-                )
+                if grounding_mode == "none":
+                    usage_lines.extend(
+                        [
+                            "- 本文の主軸は課題・行動・成果・学びに置く",
+                            "- 「貴社」「貴行」等の企業敬称は使わない（企業名なし文脈では不自然になる）",
+                        ]
+                    )
+                else:
+                    usage_lines.extend(
+                        [
+                            "- 本文の主軸は課題・行動・成果・学びに置く",
+                            "- 企業理解や「貴社で活かす」系の接続を義務づけない（自然に書けるときだけ最大1文、なければ省略）",
+                            "- 「貴社」「御社」等の企業敬称は使わない",
+                        ]
+                    )
             else:
-                usage_lines.extend(
-                    [
-                        "- 本文の主軸は自分の経験・行動・学び・価値観に置く",
-                        "- 企業理解は 0〜1 文だけ補助的に使い、本文の中心にしない",
-                        "- 学びや強みが会社でどう活きるかを短くつなぐ程度にとどめる",
-                    ]
-                )
+                if grounding_mode == "none":
+                    usage_lines.extend(
+                        [
+                            "- 本文の主軸は自分の経験・行動・学び・価値観に置く",
+                            "- 「貴社」「貴行」等の企業敬称は使わない（企業名なし文脈では不自然になる）",
+                        ]
+                    )
+                else:
+                    usage_lines.extend(
+                        [
+                            "- 本文の主軸は自分の経験・行動・学び・価値観に置く",
+                            "- 企業理解は 0〜1 文だけ補助的に使い、本文の中心にしない",
+                            "- 学びや強みが会社でどう活きるかを短くつなぐ程度にとどめる",
+                            "- 「貴社」「御社」等の企業敬称は使わず、企業名や固有の事業・価値観で触れる",
+                        ]
+                    )
         if grounding_mode == "company_general":
             usage_lines.append("- 職種別の断定や配属前提の表現は避ける")
         else:
@@ -605,17 +1141,93 @@ def _format_company_guidance(
 - 自分の経験・関心・職種理解を軸にまとめる"""
     if company_grounding == "assistive":
         if template_type == "gakuchika":
+            if grounding_mode == "none":
+                return """
+【企業情報は補助扱い（ガクチカ）】
+- 企業固有の断定を無理に広げない
+- 課題・行動・成果・学びを主軸にまとめる
+- 「貴社」「貴行」等の企業敬称は使わない（企業名なし文脈では不自然になる）"""
             return """
 【企業情報は補助扱い（ガクチカ）】
 - 企業固有の断定を無理に広げない
 - 課題・行動・成果・学びを主軸にまとめる
-- 「貴社のように〜で貢献」などの企業接続を無理に入れない（自然な場合のみ短く）"""
+- 「貴社のように〜で貢献」などの企業接続を無理に入れない（自然な場合のみ短く）
+- 「貴社」「御社」等の企業敬称は使わない"""
+        if grounding_mode == "none":
+            return """
+【企業情報は補助扱い】
+- 企業固有の断定を無理に広げない
+- 自分の経験・強み・価値観を主軸にまとめる
+- 「貴社」「貴行」等の企業敬称は使わない（企業名なし文脈では不自然になる）"""
         return """
 【企業情報は補助扱い】
 - 企業固有の断定を無理に広げない
 - 自分の経験・強み・価値観を主軸にまとめる
-- 使うとしても fit や活かし方を短く補助する程度にとどめる"""
+- 使うとしても fit や活かし方を短く補助する程度にとどめる
+- 「貴社」「御社」等の企業敬称は使わず、企業名や固有の事業・価値観で触れる"""
     return ""
+
+
+# ---------------------------------------------------------------------------
+# 施策 7: CAPEL-inspired self-count instruction for character length control
+# ---------------------------------------------------------------------------
+
+
+def _format_self_count_instruction(
+    char_min: int | None,
+    char_max: int | None,
+    *,
+    llm_model: str | None = None,
+    length_fix_mode: bool = False,
+) -> str:
+    """Return a self-count instruction block inspired by CAPEL methodology.
+
+    Guides the LLM to count characters during generation for better length compliance.
+    This acts as a "floor raise" — actual validation is still done by the existing
+    post-validation + retry system.
+    """
+    if not char_min and not char_max:
+        return ""
+
+    # Determine provider family for model-specific instructions
+    model = (llm_model or "").lower()
+    is_openai = "gpt" in model or "openai" in model or "o1" in model or "o3" in model
+    is_gemini = "gemini" in model
+
+    target_desc = ""
+    if char_min and char_max:
+        target_desc = f"{char_min}〜{char_max}字"
+    elif char_max:
+        target_desc = f"{char_max}字以内"
+    elif char_min:
+        target_desc = f"{char_min}字以上"
+
+    if length_fix_mode and is_openai:
+        return (
+            f"\n【文字数セルフチェック】\n"
+            f"- Draft → 文字数を数える → {target_desc} に収まるよう Adjust\n"
+            f"- 調整時は意味を変えず、語尾・修飾の削除/追加で対応する"
+        )
+
+    if is_gemini:
+        # Gemini benefits from paragraph allocation hints
+        if char_min and char_max and char_max >= 300:
+            mid = (char_min + char_max) // 2
+            intro_alloc = mid // 4
+            body_alloc = mid // 2
+            close_alloc = mid - intro_alloc - body_alloc
+            return (
+                f"\n【文字数セルフチェック】\n"
+                f"- 目標: {target_desc}\n"
+                f"- 段落配分の目安: 導入{intro_alloc}字・本体{body_alloc}字・締め{close_alloc}字\n"
+                f"- 書き終えたら文字数を数え、範囲外なら語尾・修飾で調整する"
+            )
+
+    return (
+        f"\n【文字数セルフチェック】\n"
+        f"- 目標: {target_desc}\n"
+        f"- 書き終えたら文字数を数え、範囲外なら語尾・修飾で調整する"
+    )
 
 
 def _format_short_answer_guidance(
@@ -630,14 +1242,9 @@ def _format_short_answer_guidance(
     if not char_max or char_max > 220:
         return ""
 
-    required_templates = {
-        "company_motivation",
-        "intern_reason",
-        "intern_goals",
-        "post_join_goals",
-        "role_course_reason",
-    }
-    required_dense_band = template_type in required_templates and 150 <= char_max <= 220
+    template_spec = get_template_spec(template_type)
+    recommended_structure = dict(template_spec.get("recommended_structure") or {})
+    required_dense_band = bool(recommended_structure.get("dense_short_answer")) and 150 <= char_max <= 220
 
     target = _format_target_char_window(
         char_min,
@@ -646,19 +1253,9 @@ def _format_short_answer_guidance(
         original_len=original_len,
         llm_model=llm_model,
     )
-    structure_map = {
-        "intern_reason": "1文目で参加理由、2文目で根拠経験、必要なら3文目でこのインターンで得たいことを置く",
-        "intern_goals": "1文目で学びたいこと、2文目で根拠経験、必要なら3文目でインターン接点を置く",
-        "role_course_reason": "1文目で職種志望、2文目で根拠経験、必要なら3文目で企業接点を置く",
-        "company_motivation": "1文目で志望理由、2文目で根拠経験、必要なら3文目で企業接点を置く",
-        "post_join_goals": "1文目でやりたいこと、2文目で根拠経験、必要なら3文目で企業接点を置く",
-        "self_pr": "1文目で強みの核、2文目で根拠経験、必要なら3文目で仕事や企業との接点を置く",
-        "gakuchika": "1文目で最も力を入れた行動、2文目で工夫や成果、必要なら3文目で仕事との接点を置く",
-        "work_values": "1文目で価値観の核、2文目で根拠経験、必要なら3文目で仕事との接点を置く",
-    }
-    structure = structure_map.get(
-        template_type,
-        "1文目で結論、2文目で根拠、必要なら3文目で企業や仕事との接点を置く",
+    structure = str(
+        recommended_structure.get("short")
+        or "1文目で結論、2文目で根拠、必要なら3文目で企業や仕事との接点を置く"
     )
     min_guard = f"- {char_min}字未満で終えない" if char_min else ""
     extra_lines: list[str] = []
@@ -675,7 +1272,7 @@ def _format_short_answer_guidance(
                 "- 3文で足りなければ4文目で役割・学び・貢献のいずれかを言い切る",
             ]
         )
-    if 160 <= char_max <= 220 and template_type in {"self_pr", "gakuchika", "work_values"}:
+    if 160 <= char_max <= 220 and bool(recommended_structure.get("three_sentence_close_on_short_band")):
         extra_lines.extend(
             [
                 "- 3文で締め、3文目で仕事や再現性につながる価値を言い切る",
@@ -709,22 +1306,12 @@ def _format_midrange_length_guidance(
     if not char_min or not char_max or char_max < 280 or char_max > 520:
         return ""
 
-    if template_type not in {
-        "company_motivation",
-        "intern_reason",
-        "intern_goals",
-        "post_join_goals",
-        "role_course_reason",
-    }:
+    template_spec = get_template_spec(template_type)
+    recommended_structure = dict(template_spec.get("recommended_structure") or {})
+    mid_structure = str(recommended_structure.get("mid") or "").strip()
+    if not mid_structure:
         return ""
 
-    structure_map = {
-        "company_motivation": "1文目で志望理由、2文目で根拠経験、3文目で企業理解との接点、4文目で貢献イメージを置く",
-        "intern_reason": "1文目で参加理由、2文目で根拠経験、3文目でインターン価値との接点、4文目で得たい学びを置く",
-        "intern_goals": "1文目で学びたいこと、2文目で根拠経験、3文目でプログラム接点、4文目で成長イメージを置く",
-        "post_join_goals": "1文目で入社後の目標、2文目で根拠経験、3文目で企業との接点、4文目で価値発揮の方向性を置く",
-        "role_course_reason": "1文目で職種・コース志望、2文目で根拠経験、3文目で企業や事業との接点、4文目でその役割で出したい価値を置く",
-    }
     stage = "under_min_recovery" if length_control_mode == "under_min_recovery" else "default"
     target = _format_target_char_window(
         char_min,
@@ -736,7 +1323,7 @@ def _format_midrange_length_guidance(
     guidance_lines = [
         "【300〜500字設問の組み方】",
         "- 4文前後で構成する",
-        f"- {structure_map.get(template_type, '1文目で結論、2文目で根拠、3文目で企業接点、4文目で価値発揮を置く')}",
+        f"- {mid_structure}",
         f"- 目標は {target} で、{char_min}字未満で終えない",
         "- 説明だけの文で終わらせず、各文に役割を持たせる",
         "- 短くまとめすぎる場合は、既にある経験・職種・企業接点のつながりを1文補う",
@@ -762,30 +1349,29 @@ def _format_question_specific_guidance(
     question: str,
 ) -> str:
     normalized = (question or "").strip()
-    if (
-        template_type == "intern_reason"
-        and "活か" in normalized
-        and ("持ち帰" in normalized or "得たい" in normalized or "学びたい" in normalized)
-    ):
-        return """
-【この設問で落としてはいけない3要素】
-- 参加したい理由を1文で明示する
-- 活かせる経験・事実を1文で置く
-- 持ち帰りたい学び・視点を最後に1文で言い切る
-- 3要素のどれも省略しない
-""".strip()
+    for rule in list(get_template_spec(template_type).get("question_focus_rules") or []):
+        contains_all = [str(item).strip() for item in rule.get("contains_all", []) if str(item).strip()]
+        contains_any = [str(item).strip() for item in rule.get("contains_any", []) if str(item).strip()]
+        if contains_all and not all(token in normalized for token in contains_all):
+            continue
+        if contains_any and not any(token in normalized for token in contains_any):
+            continue
+        title = str(rule.get("title") or "この設問で落としてはいけない要素").strip()
+        items = [str(item).strip() for item in rule.get("items", []) if str(item).strip()]
+        if items:
+            return "\n".join([f"【{title}】", *[f"- {item}" for item in items]]).strip()
     return ""
 
 
 def _format_negative_reframe_guidance(template_type: str) -> str:
-    if template_type != "self_pr":
+    items = [
+        str(item).strip()
+        for item in get_template_spec(template_type).get("negative_reframe_guidance", [])
+        if str(item).strip()
+    ]
+    if not items:
         return ""
-    return """
-【自己PRで避ける表現】
-- 「経験不足」「自信がない」などの自己否定語をそのまま残さない
-- 元の事実は保ちつつ、準備・責任感・学習姿勢・確認力などの前向きな表現に言い換える
-- 弱さの告白で締めず、仕事で再現できる行動特性で締める
-""".strip()
+    return "\n".join(["【自己PRで避ける表現】", *[f"- {item}" for item in items]]).strip()
 
 
 def _dedupe_text_items(items: list[str]) -> list[str]:
@@ -847,6 +1433,13 @@ def _format_focus_mode_guidance(focus_mode: str | list[str]) -> str:
                 "- 冒頭2文の役割を整理し、前置きを削る",
             ]
         ),
+        "quantify_focus": "\n".join(
+            [
+                "【今回の修正フォーカス】",
+                "- 抽象ラベルだけで終わらせず、人数・期間・件数・比率などの数値を1つ入れる",
+                "- 強みや価値観は具体的な行動動詞で裏づけ、再現性が見える形にする",
+            ]
+        ),
         "structure_focus": "\n".join(
             [
                 "【今回の修正フォーカス】",
@@ -884,13 +1477,8 @@ def _format_required_template_playbook(
     original_len: int = 0,
     llm_model: Optional[str] = None,
 ) -> str:
-    if template_type not in {
-        "company_motivation",
-        "intern_reason",
-        "intern_goals",
-        "post_join_goals",
-        "role_course_reason",
-    }:
+    playbook = dict(get_template_spec(template_type).get("playbook") or {})
+    if not playbook:
         return ""
     if not char_max or char_max < 120:
         return ""
@@ -901,64 +1489,19 @@ def _format_required_template_playbook(
         original_len=original_len,
         llm_model=llm_model,
     )
-    subject = {
-        "company_motivation": f"{honorific}を志望する理由",
-        "intern_reason": f"{intern_name or 'そのインターン'}への参加理由",
-        "intern_goals": f"{intern_name or 'そのインターン'}で学びたいこと",
-        "post_join_goals": "入社後に挑戦したいこと",
-        "role_course_reason": f"{role_name or 'その職種・コース'}を志望する理由",
-    }[template_type]
-    opening = {
-        "company_motivation": f"1文目で{honorific}を志望する理由の核を言い切る",
-        "intern_reason": "1文目で参加理由の核を言い切る",
-        "intern_goals": (
-            "1文目で学びたいことの核を言い切る（学びたい・確かめたい・得たい・磨きたいのいずれかを含める）"
-        ),
-        "post_join_goals": "1文目で入社後の挑戦の核を言い切る",
-        "role_course_reason": "1文目でその職種・コースを志望する理由の核を言い切る（志望・魅力・担いたいのいずれかを含める）",
-    }[template_type]
-    second = {
-        "company_motivation": "2文目で元回答の経験を1点だけ出す",
-        "intern_reason": "2文目で元回答の経験や課題感を1点だけ出す",
-        "intern_goals": "2文目で元回答の経験や問題意識を1点だけ出す",
-        "post_join_goals": "2文目で元回答の経験や原体験を1点だけ出す",
-        "role_course_reason": "2文目で元回答の経験や適性を1点だけ出す",
-    }[template_type]
-    third = {
-        "company_motivation": "3文目で企業理解との接点を1点だけつなぐ",
-        "intern_reason": "3文目でそのインターンの価値との接点を1点だけつなぐ",
-        "intern_goals": "3文目でそのインターンで得たい学びとの接点を1点だけつなぐ",
-        "post_join_goals": "3文目で企業や事業との接点を1点だけつなぐ",
-        "role_course_reason": "3文目でその役割や事業との接点を1点だけつなぐ",
-    }[template_type]
-    fourth = {
-        "company_motivation": "4文目で入社後の貢献で締める",
-        "intern_reason": "4文目でインターン後の成長イメージで締める",
-        "intern_goals": "4文目で将来の成長イメージで締める",
-        "post_join_goals": "4文目で中長期の価値発揮で締める",
-        "role_course_reason": "4文目でその役割で出したい価値で締める",
-    }[template_type]
-    example_good_1 = {
-        "company_motivation": f"私が{honorific}を志望するのは、事業を通じて社会課題に向き合う姿勢に魅力を感じたからだ。",
-        "intern_reason": f"私が{intern_name or 'そのインターン'}に参加したいのは、実務に近い課題で分析力を試し、学びを得たいからだ。",
-        "intern_goals": f"{intern_name or 'そのインターン'}では、実務に近い課題の中で分析の精度と判断の速さを学びたい。",
-        "post_join_goals": "入社後は、現場で事業理解を深めながら論点整理を担い、価値創出につなげたい。",
-        "role_course_reason": f"私が{role_name or 'その職種・コース'}を志望するのは、事業と技術をつなぐ役割に魅力を感じるからだ。",
-    }[template_type]
-    example_good_2 = {
-        "company_motivation": "研究で仮説検証を重ねた経験を土台に、現場で事業理解を深め、価値創出につなげたい。",
-        "intern_reason": "研究で磨いた仮説検証力を土台に、実務の制約下で優先順位を考える力を伸ばしたい。",
-        "intern_goals": "研究で培った整理力を土台に、チームで課題を前に進める視点を身につけたい。",
-        "post_join_goals": "研究で論点を整理した経験を土台に、関係者を巻き込みながら事業を前進させたい。",
-        "role_course_reason": "研究で論点を整理しながら前に進めた経験を土台に、その役割で価値を出したい。",
-    }[template_type]
-    example_bad = {
-        "company_motivation": f"私は{honorific}を志望する理由は、{honorific}の魅力に惹かれたからだ。",
-        "intern_reason": f"私は{intern_name or 'そのインターン'}に参加したい理由は、参加してみたいからだ。",
-        "intern_goals": f"{intern_name or 'そのインターン'}で学びたいことは、いろいろなことを学ぶことだ。",
-        "post_join_goals": "入社後に挑戦したいことは、入社後に頑張っていきたいということである。",
-        "role_course_reason": f"私は{role_name or 'その職種・コース'}を選んだ理由は、{role_name or 'その職種・コース'}に興味があるからだ。",
-    }[template_type]
+    template_kwargs = {
+        "honorific": honorific,
+        "role_name": role_name or "その職種・コース",
+        "intern_name": intern_name or "そのインターン",
+    }
+    subject = str(playbook.get("subject") or "").format(**template_kwargs)
+    opening = str(playbook.get("opening") or "").format(**template_kwargs)
+    second = str(playbook.get("second") or "").format(**template_kwargs)
+    third = str(playbook.get("third") or "").format(**template_kwargs)
+    fourth = str(playbook.get("fourth") or "").format(**template_kwargs)
+    example_good_1 = str(playbook.get("example_good_1") or "").format(**template_kwargs)
+    example_good_2 = str(playbook.get("example_good_2") or "").format(**template_kwargs)
+    example_bad = str(playbook.get("example_bad") or "").format(**template_kwargs)
 
     return f"""
 【requiredテンプレの型】
@@ -987,13 +1530,7 @@ def _format_required_template_length_fix_guidance(
     original_len: int = 0,
     llm_model: Optional[str] = None,
 ) -> str:
-    if template_type not in {
-        "company_motivation",
-        "intern_reason",
-        "intern_goals",
-        "post_join_goals",
-        "role_course_reason",
-    }:
+    if get_template_company_usage(template_type) != "required":
         return ""
     if not char_max or char_max < 120:
         return ""
@@ -1015,6 +1552,164 @@ def _format_required_template_length_fix_guidance(
 
 def get_template_rag_profile(template_type: str) -> dict:
     return TEMPLATE_RAG_PROFILES.get(template_type, TEMPLATE_RAG_PROFILES["basic"]).copy()
+
+
+# Synthetic questions for draft generation (align with ES review template types).
+DRAFT_SYNTHETIC_QUESTION_GAKUCHIKA = (
+    "学生時代に力を入れたことについて、設問に答える形で具体的に述べなさい。"
+)
+
+
+def draft_synthetic_question_company_motivation(honorific: str) -> str:
+    return f"{honorific}を志望する理由を述べなさい。"
+
+
+def _draft_generation_output_contract_json(*, kind: str, char_min: Optional[int], char_max: Optional[int]) -> str:
+    band = f"{char_min}〜{char_max}字" if char_min and char_max else "指定範囲の字数"
+    if kind == "gakuchika":
+        return f"""- 出力は有効な JSON のみ（説明文・マークダウン・コードフェンス禁止）
+- キーは次のとおり:
+  - "draft": ガクチカ本文（だ・である調、改行・箇条書き・空行を入れず1段落の連続した文章）
+  - "followup_suggestion": 短い次アクション文言（省略可。省略時は「更に深掘りする」相当でよい）
+- "draft" の文字数は厳守: {band}
+- JSON 以外を出力しない"""
+    if kind == "motivation":
+        return f"""- 出力は有効な JSON のみ（説明文・マークダウン・コードフェンス禁止）
+- キーは次のとおり:
+  - "draft": 志望動機本文（だ・である調、改行・箇条書き・空行を入れず1段落の連続した文章）
+  - "key_points": 本文で強調した論点の文字列配列（3件程度）
+  - "company_keywords": 企業理解に使った観点の短い語の文字列配列（空可）
+- "draft" の文字数は厳守: {band}
+- 会話・材料にない企業固有事実・職種・数字を捏造しない
+- JSON 以外を出力しない"""
+    raise ValueError(f"Unknown draft JSON kind: {kind}")
+
+
+def build_template_draft_generation_prompt(
+    template_type: str,
+    *,
+    company_name: Optional[str],
+    industry: Optional[str],
+    question: str,
+    char_min: Optional[int],
+    char_max: Optional[int],
+    primary_material_heading: str,
+    primary_material_body: str,
+    company_reference_heading: Optional[str] = None,
+    company_reference_body: Optional[str] = None,
+    output_json_kind: str,
+    role_name: Optional[str] = None,
+    company_evidence_cards: Optional[list[dict]] = None,
+    has_rag: bool = False,
+    grounding_mode: str = "none",
+    llm_model: Optional[str] = None,
+) -> tuple[str, str]:
+    """Build system+user prompts for one-shot ES draft generation using TEMPLATE_DEFS (same source as ES review).
+
+    Company context for motivation should appear in ``company_reference_body`` when RAG evidence cards are empty.
+    """
+    template_def = TEMPLATE_DEFS.get(template_type)
+    if not template_def:
+        raise ValueError(f"Unknown template type: {template_type}")
+    if output_json_kind not in {"gakuchika", "motivation"}:
+        raise ValueError(f"output_json_kind must be gakuchika or motivation, got {output_json_kind}")
+
+    template_role = TEMPLATE_ROLES.get(template_type, TEMPLATE_ROLES["basic"])
+    honorific = get_company_honorific(industry)
+    if grounding_mode == "none":
+        company_mention_rule = "この設問では企業名・企業敬称（貴社・御社・貴行等）を絶対に使わない。自分の経験と強みだけで完結させる"
+    else:
+        company_mention_rule = f"本文で企業に言及するときは企業名ではなく「{honorific}」を使う（ガクチカで企業に触れない場合は省略してよい）"
+    original_len = 0
+    target_stage = "default"
+
+    effective_grounding_level = get_template_default_grounding_level(template_type)
+    effective_company_grounding = grounding_level_to_policy(effective_grounding_level)
+
+    system_prompt = f"""あなたは{template_role}である。
+
+<task>
+会話・与えられた材料のみを根拠に、提出用のES本文を新規に書く。
+材料に書かれていない経験・役割・成果・数字・企業固有情報を捏造・推測で足さない。
+企業や職種について材料にない断定をしない。
+</task>
+
+<output_contract>
+{_draft_generation_output_contract_json(kind=output_json_kind, char_min=char_min, char_max=char_max)}
+</output_contract>
+
+<constraints>
+- 設問に正面から答える
+- だ・である調で統一（です・ますは使わない）
+- {company_mention_rule}
+- 設問の冒頭表現をそのまま繰り返して始めない
+- 末尾で同じ文末表現を2文連続で使わない
+- 最終文は具体的な行動・成果・貢献イメージで締め、抽象意気込みの羅列にしない
+</constraints>
+
+{_format_length_policy_block(char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
+
+<core_style>
+{_GLOBAL_CONCLUSION_FIRST_RULES}
+</core_style>
+
+<template_focus>
+{template_def["description"]}
+</template_focus>
+{_format_template_required_elements(template_type)}
+{_format_template_anti_patterns(template_type)}
+{_format_focus_mode_guidance("normal")}
+{_format_short_answer_guidance(template_type, char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
+{_format_midrange_length_guidance(
+    template_type,
+    char_min,
+    char_max,
+    length_control_mode="default",
+    length_shortfall=None,
+    original_len=original_len,
+    llm_model=llm_model,
+)}
+{_format_question_specific_guidance(template_type, question)}
+{_format_negative_reframe_guidance(template_type)}
+{_format_company_guidance(
+    company_evidence_cards=company_evidence_cards,
+    has_rag=has_rag,
+    grounding_mode=grounding_mode,
+    requires_company_rag=bool(template_def.get("requires_company_rag")),
+    company_grounding=effective_company_grounding,
+    generic_role_mode=False,
+    evidence_coverage_level="none",
+    template_type=template_type,
+)}
+{_format_required_template_playbook(
+    template_type,
+    char_min,
+    char_max,
+    honorific=honorific,
+    role_name=role_name,
+    intern_name=None,
+    original_len=original_len,
+    llm_model=llm_model,
+)}
+"""
+
+    meta_lines = [f"【設問】\n{question.strip()}"]
+    if company_name:
+        meta_lines.append(f"【企業名】\n{company_name}")
+    if industry:
+        meta_lines.append(f"【業界】\n{industry}")
+    if role_name:
+        meta_lines.append(f"【志望職種・コース】\n{role_name.strip()}")
+    meta_lines.append(f"【字数】\n{_format_char_condition(char_min, char_max)}")
+
+    blocks: list[str] = ["\n\n".join(meta_lines), f"{primary_material_heading}\n{primary_material_body.strip()}"]
+    if company_reference_body and str(company_reference_body).strip():
+        heading = company_reference_heading or "【企業参考情報（要約）】"
+        blocks.append(f"{heading}\n{company_reference_body.strip()}")
+
+    user_prompt = "\n\n".join(blocks) + "\n\n上記のみを根拠にJSONを出力してください。"
+
+    return system_prompt.strip(), user_prompt
 
 
 def build_template_rewrite_prompt(
@@ -1041,6 +1736,7 @@ def build_template_rewrite_prompt(
     focus_mode: str = "normal",
     focus_modes: Optional[list[str]] = None,
     company_grounding_override: Optional[str] = None,
+    grounding_level_override: Optional[str] = None,
     llm_model: Optional[str] = None,
 ) -> tuple[str, str]:
     template_def = TEMPLATE_DEFS.get(template_type)
@@ -1067,9 +1763,18 @@ def build_template_rewrite_prompt(
         if retry_items
         else ""
     )
-    effective_company_grounding = company_grounding_override or str(
-        template_def.get("company_grounding") or "assistive"
+    effective_grounding_level = grounding_level_override or get_template_default_grounding_level(
+        template_type
     )
+    effective_company_grounding = company_grounding_override or grounding_level_to_policy(
+        effective_grounding_level
+    )
+    if grounding_mode == "none":
+        company_mention_rule = "この設問では企業名・企業敬称（貴社・御社・貴行等）を絶対に使わない。自分の経験と強みだけで完結させる"
+    elif effective_company_grounding == "assistive":
+        company_mention_rule = f"企業に言及するときは企業名（{company_name or '企業名'}）や固有の事業・価値観で触れ、本文全体で2回までにとどめる。敬称（貴社・御社等）は使わない"
+    else:
+        company_mention_rule = f"企業名は本文中で1回までにとどめ、2回目以降は「{honorific}」を使う"
     target_stage = "under_min_recovery" if length_control_mode == "under_min_recovery" else "default"
     system_prompt = f"""あなたは{template_role}である。
 
@@ -1081,6 +1786,7 @@ def build_template_rewrite_prompt(
 - 出力は改善案本文のみ
 - 説明、前置き、箇条書き、引用符、JSON、コードブロックは禁止
 - だ・である調で統一
+- 改行・空行を入れず、1段落の連続した文章として出力する
 </output_contract>
 
 <constraints>
@@ -1091,22 +1797,27 @@ def build_template_rewrite_prompt(
 - 企業情報は設問タイプに応じて使い、required でない設問では補助的にだけ使う
 - 企業根拠カードの固有名詞・施策名・組織名・英字略語を本文でそのまま増殖させない
 - 本文で企業に触れるときは、方向性・価値観・重視姿勢に抽象化する
-- 本文で企業に言及するときは企業名ではなく「{honorific}」を使う
+- {company_mention_rule}
+- 1文目は設問への答えを20〜45字で言い切り、長い前置きや設問の言い換えから入らない
 - 設問の冒頭表現をそのまま繰り返して始めない（例:「〇〇を志望する理由は…」「〇〇でやりたいことは…」は不可）
 - 末尾で同じ文末表現（〜したい、〜と考える 等）を2文連続で使わない
 - 最終文は具体的な行動や貢献で締め、抽象的な意気込みの羅列にしない
 - 冗長な接続詞で文字数を浪費しない
+{_format_self_count_instruction(char_min, char_max, llm_model=llm_model)}
 </constraints>
-
+{_format_assistive_grounding_block(effective_company_grounding=effective_company_grounding, grounding_mode=grounding_mode, company_name=company_name)}
+{_format_proper_noun_policy(template_type=template_type, intern_name=intern_name, role_name=role_name)}
 {_format_length_policy_block(char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
 
 <core_style>
-{_GLOBAL_CONCLUSION_FIRST_RULES}
+{_build_contextual_rules(template_type, char_max, grounding_mode)}
 </core_style>
-
+{_format_prose_style_block(char_max)}
 <template_focus>
 {template_def["description"]}
 </template_focus>
+{_format_template_required_elements(template_type)}
+{_format_template_anti_patterns(template_type)}
 {_format_focus_mode_guidance(focus_modes or focus_mode)}
 {_format_short_answer_guidance(template_type, char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
 {_format_midrange_length_guidance(
@@ -1131,7 +1842,7 @@ def build_template_rewrite_prompt(
     template_type=template_type,
 )}
 {_format_reference_quality_guidance(reference_quality_block)}
-{_format_user_fact_guidance(allowed_user_facts)}
+{_format_user_fact_guidance(allowed_user_facts, template_type=template_type, char_max=char_max)}
 {_format_required_template_playbook(
     template_type,
     char_min,
@@ -1180,6 +1891,7 @@ def build_template_fallback_rewrite_prompt(
     focus_mode: str = "normal",
     focus_modes: Optional[list[str]] = None,
     company_grounding_override: Optional[str] = None,
+    grounding_level_override: Optional[str] = None,
     llm_model: Optional[str] = None,
 ) -> tuple[str, str]:
     template_def = TEMPLATE_DEFS.get(template_type)
@@ -1204,9 +1916,18 @@ def build_template_fallback_rewrite_prompt(
         if retry_items
         else ""
     )
-    effective_company_grounding = company_grounding_override or str(
-        template_def.get("company_grounding") or "assistive"
+    effective_grounding_level = grounding_level_override or get_template_default_grounding_level(
+        template_type
     )
+    effective_company_grounding = company_grounding_override or grounding_level_to_policy(
+        effective_grounding_level
+    )
+    if grounding_mode == "none":
+        company_mention_rule = "この設問では企業名・企業敬称（貴社・御社・貴行等）を絶対に使わない。自分の経験と強みだけで完結させる"
+    elif effective_company_grounding == "assistive":
+        company_mention_rule = f"企業に言及するときは企業名（{company_name or '企業名'}）や固有の事業・価値観で触れ、本文全体で2回までにとどめる。敬称（貴社・御社等）は使わない"
+    else:
+        company_mention_rule = f"企業名は本文中で1回までにとどめ、2回目以降は「{honorific}」を使う"
     target_stage = "under_min_recovery" if length_control_mode == "under_min_recovery" else "default"
     system_prompt = f"""あなたは日本語のES編集者である。
 
@@ -1218,6 +1939,7 @@ def build_template_fallback_rewrite_prompt(
 - 出力は本文のみ
 - だ・である調
 - {_format_char_condition(char_min, char_max)}
+- 改行・空行を入れず、1段落の連続した文章として出力する
 </output_contract>
 
 <constraints>
@@ -1225,17 +1947,23 @@ def build_template_fallback_rewrite_prompt(
 - 足りない情報は創作せず、一般化してつなぐ
 - 企業情報は設問タイプに応じて使い、required でない設問では補助的にだけ使う
 - 固有施策、社内体制、数値、成果を新しく断定しない
-- 本文で企業に言及するときは企業名ではなく「{honorific}」を使う
+- {company_mention_rule}
+- 1文目は設問への答えを20〜45字で言い切り、長い前置きや設問の言い換えから入らない
 - 設問の冒頭表現をそのまま繰り返して始めない
 - 末尾で同じ文末表現（〜したい、〜と考える 等）を2文連続で使わない
 - 最終文は具体的な行動や貢献で締める
+{_format_self_count_instruction(char_min, char_max, llm_model=llm_model)}
 </constraints>
-
+{_format_assistive_grounding_block(effective_company_grounding=effective_company_grounding, grounding_mode=grounding_mode, company_name=company_name)}
+{_format_proper_noun_policy(template_type=template_type, intern_name=intern_name, role_name=role_name)}
 {_format_length_policy_block(char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
 
 <core_style>
-{_GLOBAL_CONCLUSION_FIRST_RULES}
+{_build_contextual_rules(template_type, char_max, grounding_mode)}
 </core_style>
+{_format_prose_style_block(char_max)}
+{_format_template_required_elements(template_type)}
+{_format_template_anti_patterns(template_type)}
 {_format_focus_mode_guidance(focus_modes or focus_mode)}
 {_format_short_answer_guidance(template_type, char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
 {_format_midrange_length_guidance(
@@ -1260,7 +1988,7 @@ def build_template_fallback_rewrite_prompt(
     template_type=template_type,
 )}
 {_format_reference_quality_guidance(reference_quality_block)}
-{_format_user_fact_guidance(allowed_user_facts)}
+{_format_user_fact_guidance(allowed_user_facts, template_type=template_type, char_max=char_max)}
 {_format_required_template_playbook(
     template_type,
     char_min,
@@ -1292,6 +2020,8 @@ def build_template_length_fix_prompt(
     *,
     focus_modes: Optional[list[str]] = None,
     length_control_mode: str = "default",
+    effective_company_grounding: str = "assistive",
+    grounding_mode: str = "none",
     llm_model: Optional[str] = None,
 ) -> tuple[str, str]:
     template_def = TEMPLATE_DEFS.get(template_type)
@@ -1341,12 +2071,20 @@ def build_template_length_fix_prompt(
             mode_instructions.append("意味を変えず、企業や役割との接点を1句だけ補って伝わり方を整える")
         elif mode == "opening_focus":
             mode_instructions.append("冒頭は設問の言い換えで始めず、結論の一文から書き出す形へ最小限で整える")
+        elif mode == "quantify_focus":
+            mode_instructions.append(
+                "新事実を足さず、既にある人数・期間・件数・比率などの数値か、具体的な行動動詞を明示して抽象語だけにしない"
+            )
         elif mode == "answer_focus":
             mode_instructions.append("1文目で設問への答えの核がすぐ伝わるよう、冒頭の一文だけを優先して整える")
         elif mode == "structure_focus":
             mode_instructions.append("箇条書きや断片を避け、つながった本文として読める形へ最小限で整える")
     if not mode_instructions:
         mode_instructions.append("意味を変えず、本文の崩れだけを最小限で整える")
+    if grounding_mode == "none":
+        mode_instructions.append("企業名・企業敬称（貴社・御社等）を絶対に使わない")
+    elif effective_company_grounding == "assistive":
+        mode_instructions.append("企業敬称（貴社・御社等）は使わず、企業名や固有の事業・価値観で触れる")
     stage = "under_min_recovery" if length_control_mode == "under_min_recovery" else "default"
     system_prompt = f"""あなたは日本語のES編集者である。
 
@@ -1364,6 +2102,7 @@ def build_template_length_fix_prompt(
 - 新しい経験・役割・成果・数字・企業施策を足さない
 - 本文の主張順と意味は極力維持する
 {chr(10).join(f"- {instruction}" for instruction in _dedupe_text_items(mode_instructions))}
+{_format_self_count_instruction(char_min, char_max, llm_model=llm_model, length_fix_mode=True)}
 </constraints>
 {_format_length_policy_block(char_min, char_max, stage=stage, original_len=original_len, llm_model=llm_model)}
 {_format_midrange_length_guidance(

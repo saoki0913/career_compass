@@ -3,6 +3,8 @@ import type { NextRequest, NextResponse } from "next/server";
 export const GUEST_COOKIE_NAME = "guest_device_token";
 const GUEST_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function isProduction() {
   return process.env.NODE_ENV === "production";
 }
@@ -21,7 +23,8 @@ export function readGuestDeviceTokenFromCookieHeader(cookieHeader?: string | nul
     const trimmed = part.trim();
     if (trimmed.startsWith(prefix)) {
       const value = trimmed.slice(prefix.length).trim();
-      return value || null;
+      if (!value || !UUID_V4_RE.test(value)) return null;
+      return value;
     }
   }
 
@@ -29,7 +32,9 @@ export function readGuestDeviceTokenFromCookieHeader(cookieHeader?: string | nul
 }
 
 export function readGuestDeviceToken(request: Pick<NextRequest, "cookies">): string | null {
-  return request.cookies.get(GUEST_COOKIE_NAME)?.value ?? null;
+  const token = request.cookies.get(GUEST_COOKIE_NAME)?.value ?? null;
+  if (!token || !UUID_V4_RE.test(token)) return null;
+  return token;
 }
 
 export function setGuestDeviceTokenCookie(response: NextResponse, token: string) {

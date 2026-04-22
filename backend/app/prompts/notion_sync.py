@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import json
 import re
+import string
 from typing import Any
 
 
 PLACEHOLDER_PATTERN = re.compile(r"(?<!\{)\{([a-zA-Z_][a-zA-Z0-9_]*)\}(?!\})")
+FORMAT_FIELD_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 REQUIRED_MANAGED_PROMPT_KEYS = {
     "motivation.evaluation",
     "motivation.question",
     "motivation.suggestion_rewrite",
-    "motivation.draft_generation",
     "motivation.deepdive_question",
     "gakuchika.prohibited_expressions",
     "gakuchika.es_build_question_principles",
@@ -21,7 +22,6 @@ REQUIRED_MANAGED_PROMPT_KEYS = {
     "gakuchika.initial_question",
     "gakuchika.es_build_and_question",
     "gakuchika.structured_summary",
-    "gakuchika.draft_generation",
     "interview.question",
     "interview.feedback",
     "company_info.extract_info.system",
@@ -44,6 +44,28 @@ def extract_prompt_placeholders(content: str) -> list[str]:
     return sorted(dict.fromkeys(PLACEHOLDER_PATTERN.findall(content or "")))
 
 
+def validate_prompt_format_template(content: str, variables: list[str] | tuple[str, ...], *, key: str) -> None:
+    formatter = string.Formatter()
+    declared = {str(item) for item in variables if str(item).strip()}
+    seen: set[str] = set()
+
+    try:
+        for _, field_name, _, _ in formatter.parse(content or ""):
+            if field_name is None:
+                continue
+            if not FORMAT_FIELD_PATTERN.fullmatch(field_name):
+                raise ValueError(f"invalid placeholder '{field_name}'")
+            seen.add(field_name)
+    except ValueError as exc:
+        raise ValueError(f"Prompt '{key}' has invalid format template: {exc}") from exc
+
+    unexpected = sorted(seen - declared)
+    if unexpected:
+        raise ValueError(
+            f"Prompt '{key}' has unexpected format placeholders: {', '.join(unexpected)}"
+        )
+
+
 def build_prompt_manifest(
     rows: list[dict[str, Any]],
     *,
@@ -63,6 +85,7 @@ def build_prompt_manifest(
 
         content = str(row.get("content") or "")
         variables = [str(item) for item in (row.get("variables") or []) if str(item).strip()]
+        validate_prompt_format_template(content, variables, key=key)
         placeholders = extract_prompt_placeholders(content)
         if sorted(variables) != placeholders:
             raise ValueError(

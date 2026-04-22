@@ -5,9 +5,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { notifyError, notifySubmissionCreated, notifySubmissionDeleted, notifySubmissionStatusChanged } from "@/lib/notifications";
+import { notifySubmissionCreated, notifySubmissionDeleted, notifySubmissionStatusChanged } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
-import { getUserFacingErrorMessage } from "@/lib/api-errors";
+import { toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 import {
   useSubmissions,
   SubmissionItem,
@@ -109,12 +110,16 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
       setNewItem({ type: "es", name: "", isRequired: false });
       setShowNewForm(false);
     } catch (err) {
-      const message = getUserFacingErrorMessage(err, {
-        code: "SUBMISSION_CREATE_FAILED",
-        userMessage: "提出物を追加できませんでした。",
-      }, "SubmissionsList:create");
-      setFormError(message);
-      notifyError({ title: message });
+      const ui = toAppUiError(
+        err,
+        {
+          code: "SUBMISSION_CREATE_FAILED",
+          userMessage: "提出物を追加できませんでした。",
+        },
+        "SubmissionsList:create",
+      );
+      setFormError(ui.message);
+      notifyUserFacingAppError(ui);
     } finally {
       setIsSubmitting(false);
     }
@@ -129,12 +134,15 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
       await updateSubmission(item.id, { status: nextStatus });
       notifySubmissionStatusChanged(SUBMISSION_STATUS[nextStatus]);
     } catch (err) {
-      notifyError({
-        title: getUserFacingErrorMessage(err, {
+      const ui = toAppUiError(
+        err,
+        {
           code: "SUBMISSION_UPDATE_FAILED",
           userMessage: "提出物を更新できませんでした。",
-        }, "SubmissionsList:update"),
-      });
+        },
+        "SubmissionsList:update",
+      );
+      notifyUserFacingAppError(ui);
     }
   };
 
@@ -143,12 +151,15 @@ export function SubmissionsList({ applicationId }: SubmissionsListProps) {
       await deleteSubmission(id);
       notifySubmissionDeleted();
     } catch (err) {
-      notifyError({
-        title: getUserFacingErrorMessage(err, {
+      const ui = toAppUiError(
+        err,
+        {
           code: "SUBMISSION_DELETE_FAILED",
           userMessage: "提出物を削除できませんでした。",
-        }, "SubmissionsList:delete"),
-      });
+        },
+        "SubmissionsList:delete",
+      );
+      notifyUserFacingAppError(ui);
     }
   };
 

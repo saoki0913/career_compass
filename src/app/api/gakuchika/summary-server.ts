@@ -6,7 +6,7 @@ import {
   type LegacySummary,
   type StructuredSummary,
 } from "@/lib/gakuchika/summary";
-import { type Message } from "@/app/api/gakuchika/shared";
+import { type Message } from "@/app/api/gakuchika";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -75,6 +75,10 @@ function normalizeStructuredSummaryPayload(data: unknown): StructuredSummary | n
     interview_supporting_details: cleanStringList(data.interview_supporting_details),
     future_outlook_notes: cleanStringList(data.future_outlook_notes),
     backstory_notes: cleanStringList(data.backstory_notes),
+    one_line_core_answer: cleanString(data.one_line_core_answer),
+    likely_followup_questions: cleanStringList(data.likely_followup_questions),
+    weak_points_to_prepare: cleanStringList(data.weak_points_to_prepare),
+    two_minute_version_outline: cleanStringList(data.two_minute_version_outline),
   };
 }
 

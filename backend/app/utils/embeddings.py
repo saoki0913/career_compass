@@ -188,30 +188,38 @@ async def generate_embeddings_batch(
 
     max_len = settings.embedding_max_input_chars
 
-    try:
-        client = get_openai_embedding_client()
+    client = get_openai_embedding_client()
 
-        # Split into batches to avoid token limit (300K max, using 250K for safety)
-        batches = _split_into_token_batches(valid_texts, max_len)
-        if len(batches) > 1:
-            print(
-                f"[埋め込み] ℹ️ {len(valid_texts)}テキストを{len(batches)}バッチに分割"
-            )
+    # Split into batches to avoid token limit (300K max, using 250K for safety)
+    batches = _split_into_token_batches(valid_texts, max_len)
+    if len(batches) > 1:
+        print(f"[埋め込み] ℹ️ {len(valid_texts)}テキストを{len(batches)}バッチに分割")
 
-        # Process each batch and collect embeddings
-        all_embeddings: list = []
-        for batch_idx, batch in enumerate(batches):
+    results: list[Optional[list[float]]] = [None] * len(texts)
+
+    for batch in batches:
+        try:
             response = await client.embeddings.create(
                 model=backend.model,
                 input=[t[:max_len] for _, t in batch],
             )
-            all_embeddings.extend(response.data)
+            for embedding_item, (orig_idx, _) in zip(response.data, batch):
+                results[orig_idx] = embedding_item.embedding
+        except Exception as e:
+            print(f"[埋め込み] ❌ OpenAI バッチ埋め込み失敗: {e}")
+            print(
+                f"[埋め込み] ⚠️ バッチ失敗のため個別リトライにフォールバック ({len(batch)}件)"
+            )
+            for orig_idx, text in batch:
+                try:
+                    response = await client.embeddings.create(
+                        model=backend.model,
+                        input=text[:max_len],
+                    )
+                    results[orig_idx] = response.data[0].embedding
+                except Exception as item_error:
+                    print(
+                        f"[埋め込み] ❌ 個別埋め込み失敗 index={orig_idx}: {item_error}"
+                    )
 
-        # Map embeddings back to original indices
-        results: list[Optional[list[float]]] = [None] * len(texts)
-        for idx, (orig_idx, _) in enumerate(valid_texts):
-            results[orig_idx] = all_embeddings[idx].embedding
-        return results
-    except Exception as e:
-        print(f"[埋め込み] ❌ OpenAI バッチ埋め込み失敗: {e}")
-        return [None] * len(texts)
+    return results

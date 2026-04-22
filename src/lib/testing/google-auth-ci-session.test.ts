@@ -144,6 +144,12 @@ describe("ensureCiE2EAuthSession", { timeout: 15000 }, () => {
             body: JSON.stringify({ user: { id: "user-1" } }),
             url: "https://stg.shupass.jp/api/auth/get-session",
           }),
+        )
+        .mockResolvedValue(
+          makeApiResponse({
+            body: JSON.stringify({ user: { id: "user-1" } }),
+            url: "https://stg.shupass.jp/api/auth/get-session",
+          }),
         ),
       fetch: fetchMock,
     };
@@ -151,6 +157,12 @@ describe("ensureCiE2EAuthSession", { timeout: 15000 }, () => {
       .fn()
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
+        {
+          name: "__Secure-better-auth.session_token",
+          value: "signed-token",
+        },
+      ])
+      .mockResolvedValue([
         {
           name: "__Secure-better-auth.session_token",
           value: "signed-token",

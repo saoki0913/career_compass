@@ -1,0 +1,9 @@
+created: 2026-04-05T11:28:54.318Z
+updated: 2026-04-05T11:28:54.319Z
+update_count: 1
+last_field: description
+kind: nested-class
+title: account-space
+children: []
+parentPath:
+  - product-routes

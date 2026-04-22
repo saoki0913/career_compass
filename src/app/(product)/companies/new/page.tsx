@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCompanies } from "@/hooks/useCompanies";
-import { getUserFacingErrorMessage, parseApiErrorResponse } from "@/lib/api-errors";
+import { parseApiErrorResponse } from "@/lib/api-errors";
+import { reportUserFacingError } from "@/lib/client-error-ui";
 import { trackEvent } from "@/lib/analytics/client";
 import { notifySuccess } from "@/lib/notifications";
 import { DashboardHeader } from "@/components/dashboard";
@@ -172,7 +173,7 @@ export default function NewCompanyPage() {
       router.push(isFirstCompany ? `/companies/${result.company.id}/motivation` : `/companies/${result.company.id}`);
     } catch (err) {
       setError(
-        getUserFacingErrorMessage(
+        reportUserFacingError(
           err,
           {
             code: "COMPANY_CREATE_FAILED",

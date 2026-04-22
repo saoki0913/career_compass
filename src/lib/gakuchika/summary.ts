@@ -25,6 +25,10 @@ export interface StructuredSummary {
   interview_supporting_details?: string[];
   future_outlook_notes?: string[];
   backstory_notes?: string[];
+  one_line_core_answer?: string;
+  likely_followup_questions?: string[];
+  weak_points_to_prepare?: string[];
+  two_minute_version_outline?: string[];
 }
 
 export interface LegacySummary {
@@ -154,6 +158,10 @@ export function parseGakuchikaSummary(summary: unknown): GakuchikaSummary | null
       interview_supporting_details: cleanStringList(summary.interview_supporting_details),
       future_outlook_notes: cleanStringList(summary.future_outlook_notes),
       backstory_notes: cleanStringList(summary.backstory_notes),
+      one_line_core_answer: cleanString(summary.one_line_core_answer),
+      likely_followup_questions: cleanStringList(summary.likely_followup_questions),
+      weak_points_to_prepare: cleanStringList(summary.weak_points_to_prepare),
+      two_minute_version_outline: cleanStringList(summary.two_minute_version_outline),
     };
   }
 
@@ -176,6 +184,38 @@ export function getGakuchikaSummaryKind(summary: unknown): GakuchikaSummaryKind 
   return isStructuredSummary(parsed) ? "structured" : "legacy";
 }
 
+/** True when at least one section of the completion card would render non-empty content. */
+export function structuredSummaryHasVisibleContent(s: StructuredSummary): boolean {
+  if (s.one_line_core_answer?.trim()) return true;
+  if (s.two_minute_version_outline?.some((line) => line?.trim())) return true;
+  if (s.likely_followup_questions?.some((line) => line?.trim())) return true;
+  if (s.weak_points_to_prepare?.some((line) => line?.trim())) return true;
+  for (const key of ["situation_text", "task_text", "action_text", "result_text"] as const) {
+    if (s[key]?.trim()) return true;
+  }
+  if (s.strengths.length > 0) return true;
+  if (s.learnings.length > 0) return true;
+  if (s.numbers.some((n) => n?.trim())) return true;
+  if (s.interviewer_hooks?.some((h) => h?.trim())) return true;
+  if (s.reusable_principles?.some((p) => p?.trim())) return true;
+  if (s.interview_supporting_details?.some((d) => d?.trim())) return true;
+  if (s.future_outlook_notes?.some((n) => n?.trim())) return true;
+  if (s.backstory_notes?.some((n) => n?.trim())) return true;
+  if (s.decision_reasons?.some((r) => r?.trim())) return true;
+  if (s.before_after_comparisons?.some((c) => c?.trim())) return true;
+  if (s.credibility_notes?.some((n) => n?.trim())) return true;
+  if (s.role_scope?.trim()) return true;
+  return false;
+}
+
+export function legacySummaryHasVisibleContent(s: LegacySummary): boolean {
+  if (s.summary?.trim()) return true;
+  if (s.key_points?.some((p) => typeof p === "string" && p.trim())) return true;
+  if (s.numbers?.some((n) => n?.trim())) return true;
+  if (s.strengths.length > 0) return true;
+  return false;
+}
+
 export function getGakuchikaSummaryPreview(
   summary: unknown,
   maxLength = 110
@@ -185,6 +225,7 @@ export function getGakuchikaSummaryPreview(
 
   const candidates = isStructuredSummary(parsed)
     ? [
+        parsed.one_line_core_answer || "",
         [parsed.action_text, parsed.result_text].filter(Boolean).join(" "),
         [parsed.task_text, parsed.action_text].filter(Boolean).join(" "),
         [parsed.situation_text, parsed.task_text].filter(Boolean).join(" "),

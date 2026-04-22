@@ -1,0 +1,9 @@
+graph LR
+    auth-calendar-billing["Auth Calendar Billing\nsrc/lib/auth/ + calendar/ + stripe/"]
+    ai-service-clients["AI Service Clients\nsrc/lib/fastapi/ + src/lib/ai/"]
+    domain-helpers["Domain Helpers\nsrc/lib/server/, search/, credits/, company-info/"]
+    storage-and-security["Storage And Security\nsrc/lib/storage/ + security/"]
+
+    auth-calendar-billing -->|"shares provider auth state and tokens"| domain-helpers
+    ai-service-clients -->|"feeds AI workflows with typed requests and JWT auth"| domain-helpers
+    storage-and-security -->|"protects file and provider operations"| domain-helpers

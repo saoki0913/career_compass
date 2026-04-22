@@ -7,7 +7,8 @@ import pytest
 from openai import APIError as OpenAIAPIError
 
 from app.config import settings
-from app.utils import llm
+from app.utils import llm, llm_providers
+from app.utils.llm_client_registry import reset_registry
 
 
 @pytest.fixture(autouse=True)
@@ -16,9 +17,9 @@ def _reset_provider_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "")
     monkeypatch.setattr(settings, "google_api_key", "")
     monkeypatch.setattr(settings, "gpt_model", "gpt-5.4")
-    monkeypatch.setattr(settings, "gpt_fast_model", "gpt-5.4-mini")
+    monkeypatch.setattr(settings, "gpt_mini_model", "gpt-5.4-mini")
     monkeypatch.setattr(settings, "gpt_nano_model", "gpt-5.4-nano")
-    monkeypatch.setattr(settings, "low_cost_review_model", "gpt-5.4-mini")
+    monkeypatch.setattr(settings, "low_cost_review_model", "claude-haiku-4-5-20251001")
     monkeypatch.setattr(settings, "gemini_model", "gemini-3.1-pro-preview")
     monkeypatch.setattr(settings, "openai_price_gpt_5_4_mini_input_per_mtok_usd", None)
     monkeypatch.setattr(settings, "openai_price_gpt_5_4_mini_cached_input_per_mtok_usd", None)
@@ -27,11 +28,7 @@ def _reset_provider_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "openai_price_gpt_5_4_nano_cached_input_per_mtok_usd", None)
     monkeypatch.setattr(settings, "openai_price_gpt_5_4_nano_output_per_mtok_usd", None)
     monkeypatch.setattr(settings, "model_es_review", "claude-sonnet")
-    monkeypatch.setattr(llm, "_model_config", None)
-    monkeypatch.setattr(llm, "_openai_client", None)
-    monkeypatch.setattr(llm, "_openai_client_rag", None)
-    monkeypatch.setattr(llm, "_google_http_client", None)
-    monkeypatch.setattr(llm, "_google_http_client_rag", None)
+    reset_registry()
 
 
 def test_resolve_model_target_supports_explicit_provider_models() -> None:
@@ -66,7 +63,7 @@ def test_resolve_feature_model_metadata_uses_current_feature_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "model_es_review", "gemini-3.1-pro-preview")
-    monkeypatch.setattr(llm, "_model_config", None)
+    reset_registry()
 
     provider, model_name = llm.resolve_feature_model_metadata("es_review")
 
@@ -346,7 +343,7 @@ async def test_call_llm_with_error_uses_openai_responses_api_for_es_review(
 
 
 @pytest.mark.asyncio
-async def test_call_openai_responses_omits_reasoning_for_es_review_json_schema(
+async def test_call_openai_responses_for_es_review_json_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "test-openai-key")
@@ -373,7 +370,7 @@ async def test_call_openai_responses_omits_reasoning_for_es_review_json_schema(
     class FakeClient:
         responses = FakeResponses()
 
-    async def fake_get_openai_client(*, for_rag: bool = False):
+    async def fake_get_openai_client(for_rag: bool = False):
         return FakeClient()
 
     monkeypatch.setattr(llm, "get_openai_client", fake_get_openai_client)
@@ -401,7 +398,7 @@ async def test_call_openai_responses_omits_reasoning_for_es_review_json_schema(
 
 
 @pytest.mark.asyncio
-async def test_call_openai_responses_omits_reasoning_for_es_review_gpt_5_4_mini_json_schema(
+async def test_call_openai_responses_for_es_review_gpt_5_4_mini_json_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "test-openai-key")
@@ -428,7 +425,7 @@ async def test_call_openai_responses_omits_reasoning_for_es_review_gpt_5_4_mini_
     class FakeClient:
         responses = FakeResponses()
 
-    async def fake_get_openai_client(*, for_rag: bool = False):
+    async def fake_get_openai_client(for_rag: bool = False):
         return FakeClient()
 
     monkeypatch.setattr(llm, "get_openai_client", fake_get_openai_client)
@@ -449,27 +446,22 @@ async def test_call_openai_responses_omits_reasoning_for_es_review_gpt_5_4_mini_
     assert "reasoning" not in seen
 
 
-def test_openai_reasoning_effort_plain_text_rewrite_is_none() -> None:
+def test_should_use_openai_responses_api_for_interview_features() -> None:
     assert (
-        llm._openai_reasoning_effort(
-            feature="es_review",
-            response_format="text",
-            model="gpt-5.4-mini",
-            plain_text_rewrite=True,
+        llm._should_use_openai_responses_api(
+            provider="openai",
+            feature="interview",
+            use_responses_api=False,
         )
-        == "none"
+        is True
     )
-
-
-def test_openai_reasoning_effort_json_schema_is_none_for_es_review() -> None:
     assert (
-        llm._openai_reasoning_effort(
-            feature="es_review",
-            response_format="json_schema",
-            model="gpt-5.4-mini",
-            plain_text_rewrite=False,
+        llm._should_use_openai_responses_api(
+            provider="openai",
+            feature="interview_feedback",
+            use_responses_api=False,
         )
-        is None
+        is True
     )
 
 
@@ -513,51 +505,6 @@ async def test_call_llm_text_with_error_uses_chat_completions_for_openai_es_revi
 
 
 @pytest.mark.asyncio
-async def test_call_openai_responses_raw_text_sets_reasoning_none(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(settings, "openai_api_key", "test-openai-key")
-
-    seen: dict[str, object] = {}
-
-    class FakeResponses:
-        async def create(self, **kwargs):
-            seen.update(kwargs)
-            return type(
-                "FakeResponse",
-                (),
-                {
-                    "output_text": "改訂案本文",
-                    "output": [],
-                    "status": "completed",
-                    "usage": {},
-                },
-            )()
-
-    class FakeClient:
-        responses = FakeResponses()
-
-    async def fake_get_openai_client(*, for_rag: bool = False):
-        return FakeClient()
-
-    monkeypatch.setattr(llm, "get_openai_client", fake_get_openai_client)
-
-    text, usage = await llm._call_openai_responses_raw_text(
-        system_prompt="system",
-        user_message="user",
-        messages=None,
-        max_tokens=400,
-        temperature=0.2,
-        model="gpt-5.4-mini",
-        feature="es_review",
-    )
-
-    assert text == "改訂案本文"
-    assert seen["reasoning"] == {"effort": "none"}
-    assert usage is not None
-
-
-@pytest.mark.asyncio
 async def test_call_openai_compatible_raw_text_sets_medium_verbosity_and_cache_key_for_es_review(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -588,7 +535,7 @@ async def test_call_openai_compatible_raw_text_sets_medium_verbosity_and_cache_k
     class FakeClient:
         chat = FakeChat()
 
-    async def fake_get_openai_client(*, for_rag: bool = False):
+    async def fake_get_openai_client(for_rag: bool = False):
         return FakeClient()
 
     monkeypatch.setattr(llm, "get_openai_client", fake_get_openai_client)
@@ -661,7 +608,7 @@ async def test_call_openai_responses_retries_once_when_incomplete_max_output(
     class FakeClient:
         responses = FakeResponses()
 
-    async def fake_get_openai_client(*, for_rag: bool = False):
+    async def fake_get_openai_client(for_rag: bool = False):
         return FakeClient()
 
     monkeypatch.setattr(llm, "get_openai_client", fake_get_openai_client)
@@ -680,6 +627,159 @@ async def test_call_openai_responses_retries_once_when_incomplete_max_output(
 
     assert result == {"ok": True}
     assert attempts == [500, 2048]
+
+
+@pytest.mark.asyncio
+async def test_call_openai_responses_reads_item_parsed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "test-openai-key")
+
+    class ParsedItem:
+        parsed = {"ok": True}
+        text = None
+        output_text = None
+
+    class OutputItem:
+        content = [ParsedItem()]
+
+    class FakeResponse:
+        output_parsed = None
+        output_text = ""
+        output = [OutputItem()]
+        status = "completed"
+        usage = {}
+
+    class FakeResponses:
+        async def create(self, **kwargs):
+            return FakeResponse()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    async def fake_get_openai_client(for_rag: bool = False):
+        return FakeClient()
+
+    monkeypatch.setattr(llm, "get_openai_client", fake_get_openai_client)
+
+    result, _ = await llm._call_openai_responses(
+        system_prompt="system",
+        user_message="user",
+        messages=None,
+        max_tokens=120,
+        temperature=0.2,
+        model="gpt-5.4-mini",
+        response_format="json_schema",
+        json_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+        feature="interview",
+    )
+
+    assert result == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_error_returns_refusal_error_for_interview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "test-openai-key")
+
+    class RefusalItem:
+        refusal = "safety refusal"
+        text = None
+        output_text = None
+
+    class OutputItem:
+        content = [RefusalItem()]
+
+    class FakeResponse:
+        output_parsed = None
+        output_text = ""
+        output = [OutputItem()]
+        status = "completed"
+        usage = {}
+
+    class FakeResponses:
+        async def create(self, **kwargs):
+            return FakeResponse()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    async def fake_get_openai_client(for_rag: bool = False):
+        return FakeClient()
+
+    monkeypatch.setattr(llm, "get_openai_client", fake_get_openai_client)
+
+    result = await llm.call_llm_with_error(
+        system_prompt="system",
+        user_message="user",
+        model="gpt-5.4-mini",
+        feature="interview",
+        response_format="json_schema",
+        json_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+        disable_fallback=True,
+    )
+
+    assert result.success is False
+    assert result.error is not None
+    assert result.error.error_type == "refusal"
+
+
+@pytest.mark.asyncio
+async def test_call_openai_responses_retries_once_when_incomplete_max_output_for_interview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "test-openai-key")
+
+    attempts: list[int] = []
+
+    class Incomplete:
+        output_parsed = None
+        output_text = ""
+        output: list = []
+        status = "incomplete"
+
+        class incomplete_details:
+            reason = "max_output_tokens"
+
+        usage = {}
+
+    class Complete:
+        output_parsed = {"ok": True}
+        output_text = ""
+        output: list = []
+        status = "completed"
+        usage = {}
+
+    class FakeResponses:
+        async def create(self, **kwargs):
+            attempts.append(int(kwargs.get("max_output_tokens", 0)))
+            if len(attempts) == 1:
+                return Incomplete()
+            return Complete()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    async def fake_get_openai_client(for_rag: bool = False):
+        return FakeClient()
+
+    monkeypatch.setattr(llm, "get_openai_client", fake_get_openai_client)
+
+    result, _ = await llm._call_openai_responses(
+        system_prompt="system",
+        user_message="user",
+        messages=None,
+        max_tokens=700,
+        temperature=0.2,
+        model="gpt-5.4-mini",
+        response_format="json_schema",
+        json_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+        feature="interview",
+    )
+
+    assert result == {"ok": True}
+    assert attempts == [700, 1400]
 
 
 @pytest.mark.asyncio
@@ -716,7 +816,7 @@ async def test_call_openai_responses_raw_text_retries_once_when_incomplete(
     class FakeClient:
         responses = FakeResponses()
 
-    async def fake_get_openai_client(*, for_rag: bool = False):
+    async def fake_get_openai_client(for_rag: bool = False):
         return FakeClient()
 
     monkeypatch.setattr(llm, "get_openai_client", fake_get_openai_client)
@@ -848,25 +948,38 @@ def test_augment_system_prompt_for_provider_text_keeps_non_es_review_prompt_unch
     )
 
 
-def test_repair_json_gpt_fast_max_tokens_matches_policy() -> None:
+def test_repair_json_gpt_mini_max_tokens_matches_policy() -> None:
     assert llm.REPAIR_JSON_OPENAI_MAX_TOKENS == 1500
 
 
-def test_feature_cross_fallback_model_disabled_for_all_features(
+def test_feature_cross_fallback_model_gpt_mini_features_no_mapping_from_anthropic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """gpt-mini primary に対して失敗側が anthropic の組み合わせはマッピングなし。"""
+    monkeypatch.setattr(settings, "openai_api_key", "x")
+    monkeypatch.setattr(settings, "anthropic_api_key", "a")
+    reset_registry()
+    assert llm._feature_cross_fallback_model("company_info", "anthropic") is None
+    assert llm._feature_cross_fallback_model("selection_schedule", "anthropic") is None
+
+
+def test_feature_cross_fallback_model_es_review_anthropic_to_gpt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "x")
-    assert llm._feature_cross_fallback_model("company_info", "anthropic") is None
-    assert llm._feature_cross_fallback_model("selection_schedule", "anthropic") is None
-    assert llm._feature_cross_fallback_model("es_review", "anthropic") is None
+    monkeypatch.setattr(settings, "anthropic_api_key", "a")
+    reset_registry()
+    assert llm._feature_cross_fallback_model("es_review", "anthropic") == "gpt"
 
 
-def test_feature_cross_fallback_model_openai_never_switches_provider(
+def test_feature_cross_fallback_model_openai_gpt_mini_to_claude_haiku(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "anthropic_api_key", "y")
-    assert llm._feature_cross_fallback_model("company_info", "openai") is None
-    assert llm._feature_cross_fallback_model("selection_schedule", "openai") is None
+    monkeypatch.setattr(settings, "openai_api_key", "x")
+    reset_registry()
+    assert llm._feature_cross_fallback_model("company_info", "openai") == "claude-haiku"
+    assert llm._feature_cross_fallback_model("selection_schedule", "openai") == "claude-haiku"
 
 
 def test_feature_cross_fallback_model_google_never_switch(
@@ -878,11 +991,13 @@ def test_feature_cross_fallback_model_google_never_switch(
 
 
 @pytest.mark.asyncio
-async def test_call_llm_with_error_openai_rate_limit_skips_cross_provider_fallback(
+async def test_call_llm_with_error_openai_rate_limit_cross_provider_fallback_to_claude(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """rate_limit 時も billing 以外は cross-provider フォールバックする。"""
     monkeypatch.setattr(settings, "openai_api_key", "k")
     monkeypatch.setattr(settings, "anthropic_api_key", "a")
+    reset_registry()
 
     async def fail_responses(*args, **kwargs):
         raise OpenAIAPIError(
@@ -891,11 +1006,11 @@ async def test_call_llm_with_error_openai_rate_limit_skips_cross_provider_fallba
             body=None,
         )
 
-    async def no_claude(*args, **kwargs):
-        raise AssertionError("claude must not be called when rate_limited")
+    async def ok_claude(*args, **kwargs):
+        return '{"a": "ok"}', {"input_tokens": 1, "output_tokens": 1}
 
     monkeypatch.setattr(llm, "_call_openai_responses", fail_responses)
-    monkeypatch.setattr(llm, "_call_claude_raw", no_claude)
+    monkeypatch.setattr(llm, "_call_claude_raw", ok_claude)
 
     result = await llm.call_llm_with_error(
         system_prompt="s",
@@ -910,9 +1025,8 @@ async def test_call_llm_with_error_openai_rate_limit_skips_cross_provider_fallba
         use_responses_api=True,
     )
 
-    assert result.success is False
-    assert result.error is not None
-    assert result.error.error_type == "rate_limit"
+    assert result.success is True
+    assert result.data == {"a": "ok"}
 
 
 @pytest.mark.asyncio
@@ -930,7 +1044,7 @@ async def test_call_llm_with_error_no_openai_key_returns_no_api_key_without_othe
     result = await llm.call_llm_with_error(
         system_prompt="s",
         user_message="u",
-        model="gpt-fast",
+        model="gpt-mini",
         feature="company_info",
         response_format="json_object",
     )

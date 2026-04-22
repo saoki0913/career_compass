@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { headers } from "next/headers";
 import { asc, eq } from "drizzle-orm";
-import { auth } from "@/lib/auth";
-import { getGuestUser } from "@/lib/auth/guest";
 import { db } from "@/lib/db";
 import { companies, documents, jobTypes } from "@/lib/db/schema";
 import {
@@ -11,28 +8,7 @@ import {
   resolveIndustryForReview,
   requiresIndustrySelection,
 } from "@/lib/constants/es-review-role-catalog";
-
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (!deviceToken) {
-    return null;
-  }
-
-  const guest = await getGuestUser(deviceToken);
-  if (!guest) {
-    return null;
-  }
-
-  return { userId: null, guestId: guest.id };
-}
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 
 export async function GET(
   request: NextRequest,
@@ -40,7 +16,7 @@ export async function GET(
 ) {
   try {
     const { id: companyId } = await params;
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }

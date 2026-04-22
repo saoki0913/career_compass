@@ -1,44 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { companies } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
-import { getGuestUser } from "@/lib/auth/guest";
+import { readGuestDeviceToken } from "@/lib/auth/guest-cookie";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { filterAllowedPublicSourceUrls } from "@/lib/company-info/source-compliance";
 import { COMPANY_COMPLIANCE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
+import { getRequestIdentity, type RequestIdentity } from "@/app/api/_shared/request-identity";
 
 async function resolveCompany(
-  request: NextRequest,
+  identity: RequestIdentity | null,
   companyId: string,
 ): Promise<typeof companies.$inferSelect | null> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (session?.user?.id) {
+  if (!identity) {
+    return null;
+  }
+  if (identity.userId) {
     return (
       (await db
         .select()
         .from(companies)
-        .where(and(eq(companies.id, companyId), eq(companies.userId, session.user.id)))
+        .where(and(eq(companies.id, companyId), eq(companies.userId, identity.userId)))
         .limit(1))[0] ?? null
     );
   }
 
-  const deviceToken = request.headers.get("x-device-token");
-  if (!deviceToken) {
-    return null;
+  if (identity.guestId) {
+    return (
+      (await db
+        .select()
+        .from(companies)
+        .where(and(eq(companies.id, companyId), eq(companies.guestId, identity.guestId)))
+        .limit(1))[0] ?? null
+    );
   }
-  const guest = await getGuestUser(deviceToken);
-  if (!guest) {
-    return null;
-  }
-  return (
-    (await db
-      .select()
-      .from(companies)
-      .where(and(eq(companies.id, companyId), eq(companies.guestId, guest.id)))
-      .limit(1))[0] ?? null
-  );
+
+  return null;
 }
 
 export async function POST(
@@ -47,7 +44,8 @@ export async function POST(
 ) {
   try {
     const { id: companyId } = await params;
-    const company = await resolveCompany(request, companyId);
+    const identity = await getRequestIdentity(request);
+    const company = await resolveCompany(identity, companyId);
     if (!company) {
       return createApiErrorResponse(request, {
         status: 404,
@@ -57,12 +55,11 @@ export async function POST(
       });
     }
 
-    const session = await auth.api.getSession({ headers: await headers() });
     const rateLimited = await enforceRateLimitLayers(
       request,
       [...COMPANY_COMPLIANCE_RATE_LAYERS],
-      session?.user?.id ?? null,
-      session?.user?.id ? null : request.headers.get("x-device-token"),
+      identity?.userId ?? null,
+      identity?.userId ? null : readGuestDeviceToken(request),
       "companies_source_compliance_check"
     );
     if (rateLimited) {

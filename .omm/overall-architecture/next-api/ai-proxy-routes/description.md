@@ -1,0 +1,1 @@
+Route handlers that manage AI-centric workflows like ES review streaming, motivation drafting, gakuchika conversations, and company enrichment. They own request validation, credit rules, and the bridge into FastAPI.

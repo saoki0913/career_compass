@@ -1,74 +1,37 @@
 "use client";
 
-import { startTransition, useState, useEffect, useCallback, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { HelpCircle } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
+import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
 import {
   ConversationSidebarCard,
   ConversationWorkspaceShell,
 } from "@/components/chat/ConversationWorkspaceShell";
-import { OperationLockProvider, useOperationLock } from "@/hooks/useOperationLock";
+import { OperationLockProvider } from "@/hooks/useOperationLock";
+import { useGakuchikaConversationController } from "@/hooks/useGakuchikaConversationController";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
 import {
   CompletionSummary,
+  GakuchikaDraftModal,
+  GakuchikaRestartConfirmDialog,
+  NaturalProgressStatus,
   STAR_EXPLANATIONS,
-  STARProgressBar,
-  type ConversationState,
 } from "@/components/gakuchika";
-import { parseGakuchikaSummary } from "@/lib/gakuchika/summary";
+import { notifyGakuchikaDraftSaved } from "@/lib/notifications";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
 import { GakuchikaDeepDiveSkeleton } from "@/components/skeletons/GakuchikaDeepDiveSkeleton";
-import { getUserFacingErrorMessage, parseApiErrorResponse } from "@/lib/api-errors";
-import {
-  getDefaultConversationState,
-  hasDraftText,
-  isDraftReady,
-  isInterviewReady,
-} from "@/lib/gakuchika/conversation-state";
-
-const PROCESSING_LABELS = {
-  organizing_intent: "質問の意図を整理中",
-  generating_question: "次の質問を生成中...",
-} as const;
-const SUMMARY_POLL_INTERVAL_MS = 1500;
-const SUMMARY_POLL_MAX_ATTEMPTS = 8;
-const GAKUCHIKA_ES_DRAFT_CHAR_LIMIT = 400;
-
-type AssistantProcessingPhase = "idle" | "organizing_intent" | "generating_question";
-
-interface ConversationUpdate {
-  messages: Message[];
-  nextQuestion: string | null;
-  questionCount: number;
-  isCompleted: boolean;
-  isInterviewReady: boolean;
-  conversationState: ConversationState | null;
-  isAIPowered: boolean;
-  summaryPending: boolean;
-}
-
-interface Session {
-  id: string;
-  status: "in_progress" | "completed";
-  conversationState: ConversationState | null;
-  questionCount: number;
-  createdAt: string;
-}
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  isOptimistic?: boolean;
-}
+import { getConversationBadgeLabel } from "@/lib/gakuchika/conversation-state";
+import { PROCESSING_LABELS } from "@/lib/gakuchika/ui";
 
 const ArrowLeftIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -87,594 +50,105 @@ const LoadingSpinner = () => (
   </svg>
 );
 
-function buildHeaders(): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-  };
-}
-
-function getProcessingPhase(step?: string): AssistantProcessingPhase {
-  if (step === "analysis") return "organizing_intent";
-  if (step === "question") return "generating_question";
-  return "organizing_intent";
-}
-
-function DraftReadyPanel({
-  state,
-  onResumeSession,
-}: {
-  state: ConversationState | null;
-  onResumeSession?: () => void;
-}) {
-  const hasDraft = hasDraftText(state);
-  return (
-    <Card className="border-border/60 bg-background shadow-sm">
-      <CardContent className="space-y-4 p-5 sm:p-6">
-        <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
-            ES作成可
-          </div>
-          <h2 className="text-xl font-semibold text-foreground">
-            {hasDraft ? "ES を起点に更に深掘りできます" : "ここまででガクチカ ES を作成できます"}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {hasDraft
-              ? "作成済みの ES を見ながら、同じ会話の続きとして面接向けの深掘りを進められます。"
-              : state?.draftReadinessReason || "ES本文を書ける最低限の材料が揃っています。"}
-          </p>
-        </div>
-
-        {hasDraft && onResumeSession ? (
-          <div className="flex flex-wrap gap-3">
-            <Button variant="outline" onClick={onResumeSession}>
-              更に深掘りする
-            </Button>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
+/**
+ * Map the short `progressLabel` (e.g. "行動を整理中") returned by FastAPI
+ * into a more conversational `contextLabel` for the ThinkingIndicator, so
+ * the student sees *what* the AI is thinking about, not just that it is.
+ */
+function progressLabelToContextLabel(progressLabel: string | null | undefined): string | null {
+  if (!progressLabel) return null;
+  const trimmed = progressLabel.trim();
+  if (!trimmed) return null;
+  if (/状況|背景/.test(trimmed)) return "状況について整理しています...";
+  if (/課題|困難|問題/.test(trimmed)) return "課題について整理しています...";
+  if (/行動|取り組み/.test(trimmed)) return "行動について整理しています...";
+  if (/結果|成果/.test(trimmed)) return "成果について整理しています...";
+  if (/学び/.test(trimmed)) return "学びについて整理しています...";
+  if (/深掘り/.test(trimmed)) return "深掘りの論点を整理しています...";
+  return `${trimmed}...`;
 }
 
 function GakuchikaConversationContent() {
   const params = useParams();
   const router = useRouter();
   const gakuchikaId = params.id as string;
-  const { acquireLock, releaseLock } = useOperationLock();
-
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [nextQuestion, setNextQuestion] = useState<string | null>(null);
-  const [questionCount, setQuestionCount] = useState(0);
-  const [isCompleted, setIsCompleted] = useState(false);
-  const [isInterviewReadyState, setIsInterviewReadyState] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSending, setIsSending] = useState(false);
-  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
-  const [answer, setAnswer] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isAIPowered, setIsAIPowered] = useState(true);
-  const [conversationState, setConversationState] = useState<ConversationState | null>(null);
-
-  const [conversationStarted, setConversationStarted] = useState(false);
-  const [isStarting, setIsStarting] = useState(false);
-  const [gakuchikaTitle, setGakuchikaTitle] = useState<string>("");
-  const [gakuchikaContent, setGakuchikaContent] = useState<string | null>(null);
-  const [showStarInfo, setShowStarInfo] = useState(false);
-
-  const [summary, setSummary] = useState<ReturnType<typeof parseGakuchikaSummary>>(null);
-  const [isSummaryLoading, setIsSummaryLoading] = useState(false);
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [assistantPhase, setAssistantPhase] = useState<AssistantProcessingPhase>("idle");
-  const [streamingAssistantText, setStreamingAssistantText] = useState("");
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
-
+  const { state, actions } = useGakuchikaConversationController({
+    gakuchikaId,
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const {
+    messages,
+    nextQuestion,
+    questionCount,
+    isLoading,
+    isSending,
+    isWaitingForResponse,
+    answer,
+    error,
+    isAIPowered,
+    conversationState,
+    conversationStarted,
+    isStarting,
+    gakuchikaTitle,
+    gakuchikaContent,
+    showStarInfo,
+    summary,
+    isSummaryLoading,
+    sessions,
+    assistantPhase,
+    isTextStreaming,
+    streamingText,
+    isBufferingQuestionChunks,
+    currentSessionId,
+    isGeneratingDraft,
+    restartDialogOpen,
+    draftCharLimit,
+    processingText,
+    draftReady,
+    interviewReady,
+    generatedDraft,
+    shouldPauseConversation,
+    gakuchikaDraftHelperText,
+    currentSessionLabel,
+    isDraftModalOpen,
+    generatedDraftText,
+    generatedDocumentId,
+  } = state;
+  const {
+    setAnswer,
+    setError,
+    setIsLoading,
+    setShowStarInfo,
+    fetchConversation,
+    retrySummary: handleRetrySummary,
+    startDeepDive: handleStartDeepDive,
+    send: handleSend,
+    selectSession: handleSessionSelect,
+    resumeSession: handleResumeSession,
+    generateDraft: handleGenerateDraft,
+    restartConversation: handleRestartConversation,
+    confirmRestartConversation: handleConfirmRestartConversation,
+    setRestartDialogOpen,
+    setDraftCharLimit,
+    setIsDraftModalOpen,
+  } = actions;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [assistantPhase, messages, nextQuestion, streamingAssistantText]);
+  }, [assistantPhase, messages, nextQuestion, streamingText, isTextStreaming]);
 
-  const applyConversationUpdate = useCallback((update: ConversationUpdate) => {
-    startTransition(() => {
-      setMessages(update.messages);
-      setNextQuestion(update.nextQuestion);
-      setQuestionCount(update.questionCount);
-      setIsCompleted(update.isCompleted);
-      setIsInterviewReadyState(update.isInterviewReady);
-      setIsAIPowered(update.isAIPowered);
-      setConversationState(update.conversationState);
+  const answeredCount = useMemo(
+    () =>
+      messages.filter(
+        (message) => message.role === "user" && !message.isOptimistic,
+      ).length,
+    [messages],
+  );
 
-      if (update.isInterviewReady) {
-        setSummary(null);
-        setIsSummaryLoading(update.summaryPending);
-      } else if (!update.isCompleted) {
-        setSummary(null);
-        setIsSummaryLoading(false);
-      }
-    });
-  }, []);
-
-  const fetchSummaryIfAvailable = useCallback(async (): Promise<boolean> => {
-    try {
-      const response = await fetch(`/api/gakuchika/${gakuchikaId}`, {
-        headers: buildHeaders(),
-        credentials: "include",
-      });
-      if (!response.ok) return false;
-
-      const data = await response.json();
-      const parsedSummary = parseGakuchikaSummary(data.gakuchika?.summary ?? null);
-      if (!parsedSummary) return false;
-
-      startTransition(() => {
-        setSummary(parsedSummary);
-        setIsSummaryLoading(false);
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }, [gakuchikaId]);
-
-  const fetchConversation = useCallback(async (sessionId?: string) => {
-    try {
-      const url = sessionId
-        ? `/api/gakuchika/${gakuchikaId}/conversation?sessionId=${sessionId}`
-        : `/api/gakuchika/${gakuchikaId}/conversation`;
-
-      const [conversationRes, gakuchikaRes] = await Promise.all([
-        fetch(url, {
-          headers: buildHeaders(),
-          credentials: "include",
-        }),
-        fetch(`/api/gakuchika/${gakuchikaId}`, {
-          headers: buildHeaders(),
-          credentials: "include",
-        }),
-      ]);
-
-      if (!conversationRes.ok) {
-        const errorData = await conversationRes.json().catch(() => ({}));
-        throw new Error(errorData.error || "会話の取得に失敗しました");
-      }
-
-      const conversationData = await conversationRes.json();
-
-      if (conversationData.noConversation) {
-        setConversationStarted(false);
-        setGakuchikaTitle(conversationData.gakuchikaTitle || "");
-        setGakuchikaContent(conversationData.gakuchikaContent || null);
-        setSessions([]);
-        setConversationState(getDefaultConversationState());
-        setSummary(null);
-        setIsSummaryLoading(false);
-      } else {
-        setConversationStarted(true);
-        const messagesWithIds = (conversationData.messages || []).map(
-          (msg: { role: "user" | "assistant"; content: string; id?: string }, idx: number) => ({
-            ...msg,
-            id: msg.id || `msg-${idx}`,
-          }),
-        );
-        setMessages(messagesWithIds);
-        setNextQuestion(conversationData.nextQuestion);
-        setQuestionCount(conversationData.questionCount || 0);
-        setIsCompleted(conversationData.isCompleted || false);
-        setIsInterviewReadyState(Boolean(conversationData.isInterviewReady));
-        setIsAIPowered(conversationData.isAIPowered ?? true);
-        setConversationState(conversationData.conversationState || getDefaultConversationState());
-        setSessions(conversationData.sessions || []);
-        setCurrentSessionId(conversationData.conversation?.id || null);
-      }
-
-      if (gakuchikaRes.ok) {
-        const gakuchikaData = await gakuchikaRes.json();
-        setGakuchikaTitle(gakuchikaData.gakuchika?.title || "");
-        setGakuchikaContent(gakuchikaData.gakuchika?.content || null);
-        const parsedSummary = parseGakuchikaSummary(gakuchikaData.gakuchika?.summary ?? null);
-        if (parsedSummary) {
-          setSummary(parsedSummary);
-          setIsSummaryLoading(false);
-        } else if (conversationData.isInterviewReady) {
-          setSummary(null);
-          setIsSummaryLoading(true);
-        } else {
-          setSummary(null);
-          setIsSummaryLoading(false);
-        }
-      }
-    } catch (err) {
-      setError(
-        getUserFacingErrorMessage(
-          err,
-          {
-            code: "GAKUCHIKA_CONVERSATION_FETCH_FAILED",
-            userMessage: "会話の取得に失敗しました。",
-            action: "ページを再読み込みして、もう一度お試しください。",
-            retryable: true,
-          },
-          "GakuchikaPage.fetchConversation",
-        ),
-      );
-    } finally {
-      setAssistantPhase("idle");
-      setIsLoading(false);
-    }
-  }, [gakuchikaId]);
-
-  useEffect(() => {
-    fetchConversation();
-  }, [fetchConversation]);
-
-  useEffect(() => {
-    if (!isInterviewReadyState || !isSummaryLoading || summary) return;
-
-    let cancelled = false;
-    let attempts = 0;
-
-    const poll = async () => {
-      while (!cancelled && attempts < SUMMARY_POLL_MAX_ATTEMPTS) {
-        attempts += 1;
-        const found = await fetchSummaryIfAvailable();
-        if (found || cancelled) return;
-        await new Promise((resolve) => setTimeout(resolve, SUMMARY_POLL_INTERVAL_MS));
-      }
-
-      if (!cancelled) {
-        setIsSummaryLoading(false);
-      }
-    };
-
-    void poll();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [fetchSummaryIfAvailable, isInterviewReadyState, isSummaryLoading, summary]);
-
-  const handleStartDeepDive = useCallback(async () => {
-    setIsStarting(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`/api/gakuchika/${gakuchikaId}/conversation/new`, {
-        method: "POST",
-        headers: buildHeaders(),
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "GAKUCHIKA_CONVERSATION_START_FAILED",
-            userMessage: "作成の開始に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "GakuchikaPage.handleStartDeepDive",
-        );
-      }
-
-      const data = await response.json();
-      setCurrentSessionId(data.conversation?.id || null);
-      setConversationStarted(true);
-      await fetchConversation(data.conversation?.id);
-    } catch (err) {
-      setError(
-        getUserFacingErrorMessage(
-          err,
-          {
-            code: "GAKUCHIKA_CONVERSATION_START_FAILED",
-            userMessage: "作成の開始に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "GakuchikaPage.handleStartDeepDive",
-        ),
-      );
-    } finally {
-      setIsStarting(false);
-    }
-  }, [fetchConversation, gakuchikaId]);
-
-  const handleSend = useCallback(async () => {
-    if (!answer.trim() || isSending) return;
-    if (!acquireLock("AIに送信中")) return;
-
-    const trimmedAnswer = answer.trim();
-    const optimisticId = `optimistic-${Date.now()}`;
-
-    setMessages((prev) => [...prev, { id: optimisticId, role: "user", content: trimmedAnswer, isOptimistic: true }]);
-    setAnswer("");
-    setIsSending(true);
-    setIsWaitingForResponse(true);
-    setError(null);
-    setAssistantPhase("organizing_intent");
-    setStreamingAssistantText("");
-    setNextQuestion(null);
-    setConversationState((prev) =>
-      prev
-        ? {
-            ...prev,
-            answerHint: null,
-            progressLabel: null,
-            focusKey: null,
-          }
-        : prev,
-    );
-
-    let receivedComplete = false;
-    let hasReceivedQuestionStream = false;
-    let streamedQuestionText = "";
-
-    try {
-      const response = await fetch(`/api/gakuchika/${gakuchikaId}/conversation/stream`, {
-        method: "POST",
-        headers: buildHeaders(),
-        credentials: "include",
-        body: JSON.stringify({ answer: trimmedAnswer, sessionId: currentSessionId }),
-      });
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "GAKUCHIKA_CONVERSATION_STREAM_FAILED",
-            userMessage: "送信に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "GakuchikaPage.handleSend",
-        );
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("ストリームが利用できません");
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const jsonStr = line.slice(6).trim();
-          if (!jsonStr) continue;
-
-          let event;
-          try {
-            event = JSON.parse(jsonStr);
-          } catch {
-            continue;
-          }
-
-          if (event.type === "hint_ready") {
-            setConversationState((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    focusKey: event.data?.focusKey || prev.focusKey,
-                    answerHint: event.data?.answerHint || prev.answerHint,
-                    progressLabel: event.data?.progressLabel || prev.progressLabel,
-                  }
-                : prev,
-            );
-          } else if (event.type === "progress" && !hasReceivedQuestionStream) {
-            setAssistantPhase(getProcessingPhase(event.step));
-          } else if (
-            event.type === "string_chunk" &&
-            event.path === "question" &&
-            typeof event.text === "string"
-          ) {
-            hasReceivedQuestionStream = true;
-            streamedQuestionText += event.text;
-            setAssistantPhase("idle");
-            setStreamingAssistantText(streamedQuestionText);
-          } else if (event.type === "complete") {
-            const data = event.data;
-            const messagesWithIds = (data.messages || []).map(
-              (msg: { role: "user" | "assistant"; content: string; id?: string }, idx: number) => ({
-                ...msg,
-                id: msg.id || `msg-${idx}`,
-              }),
-            );
-            receivedComplete = true;
-            setStreamingAssistantText("");
-            applyConversationUpdate({
-              messages: messagesWithIds,
-              nextQuestion: data.nextQuestion,
-              questionCount: data.questionCount || 0,
-              isCompleted: data.isCompleted || false,
-              isInterviewReady: Boolean(data.isInterviewReady),
-              conversationState: data.conversationState || getDefaultConversationState(),
-              isAIPowered: data.isAIPowered ?? true,
-              summaryPending: Boolean(data.summaryPending),
-            });
-            setIsWaitingForResponse(false);
-            setAssistantPhase("idle");
-          } else if (event.type === "error") {
-            throw new Error(event.message || "AIエラーが発生しました");
-          }
-        }
-      }
-    } catch (err) {
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
-      setAnswer(trimmedAnswer);
-      setNextQuestion(null);
-      setStreamingAssistantText("");
-      setAssistantPhase("idle");
-      setIsWaitingForResponse(false);
-      setError(
-        getUserFacingErrorMessage(
-          err,
-          {
-            code: "GAKUCHIKA_CONVERSATION_STREAM_FAILED",
-            userMessage: "送信に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "GakuchikaPage.handleSend",
-        ),
-      );
-    } finally {
-      setIsSending(false);
-      if (!receivedComplete) {
-        setStreamingAssistantText("");
-        setIsWaitingForResponse(false);
-        setAssistantPhase("idle");
-      }
-      releaseLock();
-    }
-  }, [acquireLock, answer, applyConversationUpdate, currentSessionId, gakuchikaId, isSending, releaseLock]);
-
-  const handleSessionSelect = async (sessionId: string) => {
-    setCurrentSessionId(sessionId);
-    setIsLoading(true);
-    await fetchConversation(sessionId);
-  };
-
-  const handleResumeSession = async () => {
-    try {
-      const response = await fetch(`/api/gakuchika/${gakuchikaId}/conversation/resume`, {
-        method: "POST",
-        headers: buildHeaders(),
-        credentials: "include",
-        body: JSON.stringify({ sessionId: currentSessionId }),
-      });
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "GAKUCHIKA_CONVERSATION_RESUME_FAILED",
-            userMessage: "深掘りの再開に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "GakuchikaPage.handleResumeSession",
-        );
-      }
-
-      const data = await response.json();
-      const messagesWithIds = (data.messages || []).map(
-        (msg: { role: "user" | "assistant"; content: string; id?: string }, idx: number) => ({
-          ...msg,
-          id: msg.id || `msg-${idx}`,
-        }),
-      );
-
-      setConversationStarted(true);
-      setCurrentSessionId(data.conversation?.id || null);
-      setMessages(messagesWithIds);
-      setNextQuestion(data.nextQuestion || null);
-      setQuestionCount(data.questionCount || 0);
-      setIsCompleted(Boolean(data.isCompleted));
-      setIsInterviewReadyState(Boolean(data.isInterviewReady));
-      setConversationState(data.conversationState || getDefaultConversationState());
-      setSessions(data.sessions || []);
-      setIsAIPowered(data.isAIPowered ?? true);
-      setSummary(null);
-      setIsSummaryLoading(false);
-      setError(null);
-    } catch (err) {
-      setError(
-        getUserFacingErrorMessage(
-          err,
-          {
-            code: "GAKUCHIKA_CONVERSATION_RESUME_FAILED",
-            userMessage: "深掘りの再開に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "GakuchikaPage.handleResumeSession",
-        ),
-      );
-    }
-  };
-
-  const handleGenerateDraft = useCallback(async () => {
-    if (!isDraftReady(conversationState) || isGeneratingDraft) return;
-    if (!acquireLock("ガクチカESを生成中")) return;
-
-    setIsGeneratingDraft(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`/api/gakuchika/${gakuchikaId}/generate-es-draft`, {
-        method: "POST",
-        headers: buildHeaders(),
-        credentials: "include",
-        body: JSON.stringify({ charLimit: GAKUCHIKA_ES_DRAFT_CHAR_LIMIT }),
-      });
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "GAKUCHIKA_DRAFT_GENERATE_FAILED",
-            userMessage: "ES生成に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "GakuchikaPage.handleGenerateDraft",
-        );
-      }
-
-      const data = await response.json();
-      if (data.documentId) {
-        router.push(`/es/${data.documentId}`);
-      }
-    } catch (err) {
-      setError(
-        getUserFacingErrorMessage(
-          err,
-          {
-            code: "GAKUCHIKA_DRAFT_GENERATE_FAILED",
-            userMessage: "ES生成に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "GakuchikaPage.handleGenerateDraft",
-        ),
-      );
-    } finally {
-      setIsGeneratingDraft(false);
-      releaseLock();
-    }
-  }, [acquireLock, conversationState, gakuchikaId, isGeneratingDraft, releaseLock, router]);
-
-  const processingText =
-    assistantPhase === "organizing_intent" || assistantPhase === "generating_question"
-      ? PROCESSING_LABELS[assistantPhase]
-      : null;
-
-  const draftReady = isDraftReady(conversationState);
-  const interviewReady = isInterviewReady(conversationState) || isInterviewReadyState;
-  const generatedDraft = hasDraftText(conversationState);
-  const gakuchikaDraftHelperText = interviewReady
-    ? "面接で使う補足まで整理済みです。必要なら一覧やESへ戻れます。"
-    : generatedDraft
-    ? "ES を起点に、この画面から更に深掘りできます。"
-    : draftReady
-    ? "ここまででガクチカESを 400 字前後で作成できます。成功時のみクレジット消費です。"
-    : "材料が揃うとガクチカESを作成できます。";
-  const currentSessionIndex = currentSessionId
-    ? sessions.findIndex((session) => session.id === currentSessionId)
-    : -1;
-  const currentSessionLabel = currentSessionIndex >= 0 ? `#${sessions.length - currentSessionIndex}` : null;
-
-  const handleRestartConversation = useCallback(async () => {
-    if (isStarting || isSending || isGeneratingDraft) return;
-    await handleStartDeepDive();
-  }, [handleStartDeepDive, isGeneratingDraft, isSending, isStarting]);
+  const thinkingContextLabel = useMemo(
+    () => progressLabelToContextLabel(conversationState?.progressLabel ?? null),
+    [conversationState?.progressLabel],
+  );
 
   if (isLoading) {
     return (
@@ -784,6 +258,7 @@ function GakuchikaConversationContent() {
   }
 
   return (
+    <>
     <ConversationWorkspaceShell
       backHref="/gakuchika"
       title="ガクチカを作成"
@@ -794,21 +269,51 @@ function GakuchikaConversationContent() {
           actionLabel="ガクチカESを作成"
           pendingLabel="作成中..."
           onAction={handleGenerateDraft}
-          disabled={!draftReady || isGeneratingDraft}
+          disabled={!draftReady || isGeneratingDraft || interviewReady}
           isPending={isGeneratingDraft}
+          controls={
+            <>
+              <p className="text-xs font-medium text-muted-foreground xl:shrink-0">文字数</p>
+              <div className="grid grid-cols-3 gap-2">
+                {([300, 400, 500] as const).map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setDraftCharLimit(n)}
+                    className={cn(
+                      "rounded-xl border px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
+                      draftCharLimit === n
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-background hover:bg-secondary"
+                    )}
+                  >
+                    {n}字
+                  </button>
+                ))}
+              </div>
+            </>
+          }
         />
       }
       mobileStatus={
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <span>{questionCount > 0 ? `${questionCount}問` : "準備中"}</span>
-          {currentSessionLabel ? (
-            <Badge variant="outline" className="px-2 py-0 text-[11px]">
-              {currentSessionLabel}
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            {currentSessionLabel ? (
+              <Badge variant="outline" className="px-2 py-0 text-[11px]">
+                {currentSessionLabel}
+              </Badge>
+            ) : null}
+            <Badge variant={isAIPowered ? "soft-primary" : "outline"} className="px-2 py-0 text-[11px]">
+              {isAIPowered ? "AI" : "基本"}
             </Badge>
+          </div>
+          {!interviewReady ? (
+            <NaturalProgressStatus
+              state={conversationState}
+              variant="inline"
+              answeredCount={answeredCount}
+            />
           ) : null}
-          <Badge variant={isAIPowered ? "soft-primary" : "outline"} className="px-2 py-0 text-[11px]">
-            {isAIPowered ? "AI" : "基本"}
-          </Badge>
         </div>
       }
       conversation={
@@ -847,17 +352,24 @@ function GakuchikaConversationContent() {
             />
           ))}
 
-          {isWaitingForResponse && !streamingAssistantText && processingText ? (
-            <ThinkingIndicator text={processingText} />
+          {isWaitingForResponse && !isTextStreaming && (processingText || isBufferingQuestionChunks) ? (
+            <ThinkingIndicator
+              text={
+                processingText ||
+                (isBufferingQuestionChunks ? PROCESSING_LABELS.generating_question : "次の質問を準備しています")
+              }
+              contextLabel={thinkingContextLabel}
+            />
           ) : null}
 
-          {isWaitingForResponse && streamingAssistantText ? (
-            <ChatMessage role="assistant" content={streamingAssistantText} isStreaming />
+          {isTextStreaming ? (
+            <StreamingChatMessage streamingText={streamingText} isStreaming={true} />
           ) : null}
 
           {nextQuestion &&
-          !isCompleted &&
+          !shouldPauseConversation &&
           !isWaitingForResponse &&
+          !isTextStreaming &&
           !(messages.length > 0 && messages[messages.length - 1].role === "assistant" && messages[messages.length - 1].content === nextQuestion) ? (
             <ChatMessage role="assistant" content={nextQuestion} />
           ) : null}
@@ -869,21 +381,43 @@ function GakuchikaConversationContent() {
               summary={summary}
               isLoading={isSummaryLoading}
               gakuchikaId={gakuchikaId}
-              onResumeSession={undefined}
+              onResumeSession={handleResumeSession}
+              resumeFromInterviewLabel="もっと深掘る"
+              onRetrySummary={handleRetrySummary}
               hideGenerateAction
             />
-          ) : isCompleted ? (
-            <DraftReadyPanel state={conversationState} onResumeSession={generatedDraft ? handleResumeSession : undefined} />
+          ) : shouldPauseConversation ? (
+            <div className="flex flex-col items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center">
+              <p className="min-w-0 flex-1 text-sm leading-6 text-foreground">
+                {generatedDraft
+                  ? "ESを生成しました。このまま深掘りを続けて更に強化できます。"
+                  : "材料が揃いました。ESを作成するか、深掘りを続けて強化できます。"}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleResumeSession}
+                disabled={isStarting || isSending || isGeneratingDraft}
+                className="shrink-0 rounded-xl"
+              >
+                深掘りを続ける
+              </Button>
+            </div>
           ) : null}
         </div>
       }
       composer={
-        !isCompleted ? (
+        !interviewReady && !shouldPauseConversation ? (
           <div className="space-y-3">
             {conversationState?.answerHint ? (
-              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+              <div
+                className="inline-flex max-w-full items-start gap-2 rounded-xl border border-primary/10 bg-primary/5 px-3 py-2 text-[12px] leading-5 text-foreground/85"
+                role="note"
+                aria-label="回答のヒント"
+              >
+                <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/70" aria-hidden />
                 <span>{conversationState.answerHint}</span>
-              </span>
+              </div>
             ) : null}
 
             <ChatInput
@@ -892,7 +426,7 @@ function GakuchikaConversationContent() {
               onSend={handleSend}
               placeholder="回答を入力..."
               disabled={false}
-              disableSend={assistantPhase !== "idle"}
+              disableSend={assistantPhase !== "idle" || isTextStreaming || isBufferingQuestionChunks}
               isSending={isSending}
               className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0 [&>p]:hidden"
             />
@@ -917,17 +451,6 @@ function GakuchikaConversationContent() {
             title="進捗"
             actions={
               <div className="flex flex-wrap gap-2">
-                {generatedDraft && !interviewReady ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleResumeSession}
-                    disabled={isStarting || isSending || isGeneratingDraft}
-                    className="h-9 rounded-xl px-3 text-xs shadow-sm"
-                  >
-                    更に深掘りする
-                  </Button>
-                ) : null}
                 <Button
                   variant="outline"
                   size="sm"
@@ -951,12 +474,19 @@ function GakuchikaConversationContent() {
                   </Badge>
                 ) : null}
               </div>
-              <STARProgressBar state={conversationState} status={isCompleted ? "completed" : "in_progress"} />
-              <p className="text-xs leading-5 text-muted-foreground">
-                {conversationState?.progressLabel
-                  ? `${conversationState.progressLabel}。`
-                  : "短い会話で ES の骨格を整え、その後に必要なら面接向けの深掘りへ進みます。"}
-              </p>
+              {!interviewReady ? (
+                <NaturalProgressStatus
+                  state={conversationState}
+                  answeredCount={answeredCount}
+                />
+              ) : null}
+              {interviewReady ? (
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {conversationState?.progressLabel
+                    ? `${conversationState.progressLabel}。`
+                    : "短い会話で ES の骨格を整え、その後に必要なら面接向けの深掘りへ進みます。"}
+                </p>
+              ) : null}
             </div>
           </ConversationSidebarCard>
 
@@ -973,12 +503,12 @@ function GakuchikaConversationContent() {
                         ? "border-primary/40 bg-primary/5 text-foreground"
                         : "border-border/60 bg-background text-muted-foreground hover:text-foreground",
                     )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium">#{sessions.length - index}</span>
-                      <span>{session.status === "completed" ? "完了" : `${session.questionCount}問`}</span>
-                    </div>
-                  </button>
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">#{sessions.length - index}</span>
+                        <span>{getConversationBadgeLabel(session.status, session.conversationState)}</span>
+                      </div>
+                    </button>
                 ))}
               </div>
             </ConversationSidebarCard>
@@ -995,6 +525,31 @@ function GakuchikaConversationContent() {
         </>
       }
     />
+    <GakuchikaRestartConfirmDialog
+      isOpen={restartDialogOpen}
+      onCancel={() => setRestartDialogOpen(false)}
+      onConfirm={handleConfirmRestartConversation}
+      isConfirming={isStarting && restartDialogOpen}
+    />
+    <GakuchikaDraftModal
+      isOpen={isDraftModalOpen}
+      draft={generatedDraftText ?? ""}
+      charLimit={draftCharLimit}
+      isSaving={false}
+      onSave={() => {
+        setIsDraftModalOpen(false);
+        if (generatedDocumentId) {
+          notifyGakuchikaDraftSaved();
+          router.push(`/es/${generatedDocumentId}`);
+        }
+      }}
+      onDeepDive={async () => {
+        setIsDraftModalOpen(false);
+        await handleResumeSession();
+      }}
+      onClose={() => setIsDraftModalOpen(false)}
+    />
+    </>
   );
 }
 

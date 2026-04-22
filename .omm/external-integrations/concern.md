@@ -1,0 +1,1 @@
+Integration load is concentrated around a few critical workflows: auth, billing, calendar sync, and AI enrichment. Provider outages or API changes can break user-visible flows even when core app logic is unchanged.

@@ -7,86 +7,17 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { companies, userProfiles } from "@/lib/db/schema";
+import { companies } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
 import { VALID_STATUSES } from "@/lib/constants/status";
 import { stripCompanyCredentials } from "@/lib/db/sanitize";
 import { encrypt } from "@/lib/crypto";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { hasOwnedCompany } from "@/app/api/_shared/owner-access";
 import { getCompanyDetailPageData } from "@/lib/server/app-loaders";
-
-/**
- * Get current user or guest from request
- */
-async function getCurrentIdentity(request: NextRequest) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    const [profile] = await db
-      .select()
-      .from(userProfiles)
-      .where(eq(userProfiles.userId, session.user.id))
-      .limit(1);
-
-    return {
-      type: "user" as const,
-      userId: session.user.id,
-      guestId: null,
-      plan: profile?.plan || "free",
-    };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return {
-        type: "guest" as const,
-        userId: null,
-        guestId: guest.id,
-        plan: "guest" as const,
-      };
-    }
-  }
-
-  return null;
-}
-
-/**
- * Check if company belongs to the current user/guest
- */
-async function getCompanyIfOwned(companyId: string, identity: NonNullable<Awaited<ReturnType<typeof getCurrentIdentity>>>) {
-  const [company] = await db
-    .select()
-    .from(companies)
-    .where(eq(companies.id, companyId))
-    .limit(1);
-
-  if (!company) {
-    return null;
-  }
-
-  // Check ownership
-  if (identity.type === "user") {
-    if (company.userId !== identity.userId) {
-      return null;
-    }
-  } else {
-    if (company.guestId !== identity.guestId) {
-      return null;
-    }
-  }
-
-  return company;
-}
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -151,7 +82,7 @@ export async function PUT(
 ) {
   try {
     const { id } = await context.params;
-    const identity = await getCurrentIdentity(request);
+    const identity = await getRequestIdentity(request);
 
     if (!identity) {
       return createApiErrorResponse(request, {
@@ -165,9 +96,9 @@ export async function PUT(
       });
     }
 
-    const company = await getCompanyIfOwned(id, identity);
+    const owned = await hasOwnedCompany(id, identity);
 
-    if (!company) {
+    if (!owned) {
       return createApiErrorResponse(request, {
         status: 404,
         code: "COMPANY_UPDATE_NOT_FOUND",
@@ -258,7 +189,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await context.params;
-    const identity = await getCurrentIdentity(request);
+    const identity = await getRequestIdentity(request);
 
     if (!identity) {
       return createApiErrorResponse(request, {
@@ -272,9 +203,9 @@ export async function DELETE(
       });
     }
 
-    const company = await getCompanyIfOwned(id, identity);
+    const owned = await hasOwnedCompany(id, identity);
 
-    if (!company) {
+    if (!owned) {
       return createApiErrorResponse(request, {
         status: 404,
         code: "COMPANY_DELETE_NOT_FOUND",

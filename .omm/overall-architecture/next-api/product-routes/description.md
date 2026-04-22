@@ -1,0 +1,1 @@
+Standard route handlers for persistent product state such as companies, applications, deadlines, submissions, tasks, notifications, dashboard data, and search. These routes mostly validate input, enforce ownership, and operate directly on Postgres.

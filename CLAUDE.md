@@ -21,274 +21,346 @@
 
 ---
 
-## Skill Auto-Trigger Rules
+## Subagent Routing
 
-タスク内容が次に当てはまるときは、対応する skill を自動で使う。
+タスクを始める前に、対象領域に合うサブエージェントへ自動委譲する。各 agent の詳細は `.claude/agents/<name>.md` を参照。
 
-### 1. RAG / Retrieval
-- Skills: `rag-implementation`, `rag-engineer`
-- Trigger keywords: RAG, retrieval, embedding, ベクトル検索, semantic search, chunking, indexing, HyDE, query expansion
-- Auto-invoke when:
-  - `backend/app/utils/vector_store.py` を触る
-  - `backend/app/utils/hybrid_search.py` を触る
-  - RAG パイプライン、取得戦略、チャンク分割、インデックス更新を変更する
+| 変更対象 / 作業内容 | 委譲先 subagent |
+|---|---|
+| `backend/app/prompts/**`, `backend/app/utils/llm.py`, プロンプト品質 / A/B | `prompt-engineer` |
+| `backend/app/utils/(vector_store\|hybrid_search\|embeddings\|text_chunker\|content_classifier).py` | `rag-engineer` |
+| `backend/app/utils/(bm25_store\|reranker\|japanese_tokenizer\|web_search).py`, `improve-search` | `search-quality-engineer` |
+| `backend/app/routers/**`, `backend/app/main.py`, `backend/app/utils/llm_streaming.py`, SSE ストリーミング | `fastapi-developer` |
+| `src/components/**`, `src/app/**/(page\|layout\|loading).tsx` のビジュアル, marketing LP | `ui-designer` |
+| `src/app/**/(page\|layout).tsx` のロジック, `src/app/api/**`, `src/hooks/`, SWR | `nextjs-developer` |
+| `src/lib/db/schema.ts`, `drizzle_pg/`, マイグレーション, インデックス | `database-engineer` |
+| `src/lib/auth/**`, `src/lib/csrf.ts`, `src/lib/trusted-origins.ts`, `src/app/api/webhooks/stripe/**`, `src/lib/stripe/`, `src/app/api/credits/` | `security-auditor` |
+| `scripts/release/**`, `Makefile` の release targets, `make deploy`, provider CLI 操作 | `release-engineer` |
+| `e2e/**`, `backend/tests/**`, `src/**/*.test.ts`, AI Live テスト | `test-automator` |
+| コードレビュー、500 行超ファイルへの追加、dead code 検出 | `code-reviewer` |
+| architecture gate, OMM review, PRD / RFC 作成, 大規模クロスカット | `architect` |
+| マーケ LP 改善, UX / 競合 / SEO / 無料ツール戦略 | `product-strategist` |
 
-### 2. Search Quality / Ranking
-- Skills: `hybrid-search-implementation`, `similarity-search-patterns`
-- Trigger keywords: BM25, rerank, RRF, MMR, recall, precision, ハイブリッド検索, リランキング
-- Auto-invoke when:
-  - `backend/app/utils/bm25_store.py` を触る
-  - `backend/app/utils/reranker.py` を触る
-  - 企業検索や RAG 検索の関連度改善を行う
+ユーザーが「本番にデプロイして」「公開して」「リリースして」「ship it」等の自然文で依頼した場合も `release-engineer` に委譲する。
 
-### 3. Prompt / LLM Output Quality
-- Skill: `prompt-engineer`
-- Trigger keywords: prompt, system message, JSON output, hallucination, few-shot, structured output, プロンプト
-- Auto-invoke when:
-  - `backend/app/prompts/` 配下を触る
-  - `backend/app/utils/llm.py` を触る
-  - LLM 出力形式や生成品質を改善する
-
-### 4. ML / Inference Pipeline
-- Skill: `senior-ml-engineer`
-- Trigger keywords: inference, evaluation, model routing, fine-tuning, batch processing, GPU, MLOps
-- Auto-invoke when:
-  - 推論基盤やモデル切替ロジックを変更する
-  - `backend/evals/` や `ml/` を扱う
-
-### 5. Frontend / UI
-- Skills: `frontend-design`, `ui-ux-pro-max`, `vercel-react-best-practices`, `component-refactoring`
-- Trigger keywords: UI, UX, responsive, loading state, accessibility, React, Next.js, component, モバイル
-- Auto-invoke when:
-  - `src/components/` 配下を触る
-  - `src/app/**/page.tsx` を触る
-  - レイアウト、操作導線、ローディング、レスポンシブ対応を改善する
-- UI タスクでは `docs/architecture/FRONTEND_UI_GUIDELINES.md` を参照する。
-- `src/components/**`, `src/app/**/page.tsx`, `src/app/**/layout.tsx`, `src/app/**/loading.tsx`, `src/components/skeletons/**` を変更する前に、必ず `npm run ui:preflight -- <route> --surface=marketing|product [--auth=none|guest]` を実行する。
-- `ui:preflight` の Markdown 出力を会話、PR 本文、作業ログのいずれかに残してから UI 実装を始める。
-- UI 変更前後で `npm run lint:ui:guardrails` を通し、marketing の accent color 逸脱や `loading.tsx` の spinner-only 化を止める。
-- UI 変更後は `npm run test:ui:review -- <route>` で対象ページを Playwright 確認する。
-- PR では `.github/PULL_REQUEST_TEMPLATE.md` の `UI Review Routes` を埋め、shared UI 変更時は reviewer が route を追える状態にする。
-- 認証不要なら public route、プロダクト UI なら最も近い route を選び、guest 導線は `--auth=guest` を使う。
-- 新規 UI / 大きな UI 改修では同ガイドの hard rules を優先する。
-- 既存画面では既存のデザインシステム、構造、visual language を優先する。
-
-### 6. Security / Auth / Payments
-- Skill: `security-review`
-- Trigger keywords: auth, authorization, CSRF, XSS, secrets, API security, webhook, payment, セキュリティ
-- Auto-invoke when:
-  - `src/lib/auth/` を触る
-  - `src/lib/csrf.ts` や `src/lib/trusted-origins.ts` を触る
-  - `src/app/api/webhooks/stripe/route.ts` や課金導線を変更する
-
-### 7. Website / SEO Audit
-- Skills: `audit-website`, `seo-review`
-- Trigger keywords: SEO, audit, lighthouse, meta tags, indexing, structured data
-- Auto-invoke when:
-  - LP、公開ページ、テンプレ、無料ツールの改善や監査を行う
-
-### 8. Deployment / Release Ops
-- Skills: `release-automation`, `railway-ops`, `supabase-ops`, `deployment-automation`
-- Trigger keywords: deploy, release, staging, production, Railway, Supabase, Vercel, 本番デプロイ, staging反映, リリース, 本番にデプロイ, 本番反映, 公開して, リリースして, 本番に出して, push this live, ship it, deploy to production
-- Auto-invoke when:
-  - `scripts/release/` を触る
-  - `scripts/bootstrap/career-compass/` を触る
-  - `docs/release/` や `docs/ops/CLI_GUARDRAILS.md` を release 運用目的で更新する
-- 本番リリースの正本は `make deploy` と `scripts/release/release-career-compass.sh`
-- ユーザーが「本番にデプロイして」「本番反映して」「公開して」など同義の自然文で依頼した場合も、本番リリース依頼として扱う
-- 明示がなければ、ローカル変更を全部含める標準入口は `make ops-release-check` → `make deploy-stage-all`
-- ユーザーが staged-only を明示したときだけ `make deploy` を使う
-- secrets 正本は codex-company 配下の `.secrets/career_compass`（解決ルールは `scripts/release/career-compass-secrets-root.sh` と同じ。環境変数は `docs/release/ENV_REFERENCE.md` の Release Automation Inputs を参照）
-- **エージェントは** `codex-company/.secrets/` 以下の実ファイル（`*.env`）を**読み取らない**。インベントリ確認・検証は `zsh scripts/release/sync-career-compass-secrets.sh --check` のみ。リポジトリにはプロバイダ用 env テンプレを置かない（`.env.example` はローカル開発用として従来どおり）
-- provider CLI の直接操作ではなく、repo 内 scripts を優先する
-
----
-
-## Current App Structure
-
-### 1. Public Marketing Surface
-- Landing page: `src/app/page.tsx`
-- Pricing: `src/app/pricing`
-- Contact / legal pages: `src/app/contact`, `src/app/terms`, `src/app/privacy`, `src/app/legal`
-- Free tools / templates: `src/app/tools`, `src/app/templates`
-
-### 2. Auth / Onboarding
-- Login and onboarding live under `src/app/(auth)/`
-- Better Auth handles session management
-- Guest mode is supported via HttpOnly guest cookie flow in `src/lib/auth/guest-cookie.ts`
-
-### 3. Core Product Areas
-- Dashboard: `src/app/dashboard`
-- Companies: `src/app/companies`, `src/app/api/companies`
-- Applications / deadlines / submissions: `src/app/api/applications`, `src/app/api/deadlines`, `src/app/api/submissions`
-- ES documents and review: `src/app/es`, `src/app/api/documents`
-- Motivation: `src/app/companies/[id]/motivation`, `src/app/api/motivation`
-- Gakuchika: `src/app/gakuchika`, `src/app/api/gakuchika`
-- Tasks / notifications / calendar / search:
-  - `src/app/tasks`
-  - `src/app/notifications`
-  - `src/app/calendar`
-  - `src/app/search`
-
-### 4. AI Backend
-- Entry point: `backend/app/main.py`
-- Routers:
-  - `backend/app/routers/company_info.py`
-  - `backend/app/routers/es_review.py`
-  - `backend/app/routers/gakuchika.py`
-  - `backend/app/routers/motivation.py`
-  - `backend/app/routers/health.py`
-- Search / RAG utilities live in `backend/app/utils/`
-
----
-
-## Core Architecture Notes
-
-### Company Data Flow
-- Next API validates auth / guest identity and ownership.
-- Company info fetch and corporate info enrichment proxy to FastAPI.
-- RAG source URLs, PDF ingestion jobs, and fetched timestamps are stored in Postgres.
-- Deadline extraction is not auto-applied; user approval is required before persistence.
-
-### ES Review Flow
-- Documents live in Postgres and are versioned through `src/app/api/documents`.
-- Review uses streaming endpoints under `src/app/api/documents/[id]/review/stream`.
-- Success-only credit consumption applies after successful completion.
-- Review UI and playback logic live in `src/components/es/` and `src/hooks/useESReview.ts`.
-
-### Motivation / Gakuchika Flow
-- Motivation uses conversation start, stream, and draft generation endpoints.
-- Gakuchika supports guided conversation, summaries, and ES draft generation.
-- Shared chat-like UI patterns live in `src/components/chat/`.
-
-### Calendar / Notifications / Tasks
-- Calendar sync is handled by Next API plus Google Calendar helpers in `src/lib/calendar/`.
-- Notifications and task recommendations are first-class product flows, not secondary utilities.
-- Cron routes exist under `src/app/api/cron/` for daily notifications, calendar sync など。
+docs-only、test-only、局所的な文言修正、明らかな局所バグ修正では委譲を省略してよい。
 
 ---
 
 ## Business Rules
 
-1. 成功時のみ消費
-- クレジットや無料回数は、対象処理が成功したときだけ消費する。
+1. **成功時のみ消費** — クレジットや無料回数は、対象処理が成功したときだけ消費する。
+2. **JST 基準** — 日次リセット、通知、締切関連の基準時刻は `Asia/Tokyo`。
+3. **締切は承認必須** — 自動抽出結果をそのまま締切として確定しない。
+4. **非同期 UX** — 外部 I/O や AI 実行は、処理中表示、完了通知、失敗通知まで含めて設計する。
+5. **guest / user の両対応** — 多くの API はログインユーザーとゲストの両方を扱う。owner 判定は `userId` と `guestId` の排他的管理を前提にする。ゲスト識別は browser-visible header ではなく `guest_device_token` cookie を正とする。
 
-2. JST 基準
-- 日次リセット、通知、締切関連の基準時刻は `Asia/Tokyo`。
+---
 
-3. 締切は承認必須
-- 自動抽出結果をそのまま締切として確定しない。
+## User Confirmation Rules
 
-4. 非同期 UX
-- 外部 I/O や AI 実行は、処理中表示、完了通知、失敗通知まで含めて設計する。
+ユーザーへの確認が必要な場面では、**必ず `AskUserQuestion` ツールを使う**。plain text で「〜しますか？」と書いて応答を待つことは禁止する。テキスト出力で質問すると自走が止まり、ユーザーが手動入力するまでブロックされるため。
 
-5. guest / user の両対応
-- 多くの API はログインユーザーとゲストの両方を扱う。
-- owner 判定は `userId` と `guestId` の排他的管理を前提にする。
-- ゲスト識別は browser-visible header ではなく `guest_device_token` cookie を正とする。
+- コミット確認、push 確認、E2E 実行確認、Codex レビュー確認など、すべての Yes/No 判断は `AskUserQuestion` で行う
+- 確認待ちの間も、独立した作業（リサーチ、型チェック、lint 等）があれば並行して進める
+- 確認不要で自明な場合（CLAUDE.md のルールで自動続行が明記されている場合）はそもそも確認を挟まない
+
+この規約は `.claude/hooks/stop-plaintext-confirm-guard.sh` が Stop hook で機械的に enforce する。transcript の最終 assistant メッセージに `commit/push/E2E/デプロイ/リリース` 系のトピック語と `しますか?/指示があれば/未完了` 系の確認・保留語が両方含まれる場合、Stop をブロックし AskUserQuestion での再提示を要求する。
+
+---
+
+## Core Architecture Notes
+
+非自明なフローのみ記載。詳細は `docs/features/` と `.omm/` を参照。
+
+- **Company Data Flow** — Next API で auth / ゲスト identity と所有権を検証し、企業情報取得と corporate info enrichment は FastAPI へ proxy する。RAG ソース URL、PDF ingest ジョブ、取得時刻は Postgres に保存。締切抽出結果はユーザー承認を経て初めて確定する。
+- **ES Review Flow** — ドキュメントは Postgres に版管理され (`src/app/api/documents`)、レビューは `src/app/api/documents/[id]/review/stream` の SSE。成功時のみクレジット消費。
+- **Motivation / Gakuchika Flow** — 会話開始 / stream / draft 生成の 3 エンドポイント構成。共通 chat-like UI は `src/components/chat/`。
+- **Request Identity** — 認証済みユーザーは Better Auth session、ゲストは HttpOnly cookie から解決し、proxy が内部 `x-device-token` を再構成する。共通化済みロジックは `src/app/api/_shared/request-identity.ts`。
 
 ---
 
 ## API / Error Handling Rules
 
-### API Response Pattern
-- 主要な Next API は `createApiErrorResponse()` を使って構造化エラーを返す。
-- エラー応答では `userMessage` と `action` を返し、開発者向け詳細は開発環境の `debug` に閉じ込める。
-- `X-Request-Id` / `requestId` を付与し、ログと突合できる状態を保つ。
-
-### Frontend Error Pattern
-- フロントでは `parseApiErrorResponse()` と `AppUiError` を使う。
-- API の raw error や例外文字列を UI にそのまま出さない。
-- ユーザーには短い説明と次の行動だけを見せる。
-
-### Request Identity
-- 認証済みユーザーは Better Auth セッションから解決する。
-- ゲストは HttpOnly cookie から解決し、proxy が内部 `x-device-token` を再構成する。
-- 共通化済みロジックは `src/app/api/_shared/request-identity.ts` にある。
+- Next API は `createApiErrorResponse()` を使って構造化エラーを返す。`userMessage` と `action` を含め、開発者向け詳細は dev 環境の `debug` にのみ出す。`X-Request-Id` / `requestId` を付与する。
+- フロントでは `parseApiErrorResponse()` と `AppUiError` を使う。raw error や例外文字列を UI にそのまま出さない。
+- secrets 正本は `codex-company/.secrets/career_compass`。**実ファイル (`*.env`) を直接 Read しない**。インベントリ確認は `zsh scripts/release/sync-career-compass-secrets.sh --check` のみ。
 
 ---
 
-## Data Model Notes
+## UI Change Workflow (hard rules)
 
-主要スキーマは `src/lib/db/schema.ts`。
+`src/components/**`, `src/app/**/(page|layout|loading).tsx`, `src/components/skeletons/**` を変更する前後で必ず実行する:
 
-- Better Auth tables: `users`, `sessions`, `accounts`, `verifications`
-- Guest / profile: `guest_users`, `user_profiles`, `login_prompts`
-- Company domain: `companies`, `applications`, `job_types`, `deadlines`, `submissions`
-- Document domain: ES documents, review threads, versions
-- Product domain: `notifications`, `tasks`, credits, calendar settings, Stripe-related tables
-- AI ingest domain: `company_pdf_ingest_jobs`
+1. 事前: `npm run ui:preflight -- <route> --surface=marketing|product [--auth=none|guest]` → Markdown 出力を会話 / PR / 作業ログに残す
+2. 変更中: `npm run lint:ui:guardrails`
+3. 事後: `npm run test:ui:review -- <route>`
 
-スキーマ変更時は、既存の guest/user 両対応と cascade 設計を壊さないこと。
+参照: `docs/architecture/FRONTEND_UI_GUIDELINES.md`, `DESIGN.md`, `docs/marketing/LP.md`。PR の `UI Review Routes` (`.github/PULL_REQUEST_TEMPLATE.md`) は埋める。既存画面では既存のデザインシステムを優先する。
 
 ---
 
-## Development Commands
+## Marketing LP 追加・変更時のチェックリスト
 
-### App
-```bash
-npm run dev
-npm run build
-npm run lint
-```
+新規 SEO LP を追加するとき (`src/app/(marketing)/<slug>/page.tsx`)、以下を必ず守る:
 
-### Tests
-```bash
-npm run test
-npm run test:e2e
-npm run test:unit
-```
+1. `createMarketingMetadata({ path })` で canonical 自己参照 metadata を発行する
+2. FAQ は `src/lib/marketing/<slug>-faqs.ts` に SSOT 分離し、`FaqJsonLd` で埋め込む（FAQ rich results は gov/医療限定で対象外だが、可視 FAQ セクションの構造化データ整理として維持）
+3. `src/app/sitemap.ts` に URL を追加する
+4. `src/app/robots.ts` の allow に URL を追加する
+5. `docs/marketing/README.md` のデプロイ後確認 URL 一覧とキーワード戦略テーブルを更新する
+6. 訴求は `backend/app/routers/` と `docs/features/*.md` にある実装のみ（景表法 / 優良誤認回避）。内定率・通過率・無制限無料・AggregateRating などは書かない
+7. 既存 LP の primary keyword と食い合わないように title / H1 / 内部リンクの語彙を排他分離する
+8. 2 階層以上のページは `BreadcrumbJsonLd`（`src/components/seo/BreadcrumbJsonLd.tsx`）を付ける。1 階層 LP は `BreadcrumbList` 対象外のため付けない
 
-### Database
+---
+
+## Key Commands
+
 ```bash
-npm run db:push
-npm run db:generate
+# tests (npm run test は存在しない)
+npm run test:unit           # Vitest
+npm run test:e2e            # Playwright
+npm run test:ui:review -- <route>   # UI 変更後の Playwright 確認
+npm run test:agent-pipeline # sync-pipeline のスナップショット
+
+# DB (Drizzle)
+npm run db:generate         # schema.ts → migration SQL
+npm run db:push             # 本番同期（慎重に）
 npm run db:migrate
 npm run db:studio
-```
 
-### FastAPI
-```bash
-cd backend
-uvicorn app.main:app --reload --port 8000
+# release
+make ops-release-check      # 全ローカル変更を含める標準入口
+make deploy-stage-all
+make deploy                 # staged-only 明示時のみ
 ```
 
 ---
 
-## Key File Locations
+## Bash Tool Timeout Policy
 
-### Next.js
-- Pages / layouts: `src/app/`（プロダクトの `DashboardHeader` は各ページ／`loading.tsx` が個別配置。`(product)/layout` は `children` のみ）
-- API routes: `src/app/api/`
-- Components: `src/components/`
-- Hooks: `src/hooks/`（通知・クレジットは SWR 共有。`src/lib/swr-fetcher.ts`）
-- Shared libs: `src/lib/`
-- DB schema: `src/lib/db/schema.ts`
+本プロジェクトでは、Bash ツール呼び出し時の `timeout` パラメータを以下のルールで指定する。**指定を省略しない**（省略時のデフォルトが短すぎてコマンドが途中 kill される問題を防ぐ）。
 
-### FastAPI
-- Entry: `backend/app/main.py`
-- Routers: `backend/app/routers/`
-- Utils: `backend/app/utils/`
-- Prompts: `backend/app/prompts/`
-- Tests: `backend/tests/`
-- Eval scripts: `backend/evals/`
+| カテゴリ | 対象パターン | timeout (ms) |
+|---|---|---|
+| 長時間 (Codex / 全 E2E) | `scripts/codex/delegate.sh *`, `make test-e2e-functional-local`, `run-ai-live-local.sh`, `run-e2e-functional.sh` | `3600000` (60分) |
+| 中時間 (個別テスト / ビルド) | `npm run test:e2e*`, `make test-major*`, `npm run build`, `make deploy*` | `600000` (10分) |
+| 短時間 (lint / 型チェック / git) | `npm run lint*`, `npx tsc --noEmit`, `git *`, `npm run test:unit` | 指定不要（デフォルト可） |
 
-### Documentation
-- Human-readable doc map: `docs/OVERVIEW.md`, `docs/INDEX.md`
-- Product spec: `docs/SPEC.md`
-- Progress tracker: `docs/PROGRESS.md`
-- Setup docs: `docs/setup/`（開発・環境は `DEVELOPMENT_AND_ENV.md`、DB は `DB_SUPABASE.md`）
-- Feature docs: `docs/features/`
-- Architecture docs: `docs/architecture/`
-- Frontend UI guide: `docs/architecture/FRONTEND_UI_GUIDELINES.md`
-- UI Playwright verification: `docs/testing/UI_PLAYWRIGHT_VERIFICATION.md`
-- Release docs: `docs/release/`
-- Operational guardrails: `docs/ops/CLI_GUARDRAILS.md`
+**判断ルール**: 上記パターンに一致しない場合、実行時間が 2 分を超える可能性があるコマンドには `timeout: 3600000` を指定する。
 
-### Project Steering
-- `.kiro/steering/product.md`
-- `.kiro/steering/structure.md`
-- `.kiro/steering/tech.md`
+長時間カテゴリで `--timeout 7200` をスクリプトに渡す場合は、Bash ツール側も `timeout: 7200000` に合わせる。
+
+---
+
+## Codex CLI 自動連携ルール
+
+Codex CLI (GPT-5.4) を以下の条件で呼び出す。A は PreToolUse hook で強制、B・C は行動指示。
+手動フォールバック: `/codex-plan-review`, `/codex-implement`, `/codex-post-review` は引き続き手動でも使用可能。
+
+### A. 設計レビュー + 実装委譲判断 — Codex plan_review（hook 強制）
+
+ExitPlanMode の PreToolUse hook (`exit-plan-codex-gate.sh`) が **2 つのフラグ** を順次チェックする。両方が未設定だとブロックされる。以下の手順は省略できない。
+
+1. AskUserQuestion で「Codex plan review を実行しますか？」とユーザーに確認する
+2. ユーザーが承認した場合:
+   a. プラン内容を `/tmp/codex-ctx-$(date +%s).md` に書き出す（`umask 077` で作成し、読み取り後に削除する。機密情報・secrets パスを含めない）
+   b. 通常は `bash scripts/codex/delegate.sh plan_review --context-file <path>` を実行する（default 3600s）。長時間タスクのみ `--timeout 7200` を明示する。Bash timeout は「Bash Tool Timeout Policy」に従う
+   c. 最新の handoff ディレクトリを特定する: `ls -td .claude/state/codex-handoffs/plan_review-*/ | head -1`
+   d. `meta.json` の `status` フィールドで成否を判定する（終了コードだけで判定しない。`PARSE_FAILURE` は exit 0 で返る場合がある）
+   e. `result.md` を Read し、Codex の findings を自身の判断と統合してプランに反映する
+   f. Status 判定:
+      - **PASS / PASS_WITH_CONCERNS** → 指摘を注記してプラン確定
+      - **NEEDS_REVISION** → severity=high の指摘をプランに反映
+      - **TIMEOUT / CODEX_ERROR / PARSE_FAILURE** → 失敗をプランに注記し、Claude 単独判断で続行
+3. ユーザーがスキップした場合:
+   - プランに「Codex レビュー: ユーザーによりスキップ」と記録する
+4. plan review フラグを設定する: `touch ~/.claude/sessions/career_compass/codex-plan-checkpoint-$SESSION_ID`
+
+   > **⚠ Step 5 の AskUserQuestion は省略不可。** `exit-plan-codex-gate.sh` が以下を検証する:
+   > - **時間順序**: delegation checkpoint が plan checkpoint より新しいこと
+   > - **最低時間差 3 秒**: 両 checkpoint を同時作成するとブロック
+   > - **内容フォーマット**: delegation checkpoint の中身は `delegate` / `no-delegate` / `partial` のいずれか
+5. **実装委譲の判断** — AskUserQuestion で「この実装を Codex に委譲しますか？」と確認する。プランの変更規模・Section C-1 の閾値・C-2 の禁止条件を踏まえ、以下の情報を提示する:
+   a. **委譲スコープ**: 変更対象ファイル一覧と推定変更行数
+   b. **推奨 Codex エージェント**: 変更対象から最適な `.codex/agents/*.toml` のエージェントを提案（例: fastapi-developer, nextjs-developer）
+   c. **コンテキスト準備計画**: Section C-4 のどの要素を含めるか（対象コード / 関連パターン / ライブラリ docs / テスト期待値）を変更の複雑度に応じて提案
+   d. **推定所要時間**: Codex 実行の目安時間（小: ~5min, 中: ~15min, 大: ~30min）
+   e. **委譲戦略オプション**: 一括委譲 vs 分割委譲（ファイル群ごとに複数回）の推奨
+6. ユーザーの回答に応じて:
+   - **委譲する** → 承認内容（スコープ・エージェント・コンテキスト計画）をプランに記録。ExitPlanMode 後に Section C のフローで実行する
+   - **委譲しない** → プランに「Codex 委譲: ユーザーにより見送り」と記録。ExitPlanMode 後に Claude が直接実装する
+   - **一部のみ委譲** → 委譲範囲と Claude 実装範囲をプランに記録
+7. delegation フラグを設定する: `echo "<decision>" > ~/.claude/sessions/career_compass/codex-delegation-checkpoint-$SESSION_ID`
+   （`<decision>` = `delegate` / `no-delegate` / `partial`）
+8. ExitPlanMode を呼ぶ（両フラグが存在すれば hook が許可する）
+
+### B. コミット前コードレビュー自動化（post_review）
+
+commit を作成する直前に、以下の閾値チェックを行う:
+
+1. `git diff --numstat HEAD` で追跡ファイルの変更行数を、`git ls-files --others --exclude-standard` で未追跡ファイル一覧を取得する
+   - **ファイル数**: 追跡ファイルの変更数 + 未追跡ファイル数の合算
+   - **行数**: `git diff --numstat` の追加+削除行の合算（未追跡ファイルの行数は含めない）
+   - ステージ済みのみでコミットする場合は `git diff --cached --numstat` も併用する
+2. 以下のいずれかに該当する場合、自動で Codex レビューを実行:
+   - 変更ファイル数 >= 10
+   - 変更行数（追加+削除）>= 500
+   - hotspot ファイルの変更を含む（正本: `.claude/hooks/lib/skill-recommender.sh` の `HOTSPOT_FILES` 配列）
+3. 該当時: `bash scripts/codex/delegate.sh post_review` を実行（Bash timeout: Policy 参照）
+4. 最新の handoff ディレクトリを特定する: `ls -td .claude/state/codex-handoffs/post_review-*/ | head -1`
+5. `meta.json` の `status` フィールドで成否を判定し、`result.md` を Read する
+6. Status 判定（`meta.json` の `status` に基づく）:
+   - **APPROVE** → commit を続行
+   - **REQUEST_CHANGES** で severity=high → 指摘を修正してから commit
+   - **REQUEST_CHANGES** で severity=medium/low のみ → 指摘を commit メッセージに記録し commit 続行
+   - **NEEDS_DISCUSSION** → ユーザーに AskUserQuestion で相談
+   - **TIMEOUT / CODEX_ERROR / PARSE_FAILURE** → Claude 自身の code-reviewer skill でレビューし、commit 続行
+6b. **delegation 確認** — post_review 完了後、AskUserQuestion でユーザーに確認する。post_review の結果サマリ（status / 主要 findings）を含めること:
+   - **commit 続行** → `echo "reviewed-proceed" > ~/.claude/sessions/career_compass/codex-commit-delegation-$SESSION_ID`
+   - **Codex に修正委譲** → Section C のフローで implementation を実行。完了後 `echo "delegate-fixes" > ~/.claude/sessions/career_compass/codex-commit-delegation-$SESSION_ID`
+   - **Claude fallback** — post_review が TIMEOUT/CODEX_ERROR/PARSE_FAILURE の場合、Claude 自身の code-reviewer skill でレビュー後 `echo "fallback-reviewed" > ~/.claude/sessions/career_compass/codex-commit-delegation-$SESSION_ID`
+
+   > **⚠** checkpoint は **最新の post_review handoff より後に作成すること**。stale checkpoint は `commit-codex-gate.sh` が拒否する（`fallback-reviewed` のみ stale 照合を免除）。`skip-review` は廃止済みで受理されない。
+7. 閾値未満の場合: Codex レビューをスキップし通常通り commit（`commit-codex-gate.sh` も素通り）
+
+### B-2. Auto Commit & E2E Verify Workflow
+
+機能実装・改善が完了したら、自動でステージ → E2E テスト → コミット → プッシュを行う。回帰を防ぐ最後の砦。
+
+**正しい順序: stage → test → commit → (ユーザー確認) → push**
+
+pre-commit フック (`enforce-local-ai-e2e.mjs`) がステージ済みファイルの `snapshotHash` とマニフェストを照合する。テスト実行でマニフェストが生成されるため、この順序でなければコミットがブロックされる。
+
+**push は常にユーザー確認必須**: `git push` は GitHub Actions CI 全スイート + Staging デプロイを発火するため、AskUserQuestion で必ずユーザーに確認してから実行する。確認時にはプッシュ対象のコミット一覧（`git log origin/develop..HEAD --oneline`）を提示する。
+
+**実行フロー**:
+
+1. `git add <対象ファイル>` で全変更をステージ
+2. E2E スコープ判定: ステージ済みファイルで `resolveE2EFunctionalScope()` を呼ぶ（SSOT: `src/lib/e2e-functional-features.mjs`）
+3. `shouldRun: false` → Section B の閾値チェック → コミット → **ユーザーに push 確認**
+4. `shouldRun: true` → AskUserQuestion で E2E 実行の確認をする。以下を提示:
+   - トリガーされた features 一覧と source（shared-trigger / llm-shared / feature-trigger）
+   - 各 feature の推定実行時間
+   - ユーザーが features を選択・スキップ可能
+   → 承認された features で `make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES={features}` を実行
+5. 全 pass → Section B の閾値チェック（Codex post_review）→ コミット → **ユーザーに push 確認**
+6. いずれか fail:
+   a. エラーを分析し修正
+   b. 修正ファイルを `git add` で追加ステージ
+   c. スコープを **再判定**（初回結果を再利用しない）
+   d. 失敗 feature + 新規該当 feature を再テスト（**1 回のみ**）
+   e. 再テスト pass → Section B → コミット → **ユーザーに push 確認**
+   f. 再テスト fail → ユーザーに報告（コミットしない）
+
+**注意事項**:
+- `git push origin develop` は AskUserQuestion でユーザー承認を得てから実行する。自動 push は禁止
+- `es-review` feature は `playwrightStatus === "passed"` も必要
+- Codex `post_review`（Section B）は E2E 通過後、コミット直前に実行。修正分もレビュー対象になる
+- `tools/resolve-e2e-functional-scope.mjs` は `git diff HEAD` を使うため、ステージ前に unstaged changes がないことを前提とする
+- E2E スコープ判定で feature にマッチしない functional 変更はコミット + プッシュ可（pre-commit hook が最終判定）
+- マニフェスト: `backend/tests/output/local_ai_live/status/{feature}.json`
+
+### C. オーケストレーター運用 — Claude 設計 / Codex 実装・レビュー
+
+Claude はオーケストレーター（設計・リサーチ・コンテキスト準備・検証・ユーザー対話）、Codex はワーカー（実装・コードレビュー）として機能する。
+
+#### C-1. 委譲閾値
+
+変更が以下のいずれかに該当する場合、Codex に実装を委譲する:
+- 変更ファイル数 ≥ 3
+- 変更行数 ≥ 50
+- ユーザーが明示的に「Codex に任せたい」と示唆
+
+閾値未満の場合は Claude が直接実装する。
+
+#### C-2. 委譲禁止条件
+
+以下は常に Claude が直接対応する:
+- 設計判断・アーキテクチャ変更
+- セキュリティ関連（auth / billing / CSRF / webhook）
+- プロンプトエンジニアリング（反復的評価が必要）
+- release / deploy / provider CLI 操作
+- secrets へのアクセスが必要なタスク
+- ユーザーとの対話・方向性決定
+
+#### C-3. 閉ループフロー
+
+```
+1. [Claude] リサーチ・コンテキスト準備
+2. [Claude] リッチコンテキストファイル作成
+3. [Codex] implementation (workspace-write)
+4. [Claude] 検証 (tsc, unit test, diff review)
+5. 不合格 → [Codex] フィードバック付き再委譲 (1回のみ)
+6. まだ不合格 → [Claude] 直接修正
+7. [Codex] post_review (code-reviewer agent + security)
+8. [Claude] Section B-2 (stage → E2E → commit → push)
+```
+
+**並列安全性**: Codex 実行中は Claude はファイル編集を行わない。リサーチ・設計・ユーザー対話のみ実施する。
+
+#### C-4. リッチコンテキスト準備
+
+Codex はスキル・Web 検索・サブエージェントを使えない。Claude が委譲前にリサーチを完了し、結果をコンテキストファイルに含める。タスクの複雑度に応じて以下から選択:
+
+| 要素 | 用途 | 含める判断基準 |
+|---|---|---|
+| 対象ファイルの現在のコード | Codex がファイルを読めないリスクの排除 | 常に含める |
+| 関連パターンのコード例 | 既存パターン踏襲を保証 | 類似実装が既にある場合 |
+| ライブラリ docs (Context7 / Web 検索) | 最新 API の正しい使用を保証 | 外部ライブラリの新機能を使う場合 |
+| テスト期待値 | 品質基準の明確化 | 複雑なロジックや境界条件がある場合 |
+
+コンテキストファイル形式:
+```markdown
+# Implementation Task: {タスク名}
+## Objective
+{具体的な目標}
+## Files to Modify
+{ファイルパスと変更内容}
+## Current Code
+{対象ファイルの内容}
+## Related Patterns
+{既存の類似実装}
+## Library Reference
+{API ドキュメント}
+## Test Expectations
+{パスすべきテストと条件}
+## Constraints
+{ビジネスルール・禁止事項}
+```
+
+#### C-5. 委譲フロー（手順）
+
+1. リッチコンテキストを `/tmp/codex-ctx-$(date +%s).md` に書き出す（`umask 077`、機密情報を含めない）
+2. `bash scripts/codex/delegate.sh implementation --context-file <path>` を実行（Bash timeout: Policy 参照）
+3. 最新の handoff: `ls -td .claude/state/codex-handoffs/implementation-*/ | head -1`
+4. `meta.json` の `status` で成否を判定し、`result.md` を Read する
+5. `git diff` で変更スコープを検証
+6. 検証チェックリスト:
+   - `npx tsc --noEmit` (型チェック)
+   - 関連ユニットテスト実行
+   - 変更がスペックと一致するか確認
+7. Status 判定:
+   - **COMPLETE** + 検証 pass → Section B-2 へ進む
+   - **COMPLETE** + 検証 fail → フィードバック付き再委譲（C-6 へ）
+   - **PARTIAL** → 不足分を Claude が補完、または再委譲
+   - **BLOCKED** → Claude が直接実装にフォールバック
+   - **TIMEOUT / CODEX_ERROR / PARSE_FAILURE** → Claude が直接実装にフォールバック
+
+#### C-6. フィードバック付き再委譲（1 回限り）
+
+1. 問題箇所・エラーメッセージ・期待する修正を新しいコンテキストファイルにまとめる
+2. `bash scripts/codex/delegate.sh implementation --context-file <path>` を再実行
+3. 再委譲結果を同じ検証チェックリストで検証
+4. それでも不合格 → Claude が直接修正する。再々委譲はしない
+
+#### C-7. Codex レビュー（実装後）
+
+Codex 実装完了後（Claude 直接実装の場合も Section B の閾値該当時）、Codex の code-reviewer エージェントがレビューする:
+- `bash scripts/codex/delegate.sh post_review` を実行
+- code-reviewer agent がセキュリティ（OWASP Top 10）+ コード品質を検査
+- Section B の Status 判定ルールに従う
 
 ---
 

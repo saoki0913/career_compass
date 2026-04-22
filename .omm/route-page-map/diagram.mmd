@@ -1,0 +1,9 @@
+graph TD
+    marketing-routes["Marketing Routes\nsrc/app/(marketing)/"]
+    auth-routes["Auth Routes\nsrc/app/(auth)/"]
+    product-routes["Product Routes\nsrc/app/(product)/"]
+    utility-routes["Utility Routes\nsrc/app/checklists/"]
+
+    marketing-routes -->|"funnels visitors into account creation or product exploration"| auth-routes
+    auth-routes -->|"lands authenticated users in the core workspace"| product-routes
+    marketing-routes -->|"offers standalone learning content and checklists"| utility-routes

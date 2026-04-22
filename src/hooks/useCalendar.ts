@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 
 export interface CalendarEvent {
   id: string;
@@ -71,6 +72,15 @@ export interface WorkBlockSuggestion {
   title: string;
 }
 
+export interface CalendarMutationResult<T> {
+  event?: T;
+  calendarSync?: {
+    status: "synced" | "skipped" | "failed";
+    reason?: string;
+    error?: string;
+  };
+}
+
 export function useCalendarEvents(options: {
   start?: string;
   end?: string;
@@ -125,6 +135,7 @@ export function useCalendarEvents(options: {
         "useCalendarEvents.fetch"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }
@@ -140,7 +151,7 @@ export function useCalendarEvents(options: {
     startAt: string;
     endAt: string;
     deadlineId?: string;
-  }) => {
+  }): Promise<CalendarMutationResult<CalendarEvent>> => {
     const response = await fetch("/api/calendar/events", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -163,10 +174,10 @@ export function useCalendarEvents(options: {
 
     const result = await response.json();
     await fetchEvents();
-    return result.event;
+    return { event: result.event, calendarSync: result.calendarSync };
   };
 
-  const deleteEvent = async (id: string) => {
+  const deleteEvent = async (id: string): Promise<CalendarMutationResult<never>> => {
     const response = await fetch(`/api/calendar/events/${id}`, {
       method: "DELETE",
       credentials: "include",
@@ -185,7 +196,9 @@ export function useCalendarEvents(options: {
       );
     }
 
+    const result = await response.json();
     await fetchEvents();
+    return { calendarSync: result.calendarSync };
   };
 
   return {
@@ -243,6 +256,7 @@ export function useCalendarSettings() {
         "useCalendarSettings.fetch"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }

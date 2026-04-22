@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 
 export interface Deadline {
   id: string;
@@ -93,6 +94,7 @@ export function useDeadlines(days: number = 7, options: UseDeadlinesOptions = {}
         "useDeadlines.fetch"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }

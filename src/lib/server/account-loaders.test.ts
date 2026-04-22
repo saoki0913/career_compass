@@ -12,17 +12,20 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/company-info/pricing", () => ({
   getMonthlyScheduleFetchFreeLimit: vi.fn(() => 3),
-  getMonthlyRagFreeUnits: vi.fn(() => 12),
+  getMonthlyRagHtmlFreeUnits: vi.fn(() => 12),
+  getMonthlyRagPdfFreeUnits: vi.fn(() => 40),
 }));
 
 vi.mock("@/lib/company-info/pdf-ingest-limits", () => ({
   getRagPdfIngestPolicySummaryJa: vi.fn(() => "summary"),
   getRagPdfMaxIngestPages: vi.fn(() => 100),
-  getRagPdfMaxOcrPages: vi.fn(() => 20),
+  getRagPdfMaxGoogleOcrPages: vi.fn(() => 20),
+  getRagPdfMaxMistralOcrPages: vi.fn(() => 10),
 }));
 
 vi.mock("@/lib/company-info/usage", () => ({
-  getRemainingCompanyRagFreeUnitsSafe: vi.fn(async () => 7),
+  getRemainingCompanyRagHtmlFreeUnitsSafe: vi.fn(async () => 7),
+  getRemainingCompanyRagPdfFreeUnitsSafe: vi.fn(async () => 35),
 }));
 
 vi.mock("@/lib/credits", () => ({

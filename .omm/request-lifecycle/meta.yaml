@@ -1,0 +1,11 @@
+created: 2026-04-05T11:29:46.918Z
+updated: 2026-04-05T11:29:46.918Z
+update_count: 0
+last_field: description
+kind: perspective
+title: request-lifecycle
+children:
+  - background-sync
+  - fastapi-internal
+  - identity-resolution
+  - next-route-handlers

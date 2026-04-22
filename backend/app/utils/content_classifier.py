@@ -143,8 +143,8 @@ async def classify_content_category_with_llm(
     user_message_template = get_managed_prompt_content(
         "company_info.content_classifier.user",
         fallback="""URL: {source_url}
-source_channel: {source_channel or ""}
-見出し: {heading or ""}
+source_channel: {source_channel}
+見出し: {heading}
 本文抜粋: {excerpt}
 
 出力形式:

@@ -28,10 +28,12 @@
 | `STRIPE_PRICE_PRO_ANNUAL` | Yes | Pro 年額 Price ID (`price_...`) |
 | `FASTAPI_URL` | Yes | `https://shupass-backend-production.up.railway.app` |
 | `INTERNAL_API_JWT_SECRET` | Yes | Next.js から FastAPI への内部呼び出し用 shared secret。32文字以上を推奨 |
+| `CAREER_PRINCIPAL_HMAC_SECRET` | Yes | `X-Career-Principal` ヘッダ署名用 HMAC シークレット（BFF 側）。`INTERNAL_API_JWT_SECRET` とは独立して回転できるよう別管理。32文字以上を推奨。詳細は `docs/security/principal_spec.md` |
 | `CRON_SECRET` | Yes | Cron 認証トークン (hex 32) |
 | `COMPANY_PDF_INGEST_BUCKET` | No | 旧 deferred OCR 用 Storage。遅延 OCR 廃止後は主に互換・掃除用 |
 | `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST URL (`https://xxx.upstash.io`) |
 | `UPSTASH_REDIS_REST_TOKEN` | No | Upstash Redis REST トークン |
+| `DISABLE_TOKEN_LIMIT` | No | `true` で日次トークン上限チェック全体を無効化。緊急バイパス用 |
 
 ## Railway (バックエンド)
 
@@ -50,27 +52,28 @@
 | `MISTRAL_API_KEY` | No | 難しい IR 系 PDF の高精度 OCR 用 API キー |
 | `CORS_ORIGINS` | Yes | `["https://www.shupass.jp","https://shupass.jp"]` |
 | `INTERNAL_API_JWT_SECRET` | Yes | Next.js BFF からの service JWT 検証用 shared secret |
+| `CAREER_PRINCIPAL_HMAC_SECRET` | Yes | `X-Career-Principal` ヘッダ署名検証用 HMAC シークレット（FastAPI 側）。BFF と同値を設定する。詳細は `docs/security/principal_spec.md` |
 | `BACKEND_TRUSTED_HOSTS` | No | 受け付ける Host 名。例: `["shupass-backend-production.up.railway.app","stg-api.shupass.jp","localhost","127.0.0.1"]` |
 | `PORT` | No | Railway が自動注入することが多い。アプリは `${PORT:-8000}` で待受（ローカルは 8000） |
 | `FRONTEND_URL` | No | 任意（ログ出力用）。例: `https://www.shupass.jp` |
 | `CLAUDE_SONNET_MODEL` | No | Claude Sonnet モデル名 (デフォルト: `claude-sonnet-4-6`) |
 | `CLAUDE_HAIKU_MODEL` | No | Claude Haiku モデル名 (デフォルト: `claude-haiku-4-5-20251001`) |
 | `GPT_MODEL` | No | OpenAI 標準モデル名 (デフォルト: `gpt-5.4`) |
-| `GPT_FAST_MODEL` | No | OpenAI 高速モデル名 (デフォルト: `gpt-5.4-mini`) |
+| `GPT_MINI_MODEL` | No | OpenAI mini モデル名 (デフォルト: `gpt-5.4-mini`、旧名 `GPT_FAST_MODEL` も後方互換で有効) |
 | `GPT_NANO_MODEL` | No | OpenAI 最廉価系モデル名 (デフォルト: `gpt-5.4-nano`、選考スケジュール既定で使用) |
 | `LOW_COST_REVIEW_MODEL` | No | ES添削の専用 low-cost repair model (デフォルト: `gpt-5.4-mini`) |
 | `GOOGLE_MODEL` | No | Gemini モデル名 (デフォルト: `gemini-3.1-pro-preview`) |
 | `GOOGLE_BASE_URL` | No | Gemini API ベースURL (デフォルト: `https://generativelanguage.googleapis.com/v1beta`) |
 | `MODEL_ES_REVIEW` | No | ES添削モデルエイリアスまたは明示モデルID。例: `claude-sonnet`, `gpt`, `gemini`, `low-cost`, `gpt-5.4` |
-| `MODEL_GAKUCHIKA` | No | ガクチカ作成モデルティア (デフォルト: `gpt-fast` → GPT-5.4 mini) |
+| `MODEL_GAKUCHIKA` | No | ガクチカ作成モデルティア (デフォルト: `gpt-mini` → GPT-5.4 mini) |
 | `MODEL_GAKUCHIKA_DRAFT` | No | ガクチカ ES 下書き生成 (デフォルト: `claude-sonnet` → Sonnet 4.6) |
-| `MODEL_MOTIVATION` | No | 志望動機作成モデルティア (デフォルト: `gpt-fast` → GPT-5.4 mini) |
+| `MODEL_MOTIVATION` | No | 志望動機作成モデルティア (デフォルト: `gpt-mini` → GPT-5.4 mini) |
 | `MODEL_MOTIVATION_DRAFT` | No | 志望動機 ES 下書き生成 (デフォルト: `claude-sonnet` → Sonnet 4.6) |
-| `MODEL_INTERVIEW` | No | 企業特化模擬面接モデルティア (デフォルト: `gpt-fast` → GPT-5.4 mini) |
-| `MODEL_SELECTION_SCHEDULE` | No | 選考スケジュール抽出モデルティア (デフォルト: `gpt-nano` → GPT-5.4 nano) |
+| `MODEL_INTERVIEW` | No | 企業特化模擬面接モデルティア (デフォルト: `gpt-mini` → GPT-5.4 mini) |
+| `MODEL_SELECTION_SCHEDULE` | No | 選考スケジュール抽出モデルティア (デフォルト: `gpt-mini` → GPT-5.4 mini) |
 | `MODEL_COMPANY_INFO` | No | 企業情報抽出モデルエイリアスまたは明示モデルID (デフォルト: `openai`) |
-| `MODEL_RAG_QUERY_EXPANSION` | No | RAGクエリ拡張 (デフォルト: `gpt-fast` = GPT-5.4 mini) |
-| `MODEL_RAG_HYDE` | No | RAG HyDE (デフォルト: `gpt-fast`) |
+| `MODEL_RAG_QUERY_EXPANSION` | No | RAGクエリ拡張 (デフォルト: `gpt-mini` = GPT-5.4 mini) |
+| `MODEL_RAG_HYDE` | No | RAG HyDE (デフォルト: `gpt-mini`) |
 | `MODEL_RAG_CLASSIFY` | No | RAGコンテンツ分類のみ nano 既定 (デフォルト: `gpt-nano`) |
 | `LLM_USAGE_COST_LOG` | No | `true` で選考スケジュール取得などの LLM トークン集計を FastAPI ログに出す（ユーザー向け UI には出さない） |
 | `OPENAI_PRICE_GPT_5_4_MINI_INPUT_PER_MTOK_USD` | No | ログ用概算 USD: 入力 $/1M tokens（未設定なら est_usd なし） |
@@ -122,7 +125,7 @@
 | `vercel-production.env` | production frontend env sync |
 | `railway-staging.env` | staging backend env sync |
 | `railway-production.env` | production backend env sync |
-| `github-actions.env` | GitHub Actions の `Dependency Review` / `CodeQL` / `Main Release Gate` 用 secrets（`CI_E2E_AUTH_SECRET`, LLM keys など） |
+| `github-actions.env` | GitHub Actions secrets の正本。`Dependency Review` / `CodeQL` / `Main Release Gate` / `AI Live` で使う secrets をここに集約する（`CI_E2E_AUTH_SECRET`, LLM keys, `FIRECRAWL_API_KEY` など） |
 | `supabase.env` | Supabase bootstrap inputs |
 | `cloudflare.env` | `stg-api.shupass.jp` を含む zone bootstrap inputs |
 | `<secrets root>/google-oauth/career_compass.env` | Google OAuth inventory（バンドルと兄弟） |

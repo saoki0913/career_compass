@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { SearchResponse } from "@/lib/search/utils";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 
 const DEBOUNCE_MS = 300;
 
@@ -148,6 +149,7 @@ export function useSearch(options: UseSearchOptions = {}): UseSearchResult {
           "useSearch.executeSearch"
         );
         setError(uiError.message);
+        notifyUserFacingAppError(uiError);
         setResults(null);
       } finally {
         // Only set loading false if this is still the current request

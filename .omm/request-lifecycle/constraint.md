@@ -1,0 +1,1 @@
+Identity must resolve to either a user session or a guest device token. Error payloads are structured, request IDs must remain traceable across services, and success-only consumption rules affect how AI routes commit billing or credits.

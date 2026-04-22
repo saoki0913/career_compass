@@ -7,67 +7,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { applications, companies, deadlines, jobTypes } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
-
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return {
-      userId: session.user.id,
-      guestId: null,
-    };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return {
-        userId: null,
-        guestId: guest.id,
-      };
-    }
-  }
-
-  return null;
-}
-
-async function verifyApplicationAccess(
-  applicationId: string,
-  userId: string | null,
-  guestId: string | null
-): Promise<{ valid: boolean; application?: typeof applications.$inferSelect }> {
-  const [app] = await db
-    .select()
-    .from(applications)
-    .where(eq(applications.id, applicationId))
-    .limit(1);
-
-  if (!app) {
-    return { valid: false };
-  }
-
-  // Verify ownership
-  if (userId && app.userId === userId) {
-    return { valid: true, application: app };
-  }
-  if (guestId && app.guestId === guestId) {
-    return { valid: true, application: app };
-  }
-
-  return { valid: false };
-}
+import { eq } from "drizzle-orm";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getOwnedApplicationRecord } from "@/app/api/_shared/owner-access";
 
 export async function GET(
   request: NextRequest,
@@ -76,7 +20,7 @@ export async function GET(
   try {
     const { id: applicationId } = await params;
 
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return NextResponse.json(
         { error: "Authentication required" },
@@ -84,10 +28,9 @@ export async function GET(
       );
     }
 
-    const { userId, guestId } = identity;
-    const access = await verifyApplicationAccess(applicationId, userId, guestId);
+    const application = await getOwnedApplicationRecord(applicationId, identity);
 
-    if (!access.valid || !access.application) {
+    if (!application) {
       return NextResponse.json(
         { error: "Application not found" },
         { status: 404 }
@@ -98,7 +41,7 @@ export async function GET(
     const [company] = await db
       .select()
       .from(companies)
-      .where(eq(companies.id, access.application.companyId))
+      .where(eq(companies.id, application.companyId))
       .limit(1);
 
     // Get job types
@@ -116,8 +59,8 @@ export async function GET(
 
     return NextResponse.json({
       application: {
-        ...access.application,
-        phase: access.application.phase ? JSON.parse(access.application.phase) : [],
+        ...application,
+        phase: application.phase ? JSON.parse(application.phase) : [],
       },
       company: company
         ? {
@@ -145,7 +88,7 @@ export async function PUT(
   try {
     const { id: applicationId } = await params;
 
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return NextResponse.json(
         { error: "Authentication required" },
@@ -153,10 +96,9 @@ export async function PUT(
       );
     }
 
-    const { userId, guestId } = identity;
-    const access = await verifyApplicationAccess(applicationId, userId, guestId);
+    const existingApp = await getOwnedApplicationRecord(applicationId, identity);
 
-    if (!access.valid) {
+    if (!existingApp) {
       return NextResponse.json(
         { error: "Application not found" },
         { status: 404 }
@@ -226,7 +168,7 @@ export async function DELETE(
   try {
     const { id: applicationId } = await params;
 
-    const identity = await getIdentity(request);
+    const identity = await getRequestIdentity(request);
     if (!identity) {
       return NextResponse.json(
         { error: "Authentication required" },
@@ -234,10 +176,9 @@ export async function DELETE(
       );
     }
 
-    const { userId, guestId } = identity;
-    const access = await verifyApplicationAccess(applicationId, userId, guestId);
+    const appToDelete = await getOwnedApplicationRecord(applicationId, identity);
 
-    if (!access.valid) {
+    if (!appToDelete) {
       return NextResponse.json(
         { error: "Application not found" },
         { status: 404 }

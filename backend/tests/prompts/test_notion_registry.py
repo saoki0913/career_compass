@@ -45,7 +45,7 @@ def test_build_prompt_manifest_filters_inactive_rows_and_preserves_metadata() ->
 def test_build_prompt_manifest_rejects_placeholder_mismatch() -> None:
     from app.prompts.notion_sync import build_prompt_manifest
 
-    with pytest.raises(ValueError, match="variables"):
+    with pytest.raises(ValueError, match="unexpected format placeholders|variables mismatch"):
         build_prompt_manifest(
             [
                 {
@@ -59,6 +59,27 @@ def test_build_prompt_manifest_rejects_placeholder_mismatch() -> None:
                     "code_targets": [],
                 }
             ]
+        )
+
+
+def test_build_prompt_manifest_rejects_unescaped_json_braces() -> None:
+    from app.prompts.notion_sync import build_prompt_manifest
+
+    with pytest.raises(ValueError, match="invalid format template"):
+        build_prompt_manifest(
+            [
+                {
+                    "key": "motivation.question",
+                    "feature": "motivation",
+                    "kind": "constant",
+                    "content": "JSON only\n{\"labels\": [\"候補1\"]}",
+                    "variables": [],
+                    "status": "active",
+                    "version": 1,
+                    "code_targets": [],
+                }
+            ],
+            required_keys={"motivation.question"},
         )
 
 
@@ -110,6 +131,33 @@ def test_prompt_registry_reads_generated_file_and_falls_back(tmp_path: Path, mon
     assert prompt.content == "managed {conversation}"
     assert prompt.version == 7
     assert notion_registry.get_managed_prompt_content("missing.key", fallback="fallback") == "fallback"
+
+
+def test_prompt_registry_rejects_invalid_format_template(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.prompts import notion_registry
+
+    generated_path = tmp_path / "notion_prompts.json"
+    generated_path.write_text(
+        json.dumps(
+            {
+                "motivation.suggestion_rewrite": {
+                    "feature": "motivation",
+                    "kind": "constant",
+                    "content": "JSON only\n{\"labels\": [\"候補1\"]}",
+                    "variables": [],
+                    "version": 1,
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(notion_registry, "GENERATED_PROMPTS_PATH", generated_path)
+    notion_registry.reset_managed_prompt_cache()
+
+    with pytest.raises(ValueError, match="invalid format template"):
+        notion_registry.load_managed_prompts(force_reload=True)
 
 
 def test_motivation_prompts_use_generated_registry_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

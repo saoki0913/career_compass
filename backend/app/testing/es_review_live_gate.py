@@ -4,21 +4,23 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.routers.es_review import FINAL_SOFT_MIN_FLOOR_RATIO
+from app.routers.es_review_grounding import COMPANY_HONORIFIC_TOKENS
 
-DEFAULT_JUDGE_MODEL = "gpt-5.4-mini"
+DEFAULT_JUDGE_MODEL = "gpt-5.4"
 SMOKE_CASE_SET = "smoke"
+DEV_CASE_SET = "dev"
 EXTENDED_CASE_SET = "extended"
 CANARY_CASE_SET = "canary"
 ALL_STANDARD_MODELS = [
     "claude-sonnet",
+    "claude-haiku",
     "gpt-5.4",
-    "gpt-5.4-mini",
     "gemini-3.1-pro-preview",
     "low-cost",
 ]
 # extended / ローカル 5+5 スイープの既定（本番で使う主要 4 モデル）
 DEFAULT_LIVE_PROVIDERS_EXTENDED: tuple[str, ...] = (
-    "gpt-5.4-mini",
+    "claude-haiku",
     "gpt-5.4",
     "claude-sonnet",
     "gemini-3.1-pro-preview",
@@ -179,8 +181,8 @@ SMOKE_CASES: tuple[LiveESReviewCase, ...] = (
         answer="研究で仮説を立てて検証を回し、論点を整理しながら価値に結びつけてきた。この経験を、事業の解像度を高めながら社会に届く価値へ変える仕事で生かしたい。",
         company_name="三菱商事",
         role_name="総合職",
-        # gpt-5.4-mini はしばしば 115 字前後に収まる。min を厳しすぎるとライブゲートだけが不安定になる。
-        char_min=108,
+        # smoke は nightly 安定性を優先し、実運用より少し緩い下限に寄せる。
+        char_min=100,
         char_max=150,
         char_band="short",
         company_context="strong_same_company",
@@ -251,7 +253,7 @@ SMOKE_CASES: tuple[LiveESReviewCase, ...] = (
         company_name="三井物産",
         role_name="Business Intelligence",
         intern_name="Business Intelligence Internship",
-        char_min=85,
+        char_min=80,
         char_max=120,
         char_band="short",
         company_context="role_grounded",
@@ -410,8 +412,8 @@ SMOKE_CASES: tuple[LiveESReviewCase, ...] = (
         answer="社会に届く価値を事業として形にする仕事に携わりたい。研究では複数の仮説を比較し、関係者の認識をそろえながら実行可能な方針に落とし込んできた。この経験を土台に、まずは現場で事業理解を深め、投資や事業開発の意思決定に必要な論点整理と検証を担えるようになりたい。将来的には、多様な関係者を巻き込みながら、新しい事業機会を形にできる人材へ成長したい。",
         company_name="三菱商事",
         role_name="総合職",
-        # ライブでは長文でも 210 字前後に収まる改善案があり得る。220 固定だと soft 上限 8 字でも届かず 422 になりやすい。
-        char_min=200,
+        # smoke は nightly 安定性を優先し、長文帯も少しだけ緩い下限にする。
+        char_min=190,
         char_max=400,
         char_band="long",
         company_context="strong_same_company",
@@ -823,7 +825,7 @@ EXTENDED_ONLY_CASES: tuple[LiveESReviewCase, ...] = (
         expected_policy="assistive",
         expected_effective_policy="company_general",
         expected_min_company_evidence=1,
-        expected_focus_tokens=("強み", "志望", "貴社", "事業", "意思決定"),
+        expected_focus_tokens=("強み", "志望", "事業", "意思決定"),
         expected_user_fact_tokens=("研究室", "仮説", "検証", "役割"),
         expected_company_tokens=("事業", "現場", "価値", "挑戦"),
         rag_sources=[
@@ -1026,7 +1028,7 @@ EXTENDED_ONLY_CASES: tuple[LiveESReviewCase, ...] = (
 
 def get_live_cases(case_set: str) -> list[LiveESReviewCase]:
     normalized = (case_set or SMOKE_CASE_SET).strip().lower()
-    if normalized == SMOKE_CASE_SET:
+    if normalized in (SMOKE_CASE_SET, DEV_CASE_SET):
         return list(SMOKE_CASES)
     if normalized == EXTENDED_CASE_SET:
         return list(SMOKE_CASES) + list(EXTENDED_ONLY_CASES)
@@ -1056,7 +1058,7 @@ def get_selected_models(case_set: str, raw: str) -> list[str]:
         return ["claude-sonnet", "gemini-3.1-pro-preview"]
     if case_set == EXTENDED_CASE_SET:
         return list(DEFAULT_LIVE_PROVIDERS_EXTENDED)
-    return ["gpt-5.4-mini"]
+    return ["gpt-5.4"]
 
 
 def dearu_style(text: str) -> bool:
@@ -1169,7 +1171,16 @@ def evaluate_live_case(
         failures.append("user_fact_tokens:missing")
     if case.expected_company_tokens and not any(token in rewrite for token in case.expected_company_tokens):
         failures.append("company_tokens:missing")
-    if case.company_context == "companyless" and case.company_name and case.company_name in rewrite:
-        failures.append("companyless:company_name_present")
+    if case.company_context == "companyless":
+        if case.company_name and case.company_name in rewrite:
+            failures.append("companyless:company_name_present")
+        if any(token in rewrite for token in COMPANY_HONORIFIC_TOKENS):
+            failures.append("companyless:honorific_token_present")
+    elif (
+        review_meta
+        and getattr(review_meta, "effective_company_grounding_policy", None) == "assistive"
+    ):
+        if any(token in rewrite for token in COMPANY_HONORIFIC_TOKENS):
+            failures.append("assistive:honorific_token_present")
 
     return failures

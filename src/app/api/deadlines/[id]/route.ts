@@ -7,13 +7,18 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
 import { db } from "@/lib/db";
 import { deadlines, companies, tasks } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
-import { enqueueDeadlineDelete, enqueueDeadlineSync } from "@/lib/calendar/sync";
+import {
+  syncDeadlineDeleteImmediately,
+  syncDeadlineImmediately,
+  type ImmediateSyncResult,
+} from "@/lib/calendar/sync";
+import { generateTasksForDeadline } from "@/lib/server/task-generation";
 
 type DeadlineType =
   | "es_submission"
@@ -53,141 +58,145 @@ interface UpdateDeadlineBody {
   completedAt?: string | null;
 }
 
-async function verifyDeadlineAccess(
+type RouteParams = { params: Promise<{ id: string }> };
+
+async function verifyDeadlineOwnership(
   deadlineId: string,
-  request: NextRequest
-): Promise<{
-  valid: boolean;
-  error?: string;
-  deadline?: typeof deadlines.$inferSelect;
-  }> {
-  // Get the deadline first
+  identity: { userId: string | null; guestId: string | null },
+) {
   const [deadline] = await db
     .select()
     .from(deadlines)
     .where(eq(deadlines.id, deadlineId))
     .limit(1);
 
-  if (!deadline) {
-    return { valid: false, error: "Deadline not found" };
-  }
+  if (!deadline) return null;
 
-  // Try authenticated session first
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  const ownerCondition = identity.userId
+    ? eq(companies.userId, identity.userId)
+    : identity.guestId
+      ? eq(companies.guestId, identity.guestId)
+      : null;
 
-  if (session?.user?.id) {
-    // Check if the deadline's company belongs to user
-    const [company] = await db
-      .select()
-      .from(companies)
-      .where(
-        and(eq(companies.id, deadline.companyId), eq(companies.userId, session.user.id))
-      )
-      .limit(1);
+  if (!ownerCondition) return null;
 
-    if (!company) {
-      return { valid: false, error: "Deadline not found" };
-    }
-    return { valid: true, deadline };
-  }
+  const [company] = await db
+    .select({ id: companies.id })
+    .from(companies)
+    .where(and(eq(companies.id, deadline.companyId), ownerCondition))
+    .limit(1);
 
-  // Try guest token
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      const [company] = await db
-        .select()
-        .from(companies)
-        .where(
-          and(eq(companies.id, deadline.companyId), eq(companies.guestId, guest.id))
-        )
-        .limit(1);
-
-      if (!company) {
-        return { valid: false, error: "Deadline not found" };
-      }
-      return { valid: true, deadline };
-    }
-  }
-
-  return { valid: false, error: "Authentication required" };
+  return company ? deadline : null;
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
+  const timing = createServerTimingRecorder();
   try {
     const { id: deadlineId } = await params;
+    const identity = await timing.measure("identity", () => getRequestIdentity(request));
 
-    const access = await verifyDeadlineAccess(deadlineId, request);
-    if (!access.valid) {
-      return NextResponse.json(
-        { error: access.error },
-        { status: access.error === "Authentication required" ? 401 : 404 }
-      );
+    if (!identity?.userId && !identity?.guestId) {
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "DEADLINE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        retryable: true,
+        logContext: "deadline-get-auth",
+      });
     }
 
-    const d = access.deadline!;
-
-    return NextResponse.json({
-      id: d.id,
-      companyId: d.companyId,
-      type: d.type,
-      title: d.title,
-      description: d.description,
-      memo: d.memo,
-      dueDate: d.dueDate?.toISOString(),
-      isConfirmed: d.isConfirmed,
-      confidence: d.confidence,
-      sourceUrl: d.sourceUrl,
-      completedAt: d.completedAt?.toISOString() || null,
-      createdAt: d.createdAt?.toISOString(),
-      updatedAt: d.updatedAt?.toISOString(),
-    });
-  } catch (error) {
-    console.error("Error getting deadline:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
+    const deadline = await timing.measure("db", () =>
+      verifyDeadlineOwnership(deadlineId, identity),
     );
+
+    if (!deadline) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DEADLINE_NOT_FOUND",
+        userMessage: "締切が見つかりませんでした。",
+        logContext: "deadline-get-not-found",
+      });
+    }
+
+    return timing.apply(
+      NextResponse.json({
+        id: deadline.id,
+        companyId: deadline.companyId,
+        type: deadline.type,
+        title: deadline.title,
+        description: deadline.description,
+        memo: deadline.memo,
+        dueDate: deadline.dueDate?.toISOString(),
+        isConfirmed: deadline.isConfirmed,
+        confidence: deadline.confidence,
+        sourceUrl: deadline.sourceUrl,
+        completedAt: deadline.completedAt?.toISOString() || null,
+        createdAt: deadline.createdAt?.toISOString(),
+        updatedAt: deadline.updatedAt?.toISOString(),
+      }),
+    );
+  } catch (error) {
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "DEADLINE_GET_FAILED",
+      userMessage: "締切の取得に失敗しました。",
+      action: "ページを再読み込みしてください。",
+      retryable: true,
+      error,
+      logContext: "deadline-get",
+    });
   }
 }
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PUT(request: NextRequest, { params }: RouteParams) {
+  const timing = createServerTimingRecorder();
   try {
     const { id: deadlineId } = await params;
+    const identity = await timing.measure("identity", () => getRequestIdentity(request));
 
-    const access = await verifyDeadlineAccess(deadlineId, request);
-    if (!access.valid) {
-      return NextResponse.json(
-        { error: access.error },
-        { status: access.error === "Authentication required" ? 401 : 404 }
-      );
+    if (!identity?.userId && !identity?.guestId) {
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "DEADLINE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        retryable: true,
+        logContext: "deadline-put-auth",
+      });
+    }
+
+    const currentDeadline = await timing.measure("db-verify", () =>
+      verifyDeadlineOwnership(deadlineId, identity),
+    );
+
+    if (!currentDeadline) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DEADLINE_NOT_FOUND",
+        userMessage: "締切が見つかりませんでした。",
+        logContext: "deadline-put-not-found",
+      });
     }
 
     const body: UpdateDeadlineBody = await request.json();
 
     // Validate type if provided
     if (body.type && !VALID_TYPES.includes(body.type)) {
-      return NextResponse.json(
-        { error: "Invalid deadline type" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "DEADLINE_INVALID_TYPE",
+        userMessage: "無効な締切タイプです。",
+        logContext: "deadline-put-invalid-type",
+      });
     }
 
     // Validate title if provided
     if (body.title !== undefined && !body.title.trim()) {
-      return NextResponse.json(
-        { error: "Title cannot be empty" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "DEADLINE_EMPTY_TITLE",
+        userMessage: "タイトルを入力してください。",
+        logContext: "deadline-put-empty-title",
+      });
     }
 
     // Validate dueDate if provided
@@ -195,15 +204,17 @@ export async function PUT(
     if (body.dueDate) {
       dueDate = new Date(body.dueDate);
       if (isNaN(dueDate.getTime())) {
-        return NextResponse.json(
-          { error: "Invalid due date format" },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "DEADLINE_INVALID_DATE",
+          userMessage: "無効な日付です。",
+          logContext: "deadline-put-invalid-date",
+        });
       }
 
       // All-day deadline rule: if time is 00:00:00, set to 12:00 JST (03:00 UTC)
       if (dueDate.getUTCHours() === 0 && dueDate.getUTCMinutes() === 0 && dueDate.getUTCSeconds() === 0) {
-        dueDate.setUTCHours(3, 0, 0, 0); // 12:00 JST = 03:00 UTC
+        dueDate.setUTCHours(3, 0, 0, 0);
       }
     }
 
@@ -215,141 +226,83 @@ export async function PUT(
       } else {
         completedAt = new Date(body.completedAt);
         if (isNaN(completedAt.getTime())) {
-          return NextResponse.json(
-            { error: "Invalid completedAt date format" },
-            { status: 400 }
-          );
+          return createApiErrorResponse(request, {
+            status: 400,
+            code: "DEADLINE_INVALID_COMPLETED_DATE",
+            userMessage: "無効な完了日です。",
+            logContext: "deadline-put-invalid-completed-date",
+          });
         }
       }
     }
 
     const now = new Date();
-    const currentDeadline = access.deadline!;
 
     // Handle submission-linked task completion
     let autoCompletedTaskIds: string[] = [];
 
     // If marking as completed (completedAt is being set)
     if (completedAt && !currentDeadline.completedAt) {
-      // Find all open tasks linked to this deadline
       const openTasks = await db
         .select()
         .from(tasks)
         .where(
           and(
             eq(tasks.deadlineId, deadlineId),
-            eq(tasks.status, "open")
-          )
+            eq(tasks.status, "open"),
+          ),
         );
 
       if (openTasks.length > 0) {
-        // Mark all open tasks as done
-        const taskIds = openTasks.map(t => t.id);
+        const taskIds = openTasks.map((t) => t.id);
         await db
           .update(tasks)
-          .set({
-            status: "done",
-            completedAt: now,
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(tasks.deadlineId, deadlineId),
-              eq(tasks.status, "open")
-            )
-          );
+          .set({ status: "done", completedAt: now, updatedAt: now })
+          .where(and(eq(tasks.deadlineId, deadlineId), eq(tasks.status, "open")));
 
         autoCompletedTaskIds = taskIds;
       }
     }
     // If unmarking as completed (completedAt is being unset)
     else if (completedAt === null && currentDeadline.completedAt) {
-      // Parse the stored auto-completed task IDs
-      const storedTaskIds = currentDeadline.autoCompletedTaskIds
+      const storedTaskIds: string[] = currentDeadline.autoCompletedTaskIds
         ? JSON.parse(currentDeadline.autoCompletedTaskIds)
         : [];
 
       if (storedTaskIds.length > 0) {
-        // Revert only the tasks that were auto-completed
         await db
           .update(tasks)
-          .set({
-            status: "open",
-            completedAt: null,
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(tasks.deadlineId, deadlineId),
-              eq(tasks.status, "done")
-            )
-          );
+          .set({ status: "open", completedAt: null, updatedAt: now })
+          .where(and(eq(tasks.deadlineId, deadlineId), eq(tasks.status, "done")));
       }
     }
 
     // Build update object
-    const updateData: Record<string, unknown> = {
-      updatedAt: now,
-    };
+    const updateData: Record<string, unknown> = { updatedAt: now };
 
     if (body.type) updateData.type = body.type;
     if (body.title !== undefined) updateData.title = body.title.trim();
-    if (body.description !== undefined)
-      updateData.description = body.description?.trim() || null;
+    if (body.description !== undefined) updateData.description = body.description?.trim() || null;
     if (body.memo !== undefined) updateData.memo = body.memo?.trim() || null;
     if (dueDate) updateData.dueDate = dueDate;
-    if (body.sourceUrl !== undefined)
-      updateData.sourceUrl = body.sourceUrl?.trim() || null;
+    if (body.sourceUrl !== undefined) updateData.sourceUrl = body.sourceUrl?.trim() || null;
     if (body.isConfirmed !== undefined) updateData.isConfirmed = body.isConfirmed;
 
-    // Auto-create standard tasks when deadline is approved (isConfirmed: false → true)
+    // Auto-create tasks from templates when deadline is approved (isConfirmed: false → true)
     if (body.isConfirmed === true && !currentDeadline.isConfirmed) {
-      const sessionForTasks = await auth.api.getSession({
-        headers: await headers(),
+      await generateTasksForDeadline({
+        deadlineId,
+        deadlineType: currentDeadline.type,
+        deadlineDueDate: dueDate ?? currentDeadline.dueDate,
+        companyId: currentDeadline.companyId,
+        applicationId: currentDeadline.applicationId,
+        userId: identity.userId,
+        guestId: identity.guestId,
       });
-      let taskUserId: string | null = null;
-      let taskGuestId: string | null = null;
-      if (sessionForTasks?.user?.id) {
-        taskUserId = sessionForTasks.user.id;
-      } else {
-        const deviceToken = request.headers.get("x-device-token");
-        if (deviceToken) {
-          const guest = await getGuestUser(deviceToken);
-          if (guest) {
-            taskGuestId = guest.id;
-          }
-        }
-      }
-
-      const standardTasks = [
-        { title: "ES作成", type: "es" as const, sortOrder: 0 },
-        { title: "提出物準備", type: "other" as const, sortOrder: 1 },
-        { title: "提出", type: "other" as const, sortOrder: 2 },
-      ];
-
-      await db.insert(tasks).values(
-        standardTasks.map((task) => ({
-          id: crypto.randomUUID(),
-          userId: taskUserId,
-          guestId: taskGuestId,
-          companyId: currentDeadline.companyId,
-          applicationId: currentDeadline.applicationId,
-          deadlineId: deadlineId,
-          title: task.title,
-          type: task.type,
-          status: "open" as const,
-          isAutoGenerated: true,
-          sortOrder: task.sortOrder,
-          dueDate: currentDeadline.dueDate,
-          createdAt: now,
-          updatedAt: now,
-        }))
-      );
     }
 
     if (completedAt !== undefined) {
       updateData.completedAt = completedAt;
-      // Update autoCompletedTaskIds when marking complete or clearing it when unmarking
       if (completedAt) {
         updateData.autoCompletedTaskIds = JSON.stringify(autoCompletedTaskIds);
       } else {
@@ -364,76 +317,96 @@ export async function PUT(
       .returning();
 
     const d = updated[0];
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
 
-    if (session?.user?.id) {
-      await enqueueDeadlineSync(session.user.id, deadlineId);
+    let calendarSync: ImmediateSyncResult | undefined;
+    if (identity.userId) {
+      calendarSync = await syncDeadlineImmediately(identity.userId, deadlineId);
     }
 
-    return NextResponse.json({
-      success: true,
-      deadline: {
-        id: d.id,
-        companyId: d.companyId,
-        type: d.type,
-        title: d.title,
-        description: d.description,
-        memo: d.memo,
-        dueDate: d.dueDate?.toISOString(),
-        isConfirmed: d.isConfirmed,
-        confidence: d.confidence,
-        sourceUrl: d.sourceUrl,
-        googleSyncStatus: d.googleSyncStatus,
-        googleSyncError: d.googleSyncError,
-        completedAt: d.completedAt?.toISOString() || null,
-        createdAt: d.createdAt?.toISOString(),
-        updatedAt: d.updatedAt?.toISOString(),
-      },
-    });
-  } catch (error) {
-    console.error("Error updating deadline:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
+    return timing.apply(
+      NextResponse.json({
+        success: true,
+        calendarSync,
+        deadline: {
+          id: d.id,
+          companyId: d.companyId,
+          type: d.type,
+          title: d.title,
+          description: d.description,
+          memo: d.memo,
+          dueDate: d.dueDate?.toISOString(),
+          isConfirmed: d.isConfirmed,
+          confidence: d.confidence,
+          sourceUrl: d.sourceUrl,
+          googleSyncStatus: d.googleSyncStatus,
+          googleSyncError: d.googleSyncError,
+          completedAt: d.completedAt?.toISOString() || null,
+          createdAt: d.createdAt?.toISOString(),
+          updatedAt: d.updatedAt?.toISOString(),
+        },
+      }),
     );
+  } catch (error) {
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "DEADLINE_UPDATE_FAILED",
+      userMessage: "締切の更新に失敗しました。",
+      action: "ページを再読み込みしてください。",
+      retryable: true,
+      error,
+      logContext: "deadline-put",
+    });
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  const timing = createServerTimingRecorder();
   try {
     const { id: deadlineId } = await params;
+    const identity = await timing.measure("identity", () => getRequestIdentity(request));
 
-    const access = await verifyDeadlineAccess(deadlineId, request);
-    if (!access.valid) {
-      return NextResponse.json(
-        { error: access.error },
-        { status: access.error === "Authentication required" ? 401 : 404 }
-      );
+    if (!identity?.userId && !identity?.guestId) {
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "DEADLINE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        retryable: true,
+        logContext: "deadline-delete-auth",
+      });
     }
 
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-    if (session?.user?.id) {
-      await enqueueDeadlineDelete(session.user.id, deadlineId);
+    const deadline = await timing.measure("db-verify", () =>
+      verifyDeadlineOwnership(deadlineId, identity),
+    );
+
+    if (!deadline) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DEADLINE_NOT_FOUND",
+        userMessage: "締切が見つかりませんでした。",
+        logContext: "deadline-delete-not-found",
+      });
+    }
+
+    let calendarSync: ImmediateSyncResult | undefined;
+    if (identity.userId) {
+      calendarSync = await syncDeadlineDeleteImmediately(identity.userId, deadlineId);
     }
 
     await db.delete(deadlines).where(eq(deadlines.id, deadlineId));
 
-    return NextResponse.json({
-      success: true,
-      message: "Deadline deleted",
-    });
-  } catch (error) {
-    console.error("Error deleting deadline:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
+    return timing.apply(
+      NextResponse.json({ success: true, message: "Deadline deleted", calendarSync }),
     );
+  } catch (error) {
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "DEADLINE_DELETE_FAILED",
+      userMessage: "締切の削除に失敗しました。",
+      action: "ページを再読み込みしてください。",
+      retryable: true,
+      error,
+      logContext: "deadline-delete",
+    });
   }
 }

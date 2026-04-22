@@ -36,7 +36,7 @@ function getSnapshotLg() {
   return window.matchMedia(LG_MEDIA).matches;
 }
 function getServerSnapshotLg() {
-  return true;
+  return false;
 }
 function useIsDesktop() {
   return useSyncExternalStore(subscribeLg, getSnapshotLg, getServerSnapshotLg);
@@ -951,7 +951,7 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
         {/* Editor Panel */}
         <div
           className={cn(
-            "flex-1 overflow-y-auto transition-all duration-300 print:overflow-visible print:max-h-none print:min-h-0 print:h-auto print:w-full print:max-w-none",
+            "flex-1 overflow-y-auto pb-mobile-tab transition-all duration-300 print:overflow-visible print:max-h-none print:min-h-0 print:h-auto print:w-full print:max-w-none print:pb-0",
             isDesktop && showReviewPanel ? "w-[55%]" : "w-full"
           )}
         >

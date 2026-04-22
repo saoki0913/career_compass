@@ -171,9 +171,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      # Staging guest bootstrap can intermittently 500; do not block develop→main promotion.
       - run: bash scripts/ci/run-main-e2e.sh regression
-        continue-on-error: true
+        env:
+          PLAYWRIGHT_RETRIES: "2"
 
   ai-live-smoke:
     needs: source-branch
@@ -196,7 +196,8 @@ jobs:
       - id: scope
         run: |
           changed_files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")"
-          echo "$changed_files" | grep -E '^(backend/app/prompts/|backend/app/routers/es_review\.py|backend/app/testing/es_review_live_gate\.py|backend/app/utils/llm\.py|backend/tests/es_review/|e2e/live-ai-major\.spec\.ts|scripts/ci/run-ai-live-smoke\.sh)' >/dev/null \
+          # Patterns aligned with src/lib/e2e-functional-features.mjs es-review + shared triggers
+          echo "$changed_files" | grep -E '^(backend/app/prompts/|backend/app/routers/es_review[^/]*\.py|backend/app/testing/es_review_live_gate\.py|backend/app/utils/llm[^/]*\.py|backend/tests/es_review/|e2e/live-ai-.*\.spec\.ts|scripts/ci/run-ai-live|scripts/ci/run-e2e-functional\.sh|playwright\.live\.config\.ts)' >/dev/null \
             && echo "run=true" >> "$GITHUB_OUTPUT" \
             || echo "run=false" >> "$GITHUB_OUTPUT"
       - name: Skip when AI-sensitive files did not change
@@ -221,12 +222,115 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         env:
           RUN_AI_LIVE_SMOKE: "1"
-        # Live LLM smoke is quality-gated; provider output can drift slightly from char bands.
         run: bash scripts/ci/run-ai-live-smoke.sh
-        continue-on-error: true
       - name: Upload live smoke report
         if: always() && steps.scope.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ai-live-smoke-report
           path: backend/tests/output/live_es_review_smoke_*
+
+  e2e-functional-scope:
+    needs: source-branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      should_run: ${{ steps.resolve.outputs.e2e_functional_should_run }}
+      features_json: ${{ steps.resolve.outputs.e2e_functional_features_json }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - id: resolve
+        run: node tools/resolve-e2e-functional-scope.mjs --github-output >> "$GITHUB_OUTPUT"
+
+  e2e-functional:
+    needs: [staging-ready, e2e-functional-scope]
+    if: needs.e2e-functional-scope.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: staging
+    env:
+      PLAYWRIGHT_BASE_URL: https://stg.shupass.jp
+      PLAYWRIGHT_SKIP_WEBSERVER: "1"
+      CI_E2E_AUTH_SECRET: ${{ secrets.CI_E2E_AUTH_SECRET }}
+      CI_E2E_SCOPE: e2e-functional-${{ github.run_id }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+      LIVE_AI_CONVERSATION_CASE_SET: smoke
+      LIVE_AI_CONVERSATION_BLOCKING_FAILURES: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Preflight CI E2E auth
+        run: node scripts/ci/check-ai-live-auth.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Reset AI live state
+        run: node scripts/ci/reset-ai-live-state.mjs --base-url "${{ env.PLAYWRIGHT_BASE_URL }}"
+      - name: Run AI functional smoke
+        run: bash scripts/ci/run-e2e-functional.sh --features "${{ join(fromJson(needs.e2e-functional-scope.outputs.features_json), ',') }}" --suite smoke
+      - name: Upload AI functional artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-functional-artifacts
+          path: |
+            playwright-report/**
+            backend/tests/output/**
+
+  migration-safety:
+    needs: source-branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for destructive migration operations
+        run: |
+          changed_sql="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" -- 'drizzle_pg/*.sql' 'supabase/migrations/*.sql')"
+          if [ -z "$changed_sql" ]; then
+            echo "No migration files changed."
+            exit 0
+          fi
+          echo "Changed migration files:"
+          echo "$changed_sql"
+          echo ""
+          errors=0
+          for f in $changed_sql; do
+            if [ ! -f "$f" ]; then
+              continue
+            fi
+            destructive="$(grep -inE '^\s*(DROP\s+TABLE|DROP\s+COLUMN|DELETE\s+FROM|TRUNCATE|ALTER\s+TABLE\s+.*DROP\s+COLUMN)' "$f" || true)"
+            if [ -n "$destructive" ]; then
+              echo "::error file=$f::Destructive operation detected in migration:"
+              echo "$destructive"
+              errors=$((errors + 1))
+            fi
+          done
+          if [ "$errors" -gt 0 ]; then
+            echo ""
+            echo "::error::$errors migration file(s) contain destructive operations (DROP TABLE, DELETE, TRUNCATE, ALTER TABLE DROP COLUMN)."
+            echo "These operations can cause data loss in production. If intentional, add a comment '-- DESTRUCTIVE: <reason>' to acknowledge."
+            exit 1
+          fi
+          echo "All migration files are safe."

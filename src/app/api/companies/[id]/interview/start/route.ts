@@ -1,22 +1,37 @@
 import { NextRequest } from "next/server";
 
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { DEFAULT_INTERVIEW_SESSION_CREDIT_COST } from "@/lib/credits";
-import { createInitialInterviewTurnState, getInterviewStageStatus } from "@/lib/interview/session";
+import { CONVERSATION_CREDITS_PER_TURN, consumeCredits, DEFAULT_INTERVIEW_SESSION_CREDIT_COST, hasEnoughCredits } from "@/lib/credits";
+import {
+  classifyInterviewRoleTrack,
+  INTERVIEW_STAGE_OPTIONS,
+  parseInterviewFormatParam,
+  INTERVIEWER_TYPE_OPTIONS,
+  SELECTION_TYPE_OPTIONS,
+  STRICTNESS_MODE_OPTIONS,
+  createInitialInterviewTurnState,
+  getInterviewStageStatus,
+  normalizeInterviewTurnMeta,
+  type InterviewPlan,
+  type InterviewTurnMeta,
+} from "@/lib/interview/session";
 
 import {
   buildInterviewContext,
   ensureInterviewConversation,
+  normalizeInterviewPlanValue,
+  resetInterviewConversation,
   saveInterviewConversationProgress,
+  saveInterviewTurnEvent,
   validateInterviewTurnState,
-} from "../shared";
+} from "..";
 import {
   createInterviewPersistenceUnavailableResponse,
   normalizeInterviewPersistenceError,
 } from "../persistence-errors";
 import {
-  createImmediateInterviewStream,
   createInterviewUpstreamStream,
 } from "../stream-utils";
 
@@ -27,21 +42,37 @@ function buildSeedSummary(materials: Array<{ kind?: string; label: string; text:
     .join("\n");
 }
 
+export function GET(request: NextRequest) {
+  const res = createApiErrorResponse(request, {
+    status: 405,
+    code: "METHOD_NOT_ALLOWED",
+    userMessage: "この操作は POST で送信してください。",
+    action: "ページを再読み込みしてから、もう一度お試しください。",
+    developerMessage: "GET is not supported for /api/companies/[id]/interview/start",
+  });
+  res.headers.set("Allow", "POST");
+  return res;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id: companyId } = await params;
+
   const identity = await getRequestIdentity(request);
-  if (!identity) {
+  if (!identity?.userId) {
     return createApiErrorResponse(request, {
       status: 401,
       code: "INTERVIEW_AUTH_REQUIRED",
-      userMessage: "面接対策を利用するには認証が必要です。",
-      action: "ログイン、またはゲスト状態を確認してから、もう一度お試しください。",
+      userMessage: "ログインが必要です。",
+      action: "ログインしてから、もう一度お試しください。",
     });
   }
 
-  const { id: companyId } = await params;
+  const limitResponse = await guardDailyTokenLimit(identity);
+  if (limitResponse) return limitResponse;
+
   let context;
   try {
     context = await buildInterviewContext(companyId, identity);
@@ -83,6 +114,28 @@ export async function POST(
     typeof body.selectedRoleSource === "string" && body.selectedRoleSource.trim().length > 0
       ? body.selectedRoleSource.trim()
       : context.setup.selectedRoleSource;
+  const roleTrack = classifyInterviewRoleTrack(selectedRole);
+  const interviewFormat = parseInterviewFormatParam((body as { interviewFormat?: string | null }).interviewFormat);
+  const selectionType =
+    typeof (body as { selectionType?: string | null }).selectionType === "string" &&
+    SELECTION_TYPE_OPTIONS.includes((body as { selectionType?: string | null }).selectionType!.trim() as (typeof SELECTION_TYPE_OPTIONS)[number])
+      ? ((body as { selectionType?: string | null }).selectionType!.trim() as (typeof SELECTION_TYPE_OPTIONS)[number])
+      : null;
+  const interviewStage =
+    typeof (body as { interviewStage?: string | null }).interviewStage === "string" &&
+    INTERVIEW_STAGE_OPTIONS.includes((body as { interviewStage?: string | null }).interviewStage!.trim() as (typeof INTERVIEW_STAGE_OPTIONS)[number])
+      ? ((body as { interviewStage?: string | null }).interviewStage!.trim() as (typeof INTERVIEW_STAGE_OPTIONS)[number])
+      : null;
+  const interviewerType =
+    typeof (body as { interviewerType?: string | null }).interviewerType === "string" &&
+    INTERVIEWER_TYPE_OPTIONS.includes((body as { interviewerType?: string | null }).interviewerType!.trim() as (typeof INTERVIEWER_TYPE_OPTIONS)[number])
+      ? ((body as { interviewerType?: string | null }).interviewerType!.trim() as (typeof INTERVIEWER_TYPE_OPTIONS)[number])
+      : null;
+  const strictnessMode =
+    typeof (body as { strictnessMode?: string | null }).strictnessMode === "string" &&
+    STRICTNESS_MODE_OPTIONS.includes((body as { strictnessMode?: string | null }).strictnessMode!.trim() as (typeof STRICTNESS_MODE_OPTIONS)[number])
+      ? ((body as { strictnessMode?: string | null }).strictnessMode!.trim() as (typeof STRICTNESS_MODE_OPTIONS)[number])
+      : null;
 
   if (context.setup.requiresIndustrySelection && !selectedIndustry) {
     return createApiErrorResponse(request, {
@@ -102,12 +155,38 @@ export async function POST(
     });
   }
 
+  if (!interviewFormat || !selectionType || !interviewStage || !interviewerType || !strictnessMode) {
+    return createApiErrorResponse(request, {
+      status: 400,
+      code: "INTERVIEW_SETUP_REQUIRED",
+      userMessage: "面接方式、選考種別、面接段階、面接官タイプ、厳しさを確認してください。",
+      action: "開始前の設定をすべて選択してから、もう一度お試しください。",
+    });
+  }
+
+  if (context.conversation) {
+    await resetInterviewConversation(companyId, identity);
+    context = {
+      ...context,
+      conversation: null,
+    };
+  }
+
   let conversation;
   try {
     conversation = await ensureInterviewConversation(companyId, identity, {
       selectedIndustry,
       selectedRole,
       selectedRoleSource,
+      resolvedIndustry: context.setup.resolvedIndustry,
+      requiresIndustrySelection: context.setup.requiresIndustrySelection,
+      industryOptions: context.setup.industryOptions,
+      roleTrack,
+      interviewFormat,
+      selectionType,
+      interviewStage,
+      interviewerType,
+      strictnessMode,
     });
   } catch (error) {
     const persistenceError = normalizeInterviewPersistenceError(error, {
@@ -120,33 +199,38 @@ export async function POST(
     throw error;
   }
 
-  if (context.conversation && context.conversation.messages.length > 0) {
-    return createImmediateInterviewStream({
-      messages: context.conversation.messages,
-      questionCount: context.conversation.questionCount,
-      stageStatus: context.conversation.stageStatus,
-      questionStage: context.conversation.questionStage,
-      focus: context.conversation.turnState.lastQuestionFocus,
-      feedback: context.conversation.feedback,
-      questionFlowCompleted: context.conversation.questionFlowCompleted,
-      creditCost: DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
-      turnState: context.conversation.turnState,
-      feedbackHistories: context.feedbackHistories,
+  const canPay = await hasEnoughCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN);
+  if (!canPay) {
+    return createApiErrorResponse(request, {
+      status: 402,
+      code: "INTERVIEW_INSUFFICIENT_CREDITS",
+      userMessage: "クレジットが不足しています。",
+      action: "プランをアップグレードするか、クレジットが補充されるまでお待ちください。",
     });
   }
 
   return createInterviewUpstreamStream({
     request,
+    identity,
+    companyId,
     upstreamPath: "/api/interview/start",
     upstreamPayload: {
       company_name: context.company.name,
       company_summary: context.companySummary,
       motivation_summary: context.motivationSummary,
       gakuchika_summary: context.gakuchikaSummary,
+      academic_summary: context.academicSummary,
+      research_summary: context.researchSummary,
       es_summary: context.esSummary,
       selected_industry: selectedIndustry,
       selected_role: selectedRole,
       selected_role_source: selectedRoleSource,
+      role_track: roleTrack,
+      interview_format: interviewFormat,
+      selection_type: selectionType,
+      interview_stage: interviewStage,
+      interviewer_type: interviewerType,
+      strictness_mode: strictnessMode,
       seed_summary: buildSeedSummary(context.materials),
     },
     onComplete: async (upstreamData) => {
@@ -164,6 +248,8 @@ export async function POST(
         validateInterviewTurnState(upstreamData.turn_state ?? null) ??
         context.conversation?.turnState ??
         createInitialInterviewTurnState();
+      const turnMeta: InterviewTurnMeta | null = normalizeInterviewTurnMeta(upstreamData.turn_meta ?? null);
+      const plan: InterviewPlan | null = normalizeInterviewPlanValue(upstreamData.interview_plan ?? null);
 
       await saveInterviewConversationProgress({
         conversationId: conversation.id,
@@ -171,21 +257,54 @@ export async function POST(
         messages,
         turnState: turnStateToPersist,
         status: "in_progress",
+        turnMeta,
+        plan,
       });
+      await saveInterviewTurnEvent({
+        conversationId: conversation.id,
+        companyId,
+        identity,
+        turnId:
+          turnStateToPersist.recentQuestionSummariesV2.at(-1)?.turnId ??
+          `turn-${turnStateToPersist.turnCount || 1}`,
+        question,
+        answer: "",
+        questionType: "opening",
+        turnState: turnStateToPersist,
+        turnMeta,
+        versionMetadata: {
+          promptVersion: upstreamData.prompt_version ?? null,
+          followupPolicyVersion: upstreamData.followup_policy_version ?? null,
+          caseSeedVersion: upstreamData.case_seed_version ?? null,
+        },
+      });
+
+      await consumeCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN, "interview", companyId);
 
       return {
         messages,
-        questionCount: turnStateToPersist.totalQuestionCount,
-        stageStatus: upstreamData.stage_status ?? getInterviewStageStatus(turnStateToPersist.currentStage),
-        questionStage: turnStateToPersist.currentStage,
+        questionCount: turnStateToPersist.turnCount,
+        stageStatus:
+          upstreamData.stage_status ??
+          getInterviewStageStatus({
+            currentTopicLabel: turnMeta?.interviewSetupNote ?? turnStateToPersist.currentTopic,
+            coveredTopics: turnStateToPersist.coveredTopics,
+            remainingTopics: turnStateToPersist.remainingTopics,
+          }),
+        questionStage:
+          typeof upstreamData.question_stage === "string" && upstreamData.question_stage.length > 0
+            ? upstreamData.question_stage
+            : turnStateToPersist.currentTopic,
         focus:
           typeof upstreamData.focus === "string" && upstreamData.focus.trim().length > 0
             ? upstreamData.focus.trim()
-            : turnStateToPersist.lastQuestionFocus,
+            : turnMeta?.topic ?? turnStateToPersist.currentTopic,
         feedback: null,
         questionFlowCompleted: false,
         creditCost: DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
         turnState: turnStateToPersist,
+        turnMeta,
+        plan,
         transitionLine,
         feedbackHistories: context.feedbackHistories,
       };

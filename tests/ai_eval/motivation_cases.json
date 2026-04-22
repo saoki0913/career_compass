@@ -2,6 +2,7 @@
   {
     "id": "motivation_company_reason",
     "suiteDepth": "smoke",
+    "usesCompanyContext": true,
     "title": "DX 推進の会社で企画職を志望するケース",
     "companyName": "株式会社テストDX",
     "industry": "IT・通信",
@@ -17,8 +18,27 @@
     "expectedDraftTokens": ["業務改革", "企画", "顧客課題"]
   },
   {
+    "id": "motivation_bank_trust",
+    "suiteDepth": "smoke",
+    "usesCompanyContext": true,
+    "title": "銀行の法人営業で顧客信頼を重視するケース",
+    "companyName": "株式会社テスト銀行",
+    "industry": "銀行",
+    "selectedIndustry": "銀行",
+    "selectedRole": "総合職",
+    "applicationJobType": "総合職",
+    "answers": [
+      "法人顧客の資金繰りと事業成長を支える点に社会的意義を感じています。",
+      "ゼミのフィールドワークで中小企業のヒアリングをまとめ、課題の優先順位付けを担当しました。",
+      "入社後は顧客の事業理解を深め、提案の精度を上げたいです。"
+    ],
+    "expectedQuestionTokens": ["法人", "銀行"],
+    "expectedDraftTokens": ["顧客", "事業", "信頼"]
+  },
+  {
     "id": "motivation_differentiation_and_fit",
     "suiteDepth": "extended",
+    "usesCompanyContext": true,
     "title": "同業比較で第一志望を説明するケース",
     "companyName": "株式会社テスト商事",
     "industry": "商社",
@@ -31,6 +51,98 @@
       "入社後は、まず現場理解を深めてから、提案の精度を高めたいです。"
     ],
     "expectedQuestionTokens": ["第一志望", "総合職"],
-    "expectedDraftTokens": ["若手", "現場", "合意形成"]
+    "expectedDraftTokens": ["若手", "現場", "合意形成"],
+    "expectedForbiddenTokens": ["お答えできません", "I cannot"],
+    "requiredQuestionTokenGroups": [["御社", "会社"], ["経験", "原体験"]],
+    "draftCharLimit": 400,
+    "minDraftCharCount": 80
+  },
+  {
+    "id": "motivation_manufacturer_quality",
+    "suiteDepth": "extended",
+    "usesCompanyContext": true,
+    "title": "メーカーで製造現場と企画の橋渡しを志望",
+    "companyName": "株式会社テスト電機",
+    "industry": "メーカー（電機・機械）",
+    "selectedIndustry": "メーカー（電機・機械）",
+    "selectedRole": "企画職",
+    "applicationJobType": "企画職",
+    "answers": [
+      "製造現場の課題を企画側に翻訳し、改善が回る仕組みを作りたいと考えています。",
+      "学園祭では備品調達と工程管理が衝突し、優先順位と連絡ルールを整理して収束させました。",
+      "入社後は現場の声を定量でも捉え、提案の再現性を高めたいです。"
+    ],
+    "expectedQuestionTokens": ["企画", "現場"],
+    "expectedDraftTokens": ["製造", "改善", "課題"],
+    "expectedForbiddenTokens": ["can't assist"],
+    "requiredQuestionTokenGroups": [["業界", "メーカー"], ["志望", "理由"]],
+    "draftCharLimit": 400,
+    "minDraftCharCount": 80
+  },
+  {
+    "id": "motivation_bank_corporate_banking",
+    "suiteDepth": "extended",
+    "usesCompanyContext": true,
+    "title": "銀行の法人営業志望で顧客接点を説明",
+    "companyName": "株式会社テスト銀行",
+    "industry": "銀行",
+    "selectedIndustry": "銀行",
+    "selectedRole": "総合職",
+    "applicationJobType": "総合職",
+    "answers": [
+      "法人顧客の資金繰りと事業成長を支える点に社会的意義を感じています。",
+      "ゼミのフィールドワークで中小企業のヒアリングをまとめ、課題の優先順位付けを担当しました。",
+      "入社後は顧客の事業理解を深め、提案の精度を上げたいです。"
+    ],
+    "expectedQuestionTokens": ["法人", "銀行"],
+    "expectedDraftTokens": ["顧客", "融資", "事業"],
+    "expectedForbiddenTokens": ["cannot comply"],
+    "requiredQuestionTokenGroups": [["金融", "銀行"], ["経験", "学び"]],
+    "draftCharLimit": 500,
+    "minDraftCharCount": 80
+  },
+  {
+    "id": "motivation_consulting_generalist",
+    "suiteDepth": "extended",
+    "usesCompanyContext": true,
+    "title": "コンサルで仮説検証型の働き方を志望",
+    "companyName": "株式会社テストコンサル",
+    "industry": "コンサルティング",
+    "selectedIndustry": "コンサルティング",
+    "selectedRole": "コンサルタント",
+    "applicationJobType": "コンサルタント",
+    "answers": [
+      "曖昧な課題を構造化し、仮説と検証で答えに近づける働き方に魅力を感じています。",
+      "学内プロジェクトで顧客ヒアリングから施策案まで一気通貫でまとめた経験があります。",
+      "入社後は素早く現場理解を深め、クライアント価値に直結する提案を磨きたいです。"
+    ],
+    "expectedQuestionTokens": ["コンサル", "課題"],
+    "expectedDraftTokens": ["仮説", "検証", "クライアント"],
+    "expectedForbiddenTokens": ["お答えできません"],
+    "requiredQuestionTokenGroups": [["御社", "会社"], ["入社後", "貢献"]],
+    "draftCharLimit": 400,
+    "minDraftCharCount": 80
+  },
+  {
+    "id": "motivation_retail_omni_channel",
+    "suiteDepth": "extended",
+    "usesCompanyContext": true,
+    "title": "小売で店舗とECの連携企画を志望",
+    "companyName": "株式会社テストリテール",
+    "industry": "小売・流通",
+    "selectedIndustry": "小売・流通",
+    "selectedRole": "企画職",
+    "applicationJobType": "企画職",
+    "answers": [
+      "店舗とオンラインの体験をつなぎ、顧客の利便性を高める点に関心があります。",
+      "アルバイト先で在庫と予約の連携が崩れていたため、簡易ダッシュボードを作って共有しました。",
+      "入社後は現場データを活用し、施策の優先順位を説明できる企画を目指したいです。"
+    ],
+    "expectedQuestionTokens": ["小売", "企画"],
+    "expectedDraftTokens": ["店舗", "顧客", "データ"],
+    "expectedForbiddenTokens": ["I cannot"],
+    "requiredQuestionTokenGroups": [["志望", "理由"], ["経験", "活か"]],
+    "draftCharLimit": 300,
+    "minDraftCharCount": 60
   }
 ]

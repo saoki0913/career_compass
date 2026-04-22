@@ -14,18 +14,38 @@ import {
 } from "@/lib/company-info/sources";
 import {
   applyCompanyRagUsage,
-  getRemainingCompanyRagFreeUnits,
+  getRemainingCompanyRagPdfFreeUnits,
 } from "@/lib/company-info/usage";
 import {
   getCompanyRagSourceLimit,
   normalizePdfPageCount,
 } from "@/lib/company-info/pricing";
 import { CORPORATE_MUTATE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import type { CareerPrincipalPlan } from "@/lib/fastapi/career-principal";
 
 export const runtime = "nodejs";
 
 const MAX_FILES_PER_REQUEST = 10;
+
+/**
+ * Per-file ceiling for PDF uploads (D-2 象限②).
+ *
+ * Matches the FastAPI backend's ``MAX_PDF_UPLOAD_BYTES`` (20 MiB) so the BFF
+ * does not accept PDFs the backend would reject. Tightening this further at
+ * the edge would silently break uploads that work end-to-end via curl.
+ */
+const MAX_PDF_FILE_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Aggregate ceiling across all files in a single multipart request (D-2 象限②).
+ *
+ * 10 × 20 MiB = 200 MiB is the theoretical maximum given ``MAX_FILES_PER_REQUEST``
+ * but nobody legitimately uploads 10 maximum-size PDFs in one batch. Cap the
+ * total at 50 MiB so a malicious client cannot force the BFF to buffer hundreds
+ * of MiB into FormData before any ``file.size`` checks run.
+ */
+const MAX_PDF_AGGREGATE_BYTES = 50 * 1024 * 1024;
 
 interface UploadPdfResult {
   success: boolean;
@@ -42,6 +62,7 @@ interface UploadPdfResult {
   ingest_truncated?: boolean;
   ocr_truncated?: boolean;
   processing_notice_ja?: string | null;
+  page_routing_summary?: Record<string, unknown> | null;
 }
 
 interface BatchUploadItem {
@@ -63,6 +84,7 @@ interface BatchUploadItem {
   ingestTruncated?: boolean;
   ocrTruncated?: boolean;
   processingNoticeJa?: string | null;
+  pageRoutingSummary?: Record<string, unknown> | null;
 }
 
 const VALID_PDF_CONTENT_TYPES = new Set<NonNullable<CorporateInfoSource["contentType"]>>([
@@ -113,6 +135,9 @@ function validatePdfFile(file: File): string | null {
   if (file.size === 0) {
     return "PDFファイルが空です";
   }
+  if (file.size > MAX_PDF_FILE_BYTES) {
+    return "PDFファイルが大きすぎます。20MB以下にしてください。";
+  }
   return null;
 }
 
@@ -150,12 +175,22 @@ async function verifyCompanyAccess(
   return { valid: !!company, company };
 }
 
-async function bestEffortDeleteRag(companyId: string, sourceUrl: string) {
+async function bestEffortDeleteRag(
+  companyId: string,
+  sourceUrl: string,
+  principalActor: { userId: string; plan: CareerPrincipalPlan },
+) {
   try {
-    await fetchFastApiInternal(`/company-info/rag/${companyId}/delete-by-urls`, {
+    await fetchFastApiWithPrincipal(`/company-info/rag/${companyId}/delete-by-urls`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ urls: [sourceUrl] }),
+      principal: {
+        scope: "company",
+        actor: { kind: "user", id: principalActor.userId },
+        companyId,
+        plan: principalActor.plan,
+      },
     });
   } catch {
     // Ignore rollback failures; the source metadata update is the primary consistency point.
@@ -168,6 +203,27 @@ export async function POST(
 ) {
   try {
     const { id: companyId } = await params;
+
+    // Reject multipart bodies whose Content-Length already exceeds the
+    // aggregate cap before we buffer any part of them into FormData.
+    const contentLengthHeader = request.headers.get("content-length");
+    if (contentLengthHeader) {
+      const contentLength = Number.parseInt(contentLengthHeader, 10);
+      if (
+        Number.isFinite(contentLength) &&
+        contentLength > MAX_PDF_AGGREGATE_BYTES
+      ) {
+        return NextResponse.json(
+          {
+            error: `アップロード合計サイズが大きすぎます。${Math.round(
+              MAX_PDF_AGGREGATE_BYTES / (1024 * 1024)
+            )}MB以下にしてください。`,
+          },
+          { status: 413 }
+        );
+      }
+    }
+
     const formData = await request.formData();
     const files = parseFiles(formData);
     const contentType = normalizePdfContentType(formData.get("contentType") ?? formData.get("content_type"));
@@ -179,6 +235,21 @@ export async function POST(
       return NextResponse.json(
         { error: `一度にアップロードできるPDFは最大${MAX_FILES_PER_REQUEST}件です` },
         { status: 400 }
+      );
+    }
+
+    // Aggregate size check after FormData parse — ``file.size`` is authoritative
+    // even when clients omit or misreport Content-Length. The per-file cap is
+    // enforced later inside ``validatePdfFile``.
+    const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+    if (totalBytes > MAX_PDF_AGGREGATE_BYTES) {
+      return NextResponse.json(
+        {
+          error: `アップロード合計サイズが大きすぎます。${Math.round(
+            MAX_PDF_AGGREGATE_BYTES / (1024 * 1024)
+          )}MB以下にしてください。`,
+        },
+        { status: 413 }
       );
     }
 
@@ -240,9 +311,15 @@ export async function POST(
 
       let uploadResult: UploadPdfResult;
       try {
-        const response = await fetchFastApiInternal("/company-info/rag/upload-pdf", {
+        const response = await fetchFastApiWithPrincipal("/company-info/rag/upload-pdf", {
           method: "POST",
           body: backendForm,
+          principal: {
+            scope: "company",
+            actor: { kind: "user", id: authUser.userId },
+            companyId,
+            plan: authUser.plan,
+          },
         });
 
         const data = await response.json().catch(() => ({}));
@@ -330,10 +407,14 @@ export async function POST(
           ingestTruncated: Boolean(uploadResult.ingest_truncated),
           ocrTruncated: Boolean(uploadResult.ocr_truncated),
           processingNoticeJa: uploadResult.processing_notice_ja ?? null,
+          pageRoutingSummary: uploadResult.page_routing_summary ?? null,
         });
       } catch (error) {
         console.error("Completed PDF metadata update error:", error);
-        await bestEffortDeleteRag(companyId, sourceUrl);
+        await bestEffortDeleteRag(companyId, sourceUrl, {
+          userId: authUser.userId,
+          plan: authUser.plan,
+        });
         items.push({
           fileName: file.name,
           status: "failed",
@@ -351,7 +432,7 @@ export async function POST(
       skippedLimit: items.filter((item) => item.status === "skipped_limit").length,
     };
     const totalUnits = items.reduce((total, item) => total + (item.ingestUnits || 0), 0);
-    const remainingFreeUnits = await getRemainingCompanyRagFreeUnits(
+    const remainingFreeUnits = await getRemainingCompanyRagPdfFreeUnits(
       authUser.userId,
       authUser.plan,
     );

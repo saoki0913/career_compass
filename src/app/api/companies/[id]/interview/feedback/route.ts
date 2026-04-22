@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import {
   cancelReservation,
@@ -8,12 +9,20 @@ import {
   DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
   reserveCredits,
 } from "@/lib/credits";
+import {
+  normalizeInterviewTurnMeta,
+  type InterviewPlan,
+  type InterviewTurnMeta,
+} from "@/lib/interview/session";
 
 import {
   buildInterviewContext,
+  listInterviewTurnEvents,
+  normalizeInterviewPlanValue,
   saveInterviewConversationProgress,
   saveInterviewFeedbackHistory,
-} from "../shared";
+  validateInterviewTurnState,
+} from "..";
 import {
   createInterviewPersistenceUnavailableResponse,
   normalizeInterviewPersistenceError,
@@ -30,19 +39,39 @@ function buildSeedSummary(materials: Array<{ kind?: string; label: string; text:
     .join("\n");
 }
 
+function inferWeakestTurnLinkage(
+  feedback: ReturnType<typeof normalizeFeedback>,
+  turnEvents: Awaited<ReturnType<typeof listInterviewTurnEvents>>,
+) {
+  const fallbackTurn =
+    turnEvents.find((event) => event.answer.trim().length > 0 && event.deterministicCoveragePassed === false) ??
+    turnEvents.find((event) => event.answer.trim().length > 0) ??
+    null;
+
+  return {
+    ...feedback,
+    weakest_turn_id: feedback.weakest_turn_id ?? fallbackTurn?.turnId ?? null,
+    weakest_question_snapshot: feedback.weakest_question_snapshot ?? fallbackTurn?.question ?? null,
+    weakest_answer_snapshot: feedback.weakest_answer_snapshot ?? fallbackTurn?.answer ?? null,
+  };
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const identity = await getRequestIdentity(request);
-  if (!identity) {
+  if (!identity?.userId) {
     return createApiErrorResponse(request, {
       status: 401,
       code: "INTERVIEW_AUTH_REQUIRED",
-      userMessage: "面接対策を利用するには認証が必要です。",
-      action: "ログイン、またはゲスト状態を確認してから、もう一度お試しください。",
+      userMessage: "ログインが必要です。",
+      action: "ログインしてから、もう一度お試しください。",
     });
   }
+
+  const limitResponse = await guardDailyTokenLimit(identity);
+  if (limitResponse) return limitResponse;
 
   const { id: companyId } = await params;
   let context;
@@ -77,49 +106,75 @@ export async function POST(
     });
   }
 
-  let reservationId: string | null = null;
-  if (identity.userId) {
-    const reservation = await reserveCredits(
-      identity.userId,
-      DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
-      "interview_feedback",
-      companyId,
-      `面接対策講評: ${context.company.name}`,
-    );
-    if (!reservation.success) {
-      return createApiErrorResponse(request, {
-        status: 402,
-        code: "INTERVIEW_CREDITS_REQUIRED",
-        userMessage: "クレジットが不足しています。",
-        action: "残高を確認してから、もう一度お試しください。",
-      });
-    }
-    reservationId = reservation.reservationId;
+  const turnEvents = await listInterviewTurnEvents({
+    conversationId: context.conversation.id,
+    companyId,
+    identity,
+    limit: 24,
+  });
+
+  const reservation = await reserveCredits(
+    identity.userId,
+    DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
+    "interview_feedback",
+    companyId,
+    `面接対策講評: ${context.company.name}`,
+  );
+  if (!reservation.success) {
+    return createApiErrorResponse(request, {
+      status: 402,
+      code: "INTERVIEW_CREDITS_REQUIRED",
+      userMessage: "クレジットが不足しています。",
+      action: "残高を確認してから、もう一度お試しください。",
+    });
   }
+  const reservationId = reservation.reservationId;
 
   return createInterviewUpstreamStream({
     request,
+    identity,
+    companyId,
     upstreamPath: "/api/interview/feedback",
     upstreamPayload: {
       company_name: context.company.name,
       company_summary: context.companySummary,
       motivation_summary: context.motivationSummary,
       gakuchika_summary: context.gakuchikaSummary,
+      academic_summary: context.academicSummary,
+      research_summary: context.researchSummary,
       es_summary: context.esSummary,
       conversation_history: context.conversation.messages,
       turn_state: context.conversation.turnState,
       selected_industry: context.setup.selectedIndustry,
       selected_role: context.setup.selectedRole,
       selected_role_source: context.setup.selectedRoleSource,
+      role_track: context.setup.roleTrack,
+      interview_format: context.setup.interviewFormat,
+      selection_type: context.setup.selectionType,
+      interview_stage: context.setup.interviewStage,
+      interviewer_type: context.setup.interviewerType,
+      strictness_mode: context.setup.strictnessMode,
+      interview_plan: context.conversation.plan,
+      turn_events: turnEvents,
       seed_summary: buildSeedSummary(context.materials),
     },
     onComplete: async (upstreamData) => {
-      const feedback = normalizeFeedback(upstreamData);
-      const turnState = {
-        ...context.conversation!.turnState,
-        currentStage: "feedback" as const,
-        nextAction: "feedback" as const,
-      };
+      const feedback = inferWeakestTurnLinkage(normalizeFeedback(upstreamData), turnEvents);
+      const turnState =
+        validateInterviewTurnState(
+          upstreamData.turn_state ?? {
+            ...context.conversation!.turnState,
+            nextAction: "feedback" as const,
+          },
+        ) ??
+        {
+          ...context.conversation!.turnState,
+          nextAction: "feedback" as const,
+        };
+      const turnMeta: InterviewTurnMeta | null =
+        normalizeInterviewTurnMeta(upstreamData.turn_meta ?? context.conversation!.turnMeta ?? null);
+      const plan: InterviewPlan | null =
+        normalizeInterviewPlanValue(upstreamData.interview_plan ?? null) ?? context.conversation!.plan ?? null;
       let feedbackHistories;
 
       try {
@@ -130,6 +185,8 @@ export async function POST(
           turnState,
           status: "feedback_completed",
           feedback,
+          turnMeta,
+          plan,
         });
         feedbackHistories = await saveInterviewFeedbackHistory({
           conversationId: context.conversation!.id,
@@ -138,6 +195,11 @@ export async function POST(
           feedback,
           sourceMessagesSnapshot: context.conversation!.messages,
           sourceQuestionCount: context.conversation!.questionCount,
+          versionMetadata: {
+            promptVersion: upstreamData.prompt_version ?? null,
+            followupPolicyVersion: upstreamData.followup_policy_version ?? null,
+            caseSeedVersion: upstreamData.case_seed_version ?? null,
+          },
         });
       } catch (error) {
         if (reservationId) {
@@ -153,13 +215,20 @@ export async function POST(
       return {
         messages: context.conversation!.messages,
         questionCount: context.conversation!.questionCount,
-        stageStatus: upstreamData.stage_status ?? context.conversation!.stageStatus,
-        questionStage: "feedback",
+        stageStatus:
+          upstreamData.stage_status ?? {
+            currentTopicLabel: "最終講評",
+            coveredTopics: turnState.coveredTopics,
+            remainingTopics: [],
+          },
+        questionStage: turnState.currentTopic,
         focus: null,
         feedback,
         questionFlowCompleted: true,
         creditCost: DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
         turnState,
+        turnMeta,
+        plan,
         feedbackHistories,
       };
     },

@@ -1,0 +1,32 @@
+---
+name: tdd
+description: Implement work by writing the failing test first, then minimal code, then refactoring safely.
+command_description: Implement the selected issue with Red-Green-Refactor and boundary tests first.
+cursor_description: Implement the selected issue with Red-Green-Refactor and boundary tests first.
+---
+
+# TDD
+
+Implement the next issue with strict Red-Green-Refactor discipline.
+
+## Workflow
+
+1. Pick one issue from `docs/issues/<slug>/`.
+2. Identify the external behavior that proves the issue is done.
+3. Write the smallest failing test at the module or request boundary.
+4. Run the test and verify it fails for the expected reason.
+5. Write the minimal production code to make it pass.
+6. Re-run the targeted test, then the relevant broader suite.
+7. Refactor only after green.
+
+## Rules
+
+- No production code before a failing test.
+- Test behavior at module boundaries, not implementation trivia.
+- Keep tests readable enough to double as executable documentation.
+- If there is no good test seam, improve the seam as part of the work.
+- Report what was verified before moving on.
+
+## Output
+
+Use short Japanese progress notes, but keep test names and code in the repo's existing language conventions.

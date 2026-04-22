@@ -5,7 +5,8 @@ import { companyInfoMonthlyUsage } from "@/lib/db/schema";
 import {
   calculatePdfIngestCredits,
   getCurrentJstMonthKey,
-  getMonthlyRagFreeUnits,
+  getMonthlyRagHtmlFreeUnits,
+  getMonthlyRagPdfFreeUnits,
   getMonthlyScheduleFetchFreeLimit,
   type PaidPlan,
 } from "@/lib/company-info/pricing";
@@ -64,8 +65,26 @@ export function isMissingMonthlyUsageScheduleColumnError(error: unknown): boolea
   );
 }
 
+export function isMissingMonthlyUsageRagSplitColumnError(error: unknown): boolean {
+  const message = getErrorDiagnosticText(error);
+  const mentionsColumn =
+    message.includes("rag_html_free_units") || message.includes("rag_pdf_free_units");
+  if (!mentionsColumn) return false;
+  return (
+    message.includes("does not exist") ||
+    message.includes("no such column") ||
+    message.includes("no such field") ||
+    message.includes("unknown column") ||
+    message.includes("code:42703")
+  );
+}
+
 export function isMissingMonthlyUsageSchemaError(error: unknown): boolean {
-  return isMissingMonthlyUsageTableError(error) || isMissingMonthlyUsageScheduleColumnError(error);
+  return (
+    isMissingMonthlyUsageTableError(error) ||
+    isMissingMonthlyUsageScheduleColumnError(error) ||
+    isMissingMonthlyUsageRagSplitColumnError(error)
+  );
 }
 
 async function getOrCreateMonthlyUsage(userId: string, monthKey: string) {
@@ -108,10 +127,25 @@ async function getOrCreateMonthlyUsage(userId: string, monthKey: string) {
   return created;
 }
 
+/**
+ * @deprecated URL/PDF 分離前の互換 API。新実装は HTML/PDF 別 getter を使う。
+ */
 export async function getRemainingCompanyRagFreeUnits(userId: string, plan: PaidPlan): Promise<number> {
+  return getRemainingCompanyRagHtmlFreeUnits(userId, plan);
+}
+
+export async function getRemainingCompanyRagHtmlFreeUnits(userId: string, plan: PaidPlan): Promise<number> {
   const monthKey = getCurrentJstMonthKey();
   const usage = await getOrCreateMonthlyUsage(userId, monthKey);
-  return Math.max(0, getMonthlyRagFreeUnits(plan) - usage.ragIngestUnits);
+  const used = usage.ragHtmlFreeUnits ?? 0;
+  return Math.max(0, getMonthlyRagHtmlFreeUnits(plan) - used);
+}
+
+export async function getRemainingCompanyRagPdfFreeUnits(userId: string, plan: PaidPlan): Promise<number> {
+  const monthKey = getCurrentJstMonthKey();
+  const usage = await getOrCreateMonthlyUsage(userId, monthKey);
+  const used = usage.ragPdfFreeUnits ?? 0;
+  return Math.max(0, getMonthlyRagPdfFreeUnits(plan) - used);
 }
 
 export async function getRemainingCompanyRagFreeUnitsSafe(
@@ -119,10 +153,38 @@ export async function getRemainingCompanyRagFreeUnitsSafe(
   plan: PaidPlan,
 ): Promise<number> {
   try {
-    return await getRemainingCompanyRagFreeUnits(userId, plan);
+    return await getRemainingCompanyRagHtmlFreeUnits(userId, plan);
   } catch (error) {
-    if (isMissingMonthlyUsageTableError(error)) {
-      return getMonthlyRagFreeUnits(plan);
+    if (isMissingMonthlyUsageSchemaError(error)) {
+      return getMonthlyRagHtmlFreeUnits(plan);
+    }
+    throw error;
+  }
+}
+
+export async function getRemainingCompanyRagHtmlFreeUnitsSafe(
+  userId: string,
+  plan: PaidPlan,
+): Promise<number> {
+  try {
+    return await getRemainingCompanyRagHtmlFreeUnits(userId, plan);
+  } catch (error) {
+    if (isMissingMonthlyUsageSchemaError(error)) {
+      return getMonthlyRagHtmlFreeUnits(plan);
+    }
+    throw error;
+  }
+}
+
+export async function getRemainingCompanyRagPdfFreeUnitsSafe(
+  userId: string,
+  plan: PaidPlan,
+): Promise<number> {
+  try {
+    return await getRemainingCompanyRagPdfFreeUnits(userId, plan);
+  } catch (error) {
+    if (isMissingMonthlyUsageSchemaError(error)) {
+      return getMonthlyRagPdfFreeUnits(plan);
     }
     throw error;
   }
@@ -179,8 +241,8 @@ export type CompanyRagUsageKind = "url" | "pdf";
 
 /**
  * 企業RAGの月次無料枠（ページ）とクレジット課金を適用する。
- * - URL: 無料残をページ数ぶん消費し、超過ページは 1 ページ = 1 クレジット。
- * - PDF: 無料残をページ数ぶん消費し、取込ごとにページ数帯の固定クレジットをフル課金。
+ * - URL: URL/HTML 専用無料枠を消費し、超過ページは 1 ページ = 1 クレジット。
+ * - PDF: PDF 専用無料枠を消費し、超過ページ数だけ軽量 tier credits を課金する。
  */
 export async function applyCompanyRagUsage(params: {
   userId: string;
@@ -197,26 +259,29 @@ export async function applyCompanyRagUsage(params: {
   remainingFreeUnits: number;
 }> {
   const pagesTotal = Math.max(0, Math.floor(params.pages));
+  const remainingGetter =
+    params.kind === "pdf" ? getRemainingCompanyRagPdfFreeUnits : getRemainingCompanyRagHtmlFreeUnits;
   if (pagesTotal === 0) {
     return {
       freeUnitsApplied: 0,
       overflowUnits: 0,
       creditsDisplayed: 0,
       creditsActuallyDeducted: 0,
-      remainingFreeUnits: await getRemainingCompanyRagFreeUnits(params.userId, params.plan),
+      remainingFreeUnits: await remainingGetter(params.userId, params.plan),
     };
   }
 
   try {
     const monthKey = getCurrentJstMonthKey();
     const usage = await getOrCreateMonthlyUsage(params.userId, monthKey);
-    const monthlyFreePages = getMonthlyRagFreeUnits(params.plan);
-    const freePagesRemaining = Math.max(0, monthlyFreePages - usage.ragIngestUnits);
+    const usedFreeUnits = params.kind === "pdf" ? usage.ragPdfFreeUnits ?? 0 : usage.ragHtmlFreeUnits ?? 0;
+    const monthlyFreePages =
+      params.kind === "pdf" ? getMonthlyRagPdfFreeUnits(params.plan) : getMonthlyRagHtmlFreeUnits(params.plan);
+    const freePagesRemaining = Math.max(0, monthlyFreePages - usedFreeUnits);
     const freeUnitsApplied = Math.min(freePagesRemaining, pagesTotal);
     const overflowUnits = pagesTotal - freeUnitsApplied;
 
-    const creditsNeeded =
-      params.kind === "url" ? overflowUnits : calculatePdfIngestCredits(pagesTotal);
+    const creditsNeeded = params.kind === "url" ? overflowUnits : calculatePdfIngestCredits(overflowUnits);
     const creditsDisplayed = creditsNeeded;
     let creditsActuallyDeducted = 0;
 
@@ -240,6 +305,10 @@ export async function applyCompanyRagUsage(params: {
       .update(companyInfoMonthlyUsage)
       .set({
         ragIngestUnits: usage.ragIngestUnits + freeUnitsApplied,
+        ragHtmlFreeUnits:
+          params.kind === "url" ? (usage.ragHtmlFreeUnits ?? 0) + freeUnitsApplied : usage.ragHtmlFreeUnits ?? 0,
+        ragPdfFreeUnits:
+          params.kind === "pdf" ? (usage.ragPdfFreeUnits ?? 0) + freeUnitsApplied : usage.ragPdfFreeUnits ?? 0,
         ragOverflowUnits: 0,
         updatedAt: now,
       })
@@ -254,12 +323,15 @@ export async function applyCompanyRagUsage(params: {
     };
   } catch (error) {
     if (isMissingMonthlyUsageSchemaError(error)) {
-      const monthlyFreePages = getMonthlyRagFreeUnits(params.plan);
+      const monthlyFreePages =
+        params.kind === "pdf" ? getMonthlyRagPdfFreeUnits(params.plan) : getMonthlyRagHtmlFreeUnits(params.plan);
       const freeUnitsApplied = Math.min(monthlyFreePages, pagesTotal);
+      const overflowUnits = pagesTotal - freeUnitsApplied;
+      const creditsDisplayed = params.kind === "url" ? overflowUnits : calculatePdfIngestCredits(overflowUnits);
       return {
         freeUnitsApplied,
-        overflowUnits: pagesTotal - freeUnitsApplied,
-        creditsDisplayed: 0,
+        overflowUnits,
+        creditsDisplayed,
         creditsActuallyDeducted: 0,
         remainingFreeUnits: Math.max(0, monthlyFreePages - pagesTotal),
       };

@@ -1,0 +1,11 @@
+created: 2026-04-05T11:26:59.497Z
+updated: 2026-04-05T11:27:44.740Z
+update_count: 2
+last_field: diagram
+kind: nested-class
+title: shared-domain-libs
+children:
+  - ai-service-clients
+  - auth-calendar-billing
+  - storage-and-security
+parentPath: []

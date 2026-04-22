@@ -1,0 +1,81 @@
+---
+name: nextjs-developer
+description: フロントエンド（src/app/）の開発。App Router、Server Components、Core Web Vitals最適化を担う。
+command_description: Next.js フロントエンドの開発・UI実装・パフォーマンス最適化を行う。
+cursor_description: Next.js フロントエンドの開発・UI実装・パフォーマンス最適化を行う。
+---
+
+# Next.js Developer
+
+就活Pass のフロントエンド（Next.js App Router）開発の専門スキル。
+
+## 対象ファイル・コンポーネント
+
+- `src/app/` — ページ・レイアウト・ローディング
+  - `(marketing)/` — LP、pricing、tools、templates、legal 等
+  - `(product)/` — dashboard、companies、gakuchika、es、calendar、settings 等
+  - `(auth)/` — login、onboarding
+  - `api/` — API ルートハンドラー
+- `src/components/` — UIコンポーネント群
+  - `landing/` — LP コンポーネント
+  - `es/` — ES関連
+  - `chat/` — 会話UI共通
+  - `companies/` — 企業管理
+  - `gakuchika/` — ガクチカ
+  - `shared/` — 共通コンポーネント
+  - `skeletons/` — ローディングスケルトン
+  - `ui/` — shadcn/ui ベースのプリミティブ
+- `src/hooks/` — カスタムフック（SWR ベースのデータフェッチ）
+- `src/lib/` — 共有ライブラリ
+  - `db/schema.ts` — Drizzle ORM スキーマ
+  - `auth/` — Better Auth、ゲスト認証
+  - `stripe/` — Stripe 関連
+  - `marketing/` — LP コンテンツ
+
+## ワークフロー
+
+1. `docs/architecture/FRONTEND_UI_GUIDELINES.md` を確認する。
+2. `npm run ui:preflight -- <route> --surface=marketing|product [--auth=none|guest]` を実行する。
+3. 出力を作業ログに残す。
+4. 実装する。
+5. `npm run lint:ui:guardrails` で marketing accent color 逸脱や loading.tsx の spinner-only 化を検出する。
+6. `npm run test:ui:review -- <route>` で Playwright 確認する。
+
+## 就活Pass 固有ルール
+
+### 技術スタック
+- Next.js 16 + React 19 + TypeScript
+- Tailwind CSS 4 + shadcn/ui
+- SWR でデータフェッチ（`src/lib/swr-fetcher.ts`）
+- Better Auth + Google OAuth + ゲストモード（HttpOnly cookie）
+
+### レイアウト構造
+- `(product)/layout` は `children` のみ。`DashboardHeader` は各ページ / `loading.tsx` が個別配置。
+- `(marketing)/` は独立レイアウト。
+
+### 認証パターン
+- ログインユーザー: Better Auth セッション
+- ゲスト: HttpOnly `guest_device_token` cookie
+- 多くの API は guest/user 両対応。owner 判定は `userId` と `guestId` の排他的管理。
+
+### エラーハンドリング
+- `parseApiErrorResponse()` と `AppUiError` を使う。
+- API の raw error をUIにそのまま出さない。
+- ユーザーには短い説明と次の行動だけを見せる。
+
+### マーケ LP
+- `DESIGN.md` と `docs/marketing/LP.md` を参照。
+- 既存のビジュアル言語を優先する。
+
+## 品質基準
+
+- Core Web Vitals: TTFB < 200ms, FCP < 1s, LCP < 2.5s, CLS < 0.1
+- `loading.tsx` にスケルトンUI（spinner-only 禁止）。
+- アクセシビリティ: セマンティックHTML、適切な aria 属性。
+- レスポンシブ: モバイルファーストで設計。
+- 既存 UI 変更時は `lint:ui:guardrails` と `test:ui:review` をパスすること。
+
+## 出力
+
+- 日本語で記述。コード・パス・型名は英語。
+- UI 変更時は対象ルートを明記。

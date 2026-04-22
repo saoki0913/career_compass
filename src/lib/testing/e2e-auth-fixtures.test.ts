@@ -50,6 +50,7 @@ describe("e2e auth fixtures", () => {
     const cookies = vi
       .fn()
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         { name: "csrf_token", value: "csrf-cookie" },
       ]);
@@ -92,7 +93,7 @@ describe("e2e auth fixtures", () => {
   it("keeps guest company and document helpers on the guest token path", async () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
     const cookies = vi.fn().mockResolvedValue([
-      { name: "guest_device_token", value: "guest-device-token" },
+      { name: "guest_device_token", value: "550e8400-e29b-41d4-a716-446655440000" },
       { name: "csrf_token", value: "csrf-cookie" },
     ]);
 
@@ -119,18 +120,19 @@ describe("e2e auth fixtures", () => {
     expect(contextFetch.mock.calls[0]?.[1]?.headers).toMatchObject({
       "Content-Type": "application/json",
       "x-csrf-token": "csrf-cookie",
-      "x-device-token": "guest-device-token",
+      "x-device-token": "550e8400-e29b-41d4-a716-446655440000",
     });
     expect(contextFetch.mock.calls[1]?.[1]?.headers).toMatchObject({
       "Content-Type": "application/json",
       "x-csrf-token": "csrf-cookie",
-      "x-device-token": "guest-device-token",
+      "x-device-token": "550e8400-e29b-41d4-a716-446655440000",
     });
   });
 
   it("keeps owned company and document helpers off the guest token path", async () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
     const cookies = vi.fn().mockResolvedValue([
+      { name: "better-auth.session_token", value: "session-cookie" },
       { name: "csrf_token", value: "csrf-cookie" },
     ]);
 
@@ -160,6 +162,7 @@ describe("e2e auth fixtures", () => {
       expect(call[1]?.headers).toMatchObject({
         "Content-Type": "application/json",
         "x-csrf-token": "csrf-cookie",
+        cookie: "better-auth.session_token=session-cookie; csrf_token=csrf-cookie",
       });
       expect(call[1]?.headers).not.toHaveProperty("x-device-token");
     }
@@ -168,7 +171,7 @@ describe("e2e auth fixtures", () => {
   it("keeps guest application, task, notification, and gakuchika helpers on the guest token path", async () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
     const cookies = vi.fn().mockResolvedValue([
-      { name: "guest_device_token", value: "guest-device-token" },
+      { name: "guest_device_token", value: "550e8400-e29b-41d4-a716-446655440000" },
       { name: "csrf_token", value: "csrf-cookie" },
     ]);
 
@@ -211,7 +214,7 @@ describe("e2e auth fixtures", () => {
       expect(call[1]?.headers).toMatchObject({
         "Content-Type": "application/json",
         "x-csrf-token": "csrf-cookie",
-        "x-device-token": "guest-device-token",
+        "x-device-token": "550e8400-e29b-41d4-a716-446655440000",
       });
     }
   });
@@ -219,6 +222,7 @@ describe("e2e auth fixtures", () => {
   it("keeps owned application, task, notification, and gakuchika helpers off the guest token path", async () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
     const cookies = vi.fn().mockResolvedValue([
+      { name: "better-auth.session_token", value: "session-cookie" },
       { name: "csrf_token", value: "csrf-cookie" },
     ]);
 
@@ -261,8 +265,80 @@ describe("e2e auth fixtures", () => {
       expect(call[1]?.headers).toMatchObject({
         "Content-Type": "application/json",
         "x-csrf-token": "csrf-cookie",
+        cookie: "better-auth.session_token=session-cookie; csrf_token=csrf-cookie",
       });
       expect(call[1]?.headers).not.toHaveProperty("x-device-token");
     }
+  });
+
+  it("for authenticated requests, forwards browser cookies as a cookie header", async () => {
+    const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
+    const cookies = vi.fn().mockResolvedValue([
+      { name: "better-auth.session_token", value: "session-cookie" },
+      { name: "csrf_token", value: "csrf-cookie" },
+      { name: "other_cookie", value: "other-value" },
+    ]);
+
+    const page = {
+      context: () => ({
+        cookies,
+        request: {
+          fetch: contextFetch,
+        },
+      }),
+    };
+
+    await apiRequestAsAuthenticatedUser(
+      page as never,
+      "POST",
+      "/api/companies",
+      { name: "認証済み会社" },
+    );
+
+    expect(contextFetch).toHaveBeenCalledWith(
+      "http://localhost:3000/api/companies",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          cookie: "better-auth.session_token=session-cookie; csrf_token=csrf-cookie; other_cookie=other-value",
+        }),
+      }),
+    );
+  });
+
+  it("strips guest cookies from authenticated requests even when they exist in the browser context", async () => {
+    const contextFetch = vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({}) });
+    const cookies = vi.fn().mockResolvedValue([
+      { name: "better-auth.session_token", value: "session-cookie" },
+      { name: "guest_device_token", value: "550e8400-e29b-41d4-a716-446655440000" },
+      { name: "csrf_token", value: "csrf-cookie" },
+      { name: "other_cookie", value: "other-value" },
+    ]);
+
+    const page = {
+      context: () => ({
+        cookies,
+        request: {
+          fetch: contextFetch,
+        },
+      }),
+    };
+
+    await apiRequestAsAuthenticatedUser(
+      page as never,
+      "POST",
+      "/api/companies",
+      { name: "認証済み会社" },
+    );
+
+    expect(contextFetch).toHaveBeenCalledWith(
+      "http://localhost:3000/api/companies",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          cookie: "better-auth.session_token=session-cookie; csrf_token=csrf-cookie; other_cookie=other-value",
+        }),
+      }),
+    );
+    expect(contextFetch.mock.calls[0]?.[1]?.headers).not.toHaveProperty("x-device-token");
+    expect(String(contextFetch.mock.calls[0]?.[1]?.headers?.cookie || "")).not.toContain("guest_device_token=");
   });
 });

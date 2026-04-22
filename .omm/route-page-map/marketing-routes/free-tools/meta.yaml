@@ -1,0 +1,9 @@
+created: 2026-04-05T11:29:11.299Z
+updated: 2026-04-05T11:29:11.300Z
+update_count: 1
+last_field: description
+kind: nested-class
+title: free-tools
+children: []
+parentPath:
+  - marketing-routes

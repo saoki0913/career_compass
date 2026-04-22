@@ -64,6 +64,11 @@ export async function GET(request: NextRequest) {
       settings = newSettings[0];
     }
 
+    let deadlineReminderOverrides = null;
+    if (settings.deadlineReminderOverrides) {
+      try { deadlineReminderOverrides = JSON.parse(settings.deadlineReminderOverrides); } catch { /* ignore */ }
+    }
+
     return NextResponse.json({
       settings: {
         deadlineReminder: settings.deadlineReminder,
@@ -75,6 +80,7 @@ export async function GET(request: NextRequest) {
           ? JSON.parse(settings.reminderTiming)
           : [{ type: "day_before" }, { type: "hour_before", hours: 3 }],
         dailySummaryHourJst: settings.dailySummaryHourJst ?? 9,
+        deadlineReminderOverrides,
       },
     });
   } catch (error) {
@@ -115,6 +121,7 @@ export async function PUT(request: NextRequest) {
       dailySummary,
       dailySummaryHourJst,
       reminderTiming,
+      deadlineReminderOverrides,
     } = body;
 
     // Check if settings exist
@@ -167,6 +174,14 @@ export async function PUT(request: NextRequest) {
       }
       settingsData.reminderTiming = JSON.stringify(reminderTiming);
     }
+    if (deadlineReminderOverrides !== undefined) {
+      // null clears overrides (use defaults), object sets per-type tiers
+      if (deadlineReminderOverrides === null) {
+        settingsData.deadlineReminderOverrides = null;
+      } else if (typeof deadlineReminderOverrides === "object") {
+        settingsData.deadlineReminderOverrides = JSON.stringify(deadlineReminderOverrides);
+      }
+    }
 
     if (existingSettings) {
       await db
@@ -204,6 +219,11 @@ export async function PUT(request: NextRequest) {
       .where(eq(notificationSettings.userId, userId))
       .limit(1);
 
+    let updatedOverrides = null;
+    if (updated?.deadlineReminderOverrides) {
+      try { updatedOverrides = JSON.parse(updated.deadlineReminderOverrides); } catch { /* ignore */ }
+    }
+
     return NextResponse.json({
       settings: {
         deadlineReminder: updated?.deadlineReminder,
@@ -215,6 +235,7 @@ export async function PUT(request: NextRequest) {
           ? JSON.parse(updated.reminderTiming)
           : [{ type: "day_before" }, { type: "hour_before", hours: 3 }],
         dailySummaryHourJst: updated?.dailySummaryHourJst ?? 9,
+        deadlineReminderOverrides: updatedOverrides,
       },
     });
   } catch (error) {

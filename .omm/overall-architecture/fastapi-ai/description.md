@@ -1,0 +1,1 @@
+Python service under backend/app that handles company information enrichment, ES review, motivation drafting, gakuchika support, interview generation, retrieval, reranking, prompt assets, and internal-service security.

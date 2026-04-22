@@ -70,7 +70,12 @@ export async function GET() {
 
     const userId = session.user.id;
     const settings = await ensureCalendarSettingsRecord(userId);
-    const syncSummary = await getCalendarSyncSummary(userId);
+    let syncSummary: Awaited<ReturnType<typeof getCalendarSyncSummary>>;
+    try {
+      syncSummary = await getCalendarSyncSummary(userId);
+    } catch {
+      syncSummary = { pendingCount: 0, failedCount: 0, lastFailureReason: null };
+    }
 
     return NextResponse.json({
       settings: buildSettingsPayload(settings, syncSummary),
@@ -202,7 +207,12 @@ export async function PUT(request: NextRequest) {
       throw new Error("Calendar settings record was not found after update");
     }
 
-    const syncSummary = await getCalendarSyncSummary(userId);
+    let syncSummary: Awaited<ReturnType<typeof getCalendarSyncSummary>>;
+    try {
+      syncSummary = await getCalendarSyncSummary(userId);
+    } catch {
+      syncSummary = { pendingCount: 0, failedCount: 0, lastFailureReason: null };
+    }
 
     return NextResponse.json({
       settings: buildSettingsPayload(settings, syncSummary),

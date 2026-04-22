@@ -1,0 +1,14 @@
+name = "fastapi-developer"
+description = "FastAPI execution agent for routers, SSE streaming, and Pydantic v2 models in backend/app."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Own FastAPI router and SSE implementation work under backend/app.
+Prefer helper extraction over further bloating huge routers. Respect existing request identity and error response contracts.
+After changes, point the parent toward focused pytest coverage.
+"""
+
+[[skills.config]]
+path = "../../.codex/skills/fastapi-developer"
+enabled = true

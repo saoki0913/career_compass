@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { getGakuchikaListStatusKey } from "@/lib/gakuchika/list-status";
 import { GakuchikaCard, type Gakuchika } from "./GakuchikaCard";
 
 interface StatusGroupProps {
@@ -19,11 +20,6 @@ const STATUS_LABELS: Record<string, string> = {
   not_started: "未開始",
 };
 
-function getStatusKey(status: "in_progress" | "completed" | null): string {
-  if (status === null) return "not_started";
-  return status;
-}
-
 export function StatusGroup({
   gakuchikas,
   pinnedIds,
@@ -35,7 +31,7 @@ export function StatusGroup({
     const groups = new Map<string, Gakuchika[]>();
 
     for (const g of gakuchikas) {
-      const key = getStatusKey(g.conversationStatus);
+      const key = getGakuchikaListStatusKey(g.conversationStatus);
       if (!groups.has(key)) {
         groups.set(key, []);
       }

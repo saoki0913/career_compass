@@ -18,7 +18,7 @@ function humanizeModelId(modelId: string): string {
   if (lower.startsWith("gemini-3.1-pro-preview")) {
     return "Gemini 3 Pro Preview";
   }
-  if (lower === "gpt-fast") {
+  if (lower === "gpt-mini") {
     return "GPT-5.4-mini";
   }
   if (lower.startsWith("gemini")) {

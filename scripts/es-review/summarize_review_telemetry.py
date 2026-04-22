@@ -46,6 +46,7 @@ def summarize_review_meta_records(records: list[dict[str, Any]]) -> dict[str, An
     model_counts: Counter[str] = Counter()
     length_profile_counts: Counter[str] = Counter()
     length_failure_code_counts: Counter[str] = Counter()
+    fallback_reason_counts: Counter[str] = Counter()
     quality_signal_counts: Counter[str] = Counter()
     token_totals = defaultdict(int)
 
@@ -58,6 +59,8 @@ def summarize_review_meta_records(records: list[dict[str, Any]]) -> dict[str, An
             length_profile_counts[str(meta["length_profile_id"])] += 1
         if meta.get("length_failure_code"):
             length_failure_code_counts[str(meta["length_failure_code"])] += 1
+        if meta.get("fallback_reason"):
+            fallback_reason_counts[str(meta["fallback_reason"])] += 1
 
         if meta.get("weak_evidence_notice"):
             quality_signal_counts["weak_evidence_notice"] += 1
@@ -67,6 +70,10 @@ def summarize_review_meta_records(records: list[dict[str, Any]]) -> dict[str, An
             quality_signal_counts["soft_recovered"] += 1
         if meta.get("length_fix_attempted"):
             quality_signal_counts["length_fix_attempted"] += 1
+        if meta.get("fallback_triggered"):
+            quality_signal_counts["fallback_triggered"] += 1
+        if meta.get("misclassification_recovery_applied"):
+            quality_signal_counts["misclassification_recovery_applied"] += 1
 
         usage = meta.get("token_usage") or {}
         if isinstance(usage, dict):
@@ -96,6 +103,7 @@ def summarize_review_meta_records(records: list[dict[str, Any]]) -> dict[str, An
         "models": dict(model_counts),
         "length_profiles": dict(length_profile_counts),
         "length_failure_codes": dict(length_failure_code_counts),
+        "fallback_reasons": dict(fallback_reason_counts),
         "quality_signals": dict(quality_signal_counts),
         "token_usage_totals": dict(token_totals),
     }

@@ -64,7 +64,6 @@ export async function POST(req: Request) {
       case "checkout.session.completed": {
         const session = event.data.object;
         const userId = session.metadata?.userId;
-        const planFromMetadata = session.metadata?.plan as PlanType | undefined;
 
         if (userId && session.subscription) {
           const subscription = await stripe.subscriptions.retrieve(
@@ -73,7 +72,7 @@ export async function POST(req: Request) {
 
           const subscriptionItem = subscription.items.data[0];
           const priceId = subscriptionItem.price.id;
-          const newPlan = planFromMetadata || getPlanFromPriceId(priceId) || "standard";
+          const newPlan = getPlanFromPriceId(priceId) || "standard";
 
           // Use batch to ensure atomicity of subscription + profile + credit updates
           const [existingSub] = await db
@@ -255,6 +254,12 @@ export async function POST(req: Request) {
 
     // Event already recorded at claim time (before processing)
   } catch (error) {
+    await db
+      .delete(processedStripeEvents)
+      .where(eq(processedStripeEvents.eventId, event.id))
+      .catch((cleanupError) => {
+        logError("stripe-webhook-cleanup", cleanupError, { eventId: event.id, eventType: event.type });
+      });
     logError("stripe-webhook-process", error, { eventId: event.id, eventType: event.type });
     return NextResponse.json(
       { error: "Webhook processing failed" },

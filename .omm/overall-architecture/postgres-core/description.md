@@ -1,0 +1,1 @@
+The primary relational state model in src/lib/db/schema.ts backed by Supabase Postgres. It stores auth/session data, guest identities, companies, applications, documents, deadlines, tasks, notifications, billing state, and AI ingest job metadata.

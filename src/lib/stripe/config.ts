@@ -1,3 +1,5 @@
+import managedConfig from "./managed-config.json";
+
 /**
  * Stripe Price Configuration
  *
@@ -20,12 +22,12 @@ export const STRIPE_PRICES: Record<
   Partial<Record<BillingPeriod, string>>
 > = {
   standard: {
-    monthly: process.env.STRIPE_PRICE_STANDARD_MONTHLY || "",
-    annual: process.env.STRIPE_PRICE_STANDARD_ANNUAL || "",
+    monthly: process.env[managedConfig.prices[0].envVar] || "",
+    annual: process.env[managedConfig.prices[1].envVar] || "",
   },
   pro: {
-    monthly: process.env.STRIPE_PRICE_PRO_MONTHLY || "",
-    annual: process.env.STRIPE_PRICE_PRO_ANNUAL || "",
+    monthly: process.env[managedConfig.prices[2].envVar] || "",
+    annual: process.env[managedConfig.prices[3].envVar] || "",
   },
 };
 
@@ -45,33 +47,33 @@ export const PLAN_METADATA = {
   free: {
     name: "Free",
     price: 0,
-    credits: 30,
+    credits: 50,
     companies: 5,
     esReviews: 3,
-    gakuchika: 3,
+    gakuchika: 5,
   },
   standard: {
     name: "Standard",
-    price: 1480,
-    credits: 100,
+    price: 1490,
+    credits: 350,
     companies: -1, // unlimited
     esReviews: 10, // display-only hint
-    gakuchika: 10,
+    gakuchika: 15,
   },
   pro: {
     name: "Pro",
     price: 2980,
-    credits: 300,
+    credits: 750,
     companies: -1, // unlimited
     esReviews: -1, // display-only hint
-    gakuchika: 20,
+    gakuchika: 30,
   },
 } as const;
 
 export const ANNUAL_PLAN_PRICES: Record<Exclude<PlanType, "free">, number> = {
   /** Standard 年額 */
-  standard: 14980,
-  pro: 29800,
+  standard: managedConfig.prices[1].unitAmount,
+  pro: managedConfig.prices[3].unitAmount,
 };
 
 /**

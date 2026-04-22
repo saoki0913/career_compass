@@ -15,7 +15,6 @@ const {
 vi.mock("@/lib/db/schema", () => ({
   applications: { name: "applications" },
   companies: { name: "companies" },
-  deadlines: { name: "deadlines" },
   documents: { name: "documents" },
   gakuchikaContents: { name: "gakuchika_contents" },
   guestUsers: { name: "guest_users", deviceToken: "deviceToken", id: "id" },
@@ -95,7 +94,6 @@ describe("migrateGuestToUser", () => {
     expect(updatedTables).toEqual([
       "companies",
       "applications",
-      "deadlines",
       "documents",
       "tasks",
       "notifications",

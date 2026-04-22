@@ -104,24 +104,36 @@ function sleep(ms) {
 export async function checkAiLiveAuth({
   baseUrl,
   authSecret = process.env.CI_E2E_AUTH_SECRET,
+  scope = process.env.CI_E2E_SCOPE,
   fetchImpl = fetch,
   maxAttempts = 3,
   retryDelayMs = 250,
 } = {}) {
   const endpoint = buildEndpoint(baseUrl || process.env.PLAYWRIGHT_BASE_URL);
+  const withScopeFetch =
+    scope
+      ? (url, init = {}) =>
+          fetchImpl(url, {
+            ...init,
+            headers: {
+              ...(init.headers || {}),
+              "x-ci-e2e-scope": scope,
+            },
+          })
+      : fetchImpl;
   const attempts = [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const invalid = await runProbe({
       endpoint,
       bearer: "invalid-secret",
-      fetchImpl,
+      fetchImpl: withScopeFetch,
     });
     const valid = authSecret
       ? await runProbe({
           endpoint,
           bearer: authSecret,
-          fetchImpl,
+          fetchImpl: withScopeFetch,
         })
       : null;
 
@@ -172,6 +184,7 @@ function parseArgs(argv) {
   const out = {
     baseUrl: process.env.PLAYWRIGHT_BASE_URL || "",
     maxAttempts: 3,
+    scope: process.env.CI_E2E_SCOPE || "",
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -184,6 +197,11 @@ function parseArgs(argv) {
     if (arg === "--max-attempts") {
       const parsed = Number.parseInt(argv[i + 1] || "", 10);
       out.maxAttempts = Number.isFinite(parsed) && parsed > 0 ? parsed : out.maxAttempts;
+      i += 1;
+      continue;
+    }
+    if (arg === "--scope") {
+      out.scope = argv[i + 1] || out.scope;
       i += 1;
     }
   }

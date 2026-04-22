@@ -75,6 +75,27 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("INTERNAL_API_JWT_SECRET"),
     )
+    # HMAC secret for the `X-Career-Principal` header minted by the Next BFF.
+    # Distinct from INTERNAL_API_JWT_SECRET so that service-level trust and
+    # actor-level principal propagation can be rotated independently.
+    # See docs/security/principal_spec.md.
+    career_principal_hmac_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("CAREER_PRINCIPAL_HMAC_SECRET"),
+    )
+    # HMAC secret for deriving per-actor tenant keys used in ChromaDB/BM25
+    # data isolation. Distinct from CAREER_PRINCIPAL_HMAC_SECRET so that
+    # tenant namespace and token signing can be rotated independently.
+    tenant_key_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("TENANT_KEY_SECRET"),
+    )
+    # Feature flag: when True, ChromaDB and BM25 queries filter by tenant_key.
+    # Enable after running migrate_tenant_key.py to backfill existing data.
+    tenant_key_filter_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("TENANT_KEY_FILTER_ENABLED"),
+    )
     trusted_hosts: list[str] = Field(
         default=["localhost", "127.0.0.1"],
         validation_alias=AliasChoices("BACKEND_TRUSTED_HOSTS"),
@@ -138,9 +159,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GPT_MODEL"),
     )
 
-    gpt_fast_model: str = Field(
+    gpt_mini_model: str = Field(
         default="gpt-5.4-mini",
-        validation_alias=AliasChoices("GPT_FAST_MODEL", "OPENAI_MODEL"),
+        validation_alias=AliasChoices("GPT_MINI_MODEL", "GPT_FAST_MODEL", "OPENAI_MODEL"),
     )
 
     gpt_nano_model: str = Field(
@@ -156,8 +177,9 @@ class Settings(BaseSettings):
     google_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
     # 低コスト添削モード。ユーザー向けにはモデル名を出さず、コスト重視モードとして扱う。
+    # v5: Claude Haiku 4.5 に変更（gpt-5.4-mini 比で under_min 解消・companyless 422 解消）
     low_cost_review_model: str = Field(
-        default="gpt-5.4-mini",
+        default="claude-haiku-4-5-20251001",
         validation_alias=AliasChoices("LOW_COST_REVIEW_MODEL"),
     )
 
@@ -165,14 +187,18 @@ class Settings(BaseSettings):
     # ここには基本的に stable alias だけを保存する。
     # 推奨 alias:
     #   - claude-sonnet / claude-haiku
-    #   - gpt / gpt-fast / gpt-nano
+    #   - gpt / gpt-mini / gpt-nano
     #   - gemini
     #   - low-cost
     # 直指定 model ID や旧 alias（openai / google）も後方互換で解決する。
     model_es_review: str = "claude-sonnet"           # MODEL_ES_REVIEW
-    model_gakuchika: str = "gpt-fast"                # MODEL_GAKUCHIKA
-    model_motivation: str = "gpt-fast"               # MODEL_MOTIVATION
-    model_interview: str = "gpt-fast"                # MODEL_INTERVIEW
+    model_gakuchika: str = "claude-haiku"             # MODEL_GAKUCHIKA
+    model_motivation: str = "claude-haiku"            # MODEL_MOTIVATION
+    model_interview_plan: str = Field(
+        default="gpt",
+        validation_alias=AliasChoices("MODEL_INTERVIEW_PLAN"),
+    )
+    model_interview: str = "claude-haiku"             # MODEL_INTERVIEW
     model_interview_feedback: str = Field(
         default="claude-sonnet",
         validation_alias=AliasChoices("MODEL_INTERVIEW_FEEDBACK"),
@@ -185,11 +211,11 @@ class Settings(BaseSettings):
         default="claude-sonnet",
         validation_alias=AliasChoices("MODEL_MOTIVATION_DRAFT"),
     )
-    # 選考スケジュール抽出は呼び出し回数が多いため、コスト優先で GPT-5.4 nano（gpt-nano）を既定にする。
-    model_selection_schedule: str = "gpt-nano"       # MODEL_SELECTION_SCHEDULE
-    model_company_info: str = "gpt-fast"             # MODEL_COMPANY_INFO
-    model_rag_query_expansion: str = "gpt-fast"      # MODEL_RAG_QUERY_EXPANSION（GPT-5.4 mini）
-    model_rag_hyde: str = "gpt-fast"                 # MODEL_RAG_HYDE（GPT-5.4 mini）
+    # 選考スケジュール抽出は成功率優先で GPT-5.4 mini（gpt-mini）を既定にする。
+    model_selection_schedule: str = "gpt-mini"       # MODEL_SELECTION_SCHEDULE
+    model_company_info: str = "gpt-mini"             # MODEL_COMPANY_INFO
+    model_rag_query_expansion: str = "gpt-mini"      # MODEL_RAG_QUERY_EXPANSION（GPT-5.4 mini）
+    model_rag_hyde: str = "gpt-mini"                 # MODEL_RAG_HYDE（GPT-5.4 mini）
     # RAG 補助 LLM で nano なのは分類のみ。チャンク content_type 推定（短い JSON）。再ランキングは cross-encoder（reranker.py）
     model_rag_classify: str = "gpt-nano"             # MODEL_RAG_CLASSIFY（GPT-5.4 nano）
 
@@ -261,6 +287,41 @@ class Settings(BaseSettings):
     rag_use_hyde: bool = True
     rag_use_mmr: bool = True
     rag_use_rerank: bool = True
+    # D-2 / P2-1: 志望動機ドラフトで RAG グラウンディングを有効化するフラグ
+    # false にすると従来動作 (has_rag=False, grounding_mode="none") に戻る
+    motivation_rag_grounding: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("MOTIVATION_RAG_GROUNDING"),
+    )
+    # P4-4: ドラフト生成時の3軸 (AI臭/企業固有性/結論先行) マルチパス精錬。
+    # false にすると従来動作 (P2-2 単独 Tier 2 リトライのみ) に戻る。
+    motivation_multipass_refinement: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("MOTIVATION_MULTIPASS_REFINEMENT"),
+        description="P4-4: ドラフト生成時の3軸マルチパス精錬 (AI臭/企業固有性/結論先行)。default=true。",
+    )
+    # P4-2: 質問遷移時に keyword 確認に外れた回答を gpt-nano で意味判定するか。
+    # default false。staging 検証後に MOTIVATION_SEMANTIC_CONFIRM=true で本番有効化。
+    motivation_semantic_confirm: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MOTIVATION_SEMANTIC_CONFIRM"),
+        description="P4-2: keyword 不一致 + 14 文字以上の回答を LLM ミニコールで意味判定。default=false。",
+    )
+    motivation_embedding_dedup: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MOTIVATION_EMBEDDING_DEDUP"),
+        description="P5-1: 質問の意味的重複を embedding 類似度で検出する。default=false。",
+    )
+    motivation_embedding_dedup_similarity_threshold: float = Field(
+        default=0.85,
+        validation_alias=AliasChoices("MOTIVATION_EMBEDDING_DEDUP_SIMILARITY_THRESHOLD"),
+        description="P5-1: semantic duplicate 判定の cosine 類似度閾値。",
+    )
+    motivation_embedding_dedup_timeout_seconds: float = Field(
+        default=1.5,
+        validation_alias=AliasChoices("MOTIVATION_EMBEDDING_DEDUP_TIMEOUT_SECONDS"),
+        description="P5-1: semantic duplicate embedding 判定の fail-open timeout seconds。",
+    )
     # MMRの多様性係数（0=多様性重視、1=関連性重視）
     rag_mmr_lambda: float = 0.5
     # 取得候補数（kの最小値、n_results*3と比較して大きい方を使用）
@@ -279,29 +340,41 @@ class Settings(BaseSettings):
 
     # 企業RAG PDF アップロード上限（ページ）。Free 厳しめ / Standard・Pro は緩め。超過分は先頭ページのみ処理。
     rag_pdf_max_pages_free: int = Field(
-        default=24,
+        default=20,
         validation_alias=AliasChoices("RAG_PDF_MAX_PAGES_FREE"),
     )
     rag_pdf_max_pages_standard: int = Field(
-        default=72,
+        default=100,
         validation_alias=AliasChoices("RAG_PDF_MAX_PAGES_STANDARD"),
     )
     rag_pdf_max_pages_pro: int = Field(
-        default=120,
+        default=200,
         validation_alias=AliasChoices("RAG_PDF_MAX_PAGES_PRO"),
     )
     # OpenAI PDF OCR 時に送る最大ページ数（≤ 上記取込上限）。OCR 負荷抑制用。
-    rag_pdf_ocr_max_pages_free: int = Field(
-        default=10,
-        validation_alias=AliasChoices("RAG_PDF_OCR_MAX_PAGES_FREE"),
+    rag_pdf_google_ocr_max_pages_free: int = Field(
+        default=5,
+        validation_alias=AliasChoices("RAG_PDF_GOOGLE_OCR_MAX_PAGES_FREE", "RAG_PDF_OCR_MAX_PAGES_FREE"),
     )
-    rag_pdf_ocr_max_pages_standard: int = Field(
-        default=32,
-        validation_alias=AliasChoices("RAG_PDF_OCR_MAX_PAGES_STANDARD"),
+    rag_pdf_google_ocr_max_pages_standard: int = Field(
+        default=50,
+        validation_alias=AliasChoices("RAG_PDF_GOOGLE_OCR_MAX_PAGES_STANDARD", "RAG_PDF_OCR_MAX_PAGES_STANDARD"),
     )
-    rag_pdf_ocr_max_pages_pro: int = Field(
-        default=48,
-        validation_alias=AliasChoices("RAG_PDF_OCR_MAX_PAGES_PRO"),
+    rag_pdf_google_ocr_max_pages_pro: int = Field(
+        default=100,
+        validation_alias=AliasChoices("RAG_PDF_GOOGLE_OCR_MAX_PAGES_PRO", "RAG_PDF_OCR_MAX_PAGES_PRO"),
+    )
+    rag_pdf_mistral_ocr_max_pages_free: int = Field(
+        default=0,
+        validation_alias=AliasChoices("RAG_PDF_MISTRAL_OCR_MAX_PAGES_FREE"),
+    )
+    rag_pdf_mistral_ocr_max_pages_standard: int = Field(
+        default=15,
+        validation_alias=AliasChoices("RAG_PDF_MISTRAL_OCR_MAX_PAGES_STANDARD"),
+    )
+    rag_pdf_mistral_ocr_max_pages_pro: int = Field(
+        default=30,
+        validation_alias=AliasChoices("RAG_PDF_MISTRAL_OCR_MAX_PAGES_PRO"),
     )
     rag_pdf_ocr_timeout_seconds: int = Field(
         default=120,

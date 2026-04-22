@@ -1,0 +1,1 @@
+Scheduled and follow-up execution paths spanning src/app/api/cron and operational scripts. They drive notification batches, calendar sync, release automation, prompt sync, and other provider-facing maintenance flows.

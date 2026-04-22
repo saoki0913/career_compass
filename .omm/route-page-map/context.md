@@ -1,0 +1,1 @@
+The app uses route groups to separate presentation concerns: marketing pages for SEO and conversion, auth pages for account state transitions, and product pages for logged-in or guest workflow execution.

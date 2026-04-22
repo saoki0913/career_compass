@@ -26,6 +26,8 @@ import {
 } from "@/lib/company-info/sources";
 import {
   applyCompanyRagUsage,
+  getRemainingCompanyRagHtmlFreeUnits,
+  getRemainingCompanyRagPdfFreeUnits,
 } from "@/lib/company-info/usage";
 import {
   calculateCorporateCrawlUnits,
@@ -37,7 +39,7 @@ import {
   STATUS_POLL_RATE_LAYERS,
   enforceRateLimitLayers,
 } from "@/lib/rate-limit-spike";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 
 // FastAPI backend URL
 interface CrawlResult {
@@ -47,6 +49,7 @@ interface CrawlResult {
   chunks_stored: number;
   errors: string[];
   url_content_types?: Record<string, string>;
+  page_routing_summaries?: Record<string, Record<string, unknown>>;
 }
 
 interface SourceMetadataInput {
@@ -201,7 +204,7 @@ export async function POST(
     // Call FastAPI backend to crawl pages
     let crawlResult: CrawlResult;
     try {
-    const response = await fetchFastApiInternal("/company-info/rag/crawl-corporate", {
+      const response = await fetchFastApiWithPrincipal("/company-info/rag/crawl-corporate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -210,7 +213,14 @@ export async function POST(
           urls: compliance.allowedUrls,
           content_channel: contentChannelResolved,
           content_type: contentTypeResolved, // 9-category content type for proper counting
+          billing_plan: plan,
         }),
+        principal: {
+          scope: "company",
+          actor: { kind: "user", id: userId },
+          companyId,
+          plan,
+        },
       });
 
       if (!response.ok) {
@@ -265,6 +275,7 @@ export async function POST(
 
     // Update company record with URLs
     const urlContentTypes = crawlResult.url_content_types || {};
+    const pageRoutingSummaries = crawlResult.page_routing_summaries || {};
     const newUrls: CorporateInfoSource[] = uniqueRequestedUrls
       .map((url) => {
         const metadata = sourceMetadata?.[url];
@@ -275,22 +286,27 @@ export async function POST(
           "corporate_site";
         const sourceType = metadata?.sourceType;
         const parentAllowed = metadata?.parentAllowed === true;
+        const pdfSummary = pageRoutingSummaries[url];
+        const isPdfSource = Boolean(pdfSummary);
+        const ingestUnits = isPdfSource && typeof pdfSummary?.ingest_pages === "number"
+          ? Math.max(1, Math.floor(Number(pdfSummary.ingest_pages)))
+          : 1;
 
         return {
           url,
-          kind: "url",
+          kind: isPdfSource ? "upload_pdf" : "url",
           sourceOrigin: "manual_user",
           contentType: resolvedContentType,
           secondaryContentTypes: [],
           fetchedAt: new Date().toISOString(),
           status: "completed",
-          ingestUnits: 0,
+          ingestUnits,
           sourceType,
           relationCompanyName:
             typeof metadata?.relationCompanyName === "string" ? metadata.relationCompanyName : undefined,
           parentAllowed,
           trustedForEsReview: inferTrustedForEsReview({
-            kind: "url",
+            kind: isPdfSource ? "upload_pdf" : "url",
             url,
             sourceType,
             parentAllowed,
@@ -326,15 +342,37 @@ export async function POST(
       };
     });
 
-    const actualUnits = calculateCorporateCrawlUnits(crawlResult.pages_crawled);
-    const usage = await applyCompanyRagUsage({
-      userId,
-      plan,
-      pages: actualUnits,
-      kind: "url",
-      referenceId: companyId,
-      description: `企業RAG取込(URL): ${company.name}`,
-    });
+    let totalFreeUnitsApplied = 0;
+    let totalCreditsConsumed = 0;
+    let totalActualCreditsDeducted = 0;
+    let remainingHtmlFreeUnits = await getRemainingCompanyRagHtmlFreeUnits(userId, plan);
+    let remainingPdfFreeUnits = await getRemainingCompanyRagPdfFreeUnits(userId, plan);
+    let actualUnits = 0;
+
+    for (const url of uniqueRequestedUrls) {
+      const pdfSummary = pageRoutingSummaries[url];
+      const isPdfSource = Boolean(pdfSummary);
+      const ingestUnits = isPdfSource && typeof pdfSummary?.ingest_pages === "number"
+        ? Math.max(1, Math.floor(Number(pdfSummary.ingest_pages)))
+        : 1;
+      actualUnits += isPdfSource ? ingestUnits : calculateCorporateCrawlUnits(1);
+      const usage = await applyCompanyRagUsage({
+        userId,
+        plan,
+        pages: ingestUnits,
+        kind: isPdfSource ? "pdf" : "url",
+        referenceId: companyId,
+        description: `企業RAG取込(${isPdfSource ? "PDF" : "URL"}): ${company.name}`,
+      });
+      totalFreeUnitsApplied += usage.freeUnitsApplied;
+      totalCreditsConsumed += usage.creditsDisplayed;
+      totalActualCreditsDeducted += usage.creditsActuallyDeducted;
+      if (isPdfSource) {
+        remainingPdfFreeUnits = usage.remainingFreeUnits;
+      } else {
+        remainingHtmlFreeUnits = usage.remainingFreeUnits;
+      }
+    }
 
     await db
       .update(companies)
@@ -349,21 +387,22 @@ export async function POST(
       success: crawlResult.success,
       pagesCrawled: crawlResult.pages_crawled,
       actualUnits,
-      freeUnitsApplied: usage.freeUnitsApplied,
-      remainingFreeUnits: usage.remainingFreeUnits,
-      creditsConsumed: usage.creditsDisplayed,
-      actualCreditsDeducted: usage.creditsActuallyDeducted,
+      freeUnitsApplied: totalFreeUnitsApplied,
+      remainingFreeUnits: remainingHtmlFreeUnits,
+      remainingHtmlFreeUnits,
+      remainingPdfFreeUnits,
+      creditsConsumed: totalCreditsConsumed,
+      actualCreditsDeducted: totalActualCreditsDeducted,
       estimatedCostBand:
-        usage.creditsDisplayed > 0
-          ? usage.creditsDisplayed === 1
-            ? "1クレジット"
-            : "2クレジット以上"
-          : usage.overflowUnits > 0
+        totalCreditsConsumed > 0
+          ? `${totalCreditsConsumed}クレジット`
+          : actualUnits > 0
             ? "今回はクレジット消費なし"
             : "無料枠内",
       chunksStored: crawlResult.chunks_stored,
       errors: crawlResult.errors,
       totalUrls: updatedUrls.length,
+      pageRoutingSummaries,
     });
   } catch (error) {
     console.error("Error fetching corporate info:", error);
@@ -428,8 +467,16 @@ export async function GET(
     };
 
     try {
-      const response = await fetchFastApiInternal(
-        `/company-info/rag/status-detailed/${companyId}`
+      const response = await fetchFastApiWithPrincipal(
+        `/company-info/rag/status-detailed/${companyId}`,
+        {
+          principal: {
+            scope: "company",
+            actor: { kind: "user", id: authUser.userId },
+            companyId,
+            plan: authUser.plan,
+          },
+        },
       );
       if (response.ok) {
         ragStatus = await response.json();

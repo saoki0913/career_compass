@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 
 export interface SubmissionItem {
   id: string;
@@ -87,6 +88,7 @@ export function useSubmissions(applicationId: string | null) {
         "useSubmissions.fetchSubmissions"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }

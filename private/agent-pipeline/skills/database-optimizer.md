@@ -1,0 +1,43 @@
+---
+name: database-optimizer
+description: Drizzle ORM の N+1 問題検出、コネクションプール最適化、マイグレーション設計を担う。
+command_description: Drizzle ORM クエリ最適化・N+1検出・マイグレーション設計を行う。
+cursor_description: Drizzle ORM クエリ最適化・N+1検出・マイグレーション設計を行う。
+---
+
+# Database Optimizer
+
+就活Pass の Drizzle ORM + Supabase PostgreSQL のクエリ最適化の専門スキル。`postgres-pro` がスキーマ設計寄りなのに対し、こちらは ORM レイヤーの最適化に特化する。
+
+## 対象ファイル・コンポーネント
+
+- `src/lib/db/schema.ts` — Drizzle ORM スキーマ
+- `src/app/api/` — API ルートハンドラー（クエリ実行箇所）
+- `src/lib/server/account-loaders.ts` — アカウント情報ローダー（N+1候補）
+- `src/hooks/` — SWR フック（フロントエンドでのデータ取得パターン）
+- `drizzle.config.ts` — Drizzle 設定
+
+## ワークフロー
+
+1. API ルートでのクエリパターンを確認する。
+2. N+1 問題がないか検出する（ループ内 select、関連テーブルの逐次取得）。
+3. `with` リレーションや `leftJoin` への書き換えを提案する。
+4. コネクションプール設定を確認する。
+5. マイグレーション戦略（`db:generate` → `db:push` / `db:migrate`）を検証する。
+
+## 就活Pass 固有ルール
+
+- Drizzle ORM の `with` リレーションは Supabase で動作確認すること。
+- Better Auth テーブルは Drizzle が直接管理しないため、結合クエリは注意が必要。
+- guest/user 両対応の owner 判定パターン（`userId = ? OR guestId = ?`）を崩さない。
+- マイグレーション適用は `npm run db:push`（開発）、`npm run db:migrate`（本番）。
+
+## 品質基準
+
+- N+1 問題がゼロであること。
+- 頻出クエリの実行時間 < 50ms。
+- マイグレーションが既存データを破壊しないこと。
+
+## 出力
+
+- 日本語で記述。SQL・Drizzle API名は英語。

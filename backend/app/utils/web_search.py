@@ -18,7 +18,6 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Optional
 from urllib.parse import urlparse
 
 from app.config import settings
@@ -47,15 +46,19 @@ WEB_SEARCH_DEBUG = bool(
     or settings.company_search_debug
 )
 
+WEB_SEARCH_DEBUG_PRINT = _env_flag("WEB_SEARCH_DEBUG_PRINT")
+
 
 def _debug_log(message: str, *args: object) -> None:
-    if WEB_SEARCH_DEBUG:
-        try:
-            text = message % args if args else message
-        except Exception:
-            text = f"{message} {args}"
+    if not WEB_SEARCH_DEBUG:
+        return
+    try:
+        text = message % args if args else message
+    except Exception:
+        text = f"{message} {args}"
+    logger.debug(text)
+    if WEB_SEARCH_DEBUG_PRINT:
         print(text)
-        logger.info(text)
 
 # Try to import DuckDuckGo search (ddgs is the new package name)
 try:
@@ -76,7 +79,6 @@ except ImportError:
 try:
     from app.utils.reranker import (
         get_reranker_with_variant,
-        CrossEncoderReranker,
     )
 
     HAS_RERANKER = True
@@ -108,6 +110,18 @@ SHORT_NAME_OFFICIAL_TLDS = (".co.jp", ".jp", ".com")
 
 # Common TLDs for site: query synthesis from non-dotted patterns
 SITE_RESCUE_TLDS = (".co.jp", ".com", ".jp")
+
+URL_INTENT_PATTERNS: dict[str, list[str]] = {
+    "new_grad_recruitment": ["/recruit", "/newgrad", "/saiyo", "/careers", "/fresh"],
+    "midcareer_recruitment": ["/recruit", "/career", "/midcareer", "/chuto"],
+    "ir_materials": ["/ir/", "/ir.", "/investor", "/finance", "/kabunushi"],
+    "ceo_message": ["/message", "/greeting", "/president", "/ceo", "/aisatsu"],
+    "employee_interviews": ["/people", "/interview", "/staff", "/member", "/voice"],
+    "press_release": ["/press", "/news", "/release", "/topics", "/newsroom"],
+    "csr_sustainability": ["/csr", "/sustainability", "/esg", "/environment", "/sdgs"],
+    "midterm_plan": ["/ir/", "/management", "/plan", "/strategy", "/vision", "/chuki"],
+}
+URL_CONTENT_TYPE_BONUS = 0.03
 
 # Intent score normalization (fixed range + bias)
 INTENT_SCORE_MIN = -6.0
@@ -148,6 +162,16 @@ COMPANY_SUFFIXES = [
     "ホールディングス",
     "HD",
     "グループ",
+]
+
+# Long company name shortening suffixes (domain-specific, not legal)
+COMPANY_DOMAIN_SUFFIXES = [
+    "火災保険",
+    "海上火災",
+    "ホールディングス",
+    "グループ",
+    "フィナンシャルグループ",
+    "フィナンシャル",
 ]
 
 # Company-specific query aliases (used to improve recall for brand/English names)
@@ -557,6 +581,15 @@ def generate_company_variants(company_name: str) -> list[str]:
     if ascii_name:
         variants.append(ascii_name)
 
+    # Short variant for long names (remove domain-specific suffixes)
+    short = normalized
+    for suffix in COMPANY_DOMAIN_SUFFIXES:
+        if short.endswith(suffix):
+            short = short[: -len(suffix)].strip()
+            break
+    if short and short != normalized and len(short) >= 3:
+        variants.append(short)
+
     # Remove duplicates while preserving order
     seen = set()
     unique_variants = []
@@ -612,7 +645,10 @@ def generate_query_variations(
     queries = []
     base_variants = generate_company_variants(company_name)
     company_variants = _merge_query_aliases(company_name, base_variants)
-    primary_name = company_variants[0]
+    if not company_variants:
+        primary_name = company_name or ""
+    else:
+        primary_name = company_variants[0]
     short_name = company_variants[1] if len(company_variants) > 1 else primary_name
     alias_name = company_variants[2] if len(company_variants) > 2 else None
     ascii_name = base_variants[2] if len(base_variants) > 2 else None
@@ -1249,8 +1285,19 @@ def _prefilter_results(
                 "aggregator" if is_aggregator else result.source_type,
                 relation,
             )
+            is_likely_official = is_official or (
+                company_match
+                and not is_aggregator
+                and (
+                    any(domain_pattern_matches(domain, pat) for pat in official_patterns)
+                    or (
+                        preferred_domain
+                        and domain_pattern_matches(domain, preferred_domain)
+                    )
+                )
+            )
 
-            if exclude_external and not is_official and not is_related_company:
+            if exclude_external and not is_likely_official and not is_related_company:
                 if not (relax_external_for_company_match and company_match):
                     exclude_reason = "external_excluded"
 
@@ -1267,7 +1314,7 @@ def _prefilter_results(
             if enforce_intent_gate:
                 intent_gate_score = _calculate_intent_match_score(result, target_intent)
                 result.score_breakdown["intent_gate"] = intent_gate_score
-                if not is_official and intent_gate_score < intent_gate_threshold:
+                if not is_likely_official and intent_gate_score < intent_gate_threshold:
                     exclude_reason = "intent_gate"
 
             if exclude_reason:
@@ -1281,6 +1328,7 @@ def _prefilter_results(
                             "url": result.url,
                             "domain": domain,
                             "official": is_official,
+                            "likely_official": is_likely_official,
                             "preferred": bool(
                                 preferred_domain
                                 and domain_pattern_matches(domain, preferred_domain)
@@ -1678,9 +1726,22 @@ def score_results(
 # =============================================================================
 
 
+def _url_content_type_bonus(url: str, content_type: str | None) -> float:
+    if not content_type or content_type not in URL_INTENT_PATTERNS:
+        return 0.0
+
+    url_lower = url.lower()
+    for pattern in URL_INTENT_PATTERNS[content_type]:
+        if pattern in url_lower:
+            return URL_CONTENT_TYPE_BONUS
+
+    return 0.0
+
+
 def combine_scores(
     results: list[WebSearchResult],
     weights: dict[str, float] | None = None,
+    content_type: str | None = None,
 ) -> list[WebSearchResult]:
     """
     Combine RRF, rerank, and intent/domain scores into final combined score.
@@ -1730,6 +1791,7 @@ def combine_scores(
             + weights["intent"] * norm_intent
             + weights["rrf"] * norm_rrf
         )
+        result.combined_score += _url_content_type_bonus(result.url, content_type)
 
     # Sort by combined score
     results.sort(key=lambda x: x.combined_score, reverse=True)
@@ -1988,7 +2050,7 @@ async def hybrid_web_search(
         if cached:
             return cached[:max_results]
 
-    logger.info(f"[WebSearch] Starting hybrid search for '{company_name}'")
+    logger.debug("[WebSearch] Starting hybrid search for %r", company_name)
     _debug_log(
         "[WebSearch] Params intent=%s content_type=%s graduation_year=%s "
         "selection_type=%s preferred_domain=%s strict_company_match=%s "
@@ -2036,8 +2098,31 @@ async def hybrid_web_search(
     )
 
     if not results:
-        logger.warning(f"[WebSearch] No results for '{company_name}'")
-        return []
+        logger.warning(
+            f"[WebSearch] No initial results for '{company_name}', attempting rescue"
+        )
+        site_domains = _resolve_site_domains(
+            domain_profile=domain_profile,
+            preferred_domain=preferred_domain,
+        )
+        normalized_name = normalize_company_name(company_name) or company_name
+        rescue_queries = [normalized_name]
+        for domain in site_domains[:2]:
+            rescue_queries.append(f"{normalized_name} site:{domain}")
+        rescue_queries = rescue_queries[:3]
+        _debug_log("[WebSearch] Initial rescue queries=%s", rescue_queries)
+        results, raw_results = await search_with_rrf_fusion(
+            queries=rescue_queries,
+            max_results_per_query=WEB_SEARCH_RESULTS_PER_QUERY,
+            rrf_k=WEB_SEARCH_RRF_K,
+            return_raw=True,
+        )
+        if not results:
+            logger.warning(
+                f"[WebSearch] No results even after rescue for '{company_name}'"
+            )
+            return []
+        _debug_log("[WebSearch] Rescue recovered %d results", len(results))
 
     logger.debug(f"[WebSearch] RRF merged {len(results)} unique results")
     _debug_log("[WebSearch] RRF merged=%d", len(results))
@@ -2082,6 +2167,7 @@ async def hybrid_web_search(
         should_rescue,
     )
 
+    site_rescue_used = False
     if should_rescue:
         site_domains = _resolve_site_domains(
             domain_profile=domain_profile,
@@ -2094,10 +2180,13 @@ async def hybrid_web_search(
                 site_domains,
                 len(site_queries),
             )
-            logger.info(
-                f"[WebSearch] Site rescue triggered (domains={site_domains}, "
-                f"initial_count={len(results)}, official_count={official_count})"
+            logger.debug(
+                "[WebSearch] Site rescue triggered domains=%s initial=%d official=%d",
+                site_domains,
+                len(results),
+                official_count,
             )
+            site_rescue_used = True
             site_results, site_raw = await search_with_rrf_fusion(
                 queries=site_queries,
                 max_results_per_query=WEB_SEARCH_RESULTS_PER_QUERY,
@@ -2126,8 +2215,8 @@ async def hybrid_web_search(
                     len(results),
                 )
         else:
-            logger.info(
-                f"[WebSearch] Site rescue skipped (no dotted official domains)"
+            logger.debug(
+                "[WebSearch] Site rescue skipped (no dotted official domains)"
             )
 
     if not results:
@@ -2143,7 +2232,7 @@ async def hybrid_web_search(
         allow_aggregators=allow_aggs,
         graduation_year=graduation_year,
     )
-    results = combine_scores(results=results)
+    results = combine_scores(results=results, content_type=content_type)
 
     deep_search_needed = should_run_deep_search(
         results,
@@ -2160,6 +2249,16 @@ async def hybrid_web_search(
         results = results[:max_results]
         if write_cache and results and cache_key:
             _set_cache(cache_key, results)
+        top_score = results[0].combined_score if results else 0.0
+        logger.info(
+            "[WebSearch] hybrid_search company=%r results=%d deep_path=%s "
+            "site_rescue=%s top_combined=%.3f",
+            company_name,
+            len(results),
+            False,
+            site_rescue_used,
+            top_score,
+        )
         return results
 
     if len(fast_queries) < len(queries):
@@ -2205,7 +2304,7 @@ async def hybrid_web_search(
     )
 
     if results:
-        logger.info(
+        logger.debug(
             "[WebSearch] Rerank top=%s",
             [
                 {
@@ -2230,7 +2329,7 @@ async def hybrid_web_search(
         allow_aggregators=allow_aggs,
         graduation_year=graduation_year,
     )
-    results = combine_scores(results=results)
+    results = combine_scores(results=results, content_type=content_type)
 
     if results:
         combined_scores = [r.combined_score for r in results]
@@ -2240,7 +2339,7 @@ async def hybrid_web_search(
             max(combined_scores),
             sum(combined_scores) / len(combined_scores),
         )
-        logger.info(
+        logger.debug(
             "[WebSearch] Combined top=%s",
             [
                 {
@@ -2264,16 +2363,20 @@ async def hybrid_web_search(
         graduation_year=graduation_year,
     )
     if updated:
-        results = combine_scores(results=results)
+        results = combine_scores(results=results, content_type=content_type)
 
     # Limit to max_results
     results = results[:max_results]
 
+    top_score = results[0].combined_score if results else 0.0
     logger.info(
-        f"[WebSearch] Completed: {len(results)} results for '{company_name}' "
-        f"(top score: {results[0].combined_score:.3f})"
-        if results
-        else ""
+        "[WebSearch] hybrid_search company=%r results=%d deep_path=%s "
+        "site_rescue=%s top_combined=%.3f",
+        company_name,
+        len(results),
+        True,
+        site_rescue_used,
+        top_score,
     )
 
     # Cache results

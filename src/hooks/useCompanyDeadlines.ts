@@ -7,6 +7,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { trackEvent } from "@/lib/analytics/client";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { notifyUserFacingAppError } from "@/lib/client-error-ui";
+import { notifyCalendarSynced, notifyCalendarSyncFailed } from "@/lib/notifications";
 
 export type DeadlineType =
   | "es_submission"
@@ -67,6 +69,14 @@ interface UseCompanyDeadlinesOptions {
   initialData?: Deadline[];
 }
 
+function notifyCalendarSyncResult(calendarSync?: { status?: string }) {
+  if (calendarSync?.status === "synced") {
+    notifyCalendarSynced();
+  } else if (calendarSync?.status === "failed") {
+    notifyCalendarSyncFailed();
+  }
+}
+
 export function useCompanyDeadlines(companyId: string | null, options: UseCompanyDeadlinesOptions = {}) {
   const [deadlines, setDeadlines] = useState<Deadline[]>(() => options.initialData ?? []);
   const [isLoading, setIsLoading] = useState(() => !options.initialData);
@@ -120,6 +130,7 @@ export function useCompanyDeadlines(companyId: string | null, options: UseCompan
         "useCompanyDeadlines.fetchDeadlines"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
     } finally {
       setIsLoading(false);
     }
@@ -160,6 +171,7 @@ export function useCompanyDeadlines(companyId: string | null, options: UseCompan
 
         const data = await response.json();
         const newDeadline = data.deadline;
+        notifyCalendarSyncResult(data.calendarSync);
 
         trackEvent("deadline_create", { type: input.type });
 
@@ -181,6 +193,7 @@ export function useCompanyDeadlines(companyId: string | null, options: UseCompan
           "useCompanyDeadlines.createDeadline"
         );
         setError(uiError.message);
+        notifyUserFacingAppError(uiError);
         return null;
       }
     },
@@ -212,6 +225,7 @@ export function useCompanyDeadlines(companyId: string | null, options: UseCompan
 
         const data = await response.json();
         const updatedDeadline = data.deadline;
+        notifyCalendarSyncResult(data.calendarSync);
 
         // Update local state
         setDeadlines((prev) =>
@@ -233,6 +247,7 @@ export function useCompanyDeadlines(companyId: string | null, options: UseCompan
           "useCompanyDeadlines.updateDeadline"
         );
         setError(uiError.message);
+        notifyUserFacingAppError(uiError);
         return null;
       }
     },
@@ -260,6 +275,9 @@ export function useCompanyDeadlines(companyId: string | null, options: UseCompan
         );
       }
 
+      const data = await response.json();
+      notifyCalendarSyncResult(data.calendarSync);
+
       // Update local state
       setDeadlines((prev) => prev.filter((d) => d.id !== deadlineId));
 
@@ -276,6 +294,7 @@ export function useCompanyDeadlines(companyId: string | null, options: UseCompan
         "useCompanyDeadlines.deleteDeadline"
       );
       setError(uiError.message);
+      notifyUserFacingAppError(uiError);
       return false;
     }
   }, []);

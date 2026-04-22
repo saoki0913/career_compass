@@ -1,0 +1,1 @@
+Core product workspace routes for dashboard, companies, ES, gakuchika, tasks, calendar, notifications, search, profile, and settings. This is where users spend most of their time managing applications and AI-assisted writing.

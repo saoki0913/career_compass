@@ -11,6 +11,14 @@ export const GOOGLE_CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.freebusy",
 ] as const;
 
+/**
+ * Defense-in-depth upper bound on refresh-token age.
+ * Google refresh tokens do not expire on their own for active apps, but a
+ * long-lived token that leaks is a long-lived credential. We force reconnect
+ * after 365 days (D-4 in `docs/review/security/security_audit_2026-04-14.md`).
+ */
+export const GOOGLE_REFRESH_TOKEN_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
+
 export interface CalendarConnectionStatus {
   connected: boolean;
   needsReconnect: boolean;
@@ -111,6 +119,22 @@ export async function clearCalendarReconnectNeeded(userId: string) {
     .where(eq(calendarSettings.userId, userId));
 }
 
+function isTokenExpired(
+  accessToken: string | null,
+  expiresAt: Date | null,
+  now: Date,
+): boolean {
+  return !accessToken || (!!expiresAt && expiresAt.getTime() - now.getTime() < 5 * 60 * 1000);
+}
+
+/**
+ * Get a valid Google Calendar access token, refreshing if expired.
+ *
+ * Uses CAS (Compare-and-Swap) with `updatedAt` as the version key to prevent
+ * concurrent refresh races: if two sync jobs detect an expired token at the
+ * same time, only the first CAS-update succeeds; the loser re-reads the DB
+ * and returns the already-refreshed token.
+ */
 export async function getValidGoogleCalendarAccessToken(userId: string) {
   const settings = await getCalendarSettingsRecord(userId);
   const status = buildCalendarConnectionStatus(settings);
@@ -121,17 +145,39 @@ export async function getValidGoogleCalendarAccessToken(userId: string) {
     return { accessToken: null, settings, status };
   }
 
-  const now = new Date();
-  const expiresAt = settings.googleTokenExpiresAt;
-  const isExpired = !accessToken || (expiresAt && expiresAt.getTime() - now.getTime() < 5 * 60 * 1000);
+  // D-4: Force reconnect if the stored refresh token is older than the safe age threshold.
+  // For rows written before the `google_refresh_token_issued_at` column existed, fall back
+  // to `googleCalendarConnectedAt` since every refresh-token acquisition path also updates
+  // that timestamp.
+  const refreshTokenReference =
+    settings.googleRefreshTokenIssuedAt ?? settings.googleCalendarConnectedAt;
+  if (
+    refreshTokenReference &&
+    Date.now() - refreshTokenReference.getTime() > GOOGLE_REFRESH_TOKEN_MAX_AGE_MS
+  ) {
+    await markCalendarReconnectNeeded(userId);
+    const latest = await getCalendarSettingsRecord(userId);
+    return {
+      accessToken: null,
+      settings: latest,
+      status: buildCalendarConnectionStatus(latest),
+    };
+  }
 
-  if (!isExpired) {
+  const now = new Date();
+  if (!isTokenExpired(accessToken, settings.googleTokenExpiresAt, now)) {
     return { accessToken, settings, status };
   }
 
+  // Token is expired — remember the current updatedAt for CAS
+  const oldUpdatedAt = settings.updatedAt;
+
   try {
+    // Refresh against Google (no DB lock held during external I/O)
     const refreshed = await refreshAccessToken(refreshToken);
-    await db
+
+    // CAS update: only succeeds if no other job refreshed in the meantime
+    const [updated] = await db
       .update(calendarSettings)
       .set({
         googleAccessToken: encrypt(refreshed.accessToken),
@@ -139,7 +185,24 @@ export async function getValidGoogleCalendarAccessToken(userId: string) {
         googleCalendarNeedsReconnect: false,
         updatedAt: now,
       })
-      .where(eq(calendarSettings.userId, userId));
+      .where(
+        and(
+          eq(calendarSettings.userId, userId),
+          eq(calendarSettings.updatedAt, oldUpdatedAt),
+        ),
+      )
+      .returning();
+
+    if (!updated) {
+      // CAS failed — another job refreshed first; re-read and return the latest token
+      const latest = await getCalendarSettingsRecord(userId);
+      const latestToken = decryptStoredToken(latest?.googleAccessToken ?? null);
+      return {
+        accessToken: latestToken,
+        settings: latest,
+        status: buildCalendarConnectionStatus(latest),
+      };
+    }
 
     const refreshedSettings = await getCalendarSettingsRecord(userId);
     return {
@@ -148,12 +211,25 @@ export async function getValidGoogleCalendarAccessToken(userId: string) {
       status: buildCalendarConnectionStatus(refreshedSettings),
     };
   } catch {
+    // Refresh failed — re-read to check if another job succeeded
+    const latest = await getCalendarSettingsRecord(userId);
+    const latestToken = decryptStoredToken(latest?.googleAccessToken ?? null);
+    if (latestToken && latest && !isTokenExpired(latestToken, latest.googleTokenExpiresAt, new Date())) {
+      // Another job refreshed successfully
+      return {
+        accessToken: latestToken,
+        settings: latest,
+        status: buildCalendarConnectionStatus(latest),
+      };
+    }
+
+    // Genuinely failed — mark for reconnect
     await markCalendarReconnectNeeded(userId);
-    const refreshedSettings = await getCalendarSettingsRecord(userId);
+    const finalSettings = await getCalendarSettingsRecord(userId);
     return {
       accessToken: null,
-      settings: refreshedSettings,
-      status: buildCalendarConnectionStatus(refreshedSettings),
+      settings: finalSettings,
+      status: buildCalendarConnectionStatus(finalSettings),
     };
   }
 }
@@ -169,6 +245,14 @@ export async function storeGoogleCalendarTokens(params: {
   const existing = await ensureCalendarSettingsRecord(params.userId);
   const now = new Date();
 
+  // Only stamp `googleRefreshTokenIssuedAt` when Google issues a brand-new
+  // refresh token. When `params.refreshToken` is null we are keeping the
+  // existing token, so the original issuedAt must be preserved (otherwise we
+  // would indefinitely extend the D-4 age check).
+  const refreshTokenIssuedAtUpdate = params.refreshToken
+    ? { googleRefreshTokenIssuedAt: now }
+    : {};
+
   await db
     .update(calendarSettings)
     .set({
@@ -180,6 +264,7 @@ export async function storeGoogleCalendarTokens(params: {
       googleCalendarConnectedAt: now,
       googleCalendarNeedsReconnect: false,
       updatedAt: now,
+      ...refreshTokenIssuedAtUpdate,
     })
     .where(and(eq(calendarSettings.userId, params.userId), eq(calendarSettings.id, existing.id)));
 }
@@ -198,6 +283,7 @@ export async function clearGoogleCalendarConnection(userId: string) {
       googleCalendarEmail: null,
       googleCalendarConnectedAt: null,
       googleCalendarNeedsReconnect: false,
+      googleRefreshTokenIssuedAt: null,
       updatedAt: new Date(),
     })
     .where(eq(calendarSettings.userId, userId));

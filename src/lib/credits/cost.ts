@@ -36,7 +36,7 @@ export function resolveESReviewPricingModel(model: string | null | undefined): E
   if (!normalized) {
     return "claude-sonnet";
   }
-  if (normalized === "low-cost" || normalized === "gpt-fast" || normalized.startsWith("gpt-5.4-mini")) {
+  if (normalized === "low-cost" || normalized === "gpt-mini" || normalized.startsWith("gpt-5.4-mini") || normalized === "claude-haiku" || normalized.startsWith("claude-haiku-4")) {
     return "low-cost";
   }
   if (normalized === "gpt" || normalized.startsWith("gpt-5.4") || normalized.startsWith("gpt-5")) {

@@ -1,372 +1,399 @@
 # クレジット・課金機能
 
-Free / Standard / Pro プランに基づくクレジット管理と、Stripe 連携による決済。
-
-## 1. 概要・参照実装
-
-| 項目 | 内容 |
-|------|------|
-| **プラン** | Guest / Free / Standard / Pro（課金は Free 以外） |
-| **課金方式** | 月額サブスクリプション（Stripe） |
-| **クレジット** | 月次付与 + 消費制（**成功時のみ消費**） |
-| **リセット** | JST（`Asia/Tokyo`）基準の月次リセット |
-| **無料枠** | 選考スケジュール・企業 RAG は**月次**（JST 暦月。RAG はページ合算）。面接対策は月次無料枠なし |
-| **Free の API 原価目標** | 同一ユーザーのヘビー利用シナリオでも、**概ね 500 円/月以内**（API・埋め込みの粗利確保の設計目標。実測で外れ値はありうる） |
-
-**参照実装**
-
-- `src/lib/credits/index.ts` — `PLAN_CREDITS`、残高・付与・消費・予約
-- `src/lib/credits/cost.ts` — ES 添削 `calculateESReviewCost`
-- `src/lib/company-info/pricing.ts` — 選考スケジュール月次無料回数、RAG 月次無料ページ、PDF ティア課金（`calculatePdfIngestCredits`）
-- `src/lib/company-info/pdf-ingest-limits.ts` — PDF 取込・OCR のプラン別ページ上限（`GET /api/credits` の `ragPdfLimits` と同期）
-- `src/lib/company-info/usage.ts` — 月次 RAG / 選考スケジュール無料枠の消費とクレジット徴収
-- `src/lib/stripe/config.ts` — 価格 ID 等（表示用の月額は参考。クレジット数値は `PLAN_CREDITS` が正）
-- `src/app/api/credits/route.ts` — 残高・`monthlyFree.selectionSchedule`・`monthlyFree.companyRagPages`
-
-**換算レート（ドキュメント採算用）**: 本書の円額はすべて **`1 USD = 160 円`**（固定・実勢や手数料は含めない）。
-
----
-
-## 2. プラン別に使える機能
-
-| 機能 | Guest | Free | Standard | Pro |
-|------|-------|------|----------|-----|
-| 月次クレジット | 0 | 30 | **100** | **300** |
-| ES 添削 | 不可 | 可（ログイン・クレジット） | 可 | 可 |
-| セクション添削 | 不可 | 可 | 可 | 可 |
-| 企業 RAG | 不可 | 可 | 可 | 可 |
-| ガクチカ素材数 | 2（AI 不可） | 3 | 10 | 20 |
-| 面接対策 | 不可 | 可（最終講評成功時 6 クレジット） | 可（最終講評成功時 6 クレジット） | 可（最終講評成功時 6 クレジット） |
-| 選考スケジュール取得（月次無料） | 不可 | **5 回/月** | 50 回/月 | **150 回/月** |
-| 企業 RAG 取込（月次無料ページ） | 不可 | **10** | **100** | **300** |
-| 1 社あたり RAG ソース上限 | — | **3** | 100 | 500 |
-| ES 添削モデル | — | **GPT-5.4 mini 固定**（`low-cost` 経路）。**課金プランでは Claude / GPT / Gemini 等を選択可** | 選択可 | 選択可 |
-| 面接対策モデル | — | **GPT-5.4 mini 固定** | **GPT-5.4 mini 固定** | **GPT-5.4 mini 固定** |
-
-- 月次クレジットの付与量は `PLAN_CREDITS`（`src/lib/credits/index.ts`）。リセット時は残高を `monthlyAllocation` に**置き換え**（繰り越しなし）。
-- **Free の ES 添削**: 実体モデルは **GPT-5.4 mini**（バックエンドは `llm_model=low-cost`）。**請求クレジットは Standard / Pro でプレミアムモデルを選んだ場合と同じ表**（〜500 字で 6、〜1000 で 10 …）。`calculateESReviewCost(charCount, _, { userPlan: "free" })` と `src/app/api/documents/[id]/review/stream/route.ts` で強制。
-- 選考スケジュールは無料枠外で **1 クレジット/回**（ログインのみ）。
-- 面接の質問フローは **GPT-5.4 mini 固定**。**最終講評だけ Claude Sonnet 4.6** を使い、**最終講評成功時に 6 クレジット**消費する。月次無料枠はない。
-- 企業 RAG の無料枠超過は後述（URL は超過ページ **1 ページ=1 クレジット**、PDF はページ数帯の固定クレジット）。
-
----
-
-## 3. AI 機能ごとの「1 回あたりのコスト（円）」目安
-
-前提はいずれも **キャッシュなし・やや長めの入出力** の上限寄り。実測は Usage / Telemetry で再評価する。
-
-### 3.1 プロバイダ単価（円 / 百万トークン、×160）
-
-出典: 各社公式 pricing（OpenAI / Anthropic / Google）。
-
-| モデル | Input（円/MTok） | Output（円/MTok） | メモ |
-|--------|------------------|-------------------|------|
-| GPT-5.4 | 400 | 2,400 | ES 高品質系 |
-| GPT-5.4 mini | 120 | 720 | ガクチカ・志望動機の**会話**、企業情報、**RAG のクエリ拡張・HyDE** 既定、選考以外の JSON 修復 |
-| GPT-5.4 nano | 32 | 200 | 選考スケジュール、**RAG コンテンツ分類**（`model_rag_classify`。**RAG 補助 LLM で nano 既定は分類のみ**） |
-| Claude Sonnet 4.6（Base I/O のみ想定） | 480 | 2,400 | |
-| Gemini 3.1 Pro（20 万トークン未満入力帯） | 320 | 1,920 | |
-
-### 3.2 ES 添削（1 回・5 ラウンド想定: 入力 8k / 出力 2k ×5）
-
-| 系統 | 粗い原価（円/回） |
-|------|-------------------|
-| GPT-5.4 | 約 40 |
-| GPT-5.4 mini（low-cost） | 約 12 |
-| Claude Sonnet | 約 43 |
-| Gemini 3.1 Pro | 約 32 |
-
-**プロバイダ切替**: `backend/app/utils/llm.py` では **Anthropic → OpenAI への自動フォールバックは行わない**（同一プロバイダー内のリトライ・JSON 修復と、クライアントの再試行に任せる）。
-
-**請求クレジット**（`src/lib/credits/cost.ts`）
-
-| モデル区分 | 〜500 | 〜1000 | 〜1500 | 1501〜 |
-|------------|-------|--------|--------|--------|
-| Claude / GPT / Gemini | 6 | 10 | 14 | 20 |
-| low-cost（Standard / Pro でユーザーが選択した場合） | 3 | 6 | 9 | 12 |
-| **Free プランの ES**（実体は mini・上と同じクレジット表を適用） | **6** | **10** | **14** | **20** |
-
-### 3.3 ガクチカ・志望動機・面接対策（会話・下書き）
-
-- **会話**: `model_gakuchika` / `model_motivation` / `model_interview`（既定 **`gpt-fast` = GPT-5.4 mini**）。`call_llm_with_error` の feature は `gakuchika` / `motivation` / `interview`。
-- **下書き**: `model_gakuchika_draft` / `model_motivation_draft`（既定 **`claude-sonnet` = Claude Sonnet 4.6**）。feature は `gakuchika_draft` / `motivation_draft`。
-- 会話: ユーザー回答（ガクチカ）または新規質問（志望動機）が **5 回につき 3 クレジット**。実装上は **各回答のたびに next 質問（または評価）を 1 回ストリーミング生成**するため、**5 回分で mini の LLM が最大 5 回**（コンテキストが伸びるほどトークンも増える）。
-- 下書き生成: **6 クレジット/回**（`reserveCredits`）。主経路が Sonnet のため **1 回あたりの API 原価は会話 1 回分の mini より高い**が、6CR に分散する。
-- 面接対策:
-  - 会話フェーズは課金しない
-  - 最終講評は `interview_feedback` として **6 クレジット/回**
-  - `reserveCredits` → 成功時 `confirmReservation` → 失敗時 `cancelReservation`
-
-**API 原価のオーダー（§3.1 ×160、キャッシュなし・中程度トークン想定）**
-
-| 区分 | トークン想定（ざっくり） | 粗い原価（円） |
-|------|--------------------------|----------------|
-| 会話・**課金バッチ**（5 回答＝ next 生成×5・mini） | 各回 入力 ~6k / 出力 ~1.5k 前後 | **約 8〜22 / バッチ**（履歴が長いと上振れ） |
-| 会話・単発（参考: next 1 回だけ） | 入力 ~6k / 出力 ~1.5k・mini | 約 1.5〜4 |
-| 下書き 1 回 | 入力 ~8k / 出力 ~2k・Sonnet | 約 8〜18 |
-| 面接対策・質問フロー | 入力 ~6k / 出力 ~2k 前後・mini | **約 10〜20 / セッション** |
-| 面接対策・最終講評 | 入力 ~8k / 出力 ~2k 前後・Sonnet | **約 8〜18 / 回** |
+就活Pass のクレジット、月次無料枠、Stripe 連携、AI 機能ごとの消費ルールをまとめる。
 
-### 3.4 選考スケジュール取得
+## 入口
 
-- 主経路: 通常の採用サイト HTML は **`Firecrawl`** を優先利用して抽出する。
-- OCR: `Firecrawl` の結果から **PDF / OCR 必要** と判断された場合のみ、**`Google Document AI (Enterprise Document OCR)`** を **1 回だけ**追加で利用する。
-- LLM 正規化: OCR 結果や `Firecrawl` 失敗時の fallback では、**`model_selection_schedule` = `gpt-nano`**（**GPT-5.4 nano**）を使う。JSON 修復も同一ティア（`gpt-nano`）で最大 1 回。
-- 取得範囲: ユーザーが指定した URL を基点にしつつ、`Firecrawl` 経路では **募集要項 / entry / recruit / PDF** 系の follow-link を **最大 1 件**だけ追加取得する場合がある。
-- 無料枠内: **0 クレジット**。無料枠外: **1 クレジット/回**。
-- **課金ルール**: 内部で `Firecrawl` や `Google Document AI` を使っても、**ユーザー向け課金は変わらない**。無料枠外は引き続き **1 回 = 1 クレジット**。
-- **収益設計の目安**: 有料時は 1 クレジット徴収と対になるよう、通常ケースは `Firecrawl` 単独、重いケースでも `Google OCR 1 回まで` に抑え、原価上振れを制御する構成とする。
-- **極端に長いページ**: `company_info.py` の `_compress_schedule_page_text_for_llm` が、キーワード行・日付らしい行・末尾付近だけをルールベースで切り出し、LLM 入力を通常 **≤4000 文字**（極長閾値は `SCHEDULE_EXTREME_PAGE_CHARS`）に抑える。先頭数万文字だけを送るフォールバックは使わない。
-- OpenAI のトークン単価や概算コストは **ユーザー画面では表示しない**。
+実装を正本とし、外部 provider の単価は公式 pricing を参照。円換算はすべて `**1 USD = 160 円**` 固定。
 
-### 3.5 企業 RAG 取込
+## 仕様
 
-- **月次無料枠**: URL クロールのページ数と PDF の **`page_count`（実際に取り込んだページ数）** を**合算**してカウント（**Free 10** / Standard **100** / Pro **300** ページ/月）。PDF はプラン別の**取込ページ上限**で先頭から切り詰めたうえで `page_count` が確定する（Free **24** / Standard **72** / Pro **120** ページ/ファイル。OCR だけさらに厳しい上限あり。詳細は `docs/features/COMPANY_RAG.md`）。
-- **クレジット課金**: URL の超過ページ（**1 ページ=1 クレジット**）および PDF の**処理後ページ数**に対するページ数帯（下表）。
+### 1. 正本
 
-#### 3.5.1 RAG 検索時の裏側コスト（取込とは別）
 
-ES 添削などで **既に取り込んだコーパスを検索**するときは `backend/app/utils/hybrid_search.py` の `dense_hybrid_search` が使われる。**埋め込み API**は、元クエリのベクトルに加え、追加で走る各クエリ（拡張・HyDE 仮想文書）ごとに呼ばれうる。
+| 項目                         | 正本                                                                 |
+| -------------------------- | ------------------------------------------------------------------ |
+| クレジット残高・月次リセット・予約/確定/取消    | `src/lib/credits/index.ts`                                         |
+| ES 添削のクレジット表               | `src/lib/credits/cost.ts`                                          |
+| 選考スケジュール月次無料回数             | `src/lib/company-info/pricing.ts`                                  |
+| 企業 RAG 月次無料ページ・PDF tier 課金 | `src/lib/company-info/pricing.ts`, `src/lib/company-info/usage.ts` |
+| PDF 取込 / OCR ページ上限         | `src/lib/company-info/pdf-ingest-limits.ts`                        |
+| プラン料金・Stripe price ID      | `src/lib/stripe/config.ts`                                         |
+| Stripe 反映                  | `src/app/api/webhooks/stripe/route.ts`                             |
+| DB 台帳                      | `src/lib/db/schema.ts`                                             |
+| クレジット API                  | `src/app/api/credits/route.ts`                                     |
+| クレジット表示 hook               | `src/hooks/useCredits.ts`                                          |
 
-| 処理 | 内容 |
-|------|------|
-| **初回セマンティック検索** | 常に 1 回（結果が空なら終了） |
-| **ショートサーキット** | `short_circuit=true`（既定）かつ `_should_short_circuit_search` が真なら、**クエリ拡張・HyDE・BM25 併合・再ランキングをスキップ**（以降の LLM・追加 embedding なし） |
-| **クエリ拡張（LLM）** | ショートサーキットしなかった場合のみ。`expand_queries=true` かつ `max_queries>0` かつクエリ長 **5〜1200 文字**。`model_rag_query_expansion`（既定 **gpt-fast** = GPT-5.4 mini）。**10 文字未満**は軽量プロンプトの別経路 |
-| **HyDE（LLM）** | 同上。`rag_use_hyde=true`（既定）かつ検索プロファイルが HyDE 許可かつクエリ長 **600 文字以下**。`model_rag_hyde`（既定 **gpt-fast**）。HyDE 有効時は拡張クエリを最大 2 件に制限 |
-| **BM25** | `rag_keyword_weight > 0` のときローカル索引でキーワード検索（LLM ではない） |
-| **再ランキング** | **LLM ではない**。`sentence-transformers` の **cross-encoder**（`backend/app/utils/reranker.py`）。`_should_rerank` により「すでに自信あり」「極端に低スコア」ではスキップ |
 
-**取り込み時（別経路）**: チャンクの `content_type` 推定は `model_rag_classify`（既定 **gpt-nano**）。ルールベースで決まる場合は LLM を呼ばない。
-
-`hybrid_search_company_context_enhanced`（`vector_store.py`）はクエリ内容に応じて `infer_retrieval_profile` で `max_queries` / `use_hyde` / `rerank_threshold` 等を上書きしうる。
+### 2. プランと月次配分
 
-- **無料枠を超えた URL 取込**: その取込で無料に載らなかったページ数ぶん **1 ページ = 1 クレジット**。
-- **PDF**: 取込ごとに文書ページ数の**上限帯で固定クレジット**（無料枠で一部ページを消費してもティア額はフル課金）。
-
-| ページ数（上限比較） | クレジット |
-|----------------------|------------|
-| ≤1 | 1 |
-| ≤2 | 2 |
-| ≤5 | 3 |
-| ≤10 | 6 |
-| ≤20 | 12 |
-| ≤40 | 24 |
-| ≤60 | 36 |
-| ≤80 | 48 |
-| ≤100 | 60 |
-| 101 ページ以上 | 72 |
+#### 2.1 プラン料金
 
-**処理後ページがプラン上限ちょうどのときのティア（1 ファイルあたりの請求上限の目安）**
+`src/lib/stripe/config.ts` の現行表示値。
 
-| プラン | 取込上限（ページ） | そのページ数でのティア | 請求クレジット（無料枠外・1 ファイル） |
-|--------|-------------------|------------------------|----------------------------------------|
-| Free | 24 | ≤40 | **24** |
-| Standard | 72 | ≤80 | **48** |
-| Pro | 120 | 101 以上帯（上限 120 のため実質この帯） | **72** |
 
-無料枠内に収まる場合はクレジット 0（ティア額は月次ページから先に相殺したあとも**フル課金**のまま。§2 脚注どおり）。
+| プラン      | 月額     | 年額      | 月次クレジット |
+| -------- | ------ | ------- | ------- |
+| Guest    | ¥0     | —       | 0       |
+| Free     | ¥0     | —       | 50      |
+| Standard | ¥1,490 | ¥14,900 | 350     |
+| Pro      | ¥2,980 | ¥29,800 | 750     |
 
-- **実行前の表示**: 企業情報モーダルで PDF を選ぶと、ブラウザ上でページ数を読み取り、**上限切り詰め後**の見込みページ・月次無料枠の充当見込み・ティア合計クレジットの見込みを表示する（読み取れない PDF は取り込み完了時に確定）。
 
----
+#### 2.2 プラン差分
 
-## 4. 全 AI 機能の「1 クレジットあたり原価（円）」一覧（オーダー）
 
-§3.2 の **1 回あたり原価 ÷ 請求クレジット** の上限寄り目安。  
-ただし、**企業 RAG 取込の PDF OCR と embedding の実測合算は別管理**であり、下表だけで月額原価を確定させることはできない。
+| 項目                         | Guest | Free    | Standard  | Pro      |
+| -------------------------- | ----- | ------- | --------- | -------- |
+| ガクチカ素材数上限                  | 2     | 5       | 15        | 30       |
+| 選考スケジュール取得の月次無料回数          | 0     | 10      | 100       | 200      |
+| 企業 RAG URL/HTML の月次無料ページ   | 0     | 20      | 200       | 500      |
+| 企業 RAG PDF の月次無料ページ        | 0     | 60      | 250       | 600      |
+| 1 社あたり RAG ソース上限           | 0     | 3       | 200       | 500      |
+| PDF 取込上限（1 ファイル）           | 0     | 20 ページ  | 100 ページ   | 200 ページ  |
+| PDF Google OCR 上限（1 ファイル）  | 0     | 5 ページ   | 50 ページ    | 100 ページ  |
+| PDF Mistral OCR 上限（1 ファイル） | 0     | 0 ページ   | 15 ページ    | 30 ページ   |
 
-| 区分 | 請求クレジット | 約 円 / 1 credit |
-|------|----------------|------------------|
-| Claude / GPT / Gemini（ES） | 6〜20 | 約 2〜7 |
-| low-cost（ES・mini・有料プランで選択時） | 3〜12 | 約 1〜4 |
-| **Free の ES**（mini 実行・クレジットは上のプレミアム帯） | 6〜20 | **API は mini（§3.2 の約 12 円/回オーダー）÷ 請求 6〜20 → 約 0.6〜2 円/credit** |
-| 選考スケジュール（有料時） | 1 | 無料時 0。通常は `Firecrawl` 単独、重いケースだけ `Google OCR` を 1 回追加。ユーザー向けは 1 回 = 1 クレジットのまま |
-| ガクチカ・志望動機（会話） | 3 / 5 往復 | §3.3 の **バッチ原価（約 8〜22 円）÷3** → **約 2.5〜8 円/credit** |
-| 下書き生成 | 6 | §3.3 の下書き原価（約 8〜18 円）÷6 → **約 1.3〜3 円/credit** |
-| 面接対策 | 5 / セッション完了 | §3.3 の **面接対策原価（約 10〜20 円）÷5** → **約 2〜4 円/credit** |
-| RAG URL 超過 | 1 / ページ | 埋め込み・ページ長で変動。URL 取込は主に embedding コスト |
-| RAG PDF | ティア（§3.5 表・**処理後ページ**） | 1 ファイルあたりの取込・OCR ページはプラン上限で**上振れにキャップ**（`COMPANY_RAG.md`）。OCR は **Google Document AI** を既定に、難しい PDF だけ **Mistral OCR** に昇格するため、原価は provider とページ密度で変動 |
 
----
+補足:
 
-## 5. プラン別収支（概算・1 ユーザーあたり月間）
+- 月次クレジットの正本は `PLAN_CREDITS`。
+- ガクチカ素材数上限は `PLAN_METADATA.gakuchika` を `src/app/api/gakuchika/route.ts` で実際に enforce している。
+- `PLAN_METADATA.esReviews` は表示用ヒントであり、回数の hard limit ではない。
 
-### 5.1 まず結論
+### 3. 共通ルール
 
-- **Free は赤字前提**。ただし無料枠を小さくし、ES を `GPT-5.4 mini` 固定にすることで、通常のヘビー利用でも API 原価を抑える設計。
-- **Standard / Pro は、クレジット起因の既知コストだけを見ると直ちに大赤字ではない**。
-- 企業 RAG の PDF は **取込・OCR ページ上限**で 1 ファイルあたりの外れ値は抑えやすくなったが、**スキャン PDF の比率**や **embedding 総量**でまだブレうるため、**月額原価の厳密な上限は断定しない**。
+#### 3.1 成功時のみ消費
 
-### 5.2 既知コストだけで見たレンジ目安（RAG 取込を除く）
+クレジットは原則として **成功時のみ消費** する。
 
-ここでいう **既知コスト** は、次を含む。
+- 長時間処理は `reserveCredits()` で仮押さえし、成功時に `confirmReservation()`、失敗時に `cancelReservation()`。
+- 会話系や軽量 API は成功時に `consumeCredits()`。
 
-- クレジット消費に紐づく LLM 実行
-- 選考スケジュール取得の `Firecrawl` / `Google OCR` / nano 正規化
+#### 3.2 月次リセット
 
-ここでいう **未確定要素** は、次を含む。
+月次リセットは JST 基準。
+ただし月初バッチではなく、`getCreditsInfo()` 呼び出し時に JST の月跨ぎを検知して遅延実行する。
 
-- 企業 RAG URL 取込の embedding 総量
-- 企業 RAG PDF 取込時の OCR（**Google Document AI** 既定、必要時のみ **Mistral OCR**。取込・OCR ページ上限でキャップ済みでも、ページあたりの画像密度で変動）
-- プロンプトキャッシュ有無、再試行、ページ長のばらつき
+- 繰り越しはしない
+- `balance` は `monthlyAllocation` に置き換わる
+- `nextResetAt` は JST 月初境界から計算する
 
-下表の円額は **RAG 取込（embedding・分類・OCR 等）を含まない**。実際の月次原価は **表のレンジ + RAG 取込分**。
+#### 3.3 プラン変更
 
-| プラン | 月額売上（円・税抜目安） | 月間選考スケジュール無料（回） | 月次 RAG 無料（ページ） | 月次クレジット | 既知コスト（円/月・RAG 除く） | 判断 |
-|--------|--------------------------|--------------------------------|-------------------------|----------------|------------------------------|------|
-| Guest | 0 | 0 | 0 | 0 | 0 | 0 |
-| Free | 0 | **5** | **10** | **30** | **約 35〜275** | 赤字前提 |
-| Standard | **1,480** | 50 | **100** | **100** | **約 250〜950** | 通常は売上内に収まるが、RAG 次第 |
-| Pro | **2,980** | **150** | **300** | **300** | **約 750〜2,850** | 通常は売上内に収まるが、RAG 次第 |
+Stripe webhook でプランが確定すると `updatePlanAllocation()` が走る。
 
-### 5.3 表 5.2 の計算手順
+- upgrade / downgrade / 解約のいずれでも `monthlyAllocation` は新プラン値に更新
+- `balance` も新プラン値に即時リセット
+- `credit_transactions.type = "plan_change"` を記録
 
-前提: 月次クレジットを**期末までにすべて消費**し、選考スケジュールは**無料枠だけ**使う。§4 の **1 クレジットあたり原価（円）** のレンジをプラン別に乗算する。
+#### 3.4 予約取消と `refund`
 
-1. **選考スケジュール無料分**（§3.4、**約 3 円/回**）  
-   - Free: 5 × 3 = **15 円**  
-   - Standard: 50 × 3 = **150 円**  
-   - Pro: 150 × 3 = **450 円**
+`TransactionType` には `refund` があるが、現行の予約取消では別の `refund` transaction を追加していない。
+`cancelReservation()` は、元の予約 transaction の description を `[Cancelled/Refunded] ...` に更新し、残高を戻す。
 
-2. **月次クレジット分**（§4 のレンジをプラン別に乗算）  
-   - **Free（30 CR）**  
-     - Free ES（請求はプレミアム帯・API は mini）: **約 0.6〜2 円/CR** → 30 × 0.6〜30 × 2 = **約 18〜60 円**  
-     - 会話系に全振り: **約 2.5〜8 円/CR** → **約 75〜240 円**  
-     - いずれか一方に偏る極端ケースを合成すると、クレジット部分は **約 18〜240 円**  
-   - **Standard（100 CR）**  
-     - 理論上の広い箱: ES プレミアム **約 2〜7**、low-cost **約 1〜4**、会話 **約 2.5〜8**（いずれも円/CR）  
-     - **単一路線で使い切る**ときの合成: 最小は low-cost 下限 **100 × 1 = 100 円**、最大は会話上限 **100 × 8 = 800 円** → **約 100〜800 円**  
-   - **Pro（300 CR）**  
-     - 同様に **約 300〜2,400 円**（300 × 1〜300 × 8 の箱）
+### 4. 機能別の課金ルール
 
-3. **表 5.2 への丸め**（1. + 2. を合算）  
-   - Free: 15 + 18〜15 + 240 = **33〜255 円** → 読みやすく **約 35〜275 円**  
-   - Standard: 150 + 100〜150 + 800 = **250〜950 円**  
-   - Pro: 450 + 300〜450 + 2400 = **750〜2,850 円**
+#### 4.1 一覧
 
-**注**: Standard / Pro で「ES プレミアム帯の下限 **約 2 円/CR** だけ」を仮定すると、Pro のクレジット部分は **約 600 円**となり、選考と合わせて **約 1,050 円**からになる。表の **750 円**は **low-cost ES の下限 1 円/CR**（§4）を使い切った理論最小に対応する。
 
-### 5.4 RAG 取込が不確定要素である理由
+| 機能            | 利用条件   | 課金ルール                                                                                                      | TransactionType      |
+| ------------- | ------ | ---------------------------------------------------------------------------------------------------------- | -------------------- |
+| ES 添削         | ログイン必須 | 予約 -> 成功確定 / 失敗取消                                                                                          | `es_review`          |
+| ガクチカ会話        | ログイン必須 | 1 ターン 1 credit を成功時消費                                                                                      | `gakuchika`          |
+| ガクチカ ES 下書き   | ログイン必須 | 6 credits を予約 -> 成功確定 / 失敗取消                                                                               | `gakuchika_draft`    |
+| 志望動機会話        | ログイン必須 | 1 ターン 1 credit を成功時消費                                                                                      | `motivation`         |
+| 志望動機 ES 下書き   | ログイン必須 | 6 credits を予約 -> 成功確定 / 失敗取消（対話後 `generate-draft` と会話なし `generate-draft-direct` の両方で同一 `motivation_draft`） | `motivation_draft`   |
+| 面接会話          | ログイン必須 | 1 ターン 1 credit を成功時消費                                                                                      | `interview`          |
+| 面接最終講評        | ログイン必須 | 6 credits を予約 -> 成功確定 / 失敗取消                                                                               | `interview_feedback` |
+| 選考スケジュール取得    | ログイン必須 | 月次無料枠を先に消費。超過後は 1 回 1 credit                                                                               | `company_fetch`      |
+| 企業 RAG URL 取込 | ログイン必須 | 月次無料ページを先に消費。超過ページは 1 ページ 1 credit                                                                         | `company_fetch`      |
+| 企業 RAG PDF 取込 | ログイン必須 | PDF 無料枠内は 0 credits。超過時だけ PDF tier 課金                                                                      | `company_fetch`      |
 
-- URL 取込は、取得ページ数だけでなく **実際の本文長と chunk 数**で embedding 原価が変わる。
-- PDF 取込は、`pypdf` で本文が弱い場合に **Google Document AI** で OCR し、その結果が弱い大型 PDF だけ **Mistral OCR** に昇格する（同期・タイムアウトあり）。プラン別に **取込ページ上限** と **OCR ページ上限** があり、超過分は先頭から切り詰め。詳細は `docs/features/COMPANY_RAG.md`。
-- したがって、**RAG 無料ページ数が同じでも、URL 中心か PDF 中心かで原価差が大きい**。
 
-### 5.4a 選考スケジュール取得の原価変動要因
+#### 4.2 ES 添削
 
-- 選考スケジュール取得は、ユーザー向けには **無料枠外 1 回 = 1 クレジット** の固定課金だが、内部原価は取得元の形式で変動する。
-- 通常の採用ページ HTML は **`Firecrawl`** を主経路として処理する。
-- `Firecrawl` の抽出結果から **OCR が必要** と判断された場合のみ、**`Google Document AI (Enterprise Document OCR)`** を **1 回だけ**追加で利用する。
-- したがって、同じ「1 回の選考スケジュール取得」でも、**HTML だけで完了するケース**と**OCR を伴うケース**では内部原価が異なる。
-- ただし原価の上振れを抑えるため、follow-link は最大 1 件、Google OCR も最大 1 回に制限する。
+`src/lib/credits/cost.ts` が正本。
 
-### 5.5 現時点の収支判断
+**プレミアム帯**
 
-- **Free**: 赤字許容の獲得導線として妥当。
-- **Standard**: 現行の `¥1,480` に対して、**既知コストだけならまだ余地がある**。ただし PDF OCR が重いユーザーは赤字化しうる。
-- **Pro**: 現行の `¥2,980` に対して、**既知コストだけなら大きな余地はない**。RAG の PDF 比率が高いと赤字化リスクがある。
 
-今後 `Firecrawl` を選考スケジュール取得の主経路に採用すると、内部原価は従来の nano 単独構成より上がる可能性がある。一方で、OCR は **`Google Document AI` を最大 1 回**に制限するため、PDF / 画像埋め込みケースの原価上振れは一定範囲に抑える前提とする。収支判断は provider 別の実測ログを揃えたうえで再評価する。
+| 文字数   | クレジット |
+| ----- | ----- |
+| 〜500  | 6     |
+| 〜1000 | 10    |
+| 〜1500 | 14    |
+| 1501〜 | 20    |
 
-売上は `src/lib/stripe/config.ts` の月額表示（**Standard ¥1,480** / Pro ¥2,980）基準。年額 Standard は **¥14,980**（`ANNUAL_PLAN_PRICES.standard`）。  
-今後の原価判断は、`internal_telemetry.est_jpy_total` と embedding / OCR の別集計を揃えたうえで再評価する。なお、現状の下書き生成 API は telemetry の `creditsUsed` が実課金 6 ではなく 2 で記録されているため、**ログ集計だけで 1 credit 原価を判断しないこと**。
 
----
+**low-cost 帯**
 
-## 6. ビジネスルール
 
-### 成功時のみ消費（予約 → 確定 / 返金）
+| 文字数   | クレジット |
+| ----- | ----- |
+| 〜500  | 3     |
+| 〜1000 | 6     |
+| 〜1500 | 9     |
+| 1501〜 | 12    |
 
-ES 添削ストリームは **予約 → 確定 / 返金**。
 
-```
-POST /api/documents/[id]/review/stream
-  → reserveCredits()
-  → SSE 完了で confirmReservation()
-  → 異常終了で cancelReservation()
-```
+補足:
 
-### 月次リセット（クレジット）
+- `claude-sonnet` / `gpt` / `gemini` はプレミアム帯。
+- `low-cost` は low-cost 帯。
+- **Free プランは実行モデルが low-cost（実装上は `gpt-mini` / `gpt-5.4-mini`）でも、請求クレジットはプレミアム帯**。
+- ES 添削 route は document の owner が guest でも、最終的にログイン必須。
 
-JST で月が変われば `balance` を `monthlyAllocation` にリセット（`src/lib/credits/index.ts`）。
+#### 4.3 ガクチカ・志望動機
 
-### 月次無料（選考スケジュール）
+- 会話:
+  - ガクチカ: 1 ターン 1 credit
+  - 志望動機: 1 ターン 1 credit
+  - どちらも `consumeCredits()` で成功時のみ消費
+- 下書き:
+  - ガクチカ ES 下書き: 6 credits
+  - 志望動機 ES 下書き: 6 credits（対話ベースとプロフィールのみの直生成で共通）
+  - どちらも `reserve -> confirm/cancel`
 
-`company_info_monthly_usage.schedule_fetch_free_uses`（JST `YYYY-MM` の `month_key` と対）で、当月に無料枠として消費した**選考スケジュール取得の回数**を管理。ログインユーザーのみ（ゲストは取得 API 不可）。
+#### 4.4 面接対策
 
-### 月次無料（企業 RAG）
+- 面接対策全体がログイン必須
+- 質問フロー（start → stream → continue）: 1 ターン 1 credit を `consumeCredits()` で成功時のみ消費
+- 最終講評: 6 credits（`reserve -> confirm/cancel`）
 
-`company_info_monthly_usage.rag_ingest_units` は **当月消化ページ数**（列名は互換のため `rag_ingest_units`）。`rag_overflow_units` は現行では使用せず **0**。
+### 5. 選考スケジュール取得と企業 RAG
 
----
+#### 5.1 選考スケジュール取得
 
-## 7. Stripe 連携
+- ログイン必須。guest は route で 401
+- 月次無料枠:
+  - Free 10 回
+  - Standard 100 回
+  - Pro 200 回
+- 無料枠を使い切った後は 1 回 1 credit
+- 成功時のみ `incrementMonthlyScheduleFreeUse()` または `consumeCredits()` を実行
 
-### チェックアウト
+#### 5.2 企業 RAG URL 取込
 
-`POST /api/stripe/checkout` → Checkout → `checkout.session.completed` でサブスク・クレジット初期化。
+- URL/HTML 専用の月次無料ページ枠を先に消費
+- 無料枠を超えたページだけ `1 ページ = 1 credit`
+- 取込 route は `applyCompanyRagUsage()` を通す
 
-### カスタマーポータル
+#### 5.3 企業 RAG PDF 取込
 
-`POST /api/stripe/portal`
+PDF は URL と別の無料枠を持ち、**無料枠内なら 0 credits**。
 
-### 主な Webhook
 
-| イベント | 処理 |
-|----------|------|
-| `checkout.session.completed` | 開始・クレジット付与 |
-| `customer.subscription.updated` | 実際の price 変更時のみプラン反映・クレジット再計算 |
-| `customer.subscription.deleted` | 終了・Free へ |
-| `invoice.payment_succeeded` | ステータス復帰のみ |
-| `invoice.payment_failed` | 失敗通知 |
+| PDF 超過ページ数 | クレジット |
+| ---------- | ----- |
+| 1〜20       | 2     |
+| 21〜60      | 6     |
+| 61〜120     | 12    |
 
-`processedStripeEvents` で冪等性を担保。
 
----
+補足:
 
-## 8. 関連 DB・API・主要ファイル
+- `page_count` は「実際に処理したページ数」。
+- 取込前にプラン上限で先頭ページに切り詰める。
+- PDF 本文はページ単位で `local / Google OCR / Mistral OCR` を混在させる。
+- route 応答では `freeUnitsApplied`, `creditsConsumed`, `actualCreditsDeducted`, `processingNoticeJa`, `pageRoutingSummary` を返す。
 
-### クレジットを消費する機能
+### 6. `/api/credits` と UI 表示
 
-| 機能 | `creditTransactions.type` | クレジット |
-|------|---------------------------|------------|
-| ES 添削 | `es_review` | §3.2 表 |
-| 選考スケジュール（無料枠外） | `company_fetch` | 1 / 回 |
-| 企業 RAG（無料枠外） | `company_fetch` | URL: 超過ページ数、PDF: ティア |
-| ガクチカ会話 | `gakuchika` | 5 回答ごとに 3 |
-| ガクチカ下書き | `gakuchika_draft` | 6 |
-| 志望動機会話 | `motivation` | 新規質問 5 回ごとに 3 |
-| 志望動機下書き | `motivation_draft` | 6 |
+#### 6.1 `/api/credits`
 
-**注**: 選考スケジュール取得は内部的に `Firecrawl` や `Google Document AI` を利用する場合があるが、`creditTransactions.type` とユーザー向けクレジット消費量は変わらない。
+ログイン時:
 
-### `GET /api/credits` 応答（抜粋）
+- `type`
+- `plan`
+- `balance`
+- `monthlyAllocation`
+- `nextResetAt`
+- `monthlyFree.companyRagHtmlPages`
+- `monthlyFree.companyRagPdfPages`
+- `monthlyFree.selectionSchedule`
+- `ragPdfLimits.maxPagesIngest`
+- `ragPdfLimits.maxPagesGoogleOcr`
+- `ragPdfLimits.maxPagesMistralOcr`
+- `ragPdfLimits.summaryJa`
 
-- `monthlyFree.selectionSchedule` — 選考スケジュールの月次無料の残り / 上限（**回**）
-- `monthlyFree.companyRagPages` — RAG 月次無料の残り / 上限（**ページ**）
+guest 時:
 
-### 主要テーブル
+- `plan = "guest"`
+- `balance = 0`
+- `monthlyAllocation = 0`
+- `nextResetAt = null`
+- `monthlyFree.companyRagHtmlPages = 0/0`
+- `monthlyFree.companyRagPdfPages = 0/0`
+- `monthlyFree.selectionSchedule = 0/0`
 
-| テーブル | 役割 |
-|----------|------|
-| `credits` | 残高・月次付与量 |
-| `creditTransactions` | 監査ログ |
-| `subscriptions` | Stripe サブスク |
-| `companyInfoMonthlyUsage` | `rag_ingest_units`（RAG ページ）、`schedule_fetch_free_uses`（選考無料回数） |
+#### 6.2 `useCredits`
 
-### その他
+`src/hooks/useCredits.ts` には guest fallback として `balance: 12` / `monthlyAllocation: 12` がある。
+これは **UI fallback** であり、`/api/credits` の正本ではない。
 
-| ファイル | 役割 |
-|----------|------|
-| `src/app/pricing/page.tsx` | 料金ページ |
-| `src/app/api/webhooks/stripe/route.ts` | Webhook |
-| `src/lib/rate-limit.ts` / `rate-limit-spike.ts` | review / conversation / draft / company-info 系の高コスト API に対する分散・二層レート制限 |
+hook では `selectionScheduleRemaining` / `selectionScheduleLimit` を返し、実体は `selectionSchedule` の **月次**無料枠。
 
----
+### 7. 監査ログと台帳
+
+#### 7.1 `TransactionType`
+
+- `monthly_grant`
+- `plan_change`
+- `company_fetch`
+- `es_review`
+- `gakuchika`
+- `gakuchika_draft`
+- `motivation`
+- `motivation_draft`
+- `interview`
+- `interview_feedback`
+- `refund`
+
+#### 7.2 主なテーブル
+
+
+| テーブル                         | 用途                                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------------- |
+| `credits`                    | 残高と月次配分                                                                                     |
+| `credit_transactions`        | クレジット監査ログ                                                                                   |
+| `company_info_monthly_usage` | `rag_ingest_units`, `rag_html_free_units`, `rag_pdf_free_units`, `schedule_fetch_free_uses` |
+| `subscriptions`              | Stripe サブスク状態                                                                               |
+| `processed_stripe_events`    | webhook 冪等性                                                                                 |
+
+
+補足:
+
+- `company_fetch` は選考スケジュール取得と企業 RAG 取込で共通。
+- 監査上の区別は `description` や route 文脈で読む必要がある。
+
+## 技術メモ
+
+### 機能別デフォルトモデル
+
+alias → feature 対応の正本: `backend/app/config.py:172-189`
+alias → 実モデル ID 解決の正本: `backend/app/config.py:126-162`
+
+
+| 機能       | alias           | 実モデル ID             | 表示名               |
+| -------- | --------------- | ------------------- | ----------------- |
+| ES 添削    | `claude-sonnet` | `claude-sonnet-4-6` | Claude Sonnet 4.6 |
+| ガクチカ会話   | `gpt-mini`      | `gpt-5.4-mini`      | GPT-5.4 mini      |
+| ガクチカ下書き  | `claude-sonnet` | `claude-sonnet-4-6` | Claude Sonnet 4.6 |
+| 志望動機会話   | `gpt-mini`      | `gpt-5.4-mini`      | GPT-5.4 mini      |
+| 志望動機下書き  | `claude-sonnet` | `claude-sonnet-4-6` | Claude Sonnet 4.6 |
+| 面接質問     | `gpt-mini`      | `gpt-5.4-mini`      | GPT-5.4 mini      |
+| 面接講評     | `claude-sonnet` | `claude-sonnet-4-6` | Claude Sonnet 4.6 |
+| 選考スケジュール | `gpt-mini`      | `gpt-5.4-mini`      | GPT-5.4 mini      |
+
+
+ES 添削はユーザーがモデルを選択可能（`claude-sonnet` / `gpt` / `gemini` / `low-cost`）。他の機能はサーバー側で固定。
+
+### 外部 provider の参考単価（一次情報）
+
+確認日: **2026-04-09**
+円換算: **1 USD = 160 円**
+内部価格カタログ正本: `backend/app/utils/llm_usage_cost.py:19-50`
+
+
+| Provider  | モデル                    | Input (¥/1M) | Output (¥/1M) | 確認日        |
+| --------- | ---------------------- | ------------ | ------------- | ---------- |
+| OpenAI    | GPT-5.4                | ¥400         | ¥2,400        | 2026-04-03 |
+| OpenAI    | GPT-5.4 mini           | ¥120         | ¥720          | 2026-04-03 |
+| OpenAI    | GPT-5.4 nano           | ¥32          | ¥200          | 2026-04-03 |
+| Anthropic | Claude Sonnet 4.6      | ¥480         | ¥2,400        | 2026-04-03 |
+| Google    | Gemini 3.1 Pro Preview | ¥320         | ¥1,920        | 2026-04-09 |
+| Google    | Document AI OCR        | ¥0.24/page   | —             | 2026-04-03 |
+| Mistral   | OCR 3                  | ¥0.32/page   | —             | 2026-04-03 |
+
+
+補足:
+
+- コード上の alias:
+  - `gpt` → `gpt-5.4`
+  - `gpt-mini` / `low-cost` → `gpt-5.4-mini`
+  - `gpt-nano` → `gpt-5.4-nano`
+  - `claude-sonnet` → `claude-sonnet-4-6`
+  - `gemini` → `gemini-3.1-pro-preview`
+- OpenAI cached input: GPT-5.4 ¥40/1M, GPT-5.4 mini ¥12/1M, GPT-5.4 nano ¥3.2/1M
+- OpenAI ES 添削では `max_output_tokens` を最低 4096 に設定している（`es_review_retry.py:41`）が、これは上限設定であり実際の課金は生成トークン分のみ。ES rewrite は常に `reasoning_effort="none"`（reasoning tokens = 0）で実行される。可視出力は 500-700 tok/call 程度
+- Google Document AI の OCR add-ons: ¥0.96/page
+- Mistral OCR 3 Annotated Pages: ¥0.48/page
+- ユーザー課金は provider 原価の pass-through ではなく、`src/lib/company-info/pricing.ts` と `src/lib/credits/cost.ts` の product pricing を正とする。
+
+### 要注意
+
+- 志望動機 AI とガクチカ AI はどちらもログイン必須。
+- 選考スケジュール取得は guest identity を解決するコードがあるが、現行 route は guest に 401 を返す。
+- `motivation_draft` は実課金 6 に対し、成功 telemetry の `creditsUsed` は 2 で記録される箇所がある。運用ログだけで課金実績を判定しない。
+
+## 収益性分析
+
+### 前提
+
+- 円換算: 1 USD = 160 円
+- 価格カタログ正本: `backend/app/utils/llm_usage_cost.py:19-50`
+- ES 添削: 最大 4 回 LLM 呼び出し（`REWRITE_MAX_ATTEMPTS=3` + length-fix 1 回）
+- OpenAI ES 添削の `_OPENAI_ES_REVIEW_OUTPUT_TOKEN_FLOOR=4096` は `max_output_tokens` の下限設定。ES rewrite は `reasoning_effort="none"` のため reasoning tokens = 0 であり、実際の出力課金は生成トークン（~500-700 tok/call）のみ
+- 会話系（ガクチカ・志望動機・面接）は conversation_history を累積送信するため、後半ほど入力トークンが増大する:
+  - ガクチカ 5 回答: 初回 ~1,500 tok → 5 回目 ~4,000 tok（累計入力 ~13,000 tok）
+  - 志望動機 5 回答: 同上（累計入力 ~13,000 tok）
+  - 面接 1 セッション（20 ターン）: 初回 ~2,000 tok → 20 回目 ~12,000 tok（累計入力 ~140,000 tok）
+- 全会話系機能は 1 ターン 1 credit を消費する。面接もクレジット消費対象
+
+### 1 操作あたり API コスト見積（worst-case）
+
+
+| 機能                               | モデル               | API コスト（worst） | クレジット消費 | 1 cr あたりコスト |
+| -------------------------------- | ----------------- | -------------- | ------- | ----------- |
+| ES 添削（Claude, 1500+字, 4call）    | Claude Sonnet 4.6 | ~¥22           | 20      | ~¥1.1       |
+| ES 添削（GPT, 1500+字, 4call）       | GPT-5.4           | ~¥20           | 20      | ~¥1.0       |
+| ES 添削（Gemini, 1500+字, 4call）    | Gemini 3.1 Pro    | ~¥20           | 20      | ~¥1.0       |
+| ES 添削（low-cost, 1500+字, 4call）  | GPT-5.4 mini      | ~¥6            | 12      | ~¥0.5       |
+| ガクチカ会話（1ターン, 累積 history）        | GPT-5.4 mini      | ~¥0.6          | 1       | ~¥0.6       |
+| ガクチカ下書き                         | Claude Sonnet 4.6 | ~¥5            | 6       | ~¥0.8       |
+| 志望動機会話（1ターン, 累積 history）        | GPT-5.4 mini      | ~¥0.6          | 1       | ~¥0.6       |
+| 志望動機下書き                         | Claude Sonnet 4.6 | ~¥5            | 6       | ~¥0.8       |
+| 面接会話（1ターン, 累積 history）          | GPT-5.4 mini      | ~¥1.3          | 1       | ~¥1.3       |
+| 面接講評                            | Claude Sonnet 4.6 | ~¥6            | 6       | ~¥1.0       |
+| 選考スケジュール取得                      | GPT-5.4 mini      | ~¥0.5          | 1（超過時）  | ~¥0.5       |
+
+面接会話の 1 cr あたりコストが高いのは、会話履歴の累積により後半ターンの入力トークンが増大するため。
+
+### プラン別 収益 vs 最大コスト
+
+総コストは「クレジット消費分の API コスト + 月次無料枠の API コスト」の合計。
+無料枠はクレジットを消費しないが、選考スケジュール取得（~¥0.5/回）と PDF OCR（¥0.24-0.32/ページ）に実コストが発生する。
+
+前提:
+- クレジットコスト基準: ES 添削中心 ¥1.1/cr（Claude Sonnet 4.6 worst-case）
+- PDF OCR 率: 保守的に 25%（Google 20% + Mistral 5%）→ blended ¥0.07/ページ
+
+
+| プラン         | 月額収益     | 総コスト（全枠消費、¥1.1/cr、25% OCR）   | 粗利           | 粗利率    |
+| ----------- | -------- | ----------------------------- | ------------ | ------ |
+| Free        | ¥0       | ~¥64（50cr ¥55 + 無料枠 ¥9）       | **-¥64**     | —      |
+| Standard 月額 | ¥1,490   | ~¥454（350cr ¥385 + 無料枠 ¥69）   | **¥1,036**   | 69.5%  |
+| Standard 年額 | ¥1,242/月 | ~¥454                         | **¥788**     | 63.5%  |
+| Pro 月額      | ¥2,980   | ~¥970（750cr ¥825 + 無料枠 ¥145）  | **¥2,010**   | 67.4%  |
+| Pro 年額      | ¥2,483/月 | ~¥970                         | **¥1,513**   | 60.9%  |
+
+
+### 結論
+
+1. **全有料プランで粗利 60% 以上**。年額ベース最低 60.9%（Pro 年額）
+2. **総コストにはクレジット消費 + 無料枠 API コストを含む**。選考スケジュール取得（¥0.5/回 × 100-200 回）が無料枠コストの主要因
+3. **Free プランは意図的 loss leader**。月 ~¥64 の損失（許容 -¥100 以内）
 
 ## 関連ドキュメント
 
-- `docs/features/ES_REVIEW.md` — ES 添削フロー
-- `docs/features/COMPANY_INFO_FETCH.md` — 企業情報・選考スケジュール
-- `docs/features/COMPANY_RAG.md` — RAG 取込の技術面
+- `src/lib/credits/index.ts`
+- `src/lib/credits/cost.ts`
+- `src/lib/company-info/pricing.ts`
+- `src/lib/company-info/usage.ts`
+- `src/lib/company-info/pdf-ingest-limits.ts`
+- `src/lib/stripe/config.ts`
+- `src/app/api/credits/route.ts`
+- `src/hooks/useCredits.ts`
+- `src/app/api/webhooks/stripe/route.ts`
+

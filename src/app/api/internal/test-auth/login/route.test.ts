@@ -6,7 +6,10 @@ const {
   getBetterAuthSessionCookieNameMock,
   getBetterAuthSessionCookieAttributesMock,
   serializeSignedCookieMock,
+  authContextPromiseMock,
+  createSessionMock,
   transactionMock,
+  dbDeleteMock,
   txSelectMock,
   txInsertMock,
   txUpdateMock,
@@ -16,7 +19,10 @@ const {
   getBetterAuthSessionCookieNameMock: vi.fn(),
   getBetterAuthSessionCookieAttributesMock: vi.fn(),
   serializeSignedCookieMock: vi.fn(),
+  authContextPromiseMock: vi.fn(),
+  createSessionMock: vi.fn(),
   transactionMock: vi.fn(),
+  dbDeleteMock: vi.fn(),
   txSelectMock: vi.fn(),
   txInsertMock: vi.fn(),
   txUpdateMock: vi.fn(),
@@ -36,6 +42,15 @@ vi.mock("better-call", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     transaction: transactionMock,
+    delete: dbDeleteMock,
+  },
+}));
+
+vi.mock("@/lib/auth", () => ({
+  auth: {
+    get $context() {
+      return authContextPromiseMock();
+    },
   },
 }));
 
@@ -56,7 +71,10 @@ describe("api/internal/test-auth/login", () => {
     getBetterAuthSessionCookieNameMock.mockReset();
     getBetterAuthSessionCookieAttributesMock.mockReset();
     serializeSignedCookieMock.mockReset();
+    authContextPromiseMock.mockReset();
+    createSessionMock.mockReset();
     transactionMock.mockReset();
+    dbDeleteMock.mockReset();
     txSelectMock.mockReset();
     txInsertMock.mockReset();
     txUpdateMock.mockReset();
@@ -66,6 +84,7 @@ describe("api/internal/test-auth/login", () => {
     process.env.BETTER_AUTH_SECRET = "better-auth-secret";
     process.env.CI_E2E_TEST_EMAIL = "ci@example.com";
     process.env.CI_E2E_TEST_NAME = "CI";
+    process.env.CI_E2E_TEST_PLAN = "standard";
 
     isCiE2EAuthEnabledMock.mockReturnValue(true);
     getBetterAuthSessionCookieNameMock.mockReturnValue("__Secure-better-auth.session_token");
@@ -76,6 +95,19 @@ describe("api/internal/test-auth/login", () => {
       secure: true,
     });
     serializeSignedCookieMock.mockResolvedValue("__Secure-better-auth.session_token=signed");
+    authContextPromiseMock.mockReturnValue(
+      Promise.resolve({
+        internalAdapter: {
+          createSession: createSessionMock,
+        },
+      }),
+    );
+    createSessionMock.mockResolvedValue({
+      token: "better-auth-session-token",
+    });
+    dbDeleteMock.mockReturnValue({
+      where: vi.fn().mockResolvedValue(undefined),
+    });
   });
 
   it("returns 404 when the route is disabled", async () => {
@@ -170,7 +202,7 @@ describe("api/internal/test-auth/login", () => {
     expect(data.success).toBe(true);
     expect(serializeSignedCookieMock).toHaveBeenCalledWith(
       "__Secure-better-auth.session_token",
-      expect.any(String),
+      "better-auth-session-token",
       "better-auth-secret",
       expect.objectContaining({ secure: true })
     );

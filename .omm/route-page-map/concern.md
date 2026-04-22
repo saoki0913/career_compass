@@ -1,0 +1,1 @@
+Feature growth can make route discovery harder because related API, component, and page code is spread across multiple folders. The diagram should stay aligned with user-facing navigation, not just filesystem breadth.

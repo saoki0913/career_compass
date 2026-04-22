@@ -5,6 +5,7 @@
  */
 
 import { APIResponse, Page, expect } from "@playwright/test";
+import { ensureCiE2EAuthSession } from "../google-auth";
 
 // Legacy device token key kept for cleanup checks in E2E.
 const DEVICE_TOKEN_KEY = "ukarun_device_token";
@@ -12,6 +13,10 @@ const GUEST_COOKIE_NAME = "guest_device_token";
 const CSRF_COOKIE_NAME = "csrf_token";
 const CSRF_HEADER_NAME = "x-csrf-token";
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function getResponseStatus(response: { status: number | (() => number) }) {
+  return typeof response.status === "function" ? response.status() : response.status;
+}
 
 /**
  * Generate a random UUID for device token
@@ -134,6 +139,25 @@ async function getCookieValue(
 ): Promise<string | null> {
   const cookies = (await page.context().cookies(baseURL)) ?? [];
   return cookies.find((cookie) => cookie.name === name)?.value ?? null;
+}
+
+function buildCookieHeader(
+  cookies: Array<{ name: string; value: string }>,
+): string | null {
+  const pairs = cookies
+    .filter((cookie) => cookie.name && cookie.value)
+    .map((cookie) => `${cookie.name}=${cookie.value}`);
+  return pairs.length > 0 ? pairs.join("; ") : null;
+}
+
+function filterCookiesForRequest(
+  cookies: Array<{ name: string; value: string }>,
+  includeGuestToken: boolean,
+) {
+  if (includeGuestToken) {
+    return cookies;
+  }
+  return cookies.filter((cookie) => cookie.name !== GUEST_COOKIE_NAME);
 }
 
 async function ensureCsrfToken(page: Page, baseURL: string): Promise<string | null> {
@@ -342,22 +366,32 @@ async function buildApiRequestHeaders(
   includeGuestToken: boolean,
   method: string,
 ) {
+  let cookies = (await page.context().cookies(baseURL)) ?? [];
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
 
   if (includeGuestToken) {
-    const token = await getCookieValue(page, baseURL, GUEST_COOKIE_NAME);
+    const token = cookies.find((cookie) => cookie.name === GUEST_COOKIE_NAME)?.value ?? null;
     if (token) {
       headers["x-device-token"] = token;
     }
   }
 
   if (STATE_CHANGING_METHODS.has(method.toUpperCase())) {
-    const csrfToken = await ensureCsrfToken(page, baseURL);
+    let csrfToken = cookies.find((cookie) => cookie.name === CSRF_COOKIE_NAME)?.value ?? null;
+    if (!csrfToken) {
+      csrfToken = await ensureCsrfToken(page, baseURL);
+      cookies = (await page.context().cookies(baseURL)) ?? [];
+    }
     if (csrfToken) {
       headers[CSRF_HEADER_NAME] = csrfToken;
     }
+  }
+
+  const cookieHeader = buildCookieHeader(filterCookiesForRequest(cookies, includeGuestToken));
+  if (cookieHeader) {
+    headers.cookie = cookieHeader;
   }
 
   return headers;
@@ -391,15 +425,30 @@ export async function apiRequestAsAuthenticatedUser(
   body?: Record<string, unknown>
 ) {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3000";
+  if (process.env.CI_E2E_AUTH_SECRET?.trim()) {
+    await ensureCiE2EAuthSession(page);
+  }
   const headers = await buildApiRequestHeaders(page, baseURL, false, method);
   headers.Origin = baseURL;
   headers.Referer = `${baseURL}/`;
 
-  return await page.context().request.fetch(`${baseURL}${endpoint}`, {
+  let response = await page.context().request.fetch(`${baseURL}${endpoint}`, {
     method,
     headers,
     data: body ? JSON.stringify(body) : undefined,
   });
+  if (getResponseStatus(response) === 401 && process.env.CI_E2E_AUTH_SECRET?.trim()) {
+    await ensureCiE2EAuthSession(page);
+    const retryHeaders = await buildApiRequestHeaders(page, baseURL, false, method);
+    retryHeaders.Origin = baseURL;
+    retryHeaders.Referer = `${baseURL}/`;
+    response = await page.context().request.fetch(`${baseURL}${endpoint}`, {
+      method,
+      headers: retryHeaders,
+      data: body ? JSON.stringify(body) : undefined,
+    });
+  }
+  return response;
 }
 
 export async function expectOkResponse(

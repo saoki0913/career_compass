@@ -21,7 +21,7 @@ interface Gakuchika {
   summaryKind?: "structured" | "legacy" | "none";
   createdAt: string;
   updatedAt: string;
-  conversationStatus: "in_progress" | "completed" | null;
+  conversationStatus: "in_progress" | "completed" | null | undefined;
   conversationState: ConversationState | null;
   questionCount: number;
 }
@@ -50,6 +50,7 @@ function GakuchikaCardComponent({
   onEditStart,
   onDeleteStart,
 }: GakuchikaCardProps) {
+  const coachMessage = gakuchika.conversationState?.coachProgressMessage?.trim() ?? "";
   const summaryText = gakuchika.summaryPreview
     ? gakuchika.summaryPreview
     : gakuchika.conversationState?.stage === "draft_ready"
@@ -57,7 +58,7 @@ function GakuchikaCardComponent({
     : gakuchika.conversationStatus === "completed"
     ? "要約を生成中..."
     : gakuchika.conversationStatus === "in_progress"
-    ? "作成中..."
+    ? coachMessage || "作成中..."
     : "タップして作成を始める";
 
   return (

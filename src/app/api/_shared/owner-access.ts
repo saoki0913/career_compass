@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
-import { applications, companies, deadlines, jobTypes } from "@/lib/db/schema";
+import { applications, companies, deadlines, documents, jobTypes } from "@/lib/db/schema";
 
 export interface OwnerIdentity {
   userId: string | null;
@@ -61,6 +61,47 @@ export async function getOwnedCompany(
     .limit(1);
 
   return company ?? null;
+}
+
+/** Full company row when owned by identity (404 vs 403 aggregation uses caller). */
+export async function getOwnedCompanyRecord(
+  companyId: string,
+  identity: OwnerIdentity,
+): Promise<typeof companies.$inferSelect | null> {
+  const [row] = await db
+    .select()
+    .from(companies)
+    .where(
+      and(
+        eq(companies.id, companyId),
+        identity.userId ? eq(companies.userId, identity.userId) : eq(companies.guestId, identity.guestId!),
+      ),
+    )
+    .limit(1);
+
+  return row ?? null;
+}
+
+export async function getOwnedDocument(
+  documentId: string,
+  identity: OwnerIdentity,
+): Promise<typeof documents.$inferSelect | null> {
+  const [doc] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
+  if (!doc || !isOwnedByIdentity(doc, identity)) {
+    return null;
+  }
+  return doc;
+}
+
+export async function getOwnedApplicationRecord(
+  applicationId: string,
+  identity: OwnerIdentity,
+): Promise<typeof applications.$inferSelect | null> {
+  const [app] = await db.select().from(applications).where(eq(applications.id, applicationId)).limit(1);
+  if (!app || !isOwnedByIdentity(app, identity)) {
+    return null;
+  }
+  return app;
 }
 
 export async function hasOwnedApplication(applicationId: string, identity: OwnerIdentity): Promise<boolean> {

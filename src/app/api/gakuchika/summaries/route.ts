@@ -11,7 +11,7 @@ import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { headers } from "next/headers";
 import { parseGakuchikaSummary } from "@/lib/gakuchika/summary";
-import { isInterviewReady, safeParseConversationState } from "@/app/api/gakuchika/shared";
+import { isInterviewReady, safeParseConversationState } from "@/app/api/gakuchika";
 
 export async function GET() {
   try {

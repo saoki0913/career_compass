@@ -1,0 +1,104 @@
+{
+  "apiVersion": "2025-12-15.clover",
+  "account": {
+    "businessProfileName": "就活Pass",
+    "supportEmail": "support@shupass.jp",
+    "supportUrl": "https://www.shupass.jp/contact",
+    "websiteUrl": "https://www.shupass.jp",
+    "statementDescriptor": "SHUPASS"
+  },
+  "product": {
+    "name": "就活Pass Subscription",
+    "description": "就活Pass サブスクリプション（Standard / Pro、月額・年額）。自動更新のサブスクリプションです。解約はアプリ内の設定画面または Stripe カスタマーポータルからいつでも可能で、次回更新日までは引き続きご利用いただけます。デジタルサービスの性質上、法令上必要な場合を除き返金はいたしません。",
+    "metadataKey": "shupass_subscription",
+    "metadataValue": "1"
+  },
+  "prices": [
+    {
+      "envVar": "STRIPE_PRICE_STANDARD_MONTHLY",
+      "lookupKey": "standard_monthly",
+      "unitAmount": 1490,
+      "interval": "month",
+      "plan": "standard",
+      "billingPeriod": "monthly"
+    },
+    {
+      "envVar": "STRIPE_PRICE_STANDARD_ANNUAL",
+      "lookupKey": "standard_annual",
+      "unitAmount": 14900,
+      "interval": "year",
+      "plan": "standard",
+      "billingPeriod": "annual"
+    },
+    {
+      "envVar": "STRIPE_PRICE_PRO_MONTHLY",
+      "lookupKey": "pro_monthly",
+      "unitAmount": 2980,
+      "interval": "month",
+      "plan": "pro",
+      "billingPeriod": "monthly"
+    },
+    {
+      "envVar": "STRIPE_PRICE_PRO_ANNUAL",
+      "lookupKey": "pro_annual",
+      "unitAmount": 29800,
+      "interval": "year",
+      "plan": "pro",
+      "billingPeriod": "annual"
+    }
+  ],
+  "webhook": {
+    "url": "https://www.shupass.jp/api/webhooks/stripe",
+    "events": [
+      "checkout.session.completed",
+      "customer.subscription.updated",
+      "customer.subscription.deleted",
+      "invoice.payment_succeeded",
+      "invoice.payment_failed"
+    ]
+  },
+  "portal": {
+    "returnUrl": "https://www.shupass.jp/settings",
+    "businessProfile": {
+      "headline": "就活Pass",
+      "privacyPolicyUrl": "https://www.shupass.jp/privacy",
+      "termsOfServiceUrl": "https://www.shupass.jp/terms"
+    },
+    "features": {
+      "customer_update": {
+        "enabled": true,
+        "allowed_updates": [
+          "email",
+          "address",
+          "phone",
+          "name",
+          "tax_id"
+        ]
+      },
+      "invoice_history": {
+        "enabled": true
+      },
+      "payment_method_update": {
+        "enabled": true
+      },
+      "subscription_cancel": {
+        "enabled": true,
+        "mode": "at_period_end",
+        "proration_behavior": "none"
+      },
+      "subscription_update": {
+        "enabled": true,
+        "default_allowed_updates": [
+          "price"
+        ],
+        "proration_behavior": "create_prorations"
+      }
+    }
+  },
+  "compliance": {
+    "legalUrl": "https://www.shupass.jp/legal",
+    "privacyUrl": "https://www.shupass.jp/privacy",
+    "termsUrl": "https://www.shupass.jp/terms",
+    "supportPage": "https://www.shupass.jp/contact"
+  }
+}

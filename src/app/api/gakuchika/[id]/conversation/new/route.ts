@@ -9,17 +9,20 @@ import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import {
+  getGakuchikaNextAction,
   getIdentity,
   getQuestionFromFastAPI,
   safeParseConversationState,
   serializeConversationState,
   verifyGakuchikaAccess,
   type Message,
-} from "@/app/api/gakuchika/shared";
+} from "@/app/api/gakuchika";
 import {
   getRequestId,
   logAiCreditCostSummary,
 } from "@/lib/ai/cost-summary-log";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 
 export async function POST(
   request: NextRequest,
@@ -43,6 +46,9 @@ export async function POST(
         { status: 401 },
       );
     }
+
+    const limitResponse = await guardDailyTokenLimit(identity);
+    if (limitResponse) return limitResponse;
 
     const hasAccess = await verifyGakuchikaAccess(gakuchikaId, identity.userId, identity.guestId);
     if (!hasAccess) {
@@ -71,6 +77,7 @@ export async function POST(
       question: initialQuestion,
       error,
       conversationState,
+      nextAction,
       telemetry,
     } = await getQuestionFromFastAPI(
       {
@@ -82,6 +89,7 @@ export async function POST(
       0,
       null,
       requestId,
+      identity,
     );
 
     if (error) {
@@ -112,7 +120,7 @@ export async function POST(
     await db.insert(gakuchikaConversations).values({
       id: conversationId,
       gakuchikaId,
-      messages: JSON.stringify(initialMessages),
+      messages: initialMessages,
       questionCount: 0,
       status: "in_progress",
       starScores: serializeConversationState(initialState),
@@ -147,6 +155,7 @@ export async function POST(
       creditsUsed: 0,
       telemetry,
     });
+    void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
 
     return NextResponse.json({
       conversation: { id: conversationId, questionCount: 0, status: "in_progress" },
@@ -155,6 +164,7 @@ export async function POST(
       questionCount: 0,
       isCompleted: false,
       conversationState: initialState,
+      nextAction: nextAction ?? getGakuchikaNextAction(initialState),
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,
       charLimitType: gakuchika.charLimitType,

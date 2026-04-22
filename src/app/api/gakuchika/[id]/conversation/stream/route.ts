@@ -12,15 +12,15 @@ import { after, NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { consumeCredits, hasEnoughCredits } from "@/lib/credits";
+import { CONVERSATION_CREDITS_PER_TURN } from "@/lib/credits";
+import { gakuchikaStreamPolicy } from "@/lib/api-route/billing/gakuchika-stream-policy";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { persistGakuchikaSummary } from "@/app/api/gakuchika/summary-server";
 import {
   FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS,
-  QUESTIONS_PER_CREDIT,
-  CREDITS_PER_QUESTION_BATCH,
   buildHintPayload,
   buildConversationStatePatch,
+  getGakuchikaNextAction,
   getIdentity,
   isInterviewReady,
   iterateGakuchikaFastApiSseEvents,
@@ -29,14 +29,17 @@ import {
   serializeConversationState,
   type ConversationState,
   type Message,
-} from "@/app/api/gakuchika/shared";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+} from "@/app/api/gakuchika";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { getViewerPlan } from "@/lib/server/loader-helpers";
 import {
   getRequestId,
   logAiCreditCostSummary,
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
+import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 
 export async function POST(
   request: NextRequest,
@@ -61,6 +64,9 @@ export async function POST(
         { status: 401, headers: { "Content-Type": "application/json" } },
       );
     }
+
+    const limitResponse = await guardDailyTokenLimit(identity);
+    if (limitResponse) return limitResponse;
 
     const rateLimited = await enforceRateLimitLayers(
       request,
@@ -170,15 +176,16 @@ export async function POST(
 
     const newQuestionCount = currentQuestionCount + 1;
 
-    // Credit check (every QUESTIONS_PER_CREDIT questions for logged-in users)
-    const shouldConsumeCredit = newQuestionCount > 0 && newQuestionCount % QUESTIONS_PER_CREDIT === 0 && !!userId;
+    // Credit check (1 credit per turn for logged-in users)
+    const shouldConsumeCredit = !!userId;
     if (shouldConsumeCredit) {
-      const canPay = await hasEnoughCredits(userId!, CREDITS_PER_QUESTION_BATCH);
-      if (!canPay) {
-        return new Response(
-          JSON.stringify({ error: "クレジットが不足しています" }),
-          { status: 402, headers: { "Content-Type": "application/json" } }
-        );
+      const precheckResult = await gakuchikaStreamPolicy.precheck({
+        userId: userId!,
+        gakuchikaId,
+        newQuestionCount,
+      });
+      if (!precheckResult.ok) {
+        return precheckResult.errorResponse!;
       }
     }
 
@@ -189,11 +196,21 @@ export async function POST(
       FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS,
     );
 
+    const principalPlan = await getViewerPlan(identity);
+
     let aiResponse: Response;
     try {
-      aiResponse = await fetchFastApiInternal("/api/gakuchika/next-question/stream", {
+      aiResponse = await fetchFastApiWithPrincipal("/api/gakuchika/next-question/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
+        principal: {
+          scope: "ai-stream",
+          actor: userId
+            ? { kind: "user", id: userId }
+            : { kind: "guest", id: guestId! },
+          companyId: null,
+          plan: principalPlan,
+        },
         body: JSON.stringify({
           gakuchika_title: gakuchika.title,
           gakuchika_content: gakuchika.content || null,
@@ -209,11 +226,28 @@ export async function POST(
                 focus_key: currentConversationState.focusKey,
                 progress_label: currentConversationState.progressLabel,
                 answer_hint: currentConversationState.answerHint,
+                input_richness_mode: currentConversationState.inputRichnessMode,
                 missing_elements: currentConversationState.missingElements,
+                draft_quality_checks: currentConversationState.draftQualityChecks,
+                causal_gaps: currentConversationState.causalGaps,
+                completion_checks: currentConversationState.completionChecks,
                 ready_for_draft: currentConversationState.readyForDraft,
                 draft_readiness_reason: currentConversationState.draftReadinessReason,
                 draft_text: currentConversationState.draftText,
-                deepdive_stage: currentConversationState.deepdiveStage,
+                  strength_tags: currentConversationState.strengthTags,
+                  issue_tags: currentConversationState.issueTags,
+                  deepdive_recommendation_tags: currentConversationState.deepdiveRecommendationTags,
+                  credibility_risk_tags: currentConversationState.credibilityRiskTags,
+                  deepdive_stage: currentConversationState.deepdiveStage,
+                  deepdive_complete: currentConversationState.deepdiveComplete,
+                  completion_reasons: currentConversationState.completionReasons,
+                  asked_focuses: currentConversationState.askedFocuses,
+                  resolved_focuses: currentConversationState.resolvedFocuses,
+                  deferred_focuses: currentConversationState.deferredFocuses,
+                  blocked_focuses: currentConversationState.blockedFocuses,
+                  focus_attempt_counts: currentConversationState.focusAttemptCounts,
+                  last_question_signature: currentConversationState.lastQuestionSignature,
+                  extended_deep_dive_round: currentConversationState.extendedDeepDiveRound,
               }
             : null,
         }),
@@ -341,6 +375,50 @@ export async function POST(
                 partialState = { ...partialState, readyForDraft: Boolean(event.value) };
               } else if (event.path === "deepdive_stage" && typeof event.value === "string") {
                 partialState = { ...partialState, deepdiveStage: event.value };
+              } else if (event.path === "coach_progress_message") {
+                partialState = {
+                  ...partialState,
+                  coachProgressMessage: typeof event.value === "string" ? event.value : null,
+                };
+              } else if (
+                event.path === "remaining_questions_estimate" &&
+                typeof event.value === "number" &&
+                Number.isFinite(event.value) &&
+                event.value >= 0
+              ) {
+                partialState = {
+                  ...partialState,
+                  remainingQuestionsEstimate: Math.floor(event.value),
+                };
+              }
+              // Forward partial patches (coach_progress_message, remaining_questions_estimate)
+              // so the client can hydrate NaturalProgressStatus before the complete event.
+              if (event.path === "coach_progress_message") {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: "field_complete",
+                      path: "coach_progress_message",
+                      value: typeof event.value === "string" ? event.value : null,
+                    })}\n\n`,
+                  ),
+                );
+              } else if (event.path === "remaining_questions_estimate") {
+                const normalized =
+                  typeof event.value === "number" &&
+                  Number.isFinite(event.value) &&
+                  event.value >= 0
+                    ? Math.floor(event.value)
+                    : null;
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: "field_complete",
+                      path: "remaining_questions_estimate",
+                      value: normalized,
+                    })}\n\n`,
+                  ),
+                );
               }
               const hintPayload = buildHintPayload(
                 buildConversationStatePatch(currentConversationState, partialState),
@@ -355,19 +433,27 @@ export async function POST(
                 data: {
                   question?: string;
                   conversation_state?: Record<string, unknown>;
+                  next_action?: string;
                 };
               }).data;
-
-              if (shouldConsumeCredit) {
-                await consumeCredits(userId!, CREDITS_PER_QUESTION_BATCH, "gakuchika", gakuchikaId);
-              }
 
               const nextQuestionText =
                 typeof fastApiData.question === "string" && fastApiData.question
                   ? fastApiData.question
                   : streamedQuestionText;
 
-              if (nextQuestionText) {
+              const nextConversationState = fastApiData.conversation_state
+                ? safeParseConversationState(JSON.stringify(fastApiData.conversation_state))
+                : buildConversationStatePatch(currentConversationState, partialState);
+              const nextAction =
+                typeof fastApiData.next_action === "string"
+                  ? fastApiData.next_action
+                  : getGakuchikaNextAction(nextConversationState);
+              const shouldAskNext = nextAction === "ask";
+              const isCompleted = nextConversationState.stage === "interview_ready";
+              const status = isCompleted ? "completed" : "in_progress";
+
+              if (shouldAskNext && nextQuestionText) {
                 const aiMessage: Message = {
                   id: crypto.randomUUID(),
                   role: "assistant",
@@ -376,18 +462,10 @@ export async function POST(
                 messages.push(aiMessage);
               }
 
-              const nextConversationState = fastApiData.conversation_state
-                ? safeParseConversationState(JSON.stringify(fastApiData.conversation_state))
-                : buildConversationStatePatch(currentConversationState, partialState);
-              const isCompleted =
-                nextConversationState.stage === "draft_ready" ||
-                nextConversationState.stage === "interview_ready";
-              const status = isCompleted ? "completed" : "in_progress";
-
               await db
                 .update(gakuchikaConversations)
                 .set({
-                  messages: JSON.stringify(messages),
+                  messages,
                   questionCount: newQuestionCount,
                   status,
                   starScores: serializeConversationState(nextConversationState),
@@ -395,15 +473,39 @@ export async function POST(
                 })
                 .where(eq(gakuchikaConversations.id, conversation.id));
 
+              if (shouldConsumeCredit) {
+                try {
+                  await gakuchikaStreamPolicy.confirm(
+                    {
+                      userId: userId!,
+                      gakuchikaId,
+                      newQuestionCount,
+                    },
+                    {
+                      kind: "billable_success",
+                      creditsConsumed: CONVERSATION_CREDITS_PER_TURN,
+                      freeQuotaUsed: false,
+                    },
+                    null,
+                  );
+                } catch (billingError) {
+                  console.error("[Gakuchika Stream] Credit confirmation failed after save:", billingError);
+                }
+              }
+
               if (nextConversationState.stage === "interview_ready" && nextConversationState.draftText) {
                 const summaryMessages = messages.map((message) => ({ ...message }));
                 after(async () => {
-                  await persistGakuchikaSummary(
-                    gakuchikaId,
-                    gakuchika.title,
-                    nextConversationState.draftText!,
-                    summaryMessages
-                  );
+                  try {
+                    await persistGakuchikaSummary(
+                      gakuchikaId,
+                      gakuchika.title,
+                      nextConversationState.draftText!,
+                      summaryMessages
+                    );
+                  } catch (error) {
+                    console.error("[Gakuchika Stream] persistGakuchikaSummary failed:", error);
+                  }
                 });
               }
 
@@ -411,10 +513,11 @@ export async function POST(
                 type: "complete",
                 data: {
                   messages,
-                  nextQuestion: isCompleted ? null : nextQuestionText,
+                  nextQuestion: shouldAskNext ? nextQuestionText : null,
                   questionCount: newQuestionCount,
                   isCompleted,
                   conversationState: nextConversationState,
+                  nextAction,
                   isInterviewReady: isInterviewReady(nextConversationState),
                   isAIPowered: true,
                   summaryPending: nextConversationState.stage === "interview_ready",
@@ -422,8 +525,9 @@ export async function POST(
               };
               logSummaryOnce({
                 status: "success",
-                creditsUsed: shouldConsumeCredit ? CREDITS_PER_QUESTION_BATCH : 0,
+                creditsUsed: shouldConsumeCredit ? CONVERSATION_CREDITS_PER_TURN : 0,
               });
+              void incrementDailyTokenCount(identity, computeTotalTokens(latestTelemetry));
               controller.enqueue(
                 encoder.encode(`data: ${JSON.stringify(enrichedEvent)}\n\n`)
               );

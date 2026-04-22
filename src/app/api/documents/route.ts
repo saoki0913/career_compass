@@ -6,11 +6,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { documents } from "@/lib/db/schema";
-import { headers } from "next/headers";
-import { getGuestUser } from "@/lib/auth/guest";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
@@ -19,27 +16,8 @@ import { getDocumentsPageData } from "@/lib/server/app-loaders";
 import { DEFAULT_ES_DOCUMENT_CATEGORY, esDocumentCategorySchema } from "@/lib/es-document-category";
 import { getDefaultBlocksForEsCategory } from "@/lib/es-document-templates";
 
-async function getIdentity(request: NextRequest): Promise<{
-  userId: string | null;
-  guestId: string | null;
-} | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (session?.user?.id) {
-    return { userId: session.user.id, guestId: null };
-  }
-
-  const deviceToken = request.headers.get("x-device-token");
-  if (deviceToken) {
-    const guest = await getGuestUser(deviceToken);
-    if (guest) {
-      return { userId: null, guestId: guest.id };
-    }
-  }
-
-  return null;
+async function getIdentity(request: NextRequest) {
+  return getRequestIdentity(request);
 }
 
 export async function GET(request: NextRequest) {

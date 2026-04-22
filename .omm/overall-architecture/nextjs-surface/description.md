@@ -1,0 +1,1 @@
+User-facing React surfaces under src/app/(marketing), src/app/(auth), src/app/(product), plus supporting components and hooks. It renders landing pages, authenticated workflows, guest flows, and loading states.

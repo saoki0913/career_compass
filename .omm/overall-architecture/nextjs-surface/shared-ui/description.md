@@ -1,0 +1,1 @@
+Shared React feature components, design-system primitives, loading states, and hooks under src/components and src/hooks. This layer keeps page files relatively thin and centralizes repeated UI behavior.

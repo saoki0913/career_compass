@@ -1,0 +1,14 @@
+graph LR
+    auth-identity["Auth And Identity\nsrc/app/api/auth/ + _shared/request-identity.ts"]
+    product-routes["Product CRUD Routes\nsrc/app/api/companies, deadlines, tasks, documents"]
+    ai-proxy-routes["AI Proxy Routes\nsrc/app/api/documents, motivation, gakuchika"]
+    billing-webhooks["Billing And Webhooks\nsrc/app/api/stripe/ + src/app/api/webhooks/"]
+    cron-routes["Cron Routes\nsrc/app/api/cron/"]
+
+    auth-identity -->|"provides user or guest ownership context"| product-routes
+    auth-identity -->|"authorizes AI workflow entry points"| ai-proxy-routes
+    product-routes -->|"schedules downstream sync or notifications"| cron-routes
+    billing-webhooks -->|"updates plan and credit state"| product-routes
+
+    classDef entry fill:#89b4fa,stroke:#89b4fa,color:#1e1e2e
+    class auth-identity,product-routes,ai-proxy-routes,billing-webhooks,cron-routes entry

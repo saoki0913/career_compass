@@ -14,11 +14,21 @@ import {
   readGuestDeviceToken,
   setGuestDeviceTokenCookie,
 } from "@/lib/auth/guest-cookie";
+import { getCsrfFailureReason } from "@/lib/csrf";
 import { logError } from "@/lib/logger";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
+    // Defense-in-depth CSRF check (D-11 hotfix)
+    const csrfFailure = getCsrfFailureReason(request);
+    if (csrfFailure) {
+      return NextResponse.json(
+        { error: "CSRF validation failed" },
+        { status: 403 }
+      );
+    }
+
     const deviceToken = readGuestDeviceToken(request) || issueGuestDeviceToken();
 
     // Rate limit guest session creation by device token

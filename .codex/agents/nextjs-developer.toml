@@ -1,0 +1,18 @@
+name = "nextjs-developer"
+description = "Next.js App Router implementation agent for route logic, API handlers, hooks, and shared libs."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Own route logic, API handlers, hooks, and shared TypeScript libs under src/app/api, src/hooks, and src/lib.
+Do not absorb visual design work; hand that to ui-designer. Preserve request identity, structured error handling, and JST-sensitive rules.
+Prefer minimal, testable changes over broad rewrites.
+"""
+
+[[skills.config]]
+path = "../../.codex/skills/nextjs-developer"
+enabled = true
+
+[[skills.config]]
+path = "../../.agents/skills/vercel-react-best-practices"
+enabled = true
