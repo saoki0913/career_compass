@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     });
   } catch {
     // Unique constraint violation = already processing/processed
-    console.log(`[Stripe Webhook] Event ${event.id} already claimed, skipping`);
+    console.info(`[Stripe Webhook] Duplicate event skipped: ${event.type}`);
     return NextResponse.json({ received: true });
   }
 
@@ -130,7 +130,7 @@ export async function POST(req: Request) {
           // Update credit allocation (separate call since it has its own logic)
           await updatePlanAllocation(userId, newPlan);
 
-          console.log(`[Stripe Webhook] User ${userId} subscribed to ${newPlan} plan`);
+          console.info(`[Stripe Webhook] checkout.session.completed: plan=${newPlan}`);
         }
         break;
       }
@@ -169,7 +169,7 @@ export async function POST(req: Request) {
 
           if (existingSub.stripePriceId !== priceId) {
             await updatePlanAllocation(existingSub.userId, newPlan);
-            console.log(`[Stripe Webhook] User ${existingSub.userId} plan updated to ${newPlan}`);
+            console.info(`[Stripe Webhook] subscription.updated: plan=${newPlan}`);
           }
         }
         break;
@@ -202,7 +202,7 @@ export async function POST(req: Request) {
             .where(eq(userProfiles.userId, existingSub.userId));
 
           await updatePlanAllocation(existingSub.userId, "free");
-          console.log(`[Stripe Webhook] User ${existingSub.userId} downgraded to free plan`);
+          console.info(`[Stripe Webhook] subscription.deleted: downgraded to free`);
         }
         break;
       }
@@ -228,7 +228,7 @@ export async function POST(req: Request) {
             .limit(1);
 
           if (sub?.userId) {
-            console.log(`[Stripe Webhook] Payment failed for user ${sub.userId}, subscription ${subscriptionId}`);
+            logError("stripe-webhook-payment-failed", new Error("invoice.payment_failed"), { eventId: event.id, eventType: event.type });
           }
         }
         break;
