@@ -48,6 +48,7 @@ export interface TemplateReview {
 export interface ReviewResult {
   rewrites: string[];
   template_review?: TemplateReview;
+  improvement_explanation?: string;
   review_meta?: {
     llm_provider?: string;
     llm_model?: string | null;
@@ -92,6 +93,10 @@ export interface ReviewResult {
     fallback_triggered?: boolean;
     fallback_reason?: string | null;
     grounding_repair_applied?: boolean;
+    ai_smell_tier?: number;
+    concrete_marker_count?: number;
+    opening_conclusion_chars?: number;
+    rewrite_sentence_count?: number;
   };
 }
 
@@ -174,6 +179,8 @@ export type ReviewPlaybackPhase = "idle" | "rewrite" | "sources" | "complete";
 export interface UseESReviewReturn {
   review: ReviewResult | null;
   visibleRewriteText: string;
+  explanationText: string;
+  explanationComplete: boolean;
   visibleSources: VisibleTemplateSource[];
   finalRewriteText: string;
   playbackPhase: ReviewPlaybackPhase;

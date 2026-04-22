@@ -125,6 +125,22 @@ is_placeholder_value() {
   [[ -z "$1" || "$1" == "replace_me" ]]
 }
 
+is_sensitive_key() {
+  case "$1" in
+    DATABASE_URL|DIRECT_URL) return 0 ;;
+    *SECRET*|*_KEY|*_TOKEN) return 0 ;;
+    ENCRYPTION_KEY) return 0 ;;
+    NEXT_PUBLIC_*) return 1 ;;
+  esac
+  return 1
+}
+
+sensitive_flag_for_key() {
+  if is_sensitive_key "$1"; then
+    print -r -- "--sensitive"
+  fi
+}
+
 validate_env_file() {
   local file="$1"
   local key value
@@ -145,25 +161,55 @@ vercel_upsert_env_file() {
   local project_id="$3"
   local team_id="$4"
   local preview_git_branch="${5:-}"
-  local key value
+  local key value sens_flag
 
   validate_env_file "$file"
   while IFS= read -r key; do
     [[ -n "$key" ]] || continue
     is_meta_key "$key" && continue
     value="$(get_env_value "$file" "$key")"
+    sens_flag="$(sensitive_flag_for_key "$key")"
     if [[ "$env_target" == "preview" && -n "$preview_git_branch" ]]; then
       VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
         run_real vercel env rm "$key" preview "$preview_git_branch" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 || true
       VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env add "$key" preview "$preview_git_branch" --force --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null
+        run_real vercel env add "$key" preview "$preview_git_branch" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null
     else
       VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
         run_real vercel env rm "$key" "$env_target" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 || true
       VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env add "$key" "$env_target" --force --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null
+        run_real vercel env add "$key" "$env_target" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null
     fi
   done < <(iter_env_keys "$file")
+}
+
+vercel_upsert_selected_keys_from_file() {
+  local file="$1"
+  local env_target="$2"
+  local project_id="$3"
+  local team_id="$4"
+  local preview_git_branch="${5:-}"
+  shift 5
+  local key value sens_flag
+
+  [[ -f "$file" ]] || release_die "Missing required file: $file"
+
+  for key in "$@"; do
+    value="$(get_env_value "$file" "$key" 2>/dev/null || true)"
+    [[ -n "$value" ]] || continue
+    sens_flag="$(sensitive_flag_for_key "$key")"
+    if [[ "$env_target" == "preview" && -n "$preview_git_branch" ]]; then
+      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+        run_real vercel env rm "$key" preview "$preview_git_branch" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 || true
+      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+        run_real vercel env add "$key" preview "$preview_git_branch" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null
+    else
+      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+        run_real vercel env rm "$key" "$env_target" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 || true
+      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+        run_real vercel env add "$key" "$env_target" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null
+    fi
+  done
 }
 
 railway_apply_env_file() {
@@ -212,6 +258,7 @@ apply_google_oauth_env() {
 
 if should_run_target "vercel-staging"; then
   staging_file="${secret_dir}/vercel-staging.env"
+  github_file="${secret_dir}/github-actions.env"
   staging_project_id="$(require_env_value "$staging_file" "VERCEL_PROJECT_ID")"
   staging_team_id="$(require_env_value "$staging_file" "VERCEL_TEAM_ID")"
   validate_env_file "$staging_file"
@@ -219,6 +266,27 @@ if should_run_target "vercel-staging"; then
     release_log "Applying Vercel staging env"
     vercel_upsert_env_file "$staging_file" production "$staging_project_id" "$staging_team_id"
     vercel_upsert_env_file "$staging_file" preview "$staging_project_id" "$staging_team_id" "develop"
+    if [[ -f "$github_file" ]]; then
+      release_log "Overlaying staging test-auth env from github-actions bundle"
+      vercel_upsert_selected_keys_from_file \
+        "$github_file" \
+        production \
+        "$staging_project_id" \
+        "$staging_team_id" \
+        "" \
+        "CI_E2E_AUTH_SECRET" \
+        "CI_E2E_AUTH_ENABLED" \
+        "PLAYWRIGHT_BASE_URL"
+      vercel_upsert_selected_keys_from_file \
+        "$github_file" \
+        preview \
+        "$staging_project_id" \
+        "$staging_team_id" \
+        "develop" \
+        "CI_E2E_AUTH_SECRET" \
+        "CI_E2E_AUTH_ENABLED" \
+        "PLAYWRIGHT_BASE_URL"
+    fi
   else
     release_log "Checked Vercel staging env"
   fi

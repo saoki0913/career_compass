@@ -3,20 +3,26 @@ import type { ReviewPlaybackPhase, ReviewResult, TemplateSource, VisibleTemplate
 export interface ReceivedReviewState {
   keywordSources: TemplateSource[];
   rewriteText: string;
+  explanationText: string;
+  explanationComplete: boolean;
 }
 
 interface PlaybackReviewState {
   visibleRewriteText: string;
+  visibleExplanationText: string;
   visibleSources: VisibleTemplateSource[];
 }
 
 export const EMPTY_RECEIVED_REVIEW: ReceivedReviewState = {
   keywordSources: [],
   rewriteText: "",
+  explanationText: "",
+  explanationComplete: false,
 };
 
 export const EMPTY_PLAYBACK_REVIEW: PlaybackReviewState = {
   visibleRewriteText: "",
+  visibleExplanationText: "",
   visibleSources: [],
 };
 

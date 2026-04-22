@@ -21,6 +21,7 @@ describe("es-review transport", () => {
       original_content: "before",
       rewrites: ["after"],
       overall_comment: "ok",
+      improvement_explanation: "理由を補強した",
       template_review: {
         template_type: "self_pr",
         keyword_sources: [
@@ -41,7 +42,8 @@ describe("es-review transport", () => {
             [
               'data: {"type":"progress","step":"analysis","progress":42}',
               'data: {"type":"string_chunk","path":"streaming_rewrite","text":"after"}',
-              'data: {"type":"complete","result":{"original_content":"before","rewrites":["after"],"overall_comment":"ok","template_review":{"template_type":"self_pr","keyword_sources":[{"title":"source","url":"https://example.com","excerpt":"evidence"}]}},"creditCost":7}',
+              'data: {"type":"string_chunk","path":"improvement_explanation","text":"理由を"}',
+              'data: {"type":"complete","result":{"original_content":"before","rewrites":["after"],"overall_comment":"ok","improvement_explanation":"理由を補強した","template_review":{"template_type":"self_pr","keyword_sources":[{"title":"source","url":"https://example.com","excerpt":"evidence"}]}},"creditCost":7}',
               "",
             ].join("\n\n"),
           ),
@@ -58,7 +60,7 @@ describe("es-review transport", () => {
       },
     });
 
-    expect(seen).toEqual(["progress", "string_chunk", "complete"]);
+    expect(seen).toEqual(["progress", "string_chunk", "string_chunk", "complete"]);
     expect(consumed).toEqual({
       ok: true,
       result,
