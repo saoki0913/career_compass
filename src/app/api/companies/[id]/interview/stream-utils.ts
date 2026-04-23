@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 import type { RequestIdentity } from "@/app/api/_shared/request-identity";
 import { splitInternalTelemetry } from "@/lib/ai/cost-summary-log";
 import { DEFAULT_INTERVIEW_SESSION_CREDIT_COST } from "@/lib/credits";
@@ -134,8 +135,10 @@ export async function createInterviewUpstreamStream(options: {
   onError?: () => Promise<void>;
 }) {
   const principalPlan = await getViewerPlan(options.identity ?? { userId: null, guestId: null });
-  const { response: upstreamResponse, clearTimeout: clearUpstreamTimeout } =
-    await fetchUpstreamSSE({
+  let upstreamResponse: Response;
+  let clearUpstreamTimeout: () => void;
+  try {
+    const result = await fetchUpstreamSSE({
       path: options.upstreamPath,
       payload: options.upstreamPayload,
       principal: {
@@ -147,6 +150,20 @@ export async function createInterviewUpstreamStream(options: {
         plan: principalPlan,
       },
     });
+    upstreamResponse = result.response;
+    clearUpstreamTimeout = result.clearTimeout;
+  } catch (fetchError) {
+    if (isSecretMissingError(fetchError)) {
+      return createApiErrorResponse(options.request, {
+        status: 503,
+        code: "AI_AUTH_CONFIG_MISSING",
+        userMessage: "AI認証設定が未完了です。",
+        action: "管理側で設定確認後に再度お試しください。",
+        retryable: true,
+      });
+    }
+    throw fetchError;
+  }
 
   if (!upstreamResponse.ok) {
     clearUpstreamTimeout();

@@ -21,6 +21,7 @@ import {
 import { deleteSupabaseObject } from "@/lib/storage/supabase-storage";
 import { CORPORATE_DELETE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 
 interface DeleteByUrlsResult {
   success: boolean;
@@ -137,6 +138,12 @@ export async function POST(
 
       deleteResult = await response.json();
     } catch (error) {
+      if (isSecretMissingError(error)) {
+        return NextResponse.json(
+          { error: "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。" },
+          { status: 503 }
+        );
+      }
       console.error("Backend delete error:", error);
       return NextResponse.json(
         {

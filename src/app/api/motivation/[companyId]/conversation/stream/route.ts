@@ -51,6 +51,7 @@ import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
+import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 import { getViewerPlan } from "@/lib/server/loader-helpers";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import {
@@ -154,7 +155,7 @@ export async function POST(
       });
     } catch (fetchError) {
       logAiCreditCostSummary({ feature: "motivation", requestId, status: "failed", creditsUsed: 0, telemetry: null });
-      if (fetchError instanceof Error && /CAREER_PRINCIPAL_HMAC_SECRET is not configured/.test(fetchError.message)) {
+      if (isSecretMissingError(fetchError)) {
         return jsonErr("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。", 503);
       }
       const s = fetchError instanceof Error && fetchError.name === "AbortError" ? 504 : 502;

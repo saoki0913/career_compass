@@ -40,6 +40,7 @@ import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
 import { getOwnedDocument } from "@/app/api/_shared/owner-access";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
+import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 import { getViewerPlan } from "@/lib/server/loader-helpers";
 
 /* ------------------------------------------------------------------ */
@@ -342,6 +343,10 @@ export async function handleReviewStream(
       });
     } catch (fetchError) {
       await esReviewStreamPolicy.cancel(billingContext, reservationId, "fastapi_fetch_exception");
+      if (isSecretMissingError(fetchError)) {
+        logAiCreditCostSummary({ feature: "es_review", requestId, status: "failed", creditsUsed: 0, telemetry: null });
+        return jsonErr("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。", 503);
+      }
       throw fetchError;
     }
 

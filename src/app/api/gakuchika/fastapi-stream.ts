@@ -3,6 +3,7 @@ import {
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 import type { Identity } from "@/app/api/gakuchika/access";
 import { getViewerPlan } from "@/lib/server/loader-helpers";
 import {
@@ -283,6 +284,15 @@ export async function getQuestionFromFastAPI(
       telemetry: consumed.telemetry,
     };
   } catch (e) {
+    if (isSecretMissingError(e)) {
+      return {
+        question: null,
+        error: "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。",
+        conversationState: null,
+        nextAction: null,
+        telemetry: null,
+      };
+    }
     if (e instanceof Error && e.name === "AbortError") {
       return {
         question: null,

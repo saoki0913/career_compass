@@ -40,6 +40,7 @@ import {
   enforceRateLimitLayers,
 } from "@/lib/rate-limit-spike";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 
 // FastAPI backend URL
 interface CrawlResult {
@@ -238,6 +239,15 @@ export async function POST(
 
       crawlResult = await response.json();
     } catch (error) {
+      if (isSecretMissingError(error)) {
+        return createApiErrorResponse(request, {
+          status: 503,
+          code: "AI_AUTH_CONFIG_MISSING",
+          userMessage: "AI認証設定が未完了です。",
+          action: "管理側で設定確認後に再度お試しください。",
+          retryable: true,
+        });
+      }
       console.error("Backend crawl error:", error);
       return createApiErrorResponse(request, {
         status: 503,

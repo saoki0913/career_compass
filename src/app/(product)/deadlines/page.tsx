@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
 import { getDeadlinesDashboardData } from "@/lib/server/deadline-loaders";
+import { safeLoad } from "@/lib/server/safe-loader";
 import { DeadlinesDashboardClient } from "@/components/deadlines/DeadlinesDashboardClient";
 
 export default async function DeadlinesPage() {
@@ -12,9 +13,9 @@ export default async function DeadlinesPage() {
   ]);
 
   const canPreload = Boolean(session?.user?.id && identity);
-  const initialData = canPreload
-    ? await getDeadlinesDashboardData(identity!)
-    : undefined;
+  const result = canPreload
+    ? await safeLoad("deadlines", () => getDeadlinesDashboardData(identity!))
+    : null;
 
-  return <DeadlinesDashboardClient initialData={initialData} />;
+  return <DeadlinesDashboardClient initialData={result?.data ?? undefined} />;
 }
