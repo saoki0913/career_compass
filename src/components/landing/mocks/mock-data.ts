@@ -15,4 +15,4 @@ export const NAV_ITEMS = [
   "面接対策",
 ] as const;
 
-export const LOGO_SRC = "/marketing/screenshots/logo-icon.png";
+export const LOGO_SRC = "/marketing/LP/screenshots/logo-icon.png";
