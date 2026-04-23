@@ -11,10 +11,6 @@ function normalizeConfiguredUrl(value?: string) {
   return value?.trim().replace(/^['"]+|['"]+$/g, "");
 }
 
-function normalizeConfiguredUrl(value?: string) {
-  return value?.trim().replace(/^['"]+|['"]+$/g, "");
-}
-
 function getFastApiBaseUrl() {
   const url =
     normalizeConfiguredUrl(process.env.FASTAPI_URL) ||
