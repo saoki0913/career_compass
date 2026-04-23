@@ -95,3 +95,19 @@ private/reference_motivation/*
 ml/es_review_qwen/data/generated/
 ml/es_review_qwen/outputs/
 ml/es_review_qwen/.venv/
+
+# Local IDE / agent artifacts
+.cursor-drizzle-migrate.log
+.playwright-mcp/
+
+# Working image buffers (not shipped)
+public/generated_images/
+/screenshots/
+
+# LP asset development (reference/intermediate)
+public/marketing/LP/reference/
+public/marketing/LP/section-images-v1/
+public/marketing/LP/section-images-v2/
+public/marketing/LP/section-images-v3/
+public/marketing/LP/shukatsupass_separated_assets/
+public/reference/
