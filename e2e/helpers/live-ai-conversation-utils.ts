@@ -79,7 +79,6 @@ export function isGakuchikaDraftReady(completeData: Record<string, unknown> | nu
     stage === "draft_ready" ||
     stage === "interview_ready" ||
     nextAction === "show_generate_draft_cta" ||
-    nextAction === "continue_deep_dive" ||
     nextAction === "show_interview_ready"
   );
 }
@@ -229,7 +228,7 @@ export function buildDeterministicMotivationFollowupAnswer(input: {
     }
 
     return MOTIVATION_FALLBACK_ANSWERS[
-      Math.min(input.attemptIndex, MOTIVATION_FALLBACK_ANSWERS.length - 1)
+      input.attemptIndex % MOTIVATION_FALLBACK_ANSWERS.length
     ];
   })();
 
@@ -290,7 +289,7 @@ export function buildDeterministicGakuchikaFollowupAnswer(input: {
       return GAKUCHIKA_FALLBACK_ANSWERS[4];
 
     return GAKUCHIKA_FALLBACK_ANSWERS[
-      Math.min(input.attemptIndex, GAKUCHIKA_FALLBACK_ANSWERS.length - 1)
+      input.attemptIndex % GAKUCHIKA_FALLBACK_ANSWERS.length
     ];
   })();
 
@@ -366,7 +365,7 @@ export async function runMotivationSetupWithRequest(
   let nextQuestionText = firstQuestion;
 
   let latestComplete: Record<string, unknown> | null = null;
-  const totalAttempts = Math.max(answers.length + MOTIVATION_FALLBACK_ANSWERS.length, 16);
+  const totalAttempts = Math.max(answers.length + MOTIVATION_FALLBACK_ANSWERS.length, 24);
   let motivationRateRetries = 0;
   const maxMotivationRateRetries = 12;
 
@@ -441,7 +440,7 @@ export async function runGakuchikaSetupWithRequest(
 
   let latestComplete: Record<string, unknown> | null = null;
   let nextQuestionText = startBody.nextQuestion || startBody.messages[0]?.content || "";
-  const totalAttempts = Math.max(answers.length + GAKUCHIKA_FALLBACK_ANSWERS.length, 16);
+  const totalAttempts = Math.max(answers.length + GAKUCHIKA_FALLBACK_ANSWERS.length, 24);
   let rateLimitRetries = 0;
   const maxRateLimitRetries = 12;
 

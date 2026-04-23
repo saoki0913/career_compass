@@ -114,7 +114,9 @@ async def _generate_next_question_progress(
             stream_string_fields=["question"],
             partial_required_fields=("question",),
         ):
-            if event.type == "error":
+            if event.type == "string_chunk":
+                yield _sse_event("string_chunk", {"path": event.path, "text": event.text})
+            elif event.type == "error":
                 error = event.result.error if event.result else None
                 yield _sse_event("error", {
                     "message": error.message if error else "AIサービスに接続できませんでした。",

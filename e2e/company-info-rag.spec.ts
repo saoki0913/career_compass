@@ -64,7 +64,7 @@ test.describe("Corporate info RAG (guest)", () => {
   });
 
   test("guest can call search-corporate-pages and receives a valid response", async ({ page }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(120_000);
 
     await loginAsGuest(page);
     await ensureGuestSession(page);

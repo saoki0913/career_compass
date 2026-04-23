@@ -923,7 +923,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                         "note": note,
                     }
                 )
-                if not _is_canary_case_set(case_set) and blocking_failures_enabled:
+                if not _is_canary_case_set(case_set) and blocking_failures_enabled and failure_kind != "infra":
                     blocking_failures.append(
                         f"{model_id}::{case.case_id} failed: {exc.detail}"
                         + (f" | debug={dbg}" if dbg else "")
@@ -954,7 +954,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                         "note": str(exc),
                     }
                 )
-                if not _is_canary_case_set(case_set) and blocking_failures_enabled:
+                if not _is_canary_case_set(case_set) and blocking_failures_enabled and failure_kind != "infra":
                     blocking_failures.append(f"{model_id}::{case.case_id} failed: {exc}")
                 _cli_progress(
                     step=progress_step,

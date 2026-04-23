@@ -20,7 +20,7 @@ test.describe("Product pages render check", () => {
       await expect(page.locator("main")).toBeVisible({ timeout: 10_000 });
       const bodyText = await page.locator("body").innerText();
       expect(bodyText).not.toContain("Application error");
-      expect(bodyText).not.toContain("500");
+      expect(bodyText).not.toMatch(/\b500\b/);
     });
   }
 });
