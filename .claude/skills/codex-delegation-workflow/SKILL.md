@@ -1,6 +1,6 @@
 ---
 name: codex-delegation-workflow
-description: Codex CLI への作業委譲の判断基準とオーケストレーション手順。plan_review / implementation / post_review の3モード。
+description: Codex CLI への作業委譲の判断基準とオーケストレーション手順。plan_review / implementation / post_review / imagegen の4モード。
 language: ja
 ---
 
@@ -26,6 +26,14 @@ Claude Code (Opus 4.6) から Codex CLI (GPT-5.4) へ作業を委譲するため
 - security-sensitive ファイル（auth, csrf, stripe, credits）の変更後
 - マルチモデルレビューで見落としを減らしたいとき
 
+### imagegen モード
+- LP/UI 用の画像アセットを GPT Image 2 (`$imagegen`) で生成したいとき
+- ヒーロー画像、機能イラスト、UI モック、デザイン素材の生成
+- ChatGPT サブスク内で実行（API 課金なし）
+- 品質: `.codex/skills/imagegen/` の構造化プロンプト + Anti-Tacky Guidelines を適用
+- 出力先: `public/generated_images/` → 承認後に LP 正式アセットへ昇格
+- Scope audit: `public/generated_images/` 外の変更は fail-close
+
 ## 委譲しないケース
 - release / deploy / provider CLI 操作（release-engineer の領域）
 - secrets へのアクセスが必要な作業
@@ -35,7 +43,7 @@ Claude Code (Opus 4.6) から Codex CLI (GPT-5.4) へ作業を委譲するため
 
 ## 実行手順
 
-1. `/codex-plan-review` or `/codex-implement` or `/codex-post-review` を実行
+1. `/codex-plan-review` or `/codex-implement` or `/codex-post-review` or `/codex-imagegen` を実行
 2. 内部で `scripts/codex/delegate.sh <mode>` が Codex CLI を非対話実行する（default timeout 3600s、長時間タスクのみ最大 7200s）。Bash ツール timeout は CLAUDE.md「Bash Tool Timeout Policy」に従う
 3. 結果は `.claude/state/codex-handoffs/<request_id>/result.md` に保存される
 4. Claude が結果を Read で読み込み、内容を判断する
@@ -51,6 +59,8 @@ Claude Code (Opus 4.6) から Codex CLI (GPT-5.4) へ作業を委譲するため
 | plan_review 失敗 | Claude 単独レビューへフォールバック |
 | implementation 失敗 | Claude がスコープを縮めて自力実装 |
 | post_review 失敗 | code-reviewer / security-auditor skill へ戻す |
+| imagegen 失敗 | `$imagegen` 不可なら `image_gen.py` CLI (要 OPENAI_API_KEY) へ fallback |
+| SCOPE_VIOLATION | imagegen で許可パス外の変更を検出。画像は収集せず Claude に報告 |
 
 すべての失敗は `.claude/state/codex-handoffs/<request_id>/meta.json` に記録される。
 
