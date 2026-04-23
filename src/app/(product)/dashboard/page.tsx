@@ -13,6 +13,7 @@ import {
   getViewerPlan,
 } from "@/lib/server/app-loaders";
 import { getTasksPageData } from "@/lib/server/task-loaders";
+import { safeLoad } from "@/lib/server/safe-loader";
 import { DashboardPageClient } from "@/components/dashboard/DashboardPageClient";
 import { DashboardSkeleton } from "@/components/skeletons/DashboardSkeleton";
 
@@ -61,32 +62,46 @@ async function DashboardAuthenticatedContent({
   displayName: string;
   isGuest: boolean;
 }) {
-  const plan = await getViewerPlan(identity);
-  const [companiesData, esStats, deadlinesData, todayTaskData, activationData, incompleteItems, openTasksPage] =
-    await Promise.all([
-      getCompaniesPageData(identity),
-      getEsStats(identity),
-      getUpcomingDeadlinesData(identity, 7),
-      getTodayTaskData(identity),
-      getActivationData(identity),
-      getDashboardIncompleteData(identity),
-      getTasksPageData(identity, { status: "open" }),
-    ]);
+  const [
+    planResult,
+    companiesResult,
+    esStatsResult,
+    deadlinesResult,
+    todayTaskResult,
+    activationResult,
+    incompleteResult,
+    openTasksResult,
+  ] = await Promise.all([
+    safeLoad("plan", () => getViewerPlan(identity)),
+    safeLoad("companies", () => getCompaniesPageData(identity)),
+    safeLoad("esStats", () => getEsStats(identity)),
+    safeLoad("deadlines", () => getUpcomingDeadlinesData(identity, 7)),
+    safeLoad("todayTask", () => getTodayTaskData(identity)),
+    safeLoad("activation", () => getActivationData(identity)),
+    safeLoad("incomplete", () => getDashboardIncompleteData(identity)),
+    safeLoad("openTasks", () => getTasksPageData(identity, { status: "open" })),
+  ]);
+
+  const companyLimitText = planResult.data
+    ? getCompanyLimitText(planResult.data)
+    : companiesResult.data?.limit != null
+      ? `最大${companiesResult.data.limit}社まで`
+      : "";
 
   return (
     <DashboardPageClient
       viewer={{
         displayName,
         isGuest,
-        companyLimitText: getCompanyLimitText(plan),
+        companyLimitText,
       }}
-      initialCompanies={companiesData}
-      initialEsStats={esStats}
-      initialDeadlines={deadlinesData}
-      initialTodayTask={todayTaskData}
-      initialActivationData={activationData}
-      initialIncompleteItems={incompleteItems}
-      initialOpenTasks={openTasksPage.tasks}
+      initialCompanies={companiesResult.data ?? undefined}
+      initialEsStats={esStatsResult.data ?? undefined}
+      initialDeadlines={deadlinesResult.data ?? undefined}
+      initialTodayTask={todayTaskResult.data ?? undefined}
+      initialActivationData={activationResult.data ?? undefined}
+      initialIncompleteItems={incompleteResult.data ?? undefined}
+      initialOpenTasks={openTasksResult.data?.tasks ?? undefined}
     />
   );
 }

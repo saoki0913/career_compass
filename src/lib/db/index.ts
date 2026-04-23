@@ -42,6 +42,10 @@ const db: PostgresJsDatabase<typeof schema> = (() => {
       ssl: shouldDisableSsl ? false : "require",
       // Conservative default to avoid connection spikes in serverless.
       max: Number(process.env.DATABASE_POOL_SIZE) || (shouldDisableSsl ? 10 : 5),
+      // Prevent stale connections across Vercel freeze/thaw cycles.
+      idle_timeout: 20,
+      connect_timeout: 10,
+      max_lifetime: 60 * 30,
     });
 
   if (process.env.NODE_ENV !== "production") {
